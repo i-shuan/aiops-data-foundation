@@ -8,10 +8,11 @@
 vmagent:
   enabled: true
   spec:
-    # 每廠不同，而且不能省。少了它 metrics 上就沒有 cluster 欄位，
-    # 跟 log 對齊的八個欄位會少一個，而且不會有任何錯誤訊息。
-    externalLabels:
-      cluster: zk        # central / zk / el，依實際 cluster 填
+    # 不要在這裡寫死 cluster。這份 values 是所有 cluster 共用的，
+    # cluster 名字由 ArgoCD ApplicationSet 的 helm.parameters
+    # 依 list generator 的 {{ .cluster }} 在部署時注入。
+    # 寫死的話其他廠的資料會全部掛上錯誤的 cluster 名。
+    externalLabels: {}
 
     # 抓取時把 namespace 的 dept label 帶進每一筆資料。
     # 沒有這段，下面的 remoteWrite 過濾條件全部對不到東西。

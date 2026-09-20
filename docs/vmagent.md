@@ -55,10 +55,9 @@ vmagent:
   spec:
     scrapeInterval: 30s
 
-    # 每廠不同，而且不能留空。少了 cluster，metrics 就沒有 cluster 欄位，
-    # 跟 log 對齊的八個欄位少一個，而且不會有任何錯誤訊息。
-    externalLabels:
-      cluster: zk
+    # 維持空的。cluster 由 ApplicationSet 的 helm.parameters 注入，
+    # 這份 values 是全廠共用的，寫死會讓其他廠掛上錯的 cluster 名。
+    externalLabels: {}
 
     # 前提設定：抓取時把 namespace 的 dept label 帶進每筆資料
     scrapeClasses:
