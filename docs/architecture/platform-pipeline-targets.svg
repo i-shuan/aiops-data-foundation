@@ -1,0 +1,123 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1260" height="900" viewBox="0 0 1260 900" font-family="'Microsoft JhengHei','PingFang TC','Noto Sans TC',sans-serif">
+  <defs>
+    <marker id="c" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#475569"/>
+    </marker>
+  </defs>
+  <rect width="1260" height="900" fill="#ffffff"/>
+
+  <text x="40" y="34" font-size="21" font-weight="bold" fill="#0f172a">平台 pipeline：哪個資料夾，部署到哪個 cluster 的哪個 namespace</text>
+
+  <!-- repo -->
+  <rect x="40" y="54" width="1140" height="132" rx="8" fill="#f5f3ff" stroke="#7c3aed" stroke-width="2"/>
+  <text x="62" y="80" font-size="15" font-weight="bold" fill="#5b21b6">platform repo（GitLab）</text>
+  <text x="72" y="106" font-size="13" fill="#1e293b">platform/attribution/</text>
+  <text x="320" y="106" font-size="12.5" fill="#64748b">對照表、對帳腳本、CronJob</text>
+  <text x="640" y="106" font-size="12.5" font-weight="bold" fill="#7c3aed">→ 每個 cluster 都要</text>
+  <text x="72" y="128" font-size="13" fill="#1e293b">platform/cluster-addons/</text>
+  <text x="320" y="128" font-size="12.5" fill="#64748b">vmagent 三條 remoteWrite、KSM allowlist</text>
+  <text x="640" y="128" font-size="12.5" font-weight="bold" fill="#7c3aed">→ 每個 cluster 都要</text>
+  <text x="72" y="150" font-size="13" fill="#1e293b">platform/fluentd/</text>
+  <text x="320" y="150" font-size="12.5" fill="#64748b">fluent.conf 三個 output</text>
+  <text x="640" y="150" font-size="12.5" font-weight="bold" fill="#7c3aed">→ 每個 cluster 都要</text>
+  <text x="72" y="172" font-size="13" fill="#1e293b">platform/central/</text>
+  <text x="320" y="172" font-size="12.5" fill="#64748b">ES index template、ILM、API key、role</text>
+  <text x="640" y="172" font-size="12.5" font-weight="bold" fill="#dc2626">→ 只有 central，只跑一次</text>
+  <text x="880" y="106" font-size="12" fill="#94a3b8">docs/ 不部署</text>
+  <text x="880" y="128" font-size="12" fill="#94a3b8">apps/ 是給 app 團隊引用的</text>
+  <text x="880" y="150" font-size="12" fill="#94a3b8">chart，不由這條 pipeline</text>
+  <text x="880" y="172" font-size="12" fill="#94a3b8">部署</text>
+
+  <!-- CI -->
+  <rect x="40" y="208" width="1140" height="92" rx="8" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+  <text x="62" y="234" font-size="15" font-weight="bold" fill="#1e40af">平台 pipeline（沒有 build image）</text>
+  <rect x="70" y="246" width="230" height="44" rx="6" fill="#ffffff" stroke="#2563eb" stroke-width="1.4"/>
+  <text x="84" y="264" font-size="12.5" font-weight="bold" fill="#1e40af">stage 1：lint</text>
+  <text x="84" y="282" font-size="11.5" fill="#1e40af">部門有沒有對到 group、格式對不對</text>
+  <path d="M300,268 L334,268" stroke="#475569" stroke-width="2" marker-end="url(#c)"/>
+  <rect x="338" y="246" width="300" height="44" rx="6" fill="#ffffff" stroke="#2563eb" stroke-width="1.4"/>
+  <text x="352" y="264" font-size="12.5" font-weight="bold" fill="#1e40af">stage 2：apply（matrix：central / zk / el）</text>
+  <text x="352" y="282" font-size="11.5" font-weight="bold" fill="#b91c1c">三個一起推，不能做成手動選 cluster</text>
+  <rect x="676" y="246" width="280" height="44" rx="6" fill="#ffffff" stroke="#dc2626" stroke-width="1.4"/>
+  <text x="690" y="264" font-size="12.5" font-weight="bold" fill="#991b1b">stage 3：central-only</text>
+  <text x="690" y="282" font-size="11.5" fill="#991b1b">ES 的 index template / ILM / API key</text>
+
+  <path d="M220,300 L220,326" stroke="#475569" stroke-width="2" marker-end="url(#c)"/>
+  <path d="M610,300 L610,326" stroke="#475569" stroke-width="2" marker-end="url(#c)"/>
+  <path d="M1000,300 L1000,326" stroke="#475569" stroke-width="2" marker-end="url(#c)"/>
+  <path d="M1180,268 L1215,268 L1215,700 L1192,700" stroke="#dc2626" stroke-width="1.8" fill="none" stroke-dasharray="6 4" marker-end="url(#c)"/>
+
+  <!-- clusters -->
+  <g>
+    <rect x="40" y="330" width="360" height="300" rx="8" fill="#f8fafc" stroke="#94a3b8" stroke-width="2"/>
+    <text x="58" y="356" font-size="15" font-weight="bold" fill="#0f172a">central cluster</text>
+    <text x="58" y="374" font-size="11.5" fill="#64748b">跟地端拿到一模一樣的東西</text>
+    <rect x="54" y="384" width="332" height="150" rx="6" fill="#ecfdf5" stroke="#059669" stroke-width="1.6"/>
+    <text x="68" y="404" font-size="12.5" font-weight="bold" fill="#065f46">namespace：vm-monitoring</text>
+    <text x="68" y="426" font-size="11.5" fill="#065f46">ns-labeler CronJob + 2 個 ConfigMap</text>
+    <text x="68" y="447" font-size="11.5" fill="#065f46">vmagent：scrapeClass + 3 條 remoteWrite</text>
+    <text x="68" y="468" font-size="11.5" fill="#065f46">kube-state-metrics allowlist</text>
+    <text x="68" y="489" font-size="11.5" fill="#065f46">VMRule：沒有歸屬的告警</text>
+    <text x="68" y="512" font-size="11.5" font-weight="bold" fill="#b91c1c">Secret vmauth-token（3 把）⚠</text>
+    <rect x="54" y="546" width="332" height="72" rx="6" fill="#fef3c7" stroke="#d97706" stroke-width="1.6"/>
+    <text x="68" y="566" font-size="12.5" font-weight="bold" fill="#92400e">namespace：logging</text>
+    <text x="68" y="588" font-size="11.5" fill="#92400e">Fluentd DaemonSet + fluent.conf</text>
+    <text x="68" y="609" font-size="11.5" font-weight="bold" fill="#b91c1c">Secret：3 把 ES API key ⚠</text>
+  </g>
+
+  <g>
+    <rect x="430" y="330" width="360" height="300" rx="8" fill="#f8fafc" stroke="#94a3b8" stroke-width="2"/>
+    <text x="448" y="356" font-size="15" font-weight="bold" fill="#0f172a">zk cluster（中科）</text>
+    <text x="448" y="374" font-size="11.5" fill="#64748b">內容一樣，只有 cluster 代號不同</text>
+    <rect x="444" y="384" width="332" height="150" rx="6" fill="#ecfdf5" stroke="#059669" stroke-width="1.6"/>
+    <text x="458" y="404" font-size="12.5" font-weight="bold" fill="#065f46">namespace：vm-monitoring</text>
+    <text x="458" y="426" font-size="11.5" fill="#065f46">ns-labeler CronJob + 2 個 ConfigMap</text>
+    <text x="458" y="447" font-size="11.5" fill="#065f46">vmagent：scrapeClass + 3 條 remoteWrite</text>
+    <text x="458" y="468" font-size="11.5" fill="#065f46">kube-state-metrics allowlist</text>
+    <text x="458" y="489" font-size="11.5" fill="#065f46">VMRule：沒有歸屬的告警</text>
+    <text x="458" y="512" font-size="11.5" font-weight="bold" fill="#b91c1c">Secret vmauth-token（3 把）⚠</text>
+    <rect x="444" y="546" width="332" height="72" rx="6" fill="#fef3c7" stroke="#d97706" stroke-width="1.6"/>
+    <text x="458" y="566" font-size="12.5" font-weight="bold" fill="#92400e">namespace：logging</text>
+    <text x="458" y="588" font-size="11.5" fill="#92400e">Fluentd DaemonSet + fluent.conf</text>
+    <text x="458" y="609" font-size="11.5" font-weight="bold" fill="#b91c1c">Secret：3 把 ES API key ⚠</text>
+  </g>
+
+  <g>
+    <rect x="820" y="330" width="360" height="300" rx="8" fill="#f8fafc" stroke="#94a3b8" stroke-width="2"/>
+    <text x="838" y="356" font-size="15" font-weight="bold" fill="#0f172a">el cluster（二林）</text>
+    <text x="838" y="374" font-size="11.5" fill="#64748b">擴廠就是多一個這樣的欄位</text>
+    <rect x="834" y="384" width="332" height="150" rx="6" fill="#ecfdf5" stroke="#059669" stroke-width="1.6"/>
+    <text x="848" y="404" font-size="12.5" font-weight="bold" fill="#065f46">namespace：vm-monitoring</text>
+    <text x="848" y="426" font-size="11.5" fill="#065f46">ns-labeler CronJob + 2 個 ConfigMap</text>
+    <text x="848" y="447" font-size="11.5" fill="#065f46">vmagent：scrapeClass + 3 條 remoteWrite</text>
+    <text x="848" y="468" font-size="11.5" fill="#065f46">kube-state-metrics allowlist</text>
+    <text x="848" y="489" font-size="11.5" fill="#065f46">VMRule：沒有歸屬的告警</text>
+    <text x="848" y="512" font-size="11.5" font-weight="bold" fill="#b91c1c">Secret vmauth-token（3 把）⚠</text>
+    <rect x="834" y="546" width="332" height="72" rx="6" fill="#fef3c7" stroke="#d97706" stroke-width="1.6"/>
+    <text x="848" y="566" font-size="12.5" font-weight="bold" fill="#92400e">namespace：logging</text>
+    <text x="848" y="588" font-size="11.5" fill="#92400e">Fluentd DaemonSet + fluent.conf</text>
+    <text x="848" y="609" font-size="11.5" font-weight="bold" fill="#b91c1c">Secret：3 把 ES API key ⚠</text>
+  </g>
+
+  <!-- central-only -->
+  <rect x="40" y="656" width="1140" height="118" rx="8" fill="#fef2f2" stroke="#dc2626" stroke-width="2"/>
+  <text x="62" y="682" font-size="15" font-weight="bold" fill="#991b1b">只在 central 部署一次的東西（上面三格是「每個 cluster 都要」，這一排不是）</text>
+  <rect x="62" y="696" width="250" height="58" rx="6" fill="#ffffff" stroke="#dc2626" stroke-width="1.4"/>
+  <text x="76" y="718" font-size="12.5" font-weight="bold" fill="#991b1b">vmauth + VM tenant</text>
+  <text x="76" y="738" font-size="11.5" font-weight="bold" fill="#b91c1c">對方維護，我們完全不碰</text>
+  <rect x="326" y="696" width="250" height="58" rx="6" fill="#ffffff" stroke="#dc2626" stroke-width="1.4"/>
+  <text x="340" y="718" font-size="12.5" font-weight="bold" fill="#991b1b">Elasticsearch 本體</text>
+  <text x="340" y="738" font-size="11.5" fill="#991b1b">Basic 免費版</text>
+  <rect x="590" y="696" width="290" height="58" rx="6" fill="#ffffff" stroke="#dc2626" stroke-width="1.4"/>
+  <text x="604" y="718" font-size="12.5" font-weight="bold" fill="#991b1b">index template、ILM、API key、role</text>
+  <text x="604" y="738" font-size="11.5" fill="#991b1b">platform/central/elasticsearch-setup.sh</text>
+  <rect x="894" y="696" width="266" height="58" rx="6" fill="#ffffff" stroke="#dc2626" stroke-width="1.4"/>
+  <text x="908" y="718" font-size="12.5" font-weight="bold" fill="#991b1b">Grafana / Kibana</text>
+  <text x="908" y="738" font-size="11.5" fill="#991b1b">看板，跨 group 唯讀帳號</text>
+
+  <text x="40" y="806" font-size="13" font-weight="bold" fill="#b91c1c">⚠ 標記的是 Secret，不能放 git 明文。</text>
+  <text x="330" y="806" font-size="13" fill="#334155">現在靠 Rancher 手動建，擴廠後不可行。這是整套唯一還沒解的環節。</text>
+  <text x="40" y="832" font-size="13" fill="#334155">改對照表只要跑 stage 2；改 ES 權限才需要 stage 3。兩者分開，避免每次改一行 tsv 都去動 Elasticsearch。</text>
+  <text x="40" y="858" font-size="13" fill="#334155">擴一個新廠 = 在 matrix 加一個 cluster 代號 + 在 CronJob 的 CLUSTERS 環境變數加一個，對照表內容不用改。</text>
+  <text x="40" y="884" font-size="13" fill="#334155">app 的 chart（apps/）不走這條 pipeline，它是給 app 團隊在自己的 pipeline 裡引用的。</text>
+</svg>
