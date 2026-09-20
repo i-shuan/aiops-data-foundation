@@ -12,4 +12,7 @@ kube-state-metrics:
     # K8s events 也要靠它補歸屬。label 名稱依實際採用的為準。
     # 另外，kube_namespace_labels{label_dept=""} 是「這個 namespace 沒有歸屬」的
     # 唯一告警來源，allowlist 漏設的話告警永遠不會響。見 docs/attribution.md。
+    #
+    # 另外確認 kube-state-metrics 的 VMServiceScrape 有開 honorLabels，
+    # 沒開的話指標裡的 namespace 會被換成 KSM 自己的 namespace，告警會指錯對象。
     - namespaces=[dept,group]

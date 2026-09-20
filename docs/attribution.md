@@ -96,7 +96,7 @@ kubectl -n vm-monitoring logs job/ns-labeler-now
 
 **這是整套設計唯一的失效模式**：新 app 沒加進 `apps.tsv`，資料就安安靜靜進 unassigned，不會有任何錯誤。
 
-CronJob 的 log 會列出對不到的 namespace，但沒人會每十分鐘去看。要變成告警，靠 kube-state-metrics 的 `kube_namespace_labels`（`vmstack-values-changes.yaml` 已經把 `dept` 放進 allowlist）：
+CronJob 的 log 會列出對不到的 namespace，但沒人會每十分鐘去看。要變成告警，靠 kube-state-metrics 的 `kube_namespace_labels`（`vmstack-values-changes.yaml` 已經把 `dept`、`group` 放進 allowlist）：
 
 ```yaml
 - alert: NamespaceMissingAttribution
@@ -109,14 +109,35 @@ CronJob 的 log 會列出對不到的 namespace，但沒人會每十分鐘去看
 
 `for: 30m` 是為了跳過新建 namespace 到下一輪對帳之間的空窗（排程是 10 分鐘）。
 
-**這條告警還沒實測**，本機沒裝 kube-state-metrics（chart repo 拉不下來）。`label_dept` 這個欄位名稱是 kube-state-metrics 把 label 轉成 metric label 的標準寫法，但正式環境上線時要先查一次確認：
+**已實測。** 本機裝了 kube-state-metrics 2.20.0，這條查詢精準回傳唯一那個沒有歸屬的 `zk-unknownapp-prod`，其他八個都不在結果裡。沒有歸屬的 namespace 在 `kube_namespace_labels` 上是**整個 `label_dept` 欄位不存在**（不是空字串），`label_dept=""` 在 PromQL 語意上同時涵蓋這兩種情況，所以寫法是對的。
 
-```bash
-# 應該要看到 label_dept、label_group
-curl -s <kube-state-metrics>:8080/metrics | grep kube_namespace_labels | head -3
+### 但踩到一個會讓告警指錯對象的坑
+
+第一次查出來長這樣：
+
+```
+kube_namespace_labels{namespace="vm-monitoring", exported_namespace="zk-unknownapp-prod", ...}
 ```
 
-allowlist 沒設到的話，`kube_namespace_labels` 會存在但不帶任何 label 欄位，告警就永遠不會觸發——**又是一個靜默失敗**，所以一定要查。
+`namespace` 變成 **kube-state-metrics 自己所在的 namespace**，KSM 回報的那個被改名成 `exported_namespace`。原因是抓取時 vmagent 會蓋上 target 自己的 `namespace`，跟 KSM 指標裡本來就有的 `namespace` 撞名，撞到的那個就被加上 `exported_` 前綴。
+
+**後果是告警訊息會指著 `vm-monitoring`**，也就是監控自己的 namespace，而不是真正出問題的那個——告警會響，但寫的是錯的，排查時會被帶去完全錯誤的方向。
+
+解法是 KSM 的 scrape 要開 `honorLabels`，讓指標自己帶的 label 贏：
+
+```yaml
+endpoints:
+  - port: http
+    honorLabels: true    # 沒有這行，namespace 會被換成 KSM 自己的
+```
+
+開完重查，`namespace` 就是 `zk-unknownapp-prod` 了。**上線前先確認你們現有的 KSM scrape 物件有沒有開這個**；`victoria-metrics-k8s-stack` 裝出來的通常有，但值得查一次：
+
+```bash
+kubectl get vmservicescrape -A -o yaml | grep -B3 honorLabels
+```
+
+另外，這個指標上會同時出現 `dept` 和 `label_dept` 兩個欄位，意思完全不同：`dept` 是抓取時蓋上的「KSM 這個 pod 屬於誰」（永遠是 platform），`label_dept` 才是「這一列講的那個 namespace 屬於誰」。**告警條件一定要用 `label_dept`。**
 
 ## 坑
 
@@ -151,8 +172,7 @@ Fluentd 的 `rewrite_tag_filter` 同理，`key dept` 換成 `key group`、patter
 
 ## 待確認
 
-1. **告警那條還沒實測**，見上一節。上線後要確認 `kube_namespace_labels` 真的帶得出 `label_dept`。
-2. **`dept` / `group` 這兩個 label 名稱在正式環境有沒有被別人用掉。**
-3. **CronJob 的 ConfigMap 怎麼自動進新廠的 cluster。** 跟 token 分發是同一條路，一起解。
-4. **`apps.tsv` 由誰維護、走什麼流程。** 建議跟著 app 上線的 PR 一起改，不要另外開一個流程，否則一定會有人忘記。
-5. **cluster 代號和 env 的清單寫死在 CronJob 環境變數**，擴廠時要記得加。要不要改成從對照表讀還沒決定。
+1. **`dept` / `group` 這兩個 label 名稱在正式環境有沒有被別人用掉。**
+2. **CronJob 的 ConfigMap 怎麼自動進新廠的 cluster。** 跟 token 分發是同一條路，一起解。
+3. **`apps.tsv` 由誰維護、走什麼流程。** 建議跟著 app 上線的 PR 一起改，不要另外開一個流程，否則一定會有人忘記。
+4. **cluster 代號和 env 的清單寫死在 CronJob 環境變數**，擴廠時要記得加。要不要改成從對照表讀還沒決定。
