@@ -56,18 +56,15 @@ log 記錄的是「程式做了什麼」，良率是「產品量出來多少」�
 - **分流點在每個 cluster 唯一那台 vmagent**，不另外長新的收集器。
 - **namespace 名稱不含組織資訊**，格式是 `{cluster}-{app}-{env}` 或 `{app}-{env}`，所以歸屬要另外標。
 - **log 收集器是 Fluentd，Elasticsearch 是 Basic 免費版。** 權限只能切到 index 層級，沒有 Elastic ML。
+- **metrics 與 log 兩條路都已在本機 k3d 實測跑通**，八個關聯欄位對得起來，group 之間的隔離擋得住。細節與踩到的坑見 [vmagent.md](docs/vmagent.md)、[efk.md](docs/efk.md)。
 
 ## 還沒定案的
 
 1. **歸屬放哪裡**：namespace 的 label，還是一份「app → group」的中央清單。兩者的差異見對話紀錄，取決於下面第 2、3 點。
-2. **`scrapeClasses` 你們的 operator 版本支不支援**（決定能不能在抓取時讀 namespace label）：
-   ```bash
-   kubectl explain vmagent.spec.scrapeClasses.attachMetadata
-   ```
-3. **Fluentd 的 `kubernetes_metadata_filter` 帶出來的 namespace label 實際 key 長什麼樣**，要送一筆 log 出來看（log 端同一個問題）。
-4. **app 名稱是否全廠唯一**（用中央清單的話，這是前提）。
-5. **token 怎麼自動進新廠的 cluster**：現在靠 Rancher 手動建 Secret，擴廠後不可行。要確認有沒有 External Secrets、Vault 或 sealed-secrets。
-6. **產線資料能不能出廠、MES 是不是自己開發的**：影響路線圖第三階段的選擇。
+2. **正式環境的 operator 與 Fluentd 版本**。本機在 operator v0.74.1、Fluentd v1.17 實測都可用，你們那邊要確認版本不會差太多。注意 chart 裝的 CRD 沒帶 schema，欄位打錯不會報錯，只會靜默失效。
+3. **app 名稱是否全廠唯一**（用中央清單的話，這是前提）。
+4. **token 怎麼自動進新廠的 cluster**：現在靠 Rancher 手動建 Secret，擴廠後不可行。要確認有沒有 External Secrets、Vault 或 sealed-secrets。
+5. **產線資料能不能出廠、MES 是不是自己開發的**：影響路線圖第三階段的選擇。
 
 ## 目錄
 

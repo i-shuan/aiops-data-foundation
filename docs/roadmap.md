@@ -37,6 +37,8 @@
 
 **目標**：log 的欄位跟 metrics 對得起來，而且各 group 只看得到自己的。
 
+**這一階段已在本機 k3d 完整實測通過**，可用的設定與三個踩到的坑見 [efk.md](efk.md)。
+
 ### 要做的事
 
 **1. 統一欄位（這階段最重要的一步）**
@@ -51,18 +53,18 @@ Fluentd 的 `kubernetes_metadata_filter` 會把 metadata 放在 `kubernetes` 這
     namespace ${record.dig("kubernetes","namespace_name")}
     pod       ${record.dig("kubernetes","pod_name")}
     container ${record.dig("kubernetes","container_name")}
-    app       ${record.dig("kubernetes","labels","app_kubernetes_io/name")}
-    version   ${record.dig("kubernetes","labels","app_kubernetes_io/version")}
-    dept      ${record.dig("kubernetes","namespace_labels","dept")}
-    cluster   "#{ENV['CLUSTER_NAME']}"
+    app       ${(record.dig("kubernetes","labels") || {})["app.kubernetes.io/name"]}
+    version   ${(record.dig("kubernetes","labels") || {})["app.kubernetes.io/version"]}
+    dept      ${((record.dig("kubernetes","namespace_labels") || {})["dept"]) || "unassigned"}
+    cluster   zk
   </record>
-  remove_keys kubernetes,docker
+  remove_keys kubernetes,docker,logtag,stream
 </filter>
 ```
 
 **欄位名稱不同名，後面的關聯分析全部失效**，所以這一步要先做對。
 
-`kubernetes_metadata_filter` 預設會連 namespace 的 label 一起帶出來（`namespace_labels`），這正好是歸屬的來源。但 label 的 key 在 plugin 裡會被改寫（`.` 換成 `_`），實際長什麼樣子要先送一筆 log 出來看。
+`kubernetes_metadata_filter` 預設會連 namespace 的 label 一起帶出來（`namespace_labels`），這正好是歸屬的來源。**實測確認 label 的 key 不會被改寫，點還是點**，要用 `app.kubernetes.io/name` 取值，寫成底線會得到 `null` 而且不會報錯。
 
 **2. 依歸屬分流**
 
@@ -84,7 +86,7 @@ Fluentd 的 `kubernetes_metadata_filter` 會把 metadata 放在 `kubernetes` 這
 </match>
 ```
 
-沒被改到 tag 的（對不上、沒標 label 的）維持原 tag，由最後的兜底 `<match>` 送進 `k8s-unassigned-*`。**兜底一定要有，否則那些 log 直接消失。**
+**兜底必須寫成 `rewrite_tag_filter` 的最後一條規則**（`pattern /^.*$/` 配上 `dept` 的預設值），不能在後面放一個兜底的 `<match>`。Fluentd 的 `rewrite_tag_filter` 會吃掉所有進來的記錄，只把對到規則的重新送出，所以後面的 `<match>` 永遠收不到東西，那些 log 會直接消失。這點跟 Fluent Bit 的行為相反。
 
 規則要從同一份「部門 → group」對照表渲染，不要手寫。
 
@@ -92,7 +94,7 @@ Fluentd 的 `kubernetes_metadata_filter` 會把 metadata 放在 `kubernetes` 這
 
 用 index 權限限制只能寫自己的 index，寫錯會被 Elasticsearch 直接拒絕，不會寫進別人家。腳本見 [../platform/central/elasticsearch-setup.sh](../platform/central/elasticsearch-setup.sh)。
 
-Fluentd 的 ES output 帶 API key，依 plugin 版本用 `api_key` 或 `custom_headers` 帶 `Authorization`，實際用哪個要看你們裝的版本。
+Fluentd 的 ES output 用 `custom_headers` 帶 `Authorization: ApiKey ...`（實測可行）。**權限要給 `index`，不能只給 `create_doc`**，否則 index 建得出來但永遠 0 筆，而且完全沒有錯誤訊息。另外要加 `verify_es_version_at_startup false`，不然 plugin 啟動時的版本檢查會因為缺少 cluster 權限被擋。
 
 **4. ILM 設定保存期限**
 
@@ -191,12 +193,8 @@ Kibana 或 Grafana 都免費。Grafana 的好處是 metrics 和 log 在同一個
 
 ## 待確認
 
-1. **`scrapeClasses` 你們的 operator 版本支不支援**（決定 metrics 能不能在抓取時讀 namespace label）：
-   ```bash
-   kubectl explain vmagent.spec.scrapeClasses.attachMetadata
-   ```
-2. **Fluentd 的 `kubernetes_metadata_filter` 帶出來的 namespace label 實際 key 長什麼樣**，要送一筆 log 出來看。
-3. **歸屬放 namespace 的 label，還是一份「app → group」的中央清單**。前者要每個 namespace 都標，後者要 app 名稱全廠唯一。
-4. **token 怎麼自動進新廠的 cluster**。現在靠 Rancher 手動建 Secret，擴廠後不可行。要確認有沒有 External Secrets、Vault 或 sealed-secrets。
-5. **產線資料能不能出廠**。這決定階段三能不能考慮雲端的 SaaS 方案。
-6. **MES 和中介程式是自己開發的嗎**。能改程式才吐得出業務指標；外購套裝軟體只能從資料庫或 log 側面撈。
+1. **正式環境的 operator 版本**。本機在 v0.74.1 實測 `scrapeClasses` 加 `attachMetadata` 可用，你們那邊要確認版本不會比這舊太多。注意 chart 裝的 CRD 沒帶 schema，`kubectl explain` 查不到欄位也不會驗證，要看產生出來的設定 Secret 才準。
+2. **歸屬放 namespace 的 label，還是一份「app → group」的中央清單**。前者要每個 namespace 都標，後者要 app 名稱全廠唯一。
+3. **token 怎麼自動進新廠的 cluster**。現在靠 Rancher 手動建 Secret，擴廠後不可行。要確認有沒有 External Secrets、Vault 或 sealed-secrets。
+4. **產線資料能不能出廠**。這決定階段三能不能考慮雲端的 SaaS 方案。
+5. **MES 和中介程式是自己開發的嗎**。能改程式才吐得出業務指標；外購套裝軟體只能從資料庫或 log 側面撈。
