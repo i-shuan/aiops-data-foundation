@@ -1,0 +1,45 @@
+# 應用團隊只需要填這一份。不需要知道 tenant、group、token。
+
+app:
+  name: mes-api        # 服務名稱，上線後不要改
+  partOf: mes          # 所屬系統
+  component: api       # api / web / worker / batch / gateway
+
+image:
+  repository: nexus.aillm.spil.com.tw/docker/mes/mes-api
+  tag: "2.3.1"         # 版本號，不能用 latest
+
+replicas: 2
+
+ports:
+  http: 8080
+  metrics: 9464        # OpenTelemetry Prometheus exporter 的預設 port
+
+probes:
+  readiness:
+    httpGet:
+      path: /actuator/health/readiness
+      port: http
+  liveness:
+    httpGet:
+      path: /actuator/health/liveness
+      port: http
+    initialDelaySeconds: 30
+
+resources:
+  requests:
+    cpu: 200m
+    memory: 512Mi
+  limits:
+    memory: 1Gi
+
+# Java 服務：用 OpenTelemetry Java agent，程式不用改就會輸出標準 metrics，並把 trace_id 寫進 log
+otel:
+  javaAgent:
+    enabled: true
+    image: nexus.aillm.spil.com.tw/docker/open-telemetry/autoinstrumentation-java:2.10.0
+
+# 應用自己的環境變數
+env:
+  - name: SPRING_PROFILES_ACTIVE
+    value: prod

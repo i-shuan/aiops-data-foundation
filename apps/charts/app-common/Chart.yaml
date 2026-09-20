@@ -1,0 +1,5 @@
+apiVersion: v2
+name: app-common
+description: 平台維護的應用共用模板。標準 label、版本、probe、resources、metrics 抓取、OpenTelemetry 都由這裡產生，應用團隊只填 values。
+type: library
+version: 0.1.0
