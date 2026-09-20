@@ -2,7 +2,7 @@
 
 一句話：**中央維護一份對照表，由 CronJob 自動把 `dept` / `group` 標到 namespace 上，收集端照舊只讀 label。**
 
-設定在 [../platform/attribution/](../platform/attribution)，已經在本機 k3d 實測通過。
+設定在 [../platform/cluster-addons/ns-labeler/](../platform/cluster-addons/ns-labeler)，已經在本機 k3d 實測通過。
 
 ## 為什麼需要這一層
 
@@ -65,7 +65,7 @@ app 的 pipeline 是 build image → deploy。**平台這條沒有 build image �
 dept=$(kubectl get ns "$TARGET_NS" -o jsonpath='{.metadata.labels.dept}' 2>/dev/null || true)
 if [ -z "$dept" ]; then
   echo "namespace $TARGET_NS 還沒有歸屬，資料會進 unassigned 而且事後救不回來。"
-  echo "請平台團隊在 platform/attribution/registry/apps.tsv 補一行後再部署。"
+  echo "請平台團隊在 platform/cluster-addons/ns-labeler/registry/apps.tsv 補一行後再部署。"
   exit 1
 fi
 ```
@@ -78,50 +78,47 @@ ns-labeler 要進每一個 cluster，而 **cluster-addons 的 ApplicationSet 已
 
 CronJob 的 `CLUSTERS` 環境變數也用同樣的 `helm.parameters` 注入，跟 `externalLabels.cluster` 一模一樣的機制，不用手動維護每廠一份。
 
-### 所以它應該是一個 chart，不是散的 YAML
+### 它已經是一個 chart
 
-現在 repo 裡是三個 tsv 加一份 manifest，要靠兩道 `kubectl create configmap --from-file` 才裝得起來——**那是指令式的**，ArgoCD 管不到、沒辦法 diff、出事也不能 rollback。
-
-包成 chart 之後，三個 tsv 用 `.Files.Glob` 直接渲染進 ConfigMap：
+三個 tsv 用 `.Files.Glob` 直接渲染進 ConfigMap，腳本用 `.Files.Get`，所以**對照表在 git 裡就是唯一來源**，不再需要 `kubectl create configmap --from-file` 那種 ArgoCD 管不到的指令。
 
 ```
-ns-labeler/
+platform/cluster-addons/ns-labeler/
   Chart.yaml
   values.yaml
-  registry/*.tsv           被 .Files.Glob 讀進 ConfigMap
-  templates/
-    configmap-registry.yaml
-    configmap-script.yaml
-    cronjob.yaml
-    rbac.yaml
+  registry/*.tsv                  ← 人改這裡
+  scripts/label-namespaces.sh
+  templates/{configmaps,rbac,cronjob,vmrule}.yaml
 ```
 
-還沒做，因為要先確認兩件事，見下面的待確認。
-
-### 本機手動安裝（驗證用）
-
-正式環境走上面那條，這裡只是要在本機快速試的時候用：
+本機驗證用：
 
 ```bash
-kubectl -n vm-monitoring create configmap ns-labeler-script   --from-file=label-namespaces.sh=platform/attribution/label-namespaces.sh   --dry-run=client -o yaml | kubectl apply -f -
-
-kubectl -n vm-monitoring create configmap ns-labeler-registry   --from-file=platform/attribution/registry/   --dry-run=client -o yaml | kubectl apply -f -
-
-kubectl apply -f platform/attribution/namespace-labeler.yaml
+helm upgrade --install ns-labeler platform/cluster-addons/ns-labeler   -n vm-monitoring --set image.registry=docker.io
 ```
 
-**第一次上線先把 `DRY_RUN` 設成 `true`**，跑幾輪看它想動什麼，確認都是預期內的再改 `false`。
+正式環境不要手動裝，掛進 cluster-addons 讓 ApplicationSet 去部。
 
-手動跑一次不用等排程：
+**第一次上線先把 `dryRun` 設成 `true`**，跑幾輪看它想動什麼，確認都是預期內的再改 `false`。
+
+不用等排程可以手動跑一次：
 
 ```bash
 kubectl create job --from=cronjob/ns-labeler ns-labeler-now -n vm-monitoring
 kubectl -n vm-monitoring logs job/ns-labeler-now
 ```
 
+### values 裡幾個要注意的
+
+| 項目 | 說明 |
+|---|---|
+| `image` | **必須是含 shell 的映像**，而且要鏡像進 Nexus。預設寫的是 `alpine/k8s`，你們環境拉不到 |
+| `clusters` | 是**全部 cluster 的代號清單**，不是這一台所在的 cluster。所以不需要像 `externalLabels.cluster` 那樣由 ApplicationSet 注入，全廠共用一份就好 |
+| `vmrule.enabled` | **預設 false。** 各 cluster 的 vmalert 是關的，在那邊建了也沒人評估，告警永遠不會響。這條規則要部在中央有 vmalert 的那一側 |
+
 ## 本機實測結果
 
-**環境**：k3d 單節點、`alpine/k8s:1.30.0`、CronJob 跑在 `vm-monitoring`。
+**環境**：k3d 單節點、`alpine/k8s:1.30.0`、用 chart 裝在 `vm-monitoring`。
 
 **結果**
 
@@ -137,6 +134,7 @@ kubectl -n vm-monitoring logs job/ns-labeler-now
 1. **名稱解析正確。** `zk-mes-prod` 去掉 cluster 前綴和 env 後綴後對到 `mes`，即使 app 名稱本身含有 `-` 也不會被切壞。
 2. **重跑不會亂動。** 第二次執行報「已正確 8 個，本次調整 0 個」，只在值不同時才送 patch。
 3. **改組只改一行。** 把 `groups.tsv` 裡 `D1110` 從 `imc` 改成 `it`，下一次執行只動 `zk-wip-prod` 一個 namespace，其他七個不受影響。
+4. **改對照表的完整迴路可用。** 在 `apps.tsv` 加一行 → `helm upgrade` → 下一次執行就把那個 namespace 標上，「對不到歸屬」的清單清空。這代表 `.Files.Glob` 那條路在 upgrade 時確實會帶新內容進去。
 
 ## 對不到歸屬要有告警，不然就是靜默出錯
 
@@ -150,7 +148,7 @@ CronJob 的 log 會列出對不到的 namespace，但沒人會每十分鐘去看
   for: 30m
   annotations:
     summary: "{{ $labels.namespace }} 沒有歸屬，資料正在進 unassigned"
-    description: "在 platform/attribution/registry/apps.tsv 補一行，或在 namespaces.tsv 標成例外。"
+    description: "在 platform/cluster-addons/ns-labeler/registry/apps.tsv 補一行，或在 namespaces.tsv 標成例外。"
 ```
 
 `for: 30m` 是為了跳過新建 namespace 到下一輪對帳之間的空窗（排程是 10 分鐘）。

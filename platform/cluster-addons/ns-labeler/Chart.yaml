@@ -1,0 +1,5 @@
+apiVersion: v2
+name: ns-labeler
+description: 依對照表把 dept / group 標到 namespace 上。metrics 與 log 分流都靠這兩個 label。
+type: application
+version: 0.1.0

@@ -1,0 +1,50 @@
+# 這份全廠共用，不需要每個 cluster 一份。
+# 對照表（registry/*.tsv）也是共用的，改一次推到所有 cluster。
+
+image:
+  # 一定要用「有 shell」的映像。只有 kubectl 執行檔的極簡映像會直接
+  # StartError: exec "sh": executable file not found，而且訊息不會說是映像的問題。
+  #
+  # 上線前要先把它鏡像進 Nexus，或換成內部已有、含 shell 與 kubectl 的映像。
+  registry: nexus.aillm.spil.com.tw/docker
+  repository: alpine/k8s
+  tag: "1.30.0"
+  pullPolicy: IfNotPresent
+
+schedule: "*/10 * * * *"
+
+# 第一次上線設 true，跑幾輪看它想動什麼，確認都是預期內的再改 false。
+dryRun: false
+
+# namespace 名稱解析用：去掉 cluster 前綴、env 後綴之後剩下的就是 app。
+#   zk-mes-prod → mes
+#
+# 這是「全部 cluster 的代號」，不是這一台所在的 cluster，
+# 所以不需要像 externalLabels.cluster 那樣由 ApplicationSet 注入。
+# 擴廠時在這裡加一個代號。
+clusters:
+  - central
+  - zk
+  - el
+
+envs:
+  - prod
+  - staging
+  - dev
+
+resources:
+  requests:
+    cpu: 10m
+    memory: 32Mi
+  limits:
+    memory: 64Mi
+
+# 「namespace 沒有歸屬」的告警。
+#
+# 預設關閉，因為各 cluster 的 vmalert 是關的（見 cluster-addons 的 vmstack values），
+# 本地就算建了 VMRule 也沒有人會去評估它，告警永遠不會響而且不會報錯。
+# 這條規則要部署在中央有 vmalert 或 Grafana 告警的那一側。
+vmrule:
+  enabled: false
+  # 新建 namespace 到下一輪對帳之間會有空窗，要大於 schedule 的間隔。
+  for: 30m

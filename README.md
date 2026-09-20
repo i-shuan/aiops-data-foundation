@@ -107,8 +107,9 @@ charts/                    Helm chart，也是一個 app 一個資料夾，名�
                            以上兩塊不由平台 pipeline 部署，走 app 自己的 CI/CD
 
 platform/                  平台端，由平台 pipeline 部署
-  attribution/             對照表（3 個 tsv）、對帳腳本、ns-labeler CronJob   → 每個 cluster
-  cluster-addons/          vmagent 三條 remoteWrite、kube-state-metrics allowlist → 每個 cluster
+  cluster-addons/          掛在既有的 cluster-addons ApplicationSet 底下     → 每個 cluster
+    vmstack-values.yaml    vmagent 三條 remoteWrite、kube-state-metrics allowlist
+    ns-labeler/            chart：對照表、對帳腳本、CronJob、告警規則
   fluentd/                 fluent.conf，三個 output 各帶自己的 API key         → 每個 cluster
   central/                 Elasticsearch 的 API key、role 設定腳本             → 只有 central
 

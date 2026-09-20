@@ -4,7 +4,7 @@
 services/<app>/        程式碼、Dockerfile          ← app 團隊
 charts/<app>/          Chart.yaml、values          ← app 團隊填 values，模板由平台維護
 charts/app-common/     共用 library chart          ← 平台
-platform/              平台自己的設定與部署物件      ← 平台
+platform/              平台自己的設定與部署物件      ← 平台，走 cluster-addons 那條 pipeline
 ci/                    chart 驗證腳本
 docs/                  設計文件與架構圖
 ```
@@ -78,7 +78,7 @@ generators:
 
 ## 新增一個服務的完整流程
 
-1. **先在 [apps.tsv](../platform/attribution/registry/apps.tsv) 加一行並合進去。** 這步要最先做，晚了那段時間的資料會進 unassigned 而且救不回來，見 [attribution.md](attribution.md)
+1. **先在 [apps.tsv](../platform/cluster-addons/ns-labeler/registry/apps.tsv) 加一行並合進去。** 這步要最先做，晚了那段時間的資料會進 unassigned 而且救不回來，見 [attribution.md](attribution.md)
 2. `services/<app>/` 放程式碼和 Dockerfile
 3. `charts/<app>/` 複製一份現成 chart，改 `values.yaml`
 4. 推上去，ArgoCD 自己長出 Application
@@ -92,9 +92,11 @@ generators:
 | | 本質 | 怎麼生效 |
 |---|---|---|
 | `cluster-addons/vmstack-values.yaml` | **別人 chart 的參數** | 由 cluster-addons 的 ApplicationSet 帶進去 |
+| `cluster-addons/ns-labeler/` | 我們自己的 K8s 物件 + 資料檔 | 是一個 chart，同樣掛在 cluster-addons 底下 |
 | `fluentd/fluent.conf` | 設定檔內容 | 渲染進 ConfigMap 或 Secret |
-| `attribution/` | 我們自己的 K8s 物件 + 資料檔 | 目前是 kubectl，**應該包成 chart** |
 
-第一種永遠不可能變成 chart，chart 是別人的。第三種包成 chart 明顯比較好，見 [attribution.md](attribution.md) 的待確認。
+第一種永遠不可能變成 chart，chart 是別人的——它是參數，不是物件。
+
+`ns-labeler` 雖然是 chart，也不放進 `charts/`，因為 `charts/` 是**業務服務**的地方，由掃 `charts/*` 的 git generator 部署。平台元件走的是 cluster-addons 那條 list generator，混在一起會被錯的 ApplicationSet 部到每個 cluster 去。
 
 把這三種混進 `charts/` 會讓人以為都能 `helm install`，第一種會直接炸。

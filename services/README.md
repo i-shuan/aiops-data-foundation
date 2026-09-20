@@ -19,7 +19,7 @@ CI 和 ArgoCD 都靠這個名字把兩邊接起來：改到 `services/yms-sim/` 
 - pod 的 `app.kubernetes.io/name` label
 - metrics 和 log 上的 `app` 欄位
 - namespace 名稱裡的 app 段（`zk-yms-sim-prod`）
-- [歸屬對照表](../platform/attribution/registry/apps.tsv) 的 key
+- [歸屬對照表](../platform/cluster-addons/ns-labeler/registry/apps.tsv) 的 key
 
 **所以上線後不要改名。** 改了等於歷史資料對不起來。
 
@@ -27,7 +27,7 @@ CI 和 ArgoCD 都靠這個名字把兩邊接起來：改到 `services/yms-sim/` 
 
 1. `services/<app>/` 放程式碼和 Dockerfile
 2. `charts/<app>/` 複製一份現成的 chart，改 `values.yaml`
-3. 在 [apps.tsv](../platform/attribution/registry/apps.tsv) 加一行，**這步要先合進去**（否則資料會進 unassigned，事後救不回來，見 [attribution.md](../docs/attribution.md)）
+3. 在 [apps.tsv](../platform/cluster-addons/ns-labeler/registry/apps.tsv) 加一行，**這步要先合進去**（否則資料會進 unassigned，事後救不回來，見 [attribution.md](../docs/attribution.md)）
 
 ArgoCD 的 ApplicationSet 用 git generator 掃 `charts/*`，**不用改 ApplicationSet**，新資料夾自己會長出一個 Application。
 

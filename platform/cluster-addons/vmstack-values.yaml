@@ -87,7 +87,7 @@ vmagent:
     # tenant 由中央 vmauth 依 token 決定，這邊不碰 tenant 設計。
     #
     # 三段 regex 必須從同一份「部門 → group」對照表渲染，不要手寫：
-    # platform/attribution/registry/groups.tsv
+    # platform/cluster-addons/ns-labeler/registry/groups.tsv
     remoteWrite:
       # IT
       - url: https://vmauth.aillm.spil.com.tw/prometheus/api/v1/write
