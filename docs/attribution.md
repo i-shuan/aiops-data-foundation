@@ -1,0 +1,158 @@
+# 歸屬：資料怎麼知道自己是哪一組的
+
+一句話：**中央維護一份對照表，由 CronJob 自動把 `dept` / `group` 標到 namespace 上，收集端照舊只讀 label。**
+
+設定在 [../platform/attribution/](../platform/attribution)，已經在本機 k3d 實測通過。
+
+## 為什麼需要這一層
+
+vmagent 過濾時只看得到 label，Fluentd 改 tag 時只看得到欄位。但 namespace 名稱是 `{cluster}-{app}-{env}` 或 `{app}-{env}`，**看不出是哪個組織的**。所以歸屬必須額外生出來。
+
+兩種生法各有致命傷：
+
+| 做法 | 致命傷 |
+|---|---|
+| 每個 namespace 自己標 label | 別人有權限就能改掉，改組要去改幾十個 namespace |
+| 平台維護一份中央清單，收集端查表 | 每上一個新 app 就要改設定、重啟收集器，跟「擴廠不能全人工」衝突 |
+
+所以兩個都用：**清單當來源，label 當機制。**
+
+```
+platform/attribution/registry/   ← 人只改這裡（在 git 裡）
+        ↓ CronJob 每 10 分鐘對帳一次
+namespace 帶 dept / group label
+        ↓
+vmagent / Fluentd 照原本的設定讀 label（一行都不用改）
+        ↓
+各自的 tenant / index
+```
+
+好處是收集端設定不動、人只改一個地方、別人手動改 label 會被對帳蓋回去。代價是多一個 CronJob，而且它要有改 namespace label 的權限。
+
+## 三個對照表
+
+| 檔案 | 內容 | 什麼時候改 |
+|---|---|---|
+| `registry/apps.tsv` | app → 部門 | 新 app 上線 |
+| `registry/namespaces.tsv` | namespace → 部門（例外、平台自己的 namespace） | namespace 名稱不照命名規則時 |
+| `registry/groups.tsv` | 部門 → group | **改組**。大多數情況只改這一份 |
+
+`apps.tsv` 的 key 是**「namespace 名稱去掉 cluster 前綴和 env 後綴之後剩下的那一段」，不是 Deployment 的名字**：
+
+```
+zk-mes-prod    → 去掉 zk- 和 -prod → mes
+wip-staging    → 去掉 -staging     → wip
+```
+
+cluster 代號和 env 的清單寫在 CronJob 的環境變數，擴廠時在那裡加新廠代號。
+
+`namespaces.tsv` 的優先順序高於 `apps.tsv`，所以名稱亂掉的 namespace 可以直接指定，不用為了它去改命名規則。
+
+## 安裝
+
+```bash
+kubectl -n vm-monitoring create configmap ns-labeler-script \
+  --from-file=label-namespaces.sh=platform/attribution/label-namespaces.sh \
+  --dry-run=client -o yaml | kubectl apply -f -
+
+kubectl -n vm-monitoring create configmap ns-labeler-registry \
+  --from-file=platform/attribution/registry/ \
+  --dry-run=client -o yaml | kubectl apply -f -
+
+kubectl apply -f platform/attribution/namespace-labeler.yaml
+```
+
+正式環境由 CD 渲染這兩個 ConfigMap，改 git 就等於改設定。
+
+**第一次上線先把 `DRY_RUN` 設成 `true`**，跑幾輪看它想動什麼，確認都是預期內的再改 `false`。
+
+手動跑一次不用等排程：
+
+```bash
+kubectl create job --from=cronjob/ns-labeler ns-labeler-now -n vm-monitoring
+kubectl -n vm-monitoring logs job/ns-labeler-now
+```
+
+## 本機實測結果
+
+**環境**：k3d 單節點、`alpine/k8s:1.30.0`、CronJob 跑在 `vm-monitoring`。
+
+**結果**
+
+| namespace | 來源 | 標上的 label |
+|---|---|---|
+| `zk-mes-prod` | `apps.tsv` 的 `mes` | `dept=D3120` `group=it` |
+| `zk-wip-prod` | `apps.tsv` 的 `wip` | `dept=D1110` `group=imc` |
+| `kube-system`、`vm-monitoring` 等 | `namespaces.tsv` | `dept=PLATFORM` `group=platform` |
+| `zk-unknownapp-prod` | 對不到 | **故意不標**，落到 unassigned 並列在報告裡 |
+
+**確認了三件事**
+
+1. **名稱解析正確。** `zk-mes-prod` 去掉 cluster 前綴和 env 後綴後對到 `mes`，即使 app 名稱本身含有 `-` 也不會被切壞。
+2. **重跑不會亂動。** 第二次執行報「已正確 8 個，本次調整 0 個」，只在值不同時才送 patch。
+3. **改組只改一行。** 把 `groups.tsv` 裡 `D1110` 從 `imc` 改成 `it`，下一次執行只動 `zk-wip-prod` 一個 namespace，其他七個不受影響。
+
+## 對不到歸屬要有告警，不然就是靜默出錯
+
+**這是整套設計唯一的失效模式**：新 app 沒加進 `apps.tsv`，資料就安安靜靜進 unassigned，不會有任何錯誤。
+
+CronJob 的 log 會列出對不到的 namespace，但沒人會每十分鐘去看。要變成告警，靠 kube-state-metrics 的 `kube_namespace_labels`（`vmstack-values-changes.yaml` 已經把 `dept` 放進 allowlist）：
+
+```yaml
+- alert: NamespaceMissingAttribution
+  expr: kube_namespace_labels{label_dept=""} == 1
+  for: 30m
+  annotations:
+    summary: "{{ $labels.namespace }} 沒有歸屬，資料正在進 unassigned"
+    description: "在 platform/attribution/registry/apps.tsv 補一行，或在 namespaces.tsv 標成例外。"
+```
+
+`for: 30m` 是為了跳過新建 namespace 到下一輪對帳之間的空窗（排程是 10 分鐘）。
+
+**這條告警還沒實測**，本機沒裝 kube-state-metrics（chart repo 拉不下來）。`label_dept` 這個欄位名稱是 kube-state-metrics 把 label 轉成 metric label 的標準寫法，但正式環境上線時要先查一次確認：
+
+```bash
+# 應該要看到 label_dept、label_group
+curl -s <kube-state-metrics>:8080/metrics | grep kube_namespace_labels | head -3
+```
+
+allowlist 沒設到的話，`kube_namespace_labels` 會存在但不帶任何 label 欄位，告警就永遠不會觸發——**又是一個靜默失敗**，所以一定要查。
+
+## 坑
+
+- **映像必須有 shell。** `rancher/kubectl` 裡面只有 `kubectl` 一個執行檔，掛腳本進去會 `StartError: exec "sh": executable file not found`，而且訊息不會告訴你原因是映像太精簡。
+- **根檔案系統唯讀時要給 `HOME`。** kubectl 會想寫 `~/.kube/cache`，沒有可寫的 HOME 會出警告。manifest 裡設了 `HOME=/tmp` 並掛了一個 emptyDir。
+- **`dept` 和 `group` 是很通用的 label 名稱**，別的團隊可能已經拿來用在別的地方。上線前先查一次：`kubectl get ns -L dept,group`。要保險就改成 `observability.spil.com.tw/dept` 這種有命名空間的 key，但收集端的設定要跟著改。
+- **這個 CronJob 有改全 cluster namespace label 的權限。** 權限只有 `get`/`list`/`patch` namespace，碰不到 namespace 裡面的東西，但對帳邏輯寫錯就會把整廠的歸屬標錯，所以對照表要走 code review。
+- **app 名稱必須在同一個 cluster 內唯一。** 跨廠不用唯一（各廠各自一份 ConfigMap），但同一廠內兩個不同組織的 app 撞名就會標錯。
+- **從清單移除的 app，舊 label 不會被清掉。** 對帳只補不刪，避免誤刪。下線的 namespace 要手動處理。
+
+## 之後可以再簡化：讓收集端直接讀 `group`
+
+現在 namespace 上已經有 `group` label，但收集端還是照舊用部門 regex 在算 group，等於「部門 → group」這份對照在三個地方各有一份（`groups.tsv`、vmagent values、`fluent.conf`）。
+
+改成直接讀 `group` 之後，**新增部門就完全不用碰收集端設定**：
+
+vmagent 的 scrapeClass 多帶一個 label，remoteWrite 的條件換掉：
+
+```yaml
+relabelConfigs:
+  - source_labels: [__meta_kubernetes_namespace_label_group]
+    target_label: group
+# remoteWrite 的過濾條件
+  - action: keep
+    source_labels: [group]
+    regex: it          # 原本是 dept 的 "D3120|D3130"
+```
+
+Fluentd 的 `rewrite_tag_filter` 同理，`key dept` 換成 `key group`、pattern 換成 `/^it$/`。
+
+沒有現在就做，是因為現有設定已經實測過，換掉要重測一輪。想做的時候這是兩邊各兩行的改動。
+
+## 待確認
+
+1. **告警那條還沒實測**，見上一節。上線後要確認 `kube_namespace_labels` 真的帶得出 `label_dept`。
+2. **`dept` / `group` 這兩個 label 名稱在正式環境有沒有被別人用掉。**
+3. **CronJob 的 ConfigMap 怎麼自動進新廠的 cluster。** 跟 token 分發是同一條路，一起解。
+4. **`apps.tsv` 由誰維護、走什麼流程。** 建議跟著 app 上線的 PR 一起改，不要另外開一個流程，否則一定會有人忘記。
+5. **cluster 代號和 env 的清單寫死在 CronJob 環境變數**，擴廠時要記得加。要不要改成從對照表讀還沒決定。

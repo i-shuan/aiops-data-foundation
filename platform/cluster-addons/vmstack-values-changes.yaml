@@ -10,4 +10,6 @@ kube-state-metrics:
     - pods=[app.kubernetes.io/name,app.kubernetes.io/version,app.kubernetes.io/part-of,app.kubernetes.io/component]
     # 讓 kube_namespace_labels 帶出歸屬，AIOps 用它把資料對回部門，
     # K8s events 也要靠它補歸屬。label 名稱依實際採用的為準。
-    - namespaces=[dept]
+    # 另外，kube_namespace_labels{label_dept=""} 是「這個 namespace 沒有歸屬」的
+    # 唯一告警來源，allowlist 漏設的話告警永遠不會響。見 docs/attribution.md。
+    - namespaces=[dept,group]

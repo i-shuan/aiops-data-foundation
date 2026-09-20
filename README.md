@@ -44,6 +44,7 @@ log 記錄的是「程式做了什麼」，良率是「產品量出來多少」�
 
 ## 目前的文件
 
+- [docs/attribution.md](docs/attribution.md)：**歸屬怎麼決定。** 中央一份對照表，由 CronJob 自動把 `dept` / `group` 標到 namespace 上，收集端照舊只讀 label。已在本機實測通過。
 - [docs/roadmap.md](docs/roadmap.md)：三階段路線圖。metrics 分流、log 接 EFK、產線與 MES 異常分析。
 - [docs/efk.md](docs/efk.md)：log 怎麼分流。Fluentd 依 namespace 的 dept label 改 tag，每個 group 一個 output、各帶只能寫自己 index 的 API key。已在本機實測通過。
 - [docs/vmagent.md](docs/vmagent.md)：metrics 怎麼分流。現況是一個 cluster 一台 vmagent、一把 token、資料全進同一個 tenant；分流做法是把 `remoteWrite` 從一條拆成每個 group 一條。
@@ -55,14 +56,15 @@ log 記錄的是「程式做了什麼」，良率是「產品量出來多少」�
 - **應用團隊不需要知道 tenant、group、token。** 規格統一由共用 chart 產生，見 [apps/](apps)。
 - **分流點在每個 cluster 唯一那台 vmagent**，不另外長新的收集器。
 - **namespace 名稱不含組織資訊**，格式是 `{cluster}-{app}-{env}` 或 `{app}-{env}`，所以歸屬要另外標。
+- **歸屬用「中央清單 + 自動標 label」**，不是二選一：人只改 git 裡的對照表，CronJob 負責標到 namespace 上，收集端設定不動。見 [attribution.md](docs/attribution.md)。
 - **log 收集器是 Fluentd，Elasticsearch 是 Basic 免費版。** 權限只能切到 index 層級，沒有 Elastic ML。
 - **metrics 與 log 兩條路都已在本機 k3d 實測跑通**，八個關聯欄位對得起來，group 之間的隔離擋得住。細節與踩到的坑見 [vmagent.md](docs/vmagent.md)、[efk.md](docs/efk.md)。
 
 ## 還沒定案的
 
-1. **歸屬放哪裡**：namespace 的 label，還是一份「app → group」的中央清單。兩者的差異見對話紀錄，取決於下面第 2、3 點。
+1. **`dept` / `group` 這兩個 label 名稱在正式環境有沒有被別人用掉。** 上線前查一次 `kubectl get ns -L dept,group`。
 2. **正式環境的 operator 與 Fluentd 版本**。本機在 operator v0.74.1、Fluentd v1.17 實測都可用，你們那邊要確認版本不會差太多。注意 chart 裝的 CRD 沒帶 schema，欄位打錯不會報錯，只會靜默失效。
-3. **app 名稱是否全廠唯一**（用中央清單的話，這是前提）。
+3. **app 名稱在同一個 cluster 內是否唯一**（對照表靠它比對，撞名會標錯）。
 4. **token 怎麼自動進新廠的 cluster**：現在靠 Rancher 手動建 Secret，擴廠後不可行。要確認有沒有 External Secrets、Vault 或 sealed-secrets。
 5. **產線資料能不能出廠、MES 是不是自己開發的**：影響路線圖第三階段的選擇。
 

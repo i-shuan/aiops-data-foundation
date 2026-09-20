@@ -12,6 +12,18 @@
 
 ---
 
+## 階段零：先讓資料帶得出歸屬
+
+**目標**：每個 namespace 都有 `dept` / `group` label，而且不是靠人一個一個標。
+
+namespace 名稱看不出組織，所以歸屬要額外生。做法是中央維護一份對照表放 git，由一個 CronJob 每 10 分鐘對帳、自動標到 namespace 上。人只改對照表，收集端設定不動。
+
+**完成標準**：`kubectl get ns -L dept,group` 每一列都有值，對不到的有告警。
+
+細節見 [attribution.md](attribution.md)。**階段一、二都吃這一層的結果，所以這個要先做。**
+
+---
+
 ## 階段一：metrics 分流
 
 **目標**：IT 和 IMC 的 metrics 各自進自己的 tenant，不再混在一起。
