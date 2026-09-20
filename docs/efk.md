@@ -30,11 +30,14 @@
 | `k8s-imc-*` | `zk-wip-prod`（dept D1110） | 55 |
 | `k8s-unassigned-*` | `kube-system`（沒有 dept label） | 4 |
 
+資料持續累積，分流一直正確（後續再查已經是 200 多筆）。
+
 **一筆文件實際長這樣**
 
 ```json
 {
   "cluster": "zk",
+  "group": "it",
   "dept": "D3120",
   "namespace": "zk-mes-prod",
   "app": "mes-logger",
@@ -47,7 +50,57 @@
 }
 ```
 
-欄位名稱跟 metrics 那邊一致，`namespace` + `pod` 就能把兩邊對起來。
+## 兩邊的欄位比對（AIOps 關聯用）
+
+實際查過兩邊的資料，八個關聯欄位完全一致：
+
+| 欄位 | metrics | log | 來源 |
+|---|---|---|---|
+| `cluster` | ✓ | ✓ | metrics 是 `externalLabels`；log 由 Fluentd 補上 |
+| `group` | ✓ | ✓ | metrics 在 remoteWrite 分流時蓋上；log 取 tag 前綴 |
+| `dept` | ✓ | ✓ | 兩邊都從 namespace 的 label 來 |
+| `namespace` | ✓ | ✓ | 自動 |
+| `pod` | ✓ | ✓ | 自動 |
+| `container` | ✓ | ✓ | 自動 |
+| `app` | ✓ | ✓ | 兩邊都從 pod label `app.kubernetes.io/name` 來 |
+| `version` | ✓ | ✓ | 兩邊都從 pod label `app.kubernetes.io/version` 來 |
+
+只有一邊有的欄位：
+
+| 欄位 | 只在哪 | 說明 |
+|---|---|---|
+| `job`、`instance`、`service`、`endpoint` | metrics | Prometheus 體系的標準欄位 |
+| `level`、`message`、`trace_id` | log | 應用自己寫出來的 |
+
+**`namespace` + `pod` 是主要的關聯鍵**，要按服務分析就用 `app`，按組織分析就用 `dept` 或 `group`。
+
+### group 的取法：從 tag 前綴，不要另外維護對照表
+
+log 這邊的 `group` 是取分流後 tag 的第一段（`it.kube.xxx` → `it`）：
+
+```
+<filter it.** imc.** unassigned.**>
+  @type record_transformer
+  enable_ruby true
+  <record>
+    group ${tag.split(".").first}
+  </record>
+</filter>
+```
+
+這樣「部門 → group」的對照只存在 `rewrite_tag_filter` 的規則裡一份。如果改成在 `record_transformer` 裡自己查表填 group，就會變成同一份對照在設定裡出現兩次，改組時容易漏改一邊。
+
+### metrics 的 app 和 version 要靠 VMServiceScrape 的 relabel
+
+不是自動就有的。`app-common` 模板已經包含這段，照模板走的服務不用管；**手寫 VMServiceScrape 的服務會少掉這兩個欄位，而且不會有任何錯誤訊息**：
+
+```yaml
+relabelConfigs:
+  - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_name]
+    target_label: app
+  - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_version]
+    target_label: version
+```
 
 **隔離是真的擋得住**：用 IT 的 API key 去寫 `k8s-imc-*`，Elasticsearch 回 403 `security_exception`。Basic 免費版就有這個能力。
 
