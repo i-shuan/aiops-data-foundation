@@ -99,7 +99,18 @@ vmagent:
 
 ## Secret 要跟著改
 
-原本只有一個 `token` key，要變成每個 group 一個：
+原本只有一個 `token` key，要變成每個 group 一個。舊的 `token` key 可以留著不刪，已經沒有 remoteWrite 引用它。
+
+token 由中央那邊提供，我們只負責放進 Secret。兩種做法：
+
+### 做法一：Rancher（目前手動階段建議用這個）
+
+1. 切到目標 cluster，進 Storage 底下的 Secrets（路徑依 Rancher 版本略有不同）。
+2. 選 vmstack 部署的那個 namespace，**不是應用的 namespace**。
+3. 既有的 `vmauth-token` 直接編輯，型別維持 Opaque，用 key/value 的編輯模式逐一加 key：`it`、`imc`、`platform`。
+4. 存檔後**一定要重啟 vmagent**，見下方。
+
+### 做法二：kubectl
 
 ```bash
 kubectl -n <vmstack namespace> create secret generic vmauth-token \
@@ -109,7 +120,33 @@ kubectl -n <vmstack namespace> create secret generic vmauth-token \
   --dry-run=client -o yaml | kubectl apply -f -
 ```
 
-舊的 `token` key 可以留著不刪，已經沒有 remoteWrite 引用它。
+### 改完要重啟 vmagent
+
+Secret 的值換了，vmagent 不保證會立刻重讀，切換 token 時不要賭：
+
+```bash
+kubectl -n <vmstack namespace> rollout restart deployment/vmagent-<名稱>
+```
+
+會不會自動重載還沒實際驗證過。
+
+### 改完這樣驗證
+
+```bash
+kubectl -n <vmstack namespace> describe secret vmauth-token
+```
+
+會列出每個 key 和 byte 數。**byte 數比 token 實際長度多 1，通常就是結尾多了換行。**
+
+再開 vmagent 的 `/metrics`，找 `vmagent_remotewrite_` 開頭的指標，看每個 URL 的失敗次數與佇列堆積。三條出口分開統計，哪一條的 token 有問題一眼就看得出來。
+
+### 改 Secret 的坑
+
+- **貼 token 不要多出換行或空白。** 最常見的失敗，多一個看不見的換行就一直 401，錯誤訊息不會告訴你原因。
+- **不要用「Edit as YAML」貼部分內容。** 那等於整份取代，沒貼到的 key 會消失。用 key/value 編輯模式。
+- **namespace 和 cluster 很容易選錯**，Rancher UI 上尤其。
+- **UI 改沒有紀錄可追**，誰在什麼時候改了什麼只能翻 audit log。
+- **擴廠時這樣不可行**：每開一個新廠都要手動進 UI 建一次。見下方待確認。
 
 ## 驗收
 
@@ -139,3 +176,4 @@ kubectl get vmagent -A
 ```
 
 3. 「部門 → group」對照表放哪裡、由誰維護、怎麼渲染進這份 values。
+4. **token 怎麼自動進新廠的 cluster？** 現在靠 Rancher 手動建 Secret，2 個 cluster 還行，擴廠之後每開一廠就要手動一次，跟「擴廠不能全部人工」衝突。有 External Secrets、Vault 或 sealed-secrets 的話，token 放中央一份就能自動同步，不用進 UI。
