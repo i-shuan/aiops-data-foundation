@@ -64,11 +64,14 @@ SHA 留著是為了萬一要回去翻，`git checkout <sha>` 還撈得到（垃�
 
 ## 目前的文件
 
+- [docs/deployment-layers.md](docs/deployment-layers.md)：**東西該掛在哪一層。** 三個問題分出業務層 / 平台層 / 中央層，以及分錯會怎樣——四種替代做法的後果都寫了。
+- [docs/repo-layout.md](docs/repo-layout.md)：`services/` 和 `charts/` 為什麼分開、ArgoCD 的 generator 怎麼選、映像 tag 怎麼從 code 流到 values。
 - [docs/attribution.md](docs/attribution.md)：**歸屬怎麼決定。** 中央一份對照表，由 CronJob 自動把 `dept` / `group` 標到 namespace 上，收集端照舊只讀 label。已在本機實測通過。
 - [docs/roadmap.md](docs/roadmap.md)：三階段路線圖。metrics 分流、log 接 EFK、產線與 MES 異常分析。
 - [docs/efk.md](docs/efk.md)：log 怎麼分流。Fluentd 依 namespace 的 dept label 改 tag，每個 group 一個 output、各帶只能寫自己 index 的 API key。已在本機實測通過。
 - [docs/vmagent.md](docs/vmagent.md)：metrics 怎麼分流。現況是一個 cluster 一台 vmagent、一把 token、資料全進同一個 tenant；分流做法是把 `remoteWrite` 從一條拆成每個 group 一條。
 - [docs/architecture/](docs/architecture)：四張架構圖
+  - [where-does-it-go.svg](docs/architecture/where-does-it-go.svg)：**決策圖。** 一個東西要部署，三個問題決定它掛哪一層。
   - [platform-pipeline-targets.svg](docs/architecture/platform-pipeline-targets.svg)：**宏觀圖。** 每個資料夾部署到哪個 cluster 的哪個 namespace，哪些只在 central 跑一次。
   - [two-pipelines.svg](docs/architecture/two-pipelines.svg)：app 的 CI/CD 和平台的 CI/CD 是兩條，交會點只有 namespace 這個物件。
   - [attribution-where-things-run.svg](docs/architecture/attribution-where-things-run.svg)：對照表一份在 git，labeler 每個 cluster 各跑一份。
@@ -79,6 +82,7 @@ SHA 留著是為了萬一要回去翻，`git checkout <sha>` 還撈得到（垃�
 - **tenant 設計不碰。** 中央那邊依 bearer token 分 tenant，要新增由他們自己加。我們只負責在 K8s 這側決定「哪一批資料用哪一把 token」。
 - **應用團隊不需要知道 tenant、group、token。** 規格統一由共用 chart 產生，見 [charts/app-common](charts/app-common)。
 - **分流點在每個 cluster 唯一那台 vmagent**，不另外長新的收集器。
+- **平台要進每個 cluster 的東西，全部掛在既有的 cluster-addons ApplicationSet 底下**，不另外開分發管道。擴廠 = list 加一行。理由與替代做法的後果見 [deployment-layers.md](docs/deployment-layers.md)。
 - **namespace 名稱不含組織資訊**，格式是 `{cluster}-{app}-{env}` 或 `{app}-{env}`，所以歸屬要另外標。
 - **歸屬用「中央清單 + 自動標 label」**，不是二選一：人只改 git 裡的對照表，CronJob 負責標到 namespace 上，收集端設定不動。見 [attribution.md](docs/attribution.md)。
 - **log 收集器是 Fluentd，Elasticsearch 是 Basic 免費版。** 權限只能切到 index 層級，沒有 Elastic ML。

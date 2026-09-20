@@ -1,0 +1,72 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="760" viewBox="0 0 1200 760" font-family="'Microsoft JhengHei','PingFang TC','Noto Sans TC',sans-serif">
+  <defs>
+    <marker id="d" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#475569"/>
+    </marker>
+  </defs>
+  <rect width="1200" height="760" fill="#ffffff"/>
+
+  <text x="40" y="34" font-size="21" font-weight="bold" fill="#0f172a">一個東西要部署，它該掛在哪一層</text>
+  <text x="40" y="58" font-size="13" fill="#64748b">三個問題就分得出來。分錯的後果都不是「跑不起來」，而是「跑得起來但擴廠時會壞」。</text>
+
+  <!-- start -->
+  <rect x="40" y="86" width="250" height="48" rx="24" fill="#f1f5f9" stroke="#64748b" stroke-width="1.8"/>
+  <text x="70" y="116" font-size="14" font-weight="bold" fill="#0f172a">一個要部署的東西</text>
+  <path d="M165,134 L165,168" stroke="#475569" stroke-width="2" marker-end="url(#d)"/>
+
+  <!-- Q1 -->
+  <rect x="40" y="170" width="250" height="66" rx="8" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+  <text x="58" y="196" font-size="14" font-weight="bold" fill="#1e40af">① 它需要 build image 嗎？</text>
+  <text x="58" y="220" font-size="12" fill="#1e40af">有程式碼要打包 = 業務服務</text>
+  <path d="M290,203 L470,203" stroke="#059669" stroke-width="2" marker-end="url(#d)"/>
+  <text x="352" y="195" font-size="13" font-weight="bold" fill="#059669">是</text>
+  <path d="M165,236 L165,280" stroke="#475569" stroke-width="2" marker-end="url(#d)"/>
+  <text x="176" y="262" font-size="13" font-weight="bold" fill="#475569">否</text>
+
+  <!-- Q2 -->
+  <rect x="40" y="282" width="250" height="66" rx="8" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+  <text x="58" y="308" font-size="14" font-weight="bold" fill="#1e40af">② 每個 cluster 都要一份嗎？</text>
+  <text x="58" y="332" font-size="12" fill="#1e40af">還是全廠只要存在一份</text>
+  <path d="M290,315 L470,315" stroke="#dc2626" stroke-width="2" marker-end="url(#d)"/>
+  <text x="340" y="307" font-size="13" font-weight="bold" fill="#dc2626">只要一份</text>
+  <path d="M165,348 L165,392" stroke="#475569" stroke-width="2" marker-end="url(#d)"/>
+  <text x="176" y="374" font-size="13" font-weight="bold" fill="#475569">每個都要</text>
+
+  <!-- Q3 -->
+  <rect x="40" y="394" width="250" height="80" rx="8" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+  <text x="58" y="420" font-size="14" font-weight="bold" fill="#1e40af">③ 它是參數，還是物件？</text>
+  <text x="58" y="442" font-size="12" fill="#1e40af">參數 = 餵給別人的 chart</text>
+  <text x="58" y="462" font-size="12" fill="#1e40af">物件 = 自己的 K8s 資源</text>
+  <path d="M290,420 L470,427" stroke="#d97706" stroke-width="2" marker-end="url(#d)"/>
+  <text x="344" y="414" font-size="13" font-weight="bold" fill="#d97706">參數</text>
+  <path d="M290,455 L470,539" stroke="#d97706" stroke-width="2" marker-end="url(#d)"/>
+  <text x="344" y="506" font-size="13" font-weight="bold" fill="#d97706">物件</text>
+
+  <!-- outcomes -->
+  <rect x="480" y="168" width="690" height="72" rx="8" fill="#ecfdf5" stroke="#059669" stroke-width="2"/>
+  <text x="500" y="194" font-size="14.5" font-weight="bold" fill="#065f46">業務層　charts/&lt;app&gt;/</text>
+  <text x="500" y="216" font-size="12.5" fill="#065f46">ArgoCD 用 git generator 掃 charts/*，新增資料夾自己長出 Application</text>
+  <text x="500" y="234" font-size="12" fill="#047857">例：yms-sim、mes-dispatch　　values 只有八行，沒有 token、沒有 tenant</text>
+
+  <rect x="480" y="280" width="690" height="72" rx="8" fill="#fef2f2" stroke="#dc2626" stroke-width="2"/>
+  <text x="500" y="306" font-size="14.5" font-weight="bold" fill="#991b1b">中央層　platform/central/</text>
+  <text x="500" y="328" font-size="12.5" fill="#991b1b">只跑一次，不進 cluster-addons 的 matrix</text>
+  <text x="500" y="346" font-size="12" fill="#b91c1c">例：Elasticsearch 的 index template、ILM、API key、role　　vmauth 的 tenant（對方維護）</text>
+
+  <rect x="480" y="392" width="690" height="72" rx="8" fill="#fffbeb" stroke="#d97706" stroke-width="2"/>
+  <text x="500" y="418" font-size="14.5" font-weight="bold" fill="#92400e">平台層 ─ 參數　platform/cluster-addons/vmstack-values.yaml</text>
+  <text x="500" y="440" font-size="12.5" fill="#92400e">永遠不可能變成自己的 chart，chart 是別人的，它只是輸入</text>
+  <text x="500" y="458" font-size="12" fill="#b45309">例：vmagent 三條 remoteWrite、kube-state-metrics allowlist</text>
+
+  <rect x="480" y="504" width="690" height="72" rx="8" fill="#fffbeb" stroke="#d97706" stroke-width="2"/>
+  <text x="500" y="530" font-size="14.5" font-weight="bold" fill="#92400e">平台層 ─ 物件　platform/cluster-addons/ns-labeler/</text>
+  <text x="500" y="552" font-size="12.5" fill="#92400e">是 chart，但不放進 charts/，跟參數一起掛在 cluster-addons 底下</text>
+  <text x="500" y="570" font-size="12" fill="#b45309">例：ns-labeler 的 CronJob、RBAC、對照表 ConfigMap</text>
+
+  <!-- bottom -->
+  <rect x="40" y="606" width="1130" height="124" rx="8" fill="#f8fafc" stroke="#94a3b8" stroke-width="1.8"/>
+  <text x="62" y="632" font-size="14.5" font-weight="bold" fill="#0f172a">兩個平台層共用同一條 ApplicationSet（list generator：central / zk / el）</text>
+  <text x="62" y="658" font-size="13" fill="#334155">所以擴一個新廠是「list 加一行」，那個 cluster 同時拿到 vmagent 分流、ns-labeler、Fluentd、KSM allowlist。</text>
+  <text x="62" y="682" font-size="13" fill="#334155">自己另外開一條 ApplicationSet 也能動，但從此有兩份 cluster 清單要維護——擴廠時只改一份，那一廠就少東西，而且不會報錯。</text>
+  <text x="62" y="710" font-size="13" font-weight="bold" fill="#b91c1c">平台的東西不要放進 charts/：那裡會被掃 charts/* 的 git generator 撈走，當成業務服務部署。</text>
+</svg>
