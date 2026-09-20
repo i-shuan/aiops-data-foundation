@@ -2,6 +2,22 @@
 
 一句話：**拆的是 `remoteWrite`，不是 vmagent。** vmagent 維持一台，把出口從一條變成每個 group 一條。
 
+## 這份設定在哪一層：cluster，不是 app
+
+最容易誤會的地方。**這是 cluster 層級的設定，一個 cluster 一份，不是每個 app 一份。**
+
+| | vmstack values（這份） | app 的 chart values |
+|---|---|---|
+| 幾份 | 一份共用，由 cluster-addons 的 ApplicationSet 部到每個 cluster | 一個 app 一份 |
+| 誰改 | 平台團隊 | app 團隊 |
+| 有沒有 token | 有三把 | **絕對不能有** |
+
+放進每個 app 的 chart 會讓整套設計垮掉：每個 app team 都要知道 token、改組要通知所有團隊改 regex、而且會變成一個 app 一台 vmagent，同一份資料被抓 N 次。
+
+app 端要做的只有讓 `app-common` 產生一個 VMServiceScrape，跟那台唯一的 vmagent 說「我在這裡，來抓我」。分流全部發生在 vmagent 那一端，app 不知情。
+
+**會搞混是因為 ArgoCD 裡什麼都叫 Application**：`cluster-addons` 也是一個 Application，也有 values 檔，但它是「這個 cluster 要裝哪些平台元件」，不是業務服務。
+
 ## 現況
 
 共用 values（`victoria-metrics-k8s-stack`）產生的是「一個 cluster 一台」：

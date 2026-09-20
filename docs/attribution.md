@@ -70,21 +70,45 @@ if [ -z "$dept" ]; then
 fi
 ```
 
-## 安裝
+## 部署：掛在 cluster-addons 底下，不要另外做一條管道
+
+ns-labeler 要進每一個 cluster，而 **cluster-addons 的 ApplicationSet 已經是現成的分發管道**（list generator 跑 central / zk / el）。把它當成 cluster-addons 的一個元件，不用另外做。
+
+這樣一來，新廠開起來時 list 加一行 `- cluster: <新廠>`，那個 cluster 同時拿到 vmagent 分流設定、ns-labeler、Fluentd、KSM allowlist，**一行全部到位**。
+
+CronJob 的 `CLUSTERS` 環境變數也用同樣的 `helm.parameters` 注入，跟 `externalLabels.cluster` 一模一樣的機制，不用手動維護每廠一份。
+
+### 所以它應該是一個 chart，不是散的 YAML
+
+現在 repo 裡是三個 tsv 加一份 manifest，要靠兩道 `kubectl create configmap --from-file` 才裝得起來——**那是指令式的**，ArgoCD 管不到、沒辦法 diff、出事也不能 rollback。
+
+包成 chart 之後，三個 tsv 用 `.Files.Glob` 直接渲染進 ConfigMap：
+
+```
+ns-labeler/
+  Chart.yaml
+  values.yaml
+  registry/*.tsv           被 .Files.Glob 讀進 ConfigMap
+  templates/
+    configmap-registry.yaml
+    configmap-script.yaml
+    cronjob.yaml
+    rbac.yaml
+```
+
+還沒做，因為要先確認兩件事，見下面的待確認。
+
+### 本機手動安裝（驗證用）
+
+正式環境走上面那條，這裡只是要在本機快速試的時候用：
 
 ```bash
-kubectl -n vm-monitoring create configmap ns-labeler-script \
-  --from-file=label-namespaces.sh=platform/attribution/label-namespaces.sh \
-  --dry-run=client -o yaml | kubectl apply -f -
+kubectl -n vm-monitoring create configmap ns-labeler-script   --from-file=label-namespaces.sh=platform/attribution/label-namespaces.sh   --dry-run=client -o yaml | kubectl apply -f -
 
-kubectl -n vm-monitoring create configmap ns-labeler-registry \
-  --from-file=platform/attribution/registry/ \
-  --dry-run=client -o yaml | kubectl apply -f -
+kubectl -n vm-monitoring create configmap ns-labeler-registry   --from-file=platform/attribution/registry/   --dry-run=client -o yaml | kubectl apply -f -
 
 kubectl apply -f platform/attribution/namespace-labeler.yaml
 ```
-
-正式環境由 CD 渲染這兩個 ConfigMap，改 git 就等於改設定。
 
 **第一次上線先把 `DRY_RUN` 設成 `true`**，跑幾輪看它想動什麼，確認都是預期內的再改 `false`。
 
@@ -195,6 +219,6 @@ Fluentd 的 `rewrite_tag_filter` 同理，`key dept` 換成 `key group`、patter
 ## 待確認
 
 1. **`dept` / `group` 這兩個 label 名稱在正式環境有沒有被別人用掉。**
-2. **CronJob 的 ConfigMap 怎麼自動進新廠的 cluster。** 跟 token 分發是同一條路，一起解。
+2. **映像要能從 Nexus 拉得到。** 現在寫的是 Docker Hub 的 `alpine/k8s:1.30.0`，你們環境拉不到，要先鏡像進 `nexus.aillm.spil.com.tw/docker`，或換成內部已有、含 shell 和 kubectl 的映像。**這一條會直接擋住落地。**
 3. **`apps.tsv` 由誰維護、走什麼流程。** 建議跟著 app 上線的 PR 一起改，不要另外開一個流程，否則一定會有人忘記。
 4. **cluster 代號和 env 的清單寫死在 CronJob 環境變數**，擴廠時要記得加。要不要改成從對照表讀還沒決定。
