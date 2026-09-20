@@ -9,6 +9,50 @@
 - **log 收集器是 Fluentd**，每個 node 一台。
 - **Elasticsearch 是 Basic 免費版**，所以權限只到 index 層級，沒有 ML。
 - **namespace 名稱不含組織資訊**，格式是 `{cluster}-{app}-{env}` 或 `{app}-{env}`。
+- **app 端是混合狀態**：先用 manifest，後來才導入 Helm chart，所以現在同時存在兩種部署方式。下面這節講它的影響。
+
+## app 端的混合狀態影響到什麼
+
+分成兩件事，一好一壞。
+
+**好消息：分流完全不受影響。** `dept` / `group` 是從 namespace 的 label 來的，跟 app 用什麼方式部署無關。**還在用舊 manifest 的 app 一樣會被正確分流，不用先遷完才能做。** 階段一和階段二可以現在就開始。
+
+**壞消息：舊 manifest 的 app 會缺欄位，而且是靜默的。**
+
+| 缺什麼 | 後果 |
+|---|---|
+| pod 沒有 `app.kubernetes.io/name`、`version` | 八個關聯欄位少兩個，只能對到 namespace 和 pod，**看不出是哪個服務、哪個版本** |
+| Service 沒有標準 label | VMServiceScrape 選不到，**這個服務的 metrics 整個收不到**，而且沒有錯誤訊息 |
+
+「昨晚換版導致報工卡住」這種根因分析，靠的就是 `version` 這個欄位。缺了它，AIOps 能告訴你「這個 namespace 有問題」，但沒辦法告訴你「是 2.3.1 那版開始的」。
+
+### 不用猜，這個查得出來
+
+kube-state-metrics 的 allowlist 已經把 pod label 帶出來了，直接查哪些 namespace 還沒照標準：
+
+```
+count by (namespace) (kube_pod_labels{label_app_kubernetes_io_name=""})
+```
+
+有標準 label 的則是：
+
+```
+count by (namespace) (kube_pod_labels{label_app_kubernetes_io_name!=""})
+```
+
+**已在本機驗證可用。** 兩條查詢乾淨地把兩群分開。
+
+把它做成一個看板，就等於一張「Helm 導入進度表」，而且是用實際跑在 cluster 上的東西算出來的，不是靠人回報。
+
+### 建議的做法：不要為了這套系統去推遷移
+
+按資料價值排優先序就好：
+
+1. **先遷 MES 和中介程式相關的**，因為階段三要分析的就是它們，缺 `version` 影響最大
+2. 其他的跟著原本的 Helm 導入節奏走
+3. **平台這邊不要發公告叫大家限期遷完**，那會變成推不動的政治問題。用看板讓缺口自己浮出來，需要做根因分析時自然就有動機
+
+已經在 Helm 上的 app 改成引用 [app-common](../apps/charts/app-common)，標準 label、probe、resources、VMServiceScrape 就全部自動有了，app 團隊只填八行 values。
 
 ---
 
