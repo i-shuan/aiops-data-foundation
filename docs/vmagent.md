@@ -32,13 +32,15 @@ vmagent 過濾時只看得到 label，所以每筆資料必須帶一個能判斷
 
 | 方式 | 怎麼來 | 限制 |
 |---|---|---|
-| 讀 namespace 的 label | 抓取時把 `dept` label 帶進資料 | 需要 `scrapeClasses` 支援，版本待確認 |
+| 讀 namespace 的 label | 抓取時把 `dept` label 帶進資料 | 需要 `scrapeClasses` 支援，**已在 operator v0.74.1 實測可用** |
 | 用 namespace 名稱比對 | 每筆資料本來就有 `namespace` | 不需要進階功能，但名稱要能對應到 group |
 
-先確認第一種能不能用：
+第一種已經在本機環境實測過可用，見下方「本機實測結果」。正式環境要先確認 operator 版本。
+
+**`kubectl explain` 在這裡問不出東西**：chart 裝的 CRD 沒有帶 schema，所以 explain 查不到欄位，API server 也不會驗證。**打錯欄位名稱不會報錯，只會靜默失效。** 要確認設定有沒有生效，只能看 vmagent 產生出來的設定：
 
 ```bash
-kubectl explain vmagent.spec.scrapeClasses.attachMetadata
+kubectl -n <namespace> get secret vmagent-<名稱> -o jsonpath='{.data.vmagent\.yaml\.gz}' | base64 -d | gunzip | grep -A3 attach_metadata
 ```
 
 ## 要改的 YAML
@@ -158,6 +160,36 @@ count by (vm_account_id, group, namespace) (up)
 
 同一個 namespace 出現在兩個 `vm_account_id`，就是規則寫重疊了。
 
+## 本機實測結果
+
+在本機用 k3d 建了三個叢集模擬（`central`、`zk`、`el`），在 `zk` 上跑完整條路徑驗證過。
+
+**環境**：VictoriaMetrics operator v0.74.1、vmagent v1.148.0、namespace 打上 `dept` label、一個 VMSingle 當儲存、一個 node-exporter 當抓取目標。
+
+**結果**
+
+| namespace | dept label | 進到哪條出口 |
+|---|---|---|
+| `zk-mes-prod` | `D3120` | IT |
+| `vm-monitoring` | 無 | 兜底（platform） |
+
+**確認了三件事**
+
+1. **`scrapeClasses` 加 `attachMetadata` 可用。** 設定確實被渲染成 `attach_metadata: namespace: true`，namespace 的 label 成功變成資料上的 `dept` 欄位。
+2. **remoteWrite 拆條分流會動。** 兩條出口各自過濾、各自送出，都回 2XX，資料落點正確。
+3. **兜底那條有效。** 沒標 label 的 namespace 自動歸到 platform，資料不會消失。
+
+**踩到的坑：VMServiceScrape 是用 Service 的 label 去選，不是用 Service 的 pod selector。**
+
+測試時 Service 沒打 label，結果整個 target 不存在，而且**沒有任何錯誤訊息**，只是靜靜地沒資料。`app-common` 模板有幫 Service 打 label，照模板走不會踩到；但既有的服務如果 Service 沒 label，接上去會直接沒資料。
+
+排查方式是看 vmagent 的 targets：
+
+```bash
+kubectl -n <namespace> port-forward svc/vmagent-<名稱> 8429
+# 然後開 http://localhost:8429/api/v1/targets
+```
+
 ## 坑
 
 - **原本那條一定要改掉，不能留著再加新的。** 它沒有任何過濾，留著等於每筆資料多送一份到舊 tenant。要把它改成兜底那一條。
@@ -168,7 +200,7 @@ count by (vm_account_id, group, namespace) (up)
 
 ## 待確認
 
-1. `scrapeClasses` 你們的 operator 版本支不支援，不支援就走名稱比對那條路。
+1. **正式環境的 operator 版本。** 本機用 v0.74.1 實測可用，你們那邊要確認版本不會比這舊太多，不然就走名稱比對那條路。
 2. 整個 cluster 是不是只有這一台 vmagent。如果應用 namespace 裡還有別的，會重複收，分流做得再對也沒用：
 
 ```bash
