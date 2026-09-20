@@ -77,7 +77,7 @@ SHA 留著是為了萬一要回去翻，`git checkout <sha>` 還撈得到（垃�
 ## 已經定案的
 
 - **tenant 設計不碰。** 中央那邊依 bearer token 分 tenant，要新增由他們自己加。我們只負責在 K8s 這側決定「哪一批資料用哪一把 token」。
-- **應用團隊不需要知道 tenant、group、token。** 規格統一由共用 chart 產生，見 [apps/](apps)。
+- **應用團隊不需要知道 tenant、group、token。** 規格統一由共用 chart 產生，見 [charts/app-common](charts/app-common)。
 - **分流點在每個 cluster 唯一那台 vmagent**，不另外長新的收集器。
 - **namespace 名稱不含組織資訊**，格式是 `{cluster}-{app}-{env}` 或 `{app}-{env}`，所以歸屬要另外標。
 - **歸屬用「中央清單 + 自動標 label」**，不是二選一：人只改 git 裡的對照表，CronJob 負責標到 namespace 上，收集端設定不動。見 [attribution.md](docs/attribution.md)。
@@ -95,8 +95,16 @@ SHA 留著是為了萬一要回去翻，`git checkout <sha>` 還撈得到（垃�
 ## 目錄
 
 ```
-apps/                      應用端：共用 chart、範例、Java log 設定、CI 檢查
-                           不由平台 pipeline 部署，是給 app 團隊引用的
+services/                  應用程式碼，一個 app 一個資料夾
+  yms-sim/                 參考實作：業務指標和 JSON log 長什麼樣
+  mes-dispatch/
+  _standards/              跨服務的共用設定範本（Java logback 等）
+
+charts/                    Helm chart，也是一個 app 一個資料夾，名稱必須跟 services/ 一致
+  app-common/              平台維護的 library chart，標準 label、probe、VMServiceScrape 由它產生
+  yms-sim/
+  mes-dispatch/
+                           以上兩塊不由平台 pipeline 部署，走 app 自己的 CI/CD
 
 platform/                  平台端，由平台 pipeline 部署
   attribution/             對照表（3 個 tsv）、對帳腳本、ns-labeler CronJob   → 每個 cluster
@@ -104,5 +112,8 @@ platform/                  平台端，由平台 pipeline 部署
   fluentd/                 fluent.conf，三個 output 各帶自己的 API key         → 每個 cluster
   central/                 Elasticsearch 的 API key、role 設定腳本             → 只有 central
 
+ci/                        chart 的驗證腳本
 docs/                      設計文件與架構圖，不部署
 ```
+
+規則與慣例見 [services/README.md](services/README.md)、版面配置的理由見 [docs/repo-layout.md](docs/repo-layout.md)。

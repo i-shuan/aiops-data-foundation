@@ -1,12 +1,12 @@
 # 應用團隊只需要填這一份。不需要知道 tenant、group、token。
 
 app:
-  name: mes-api        # 服務名稱，上線後不要改
+  name: mes-dispatch   # 必須跟 services/ 底下的資料夾同名
   partOf: mes          # 所屬系統
   component: api       # api / web / worker / batch / gateway
 
 image:
-  repository: nexus.aillm.spil.com.tw/docker/mes/mes-api
+  repository: nexus.aillm.spil.com.tw/docker/mes/mes-dispatch
   tag: "2.3.1"         # 版本號，不能用 latest
 
 replicas: 2

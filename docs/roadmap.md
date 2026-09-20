@@ -52,7 +52,7 @@ count by (namespace) (kube_pod_labels{label_app_kubernetes_io_name!=""})
 2. 其他的跟著原本的 Helm 導入節奏走
 3. **平台這邊不要發公告叫大家限期遷完**，那會變成推不動的政治問題。用看板讓缺口自己浮出來，需要做根因分析時自然就有動機
 
-已經在 Helm 上的 app 改成引用 [app-common](../apps/charts/app-common)，標準 label、probe、resources、VMServiceScrape 就全部自動有了，app 團隊只填八行 values。
+已經在 Helm 上的 app 改成引用 [app-common](../charts/app-common)，標準 label、probe、resources、VMServiceScrape 就全部自動有了，app 團隊只填八行 values。
 
 ---
 

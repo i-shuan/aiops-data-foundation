@@ -9,9 +9,12 @@ spec:
   selector:
     {{- include "app-common.selectorLabels" . | nindent 4 }}
   ports:
+    {{- /* 沒有對外 HTTP 的服務（worker、batch）不要開一個沒人聽的 port */}}
+    {{- if .Values.ports.http }}
     - name: http
       port: {{ include "app-common.httpPort" . }}
       targetPort: http
+    {{- end }}
     - name: metrics
       port: {{ include "app-common.metricsPort" . }}
       targetPort: metrics

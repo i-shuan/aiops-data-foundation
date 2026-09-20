@@ -1,2 +1,3 @@
-# helm dependency build 產生的相依套件
-apps/examples/*/charts/
+# helm dependency build / update 產生的東西，不要進版控
+charts/*/charts/
+charts/*/Chart.lock

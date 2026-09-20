@@ -1,0 +1,36 @@
+# 應用團隊只需要填這一份。不需要知道 tenant、group、token。
+
+app:
+  name: yms-sim        # 必須跟 services/ 底下的資料夾同名
+  partOf: yms          # 所屬系統
+  component: worker    # api / web / worker / batch / gateway
+
+image:
+  repository: nexus.aillm.spil.com.tw/docker/yms/yms-sim
+  tag: "0.1.0"         # 由 CI 在 build 之後覆寫，不能用 latest
+
+replicas: 1
+
+ports:
+  metrics: 9464
+
+probes:
+  readiness:
+    tcpSocket:
+      port: metrics
+  liveness:
+    tcpSocket:
+      port: metrics
+    initialDelaySeconds: 15
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    memory: 128Mi
+
+# Python 服務，不用 Java agent
+otel:
+  javaAgent:
+    enabled: false

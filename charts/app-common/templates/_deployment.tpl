@@ -31,8 +31,10 @@ spec:
         - name: {{ include "app-common.name" . }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           ports:
+            {{- if .Values.ports.http }}
             - name: http
               containerPort: {{ include "app-common.httpPort" . }}
+            {{- end }}
             - name: metrics
               containerPort: {{ include "app-common.metricsPort" . }}
           env:
