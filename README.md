@@ -7,6 +7,7 @@
 ## 目前的文件
 
 - [docs/roadmap.md](docs/roadmap.md)：三階段路線圖。metrics 分流、log 接 EFK、產線與 MES 異常分析。
+- [docs/efk.md](docs/efk.md)：log 怎麼分流。Fluentd 依 namespace 的 dept label 改 tag，每個 group 一個 output、各帶只能寫自己 index 的 API key。已在本機實測通過。
 - [docs/vmagent.md](docs/vmagent.md)：metrics 怎麼分流。現況是一個 cluster 一台 vmagent、一把 token、資料全進同一個 tenant；分流做法是把 `remoteWrite` 從一條拆成每個 group 一條。
 - [docs/architecture/](docs/architecture)：架構圖。
 
