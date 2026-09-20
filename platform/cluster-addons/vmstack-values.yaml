@@ -1,0 +1,163 @@
+# VMAgent 共用 values（remoteWrite 目標等共用設定）
+# externalLabels.cluster 由 applicationsets/cluster-addons/applicationset.yaml 的
+# helm.parameters 根據 list generator 的 {{ .cluster }} 自動注入。
+#
+# ──────────────────────────────────────────────────────────────
+# 這份是在原始模板上加了「同 cluster 內分流」所需的東西，
+# 只動了兩個區塊，其他原封不動：
+#
+#   1. vmagent.spec.scrapeClasses   新增。抓取時把 namespace 的 dept label 帶進資料
+#   2. vmagent.spec.remoteWrite     從一條拆成三條，各自過濾、各自帶 token
+#   3. kube-state-metrics           新增 metricLabelsAllowlist
+#
+# 設計說明見 docs/vmagent.md，歸屬 label 怎麼來見 docs/attribution.md。
+# ──────────────────────────────────────────────────────────────
+
+global:
+  image:
+    registry: nexus.aillm.spil.com.tw/docker
+    imagePullPolicy: IfNotPresent
+  # imagePullSecrets:
+  #   - name: nexus-devops-secret
+
+grafana:
+  enabled: false
+
+alertmanager:
+  enabled: false
+
+vmalert:
+  enabled: false
+
+syncJob:
+  enabled: false
+
+victoria-metrics-operator:
+  enabled: true
+  # 注意：原始模板這裡的縮排有問題，requests / limits 跟 resources 同層，
+  # 等於 resources 是空的、operator 實際上沒有吃到任何 requests/limits。
+  # 下面是修正後的縮排。
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  rbac:
+    create: true
+    namespaced: false
+
+defaultRules:
+  create: false
+
+vmsingle:
+  enabled: false
+
+vmcluster:
+  enabled: false
+
+vmagent:
+  enabled: true
+  spec:
+    scrapeInterval: 30s
+
+    externalLabels:
+      {} # cluster 由 ApplicationSet 的 helm.parameters 注入
+
+    # ── 新增 ──────────────────────────────────────────────
+    # 抓取時把 namespace 的 dept label 貼到每一筆資料上。
+    # 沒有這段，下面三條 remoteWrite 的過濾條件全部對不到東西，
+    # 結果是 IT / IMC 兩條都送不出去，全部落到兜底那條。
+    #
+    # dept label 由 ns-labeler 自動標上，見 docs/attribution.md。
+    scrapeClasses:
+      - name: default
+        default: true
+        attachMetadata:
+          namespace: true
+        relabelConfigs:
+          - source_labels: [__meta_kubernetes_namespace_label_dept]
+            target_label: dept
+    # ──────────────────────────────────────────────────────
+
+    # ── 改動 ──────────────────────────────────────────────
+    # 原本一條、一把 token，所以整個 cluster 的資料全進同一個 tenant。
+    # 改成三條：vmagent 只抓一次，資料複製三份，每份各自過濾後帶自己的 token 送出。
+    # tenant 由中央 vmauth 依 token 決定，這邊不碰 tenant 設計。
+    #
+    # 三段 regex 必須從同一份「部門 → group」對照表渲染，不要手寫：
+    # platform/attribution/registry/groups.tsv
+    remoteWrite:
+      # IT
+      - url: https://vmauth.aillm.spil.com.tw/prometheus/api/v1/write
+        tlsConfig:
+          insecureSkipVerify: true
+        bearerTokenSecret:
+          name: vmauth-token
+          key: it
+        inlineUrlRelabelConfig:
+          - action: keep
+            source_labels: [dept]
+            regex: "D3120|D3130"
+          - target_label: group
+            replacement: it
+
+      # IMC
+      - url: https://vmauth.aillm.spil.com.tw/prometheus/api/v1/write
+        tlsConfig:
+          insecureSkipVerify: true
+        bearerTokenSecret:
+          name: vmauth-token
+          key: imc
+        inlineUrlRelabelConfig:
+          - action: keep
+            source_labels: [dept]
+            regex: "D1110|D1120"
+          - target_label: group
+            replacement: imc
+
+      # 兜底：node-exporter、kube-state-metrics、平台元件、還沒標 label 的 namespace。
+      # 這條不能省，省了那些節點層級的資料會整批消失。
+      # drop 的 regex 必須跟上面所有 keep 的 regex 完全對應，
+      # 漏一個部門，那個部門的資料就會同時進兩個 tenant，而且不會有錯誤訊息。
+      - url: https://vmauth.aillm.spil.com.tw/prometheus/api/v1/write
+        tlsConfig:
+          insecureSkipVerify: true
+        bearerTokenSecret:
+          name: vmauth-token
+          key: platform
+        inlineUrlRelabelConfig:
+          - action: drop
+            source_labels: [dept]
+            regex: "D3120|D3130|D1110|D1120"
+          - target_label: group
+            replacement: platform
+    # ──────────────────────────────────────────────────────
+
+kube-state-metrics:
+  image:
+    registry: nexus.aillm.spil.com.tw/docker
+    repository: kube-state-metrics/kube-state-metrics
+    tag: v2.20.0
+    pullPolicy: IfNotPresent
+  # ── 新增 ──────────────────────────────────────────────
+  metricLabelsAllowlist:
+    # 查詢時把 pod 對回服務與版本。
+    - pods=[app.kubernetes.io/name,app.kubernetes.io/version,app.kubernetes.io/part-of,app.kubernetes.io/component]
+    # 讓 kube_namespace_labels 帶出歸屬。
+    # kube_namespace_labels{label_dept=""} 是「這個 namespace 沒有歸屬」的唯一訊號，
+    # allowlist 漏設的話那個告警永遠不會響。見 docs/attribution.md。
+    - namespaces=[dept,group]
+  # ──────────────────────────────────────────────────────
+
+prometheus-node-exporter:
+  enabled: true
+  nodeSelector:
+    kubernetes.io/os: linux
+
+  image:
+    registry: nexus.aillm.spil.com.tw/docker
+    repository: prometheus/node-exporter
+    tag: v1.12.1
+    pullPolicy: IfNotPresent

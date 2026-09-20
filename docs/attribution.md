@@ -118,7 +118,7 @@ kubectl -n vm-monitoring logs job/ns-labeler-now
 
 **這是整套設計唯一的失效模式**：新 app 沒加進 `apps.tsv`，資料就安安靜靜進 unassigned，不會有任何錯誤。
 
-CronJob 的 log 會列出對不到的 namespace，但沒人會每十分鐘去看。要變成告警，靠 kube-state-metrics 的 `kube_namespace_labels`（`vmstack-values-changes.yaml` 已經把 `dept`、`group` 放進 allowlist）：
+CronJob 的 log 會列出對不到的 namespace，但沒人會每十分鐘去看。要變成告警，靠 kube-state-metrics 的 `kube_namespace_labels`（`vmstack-values.yaml` 已經把 `dept`、`group` 放進 allowlist）：
 
 ```yaml
 - alert: NamespaceMissingAttribution

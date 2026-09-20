@@ -47,7 +47,7 @@ kubectl -n <namespace> get secret vmagent-<名稱> -o jsonpath='{.data.vmagent\.
 
 這一段要寫進 **`victoria-metrics-k8s-stack` 的 values**，也就是你們現在那份共用的 vmagent 設定檔，位置在 `.Values.vmagent.spec`。chart 會把它原封不動塞進 VMAgent 這個 CR，operator 再把 CR 轉成 vmagent 真正在讀的設定。
 
-repo 裡對應的檔案是 [../platform/cluster-addons/vmstack-values-changes.yaml](../platform/cluster-addons/vmstack-values-changes.yaml)。
+repo 裡對應的檔案是 [../platform/cluster-addons/vmstack-values.yaml](../platform/cluster-addons/vmstack-values.yaml)，那是**照你們現有的 values 模板改出來的完整版本**，可以直接 diff。只動了三個地方：`vmagent.spec.scrapeClasses`（新增）、`vmagent.spec.remoteWrite`（一條拆三條）、`kube-state-metrics.metricLabelsAllowlist`（新增）。
 
 ```yaml
 vmagent:
