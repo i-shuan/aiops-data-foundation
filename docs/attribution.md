@@ -17,15 +17,11 @@ vmagent 過濾時只看得到 label，Fluentd 改 tag 時只看得到欄位。�
 
 所以兩個都用：**清單當來源，label 當機制。**
 
-```
-platform/attribution/registry/   ← 人只改這裡（在 git 裡）
-        ↓ CronJob 每 10 分鐘對帳一次
-namespace 帶 dept / group label
-        ↓
-vmagent / Fluentd 照原本的設定讀 label（一行都不用改）
-        ↓
-各自的 tenant / index
-```
+![對照表放哪、labeler 跑在哪](architecture/attribution-where-things-run.svg)
+
+**對照表一份在 git，labeler 每個 cluster 各跑一份。** 這點是整張圖的重點：namespace label 是 cluster 內的物件，central 改不到 zk 或 el 的 namespace，所以不可能有一台中央的機器統一去標。central 自己也要跑一份，它沒有特權。
+
+擴廠時要做的只有兩件事：在新 cluster 部署一份 labeler、在它的環境變數加上新廠代號。三個 tsv 的內容不用動。
 
 好處是收集端設定不動、人只改一個地方、別人手動改 label 會被對帳蓋回去。代價是多一個 CronJob，而且它要有改 namespace label 的權限。
 
