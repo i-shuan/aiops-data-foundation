@@ -2,6 +2,63 @@
 # 只列出要改的部分，其他設定維持原樣。
 #
 # vmagent 本身維持 enabled: true，分流靠 remoteWrite 拆成多條，見 docs/vmagent.md。
+#
+# 這一份是「每個 cluster 都一樣」的內容，只有 externalLabels.cluster 每廠不同。
+
+vmagent:
+  enabled: true
+  spec:
+    # 每廠不同，而且不能省。少了它 metrics 上就沒有 cluster 欄位，
+    # 跟 log 對齊的八個欄位會少一個，而且不會有任何錯誤訊息。
+    externalLabels:
+      cluster: zk        # central / zk / el，依實際 cluster 填
+
+    # 抓取時把 namespace 的 dept label 帶進每一筆資料。
+    # 沒有這段，下面的 remoteWrite 過濾條件全部對不到東西。
+    scrapeClasses:
+      - name: default
+        default: true
+        attachMetadata:
+          namespace: true
+        relabelConfigs:
+          - source_labels: [__meta_kubernetes_namespace_label_dept]
+            target_label: dept
+
+    # 三條出口，各自過濾、各自帶 token。tenant 由中央 vmauth 依 token 決定。
+    # 三段 regex 要從 platform/attribution/registry/groups.tsv 渲染，不要手寫。
+    remoteWrite:
+      - url: https://vmauth.aillm.spil.com.tw/prometheus/api/v1/write
+        tlsConfig: {insecureSkipVerify: true}
+        bearerTokenSecret: {name: vmauth-token, key: it}
+        inlineUrlRelabelConfig:
+          - action: keep
+            source_labels: [dept]
+            regex: "D3120|D3130"
+          - target_label: group
+            replacement: it
+
+      - url: https://vmauth.aillm.spil.com.tw/prometheus/api/v1/write
+        tlsConfig: {insecureSkipVerify: true}
+        bearerTokenSecret: {name: vmauth-token, key: imc}
+        inlineUrlRelabelConfig:
+          - action: keep
+            source_labels: [dept]
+            regex: "D1110|D1120"
+          - target_label: group
+            replacement: imc
+
+      # 兜底：node-exporter、平台元件、還沒標 label 的 namespace。
+      # drop 的 regex 必須跟上面所有 keep 的 regex 完全對應，
+      # 漏一個部門就變成那個部門的資料同時進兩個 tenant。
+      - url: https://vmauth.aillm.spil.com.tw/prometheus/api/v1/write
+        tlsConfig: {insecureSkipVerify: true}
+        bearerTokenSecret: {name: vmauth-token, key: platform}
+        inlineUrlRelabelConfig:
+          - action: drop
+            source_labels: [dept]
+            regex: "D3120|D3130|D1110|D1120"
+          - target_label: group
+            replacement: platform
 
 kube-state-metrics:
   metricLabelsAllowlist:

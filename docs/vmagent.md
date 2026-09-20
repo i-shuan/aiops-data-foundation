@@ -45,12 +45,20 @@ kubectl -n <namespace> get secret vmagent-<名稱> -o jsonpath='{.data.vmagent\.
 
 ## 要改的 YAML
 
+這一段要寫進 **`victoria-metrics-k8s-stack` 的 values**，也就是你們現在那份共用的 vmagent 設定檔，位置在 `.Values.vmagent.spec`。chart 會把它原封不動塞進 VMAgent 這個 CR，operator 再把 CR 轉成 vmagent 真正在讀的設定。
+
+repo 裡對應的檔案是 [../platform/cluster-addons/vmstack-values-changes.yaml](../platform/cluster-addons/vmstack-values-changes.yaml)。
+
 ```yaml
 vmagent:
   enabled: true
   spec:
     scrapeInterval: 30s
-    externalLabels: {}
+
+    # 每廠不同，而且不能留空。少了 cluster，metrics 就沒有 cluster 欄位，
+    # 跟 log 對齊的八個欄位少一個，而且不會有任何錯誤訊息。
+    externalLabels:
+      cluster: zk
 
     # 前提設定：抓取時把 namespace 的 dept label 帶進每筆資料
     scrapeClasses:
