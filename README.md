@@ -42,6 +42,26 @@ log 記錄的是「程式做了什麼」，良率是「產品量出來多少」�
 
 它不會自己修，也不會取代現有的良率分析工具。
 
+## Branch：要看哪一個
+
+| branch | 是什麼 | 狀態 |
+|---|---|---|
+| **`feature/efk-log-collection`** | **目前的設計，全部內容都在這裡**，而且每一塊都在本機 k3d 實測過 | ← **看這個** |
+| `master` | 只有 metrics 分流的舊快照 | 過時，落後十幾個 commit |
+
+**branch 名稱會誤導。** 它叫 efk，但現在裡面不只 log：metrics 分流、log 分流、歸屬設計、四張架構圖全在這一個 branch 上。`master` 停在還沒做 log 的階段，而且連 metrics 那份文件都是實測前的版本（沒有 `scrapeClasses` 的驗證結果，也沒有 VMServiceScrape 靠 Service label 選取那個坑）。
+
+合回 master 之後這張表就可以刪掉。
+
+### 已經刪掉的 branch
+
+| branch | 核心做法 | 為什麼否掉 |
+|---|---|---|
+| `feature/org-yaml-tenant-mapping`（`3f920c2`） | 手寫一份 `org.yaml`，用它渲染出每個 namespace 的 manifest，再產生 vmagent 的分流規則 | 部門一多就爆炸（兩個組織 50 個單位要維護 50 份渲染結果），而且擴廠要人工重跑渲染。改成用 namespace label 當依據 |
+| `feature/aiops-telemetry-foundation`（`a8724d2`） | 最初的架構文件 | 內容已經被 master 吸收，沒有獨有的東西 |
+
+SHA 留著是為了萬一要回去翻，`git checkout <sha>` 還撈得到（垃圾回收前）。
+
 ## 目前的文件
 
 - [docs/attribution.md](docs/attribution.md)：**歸屬怎麼決定。** 中央一份對照表，由 CronJob 自動把 `dept` / `group` 標到 namespace 上，收集端照舊只讀 label。已在本機實測通過。
