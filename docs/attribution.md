@@ -44,6 +44,32 @@ cluster 代號和 env 的清單寫在 CronJob 的環境變數，擴廠時在那�
 
 `namespaces.tsv` 的優先順序高於 `apps.tsv`，所以名稱亂掉的 namespace 可以直接指定，不用為了它去改命名規則。
 
+## 這跟 app 的 CI/CD 是兩條，不要混在一起
+
+![兩條 pipeline](architecture/two-pipelines.svg)
+
+app 的 pipeline 是 build image → deploy。**平台這條沒有 build image 這一段**：要進 cluster 的只有三個文字檔和一份 YAML，CronJob 用的還是現成的公開映像，沒有任何東西要打包。所以它只有一個 stage——把 ConfigMap apply 到每一個 cluster。
+
+兩條 pipeline 唯一的交會點是同一個 namespace 物件：一條把它建出來，另一條在上面標歸屬。**兩邊不需要互相知道對方存在**，這也是 app 團隊不必知道 tenant / group 的原因。
+
+### 順序：平台那條要先跑完
+
+新 app 上線的正確順序是：**先在 `apps.tsv` 加一行合進去 → 等對帳跑過 → app 再部署**。
+
+反過來的話，app 先上線、tsv 後補，中間那段時間的 metrics 和 log 會進 unassigned。**補登記之後不會搬回來**——資料早就寫進別的 tenant 和 index 了，那段歷史就是錯的。之後 AIOps 學基準線會學到錯的資料。
+
+所以 app 的 pipeline 要多一個部署前檢查，把這個會被忽略的靜默錯誤變成擋得住的部署失敗：
+
+```bash
+# 放在 deploy 之前。app 團隊不用知道 group 是什麼，只要知道「還沒登記就先去找平台」。
+dept=$(kubectl get ns "$TARGET_NS" -o jsonpath='{.metadata.labels.dept}' 2>/dev/null || true)
+if [ -z "$dept" ]; then
+  echo "namespace $TARGET_NS 還沒有歸屬，資料會進 unassigned 而且事後救不回來。"
+  echo "請平台團隊在 platform/attribution/registry/apps.tsv 補一行後再部署。"
+  exit 1
+fi
+```
+
 ## 安裝
 
 ```bash
