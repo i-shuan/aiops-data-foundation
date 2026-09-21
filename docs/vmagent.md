@@ -165,6 +165,49 @@ kubectl -n <vmstack namespace> describe secret vmauth-token
 
 再開 vmagent 的 `/metrics`，找 `vmagent_remotewrite_` 開頭的指標，看每個 URL 的失敗次數與佇列堆積。三條出口分開統計，哪一條的 token 有問題一眼就看得出來。
 
+### 手動建 Secret 的優缺點，以及 Vault 這條路
+
+先講清楚：**手動不是純粹的爛做法**，它有兩個真的優點。
+
+| | 手動建 Secret | Vault + Vault Secrets Operator |
+|---|---|---|
+| token 經過的地方 | 只有人的手和 API server，**不經過 git、不經過 CI** | 經過 Vault 和 VSO，多兩個元件可能出事 |
+| 排查 | `kubectl get secret` 就看到，沒有中間層 | 要查 VSO 的 CR 狀態、Vault 的 auth、路徑對不對 |
+| 擴廠 | **每開一廠要人工做一次**，跟「擴廠不能全人工」衝突 | list 加一行，Secret 自動出現 |
+| 輪替 token | 每個廠都要進去改一次 | 改 Vault 一處，各廠自動更新 |
+| 稽核 | 沒有。誰什麼時候改了什麼只能翻 audit log | Vault 有存取紀錄 |
+| 打錯 | **貼多一個換行就一直 401，錯誤訊息不會說原因** | 不會有人工貼上這一步 |
+| cluster 重建 | **會漏掉**，而且 vmagent 會起不來 | 跟著 ApplicationSet 一起回來 |
+
+兩廠的時候手動撐得住，**五廠六廠就不行了**：每開一廠要進 UI 貼六次（三把 vmauth token、三把 ES API key），而且貼錯的失敗是靜默的。
+
+### 可以走 Vault，而且路已經鋪一半了
+
+`cluster-addons/vault-secrets-operator/` 已經在每個場區叢集部署，`cctv-inspection-app` 的 ApplicationSet 裡也帶了 `k8sAuthMount`——代表 **Kubernetes 對 Vault 的認證路徑已經在用了**。
+
+所以這條路不是從零開始，要做的是：
+
+1. token 存進 Vault（例如 `secret/observability/vmauth-token`，三個欄位 `it` / `imc` / `platform`）
+2. 在 `cluster-addons/` 底下放一個 `VaultStaticSecret` 的 CR，指向那個路徑，產出名為 `vmauth-token` 的 Secret
+3. 那份 CR 進 git——**裡面只有「去哪裡拿」，沒有機密本身**，所以可以走 PR 審核
+4. ES 的 API key 同樣處理
+
+依你們文件，`repositories/` 和 `clusters/` 也規劃走同一條路，所以這是既定方向，不是為了這個專案另闢蹊徑。
+
+**代價是多一個相依**：Vault 掛掉時，已經存在的 Secret 還在、跑著的 pod 不受影響，但新 pod 和輪替會卡住。這個取捨通常可以接受，但要知道。
+
+### 在 Vault 到位之前
+
+不要為了等 Vault 就停著，但要補一個防呆——**套 values 之前先確認 Secret 的三個 key 都在**：
+
+```bash
+for k in it imc platform; do
+  kubectl -n <vmstack namespace> get secret vmauth-token -o jsonpath="{.data.$k}" >/dev/null 2>&1     || { echo "vmauth-token 缺少 $k，先補齊再套 values，否則 vmagent 會起不來、整廠 metrics 會停"; exit 1; }
+done
+```
+
+這一步把「套下去才發現 metrics 停了」換成「套之前就被擋下來」。
+
 ### 改 Secret 的坑
 
 - **貼 token 不要多出換行或空白。** 最常見的失敗，多一個看不見的換行就一直 401，錯誤訊息不會告訴你原因。

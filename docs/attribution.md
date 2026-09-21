@@ -109,6 +109,22 @@ kubectl create job --from=cronjob/ns-labeler ns-labeler-now -n vm-monitoring
 kubectl -n vm-monitoring logs job/ns-labeler-now
 ```
 
+### 放進 devops repo 的樣子
+
+chart 發佈到內部 Helm repo 之後，devops repo 裡只要兩個檔案：
+
+```
+cluster-addons/ns-labeler/
+  app.yaml      ← ArgoCD 的設定，範例見 chart 目錄下的 app.yaml
+  values.yaml   ← 對照表在這裡
+```
+
+`app.yaml` 的欄位照 `scripts/validate_application.py cluster-addons` 的規則：必填 `namespace` / `owner` / `criticality` / `helm`，`helm` 的四個子欄位要齊全、`version` 要釘選。
+
+**不需要 `values-<cluster>.yaml`**：對照表和 `clusters` 清單全廠共用，沒有 per-cluster 差異。
+
+⚠ **要先確認內部 Helm repo 放不放得了自建 chart。** 文件裡那個位址名字是 `artifacts-proxy`，proxy（read-through）型的倉庫只能代理外部 chart，放不了自己的。若是這樣就要另外開一個 hosted 倉庫，這會擋住 ns-labeler 落地。
+
 ### values 裡幾個要注意的
 
 | 項目 | 說明 |

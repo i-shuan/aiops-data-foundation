@@ -1,0 +1,31 @@
+# 這份不是 chart 的一部分，是要複製到 devops repo 的
+#   cluster-addons/ns-labeler/app.yaml
+# 跟同目錄的 values.yaml 一起，由 applicationsets/cluster-addons/applicationset.yaml
+# 的 matrix generator 展開到每個場區叢集。
+#
+# 欄位依 scripts/validate_application.py cluster-addons 的規則：
+# 必填 namespace / owner / criticality / helm，且 helm 的四個子欄位要齊全、version 要釘選。
+#
+# apiVersion 和 kind 請對照你們現有的 cluster-addons/vmagent/app.yaml 填，
+# 這裡寫的是文件上的示意值。
+apiVersion: platform.example.com/v1alpha1
+kind: ArgoApplicationConfig
+
+# 跟 vmagent 同一個 namespace，因為它標的 label 是給 vmagent 和 Fluentd 用的。
+namespace: vm-monitoring
+
+owner: platform-observability
+criticality: high   # 掛掉的話新 namespace 不會有歸屬，資料會靜默進 unassigned
+
+helm:
+  # ⚠ 要確認這個位址收不收「我們自己的 chart」。
+  # 名字看起來是 proxy（read-through）倉庫，那種只能代理外部 chart，
+  # 放不了自建的。若是這樣，要另外開一個 hosted 的 Helm repo。
+  repoURL: https://helm.artifacts-proxy.spil.com.tw/repository/helm/
+  chart: ns-labeler
+  version: "0.1.0"    # 釘選。驗證規則不接受空值 / HEAD / LATEST / *
+  valueFiles:
+    - values.yaml
+
+# 不需要 values-<cluster>.yaml：
+# 對照表和 clusters 清單全廠共用同一份，沒有per-cluster 差異。
