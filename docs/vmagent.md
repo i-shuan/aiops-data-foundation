@@ -26,9 +26,9 @@ app 端要做的只有讓 `app-common` 產生一個 VMServiceScrape，跟那台�
 - 只有一條 `remoteWrite`、一把 `vmauth-token`。
 - 結果：**整個 cluster 的資料全部進同一個 tenant，IT、IMC、平台混在一起。**
 
-![一個 cluster 一台 vs 一個 namespace 一台](architecture/vmagent-per-cluster-vs-per-namespace.svg)
+![tenant 從依廠分改成依組織分](architecture/before-after-tenant-split.svg)
 
-把 `vmagent.enabled` 改成 `false` **不是分流**，是把收集器整台刪掉，整廠 metrics 會直接停。
+把 `vmagent.enabled` 改成 `false` **不是分流**，是把收集器整台刪掉，整廠 metrics 會直接停。分流要靠拆 `remoteWrite`，vmagent 維持一台。
 
 ## 分流機制
 
