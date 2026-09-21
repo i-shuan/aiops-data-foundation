@@ -21,7 +21,7 @@
 
 | 缺什麼 | 後果 |
 |---|---|
-| pod 沒有 `app.kubernetes.io/name`、`version` | 八個關聯欄位少兩個，只能對到 namespace 和 pod，**看不出是哪個服務、哪個版本** |
+| pod 沒有 `app.kubernetes.io/name`、`version` | 九個關聯欄位少兩個，只能對到 namespace 和 pod，**看不出是哪個服務、哪個版本** |
 | Service 沒有標準 label | VMServiceScrape 選不到，**這個服務的 metrics 整個收不到**，而且沒有錯誤訊息 |
 
 「昨晚換版導致報工卡住」這種根因分析，靠的就是 `version` 這個欄位。缺了它，AIOps 能告訴你「這個 namespace 有問題」，但沒辦法告訴你「是 2.3.1 那版開始的」。

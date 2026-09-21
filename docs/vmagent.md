@@ -245,7 +245,7 @@ count by (vm_account_id, group, namespace) (up)
 2. **remoteWrite 拆條分流會動。** 兩條出口各自過濾、各自送出，都回 2XX，資料落點正確。
 3. **兜底那條有效。** 沒標 label 的 namespace 自動歸到 platform，資料不會消失。
 
-**跟 log 那邊的欄位是對得起來的。** 八個關聯欄位（`cluster`、`group`、`dept`、`namespace`、`app`、`version`、`pod`、`container`）兩邊一致，比對結果見 [efk.md](efk.md)。其中 `app` 和 `version` 要靠 VMServiceScrape 的 relabel 才會有，`app-common` 模板已經包含，手寫的 scrape 物件會少掉。
+**跟 log 那邊的欄位是對得起來的。** 九個關聯欄位（`cluster`、`group`、`dept`、`system`、`namespace`、`app`、`version`、`pod`、`container`）名稱兩邊一致（平台 namespace 的 `group` 值例外，見 efk.md），比對結果見 [efk.md](efk.md)。其中 `app` 和 `version` 要靠 VMServiceScrape 的 relabel 才會有，`app-common` 模板已經包含，手寫的 scrape 物件會少掉。
 
 **踩到的坑：VMServiceScrape 是用 Service 的 label 去選，不是用 Service 的 pod selector。**
 

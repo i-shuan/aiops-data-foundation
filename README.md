@@ -85,7 +85,7 @@ SHA 留著是為了萬一要回去翻，`git checkout <sha>` 還撈得到（垃�
 - **namespace 名稱不含組織資訊**，格式是 `{cluster}-{app}-{env}` 或 `{app}-{env}`，所以歸屬要另外標。
 - **歸屬用「中央清單 + 自動標 label」**，不是二選一：人只改 git 裡的對照表，CronJob 負責標到 namespace 上，收集端設定不動。見 [attribution.md](docs/attribution.md)。
 - **log 收集器是 Fluentd，Elasticsearch 是 Basic 免費版。** 權限只能切到 index 層級，沒有 Elastic ML。
-- **metrics 與 log 兩條路都已在本機 k3d 實測跑通**，八個關聯欄位對得起來，group 之間的隔離擋得住。細節與踩到的坑見 [vmagent.md](docs/vmagent.md)、[efk.md](docs/efk.md)。
+- **metrics 與 log 兩條路都已在本機 k3d 實測跑通**，九個關聯欄位的名稱兩邊一致（平台 namespace 的 `group` 值例外，見 efk.md），group 之間的隔離擋得住。細節與踩到的坑見 [vmagent.md](docs/vmagent.md)、[efk.md](docs/efk.md)。
 
 ## 還沒定案的
 

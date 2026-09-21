@@ -39,6 +39,7 @@
   "cluster": "zk",
   "group": "it",
   "dept": "D3120",
+  "system": "mes",
   "namespace": "zk-mes-prod",
   "app": "mes-logger",
   "version": "2.3.1",
@@ -52,13 +53,14 @@
 
 ## 兩邊的欄位比對（AIOps 關聯用）
 
-實際查過兩邊的資料，八個關聯欄位完全一致：
+實際查過兩邊的資料，九個關聯欄位的名稱兩邊一致（平台 namespace 的 `group` 值例外，見下方「已知落差」）：
 
 | 欄位 | metrics | log | 來源 |
 |---|---|---|---|
 | `cluster` | ✓ | ✓ | metrics 是 `externalLabels`；log 由 Fluentd 補上 |
 | `group` | ✓ | ✓ | metrics 在 remoteWrite 分流時蓋上；log 取 tag 前綴 |
 | `dept` | ✓ | ✓ | 兩邊都從 namespace 的 label 來 |
+| `system` | ✓ | ✓ | 兩邊都從 namespace 的 label 來。沒標的話 metrics 上**沒有這個 key**，log 上填 `unknown` |
 | `namespace` | ✓ | ✓ | 自動 |
 | `pod` | ✓ | ✓ | 自動 |
 | `container` | ✓ | ✓ | 自動 |
@@ -89,6 +91,20 @@ log 這邊的 `group` 是取分流後 tag 的第一段（`it.kube.xxx` → `it`�
 ```
 
 這樣「部門 → group」的對照只存在 `rewrite_tag_filter` 的規則裡一份。如果改成在 `record_transformer` 裡自己查表填 group，就會變成同一份對照在設定裡出現兩次，改組時容易漏改一邊。
+
+### 已知落差：平台的 namespace，`group` 兩邊的值不一樣
+
+| | 平台的 namespace（`dept=PLATFORM`）的 `group` |
+|---|---|
+| metrics | `platform`（兜底那條 remoteWrite 蓋上的） |
+| log | `unassigned`（`PLATFORM` 沒有對應的 `rewrite_tag_filter` 規則，掉進最後的兜底，`group` 取 tag 前綴） |
+
+**這不是加 `system` 造成的**，`ns-labeler` 上線前這些 namespace 沒有 `dept`，落差就已經在了。後果有兩個：
+
+1. **平台 namespace 的資料，`group` 不能直接當跨 metrics / log 的關聯鍵。** 用 `namespace`、`dept` 或 `system` 關聯沒問題。
+2. **`k8s-unassigned-*` 現在同時裝著兩種東西**：歸屬正確的平台 log（`dept=PLATFORM`），和真的沒登記的（`dept=unassigned`）。**判斷有沒有漏登記，要看 `dept` 欄位，不能看 index 名稱。**
+
+要根治就是多一條 `dept /^PLATFORM$/` → `platform.${tag}` 的規則，加第四個 output、第四把 API key、第四種 index（`k8s-platform-*`）。這是設計決定（多一個 index 和一把 key 要維護），所以先記著沒動。
 
 ### metrics 的 app 和 version 要靠 VMServiceScrape 的 relabel
 

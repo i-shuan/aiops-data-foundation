@@ -79,6 +79,11 @@ vmagent:
         relabelConfigs:
           - source_labels: [__meta_kubernetes_namespace_label_dept]
             target_label: dept
+          # system 只是分析用的維度，不是分流依據，下面的 remoteWrite 不看它。
+          # namespace 沒標的話這個值是空的，relabel 會直接不產生這個 label
+          # （metrics 上是「沒有 system」，不是 unknown；log 那邊才填 unknown）。
+          - source_labels: [__meta_kubernetes_namespace_label_system]
+            target_label: system
     # ──────────────────────────────────────────────────────
 
     # ── 改動 ──────────────────────────────────────────────
@@ -87,7 +92,7 @@ vmagent:
     # tenant 由中央 vmauth 依 token 決定，這邊不碰 tenant 設計。
     #
     # 三段 regex 必須從同一份「部門 → group」對照表渲染，不要手寫：
-    # platform/cluster-addons/ns-labeler/registry/groups.tsv
+    # ns-labeler 的 values.yaml（registry.groups）
     remoteWrite:
       # IT
       - url: https://vmauth.aillm.spil.com.tw/prometheus/api/v1/write
@@ -148,7 +153,7 @@ kube-state-metrics:
     # 讓 kube_namespace_labels 帶出歸屬。
     # kube_namespace_labels{label_dept=""} 是「這個 namespace 沒有歸屬」的唯一訊號，
     # allowlist 漏設的話那個告警永遠不會響。見 docs/attribution.md。
-    - namespaces=[dept,group]
+    - namespaces=[dept,group,system]
   # ──────────────────────────────────────────────────────
 
 prometheus-node-exporter:

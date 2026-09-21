@@ -11,17 +11,18 @@ metadata:
   labels:
     {{- include "ns-labeler.labels" . | nindent 4 }}
 data:
-  # app → 部門。這裡的 app 是「namespace 去掉 cluster 前綴和 env 後綴剩下的那一段」，
+  # app → 部門、系統。這裡的 app 是「namespace 去掉 cluster 前綴和 env 後綴剩下的那一段」，
   # 不是 Deployment 的名字：zk-mes-prod → mes
+  # 三欄：app dept system。system 可以省，省了那欄就是空的，腳本會當成沒有。
   apps.tsv: |
-    {{- range $app, $dept := .Values.registry.apps }}
-    {{ $app }} {{ $dept }}
+    {{- range $app, $v := .Values.registry.apps }}
+    {{ $app }} {{ $v.dept }} {{ $v.system | default "" }}
     {{- end }}
 
-  # namespace → 部門。例外用，優先順序高於 apps.tsv。
+  # namespace → 部門、系統。例外用，優先順序高於 apps.tsv。
   namespaces.tsv: |
-    {{- range $ns, $dept := .Values.registry.namespaces }}
-    {{ $ns }} {{ $dept }}
+    {{- range $ns, $v := .Values.registry.namespaces }}
+    {{ $ns }} {{ $v.dept }} {{ $v.system | default "" }}
     {{- end }}
 
   # 部門 → group。改組時大多只改這一份。

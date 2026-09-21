@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# Elasticsearch 權限設定。group 清單要跟 platform/groups.yaml 一致。
+# Elasticsearch 權限設定。group 清單（it / imc / unassigned）要跟
+# platform/fluentd/fluent.conf 的 rewrite_tag_filter 一致。
 #
 # 用法：ES_URL=https://<elasticsearch-host>:9200 ES_AUTH=elastic:<password> ./elasticsearch-setup.sh
 #
 # 會建立三類東西：
-#   1. 寫入用 API key（給 Fluent Bit）：每組只能寫自己 group 的 index。
+#   1. 寫入用 API key（給 Fluentd）：每組只能寫自己 group 的 index。
 #      label 判斷錯了，頂多是那筆資料被拒絕，不會寫進別的 group。
 #      回應裡的 "encoded" 放進每個應用 cluster logging namespace 的 Secret es-writer-keys：
 #        IT_ES_API_KEY、IMC_ES_API_KEY、UNASSIGNED_ES_API_KEY
@@ -20,6 +21,10 @@ es() {
   echo
 }
 
+# 寫入權限一定要給 index，不能只給 create_doc。
+# fluent-plugin-elasticsearch 預設用 index 動作，create_doc 只允許 create，
+# 結果是每一筆都被 403 拒絕，而且 Fluentd 完全不報錯：index 建得出來，但永遠 0 筆。
+# 詳見 docs/efk.md。
 writer_key() {
   local name="$1" indices="$2"
   echo "=== 寫入 key：${name} ==="
@@ -27,7 +32,7 @@ writer_key() {
     \"name\": \"${name}\",
     \"role_descriptors\": {
       \"${name}\": {
-        \"index\": [{\"names\": ${indices}, \"privileges\": [\"create_doc\", \"create_index\", \"auto_configure\"]}]
+        \"index\": [{\"names\": ${indices}, \"privileges\": [\"index\", \"create_index\", \"auto_configure\"]}]
       }
     }
   }"
@@ -45,9 +50,9 @@ reader_role() {
 }
 
 # 1. 寫入用
-writer_key "fluent-bit-it"         '["k8s-it-*", "k8s-events-it-*"]'
-writer_key "fluent-bit-imc"        '["k8s-imc-*", "k8s-events-imc-*"]'
-writer_key "fluent-bit-unassigned" '["k8s-unassigned-*", "k8s-events-unassigned-*"]'
+writer_key "fluentd-it"         '["k8s-it-*", "k8s-events-it-*"]'
+writer_key "fluentd-imc"        '["k8s-imc-*", "k8s-events-imc-*"]'
+writer_key "fluentd-unassigned" '["k8s-unassigned-*", "k8s-events-unassigned-*"]'
 
 # 2. AIOps 唯讀
 echo "=== AIOps 唯讀 key ==="

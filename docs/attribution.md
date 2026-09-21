@@ -27,13 +27,13 @@ vmagent 過濾時只看得到 label，Fluentd 改 tag 時只看得到欄位。�
 
 ## 三個對照表
 
-| 檔案 | 內容 | 什麼時候改 |
+| `values.yaml` 裡的 | 內容 | 什麼時候改 |
 |---|---|---|
-| `registry/apps.tsv` | app → 部門 | 新 app 上線 |
-| `registry/namespaces.tsv` | namespace → 部門（例外、平台自己的 namespace） | namespace 名稱不照命名規則時 |
-| `registry/groups.tsv` | 部門 → group | **改組**。大多數情況只改這一份 |
+| `registry.apps` | app → 部門、系統 | 新 app 上線 |
+| `registry.namespaces` | namespace → 部門、系統（例外、平台自己的 namespace） | namespace 名稱不照命名規則時 |
+| `registry.groups` | 部門 → group | **改組**。大多數情況只改這一份 |
 
-`apps.tsv` 的 key 是**「namespace 名稱去掉 cluster 前綴和 env 後綴之後剩下的那一段」，不是 Deployment 的名字**：
+`registry.apps` 的 key 是**「namespace 名稱去掉 cluster 前綴和 env 後綴之後剩下的那一段」，不是 Deployment 的名字**：
 
 ```
 zk-mes-prod    → 去掉 zk- 和 -prod → mes
@@ -42,7 +42,7 @@ wip-staging    → 去掉 -staging     → wip
 
 cluster 代號和 env 的清單寫在 CronJob 的環境變數，擴廠時在那裡加新廠代號。
 
-`namespaces.tsv` 的優先順序高於 `apps.tsv`，所以名稱亂掉的 namespace 可以直接指定，不用為了它去改命名規則。
+`registry.namespaces` 的優先順序高於 `registry.apps`，所以名稱亂掉的 namespace 可以直接指定，不用為了它去改命名規則。
 
 ## 這跟 app 的 CI/CD 是兩條，不要混在一起
 
@@ -54,7 +54,7 @@ app 的 pipeline 是 build image → deploy。**平台這條沒有 build image �
 
 ### 順序：平台那條要先跑完
 
-新 app 上線的正確順序是：**先在 `apps.tsv` 加一行合進去 → 等對帳跑過 → app 再部署**。
+新 app 上線的正確順序是：**先在 `registry.apps` 加一行合進去 → 等對帳跑過 → app 再部署**。
 
 反過來的話，app 先上線、tsv 後補，中間那段時間的 metrics 和 log 會進 unassigned。**補登記之後不會搬回來**——資料早就寫進別的 tenant 和 index 了，那段歷史就是錯的。之後 AIOps 學基準線會學到錯的資料。
 
@@ -65,7 +65,7 @@ app 的 pipeline 是 build image → deploy。**平台這條沒有 build image �
 dept=$(kubectl get ns "$TARGET_NS" -o jsonpath='{.metadata.labels.dept}' 2>/dev/null || true)
 if [ -z "$dept" ]; then
   echo "namespace $TARGET_NS 還沒有歸屬，資料會進 unassigned 而且事後救不回來。"
-  echo "請平台團隊在 platform/cluster-addons/ns-labeler/registry/apps.tsv 補一行後再部署。"
+  echo "請平台團隊在 ns-labeler 的 values.yaml（registry.apps）補一行後再部署。"
   exit 1
 fi
 ```
@@ -141,25 +141,32 @@ cluster-addons/ns-labeler/
 
 | namespace | 來源 | 標上的 label |
 |---|---|---|
-| `zk-mes-prod` | `apps.tsv` 的 `mes` | `dept=D3120` `group=it` |
-| `zk-wip-prod` | `apps.tsv` 的 `wip` | `dept=D1110` `group=imc` |
-| `kube-system`、`vm-monitoring` 等 | `namespaces.tsv` | `dept=PLATFORM` `group=platform` |
+| `zk-mes-prod` | `registry.apps` 的 `mes` | `dept=D3120` `group=it` `system=mes` |
+| `zk-wip-prod` | `registry.apps` 的 `wip` | `dept=D1110` `group=imc` `system=wip` |
+| `kube-system`、`vm-monitoring` 等 | `registry.namespaces` | `dept=PLATFORM` `group=platform` `system=platform` |
 | `zk-unknownapp-prod` | 對不到 | **故意不標**，落到 unassigned 並列在報告裡 |
 
-**確認了三件事**
+**確認了幾件事**
 
 1. **名稱解析正確。** `zk-mes-prod` 去掉 cluster 前綴和 env 後綴後對到 `mes`，即使 app 名稱本身含有 `-` 也不會被切壞。
 2. **重跑不會亂動。** 第二次執行報「已正確 8 個，本次調整 0 個」，只在值不同時才送 patch。
-3. **改組只改一行。** 把 `groups.tsv` 裡 `D1110` 從 `imc` 改成 `it`，下一次執行只動 `zk-wip-prod` 一個 namespace，其他七個不受影響。
+3. **改組只改一行。** 把 `registry.groups` 裡 `D1110` 從 `imc` 改成 `it`，下一次執行只動 `zk-wip-prod` 一個 namespace，其他七個不受影響。
 4. **改對照表的完整迴路可用。** 加一筆對照 → `helm upgrade` → 下一次執行就把那個 namespace 標上，「對不到歸屬」的清單清空。
 
-**注意**：上面這四項是在對照表還用 `.Files.Glob` 讀 tsv 檔時驗的。後來為了配合 `cluster-addons` 只吃外部 chart 的規則，改成從 `values.yaml` 渲染，**這個版本只驗過 `helm template` 渲染正確，還沒重跑實機**。渲染出來的 ConfigMap 內容格式跟原本一樣，腳本沒有改，但正式上線前應該再跑一次。
+對照表從 tsv 檔搬進 `values.yaml`、並加上 `system` 欄之後，已在 zk 上用 `helm upgrade` 重跑過，額外確認了：
+
+5. **`system` 跟著一起標上，而且不動到既有的兩個 label。** 第一輪 8 個 namespace 全部補上 `system`，第二輪「已正確 8 個，本次調整 0 個」。
+6. **`system` 缺席時不擋分流。** 只給 `dept` 不給 `system` 的 namespace，`dept` / `group` 照標，log 裡多一行 `WARN ... 沒有 system`，不會因此被當成沒有歸屬。
+7. **metrics 端**：`up` 上出現 `system`（`zk-mes-prod` → `mes`、`vm-monitoring` → `platform`）。把 namespace 的 `system` 拿掉，series 上就**沒有這個 key**，不是空字串，也不是 unknown。
+8. **log 端**：ES 裡新進的文件都帶 `system`：`group=it` → `mes`、`group=imc` → `wip`、`group=unassigned` → `platform`。
+
+**沒有單獨驗的**：kube-state-metrics 的 allowlist 加了第三個 `system`。格式跟已驗證的 `[dept,group]` 相同，而且目前沒有任何告警或查詢用到 `label_system`，所以沒有為它重裝一次 KSM。
 
 ## 對不到歸屬要有告警，不然就是靜默出錯
 
-**這是整套設計唯一的失效模式**：新 app 沒加進 `apps.tsv`，資料就安安靜靜進 unassigned，不會有任何錯誤。
+**這是整套設計唯一的失效模式**：新 app 沒加進 `registry.apps`，資料就安安靜靜進 unassigned，不會有任何錯誤。
 
-CronJob 的 log 會列出對不到的 namespace，但沒人會每十分鐘去看。要變成告警，靠 kube-state-metrics 的 `kube_namespace_labels`（`vmstack-values.yaml` 已經把 `dept`、`group` 放進 allowlist）：
+CronJob 的 log 會列出對不到的 namespace，但沒人會每十分鐘去看。要變成告警，靠 kube-state-metrics 的 `kube_namespace_labels`（`vmstack-values.yaml` 已經把 `dept`、`group`、`system` 放進 allowlist）：
 
 ```yaml
 - alert: NamespaceMissingAttribution
@@ -167,7 +174,7 @@ CronJob 的 log 會列出對不到的 namespace，但沒人會每十分鐘去看
   for: 30m
   annotations:
     summary: "{{ $labels.namespace }} 沒有歸屬，資料正在進 unassigned"
-    description: "在 platform/cluster-addons/ns-labeler/registry/apps.tsv 補一行，或在 namespaces.tsv 標成例外。"
+    description: "在 ns-labeler 的 values.yaml 的 registry.apps 補一行，或在 registry.namespaces 標成例外。"
 ```
 
 `for: 30m` 是為了跳過新建 namespace 到下一輪對帳之間的空窗（排程是 10 分鐘）。
@@ -211,9 +218,69 @@ kubectl get vmservicescrape -A -o yaml | grep -B3 honorLabels
 - **app 名稱必須在同一個 cluster 內唯一。** 跨廠不用唯一（各廠各自一份 ConfigMap），但同一廠內兩個不同組織的 app 撞名就會標錯。
 - **從清單移除的 app，舊 label 不會被清掉。** 對帳只補不刪，避免誤刪。下線的 namespace 要手動處理。
 
+## 想再加 label 之前
+
+現在標三個：`dept`、`group`、`system`。**再加之前先過這幾關**，因為每一個 label 都是每筆 metrics、每筆 log 一輩子帶著走的。
+
+### 技術上限不是問題
+
+Kubernetes 對 namespace 的 label 數量沒有硬性上限（整個物件 ≤ 1.5MB），key 名稱 ≤ 63 字元、value ≤ 63 字元。**真正的上限是人維護得動幾個。**
+
+### 加一個 label 要改四個地方，漏一個欄位就對不起來，而且不會報錯
+
+| 改哪 | 改什麼 |
+|---|---|
+| `ns-labeler/values.yaml` | 對照表多一個欄位 |
+| `ns-labeler/scripts/label-namespaces.sh` | 讀那一欄、加進 `kubectl label` |
+| `vmstack-values.yaml` | scrapeClass 多一段 relabel；KSM 的 `namespaces=[...]` allowlist 多放一個 |
+| `fluent.conf` | `record_transformer` 多一個欄位，**一定要給預設值** |
+
+log 端的 label key **不會被改寫，點還是點**，用底線取值會得到 `null`。沒給預設值的話，沒標 label 的 namespace 那個欄位是 `null`，ES 對 `null` 的查詢行為跟空字串不同，關聯分析會漏掉。
+
+### 不可逆：label 是寫入當下焊進資料的
+
+今天標 `dept=D3120`，明年改組，**去年的資料永遠是 D3120**。
+
+| | 舊資料能不能修 |
+|---|---|
+| metrics（VictoriaMetrics） | **不行。** 已寫入的 series 改不了 label，而且改組後舊資料在另一個 tenant 裡，等於做不到 |
+| log（Elasticsearch） | 欄位能用 `_update_by_query` 改，但文件落在哪個 index 搬不動，要 reindex；ILM 轉唯讀之後連 update 都不行 |
+
+所以**會變的東西不要標**（負責人姓名、專案代號）。
+
+成本也不對稱：metrics 的 label 是每條 series 一份，log 是**每一筆文件一份**。一天一億筆的話，多一個十個字元的欄位就是每天多幾 GB，log 那邊的帳要算得比 metrics 嚴。
+
+### 哪些值得、哪些不值得
+
+| 值得 | 為什麼 |
+|---|---|
+| `system` | AIOps 要問「MES 整體有沒有問題」，不用一個個 app 看。**已加** |
+| `criticality` | 告警分級，tier1 半夜叫人、tier2 早上再說 |
+| `oncall` | 告警直接路由到值班群組，不用查表 |
+
+| 不值得 | 為什麼 |
+|---|---|
+| `env` | namespace 名稱裡已經有 |
+| `app` / `version` | 那是 **pod** 層級的，標在 namespace 上會錯（一個 namespace 可能多個 app） |
+| `cluster` | vmagent 的 `externalLabels` 已經有 |
+
+**上限抓四個**：`dept`、`group`、`system`，再留一個給 `criticality`。再多就會出現「這個 label 半年沒人用，但每筆資料都在佔空間」。
+
+### `system` 跟既有的 `part_of` 是同一件事的兩個來源
+
+metrics 上本來就有 `part_of`（`app-common` 從 pod 的 `app.kubernetes.io/part-of` 帶出來）。兩者講同一件事，差別在來源：
+
+| | `system` | `part_of` |
+|---|---|---|
+| 來源 | namespace label，由 ns-labeler 標 | pod label，由 `app-common` 產生 |
+| 還在用舊 manifest 的 app | **有** | **沒有**（沒照標準寫） |
+| log 上 | **有** | 沒有（`fluent.conf` 沒有攤平這個） |
+
+所以**分析用 `system`**：舊 manifest 的 app 也涵蓋得到，log 和 metrics 都有。`part_of` 留作交叉檢查，兩者對不上時值得查一下是不是有人把 pod 放錯 namespace。
+
 ## 之後可以再簡化：讓收集端直接讀 `group`
 
-現在 namespace 上已經有 `group` label，但收集端還是照舊用部門 regex 在算 group，等於「部門 → group」這份對照在三個地方各有一份（`groups.tsv`、vmagent values、`fluent.conf`）。
+現在 namespace 上已經有 `group` label，但收集端還是照舊用部門 regex 在算 group，等於「部門 → group」這份對照在三個地方各有一份（`registry.groups`、vmagent values、`fluent.conf`）。
 
 改成直接讀 `group` 之後，**新增部門就完全不用碰收集端設定**：
 
@@ -237,5 +304,5 @@ Fluentd 的 `rewrite_tag_filter` 同理，`key dept` 換成 `key group`、patter
 
 1. **`dept` / `group` 這兩個 label 名稱在正式環境有沒有被別人用掉。**
 2. **映像要能從 Nexus 拉得到。** 現在寫的是 Docker Hub 的 `alpine/k8s:1.30.0`，你們環境拉不到，要先鏡像進 `nexus.aillm.spil.com.tw/docker`，或換成內部已有、含 shell 和 kubectl 的映像。**這一條會直接擋住落地。**
-3. **`apps.tsv` 由誰維護、走什麼流程。** 建議跟著 app 上線的 PR 一起改，不要另外開一個流程，否則一定會有人忘記。
+3. **`registry.apps` 由誰維護、走什麼流程。** 建議跟著 app 上線的 PR 一起改，不要另外開一個流程，否則一定會有人忘記。
 4. **cluster 代號和 env 的清單寫死在 CronJob 環境變數**，擴廠時要記得加。要不要改成從對照表讀還沒決定。

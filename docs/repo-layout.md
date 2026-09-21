@@ -78,7 +78,7 @@ generators:
 
 ## 新增一個服務的完整流程
 
-1. **先在 [apps.tsv](../platform/cluster-addons/ns-labeler/registry/apps.tsv) 加一行並合進去。** 這步要最先做，晚了那段時間的資料會進 unassigned 而且救不回來，見 [attribution.md](attribution.md)
+1. **先在 [ns-labeler 的 values.yaml](../platform/cluster-addons/ns-labeler/values.yaml) 的 `registry.apps` 加一行並合進去。** 這步要最先做，晚了那段時間的資料會進 unassigned 而且救不回來，見 [attribution.md](attribution.md)
 2. `services/<app>/` 放程式碼和 Dockerfile
 3. `charts/<app>/` 複製一份現成 chart，改 `values.yaml`
 4. 推上去，ArgoCD 自己長出 Application

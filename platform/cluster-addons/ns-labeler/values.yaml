@@ -8,23 +8,29 @@
 # 放 values 而不是包進 chart，是為了讓「改一個部門歸屬」只要改這裡走 PR，
 # 不必發一版新 chart。
 registry:
-  # app → 部門。
+  # app → 部門、系統。
   # 這裡的 app 是「namespace 去掉 cluster 前綴和 env 後綴剩下的那一段」，
   # 不是 Deployment 的名字：zk-mes-prod → mes
   # 新 app 上線在這裡加一行，而且要比 app 部署先合進去。
+  #
+  #   dept    分流依據，一定要有。
+  #   system  分析用的維度：這個 app 屬於哪個業務系統。可以省，省了 log 上填 unknown。
+  #
+  # 加新的 label 之前先看 docs/attribution.md 的「想再加 label 之前」。
+  # 會變的東西不要放進來：label 是寫入當下焊進資料的，之後改了舊資料不會跟著變。
   apps:
-    mes: D3120
-    wip: D1110
+    mes: {dept: D3120, system: mes}
+    wip: {dept: D1110, system: wip}
 
-  # namespace → 部門。例外用，優先順序高於 apps。
+  # namespace → 部門、系統。例外用，優先順序高於 apps。
   # 平台自己的 namespace 也寫在這裡，這樣「沒有歸屬」就真的只剩該修的那些。
   namespaces:
-    kube-system: PLATFORM
-    kube-public: PLATFORM
-    kube-node-lease: PLATFORM
-    default: PLATFORM
-    vm-monitoring: PLATFORM
-    logging: PLATFORM
+    kube-system: {dept: PLATFORM, system: platform}
+    kube-public: {dept: PLATFORM, system: platform}
+    kube-node-lease: {dept: PLATFORM, system: platform}
+    default: {dept: PLATFORM, system: platform}
+    vm-monitoring: {dept: PLATFORM, system: platform}
+    logging: {dept: PLATFORM, system: platform}
 
   # 部門 → group。group 對應中央 vmauth 的 tenant。
   # 改組時大多只要改這一段。
