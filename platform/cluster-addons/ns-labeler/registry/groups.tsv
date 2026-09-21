@@ -1,9 +1,0 @@
-# 部門 → group
-#
-# group 對應中央 vmauth 的 tenant（一個 group 一把 token）。
-# 改組時大多只要改這一份：把部門搬到另一個 group，下一輪 reconcile 就會生效。
-D3120     it
-D3130     it
-D1110     imc
-D1120     imc
-PLATFORM  platform

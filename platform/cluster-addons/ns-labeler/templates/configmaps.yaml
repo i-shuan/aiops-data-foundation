@@ -1,4 +1,9 @@
-# 對照表。registry/*.tsv 是唯一來源，改 git 就等於改設定。
+# 對照表由 values 渲染成 tsv 檔。
+#
+# 為什麼放 values 而不是包在 chart 裡：chart 要發佈到 Helm repo 並釘選版本
+# （cluster-addons 的驗證規則要求），對照表包進去的話，改一個部門歸屬就得發一版
+# 新 chart。放 values 的話對照表留在 devops repo 的 git 裡，走 PR 審核，
+# chart 版本不用動。
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -6,10 +11,24 @@ metadata:
   labels:
     {{- include "ns-labeler.labels" . | nindent 4 }}
 data:
-{{- range $path, $_ := .Files.Glob "registry/*.tsv" }}
-  {{ base $path }}: |
-{{ $.Files.Get $path | indent 4 }}
-{{- end }}
+  # app → 部門。這裡的 app 是「namespace 去掉 cluster 前綴和 env 後綴剩下的那一段」，
+  # 不是 Deployment 的名字：zk-mes-prod → mes
+  apps.tsv: |
+    {{- range $app, $dept := .Values.registry.apps }}
+    {{ $app }} {{ $dept }}
+    {{- end }}
+
+  # namespace → 部門。例外用，優先順序高於 apps.tsv。
+  namespaces.tsv: |
+    {{- range $ns, $dept := .Values.registry.namespaces }}
+    {{ $ns }} {{ $dept }}
+    {{- end }}
+
+  # 部門 → group。改組時大多只改這一份。
+  groups.tsv: |
+    {{- range $dept, $group := .Values.registry.groups }}
+    {{ $dept }} {{ $group }}
+    {{- end }}
 ---
 apiVersion: v1
 kind: ConfigMap

@@ -80,16 +80,17 @@ CronJob 的 `CLUSTERS` 環境變數也用同樣的 `helm.parameters` 注入，�
 
 ### 它已經是一個 chart
 
-三個 tsv 用 `.Files.Glob` 直接渲染進 ConfigMap，腳本用 `.Files.Get`，所以**對照表在 git 裡就是唯一來源**，不再需要 `kubectl create configmap --from-file` 那種 ArgoCD 管不到的指令。
+對照表放在 **`values.yaml`**，由模板渲染成 ConfigMap 裡的三個 tsv 檔。
 
 ```
 platform/cluster-addons/ns-labeler/
   Chart.yaml
-  values.yaml
-  registry/*.tsv                  ← 人改這裡
+  values.yaml                     ← 對照表在這裡，人改這裡
   scripts/label-namespaces.sh
   templates/{configmaps,rbac,cronjob,vmrule}.yaml
 ```
+
+**為什麼對照表放 values 而不是包進 chart**：你們 `cluster-addons` 的驗證規則要求 `helm.repoURL` / `chart` / `version` / `valueFiles` 齊全，**不支援 git 內的本地 chart**，所以 chart 必須發佈到內部 Helm repo 並釘選版本。對照表若包在 chart 裡，改一個部門歸屬就要發一版新 chart；放 values 的話它留在 devops repo 的 git 裡走 PR，chart 版本不用動。
 
 本機驗證用：
 
@@ -134,7 +135,9 @@ kubectl -n vm-monitoring logs job/ns-labeler-now
 1. **名稱解析正確。** `zk-mes-prod` 去掉 cluster 前綴和 env 後綴後對到 `mes`，即使 app 名稱本身含有 `-` 也不會被切壞。
 2. **重跑不會亂動。** 第二次執行報「已正確 8 個，本次調整 0 個」，只在值不同時才送 patch。
 3. **改組只改一行。** 把 `groups.tsv` 裡 `D1110` 從 `imc` 改成 `it`，下一次執行只動 `zk-wip-prod` 一個 namespace，其他七個不受影響。
-4. **改對照表的完整迴路可用。** 在 `apps.tsv` 加一行 → `helm upgrade` → 下一次執行就把那個 namespace 標上，「對不到歸屬」的清單清空。這代表 `.Files.Glob` 那條路在 upgrade 時確實會帶新內容進去。
+4. **改對照表的完整迴路可用。** 加一筆對照 → `helm upgrade` → 下一次執行就把那個 namespace 標上，「對不到歸屬」的清單清空。
+
+**注意**：上面這四項是在對照表還用 `.Files.Glob` 讀 tsv 檔時驗的。後來為了配合 `cluster-addons` 只吃外部 chart 的規則，改成從 `values.yaml` 渲染，**這個版本只驗過 `helm template` 渲染正確，還沒重跑實機**。渲染出來的 ConfigMap 內容格式跟原本一樣，腳本沒有改，但正式上線前應該再跑一次。
 
 ## 對不到歸屬要有告警，不然就是靜默出錯
 

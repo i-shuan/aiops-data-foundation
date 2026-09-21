@@ -1,5 +1,40 @@
 # 這份全廠共用，不需要每個 cluster 一份。
-# 對照表（registry/*.tsv）也是共用的，改一次推到所有 cluster。
+#
+# 在 devops repo 裡的位置是 cluster-addons/ns-labeler/values.yaml，
+# chart 本體發佈到內部 Helm repo 並釘選版本（cluster-addons 的驗證規則要求
+# helm.repoURL / chart / version / valueFiles 齊全，不支援 git 內的本地 chart）。
+
+# ── 對照表 ────────────────────────────────────────────────
+# 放 values 而不是包進 chart，是為了讓「改一個部門歸屬」只要改這裡走 PR，
+# 不必發一版新 chart。
+registry:
+  # app → 部門。
+  # 這裡的 app 是「namespace 去掉 cluster 前綴和 env 後綴剩下的那一段」，
+  # 不是 Deployment 的名字：zk-mes-prod → mes
+  # 新 app 上線在這裡加一行，而且要比 app 部署先合進去。
+  apps:
+    mes: D3120
+    wip: D1110
+
+  # namespace → 部門。例外用，優先順序高於 apps。
+  # 平台自己的 namespace 也寫在這裡，這樣「沒有歸屬」就真的只剩該修的那些。
+  namespaces:
+    kube-system: PLATFORM
+    kube-public: PLATFORM
+    kube-node-lease: PLATFORM
+    default: PLATFORM
+    vm-monitoring: PLATFORM
+    logging: PLATFORM
+
+  # 部門 → group。group 對應中央 vmauth 的 tenant。
+  # 改組時大多只要改這一段。
+  groups:
+    D3120: it
+    D3130: it
+    D1110: imc
+    D1120: imc
+    PLATFORM: platform
+# ──────────────────────────────────────────────────────────
 
 image:
   # 一定要用「有 shell」的映像。只有 kubectl 執行檔的極簡映像會直接

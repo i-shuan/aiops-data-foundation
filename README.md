@@ -71,6 +71,7 @@ SHA 留著是為了萬一要回去翻，`git checkout <sha>` 還撈得到（垃�
 - [docs/efk.md](docs/efk.md)：log 怎麼分流。Fluentd 依 namespace 的 dept label 改 tag，每個 group 一個 output、各帶只能寫自己 index 的 API key。已在本機實測通過。
 - [docs/vmagent.md](docs/vmagent.md)：metrics 怎麼分流。現況是一個 cluster 一台 vmagent、一把 token、資料全進同一個 tenant；分流做法是把 `remoteWrite` 從一條拆成每個 group 一條。
 - [docs/architecture/](docs/architecture)：四張架構圖
+  - [before-after-tenant-split.svg](docs/architecture/before-after-tenant-split.svg)：**給人看的 Before / After。** tenant 從「依廠分」改成「依組織分」，重點是線會交叉。
   - [where-does-it-go.svg](docs/architecture/where-does-it-go.svg)：**決策圖。** 一個東西要部署，三個問題決定它掛哪一層。
   - [platform-pipeline-targets.svg](docs/architecture/platform-pipeline-targets.svg)：**宏觀圖。** 每個資料夾部署到哪個 cluster 的哪個 namespace，哪些只在 central 跑一次。
   - [two-pipelines.svg](docs/architecture/two-pipelines.svg)：app 的 CI/CD 和平台的 CI/CD 是兩條，交會點只有 namespace 這個物件。
