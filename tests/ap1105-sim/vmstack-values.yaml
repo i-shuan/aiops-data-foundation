@@ -1,0 +1,75 @@
+# 模擬 AP1105 的 /home/aiadm/victoriametrics/values.yaml
+#
+# 跟 AP1105 一樣：
+#   - vmagent 的 externalLabels、extraArgs（照 AP1105 貼出來的原樣）
+#   - VMCluster 跟 vmagent 在同一個 cluster，vmagent 只有 chart 自動產生的一條 remoteWrite → insert/0
+#   - syncJob 用 chart 預設（開著）
+#
+# 跟 AP1105 不一樣（只為了本機記憶體）：
+#   - grafana、alertmanager、vmalert 關掉
+#   - VMCluster 每個元件 1 份、PVC 1Gi，並限制 CPU 和記憶體
+#     （本機是 cgroup v1、20 顆 CPU。沒有 CPU limit 的話 VictoriaMetrics 會照 20 顆開平行度，
+#       記憶體跟著變大，128Mi～256Mi 都被 OOMKilled。rollback 之後 vmagent 三條 queue 一起補送，
+#       vminsert 256Mi 還是會被打掛，所以給到 512Mi）
+#   - 沒有設 global.image.registry：本機直接從各 registry 拉
+vmagent:
+  enabled: true
+  spec:
+    externalLabels:
+      cluster: ap1105
+    extraArgs:
+      promscrape.maxScrapeSize: 64MB
+
+vmsingle:
+  enabled: false
+
+vmcluster:
+  enabled: true
+  spec:
+    retentionPeriod: "1d"
+    replicationFactor: 1
+    vmstorage:
+      replicaCount: 1
+      storage:
+        volumeClaimTemplate:
+          spec:
+            resources:
+              requests:
+                storage: 1Gi
+      extraArgs:
+        memory.allowedBytes: 96MiB
+      resources:
+        limits:
+          cpu: 500m
+          memory: 1Gi
+    vmselect:
+      replicaCount: 1
+      storage:
+        volumeClaimTemplate:
+          spec:
+            resources:
+              requests:
+                storage: 1Gi
+      extraArgs:
+        memory.allowedBytes: 64MiB
+      resources:
+        limits:
+          cpu: 500m
+          memory: 256Mi
+    vminsert:
+      replicaCount: 1
+      extraArgs:
+        memory.allowedBytes: 64MiB
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+
+grafana:
+  enabled: false
+
+alertmanager:
+  enabled: false
+
+vmalert:
+  enabled: false

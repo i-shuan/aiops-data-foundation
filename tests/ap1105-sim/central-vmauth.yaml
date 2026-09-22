@@ -1,0 +1,62 @@
+# 模擬中央 vmauth：同一個 URL，依 bearer token 分 tenant。
+# token 是假的，只在這個模擬裡用。tenant 編號照之前 vmauth 設定的對應：IT=2、IMC=1、platform=0。
+# 後端就是模擬 AP1105 那套 VMCluster 的 vminsert，所以 platform（tenant 0）跟改之前是同一個地方。
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: central-sim
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: vmauth-config
+  namespace: central-sim
+stringData:
+  auth.yml: |
+    users:
+      - bearer_token: sim-token-it
+        url_prefix: http://vminsert-vmstack-victoria-metrics-k8s-stack.vm-monitoring.svc:8480/insert/2
+      - bearer_token: sim-token-imc
+        url_prefix: http://vminsert-vmstack-victoria-metrics-k8s-stack.vm-monitoring.svc:8480/insert/1
+      - bearer_token: sim-token-platform
+        url_prefix: http://vminsert-vmstack-victoria-metrics-k8s-stack.vm-monitoring.svc:8480/insert/0
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vmauth
+  namespace: central-sim
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: vmauth}
+  template:
+    metadata:
+      labels: {app: vmauth}
+    spec:
+      containers:
+        - name: vmauth
+          image: victoriametrics/vmauth:v1.148.0
+          imagePullPolicy: IfNotPresent
+          args: ["-auth.config=/etc/vmauth/auth.yml", "-httpListenAddr=:8427"]
+          ports:
+            - {name: http, containerPort: 8427}
+          readinessProbe:
+            httpGet: {path: /health, port: http}
+          resources:
+            limits: {memory: 64Mi}
+          volumeMounts:
+            - {name: config, mountPath: /etc/vmauth}
+      volumes:
+        - name: config
+          secret: {secretName: vmauth-config}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vmauth
+  namespace: central-sim
+spec:
+  selector: {app: vmauth}
+  ports:
+    - {name: http, port: 8427, targetPort: http}

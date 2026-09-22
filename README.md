@@ -98,6 +98,8 @@ vmagent 不知道 values.yaml、app 名稱、namespace 名稱，也沒有部門�
 - 三把 token 各對到哪個 tenant：問 vmauth 的管理者，不動對方設定。
 - chart 版本和來源：`helm list -n vm-monitoring` 看現在的版本，`helm search repo victoria-metrics-k8s-stack --versions` 要找得到**同一個版本**。
 - `helm get values vmstack -n vm-monitoring` 裡如果有 `vmagent.additionalRemoteWrites`，那些會變成第四條以後，要先處理。
+- **VMAgent CRD 認不認得這兩個欄位**：`kubectl explain` 說不存在**不能當依據**。用 server-side dry-run 確認 `scrapeClasses`、`inlineUrlRelabelConfig` 不會被裁掉。CRD 是沒有這兩個欄位的舊版時**不能套**：過濾會被默默裁掉，所有資料外洩到每一個 tenant。判斷方法和指令見 [`tests/ap1105-sim`](tests/ap1105-sim/README.md) 發現 1。
+- **最新一版是 failed（例如 post-upgrade hook 失敗）**：overlay 照樣會生效，只是 release 還是 failed。要修 hook 的話**不要直接關 syncJob**，它建的告警規則和 dashboard 會被一起刪掉，見 [`tests/ap1105-sim`](tests/ap1105-sim/README.md) 發現 2。
 
 **步驟**（以 AP1105 為例，在 repo 根目錄）：
 

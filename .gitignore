@@ -4,3 +4,6 @@ __pycache__/
 
 # image tar 100 多 MB，超過 GitHub 單檔上限，放在測試機上，不進 git
 *.tar
+
+# tests/ap1105-sim 的工作檔（current-values、dry-run 輸出）
+tests/ap1105-sim/.work/

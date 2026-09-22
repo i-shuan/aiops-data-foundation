@@ -1,0 +1,7 @@
+# 模擬 AP1105 連不到 ghcr.io。
+# ghcr.io 指到一個不存在的位址，搭配 k3s 的 --disable-default-registry-endpoint，
+# containerd 不會退回去直接連 ghcr.io。其他 registry（docker.io、quay.io、registry.k8s.io）照常。
+mirrors:
+  ghcr.io:
+    endpoint:
+      - "http://127.0.0.1:9"
