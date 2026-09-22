@@ -1,3 +1,6 @@
 # Python 編譯產物
 __pycache__/
 *.pyc
+
+# image tar 100 多 MB，超過 GitHub 單檔上限，放在測試機上，不進 git
+*.tar

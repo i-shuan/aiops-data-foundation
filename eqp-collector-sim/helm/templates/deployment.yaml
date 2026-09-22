@@ -1,0 +1,71 @@
+{{- if ne (int .Values.replicas) 1 }}
+{{- fail "replicas 只能是 1：每個副本都會收全部 EQUIPMENT，開 2 個就重複收值" }}
+{{- end }}
+{{- range $name, $port := dict "METRICS_PORT" .Values.ports.metrics "HTTP_PORT" .Values.ports.http }}
+{{- with get $.Values.env $name }}
+{{- if ne (toString .) (toString $port) }}
+{{- fail (printf "env.%s（%v）跟 ports 不一樣（%v），probe 或 vmagent 會連錯 port" $name . $port) }}
+{{- end }}
+{{- end }}
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.app.name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Values.app.name }}
+    app.kubernetes.io/version: {{ .Values.image.tag | quote }}
+spec:
+  replicas: {{ .Values.replicas }}
+  strategy:
+    type: Recreate           # 滾動更新會讓新舊 pod 同時收值，改成先停舊的再起新的
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ .Values.app.name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ .Values.app.name }}
+        app.kubernetes.io/version: {{ .Values.image.tag | quote }}
+    spec:
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      # 符合 Pod Security restricted，cluster 有強制的話也放得進去
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: {{ .Values.app.name }}
+          image: {{ printf "%s:%s" .Values.image.repository (toString .Values.image.tag) }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.ports.http }}
+            - name: metrics
+              containerPort: {{ .Values.ports.metrics }}
+          env:
+            {{- range $k, $v := .Values.env }}
+            - name: {{ $k }}
+              value: {{ $v | quote }}
+            {{- end }}
+          readinessProbe:
+            httpGet:
+              path: /readyz          # 第一輪收完才 ready
+              port: http
+          livenessProbe:
+            httpGet:
+              path: /healthz         # 收值迴圈太久沒動就重啟
+              port: http
+            initialDelaySeconds: 20
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
