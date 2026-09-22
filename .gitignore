@@ -1,3 +1,7 @@
 # helm dependency build / update 產生的東西，不要進版控
 charts/*/charts/
 charts/*/Chart.lock
+
+# Python 編譯產物
+__pycache__/
+*.pyc
