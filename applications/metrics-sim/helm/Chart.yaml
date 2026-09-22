@@ -3,7 +3,3 @@ name: metrics-sim
 description: 持續模擬機台收值，用來驗證 metrics 依 namespace 的 group label 分流
 type: application
 version: 0.1.0
-dependencies:
-  - name: app-common
-    version: 0.1.0
-    repository: file://../../../charts/app-common

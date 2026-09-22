@@ -25,7 +25,6 @@ ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..")
 VMSTACK = os.environ.get("VMSTACK_VALUES", os.path.join(ROOT, "platform", "vmstack-values.yaml"))
 APPSET = os.path.join(ROOT, "platform", "applicationset.yaml")
 SIM_CHART = os.path.join(ROOT, "applications", "metrics-sim", "helm")
-APP_COMMON = os.path.join(ROOT, "charts", "app-common")
 
 TEST_VMAUTH = "http://vmauth-test.route-test.svc:8427"
 TEST_REPO = "http://git-server.route-test.svc:8080/repo.git"
@@ -90,12 +89,10 @@ def repo():
             for f in files:
                 p = os.path.join(d, f)
                 rel = os.path.relpath(p, src).replace("\\", "/")
-                # helm dependency build 的產物不進 repo，讓 ArgoCD 自己處理相依
-                if rel.startswith("charts/") or rel == "Chart.lock" or rel in skip:
+                if rel in skip:
                     continue
                 add_bytes("%s/%s" % (dest, rel), open(p, "rb").read())
 
-    add_dir(APP_COMMON, "charts/app-common")
     for case, (observability, _) in check.CASES.items():
         values = copy.deepcopy(base)
         values["argocd"].update(namespace=check.namespace(case), project="default", autoSync=True)

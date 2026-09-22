@@ -112,8 +112,7 @@ k3d image import metrics-sim:test victoriametrics/vmauth:v1.148.0 -c zk
 - **log 還有一份 dept 對照。** `platform/fluent.conf` 依 `dept` 分流，自己寫著部門清單，而且目前只有 D3120、D1110 兩條：**D3130、D1120 的 log 會進 unassigned**（`yms-sim` 就是 D1120）。log 也不支援 `it.imc`。
 - **dept 沒有清單可以比對**，打錯字 CI 抓不到。metrics 不受影響（看的是 group），但 log 會進 unassigned。
 - **改組要改每個相關 app 的 values.yaml。** 沒有中央的部門對照表是刻意的，代價是部門換 group 時要一個一個改。production 還要等手動 sync 才會生效。
-- **搬到 devops repo 時**：discovery 改成找 `applications/*/helm/values.yaml`，**只用 manifests、沒有 `helm/` 的 app 不會被發現**。其他 app 的 `app.yaml` 內容也要搬進各自的 `values.yaml`。`charts/app-common` 要發佈到內部 Helm repo，因為各 chart 的 `file://../../../charts/app-common` 只在這個 repo 裡有效。
+- **搬到 devops repo 時**：discovery 改成找 `applications/*/helm/values.yaml`，**只用 manifests、沒有 `helm/` 的 app 不會被發現**。其他 app 的 `app.yaml` 內容也要搬進各自的 `values.yaml`。
+- **共用模板每個 app 各一份。** 標準 label、probe、VMServiceScrape 的模板（`helm/templates/_*.tpl`）三個 app 各複製一份。平台要改標準時每個 app 都要改，漏改一個不會報錯。
 - **token 要手動建**，Vault 還沒上線。
 - **本機 E2E 不是正式環境**：單一 cluster、in-cluster destination、本機 git server、不經過中央 vmauth 的真實 tenant。
-
-`charts/app-common` 不在上面的主線裡，但三個 app 的 chart 都靠 `file://` 引用它，刪掉就渲染不出來，所以保留。

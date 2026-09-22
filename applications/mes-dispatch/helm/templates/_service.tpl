@@ -1,21 +1,21 @@
-{{- define "app-common.service" -}}
+{{- define "app.service" -}}
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "app-common.name" . }}
+  name: {{ include "app.name" . }}
   labels:
-    {{- include "app-common.labels" . | nindent 4 }}
+    {{- include "app.labels" . | nindent 4 }}
 spec:
   selector:
-    {{- include "app-common.selectorLabels" . | nindent 4 }}
+    {{- include "app.selectorLabels" . | nindent 4 }}
   ports:
     {{- /* 沒有對外 HTTP 的服務（worker、batch）不要開一個沒人聽的 port */}}
     {{- if .Values.ports.http }}
     - name: http
-      port: {{ include "app-common.httpPort" . }}
+      port: {{ include "app.httpPort" . }}
       targetPort: http
     {{- end }}
     - name: metrics
-      port: {{ include "app-common.metricsPort" . }}
+      port: {{ include "app.metricsPort" . }}
       targetPort: metrics
 {{- end -}}

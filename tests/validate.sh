@@ -147,7 +147,6 @@ for app, doc in docs.items():
         errs.append("namespace %s 也被 %s 宣告，兩個 Application 會輪流覆蓋對方的 label"
                     % (ns, ", ".join(a for a in owners[ns] if a != app)))
     chart = "applications/%s/helm" % app
-    subprocess.run(["helm", "dependency", "build", chart, "--skip-refresh"], capture_output=True)
     r = subprocess.run(["helm", "template", "ci", chart], capture_output=True, text=True, encoding="utf-8")
     if r.returncode:
         errs.append("chart 渲染失敗：%s" % r.stderr.strip().splitlines()[-1])

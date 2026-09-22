@@ -1,35 +1,35 @@
 {{/* 服務名稱：AIOps 的分析單位，上線後不要再改 */}}
-{{- define "app-common.name" -}}
+{{- define "app.name" -}}
 {{- required "app.name 必填" .Values.app.name -}}
 {{- end -}}
 
 {{/* 版本：直接取 image tag，每次發版都會變，AIOps 靠它判斷「什麼時候換了版本」 */}}
-{{- define "app-common.version" -}}
+{{- define "app.version" -}}
 {{- .Values.image.tag | toString | trunc 63 -}}
 {{- end -}}
 
-{{- define "app-common.selectorLabels" -}}
-app.kubernetes.io/name: {{ include "app-common.name" . }}
+{{- define "app.selectorLabels" -}}
+app.kubernetes.io/name: {{ include "app.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end -}}
 
-{{- define "app-common.labels" -}}
-{{ include "app-common.selectorLabels" . }}
+{{- define "app.labels" -}}
+{{ include "app.selectorLabels" . }}
 app.kubernetes.io/part-of: {{ .Values.app.partOf }}
 app.kubernetes.io/component: {{ .Values.app.component }}
-app.kubernetes.io/version: {{ include "app-common.version" . | quote }}
+app.kubernetes.io/version: {{ include "app.version" . | quote }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- end -}}
 
-{{- define "app-common.httpPort" -}}
+{{- define "app.httpPort" -}}
 {{- (.Values.ports | default dict).http | default 8080 -}}
 {{- end -}}
 
-{{- define "app-common.metricsPort" -}}
+{{- define "app.metricsPort" -}}
 {{- (.Values.ports | default dict).metrics | default 9464 -}}
 {{- end -}}
 
-{{- define "app-common.javaAgentEnabled" -}}
+{{- define "app.javaAgentEnabled" -}}
 {{- $otel := .Values.otel | default dict -}}
 {{- $java := $otel.javaAgent | default dict -}}
 {{- if $java.enabled }}true{{ end -}}
@@ -38,7 +38,7 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{/*
 源頭資料規範。不符合就直接部署失敗，CI 只要跑 helm template 就能擋下。
 */}}
-{{- define "app-common.validate" -}}
+{{- define "app.validate" -}}
 {{- $v := .Values -}}
 {{- $app := $v.app | default dict -}}
 {{- $_ := required "app.name 必填（服務名稱，例如 mes-api）" $app.name -}}
@@ -62,7 +62,7 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- if not (and $probes.readiness $probes.liveness) -}}
 {{- fail "probes.readiness 與 probes.liveness 必填，探測失敗的事件是 AIOps 的訊號來源" -}}
 {{- end -}}
-{{- if include "app-common.javaAgentEnabled" . -}}
+{{- if include "app.javaAgentEnabled" . -}}
 {{- $_ := required "otel.javaAgent.enabled 為 true 時，otel.javaAgent.image 必填" $v.otel.javaAgent.image -}}
 {{- end -}}
 {{- end -}}

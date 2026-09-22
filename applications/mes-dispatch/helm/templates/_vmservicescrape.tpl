@@ -1,14 +1,14 @@
-{{- define "app-common.vmservicescrape" -}}
+{{- define "app.vmservicescrape" -}}
 apiVersion: operator.victoriametrics.com/v1beta1
 kind: VMServiceScrape
 metadata:
-  name: {{ include "app-common.name" . }}
+  name: {{ include "app.name" . }}
   labels:
-    {{- include "app-common.labels" . | nindent 4 }}
+    {{- include "app.labels" . | nindent 4 }}
 spec:
   selector:
     matchLabels:
-      {{- include "app-common.selectorLabels" . | nindent 6 }}
+      {{- include "app.selectorLabels" . | nindent 6 }}
   endpoints:
     - port: metrics
       path: /metrics

@@ -1,10 +1,5 @@
 apiVersion: v2
 name: mes-dispatch
-description: MES 下貨服務。應用團隊只填 values，其餘由 app-common 產生
+description: MES 下貨服務。應用團隊只填 values，其餘由 templates/ 裡的共用模板產生
 type: application
 version: 0.1.0
-dependencies:
-  - name: app-common
-    version: 0.1.0
-    # 正式環境改成內部 chart repo，例如 https://charts.internal.spil.com.tw
-    repository: file://../../../charts/app-common
