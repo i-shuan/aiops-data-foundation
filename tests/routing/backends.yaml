@@ -90,3 +90,96 @@ stringData:
   it: test-token-it
   imc: test-token-imc
   platform: test-token-platform
+---
+# ── 本機 git server：讓 ArgoCD 真的從 git 讀 values.yaml ──
+# git 的 smart HTTP（ArgoCD 不支援 dumb HTTP）只有兩個請求，都直接轉給 git upload-pack。
+# 沒用 git http-backend：alpine 的 git 套件沒有它。
+# repo 內容由 run.sh 每次重新灌進來。
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: git-server, namespace: route-test}
+data:
+  server.py: |
+    import gzip, os, subprocess
+    from socketserver import ThreadingMixIn
+    from wsgiref.simple_server import WSGIRequestHandler, WSGIServer, make_server
+
+    ROOT = "/srv/git"
+
+    class Threaded(ThreadingMixIn, WSGIServer):
+        daemon_threads = True
+
+    class Quiet(WSGIRequestHandler):
+        def log_message(self, *args):
+            pass
+
+    def pkt(line):
+        data = line.encode()
+        return b"%04x" % (len(data) + 4) + data
+
+    def upload_pack(repo, *args, data=None):
+        # 不傳 GIT_PROTOCOL，強制走 v0：client 要求 v2 時會自動退回，少處理一種格式
+        return subprocess.run(["git", "upload-pack", "--stateless-rpc", *args, repo],
+                              input=data, capture_output=True).stdout
+
+    def app(environ, start_response):
+        name, _, rest = environ.get("PATH_INFO", "").lstrip("/").partition("/")
+        repo = os.path.join(ROOT, name)
+        method = environ["REQUEST_METHOD"]
+        is_refs = rest == "info/refs" and "service=git-upload-pack" in environ.get("QUERY_STRING", "")
+        if os.path.isdir(repo) and method == "GET" and is_refs:
+            body = pkt("# service=git-upload-pack\n") + b"0000" + upload_pack(repo, "--advertise-refs")
+            start_response("200 OK", [("Content-Type", "application/x-git-upload-pack-advertisement"),
+                                      ("Cache-Control", "no-cache")])
+            return [body]
+        if os.path.isdir(repo) and method == "POST" and rest == "git-upload-pack":
+            data = environ["wsgi.input"].read(int(environ.get("CONTENT_LENGTH") or 0))
+            if environ.get("HTTP_CONTENT_ENCODING") == "gzip":
+                data = gzip.decompress(data)
+            start_response("200 OK", [("Content-Type", "application/x-git-upload-pack-result"),
+                                      ("Cache-Control", "no-cache")])
+            return [upload_pack(repo, data=data)]
+        start_response("404 Not Found", [])
+        return [b""]
+
+    make_server("", 8080, app, server_class=Threaded, handler_class=Quiet).serve_forever()
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: git-server, namespace: route-test}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: git-server}}
+  template:
+    metadata: {labels: {app: git-server}}
+    spec:
+      # python 在容器裡是 PID 1，預設不處理 SIGTERM，不縮短的話每次重啟都要等滿 30 秒
+      terminationGracePeriodSeconds: 2
+      containers:
+        - name: git
+          image: alpine/k8s:1.30.0
+          command: ["sh", "-c", "mkdir -p /srv/git && exec python3 -u /app/server.py"]
+          ports: [{name: http, containerPort: 8080}]
+          resources: {requests: {cpu: 10m, memory: 32Mi}, limits: {memory: 128Mi}}
+          volumeMounts:
+            - {name: app, mountPath: /app}
+            - {name: srv, mountPath: /srv}
+      volumes:
+        - {name: app, configMap: {name: git-server}}
+        - {name: srv, emptyDir: {}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: git-server, namespace: route-test}
+spec:
+  selector: {app: git-server}
+  ports: [{name: http, port: 8080, targetPort: http}]
+---
+# ArgoCD 精簡版不會自動建 default 這個 AppProject，測試用的 app 掛在它底下
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata: {name: default, namespace: argocd}
+spec:
+  sourceRepos: ["*"]
+  destinations: [{server: "*", namespace: "*"}]
+  clusterResourceWhitelist: [{group: "*", kind: "*"}]

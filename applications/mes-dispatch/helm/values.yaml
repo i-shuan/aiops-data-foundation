@@ -1,9 +1,26 @@
-# 應用團隊只需要填這一份。不需要知道 tenant、group、token。
+# ── 給 ArgoCD 讀的：platform/applicationset.yaml 掃這個檔案產生 Application ──
+# chart 本身不會用到這兩段，Helm 會直接忽略。
+argocd:
+  namespace: mes-dispatch-prod
+  project: ai-platform
+  environment: production      # production 不可自動同步
+  owner: mes-team
+  criticality: high
+  autoSync: false
+
+# ── 這個 app 的 observability identity，唯一的來源 ──
+# 部署時照原值變成 namespace 的 label，vmagent 依 group 決定送去哪個 tenant。
+observability:
+  dept: D3120                  # 必填：這份資料是誰的
+  group: it                    # 必填：送到哪些 tenant。it / imc / it.imc / platform
+  system: mes                  # 選填：業務系統
+
+# ── 以下是一般的 Helm values ──
 
 app:
-  name: mes-dispatch   # 必須跟 services/ 底下的資料夾同名
-  partOf: mes          # 所屬系統
-  component: api       # api / web / worker / batch / gateway
+  name: mes-dispatch           # 必須跟 services/ 底下的資料夾同名
+  partOf: mes                  # 所屬系統
+  component: api               # api / web / worker / batch / gateway
 
 image:
   repository: nexus.aillm.spil.com.tw/docker/mes/mes-dispatch

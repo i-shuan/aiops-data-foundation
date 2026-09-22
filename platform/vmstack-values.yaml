@@ -10,7 +10,14 @@
 #   2. vmagent.spec.remoteWrite     從一條拆成三條，依 group 各自過濾、各自帶 token
 #   3. kube-state-metrics           新增 metricLabelsAllowlist
 #
-# 整條資料流見 docs/architecture.md，上線步驟見 docs/vmagent.md。
+# 整條資料流見 README.md。
+#
+# ⚠ 上線順序：先把 vmauth-token 這個 Secret 建好三個 key（it / imc / platform），再套這份。
+#   順序反過來的話 vmagent 找不到 key，remoteWrite 起不來，整個 cluster 的 metrics 會停。
+#   token 結尾多一個換行就會一直 401，錯誤訊息不會說原因：kubectl describe secret 看 byte 數。
+# ⚠ 改完不會馬上生效：operator 更新設定後，vmagent 要等 kubelet 同步（最多一分鐘左右）才重新載入。
+#   實際載入的規則看 vmagent 的 /remotewrite-url-relabel-config。
+# ⚠ CRD 沒帶 schema，欄位打錯不會報錯，只會靜默失效。
 # ──────────────────────────────────────────────────────────────
 
 global:
@@ -70,8 +77,9 @@ vmagent:
     # 沒有這段，下面三條 remoteWrite 的過濾條件全部對不到東西，
     # 結果是 IT / IMC 兩條都送不出去，全部落到兜底那條。
     #
-    # 這些 label 由 ArgoCD 依每個 app 的 app.yaml 貼到 namespace 上，見 platform/argocd/。
-    # vmagent 只讀 namespace 的 label，不知道 app.yaml 的存在，也不維護任何 app 或 namespace 清單。
+    # 這些 label 由 ArgoCD 依每個 app 的 applications/<app>/helm/values.yaml 貼到 namespace 上
+    # （platform/applicationset.yaml）。vmagent 只讀 namespace 的 label，
+    # 不知道 values.yaml 的存在，也不維護任何 app、namespace 或部門清單。
     scrapeClasses:
       - name: default
         default: true
@@ -100,7 +108,7 @@ vmagent:
     # 過濾依據是 group，不是 dept。原因：
     #   - 一個 namespace 只有一個 dept，依 dept 分就不可能「兩個 tenant 都送」。
     #   - 依 dept 分的話，部門清單要寫死在這裡，每次改組都要改這份、重啟 vmagent。
-    #     依 group 分的話，部門搬家只要改 platform/argocd/namespace-metadata.tmpl，這份不用動。
+    #     依 group 分的話，這份裡沒有部門清單，部門進出都不用動。
     #
     # regex 寫法：'(.*\.)?it(\..*)?' 表示「group 以點切開後，其中一段是 it」。
     #   it       → 符合
@@ -108,6 +116,11 @@ vmagent:
     #   imc      → 不符合
     # 不要寫成 'it'：那只認單一值，it.imc 會被 IT 漏掉。
     # 也不要寫成 '.*it.*'：那會把名字裡剛好含 it 的 group 也算進來。
+    # YAML 用單引號、一個反斜線。從雙引號的範例 "(.*\\.)?it" 複製過來時要把反斜線減半，
+    # 不然會變成比對字面上的反斜線，it.imc 又被 IT 漏掉，而且不會報錯。
+    #
+    # 允許寫哪些 group 也是從這裡推出來的：tests/validate.sh 讀這三條 remoteWrite，
+    # 允許 it、imc、it.imc（順序照這裡）和 fallback 的 platform。
     #
     # 只有新增 tenant（中央多發一把 token）時才要改這份：多加一條 remoteWrite，
     # 並把名字加進兜底那條的 drop regex。

@@ -1,8 +1,0 @@
-# expect: OK
-# labels: dept=D3120 group=it.imc
-# 共用的 app：歸屬是 IT，多送一份給 IMC。
-# 故意不填 system，驗證不會產生空的 system label。
-namespace: zk-sim-shared-prod
-observability:
-  dept: D3120
-  group: it.imc

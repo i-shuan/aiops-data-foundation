@@ -1,6 +1,0 @@
-# expect: OK
-# labels: dept=D1110 group=imc system=sim
-namespace: zk-sim-imc-prod
-observability:
-  dept: D1110
-  system: sim

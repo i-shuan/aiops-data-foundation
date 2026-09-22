@@ -1,85 +1,84 @@
 #!/usr/bin/env bash
-# C. namespace label → tenant 分流的端到端測試。在本機 k3d 上跑，會一直留著模擬器產生資料。
+# 整條主線的 E2E，在本機 k3d 上跑，真的經過 ArgoCD：
+#
+#   values.yaml → ArgoCD ApplicationSet → Namespace labels → vmagent → vmauth → tenant
 #
 #   ./tests/routing/run.sh
 #
-# 流程：
-#   1. 建本機的 vmauth + 三個 VMSingle（代表 IT / IMC / platform 三個 tenant）
-#   2. 從正式的 vmstack-values.yaml 產生測試用的 VMAgent
-#   3. namespace 的 label 走主線：app.yaml → CI 驗證 → 渲染 template → 貼到 namespace
-#      （最後一步正式環境是 ArgoCD 做的，這裡用 kubectl label 代替）
-#   4. 每個 namespace 部署一份 metrics-sim，持續產生資料
-#   5. 查三個 tenant 各收到什麼、共用的那份是不是同一次抓取
+# 正式環境：vmagent → 中央 vmauth → IT / IMC / platform tenant
+# 本機：    vmagent → 本機 vmauth → VMSingle it / imc / platform
 #
-# 前提：k3d 的 zk cluster 在跑、VictoriaMetrics operator 已裝、
-#       metrics-sim:test 和 vmauth 映像已經 import 進 k3d（見 README）。
+# 所有設定都取自 platform/ 的正式檔案，只換位址：
+#   - vmagent 取自 platform/vmstack-values.yaml，只換 remoteWrite 的 URL
+#   - ApplicationSet 取自 platform/applicationset.yaml，只換 repoURL（指向本機 git server）
+#   - 測試 app 的 values.yaml 取自 applications/metrics-sim/helm/values.yaml，只換 namespace、映像、observability
+#
+# 全部對 exit 0，任何一項不對 exit 1。VMSTACK_VALUES=<改壞的複本> 可以確認測試抓得到錯。
+#
+# 前提（見 README）：ArgoCD v3.5.3 core、VictoriaMetrics operator、
+#                    metrics-sim:test 和 vmauth 映像已經 import 進 k3d
 set -euo pipefail
 export MSYS_NO_PATHCONV=1 PYTHONIOENCODING=utf-8
-
-cd "$(dirname "$0")/../.."
-HERE=tests/routing
-CASES=tests/app-yaml/cases
+cd "$(dirname "$0")"
 
 step() { printf '\n=== %s ===\n' "$*"; }
+# kubectl、helm 是 Windows 程式時看不懂 Git Bash 的 /tmp/...，要轉成 C:/...
+native() { cygpath -m "$1" 2>/dev/null || printf '%s' "$1"; }
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+CASES="it imc shared none bad"
 
-step "1. 本機的 vmauth 與三個 tenant"
-kubectl apply -f "$HERE/backends.yaml" >/dev/null
+kubectl -n argocd get deploy argocd-applicationset-controller >/dev/null 2>&1 \
+  || { echo "找不到 ArgoCD，先照 README 裝好"; exit 1; }
+
+step "1. 本機 vmauth、三個 tenant、git server"
+kubectl apply -f backends.yaml >/dev/null
 for t in it imc platform; do
   until kubectl -n route-test get deploy "vmsingle-$t" >/dev/null 2>&1; do sleep 2; done
 done
-kubectl -n route-test rollout status deploy/vmsingle-it deploy/vmsingle-imc deploy/vmsingle-platform deploy/vmauth-test --timeout=120s
+kubectl -n route-test rollout status deploy/vmsingle-it deploy/vmsingle-imc deploy/vmsingle-platform \
+  deploy/vmauth-test deploy/git-server --timeout=120s >/dev/null
+echo "OK"
 
-step "2. 從正式設定產生測試用 VMAgent"
-generated=$(mktemp)
-trap 'rm -f "$generated"' EXIT
-# kubectl、helm 是 Windows 程式時看不懂 Git Bash 的 /tmp/... 路徑
-generated_native=$(cygpath -m "$generated" 2>/dev/null || printf '%s' "$generated")
-python "$HERE/gen_vmagent.py" > "$generated"
-kubectl apply -f "$generated_native" >/dev/null
+step "2. vmagent（取自 platform/vmstack-values.yaml）"
+python gen.py vmagent > "$tmp/vmagent.yaml"
+kubectl apply -f "$(native "$tmp/vmagent.yaml")" >/dev/null
 until kubectl -n route-test get deploy vmagent-under-test >/dev/null 2>&1; do sleep 2; done
-kubectl -n route-test rollout status deploy/vmagent-under-test --timeout=120s
-# 設定改了不會馬上生效。不等的話會測到舊設定，舊設定剛好是對的時候測試會假裝通過。
-python "$HERE/await_config.py" "$generated_native" --timeout 180
+kubectl -n route-test rollout status deploy/vmagent-under-test --timeout=120s >/dev/null
+python check.py config "$(native "$tmp/vmagent.yaml")"
 
-step "2b. 清空三個 tenant，只看新設定送進來的資料"
+step "3. 清空三個 tenant 和上一輪的 app"
 for t in it imc platform; do kubectl -n route-test rollout restart "deploy/vmsingle-$t" >/dev/null; done
-kubectl -n route-test rollout status deploy/vmsingle-it deploy/vmsingle-imc deploy/vmsingle-platform --timeout=120s
+kubectl -n argocd delete applicationset under-test --ignore-not-found --wait=true >/dev/null
+for c in $CASES; do kubectl delete ns "zk-sim-$c-prod" --ignore-not-found --wait=false >/dev/null; done
+for c in $CASES; do kubectl wait --for=delete "ns/zk-sim-$c-prod" --timeout=120s >/dev/null 2>&1 || true; done
+kubectl -n route-test rollout status deploy/vmsingle-it deploy/vmsingle-imc deploy/vmsingle-platform --timeout=120s >/dev/null
+# 故意先建一個沒有 label 的 namespace：驗證 ArgoCD 會把 label 補到已經存在的 namespace 上
+kubectl create ns zk-sim-imc-prod >/dev/null
+echo "OK（zk-sim-imc-prod 事先建好，沒有 label）"
 
-step "3. namespace 與 label"
-fresh_ns() {  # 建 namespace，清掉舊 label，每次都從乾淨的狀態開始
-  kubectl create ns "$1" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
-  kubectl label ns "$1" dept- group- system- >/dev/null 2>&1 || true
-}
+step "4. 測試 app 灌進本機 git server"
+# 選還活著的 pod：重啟後舊 pod 在結束前狀態仍然是 Running
+pod=$(kubectl -n route-test get pods -l app=git-server \
+  -o go-template='{{range .items}}{{if not .metadata.deletionTimestamp}}{{.metadata.name}}{{"\n"}}{{end}}{{end}}' | head -1)
+python gen.py repo | kubectl -n route-test exec -i "$pod" -- sh -c '
+  set -e; rm -rf /srv/work /srv/git/repo.git; mkdir -p /srv/work /srv/git; tar -x -C /srv/work
+  cd /srv/work && git init -q -b main && git add -A && git -c user.email=t@t -c user.name=test commit -qm test
+  git clone -q --bare /srv/work /srv/git/repo.git
+  echo "commit $(git rev-parse --short HEAD)：$(ls applications | tr "\n" " ")"'
 
-# 走主線的三個：label 來自 app.yaml，跟正式環境同一條路
-for s in it imc shared; do
-  f="$CASES/ok-$s.yaml"
-  ns=$(sed -n 's/^namespace: *//p' "$f")
-  fresh_ns "$ns"
-  python platform/argocd/validate_observability.py "$f" >/dev/null   # CI 沒過就不往下走
-  # shellcheck disable=SC2046
-  kubectl label ns "$ns" $(bash tests/app-yaml/render.sh "$f") --overwrite >/dev/null
+step "5. ArgoCD ApplicationSet（取自 platform/applicationset.yaml）"
+python gen.py appset > "$tmp/appset.yaml"
+kubectl apply -f "$(native "$tmp/appset.yaml")" >/dev/null
+deadline=$((SECONDS + 300))
+until [ "$(kubectl -n argocd get applications -o go-template='{{range .items}}{{if and (eq .status.sync.status "Synced") (eq .status.health.status "Healthy")}}x{{end}}{{end}}' 2>/dev/null)" = "xxxxx" ]; do
+  [ $SECONDS -lt $deadline ] || { kubectl -n argocd get applications; echo "等了 300 秒，Application 還沒全部 Synced / Healthy"; exit 1; }
+  sleep 5
 done
+kubectl -n argocd get applications -o custom-columns=APP:.metadata.name,SYNC:.status.sync.status,HEALTH:.status.health.status,NAMESPACE:.spec.destination.namespace
 
-# 沒有 label：沒有 app.yaml 的 namespace
-fresh_ns zk-sim-none-prod
+step "6. ArgoCD 貼到 namespace 上的 label"
+python check.py labels
 
-# 有 label 但值不合法：正式環境會被 CI 擋下，這裡直接貼上去，驗證 vmagent 自己也不會送錯
-fresh_ns zk-sim-bad-prod
-kubectl label ns zk-sim-bad-prod dept=D9999 group=nope --overwrite >/dev/null
-
-kubectl get ns zk-sim-it-prod zk-sim-imc-prod zk-sim-shared-prod zk-sim-none-prod zk-sim-bad-prod -L dept,group,system
-
-step "4. 部署模擬器"
-helm dependency build applications/metrics-sim/helm --skip-refresh >/dev/null
-for ns in zk-sim-it-prod zk-sim-imc-prod zk-sim-shared-prod zk-sim-none-prod zk-sim-bad-prod; do
-  helm upgrade --install metrics-sim applications/metrics-sim/helm -n "$ns" \
-    --set image.repository=metrics-sim --set image.tag=test >/dev/null
-done
-for ns in zk-sim-it-prod zk-sim-imc-prod zk-sim-shared-prod zk-sim-none-prod zk-sim-bad-prod; do
-  kubectl -n "$ns" rollout status deploy/metrics-sim --timeout=90s >/dev/null
-done
-echo "5 個模擬器都在跑"
-
-step "5. 查三個 tenant 收到什麼（最多等 150 秒）"
-python "$HERE/check.py" --wait 150
+step "7. namespace label → tenant（最多等 150 秒）"
+python check.py routing --wait 150

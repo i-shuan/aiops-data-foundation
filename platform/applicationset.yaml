@@ -1,0 +1,62 @@
+# values.yaml → Namespace labels
+#
+# 掃每個 applications/<app>/helm/values.yaml，一個檔案長出一個 Application：
+#   - values.yaml 的 argocd 區塊決定 project、namespace、要不要自動同步
+#   - values.yaml 的 observability 區塊照原值變成 namespace 的 label
+#
+# 這份只負責「轉換」，不判斷歸屬：沒有 dept → group 的對照表，
+# values.yaml 寫什麼就貼什麼。寫錯的值由 tests/validate.sh 在 CI 擋。
+#
+# 放到 devops repo 時是 applicationsets/devops/applicationset.yaml，
+# appsets-of-appsets.yaml 只認得這個檔名。
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: devops
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - git:
+        repoURL: https://gitlab.example.com/platform/gitops-config.git
+        revision: main
+        files:
+          - path: "applications/*/helm/values.yaml"
+  template:
+    metadata:
+      # .path.path 是 values.yaml 所在的資料夾 applications/<app>/helm，第 2 段就是 app 名稱
+      name: '{{ index .path.segments 1 }}'
+      labels:
+        platform.example.com/environment: '{{ .argocd.environment }}'
+        platform.example.com/owner: '{{ .argocd.owner }}'
+        platform.example.com/criticality: '{{ .argocd.criticality }}'
+    spec:
+      project: '{{ .argocd.project }}'
+      source:
+        repoURL: https://gitlab.example.com/platform/gitops-config.git
+        targetRevision: main
+        path: '{{ .path.path }}'
+        helm:
+          releaseName: '{{ index .path.segments 1 }}'
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: '{{ .argocd.namespace }}'
+  # templatePatch 才能「沒寫就不產生」。寫在 template 裡的話，沒填的欄位會變成空字串的 label。
+  templatePatch: |
+    {{- $labels := dict }}
+    {{- range $key := list "dept" "group" "system" }}
+    {{- with dig "observability" $key "" $ }}{{ $_ := set $labels $key . }}{{ end }}
+    {{- end }}
+    spec:
+      syncPolicy:
+        {{- if .argocd.autoSync }}
+        automated:
+          prune: true
+          selfHeal: true
+        {{- end }}
+        syncOptions:
+          # managedNamespaceMetadata 只有在 CreateNamespace=true 時才會生效
+          - CreateNamespace=true
+        managedNamespaceMetadata:
+          labels: {{ $labels | toJson }}

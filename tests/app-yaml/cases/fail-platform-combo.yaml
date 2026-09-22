@@ -1,6 +1,0 @@
-# expect: FAIL
-# platform 是 fallback，不能拿來組合
-namespace: zk-x-prod
-observability:
-  dept: D3120
-  group: it.platform

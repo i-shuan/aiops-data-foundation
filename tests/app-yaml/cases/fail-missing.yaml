@@ -1,3 +1,0 @@
-# expect: FAIL
-# 忘了寫 observability
-namespace: zk-x-prod

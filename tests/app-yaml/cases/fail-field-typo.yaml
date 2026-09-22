@@ -1,6 +1,0 @@
-# expect: FAIL
-# 欄位名打錯：grop。不擋的話會被默默忽略，資料只進 IT
-namespace: zk-x-prod
-observability:
-  dept: D3120
-  grop: it.imc

@@ -1,4 +1,0 @@
-# 跟 b.yaml 宣告同一個 namespace。各自單獨看都合法，要一起驗才抓得到。
-namespace: zk-shared-ns-prod
-observability:
-  dept: D3120

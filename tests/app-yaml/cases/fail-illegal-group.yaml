@@ -1,6 +1,0 @@
-# expect: FAIL
-# 打錯字：imcc 不是一個 tenant
-namespace: zk-x-prod
-observability:
-  dept: D3120
-  group: it.imcc
