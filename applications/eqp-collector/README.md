@@ -1,4 +1,4 @@
-# eqp-collector-sim：機台收值程式的手動 Helm 測試
+# eqp-collector：機台收值程式（手動 Helm 部署）
 
 > **一句話**：把一支模擬的機台收值程式部署到 Kubernetes，確認它產生的數據會照 namespace 上的 `group` 標籤，**只**送進 IMC 的資料庫，不會跑到 IT 或平台的資料庫。
 
@@ -10,7 +10,7 @@
 |---|---|
 | 想知道這在做什麼（主管、非技術同仁） | [1](#1-這次要證明什麼)、[2](#2-一張圖看懂) |
 | 要動手測試的人 | [3](#3-名詞小辭典) → [6](#6-操作步驟)，出問題看 [8](#8-出問題時) |
-| 平台 / 維運 | [9](#9-為什麼這樣設計)、[10](#10-跟正式架構的關係) |
+| 平台 / 維運 | [9](#9-為什麼這樣設計)、[10](#10-跟其他-app-的差別) |
 
 ---
 
@@ -113,11 +113,11 @@
 
 ## 4. 資料夾裡有什麼
 
+repo 裡（`applications/eqp-collector/`）：
+
 ```
-eqp-collector-sim/
+applications/eqp-collector/
 ├── README.md                     這份說明
-├── image/                        放 image tar（不進 git：檔案 100 多 MB）
-│   └── equipment-collector-test.tar
 └── helm/                         Helm chart：一包「怎麼部署」的設定
     ├── Chart.yaml                chart 的名字和版本
     ├── values.yaml               ★ 唯一需要改的檔
@@ -128,7 +128,16 @@ eqp-collector-sim/
         └── vmservicescrape.yaml  登記給既有的 vmagent 來抓
 ```
 
-程式本體不在這裡，在 repo 的 [`services/eqp-collector/`](../services/eqp-collector/)（`main.py`）。
+測試機 AP1105 上（`/home/aiadm/eqp-collector-sim/`）：
+
+```
+eqp-collector-sim/
+├── image/                        放 image tar（不進 git：檔案 100 多 MB）
+│   └── equipment-collector-test.tar
+└── helm/                         從 repo 的 applications/eqp-collector/helm 整包複製過來
+```
+
+程式本體在 repo 的 [`services/eqp-collector/`](../../services/eqp-collector/)（`main.py`）。
 
 ### 程式會吐出什麼
 
@@ -202,7 +211,7 @@ chart 會自動擋下這些錯誤，部署前就失敗，不會帶著錯誤上�
 
 - [ ] AP1105 上 `kubectl get nodes` 跑得動，`helm version` 有東西
 - [ ] cluster 已經有 VictoriaMetrics operator 和 vmagent（Step 4、Step 6-8 會確認）
-- [ ] 那台 vmagent 用的是 repo 的 [`platform/vmstack-values.yaml`](../platform/vmstack-values.yaml)（Step 6-8 會確認）
+- [ ] 那台 vmagent 用的是 repo 的 [`platform/vmstack-values.yaml`](../../platform/vmstack-values.yaml)（Step 6-8 會確認）
 - [ ] vmagent 所在 namespace 有 `vmauth-token` Secret，裡面有 `it`、`imc`、`platform` 三個 key
 
 ### Step 1：把檔案放上 AP1105
@@ -218,11 +227,11 @@ chart 會自動擋下這些錯誤，部署前就失敗，不會帶著錯誤上�
 三種方法擇一：
 
 - MobaXterm 左側 SFTP 面板，把 `helm/` 資料夾拖進 `/home/aiadm/eqp-collector-sim/`
-- 在開發機（Git Bash）：
+- 在開發機的 repo 根目錄（Git Bash）：
   ```bash
-  scp -r eqp-collector-sim/helm aiadm@AP1105:/home/aiadm/eqp-collector-sim/
+  scp -r applications/eqp-collector/helm aiadm@AP1105:/home/aiadm/eqp-collector-sim/
   ```
-- 在 AP1105 `git clone` 這個 repo，直接用 repo 裡的 `eqp-collector-sim/helm`（下面指令的路徑要跟著換）
+- 在 AP1105 `git clone` 這個 repo，直接用 repo 裡的 `applications/eqp-collector/helm`（下面指令的路徑要跟著換）
 
 ### Step 2：確認 cluster 長什麼樣、image 要放哪台
 
@@ -589,19 +598,27 @@ image 是手動匯入 node 的，外面沒有地方可以拉。設 `Never` 的�
 
 ---
 
-## 10. 跟正式架構的關係
+## 10. 跟其他 app 的差別
 
-| | 正式：[`applications/eqp-collector/helm`](../applications/eqp-collector/helm) | 這個測試：`eqp-collector-sim/helm` |
+`applications/` 底下其他 app（`mes-dispatch`、`metrics-sim`、`yms-sim`）都是給 ArgoCD 部署的。這個 app 是**手動 Helm 部署**，刻意不一樣：
+
+| | 其他 app | eqp-collector |
 |---|---|---|
 | 誰部署 | ArgoCD（`platform/applicationset.yaml`） | 人手動 `helm` |
 | namespace 門牌誰貼 | ArgoCD | chart 的 `namespace.yaml` |
 | image 從哪來 | Nexus，自動拉 | tar 手動匯入 node，`Never` |
-| `values.yaml` | 有 `argocd:` 區塊，`env` 是清單 | 沒有 `argocd:`，`env` 是 key: value |
+| `values.yaml` | 有 `argocd:` 區塊，`env` 是清單 | **沒有 `argocd:`**，`env` 是 key: value |
+| 模板 | `_*.tpl` 共用標準模板 | 精簡版，只有 4 個檔 |
 | vmagent / vmauth / tenant | 平台那一套 | **同一套**，不另外建 |
 
-- **ArgoCD 不會部署這個資料夾**：ApplicationSet 只找 `applications/*/helm/values.yaml`。
-- ⚠ **不要在跑正式 ArgoCD app 的 cluster 上跑這個**：兩邊都用 `eqp-collector-dev`，門牌和資源會互相覆蓋。
-- 模板是從正式 chart 精簡來的：label 名稱、probe、VMServiceScrape 的 relabel 都一樣。正式 chart 以後改標準，這裡**不會**跟著變。
+⚠ **因為沒有 `argocd:` 區塊，平台的兩個檢查會把它當成錯誤**（已知、刻意保留）：
+
+- **`tests/validate.sh` 會失敗**。第 1 段顯示 `FAIL eqp-collector：缺少 argocd 區塊`，第 3 段直接中斷（`nil pointer evaluating interface {}.autoSync`），後面的自我檢查和最後的 PASS / FAIL 都不會跑到。**其他 app 的結果還是要看**，不能因為這支一定 FAIL 就不看。
+- **有 ArgoCD 的環境**：ApplicationSet 掃 `applications/*/helm/values.yaml` 會掃到這個 app，因為設了 `missingkey=error`，產生 Application 時會報錯。**不要把這個 repo 直接接到有 ArgoCD 的環境**，除非先補上 `argocd:` 區塊，或讓 ApplicationSet 排除這個路徑。
+
+其他要注意的：
+
+- 模板是從原本的標準 chart 精簡來的：label 名稱、probe、VMServiceScrape 的 relabel 都一樣。平台以後改標準模板，這個 app **不會**跟著變。
 - 沒有 ArgoCD 幫忙加 `cluster` 標籤（repo 的 `externalLabels` 是空的，平常由 ArgoCD 補上）。**分流不受影響**，但 IMC tenant 裡分不出這些數據是哪個 cluster 來的。
 
 ### 這個測試證明什麼、不證明什麼
@@ -613,6 +630,6 @@ image 是手動匯入 node 的，外面沒有地方可以拉。設 `Never` 的�
 
 **不證明**
 
-- **ArgoCD 那一段**：在 repo 的 [`tests/routing`](../tests/routing) 驗。
+- **ArgoCD 那一段**：在 repo 的 [`tests/routing`](../../tests/routing) 驗。
 - **log 的分流**：Fluentd 看的是 `dept` 不是 `group`，是另一條路，見 repo 根目錄 README 的 Known limitations。
 - **真的機台**：現在是模擬的。接真機台只要換掉 `services/eqp-collector/main.py` 的 `read_equipment()`。

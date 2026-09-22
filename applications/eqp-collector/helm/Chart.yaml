@@ -1,5 +1,6 @@
 apiVersion: v2
 name: eqp-collector
-description: 機台收值。metrics 給 VictoriaMetrics、log 給 Elasticsearch，歸屬寫在 values.yaml 的 observability
+description: eqp-collector 手動 Helm smoke test。沒有 ArgoCD，Namespace 和它的 label 由這個 chart 自己建立。
 type: application
 version: 0.1.0
+appVersion: "test"
