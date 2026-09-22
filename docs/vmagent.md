@@ -1,299 +1,140 @@
-# vmagent 資料分流
+# vmagent 分流：上線步驟
 
-一句話：**拆的是 `remoteWrite`，不是 vmagent。** vmagent 維持一台，把出口從一條變成每個 group 一條。
+分流怎麼運作、regex 為什麼這樣寫，見 [architecture.md](architecture.md)。這份只講**怎麼把它裝上去**。
 
-## 這份設定在哪一層：cluster，不是 app
-
-最容易誤會的地方。**這是 cluster 層級的設定，一個 cluster 一份，不是每個 app 一份。**
-
-| | vmstack values（這份） | app 的 chart values |
-|---|---|---|
-| 幾份 | 一份共用，由 cluster-addons 的 ApplicationSet 部到每個 cluster | 一個 app 一份 |
-| 誰改 | 平台團隊 | app 團隊 |
-| 有沒有 token | 有三把 | **絕對不能有** |
-
-放進每個 app 的 chart 會讓整套設計垮掉：每個 app team 都要知道 token、改組要通知所有團隊改 regex、而且會變成一個 app 一台 vmagent，同一份資料被抓 N 次。
-
-app 端要做的只有讓 `app-common` 產生一個 VMServiceScrape，跟那台唯一的 vmagent 說「我在這裡，來抓我」。分流全部發生在 vmagent 那一端，app 不知情。
-
-**會搞混是因為 ArgoCD 裡什麼都叫 Application**：`cluster-addons` 也是一個 Application，也有 values 檔，但它是「這個 cluster 要裝哪些平台元件」，不是業務服務。
-
-## 現況
-
-共用 values（`victoria-metrics-k8s-stack`）產生的是「一個 cluster 一台」：
-
-- `selectAllByDefault` 用 chart 預設的 `true`，這一台抓整個 cluster。
-- 只有一條 `remoteWrite`、一把 `vmauth-token`。
-- 結果：**整個 cluster 的資料全部進同一個 tenant，IT、IMC、平台混在一起。**
+一句話：**拆的是 `remoteWrite`，不是 vmagent。** vmagent 維持一個 cluster 一台，出口從一條變成三條。
 
 ![tenant 從依廠分改成依組織分](architecture/before-after-tenant-split.svg)
 
-把 `vmagent.enabled` 改成 `false` **不是分流**，是把收集器整台刪掉，整廠 metrics 會直接停。分流要靠拆 `remoteWrite`，vmagent 維持一台。
+## 這份設定在哪一層：cluster，不是 app
 
-## 分流機制
-
-```
-vmagent 抓一次（全 cluster）
-        ↓ 依 remoteWrite 條數複製
-   ├─ 只留 group 含 it 的     → token: it       → IT tenant
-   ├─ 只留 group 含 imc 的    → token: imc      → IMC tenant
-   └─ 上面兩者都不含的        → token: platform → 平台 tenant
-```
-
-每條出口各自過濾、各自帶 token。tenant 由中央 vmauth 依 token 決定，**這邊不碰 tenant 設計**。
-
-**過濾依據是 namespace 的 `group` label，不是 `dept`。** 兩個理由：
-
-- **一份資料可以給多個 tenant。** `group=it.imc` 會同時通過 IT 和 IMC 兩條。依 `dept` 分做不到，因為一個 namespace 只有一個部門。
-- **改組不用碰這份設定。** 部門搬去別的 group 只要改 ns-labeler 的 `registry.groups`。依 `dept` 分的話，部門清單寫死在 regex 裡，每次改組都要改 values、重啟 vmagent。
-
-`dept` 還是會帶進資料，只是從「分流依據」變成「歸屬欄位」：`dept` 講這份資料是誰的，`group` 講誰看得到。
-
-## 前提：資料上要有判斷依據
-
-vmagent 過濾時只看得到 label，所以每筆資料必須帶一個能判斷歸屬的欄位。兩種取得方式：
-
-| 方式 | 怎麼來 | 限制 |
+| | vmstack values（這份） | app 的 values |
 |---|---|---|
-| 讀 namespace 的 label | 抓取時把 `group` label 帶進資料 | 需要 `scrapeClasses` 支援，**已在 operator v0.74.1 實測可用** |
-| 用 namespace 名稱比對 | 每筆資料本來就有 `namespace` | 不需要進階功能，但名稱要能對應到 group |
+| 幾份 | 一份共用，由 cluster-addons 的 ApplicationSet 部到每個場區叢集 | 一個 app 一份 |
+| 誰改 | 平台 | app 團隊 |
+| 有沒有 token | 有三把 | **絕對不能有** |
 
-第一種已經在本機環境實測過可用，見下方「本機實測結果」。正式環境要先確認 operator 版本。
+app 那邊只負責讓 `app-common` 產生一個 VMServiceScrape，跟那台唯一的 vmagent 說「來抓我」。分流全部發生在 vmagent，app 不知情。
 
-**`kubectl explain` 在這裡問不出東西**：chart 裝的 CRD 沒有帶 schema，所以 explain 查不到欄位，API server 也不會驗證。**打錯欄位名稱不會報錯，只會靜默失效。** 要確認設定有沒有生效，只能看 vmagent 產生出來的設定：
+把 `vmagent.enabled` 改成 `false` **不是分流**，是把收集器整台刪掉，整廠 metrics 會直接停。
+
+## 要改的檔案
+
+[../platform/cluster-addons/vmstack-values.yaml](../platform/cluster-addons/vmstack-values.yaml) 是**照你們現有的 values 模板改出來的完整版本**，直接跟你們的 `cluster-addons/vmagent/values.yaml` diff。只動了三個地方：
+
+| 位置 | 改什麼 |
+|---|---|
+| `vmagent.spec.scrapeClasses` | **新增**：抓取時把 namespace 的 label 貼到資料上 |
+| `vmagent.spec.remoteWrite` | 一條拆三條，依 `group` 過濾、各帶自己的 token |
+| `kube-state-metrics.metricLabelsAllowlist` | **新增**：讓 `kube_namespace_labels` 帶出 namespace 上的歸屬 |
+
+另外順手修了原始模板一個縮排錯誤：`victoria-metrics-operator` 底下的 `requests` / `limits` 跟 `resources` 同層，等於 operator 沒吃到任何資源設定。
+
+`externalLabels` 維持空的，cluster 名字由 ApplicationSet 的 `helm.parameters` 注入。這份是全廠共用的，寫死會讓其他廠掛上錯的 cluster 名。
+
+## 上線順序：Secret 一定要先
+
+1. **請中央發三把 token，`vmauth-token` Secret 從一個 key 變成三個**：`it`、`imc`、`platform`
+2. **app 的 namespace 已經有 label**（app.yaml 的 observability 已經上線）
+3. **最後才套 values**
+
+順序顛倒的後果不一樣：
+
+| 漏掉哪一步 | 後果 |
+|---|---|
+| 第 1 步 | vmagent 找不到 `it` / `imc` 這些 key，remoteWrite 起不來，**整個 cluster 的 metrics 會停** |
+| 第 2 步 | 三條都過濾不到東西，**全部落到 platform**。資料不會掉，只是沒分流 |
+
+所以真正致命的是第 1 步。套之前先檢查三個 key 都在：
 
 ```bash
-kubectl -n <namespace> get secret vmagent-<名稱> -o jsonpath='{.data.vmagent\.yaml\.gz}' | base64 -d | gunzip | grep -A3 attach_metadata
+for k in it imc platform; do
+  kubectl -n <vmstack namespace> get secret vmauth-token -o jsonpath="{.data.$k}" >/dev/null 2>&1 \
+    || { echo "vmauth-token 缺少 $k，先補齊再套 values，否則整廠 metrics 會停"; exit 1; }
+done
 ```
 
-## 要改的 YAML
+## Secret 怎麼建
 
-這一段要寫進 **`victoria-metrics-k8s-stack` 的 values**，也就是你們現在那份共用的 vmagent 設定檔，位置在 `.Values.vmagent.spec`。chart 會把它原封不動塞進 VMAgent 這個 CR，operator 再把 CR 轉成 vmagent 真正在讀的設定。
+### Rancher
 
-repo 裡對應的檔案是 [../platform/cluster-addons/vmstack-values.yaml](../platform/cluster-addons/vmstack-values.yaml)，那是**照你們現有的 values 模板改出來的完整版本**，可以直接 diff。只動了三個地方：`vmagent.spec.scrapeClasses`（新增）、`vmagent.spec.remoteWrite`（一條拆三條）、`kube-state-metrics.metricLabelsAllowlist`（新增）。
+1. 切到目標 cluster，進 Storage 底下的 Secrets
+2. 選 vmstack 部署的那個 namespace，**不是 app 的 namespace**
+3. 編輯既有的 `vmauth-token`，型別維持 Opaque，用 key/value 模式逐一加 `it`、`imc`、`platform`
+4. 存檔後重啟 vmagent
 
-**這裡只列關鍵的三條過濾，完整內容以那個檔案為準**——不在文件裡複製一份，免得改了檔案忘了改文件。之前就發生過：文件裡那份還是依 `dept` 分流，實際檔案已經改了。
-
-```yaml
-# IT：group 以點切開後，其中一段是 it
-- action: keep
-  source_labels: [group]
-  regex: '(.*\.)?it(\..*)?'
-
-# IMC
-- action: keep
-  source_labels: [group]
-  regex: '(.*\.)?imc(\..*)?'
-
-# 兜底：不含任何 tenant 名稱的
-- action: drop
-  source_labels: [group]
-  regex: '(.*\.)?(it|imc)(\..*)?'
-```
-
-| group | IT | IMC | 兜底 |
-|---|---|---|---|
-| `it` | ✓ | | |
-| `imc` | | ✓ | |
-| `it.imc` | ✓ | ✓ | |
-| 沒有 / `platform` | | | ✓ |
-| `itx`、`split`（剛好含字母） | | | ✓ |
-
-**regex 一定要照這個寫法**，兩種直覺寫法都會錯而且不報錯：
-
-| 寫法 | 問題 |
-|---|---|
-| `'it'` | 只認單一值，`it.imc` 會被 IT 漏掉。**實測過**，見 [../tests/routing/](../tests/routing) |
-| `'.*it.*'` | 名字裡剛好含 `it` 的 group 也會被算進 IT |
-
-**反斜線的數量跟引號種類綁在一起**，實測過每一種：
-
-| 寫法 | 結果 |
-|---|---|
-| 單引號、一個反斜線 `'(.*\.)?it(\..*)?'` | 正確（repo 裡用這個） |
-| 雙引號、兩個反斜線 `"(.*\\.)?it(\\..*)?"` | 正確 |
-| 雙引號、一個反斜線 | YAML 直接解析失敗，**會報錯**，不危險 |
-| **單引號、兩個反斜線** | 變成比對字面上的反斜線，只認 `it`，**`it.imc` 被漏掉，不報錯** |
-| **忘了反斜線** `'(.*.)?it(..*)?'` | 點變成任意字元，`wit.imc` 也進 IT，**不報錯** |
-
-最容易發生的是第四種：**從雙引號的範例複製過來、改成單引號，但沒把反斜線減半。**
-
-**只有新增 tenant（中央多發一把 token）時才要改這份**：多加一條 remoteWrite，並把名字加進兜底那條的 drop regex。部門進出、改組都不用動。
-
-## Secret 要跟著改
-
-原本只有一個 `token` key，要變成每個 group 一個。舊的 `token` key 可以留著不刪，已經沒有 remoteWrite 引用它。
-
-token 由中央那邊提供，我們只負責放進 Secret。兩種做法：
-
-### 做法一：Rancher（目前手動階段建議用這個）
-
-1. 切到目標 cluster，進 Storage 底下的 Secrets（路徑依 Rancher 版本略有不同）。
-2. 選 vmstack 部署的那個 namespace，**不是應用的 namespace**。
-3. 既有的 `vmauth-token` 直接編輯，型別維持 Opaque，用 key/value 的編輯模式逐一加 key：`it`、`imc`、`platform`。
-4. 存檔後**一定要重啟 vmagent**，見下方。
-
-### 做法二：kubectl
+### kubectl
 
 ```bash
 kubectl -n <vmstack namespace> create secret generic vmauth-token \
-  --from-literal=it=<對方給的 IT token> \
-  --from-literal=imc=<對方給的 IMC token> \
-  --from-literal=platform=<對方給的平台 token> \
+  --from-literal=it=<IT token> \
+  --from-literal=imc=<IMC token> \
+  --from-literal=platform=<平台 token> \
   --dry-run=client -o yaml | kubectl apply -f -
-```
 
-### 改完要重啟 vmagent
-
-Secret 的值換了，vmagent 不保證會立刻重讀，切換 token 時不要賭：
-
-```bash
 kubectl -n <vmstack namespace> rollout restart deployment/vmagent-<名稱>
 ```
 
-會不會自動重載還沒實際驗證過。
+舊的 `token` key 可以留著，已經沒有 remoteWrite 引用它。
 
-### 改完這樣驗證
+### 建完怎麼確認
 
 ```bash
 kubectl -n <vmstack namespace> describe secret vmauth-token
 ```
 
-會列出每個 key 和 byte 數。**byte 數比 token 實際長度多 1，通常就是結尾多了換行。**
+會列出每個 key 的 byte 數。**比 token 實際長度多 1，通常就是結尾多了換行**——最常見的失敗，一直 401 而且錯誤訊息不會說原因。
 
-再開 vmagent 的 `/metrics`，找 `vmagent_remotewrite_` 開頭的指標，看每個 URL 的失敗次數與佇列堆積。三條出口分開統計，哪一條的 token 有問題一眼就看得出來。
+### 坑
 
-### 手動建 Secret 的優缺點，以及 Vault 這條路
+- **不要用 Rancher 的「Edit as YAML」貼部分內容**，那等於整份取代，沒貼到的 key 會消失
+- **namespace 和 cluster 很容易選錯**
+- **手動改沒有紀錄可追**，只能翻 audit log
 
-先講清楚：**手動不是純粹的爛做法**，它有兩個真的優點。
+### 手動 vs Vault
 
-| | 手動建 Secret | Vault + Vault Secrets Operator |
+兩廠的時候手動撐得住，擴到五六廠就不行：每開一廠要貼三把 vmauth token、三把 ES API key，貼錯是靜默失敗。
+
+| | 手動 | Vault + Vault Secrets Operator |
 |---|---|---|
-| token 經過的地方 | 只有人的手和 API server，**不經過 git、不經過 CI** | 經過 Vault 和 VSO，多兩個元件可能出事 |
-| 排查 | `kubectl get secret` 就看到，沒有中間層 | 要查 VSO 的 CR 狀態、Vault 的 auth、路徑對不對 |
-| 擴廠 | **每開一廠要人工做一次**，跟「擴廠不能全人工」衝突 | list 加一行，Secret 自動出現 |
-| 輪替 token | 每個廠都要進去改一次 | 改 Vault 一處，各廠自動更新 |
-| 稽核 | 沒有。誰什麼時候改了什麼只能翻 audit log | Vault 有存取紀錄 |
-| 打錯 | **貼多一個換行就一直 401，錯誤訊息不會說原因** | 不會有人工貼上這一步 |
-| cluster 重建 | **會漏掉**，而且 vmagent 會起不來 | 跟著 ApplicationSet 一起回來 |
+| token 經過哪 | **不經過 git、不經過 CI** | 多經過 Vault 和 VSO |
+| 排查 | `kubectl get secret` 就看到 | 要查 VSO 的 CR、Vault 的 auth |
+| 擴廠 | 每開一廠人工做一次 | list 加一行，自動出現 |
+| 輪替 | 每個廠各改一次 | 改 Vault 一處 |
+| cluster 重建 | **會漏掉**，vmagent 起不來 | 跟著 ApplicationSet 回來 |
 
-兩廠的時候手動撐得住，**五廠六廠就不行了**：每開一廠要進 UI 貼六次（三把 vmauth token、三把 ES API key），而且貼錯的失敗是靜默的。
-
-### 可以走 Vault，而且路已經鋪一半了
-
-`cluster-addons/vault-secrets-operator/` 已經在每個場區叢集部署，`cctv-inspection-app` 的 ApplicationSet 裡也帶了 `k8sAuthMount`——代表 **Kubernetes 對 Vault 的認證路徑已經在用了**。
-
-所以這條路不是從零開始，要做的是：
-
-1. token 存進 Vault（例如 `secret/observability/vmauth-token`，三個欄位 `it` / `imc` / `platform`）
-2. 在 `cluster-addons/` 底下放一個 `VaultStaticSecret` 的 CR，指向那個路徑，產出名為 `vmauth-token` 的 Secret
-3. 那份 CR 進 git——**裡面只有「去哪裡拿」，沒有機密本身**，所以可以走 PR 審核
-4. ES 的 API key 同樣處理
-
-依你們文件，`repositories/` 和 `clusters/` 也規劃走同一條路，所以這是既定方向，不是為了這個專案另闢蹊徑。
-
-**代價是多一個相依**：Vault 掛掉時，已經存在的 Secret 還在、跑著的 pod 不受影響，但新 pod 和輪替會卡住。這個取捨通常可以接受，但要知道。
-
-### 在 Vault 到位之前
-
-不要為了等 Vault 就停著，但要補一個防呆——**套 values 之前先確認 Secret 的三個 key 都在**：
-
-```bash
-for k in it imc platform; do
-  kubectl -n <vmstack namespace> get secret vmauth-token -o jsonpath="{.data.$k}" >/dev/null 2>&1     || { echo "vmauth-token 缺少 $k，先補齊再套 values，否則 vmagent 會起不來、整廠 metrics 會停"; exit 1; }
-done
-```
-
-這一步把「套下去才發現 metrics 停了」換成「套之前就被擋下來」。
-
-### 改 Secret 的坑
-
-- **貼 token 不要多出換行或空白。** 最常見的失敗，多一個看不見的換行就一直 401，錯誤訊息不會告訴你原因。
-- **不要用「Edit as YAML」貼部分內容。** 那等於整份取代，沒貼到的 key 會消失。用 key/value 編輯模式。
-- **namespace 和 cluster 很容易選錯**，Rancher UI 上尤其。
-- **UI 改沒有紀錄可追**，誰在什麼時候改了什麼只能翻 audit log。
-- **擴廠時這樣不可行**：每開一個新廠都要手動進 UI 建一次。見下方待確認。
+`cluster-addons/vault-secrets-operator/` 已經在每個場區叢集部署，`cctv-inspection-app` 也已經在用 `k8sAuthMount`，路鋪了一半。Vault 上線後在 `cluster-addons/` 放一份 `VaultStaticSecret` 指向 token 的路徑，那份 CR 裡只有「去哪裡拿」，可以進 git。
 
 ## 驗收
-
-改完之後查一次：
 
 ```
 count by (vm_account_id, group, namespace) (up)
 ```
 
-一個 namespace 出現在幾個 `vm_account_id`，就應該等於它 `group` label 裡有幾段。`group=it` 的出現在兩個 tenant，就是規則寫錯了。
+一個 namespace 出現在幾個 `vm_account_id`，應該等於它 `group` label 裡有幾段。`group=it` 的出現在兩個 tenant，就是規則寫錯了。
 
-端到端的自動化驗證見 [../tests/routing/](../tests/routing)：六個情境（只 IT、只 IMC、兩個都送、沒登記、打錯字、`it.platform`），跑一次就知道。
+再開 vmagent 的 `/metrics`，看 `vmagent_remotewrite_` 開頭的指標。三條出口分開統計，哪一條的 token 有問題一眼就看得出來。
 
-## 本機實測結果
-
-### 依 group 分流（目前的設計）
-
-用 [../tests/routing/run.sh](../tests/routing/run.sh) 驗證，測的是從正式 values 產生的 vmagent，不是另外手寫的：
-
-| namespace 的 group | IT | IMC | 兜底 |
-|---|---|---|---|
-| `it` | ✓ | | |
-| `imc` | | ✓ | |
-| `it.imc` | ✓ | ✓ | |
-| 沒登記 | | | ✓ |
-| `it.imcc`（打錯字，ns-labeler 拒標） | | | ✓ |
-| `it.platform`（ns-labeler 拒標） | | | ✓ |
-
-存進每個 tenant 的 `group` 都等於那個 tenant 的名字。共用的 namespace 在兩個 tenant 裡同一時間點的值一模一樣，代表是同一次抓取複製成兩份，不是抓了兩次。
-
-**也驗證了測試本身抓得到錯**：把 IT 的 regex 故意改成 `'it'`，結果只有 `it.imc` 從 IT 消失，其他全對，測試 exit 1。
-
-### 最早依 dept 分流的版本
-
-
-在本機用 k3d 建了三個叢集模擬（`central`、`zk`、`el`），在 `zk` 上跑完整條路徑驗證過。
-
-**環境**：VictoriaMetrics operator v0.74.1、vmagent v1.148.0、namespace 打上 `dept` label、一個 VMSingle 當儲存、一個 node-exporter 當抓取目標。
-
-**結果**
-
-| namespace | dept label | 進到哪條出口 |
-|---|---|---|
-| `zk-mes-prod` | `D3120` | IT |
-| `vm-monitoring` | 無 | 兜底（platform） |
-
-**確認了三件事**
-
-1. **`scrapeClasses` 加 `attachMetadata` 可用。** 設定確實被渲染成 `attach_metadata: namespace: true`，namespace 的 label 成功變成資料上的 `dept` 欄位。
-2. **remoteWrite 拆條分流會動。** 兩條出口各自過濾、各自送出，都回 2XX，資料落點正確。
-3. **兜底那條有效。** 沒標 label 的 namespace 自動歸到 platform，資料不會消失。
-
-**跟 log 那邊的欄位是對得起來的。** 九個關聯欄位（`cluster`、`group`、`dept`、`system`、`namespace`、`app`、`version`、`pod`、`container`）名稱兩邊一致（平台 namespace 的 `group` 值例外，見 efk.md），比對結果見 [efk.md](efk.md)。其中 `app` 和 `version` 要靠 VMServiceScrape 的 relabel 才會有，`app-common` 模板已經包含，手寫的 scrape 物件會少掉。
-
-**踩到的坑：VMServiceScrape 是用 Service 的 label 去選，不是用 Service 的 pod selector。**
-
-測試時 Service 沒打 label，結果整個 target 不存在，而且**沒有任何錯誤訊息**，只是靜靜地沒資料。`app-common` 模板有幫 Service 打 label，照模板走不會踩到；但既有的服務如果 Service 沒 label，接上去會直接沒資料。
-
-排查方式是看 vmagent 的 targets：
+**確認 vmagent 實際載入的分流規則**：
 
 ```bash
-kubectl -n <namespace> port-forward svc/vmagent-<名稱> 8429
-# 然後開 http://localhost:8429/api/v1/targets
+kubectl -n <vmstack namespace> port-forward svc/vmagent-<名稱> 8429
+# 開 http://localhost:8429/remotewrite-url-relabel-config
 ```
+
+**改完設定不會馬上生效。** operator 更新 Secret 後，vmagent 要等 kubelet 同步（最多一分鐘左右）才重新載入。這段期間跑的還是舊設定。E2E 測試就是因為這樣曾經假裝通過，後來加了「等實際載入的設定一致才開始檢查」這一步。
 
 ## 坑
 
-- **原本那條一定要改掉，不能留著再加新的。** 它沒有任何過濾，留著等於每筆資料多送一份到舊 tenant。要把它改成兜底那一條。
-- **一份資料進兩個 tenant 現在是刻意的**（`group=it.imc`），不是錯誤。要擋的是「不小心」：ns-labeler 會拒絕不存在的 group 名稱，打錯字只會掉進兜底並觸發告警，不會送進錯的 tenant。
-- **兜底那條不能省。** 沒有它，node-exporter 和 kube-state-metrics 的節點層級資料會整批消失。它的 drop regex 必須列出前面所有 tenant 的名字，漏一個的話那個 tenant 的資料會同時進兜底。
-- **每多一條出口，每筆資料就多比對一次、多一個磁碟佇列。** 3 條沒問題，之後要切到部門層級（50 條）要重新評估。
-- **好處是故障隔離。** 每條出口的佇列獨立，某個 tenant 的 token 過期或寫入失敗，只有那條卡住重試，其他 group 不受影響。
+- **原本那條 remoteWrite 一定要改掉，不能留著再加新的。** 它沒有任何過濾，留著等於每筆資料多送一份到舊 tenant。
+- **platform 那條不能省。** 沒有它，node-exporter、kube-state-metrics 這些節點層級的資料會整批消失。它的 drop regex 必須列出所有 tenant 的名字。
+- **`kubectl explain` 問不出東西。** chart 裝的 CRD 沒帶 schema，API server 不驗證，**欄位打錯不會報錯，只會靜默失效**。要看 operator 產生出來的設定或上面那個端點才準。
+- **VMServiceScrape 是用 Service 的 label 去選的**，不是 Service 的 pod selector。Service 沒打 label，target 整個不存在，沒有任何錯誤訊息。`app-common` 有幫 Service 打 label，照模板走不會踩到。
+- **每多一條出口，每筆資料就多比對一次、多一個磁碟佇列。** 3 條沒問題，之後要切到部門層級（幾十條）要重新評估。
+- **好處是故障隔離。** 每條出口的佇列獨立，某個 tenant 的 token 過期，只有那條卡住重試，其他不受影響。
 
 ## 待確認
 
-1. **正式環境的 operator 版本。** 本機用 v0.74.1 實測可用，你們那邊要確認版本不會比這舊太多，不然就走名稱比對那條路。
-2. 整個 cluster 是不是只有這一台 vmagent。如果應用 namespace 裡還有別的，會重複收，分流做得再對也沒用：
-
-```bash
-kubectl get vmagent -A
-```
-
-3. ~~「部門 → group」對照表放哪裡、怎麼渲染進這份 values~~ 已解：放 ns-labeler 的 `registry.groups`，而且改成依 `group` 分流之後，**這份 values 裡已經沒有部門清單了**，不需要渲染。
-4. **token 怎麼自動進新廠的 cluster？** 現在靠 Rancher 手動建 Secret，2 個 cluster 還行，擴廠之後每開一廠就要手動一次，跟「擴廠不能全部人工」衝突。有 External Secrets、Vault 或 sealed-secrets 的話，token 放中央一份就能自動同步，不用進 UI。
+1. **正式環境的 operator 版本。** 本機 v0.74.1 實測 `scrapeClasses` + `attachMetadata` 可用。
+2. **cluster 裡是不是只有這一台 vmagent。** 還有別的就會重複收，分流做得再對也沒用：`kubectl get vmagent -A`
+3. **token 怎麼自動進新廠的 cluster**，見上面「手動 vs Vault」。

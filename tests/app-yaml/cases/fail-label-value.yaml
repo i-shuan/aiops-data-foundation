@@ -1,0 +1,6 @@
+# expect: FAIL
+# 有空白，不是合法的 label 值
+namespace: zk-x-prod
+observability:
+  dept: D3120
+  system: MES System

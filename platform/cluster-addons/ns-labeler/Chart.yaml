@@ -1,5 +1,0 @@
-apiVersion: v2
-name: ns-labeler
-description: 依對照表把 dept / group / system 標到 namespace 上。分流靠 dept / group，system 是分析用的維度。
-type: application
-version: 0.1.0

@@ -58,13 +58,13 @@ count by (namespace) (kube_pod_labels{label_app_kubernetes_io_name!=""})
 
 ## 階段零：先讓資料帶得出歸屬
 
-**目標**：每個 namespace 都有 `dept` / `group` label，而且不是靠人一個一個標。
+**目標**：每個 app 的 namespace 都有 `dept` / `group` label，而且不是靠人一個一個標。
 
-namespace 名稱看不出組織，所以歸屬要額外生。做法是中央維護一份對照表放 git，由一個 CronJob 每 10 分鐘對帳、自動標到 namespace 上。人只改對照表，收集端設定不動。
+namespace 名稱看不出組織，所以歸屬要額外宣告。做法是**每個 app 在自己的 app.yaml 寫 `observability`**，ArgoCD 部署時把它貼到 namespace 上。沒寫的過不了 CI。
 
-**完成標準**：`kubectl get ns -L dept,group` 每一列都有值，對不到的有告警。
+**完成標準**：每個 app 的 namespace 都帶 `dept` / `group`；`ci/validate.sh` 在 CI 裡跑。
 
-細節見 [attribution.md](attribution.md)。**階段一、二都吃這一層的結果，所以這個要先做。**
+細節見 [architecture.md](architecture.md)。**階段一、二都吃這一層的結果，所以這個要先做。**
 
 ---
 
@@ -144,7 +144,7 @@ Fluentd 的 `kubernetes_metadata_filter` 會把 metadata 放在 `kubernetes` 這
 
 **兜底必須寫成 `rewrite_tag_filter` 的最後一條規則**（`pattern /^.*$/` 配上 `dept` 的預設值），不能在後面放一個兜底的 `<match>`。Fluentd 的 `rewrite_tag_filter` 會吃掉所有進來的記錄，只把對到規則的重新送出，所以後面的 `<match>` 永遠收不到東西，那些 log 會直接消失。這點跟 Fluent Bit 的行為相反。
 
-規則要從同一份「部門 → group」對照表渲染，不要手寫。
+⚠ 這裡的部門清單跟 `platform/argocd/namespace-metadata.tmpl` 的 `$groups` 是兩份，改組要兩邊一起改。見 [efk.md](efk.md) 的「已知落差」。
 
 **3. 每個 group 一把寫入 API key**
 

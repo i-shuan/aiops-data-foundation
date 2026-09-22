@@ -1,15 +1,10 @@
 {{- /*
-  把 app.yaml 的 observability 區塊貼到 namespace 上。
-  這段要併進 applicationsets/devops/applicationset.yaml 的 templatePatch。
+  把 app.yaml 的 observability 區塊貼到這個 app 的 namespace 上。
+  併進 applicationsets/devops/applicationset.yaml 的 templatePatch。
 
-  dept → group 的對照表。改組要改這裡。
-
-  ⚠ ns-labeler 的 values.yaml（registry.groups）還有一份，給不是 ArgoCD 部署的
-  namespace 用。兩份不一致的話，同一個部門的 app 會依「誰標的」分流到不同 tenant，
-  而且不會報錯。validate_observability.py --ns-labeler-values 會比對這兩份，
-  不一致就讓 CI 失敗。
-
-  validate_observability.py 直接讀下面這個 dict，CI 的驗證規則跟這裡永遠一致。
+  這份是 ownership 規則唯一的來源：
+    - dept → group 的對照就是下面這個 dict，改組只改這裡
+    - validate_observability.py 直接讀這個 dict，CI 跟 ArgoCD 用的是同一份
 */ -}}
 {{- $groups := dict
       "D3120" "it"
@@ -18,8 +13,8 @@
       "D1120" "imc"
       "PLATFORM" "platform" }}
 {{- /*
-  用 dig 取值：app.yaml 沒寫這個欄位時回傳空字串，不會因為 missingkey=error 而整個 template 失敗。
-  group 沒寫就依 dept 查表；有寫（例如 it.imc，要送給多個 tenant）就用寫的。
+  用 dig 取值：app.yaml 沒寫某個欄位時回傳空字串，就算開了 missingkey=error 也不會失敗。
+  group 沒寫就依 dept 查表；有寫（例如 it.imc，要多送給別的 tenant）就用寫的。
 */ -}}
 {{- $dept := dig "observability" "dept" "" . }}
 {{- $group := dig "observability" "group" "" . | default (get $groups $dept) }}

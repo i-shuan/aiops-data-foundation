@@ -94,18 +94,18 @@
   <text x="622" y="152" font-size="11" fill="#64748b">Application layer　　應用完全不知道 tenant 的存在</text>
   <rect x="622" y="158" width="108" height="50" rx="4" fill="#eff6ff" stroke="#2563eb" stroke-width="1.5"/>
   <text x="632" y="177" font-size="12" font-weight="bold" fill="#1e40af">NS1・IT</text>
-  <text x="632" y="195" font-size="10.5" fill="#1e40af">dept=D3120</text>
+  <text x="632" y="195" font-size="10.5" fill="#1e40af">group=it</text>
   <rect x="738" y="158" width="108" height="50" rx="4" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
   <text x="748" y="177" font-size="12" font-weight="bold" fill="#92400e">NS2・IMC</text>
-  <text x="748" y="195" font-size="10.5" fill="#92400e">dept=D1110</text>
+  <text x="748" y="195" font-size="10.5" fill="#92400e">group=imc</text>
   <rect x="854" y="158" width="94" height="50" rx="4" fill="#f1f5f9" stroke="#64748b" stroke-width="1.5"/>
   <text x="864" y="177" font-size="12" font-weight="bold" fill="#334155">NS3・平台</text>
-  <text x="864" y="195" font-size="10.5" fill="#334155">無 dept</text>
+  <text x="864" y="195" font-size="10.5" fill="#334155">無 group</text>
   <line x1="622" y1="220" x2="948" y2="220" stroke="#94a3b8" stroke-width="1.5"/>
   <text x="622" y="238" font-size="11" fill="#64748b">Platform layer</text>
   <rect x="622" y="244" width="326" height="46" rx="4" fill="#ecfdf5" stroke="#059669" stroke-width="1.8"/>
   <text x="634" y="263" font-size="12.5" font-weight="bold" fill="#065f46">vmagent（還是只有一台，抓取只有一次）</text>
-  <text x="634" y="281" font-size="11.5" fill="#065f46">三條 remoteWrite，依 dept 過濾、各帶自己的 token</text>
+  <text x="634" y="281" font-size="11.5" fill="#065f46">三條 remoteWrite，依 group 過濾、各帶自己的 token</text>
 
   <!-- 二林 after -->
   <rect x="608" y="314" width="352" height="196" rx="6" fill="#ffffff" stroke="#334155" stroke-width="2"/>
@@ -114,18 +114,18 @@
   <text x="622" y="364" font-size="11" fill="#64748b">Application layer</text>
   <rect x="622" y="370" width="108" height="50" rx="4" fill="#eff6ff" stroke="#2563eb" stroke-width="1.5"/>
   <text x="632" y="389" font-size="12" font-weight="bold" fill="#1e40af">NS1・IT</text>
-  <text x="632" y="407" font-size="10.5" fill="#1e40af">dept=D3130</text>
+  <text x="632" y="407" font-size="10.5" fill="#1e40af">group=it</text>
   <rect x="738" y="370" width="108" height="50" rx="4" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
   <text x="748" y="389" font-size="12" font-weight="bold" fill="#92400e">NS2・IMC</text>
-  <text x="748" y="407" font-size="10.5" fill="#92400e">dept=D1120</text>
+  <text x="748" y="407" font-size="10.5" fill="#92400e">group=imc</text>
   <rect x="854" y="370" width="94" height="50" rx="4" fill="#f1f5f9" stroke="#64748b" stroke-width="1.5"/>
   <text x="864" y="389" font-size="12" font-weight="bold" fill="#334155">NS3・平台</text>
-  <text x="864" y="407" font-size="10.5" fill="#334155">無 dept</text>
+  <text x="864" y="407" font-size="10.5" fill="#334155">無 group</text>
   <line x1="622" y1="432" x2="948" y2="432" stroke="#94a3b8" stroke-width="1.5"/>
   <text x="622" y="450" font-size="11" fill="#64748b">Platform layer</text>
   <rect x="622" y="456" width="326" height="46" rx="4" fill="#ecfdf5" stroke="#059669" stroke-width="1.8"/>
   <text x="634" y="475" font-size="12.5" font-weight="bold" fill="#065f46">vmagent（還是只有一台，抓取只有一次）</text>
-  <text x="634" y="493" font-size="11.5" fill="#065f46">三條 remoteWrite，依 dept 過濾、各帶自己的 token</text>
+  <text x="634" y="493" font-size="11.5" fill="#065f46">三條 remoteWrite，依 group 過濾、各帶自己的 token</text>
 
   <!-- 中央 after -->
   <rect x="1032" y="128" width="180" height="300" rx="6" fill="#fef2f2" stroke="#dc2626" stroke-width="2"/>
@@ -157,7 +157,7 @@
   <rect x="608" y="528" width="604" height="106" rx="6" fill="#ecfdf5" stroke="#059669" stroke-width="1.8"/>
   <text x="624" y="552" font-size="13.5" font-weight="bold" fill="#065f46">改的只有 remoteWrite，vmagent 沒有變多</text>
   <text x="624" y="578" font-size="12.5" fill="#065f46">① 抓取還是只有一次。資料複製三份，每份各自過濾後帶不同 token 送出。</text>
-  <text x="624" y="602" font-size="12.5" fill="#065f46">② 前提是 namespace 身上要有 dept label——由 ns-labeler 依對照表自動標，不是人工。</text>
+  <text x="624" y="602" font-size="12.5" fill="#065f46">② 前提是 namespace 身上要有 group label——由 ArgoCD 依每個 app 的 app.yaml 貼上。</text>
   <text x="624" y="624" font-size="12.5" fill="#065f46">③ 三段過濾條件必須互斥，兜底那條用 drop。漏一個部門就會同時進兩個 tenant，而且不會報錯。</text>
 
   <text x="36" y="668" font-size="12.5" fill="#334155"><tspan font-weight="bold">給應用團隊的訊息：什麼都不用改。</tspan>　他們不知道 tenant、group、token 的存在，分流全部發生在平台層那一台 vmagent 上。</text>

@@ -1,6 +1,6 @@
 # expect: FAIL
-namespace: zk-sim-typo-prod
+# 打錯字：imcc 不是一個 tenant
+namespace: zk-x-prod
 observability:
   dept: D3120
-  system: sim
   group: it.imcc

@@ -92,19 +92,24 @@ log 這邊的 `group` 是取分流後 tag 的第一段（`it.kube.xxx` → `it`�
 
 這樣「部門 → group」的對照只存在 `rewrite_tag_filter` 的規則裡一份。如果改成在 `record_transformer` 裡自己查表填 group，就會變成同一份對照在設定裡出現兩次，改組時容易漏改一邊。
 
+### 已知落差：log 這邊還有一份 dept → index 的對照
+
+metrics 那邊的歸屬規則只有一份：`platform/argocd/namespace-metadata.tmpl` 的 `$groups`。**log 這邊沒有跟上**：`fluent.conf` 的 `rewrite_tag_filter` 自己寫著部門清單（`pattern /^D3120$/` → `it`），等於同一個對照存在兩份。
+
+**改組時兩邊都要改**，只改一邊的話，同一個部門的 metrics 和 log 會進不同的 tenant，而且不會報錯。
+
+要消掉這一份，做法是讓 Fluentd 改讀 namespace 上已經算好的 `group` label，不要自己再從 `dept` 推。但 log 端要能處理 `it.imc`（見下一節），結構要重做、整條 log 流程要重新實測，所以還沒做。
+
 ### 已知落差：平台的 namespace，`group` 兩邊的值不一樣
 
-| | 平台的 namespace（`dept=PLATFORM`）的 `group` |
+平台自己的 namespace（`kube-system`、`vm-monitoring` 這些）不是 app，沒有 app.yaml，所以 namespace 上沒有任何歸屬 label。
+
+| | 這些 namespace 的 `group` |
 |---|---|
-| metrics | `platform`（兜底那條 remoteWrite 蓋上的） |
-| log | `unassigned`（`PLATFORM` 沒有對應的 `rewrite_tag_filter` 規則，掉進最後的兜底，`group` 取 tag 前綴） |
+| metrics | `platform`（fallback 那條 remoteWrite 蓋上的） |
+| log | `unassigned`（`dept` 預設值是 `unassigned`，掉進最後的兜底，`group` 取 tag 前綴） |
 
-**這不是加 `system` 造成的**，`ns-labeler` 上線前這些 namespace 沒有 `dept`，落差就已經在了。後果有兩個：
-
-1. **平台 namespace 的資料，`group` 不能直接當跨 metrics / log 的關聯鍵。** 用 `namespace`、`dept` 或 `system` 關聯沒問題。
-2. **`k8s-unassigned-*` 現在同時裝著兩種東西**：歸屬正確的平台 log（`dept=PLATFORM`），和真的沒登記的（`dept=unassigned`）。**判斷有沒有漏登記，要看 `dept` 欄位，不能看 index 名稱。**
-
-要根治就是多一條 `dept /^PLATFORM$/` → `platform.${tag}` 的規則，加第四個 output、第四把 API key、第四種 index（`k8s-platform-*`）。這是設計決定（多一個 index 和一把 key 要維護），所以先記著沒動。
+兩邊都是「沒有歸屬 → fallback」，只是名字不一樣。後果是這些 namespace 的資料**不能用 `group` 當 metrics 和 log 之間的關聯鍵**，要用 `namespace` 關聯。
 
 ### 已知落差：共用的 namespace（`group=it.imc`），log 只會進一個 index
 

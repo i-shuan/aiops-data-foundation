@@ -1,0 +1,7 @@
+# expect: OK
+# labels: dept=D3120 group=it system=sim
+# IT 的 app：group 沒寫，依 dept 推出 it
+namespace: zk-sim-it-prod
+observability:
+  dept: D3120
+  system: sim

@@ -1,6 +1,0 @@
-# expect: FAIL
-namespace: zk-mes-prod
-# zk-mes-prod 已經由 ns-labeler 的 registry.apps.mes 管，不能兩邊同時管
-observability:
-  dept: D3120
-  system: mes

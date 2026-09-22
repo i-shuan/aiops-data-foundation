@@ -1,2 +1,0 @@
-# app.yaml 是給 devops repo 用的 ArgoCD 設定，不是 chart 的一部分
-app.yaml

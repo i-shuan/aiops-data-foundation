@@ -1,0 +1,6 @@
+# expect: FAIL
+# 歸屬矛盾：dept 說是 IMC 的，group 卻只送 IT，IMC 會看不到自己的資料
+namespace: zk-x-prod
+observability:
+  dept: D1110
+  group: it

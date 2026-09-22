@@ -7,12 +7,19 @@ applications/<app>/          跟 devops repo 同格式，可以整個資料夾�
   helm/                      這個 app 的 chart，只填 values
   manifests/                 （選用）chart 以外的 YAML 或 Kustomize
 charts/app-common/           共用 library chart                 ← 平台
-platform/                    平台自己的設定與部署物件            ← 平台，走 cluster-addons
+platform/                    平台自己的設定                      ← 平台
 ci/                          CI 驗證
+tests/                       app-yaml（不需要 cluster）、routing（E2E）
 docs/                        設計文件與架構圖
 ```
 
-切法的原則只有一條：**按「誰改、怎麼生效」切，不要按「是什麼技術」切。**
+切法的原則只有一條：**按「誰改、怎麼生效」切，不要按「是什麼技術」切。**「chart 放一個資料夾、YAML 放另一個」看起來整齊，實際上會把不同負責人、不同生效方式的東西混在一起，然後就會有人對 values 檔 `kubectl apply`。
+
+遇到新東西不確定放哪，照這個順序問：
+
+1. **誰會改它？** app 團隊 → `applications/`；平台 → `platform/`
+2. **要存在幾份？** 每個場區叢集一份 → `platform/cluster-addons/`；全廠一份 → `platform/central/`
+3. **是我們的物件，還是別人 chart 的輸入？** 輸入永遠不能變成自己的 chart
 
 ## applications/ 跟 devops repo 一模一樣
 
@@ -100,9 +107,11 @@ dependencies:
 | | 本質 | 怎麼生效 |
 |---|---|---|
 | `cluster-addons/vmstack-values.yaml` | **別人 chart 的參數** | 由 cluster-addons 的 ApplicationSet 帶進去 |
-| `cluster-addons/ns-labeler/` | 我們自己的 K8s 物件 | 是一個 chart，同樣掛在 cluster-addons 底下 |
 | `fluentd/fluent.conf` | 設定檔內容 | 渲染進 ConfigMap 或 Secret |
 | `argocd/` | 要併進 devops repo 的 template 和 CI 腳本 | 不部署，是給 devops repo 用的 |
+| `central/` | 只在 central 跑一次的設定（Elasticsearch 的 API key、role） | 手動或一次性 job |
+
+`vmstack-values.yaml` 永遠不可能變成我們自己的 chart——chart 是 VictoriaMetrics 的，它只是參數。
 
 放進 `applications/` 的話，會被錯的 ApplicationSet 部署、也會被 app.yaml 的規則（environment、sync）檢查，兩者都不對。
 

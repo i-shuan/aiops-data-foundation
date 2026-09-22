@@ -1,5 +1,4 @@
 # expect: FAIL
 namespace: zk-x-prod
 observability:
-  dept: D3120
-  system: MES System
+  dept: D9999

@@ -10,7 +10,7 @@
 #   2. vmagent.spec.remoteWrite     從一條拆成三條，依 group 各自過濾、各自帶 token
 #   3. kube-state-metrics           新增 metricLabelsAllowlist
 #
-# 設計說明見 docs/vmagent.md，歸屬 label 怎麼來見 docs/attribution.md。
+# 整條資料流見 docs/architecture.md，上線步驟見 docs/vmagent.md。
 # ──────────────────────────────────────────────────────────────
 
 global:
@@ -70,7 +70,8 @@ vmagent:
     # 沒有這段，下面三條 remoteWrite 的過濾條件全部對不到東西，
     # 結果是 IT / IMC 兩條都送不出去，全部落到兜底那條。
     #
-    # 這些 label 由 ns-labeler 自動標上，見 docs/attribution.md。
+    # 這些 label 由 ArgoCD 依每個 app 的 app.yaml 貼到 namespace 上，見 platform/argocd/。
+    # vmagent 只讀 namespace 的 label，不知道 app.yaml 的存在，也不維護任何 app 或 namespace 清單。
     scrapeClasses:
       - name: default
         default: true
@@ -99,7 +100,7 @@ vmagent:
     # 過濾依據是 group，不是 dept。原因：
     #   - 一個 namespace 只有一個 dept，依 dept 分就不可能「兩個 tenant 都送」。
     #   - 依 dept 分的話，部門清單要寫死在這裡，每次改組都要改這份、重啟 vmagent。
-    #     依 group 分的話，部門搬家只要改 ns-labeler 的 registry.groups，這份不用動。
+    #     依 group 分的話，部門搬家只要改 platform/argocd/namespace-metadata.tmpl，這份不用動。
     #
     # regex 寫法：'(.*\.)?it(\..*)?' 表示「group 以點切開後，其中一段是 it」。
     #   it       → 符合
@@ -169,9 +170,8 @@ kube-state-metrics:
   metricLabelsAllowlist:
     # 查詢時把 pod 對回服務與版本。
     - pods=[app.kubernetes.io/name,app.kubernetes.io/version,app.kubernetes.io/part-of,app.kubernetes.io/component]
-    # 讓 kube_namespace_labels 帶出歸屬。
-    # kube_namespace_labels{label_dept=""} 是「這個 namespace 沒有歸屬」的唯一訊號，
-    # allowlist 漏設的話那個告警永遠不會響。見 docs/attribution.md。
+    # 讓 kube_namespace_labels 帶出 namespace 上的歸屬，AIOps 可以用它把資料對回部門。
+    # 不影響分流。想知道哪些 namespace 掉進 fallback，查 kube_namespace_labels{label_group=""}。
     - namespaces=[dept,group,system]
   # ──────────────────────────────────────────────────────
 

@@ -1,5 +1,0 @@
-# expect: OK
-namespace: zk-sim-it-prod
-observability:
-  dept: D3120
-  system: sim

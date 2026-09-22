@@ -1,54 +1,56 @@
-# 歸屬寫在 app.yaml 的測試
+# A. app.yaml 驗證　B. app.yaml → namespace label
 
 ```bash
 ./tests/app-yaml/run.sh
 ```
 
-前提是 [../routing/run.sh](../routing/run.sh) 跑過一次（模擬器和三個 tenant 已經在 zk 上）。
+**不需要 cluster**，只要 python（PyYAML）和 helm。全部符合預期 exit 0，任何一個不符 exit 1。
 
-## 測什麼
+## A. 驗證：結果要跟 `# expect` 一致
 
-1. **CI 驗證**：[cases/](cases) 裡每個 app.yaml，`validate_observability.py` 的結果要跟檔案第一行的 `# expect:` 一致
-2. **template**：用 helm 的模板引擎渲染 [namespace-metadata.tmpl](../../platform/argocd/namespace-metadata.tmpl)，看出來的 label 對不對
-3. **路由**：照 ArgoCD 會做的方式把 label 貼到 namespace，跑 [../routing/check.py](../routing/check.py) 的同一套檢查
+[cases/](cases) 裡每個檔案第一行寫著預期結果。`fail-*` 是應該被擋下的，每一個只犯一種錯：
 
-第 3 步之前會先把 ns-labeler 的測試對照表拿掉，這樣才分得出 label 是這條路貼的，不是 ns-labeler 貼的。
+| 案例 | 擋的是 |
+|---|---|
+| `fail-missing` | 沒有 `observability` |
+| `fail-field-typo` | 欄位名打錯（`grop:`），YAML 會默默忽略它 |
+| `fail-unknown-dept` | 不在對照表裡的部門 |
+| `fail-illegal-group` | 不存在的 tenant（`it.imcc`） |
+| `fail-platform-combo` | `it.platform`：platform 是 fallback，不能組合 |
+| `fail-ambiguous` | 歸屬矛盾：dept 是 IMC，group 卻只送 IT |
+| `fail-label-value` | 不是合法的 Kubernetes label 值 |
+| `duplicate/` | 兩個 app.yaml 宣告同一個 namespace，各自看都合法，要一起驗才抓得到 |
 
-## 結果
+每一個都確認過是被**它要測的那條規則**擋下的，不是剛好被別條擋下。
 
+## B. 渲染：namespace 拿到的 label 要跟 `# labels` 一致
+
+用正式的 [namespace-metadata.tmpl](../../platform/argocd/namespace-metadata.tmpl) 渲染每個 `ok-*` 案例：
+
+| 案例 | app.yaml | namespace 的 label |
+|---|---|---|
+| `ok-it` | `dept: D3120, system: sim` | `dept=D3120 group=it system=sim` |
+| `ok-imc` | `dept: D1110, system: sim` | `dept=D1110 group=imc system=sim` |
+| `ok-shared` | `dept: D3120, group: it.imc` | `dept=D3120 group=it.imc`（沒有 system） |
+
+`ok-it` 和 `ok-imc` 的 group 是依 dept 推出來的，`ok-shared` 是明確寫的。`ok-shared` 故意不填 system，確認不會產生空的 system label。
+
+**這三個案例也是 E2E 的輸入**：[../routing](../routing) 用同一支 [render.sh](render.sh) 從這些 app.yaml 渲染 label 再貼到 namespace，所以 B 驗過的就是 C 用的。
+
+## 確認測試會抓到錯
+
+把 template 裡的 `"D3120" "it"` 改成 `"D3120" "imc"` 再跑，`ok-it` 渲染出 `group=imc`、跟預期不符，exit 1。`ok-shared` 照樣通過，因為它的 group 是明確寫的，不靠對照表——這也是對的。
+
+```bash
+NAMESPACE_METADATA_TMPL=/path/to/broken.tmpl ./tests/app-yaml/run.sh
 ```
-=== 1. CI 驗證 ===
-  bad-double-managed.yaml  預期 FAIL 實際 FAIL ✓
-  bad-field-typo.yaml      預期 FAIL 實際 FAIL ✓
-  bad-label-value.yaml     預期 FAIL 實際 FAIL ✓
-  bad-unknown-dept.yaml    預期 FAIL 實際 FAIL ✓
-  sim-both.yaml            預期 OK   實際 OK   ✓
-  sim-imc.yaml             預期 OK   實際 OK   ✓
-  sim-it.yaml              預期 OK   實際 OK   ✓
-  sim-none.yaml            預期 FAIL 實際 FAIL ✓
-  sim-plat.yaml            預期 FAIL 實際 FAIL ✓
-  sim-typo.yaml            預期 FAIL 實際 FAIL ✓
-
-=== 2. 渲染 template ===
-  sim-it     dept=D3120 group=it system=sim       ← group 依 dept 自動推出
-  sim-imc    dept=D1110 group=imc system=sim
-  sim-both   dept=D3120 group=it.imc              ← 有寫 group 就用寫的；沒填 system 就不寫這個 label
-
-=== 5. 路由檢查 ===
-  zk-sim-it-prod     ✓  ·  ·   OK
-  zk-sim-imc-prod    ·  ✓  ·   OK
-  zk-sim-both-prod   ✓  ✓  ·   OK
-  （寫錯的三個都只進兜底）
-PASS
-```
-
-路由檢查是在**清空三個 tenant 的資料之後**重新確認的，排除讀到上一輪 ns-labeler 標的時候留下的舊資料。
 
 ## 這不是 ArgoCD
 
-template 是用 helm 渲染的。helm 和 ArgoCD ApplicationSet 都是 Go template + sprig，這裡用到的函式行為一樣，但**這不是 ArgoCD 本身**。ArgoCD 會不會把 label 貼到已經存在的 namespace、貼的時機是不是在 pod 之前，都沒有驗證，見 [../../platform/argocd/README.md](../../platform/argocd/README.md) 的「沒有驗證的部分」。
+渲染用的是 helm。helm 和 ArgoCD ApplicationSet 都是 Go template + sprig，這裡用到的 `dict`、`dig`、`get`、`default` 行為一樣，但這不是 ArgoCD 本身。
 
-## 本機踩到的坑
+## Windows 上踩到的坑
 
-- **helm 讀不懂 Git Bash 的 `/tmp/...` 路徑。** `mktemp -d` 給的路徑要用 `cygpath -m` 轉成 `C:/...`，不然 helm 會報 `repo not found`（它把找不到的路徑當成 chart repo 的名字）。
-- **Windows 的 Python 輸出行尾是 `\r\n`。** `\r` 會黏在 label 值後面變成 `D3120\r`。這次是 kubectl 自己擋下來了；混進別的地方的話，就跟 token 多一個換行一直 401 是同一類看不見的問題。
+- **helm 讀不懂 Git Bash 的 `/tmp/...` 路徑**，會報 `repo not found`（把找不到的路徑當成 chart repo 的名字）。要用 `cygpath -m` 轉。
+- **Windows 的 Python 行尾是 `\r\n`**，`\r` 會黏在 label 值後面變成 `D3120\r`。
+- **helm 的輸出有中文註解**，Python 沒被告知用 UTF-8 讀 stdin 的話會解成亂碼後炸掉。render.sh 自己設了 `PYTHONIOENCODING`，直接呼叫也不會壞。
