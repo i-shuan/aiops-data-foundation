@@ -1,10 +1,10 @@
 apiVersion: v2
-name: yms-sim
-description: 模擬 YMS，示範業務指標怎麼吐。應用團隊只填 values，其餘由 app-common 產生
+name: mes-dispatch
+description: MES 下貨服務。應用團隊只填 values，其餘由 app-common 產生
 type: application
 version: 0.1.0
 dependencies:
   - name: app-common
     version: 0.1.0
     # 正式環境改成內部 chart repo，例如 https://charts.internal.spil.com.tw
-    repository: file://../app-common
+    repository: file://../../../charts/app-common

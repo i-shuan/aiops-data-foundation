@@ -44,8 +44,8 @@
 
   <!-- outcomes -->
   <rect x="480" y="168" width="690" height="72" rx="8" fill="#ecfdf5" stroke="#059669" stroke-width="2"/>
-  <text x="500" y="194" font-size="14.5" font-weight="bold" fill="#065f46">業務層　charts/&lt;app&gt;/</text>
-  <text x="500" y="216" font-size="12.5" fill="#065f46">ArgoCD 用 git generator 掃 charts/*，新增資料夾自己長出 Application</text>
+  <text x="500" y="194" font-size="14.5" font-weight="bold" fill="#065f46">業務層　applications/&lt;app&gt;/</text>
+  <text x="500" y="216" font-size="12.5" fill="#065f46">ApplicationSet 掃 applications/**/app.yaml，新增資料夾自己長出 Application</text>
   <text x="500" y="234" font-size="12" fill="#047857">例：yms-sim、mes-dispatch　　values 只有八行，沒有 token、沒有 tenant</text>
 
   <rect x="480" y="280" width="690" height="72" rx="8" fill="#fef2f2" stroke="#dc2626" stroke-width="2"/>
@@ -60,7 +60,7 @@
 
   <rect x="480" y="504" width="690" height="72" rx="8" fill="#fffbeb" stroke="#d97706" stroke-width="2"/>
   <text x="500" y="530" font-size="14.5" font-weight="bold" fill="#92400e">平台層 ─ 物件　platform/cluster-addons/ns-labeler/</text>
-  <text x="500" y="552" font-size="12.5" fill="#92400e">是 chart，但不放進 charts/，跟參數一起掛在 cluster-addons 底下</text>
+  <text x="500" y="552" font-size="12.5" fill="#92400e">是 chart，但不放進 applications/，跟參數一起掛在 cluster-addons 底下</text>
   <text x="500" y="570" font-size="12" fill="#b45309">例：ns-labeler 的 CronJob、RBAC、對照表 ConfigMap</text>
 
   <!-- bottom -->
@@ -68,5 +68,5 @@
   <text x="62" y="632" font-size="14.5" font-weight="bold" fill="#0f172a">兩個平台層共用同一條 ApplicationSet（list generator：central / zk / el）</text>
   <text x="62" y="658" font-size="13" fill="#334155">所以擴一個新廠是「list 加一行」，那個 cluster 同時拿到 vmagent 分流、ns-labeler、Fluentd、KSM allowlist。</text>
   <text x="62" y="682" font-size="13" fill="#334155">自己另外開一條 ApplicationSet 也能動，但從此有兩份 cluster 清單要維護——擴廠時只改一份，那一廠就少東西，而且不會報錯。</text>
-  <text x="62" y="710" font-size="13" font-weight="bold" fill="#b91c1c">平台的東西不要放進 charts/：那裡會被掃 charts/* 的 git generator 撈走，當成業務服務部署。</text>
+  <text x="62" y="710" font-size="13" font-weight="bold" fill="#b91c1c">平台的東西不要放進 applications/：那裡的 app.yaml 只會部署成一個 Application，不會進每個場區叢集。</text>
 </svg>

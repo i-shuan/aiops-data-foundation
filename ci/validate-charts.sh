@@ -5,13 +5,13 @@
 # 要有 probe、component 只能是那幾個值），所以這裡只要能成功渲染就代表符合規範。
 #
 # 用法：
-#   ./ci/validate-charts.sh              檢查 charts/ 底下全部
-#   ./ci/validate-charts.sh charts/yms-sim   只檢查指定的
+#   ./ci/validate-charts.sh                          檢查 applications/*/helm 全部
+#   ./ci/validate-charts.sh applications/yms-sim/helm   只檢查指定的
 set -euo pipefail
 
 charts=("$@")
 if [ ${#charts[@]} -eq 0 ]; then
-  for d in charts/*/; do charts+=("${d%/}"); done
+  for d in applications/*/helm/; do charts+=("${d%/}"); done
 fi
 
 status=0

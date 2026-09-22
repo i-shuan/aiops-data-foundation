@@ -1,0 +1,23 @@
+# 模擬 YMS，示範業務指標怎麼吐。格式照 devops repo 的 applications/<app>/app.yaml。
+# owner、dept 是範例值，搬過去時換成實際的。
+apiVersion: platform.example.com/v1alpha1   # 對照你們現有的 app.yaml 填
+kind: ArgoApplicationConfig
+project: ai-platform
+namespace: yms-sim-dev
+environment: development
+owner: yms-team
+criticality: medium
+
+sync:
+  automated: true
+  prune: true
+  selfHeal: true
+
+helm:
+  local: true
+  valueFiles:
+    - values.yaml
+
+observability:
+  dept: D1120
+  system: yms

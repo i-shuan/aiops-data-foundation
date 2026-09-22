@@ -1,0 +1,26 @@
+# 持續模擬收值，驗證分流用。格式照 devops repo 的 applications/<app>/app.yaml。
+# 這是平台自己的驗證工具，所以歸在 PLATFORM。
+#
+# tests/routing 會把同一個 chart 部署到六個測試 namespace（zk-sim-*-prod），
+# 那是測試直接用 helm 裝的，不經過這份 app.yaml。
+apiVersion: platform.example.com/v1alpha1   # 對照你們現有的 app.yaml 填
+kind: ArgoApplicationConfig
+project: ai-platform
+namespace: metrics-sim-dev
+environment: development
+owner: platform-observability
+criticality: low
+
+sync:
+  automated: true
+  prune: true
+  selfHeal: true
+
+helm:
+  local: true
+  valueFiles:
+    - values.yaml
+
+observability:
+  dept: PLATFORM
+  system: sim

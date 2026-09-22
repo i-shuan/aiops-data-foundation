@@ -1,35 +1,35 @@
 # services：應用程式碼
 
-每個應用一個資料夾，裡面放程式碼和 Dockerfile。部署用的 chart 在同階層的 [../charts](../charts)。
+每個應用一個資料夾，裡面放程式碼和 Dockerfile。部署設定在同階層的 [../applications](../applications)。
 
 ```
-services/<app>/      程式碼、Dockerfile      ← CI 的 build 階段看這裡
-charts/<app>/        Chart.yaml、values      ← CI 的 deploy 階段看這裡
+services/<app>/        程式碼、Dockerfile              ← CI 的 build 階段看這裡
+applications/<app>/    app.yaml + helm/（chart）        ← CI 的 deploy 階段看這裡
 ```
 
 ## 一條硬規定：兩邊資料夾必須同名
 
-`services/yms-sim` 對應 `charts/yms-sim`，不能一邊叫 `yms-sim` 一邊叫 `yms-simulator`。
+`services/yms-sim` 對應 `applications/yms-sim`，不能一邊叫 `yms-sim` 一邊叫 `yms-simulator`。
 
-CI 和 ArgoCD 都靠這個名字把兩邊接起來：改到 `services/yms-sim/` 就 build 那個映像、推到 `.../yms-sim:<tag>`，再用 `charts/yms-sim` 部署。名字對不上，pipeline 會安靜地做出錯的事（build 了沒人部署，或部署了舊映像）。
+CI 和 ArgoCD 都靠這個名字把兩邊接起來：改到 `services/yms-sim/` 就 build 那個映像、推到 `.../yms-sim:<tag>`，再用 `applications/yms-sim` 部署。名字對不上，pipeline 會安靜地做出錯的事（build 了沒人部署，或部署了舊映像）。
 
 這個名字同時也是：
 
-- `values.yaml` 裡的 `app.name`
+- `helm/values.yaml` 裡的 `app.name`
 - pod 的 `app.kubernetes.io/name` label
 - metrics 和 log 上的 `app` 欄位
 - namespace 名稱裡的 app 段（`zk-yms-sim-prod`）
-- [歸屬對照表](../platform/cluster-addons/ns-labeler/values.yaml)（`registry.apps`）的 key
 
 **所以上線後不要改名。** 改了等於歷史資料對不起來。
 
 ## 新增一個服務要做的事
 
 1. `services/<app>/` 放程式碼和 Dockerfile
-2. `charts/<app>/` 複製一份現成的 chart，改 `values.yaml`
-3. 在 [ns-labeler 的 values.yaml](../platform/cluster-addons/ns-labeler/values.yaml) 的 `registry.apps` 加一行，**這步要先合進去**（否則資料會進 unassigned，事後救不回來，見 [attribution.md](../docs/attribution.md)）
+2. 複製一份現成的 `applications/<app>/`，改 `app.yaml` 和 `helm/values.yaml`
+3. **`app.yaml` 的 `observability` 一定要寫**（這個 app 屬於哪個部門）。沒寫過不了 CI，見 [../platform/argocd/](../platform/argocd)
+4. 跑 `ci/validate.sh`
 
-ArgoCD 的 ApplicationSet 用 git generator 掃 `charts/*`，**不用改 ApplicationSet**，新資料夾自己會長出一個 Application。
+ArgoCD 的 ApplicationSet 掃 `applications/**/app.yaml`，**不用改 ApplicationSet**，新資料夾自己會長出一個 Application。
 
 ## 程式要吐出什麼
 
@@ -53,4 +53,4 @@ label 的值只能是「種類有限」的東西：機台編號（幾十個）�
 
 ## `_standards/`
 
-跨服務共用的設定範本，例如 Java 的 [logback-spring.xml](_standards/java/logback-spring.xml)（輸出符合上面格式的 JSON log）。底線開頭是為了跟真正的服務資料夾區分開，ApplicationSet 掃 `charts/*` 時也不會掃到這裡。
+跨服務共用的設定範本，例如 Java 的 [logback-spring.xml](_standards/java/logback-spring.xml)（輸出符合上面格式的 JSON log）。底線開頭是為了跟真正的服務資料夾區分開，看到就知道它不是一個 app。

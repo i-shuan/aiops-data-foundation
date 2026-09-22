@@ -52,9 +52,9 @@ echo
 kubectl get ns -l 'kubernetes.io/metadata.name in (zk-sim-it-prod,zk-sim-imc-prod,zk-sim-both-prod,zk-sim-none-prod,zk-sim-typo-prod,zk-sim-plat-prod)' -L dept,group,system
 
 step "4. 部署模擬器"
-helm dependency build charts/metrics-sim --skip-refresh >/dev/null
+helm dependency build applications/metrics-sim/helm --skip-refresh >/dev/null
 for s in $SCENARIOS; do
-  helm upgrade --install metrics-sim charts/metrics-sim -n "zk-sim-$s-prod" \
+  helm upgrade --install metrics-sim applications/metrics-sim/helm -n "zk-sim-$s-prod" \
     --set image.repository=metrics-sim --set image.tag=test >/dev/null
 done
 for s in $SCENARIOS; do

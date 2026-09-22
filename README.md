@@ -65,7 +65,7 @@ SHA 留著是為了萬一要回去翻，`git checkout <sha>` 還撈得到（垃�
 ## 目前的文件
 
 - [docs/deployment-layers.md](docs/deployment-layers.md)：**東西該掛在哪一層。** 三個問題分出業務層 / 平台層 / 中央層，以及分錯會怎樣——四種替代做法的後果都寫了。
-- [docs/repo-layout.md](docs/repo-layout.md)：`services/` 和 `charts/` 為什麼分開、ArgoCD 的 generator 怎麼選、映像 tag 怎麼從 code 流到 values。
+- [docs/repo-layout.md](docs/repo-layout.md)：`applications/` 為什麼跟 devops repo 同格式、程式碼和部署設定為什麼分開、映像 tag 怎麼從 code 流到 values。
 - [platform/argocd/](platform/argocd)：**歸屬寫在 app.yaml。** 一隻 app 一個 namespace，歸屬跟 owner / criticality 放在一起，由 ArgoCD 貼到 namespace 上。要改 devops repo 的哪三個地方、CI 擋什麼、沒驗證的部分都在這裡。
 - [docs/attribution.md](docs/attribution.md)：**歸屬怎麼決定。** app.yaml 為主、ns-labeler 補漏（平台的 namespace、沒進 ArgoCD 的舊 app），兩條路怎麼不互相覆蓋。已在本機實測通過。
 - [docs/roadmap.md](docs/roadmap.md)：三階段路線圖。metrics 分流、log 接 EFK、產線與 MES 異常分析。
@@ -103,15 +103,16 @@ SHA 留著是為了萬一要回去翻，`git checkout <sha>` 還撈得到（垃�
 services/                  應用程式碼，一個 app 一個資料夾
   yms-sim/                 參考實作：業務指標和 JSON log 長什麼樣
   metrics-sim/             持續模擬收值，給分流測試用
-  mes-dispatch/
   _standards/              跨服務的共用設定範本（Java logback 等）
 
-charts/                    Helm chart，也是一個 app 一個資料夾，名稱必須跟 services/ 一致
-  app-common/              平台維護的 library chart，標準 label、probe、VMServiceScrape 由它產生
-  yms-sim/
-  metrics-sim/
-  mes-dispatch/
-                           以上兩塊不由平台 pipeline 部署，走 app 自己的 CI/CD
+applications/              部署設定，跟 devops repo 同格式，可以整個資料夾搬過去
+  <app>/app.yaml           ArgoCD 設定 + 歸屬（observability），名稱必須跟 services/ 一致
+  <app>/helm/              這個 app 的 chart，只填 values
+                           （yms-sim、mes-dispatch、metrics-sim）
+
+charts/app-common/         平台維護的 library chart，標準 label、probe、VMServiceScrape 由它產生
+
+                           以上三塊不由平台 pipeline 部署，走 app 自己的 CI/CD
 
 platform/                  平台端，由平台 pipeline 部署
   cluster-addons/          掛在既有的 cluster-addons ApplicationSet 底下     → 每個 cluster
@@ -123,7 +124,7 @@ platform/                  平台端，由平台 pipeline 部署
 
 tests/routing/             metrics 分流的端到端測試（只 IT / 只 IMC / 兩個都送 / 寫錯時的行為）
 tests/app-yaml/            歸屬寫在 app.yaml 這條路的測試（CI 驗證 + template + 分流）
-ci/                        chart 的驗證腳本
+ci/                        validate.sh 一次跑完三道檢查：app.yaml、observability、chart 渲染
 docs/                      設計文件與架構圖，不部署
 ```
 

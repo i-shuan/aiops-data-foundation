@@ -8,7 +8,7 @@
 
 | 問題 | 答案 | 去哪 |
 |---|---|---|
-| ① 需要 build image 嗎 | 是 | **業務層** `charts/<app>/`，git generator 掃 `charts/*` |
+| ① 需要 build image 嗎 | 是 | **業務層** `applications/<app>/`，ApplicationSet 掃 `applications/**/app.yaml` |
 | ② 每個 cluster 都要嗎 | 只要一份 | **中央層** `platform/central/`，跑一次 |
 | ③ 是參數還是物件 | 參數 | **平台層** `platform/cluster-addons/vmstack-values.yaml` |
 | | 物件 | **平台層** `platform/cluster-addons/ns-labeler/`（是 chart） |
@@ -45,11 +45,13 @@
 
 我們一開始定案的「應用團隊不需要知道 tenant、group、token」，講的就是不能這樣做。
 
-### 三、放進 `charts/` 底下
+### 三、放進 `applications/` 底下
 
-看起來合理——它確實是個 chart。但 `charts/*` 是**被 git generator 掃的目錄**，放進去會被當成業務服務，部到每個 cluster 的 app namespace 去，而且 `app-common` 那套驗證規則（tag 不准 latest、要填 probe）對它完全沒意義。
+看起來合理——它確實是個 chart，放進去也會被 ArgoCD 部署。但 `applications/` 是**給 devops 那個 ApplicationSet 掃的**，一個 app.yaml 部署成一個 Application，**不是每個場區叢集都有一份**。平台元件要進每一個叢集，那是 cluster-addons 的 matrix generator 在做的事。
 
-**`charts/` 是「業務服務」的意思，不是「所有 chart」的意思。**
+而且 app.yaml 的規則（environment、sync、owner）是為業務服務設計的，套在平台元件上都不對。
+
+**`applications/` 是「業務服務」的意思，不是「所有會被 ArgoCD 部署的東西」的意思。**
 
 ### 四、自己另外開一條 ApplicationSet
 
@@ -69,12 +71,12 @@
 2. **它要存在幾份？** 每個 cluster 一份 → cluster-addons；全廠一份 → 中央層
 3. **它是我們的物件，還是別人 chart 的輸入？** 輸入永遠不能變成自己的 chart
 
-**不要按「是什麼技術」分。** 「chart 的放 charts/、YAML 的放 manifests/」看起來整齊，實際上會把不同生效方式、不同負責人的東西混在一起，然後有人對 values 檔 `kubectl apply`。
+**不要按「是什麼技術」分。** 「chart 的放一個資料夾、YAML 的放另一個」看起來整齊，實際上會把不同生效方式、不同負責人的東西混在一起，然後有人對 values 檔 `kubectl apply`。
 
 ## 目前的落點
 
 ```
-charts/<app>/                          業務服務      git generator × cluster list
+applications/<app>/                    業務服務      ApplicationSet 掃 applications/**/app.yaml
 platform/cluster-addons/
   vmstack-values.yaml                  平台，參數    ┐ 同一條 ApplicationSet
   ns-labeler/                          平台，物件    │ list generator
@@ -84,7 +86,7 @@ platform/central/                      中央          跑一次
 
 相關文件：
 
-- [repo-layout.md](repo-layout.md)：`services/` 和 `charts/` 為什麼分開、ArgoCD generator 怎麼選、映像 tag 怎麼流
+- [repo-layout.md](repo-layout.md)：`applications/` 為什麼跟 devops repo 同格式、程式碼和部署設定為什麼分開、映像 tag 怎麼流
 - [attribution.md](attribution.md)：ns-labeler 在做什麼、對照表怎麼維護
 - [vmagent.md](vmagent.md)：分流本身怎麼運作
 - [架構圖](architecture)：宏觀落點圖、兩條 pipeline 圖
