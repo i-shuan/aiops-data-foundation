@@ -263,7 +263,55 @@ PY
   check relabel routed --wait 240
 }
 
-STEPS=(cluster ap1105 diagnose apps routed rollback hookfix final oldcrd)
+# 情況 C 怎麼修：換成跟在跑的 operator（v0.74.0）同一份 chart（0.91.0）帶的 CRD。
+# helm upgrade 不會更新 chart crds/ 資料夾裡的 CRD，所以要自己套。
+step_crdfix() {
+  say "crdfix：把 CRD 換成 chart 0.91.0（operator v0.74.0）帶的版本"
+  echo "  --- 先做出情況 C"
+  k replace -f "$WORK/crd-old.json" | sed 's/^/  /'
+  check crd | sed 's/^/  /'
+  echo "  --- 1. 備份 CR（換 CRD 前後比對用，看有沒有欄位被裁掉）"
+  local kinds=vmagents,vmclusters,vmservicescrapes,vmrules
+  k get $kinds -A -o json > "$WORK/cr-before.json"
+  echo "  --- 2. 拿 chart 0.91.0 的 CRD"
+  h show crds "$CHART" --version 0.91.0 > "$WORK/vm-crds.yaml"
+  echo "  $(grep -c '^kind: CustomResourceDefinition' "$WORK/vm-crds.yaml") 個 CRD"
+  echo "  --- 3. server-side dry-run，再套用"
+  k apply --server-side --force-conflicts --dry-run=server -f "$WORK/vm-crds.yaml" >/dev/null
+  k apply --server-side --force-conflicts -f "$WORK/vm-crds.yaml" | awk '{print $NF}' | sort | uniq -c | sed 's/^/  /'
+  echo "  --- 4. 確認"
+  check crd | sed 's/^/  /'
+  printf '    dry-run 加 scrapeClasses → [%s]\n' "$(k -n vm-monitoring patch vmagent $VMA --type=merge --dry-run=server \
+    -p '{"spec":{"scrapeClasses":[{"name":"probe"}]}}' -o jsonpath='{.spec.scrapeClasses[*].name}' 2>&1 | tr '\n' ' ')"
+  k get $kinds -A -o json > "$WORK/cr-after.json"
+  python - "$WORK/cr-before.json" "$WORK/cr-after.json" <<'PY'
+import json, sys
+def load(p):
+    out = {}
+    for i in json.load(open(p, encoding="utf-8"))["items"]:
+        out[(i["kind"], i["metadata"].get("namespace"), i["metadata"]["name"])] = i.get("spec")
+    return out
+def kept(x, y):
+    """x 的每個欄位在 y 裡都還在、值一樣（y 可以多東西）。"""
+    if isinstance(x, dict):
+        return isinstance(y, dict) and all(k in y and kept(v, y[k]) for k, v in x.items())
+    if isinstance(x, list):
+        return isinstance(y, list) and len(x) == len(y) and all(kept(i, j) for i, j in zip(x, y))
+    return x == y
+a, b = load(sys.argv[1]), load(sys.argv[2])
+# 舊 CRD 下讀出來的是裁掉之後的樣子，換成新 CRD 後會多出欄位（存著的 scrapeClasses 又看得到了），這是正常的。
+# 要抓的是反方向：原本有的欄位不見了。
+lost = [k for k in a if not kept(a[k], b.get(k))]
+more = [k for k in a if a[k] != b.get(k) and k not in lost]
+print("  CR 的 spec：%d 個，欄位不見的 %s；多出欄位的 %s" % (
+    len(a), lost[:5] or "無", ["%s/%s" % (k[0], k[2]) for k in more] or "無"))
+print("  %s" % ("PASS" if not lost else "FAIL"))
+sys.exit(1 if lost else 0)
+PY
+  check relabel routed --wait 120
+}
+
+STEPS=(cluster ap1105 diagnose apps routed rollback hookfix final oldcrd crdfix)
 start=${1:-cluster}
 run=false
 for s in "${STEPS[@]}"; do

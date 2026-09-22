@@ -55,6 +55,7 @@ ONLY=1 ./tests/ap1105-sim/run.sh routed # 只跑某一步
 | `hookfix` | 先 orphan 掉 sync-job 的 ServiceAccount 再關 syncJob，確認 release 回到 deployed、告警規則和 dashboard 都留著 |
 | `final` | hook 修好後再套一次 overlay，release 要是 deployed，分流要正確 |
 | `oldcrd` | 模擬「CRD 是沒有這兩個欄位的舊版」：看 API server 和 vmagent 怎麼反應，再還原 |
+| `crdfix` | 情況 C 的修法：換成 chart 0.91.0 帶的 CRD，確認欄位回來、CR 沒有東西不見、分流照常 |
 
 ## 結果（2026-09-22 本機實跑，全部 PASS）
 
@@ -71,6 +72,7 @@ ONLY=1 ./tests/ap1105-sim/run.sh routed # 只跑某一步
 | `hookfix` | 先 orphan sync-job 的 ServiceAccount 再關 syncJob：release 回到 deployed，VMRule 37 個、dashboard ConfigMap 41 個都留著 |
 | `final` | 再套一次 overlay：rev 6 **deployed**，分流全對 |
 | `oldcrd` | 舊 CRD 下，過濾被裁掉，**每一筆資料都進三個 tenant**，vmagent OOMKilled；換回 CRD 之後欄位不會自己回來，要再 `helm upgrade` 一次 |
+| `crdfix` | 套 chart 0.91.0 的 25 個 CRD：VMAgent CRD 117 → 119 個欄位，dry-run 保留欄位，56 個 CR 沒有欄位不見，分流照常 |
 
 分流結果（`routed` 和 `final` 都一樣）：
 
@@ -116,6 +118,40 @@ kubectl get deploy -A -o jsonpath='{range .items[*]}{.metadata.namespace}/{.meta
 - 情況 C 要先升級 CRD 才能套。另外：**舊 CRD 期間只要 VMAgent 被寫過一次，欄位就永久消失**，CRD 換回來也不會自己長回來，要再 `helm upgrade` 一次（`oldcrd` 步驟實測）。
 - 兩個 operator 同時管同一隻 VMAgent 的話，版本舊的那個可能看不懂新欄位、把設定改回去。要先確認只有一個在管。
 - `kubectl explain` 有快取（大約 10 分鐘），剛換過 CRD 時結果也不準。
+
+### 情況 C 怎麼修（`crdfix` 步驟實測）
+
+原因：**`helm upgrade` 不會更新 chart `crds/` 資料夾裡的 CRD**，只有第一次 install 會裝。operator 跟著 chart 升到 v0.74.0 了，CRD 還停在當初 install 的版本。模擬裡也看得到：從 0.86.2 升到 0.91.0 之後，VMAgent CRD 還是 118 個欄位，0.91.0 自己帶的是 119 個。
+
+修法：把 CRD 換成**跟在跑的 operator 同一份 chart**（rev 20 的 0.91.0，operator v0.74.0）帶的版本。
+
+```bash
+mkdir -p ~/vm-crd-fix && cd ~/vm-crd-fix
+
+# 1. 備份：CRD，和所有 VM 資源（換完比對有沒有欄位不見）
+kubectl get crd -o name | grep operator.victoriametrics.com | xargs kubectl get -o yaml > crd-before.yaml
+kubectl get vmagents,vmclusters,vmalerts,vmalertmanagers,vmrules,vmservicescrapes,vmpodscrapes,vmnodescrapes,vmstaticscrapes,vmprobes,vmscrapeconfigs,vmusers,vmauths -A -o yaml > cr-before.yaml
+
+# 2. 拿 chart 0.91.0 的 CRD（<repo> 用 rev 20 升級時用的那個，helm repo list 查）
+helm show crds <repo>/victoria-metrics-k8s-stack --version 0.91.0 > vm-crds-0.91.0.yaml
+grep -c '^kind: CustomResourceDefinition' vm-crds-0.91.0.yaml     # 25
+
+# 3. 先 dry-run，再套
+kubectl apply --server-side --force-conflicts --dry-run=server -f vm-crds-0.91.0.yaml
+kubectl apply --server-side --force-conflicts -f vm-crds-0.91.0.yaml
+
+# 4. 確認：上面的指令 1、2 重跑，指令 2 要印出 probe
+kubectl get vmagents,vmclusters,vmalerts,vmalertmanagers,vmrules,vmservicescrapes,vmpodscrapes,vmnodescrapes,vmstaticscrapes,vmprobes,vmscrapeconfigs,vmusers,vmauths -A -o yaml > cr-after.yaml
+diff cr-before.yaml cr-after.yaml
+```
+
+- **`diff` 怎麼看**：只能有多出來的行。舊 CRD 下讀出來的是裁掉之後的樣子，換成新 CRD 後原本存著、只是被藏起來的欄位會重新出現，這是正常的。**出現原本有、後來沒了的行就停下來**。模擬實測：56 個 CR 沒有任何欄位不見。
+- **`--server-side`**：最大的 CRD（vmdistributed）239KB，已經接近 annotation 的 256KB 上限。一般 `kubectl apply` 會在每個 CRD 上塞一份完整副本當 annotation，server-side 不會。
+- **`--force-conflicts`**：CRD 當初是 Helm 建的，欄位的 owner 是 Helm，不加可能因為欄位所有權衝突而失敗。
+- **不會重啟任何東西**：換 CRD 只改 schema。模擬裡 VMAgent、VMCluster 換完都還是 operational，分流照常。
+- **版本要跟在跑的 operator 一致**：用 0.91.0，不要順手拿更新的 chart。以後每次 `helm upgrade` 換 chart 版本，CRD 都要照這個方式自己更新一次。
+- **如果之前已經在舊 CRD 下套過 overlay**：VMAgent 存的已經是裁掉之後的版本，換完 CRD 要再 `helm upgrade` 一次（同一份 values）把欄位補回去。
+- **換完 CRD 之後**才照根目錄 README「已經在跑的 vmstack 加上分流」套 overlay。
 
 ## 發現 2：hook 失敗跟分流是兩件事，但不要直接關 syncJob
 
