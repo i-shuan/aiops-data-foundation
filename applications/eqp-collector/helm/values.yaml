@@ -1,0 +1,67 @@
+# ── 給 ArgoCD 讀的：platform/applicationset.yaml 掃這個檔案產生 Application ──
+# chart 本身不會用到這兩段，Helm 會直接忽略。
+argocd:
+  namespace: eqp-collector-dev
+  project: ai-platform
+  environment: development     # 改成 production 時 autoSync 要改成 false，validate.sh 會擋
+  owner: imc-team              # 範例值，換成實際負責的團隊
+  criticality: high            # 收值停了產線就看不到機台狀態
+  autoSync: true
+
+# ── 這個 app 的 observability identity，唯一的來源 ──
+# 部署時照原值變成 namespace 的 label：
+#   metrics 依 group 送去哪個 tenant，log 依 dept 送去哪個 index。
+observability:
+  dept: D1110                  # 範例值。fluent.conf 目前只有 D3120、D1110 的 log 規則，其他部門的 log 會進 unassigned
+  group: imc                   # it / imc / it.imc / platform
+  system: eqp                  # 業務系統，分析時用
+
+# ── 以下是一般的 Helm values ──
+
+app:
+  name: eqp-collector          # 必須跟 services/ 底下的資料夾同名
+  partOf: eqp
+  component: worker
+
+image:
+  repository: nexus.aillm.spil.com.tw/docker/imc/eqp-collector
+  tag: "0.1.0"                 # 不能用 latest
+
+# 只能是 1：每個副本都會去收全部機台，2 個就收兩次。
+# 滾動更新時新舊 pod 會同時跑幾秒，這幾秒會重複收值（metrics 靠 pod label 分得開）。
+# 機台多到一個 pod 收不完時，拆成多個 app、各自設定不同的 EQUIPMENT。
+replicas: 1
+
+ports:
+  http: 8080                   # /healthz、/readyz
+  metrics: 9464                # vmagent 抓這裡
+
+probes:
+  readiness:
+    httpGet:
+      path: /readyz            # 第一輪收完才 ready
+      port: http
+  liveness:
+    httpGet:
+      path: /healthz           # 收值迴圈太久沒動就重啟
+      port: http
+    initialDelaySeconds: 20
+
+resources:
+  requests:
+    cpu: 20m
+    memory: 48Mi
+  limits:
+    memory: 128Mi
+
+otel:
+  javaAgent:
+    enabled: false
+
+env:
+  - name: EQUIPMENT
+    value: "EQP001,EQP002,EQP003"
+  - name: PARAMS
+    value: "temperature,pressure,flow"
+  - name: INTERVAL_SECONDS
+    value: "10"
