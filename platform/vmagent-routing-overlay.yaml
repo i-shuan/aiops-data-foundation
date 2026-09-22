@@ -1,0 +1,73 @@
+# 給「已經在跑的 vmstack」加上分流用的 overlay（例如 AP1105）
+#
+# 內容就是 vmstack-values.yaml 的 vmagent.spec.scrapeClasses 和 vmagent.spec.remoteWrite 兩段，
+# 其他設定一律不帶，疊在該環境現有的 values 上：
+#
+#   helm upgrade vmstack <repo>/victoria-metrics-k8s-stack --version <現在的版本> -n vm-monitoring \
+#     -f current-values.yaml -f platform/vmagent-routing-overlay.yaml
+#
+# 完整步驟（備份、Secret、dry-run diff、驗證、回滾）見 README.md「已經在跑的 vmstack 加上分流」。
+#
+# ⚠ 不要改成直接套整份 vmstack-values.yaml：那是另一套環境的完整 values，
+#   會關掉 vmcluster、換 image registry、把 externalLabels 清成 {}。
+# ⚠ 這兩段要跟 vmstack-values.yaml 保持一致，只有 url 可以依環境不同。
+#   tests/validate.sh 會檢查；也會擋下這份裡出現這兩段以外的任何設定。
+# ⚠ platform 那把 token 要對到該環境現在寫入的 tenant（AP1105 是 insert/0），
+#   不然所有沒貼 group 的 namespace 會整批換 tenant。
+vmagent:
+  spec:
+    scrapeClasses:
+    - name: default
+      default: true
+      attachMetadata:
+        namespace: true
+      relabelConfigs:
+      - source_labels:
+        - __meta_kubernetes_namespace_label_dept
+        target_label: dept
+      - source_labels:
+        - __meta_kubernetes_namespace_label_group
+        target_label: group
+      - source_labels:
+        - __meta_kubernetes_namespace_label_system
+        target_label: system
+    remoteWrite:
+    - url: https://vmauth.aillm.spil.com.tw/prometheus/api/v1/write
+      tlsConfig:
+        insecureSkipVerify: true
+      bearerTokenSecret:
+        name: vmauth-token
+        key: it
+      inlineUrlRelabelConfig:
+      - action: keep
+        source_labels:
+        - group
+        regex: (.*\.)?it(\..*)?
+      - target_label: group
+        replacement: it
+    - url: https://vmauth.aillm.spil.com.tw/prometheus/api/v1/write
+      tlsConfig:
+        insecureSkipVerify: true
+      bearerTokenSecret:
+        name: vmauth-token
+        key: imc
+      inlineUrlRelabelConfig:
+      - action: keep
+        source_labels:
+        - group
+        regex: (.*\.)?imc(\..*)?
+      - target_label: group
+        replacement: imc
+    - url: https://vmauth.aillm.spil.com.tw/prometheus/api/v1/write
+      tlsConfig:
+        insecureSkipVerify: true
+      bearerTokenSecret:
+        name: vmauth-token
+        key: platform
+      inlineUrlRelabelConfig:
+      - action: drop
+        source_labels:
+        - group
+        regex: (.*\.)?(it|imc)(\..*)?
+      - target_label: group
+        replacement: platform

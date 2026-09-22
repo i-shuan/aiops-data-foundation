@@ -76,6 +76,73 @@ vmagent 不知道 values.yaml、app 名稱、namespace 名稱，也沒有部門�
 
 `services/<app>` 和 `applications/<app>` 要同名。ApplicationSet 看到新的 `helm/values.yaml` 就會自己長出一個 Application，不用改任何平台設定。
 
+## 已經在跑的 vmstack 加上分流
+
+適用：cluster 已經用 Helm 裝好 victoria-metrics-k8s-stack（例如 AP1105 的 release `vmstack`），vmagent 目前只有一條 remoteWrite。要改成依 namespace 的 `group` 分三條，送到同一個 vmauth URL、各帶不同 token。
+
+**用哪個檔**：`platform/vmagent-routing-overlay.yaml`，疊在該環境**自己現有的** values 上。
+
+```
+-f current-values.yaml                    ← helm get values 抓下來的，該環境原本的設定全部保留
+-f platform/vmagent-routing-overlay.yaml  ← 只加 scrapeClasses、把 remoteWrite 換成三條
+```
+
+- ⚠ **不要套整份 `vmstack-values.yaml`**。它是另一套環境的完整 values，會關掉 vmcluster（刪掉 VMCluster）、把 image registry 換成 nexus、把 `externalLabels` 清成 `{}`（`cluster` 標籤消失）。
+- ⚠ **platform 那把 token 要對到該環境現在寫入的 tenant**（AP1105 現在直接寫 `insert/0`）。沒貼 group 的 namespace（node-exporter、kube-state-metrics…）都走這條，對錯的話整個 cluster 的資料會換 tenant，看 tenant 0 的 Grafana / 告警會變空。
+- overlay 的內容跟 `vmstack-values.yaml` 的那兩段一模一樣，只有 `url` 可以依環境改。`tests/validate.sh` 會檢查，也會擋下 overlay 裡出現其他設定。
+- 本機用 chart 0.91.0 驗過：套上 overlay 之後，VMAgent 只有 `remoteWrite`、`scrapeClasses` 兩個欄位改變，remoteWrite 剛好三條（chart 不會再自動補一條到 `insert/0`），`externalLabels`、`extraArgs` 保留。
+
+**先確認**（缺一個就不要往下）：
+
+- vmauth 的 URL：`kubectl get vmauth,vmuser -A`、`kubectl get svc,ingress -A | grep -i vmauth`。跟 overlay 裡的不一樣就改 overlay 的三個 `url`。
+- 三把 token 各對到哪個 tenant：問 vmauth 的管理者，不動對方設定。
+- chart 版本和來源：`helm list -n vm-monitoring` 看現在的版本，`helm search repo victoria-metrics-k8s-stack --versions` 要找得到**同一個版本**。
+- `helm get values vmstack -n vm-monitoring` 裡如果有 `vmagent.additionalRemoteWrites`，那些會變成第四條以後，要先處理。
+
+**步驟**（以 AP1105 為例，在 repo 根目錄）：
+
+```bash
+# 1. 備份，記下 REVISION
+helm get values vmstack -n vm-monitoring -o yaml > current-values.yaml
+kubectl get vmagent -n vm-monitoring vmstack-victoria-metrics-k8s-stack -o yaml > vmagent-before.yaml
+helm history vmstack -n vm-monitoring
+
+# 2. 先建 Secret，再改 vmagent（順序反了 vmagent 找不到 key，整個 cluster 的 metrics 會停）
+#    read -s：token 不顯示、不進歷史，也不會多一個換行（多換行會一直 401）
+read -s -p 'IT token: ' T_IT; echo; read -s -p 'IMC token: ' T_IMC; echo; read -s -p 'platform token: ' T_PF; echo
+#    401 = vmauth 不認這把 token；其他數字 = 認得
+for t in "$T_IT" "$T_IMC" "$T_PF"; do curl -sk -o /dev/null -w '%{http_code}\n' -X POST -H "Authorization: Bearer $t" https://vmauth.aillm.spil.com.tw/prometheus/api/v1/write; done
+kubectl create secret generic vmauth-token -n vm-monitoring --from-literal=it="$T_IT" --from-literal=imc="$T_IMC" --from-literal=platform="$T_PF"; unset T_IT T_IMC T_PF
+kubectl describe secret vmauth-token -n vm-monitoring      # 三個 key，只顯示 byte 數
+
+# 3. dry-run，確認只有 VMAgent 的 remoteWrite / scrapeClasses 在變（Helm 3.13 以前用 --dry-run）
+helm get manifest vmstack -n vm-monitoring > manifest-before.yaml
+helm upgrade vmstack <repo>/victoria-metrics-k8s-stack --version 0.91.0 -n vm-monitoring \
+  -f current-values.yaml -f platform/vmagent-routing-overlay.yaml --dry-run=server > dry-run.txt
+diff manifest-before.yaml <(sed -n '/^MANIFEST:/,/^NOTES:/p' dry-run.txt | sed '1d;$d')
+
+# 4. 套用（vmagent 會重啟一次，幾秒沒抓）
+helm upgrade vmstack <repo>/victoria-metrics-k8s-stack --version 0.91.0 -n vm-monitoring \
+  -f current-values.yaml -f platform/vmagent-routing-overlay.yaml
+```
+
+dry-run 的 diff 看到 vmcluster、image、externalLabels 有變，或有資源被刪，就停下來。Grafana 密碼、webhook 憑證的差異是 chart 每次 upgrade 都會有的，不是這次造成的。
+
+**驗證**（等 1～2 分鐘，vmagent 重新載入設定會延遲）：
+
+```bash
+kubectl port-forward -n vm-monitoring svc/vmagent-vmstack-victoria-metrics-k8s-stack 8429:8429   # 另一個分頁
+
+curl -s localhost:8429/remotewrite-url-relabel-config                  # 三段：keep it / keep imc / drop (it|imc)
+curl -s localhost:8429/metrics | grep -E '^vmagent_remotewrite_requests_total'   # 1: 2: 3: 都要有 2xx，不能有 401
+```
+
+接著用有貼 group 的 app 確認進對 tenant，例如 [`applications/eqp-collector`](applications/eqp-collector/README.md) 的 Step 6-8、6-9（`VMA_NS=vm-monitoring`、`VMA=vmstack-victoria-metrics-k8s-stack`）。也要確認 tenant 0 還有沒貼 group 的資料，`count(last_over_time(up[2m]))` 跟改之前差不多。
+
+**回滾**：`helm rollback vmstack <步驟 1 記下的 REVISION> -n vm-monitoring`，回到單一條 `insert/0`。Secret 留著沒關係。
+
+**之後**：分流只存在這個 release 的 values 裡。之後用 `--reuse-values` 或 `helm get values` + `-f` 升級都會保留；但如果有人只拿**當初那份** values 檔升級，分流會悄悄消失，全部回到單一 tenant。這份 overlay 要交給管 vmstack 的人。
+
 ## Tests
 
 ```bash
@@ -83,7 +150,7 @@ vmagent 不知道 values.yaml、app 名稱、namespace 名稱，也沒有部門�
 ./tests/routing/run.sh    # 本機 k3d E2E，真的經過 ArgoCD
 ```
 
-**validate.sh**：每個 values.yaml 的必填欄位、group 是否合法（允許的值從 `vmstack-values.yaml` 的 remoteWrite 推出，不另外維護清單）、namespace 不能被兩個 app 共用、chart 渲染得出來、namespace label 渲染結果跟 values.yaml 一致。內建的錯誤寫法（`imcc`、`it.imcc`、`it.platform`、欄位打錯…）一定要被擋下，否則腳本本身失敗。
+**validate.sh**：每個 values.yaml 的必填欄位、group 是否合法（允許的值從 `vmstack-values.yaml` 的 remoteWrite 推出，不另外維護清單）、`vmagent-routing-overlay.yaml` 的分流設定跟 `vmstack-values.yaml` 一致（url 除外）且不帶其他設定、namespace 不能被兩個 app 共用、chart 渲染得出來、namespace label 渲染結果跟 values.yaml 一致。內建的錯誤寫法（`imcc`、`it.imcc`、`it.platform`、欄位打錯…）一定要被擋下，否則腳本本身失敗。
 
 **routing/run.sh**：五個情境（it、imc、it.imc、沒有 observability、不合法的 group）走完整條路。
 

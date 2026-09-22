@@ -8,7 +8,8 @@
 #   1. values.yaml 合法：argocd 與 observability 必填欄位、production 不可自動同步、
 #      namespace 不能被兩個 app 共用、chart 渲染得出來
 #   2. group 只能是允許的值。允許什麼直接從 platform/vmstack-values.yaml 的 remoteWrite 讀，
-#      不另外維護清單
+#      不另外維護清單。platform/vmagent-routing-overlay.yaml 的分流設定要跟它一模一樣
+#      （只有 url 可以不同），而且不能帶這兩段以外的設定
 #   3. platform/applicationset.yaml 的 templatePatch 渲染出來的 namespace label，
 #      要跟 values.yaml 寫的一模一樣；沒寫的欄位不能變成空字串的 label
 #   4. 自我檢查：內建的錯誤寫法一定要被擋下，渲染一定要照原值，否則這支腳本本身就是壞的
@@ -25,6 +26,7 @@ import yaml
 
 APPSET = "platform/applicationset.yaml"
 VMSTACK = "platform/vmstack-values.yaml"
+OVERLAY = "platform/vmagent-routing-overlay.yaml"
 ARGOCD_FIELDS = ["namespace", "project", "environment", "owner", "criticality", "autoSync"]
 OBS_FIELDS = ["dept", "group", "system"]
 LABEL_VALUE = re.compile(r"^([A-Za-z0-9]([-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?)?$")
@@ -95,6 +97,28 @@ def check(app, doc):
     return e
 
 
+def overlay_errors(overlay, vmstack):
+    """overlay 只能有 vmagent.spec 的 scrapeClasses 和 remoteWrite，而且要跟 vmstack-values.yaml 一樣。"""
+    e = []
+    overlay = overlay or {}
+    agent = overlay.get("vmagent") or {}
+    spec = agent.get("spec") or {}
+    extra = ([k for k in overlay if k != "vmagent"]
+             + ["vmagent.%s" % k for k in agent if k != "spec"]
+             + ["vmagent.spec.%s" % k for k in spec if k not in ("scrapeClasses", "remoteWrite")])
+    if extra:
+        e.append("只能有 vmagent.spec.scrapeClasses 和 remoteWrite，多了 %s（會蓋掉該環境原本的設定）"
+                 % ", ".join(extra))
+    want = vmstack["vmagent"]["spec"]
+    if spec.get("scrapeClasses") != want["scrapeClasses"]:
+        e.append("scrapeClasses 跟 %s 不一樣" % VMSTACK)
+    # url 可以依環境不同；過濾條件、token、順序都要一樣
+    no_url = lambda rws: [{k: v for k, v in rw.items() if k != "url"} for rw in rws or []]
+    if no_url(spec.get("remoteWrite")) != no_url(want["remoteWrite"]):
+        e.append("remoteWrite 跟 %s 不一樣（只有 url 可以不同）" % VMSTACK)
+    return e
+
+
 def render_labels(values, tmp):
     """用 applicationset.yaml 的 templatePatch 渲染，回傳 namespace 會拿到的 label。"""
     patch = load(APPSET)["spec"]["templatePatch"]
@@ -152,8 +176,36 @@ for app, doc in docs.items():
         errs.append("chart 渲染失敗：%s" % r.stderr.strip().splitlines()[-1])
     report(not errs, app, errs)
 
-print("\n=== 2. 允許的 group（從 %s 推出）===" % VMSTACK)
-print("  %s" % ", ".join(sorted(ALLOWED)))
+print("\n=== 2. platform/ 的分流設定 ===")
+print("  允許的 group（從 %s 推出）：%s" % (VMSTACK, ", ".join(sorted(ALLOWED))))
+vmstack = load(VMSTACK)
+overlay = load(OVERLAY)
+errs = overlay_errors(overlay, vmstack)
+report(not errs, "%s 跟 %s 一致（url 除外）" % (OVERLAY, VMSTACK), errs)
+
+
+def mutate(fn):
+    doc = copy.deepcopy(overlay)
+    fn(doc["vmagent"]["spec"])
+    return doc
+
+
+# 自我檢查：改壞的 overlay 一定要被抓到，只改 url 一定要放行
+mutants = [
+    ("imc 的 regex 改成 'imc'", True,
+     lambda s: s["remoteWrite"][1]["inlineUrlRelabelConfig"][0].update(regex="imc")),
+    ("IT 那條帶成 imc 的 token", True,
+     lambda s: s["remoteWrite"][0]["bearerTokenSecret"].update(key="imc")),
+    ("少了兜底那條", True, lambda s: s["remoteWrite"].pop()),
+    ("多帶 externalLabels: {}", True, lambda s: s.update(externalLabels={})),
+    ("scrapeClass 少了 group", True, lambda s: s["scrapeClasses"][0]["relabelConfigs"].pop(1)),
+    ("只把 url 換成別的 vmauth", False,
+     lambda s: [rw.update(url="http://vmauth.example.svc:8427/prometheus/api/v1/write") for rw in s["remoteWrite"]]),
+]
+for name, should_fail, fn in mutants:
+    errs = overlay_errors(mutate(fn), vmstack)
+    ok = bool(errs) == should_fail
+    report(ok, "自我檢查：%-24s → %s" % (name, errs[0] if errs else "放行"))
 
 print("\n=== 3. values.yaml → namespace label ===")
 for app, doc in docs.items():
