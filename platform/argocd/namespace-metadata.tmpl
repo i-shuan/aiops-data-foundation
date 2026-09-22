@@ -1,0 +1,41 @@
+{{- /*
+  把 app.yaml 的 observability 區塊貼到 namespace 上。
+  這段要併進 applicationsets/devops/applicationset.yaml 的 templatePatch。
+
+  dept → group 的對照表。改組要改這裡。
+
+  ⚠ ns-labeler 的 values.yaml（registry.groups）還有一份，給不是 ArgoCD 部署的
+  namespace 用。兩份不一致的話，同一個部門的 app 會依「誰標的」分流到不同 tenant，
+  而且不會報錯。validate_observability.py --ns-labeler-values 會比對這兩份，
+  不一致就讓 CI 失敗。
+
+  validate_observability.py 直接讀下面這個 dict，CI 的驗證規則跟這裡永遠一致。
+*/ -}}
+{{- $groups := dict
+      "D3120" "it"
+      "D3130" "it"
+      "D1110" "imc"
+      "D1120" "imc"
+      "PLATFORM" "platform" }}
+{{- /*
+  用 dig 取值：app.yaml 沒寫這個欄位時回傳空字串，不會因為 missingkey=error 而整個 template 失敗。
+  group 沒寫就依 dept 查表；有寫（例如 it.imc，要送給多個 tenant）就用寫的。
+*/ -}}
+{{- $dept := dig "observability" "dept" "" . }}
+{{- $group := dig "observability" "group" "" . | default (get $groups $dept) }}
+{{- $system := dig "observability" "system" "" . }}
+spec:
+  syncPolicy:
+    syncOptions:
+      # managedNamespaceMetadata 只有在 CreateNamespace=true 時才生效。
+      # 注意：templatePatch 裡的 list 是整個取代，不是合併。
+      # 你們現有的 syncOptions 要一起寫進來，不然會被這裡蓋掉。
+      - CreateNamespace=true
+    managedNamespaceMetadata:
+      labels:
+        dept: {{ $dept | quote }}
+        group: {{ $group | quote }}
+        {{- /* system 沒填就整個不寫。寫成空字串的話 Fluentd 會拿到 ""，不會變成 unknown。 */}}
+        {{- with $system }}
+        system: {{ . | quote }}
+        {{- end }}

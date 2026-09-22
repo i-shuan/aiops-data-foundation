@@ -1,0 +1,6 @@
+# expect: OK
+namespace: zk-sim-both-prod
+# 故意不填 system，驗證只有提醒、不會擋
+observability:
+  dept: D3120
+  group: it.imc

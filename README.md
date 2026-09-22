@@ -66,7 +66,8 @@ SHA 留著是為了萬一要回去翻，`git checkout <sha>` 還撈得到（垃�
 
 - [docs/deployment-layers.md](docs/deployment-layers.md)：**東西該掛在哪一層。** 三個問題分出業務層 / 平台層 / 中央層，以及分錯會怎樣——四種替代做法的後果都寫了。
 - [docs/repo-layout.md](docs/repo-layout.md)：`services/` 和 `charts/` 為什麼分開、ArgoCD 的 generator 怎麼選、映像 tag 怎麼從 code 流到 values。
-- [docs/attribution.md](docs/attribution.md)：**歸屬怎麼決定。** 中央一份對照表，由 CronJob 自動把 `dept` / `group` 標到 namespace 上，收集端照舊只讀 label。已在本機實測通過。
+- [platform/argocd/](platform/argocd)：**歸屬寫在 app.yaml。** 一隻 app 一個 namespace，歸屬跟 owner / criticality 放在一起，由 ArgoCD 貼到 namespace 上。要改 devops repo 的哪三個地方、CI 擋什麼、沒驗證的部分都在這裡。
+- [docs/attribution.md](docs/attribution.md)：**歸屬怎麼決定。** app.yaml 為主、ns-labeler 補漏（平台的 namespace、沒進 ArgoCD 的舊 app），兩條路怎麼不互相覆蓋。已在本機實測通過。
 - [docs/roadmap.md](docs/roadmap.md)：三階段路線圖。metrics 分流、log 接 EFK、產線與 MES 異常分析。
 - [docs/efk.md](docs/efk.md)：log 怎麼分流。Fluentd 依 namespace 的 dept label 改 tag，每個 group 一個 output、各帶只能寫自己 index 的 API key。已在本機實測通過。
 - [docs/vmagent.md](docs/vmagent.md)：metrics 怎麼分流。現況是一個 cluster 一台 vmagent、一把 token、資料全進同一個 tenant；分流做法是把 `remoteWrite` 從一條拆成每個 group 一條。
@@ -84,7 +85,7 @@ SHA 留著是為了萬一要回去翻，`git checkout <sha>` 還撈得到（垃�
 - **metrics 依 namespace 的 `group` label 分流**，不是 `dept`。一份資料可以同時給多個 tenant（`group=it.imc`），改組也不用碰 vmagent 設定。log 那邊還是依 `dept`，還不支援多個 tenant，見 [efk.md](docs/efk.md)。
 - **平台要進每個 cluster 的東西，全部掛在既有的 cluster-addons ApplicationSet 底下**，不另外開分發管道。擴廠 = list 加一行。理由與替代做法的後果見 [deployment-layers.md](docs/deployment-layers.md)。
 - **namespace 名稱不含組織資訊**，格式是 `{cluster}-{app}-{env}` 或 `{app}-{env}`，所以歸屬要另外標。
-- **歸屬用「中央清單 + 自動標 label」**，不是二選一：人只改 git 裡的對照表，CronJob 負責標到 namespace 上，收集端設定不動。見 [attribution.md](docs/attribution.md)。
+- **歸屬寫在 devops repo 的 `app.yaml`，由 ArgoCD 貼到 namespace 上**。不是 ArgoCD 部署的 namespace 才由 ns-labeler 標。同一個 namespace 只能由一邊管，CI 會擋。收集端只讀 namespace 的 label，不管是誰標的。見 [platform/argocd/](platform/argocd)、[attribution.md](docs/attribution.md)。
 - **log 收集器是 Fluentd，Elasticsearch 是 Basic 免費版。** 權限只能切到 index 層級，沒有 Elastic ML。
 - **metrics 與 log 兩條路都已在本機 k3d 實測跑通**，九個關聯欄位的名稱兩邊一致（平台 namespace 的 `group` 值例外，見 efk.md），group 之間的隔離擋得住。細節與踩到的坑見 [vmagent.md](docs/vmagent.md)、[efk.md](docs/efk.md)。
 
@@ -115,11 +116,13 @@ charts/                    Helm chart，也是一個 app 一個資料夾，名�
 platform/                  平台端，由平台 pipeline 部署
   cluster-addons/          掛在既有的 cluster-addons ApplicationSet 底下     → 每個 cluster
     vmstack-values.yaml    vmagent 三條 remoteWrite、kube-state-metrics allowlist
-    ns-labeler/            chart：對照表、對帳腳本、CronJob、告警規則
+    ns-labeler/            chart：對照表、對帳腳本、CronJob、告警規則（給不是 ArgoCD 部署的 namespace）
+  argocd/                  歸屬寫在 app.yaml：template、CI 驗證、app.yaml 範例    → 併進 devops repo
   fluentd/                 fluent.conf，三個 output 各帶自己的 API key         → 每個 cluster
   central/                 Elasticsearch 的 API key、role 設定腳本             → 只有 central
 
 tests/routing/             metrics 分流的端到端測試（只 IT / 只 IMC / 兩個都送 / 寫錯時的行為）
+tests/app-yaml/            歸屬寫在 app.yaml 這條路的測試（CI 驗證 + template + 分流）
 ci/                        chart 的驗證腳本
 docs/                      設計文件與架構圖，不部署
 ```

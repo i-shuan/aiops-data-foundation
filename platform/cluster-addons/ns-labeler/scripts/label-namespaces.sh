@@ -61,11 +61,24 @@ resolve_app() {
   printf '%s' "$ns"
 }
 
+# ns-labeler 標過的 namespace 會帶這個 annotation。
+# 用來分辨「這個 namespace 的 label 是我標的」還是「別人（ArgoCD 從 app.yaml）標的」。
+OWNER_KEY="observability.spil.com.tw/labeled-by"
+OWNER_VAL="ns-labeler"
+
 matched=0
 changed=0
+external=0
 unmatched=""
 
 for ns in $(kubectl get ns -o jsonpath='{.items[*].metadata.name}'); do
+  # 目前的 label 和 annotation 一次拿，一個 namespace 只打一次 API
+  cur=$(kubectl get ns "$ns" -o jsonpath='{.metadata.labels.dept}|{.metadata.labels.group}|{.metadata.labels.system}|{.metadata.annotations.observability\.spil\.com\.tw/labeled-by}' 2>/dev/null || true)
+  cur_dept=${cur%%|*};   rest=${cur#*|}
+  cur_group=${rest%%|*}; rest=${rest#*|}
+  cur_system=${rest%%|*}
+  cur_owner=${rest#*|}
+
   # namespaces.tsv 優先（例外、平台自己的）。格式：namespace 部門 系統 group，後兩欄可為 "-"
   dept=$(val "$REGISTRY/namespaces.tsv" "$ns" 2)
   system=$(val "$REGISTRY/namespaces.tsv" "$ns" 3)
@@ -78,7 +91,19 @@ for ns in $(kubectl get ns -o jsonpath='{.items[*].metadata.name}'); do
   fi
 
   if [ -z "$dept" ]; then
-    unmatched="$unmatched $ns"
+    if [ -n "$cur_dept" ]; then
+      # 對照表裡沒有，但 namespace 已經有 dept：label 是別人管的（例如 ArgoCD 依 app.yaml 貼的）。
+      # 這不是「沒有歸屬」，不要報出來嚇人。
+      if [ "$cur_owner" = "$OWNER_VAL" ]; then
+        # 以前是我標的，但對照表裡已經沒有它了（例如搬去 app.yaml 管）。
+        # 放掉 annotation，之後就不會再去碰它；label 保留不動，免得中間斷掉。
+        echo "RELEASE $ns 已不在對照表裡，交給別處管理（label 保留不動）"
+        [ "$DRY_RUN" = "true" ] || kubectl annotate ns "$ns" "$OWNER_KEY-" >/dev/null
+      fi
+      external=$((external + 1))
+    else
+      unmatched="$unmatched $ns"
+    fi
     continue
   fi
 
@@ -98,12 +123,26 @@ for ns in $(kubectl get ns -o jsonpath='{.items[*].metadata.name}'); do
 
   [ -n "$system" ] || echo "WARN   $ns 沒有 system，log 上會填 unknown"
 
-  cur_dept=$(kubectl get ns "$ns" -o jsonpath='{.metadata.labels.dept}' 2>/dev/null || true)
-  cur_group=$(kubectl get ns "$ns" -o jsonpath='{.metadata.labels.group}' 2>/dev/null || true)
-  cur_system=$(kubectl get ns "$ns" -o jsonpath='{.metadata.labels.system}' 2>/dev/null || true)
-
+  same=0
   if [ "$cur_dept" = "$dept" ] && [ "$cur_group" = "$group" ] \
      && { [ -z "$system" ] || [ "$cur_system" = "$system" ]; }; then
+    same=1
+  fi
+
+  # 對照表裡有，但 namespace 的 label 是別人標的、而且值不一樣：兩邊在搶同一組 label。
+  # 硬蓋的話 ArgoCD 的 selfHeal 會蓋回去，下一輪這裡又蓋回來，永遠在翻。
+  # 停下來報錯，讓人決定這個 app 到底歸哪邊管。
+  if [ "$same" = 0 ] && [ -n "$cur_dept" ] && [ "$cur_owner" != "$OWNER_VAL" ]; then
+    echo "ERROR  $ns 的 label 是別處管的（dept=$cur_dept group=$cur_group），跟對照表（dept=$dept group=$group）不一樣。" \
+         "兩邊同時管會互相覆蓋，跳過不標。這個 app 只能寫在 app.yaml 或 registry.apps 其中一邊"
+    continue
+  fi
+
+  if [ "$same" = 1 ]; then
+    # 值已經對了。舊版標的沒有 annotation，補上，之後才認得出是自己標的。
+    if [ "$cur_owner" != "$OWNER_VAL" ] && [ "$DRY_RUN" != "true" ]; then
+      kubectl annotate ns "$ns" "$OWNER_KEY=$OWNER_VAL" --overwrite >/dev/null
+    fi
     matched=$((matched + 1))
     continue
   fi
@@ -112,13 +151,16 @@ for ns in $(kubectl get ns -o jsonpath='{.items[*].metadata.name}'); do
   [ -z "$system" ] || set -- "$@" "system=$system"
 
   echo "LABEL  $ns  $*  (原本 dept=${cur_dept:-無} group=${cur_group:-無} system=${cur_system:-無})"
-  [ "$DRY_RUN" = "true" ] || kubectl label ns "$ns" "$@" --overwrite >/dev/null
+  if [ "$DRY_RUN" != "true" ]; then
+    kubectl label ns "$ns" "$@" --overwrite >/dev/null
+    kubectl annotate ns "$ns" "$OWNER_KEY=$OWNER_VAL" --overwrite >/dev/null
+  fi
   changed=$((changed + 1))
 done
 
 echo "---"
-echo "已正確 $matched 個，本次調整 $changed 個"
+echo "已正確 $matched 個，本次調整 $changed 個，由別處管理 $external 個"
 if [ -n "$unmatched" ]; then
   echo "對不到歸屬：$unmatched"
-  echo "這些會落到 unassigned。要嘛在 values.yaml 的 registry.apps 補一行，要嘛在 registry.namespaces 標成例外。"
+  echo "這些會落到 unassigned。要嘛在 app.yaml 寫 observability，要嘛在 values.yaml 的 registry.apps / registry.namespaces 補上。"
 fi

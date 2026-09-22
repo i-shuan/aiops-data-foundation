@@ -1,8 +1,21 @@
 # 歸屬：資料怎麼知道自己是哪一組的
 
-一句話：**中央維護一份對照表，由 CronJob 自動把 `dept` / `group` 標到 namespace 上，收集端照舊只讀 label。**
+一句話：**歸屬標在 namespace 上，收集端只讀 namespace 的 label。誰來標分兩條路。**
 
-設定在 [../platform/cluster-addons/ns-labeler/](../platform/cluster-addons/ns-labeler)，已經在本機 k3d 實測通過。
+## 現在分兩條路：app.yaml 為主，ns-labeler 補漏
+
+一隻 app 一個 namespace，所以**歸屬直接寫在 devops repo 的 `app.yaml`**，由 ArgoCD 貼到 namespace 上。不是 ArgoCD 部署的 namespace（平台自己的、還沒進 ArgoCD 的舊 app）才由 ns-labeler 標。
+
+| | 誰標 | 設定在哪 | 詳細 |
+|---|---|---|---|
+| **有 app.yaml 的 app** | ArgoCD（managedNamespaceMetadata） | `applications/<app>/app.yaml` 的 `observability` | [../platform/argocd/](../platform/argocd) |
+| 平台的 namespace、沒進 ArgoCD 的 | ns-labeler（CronJob） | `cluster-addons/ns-labeler/values.yaml` 的 `registry` | 本文以下 |
+
+**同一個 namespace 只能由一邊管**，CI 會擋。兩邊都有自己的 dept → group 對照表，CI 也會檢查兩份一致。兩條路怎麼共存見 [../platform/argocd/README.md](../platform/argocd/README.md)。
+
+收集端（vmagent、Fluentd）不管 label 是誰標的，兩條路的效果完全一樣，都實測過：[../tests/routing/](../tests/routing)（ns-labeler）、[../tests/app-yaml/](../tests/app-yaml)（app.yaml）。
+
+以下講 ns-labeler 這條。設定在 [../platform/cluster-addons/ns-labeler/](../platform/cluster-addons/ns-labeler)。
 
 ## 為什麼需要這一層
 
@@ -53,6 +66,8 @@ app 的 pipeline 是 build image → deploy。**平台這條沒有 build image �
 兩條 pipeline 唯一的交會點是同一個 namespace 物件：一條把它建出來，另一條在上面標歸屬。**兩邊不需要互相知道對方存在**，這也是 app 團隊不必知道 tenant / group 的原因。
 
 ### 順序：平台那條要先跑完
+
+**這一節只適用於 ns-labeler 那條路。** 歸屬寫在 app.yaml 的話，歸屬跟 app 在同一次 sync，沒寫 `observability` 在 CI 就被擋下，不會有「先上線、後登記」的空窗。
 
 新 app 上線的正確順序是：**先在 `registry.apps` 加一行合進去 → 等對帳跑過 → app 再部署**。
 
@@ -208,6 +223,22 @@ kubectl get vmservicescrape -A -o yaml | grep -B3 honorLabels
 ```
 
 另外，這個指標上會同時出現 `dept` 和 `label_dept` 兩個欄位，意思完全不同：`dept` 是抓取時蓋上的「KSM 這個 pod 屬於誰」（永遠是 platform），`label_dept` 才是「這一列講的那個 namespace 屬於誰」。**告警條件一定要用 `label_dept`。**
+
+## 跟 ArgoCD 共存：怎麼不互相覆蓋
+
+ns-labeler 標過的 namespace 會帶 annotation `observability.spil.com.tw/labeled-by: ns-labeler`，靠它分辨哪些是自己標的：
+
+| 情況 | 反應 |
+|---|---|
+| 對照表沒有、有 label、不是自己標的 | 算「由別處管理」，**不報成沒歸屬**。之前會把 app.yaml 管的 namespace 也列進「對不到歸屬」，會嚇到人 |
+| 對照表沒有、以前是自己標的 | **釋放**：拿掉 annotation，label 保留 |
+| 對照表有、label 是別人標的、值不同 | **報錯、不蓋**。硬蓋的話 ArgoCD selfHeal 蓋回去，下一輪又蓋回來，一直翻 |
+| 對照表有、自己標的、改組了 | 照常更新 |
+| 舊版標的（沒有 annotation）、值正確 | 認領，補上 annotation |
+
+五種都在本機實測過。
+
+**已知的邊角**：舊版 ns-labeler 標過、但現在已經不在對照表裡的 namespace，因為當時沒留 annotation，現在分不出來，會被當成「別處管的」。值是對的所以沒有實害，只是 ns-labeler 以後不會再管它。
 
 ## 坑
 

@@ -1,0 +1,6 @@
+# expect: FAIL
+namespace: zk-sim-typo-prod
+observability:
+  dept: D3120
+  system: sim
+  group: it.imcc
