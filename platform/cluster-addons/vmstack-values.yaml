@@ -6,8 +6,8 @@
 # 這份是在原始模板上加了「同 cluster 內分流」所需的東西，
 # 只動了兩個區塊，其他原封不動：
 #
-#   1. vmagent.spec.scrapeClasses   新增。抓取時把 namespace 的 dept label 帶進資料
-#   2. vmagent.spec.remoteWrite     從一條拆成三條，各自過濾、各自帶 token
+#   1. vmagent.spec.scrapeClasses   新增。抓取時把 namespace 的 dept / group / system label 帶進資料
+#   2. vmagent.spec.remoteWrite     從一條拆成三條，依 group 各自過濾、各自帶 token
 #   3. kube-state-metrics           新增 metricLabelsAllowlist
 #
 # 設計說明見 docs/vmagent.md，歸屬 label 怎麼來見 docs/attribution.md。
@@ -66,19 +66,24 @@ vmagent:
       {} # cluster 由 ApplicationSet 的 helm.parameters 注入
 
     # ── 新增 ──────────────────────────────────────────────
-    # 抓取時把 namespace 的 dept label 貼到每一筆資料上。
+    # 抓取時把 namespace 的 label 貼到每一筆資料上。
     # 沒有這段，下面三條 remoteWrite 的過濾條件全部對不到東西，
     # 結果是 IT / IMC 兩條都送不出去，全部落到兜底那條。
     #
-    # dept label 由 ns-labeler 自動標上，見 docs/attribution.md。
+    # 這些 label 由 ns-labeler 自動標上，見 docs/attribution.md。
     scrapeClasses:
       - name: default
         default: true
         attachMetadata:
           namespace: true
         relabelConfigs:
+          # dept：這份資料是誰的（歸屬）。只有一個值。
           - source_labels: [__meta_kubernetes_namespace_label_dept]
             target_label: dept
+          # group：這份資料要送到哪些 tenant（誰看得到）。分流就是看這個。
+          # 可以是單一值（it）也可以是多個，用點隔開（it.imc = 兩個都送）。
+          - source_labels: [__meta_kubernetes_namespace_label_group]
+            target_label: group
           # system 只是分析用的維度，不是分流依據，下面的 remoteWrite 不看它。
           # namespace 沒標的話這個值是空的，relabel 會直接不產生這個 label
           # （metrics 上是「沒有 system」，不是 unknown；log 那邊才填 unknown）。
@@ -91,8 +96,20 @@ vmagent:
     # 改成三條：vmagent 只抓一次，資料複製三份，每份各自過濾後帶自己的 token 送出。
     # tenant 由中央 vmauth 依 token 決定，這邊不碰 tenant 設計。
     #
-    # 三段 regex 必須從同一份「部門 → group」對照表渲染，不要手寫：
-    # ns-labeler 的 values.yaml（registry.groups）
+    # 過濾依據是 group，不是 dept。原因：
+    #   - 一個 namespace 只有一個 dept，依 dept 分就不可能「兩個 tenant 都送」。
+    #   - 依 dept 分的話，部門清單要寫死在這裡，每次改組都要改這份、重啟 vmagent。
+    #     依 group 分的話，部門搬家只要改 ns-labeler 的 registry.groups，這份不用動。
+    #
+    # regex 寫法：'(.*\.)?it(\..*)?' 表示「group 以點切開後，其中一段是 it」。
+    #   it       → 符合
+    #   it.imc   → 符合
+    #   imc      → 不符合
+    # 不要寫成 'it'：那只認單一值，it.imc 會被 IT 漏掉。
+    # 也不要寫成 '.*it.*'：那會把名字裡剛好含 it 的 group 也算進來。
+    #
+    # 只有新增 tenant（中央多發一把 token）時才要改這份：多加一條 remoteWrite，
+    # 並把名字加進兜底那條的 drop regex。
     remoteWrite:
       # IT
       - url: https://vmauth.aillm.spil.com.tw/prometheus/api/v1/write
@@ -103,8 +120,10 @@ vmagent:
           key: it
         inlineUrlRelabelConfig:
           - action: keep
-            source_labels: [dept]
-            regex: "D3120|D3130"
+            source_labels: [group]
+            regex: '(.*\.)?it(\..*)?'
+          # 存進 tenant 的 group 一律改成那個 tenant 的名字。
+          # 共用的資料在 IT tenant 裡是 group=it、在 IMC tenant 裡是 group=imc。
           - target_label: group
             replacement: it
 
@@ -117,15 +136,15 @@ vmagent:
           key: imc
         inlineUrlRelabelConfig:
           - action: keep
-            source_labels: [dept]
-            regex: "D1110|D1120"
+            source_labels: [group]
+            regex: '(.*\.)?imc(\..*)?'
           - target_label: group
             replacement: imc
 
       # 兜底：node-exporter、kube-state-metrics、平台元件、還沒標 label 的 namespace。
       # 這條不能省，省了那些節點層級的資料會整批消失。
-      # drop 的 regex 必須跟上面所有 keep 的 regex 完全對應，
-      # 漏一個部門，那個部門的資料就會同時進兩個 tenant，而且不會有錯誤訊息。
+      # drop 的 regex 必須列出上面所有 tenant 的名字。
+      # 漏一個的話，那個 tenant 的資料會同時進兜底，而且不會有錯誤訊息。
       - url: https://vmauth.aillm.spil.com.tw/prometheus/api/v1/write
         tlsConfig:
           insecureSkipVerify: true
@@ -134,8 +153,8 @@ vmagent:
           key: platform
         inlineUrlRelabelConfig:
           - action: drop
-            source_labels: [dept]
-            regex: "D3120|D3130|D1110|D1120"
+            source_labels: [group]
+            regex: '(.*\.)?(it|imc)(\..*)?'
           - target_label: group
             replacement: platform
     # ──────────────────────────────────────────────────────

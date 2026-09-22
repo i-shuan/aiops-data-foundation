@@ -81,6 +81,7 @@ SHA 留著是為了萬一要回去翻，`git checkout <sha>` 還撈得到（垃�
 - **tenant 設計不碰。** 中央那邊依 bearer token 分 tenant，要新增由他們自己加。我們只負責在 K8s 這側決定「哪一批資料用哪一把 token」。
 - **應用團隊不需要知道 tenant、group、token。** 規格統一由共用 chart 產生，見 [charts/app-common](charts/app-common)。
 - **分流點在每個 cluster 唯一那台 vmagent**，不另外長新的收集器。
+- **metrics 依 namespace 的 `group` label 分流**，不是 `dept`。一份資料可以同時給多個 tenant（`group=it.imc`），改組也不用碰 vmagent 設定。log 那邊還是依 `dept`，還不支援多個 tenant，見 [efk.md](docs/efk.md)。
 - **平台要進每個 cluster 的東西，全部掛在既有的 cluster-addons ApplicationSet 底下**，不另外開分發管道。擴廠 = list 加一行。理由與替代做法的後果見 [deployment-layers.md](docs/deployment-layers.md)。
 - **namespace 名稱不含組織資訊**，格式是 `{cluster}-{app}-{env}` 或 `{app}-{env}`，所以歸屬要另外標。
 - **歸屬用「中央清單 + 自動標 label」**，不是二選一：人只改 git 裡的對照表，CronJob 負責標到 namespace 上，收集端設定不動。見 [attribution.md](docs/attribution.md)。
@@ -100,12 +101,14 @@ SHA 留著是為了萬一要回去翻，`git checkout <sha>` 還撈得到（垃�
 ```
 services/                  應用程式碼，一個 app 一個資料夾
   yms-sim/                 參考實作：業務指標和 JSON log 長什麼樣
+  metrics-sim/             持續模擬收值，給分流測試用
   mes-dispatch/
   _standards/              跨服務的共用設定範本（Java logback 等）
 
 charts/                    Helm chart，也是一個 app 一個資料夾，名稱必須跟 services/ 一致
   app-common/              平台維護的 library chart，標準 label、probe、VMServiceScrape 由它產生
   yms-sim/
+  metrics-sim/
   mes-dispatch/
                            以上兩塊不由平台 pipeline 部署，走 app 自己的 CI/CD
 
@@ -116,6 +119,7 @@ platform/                  平台端，由平台 pipeline 部署
   fluentd/                 fluent.conf，三個 output 各帶自己的 API key         → 每個 cluster
   central/                 Elasticsearch 的 API key、role 設定腳本             → 只有 central
 
+tests/routing/             metrics 分流的端到端測試（只 IT / 只 IMC / 兩個都送 / 寫錯時的行為）
 ci/                        chart 的驗證腳本
 docs/                      設計文件與架構圖，不部署
 ```

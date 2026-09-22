@@ -29,7 +29,7 @@ vmagent 過濾時只看得到 label，Fluentd 改 tag 時只看得到欄位。�
 
 | `values.yaml` 裡的 | 內容 | 什麼時候改 |
 |---|---|---|
-| `registry.apps` | app → 部門、系統 | 新 app 上線 |
+| `registry.apps` | app → 部門、系統，必要時覆寫 group | 新 app 上線 |
 | `registry.namespaces` | namespace → 部門、系統（例外、平台自己的 namespace） | namespace 名稱不照命名規則時 |
 | `registry.groups` | 部門 → group | **改組**。大多數情況只改這一份 |
 
@@ -278,27 +278,38 @@ metrics 上本來就有 `part_of`（`app-common` 從 pod 的 `app.kubernetes.io/
 
 所以**分析用 `system`**：舊 manifest 的 app 也涵蓋得到，log 和 metrics 都有。`part_of` 留作交叉檢查，兩者對不上時值得查一下是不是有人把 pod 放錯 namespace。
 
-## 之後可以再簡化：讓收集端直接讀 `group`
+## 一份資料要給多個 tenant 看
 
-現在 namespace 上已經有 `group` label，但收集端還是照舊用部門 regex 在算 group，等於「部門 → group」這份對照在三個地方各有一份（`registry.groups`、vmagent values、`fluent.conf`）。
-
-改成直接讀 `group` 之後，**新增部門就完全不用碰收集端設定**：
-
-vmagent 的 scrapeClass 多帶一個 label，remoteWrite 的條件換掉：
+有些服務是共用的（例如 IT 維護、但 IMC 也要看它的狀態）。在 `registry.apps` 裡填 `group`，用點隔開：
 
 ```yaml
-relabelConfigs:
-  - source_labels: [__meta_kubernetes_namespace_label_group]
-    target_label: group
-# remoteWrite 的過濾條件
-  - action: keep
-    source_labels: [group]
-    regex: it          # 原本是 dept 的 "D3120|D3130"
+registry:
+  apps:
+    shared-svc: {dept: D3120, system: common, group: it.imc}
 ```
 
-Fluentd 的 `rewrite_tag_filter` 同理，`key dept` 換成 `key group`、pattern 換成 `/^it$/`。
+- **`dept` 還是只有一個**，講這份資料是誰的（歸屬）。
+- **`group` 講要送到哪些 tenant**（誰看得到）。平常不用填，由 `registry.groups` 依 `dept` 推出來。
 
-沒有現在就做，是因為現有設定已經實測過，換掉要重測一輪。想做的時候這是兩邊各兩行的改動。
+ns-labeler 會檢查 `group`，**不合法就不標**，讓它掉進兜底並觸發「沒有歸屬」的告警：
+
+| 寫法 | 結果 | 為什麼擋 |
+|---|---|---|
+| `it.imc` | 標上 | |
+| `it.imcc` | **拒標** | `imcc` 不在 `registry.groups` 裡。不擋的話，資料只會進 IT，IMC 看不到，而且沒人發現 |
+| `it.platform` | **拒標** | `platform` 是兜底，vmagent 用「不屬於任何 tenant」來認它，所以 `it.platform` 只會進 IT。不擋的話會讓人以為平台也收得到 |
+
+**寫錯的時候，資料寧可掉進兜底被告警抓到，也不能送進錯的 tenant。** 這兩個情境都在 [../tests/routing/](../tests/routing) 裡實測過。
+
+⚠ **`group=it.imc` 目前只對 metrics 有效。** log 那邊 Fluentd 還是依 `dept` 送一個 index，見 [efk.md](efk.md) 的「已知落差」。
+
+## 收集端讀 group：metrics 已改，log 還沒
+
+vmagent 已經改成依 `group` 分流，好處是**部門進出、改組都不用碰 vmagent 的設定**，只改 `registry.groups`。「部門 → group」這份對照現在在 metrics 這邊只剩一份。
+
+log 那邊還是依 `dept`：`fluent.conf` 的 `rewrite_tag_filter` 裡寫著部門清單。要改成讀 `group` 的話，`key dept` 換成 `key group`、pattern 換成 `/^it$/` 那種單值比對是**不夠的**——
+
+**Fluentd 的 `rewrite_tag_filter` 一筆記錄只能改一次 tag、送去一個地方**，沒辦法像 vmagent 那樣複製成兩份。要支援 `it.imc` 就要用 `copy` 把記錄分成多路、每一路各自過濾，結構跟現在完全不同，要重新設計也要重新實測，所以還沒做。
 
 ## 待確認
 

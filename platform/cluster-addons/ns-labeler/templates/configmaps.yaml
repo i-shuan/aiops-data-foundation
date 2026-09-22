@@ -13,16 +13,18 @@ metadata:
 data:
   # app → 部門、系統。這裡的 app 是「namespace 去掉 cluster 前綴和 env 後綴剩下的那一段」，
   # 不是 Deployment 的名字：zk-mes-prod → mes
-  # 三欄：app dept system。system 可以省，省了那欄就是空的，腳本會當成沒有。
+  # 四欄：app dept system group。後兩欄可以省。
+  # 省略的欄位一律渲染成 "-"，不能留空：腳本用空白分欄，空欄會被吃掉，
+  # 後面那欄的值就會錯位跑到前一欄，而且不會報錯。
   apps.tsv: |
     {{- range $app, $v := .Values.registry.apps }}
-    {{ $app }} {{ $v.dept }} {{ $v.system | default "" }}
+    {{ $app }} {{ $v.dept }} {{ $v.system | default "-" }} {{ $v.group | default "-" }}
     {{- end }}
 
   # namespace → 部門、系統。例外用，優先順序高於 apps.tsv。
   namespaces.tsv: |
     {{- range $ns, $v := .Values.registry.namespaces }}
-    {{ $ns }} {{ $v.dept }} {{ $v.system | default "" }}
+    {{ $ns }} {{ $v.dept }} {{ $v.system | default "-" }} {{ $v.group | default "-" }}
     {{- end }}
 
   # 部門 → group。改組時大多只改這一份。

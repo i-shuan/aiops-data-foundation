@@ -106,6 +106,19 @@ log 這邊的 `group` 是取分流後 tag 的第一段（`it.kube.xxx` → `it`�
 
 要根治就是多一條 `dept /^PLATFORM$/` → `platform.${tag}` 的規則，加第四個 output、第四把 API key、第四種 index（`k8s-platform-*`）。這是設計決定（多一個 index 和一把 key 要維護），所以先記著沒動。
 
+### 已知落差：共用的 namespace（`group=it.imc`），log 只會進一個 index
+
+metrics 那邊 `group=it.imc` 會同時送進 IT 和 IMC 兩個 tenant。**log 這邊不會**：分流還是依 `dept`，一個 namespace 只有一個 `dept`，所以只進那個部門所屬的 index。
+
+| 共用 namespace（`dept=D3120, group=it.imc`） | IT | IMC |
+|---|---|---|
+| metrics | ✓ | ✓ |
+| log | ✓ | **✗** |
+
+後果是 **IMC 看得到這個服務的 metrics，卻查不到它的 log**，跨 metrics / log 的關聯分析在 IMC 那邊會斷掉。
+
+原因是 `rewrite_tag_filter` 一筆記錄只能改一次 tag、送去一個 output，沒辦法複製。要支援就得改用 `copy` 分成多路、每路各自過濾，結構要重做，還沒做。
+
 ### metrics 的 app 和 version 要靠 VMServiceScrape 的 relabel
 
 不是自動就有的。`app-common` 模板已經包含這段，照模板走的服務不用管；**手寫 VMServiceScrape 的服務會少掉這兩個欄位，而且不會有任何錯誤訊息**：

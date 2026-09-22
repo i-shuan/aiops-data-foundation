@@ -35,12 +35,19 @@ app 端要做的只有讓 `app-common` 產生一個 VMServiceScrape，跟那台�
 ```
 vmagent 抓一次（全 cluster）
         ↓ 依 remoteWrite 條數複製
-   ├─ 只留 IT 的      → token: it       → 他們的 tenant
-   ├─ 只留 IMC 的     → token: imc      → 他們的 tenant
-   └─ 上面兩者都丟掉   → token: platform → 平台 tenant
+   ├─ 只留 group 含 it 的     → token: it       → IT tenant
+   ├─ 只留 group 含 imc 的    → token: imc      → IMC tenant
+   └─ 上面兩者都不含的        → token: platform → 平台 tenant
 ```
 
 每條出口各自過濾、各自帶 token。tenant 由中央 vmauth 依 token 決定，**這邊不碰 tenant 設計**。
+
+**過濾依據是 namespace 的 `group` label，不是 `dept`。** 兩個理由：
+
+- **一份資料可以給多個 tenant。** `group=it.imc` 會同時通過 IT 和 IMC 兩條。依 `dept` 分做不到，因為一個 namespace 只有一個部門。
+- **改組不用碰這份設定。** 部門搬去別的 group 只要改 ns-labeler 的 `registry.groups`。依 `dept` 分的話，部門清單寫死在 regex 裡，每次改組都要改 values、重啟 vmagent。
+
+`dept` 還是會帶進資料，只是從「分流依據」變成「歸屬欄位」：`dept` 講這份資料是誰的，`group` 講誰看得到。
 
 ## 前提：資料上要有判斷依據
 
@@ -48,7 +55,7 @@ vmagent 過濾時只看得到 label，所以每筆資料必須帶一個能判斷
 
 | 方式 | 怎麼來 | 限制 |
 |---|---|---|
-| 讀 namespace 的 label | 抓取時把 `dept` label 帶進資料 | 需要 `scrapeClasses` 支援，**已在 operator v0.74.1 實測可用** |
+| 讀 namespace 的 label | 抓取時把 `group` label 帶進資料 | 需要 `scrapeClasses` 支援，**已在 operator v0.74.1 實測可用** |
 | 用 namespace 名稱比對 | 每筆資料本來就有 `namespace` | 不需要進階功能，但名稱要能對應到 group |
 
 第一種已經在本機環境實測過可用，見下方「本機實測結果」。正式環境要先確認 operator 版本。
@@ -65,62 +72,53 @@ kubectl -n <namespace> get secret vmagent-<名稱> -o jsonpath='{.data.vmagent\.
 
 repo 裡對應的檔案是 [../platform/cluster-addons/vmstack-values.yaml](../platform/cluster-addons/vmstack-values.yaml)，那是**照你們現有的 values 模板改出來的完整版本**，可以直接 diff。只動了三個地方：`vmagent.spec.scrapeClasses`（新增）、`vmagent.spec.remoteWrite`（一條拆三條）、`kube-state-metrics.metricLabelsAllowlist`（新增）。
 
+**這裡只列關鍵的三條過濾，完整內容以那個檔案為準**——不在文件裡複製一份，免得改了檔案忘了改文件。之前就發生過：文件裡那份還是依 `dept` 分流，實際檔案已經改了。
+
 ```yaml
-vmagent:
-  enabled: true
-  spec:
-    scrapeInterval: 30s
+# IT：group 以點切開後，其中一段是 it
+- action: keep
+  source_labels: [group]
+  regex: '(.*\.)?it(\..*)?'
 
-    # 維持空的。cluster 由 ApplicationSet 的 helm.parameters 注入，
-    # 這份 values 是全廠共用的，寫死會讓其他廠掛上錯的 cluster 名。
-    externalLabels: {}
+# IMC
+- action: keep
+  source_labels: [group]
+  regex: '(.*\.)?imc(\..*)?'
 
-    # 前提設定：抓取時把 namespace 的 dept label 帶進每筆資料
-    scrapeClasses:
-      - name: default
-        default: true
-        attachMetadata:
-          namespace: true
-        relabelConfigs:
-          - source_labels: [__meta_kubernetes_namespace_label_dept]
-            target_label: dept
-
-    remoteWrite:
-      - url: https://vmauth.aillm.spil.com.tw/prometheus/api/v1/write
-        tlsConfig: {insecureSkipVerify: true}
-        bearerTokenSecret: {name: vmauth-token, key: it}
-        inlineUrlRelabelConfig:
-          - action: keep
-            source_labels: [dept]
-            regex: "D3120|D3130"
-          - target_label: group          # 順手蓋上，AIOps 用得到
-            replacement: it
-
-      - url: https://vmauth.aillm.spil.com.tw/prometheus/api/v1/write
-        tlsConfig: {insecureSkipVerify: true}
-        bearerTokenSecret: {name: vmauth-token, key: imc}
-        inlineUrlRelabelConfig:
-          - action: keep
-            source_labels: [dept]
-            regex: "D1110|D1120"
-          - target_label: group
-            replacement: imc
-
-      # 兜底：node-exporter、平台元件、還沒標 label 的 namespace
-      - url: https://vmauth.aillm.spil.com.tw/prometheus/api/v1/write
-        tlsConfig: {insecureSkipVerify: true}
-        bearerTokenSecret: {name: vmauth-token, key: platform}
-        inlineUrlRelabelConfig:
-          - action: drop
-            source_labels: [dept]
-            regex: "D3120|D3130|D1110|D1120"
-          - target_label: group
-            replacement: platform
+# 兜底：不含任何 tenant 名稱的
+- action: drop
+  source_labels: [group]
+  regex: '(.*\.)?(it|imc)(\..*)?'
 ```
 
-用名稱比對的話，把 `source_labels: [dept]` 換成 `[namespace]`，regex 換成該 group 的 namespace 樣式。
+| group | IT | IMC | 兜底 |
+|---|---|---|---|
+| `it` | ✓ | | |
+| `imc` | | ✓ | |
+| `it.imc` | ✓ | ✓ | |
+| 沒有 / `platform` | | | ✓ |
+| `itx`、`split`（剛好含字母） | | | ✓ |
 
-**三段 regex 要從同一份「部門 → group」對照表渲染，不要手寫。**
+**regex 一定要照這個寫法**，兩種直覺寫法都會錯而且不報錯：
+
+| 寫法 | 問題 |
+|---|---|
+| `'it'` | 只認單一值，`it.imc` 會被 IT 漏掉。**實測過**，見 [../tests/routing/](../tests/routing) |
+| `'.*it.*'` | 名字裡剛好含 `it` 的 group 也會被算進 IT |
+
+**反斜線的數量跟引號種類綁在一起**，實測過每一種：
+
+| 寫法 | 結果 |
+|---|---|
+| 單引號、一個反斜線 `'(.*\.)?it(\..*)?'` | 正確（repo 裡用這個） |
+| 雙引號、兩個反斜線 `"(.*\\.)?it(\\..*)?"` | 正確 |
+| 雙引號、一個反斜線 | YAML 直接解析失敗，**會報錯**，不危險 |
+| **單引號、兩個反斜線** | 變成比對字面上的反斜線，只認 `it`，**`it.imc` 被漏掉，不報錯** |
+| **忘了反斜線** `'(.*.)?it(..*)?'` | 點變成任意字元，`wit.imc` 也進 IT，**不報錯** |
+
+最容易發生的是第四種：**從雙引號的範例複製過來、改成單引號，但沒把反斜線減半。**
+
+**只有新增 tenant（中央多發一把 token）時才要改這份**：多加一條 remoteWrite，並把名字加進兜底那條的 drop regex。部門進出、改組都不用動。
 
 ## Secret 要跟著改
 
@@ -218,15 +216,37 @@ done
 
 ## 驗收
 
-改完之後查一次，確認每個 namespace 只落在一個 tenant：
+改完之後查一次：
 
 ```
 count by (vm_account_id, group, namespace) (up)
 ```
 
-同一個 namespace 出現在兩個 `vm_account_id`，就是規則寫重疊了。
+一個 namespace 出現在幾個 `vm_account_id`，就應該等於它 `group` label 裡有幾段。`group=it` 的出現在兩個 tenant，就是規則寫錯了。
+
+端到端的自動化驗證見 [../tests/routing/](../tests/routing)：六個情境（只 IT、只 IMC、兩個都送、沒登記、打錯字、`it.platform`），跑一次就知道。
 
 ## 本機實測結果
+
+### 依 group 分流（目前的設計）
+
+用 [../tests/routing/run.sh](../tests/routing/run.sh) 驗證，測的是從正式 values 產生的 vmagent，不是另外手寫的：
+
+| namespace 的 group | IT | IMC | 兜底 |
+|---|---|---|---|
+| `it` | ✓ | | |
+| `imc` | | ✓ | |
+| `it.imc` | ✓ | ✓ | |
+| 沒登記 | | | ✓ |
+| `it.imcc`（打錯字，ns-labeler 拒標） | | | ✓ |
+| `it.platform`（ns-labeler 拒標） | | | ✓ |
+
+存進每個 tenant 的 `group` 都等於那個 tenant 的名字。共用的 namespace 在兩個 tenant 裡同一時間點的值一模一樣，代表是同一次抓取複製成兩份，不是抓了兩次。
+
+**也驗證了測試本身抓得到錯**：把 IT 的 regex 故意改成 `'it'`，結果只有 `it.imc` 從 IT 消失，其他全對，測試 exit 1。
+
+### 最早依 dept 分流的版本
+
 
 在本機用 k3d 建了三個叢集模擬（`central`、`zk`、`el`），在 `zk` 上跑完整條路徑驗證過。
 
@@ -261,8 +281,8 @@ kubectl -n <namespace> port-forward svc/vmagent-<名稱> 8429
 ## 坑
 
 - **原本那條一定要改掉，不能留著再加新的。** 它沒有任何過濾，留著等於每筆資料多送一份到舊 tenant。要把它改成兜底那一條。
-- **keep 規則之間必須互斥，沒人會幫你檢查。** 同一筆資料符合兩條就會送去兩個 tenant，而且不會有任何錯誤訊息。
-- **兜底那條不能省。** 沒有它，node-exporter 和 kube-state-metrics 的節點層級資料會整批消失。它的 drop regex 必須跟前面所有 keep regex 完全對應，漏一個部門就變成重複送。
+- **一份資料進兩個 tenant 現在是刻意的**（`group=it.imc`），不是錯誤。要擋的是「不小心」：ns-labeler 會拒絕不存在的 group 名稱，打錯字只會掉進兜底並觸發告警，不會送進錯的 tenant。
+- **兜底那條不能省。** 沒有它，node-exporter 和 kube-state-metrics 的節點層級資料會整批消失。它的 drop regex 必須列出前面所有 tenant 的名字，漏一個的話那個 tenant 的資料會同時進兜底。
 - **每多一條出口，每筆資料就多比對一次、多一個磁碟佇列。** 3 條沒問題，之後要切到部門層級（50 條）要重新評估。
 - **好處是故障隔離。** 每條出口的佇列獨立，某個 tenant 的 token 過期或寫入失敗，只有那條卡住重試，其他 group 不受影響。
 
@@ -275,5 +295,5 @@ kubectl -n <namespace> port-forward svc/vmagent-<名稱> 8429
 kubectl get vmagent -A
 ```
 
-3. 「部門 → group」對照表放哪裡、由誰維護、怎麼渲染進這份 values。
+3. ~~「部門 → group」對照表放哪裡、怎麼渲染進這份 values~~ 已解：放 ns-labeler 的 `registry.groups`，而且改成依 `group` 分流之後，**這份 values 裡已經沒有部門清單了**，不需要渲染。
 4. **token 怎麼自動進新廠的 cluster？** 現在靠 Rancher 手動建 Secret，2 個 cluster 還行，擴廠之後每開一廠就要手動一次，跟「擴廠不能全部人工」衝突。有 External Secrets、Vault 或 sealed-secrets 的話，token 放中央一份就能自動同步，不用進 UI。

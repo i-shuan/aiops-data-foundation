@@ -1,0 +1,92 @@
+# 本機模擬「中央 vmauth + 三個 tenant」。
+#
+# 正式環境：vmagent 帶 token 打中央 vmauth，vmauth 依 token 決定寫進哪個 tenant。
+# 這裡用同一個機制：vmauth 依 token 把資料送到三個 VMSingle 之一，
+# 一個 VMSingle 代表一個 tenant。測完直接查每一個裡面收到了什麼。
+#
+# token 是測試用的假字串，不是正式的。
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: route-test
+---
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMSingle
+metadata: {name: it, namespace: route-test}
+spec:
+  retentionPeriod: "1d"
+  # 明確給記憶體預算，不要讓它自己偵測。這台 k3d 是 cgroup v1，
+  # VictoriaMetrics 偵測到的可用記憶體不準，會把快取開得比上限還大，然後被 OOMKilled。
+  extraArgs: {memory.allowedBytes: "80MiB"}
+  resources: {requests: {cpu: 20m, memory: 64Mi}, limits: {memory: 256Mi}}
+---
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMSingle
+metadata: {name: imc, namespace: route-test}
+spec:
+  retentionPeriod: "1d"
+  # 明確給記憶體預算，不要讓它自己偵測。這台 k3d 是 cgroup v1，
+  # VictoriaMetrics 偵測到的可用記憶體不準，會把快取開得比上限還大，然後被 OOMKilled。
+  extraArgs: {memory.allowedBytes: "80MiB"}
+  resources: {requests: {cpu: 20m, memory: 64Mi}, limits: {memory: 256Mi}}
+---
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMSingle
+metadata: {name: platform, namespace: route-test}
+spec:
+  retentionPeriod: "1d"
+  # 明確給記憶體預算，不要讓它自己偵測。這台 k3d 是 cgroup v1，
+  # VictoriaMetrics 偵測到的可用記憶體不準，會把快取開得比上限還大，然後被 OOMKilled。
+  extraArgs: {memory.allowedBytes: "80MiB"}
+  resources: {requests: {cpu: 20m, memory: 64Mi}, limits: {memory: 256Mi}}
+---
+apiVersion: v1
+kind: Secret
+metadata: {name: vmauth-test-config, namespace: route-test}
+stringData:
+  auth.yml: |
+    users:
+      - bearer_token: test-token-it
+        url_prefix: http://vmsingle-it.route-test.svc:8429
+      - bearer_token: test-token-imc
+        url_prefix: http://vmsingle-imc.route-test.svc:8429
+      - bearer_token: test-token-platform
+        url_prefix: http://vmsingle-platform.route-test.svc:8429
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: vmauth-test, namespace: route-test}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: vmauth-test}}
+  template:
+    metadata: {labels: {app: vmauth-test}}
+    spec:
+      containers:
+        - name: vmauth
+          image: victoriametrics/vmauth:v1.148.0
+          args: ["-auth.config=/etc/vmauth/auth.yml", "-httpListenAddr=:8427"]
+          ports: [{name: http, containerPort: 8427}]
+          readinessProbe: {httpGet: {path: /health, port: http}}
+          resources: {requests: {cpu: 10m, memory: 24Mi}, limits: {memory: 64Mi}}
+          volumeMounts: [{name: config, mountPath: /etc/vmauth}]
+      volumes:
+        - name: config
+          secret: {secretName: vmauth-test-config}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: vmauth-test, namespace: route-test}
+spec:
+  selector: {app: vmauth-test}
+  ports: [{name: http, port: 8427, targetPort: http}]
+---
+# vmagent 引用的 token Secret。名稱和三個 key 跟正式環境一模一樣，
+# 這樣產生出來的 vmagent 設定裡 bearerTokenSecret 那段一個字都不用改。
+apiVersion: v1
+kind: Secret
+metadata: {name: vmauth-token, namespace: route-test}
+stringData:
+  it: test-token-it
+  imc: test-token-imc
+  platform: test-token-platform

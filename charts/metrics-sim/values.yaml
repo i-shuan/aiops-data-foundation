@@ -1,0 +1,41 @@
+# 注意這份 values 裡沒有 tenant、group、token——分流跟應用無關。
+
+app:
+  name: metrics-sim
+  partOf: sim
+  component: worker
+
+image:
+  repository: nexus.aillm.spil.com.tw/docker/sim/metrics-sim
+  tag: "0.1.0"
+
+replicas: 1
+
+ports:
+  metrics: 9464
+
+probes:
+  readiness:
+    tcpSocket:
+      port: metrics
+  liveness:
+    tcpSocket:
+      port: metrics
+    initialDelaySeconds: 10
+
+resources:
+  requests:
+    cpu: 10m
+    memory: 32Mi
+  limits:
+    memory: 64Mi
+
+otel:
+  javaAgent:
+    enabled: false
+
+env:
+  - name: SENSORS
+    value: "4"
+  - name: INTERVAL_SECONDS
+    value: "5"
