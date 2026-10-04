@@ -26,6 +26,14 @@ python .claude/hooks/test_guard_git.py -v  # 改了 guard-git.py 之後
 
 ## 要本機 k3d 的（跑很久、會動 cluster）
 
+```bash
+./tests/tenant-routing/run.sh        # 租戶分流的 E2E，要幾分鐘。cluster 不在就建，在就沿用
+./tests/tenant-routing/run.sh down   # 刪掉它建的 k3d cluster tenant-test
+```
+
+只用 `k3d-tenant-test` 這個 context，不會切換目前的 context。改了
+`platform/vmstack-values.yaml` 的分流三段之後要跑。
+
 | 指令 | 狀態 |
 | --- | --- |
 | `./tests/routing/run.sh` | 已過期。測的是改名前的 `group` 與三把 token，現在跑不過 |

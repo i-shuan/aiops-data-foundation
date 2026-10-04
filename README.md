@@ -108,10 +108,13 @@ vmagent 不知道 `values.yaml`、app 名稱、namespace 名稱，只看 namespa
 ## Tests
 
 ```bash
-./tests/validate.sh       # 不需要 cluster
+./tests/validate.sh              # 不需要 cluster
+./tests/tenant-routing/run.sh    # 本機 k3d E2E，不走 ArgoCD。會建一個獨立的 k3d cluster tenant-test
 ```
 
 **validate.sh**：每個 values.yaml 的必填欄位、`tenant` 是否合法（允許的值從 `vmstack-values.yaml` 的租戶對照讀出，不另外維護清單）、租戶對照本身（先清掉進來的 `vm_account_id`、AccountID 不重複、兜底在最後、`remoteWrite` 一條）、`vmagent-routing-overlay.yaml` 的分流設定跟 `vmstack-values.yaml` 一致（url 除外）且不帶其他設定、namespace 不能被兩個 app 共用、chart 渲染得出來、namespace label 渲染結果跟 values.yaml 一致。內建的錯誤寫法（`imcc`、`it.imc`、還在寫 `group`、欄位打錯、拿掉防偽造的規則…）一定要被擋下，否則腳本本身失敗。手動 Helm 的 app（沒有 `argocd` 區塊、有 `templates/namespace.yaml`）不查 `argocd` 欄位，`observability` 照查，namespace label 改成渲染 chart、取出它自己建的 Namespace 來比。
+
+**tenant-routing/run.sh**：用手動 Helm 把 `eqp-collector` 的 chart 部署七個情境（四個租戶、沒貼、打錯，加一個自帶假 `tenant` 和 `vm_account_id` 想冒充別人的 pod），確認每個 namespace 的資料只出現在該去的 AccountID。vmagent 的分流三段取自 `platform/vmstack-values.yaml`，只換位址；中央是本機起的一座 VictoriaMetrics cluster 加一個只驗 token 的 vmauth。也會比對 VMAgent 送進去和存下來的 spec，確認欄位沒有被 CRD 裁掉。`VMSTACK_VALUES=<改壞的複本>` 可以確認測試抓得到錯：拿掉防偽造那條、把 `icsd` 對到別的 AccountID 都確認過會 exit 1。`./tests/tenant-routing/run.sh down` 刪掉 cluster。
 
 **routing/run.sh**：⚠ 測的是改版前的分流（`group`、三把 token），目前跑不過，等 ArgoCD 那條路補做時一起改。以下是它原本的設計：
 

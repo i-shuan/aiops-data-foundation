@@ -1,0 +1,145 @@
+# tests/tenant-routing 用的「中央」：一座 VictoriaMetrics cluster 加一個只驗 token 的 vmauth。
+# 正式環境這兩個都是別的團隊的，不在這個 repo。這裡只是為了有地方寫、有地方查。
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: tr-central
+---
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMCluster
+metadata:
+  name: central
+  namespace: tr-central
+spec:
+  retentionPeriod: "1d"
+  vmstorage:
+    replicaCount: 1
+  vmselect:
+    replicaCount: 1
+  vminsert:
+    replicaCount: 1
+---
+# vmagent 帶的 token。名字和 key 跟 platform/vmstack-values.yaml 寫的一樣。
+# 這是只存在於這個測試 cluster 的假 token，不是任何環境的憑證。
+apiVersion: v1
+kind: Secret
+metadata:
+  name: vmauth-token
+  namespace: tr-central
+stringData:
+  token: tenant-routing-test-only
+---
+# vmauth 只做一件事：token 對就原封不動轉給 vminsert。它不看 vm_account_id，
+# 跟正式環境一樣 —— 租戶隔離全靠 vmagent 那一側，這支測試驗的就是那一側。
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vmauth
+  namespace: tr-central
+data:
+  auth.yml: |
+    users:
+      - bearer_token: tenant-routing-test-only
+        url_prefix: http://vminsert-central.tr-central.svc:8480
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vmauth
+  namespace: tr-central
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vmauth
+  template:
+    metadata:
+      labels:
+        app: vmauth
+    spec:
+      containers:
+        - name: vmauth
+          image: victoriametrics/vmauth:v1.148.0
+          imagePullPolicy: IfNotPresent
+          args:
+            - -auth.config=/config/auth.yml
+          ports:
+            - containerPort: 8427
+          volumeMounts:
+            - name: config
+              mountPath: /config
+      volumes:
+        - name: config
+          configMap:
+            name: vmauth
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vmauth
+  namespace: tr-central
+spec:
+  selector:
+    app: vmauth
+  ports:
+    - port: 8427
+---
+# 偽造用的 pod：namespace 沒貼 tenant，吐出來的 metric 自己帶 tenant 和 vm_account_id，
+# 想冒充 tsid（1001）。預期：照樣只進 platform（1000）。
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: tr-spoof
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: spoof
+  namespace: tr-spoof
+data:
+  metrics: |
+    spoof_value{tenant="tsid",vm_account_id="1001"} 1
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: spoof
+  namespace: tr-spoof
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: spoof
+  template:
+    metadata:
+      labels:
+        app: spoof
+    spec:
+      containers:
+        - name: spoof
+          image: busybox:1.36
+          imagePullPolicy: IfNotPresent
+          command: ["httpd", "-f", "-p", "8080", "-h", "/www"]
+          ports:
+            - name: http
+              containerPort: 8080
+          volumeMounts:
+            - name: www
+              mountPath: /www
+      volumes:
+        - name: www
+          configMap:
+            name: spoof
+---
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMPodScrape
+metadata:
+  name: spoof
+  namespace: tr-spoof
+spec:
+  selector:
+    matchLabels:
+      app: spoof
+  podMetricsEndpoints:
+    - port: http
+      path: /metrics

@@ -51,10 +51,19 @@ run() { "$T/tests/validate.sh" 2>&1 | grep -A1 -E "$1|^(PASS|FAIL)|Traceback"; e
 
 | # | 指令 | 預期輸出 | 結果 |
 | --- | --- | --- | --- |
-| 3-1 | `./tests/tenant-routing/run.sh; echo "exit=$?"` | 四個租戶各自只在自己的 AccountID；沒貼、打錯、偽造只在 1000；`PASS`、`exit=0` | ☐ |
-| 3-2 | `VMSTACK_VALUES=<拿掉清 vm_account_id 那條的複本> ./tests/tenant-routing/run.sh; echo "exit=$?"` | 偽造那一項 `FAIL`；`exit=1` | ☐ |
-| 3-3 | `VMSTACK_VALUES=<icsd 對到 1004 的複本> ./tests/tenant-routing/run.sh; echo "exit=$?"` | `icsd` 那一項 `FAIL`；`exit=1` | ☐ |
-| 3-4 | 跑 3-1 前後各一次 `kubectl config current-context` | 一樣，沒有被切走 | ☐ |
+| 3-1 | `./tests/tenant-routing/run.sh; echo "exit=$?"` | 四個租戶各自只在自己的 AccountID；沒貼、打錯、偽造只在 1000；`PASS`、`exit=0` | ☑ |
+| 3-2 | `VMSTACK_VALUES=<拿掉清 vm_account_id 那條的複本> ./tests/tenant-routing/run.sh; echo "exit=$?"` | 偽造那一項 `FAIL`；`exit=1` | ☑ |
+| 3-3 | `VMSTACK_VALUES=<icsd 對到 1004 的複本> ./tests/tenant-routing/run.sh; echo "exit=$?"` | `icsd` 那一項 `FAIL`；`exit=1` | ☑ |
+| 3-4 | 跑 3-1 前後各一次 `kubectl config current-context` | 一樣，沒有被切走 | ☑ |
+
+## 實作時發現、跟 plan 不一樣的地方
+
+| 事項 | 說明 |
+| --- | --- |
+| 測試要等 vmagent 真的載入新規則 | operator 更新設定後 vmagent 不會馬上重新載入。`check.py loaded` 會等它實際載入的規則跟要測的一樣 |
+| 檢查前要等 90 秒 | 等太短時，剛跑完改壞的複本再跑正常的，會把上一輪的資料算進來而誤判 FAIL。實際遇到過，改成 90 秒後連跑三輪（壞、壞、好）結果正確 |
+| 這台機器的 k3s 要釘 v1.30 | docker 是 cgroup v1，k3d 預設的 k3s v1.35 起不來。`run.sh` 已寫死，`.agents/project/commands.md` 有記 |
+| 根目錄 `README.md` 的 overlay 步驟縮短了 | 原本的逐步指令是三把 token 的版本。新 overlay 在 AP1105 模擬環境的完整流程留給需求 4 |
 
 ## 人工確認
 
@@ -76,5 +85,5 @@ run() { "$T/tests/validate.sh" 2>&1 | grep -A1 -E "$1|^(PASS|FAIL)|Traceback"; e
 
 | 改了什麼 | 動到哪份文件 | 狀態 |
 | --- | --- | --- |
-| `group` 改 `tenant`、值與分流方式 | `README.md`、`applications/eqp-collector/README.md` | ☐ |
-| 兩支舊測試過期、新增一支 | `.agents/project/commands.md`、`README.md` 的「Tests」 | ☐ |
+| `group` 改 `tenant`、值與分流方式 | `README.md`、`applications/eqp-collector/README.md` | ☑ |
+| 兩支舊測試過期、新增一支 | `.agents/project/commands.md`、`README.md` 的「Tests」 | ☑ |
