@@ -1,0 +1,774 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body style="margin:0"><title>監控資料租戶分流</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=Noto+Serif+TC:wght@700&family=IBM+Plex+Mono:wght@500&display=swap">
+<style>
+/* this gets exported as style.css and can be used for the default theming */
+/* these are the necessary styles for React Flow, they get used by base.css and style.css */
+.react-flow {
+  direction: ltr;
+}
+.react-flow__container {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  top: 0;
+  left: 0;
+}
+.react-flow__pane {
+  z-index: 1;
+  cursor: -webkit-grab;
+  cursor: grab;
+}
+.react-flow__pane.selection {
+    cursor: pointer;
+  }
+.react-flow__pane.dragging {
+    cursor: -webkit-grabbing;
+    cursor: grabbing;
+  }
+.react-flow__viewport {
+  transform-origin: 0 0;
+  z-index: 2;
+  pointer-events: none;
+}
+.react-flow__renderer {
+  z-index: 4;
+}
+.react-flow__selection {
+  z-index: 6;
+}
+.react-flow__nodesselection-rect:focus,
+.react-flow__nodesselection-rect:focus-visible {
+  outline: none;
+}
+.react-flow .react-flow__edges {
+  pointer-events: none;
+  overflow: visible;
+}
+.react-flow__edge-path,
+.react-flow__connection-path {
+  stroke: #b1b1b7;
+  stroke-width: 1;
+  fill: none;
+}
+.react-flow__edge {
+  pointer-events: visibleStroke;
+  cursor: pointer;
+}
+.react-flow__edge.animated path {
+    stroke-dasharray: 5;
+    -webkit-animation: dashdraw 0.5s linear infinite;
+            animation: dashdraw 0.5s linear infinite;
+  }
+.react-flow__edge.animated path.react-flow__edge-interaction {
+    stroke-dasharray: none;
+    -webkit-animation: none;
+            animation: none;
+  }
+.react-flow__edge.inactive {
+    pointer-events: none;
+  }
+.react-flow__edge.selected,
+  .react-flow__edge:focus,
+  .react-flow__edge:focus-visible {
+    outline: none;
+  }
+.react-flow__edge.selected .react-flow__edge-path,
+  .react-flow__edge:focus .react-flow__edge-path,
+  .react-flow__edge:focus-visible .react-flow__edge-path {
+    stroke: #555;
+  }
+.react-flow__edge-textwrapper {
+    pointer-events: all;
+  }
+.react-flow__edge-textbg {
+    fill: white;
+  }
+.react-flow__edge .react-flow__edge-text {
+    pointer-events: none;
+    -webkit-user-select: none;
+       -moz-user-select: none;
+            user-select: none;
+  }
+.react-flow__connection {
+  pointer-events: none;
+}
+.react-flow__connection .animated {
+    stroke-dasharray: 5;
+    -webkit-animation: dashdraw 0.5s linear infinite;
+            animation: dashdraw 0.5s linear infinite;
+  }
+.react-flow__connectionline {
+  z-index: 1001;
+}
+.react-flow__nodes {
+  pointer-events: none;
+  transform-origin: 0 0;
+}
+.react-flow__node {
+  position: absolute;
+  -webkit-user-select: none;
+     -moz-user-select: none;
+          user-select: none;
+  pointer-events: all;
+  transform-origin: 0 0;
+  box-sizing: border-box;
+  cursor: -webkit-grab;
+  cursor: grab;
+}
+.react-flow__node.dragging {
+    cursor: -webkit-grabbing;
+    cursor: grabbing;
+  }
+.react-flow__nodesselection {
+  z-index: 3;
+  transform-origin: left top;
+  pointer-events: none;
+}
+.react-flow__nodesselection-rect {
+    position: absolute;
+    pointer-events: all;
+    cursor: -webkit-grab;
+    cursor: grab;
+  }
+.react-flow__handle {
+  position: absolute;
+  pointer-events: none;
+  min-width: 5px;
+  min-height: 5px;
+  width: 6px;
+  height: 6px;
+  background: #1a192b;
+  border: 1px solid white;
+  border-radius: 100%;
+}
+.react-flow__handle.connectionindicator {
+    pointer-events: all;
+    cursor: crosshair;
+  }
+.react-flow__handle-bottom {
+    top: auto;
+    left: 50%;
+    bottom: -4px;
+    transform: translate(-50%, 0);
+  }
+.react-flow__handle-top {
+    left: 50%;
+    top: -4px;
+    transform: translate(-50%, 0);
+  }
+.react-flow__handle-left {
+    top: 50%;
+    left: -4px;
+    transform: translate(0, -50%);
+  }
+.react-flow__handle-right {
+    right: -4px;
+    top: 50%;
+    transform: translate(0, -50%);
+  }
+.react-flow__edgeupdater {
+  cursor: move;
+  pointer-events: all;
+}
+.react-flow__panel {
+  position: absolute;
+  z-index: 5;
+  margin: 15px;
+}
+.react-flow__panel.top {
+    top: 0;
+  }
+.react-flow__panel.bottom {
+    bottom: 0;
+  }
+.react-flow__panel.left {
+    left: 0;
+  }
+.react-flow__panel.right {
+    right: 0;
+  }
+.react-flow__panel.center {
+    left: 50%;
+    transform: translateX(-50%);
+  }
+.react-flow__attribution {
+  font-size: 10px;
+  background: rgba(255, 255, 255, 0.5);
+  padding: 2px 3px;
+  margin: 0;
+}
+.react-flow__attribution a {
+    text-decoration: none;
+    color: #999;
+  }
+@-webkit-keyframes dashdraw {
+  from {
+    stroke-dashoffset: 10;
+  }
+}
+@keyframes dashdraw {
+  from {
+    stroke-dashoffset: 10;
+  }
+}
+.react-flow__edgelabel-renderer {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  -webkit-user-select: none;
+     -moz-user-select: none;
+          user-select: none;
+}
+.react-flow__edge.updating .react-flow__edge-path {
+      stroke: #777;
+    }
+.react-flow__edge-text {
+    font-size: 10px;
+  }
+.react-flow__node.selectable:focus,
+  .react-flow__node.selectable:focus-visible {
+    outline: none;
+  }
+.react-flow__node-default,
+.react-flow__node-input,
+.react-flow__node-output,
+.react-flow__node-group {
+  padding: 10px;
+  border-radius: 3px;
+  width: 150px;
+  font-size: 12px;
+  color: #222;
+  text-align: center;
+  border-width: 1px;
+  border-style: solid;
+  border-color: #1a192b;
+  background-color: white;
+}
+.react-flow__node-default.selectable:hover, .react-flow__node-input.selectable:hover, .react-flow__node-output.selectable:hover, .react-flow__node-group.selectable:hover {
+      box-shadow: 0 1px 4px 1px rgba(0, 0, 0, 0.08);
+    }
+.react-flow__node-default.selectable.selected,
+    .react-flow__node-default.selectable:focus,
+    .react-flow__node-default.selectable:focus-visible,
+    .react-flow__node-input.selectable.selected,
+    .react-flow__node-input.selectable:focus,
+    .react-flow__node-input.selectable:focus-visible,
+    .react-flow__node-output.selectable.selected,
+    .react-flow__node-output.selectable:focus,
+    .react-flow__node-output.selectable:focus-visible,
+    .react-flow__node-group.selectable.selected,
+    .react-flow__node-group.selectable:focus,
+    .react-flow__node-group.selectable:focus-visible {
+      box-shadow: 0 0 0 0.5px #1a192b;
+    }
+.react-flow__node-group {
+  background-color: rgba(240, 240, 240, 0.25);
+}
+.react-flow__nodesselection-rect,
+.react-flow__selection {
+  background: rgba(0, 89, 220, 0.08);
+  border: 1px dotted rgba(0, 89, 220, 0.8);
+}
+.react-flow__nodesselection-rect:focus,
+  .react-flow__nodesselection-rect:focus-visible,
+  .react-flow__selection:focus,
+  .react-flow__selection:focus-visible {
+    outline: none;
+  }
+.react-flow__controls {
+  box-shadow: 0 0 2px 1px rgba(0, 0, 0, 0.08);
+}
+.react-flow__controls-button {
+    border: none;
+    background: #fefefe;
+    border-bottom: 1px solid #eee;
+    box-sizing: content-box;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+    -webkit-user-select: none;
+       -moz-user-select: none;
+            user-select: none;
+    padding: 5px;
+  }
+.react-flow__controls-button:hover {
+      background: #f4f4f4;
+    }
+.react-flow__controls-button svg {
+      width: 100%;
+      max-width: 12px;
+      max-height: 12px;
+    }
+.react-flow__controls-button:disabled {
+      pointer-events: none;
+    }
+.react-flow__controls-button:disabled svg {
+        fill-opacity: 0.4;
+      }
+.react-flow__minimap {
+  background-color: #fff;
+}
+.react-flow__minimap svg {
+  display: block;
+}
+.react-flow__resize-control {
+  position: absolute;
+}
+.react-flow__resize-control.left,
+.react-flow__resize-control.right {
+  cursor: ew-resize;
+}
+.react-flow__resize-control.top,
+.react-flow__resize-control.bottom {
+  cursor: ns-resize;
+}
+.react-flow__resize-control.top.left,
+.react-flow__resize-control.bottom.right {
+  cursor: nwse-resize;
+}
+.react-flow__resize-control.bottom.left,
+.react-flow__resize-control.top.right {
+  cursor: nesw-resize;
+}
+/* handle styles */
+.react-flow__resize-control.handle {
+  width: 4px;
+  height: 4px;
+  border: 1px solid #fff;
+  border-radius: 1px;
+  background-color: #3367d9;
+  transform: translate(-50%, -50%);
+}
+.react-flow__resize-control.handle.left {
+  left: 0;
+  top: 50%;
+}
+.react-flow__resize-control.handle.right {
+  left: 100%;
+  top: 50%;
+}
+.react-flow__resize-control.handle.top {
+  left: 50%;
+  top: 0;
+}
+.react-flow__resize-control.handle.bottom {
+  left: 50%;
+  top: 100%;
+}
+.react-flow__resize-control.handle.top.left {
+  left: 0;
+}
+.react-flow__resize-control.handle.bottom.left {
+  left: 0;
+}
+.react-flow__resize-control.handle.top.right {
+  left: 100%;
+}
+.react-flow__resize-control.handle.bottom.right {
+  left: 100%;
+}
+/* line styles */
+.react-flow__resize-control.line {
+  border-color: #3367d9;
+  border-width: 0;
+  border-style: solid;
+}
+.react-flow__resize-control.line.left,
+.react-flow__resize-control.line.right {
+  width: 1px;
+  transform: translate(-50%, 0);
+  top: 0;
+  height: 100%;
+}
+.react-flow__resize-control.line.left {
+  left: 0;
+  border-left-width: 1px;
+}
+.react-flow__resize-control.line.right {
+  left: 100%;
+  border-right-width: 1px;
+}
+.react-flow__resize-control.line.top,
+.react-flow__resize-control.line.bottom {
+  height: 1px;
+  transform: translate(0, -50%);
+  left: 0;
+  width: 100%;
+}
+.react-flow__resize-control.line.top {
+  top: 0;
+  border-top-width: 1px;
+}
+.react-flow__resize-control.line.bottom {
+  border-bottom-width: 1px;
+  top: 100%;
+}
+
+</style>
+<style>
+/* 版面：單欄的說明文件，互動流程圖置頂，下面是文字與表格 */
+:root {
+  --bg: #f5f7f8;
+  --surface: #ffffff;
+  --fg: #16212b;
+  --muted: #55636f;
+  --line: #d3dae0;
+  --tsid: #2563a8;
+  --bsid: #a8650f;
+  --icsd: #6941b8;
+  --imc: #1f7a4d;
+  --plat: #5d6b78;
+  --ok: #1f7a4d;
+  --warn: #b26a00;
+  --bad: #c0362c;
+  --font-display: "Noto Serif TC", "PMingLiU", serif;
+  --font-body: "Noto Sans TC", "Microsoft JhengHei", "PingFang TC", sans-serif;
+  --font-mono: "IBM Plex Mono", "Consolas", monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #10161c; --surface: #18212a; --fg: #e4eaef; --muted: #9aa8b4; --line: #2e3a45;
+    --tsid: #6ea8e6; --bsid: #e0a44a; --icsd: #a98be8; --imc: #5cc08c; --plat: #9aa8b4;
+    --ok: #5cc08c; --warn: #e0a44a; --bad: #f0796e;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #10161c; --surface: #18212a; --fg: #e4eaef; --muted: #9aa8b4; --line: #2e3a45;
+  --tsid: #6ea8e6; --bsid: #e0a44a; --icsd: #a98be8; --imc: #5cc08c; --plat: #9aa8b4;
+  --ok: #5cc08c; --warn: #e0a44a; --bad: #f0796e;
+  color-scheme: dark;
+}
+body { background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 16px; line-height: 1.75; }
+.page { max-width: 1120px; margin: 0 auto; padding-inline: 20px; padding-block: 40px 64px; display: flex; flex-direction: column; gap: 44px; }
+header { display: flex; flex-direction: column; gap: 12px; }
+.eyebrow { font-size: 13px; letter-spacing: .12em; color: var(--muted); }
+h1 { font-family: var(--font-display); font-size: clamp(28px, 4.4vw, 42px); line-height: 1.25; margin: 0; text-wrap: balance; }
+h2 { font-family: var(--font-display); font-size: 23px; line-height: 1.35; margin: 0; text-wrap: balance; }
+p { margin: 0; max-width: 40em; }
+.lead { font-size: 18px; color: var(--muted); }
+section { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+
+/* 互動流程圖 */
+.tabs, .modes { display: flex; flex-wrap: wrap; gap: 8px; }
+.tabs button, .modes button {
+  font: inherit; font-size: 14px; cursor: pointer; color: var(--fg);
+  background: var(--surface); border: 1px solid var(--line); border-radius: 999px; padding: 5px 14px;
+}
+.tabs button { border-radius: 4px; font-weight: 500; padding: 7px 16px; }
+.tabs button[aria-pressed="true"] { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+.modes button[aria-pressed="true"] { border-color: var(--fg); box-shadow: inset 0 0 0 1px var(--fg); font-weight: 500; }
+.modes button.danger[aria-pressed="true"] { border-color: var(--bad); box-shadow: inset 0 0 0 1px var(--bad); color: var(--bad); }
+button:focus-visible { outline: 2px solid var(--tsid); outline-offset: 2px; }
+.banner { font-size: 14px; font-weight: 500; color: var(--warn); border: 1px dashed var(--warn); border-radius: 4px; padding: 6px 12px; align-self: flex-start; }
+.canvas { height: 540px; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.canvas.short { height: 380px; }
+.explain { min-height: 3.5em; font-size: 15px; }
+.explain strong { display: block; }
+.hint { font-size: 13px; color: var(--muted); }
+.fallback { padding: 20px; color: var(--muted); font-size: 15px; }
+
+.react-flow__node { font-family: var(--font-body); cursor: pointer; }
+.react-flow__node-default, .react-flow__node-input, .react-flow__node-output {
+  background: var(--surface); color: var(--fg); border: 1.5px solid var(--fg); border-radius: 5px;
+  padding: 8px 12px; text-align: left; font-size: 13px; line-height: 1.5; box-shadow: none;
+}
+.react-flow__node-group { background: transparent; border: 1.5px solid var(--line); border-radius: 6px; cursor: default; }
+.react-flow__node.selected, .react-flow__node:focus { box-shadow: 0 0 0 2px var(--fg); }
+.react-flow__node.glabel { background: transparent; border: 0; padding: 0; color: var(--muted); font-size: 12px; cursor: default; box-shadow: none; }
+.react-flow__handle { opacity: 0; pointer-events: none; }
+.react-flow__edge-textbg { fill: var(--surface); }
+.react-flow__edge-text { fill: var(--fg); font-family: var(--font-body); font-size: 12px; }
+.react-flow__controls-button { background: var(--surface); border-bottom: 1px solid var(--line); fill: var(--fg); }
+.react-flow__controls-button:hover { background: var(--bg); }
+.react-flow__attribution { background: transparent; }
+.react-flow__attribution a { color: var(--muted); }
+.n-title { font-weight: 700; font-size: 13.5px; }
+.n-sub { color: var(--muted); font-size: 12px; }
+.n-num { font-family: var(--font-mono); font-size: 15px; margin-right: 8px; }
+.n-step { border-top: 1px solid var(--line); margin-top: 6px; padding-top: 6px; }
+.n-step.off { text-decoration: line-through; color: var(--bad); }
+.n-step.off .n-sub { color: var(--bad); }
+.n-alert { color: var(--bad); font-size: 12px; font-weight: 500; }
+@media (prefers-reduced-motion: reduce) { .react-flow__edge.animated path { animation: none; } }
+
+.points { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px 32px; margin: 0; padding: 0; list-style: none; }
+.points li { min-width: 0; border-top: 2px solid var(--fg); padding-top: 10px; }
+.points strong { display: block; font-size: 17px; }
+.points span { color: var(--muted); font-size: 15px; }
+.tablewrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 15px; }
+th, td { text-align: left; padding: 10px 14px 10px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-weight: 500; color: var(--muted); font-size: 13px; letter-spacing: .06em; }
+td.n { font-family: var(--font-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.pill { display: inline-block; font-size: 13px; font-weight: 500; padding: 1px 10px; border-radius: 999px; border: 1px solid currentColor; white-space: nowrap; }
+.pill.done { color: var(--ok); } .pill.next { color: var(--warn); } .pill.later { color: var(--plat); }
+.note { font-size: 14px; color: var(--muted); }
+footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line); padding-top: 16px; }
+</style>
+
+<div class="page">
+
+<header>
+  <div class="eyebrow">AIOPS DATA FOUNDATION ・ 2026-10-04</div>
+  <h1>各部門的監控資料，自動進到自己的租戶</h1>
+  <p class="lead">同一個 K8s cluster 裡住著好幾個部門的系統。每個系統只要在自己的設定檔寫一個部門代號，它的監控資料就會被送進該部門專屬的資料空間，別的部門看不到。</p>
+</header>
+
+<section>
+  <h2>資料怎麼走</h2>
+  <div id="flow"><div class="canvas"><p class="fallback">流程圖載入中。如果一直沒有出現，下面的「實測結果」表格有同樣的資訊：四個部門的資料各進 1001 到 1004，沒掛門牌、寫錯和冒充的都進 1000。</p></div></div>
+</section>
+
+<section>
+  <h2>這樣做的三個重點</h2>
+  <ul class="points">
+    <li><strong>系統不用知道資料送去哪</strong><span>各系統只在設定檔寫一個部門代號。要換部門，改那一行，程式不用動。</span></li>
+    <li><strong>加部門不用加線</strong><span>不管幾個部門，每個 cluster 都只有一條線往中央送。新增部門是在對照表加一列。</span></li>
+    <li><strong>不能冒充別的部門</strong><span>程式自己宣稱的部門代號會被丟掉，只認 namespace 上掛的門牌。這一點實際測過。</span></li>
+  </ul>
+</section>
+
+<section>
+  <h2>實測結果</h2>
+  <p>在本機的測試環境把七種情況都實際部署一次，查每個租戶裡有沒有資料。軟體版本跟 AP1105 相同。</p>
+  <div class="tablewrap">
+  <table>
+    <thead><tr><th>情況</th><th>資料進了哪個租戶</th><th>結果</th></tr></thead>
+    <tbody>
+      <tr><td>門牌寫 tsid</td><td class="n">1001</td><td><span class="pill done">符合</span></td></tr>
+      <tr><td>門牌寫 bsid</td><td class="n">1002</td><td><span class="pill done">符合</span></td></tr>
+      <tr><td>門牌寫 icsd</td><td class="n">1003</td><td><span class="pill done">符合</span></td></tr>
+      <tr><td>門牌寫 imc</td><td class="n">1004</td><td><span class="pill done">符合</span></td></tr>
+      <tr><td>沒掛門牌</td><td class="n">1000</td><td><span class="pill done">符合</span></td></tr>
+      <tr><td>門牌寫錯字（imcc）</td><td class="n">1000</td><td><span class="pill done">符合</span></td></tr>
+      <tr><td>沒掛門牌，程式自稱 tsid</td><td class="n">1000</td><td><span class="pill done">擋下</span></td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="note">也做了反向確認：故意把防冒充的規則拿掉，最後一種情況的資料就真的跑進 1001，測試會報錯。代表這條防線是有作用的，而且被拿掉時會被發現。</p>
+</section>
+
+<section>
+  <h2>進度</h2>
+  <div class="tablewrap">
+  <table>
+    <thead><tr><th>項目</th><th>內容</th><th>狀態</th></tr></thead>
+    <tbody>
+      <tr><td>檢查工具</td><td>設定檔寫錯在送出前就擋下，不需要 cluster</td><td><span class="pill done">完成</span></td></tr>
+      <tr><td>依部門分租戶</td><td>流程圖「現況」的整條路，含防冒充與實測</td><td><span class="pill done">完成，本機驗證</span></td></tr>
+      <tr><td>兩廠雙寫</td><td>廠區標記、同時寫兩站、斷線暫存</td><td><span class="pill next">下一個</span></td></tr>
+      <tr><td>AP1105 換上新設定</td><td>在已經運作的環境套用，舊資料留在原處</td><td><span class="pill later">之後</span></td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<section>
+  <h2>還需要別的單位確認的事</h2>
+  <div class="tablewrap">
+  <table>
+    <thead><tr><th>事項</th><th>找誰</th><th>影響</th></tr></thead>
+    <tbody>
+      <tr><td>中央 vmauth 實際的寫入網址</td><td>Infra</td><td>目前填的是標準寫法，要對過才能上正式環境</td></tr>
+      <tr><td>每個 cluster 各發一把通行證</td><td>Infra</td><td>某個 cluster 出事時，可以只停掉那一把</td></tr>
+      <tr><td>部門清單與租戶編號</td><td>各部門</td><td>目前是 TSID、BSID、ICSD、IMC 四個加平台</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="note">要注意的限制：中央只檢查通行證，不檢查資料上的租戶編號。部門之間的隔離是靠每個 cluster 上的 vmagent 設定維持的，所以那份設定的檢查與測試是必要的防線。目前的結果都來自本機測試環境，還沒有在正式環境執行。</p>
+</section>
+
+<footer>範圍只到「資料寫進中央」。查詢端（Grafana 怎麼依部門看資料）與 log 不在這次的範圍內。</footer>
+
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/reactflow@11.11.4/dist/umd/index.js"></script>
+<script>
+(function () {
+  if (!window.React || !window.ReactDOM || !window.ReactFlow) return;
+  var h = React.createElement, RF = window.ReactFlow;
+  var V = function (name) { return 'var(--' + name + ')'; };
+
+  // ---------- 現況（已實測） ----------
+  var SOURCES = [
+    { id: 'tsid',  title: 'TSID 的系統', sub: '門牌 tenant: tsid', color: 'tsid', dest: '1001', y: 46 },
+    { id: 'bsid',  title: 'BSID 的系統', sub: '門牌 tenant: bsid', color: 'bsid', dest: '1002', y: 108 },
+    { id: 'icsd',  title: 'ICSD 的系統（例：MES 派工）', sub: '門牌 tenant: icsd', color: 'icsd', dest: '1003', y: 170 },
+    { id: 'imc',   title: 'IMC 的系統（例：機台收值）', sub: '門牌 tenant: imc', color: 'imc', dest: '1004', y: 232 },
+    { id: 'none',  title: '平台元件、沒掛門牌的', sub: '沒寫 tenant，或寫錯字', color: 'plat', dest: '1000', y: 304 },
+    { id: 'spoof', title: '沒掛門牌，卻自稱 tsid', sub: '程式自己在資料上寫部門代號', color: 'plat', dest: '1000', y: 366, dashed: true }
+  ];
+  var TENANTS = [
+    { id: '1001', name: 'TSID', color: 'tsid', y: 46 },
+    { id: '1002', name: 'BSID', color: 'bsid', y: 108 },
+    { id: '1003', name: 'ICSD', color: 'icsd', y: 170 },
+    { id: '1004', name: 'IMC', color: 'imc', y: 232 },
+    { id: '1000', name: '平台', color: 'plat', y: 320, sub: '沒掛門牌、寫錯、冒充的' }
+  ];
+  var NOW_MODES = [
+    { id: 'all',    label: '全部', text: '每個系統的資料，最後只會出現在同色的租戶。' },
+    { id: 'icsd',   label: 'ICSD 的系統', text: 'namespace 掛著 icsd 的門牌，vmagent 把它換成租戶編號 1003，資料只進 ICSD 的租戶。' },
+    { id: 'none',   label: '沒掛門牌', text: '沒寫或寫錯部門代號的，一律算平台，進 1000。不會消失，也不會混進任何部門。' },
+    { id: 'spoof',  label: '冒充 tsid', text: '這個程式自己在資料上寫「我是 tsid」。vmagent 只認 namespace 的門牌，程式自稱的不算，資料留在平台。' },
+    { id: 'broken', label: '如果把防線拿掉', danger: true, text: '測試時故意拿掉第 ② 步，冒充的資料就真的跑進 TSID 的租戶。正式的設定有這一步，而且檢查工具會擋下拿掉它的修改。' }
+  ];
+  var NOW_DETAIL = {
+    vmagent: ['vmagent', '平台的收集程式，每個 cluster 一套。各部門的系統自己不往外送資料，全部由它定時去抓，再統一送到中央。'],
+    vmauth: ['vmauth', '中央的門口。只檢查通行證，確認這批資料是哪個 cluster 送來的。它不檢查資料上的租戶編號，所以部門隔離靠的是 vmagent 那三步。'],
+    '1000': ['平台租戶（1000）', '節點、系統元件，以及沒掛門牌或寫錯的 namespace 都進這裡。平台團隊看這個租戶就能掌握各 cluster 的基礎狀況。']
+  };
+
+  function nowGraph(mode) {
+    var broken = mode === 'broken';
+    var focus = mode === 'all' ? null : (broken ? 'spoof' : mode);
+    var nodes = [
+      { id: 'g-cluster', type: 'group', position: { x: 0, y: 0 }, style: { width: 250, height: 430 }, data: {}, selectable: false },
+      { id: 'l-cluster', className: 'glabel', parentNode: 'g-cluster', position: { x: 14, y: 12 }, style: { width: 228 }, data: { label: 'K8s cluster（多個部門混住）' }, selectable: false },
+      { id: 'g-vm', type: 'group', position: { x: 980, y: 0 }, style: { width: 220, height: 430 }, data: {}, selectable: false },
+      { id: 'l-vm', className: 'glabel', parentNode: 'g-vm', position: { x: 16, y: 12 }, style: { width: 190 }, data: { label: 'VictoriaMetrics（中央）' }, selectable: false }
+    ];
+    SOURCES.forEach(function (s) {
+      var on = !focus || focus === s.id;
+      nodes.push({
+        id: 'ns-' + s.id, type: 'input', parentNode: 'g-cluster', extent: 'parent', sourcePosition: 'right',
+        position: { x: 14, y: s.y },
+        style: { width: 222, borderColor: V(s.color), borderStyle: s.dashed ? 'dashed' : 'solid', opacity: on ? 1 : .3 },
+        data: { label: h('div', null, h('div', { className: 'n-title' }, s.title), h('div', { className: 'n-sub' }, s.sub)) }
+      });
+    });
+    nodes.push({
+      id: 'vmagent', position: { x: 330, y: 62 }, sourcePosition: 'right', targetPosition: 'left', style: { width: 230 },
+      data: { label: h('div', null,
+        h('div', { className: 'n-title' }, 'vmagent'),
+        h('div', { className: 'n-sub' }, '平台的收集程式，每個 cluster 一套'),
+        h('div', { className: 'n-step' }, h('div', { className: 'n-title' }, '① 抓資料時'), h('div', { className: 'n-sub' }, '把 namespace 的門牌貼到每筆資料上')),
+        h('div', { className: 'n-step' + (broken ? ' off' : '') }, h('div', { className: 'n-title' }, '② 送出前'), h('div', { className: 'n-sub' }, '丟掉程式自己寫的部門代號與租戶編號')),
+        h('div', { className: 'n-step' }, h('div', { className: 'n-title' }, '③ 照對照表'), h('div', { className: 'n-sub' }, '把門牌換成租戶編號，對不到的算平台'))
+      ) }
+    });
+    nodes.push({
+      id: 'vmauth', position: { x: 740, y: 176 }, sourcePosition: 'right', targetPosition: 'left', style: { width: 130 },
+      data: { label: h('div', null, h('div', { className: 'n-title' }, 'vmauth'), h('div', { className: 'n-sub' }, '檢查通行證：是哪個 cluster')) }
+    });
+    var destOf = function (s) { return broken && s.id === 'spoof' ? '1001' : s.dest; };
+    var hot = {};
+    SOURCES.forEach(function (s) { if (!focus || focus === s.id) hot[destOf(s)] = true; });
+    TENANTS.forEach(function (t) {
+      var hit = broken && t.id === '1001';
+      nodes.push({
+        id: t.id, type: 'output', parentNode: 'g-vm', extent: 'parent', targetPosition: 'left',
+        position: { x: 16, y: t.y },
+        style: { width: 188, borderColor: hit ? V('bad') : V(t.color), borderWidth: hit ? 2.5 : 1.5, opacity: hot[t.id] ? 1 : .3 },
+        data: { label: h('div', null,
+          h('div', null, h('span', { className: 'n-num' }, t.id), h('span', { className: 'n-title' }, t.name)),
+          t.sub ? h('div', { className: 'n-sub' }, t.sub) : null,
+          hit ? h('div', { className: 'n-alert' }, '混進了冒充的資料') : null) }
+      });
+    });
+
+    var edges = [], seen = {};
+    SOURCES.forEach(function (s) {
+      var on = !focus || focus === s.id;
+      var stroke = broken && s.id === 'spoof' ? V('bad') : V(s.color);
+      edges.push({ id: 's-' + s.id, source: 'ns-' + s.id, target: 'vmagent', animated: on,
+        style: { stroke: stroke, strokeWidth: 2.5, opacity: on ? 1 : .15 } });
+      var key = destOf(s) + stroke;
+      if (!focus && seen[key]) return;
+      seen[key] = true;
+      edges.push({ id: 'd-' + s.id, source: 'vmauth', target: destOf(s), animated: on,
+        style: { stroke: stroke, strokeWidth: 2.5, opacity: on ? 1 : .15 } });
+    });
+    edges.push({ id: 'trunk', source: 'vmagent', target: 'vmauth', animated: true, label: '一條線，帶通行證',
+      style: { stroke: V('fg'), strokeWidth: 2.5 }, markerEnd: { type: 'arrowclosed' } });
+    return { nodes: nodes, edges: edges };
+  }
+
+  // ---------- 下一步（規劃中） ----------
+  var PLAN_MODES = [
+    { id: 'normal', label: '平常', text: '兩個廠區的 vmagent 都把同一份資料同時寫到中科站和二林站。' },
+    { id: 'site1',  label: '中科站停機', danger: true, text: '往中科站的資料送不到，先存在各 cluster 本機，等中科站恢復後補送。往二林站的照常。' },
+    { id: 'split',  label: '跨廠網路中斷', danger: true, text: '跨廠的兩條線都斷：中科寫不到二林站，二林也寫不到中科站，各自先存本機。同廠的照常。' }
+  ];
+  var PLAN_DETAIL = {
+    'a-ctsp': ['中科的 cluster', '每個 cluster 的 vmagent 設定都一樣，只多兩個目的地。廠區之間互不相依。'],
+    'a-erlin': ['二林的 cluster', '每個 cluster 的 vmagent 設定都一樣，只多兩個目的地。廠區之間互不相依。'],
+    'v-ctsp': ['中科站', '兩站存的是同一份資料。任一站停機時另一站仍然完整。'],
+    'v-erlin': ['二林站', '兩站存的是同一份資料。任一站停機時另一站仍然完整。']
+  };
+  function planGraph(mode) {
+    var box = function (id, x, y, title, sub, type, down) {
+      return { id: id, type: type, position: { x: x, y: y }, sourcePosition: 'right', targetPosition: 'left',
+        style: { width: 220, borderColor: down ? V('bad') : V('fg'), borderWidth: down ? 2.5 : 1.5 },
+        data: { label: h('div', null, h('div', { className: 'n-title' }, title), h('div', { className: 'n-sub' }, sub),
+          down ? h('div', { className: 'n-alert' }, '停機中') : null) } };
+    };
+    var nodes = [
+      box('a-ctsp', 0, 20, '中科的 cluster', 'vmagent', 'input'),
+      box('a-erlin', 0, 220, '二林的 cluster', 'vmagent', 'input'),
+      box('v-ctsp', 520, 20, '中科站', 'VictoriaMetrics', 'output', mode === 'site1'),
+      box('v-erlin', 520, 220, '二林站', 'VictoriaMetrics', 'output')
+    ];
+    var link = function (from, to, cross) {
+      var broken = (mode === 'site1' && to === 'v-ctsp') || (mode === 'split' && cross);
+      var color = !broken ? V('ok') : (mode === 'site1' ? V('bad') : V('warn'));
+      return { id: from + to, source: from, target: to, animated: !broken,
+        label: broken ? '送不到，先存本機' : '寫入',
+        style: { stroke: color, strokeWidth: 2.5, strokeDasharray: broken ? '3 7' : undefined } };
+    };
+    return { nodes: nodes, edges: [
+      link('a-ctsp', 'v-ctsp', false), link('a-ctsp', 'v-erlin', true),
+      link('a-erlin', 'v-ctsp', true), link('a-erlin', 'v-erlin', false)
+    ] };
+  }
+
+  function Modes(props) {
+    return h('div', { className: props.className, role: 'group', 'aria-label': props.label },
+      props.items.map(function (m) {
+        return h('button', { key: m.id, id: props.prefix + m.id, type: 'button', className: m.danger ? 'danger' : '',
+          'aria-pressed': props.value === m.id, onClick: function () { props.onChange(m.id); } }, m.label);
+      }));
+  }
+
+  function App() {
+    var s1 = React.useState('now'), view = s1[0], setView = s1[1];
+    var s2 = React.useState('all'), nowMode = s2[0], setNowMode = s2[1];
+    var s3 = React.useState('normal'), planMode = s3[0], setPlanMode = s3[1];
+    var s4 = React.useState(null), picked = s4[0], setPicked = s4[1];
+    var isNow = view === 'now';
+    var modes = isNow ? NOW_MODES : PLAN_MODES;
+    var mode = isNow ? nowMode : planMode;
+    var graph = React.useMemo(function () { return isNow ? nowGraph(nowMode) : planGraph(planMode); }, [view, nowMode, planMode]);
+    var detail = (isNow ? NOW_DETAIL : PLAN_DETAIL)[picked];
+    var current = modes.filter(function (m) { return m.id === mode; })[0];
+
+    return h('div', { style: { display: 'flex', flexDirection: 'column', gap: 12 } },
+      h(Modes, { className: 'tabs', label: '要看哪一張圖', prefix: 'tab-', value: view,
+        items: [{ id: 'now', label: '現況（已實測）' }, { id: 'plan', label: '下一步：兩廠雙寫（規劃中）' }],
+        onChange: function (v) { setView(v); setPicked(null); } }),
+      isNow ? null : h('div', { className: 'banner' }, '規劃中，尚未實作。以下是設計上預期的行為，還沒有實測。'),
+      h(Modes, { className: 'modes', label: '情境', prefix: 'mode-' + view + '-', value: mode, items: modes,
+        onChange: function (m) { (isNow ? setNowMode : setPlanMode)(m); setPicked(null); } }),
+      h('div', { className: 'canvas' + (isNow ? '' : ' short') },
+        h(RF.ReactFlow, {
+          key: view, nodes: graph.nodes, edges: graph.edges, fitView: true, fitViewOptions: { padding: 0.06 },
+          nodesDraggable: false, nodesConnectable: false, zoomOnScroll: false, preventScrolling: false,
+          minZoom: 0.25, maxZoom: 2,
+          onNodeClick: function (_, node) { setPicked(node.id); }, onPaneClick: function () { setPicked(null); }
+        }, h(RF.Background, { color: V('line'), gap: 18 }), h(RF.Controls, { showInteractive: false }))),
+      h('div', { className: 'explain', 'aria-live': 'polite' },
+        detail ? h('div', null, h('strong', null, detail[0]), detail[1]) : h('div', null, current.text)),
+      h('div', { className: 'hint' }, '按上面的按鈕切換情境；點圖上的方塊看說明；右下角可以放大縮小。')
+    );
+  }
+
+  ReactDOM.createRoot(document.getElementById('flow')).render(h(App));
+})();
+</script>
+</body></html>

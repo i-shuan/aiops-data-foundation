@@ -1,6 +1,7 @@
 # Intent — 多廠區 K8s metrics 寫入 VictoriaMetrics
 
 > 已確認。這份是總綱，實作拆成下面「拆法」的四個需求，各自有自己的資料夾。
+> 給主管看的動態架構圖：[`architecture.html`](architecture.html)，用瀏覽器直接開。
 
 ## 解決誰的什麼問題
 
