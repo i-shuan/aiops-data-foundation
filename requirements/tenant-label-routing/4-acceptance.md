@@ -41,11 +41,11 @@ run() { "$T/tests/validate.sh" 2>&1 | grep -A1 -E "$1|^(PASS|FAIL)|Traceback"; e
 
 | # | 指令 | 預期輸出 | 結果 |
 | --- | --- | --- | --- |
-| 2-1 | `./tests/validate.sh; echo "exit=$?"` | `PASS`、`exit=0`；第 2 段印出對照：`platform=1000 tsid=1001 bsid=1002 icsd=1003 imc=1004` | ☐ |
-| 2-2 | `./tests/validate.sh \| grep "自我檢查" \| grep -E "清掉\|重複\|兜底\|兩條\|空字串"` | 五條都在、都是 `OK`：拿掉清 `vm_account_id` 那條、AccountID 重複、兜底不在最後、`remoteWrite` 兩條、兜底的 `regex` 是空字串，全部被擋下 | ☐ |
-| 2-3 | `python -c "import yaml,io;print(len(yaml.safe_load(io.open('platform/vmstack-values.yaml',encoding='utf-8'))['vmagent']['spec']['remoteWrite']))"` | `1` | ☐ |
-| 2-4 | `grep -n -w group README.md applications/eqp-collector/README.md` | 剩下的每一處都是在講歷史或 Fluentd 的欄位，逐條列在下面「人工確認」 | ☐ |
-| 2-5 | `python tools/check-md-style.py README.md applications/eqp-collector/README.md` | 違規數不比改之前多（5 和 4） | ☐ |
+| 2-1 | `./tests/validate.sh; echo "exit=$?"` | `PASS`、`exit=0`；第 2 段印出對照：`platform=1000 tsid=1001 bsid=1002 icsd=1003 imc=1004` | ☑ |
+| 2-2 | `./tests/validate.sh \| grep "自我檢查" \| grep -E "清掉\|重複\|兜底\|兩條\|空字串"` | 五條都在、都是 `OK`：拿掉清 `vm_account_id` 那條、AccountID 重複、兜底不在最後、`remoteWrite` 兩條、兜底的 `regex` 是空字串，全部被擋下 | ☑ |
+| 2-3 | `python -c "import yaml,io;print(len(yaml.safe_load(io.open('platform/vmstack-values.yaml',encoding='utf-8'))['vmagent']['spec']['remoteWrite']))"` | `1` | ☑ |
+| 2-4 | `grep -n -w group README.md applications/eqp-collector/README.md` | 剩下的每一處都是在講歷史或 Fluentd 的欄位，逐條列在下面「人工確認」 | ☑ |
+| 2-5 | `python tools/check-md-style.py README.md applications/eqp-collector/README.md` | 違規數不比改之前多（5 和 4） | ☑ |
 
 ## 第三批：k3d 實測
 

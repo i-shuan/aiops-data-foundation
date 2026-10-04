@@ -1,19 +1,18 @@
-# 給「已經在跑的 vmstack」加上分流用的 overlay（例如 AP1105）
+# 給「已經在跑的 vmstack」加上租戶分流用的 overlay（例如 AP1105）
 #
-# 內容就是 vmstack-values.yaml 的 vmagent.spec.scrapeClasses 和 vmagent.spec.remoteWrite 兩段，
+# 內容就是 vmstack-values.yaml 的 vmagent.spec.scrapeClasses、inlineRelabelConfig、remoteWrite 三段，
 # 其他設定一律不帶，疊在該環境現有的 values 上：
 #
-#   helm upgrade vmstack <repo>/victoria-metrics-k8s-stack --version <現在的版本> -n vm-monitoring \
-#     -f current-values.yaml -f platform/vmagent-routing-overlay.yaml
-#
-# 完整步驟（備份、Secret、dry-run diff、驗證、回滾）見 README.md「已經在跑的 vmstack 加上分流」。
+#   helm upgrade vmstack <repo>/victoria-metrics-k8s-stack --version <現在的版本> -n vm-monitoring #     -f current-values.yaml -f platform/vmagent-routing-overlay.yaml
 #
 # ⚠ 不要改成直接套整份 vmstack-values.yaml：那是另一套環境的完整 values，
 #   會關掉 vmcluster、換 image registry、把 externalLabels 清成 {}。
-# ⚠ 這兩段要跟 vmstack-values.yaml 保持一致，只有 url 可以依環境不同。
-#   tests/validate.sh 會檢查；也會擋下這份裡出現這兩段以外的任何設定。
-# ⚠ platform 那把 token 要對到該環境現在寫入的 tenant（AP1105 是 insert/0），
-#   不然所有沒貼 group 的 namespace 會整批換 tenant。
+# ⚠ 這三段要跟 vmstack-values.yaml 保持一致，只有 url 可以依環境不同。
+#   tests/validate.sh 會檢查；也會擋下這份裡出現這三段以外的任何設定。
+# ⚠ 套上去之後，沒貼 tenant 的 namespace 會從該環境現在寫入的租戶（AP1105 是 insert/0）
+#   換到 platform 的 AccountID。舊資料留在原租戶不搬。
+# ⚠ 該環境的 operator 要認得這三段的欄位。舊的 CRD 會把不認得的欄位默默裁掉：
+#   用 kubectl apply --dry-run=server 比對送進去和回來的 spec，不要用 kubectl explain。
 vmagent:
   spec:
     scrapeClasses:
@@ -29,45 +28,50 @@ vmagent:
         - __meta_kubernetes_namespace_label_tenant
         target_label: tenant
       - source_labels:
+        - tenant
+        regex: ^$
+        target_label: tenant
+        replacement: platform
+      - source_labels:
         - __meta_kubernetes_namespace_label_system
         target_label: system
+    inlineRelabelConfig:
+    - action: labeldrop
+      regex: vm_account_id|vm_project_id
+    - source_labels:
+      - tenant
+      regex: tsid
+      target_label: vm_account_id
+      replacement: '1001'
+    - source_labels:
+      - tenant
+      regex: bsid
+      target_label: vm_account_id
+      replacement: '1002'
+    - source_labels:
+      - tenant
+      regex: icsd
+      target_label: vm_account_id
+      replacement: '1003'
+    - source_labels:
+      - tenant
+      regex: imc
+      target_label: vm_account_id
+      replacement: '1004'
+    - source_labels:
+      - vm_account_id
+      regex: ^$
+      target_label: tenant
+      replacement: platform
+    - source_labels:
+      - vm_account_id
+      regex: ^$
+      target_label: vm_account_id
+      replacement: '1000'
     remoteWrite:
-    - url: https://vmauth.aillm.spil.com.tw/prometheus/api/v1/write
+    - url: https://vmauth.aillm.spil.com.tw/insert/multitenant/prometheus/api/v1/write
       tlsConfig:
         insecureSkipVerify: true
       bearerTokenSecret:
         name: vmauth-token
-        key: it
-      inlineUrlRelabelConfig:
-      - action: keep
-        source_labels:
-        - tenant
-        regex: (.*\.)?it(\..*)?
-      - target_label: tenant
-        replacement: it
-    - url: https://vmauth.aillm.spil.com.tw/prometheus/api/v1/write
-      tlsConfig:
-        insecureSkipVerify: true
-      bearerTokenSecret:
-        name: vmauth-token
-        key: imc
-      inlineUrlRelabelConfig:
-      - action: keep
-        source_labels:
-        - tenant
-        regex: (.*\.)?imc(\..*)?
-      - target_label: tenant
-        replacement: imc
-    - url: https://vmauth.aillm.spil.com.tw/prometheus/api/v1/write
-      tlsConfig:
-        insecureSkipVerify: true
-      bearerTokenSecret:
-        name: vmauth-token
-        key: platform
-      inlineUrlRelabelConfig:
-      - action: drop
-        source_labels:
-        - tenant
-        regex: (.*\.)?(it|imc)(\..*)?
-      - target_label: tenant
-        replacement: platform
+        key: token

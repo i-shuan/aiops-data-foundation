@@ -7,9 +7,11 @@
 #
 #   1. values.yaml 合法：argocd 與 observability 必填欄位、production 不可自動同步、
 #      namespace 不能被兩個 app 共用、chart 渲染得出來
-#   2. tenant 只能是允許的值（tsid / bsid / icsd / imc / platform），一個 namespace 一個。
-#      不另外維護清單。platform/vmagent-routing-overlay.yaml 的分流設定要跟它一模一樣
-#      （只有 url 可以不同），而且不能帶這兩段以外的設定
+#   2. tenant 只能是允許的值，一個 namespace 一個。允許什麼直接從 platform/vmstack-values.yaml
+#      的租戶對照（vmagent.spec.inlineRelabelConfig）讀，不另外維護清單。
+#      對照本身也檢查：先清掉進來的 vm_account_id、AccountID 不重複、兜底在最後、remoteWrite 一條。
+#      platform/vmagent-routing-overlay.yaml 的分流三段要跟它一模一樣（只有 url 可以不同），
+#      而且不能帶這三段以外的設定
 #   3. platform/applicationset.yaml 的 templatePatch 渲染出來的 namespace label，
 #      要跟 values.yaml 寫的一模一樣；沒寫的欄位不能變成空字串的 label
 #
@@ -44,8 +46,73 @@ def load(path):
         return yaml.safe_load(f)
 
 
-# 允許的 tenant。第二批會改成從 platform/vmstack-values.yaml 的對照表讀，這份清單到時拿掉。
-ALLOWED = {"platform", "tsid", "bsid", "icsd", "imc"}
+TENANT_NAME = re.compile(r"^[a-z0-9]([-a-z0-9]*[a-z0-9])?$")
+KEEP = "inlineRelabelConfig 的寫法只能是：清掉 vm_account_id 的 labeldrop、tenant → vm_account_id 的對照、最後兩條兜底"
+
+
+def routing(spec):
+    """vmagent.spec 的租戶分流。回傳 (對照表 {tenant: AccountID}, 錯誤清單)。
+
+    租戶由 vmagent 自己填的 vm_account_id 決定，vmauth 不檢查，所以這裡每一項寫錯
+    都不會報錯，資料只是安靜地進到別的租戶。
+    """
+    e, table = [], {}
+
+    def add(name, acct):
+        if name in table:
+            e.append("tenant %s 在對照裡出現兩次" % name)
+        if acct in table.values():
+            e.append("AccountID %s 重複，%s 的資料會跟別的租戶混在一起" % (acct, name))
+        table[name] = acct
+
+    rules = spec.get("inlineRelabelConfig") or []
+    first = rules[0] if rules else {}
+    if first.get("action") != "labeldrop" or \
+            not {"vm_account_id", "vm_project_id"} <= set(str(first.get("regex", "")).split("|")):
+        e.append("inlineRelabelConfig 第一條要是清掉 vm_account_id|vm_project_id 的 labeldrop，"
+                 "不然 app 自己吐這個 label 就能寫進別人的租戶")
+    for r in rules[1:-2]:
+        name, acct = str(r.get("regex", "")), str(r.get("replacement", ""))
+        if (r.get("source_labels") != ["tenant"] or r.get("target_label") != "vm_account_id"
+                or r.get("action", "replace") != "replace"
+                or not TENANT_NAME.match(name) or not acct.isdigit()):
+            e.append("%s。看不懂這條：%s" % (KEEP, r))
+        else:
+            add(name, acct)
+    tail = rules[-2:]
+    shape = [(r.get("source_labels"), r.get("regex"), r.get("target_label")) for r in tail]
+    fallback = None
+    if shape != [(["vm_account_id"], "^$", "tenant"), (["vm_account_id"], "^$", "vm_account_id")]:
+        e.append("inlineRelabelConfig 最後兩條要是兜底：vm_account_id 是空的就先把 tenant、再把 vm_account_id "
+                 "改成兜底租戶。regex 寫 ^$，寫成空字串可能被當成沒寫而變成全部符合")
+    else:
+        fallback = str(tail[0].get("replacement", ""))
+        add(fallback, str(tail[1].get("replacement", "")))
+
+    sc = (spec.get("scrapeClasses") or [{}])[0]
+    if not sc.get("default") or not (sc.get("attachMetadata") or {}).get("namespace"):
+        e.append("scrapeClasses 第一個要是 default: true 而且 attachMetadata.namespace: true，"
+                 "不然讀不到 namespace 的 label")
+    pair = [{"source_labels": ["__meta_kubernetes_namespace_label_tenant"], "target_label": "tenant"},
+            {"source_labels": ["tenant"], "regex": "^$", "target_label": "tenant", "replacement": fallback}]
+    rc = sc.get("relabelConfigs") or []
+    if not any(rc[i:i + 2] == pair for i in range(len(rc))):
+        e.append("scrapeClasses 要先貼 namespace 的 tenant，緊接著把沒貼的補成 %s（regex 寫 ^$）。"
+                 "少了第二條，沒貼 tenant 的 namespace 裡的 app 自己吐 tenant 就能冒充別人" % fallback)
+
+    rws = spec.get("remoteWrite") or []
+    if len(rws) != 1:
+        e.append("remoteWrite 要剛好一條（現在 %d 條）。租戶靠 vm_account_id 分，多一條就是整份資料多送一次" % len(rws))
+    elif "/insert/multitenant/" not in str(rws[0].get("url", "")):
+        e.append("remoteWrite 的 url 要是 multitenant 端點（/insert/multitenant/...），"
+                 "不然 vm_account_id 不會被當成租戶")
+    elif not (rws[0].get("bearerTokenSecret") or {}).get("name"):
+        e.append("remoteWrite 要用 bearerTokenSecret 帶 token，token 不能寫在這份裡")
+    return table, e
+
+
+TABLE, ROUTING_ERRORS = routing(load(VMSTACK)["vmagent"]["spec"])
+ALLOWED = set(TABLE)
 
 
 def mode(doc, ns_template):
@@ -108,22 +175,26 @@ def check(app, doc, ns_template=False):
     return e
 
 
+OVERLAY_KEYS = ("scrapeClasses", "inlineRelabelConfig", "remoteWrite")
+
+
 def overlay_errors(overlay, vmstack):
-    """overlay 只能有 vmagent.spec 的 scrapeClasses 和 remoteWrite，而且要跟 vmstack-values.yaml 一樣。"""
+    """overlay 只能有 vmagent.spec 的分流三段，而且要跟 vmstack-values.yaml 一樣。"""
     e = []
     overlay = overlay or {}
     agent = overlay.get("vmagent") or {}
     spec = agent.get("spec") or {}
     extra = ([k for k in overlay if k != "vmagent"]
              + ["vmagent.%s" % k for k in agent if k != "spec"]
-             + ["vmagent.spec.%s" % k for k in spec if k not in ("scrapeClasses", "remoteWrite")])
+             + ["vmagent.spec.%s" % k for k in spec if k not in OVERLAY_KEYS])
     if extra:
-        e.append("只能有 vmagent.spec.scrapeClasses 和 remoteWrite，多了 %s（會蓋掉該環境原本的設定）"
-                 % ", ".join(extra))
+        e.append("只能有 vmagent.spec 的 %s，多了 %s（會蓋掉該環境原本的設定）"
+                 % (" / ".join(OVERLAY_KEYS), ", ".join(extra)))
     want = vmstack["vmagent"]["spec"]
-    if spec.get("scrapeClasses") != want["scrapeClasses"]:
-        e.append("scrapeClasses 跟 %s 不一樣" % VMSTACK)
-    # url 可以依環境不同；過濾條件、token、順序都要一樣
+    for k in OVERLAY_KEYS[:2]:
+        if spec.get(k) != want[k]:
+            e.append("%s 跟 %s 不一樣" % (k, VMSTACK))
+    # url 可以依環境不同；token、其他設定都要一樣
     no_url = lambda rws: [{k: v for k, v in rw.items() if k != "url"} for rw in rws or []]
     if no_url(spec.get("remoteWrite")) != no_url(want["remoteWrite"]):
         e.append("remoteWrite 跟 %s 不一樣（只有 url 可以不同）" % VMSTACK)
@@ -208,11 +279,40 @@ for app, doc in docs.items():
     report(not errs, app + ("（手動 Helm）" if modes[app] == "manual" else ""), errs)
 
 print("\n=== 2. platform/ 的分流設定 ===")
-print("  允許的 tenant：%s" % ", ".join(sorted(ALLOWED)))
+print("  對照（從 %s 讀出）：%s"
+      % (VMSTACK, " ".join("%s=%s" % kv for kv in sorted(TABLE.items(), key=lambda kv: kv[1]))))
 vmstack = load(VMSTACK)
 overlay = load(OVERLAY)
+report(not ROUTING_ERRORS, "%s 的租戶分流" % VMSTACK, ROUTING_ERRORS)
 errs = overlay_errors(overlay, vmstack)
 report(not errs, "%s 跟 %s 一致（url 除外）" % (OVERLAY, VMSTACK), errs)
+
+
+def broken(fn):
+    spec = copy.deepcopy(vmstack["vmagent"]["spec"])
+    fn(spec)
+    return spec
+
+
+def swap(rules, i, j):
+    rules[i], rules[j] = rules[j], rules[i]
+
+
+# 自我檢查：改壞的分流一定要被抓到。每一種都是「不會報錯、資料安靜地進錯租戶」
+bad_routing = [
+    ("拿掉清掉 vm_account_id 那條", lambda s: s["inlineRelabelConfig"].pop(0)),
+    ("AccountID 重複", lambda s: s["inlineRelabelConfig"][1].update(replacement="1004")),
+    ("兜底不在最後", lambda s: swap(s["inlineRelabelConfig"], 1, -1)),
+    ("兜底先改 vm_account_id 才改 tenant", lambda s: swap(s["inlineRelabelConfig"], -1, -2)),
+    ("兜底的 regex 寫成空字串", lambda s: s["inlineRelabelConfig"][-1].update(regex="")),
+    ("對照的 regex 寫成 .*", lambda s: s["inlineRelabelConfig"][2].update(regex=".*")),
+    ("抓取時沒把沒貼的補成兜底", lambda s: s["scrapeClasses"][0]["relabelConfigs"].pop(2)),
+    ("remoteWrite 兩條", lambda s: s["remoteWrite"].append(dict(s["remoteWrite"][0]))),
+    ("url 不是 multitenant 端點", lambda s: s["remoteWrite"][0].update(url="https://x/prometheus/api/v1/write")),
+]
+for name, fn in bad_routing:
+    errs = routing(broken(fn))[1]
+    report(bool(errs), "自我檢查：%-24s → %s" % (name, errs[0] if errs else "沒有被擋下"))
 
 
 def mutate(fn):
@@ -223,15 +323,12 @@ def mutate(fn):
 
 # 自我檢查：改壞的 overlay 一定要被抓到，只改 url 一定要放行
 mutants = [
-    ("imc 的 regex 改成 'imc'", True,
-     lambda s: s["remoteWrite"][1]["inlineUrlRelabelConfig"][0].update(regex="imc")),
-    ("IT 那條帶成 imc 的 token", True,
-     lambda s: s["remoteWrite"][0]["bearerTokenSecret"].update(key="imc")),
-    ("少了兜底那條", True, lambda s: s["remoteWrite"].pop()),
-    ("多帶 externalLabels: {}", True, lambda s: s.update(externalLabels={})),
-    ("scrapeClass 少了 tenant", True, lambda s: s["scrapeClasses"][0]["relabelConfigs"].pop(1)),
-    ("只把 url 換成別的 vmauth", False,
-     lambda s: [rw.update(url="http://vmauth.example.svc:8427/prometheus/api/v1/write") for rw in s["remoteWrite"]]),
+    ("overlay 的對照少一個租戶", True, lambda s: s["inlineRelabelConfig"].pop(1)),
+    ("overlay 帶成別的 Secret key", True, lambda s: s["remoteWrite"][0]["bearerTokenSecret"].update(key="it")),
+    ("overlay 多帶 externalLabels: {}", True, lambda s: s.update(externalLabels={})),
+    ("overlay 的 scrapeClass 少了 tenant", True, lambda s: s["scrapeClasses"][0]["relabelConfigs"].pop(1)),
+    ("overlay 只把 url 換成別的 vmauth", False,
+     lambda s: s["remoteWrite"][0].update(url="http://vmauth.example.svc:8427/insert/multitenant/prometheus/api/v1/write")),
 ]
 for name, should_fail, fn in mutants:
     errs = overlay_errors(mutate(fn), vmstack)

@@ -26,13 +26,16 @@ python .claude/hooks/test_guard_git.py -v  # 改了 guard-git.py 之後
 
 ## 要本機 k3d 的（跑很久、會動 cluster）
 
-```bash
-./tests/routing/run.sh          # E2E，真的經過 ArgoCD。前提見 README.md 的 Tests
-./tests/ap1105-sim/run.sh       # 會先刪掉 k3d cluster ap1105 重建
-./tests/ap1105-sim/run.sh routed   # 只跑某一步之後的步驟
-```
+| 指令 | 狀態 |
+| --- | --- |
+| `./tests/routing/run.sh` | 已過期。測的是改名前的 `group` 與三把 token，現在跑不過 |
+| `./tests/ap1105-sim/run.sh` | 已過期，同上。不帶參數會**刪掉重建** k3d cluster `ap1105` |
 
-⚠️ 這兩支不要順手跑。`ap1105-sim/run.sh` 不帶參數會**刪掉重建** cluster。
+⚠️ 這兩支不要跑，也不要順手修。前者等 ArgoCD 那條路補做，後者等 AP1105 的新 overlay
+驗證做完才淘汰，見 `requirements/multi-site-metrics-write/1-intent.md` 的拆法。
+
+⚠️ 這台機器的 docker 是 cgroup v1，`k3d cluster create` 預設的 k3s v1.35 起不來
+（kubelet 直接退出，k3d 卡到逾時）。要帶 `--image rancher/k3s:v1.30.14-k3s2`。
 
 ## 不要讀、不要遞迴搜尋
 

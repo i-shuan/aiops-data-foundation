@@ -4,19 +4,20 @@
 #
 # ──────────────────────────────────────────────────────────────
 # 這份是在原始模板上加了「同 cluster 內分流」所需的東西，
-# 只動了兩個區塊，其他原封不動：
+# 只動了下面幾個區塊，其他原封不動：
 #
-#   1. vmagent.spec.scrapeClasses   新增。抓取時把 namespace 的 dept / group / system label 帶進資料
-#   2. vmagent.spec.remoteWrite     從一條拆成三條，依 group 各自過濾、各自帶 token
-#   3. kube-state-metrics           新增 metricLabelsAllowlist
+#   1. vmagent.spec.scrapeClasses       新增。抓取時把 namespace 的 dept / tenant / system label 帶進資料
+#   2. vmagent.spec.inlineRelabelConfig  新增。送出前依 tenant 填 vm_account_id（租戶對照表在這裡）
+#   3. vmagent.spec.remoteWrite          一條，寫 multitenant 端點
+#   4. kube-state-metrics                新增 metricLabelsAllowlist
 #
 # 整條資料流見 README.md。
 #
-# ⚠ 上線順序：先把 vmauth-token 這個 Secret 建好三個 key（it / imc / platform），再套這份。
+# ⚠ 上線順序：先把 vmauth-token 這個 Secret 建好（key 是 token，這個 cluster 自己的那一把），再套這份。
 #   順序反過來的話 vmagent 找不到 key，remoteWrite 起不來，整個 cluster 的 metrics 會停。
 #   token 結尾多一個換行就會一直 401，錯誤訊息不會說原因：kubectl describe secret 看 byte 數。
 # ⚠ 改完不會馬上生效：operator 更新設定後，vmagent 要等 kubelet 同步（最多一分鐘左右）才重新載入。
-#   實際載入的規則看 vmagent 的 /remotewrite-url-relabel-config。
+#   實際載入的規則看 vmagent 的 /remotewrite-relabel-config。
 # ⚠ CRD 沒帶 schema，欄位打錯不會報錯，只會靜默失效。
 # ──────────────────────────────────────────────────────────────
 
@@ -72,106 +73,88 @@ vmagent:
     externalLabels:
       {} # cluster 由 ApplicationSet 的 helm.parameters 注入
 
-    # ── 新增 ──────────────────────────────────────────────
-    # 抓取時把 namespace 的 label 貼到每一筆資料上。
-    # 沒有這段，下面三條 remoteWrite 的過濾條件全部對不到東西，
-    # 結果是 IT / IMC 兩條都送不出去，全部落到兜底那條。
-    #
-    # 這些 label 由 ArgoCD 依每個 app 的 applications/<app>/helm/values.yaml 貼到 namespace 上
-    # （platform/applicationset.yaml）。vmagent 只讀 namespace 的 label，
-    # 不知道 values.yaml 的存在，也不維護任何 app、namespace 或部門清單。
+    # ── 抓取：把 namespace 的 label 貼到每一筆資料上 ─────────
+    # 這些 label 由 ArgoCD（platform/applicationset.yaml）或 chart 自己的 namespace.yaml
+    # 依 applications/<app>/helm/values.yaml 貼到 namespace 上。vmagent 只讀 namespace 的 label，
+    # 不知道 values.yaml 的存在，也不維護任何 app、namespace 清單。
     scrapeClasses:
       - name: default
         default: true
         attachMetadata:
           namespace: true
         relabelConfigs:
-          # dept：這份資料是誰的（歸屬）。只有一個值。
+          # dept：這份資料是誰的（歸屬）。
           - source_labels: [__meta_kubernetes_namespace_label_dept]
             target_label: dept
-          # group：這份資料要送到哪些 tenant（誰看得到）。分流就是看這個。
-          # 可以是單一值（it）也可以是多個，用點隔開（it.imc = 兩個都送）。
+          # tenant：這份資料寫進哪個租戶。一個 namespace 只有一個。
           - source_labels: [__meta_kubernetes_namespace_label_tenant]
             target_label: tenant
-          # system 只是分析用的維度，不是分流依據，下面的 remoteWrite 不看它。
-          # namespace 沒標的話這個值是空的，relabel 會直接不產生這個 label
-          # （metrics 上是「沒有 system」，不是 unknown；log 那邊才填 unknown）。
+          # 沒貼 tenant 的 namespace 在這裡就補成 platform，讓每個 target 都有 tenant。
+          # ⚠ 這條不能省。target 沒有 tenant 的話，app 自己吐的 tenant="tsid" 會被原樣留下，
+          #   接著被下面的對照換成 1001，等於任何 pod 都能寫進別人的租戶，而且不報錯。
+          #   target 有 tenant 時，app 自己吐的會被改名成 exported_tenant。
+          # ⚠ regex 寫 ^$，不要寫空字串：空字串若被當成沒寫，預設是「全部符合」，
+          #   每個租戶都會被改成 platform。
+          - source_labels: [tenant]
+            regex: "^$"
+            target_label: tenant
+            replacement: platform
+          # system 只是分析用的維度，不影響寫進哪個租戶。
+          # namespace 沒標的話不會產生這個 label（不是 system=""）。
           - source_labels: [__meta_kubernetes_namespace_label_system]
             target_label: system
-    # ──────────────────────────────────────────────────────
 
-    # ── 改動 ──────────────────────────────────────────────
-    # 原本一條、一把 token，所以整個 cluster 的資料全進同一個 tenant。
-    # 改成三條：vmagent 只抓一次，資料複製三份，每份各自過濾後帶自己的 token 送出。
-    # tenant 由中央 vmauth 依 token 決定，這邊不碰 tenant 設計。
+    # ── 送出前：tenant → AccountID ────────────────────────────
+    # 租戶對照只有這一份。tests/validate.sh 從這裡讀出允許的 tenant，不另外維護清單。
+    # 新增租戶：在「兜底」那兩條前面加一條，AccountID 不能跟別人重複。
     #
-    # 過濾依據是 group，不是 dept。原因：
-    #   - 一個 namespace 只有一個 dept，依 dept 分就不可能「兩個 tenant 都送」。
-    #   - 依 dept 分的話，部門清單要寫死在這裡，每次改組都要改這份、重啟 vmagent。
-    #     依 group 分的話，這份裡沒有部門清單，部門進出都不用動。
-    #
-    # regex 寫法：'(.*\.)?it(\..*)?' 表示「group 以點切開後，其中一段是 it」。
-    #   it       → 符合
-    #   it.imc   → 符合
-    #   imc      → 不符合
-    # 不要寫成 'it'：那只認單一值，it.imc 會被 IT 漏掉。
-    # 也不要寫成 '.*it.*'：那會把名字裡剛好含 it 的 group 也算進來。
-    # YAML 用單引號、一個反斜線。從雙引號的範例 "(.*\\.)?it" 複製過來時要把反斜線減半，
-    # 不然會變成比對字面上的反斜線，it.imc 又被 IT 漏掉，而且不會報錯。
-    #
-    # 允許寫哪些 group 也是從這裡推出來的：tests/validate.sh 讀這三條 remoteWrite，
-    # 允許 it、imc、it.imc（順序照這裡）和 fallback 的 platform。
-    #
-    # 只有新增 tenant（中央多發一把 token）時才要改這份：多加一條 remoteWrite，
-    # 並把名字加進兜底那條的 drop regex。
+    # 寫入走 multitenant 端點，vminsert 依每筆樣本的 vm_account_id 決定租戶。
+    # vmauth 只驗 token，不檢查 vm_account_id，所以租戶隔離靠的是下面這幾條的順序：
+    #   1. 先清掉進來的 vm_account_id / vm_project_id（app 自己吐的不算數）
+    #   2. 依 tenant 填 vm_account_id
+    #   3. 對不到的（打錯字、不在清單裡）tenant 和 vm_account_id 一起改成兜底
+    # 順序錯了不會報錯，資料只是安靜地進到錯的租戶。
+    inlineRelabelConfig:
+      - action: labeldrop
+        regex: vm_account_id|vm_project_id
+      - source_labels: [tenant]
+        regex: tsid
+        target_label: vm_account_id
+        replacement: "1001"
+      - source_labels: [tenant]
+        regex: bsid
+        target_label: vm_account_id
+        replacement: "1002"
+      - source_labels: [tenant]
+        regex: icsd
+        target_label: vm_account_id
+        replacement: "1003"
+      - source_labels: [tenant]
+        regex: imc
+        target_label: vm_account_id
+        replacement: "1004"
+      # 兜底：node-exporter、kube-state-metrics、平台元件、沒貼或貼錯 tenant 的 namespace。
+      # 這兩條要在最後，而且 tenant 那條要在前面（它看的是 vm_account_id 還是空的）。
+      - source_labels: [vm_account_id]
+        regex: "^$"
+        target_label: tenant
+        replacement: platform
+      - source_labels: [vm_account_id]
+        regex: "^$"
+        target_label: vm_account_id
+        replacement: "1000"
+
+    # ── 寫出：一條，一把這個 cluster 自己的 token ─────────────
+    # ⚠ url 的路徑是佔位：/insert/multitenant/prometheus/api/v1/write 是 vminsert 的標準路徑，
+    #   中央 vmauth 實際對外的路徑待 Infra 確認。
+    # token 每個 cluster 一把，出事時中央可以單獨撤銷。
     remoteWrite:
-      # IT
-      - url: https://vmauth.aillm.spil.com.tw/prometheus/api/v1/write
+      - url: https://vmauth.aillm.spil.com.tw/insert/multitenant/prometheus/api/v1/write
         tlsConfig:
           insecureSkipVerify: true
         bearerTokenSecret:
           name: vmauth-token
-          key: it
-        inlineUrlRelabelConfig:
-          - action: keep
-            source_labels: [tenant]
-            regex: '(.*\.)?it(\..*)?'
-          # 存進 tenant 的 group 一律改成那個 tenant 的名字。
-          # 共用的資料在 IT tenant 裡是 group=it、在 IMC tenant 裡是 group=imc。
-          - target_label: tenant
-            replacement: it
-
-      # IMC
-      - url: https://vmauth.aillm.spil.com.tw/prometheus/api/v1/write
-        tlsConfig:
-          insecureSkipVerify: true
-        bearerTokenSecret:
-          name: vmauth-token
-          key: imc
-        inlineUrlRelabelConfig:
-          - action: keep
-            source_labels: [tenant]
-            regex: '(.*\.)?imc(\..*)?'
-          - target_label: tenant
-            replacement: imc
-
-      # 兜底：node-exporter、kube-state-metrics、平台元件、還沒標 label 的 namespace。
-      # 這條不能省，省了那些節點層級的資料會整批消失。
-      # drop 的 regex 必須列出上面所有 tenant 的名字。
-      # 漏一個的話，那個 tenant 的資料會同時進兜底，而且不會有錯誤訊息。
-      - url: https://vmauth.aillm.spil.com.tw/prometheus/api/v1/write
-        tlsConfig:
-          insecureSkipVerify: true
-        bearerTokenSecret:
-          name: vmauth-token
-          key: platform
-        inlineUrlRelabelConfig:
-          - action: drop
-            source_labels: [tenant]
-            regex: '(.*\.)?(it|imc)(\..*)?'
-          - target_label: tenant
-            replacement: platform
-    # ──────────────────────────────────────────────────────
+          key: token
 
 kube-state-metrics:
   image:
@@ -184,7 +167,7 @@ kube-state-metrics:
     # 查詢時把 pod 對回服務與版本。
     - pods=[app.kubernetes.io/name,app.kubernetes.io/version,app.kubernetes.io/part-of,app.kubernetes.io/component]
     # 讓 kube_namespace_labels 帶出 namespace 上的歸屬，AIOps 可以用它把資料對回部門。
-    # 不影響分流。想知道哪些 namespace 掉進 fallback，查 kube_namespace_labels{label_group=""}。
+    # 不影響分流。想知道哪些 namespace 掉進 fallback，查 kube_namespace_labels{label_tenant=""}。
     - namespaces=[dept,tenant,system]
   # ──────────────────────────────────────────────────────
 
