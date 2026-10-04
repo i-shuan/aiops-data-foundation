@@ -4,7 +4,7 @@
 #   - values.yaml 的 argocd 區塊決定 project、namespace、要不要自動同步
 #   - values.yaml 的 observability 區塊照原值變成 namespace 的 label
 #
-# 這份只負責「轉換」，不判斷歸屬：沒有 dept → group 的對照表，
+# 這份只負責「轉換」，不判斷歸屬：沒有 dept → tenant 的對照表，
 # values.yaml 寫什麼就貼什麼。寫錯的值由 tests/validate.sh 在 CI 擋。
 #
 # 放到 devops repo 時是 applicationsets/devops/applicationset.yaml，
@@ -45,7 +45,7 @@ spec:
   # templatePatch 才能「沒寫就不產生」。寫在 template 裡的話，沒填的欄位會變成空字串的 label。
   templatePatch: |
     {{- $labels := dict }}
-    {{- range $key := list "dept" "group" "system" }}
+    {{- range $key := list "dept" "tenant" "system" }}
     {{- with dig "observability" $key "" $ }}{{ $_ := set $labels $key . }}{{ end }}
     {{- end }}
     spec:

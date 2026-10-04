@@ -7,7 +7,7 @@
 #
 #   1. values.yaml 合法：argocd 與 observability 必填欄位、production 不可自動同步、
 #      namespace 不能被兩個 app 共用、chart 渲染得出來
-#   2. group 只能是允許的值。允許什麼直接從 platform/vmstack-values.yaml 的 remoteWrite 讀，
+#   2. tenant 只能是允許的值（tsid / bsid / icsd / imc / platform），一個 namespace 一個。
 #      不另外維護清單。platform/vmagent-routing-overlay.yaml 的分流設定要跟它一模一樣
 #      （只有 url 可以不同），而且不能帶這兩段以外的設定
 #   3. platform/applicationset.yaml 的 templatePatch 渲染出來的 namespace label，
@@ -27,14 +27,14 @@ export PYTHONIOENCODING=utf-8
 cd "$(dirname "$0")/.."
 
 python - <<'PY'
-import copy, glob, io, itertools, os, re, subprocess, sys, tempfile
+import copy, glob, io, os, re, subprocess, sys, tempfile
 import yaml
 
 APPSET = "platform/applicationset.yaml"
 VMSTACK = "platform/vmstack-values.yaml"
 OVERLAY = "platform/vmagent-routing-overlay.yaml"
 ARGOCD_FIELDS = ["namespace", "project", "environment", "owner", "criticality", "autoSync"]
-OBS_FIELDS = ["dept", "group", "system"]
+OBS_FIELDS = ["dept", "tenant", "system"]
 LABEL_VALUE = re.compile(r"^([A-Za-z0-9]([-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?)?$")
 failed = 0
 
@@ -44,23 +44,8 @@ def load(path):
         return yaml.safe_load(f)
 
 
-def allowed_groups():
-    """從 vmstack-values.yaml 的 remoteWrite 推出允許的 group。"""
-    routed, fallback = [], None
-    for rw in load(VMSTACK)["vmagent"]["spec"]["remoteWrite"]:
-        name = rw["bearerTokenSecret"]["key"]
-        if rw["inlineUrlRelabelConfig"][0]["action"] == "drop":
-            fallback = name
-        else:
-            routed.append(name)
-    allowed = set(routed) | {fallback}
-    # 多個 tenant 用點串起來，順序照 remoteWrite 的順序（it.imc，不是 imc.it）
-    for n in range(2, len(routed) + 1):
-        allowed.update(".".join(c) for c in itertools.combinations(routed, n))
-    return allowed, routed
-
-
-ALLOWED, ROUTED = allowed_groups()
+# 允許的 tenant。第二批會改成從 platform/vmstack-values.yaml 的對照表讀，這份清單到時拿掉。
+ALLOWED = {"platform", "tsid", "bsid", "icsd", "imc"}
 
 
 def mode(doc, ns_template):
@@ -107,23 +92,19 @@ def check(app, doc, ns_template=False):
     o = doc.get("observability")
     if not isinstance(o, dict):
         return e + ["缺少 observability 區塊，這個 app 的 metrics 會全部進 fallback"]
-    extra = sorted(set(o) - set(OBS_FIELDS))
+    if "group" in o:
+        e.append("observability.group 已改名為 tenant（tsid / bsid / icsd / imc / platform），一個 namespace 只能有一個")
+    extra = sorted(set(o) - set(OBS_FIELDS) - {"group"})
     if extra:
         e.append("observability 有不認得的欄位：%s。打錯字的欄位會被默默忽略" % ", ".join(extra))
-    e += ["observability.%s 必填" % k for k in ("dept", "group") if not o.get(k)]
+    e += ["observability.%s 必填" % k for k in ("dept", "tenant") if not o.get(k)]
     for k in OBS_FIELDS:
         v = o.get(k)
         if v is not None and not (isinstance(v, str) and LABEL_VALUE.match(v)):
             e.append("observability.%s「%s」不是合法的 label 值" % (k, v))
-    g = o.get("group")
-    if isinstance(g, str) and g and g not in ALLOWED:
-        hint = ""
-        parts = g.split(".")
-        if set(parts) <= set(ROUTED) and len(parts) == len(set(parts)):
-            hint = "，順序要照 vmstack-values.yaml：寫成 %s" % ".".join(t for t in ROUTED if t in parts)
-        elif "platform" in parts:
-            hint = "。platform 是 fallback，不能跟別的 tenant 組合"
-        e.append("group「%s」不是允許的值（允許：%s）%s" % (g, ", ".join(sorted(ALLOWED)), hint))
+    t = o.get("tenant")
+    if isinstance(t, str) and t and t not in ALLOWED:
+        e.append("tenant「%s」不是允許的值（允許：%s）" % (t, ", ".join(sorted(ALLOWED))))
     return e
 
 
@@ -227,7 +208,7 @@ for app, doc in docs.items():
     report(not errs, app + ("（手動 Helm）" if modes[app] == "manual" else ""), errs)
 
 print("\n=== 2. platform/ 的分流設定 ===")
-print("  允許的 group（從 %s 推出）：%s" % (VMSTACK, ", ".join(sorted(ALLOWED))))
+print("  允許的 tenant：%s" % ", ".join(sorted(ALLOWED)))
 vmstack = load(VMSTACK)
 overlay = load(OVERLAY)
 errs = overlay_errors(overlay, vmstack)
@@ -248,7 +229,7 @@ mutants = [
      lambda s: s["remoteWrite"][0]["bearerTokenSecret"].update(key="imc")),
     ("少了兜底那條", True, lambda s: s["remoteWrite"].pop()),
     ("多帶 externalLabels: {}", True, lambda s: s.update(externalLabels={})),
-    ("scrapeClass 少了 group", True, lambda s: s["scrapeClasses"][0]["relabelConfigs"].pop(1)),
+    ("scrapeClass 少了 tenant", True, lambda s: s["scrapeClasses"][0]["relabelConfigs"].pop(1)),
     ("只把 url 換成別的 vmauth", False,
      lambda s: [rw.update(url="http://vmauth.example.svc:8427/prometheus/api/v1/write") for rw in s["remoteWrite"]]),
 ]
@@ -278,15 +259,15 @@ for app, doc in docs.items():
 print("\n=== 4. 自我檢查：這些寫法一定要被擋下 ===")
 base = {"argocd": {"namespace": "x-prod", "project": "p", "environment": "development",
                    "owner": "o", "criticality": "low", "autoSync": True},
-        "observability": {"dept": "D3120", "group": "it", "system": "mes"}}
+        "observability": {"dept": "D3120", "tenant": "icsd", "system": "mes"}}
 bad = [
-    ("group=imcc", ("observability", "group", "imcc")),
-    ("group=it.imcc", ("observability", "group", "it.imcc")),
-    ("group=it.platform", ("observability", "group", "it.platform")),
-    ("group=imc.it（順序反了）", ("observability", "group", "imc.it")),
-    ("沒有 group", ("observability", "group", None)),
+    ("tenant=imcc", ("observability", "tenant", "imcc")),
+    ("tenant=it（舊的值）", ("observability", "tenant", "it")),
+    ("tenant=it.imc（不再支援）", ("observability", "tenant", "it.imc")),
+    ("沒有 tenant", ("observability", "tenant", None)),
+    ("還在寫 group", ("observability", "group", "imc")),
     ("沒有 dept", ("observability", "dept", None)),
-    ("欄位打錯 grop", ("observability", "grop", "it")),
+    ("欄位打錯 tenent", ("observability", "tenent", "imc")),
     ("system 有空白", ("observability", "system", "MES System")),
     ("production 自動同步", ("argocd", "environment", "production")),
     ("沒有 observability", ("observability", None, None)),
@@ -308,7 +289,7 @@ who = [
     ("argocd 和 namespace.yaml 都有", True, base, True),
     ("argocd 和 namespace.yaml 都沒有", True, manual, False),
     ("手動 Helm 沒寫 namespace", True, {"observability": base["observability"]}, True),
-    ("手動 Helm，group=imcc", True, dict(manual, observability=dict(base["observability"], group="imcc")), True),
+    ("手動 Helm，tenant=imcc", True, dict(manual, observability=dict(base["observability"], tenant="imcc")), True),
     ("手動 Helm，寫對", False, manual, True),
 ]
 for name, should_fail, doc, ns_template in who:
@@ -318,10 +299,10 @@ for name, should_fail, doc, ns_template in who:
 
 print("\n=== 5. 自我檢查：渲染一定要照原值 ===")
 cases = [
-    ("group=it", {"dept": "D3120", "group": "it", "system": "mes"}),
-    ("group=imc", {"dept": "D1110", "group": "imc", "system": "wip"}),
-    ("group=it.imc", {"dept": "D3120", "group": "it.imc", "system": "mes"}),
-    ("沒寫 system", {"dept": "D3120", "group": "it"}),
+    ("tenant=icsd", {"dept": "D3120", "tenant": "icsd", "system": "mes"}),
+    ("tenant=imc", {"dept": "D1110", "tenant": "imc", "system": "wip"}),
+    ("tenant=platform", {"dept": "PLATFORM", "tenant": "platform", "system": "sim"}),
+    ("沒寫 system", {"dept": "D3120", "tenant": "icsd"}),
 ]
 for name, obs in cases:
     doc = dict(copy.deepcopy(base), observability=obs)

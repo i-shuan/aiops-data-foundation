@@ -1,16 +1,14 @@
 # 這次測試的設定來源。沒有 ArgoCD，namespace 和它的 label 由這個 chart 自己建立。
 #
-# 測其他 tenant 時只改 observability.group，再 helm upgrade 同一個 release：
-#   it      → 只進 IT
-#   imc     → 只進 IMC
-#   it.imc  → IT + IMC
-#   其他值或不寫 → 只進 platform
+# 測其他租戶時只改 observability.tenant，再 helm upgrade 同一個 release：
+#   tsid / bsid / icsd / imc → 寫進各自的 AccountID
+#   platform、其他值或不寫   → 寫進兜底的 platform
 
 namespace: eqp-collector-dev
 
 observability:               # 照原值貼到 Namespace label，不查表、不推導；沒寫的欄位不會產生 label
   dept: D1110
-  group: imc
+  tenant: imc
   system: eqp
 
 app:

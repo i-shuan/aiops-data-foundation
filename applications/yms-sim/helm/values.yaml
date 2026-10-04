@@ -9,10 +9,10 @@ argocd:
   autoSync: true
 
 # ── 這個 app 的 observability identity，唯一的來源 ──
-# 部署時照原值變成 namespace 的 label，vmagent 依 group 決定送去哪個 tenant。
+# 部署時照原值變成 namespace 的 label，vmagent 依 tenant 決定寫進哪個 AccountID。
 observability:
   dept: D1120                  # 必填：這份資料是誰的
-  group: imc                   # 必填：送到哪些 tenant。it / imc / it.imc / platform
+  tenant: imc                  # 必填：tsid / bsid / icsd / imc / platform
   system: yms                  # 選填：業務系統
 
 # ── 以下是一般的 Helm values ──

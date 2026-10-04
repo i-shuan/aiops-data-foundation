@@ -91,8 +91,8 @@ vmagent:
             target_label: dept
           # group：這份資料要送到哪些 tenant（誰看得到）。分流就是看這個。
           # 可以是單一值（it）也可以是多個，用點隔開（it.imc = 兩個都送）。
-          - source_labels: [__meta_kubernetes_namespace_label_group]
-            target_label: group
+          - source_labels: [__meta_kubernetes_namespace_label_tenant]
+            target_label: tenant
           # system 只是分析用的維度，不是分流依據，下面的 remoteWrite 不看它。
           # namespace 沒標的話這個值是空的，relabel 會直接不產生這個 label
           # （metrics 上是「沒有 system」，不是 unknown；log 那邊才填 unknown）。
@@ -134,11 +134,11 @@ vmagent:
           key: it
         inlineUrlRelabelConfig:
           - action: keep
-            source_labels: [group]
+            source_labels: [tenant]
             regex: '(.*\.)?it(\..*)?'
           # 存進 tenant 的 group 一律改成那個 tenant 的名字。
           # 共用的資料在 IT tenant 裡是 group=it、在 IMC tenant 裡是 group=imc。
-          - target_label: group
+          - target_label: tenant
             replacement: it
 
       # IMC
@@ -150,9 +150,9 @@ vmagent:
           key: imc
         inlineUrlRelabelConfig:
           - action: keep
-            source_labels: [group]
+            source_labels: [tenant]
             regex: '(.*\.)?imc(\..*)?'
-          - target_label: group
+          - target_label: tenant
             replacement: imc
 
       # 兜底：node-exporter、kube-state-metrics、平台元件、還沒標 label 的 namespace。
@@ -167,9 +167,9 @@ vmagent:
           key: platform
         inlineUrlRelabelConfig:
           - action: drop
-            source_labels: [group]
+            source_labels: [tenant]
             regex: '(.*\.)?(it|imc)(\..*)?'
-          - target_label: group
+          - target_label: tenant
             replacement: platform
     # ──────────────────────────────────────────────────────
 
@@ -185,7 +185,7 @@ kube-state-metrics:
     - pods=[app.kubernetes.io/name,app.kubernetes.io/version,app.kubernetes.io/part-of,app.kubernetes.io/component]
     # 讓 kube_namespace_labels 帶出 namespace 上的歸屬，AIOps 可以用它把資料對回部門。
     # 不影響分流。想知道哪些 namespace 掉進 fallback，查 kube_namespace_labels{label_group=""}。
-    - namespaces=[dept,group,system]
+    - namespaces=[dept,tenant,system]
   # ──────────────────────────────────────────────────────
 
 prometheus-node-exporter:

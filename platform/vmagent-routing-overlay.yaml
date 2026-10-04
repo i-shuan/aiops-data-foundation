@@ -26,8 +26,8 @@ vmagent:
         - __meta_kubernetes_namespace_label_dept
         target_label: dept
       - source_labels:
-        - __meta_kubernetes_namespace_label_group
-        target_label: group
+        - __meta_kubernetes_namespace_label_tenant
+        target_label: tenant
       - source_labels:
         - __meta_kubernetes_namespace_label_system
         target_label: system
@@ -41,9 +41,9 @@ vmagent:
       inlineUrlRelabelConfig:
       - action: keep
         source_labels:
-        - group
+        - tenant
         regex: (.*\.)?it(\..*)?
-      - target_label: group
+      - target_label: tenant
         replacement: it
     - url: https://vmauth.aillm.spil.com.tw/prometheus/api/v1/write
       tlsConfig:
@@ -54,9 +54,9 @@ vmagent:
       inlineUrlRelabelConfig:
       - action: keep
         source_labels:
-        - group
+        - tenant
         regex: (.*\.)?imc(\..*)?
-      - target_label: group
+      - target_label: tenant
         replacement: imc
     - url: https://vmauth.aillm.spil.com.tw/prometheus/api/v1/write
       tlsConfig:
@@ -67,7 +67,7 @@ vmagent:
       inlineUrlRelabelConfig:
       - action: drop
         source_labels:
-        - group
+        - tenant
         regex: (.*\.)?(it|imc)(\..*)?
-      - target_label: group
+      - target_label: tenant
         replacement: platform
