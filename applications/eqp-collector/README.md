@@ -611,10 +611,10 @@ image 是手動匯入 node 的，外面沒有地方可以拉。設 `Never` 的�
 | 模板 | `_*.tpl` 共用標準模板 | 精簡版，只有 4 個檔 |
 | vmagent / vmauth / tenant | 平台那一套 | **同一套**，不另外建 |
 
-⚠ **因為沒有 `argocd:` 區塊，平台的兩個檢查會把它當成錯誤**（已知、刻意保留）：
+沒有 `argocd:` 區塊的影響：
 
-- **`tests/validate.sh` 會失敗**。第 1 段顯示 `FAIL eqp-collector：缺少 argocd 區塊`，第 3 段直接中斷（`nil pointer evaluating interface {}.autoSync`），後面的自我檢查和最後的 PASS / FAIL 都不會跑到。**其他 app 的結果還是要看**，不能因為這支一定 FAIL 就不看。
-- **有 ArgoCD 的環境**：ApplicationSet 掃 `applications/*/helm/values.yaml` 會掃到這個 app，因為設了 `missingkey=error`，產生 Application 時會報錯。**不要把這個 repo 直接接到有 ArgoCD 的環境**，除非先補上 `argocd:` 區塊，或讓 ApplicationSet 排除這個路徑。
+- **`tests/validate.sh` 認得這種 app**。沒有 `argocd:`、有 `templates/namespace.yaml` 就當成手動 Helm，第 1 段標示「手動 Helm」：不查 `argocd` 欄位，`observability` 照查。第 3 段渲染這個 chart，確認它建的 Namespace 的 label 跟 `values.yaml` 一樣。
+- ⚠ **有 ArgoCD 的環境會把它當成錯誤**（已知、刻意保留）：ApplicationSet 掃 `applications/*/helm/values.yaml` 會掃到這個 app，因為設了 `missingkey=error`，產生 Application 時會報錯。**不要把這個 repo 直接接到有 ArgoCD 的環境**，除非先補上 `argocd:` 區塊，或讓 ApplicationSet 排除這個路徑。
 
 其他要注意的：
 

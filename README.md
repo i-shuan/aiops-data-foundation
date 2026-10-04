@@ -76,6 +76,8 @@ vmagent 不知道 values.yaml、app 名稱、namespace 名稱，也沒有部門�
 
 `services/<app>` 和 `applications/<app>` 要同名。ApplicationSet 看到新的 `helm/values.yaml` 就會自己長出一個 Application，不用改任何平台設定。
 
+不走 ArgoCD、人下 `helm` 部署的 app：`values.yaml` 不寫 `argocd`，改寫 `namespace`，chart 帶一個 `templates/namespace.yaml` 自己建 namespace 並貼 label，範本是 [`applications/eqp-collector`](applications/eqp-collector/README.md)。`argocd` 區塊和 `templates/namespace.yaml` 要剛好有一個，兩個都有或都沒有 `tests/validate.sh` 會擋下。
+
 ## 已經在跑的 vmstack 加上分流
 
 適用：cluster 已經用 Helm 裝好 victoria-metrics-k8s-stack（例如 AP1105 的 release `vmstack`），vmagent 目前只有一條 remoteWrite。要改成依 namespace 的 `group` 分三條，送到同一個 vmauth URL、各帶不同 token。
@@ -152,7 +154,7 @@ curl -s localhost:8429/metrics | grep -E '^vmagent_remotewrite_requests_total'  
 ./tests/routing/run.sh    # 本機 k3d E2E，真的經過 ArgoCD
 ```
 
-**validate.sh**：每個 values.yaml 的必填欄位、group 是否合法（允許的值從 `vmstack-values.yaml` 的 remoteWrite 推出，不另外維護清單）、`vmagent-routing-overlay.yaml` 的分流設定跟 `vmstack-values.yaml` 一致（url 除外）且不帶其他設定、namespace 不能被兩個 app 共用、chart 渲染得出來、namespace label 渲染結果跟 values.yaml 一致。內建的錯誤寫法（`imcc`、`it.imcc`、`it.platform`、欄位打錯…）一定要被擋下，否則腳本本身失敗。
+**validate.sh**：每個 values.yaml 的必填欄位、group 是否合法（允許的值從 `vmstack-values.yaml` 的 remoteWrite 推出，不另外維護清單）、`vmagent-routing-overlay.yaml` 的分流設定跟 `vmstack-values.yaml` 一致（url 除外）且不帶其他設定、namespace 不能被兩個 app 共用、chart 渲染得出來、namespace label 渲染結果跟 values.yaml 一致。內建的錯誤寫法（`imcc`、`it.imcc`、`it.platform`、欄位打錯…）一定要被擋下，否則腳本本身失敗。手動 Helm 的 app（沒有 `argocd` 區塊、有 `templates/namespace.yaml`）不查 `argocd` 欄位，`observability` 照查，namespace label 改成渲染 chart、取出它自己建的 Namespace 來比。
 
 **routing/run.sh**：五個情境（it、imc、it.imc、沒有 observability、不合法的 group）走完整條路。
 

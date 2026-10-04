@@ -12,6 +12,12 @@
 #      （只有 url 可以不同），而且不能帶這兩段以外的設定
 #   3. platform/applicationset.yaml 的 templatePatch 渲染出來的 namespace label，
 #      要跟 values.yaml 寫的一模一樣；沒寫的欄位不能變成空字串的 label
+#
+# app 有兩種，看 chart 自己的檔案分辨，不另外維護清單：
+#   - values.yaml 有 argocd 區塊：走 ArgoCD，照上面檢查
+#   - 沒有 argocd 區塊、有 templates/namespace.yaml：手動 Helm，label 是 chart 自己貼的。
+#     不查 argocd 欄位，observability 照查，第 3 項改成渲染 chart、取出 Namespace 的 label 來比
+#   - 兩個都有或都沒有：擋下
 #   4. 自我檢查：內建的錯誤寫法一定要被擋下，渲染一定要照原值，否則這支腳本本身就是壞的
 #
 # 渲染用的是 helm。helm 和 ArgoCD 都是 Go template + sprig，但這不是 ArgoCD 本身；
@@ -57,12 +63,36 @@ def allowed_groups():
 ALLOWED, ROUTED = allowed_groups()
 
 
-def check(app, doc):
-    """一份 values.yaml 的錯誤清單。"""
+def mode(doc, ns_template):
+    """namespace label 由誰貼：argocd、manual（chart 自己的 namespace.yaml），判不出來回 None。"""
+    if doc.get("argocd") is not None:
+        return None if ns_template else "argocd"
+    return "manual" if ns_template else None
+
+
+def declared_ns(doc, ns_template):
+    """這個 app 宣告的 namespace。"""
+    if mode(doc, ns_template) == "manual":
+        return doc.get("namespace")
+    a = doc.get("argocd")
+    return a.get("namespace") if isinstance(a, dict) else None
+
+
+def check(app, doc, ns_template=False):
+    """一份 values.yaml 的錯誤清單。ns_template：chart 有沒有 templates/namespace.yaml。"""
     e = []
     a = doc.get("argocd")
-    if not isinstance(a, dict):
-        e.append("缺少 argocd 區塊，ApplicationSet 產生不了 Application")
+    if a is not None and ns_template:
+        e.append("同時有 argocd 區塊和 templates/namespace.yaml，ArgoCD 和 chart 會搶同一個 namespace。"
+                 "走 ArgoCD 就刪掉 namespace.yaml，手動 Helm 就刪掉 argocd 區塊")
+    elif a is None and not ns_template:
+        e.append("沒有 argocd 區塊也沒有 templates/namespace.yaml，沒有人貼 namespace label。"
+                 "走 ArgoCD 就補 argocd 區塊，手動 Helm 就在 chart 加 templates/namespace.yaml")
+    elif a is None:
+        if not doc.get("namespace"):
+            e.append("namespace 必填（手動 Helm 的 namespace 由 chart 建立）")
+    elif not isinstance(a, dict):
+        e.append("argocd 要是一個區塊，ApplicationSet 產生不了 Application")
     else:
         e += ["argocd.%s 必填" % k for k in ARGOCD_FIELDS if k not in a]
         if "autoSync" in a and not isinstance(a["autoSync"], bool):
@@ -140,6 +170,24 @@ def render_labels(values, tmp):
     return doc["spec"]["syncPolicy"]["managedNamespaceMetadata"]["labels"] or {}
 
 
+def render_chart_labels(chart, tmp, obs=None):
+    """手動 Helm 的 app：渲染 chart，回傳它自己建的 Namespace 的 label。obs 用來換掉 observability。"""
+    cmd = ["helm", "template", "ci", chart]
+    if obs is not None:
+        vf = os.path.join(tmp, "obs.yaml")
+        with io.open(vf, "w", encoding="utf-8") as f:
+            # 沒給的欄位寫成 null，helm 才會把 chart 預設的值拿掉
+            yaml.safe_dump({"observability": {k: obs.get(k) for k in OBS_FIELDS}}, f, allow_unicode=True)
+        cmd += ["-f", vf]
+    out = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8")
+    if out.returncode:
+        raise RuntimeError(out.stderr.strip().splitlines()[-1])
+    nss = [d for d in yaml.safe_load_all(out.stdout) if d and d.get("kind") == "Namespace"]
+    if len(nss) != 1:
+        raise RuntimeError("chart 要剛好渲染出一個 Namespace，實際 %d 個" % len(nss))
+    return nss[0]["metadata"].get("labels") or {}
+
+
 def expected_labels(values):
     o = values.get("observability") or {}
     return {k: o[k] for k in OBS_FIELDS if o.get(k)}
@@ -159,14 +207,16 @@ apps = sorted(glob.glob("applications/*/helm/values.yaml"))
 docs = {p.replace("\\", "/").split("/")[1]: load(p) or {} for p in apps}
 
 print("=== 1. applications/*/helm/values.yaml ===")
+ns_tpl = {app: os.path.exists("applications/%s/helm/templates/namespace.yaml" % app) for app in docs}
+modes = {app: mode(doc, ns_tpl[app]) for app, doc in docs.items()}
 owners = {}
 for app, doc in docs.items():
-    ns = (doc.get("argocd") or {}).get("namespace")
+    ns = declared_ns(doc, ns_tpl[app])
     if ns:
         owners.setdefault(ns, []).append(app)
 for app, doc in docs.items():
-    errs = check(app, doc)
-    ns = (doc.get("argocd") or {}).get("namespace")
+    errs = check(app, doc, ns_tpl[app])
+    ns = declared_ns(doc, ns_tpl[app])
     if ns and len(owners[ns]) > 1:
         errs.append("namespace %s 也被 %s 宣告，兩個 Application 會輪流覆蓋對方的 label"
                     % (ns, ", ".join(a for a in owners[ns] if a != app)))
@@ -174,7 +224,7 @@ for app, doc in docs.items():
     r = subprocess.run(["helm", "template", "ci", chart], capture_output=True, text=True, encoding="utf-8")
     if r.returncode:
         errs.append("chart 渲染失敗：%s" % r.stderr.strip().splitlines()[-1])
-    report(not errs, app, errs)
+    report(not errs, app + ("（手動 Helm）" if modes[app] == "manual" else ""), errs)
 
 print("\n=== 2. platform/ 的分流設定 ===")
 print("  允許的 group（從 %s 推出）：%s" % (VMSTACK, ", ".join(sorted(ALLOWED))))
@@ -209,7 +259,19 @@ for name, should_fail, fn in mutants:
 
 print("\n=== 3. values.yaml → namespace label ===")
 for app, doc in docs.items():
-    want, got = expected_labels(doc), render_labels(doc, tmp)
+    if modes[app] is None:
+        print("  --    %-14s 判不出誰貼 label（見第 1 段），不渲染" % app)
+        continue
+    want = expected_labels(doc)
+    if modes[app] == "manual":
+        # 手動 Helm：label 是 chart 自己的 namespace.yaml 貼的，不經 ApplicationSet
+        try:
+            got = render_chart_labels("applications/%s/helm" % app, tmp)
+        except RuntimeError as err:
+            report(False, app, [str(err)])
+            continue
+    else:
+        got = render_labels(doc, tmp)
     report(got == want, "%-14s %s" % (app, " ".join("%s=%s" % kv for kv in sorted(got.items()))),
            [] if got == want else ["預期 %s" % want])
 
@@ -240,6 +302,20 @@ for name, (block, key, value) in bad:
     errs = check("x", doc)
     report(bool(errs), "%-26s → %s" % (name, errs[0] if errs else "沒有被擋下"))
 
+# 誰貼 namespace label：argocd 區塊和 templates/namespace.yaml 要剛好有一個
+manual = {"namespace": "x-dev", "observability": base["observability"]}
+who = [
+    ("argocd 和 namespace.yaml 都有", True, base, True),
+    ("argocd 和 namespace.yaml 都沒有", True, manual, False),
+    ("手動 Helm 沒寫 namespace", True, {"observability": base["observability"]}, True),
+    ("手動 Helm，group=imcc", True, dict(manual, observability=dict(base["observability"], group="imcc")), True),
+    ("手動 Helm，寫對", False, manual, True),
+]
+for name, should_fail, doc, ns_template in who:
+    errs = check("x", doc, ns_template)
+    report(bool(errs) == should_fail,
+           "%-26s → %s" % (name, errs[0] if errs else ("放行" if not should_fail else "沒有被擋下")))
+
 print("\n=== 5. 自我檢查：渲染一定要照原值 ===")
 cases = [
     ("group=it", {"dept": "D3120", "group": "it", "system": "mes"}),
@@ -253,6 +329,20 @@ for name, obs in cases:
     empty = [k for k, v in got.items() if v == ""]
     ok = got == obs and not empty
     report(ok, "%-14s %s" % (name, " ".join("%s=%s" % kv for kv in sorted(got.items()))),
+           [] if ok else ["預期 %s" % obs])
+
+# 手動 Helm 那條路也要照原值：拿第一個手動 app 的 chart，換 observability 渲染
+manual_apps = [app for app in docs if modes[app] == "manual"]
+if not manual_apps:
+    print("  --    沒有手動 Helm 的 app，略過 chart 的渲染檢查")
+for name, obs in cases if manual_apps else []:
+    try:
+        got = render_chart_labels("applications/%s/helm" % manual_apps[0], tmp, obs)
+    except RuntimeError as err:
+        report(False, "手動 Helm %-14s" % name, [str(err)])
+        continue
+    ok = got == obs and not [k for k, v in got.items() if v == ""]
+    report(ok, "手動 Helm %-14s %s" % (name, " ".join("%s=%s" % kv for kv in sorted(got.items()))),
            [] if ok else ["預期 %s" % obs])
 
 print("\n" + ("PASS" if not failed else "FAIL（%d 項）" % failed))
