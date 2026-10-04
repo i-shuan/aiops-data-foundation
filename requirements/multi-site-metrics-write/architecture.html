@@ -465,7 +465,7 @@ section { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
 .modes button.danger[aria-pressed="true"] { border-color: var(--bad); box-shadow: inset 0 0 0 1px var(--bad); color: var(--bad); }
 button:focus-visible { outline: 2px solid var(--tsid); outline-offset: 2px; }
 .banner { font-size: 14px; color: var(--muted); border-left: 3px solid var(--ok); padding: 2px 12px; max-width: 46em; }
-.canvas { height: 540px; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.canvas { height: 800px; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
 .canvas.short { height: 380px; }
 .explain { min-height: 3.5em; font-size: 15px; }
 .explain strong { display: block; }
@@ -494,6 +494,8 @@ button:focus-visible { outline: 2px solid var(--tsid); outline-offset: 2px; }
 .n-step.off { text-decoration: line-through; color: var(--bad); }
 .n-step.off .n-sub { color: var(--bad); }
 .n-alert { color: var(--bad); font-size: 12px; font-weight: 500; }
+.n-wait { color: var(--warn); font-size: 12px; font-weight: 500; }
+.react-flow__node.nohandle { cursor: pointer; }
 @media (prefers-reduced-motion: reduce) { .react-flow__edge.animated path { animation: none; } }
 
 .points { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px 32px; margin: 0; padding: 0; list-style: none; }
@@ -578,7 +580,7 @@ footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line)
     <thead><tr><th>項目</th><th>內容</th><th>狀態</th></tr></thead>
     <tbody>
       <tr><td>檢查工具</td><td>設定檔寫錯在送出前就擋下，不需要 cluster</td><td><span class="pill done">完成</span></td></tr>
-      <tr><td>依部門分租戶</td><td>第一張流程圖的整條路，含防冒充與實測</td><td><span class="pill done">完成，本機驗證</span></td></tr>
+      <tr><td>依部門分租戶</td><td>流程圖從左到右的整條路，含防冒充與實測</td><td><span class="pill done">完成，本機驗證</span></td></tr>
       <tr><td>兩廠雙寫</td><td>廠區標記、同時寫兩站、斷線暫存與補送</td><td><span class="pill done">完成，本機驗證</span></td></tr>
       <tr><td>AP1105 換上新設定</td><td>在已經運作的環境套用，舊資料留在原處</td><td><span class="pill next">下一個</span></td></tr>
     </tbody>
@@ -616,171 +618,168 @@ footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line)
   var h = React.createElement, RF = window.ReactFlow;
   var V = function (name) { return 'var(--' + name + ')'; };
 
-  // ---------- 現況（已實測） ----------
-  var SOURCES = [
-    { id: 'tsid',  title: 'TSID 的系統', sub: '門牌 tenant: tsid', color: 'tsid', dest: '1001', y: 46 },
-    { id: 'bsid',  title: 'BSID 的系統', sub: '門牌 tenant: bsid', color: 'bsid', dest: '1002', y: 108 },
-    { id: 'icsd',  title: 'ICSD 的系統（例：MES 派工）', sub: '門牌 tenant: icsd', color: 'icsd', dest: '1003', y: 170 },
-    { id: 'imc',   title: 'IMC 的系統（例：機台收值）', sub: '門牌 tenant: imc', color: 'imc', dest: '1004', y: 232 },
-    { id: 'none',  title: '平台元件、沒掛門牌的', sub: '沒寫 tenant，或寫錯字', color: 'plat', dest: '1000', y: 304 },
-    { id: 'spoof', title: '沒掛門牌，卻自稱 tsid', sub: '程式自己在資料上寫部門代號', color: 'plat', dest: '1000', y: 366, dashed: true }
+  var CLUSTERS = [
+    { id: 'a', home: 's1', y: 0, height: 430, agentY: 0, bufferY: 318, full: true,
+      label: '中科的一個 K8s cluster（多個部門混住）',
+      sources: [
+        { id: 'tsid',  title: 'TSID 的系統', sub: '門牌 tenant: tsid', color: 'tsid', dest: '1001', y: 46 },
+        { id: 'bsid',  title: 'BSID 的系統', sub: '門牌 tenant: bsid', color: 'bsid', dest: '1002', y: 108 },
+        { id: 'icsd',  title: 'ICSD 的系統（例：MES 派工）', sub: '門牌 tenant: icsd', color: 'icsd', dest: '1003', y: 170 },
+        { id: 'imc',   title: 'IMC 的系統（例：機台收值）', sub: '門牌 tenant: imc', color: 'imc', dest: '1004', y: 232 },
+        { id: 'none',  title: '平台元件、沒掛門牌的', sub: '沒寫 tenant，或寫錯字', color: 'plat', dest: '1000', y: 304 },
+        { id: 'spoof', title: '沒掛門牌，卻自稱 tsid', sub: '程式自己在資料上寫部門代號', color: 'plat', dest: '1000', y: 366, dashed: true }
+      ] },
+    { id: 'b', home: 's2', y: 470, height: 262, agentY: 492, bufferY: 612, full: false,
+      label: '二林的一個 K8s cluster（設定相同，本機沒有另外起一套）',
+      sources: [
+        { id: 'b-imc',  title: 'IMC 的系統', sub: '門牌 tenant: imc', color: 'imc', dest: '1004', y: 64 },
+        { id: 'b-bsid', title: 'BSID 的系統', sub: '門牌 tenant: bsid', color: 'bsid', dest: '1002', y: 126 },
+        { id: 'b-none', title: '平台元件、沒掛門牌的', sub: '沒寫 tenant，或寫錯字', color: 'plat', dest: '1000', y: 198 }
+      ] }
   ];
   var TENANTS = [
-    { id: '1001', name: 'TSID', color: 'tsid', y: 46 },
-    { id: '1002', name: 'BSID', color: 'bsid', y: 108 },
-    { id: '1003', name: 'ICSD', color: 'icsd', y: 170 },
-    { id: '1004', name: 'IMC', color: 'imc', y: 232 },
-    { id: '1000', name: '平台', color: 'plat', y: 320, sub: '沒掛門牌、寫錯、冒充的' }
+    { id: '1001', name: 'TSID', color: 'tsid' },
+    { id: '1002', name: 'BSID', color: 'bsid' },
+    { id: '1003', name: 'ICSD', color: 'icsd' },
+    { id: '1004', name: 'IMC', color: 'imc' },
+    { id: '1000', name: '平台', color: 'plat' }
   ];
-  var NOW_MODES = [
-    { id: 'all',    label: '全部', text: '每個系統的資料，最後只會出現在同色的租戶。' },
-    { id: 'icsd',   label: 'ICSD 的系統', text: 'namespace 掛著 icsd 的門牌，vmagent 把它換成租戶編號 1003，資料只進 ICSD 的租戶。' },
-    { id: 'none',   label: '沒掛門牌', text: '沒寫或寫錯部門代號的，一律算平台，進 1000。不會消失，也不會混進任何部門。' },
+  var STATIONS = [
+    { id: 's1', name: '中科站', y: 60 },
+    { id: 's2', name: '二林站', y: 420 }
+  ];
+  var NAME = { s1: '中科站', s2: '二林站' };
+  var MODES = [
+    { id: 'all',    label: '平常', text: '每個系統的資料只會出現在同色的租戶。兩個廠區的 cluster 都把同一份資料同時寫到中科站和二林站。' },
+    { id: 'icsd',   label: 'ICSD 的系統', text: 'namespace 掛著 icsd 的門牌，vmagent 把它換成租戶編號 1003。兩站的 1003 都收到，其他租戶看不到。' },
+    { id: 'none',   label: '沒掛門牌', text: '沒寫或寫錯部門代號的，一律算平台，進兩站的 1000。不會消失，也不會混進任何部門。' },
     { id: 'spoof',  label: '冒充 tsid', text: '這個程式自己在資料上寫「我是 tsid」。vmagent 只認 namespace 的門牌，程式自稱的不算，資料留在平台。' },
-    { id: 'broken', label: '如果把防線拿掉', danger: true, text: '測試時故意拿掉第 ② 步，冒充的資料就真的跑進 TSID 的租戶。正式的設定有這一步，而且檢查工具會擋下拿掉它的修改。' }
+    { id: 'broken', label: '如果把防線拿掉', danger: true, text: '測試時故意拿掉第 ② 步，冒充的資料就真的跑進兩站的 TSID 租戶。正式的設定有這一步，而且檢查工具會擋下拿掉它的修改。' },
+    { id: 'down1',  label: '中科站停機', danger: true, text: '兩個 cluster 往中科站的資料都送不到，各自先排在本機的磁碟；往二林站的照常。實測（中科的 cluster）：停機 116 秒、中間還重啟了 vmagent，恢復後中科站補回 30 筆，跟二林站的 30 筆一樣。' },
+    { id: 'split',  label: '跨廠網路中斷', danger: true, text: '跨廠的兩條線都斷：中科的 cluster 送不到二林站，二林的 cluster 送不到中科站，各自先排在本機磁碟，恢復後補送；同廠的照常，兩站都還在收資料。這個情境沒有另外實測：對 vmagent 來說跟「那一站送不到」是同一件事。' }
   ];
-  var NOW_DETAIL = {
-    vmagent: ['vmagent', '平台的收集程式，每個 cluster 一套。各部門的系統自己不往外送資料，全部由它定時去抓，再統一送到中央。'],
-    vmauth: ['vmauth', '中央的門口，兩站各有一個、各認各的通行證。只確認這批資料是哪個 cluster 送來的，不檢查資料上的租戶編號，所以部門隔離靠的是 vmagent 那幾步。'],
-    '1000': ['平台租戶（1000）', '節點、系統元件，以及沒掛門牌或寫錯的 namespace 都進這裡。平台團隊看這個租戶就能掌握各 cluster 的基礎狀況。']
+  var DETAIL = {
+    'vmagent-a': ['中科的 vmagent', '平台的收集程式，每個 cluster 一套。各部門的系統自己不往外送資料，全部由它定時去抓，處理完再同時送到兩站。實測用的就是這一套。'],
+    'vmagent-b': ['二林的 vmagent', '設定跟中科的完全一樣，只差廠區標記。兩個 cluster 互相不知道對方的存在。本機沒有另外起一套來測。'],
+    'buffer-a': ['磁碟暫存', '送不到的資料排在這裡，每一站各排各的隊，一站停機不影響另一站。放在磁碟上，vmagent 重啟也不會消失。每一站上限 20 GiB，超過時最舊的會被丟掉。'],
+    'buffer-b': ['磁碟暫存', '每個 cluster 的 vmagent 都有自己的一顆。送不到的資料排在這裡，恢復後補送。'],
+    's1-vmauth': ['中科站的 vmauth', '這一站的門口，只認它自己發的通行證。只確認資料是哪個 cluster 送來的，不檢查資料上的租戶編號，所以部門隔離靠的是 vmagent 那幾步。'],
+    's2-vmauth': ['二林站的 vmauth', '這一站的門口，只認它自己發的通行證。只確認資料是哪個 cluster 送來的，不檢查資料上的租戶編號，所以部門隔離靠的是 vmagent 那幾步。'],
+    's1-1000': ['平台租戶（1000）', '節點、系統元件，以及沒掛門牌或寫錯的 namespace 都進這裡。'],
+    's2-1000': ['平台租戶（1000）', '節點、系統元件，以及沒掛門牌或寫錯的 namespace 都進這裡。']
   };
 
-  function nowGraph(mode) {
+  function graph(mode) {
     var broken = mode === 'broken';
-    var focus = mode === 'all' ? null : (broken ? 'spoof' : mode);
-    var nodes = [
-      { id: 'g-cluster', type: 'group', position: { x: 0, y: 0 }, style: { width: 250, height: 430 }, data: {}, selectable: false },
-      { id: 'l-cluster', className: 'glabel', parentNode: 'g-cluster', position: { x: 14, y: 12 }, style: { width: 228 }, data: { label: 'K8s cluster（多個部門混住）' }, selectable: false },
-      { id: 'g-vm', type: 'group', position: { x: 980, y: 0 }, style: { width: 220, height: 430 }, data: {}, selectable: false },
-      { id: 'l-vm', className: 'glabel', parentNode: 'g-vm', position: { x: 16, y: 12 }, style: { width: 190 }, data: { label: 'VictoriaMetrics（兩站各存一份）' }, selectable: false }
-    ];
-    SOURCES.forEach(function (s) {
-      var on = !focus || focus === s.id;
-      nodes.push({
-        id: 'ns-' + s.id, type: 'input', parentNode: 'g-cluster', extent: 'parent', sourcePosition: 'right',
-        position: { x: 14, y: s.y },
-        style: { width: 222, borderColor: V(s.color), borderStyle: s.dashed ? 'dashed' : 'solid', opacity: on ? 1 : .3 },
-        data: { label: h('div', null, h('div', { className: 'n-title' }, s.title), h('div', { className: 'n-sub' }, s.sub)) }
-      });
-    });
-    nodes.push({
-      id: 'vmagent', position: { x: 330, y: 36 }, sourcePosition: 'right', targetPosition: 'left', style: { width: 230 },
-      data: { label: h('div', null,
-        h('div', { className: 'n-title' }, 'vmagent'),
-        h('div', { className: 'n-sub' }, '平台的收集程式，每個 cluster 一套'),
-        h('div', { className: 'n-step' }, h('div', { className: 'n-title' }, '① 抓資料時'), h('div', { className: 'n-sub' }, '把 namespace 的門牌貼到每筆資料上')),
-        h('div', { className: 'n-step' + (broken ? ' off' : '') }, h('div', { className: 'n-title' }, '② 送出前'), h('div', { className: 'n-sub' }, '丟掉程式自己寫的部門代號與租戶編號')),
-        h('div', { className: 'n-step' }, h('div', { className: 'n-title' }, '③ 照對照表'), h('div', { className: 'n-sub' }, '把門牌換成租戶編號，對不到的算平台')),
-        h('div', { className: 'n-step' }, h('div', { className: 'n-title' }, '④ 補上廠區'), h('div', { className: 'n-sub' }, '每筆資料標明來自中科或二林'))
-      ) }
-    });
-    nodes.push({
-      id: 'vmauth', position: { x: 740, y: 176 }, sourcePosition: 'right', targetPosition: 'left', style: { width: 130 },
-      data: { label: h('div', null, h('div', { className: 'n-title' }, 'vmauth'), h('div', { className: 'n-sub' }, '檢查通行證：是哪個 cluster')) }
-    });
+    var outage = mode === 'down1' || mode === 'split';
+    var focus = (mode === 'all' || outage) ? null : (broken ? 'spoof' : mode);
     var destOf = function (s) { return broken && s.id === 'spoof' ? '1001' : s.dest; };
-    var hot = {};
-    SOURCES.forEach(function (s) { if (!focus || focus === s.id) hot[destOf(s)] = true; });
-    TENANTS.forEach(function (t) {
-      var hit = broken && t.id === '1001';
+    var strokeOf = function (s) { return broken && s.id === 'spoof' ? V('bad') : V(s.color); };
+    // 這條線（某個 cluster → 某一站）現在送不送得到
+    var cut = function (c, st) { return mode === 'down1' ? st.id === 's1' : (mode === 'split' && st.id !== c.home); };
+    var cutColor = mode === 'down1' ? V('bad') : V('warn');
+
+    var nodes = [], edges = [], active = [];
+    CLUSTERS.forEach(function (c) {
+      var dimCluster = !!focus && !c.full;
+      nodes.push({ id: 'g-' + c.id, type: 'group', position: { x: 0, y: c.y }, style: { width: 250, height: c.height }, data: {}, selectable: false });
+      nodes.push({ id: 'l-' + c.id, className: 'glabel', parentNode: 'g-' + c.id, position: { x: 14, y: 12 }, style: { width: 226 },
+        data: { label: c.label }, selectable: false });
+      c.sources.forEach(function (s) {
+        var on = !focus || focus === s.id;
+        if (on) active.push(s);
+        nodes.push({
+          id: 'ns-' + s.id, type: 'input', parentNode: 'g-' + c.id, extent: 'parent', sourcePosition: 'right',
+          position: { x: 14, y: s.y },
+          style: { width: 222, borderColor: V(s.color), borderStyle: s.dashed ? 'dashed' : 'solid', opacity: on ? 1 : .3 },
+          data: { label: h('div', null, h('div', { className: 'n-title' }, s.title), h('div', { className: 'n-sub' }, s.sub)) }
+        });
+        edges.push({ id: 's-' + s.id, source: 'ns-' + s.id, target: 'vmagent-' + c.id, animated: on,
+          style: { stroke: strokeOf(s), strokeWidth: 2.5, opacity: on ? 1 : .15 } });
+      });
       nodes.push({
-        id: t.id, type: 'output', parentNode: 'g-vm', extent: 'parent', targetPosition: 'left',
-        position: { x: 16, y: t.y },
-        style: { width: 188, borderColor: hit ? V('bad') : V(t.color), borderWidth: hit ? 2.5 : 1.5, opacity: hot[t.id] ? 1 : .3 },
+        id: 'vmagent-' + c.id, position: { x: 330, y: c.agentY }, sourcePosition: 'right', targetPosition: 'left',
+        style: { width: 230, opacity: dimCluster ? .3 : 1 },
+        data: { label: c.full ? h('div', null,
+          h('div', { className: 'n-title' }, 'vmagent'),
+          h('div', { className: 'n-sub' }, '平台的收集程式，每個 cluster 一套'),
+          h('div', { className: 'n-step' }, h('div', { className: 'n-title' }, '① 抓資料時'), h('div', { className: 'n-sub' }, '把 namespace 的門牌貼到每筆資料上')),
+          h('div', { className: 'n-step' + (broken ? ' off' : '') }, h('div', { className: 'n-title' }, '② 送出前'), h('div', { className: 'n-sub' }, '丟掉程式自己寫的部門代號與租戶編號')),
+          h('div', { className: 'n-step' }, h('div', { className: 'n-title' }, '③ 照對照表'), h('div', { className: 'n-sub' }, '把門牌換成租戶編號，對不到的算平台')),
+          h('div', { className: 'n-step' }, h('div', { className: 'n-title' }, '④ 補上廠區'), h('div', { className: 'n-sub' }, '每筆資料標明來自中科'))
+        ) : h('div', null,
+          h('div', { className: 'n-title' }, 'vmagent'),
+          h('div', { className: 'n-sub' }, '同樣的四個步驟'),
+          h('div', { className: 'n-sub' }, '每筆資料標明來自二林')) }
+      });
+      var waiting = STATIONS.filter(function (st) { return cut(c, st); }).map(function (st) { return st.name; });
+      nodes.push({
+        id: 'buffer-' + c.id, className: 'nohandle', position: { x: 330, y: c.bufferY },
+        style: { width: 230, borderStyle: 'dashed', borderColor: waiting.length ? V('warn') : V('line'),
+          borderWidth: waiting.length ? 2.5 : 1.5, opacity: waiting.length ? 1 : (dimCluster ? .3 : .55) },
         data: { label: h('div', null,
-          h('div', null, h('span', { className: 'n-num' }, t.id), h('span', { className: 'n-title' }, t.name)),
-          t.sub ? h('div', { className: 'n-sub' }, t.sub) : null,
-          hit ? h('div', { className: 'n-alert' }, '混進了冒充的資料') : null) }
+          h('div', { className: 'n-title' }, '磁碟暫存'),
+          h('div', { className: 'n-sub' }, waiting.length ? '往' + waiting.join('、') + '的資料排在這裡，恢復後補送' : '平常是空的。送不到時先排在這裡'),
+          waiting.length ? h('div', { className: 'n-wait' }, '排隊中') : null) }
+      });
+      STATIONS.forEach(function (st) {
+        var isCut = cut(c, st);
+        edges.push({ id: 'trunk-' + c.id + '-' + st.id, source: 'vmagent-' + c.id, target: st.id + '-vmauth', animated: !isCut && !dimCluster,
+          // 只標中科那兩條：兩個 cluster 的線在中間交叉，都標的話字會疊在一起
+          label: c.full ? (isCut ? '送不到，先存磁碟' : '送' + st.name) : undefined,
+          style: { stroke: isCut ? cutColor : V('fg'), strokeWidth: 2.5, strokeDasharray: isCut ? '3 7' : undefined, opacity: dimCluster ? .15 : 1 } });
       });
     });
 
-    var edges = [], seen = {};
-    SOURCES.forEach(function (s) {
-      var on = !focus || focus === s.id;
-      var stroke = broken && s.id === 'spoof' ? V('bad') : V(s.color);
-      edges.push({ id: 's-' + s.id, source: 'ns-' + s.id, target: 'vmagent', animated: on,
-        style: { stroke: stroke, strokeWidth: 2.5, opacity: on ? 1 : .15 } });
-      var key = destOf(s) + stroke;
-      if (!focus && seen[key]) return;
-      seen[key] = true;
-      edges.push({ id: 'd-' + s.id, source: 'vmauth', target: destOf(s), animated: on,
-        style: { stroke: stroke, strokeWidth: 2.5, opacity: on ? 1 : .15 } });
+    var hot = {};
+    active.forEach(function (s) { hot[destOf(s)] = true; });
+    STATIONS.forEach(function (st) {
+      var down = mode === 'down1' && st.id === 's1';
+      nodes.push({ id: 'g-' + st.id, type: 'group', position: { x: 760, y: st.y },
+        style: { width: 400, height: 270, borderColor: down ? V('bad') : V('line'), borderWidth: down ? 2.5 : 1.5 },
+        data: {}, selectable: false });
+      nodes.push({ id: 'l-' + st.id, className: 'glabel', parentNode: 'g-' + st.id, position: { x: 14, y: 10 }, style: { width: 300 },
+        data: { label: st.name + (down ? '（停機中）' : '') }, selectable: false });
+      nodes.push({ id: st.id + '-vmauth', parentNode: 'g-' + st.id, extent: 'parent', position: { x: 16, y: 108 },
+        sourcePosition: 'right', targetPosition: 'left', style: { width: 140, opacity: down ? .35 : 1 },
+        data: { label: h('div', null, h('div', { className: 'n-title' }, 'vmauth'), h('div', { className: 'n-sub' }, '檢查通行證')) } });
+      TENANTS.forEach(function (t, i) {
+        var hit = broken && t.id === '1001';
+        nodes.push({ id: st.id + '-' + t.id, type: 'output', parentNode: 'g-' + st.id, extent: 'parent', targetPosition: 'left',
+          position: { x: 222, y: 40 + i * 44 },
+          style: { width: 162, padding: '5px 10px', borderColor: hit ? V('bad') : V(t.color), borderWidth: hit ? 2.5 : 1.5,
+            opacity: down ? .3 : (hot[t.id] ? 1 : .3) },
+          data: { label: h('div', null, h('span', { className: 'n-num' }, t.id), h('span', { className: 'n-title' }, t.name),
+            hit ? h('span', { className: 'n-alert' }, ' 被冒充') : null) } });
+      });
+      var seen = {};
+      active.forEach(function (s) {
+        var key = destOf(s) + strokeOf(s);
+        if (seen[key]) return;
+        seen[key] = true;
+        edges.push({ id: st.id + '-d-' + s.id, source: st.id + '-vmauth', target: st.id + '-' + destOf(s), animated: !down,
+          style: { stroke: strokeOf(s), strokeWidth: 2, opacity: down ? .12 : 1 } });
+      });
     });
-    edges.push({ id: 'trunk', source: 'vmagent', target: 'vmauth', animated: true, label: '同一份送兩站，各帶通行證',
-      style: { stroke: V('fg'), strokeWidth: 2.5 }, markerEnd: { type: 'arrowclosed' } });
     return { nodes: nodes, edges: edges };
   }
 
-  // ---------- 下一步（規劃中） ----------
-  var PLAN_MODES = [
-    { id: 'normal', label: '平常', text: '每個 cluster 的 vmagent 把同一份資料同時寫到中科站和二林站。實測：七種情況在兩站的結果完全一樣。' },
-    { id: 'site1',  label: '中科站停機', danger: true, text: '往中科站的資料送不到，先存在 cluster 本機的磁碟，恢復後補送；往二林站的照常。實測：停機 116 秒、中間還重啟了 vmagent，恢復後中科站補回 30 筆，跟二林站的 30 筆一樣。' },
-    { id: 'split',  label: '跨廠網路中斷', danger: true, text: '跨廠的兩條線都斷，各自先存本機，同廠的照常。這個情境沒有另外實測：對 vmagent 來說跟「那一座送不到」是同一件事，由上一個情境涵蓋。' }
-  ];
-  var PLAN_DETAIL = {
-    'a-ctsp': ['中科的 cluster', '實測用的就是這一套。送不到的資料存在它自己的磁碟上，每個目的地各排各的隊，上限 20 GiB。'],
-    'a-erlin': ['二林的 cluster', '設定跟中科的一樣，只差廠區標記。本機沒有另外起一套來測。'],
-    'v-ctsp': ['中科站', '兩站存的是同一份資料。任一站停機時另一站仍然完整。'],
-    'v-erlin': ['二林站', '兩站存的是同一份資料。任一站停機時另一站仍然完整。']
-  };
-  function planGraph(mode) {
-    var box = function (id, x, y, title, sub, type, down) {
-      return { id: id, type: type, position: { x: x, y: y }, sourcePosition: 'right', targetPosition: 'left',
-        style: { width: 220, borderColor: down ? V('bad') : V('fg'), borderWidth: down ? 2.5 : 1.5 },
-        data: { label: h('div', null, h('div', { className: 'n-title' }, title), h('div', { className: 'n-sub' }, sub),
-          down ? h('div', { className: 'n-alert' }, '停機中') : null) } };
-    };
-    var nodes = [
-      box('a-ctsp', 0, 20, '中科的 cluster', 'vmagent', 'input'),
-      box('a-erlin', 0, 220, '二林的 cluster', 'vmagent', 'input'),
-      box('v-ctsp', 520, 20, '中科站', 'VictoriaMetrics', 'output', mode === 'site1'),
-      box('v-erlin', 520, 220, '二林站', 'VictoriaMetrics', 'output')
-    ];
-    var link = function (from, to, cross) {
-      var broken = (mode === 'site1' && to === 'v-ctsp') || (mode === 'split' && cross);
-      var color = !broken ? V('ok') : (mode === 'site1' ? V('bad') : V('warn'));
-      return { id: from + to, source: from, target: to, animated: !broken,
-        label: broken ? '送不到，先存本機' : '寫入',
-        style: { stroke: color, strokeWidth: 2.5, strokeDasharray: broken ? '3 7' : undefined } };
-    };
-    return { nodes: nodes, edges: [
-      link('a-ctsp', 'v-ctsp', false), link('a-ctsp', 'v-erlin', true),
-      link('a-erlin', 'v-ctsp', true), link('a-erlin', 'v-erlin', false)
-    ] };
-  }
-
-  function Modes(props) {
-    return h('div', { className: props.className, role: 'group', 'aria-label': props.label },
-      props.items.map(function (m) {
-        return h('button', { key: m.id, id: props.prefix + m.id, type: 'button', className: m.danger ? 'danger' : '',
-          'aria-pressed': props.value === m.id, onClick: function () { props.onChange(m.id); } }, m.label);
-      }));
-  }
-
   function App() {
-    var s1 = React.useState('now'), view = s1[0], setView = s1[1];
-    var s2 = React.useState('all'), nowMode = s2[0], setNowMode = s2[1];
-    var s3 = React.useState('normal'), planMode = s3[0], setPlanMode = s3[1];
-    var s4 = React.useState(null), picked = s4[0], setPicked = s4[1];
-    var isNow = view === 'now';
-    var modes = isNow ? NOW_MODES : PLAN_MODES;
-    var mode = isNow ? nowMode : planMode;
-    var graph = React.useMemo(function () { return isNow ? nowGraph(nowMode) : planGraph(planMode); }, [view, nowMode, planMode]);
-    var detail = (isNow ? NOW_DETAIL : PLAN_DETAIL)[picked];
-    var current = modes.filter(function (m) { return m.id === mode; })[0];
-
+    var s1 = React.useState('all'), mode = s1[0], setMode = s1[1];
+    var s2 = React.useState(null), picked = s2[0], setPicked = s2[1];
+    var g = React.useMemo(function () { return graph(mode); }, [mode]);
+    var detail = DETAIL[picked];
+    var current = MODES.filter(function (m) { return m.id === mode; })[0];
     return h('div', { style: { display: 'flex', flexDirection: 'column', gap: 12 } },
-      h(Modes, { className: 'tabs', label: '要看哪一張圖', prefix: 'tab-', value: view,
-        items: [{ id: 'now', label: '依部門分租戶' }, { id: 'plan', label: '兩廠雙寫' }],
-        onChange: function (v) { setView(v); setPicked(null); } }),
-      h('div', { className: 'banner' }, isNow
-        ? '已在本機測試環境實測。'
-        : '已在本機測試環境實測：一套 vmagent（扮演中科的 cluster）加兩座模擬的中央。二林的 cluster 設定相同、只差廠區標記，沒有另外起一套。'),
-      h(Modes, { className: 'modes', label: '情境', prefix: 'mode-' + view + '-', value: mode, items: modes,
-        onChange: function (m) { (isNow ? setNowMode : setPlanMode)(m); setPicked(null); } }),
-      h('div', { className: 'canvas' + (isNow ? '' : ' short') },
+      h('div', { className: 'banner' }, '已在本機測試環境實測的是中科那一個 cluster 加兩座模擬的中央。二林的 cluster 設定相同、只差廠區標記，本機沒有另外起一套，圖上畫出來是為了說明完整的樣子。'),
+      h('div', { className: 'modes', role: 'group', 'aria-label': '情境' },
+        MODES.map(function (m) {
+          return h('button', { key: m.id, id: 'mode-' + m.id, type: 'button', className: m.danger ? 'danger' : '',
+            'aria-pressed': mode === m.id, onClick: function () { setMode(m.id); setPicked(null); } }, m.label);
+        })),
+      h('div', { className: 'canvas' },
         h(RF.ReactFlow, {
-          key: view, nodes: graph.nodes, edges: graph.edges, fitView: true, fitViewOptions: { padding: 0.06 },
+          nodes: g.nodes, edges: g.edges, fitView: true, fitViewOptions: { padding: 0.04 },
           nodesDraggable: false, nodesConnectable: false, zoomOnScroll: false, preventScrolling: false,
           minZoom: 0.25, maxZoom: 2,
           onNodeClick: function (_, node) { setPicked(node.id); }, onPaneClick: function () { setPicked(null); }
