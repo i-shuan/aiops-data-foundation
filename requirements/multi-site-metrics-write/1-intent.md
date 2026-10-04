@@ -67,8 +67,8 @@ Namespace label → vmagent（scrape、relabel、remoteWrite）→ VictoriaMetri
 | 順序 | 資料夾 | 內容 |
 | --- | --- | --- |
 | 1 | `requirements/validate-manual-apps/` | 讓 `tests/validate.sh` 回到綠燈：認得不走 ArgoCD 的 app，並檢查它的 namespace label |
-| 2 | 未開 | `group` 改 `tenant`、AccountID 對照、`platform` 兜底 |
-| 3 | 未開 | `site`、兩條 `remoteWrite`、PVC 與 buffer、本機模擬兩座 |
+| 2 | `requirements/tenant-label-routing/` | `group` 改 `tenant`、AccountID 對照、`platform` 兜底 |
+| 3 | `requirements/dual-site-write/` | `site`、兩條 `remoteWrite`、PVC 與 buffer、本機模擬兩座 |
 | 4 | 未開 | AP1105 的新 overlay，新驗證跑通後淘汰舊分流與 `tests/ap1105-sim` |
 
 ⚠️ 第 2 個光改名就超過「單次 ≤ 3 個檔」，已同意破例。

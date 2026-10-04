@@ -8,12 +8,19 @@
 #
 #   1. vmagent.spec.scrapeClasses       新增。抓取時把 namespace 的 dept / tenant / system label 帶進資料
 #   2. vmagent.spec.inlineRelabelConfig  新增。送出前依 tenant 填 vm_account_id（租戶對照表在這裡）
-#   3. vmagent.spec.remoteWrite          一條，寫 multitenant 端點
-#   4. kube-state-metrics                新增 metricLabelsAllowlist
+#   3. vmagent.spec.remoteWrite          兩條：中科站、二林站各一條，都寫 multitenant 端點
+#   4. vmagent.spec.statefulMode 等      新增。送不到時排隊的資料放 PVC，vmagent 重啟也不會消失
+#   5. kube-state-metrics                新增 metricLabelsAllowlist
+#
+# 這份每個 cluster 都一樣。廠區（site）每個 cluster 不同，另外疊一個小檔：
+#   -f platform/vmstack-values.yaml -f platform/site-ctsp.yaml      （二林的 cluster 用 site-erlin.yaml）
+# 沒疊的話樣本上不會有 site，而且不報錯。
 #
 # 整條資料流見 README.md。
 #
-# ⚠ 上線順序：先把 vmauth-token 這個 Secret 建好（key 是 token，這個 cluster 自己的那一把），再套這份。
+# ⚠ 套之前先 kubectl get storageclass：要有預設的 StorageClass，而且給得出 50Gi。
+#   沒有的話 vmagent 的 PVC 會卡在 Pending，vmagent 起不來，整個 cluster 的 metrics 會停。
+# ⚠ 上線順序：先把 vmauth-token 這個 Secret 建好兩個 key（ctsp、erlin，兩座各發給這個 cluster 的那一把），再套這份。
 #   順序反過來的話 vmagent 找不到 key，remoteWrite 起不來，整個 cluster 的 metrics 會停。
 #   token 結尾多一個換行就會一直 401，錯誤訊息不會說原因：kubectl describe secret 看 byte 數。
 # ⚠ 改完不會馬上生效：operator 更新設定後，vmagent 要等 kubelet 同步（最多一分鐘左右）才重新載入。
@@ -71,7 +78,27 @@ vmagent:
     scrapeInterval: 30s
 
     externalLabels:
-      {} # cluster 由 ApplicationSet 的 helm.parameters 注入
+      {} # cluster 由 ApplicationSet 的 helm.parameters 注入；site 由 platform/site-<廠區>.yaml 疊上來
+
+    # ── 送不到時排隊的資料放哪 ────────────────────────────────
+    # 每個目的地各有一個佇列，一座停機不影響另一座。恢復後自動補送。
+    # statefulMode 讓 vmagent 變成 StatefulSet 並掛 PVC：不開的話佇列在 pod 裡，
+    # vmagent 一重啟（升級、OOM、節點搬移）排隊中的資料就沒了，而且不報錯。
+    #
+    # 大小怎麼定：maxDiskUsagePerURL ÷ 每小時的暫存量 = 那個目的地撐得住的小時數。
+    #   每小時的暫存量要在該 cluster 量：停掉一個目的地一段時間，看
+    #   vmagent_remotewrite_pending_data_bytes 每小時長多少。20GiB 是起始值，目標撐 8 小時。
+    # ⚠ 超過上限時最舊的資料會被丟掉，不報錯。
+    # ⚠ PVC 要裝得下兩個目的地的上限加起來。tests/validate.sh 會檢查。
+    statefulMode: true
+    statefulStorage:
+      volumeClaimTemplate:
+        spec:
+          resources:
+            requests:
+              storage: 50Gi
+    remoteWriteSettings:
+      maxDiskUsagePerURL: 20GiB
 
     # ── 抓取：把 namespace 的 label 貼到每一筆資料上 ─────────
     # 這些 label 由 ArgoCD（platform/applicationset.yaml）或 chart 自己的 namespace.yaml
@@ -144,17 +171,30 @@ vmagent:
         target_label: vm_account_id
         replacement: "1000"
 
-    # ── 寫出：一條，一把這個 cluster 自己的 token ─────────────
-    # ⚠ url 的路徑是佔位：/insert/multitenant/prometheus/api/v1/write 是 vminsert 的標準路徑，
-    #   中央 vmauth 實際對外的路徑待 Infra 確認。
-    # token 每個 cluster 一把，出事時中央可以單獨撤銷。
+    # ── 寫出：兩條，中科站、二林站各一條 ───────────────────────
+    # 同一份資料兩座都寫。任一座停機或跨廠網路斷掉時，另一座照常，斷的那條先排隊。
+    #
+    # ⚠ 兩個 url 都是佔位（.invalid 結尾，解析不到）。主機名稱與路徑待 Infra 確認，
+    #   確認前不能上線：照這份套上去，兩條都送不出去。
+    #   /insert/multitenant/prometheus/api/v1/write 是 vminsert 的標準路徑。
+    # token 兩座各一把、每個 cluster 各一把：key 的名字就是目的地的廠區。
+    #   兩座的 vmauth 各自發、各自撤銷，一座的 token 外洩不影響另一座。
+    # 允許的廠區（platform/site-*.yaml 可以寫的值）也是從這兩個 key 推出來的。
     remoteWrite:
-      - url: https://vmauth.aillm.spil.com.tw/insert/multitenant/prometheus/api/v1/write
+      # 中科站
+      - url: https://vmauth-ctsp.placeholder.invalid/insert/multitenant/prometheus/api/v1/write
         tlsConfig:
           insecureSkipVerify: true
         bearerTokenSecret:
           name: vmauth-token
-          key: token
+          key: ctsp
+      # 二林站
+      - url: https://vmauth-erlin.placeholder.invalid/insert/multitenant/prometheus/api/v1/write
+        tlsConfig:
+          insecureSkipVerify: true
+        bearerTokenSecret:
+          name: vmauth-token
+          key: erlin
 
 kube-state-metrics:
   image:
