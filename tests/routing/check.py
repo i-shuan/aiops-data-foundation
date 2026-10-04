@@ -48,7 +48,7 @@ def kubectl(*args):
 def config(path, timeout=180):
     with io.open(path, encoding="utf-8") as f:
         want = [rw.get("inlineUrlRelabelConfig") for rw in yaml.safe_load(f)["spec"]["remoteWrite"]]
-    endpoint = "/api/v1/namespaces/route-test/app/vmagent-under-test:8429/proxy/remotewrite-url-relabel-config"
+    endpoint = "/api/v1/namespaces/route-test/services/vmagent-under-test:8429/proxy/remotewrite-url-relabel-config"
     deadline, got = time.time() + timeout, None
     while time.time() < deadline:
         try:
@@ -96,7 +96,7 @@ def labels():
 # ── routing：namespace label → tenant ─────────────────────────────
 def tenant_raw(tenant, path_and_query):
     return kubectl("get", "--raw",
-                   "/api/v1/namespaces/route-test/app/vmsingle-%s:8429/proxy%s" % (tenant, path_and_query))
+                   "/api/v1/namespaces/route-test/services/vmsingle-%s:8429/proxy%s" % (tenant, path_and_query))
 
 
 def routed():

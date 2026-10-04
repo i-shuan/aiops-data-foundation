@@ -57,7 +57,7 @@ def kubectl(*args):
 
 
 def svc(name, path):
-    return kubectl("get", "--raw", "/api/v1/namespaces/%s/app/%s/proxy%s" % (NS, name, path))
+    return kubectl("get", "--raw", "/api/v1/namespaces/%s/services/%s/proxy%s" % (NS, name, path))
 
 
 def query(tenant, q):

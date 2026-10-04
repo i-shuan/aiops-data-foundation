@@ -15,7 +15,7 @@ cp -r requirements/_template requirements/add-export-to-excel
 | [`validate-manual-apps/`](validate-manual-apps/1-intent.md) | 需求 1：檢查工具認得不走 ArgoCD 的 app | 完成 |
 | [`tenant-label-routing/`](tenant-label-routing/1-intent.md) | 需求 2：依部門寫進各自的租戶 | 完成，本機驗證 |
 | [`dual-site-write/`](dual-site-write/1-intent.md) | 需求 3：中科、二林兩站各寫一份 | 完成，本機驗證 |
-| [`ap1105-new-overlay/`](ap1105-new-overlay/1-intent.md) | 需求 4：AP1105 換上新設定 | spec 待確認 |
+| [`ap1105-new-overlay/`](ap1105-new-overlay/1-intent.md) | 需求 4：AP1105 換上新設定 | 進行中 |
 | `_template/` | 開新需求時複製的範本 | — |
 
 [`architecture.html`](architecture.html) 是給主管看的動態架構圖，用瀏覽器直接開（要連網）。
