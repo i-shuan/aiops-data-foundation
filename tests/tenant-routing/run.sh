@@ -1,16 +1,17 @@
 #!/usr/bin/env bash
-# 租戶分流的 E2E，在本機 k3d 上跑，不走 ArgoCD：
+# 租戶分流與兩廠雙寫的 E2E，在本機 k3d 上跑，不走 ArgoCD：
 #
-#   values.yaml → chart 的 namespace.yaml → Namespace label → vmagent → vmauth → VictoriaMetrics 的 AccountID
+#   values.yaml → chart 的 namespace.yaml → Namespace label → vmagent → 兩座 vmauth → 兩座 VictoriaMetrics
 #
-#   ./tests/tenant-routing/run.sh          跑完整條路。cluster 不在就建，在就沿用
+#   ./tests/tenant-routing/run.sh          分流：每個 namespace 的資料在兩座各進了哪個 AccountID、帶什麼 site
+#   ./tests/tenant-routing/run.sh outage   停機：停掉站 1、中間重啟 vmagent、再恢復，資料有沒有補回來（多花約 5 分鐘）
 #   ./tests/tenant-routing/run.sh down     刪掉這支測試建的 k3d cluster
 #
-# 正式環境：vmagent → 中央 vmauth → 中央 VictoriaMetrics
-# 本機：    vmagent → 本機 vmauth → 本機一座 VictoriaMetrics cluster（backends.yaml）
+# 正式環境：每個 cluster 的 vmagent → 中科站、二林站的 vmauth → 各自的 VictoriaMetrics
+# 本機：    一套 vmagent（扮演中科的 cluster）→ 本機兩座（backends.yaml）
 #
 # 被測的設定取自正式檔案，只換位址：
-#   - vmagent 的分流三段取自 platform/vmstack-values.yaml，只換 remoteWrite 的 url
+#   - vmagent 的分流、雙寫、暫存取自 platform/vmstack-values.yaml 加 platform/site-ctsp.yaml，只換 remoteWrite 的 url
 #   - 測試 app 用 applications/eqp-collector/helm，只換 namespace 和 observability.tenant
 #
 # 情境（check.py 的 CASES）：四個租戶、沒貼、打錯，再加一個自帶假 label 想冒充別人的 pod。
@@ -27,6 +28,7 @@ CTX=k3d-$CLUSTER
 HERE=tests/tenant-routing
 VALUES=${VMSTACK_VALUES:-platform/vmstack-values.yaml}
 APP_IMAGE=equipment-collector:test
+MODE=${1:-routing}
 
 k() { kubectl --context "$CTX" "$@"; }
 h() { helm --kube-context "$CTX" "$@"; }
@@ -36,12 +38,22 @@ check() { python "$HERE/check.py" "$@" || fail=1; }
 cases() { python "$HERE/check.py" cases | tr -d '\r'; }
 step() { printf '\n=== %s ===\n' "$*"; }
 
-if [ "${1:-}" = down ]; then
+if [ "$MODE" = down ]; then
   k3d cluster delete "$CLUSTER"
   exit 0
 fi
+case "$MODE" in routing|outage) ;; *) echo "用法：run.sh [outage|down]"; exit 2 ;; esac
 
 before=$(kubectl config current-context 2>/dev/null || true)
+
+# 等 vmagent 的 pod 就緒。它可能是 Deployment 也可能是 StatefulSet（開了 statefulMode），所以看 pod
+wait_agent() {
+  for _ in $(seq 60); do
+    k -n tr-central get pod -l app.kubernetes.io/name=vmagent -o name 2>/dev/null | grep -q . && break
+    sleep 3
+  done
+  k -n tr-central wait --for=condition=ready pod -l app.kubernetes.io/name=vmagent --timeout=240s >/dev/null
+}
 
 step "1. k3d cluster $CLUSTER、operator"
 if ! k3d cluster list "$CLUSTER" >/dev/null 2>&1; then
@@ -59,23 +71,26 @@ k3d image import "$APP_IMAGE" busybox:1.36 -c "$CLUSTER" >/dev/null 2>&1
 h upgrade --install vmo vm/victoria-metrics-operator --version 0.67.2 -n vm --create-namespace --wait --timeout 240s >/dev/null
 echo "  operator $(k -n vm get deploy -o jsonpath='{.items[0].spec.template.spec.containers[0].image}')"
 
-step "2. 本機的中央：VictoriaMetrics cluster、vmauth、偽造用的 pod"
+step "2. 本機的兩座：VictoriaMetrics cluster、vmauth，加偽造用的 pod"
+# apply 會把 vmauth 的 replicas 設回 1：上一次停機測試如果被中斷，入口在這裡開回來
 k apply -f "$HERE/backends.yaml" >/dev/null
-# vmstorage / vmselect 是 OnDelete 的 StatefulSet，rollout status 不能用，看 operator 回報的狀態
-for _ in $(seq 80); do
-  [ "$(k -n tr-central get vmcluster central -o jsonpath='{.status.updateStatus}' 2>/dev/null)" = operational ] && break
-  sleep 3
+for ns in tr-central tr-site2; do
+  # vmstorage / vmselect 是 OnDelete 的 StatefulSet，rollout status 不能用，看 operator 回報的狀態
+  for _ in $(seq 80); do
+    [ "$(k -n "$ns" get vmcluster central -o jsonpath='{.status.updateStatus}' 2>/dev/null)" = operational ] && break
+    sleep 3
+  done
+  k -n "$ns" wait --for=condition=ready pod/vmselect-central-0 pod/vmstorage-central-0 --timeout=180s >/dev/null
+  k -n "$ns" rollout status deploy/vminsert-central deploy/vmauth --timeout=240s >/dev/null
 done
-k -n tr-central wait --for=condition=ready pod/vmselect-central-0 pod/vmstorage-central-0 --timeout=120s >/dev/null
-k -n tr-central rollout status deploy/vminsert-central deploy/vmauth --timeout=240s >/dev/null
 k -n tr-spoof rollout status deploy/spoof --timeout=120s >/dev/null
 echo "  ready"
 
-step "3. vmagent：分流三段取自 $VALUES"
+step "3. vmagent：設定取自 $VALUES 加 platform/site-ctsp.yaml"
 python "$HERE/check.py" agent "$VALUES" | k apply -f - >/dev/null
 check pruned "$VALUES"
-until k -n tr-central get deploy vmagent-tenant-routing >/dev/null 2>&1; do sleep 3; done
-k -n tr-central rollout status deploy/vmagent-tenant-routing --timeout=180s >/dev/null
+sleep 10    # 讓 operator 先把 Deployment / StatefulSet 換好，不然會等到舊的那個 pod
+wait_agent
 check loaded "$VALUES"
 
 step "4. 測試 app：eqp-collector 的 chart，每個情境一個 namespace"
@@ -88,12 +103,20 @@ done
 cases | while read -r ns _; do k -n "$ns" rollout status deploy/eqp-collector --timeout=180s >/dev/null; done
 check labels
 
-step "5. 每個 namespace 的資料進了哪個 AccountID"
-# 等舊設定送出的樣本離開檢查的時間窗，不然上一輪的結果會被算進來。
-# 要等的是 check.py 的 WINDOW（30s）加上 vmselect 預設往回看的 30s，再留一點餘裕。
-# 等太短的症狀：剛跑完改壞的複本再跑正常的，會看到資料同時在新舊兩個 AccountID 而 FAIL
-sleep 90
-check routing 180
+if [ "$MODE" = outage ]; then
+  step "5. 停機：關掉站 1 的入口、中間重啟 vmagent、再恢復"
+  # 不管成功、失敗還是被中斷，結束時都把站 1 的入口開回來
+  trap 'k -n tr-central scale deploy/vmauth --replicas=1 >/dev/null 2>&1 || true' EXIT
+  sleep 60    # 先讓新設定穩定送一陣子
+  check outage
+else
+  step "5. 每個 namespace 的資料在兩座各進了哪個 AccountID"
+  # 等舊設定送出的樣本離開檢查的時間窗，不然上一輪的結果會被算進來。
+  # 要等的是 check.py 的 WINDOW（30s）加上 vmselect 預設往回看的 30s，再留一點餘裕。
+  # 等太短的症狀：剛跑完改壞的複本再跑正常的，會看到資料同時在新舊兩個 AccountID 而 FAIL
+  sleep 90
+  check routing 180
+fi
 
 after=$(kubectl config current-context 2>/dev/null || true)
 [ "$before" = "$after" ] || { echo "kubectl 的 current-context 被改了：$before → $after"; exit 1; }

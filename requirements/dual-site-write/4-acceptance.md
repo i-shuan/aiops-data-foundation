@@ -20,12 +20,12 @@
 
 | # | 指令 | 預期輸出 | 結果 |
 | --- | --- | --- | --- |
-| 2-1 | `./tests/tenant-routing/run.sh; echo "exit=$?"` | 七個情境在兩座都只出現在該去的 AccountID；每筆帶 `site=ctsp`；沒有 `site` 的樣本 0 筆；`PASS`、`exit=0` | ☐ |
-| 2-2 | `./tests/tenant-routing/run.sh outage; echo "exit=$?"` | 停機中站 2 照常、站 1 沒有新資料；vmagent 重啟後佇列還在；恢復後站 1 停機期間的筆數 ≥ 站 2 的 95%；`PASS`、`exit=0` | ☐ |
-| 2-3 | `VMSTACK_VALUES=<沒開 statefulMode 的複本> ./tests/tenant-routing/run.sh outage; echo "exit=$?"` | 補送那一項 `FAIL`（重啟時佇列消失）；`exit=1` | ☐ |
-| 2-4 | `VMSTACK_VALUES=<只剩一條 remoteWrite 的複本> ./tests/tenant-routing/run.sh; echo "exit=$?"` | 站 2 沒有資料的項目 `FAIL`；`exit=1` | ☐ |
-| 2-5 | 2-2 跑完後 `kubectl --context k3d-tenant-test -n tr-central get deploy vmauth -o jsonpath='{.spec.replicas}'` | `1`：站 1 的入口有開回來 | ☐ |
-| 2-6 | 跑 2-1 前後各一次 `kubectl config current-context` | 一樣 | ☐ |
+| 2-1 | `./tests/tenant-routing/run.sh; echo "exit=$?"` | 七個情境在兩座都只出現在該去的 AccountID；每筆帶 `site=ctsp`；沒有 `site` 的樣本 0 筆；`PASS`、`exit=0` | ☑ |
+| 2-2 | `./tests/tenant-routing/run.sh outage; echo "exit=$?"` | 停機中站 2 照常、站 1 沒有新資料；vmagent 重啟後佇列還在；恢復後站 1 停機期間的筆數 ≥ 站 2 的 95%；`PASS`、`exit=0` | ☑ |
+| 2-3 | `VMSTACK_VALUES=<沒開 statefulMode 的複本> ./tests/tenant-routing/run.sh outage; echo "exit=$?"` | 補送那一項 `FAIL`（重啟時佇列消失）；`exit=1` | ☑ |
+| 2-4 | `VMSTACK_VALUES=<只剩一條 remoteWrite 的複本> ./tests/tenant-routing/run.sh; echo "exit=$?"` | 站 2 沒有資料的項目 `FAIL`；`exit=1` | ☑ |
+| 2-5 | 2-2 跑完後 `kubectl --context k3d-tenant-test -n tr-central get deploy vmauth -o jsonpath='{.spec.replicas}'` | `1`：站 1 的入口有開回來 | ☑ |
+| 2-6 | 跑 2-1 前後各一次 `kubectl config current-context` | 一樣 | ☑ |
 
 ## 第三批：文件
 
@@ -34,6 +34,14 @@
 | 3-1 | `grep -n -E "一條 .?remoteWrite\|只有一條" README.md applications/eqp-collector/README.md` | 沒有殘留「只有一條」的說法 | ☐ |
 | 3-2 | `python tools/check-md-style.py README.md applications/eqp-collector/README.md` | 違規數不比改之前多（4 和 4） | ☐ |
 | 3-3 | `python tools/check-md-style.py requirements/dual-site-write/*.md .agents/project/commands.md` | `✅ 全部符合` | ☐ |
+
+## 實作時發現的
+
+| 事項 | 說明 |
+| --- | --- |
+| 換 token 後一座一直 401 | 測試用的 vmauth 不會自己重新載入設定，改了 token 之後站 1 全部 401、站 2 正常，看起來像站 1 壞了。測試的 vmauth 加了自動重新載入。正式的 vmauth 怎麼換 token 要問 Infra |
+| 實測數字 | 停機 116 秒：站 1 補回 30 筆，站 2 30 筆。沒開 PVC 的複本：站 1 只有 15 筆，站 2 36 筆 |
+| PVC 的大小之後要改 | StatefulSet 的 PVC 範本建立後不能直接改。這次沒測 operator 怎麼處理，改大小前要先在測試環境試 |
 
 ## 人工確認
 
