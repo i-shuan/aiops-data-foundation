@@ -9,7 +9,7 @@
 
 | app 的 chart | 判定 | namespace label 誰貼 |
 | --- | --- | --- |
-| `values.yaml` 有 `argocd:` 區塊 | 走 ArgoCD | ArgoCD（`platform/applicationset.yaml`） |
+| `values.yaml` 有 `argocd:` 區塊 | 走 ArgoCD | ArgoCD（`platform/argocd/applicationset.yaml`） |
 | 沒有 `argocd:`，有 `templates/namespace.yaml` | 手動 Helm | chart 自己 |
 | 兩個都有 | 錯誤 | 兩邊搶同一個 namespace |
 | 兩個都沒有 | 錯誤 | 沒有人貼，metrics 全部進兜底租戶 |

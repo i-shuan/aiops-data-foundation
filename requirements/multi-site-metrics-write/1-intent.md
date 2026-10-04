@@ -37,7 +37,7 @@ VictoriaMetrics 的同一個 AccountID，帶著 `tenant` 和 `site` label；關�
 | 認證 | 帶 bearer token，兩座前面各一個 vmauth，不直連 vminsert |
 | 停機時 | vmagent 掛 PVC 排隊，目標撐 8 小時，每個目的地上限 20 GiB（估計值，要實測） |
 | AP1105 舊資料 | 留在 AccountID 0 不搬，等保留期到期 |
-| 舊分流 | `platform/vmagent-routing-overlay.yaml` 的三條 token 分流由新設計取代 |
+| 舊分流 | `platform/victoriametrics/vmagent-routing-overlay.yaml` 的三條 token 分流由新設計取代 |
 | 中央那一側 | 兩座 VictoriaMetrics 與 vmauth 不在這個 repo。這裡只交付 vmagent 與 app 這一側，本機用 k3d 模擬兩座 |
 | 現有 app 的租戶 | `mes-dispatch` → `icsd`、`yms-sim` → `imc`、`eqp-collector` → `imc`、`metrics-sim` → `platform` |
 | AP1105 | 寫一份新的 overlay 疊在現有 values 上。`tests/ap1105-sim` 等新驗證在 k3d 跑通後才刪 |
@@ -56,8 +56,8 @@ Namespace label → vmagent（scrape、relabel、remoteWrite）→ VictoriaMetri
 | --- | --- |
 | React Flow 架構圖 | 那是需求介紹用的，不是交付物 |
 | 查詢端：vmauth `first_available`、Grafana 儀表板 | 範圍只到寫入。⚠️ 查詢端切換有「Site 1 恢復後顯示資料缺口」的問題，要另開需求 |
-| log（`platform/fluent.conf`） | 這次只做 metrics |
-| ArgoCD 那條路（`platform/applicationset.yaml`、`tests/routing`） | 先做不走 ArgoCD 的。⚠️ 需求 2 改名後，這條路在補做之前是壞的 |
+| log（`platform/logging/fluent.conf`） | 這次只做 metrics |
+| ArgoCD 那條路（`platform/argocd/applicationset.yaml`、`tests/routing`） | 先做不走 ArgoCD 的。⚠️ 需求 2 改名後，這條路在補做之前是壞的 |
 | 正式 cluster 的套用 | 只產出設定與本機驗證，正式環境由人執行 |
 
 ## 拆法
@@ -69,6 +69,6 @@ Namespace label → vmagent（scrape、relabel、remoteWrite）→ VictoriaMetri
 | 1 | `requirements/validate-manual-apps/` | 讓 `tests/validate.sh` 回到綠燈：認得不走 ArgoCD 的 app，並檢查它的 namespace label |
 | 2 | `requirements/tenant-label-routing/` | `group` 改 `tenant`、AccountID 對照、`platform` 兜底 |
 | 3 | `requirements/dual-site-write/` | `site`、兩條 `remoteWrite`、PVC 與 buffer、本機模擬兩座 |
-| 4 | 未開 | AP1105 的新 overlay，新驗證跑通後淘汰舊分流與 `tests/ap1105-sim` |
+| 4 | `requirements/ap1105-new-overlay/` | AP1105 的新 overlay，新驗證跑通後淘汰舊分流與 `tests/ap1105-sim` |
 
 ⚠️ 第 2 個光改名就超過「單次 ≤ 3 個檔」，已同意破例。

@@ -1,4 +1,4 @@
-# ── 給 ArgoCD 讀的：platform/applicationset.yaml 掃這個檔案產生 Application ──
+# ── 給 ArgoCD 讀的：platform/argocd/applicationset.yaml 掃這個檔案產生 Application ──
 # chart 本身不會用到這兩段，Helm 會直接忽略。
 argocd:
   namespace: mes-dispatch-prod

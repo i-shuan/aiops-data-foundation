@@ -16,7 +16,7 @@ flowchart LR
 
 ## 租戶對照
 
-只有一份，寫在 `platform/vmstack-values.yaml` 的 vmagent 設定裡。
+只有一份，寫在 `platform/victoriametrics/vmstack-values.yaml` 的 vmagent 設定裡。
 `tests/validate.sh` 從這裡讀出允許的 `tenant`，不另外維護清單。
 
 | `tenant` | AccountID | 誰 |
@@ -66,8 +66,8 @@ vmagent 不擋的話，任何 pod 都能把資料寫進別人的租戶，而且�
 | 三條 `remoteWrite`、三把 token | 一條、一把 | 同上 |
 | 租戶由 vmauth 依 token 決定 | 由 vmagent 填的 `vm_account_id` 決定 | 不適用 |
 | 允許的值從 `remoteWrite` 推出 | 從對照表推出 | 改 `tests/validate.sh` |
-| `platform/vmagent-routing-overlay.yaml` 要跟 `vmstack-values.yaml` 一致 | 維持，內容換成新設計 | 同上 |
-| `platform/applicationset.yaml` 抄 `dept` / `group` / `system` | 抄 `dept` / `tenant` / `system`。不改的話三個走 ArgoCD 的 app 過不了 `validate.sh` | 同上 |
+| `platform/victoriametrics/vmagent-routing-overlay.yaml` 要跟 `vmstack-values.yaml` 一致 | 維持，內容換成新設計 | 同上 |
+| `platform/argocd/applicationset.yaml` 抄 `dept` / `group` / `system` | 抄 `dept` / `tenant` / `system`。不改的話三個走 ArgoCD 的 app 過不了 `validate.sh` | 同上 |
 | `kube_namespace_labels` 帶出 `label_group` | 帶出 `label_tenant` | 不適用 |
 | `tests/routing/run.sh`、`tests/ap1105-sim/run.sh` | 壞掉。這次不修，`.agents/project/commands.md` 標明 | 不改，見 `1-intent.md` |
 | 三份 `README.md` 裡 `group` 的說明（根目錄 11 處、`eqp-collector` 30 處、`ap1105-sim` 10 處） | 根目錄與 `eqp-collector` 改寫；`ap1105-sim` 不動 | 不適用 |

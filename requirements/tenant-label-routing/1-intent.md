@@ -28,6 +28,6 @@
 | `site` label、第二條 `remoteWrite`、PVC 與 buffer | 總綱拆法第 3 項 |
 | 修好 `tests/routing`、`tests/ap1105-sim` | 它們測的是舊的三把 token 分流。前者屬於 ArgoCD 那條路，後者等第 4 項 |
 | 中央的 VictoriaMetrics 與 vmauth | 不在這個 repo。本機用模擬的 |
-| log 的分流（`platform/fluent.conf`） | 它看的是 `dept`，這次不動 |
+| log 的分流（`platform/logging/fluent.conf`） | 它看的是 `dept`，這次不動 |
 | 把 `mes-dispatch` 等三個 app 改成手動 Helm | 另一個需求 |
 | 一個 namespace 送多個租戶 | 已決定不再支援 `it.imc` |

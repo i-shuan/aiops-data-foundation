@@ -51,7 +51,7 @@ apply_overlay() {
   local timeout=$1
   h get values vmstack -n vm-monitoring -o yaml > "$WORK/current-values.yaml"
   sed "s#https://vmauth.aillm.spil.com.tw/prometheus/api/v1/write#$SIM_VMAUTH#" \
-    platform/vmagent-routing-overlay.yaml > "$WORK/overlay.yaml"
+    platform/victoriametrics/vmagent-routing-overlay.yaml > "$WORK/overlay.yaml"
   h get manifest vmstack -n vm-monitoring > "$WORK/manifest-before.yaml"
   echo "  --- dry-run（--dry-run=server）"
   h upgrade vmstack "$CHART" --version 0.91.0 -n vm-monitoring \

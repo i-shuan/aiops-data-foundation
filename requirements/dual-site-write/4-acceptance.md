@@ -14,7 +14,7 @@
 | 1-2 | `./tests/validate.sh \| grep "自我檢查" \| grep -E "只剩一條\|網址一樣\|同一把\|statefulMode\|上限\|PVC"` | 六條都在、都是 `OK`：每一種改壞都被擋下 | ☑ |
 | 1-3 | `./tests/validate.sh \| grep "自我檢查" \| grep -E "site"` | 廠區檔的三種改壞（多帶設定、值不在清單、檔名跟值不一致）都被擋下 | ☑ |
 | 1-4 | `./tests/validate.sh \| grep -E "自我檢查\|→" \| grep -c FAIL` | `0` | ☑ |
-| 1-5 | `helm template t vm/victoria-metrics-k8s-stack --version 0.91.0 -f platform/vmstack-values.yaml -f platform/site-ctsp.yaml \| grep -A3 "externalLabels"` | 渲染出來的 VMAgent 有 `site: ctsp` | ☑ |
+| 1-5 | `helm template t vm/victoria-metrics-k8s-stack --version 0.91.0 -f platform/victoriametrics/vmstack-values.yaml -f platform/victoriametrics/site-ctsp.yaml \| grep -A3 "externalLabels"` | 渲染出來的 VMAgent 有 `site: ctsp` | ☑ |
 
 ## 第二批：k3d 實測
 
@@ -48,7 +48,7 @@
 | # | 怎麼做 | 看到什麼算過 | 結果 |
 | --- | --- | --- | --- |
 | 1 | 開線上的架構圖，切到第二張 | 標示從「規劃中」改成已實測，並註明測試範圍 | ☐ |
-| 2 | 讀 `platform/vmstack-values.yaml` 的 vmagent 那一段 | 看得懂套之前要先確認什麼：StorageClass、兩把 token、網址是佔位 | ☐ |
+| 2 | 讀 `platform/victoriametrics/vmstack-values.yaml` 的 vmagent 那一段 | 看得懂套之前要先確認什麼：StorageClass、兩把 token、網址是佔位 | ☐ |
 
 ## 已知未涵蓋
 

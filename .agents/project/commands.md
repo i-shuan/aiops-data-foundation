@@ -33,7 +33,7 @@ python .claude/hooks/test_guard_git.py -v  # 改了 guard-git.py 之後
 ```
 
 只用 `k3d-tenant-test` 這個 context，不會切換目前的 context。改了
-`platform/vmstack-values.yaml` 的 vmagent 那一段之後要跑；動到 `remoteWrite`、
+`platform/victoriametrics/vmstack-values.yaml` 的 vmagent 那一段之後要跑；動到 `remoteWrite`、
 `statefulMode`、暫存上限的話 `outage` 也要跑。
 
 | 指令 | 狀態 |
@@ -56,9 +56,9 @@ python .claude/hooks/test_guard_git.py -v  # 改了 guard-git.py 之後
 
 | 層 | 用什麼 | 版本寫在哪 |
 | --- | --- | --- |
-| 部署 | ArgoCD ApplicationSet（E2E 用 v3.5.3 core） | `platform/applicationset.yaml` |
-| metrics | victoria-metrics-k8s-stack（vmagent → vmauth） | `platform/vmstack-values.yaml` |
-| log | Fluentd → Elasticsearch | `platform/fluent.conf` |
+| 部署 | ArgoCD ApplicationSet（E2E 用 v3.5.3 core） | `platform/argocd/applicationset.yaml` |
+| metrics | victoria-metrics-k8s-stack（vmagent → vmauth） | `platform/victoriametrics/vmstack-values.yaml` |
+| log | Fluentd → Elasticsearch | `platform/logging/fluent.conf` |
 | app | Python，各自一個 `Dockerfile` | `app/<app>/` |
 | chart | 每個 app 自帶 templates | `app/<app>/k8s/` |
 | 執行環境 | k8s；本機 k3d | `tests/routing/run.sh`、`tests/ap1105-sim/run.sh` |

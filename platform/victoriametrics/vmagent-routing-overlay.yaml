@@ -5,7 +5,7 @@
 # 其他設定一律不帶，疊在該環境現有的 values 上，最後再疊廠區的小檔：
 #
 #   helm upgrade vmstack <repo>/victoria-metrics-k8s-stack --version <現在的版本> -n vm-monitoring \
-#     -f current-values.yaml -f platform/vmagent-routing-overlay.yaml -f platform/site-<廠區>.yaml
+#     -f current-values.yaml -f platform/victoriametrics/vmagent-routing-overlay.yaml -f platform/victoriametrics/site-<廠區>.yaml
 #
 # ⚠ 不要改成直接套整份 vmstack-values.yaml：那是另一套環境的完整 values，
 #   會關掉 vmcluster、換 image registry、把 externalLabels 清成 {}。

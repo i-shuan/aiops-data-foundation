@@ -1,12 +1,14 @@
 {{- /*
-只負責「這個 Service 的 :9464/metrics 要被抓」。不寫 tenant、token、remoteWrite、group。
+【VictoriaMetrics 相關】這個檔不是在部署 app，是給平台的 vmagent 看的登記單：
+「這個 Service 的 /metrics 要來抓」。VMServiceScrape 是 VictoriaMetrics operator 的資源，
+cluster 沒裝 operator 的話這個檔會套不上去。
+它只負責「要被抓」。資料寫進哪個租戶、送到哪一站，都在 platform/victoriametrics/ 決定，跟這個檔無關。
 
-依 platform/vmstack-values.yaml，既有 vmagent 是這樣選到它的：
+依 platform/victoriametrics/vmstack-values.yaml，既有 vmagent 是這樣選到它的：
   - 沒設 serviceScrapeSelector / serviceScrapeNamespaceSelector，k8s-stack chart 預設 selectAllByDefault: true
     → 所有 namespace 的 VMServiceScrape 都會被選到，不需要特定 metadata label
-  - scrapeClass「default」是 default: true，自動套用，抓的時候把 namespace 的 dept / group / system 帶進資料
-    → 這裡不要寫 scrapeClass，寫了別的名字反而會換掉它
-  - 依 group 分流是 vmagent 的三條 remoteWrite 做的，跟這個檔案無關
+  - scrapeClass「default」是 default: true，自動套用，抓的時候把 namespace 的 dept / tenant / system 帶進資料
+    → 這裡不要寫 scrapeClass，寫了別的名字反而會換掉它，門牌就帶不進去
 */}}
 apiVersion: operator.victoriametrics.com/v1beta1
 kind: VMServiceScrape

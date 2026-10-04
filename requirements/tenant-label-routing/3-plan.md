@@ -7,8 +7,8 @@
 只改名字和允許的值，分流機制先不動。做完 `./tests/validate.sh` 要 `PASS`。
 
 1. 四個 `values.yaml` 的 `observability.group` 改成 `tenant`，值照 spec 的對照。
-2. `platform/applicationset.yaml` 與 `eqp-collector` 的 `namespace.yaml`：抄的欄位清單 `group` 改 `tenant`。
-3. `platform/vmstack-values.yaml` 與 overlay：抓取時貼的 label、`kube-state-metrics` 的 allowlist 改名。
+2. `platform/argocd/applicationset.yaml` 與 `eqp-collector` 的 `namespace.yaml`：抄的欄位清單 `group` 改 `tenant`。
+3. `platform/victoriametrics/vmstack-values.yaml` 與 overlay：抓取時貼的 label、`kube-state-metrics` 的 allowlist 改名。
 4. `tests/validate.sh`：欄位名、自我檢查的案例改名；寫 `group` 要 FAIL 並提示已改名。
 
 | 檔案 | 改什麼 |
@@ -18,9 +18,9 @@
 | `app/eqp-collector/k8s/values.yaml` | `tenant: imc` |
 | `app/metrics-sim/k8s/values.yaml` | `tenant: platform` |
 | `app/eqp-collector/k8s/templates/namespace.yaml` | 欄位清單 |
-| `platform/applicationset.yaml` | 欄位清單 |
-| `platform/vmstack-values.yaml` | 抓取 relabel、allowlist |
-| `platform/vmagent-routing-overlay.yaml` | 跟上面一致 |
+| `platform/argocd/applicationset.yaml` | 欄位清單 |
+| `platform/victoriametrics/vmstack-values.yaml` | 抓取 relabel、allowlist |
+| `platform/victoriametrics/vmagent-routing-overlay.yaml` | 跟上面一致 |
 | `tests/validate.sh` | 欄位名與自我檢查 |
 
 ⚠️ 這一批做完時 `remoteWrite` 還是舊的三條，過濾條件對的是 `it` / `imc`。
@@ -28,7 +28,7 @@
 
 ## 第二批：對照表、防偽造、單條 `remoteWrite`
 
-1. `platform/vmstack-values.yaml`：抓取時沒貼 `tenant` 的 namespace 一律補成 `platform`，讓每個 target 都有 `tenant`。
+1. `platform/victoriametrics/vmstack-values.yaml`：抓取時沒貼 `tenant` 的 namespace 一律補成 `platform`，讓每個 target 都有 `tenant`。
 2. 同一份：送出前的全域 relabel。先清掉進來的 `vm_account_id`，再照對照表填，對不到的改成 `platform` / 1000。
 3. 同一份：三條 `remoteWrite` 換成一條，multitenant 路徑，一把 token。路徑標明是佔位。
 4. overlay 跟著改，允許的欄位多一個全域 relabel。
@@ -37,8 +37,8 @@
 
 | 檔案 | 改什麼 |
 | --- | --- |
-| `platform/vmstack-values.yaml` | 步驟 1 ~ 3 |
-| `platform/vmagent-routing-overlay.yaml` | 步驟 4 |
+| `platform/victoriametrics/vmstack-values.yaml` | 步驟 1 ~ 3 |
+| `platform/victoriametrics/vmagent-routing-overlay.yaml` | 步驟 4 |
 | `tests/validate.sh` | 步驟 5 |
 | `README.md` | 分流說明、`values.yaml` 範例、Known limitations |
 | `app/eqp-collector/README.md` | `group` 的 30 處 |
@@ -48,7 +48,7 @@
 
 1. 新的 `tests/tenant-routing/`：`run.sh` 建獨立的 k3d cluster `tenant-test`，全程帶 `--context k3d-tenant-test`。
 2. 裝 operator v0.74.0、一座 VictoriaMetrics cluster、vmauth v1.148.0（驗 token 後轉給 vminsert）。
-3. vmagent 的設定取自 `platform/vmstack-values.yaml`，只換網址，跟 `tests/routing` 的做法一樣。
+3. vmagent 的設定取自 `platform/victoriametrics/vmstack-values.yaml`，只換網址，跟 `tests/routing` 的做法一樣。
 4. 用手動 Helm 部署 `eqp-collector` 的 chart 六次，各換 `namespace` 與 `tenant`：四個租戶、沒貼、打錯。
 5. 偽造的那個另外做：一個沒貼 `tenant` 的 namespace 裡放一個只回固定文字的小 pod，吐的 metric 自己帶 `tenant="tsid"` 和 `vm_account_id="1001"`。定義寫在 `backends.yaml`。
 6. `check.py` 逐個 AccountID 查：該有的有、不該有的沒有。
@@ -82,5 +82,5 @@
 | 改 `tests/ap1105-sim/README.md` | 它記錄的是舊分流的實測結果，是歷史 |
 | `site`、第二條 `remoteWrite`、PVC | 需求 3 |
 | 把三個走 ArgoCD 的 app 改成手動 Helm | 另一個需求。第三批用 `eqp-collector` 的 chart 測就夠 |
-| 動 `platform/fluent.conf` | log 不在範圍。裡面的 `group` 是 Fluentd 自己的欄位，不是這個 label |
+| 動 `platform/logging/fluent.conf` | log 不在範圍。裡面的 `group` 是 Fluentd 自己的欄位，不是這個 label |
 | 順手修 README 既有的 md 格式違規 | 另一個改動 |

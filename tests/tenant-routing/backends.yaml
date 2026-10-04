@@ -154,7 +154,7 @@ spec:
   ports:
     - port: 8427
 ---
-# vmagent 帶的 token。名字和 key 跟 platform/vmstack-values.yaml 寫的一樣：兩座各一把。
+# vmagent 帶的 token。名字和 key 跟 platform/victoriametrics/vmstack-values.yaml 寫的一樣：兩座各一把。
 # 這些是只存在於這個測試 cluster 的假 token，不是任何環境的憑證。
 apiVersion: v1
 kind: Secret

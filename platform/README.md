@@ -26,7 +26,7 @@ flowchart LR
 | --- | --- | --- |
 | app 開發者 | 在 `values.yaml` 寫這個 app 是哪個部門的 | `app/<app>/k8s/values.yaml` |
 | chart | 建 namespace，把部門貼成 namespace 的 label | `app/<app>/k8s/templates/namespace.yaml` |
-| vmagent | 抓 metrics、依 label 填租戶編號、補廠區、送兩站 | `platform/vmstack-values.yaml` |
+| vmagent | 抓 metrics、依 label 填租戶編號、補廠區、送兩站 | `platform/victoriametrics/vmstack-values.yaml` |
 | 兩站的 vmauth | 只驗 token | 不在這個 repo |
 
 app 本身不知道資料送去哪，也不拿任何 token。
@@ -79,14 +79,14 @@ kubectl get ns eqp-collector-dev --show-labels
 
 ## 怎麼分流
 
-vmagent 對每一筆樣本做四件事，全部寫在 `platform/vmstack-values.yaml`：
+vmagent 對每一筆樣本做四件事，全部寫在 `platform/victoriametrics/vmstack-values.yaml`：
 
 | 順序 | 做什麼 | 設定的段落 |
 | --- | --- | --- |
 | ① | 抓取時把 namespace 的 `tenant` 貼到樣本上；namespace 沒貼的補成 `platform` | `scrapeClasses` |
 | ② | 丟掉樣本自己帶的 `vm_account_id`、`vm_project_id` | `inlineRelabelConfig` 第一條 |
 | ③ | 依 `tenant` 填 `vm_account_id`；對不到的把 `tenant` 改成 `platform`、填 1000 | `inlineRelabelConfig` 其餘 |
-| ④ | 補上 `site` | `externalLabels`，值來自 `platform/site-<廠區>.yaml` |
+| ④ | 補上 `site` | `externalLabels`，值來自 `platform/victoriametrics/site-<廠區>.yaml` |
 
 VictoriaMetrics 看每筆樣本的 `vm_account_id` 決定放進哪個租戶。
 
@@ -136,7 +136,7 @@ kubectl create secret generic vmauth-token -n vm-monitoring --from-literal=ctsp=
 
 ```bash
 helm upgrade --install vmstack <repo>/victoria-metrics-k8s-stack --version 0.91.0 -n vm-monitoring \
-  -f platform/vmstack-values.yaml -f platform/site-ctsp.yaml
+  -f platform/victoriametrics/vmstack-values.yaml -f platform/victoriametrics/site-ctsp.yaml
 ```
 
 已經在跑的 cluster（例如 AP1105），只疊要改的那幾段：
@@ -144,7 +144,7 @@ helm upgrade --install vmstack <repo>/victoria-metrics-k8s-stack --version 0.91.
 ```bash
 helm get values vmstack -n vm-monitoring -o yaml > current-values.yaml
 helm upgrade vmstack <repo>/victoria-metrics-k8s-stack --version <現在的版本> -n vm-monitoring \
-  -f current-values.yaml -f platform/vmagent-routing-overlay.yaml -f platform/site-ctsp.yaml
+  -f current-values.yaml -f platform/victoriametrics/vmagent-routing-overlay.yaml -f platform/victoriametrics/site-ctsp.yaml
 ```
 
 二林的 cluster 把 `site-ctsp.yaml` 換成 `site-erlin.yaml`，其他一樣。
@@ -185,7 +185,7 @@ kubectl port-forward -n vm-monitoring svc/vmagent-vmstack-victoria-metrics-k8s-s
 | 改了 `tenant` 沒效 | `helm upgrade` 沒帶 `--reset-values` | Helm 回報成功 |
 | 別的部門的租戶裡出現不認識的資料 | 防冒充的規則被拿掉或順序錯了 | vmauth 不檢查租戶編號。`tests/validate.sh` 會擋下這種修改 |
 | 每個租戶都被改成 `platform` | 兜底規則的 `regex` 寫成空字串而不是 `^$` | 資料都在，只是全部進 1000 |
-| 樣本沒有 `site` | 部署時沒疊 `platform/site-<廠區>.yaml` | 分流照常，只是兩廠的資料分不出來 |
+| 樣本沒有 `site` | 部署時沒疊 `platform/victoriametrics/site-<廠區>.yaml` | 分流照常，只是兩廠的資料分不出來 |
 | 一站停機期間的資料不見了 | 沒開 `statefulMode`，vmagent 又重啟過 | 另一站完整；要兩站對比才看得出來 |
 | 很久以前的資料不見了 | 暫存超過上限，最舊的被丟掉 | 沒有告警。要看 `vmagent_remotewrite_pending_data_bytes` |
 | 一站一直 401，另一站正常 | 兩把 token 放反、或那一站換了 token 還沒生效 | 看起來像那一站壞了 |
@@ -196,7 +196,7 @@ kubectl port-forward -n vm-monitoring svc/vmagent-vmstack-victoria-metrics-k8s-s
 | 改了什麼 | 要跑 |
 | --- | --- |
 | 任何 `app/<app>/k8s/values.yaml` | `./tests/validate.sh` |
-| `platform/vmstack-values.yaml` | 同上。overlay 要一起改，檢查會比對兩份 |
+| `platform/victoriametrics/vmstack-values.yaml` | 同上。overlay 要一起改，檢查會比對兩份 |
 | 分流、`remoteWrite`、暫存那幾段 | 再加 `./tests/tenant-routing/run.sh`，動到雙寫或暫存的話加 `outage` |
 
 ## 還沒定的
@@ -208,6 +208,6 @@ kubectl port-forward -n vm-monitoring svc/vmagent-vmstack-victoria-metrics-k8s-s
 | AP1105 的 StorageClass | 沒確認 | AP1105 的管理者 |
 | 暫存 20 GiB 夠不夠撐 8 小時 | 沒有實測依據，要在正式的 cluster 量 | 平台團隊 |
 | 新 overlay 在 AP1105 的完整流程 | 只在本機 k3d 測過，沒有在 AP1105 的模擬環境走過 | 下一個需求 |
-| ArgoCD 的路 | `platform/applicationset.yaml` 留著，沒有實測 | 之後補做 |
+| ArgoCD 的路 | `platform/argocd/applicationset.yaml` 留著，沒有實測 | 之後補做 |
 
 驗證過的版本：operator v0.74.0、VictoriaMetrics v1.148.0、chart 0.91.0。

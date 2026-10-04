@@ -217,7 +217,7 @@ chart 會自動擋下這些錯誤，部署前就失敗，不會帶著錯誤上�
 
 - [ ] AP1105 上 `kubectl get nodes` 跑得動，`helm version` 有東西
 - [ ] cluster 已經有 VictoriaMetrics operator 和 vmagent（Step 4、Step 6-8 會確認）
-- [ ] 那台 vmagent 用的是 repo 的 [`platform/vmstack-values.yaml`](../../platform/vmstack-values.yaml)（Step 6-8 會確認）
+- [ ] 那台 vmagent 用的是 repo 的 [`platform/victoriametrics/vmstack-values.yaml`](../../platform/victoriametrics/vmstack-values.yaml)（Step 6-8 會確認）
 - [ ] vmagent 所在 namespace 有 `vmauth-token` Secret，裡面有 `ctsp`、`erlin` 兩個 key（兩座各發給這個 cluster 的那一把）
 
 ### Step 1：把檔案放上 AP1105
@@ -505,7 +505,7 @@ for id in 1000 1001 1002 1003 1004; do echo "accountID=$id $(curl -s --data-urle
 | IMC | 1004 | **3**（EQP001～003 各一條） |
 | 其他四個 | 1000 ~ 1003 | 沒有結果（`"result":[]`） |
 
-accountID 的對應寫在 [`platform/vmstack-values.yaml`](../../platform/vmstack-values.yaml) 的 `inlineRelabelConfig`，只有那一份。
+accountID 的對應寫在 [`platform/victoriametrics/vmstack-values.yaml`](../../platform/victoriametrics/vmstack-values.yaml) 的 `inlineRelabelConfig`，只有那一份。
 
 進了 IMC 的數據每筆都會帶 `dept=D1110 tenant=imc system=eqp app=eqp-collector version=test namespace=eqp-collector-dev`。
 
@@ -548,7 +548,7 @@ RKE2 / k3s 的 ctr 路徑照 Step 3 的表換。
 
 ⚠ 2026-09-22 那一列測的是改版前的分流（`group`、每個租戶一把 token）。改成 `tenant` 之後，這份文件的步驟還沒有在 AP1105 重跑過；本機的實測在 repo 的 [`tests/tenant-routing`](../../tests/tenant-routing)。
 
-本機參考環境：k3s v1.30.14（containerd 1.7.27-k3s1）、VictoriaMetrics operator v0.74.1、vmagent v1.148.0、Helm v4.3.0。image 用 `docker save` + `ctr -n k8s.io images import` 匯入，不是 `k3d image import`。vmagent 的 scrapeClasses 和 remoteWrite 取自 `platform/vmstack-values.yaml`，只把送出去的位址換成本機的 vmauth，tenant 是本機的 VMSingle，不是中央。
+本機參考環境：k3s v1.30.14（containerd 1.7.27-k3s1）、VictoriaMetrics operator v0.74.1、vmagent v1.148.0、Helm v4.3.0。image 用 `docker save` + `ctr -n k8s.io images import` 匯入，不是 `k3d image import`。vmagent 的 scrapeClasses 和 remoteWrite 取自 `platform/victoriametrics/vmstack-values.yaml`，只把送出去的位址換成本機的 vmauth，tenant 是本機的 VMSingle，不是中央。
 
 ---
 
@@ -593,7 +593,7 @@ image 是手動匯入 node 的，外面沒有地方可以拉。設 `Never` 的�
 **為什麼 VMServiceScrape 不寫 tenant、token、group？**
 送去哪是平台的事。寫在 app 裡，部門改組就要改每一個 app。它只說「這個 Service 的 `/metrics` 要抓」。
 
-既有 vmagent 會自動選到它，不需要額外設定。根據 `platform/vmstack-values.yaml`：
+既有 vmagent 會自動選到它，不需要額外設定。根據 `platform/victoriametrics/vmstack-values.yaml`：
 
 - vmagent 沒有設 `serviceScrapeSelector`、`serviceScrapeNamespaceSelector`，chart 預設 `selectAllByDefault: true` → **所有 namespace 的 VMServiceScrape 都會被選到**，不需要特定 label。
 - `scrapeClasses` 的 `default` 設了 `default: true` → **自動套用**，把 namespace 門牌上的 dept / tenant / system 貼到每筆數據上。VMServiceScrape 裡**不能**寫 `scrapeClass`，寫了別的名字會換掉它，門牌就帶不進去。
@@ -610,7 +610,7 @@ image 是手動匯入 node 的，外面沒有地方可以拉。設 `Never` 的�
 
 | | 其他 app | eqp-collector |
 |---|---|---|
-| 誰部署 | ArgoCD（`platform/applicationset.yaml`） | 人手動 `helm` |
+| 誰部署 | ArgoCD（`platform/argocd/applicationset.yaml`） | 人手動 `helm` |
 | namespace 門牌誰貼 | ArgoCD | chart 的 `namespace.yaml` |
 | image 從哪來 | Nexus，自動拉 | tar 手動匯入 node，`Never` |
 | `values.yaml` | 有 `argocd:` 區塊，`env` 是清單 | **沒有 `argocd:`**，`env` 是 key: value |

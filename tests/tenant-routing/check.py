@@ -23,7 +23,7 @@ import yaml
 CTX = "k3d-tenant-test"
 AGENT_NS = "tr-central"
 AGENT = "tenant-routing"
-SITE_FILE = "platform/site-ctsp.yaml"      # 這套 vmagent 扮演中科的 cluster
+SITE_FILE = "platform/victoriametrics/site-ctsp.yaml"      # 這套 vmagent 扮演中科的 cluster
 SITE = "ctsp"
 # 目的地 → 本機模擬的那一座在哪個 namespace。key 跟 vmstack-values.yaml 裡 remoteWrite 的 token key 一樣
 SITES = {"ctsp": "tr-central", "erlin": "tr-site2"}
@@ -42,7 +42,7 @@ CASES = {
     "typo": ("imcc", "platform"),     # 打錯。tests/validate.sh 會擋，這裡繞過它
 }
 SPOOF_NS = "tr-spoof"
-# 預期的對照。跟 platform/vmstack-values.yaml 各寫一次是刻意的：
+# 預期的對照。跟 platform/victoriametrics/vmstack-values.yaml 各寫一次是刻意的：
 # 測試從被測的檔案讀預期值的話，檔案改錯了測試也會跟著錯。
 EXPECT = {"platform": "1000", "tsid": "1001", "bsid": "1002", "icsd": "1003", "imc": "1004"}
 ACCOUNTS = ["0"] + sorted(EXPECT.values())

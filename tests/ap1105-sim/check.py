@@ -124,7 +124,7 @@ def relabel(mode):
         if mode == "single":
             # 沒有任何 url relabel 時，vmagent 可能整段不印
             return len(got) <= 1 and not any(rules), lines or ["沒有任何 url relabel 規則"]
-        return rules == want, lines + ([] if rules == want else ["跟 platform/vmstack-values.yaml 的規則不一樣"])
+        return rules == want, lines + ([] if rules == want else ["跟 platform/victoriametrics/vmstack-values.yaml 的規則不一樣"])
     return fn
 
 

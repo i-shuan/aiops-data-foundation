@@ -13,7 +13,7 @@
 #   5. kube-state-metrics                新增 metricLabelsAllowlist
 #
 # 這份每個 cluster 都一樣。廠區（site）每個 cluster 不同，另外疊一個小檔：
-#   -f platform/vmstack-values.yaml -f platform/site-ctsp.yaml      （二林的 cluster 用 site-erlin.yaml）
+#   -f platform/victoriametrics/vmstack-values.yaml -f platform/victoriametrics/site-ctsp.yaml      （二林的 cluster 用 site-erlin.yaml）
 # 沒疊的話樣本上不會有 site，而且不報錯。
 #
 # 整條資料流見 README.md。
@@ -78,7 +78,7 @@ vmagent:
     scrapeInterval: 30s
 
     externalLabels:
-      {} # cluster 由 ApplicationSet 的 helm.parameters 注入；site 由 platform/site-<廠區>.yaml 疊上來
+      {} # cluster 由 ApplicationSet 的 helm.parameters 注入；site 由 platform/victoriametrics/site-<廠區>.yaml 疊上來
 
     # ── 送不到時排隊的資料放哪 ────────────────────────────────
     # 每個目的地各有一個佇列，一座停機不影響另一座。恢復後自動補送。
@@ -101,7 +101,7 @@ vmagent:
       maxDiskUsagePerURL: 20GiB
 
     # ── 抓取：把 namespace 的 label 貼到每一筆資料上 ─────────
-    # 這些 label 由 ArgoCD（platform/applicationset.yaml）或 chart 自己的 namespace.yaml
+    # 這些 label 由 ArgoCD（platform/argocd/applicationset.yaml）或 chart 自己的 namespace.yaml
     # 依 app/<app>/k8s/values.yaml 貼到 namespace 上。vmagent 只讀 namespace 的 label，
     # 不知道 values.yaml 的存在，也不維護任何 app、namespace 清單。
     scrapeClasses:
@@ -179,7 +179,7 @@ vmagent:
     #   /insert/multitenant/prometheus/api/v1/write 是 vminsert 的標準路徑。
     # token 兩座各一把、每個 cluster 各一把：key 的名字就是目的地的廠區。
     #   兩座的 vmauth 各自發、各自撤銷，一座的 token 外洩不影響另一座。
-    # 允許的廠區（platform/site-*.yaml 可以寫的值）也是從這兩個 key 推出來的。
+    # 允許的廠區（platform/victoriametrics/site-*.yaml 可以寫的值）也是從這兩個 key 推出來的。
     remoteWrite:
       # 中科站
       - url: https://vmauth-ctsp.placeholder.invalid/insert/multitenant/prometheus/api/v1/write

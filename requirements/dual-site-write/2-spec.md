@@ -32,10 +32,10 @@ operator v0.74.0、VictoriaMetrics v1.148.0，跟 AP1105 一樣。
 
 | 設定 | 放哪 | 為什麼 |
 | --- | --- | --- |
-| 兩條 `remoteWrite`、PVC、暫存上限 | `platform/vmstack-values.yaml`，overlay 跟著 | 每個 cluster 都一樣 |
-| `site` 的值 | 每個廠區一個小檔：`platform/site-ctsp.yaml`、`platform/site-erlin.yaml`，只有 `vmagent.spec.externalLabels.site` | 每個 cluster 不一樣 |
+| 兩條 `remoteWrite`、PVC、暫存上限 | `platform/victoriametrics/vmstack-values.yaml`，overlay 跟著 | 每個 cluster 都一樣 |
+| `site` 的值 | 每個廠區一個小檔：`platform/victoriametrics/site-ctsp.yaml`、`platform/victoriametrics/site-erlin.yaml`，只有 `vmagent.spec.externalLabels.site` | 每個 cluster 不一樣 |
 
-部署時疊在一起：`-f platform/vmstack-values.yaml -f platform/site-ctsp.yaml`。
+部署時疊在一起：`-f platform/victoriametrics/vmstack-values.yaml -f platform/victoriametrics/site-ctsp.yaml`。
 
 ## 行為
 
@@ -50,15 +50,15 @@ operator v0.74.0、VictoriaMetrics v1.148.0，跟 AP1105 一樣。
 | 停機的那座恢復 | 停機期間的樣本補回來：那段時間的筆數不少於另一座的 95% |
 | 暫存超過上限 | 最舊的資料被丟掉，不報錯。⚠️ 這次不測，只寫進文件 |
 | 部署時沒帶廠區的檔 | 樣本沒有 `site`。`tests/validate.sh` 擋不到部署指令，E2E 會查沒有 `site` 的樣本數要是 0 |
-| `platform/site-*.yaml` 帶了 `site` 以外的設定 | `tests/validate.sh` FAIL |
+| `platform/victoriametrics/site-*.yaml` 帶了 `site` 以外的設定 | `tests/validate.sh` FAIL |
 | `vmstack-values.yaml` 的 `remoteWrite` 不是兩條、兩條網址一樣、沒開 `statefulMode`、沒設暫存上限 | `tests/validate.sh` FAIL |
 
 ## 邊界與限制
 
 * 輸入的合法範圍：`site` 是 `ctsp` 或 `erlin`。
-* 超出範圍時怎麼處理：`tests/validate.sh` 擋下 `platform/site-*.yaml` 裡其他的值。
+* 超出範圍時怎麼處理：`tests/validate.sh` 擋下 `platform/victoriametrics/site-*.yaml` 裡其他的值。
 * 資料量上的限制：暫存上限每個目的地 20 GiB、PVC 50 GiB，是起始值。算法寫在
-  `platform/vmstack-values.yaml`：上限 ÷ 每小時暫存量 = 撐得住的小時數。
+  `platform/victoriametrics/vmstack-values.yaml`：上限 ÷ 每小時暫存量 = 撐得住的小時數。
 
 ## 影響到哪些既有行為
 

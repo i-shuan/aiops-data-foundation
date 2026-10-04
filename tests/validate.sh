@@ -7,14 +7,14 @@
 #
 #   1. values.yaml 合法：argocd 與 observability 必填欄位、production 不可自動同步、
 #      namespace 不能被兩個 app 共用、chart 渲染得出來
-#   2. tenant 只能是允許的值，一個 namespace 一個。允許什麼直接從 platform/vmstack-values.yaml
+#   2. tenant 只能是允許的值，一個 namespace 一個。允許什麼直接從 platform/victoriametrics/vmstack-values.yaml
 #      的租戶對照（vmagent.spec.inlineRelabelConfig）讀，不另外維護清單。
 #      對照本身也檢查：先清掉進來的 vm_account_id、AccountID 不重複、兜底在最後。
 #      雙寫與暫存：remoteWrite 剛好兩條、網址和 token 不一樣、開 statefulMode、有暫存上限、PVC 裝得下。
-#      platform/site-<廠區>.yaml 只能有 site，值從 remoteWrite 的 token key 推出，不另外維護清單。
-#      platform/vmagent-routing-overlay.yaml 的那幾段要跟 vmstack-values.yaml 一模一樣
+#      platform/victoriametrics/site-<廠區>.yaml 只能有 site，值從 remoteWrite 的 token key 推出，不另外維護清單。
+#      platform/victoriametrics/vmagent-routing-overlay.yaml 的那幾段要跟 vmstack-values.yaml 一模一樣
 #      （只有 url 可以不同），而且不能帶那幾段以外的設定
-#   3. platform/applicationset.yaml 的 templatePatch 渲染出來的 namespace label，
+#   3. platform/argocd/applicationset.yaml 的 templatePatch 渲染出來的 namespace label，
 #      要跟 values.yaml 寫的一模一樣；沒寫的欄位不能變成空字串的 label
 #
 # app 有兩種，看 chart 自己的檔案分辨，不另外維護清單：
@@ -34,9 +34,9 @@ python - <<'PY'
 import copy, glob, io, os, re, subprocess, sys, tempfile
 import yaml
 
-APPSET = "platform/applicationset.yaml"
-VMSTACK = "platform/vmstack-values.yaml"
-OVERLAY = "platform/vmagent-routing-overlay.yaml"
+APPSET = "platform/argocd/applicationset.yaml"
+VMSTACK = "platform/victoriametrics/vmstack-values.yaml"
+OVERLAY = "platform/victoriametrics/vmagent-routing-overlay.yaml"
 ARGOCD_FIELDS = ["namespace", "project", "environment", "owner", "criticality", "autoSync"]
 OBS_FIELDS = ["dept", "tenant", "system"]
 LABEL_VALUE = re.compile(r"^([A-Za-z0-9]([-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?)?$")
@@ -152,7 +152,7 @@ def writes(spec):
 
 
 def site_file_errors(path, doc, sites):
-    """platform/site-<廠區>.yaml：只能有 vmagent.spec.externalLabels.site，值要跟檔名一樣。"""
+    """platform/victoriametrics/site-<廠區>.yaml：只能有 vmagent.spec.externalLabels.site，值要跟檔名一樣。"""
     name = os.path.basename(path)[len("site-"):-len(".yaml")]
     labels = (((doc or {}).get("vmagent") or {}).get("spec") or {}).get("externalLabels") or {}
     if doc != {"vmagent": {"spec": {"externalLabels": {"site": labels.get("site")}}}}:
@@ -345,12 +345,12 @@ report(not WRITE_ERRORS, "%s 的雙寫與暫存（目的地：%s）" % (VMSTACK,
 placeholder = [rw["url"] for rw in vmstack["vmagent"]["spec"]["remoteWrite"] if ".invalid/" in str(rw.get("url"))]
 if placeholder:
     print("  注意  remoteWrite 還有 %d 個網址是佔位（.invalid），確認前不能上線" % len(placeholder))
-site_files = {p.replace("\\", "/"): load(p) for p in sorted(glob.glob("platform/site-*.yaml"))}
+site_files = {p.replace("\\", "/"): load(p) for p in sorted(glob.glob("platform/victoriametrics/site-*.yaml"))}
 for path, doc in site_files.items():
     errs = site_file_errors(path, doc, SITES)
     report(not errs, path, errs)
-missing = [x for x in SITES if "platform/site-%s.yaml" % x not in site_files]
-report(not missing, "每個廠區都有 platform/site-<廠區>.yaml", ["缺 %s" % ", ".join(missing)] if missing else [])
+missing = [x for x in SITES if "platform/victoriametrics/site-%s.yaml" % x not in site_files]
+report(not missing, "每個廠區都有 platform/victoriametrics/site-<廠區>.yaml", ["缺 %s" % ", ".join(missing)] if missing else [])
 errs = overlay_errors(overlay, vmstack)
 report(not errs, "%s 跟 %s 一致（url 除外）" % (OVERLAY, VMSTACK), errs)
 
@@ -398,10 +398,10 @@ for name, fn in bad_writes:
 # 自我檢查：廠區檔寫錯一定要被抓到，寫對要放行
 site_doc = lambda **labels: {"vmagent": {"spec": {"externalLabels": labels}}}
 bad_sites = [
-    ("site 檔多帶別的設定", True, "platform/site-ctsp.yaml", site_doc(site="ctsp", cluster="x")),
-    ("site 的值不在清單裡", True, "platform/site-taipei.yaml", site_doc(site="taipei")),
-    ("site 檔名跟值不一致", True, "platform/site-ctsp.yaml", site_doc(site="erlin")),
-    ("site 檔寫對", False, "platform/site-erlin.yaml", site_doc(site="erlin")),
+    ("site 檔多帶別的設定", True, "platform/victoriametrics/site-ctsp.yaml", site_doc(site="ctsp", cluster="x")),
+    ("site 的值不在清單裡", True, "platform/victoriametrics/site-taipei.yaml", site_doc(site="taipei")),
+    ("site 檔名跟值不一致", True, "platform/victoriametrics/site-ctsp.yaml", site_doc(site="erlin")),
+    ("site 檔寫對", False, "platform/victoriametrics/site-erlin.yaml", site_doc(site="erlin")),
 ]
 for name, should_fail, path, doc in bad_sites:
     errs = site_file_errors(path, doc, SITES)

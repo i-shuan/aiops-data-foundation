@@ -11,7 +11,7 @@
 # 本機：    一套 vmagent（扮演中科的 cluster）→ 本機兩座（backends.yaml）
 #
 # 被測的設定取自正式檔案，只換位址：
-#   - vmagent 的分流、雙寫、暫存取自 platform/vmstack-values.yaml 加 platform/site-ctsp.yaml，只換 remoteWrite 的 url
+#   - vmagent 的分流、雙寫、暫存取自 platform/victoriametrics/vmstack-values.yaml 加 platform/victoriametrics/site-ctsp.yaml，只換 remoteWrite 的 url
 #   - 測試 app 用 app/eqp-collector/k8s，只換 namespace 和 observability.tenant
 #
 # 情境（check.py 的 CASES）：四個租戶、沒貼、打錯，再加一個自帶假 label 想冒充別人的 pod。
@@ -26,7 +26,7 @@ cd "$(dirname "$0")/../.."
 CLUSTER=tenant-test
 CTX=k3d-$CLUSTER
 HERE=tests/tenant-routing
-VALUES=${VMSTACK_VALUES:-platform/vmstack-values.yaml}
+VALUES=${VMSTACK_VALUES:-platform/victoriametrics/vmstack-values.yaml}
 APP_IMAGE=equipment-collector:test
 MODE=${1:-routing}
 
@@ -86,7 +86,7 @@ done
 k -n tr-spoof rollout status deploy/spoof --timeout=120s >/dev/null
 echo "  ready"
 
-step "3. vmagent：設定取自 $VALUES 加 platform/site-ctsp.yaml"
+step "3. vmagent：設定取自 $VALUES 加 platform/victoriametrics/site-ctsp.yaml"
 python "$HERE/check.py" agent "$VALUES" | k apply -f - >/dev/null
 check pruned "$VALUES"
 sleep 10    # 讓 operator 先把 Deployment / StatefulSet 換好，不然會等到舊的那個 pod

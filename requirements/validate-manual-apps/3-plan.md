@@ -43,6 +43,6 @@
 | 把 `validate.sh` 裡內嵌的 Python 拆成獨立的 `.py` | 重構，跟這個需求無關 |
 | 把第 3 段的 traceback 改成一般的 FAIL | spec 已列為不涵蓋 |
 | 改 `app/eqp-collector/k8s/` 底下任何檔 | 這次只改檢查，不改被檢查的東西 |
-| 改 `platform/applicationset.yaml` | ArgoCD 那條路這次不做 |
+| 改 `platform/argocd/applicationset.yaml` | ArgoCD 那條路這次不做 |
 | 順手修 `README.md` 既有的 md 格式違規 | 另一個改動。這次只確保新加的句子不增加違規數 |
 | `group` 改 `tenant` | 總綱拆法第 2 項 |

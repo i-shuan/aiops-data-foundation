@@ -1,7 +1,7 @@
 """從正式設定產生 E2E 要用的東西。所有測試用的設定都從 platform/ 的正式檔案來，只換位址。
 
-    python gen.py vmagent     測試用 VMAgent：取自 platform/vmstack-values.yaml，只換 remoteWrite 的 URL
-    python gen.py appset      測試用 ApplicationSet：取自 platform/applicationset.yaml，只換 repoURL
+    python gen.py vmagent     測試用 VMAgent：取自 platform/victoriametrics/vmstack-values.yaml，只換 remoteWrite 的 URL
+    python gen.py appset      測試用 ApplicationSet：取自 platform/argocd/applicationset.yaml，只換 repoURL
     python gen.py repo        測試用 git repo 的內容（tar，寫到 stdout）
 
 測試用 git repo 裡的 app，values.yaml 是從正式的 app/metrics-sim/k8s/values.yaml

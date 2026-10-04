@@ -9,8 +9,8 @@
 # 本機：    vmagent → 本機 vmauth → VMSingle it / imc / platform
 #
 # 所有設定都取自 platform/ 的正式檔案，只換位址：
-#   - vmagent 取自 platform/vmstack-values.yaml，只換 remoteWrite 的 URL
-#   - ApplicationSet 取自 platform/applicationset.yaml，只換 repoURL（指向本機 git server）
+#   - vmagent 取自 platform/victoriametrics/vmstack-values.yaml，只換 remoteWrite 的 URL
+#   - ApplicationSet 取自 platform/argocd/applicationset.yaml，只換 repoURL（指向本機 git server）
 #   - 測試 app 的 values.yaml 取自 app/metrics-sim/k8s/values.yaml，只換 namespace、映像、observability
 #
 # 全部對 exit 0，任何一項不對 exit 1。VMSTACK_VALUES=<改壞的複本> 可以確認測試抓得到錯。
@@ -40,7 +40,7 @@ kubectl -n route-test rollout status deploy/vmsingle-it deploy/vmsingle-imc depl
   deploy/vmauth-test deploy/git-server --timeout=120s >/dev/null
 echo "OK"
 
-step "2. vmagent（取自 platform/vmstack-values.yaml）"
+step "2. vmagent（取自 platform/victoriametrics/vmstack-values.yaml）"
 python gen.py vmagent > "$tmp/vmagent.yaml"
 kubectl apply -f "$(native "$tmp/vmagent.yaml")" >/dev/null
 until kubectl -n route-test get deploy vmagent-under-test >/dev/null 2>&1; do sleep 2; done
@@ -67,7 +67,7 @@ python gen.py repo | kubectl -n route-test exec -i "$pod" -- sh -c '
   git clone -q --bare /srv/work /srv/git/repo.git
   echo "commit $(git rev-parse --short HEAD)：$(ls app | tr "\n" " ")"'
 
-step "5. ArgoCD ApplicationSet（取自 platform/applicationset.yaml）"
+step "5. ArgoCD ApplicationSet（取自 platform/argocd/applicationset.yaml）"
 python gen.py appset > "$tmp/appset.yaml"
 kubectl apply -f "$(native "$tmp/appset.yaml")" >/dev/null
 deadline=$((SECONDS + 300))

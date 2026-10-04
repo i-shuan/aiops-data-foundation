@@ -7,19 +7,19 @@
 
 做完 `./tests/validate.sh` 要 `PASS`，而且每條新檢查改壞都會 FAIL。
 
-1. `platform/vmstack-values.yaml`：`remoteWrite` 改成兩條，各帶自己的 token（`vmauth-token` 的 `ctsp`、`erlin`）。兩個網址都是佔位，檔案裡標明。
+1. `platform/victoriametrics/vmstack-values.yaml`：`remoteWrite` 改成兩條，各帶自己的 token（`vmauth-token` 的 `ctsp`、`erlin`）。兩個網址都是佔位，檔案裡標明。
 2. 同一份：開 `statefulMode`，`statefulStorage` 要 50 GiB，`remoteWriteSettings.maxDiskUsagePerURL` 設 20 GiB。旁邊寫暫存大小的算法與要看的指標。
-3. 新增 `platform/site-ctsp.yaml`、`platform/site-erlin.yaml`，各只有 `vmagent.spec.externalLabels.site`。
-4. `platform/vmagent-routing-overlay.yaml`：跟著 `vmstack-values.yaml` 重新產生，多帶三個欄位。
+3. 新增 `platform/victoriametrics/site-ctsp.yaml`、`platform/victoriametrics/site-erlin.yaml`，各只有 `vmagent.spec.externalLabels.site`。
+4. `platform/victoriametrics/vmagent-routing-overlay.yaml`：跟著 `vmstack-values.yaml` 重新產生，多帶三個欄位。
 5. `tests/validate.sh`：分流檢查改成兩條 `remoteWrite`，加上網址不能一樣、token 的 key 不能一樣、`statefulMode` 要開、暫存上限要設、PVC 要裝得下兩個目的地的上限。
-6. 同一份：檢查 `platform/site-*.yaml` 只有 `site`、值在允許的清單裡、檔名跟值一致。
+6. 同一份：檢查 `platform/victoriametrics/site-*.yaml` 只有 `site`、值在允許的清單裡、檔名跟值一致。
 7. 每條新檢查加「改壞一定被擋下」的自我檢查。
 
 | 檔案 | 改什麼 |
 | --- | --- |
-| `platform/vmstack-values.yaml` | 步驟 1、2 |
-| `platform/site-ctsp.yaml`、`platform/site-erlin.yaml` | 新增 |
-| `platform/vmagent-routing-overlay.yaml` | 步驟 4 |
+| `platform/victoriametrics/vmstack-values.yaml` | 步驟 1、2 |
+| `platform/victoriametrics/site-ctsp.yaml`、`platform/victoriametrics/site-erlin.yaml` | 新增 |
+| `platform/victoriametrics/vmagent-routing-overlay.yaml` | 步驟 4 |
 | `tests/validate.sh` | 步驟 5 ~ 7 |
 
 ⚠️ 動到 `tests/`：需求 2 的自我檢查「`remoteWrite` 兩條要被擋下」會改成
@@ -28,7 +28,7 @@
 ## 第二批：k3d 實測
 
 1. `tests/tenant-routing/backends.yaml`：加第二座（`tr-site2`：VictoriaMetrics cluster 加 vmauth），token 改成兩個 key，偽造的 pod 多自稱一個 `site`。
-2. `check.py`：產生 VMAgent 時疊上 `platform/site-ctsp.yaml`，兩條網址各換成本機的兩座。
+2. `check.py`：產生 VMAgent 時疊上 `platform/victoriametrics/site-ctsp.yaml`，兩條網址各換成本機的兩座。
 3. `check.py`：分流檢查每個情境兩座都查，要一樣；再查每筆樣本的 `site`，以及沒有 `site` 的樣本數是 0。
 4. `check.py`、`run.sh`：vmagent 變成 StatefulSet 之後，找 pod 與等它就緒的方式要改。
 5. `run.sh outage`：停掉站 1 的入口 → 確認站 2 照常 → 中間刪掉 vmagent 的 pod → 恢復 → 比兩座在停機期間的筆數。
