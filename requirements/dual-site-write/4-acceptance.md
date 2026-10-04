@@ -31,9 +31,9 @@
 
 | # | 指令 | 預期輸出 | 結果 |
 | --- | --- | --- | --- |
-| 3-1 | `grep -n -E "一條 .?remoteWrite\|只有一條" README.md applications/eqp-collector/README.md` | 沒有殘留「只有一條」的說法 | ☐ |
-| 3-2 | `python tools/check-md-style.py README.md applications/eqp-collector/README.md` | 違規數不比改之前多（4 和 4） | ☐ |
-| 3-3 | `python tools/check-md-style.py requirements/dual-site-write/*.md .agents/project/commands.md` | `✅ 全部符合` | ☐ |
+| 3-1 | `grep -n -E "一條 .?remoteWrite\|只有一條" README.md applications/eqp-collector/README.md` | 沒有殘留「只有一條」的說法 | ☑ |
+| 3-2 | `python tools/check-md-style.py README.md applications/eqp-collector/README.md` | 違規數不比改之前多（4 和 4） | ☑ |
+| 3-3 | `python tools/check-md-style.py requirements/dual-site-write/*.md .agents/project/commands.md` | `✅ 全部符合` | ☑ |
 
 ## 實作時發現的
 
@@ -66,6 +66,6 @@
 
 | 改了什麼 | 動到哪份文件 | 狀態 |
 | --- | --- | --- |
-| 一條 `remoteWrite` 變兩條、多了 `site`、PVC | `README.md`、`applications/eqp-collector/README.md` | ☐ |
-| 新的 `run.sh outage` | `.agents/project/commands.md`、`README.md` 的 Tests | ☐ |
-| 「下一步」變成已實測 | `requirements/multi-site-metrics-write/architecture.html` | ☐ |
+| 一條 `remoteWrite` 變兩條、多了 `site`、PVC | `README.md`、`applications/eqp-collector/README.md` | ☑ |
+| 新的 `run.sh outage` | `.agents/project/commands.md`、`README.md` 的 Tests | ☑ |
+| 「下一步」變成已實測 | `requirements/multi-site-metrics-write/architecture.html` | ☑ |

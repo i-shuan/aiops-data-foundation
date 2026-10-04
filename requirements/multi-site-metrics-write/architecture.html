@@ -464,7 +464,7 @@ section { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
 .modes button[aria-pressed="true"] { border-color: var(--fg); box-shadow: inset 0 0 0 1px var(--fg); font-weight: 500; }
 .modes button.danger[aria-pressed="true"] { border-color: var(--bad); box-shadow: inset 0 0 0 1px var(--bad); color: var(--bad); }
 button:focus-visible { outline: 2px solid var(--tsid); outline-offset: 2px; }
-.banner { font-size: 14px; font-weight: 500; color: var(--warn); border: 1px dashed var(--warn); border-radius: 4px; padding: 6px 12px; align-self: flex-start; }
+.banner { font-size: 14px; color: var(--muted); border-left: 3px solid var(--ok); padding: 2px 12px; max-width: 46em; }
 .canvas { height: 540px; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
 .canvas.short { height: 380px; }
 .explain { min-height: 3.5em; font-size: 15px; }
@@ -514,9 +514,9 @@ footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line)
 <div class="page">
 
 <header>
-  <div class="eyebrow">AIOPS DATA FOUNDATION ・ 2026-10-04</div>
+  <div class="eyebrow">AIOPS DATA FOUNDATION ・ 2026-10-04 更新</div>
   <h1>各部門的監控資料，自動進到自己的租戶</h1>
-  <p class="lead">同一個 K8s cluster 裡住著好幾個部門的系統。每個系統只要在自己的設定檔寫一個部門代號，它的監控資料就會被送進該部門專屬的資料空間，別的部門看不到。</p>
+  <p class="lead">同一個 K8s cluster 裡住著好幾個部門的系統。每個系統只要在自己的設定檔寫一個部門代號，它的監控資料就會被送進該部門專屬的資料空間，別的部門看不到。資料同時寫到中科、二林兩站，任何一站停機都不會掉。</p>
 </header>
 
 <section>
@@ -528,7 +528,7 @@ footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line)
   <h2>這樣做的三個重點</h2>
   <ul class="points">
     <li><strong>系統不用知道資料送去哪</strong><span>各系統只在設定檔寫一個部門代號。要換部門，改那一行，程式不用動。</span></li>
-    <li><strong>加部門不用加線</strong><span>不管幾個部門，每個 cluster 都只有一條線往中央送。新增部門是在對照表加一列。</span></li>
+    <li><strong>加部門不用加線</strong><span>每個 cluster 往中央的線只跟站數有關：兩站就是兩條。新增部門是在對照表加一列。</span></li>
     <li><strong>不能冒充別的部門</strong><span>程式自己宣稱的部門代號會被丟掉，只認 namespace 上掛的門牌。這一點實際測過。</span></li>
   </ul>
 </section>
@@ -554,15 +554,33 @@ footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line)
 </section>
 
 <section>
+  <h2>兩廠雙寫的實測</h2>
+  <p>實際關掉其中一站的入口，中間再把 vmagent 重啟一次，然後恢復，比較兩站收到的筆數。</p>
+  <div class="tablewrap">
+  <table>
+    <thead><tr><th>測了什麼</th><th>結果</th><th></th></tr></thead>
+    <tbody>
+      <tr><td>平常兩站收到的資料</td><td>七種情況完全一樣，每筆都標著廠區</td><td><span class="pill done">符合</span></td></tr>
+      <tr><td>中科站停機時的二林站</td><td>照常收，筆數不變</td><td><span class="pill done">符合</span></td></tr>
+      <tr><td>停機中重啟 vmagent</td><td>排隊的資料還在，繼續累積</td><td><span class="pill done">符合</span></td></tr>
+      <tr><td>恢復後的中科站</td><td class="n">30 筆，二林站 30 筆</td><td><span class="pill done">補回來了</span></td></tr>
+      <tr><td>對照：不把暫存放磁碟</td><td class="n">15 筆，二林站 36 筆</td><td><span class="pill later">會掉資料</span></td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="note">最後一列是故意拿掉磁碟暫存的對照組，用來確認「重啟不掉資料」靠的確實是那顆磁碟。</p>
+</section>
+
+<section>
   <h2>進度</h2>
   <div class="tablewrap">
   <table>
     <thead><tr><th>項目</th><th>內容</th><th>狀態</th></tr></thead>
     <tbody>
       <tr><td>檢查工具</td><td>設定檔寫錯在送出前就擋下，不需要 cluster</td><td><span class="pill done">完成</span></td></tr>
-      <tr><td>依部門分租戶</td><td>流程圖「現況」的整條路，含防冒充與實測</td><td><span class="pill done">完成，本機驗證</span></td></tr>
-      <tr><td>兩廠雙寫</td><td>廠區標記、同時寫兩站、斷線暫存</td><td><span class="pill next">下一個</span></td></tr>
-      <tr><td>AP1105 換上新設定</td><td>在已經運作的環境套用，舊資料留在原處</td><td><span class="pill later">之後</span></td></tr>
+      <tr><td>依部門分租戶</td><td>第一張流程圖的整條路，含防冒充與實測</td><td><span class="pill done">完成，本機驗證</span></td></tr>
+      <tr><td>兩廠雙寫</td><td>廠區標記、同時寫兩站、斷線暫存與補送</td><td><span class="pill done">完成，本機驗證</span></td></tr>
+      <tr><td>AP1105 換上新設定</td><td>在已經運作的環境套用，舊資料留在原處</td><td><span class="pill next">下一個</span></td></tr>
     </tbody>
   </table>
   </div>
@@ -574,8 +592,10 @@ footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line)
   <table>
     <thead><tr><th>事項</th><th>找誰</th><th>影響</th></tr></thead>
     <tbody>
-      <tr><td>中央 vmauth 實際的寫入網址</td><td>Infra</td><td>目前填的是標準寫法，要對過才能上正式環境</td></tr>
-      <tr><td>每個 cluster 各發一把通行證</td><td>Infra</td><td>某個 cluster 出事時，可以只停掉那一把</td></tr>
+      <tr><td>兩站 vmauth 實際的寫入網址</td><td>Infra</td><td>目前兩個都是佔位，確認前不能上正式環境</td></tr>
+      <tr><td>每個 cluster、每一站各發一把通行證</td><td>Infra</td><td>某個 cluster 或某一站出事時，可以只停掉那一把</td></tr>
+      <tr><td>每個 cluster 給 vmagent 50 GiB 的磁碟</td><td>Infra、各 cluster 的管理者</td><td>沒有可用的儲存空間時 vmagent 起不來，那個 cluster 的監控會停</td></tr>
+      <tr><td>暫存要撐多久、要多大</td><td>要在正式的 cluster 量</td><td>目前 20 GiB 是起始值，目標撐 8 小時，還沒有實測依據</td></tr>
       <tr><td>部門清單與租戶編號</td><td>各部門</td><td>目前是 TSID、BSID、ICSD、IMC 四個加平台</td></tr>
     </tbody>
   </table>
@@ -583,7 +603,7 @@ footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line)
   <p class="note">要注意的限制：中央只檢查通行證，不檢查資料上的租戶編號。部門之間的隔離是靠每個 cluster 上的 vmagent 設定維持的，所以那份設定的檢查與測試是必要的防線。目前的結果都來自本機測試環境，還沒有在正式環境執行。</p>
 </section>
 
-<footer>範圍只到「資料寫進中央」。查詢端（Grafana 怎麼依部門看資料）與 log 不在這次的範圍內。</footer>
+<footer>範圍只到「資料寫進中央」。查詢端（Grafana 怎麼依部門看資料、剛恢復的那一站在補送完成前資料不完整要怎麼處理）與 log 不在這次的範圍內。</footer>
 
 </div>
 
@@ -621,7 +641,7 @@ footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line)
   ];
   var NOW_DETAIL = {
     vmagent: ['vmagent', '平台的收集程式，每個 cluster 一套。各部門的系統自己不往外送資料，全部由它定時去抓，再統一送到中央。'],
-    vmauth: ['vmauth', '中央的門口。只檢查通行證，確認這批資料是哪個 cluster 送來的。它不檢查資料上的租戶編號，所以部門隔離靠的是 vmagent 那三步。'],
+    vmauth: ['vmauth', '中央的門口，兩站各有一個、各認各的通行證。只確認這批資料是哪個 cluster 送來的，不檢查資料上的租戶編號，所以部門隔離靠的是 vmagent 那幾步。'],
     '1000': ['平台租戶（1000）', '節點、系統元件，以及沒掛門牌或寫錯的 namespace 都進這裡。平台團隊看這個租戶就能掌握各 cluster 的基礎狀況。']
   };
 
@@ -632,7 +652,7 @@ footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line)
       { id: 'g-cluster', type: 'group', position: { x: 0, y: 0 }, style: { width: 250, height: 430 }, data: {}, selectable: false },
       { id: 'l-cluster', className: 'glabel', parentNode: 'g-cluster', position: { x: 14, y: 12 }, style: { width: 228 }, data: { label: 'K8s cluster（多個部門混住）' }, selectable: false },
       { id: 'g-vm', type: 'group', position: { x: 980, y: 0 }, style: { width: 220, height: 430 }, data: {}, selectable: false },
-      { id: 'l-vm', className: 'glabel', parentNode: 'g-vm', position: { x: 16, y: 12 }, style: { width: 190 }, data: { label: 'VictoriaMetrics（中央）' }, selectable: false }
+      { id: 'l-vm', className: 'glabel', parentNode: 'g-vm', position: { x: 16, y: 12 }, style: { width: 190 }, data: { label: 'VictoriaMetrics（兩站各存一份）' }, selectable: false }
     ];
     SOURCES.forEach(function (s) {
       var on = !focus || focus === s.id;
@@ -644,13 +664,14 @@ footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line)
       });
     });
     nodes.push({
-      id: 'vmagent', position: { x: 330, y: 62 }, sourcePosition: 'right', targetPosition: 'left', style: { width: 230 },
+      id: 'vmagent', position: { x: 330, y: 36 }, sourcePosition: 'right', targetPosition: 'left', style: { width: 230 },
       data: { label: h('div', null,
         h('div', { className: 'n-title' }, 'vmagent'),
         h('div', { className: 'n-sub' }, '平台的收集程式，每個 cluster 一套'),
         h('div', { className: 'n-step' }, h('div', { className: 'n-title' }, '① 抓資料時'), h('div', { className: 'n-sub' }, '把 namespace 的門牌貼到每筆資料上')),
         h('div', { className: 'n-step' + (broken ? ' off' : '') }, h('div', { className: 'n-title' }, '② 送出前'), h('div', { className: 'n-sub' }, '丟掉程式自己寫的部門代號與租戶編號')),
-        h('div', { className: 'n-step' }, h('div', { className: 'n-title' }, '③ 照對照表'), h('div', { className: 'n-sub' }, '把門牌換成租戶編號，對不到的算平台'))
+        h('div', { className: 'n-step' }, h('div', { className: 'n-title' }, '③ 照對照表'), h('div', { className: 'n-sub' }, '把門牌換成租戶編號，對不到的算平台')),
+        h('div', { className: 'n-step' }, h('div', { className: 'n-title' }, '④ 補上廠區'), h('div', { className: 'n-sub' }, '每筆資料標明來自中科或二林'))
       ) }
     });
     nodes.push({
@@ -685,20 +706,20 @@ footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line)
       edges.push({ id: 'd-' + s.id, source: 'vmauth', target: destOf(s), animated: on,
         style: { stroke: stroke, strokeWidth: 2.5, opacity: on ? 1 : .15 } });
     });
-    edges.push({ id: 'trunk', source: 'vmagent', target: 'vmauth', animated: true, label: '一條線，帶通行證',
+    edges.push({ id: 'trunk', source: 'vmagent', target: 'vmauth', animated: true, label: '同一份送兩站，各帶通行證',
       style: { stroke: V('fg'), strokeWidth: 2.5 }, markerEnd: { type: 'arrowclosed' } });
     return { nodes: nodes, edges: edges };
   }
 
   // ---------- 下一步（規劃中） ----------
   var PLAN_MODES = [
-    { id: 'normal', label: '平常', text: '兩個廠區的 vmagent 都把同一份資料同時寫到中科站和二林站。' },
-    { id: 'site1',  label: '中科站停機', danger: true, text: '往中科站的資料送不到，先存在各 cluster 本機，等中科站恢復後補送。往二林站的照常。' },
-    { id: 'split',  label: '跨廠網路中斷', danger: true, text: '跨廠的兩條線都斷：中科寫不到二林站，二林也寫不到中科站，各自先存本機。同廠的照常。' }
+    { id: 'normal', label: '平常', text: '每個 cluster 的 vmagent 把同一份資料同時寫到中科站和二林站。實測：七種情況在兩站的結果完全一樣。' },
+    { id: 'site1',  label: '中科站停機', danger: true, text: '往中科站的資料送不到，先存在 cluster 本機的磁碟，恢復後補送；往二林站的照常。實測：停機 116 秒、中間還重啟了 vmagent，恢復後中科站補回 30 筆，跟二林站的 30 筆一樣。' },
+    { id: 'split',  label: '跨廠網路中斷', danger: true, text: '跨廠的兩條線都斷，各自先存本機，同廠的照常。這個情境沒有另外實測：對 vmagent 來說跟「那一座送不到」是同一件事，由上一個情境涵蓋。' }
   ];
   var PLAN_DETAIL = {
-    'a-ctsp': ['中科的 cluster', '每個 cluster 的 vmagent 設定都一樣，只多兩個目的地。廠區之間互不相依。'],
-    'a-erlin': ['二林的 cluster', '每個 cluster 的 vmagent 設定都一樣，只多兩個目的地。廠區之間互不相依。'],
+    'a-ctsp': ['中科的 cluster', '實測用的就是這一套。送不到的資料存在它自己的磁碟上，每個目的地各排各的隊，上限 20 GiB。'],
+    'a-erlin': ['二林的 cluster', '設定跟中科的一樣，只差廠區標記。本機沒有另外起一套來測。'],
     'v-ctsp': ['中科站', '兩站存的是同一份資料。任一站停機時另一站仍然完整。'],
     'v-erlin': ['二林站', '兩站存的是同一份資料。任一站停機時另一站仍然完整。']
   };
@@ -750,9 +771,11 @@ footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line)
 
     return h('div', { style: { display: 'flex', flexDirection: 'column', gap: 12 } },
       h(Modes, { className: 'tabs', label: '要看哪一張圖', prefix: 'tab-', value: view,
-        items: [{ id: 'now', label: '現況（已實測）' }, { id: 'plan', label: '下一步：兩廠雙寫（規劃中）' }],
+        items: [{ id: 'now', label: '依部門分租戶' }, { id: 'plan', label: '兩廠雙寫' }],
         onChange: function (v) { setView(v); setPicked(null); } }),
-      isNow ? null : h('div', { className: 'banner' }, '規劃中，尚未實作。以下是設計上預期的行為，還沒有實測。'),
+      h('div', { className: 'banner' }, isNow
+        ? '已在本機測試環境實測。'
+        : '已在本機測試環境實測：一套 vmagent（扮演中科的 cluster）加兩座模擬的中央。二林的 cluster 設定相同、只差廠區標記，沒有另外起一套。'),
       h(Modes, { className: 'modes', label: '情境', prefix: 'mode-' + view + '-', value: mode, items: modes,
         onChange: function (m) { (isNow ? setNowMode : setPlanMode)(m); setPicked(null); } }),
       h('div', { className: 'canvas' + (isNow ? '' : ' short') },

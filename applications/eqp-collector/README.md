@@ -61,7 +61,7 @@
 ⑥ 既有的 vmagent（平台的，不是這次建的）
      每 30 秒來抓一次，順便把門牌上的 dept / tenant / system 貼到每筆數據上
      送出前照對照表把 tenant 換成租戶編號：imc → 1004；對不到的一律當成 platform → 1000
-     全部走同一條線、帶這個 cluster 自己的 token 送出
+     同一份資料往中科站、二林站各送一份，各帶各的 token
         │
         ▼
 ⑦ 中央 vmauth（別人的，不動）
@@ -107,7 +107,7 @@
 | metrics | 程式定時吐出的數字，例如溫度、收值成功次數 |
 | vmagent | 平台的收集程式：去各程式抓 metrics，再依 label 轉送 |
 | VMServiceScrape | 告訴 vmagent「這個 Service 要抓」的登記單 |
-| remoteWrite | vmagent 把資料送出去的那條線。平台只設一條，租戶靠每筆數據上的編號分 |
+| remoteWrite | vmagent 把資料送出去的那條線。平台設兩條：中科站、二林站各一條，送的是同一份。租戶靠每筆數據上的編號分 |
 | vmauth | 中央的門口，看 token 確認是哪個 cluster 送來的 |
 | tenant | 一個部門專屬的資料庫空間，彼此看不到 |
 | token | 這個 cluster 寫入中央用的密碼，每個 cluster 一把。**程式和這個 chart 都不碰 token** |
@@ -215,7 +215,7 @@ chart 會自動擋下這些錯誤，部署前就失敗，不會帶著錯誤上�
 - [ ] AP1105 上 `kubectl get nodes` 跑得動，`helm version` 有東西
 - [ ] cluster 已經有 VictoriaMetrics operator 和 vmagent（Step 4、Step 6-8 會確認）
 - [ ] 那台 vmagent 用的是 repo 的 [`platform/vmstack-values.yaml`](../../platform/vmstack-values.yaml)（Step 6-8 會確認）
-- [ ] vmagent 所在 namespace 有 `vmauth-token` Secret，裡面有 `token` 這個 key（這個 cluster 自己的那一把）
+- [ ] vmagent 所在 namespace 有 `vmauth-token` Secret，裡面有 `ctsp`、`erlin` 兩個 key（兩座各發給這個 cluster 的那一把）
 
 ### Step 1：把檔案放上 AP1105
 
@@ -594,7 +594,7 @@ image 是手動匯入 node 的，外面沒有地方可以拉。設 `Never` 的�
 
 - vmagent 沒有設 `serviceScrapeSelector`、`serviceScrapeNamespaceSelector`，chart 預設 `selectAllByDefault: true` → **所有 namespace 的 VMServiceScrape 都會被選到**，不需要特定 label。
 - `scrapeClasses` 的 `default` 設了 `default: true` → **自動套用**，把 namespace 門牌上的 dept / tenant / system 貼到每筆數據上。VMServiceScrape 裡**不能**寫 `scrapeClass`，寫了別的名字會換掉它，門牌就帶不進去。
-- 依 `tenant` 填租戶編號（`vm_account_id`），是 vmagent 的 `inlineRelabelConfig` 做的；送出去只有一條 `remoteWrite`。
+- 依 `tenant` 填租戶編號（`vm_account_id`），是 vmagent 的 `inlineRelabelConfig` 做的；送出去是兩條 `remoteWrite`，中科站、二林站各一條。
 
 **為什麼有 securityContext？**
 有些 cluster（例如開了 CIS 設定的 RKE2）會強制 Pod 用非 root 身分跑。先設好，這種 cluster 也放得進去。程式本來就不需要 root。
