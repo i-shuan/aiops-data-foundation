@@ -13,11 +13,11 @@
 
 | 檔案 | 改什麼 |
 | --- | --- |
-| `applications/mes-dispatch/helm/values.yaml` | `tenant: icsd` |
-| `applications/yms-sim/helm/values.yaml` | `tenant: imc` |
-| `applications/eqp-collector/helm/values.yaml` | `tenant: imc` |
-| `applications/metrics-sim/helm/values.yaml` | `tenant: platform` |
-| `applications/eqp-collector/helm/templates/namespace.yaml` | 欄位清單 |
+| `app/mes-dispatch/k8s/values.yaml` | `tenant: icsd` |
+| `app/yms-sim/k8s/values.yaml` | `tenant: imc` |
+| `app/eqp-collector/k8s/values.yaml` | `tenant: imc` |
+| `app/metrics-sim/k8s/values.yaml` | `tenant: platform` |
+| `app/eqp-collector/k8s/templates/namespace.yaml` | 欄位清單 |
 | `platform/applicationset.yaml` | 欄位清單 |
 | `platform/vmstack-values.yaml` | 抓取 relabel、allowlist |
 | `platform/vmagent-routing-overlay.yaml` | 跟上面一致 |
@@ -41,7 +41,7 @@
 | `platform/vmagent-routing-overlay.yaml` | 步驟 4 |
 | `tests/validate.sh` | 步驟 5 |
 | `README.md` | 分流說明、`values.yaml` 範例、Known limitations |
-| `applications/eqp-collector/README.md` | `group` 的 30 處 |
+| `app/eqp-collector/README.md` | `group` 的 30 處 |
 | `.agents/project/commands.md` | `tests/routing`、`tests/ap1105-sim` 標為已過期 |
 
 ## 第三批：k3d 實測
@@ -68,7 +68,7 @@
 | --- | --- | --- |
 | operator v0.74.0 的 VMAgent CRD 不認得全域 relabel 的欄位，被默默裁掉 | 第三批用 server-side dry-run 比對送進去和存下來的 spec，不用 `kubectl explain` | 改成寫在每條 `remoteWrite` 的 relabel 裡。第二批的 YAML 要重寫 |
 | 這個版本的 vminsert 不支援從 label 取 AccountID | 第三批：四個租戶的資料全部出現在 AccountID 0 | 退回每個租戶一條 `remoteWrite`。這會推翻 spec，要回頭重談 |
-| 偽造用的小 pod 需要一個能回固定文字的 image | `eqp-collector` 的程式只吐固定的 label，已確認不能拿來偽造 | 用本機已有的 image 掛 ConfigMap 回文字，不改 `services/` 底下任何程式 |
+| 偽造用的小 pod 需要一個能回固定文字的 image | `eqp-collector` 的程式只吐固定的 label，已確認不能拿來偽造 | 用本機已有的 image 掛 ConfigMap 回文字，不改 `app/` 底下任何程式 |
 | `relabel` 的「對不到就兜底」寫反，正常租戶也被改成 `platform` | 第三批：四個租戶的 AccountID 是空的、1000 爆量 | 第二批的自我檢查先擋一層 |
 | 第一批的中間狀態被拿去上線 | `git log` 只有第一批的 commit | commit 訊息與 PR 說明寫明三批要一起上 |
 | 本機資源不夠再開一個 k3d cluster | `k3d cluster create` 失敗或 pod 一直 Pending | 請你先停掉 `k3d-spil`。我不會自己停 |

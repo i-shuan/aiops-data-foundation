@@ -102,7 +102,7 @@
 | Pod | 跑起來的程式本體 |
 | Deployment | 「要一直有 1 個 Pod 在跑」的設定，Pod 掛了會自動補 |
 | Service | 給 Pod 一個固定名字和 port，別人用這個名字找它 |
-| Helm / chart | Helm 是部署工具；chart 是一包部署設定（本資料夾的 `helm/`） |
+| Helm / chart | Helm 是部署工具；chart 是一包部署設定（本資料夾的 `k8s/`） |
 | values.yaml | chart 的設定檔，**這次唯一需要改的檔** |
 | metrics | 程式定時吐出的數字，例如溫度、收值成功次數 |
 | vmagent | 平台的收集程式：去各程式抓 metrics，再依 label 轉送 |
@@ -116,12 +116,15 @@
 
 ## 4. 資料夾裡有什麼
 
-repo 裡（`applications/eqp-collector/`）：
+repo 裡（`app/eqp-collector/`）：
 
 ```
-applications/eqp-collector/
+app/eqp-collector/
 ├── README.md                     這份說明
-└── helm/                         Helm chart：一包「怎麼部署」的設定
+├── main.py                       程式本體
+├── Dockerfile                    怎麼包成 image
+├── requirements.txt
+└── k8s/                          Helm chart：一包「怎麼部署」的設定
     ├── Chart.yaml                chart 的名字和版本
     ├── values.yaml               ★ 唯一需要改的檔
     └── templates/                模板：讀 values.yaml，產生 Kubernetes 設定
@@ -137,10 +140,10 @@ applications/eqp-collector/
 eqp-collector-sim/
 ├── image/                        放 image tar（不進 git：檔案 100 多 MB）
 │   └── equipment-collector-test.tar
-└── helm/                         從 repo 的 applications/eqp-collector/helm 整包複製過來
+└── k8s/                          從 repo 的 app/eqp-collector/k8s 整包複製過來
 ```
 
-程式本體在 repo 的 [`services/eqp-collector/`](../../services/eqp-collector/)（`main.py`）。
+程式本體是同一個資料夾裡的 `main.py`。
 
 ### 程式會吐出什麼
 
@@ -168,7 +171,7 @@ eqp-collector-sim/
 在開發機（Windows）的 repo 根目錄：
 
 ```bash
-docker build --build-arg BASE_IMAGE=python:3.12-slim -t equipment-collector:test services/eqp-collector
+docker build --build-arg BASE_IMAGE=python:3.12-slim -t equipment-collector:test app/eqp-collector
 docker save -o equipment-collector-test.tar equipment-collector:test
 ```
 
@@ -224,17 +227,17 @@ chart 會自動擋下這些錯誤，部署前就失敗，不會帶著錯誤上�
 ```
 /home/aiadm/eqp-collector-sim/
 ├── image/equipment-collector-test.tar
-└── helm/        ← 這個資料夾的 helm/ 整包複製過去
+└── k8s/         ← 這個資料夾的 k8s/ 整包複製過去
 ```
 
 三種方法擇一：
 
-- MobaXterm 左側 SFTP 面板，把 `helm/` 資料夾拖進 `/home/aiadm/eqp-collector-sim/`
+- MobaXterm 左側 SFTP 面板，把 `k8s/` 資料夾拖進 `/home/aiadm/eqp-collector-sim/`
 - 在開發機的 repo 根目錄（Git Bash）：
   ```bash
-  scp -r applications/eqp-collector/helm aiadm@AP1105:/home/aiadm/eqp-collector-sim/
+  scp -r app/eqp-collector/k8s aiadm@AP1105:/home/aiadm/eqp-collector-sim/
   ```
-- 在 AP1105 `git clone` 這個 repo，直接用 repo 裡的 `applications/eqp-collector/helm`（下面指令的路徑要跟著換）
+- 在 AP1105 `git clone` 這個 repo，直接用 repo 裡的 `app/eqp-collector/k8s`（下面指令的路徑要跟著換）
 
 ### Step 2：確認 cluster 長什麼樣、image 要放哪台
 
@@ -287,7 +290,7 @@ docker.io/library/equipment-collector   test   ...
 **多台 node 時**，二選一：
 
 - **每台可以跑 Pod 的 node 都匯入**：不用改設定。
-- **只匯入一台**：把 Pod 釘在那台。在 `helm/values.yaml` 改成：
+- **只匯入一台**：把 Pod 釘在那台。在 `k8s/values.yaml` 改成：
   ```yaml
   nodeSelector:
     kubernetes.io/hostname: <那台 node 的 NAME>
@@ -301,8 +304,8 @@ docker.io/library/equipment-collector   test   ...
 
 ```bash
 cd /home/aiadm/eqp-collector-sim
-helm lint ./helm
-helm template eqp-collector ./helm
+helm lint ./k8s
+helm template eqp-collector ./k8s
 ```
 
 - `helm lint`：要看到 `0 chart(s) failed`（`icon is recommended` 可以不理）。
@@ -336,7 +339,7 @@ kubectl get ns eqp-collector-dev
 ### Step 5：部署
 
 ```bash
-helm upgrade --install eqp-collector ./helm -n default --reset-values --wait --timeout 3m
+helm upgrade --install eqp-collector ./k8s -n default --reset-values --wait --timeout 3m
 ```
 
 看到 `STATUS: deployed` 就是部署完成，Pod 也已經 Ready。
@@ -508,7 +511,7 @@ accountID 的對應寫在 [`platform/vmstack-values.yaml`](../../platform/vmstac
 
 ### Step 7：測其他 tenant
 
-第一輪 IMC 跑通之後才做。**同一個 chart，只改 `helm/values.yaml` 的 `tenant`**：
+第一輪 IMC 跑通之後才做。**同一個 chart，只改 `k8s/values.yaml` 的 `tenant`**：
 
 1. 改 `observability.tenant`（`tsid`、`icsd`，或寫一個不存在的值）
 2. 跑 Step 5 同一行指令
@@ -603,7 +606,7 @@ image 是手動匯入 node 的，外面沒有地方可以拉。設 `Never` 的�
 
 ## 10. 跟其他 app 的差別
 
-`applications/` 底下其他 app（`mes-dispatch`、`metrics-sim`、`yms-sim`）都是給 ArgoCD 部署的。這個 app 是**手動 Helm 部署**，刻意不一樣：
+`app/` 底下其他 app（`mes-dispatch`、`metrics-sim`、`yms-sim`）都是給 ArgoCD 部署的。這個 app 是**手動 Helm 部署**，刻意不一樣：
 
 | | 其他 app | eqp-collector |
 |---|---|---|
@@ -617,7 +620,7 @@ image 是手動匯入 node 的，外面沒有地方可以拉。設 `Never` 的�
 沒有 `argocd:` 區塊的影響：
 
 - **`tests/validate.sh` 認得這種 app**。沒有 `argocd:`、有 `templates/namespace.yaml` 就當成手動 Helm，第 1 段標示「手動 Helm」：不查 `argocd` 欄位，`observability` 照查。第 3 段渲染這個 chart，確認它建的 Namespace 的 label 跟 `values.yaml` 一樣。
-- ⚠ **有 ArgoCD 的環境會把它當成錯誤**（已知、刻意保留）：ApplicationSet 掃 `applications/*/helm/values.yaml` 會掃到這個 app，因為設了 `missingkey=error`，產生 Application 時會報錯。**不要把這個 repo 直接接到有 ArgoCD 的環境**，除非先補上 `argocd:` 區塊，或讓 ApplicationSet 排除這個路徑。
+- ⚠ **有 ArgoCD 的環境會把它當成錯誤**（已知、刻意保留）：ApplicationSet 掃 `app/*/k8s/values.yaml` 會掃到這個 app，因為設了 `missingkey=error`，產生 Application 時會報錯。**不要把這個 repo 直接接到有 ArgoCD 的環境**，除非先補上 `argocd:` 區塊，或讓 ApplicationSet 排除這個路徑。
 
 其他要注意的：
 
@@ -635,4 +638,4 @@ image 是手動匯入 node 的，外面沒有地方可以拉。設 `Never` 的�
 
 - **ArgoCD 那一段**：在 repo 的 [`tests/routing`](../../tests/routing) 驗。
 - **log 的分流**：Fluentd 看的是 `dept` 不是 `tenant`，是另一條路，見 repo 根目錄 README 的 Known limitations。
-- **真的機台**：現在是模擬的。接真機台只要換掉 `services/eqp-collector/main.py` 的 `read_equipment()`。
+- **真的機台**：現在是模擬的。接真機台只要換掉 `app/eqp-collector/main.py` 的 `read_equipment()`。

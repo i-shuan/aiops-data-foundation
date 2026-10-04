@@ -38,12 +38,12 @@
 
 | 檔案 | 大小 |
 | --- | --- |
-| `applications/eqp-collector/README.md` | 31 KB |
+| `app/eqp-collector/README.md` | 31 KB |
 | `tests/ap1105-sim/README.md` | 15 KB |
 | `README.md` | 12 KB |
 
 ```bash
-grep -n "^## " applications/eqp-collector/README.md    # 先拿章節行號
+grep -n "^## " app/eqp-collector/README.md    # 先拿章節行號
 ```
 
 | 想做什麼 | 怎麼讀 |
@@ -52,6 +52,6 @@ grep -n "^## " applications/eqp-collector/README.md    # 先拿章節行號
 | 看懂某一節 | `Read` 帶 `offset` / `limit` |
 | 整份 | 不要 |
 
-改了 `applications/` 或 `platform/` 跑 `./tests/validate.sh`；改了這份跑
+改了 `app/` 或 `platform/` 跑 `./tests/validate.sh`；改了這份跑
 `python tools/sync-rules.py --fix`。
 <!-- RULES:END -->

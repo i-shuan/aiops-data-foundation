@@ -43,7 +43,7 @@
 | 缺 `argocd:` 一律 FAIL | 有 `templates/namespace.yaml` 就當手動 app；兩個都沒有才 FAIL | 同上 |
 | 第 4 段的自我檢查 | 多兩條：兩個都有、兩個都沒有，都要被擋下 | 同上 |
 | 第 5 段的自我檢查 | 多一組：手動 app 的渲染要照原值、沒寫 `system` 不能出現空 label | 同上 |
-| `applications/eqp-collector/README.md` 寫「`validate.sh` 會失敗（已知、刻意保留）」 | 敘述過期，要改寫 | 不適用 |
+| `app/eqp-collector/README.md` 寫「`validate.sh` 會失敗（已知、刻意保留）」 | 敘述過期，要改寫 | 不適用 |
 
 ⚠️ 「缺 `argocd:` 一律 FAIL」被放寬了。之後有人新增走 ArgoCD 的 app 卻忘了寫
 `argocd:`，會落到「兩個都沒有」被擋下，訊息會同時提示兩種補法。
@@ -53,7 +53,7 @@
 | 不涵蓋 | 為什麼 |
 | --- | --- |
 | 幫 `eqp-collector` 補 `argocd:` 區塊 | 見 `1-intent.md` |
-| ApplicationSet 掃到 `eqp-collector` 會報錯 | ArgoCD 那條路這次不做。`applications/eqp-collector/README.md` 現有的警告保留 |
+| ApplicationSet 掃到 `eqp-collector` 會報錯 | ArgoCD 那條路這次不做。`app/eqp-collector/README.md` 現有的警告保留 |
 | 把其他三個 app 改成手動 Helm | 另一個需求 |
 | `group` 改 `tenant` | 總綱拆法第 2 項 |
 | 真的部署到 cluster 確認 label | `helm template` 只證明 chart 會產生對的 Namespace，不證明 cluster 上的結果。那是需求 2、3 的 k3d 測試 |

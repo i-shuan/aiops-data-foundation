@@ -9,7 +9,7 @@
 不動 repo 裡的檔：
 
 ```bash
-mk() { T=$(mktemp -d); mkdir -p "$T/tests"; cp -r applications platform "$T/"; cp tests/validate.sh "$T/tests/"; E="$T/applications/eqp-collector/helm"; }
+mk() { T=$(mktemp -d); mkdir -p "$T/tests"; cp -r app platform "$T/"; cp tests/validate.sh "$T/tests/"; E="$T/app/eqp-collector/k8s"; }
 run() { "$T/tests/validate.sh" 2>&1 | grep -E "$1|^(PASS|FAIL)|Traceback"; echo "exit=${PIPESTATUS[0]}"; }
 ```
 
@@ -26,7 +26,7 @@ run() { "$T/tests/validate.sh" 2>&1 | grep -E "$1|^(PASS|FAIL)|Traceback"; echo 
 | 9 | `./tests/validate.sh \| grep -E "自我檢查|→" \| grep -c FAIL` | `0` | ☑ |
 | 10 | `diff <(grep -E "^  OK +(mes-dispatch\|metrics-sim\|yms-sim)" before.txt) <(./tests/validate.sh \| grep -E "^  OK +(mes-dispatch\|metrics-sim\|yms-sim)" \| head -3)` | 沒有輸出：原本通過的三個 app 在第 1 段的結果一字不差 | ☑ |
 | 11 | `python tools/check-md-style.py requirements/validate-manual-apps/*.md` | `✅ 全部符合` | ☑ |
-| 12 | `python tools/check-md-style.py README.md applications/eqp-collector/README.md` | 違規數不比改之前多（改之前 `README.md` 5、`applications/eqp-collector/README.md` 4） | ☑ |
+| 12 | `python tools/check-md-style.py README.md app/eqp-collector/README.md` | 違規數不比改之前多（改之前 `README.md` 5、`app/eqp-collector/README.md` 4） | ☑ |
 
 #10 的 `before.txt` 是實作前存下的 `./tests/validate.sh` 輸出。
 
@@ -34,8 +34,8 @@ run() { "$T/tests/validate.sh" 2>&1 | grep -E "$1|^(PASS|FAIL)|Traceback"; echo 
 
 | # | 怎麼做 | 看到什麼算過 | 結果 |
 | --- | --- | --- | --- |
-| 1 | 讀 `applications/eqp-collector/README.md` 的「10. 跟其他 app 的差別」 | 不再說 `validate.sh` 會失敗；ArgoCD 那條警告還在 | ☑ |
-| 2 | `git diff --stat` | 只有 `tests/validate.sh`、`README.md`、`applications/eqp-collector/README.md` 三個既有檔 | ☑ |
+| 1 | 讀 `app/eqp-collector/README.md` 的「10. 跟其他 app 的差別」 | 不再說 `validate.sh` 會失敗；ArgoCD 那條警告還在 | ☑ |
+| 2 | `git diff --stat` | 只有 `tests/validate.sh`、`README.md`、`app/eqp-collector/README.md` 三個既有檔 | ☑ |
 
 ## 跟 plan 不一樣的地方
 
@@ -58,5 +58,5 @@ run() { "$T/tests/validate.sh" 2>&1 | grep -E "$1|^(PASS|FAIL)|Traceback"; echo 
 | 改了什麼 | 動到哪份文件 | 狀態 |
 | --- | --- | --- |
 | `validate.sh` 認得手動 Helm 的 app | `README.md` 的「Tests」與「新增一個 App」 | ☑ |
-| `eqp-collector` 不再讓 `validate.sh` 失敗 | `applications/eqp-collector/README.md` 第 10 節 | ☑ |
+| `eqp-collector` 不再讓 `validate.sh` 失敗 | `app/eqp-collector/README.md` 第 10 節 | ☑ |
 | 指令沒變 | `.agents/project/commands.md` 不用動 | ☑ |

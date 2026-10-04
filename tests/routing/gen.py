@@ -4,7 +4,7 @@
     python gen.py appset      測試用 ApplicationSet：取自 platform/applicationset.yaml，只換 repoURL
     python gen.py repo        測試用 git repo 的內容（tar，寫到 stdout）
 
-測試用 git repo 裡的 app，values.yaml 是從正式的 applications/metrics-sim/helm/values.yaml
+測試用 git repo 裡的 app，values.yaml 是從正式的 app/metrics-sim/k8s/values.yaml
 改出來的：只換 namespace、映像、observability，chart 用的是真的。
 情境定義在 check.py 的 CASES。
 
@@ -24,7 +24,7 @@ import check
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..")
 VMSTACK = os.environ.get("VMSTACK_VALUES", os.path.join(ROOT, "platform", "vmstack-values.yaml"))
 APPSET = os.path.join(ROOT, "platform", "applicationset.yaml")
-SIM_CHART = os.path.join(ROOT, "applications", "metrics-sim", "helm")
+SIM_CHART = os.path.join(ROOT, "app", "metrics-sim", "k8s")
 
 TEST_VMAUTH = "http://vmauth-test.route-test.svc:8427"
 TEST_REPO = "http://git-server.route-test.svc:8080/repo.git"
@@ -101,7 +101,7 @@ def repo():
             values.pop("observability", None)
         else:
             values["observability"] = observability
-        app = "applications/sim-%s/helm" % case
+        app = "app/sim-%s/k8s" % case
         add_dir(SIM_CHART, app, skip=("values.yaml",))
         add_bytes(app + "/values.yaml", yaml.safe_dump(values, allow_unicode=True, sort_keys=False).encode())
     tar.close()

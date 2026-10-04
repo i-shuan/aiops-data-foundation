@@ -94,7 +94,7 @@ step_cluster() {
   fi
   echo "  ghcr.io 拉不到了（跟 AP1105 一樣）"
   docker image inspect equipment-collector:test >/dev/null 2>&1 || \
-    docker build -q --build-arg BASE_IMAGE=python:3.12-slim -t equipment-collector:test services/eqp-collector >/dev/null
+    docker build -q --build-arg BASE_IMAGE=python:3.12-slim -t equipment-collector:test app/eqp-collector >/dev/null
   import_image equipment-collector:test
   import_image victoriametrics/vmauth:v1.148.0
 }
@@ -145,7 +145,7 @@ step_diagnose() {
 step_apps() {
   say "apps：中央 vmauth + eqp-collector"
   k apply -f "$SIM/central-vmauth.yaml" | sed 's/^/  /'
-  local chart=applications/eqp-collector/helm
+  local chart=app/eqp-collector/k8s
   h upgrade --install eqp-collector $chart -n default --reset-values --wait >/dev/null
   h upgrade --install eqp-it $chart -n default --reset-values --wait \
     --set namespace=eqp-sim-it --set observability.group=it --set observability.dept=D3120 >/dev/null

@@ -1,7 +1,7 @@
 # .agents — 給 AI 的原子化模組
 
 每份 < 70 行，只放**約束與會壞掉的地方**。要看機制怎麼運作、為什麼這樣
-設計，去各目錄的 `README.md`（根目錄、`applications/eqp-collector/`、
+設計，去各目錄的 `README.md`（根目錄、`app/eqp-collector/`、
 `tests/ap1105-sim/`）。
 
 ⚠️ 兩邊**放的是不同東西**，不是同一份的長短版。寫成濃縮版的話一定會漂。

@@ -19,7 +19,7 @@
 | 檔案 | 改什麼 |
 | --- | --- |
 | `tests/validate.sh` | 步驟 2 ~ 7，以及檔頭註解的檢查項目說明 |
-| `applications/eqp-collector/README.md` | 「10. 跟其他 app 的差別」裡「`tests/validate.sh` 會失敗（已知、刻意保留）」那一條改成現況。ArgoCD 那一條警告保留 |
+| `app/eqp-collector/README.md` | 「10. 跟其他 app 的差別」裡「`tests/validate.sh` 會失敗（已知、刻意保留）」那一條改成現況。ArgoCD 那一條警告保留 |
 | `README.md` | 「Tests」的 `validate.sh` 說明補一句手動 app 的檢查；「新增一個 App」補上不走 ArgoCD 時 chart 要帶 `templates/namespace.yaml` |
 
 ⚠️ 動到 `tests/`。這是這個需求的本體，已在 spec 確認。
@@ -42,7 +42,7 @@
 | --- | --- |
 | 把 `validate.sh` 裡內嵌的 Python 拆成獨立的 `.py` | 重構，跟這個需求無關 |
 | 把第 3 段的 traceback 改成一般的 FAIL | spec 已列為不涵蓋 |
-| 改 `applications/eqp-collector/helm/` 底下任何檔 | 這次只改檢查，不改被檢查的東西 |
+| 改 `app/eqp-collector/k8s/` 底下任何檔 | 這次只改檢查，不改被檢查的東西 |
 | 改 `platform/applicationset.yaml` | ArgoCD 那條路這次不做 |
 | 順手修 `README.md` 既有的 md 格式違規 | 另一個改動。這次只確保新加的句子不增加違規數 |
 | `group` 改 `tenant` | 總綱拆法第 2 項 |

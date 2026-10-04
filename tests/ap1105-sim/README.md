@@ -18,7 +18,7 @@ ONLY=1 ./tests/ap1105-sim/run.sh routed # 只跑某一步
 | VMCluster 跟 vmagent 在同一個 cluster，vmagent 只有 chart 自動產生的一條 remoteWrite → `insert/0` | 一樣 |
 | vmagent `externalLabels.cluster: ap1105`、`extraArgs.promscrape.maxScrapeSize: 64MB` | 一樣（[`vmstack-values.yaml`](vmstack-values.yaml)） |
 | `kubectl explain vmagent.spec.scrapeClasses` → `field "scrapeClasses" does not exist` | 一樣 |
-| eqp-collector：image 用 `ctr -n k8s.io images import` 匯入，`pullPolicy: Never`，Namespace 由 Helm 貼 label | 一樣，用 repo 的 `applications/eqp-collector/helm` |
+| eqp-collector：image 用 `ctr -n k8s.io images import` 匯入，`pullPolicy: Never`，Namespace 由 Helm 貼 label | 一樣，用 repo 的 `app/eqp-collector/k8s` |
 | target `health=up`，但 `dept/group/system` 都是 None | 一樣 |
 | 中央 vmauth：同一個 URL，依 bearer token 分 tenant | [`central-vmauth.yaml`](central-vmauth.yaml)：假 token，IT=2、IMC=1、platform=0，後端就是這套 VMCluster |
 

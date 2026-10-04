@@ -82,7 +82,7 @@ _PRODUCT_NAMES = {
 
 _BARE = [
     ("檔名", re.compile(r"(?<![\w/`.-])([A-Za-z_][\w-]*\." + _EXT + r")(?![\w`-])")),
-    ("路徑", re.compile(r"(?<![\w`/-])((?:applications|platform|services|tests|tools)/[\w./-]{3,})(?![\w`])")),
+    ("路徑", re.compile(r"(?<![\w`/-])((?:app|platform|tests|tools)/[\w./-]{3,})(?![\w`])")),
     ("設定 key", re.compile(r"(?<![\w`-])([A-Z][A-Z0-9]*(?:_[A-Z0-9]+){1,})(?![\w`-])")),
 ]
 

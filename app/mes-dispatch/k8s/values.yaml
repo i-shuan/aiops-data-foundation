@@ -18,7 +18,7 @@ observability:
 # ── 以下是一般的 Helm values ──
 
 app:
-  name: mes-dispatch           # 必須跟 services/ 底下的資料夾同名
+  name: mes-dispatch           # 必須跟 app/ 底下的資料夾同名
   partOf: mes                  # 所屬系統
   component: api               # api / web / worker / batch / gateway
 

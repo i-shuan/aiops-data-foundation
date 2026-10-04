@@ -11,7 +11,7 @@
 # 所有設定都取自 platform/ 的正式檔案，只換位址：
 #   - vmagent 取自 platform/vmstack-values.yaml，只換 remoteWrite 的 URL
 #   - ApplicationSet 取自 platform/applicationset.yaml，只換 repoURL（指向本機 git server）
-#   - 測試 app 的 values.yaml 取自 applications/metrics-sim/helm/values.yaml，只換 namespace、映像、observability
+#   - 測試 app 的 values.yaml 取自 app/metrics-sim/k8s/values.yaml，只換 namespace、映像、observability
 #
 # 全部對 exit 0，任何一項不對 exit 1。VMSTACK_VALUES=<改壞的複本> 可以確認測試抓得到錯。
 #
@@ -65,7 +65,7 @@ python gen.py repo | kubectl -n route-test exec -i "$pod" -- sh -c '
   set -e; rm -rf /srv/work /srv/git/repo.git; mkdir -p /srv/work /srv/git; tar -x -C /srv/work
   cd /srv/work && git init -q -b main && git add -A && git -c user.email=t@t -c user.name=test commit -qm test
   git clone -q --bare /srv/work /srv/git/repo.git
-  echo "commit $(git rev-parse --short HEAD)：$(ls applications | tr "\n" " ")"'
+  echo "commit $(git rev-parse --short HEAD)：$(ls app | tr "\n" " ")"'
 
 step "5. ArgoCD ApplicationSet（取自 platform/applicationset.yaml）"
 python gen.py appset > "$tmp/appset.yaml"

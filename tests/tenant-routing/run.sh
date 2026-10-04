@@ -12,7 +12,7 @@
 #
 # 被測的設定取自正式檔案，只換位址：
 #   - vmagent 的分流、雙寫、暫存取自 platform/vmstack-values.yaml 加 platform/site-ctsp.yaml，只換 remoteWrite 的 url
-#   - 測試 app 用 applications/eqp-collector/helm，只換 namespace 和 observability.tenant
+#   - 測試 app 用 app/eqp-collector/k8s，只換 namespace 和 observability.tenant
 #
 # 情境（check.py 的 CASES）：四個租戶、沒貼、打錯，再加一個自帶假 label 想冒充別人的 pod。
 # 全部對 exit 0，任何一項不對 exit 1。VMSTACK_VALUES=<改壞的複本> 可以確認測試抓得到錯。
@@ -66,7 +66,7 @@ if ! k3d cluster list "$CLUSTER" >/dev/null 2>&1; then
 fi
 k get nodes >/dev/null
 docker image inspect "$APP_IMAGE" >/dev/null 2>&1 \
-  || docker build --build-arg BASE_IMAGE=python:3.12-slim -t "$APP_IMAGE" services/eqp-collector >/dev/null
+  || docker build --build-arg BASE_IMAGE=python:3.12-slim -t "$APP_IMAGE" app/eqp-collector >/dev/null
 k3d image import "$APP_IMAGE" busybox:1.36 -c "$CLUSTER" >/dev/null 2>&1
 h upgrade --install vmo vm/victoria-metrics-operator --version 0.67.2 -n vm --create-namespace --wait --timeout 240s >/dev/null
 echo "  operator $(k -n vm get deploy -o jsonpath='{.items[0].spec.template.spec.containers[0].image}')"
@@ -97,7 +97,7 @@ step "4. 測試 app：eqp-collector 的 chart，每個情境一個 namespace"
 cases | while read -r ns tenant; do
   # tenant 是 - 表示不寫。寫成 null，helm 才會把 chart 預設的 tenant 拿掉
   if [ "$tenant" = - ]; then set_tenant=observability.tenant=null; else set_tenant=observability.tenant=$tenant; fi
-  h upgrade --install "$ns" applications/eqp-collector/helm -n default --reset-values \
+  h upgrade --install "$ns" app/eqp-collector/k8s -n default --reset-values \
     --set namespace="$ns" --set "$set_tenant" >/dev/null
 done
 cases | while read -r ns _; do k -n "$ns" rollout status deploy/eqp-collector --timeout=180s >/dev/null; done

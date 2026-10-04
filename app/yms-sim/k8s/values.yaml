@@ -18,7 +18,7 @@ observability:
 # ── 以下是一般的 Helm values ──
 
 app:
-  name: yms-sim                # 必須跟 services/ 底下的資料夾同名
+  name: yms-sim                # 必須跟 app/ 底下的資料夾同名
   partOf: yms                  # 所屬系統
   component: worker            # api / web / worker / batch / gateway
 

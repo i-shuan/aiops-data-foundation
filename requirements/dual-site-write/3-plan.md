@@ -44,15 +44,15 @@
 ## 第三批：文件
 
 1. `README.md`：開頭的流程、分流那一節、Tests、Known limitations。
-2. `applications/eqp-collector/README.md`：需求 2 寫的「只有一條 `remoteWrite`」那幾處。
+2. `app/eqp-collector/README.md`：需求 2 寫的「只有一條 `remoteWrite`」那幾處。
 3. `.agents/project/commands.md`：加 `run.sh outage`。
-4. `requirements/multi-site-metrics-write/architecture.html`：「下一步」那張改成已實測，拿掉「規劃中」的標示，重新發佈到同一個網址。
+4. `requirements/architecture.html`：「下一步」那張改成已實測，拿掉「規劃中」的標示，重新發佈到同一個網址。
 
 | 檔案 | 改什麼 |
 | --- | --- |
-| `README.md`、`applications/eqp-collector/README.md` | 步驟 1、2 |
+| `README.md`、`app/eqp-collector/README.md` | 步驟 1、2 |
 | `.agents/project/commands.md` | 步驟 3 |
-| `requirements/multi-site-metrics-write/architecture.html` | 步驟 4 |
+| `requirements/architecture.html` | 步驟 4 |
 
 ## 風險與退路
 

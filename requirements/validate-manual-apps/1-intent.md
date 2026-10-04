@@ -5,7 +5,7 @@
 
 ## 解決誰的什麼問題
 
-改 `applications/` 或 `platform/` 的人跑 `./tests/validate.sh` 時，現在一定
+改 `app/` 或 `platform/` 的人跑 `./tests/validate.sh` 時，現在一定
 是紅的。腳本假設每個 app 都由 ArgoCD 部署；`eqp-collector` 是人下 `helm`
 部署的，沒有 `argocd:` 區塊，腳本在第 3 段直接 traceback。
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 檢查每個 applications/<app>/helm/values.yaml，以及它們會變成什麼 namespace label。
+# 檢查每個 app/<app>/k8s/values.yaml，以及它們會變成什麼 namespace label。
 #
 #   ./tests/validate.sh
 #
@@ -311,12 +311,12 @@ def report(ok, title, detail=()):
 
 
 tmp = tempfile.mkdtemp()
-apps = sorted(glob.glob("applications/*/helm/values.yaml"))
+apps = sorted(glob.glob("app/*/k8s/values.yaml"))
 # Windows 上 glob 回傳的是反斜線路徑
 docs = {p.replace("\\", "/").split("/")[1]: load(p) or {} for p in apps}
 
-print("=== 1. applications/*/helm/values.yaml ===")
-ns_tpl = {app: os.path.exists("applications/%s/helm/templates/namespace.yaml" % app) for app in docs}
+print("=== 1. app/*/k8s/values.yaml ===")
+ns_tpl = {app: os.path.exists("app/%s/k8s/templates/namespace.yaml" % app) for app in docs}
 modes = {app: mode(doc, ns_tpl[app]) for app, doc in docs.items()}
 owners = {}
 for app, doc in docs.items():
@@ -329,7 +329,7 @@ for app, doc in docs.items():
     if ns and len(owners[ns]) > 1:
         errs.append("namespace %s 也被 %s 宣告，兩個 Application 會輪流覆蓋對方的 label"
                     % (ns, ", ".join(a for a in owners[ns] if a != app)))
-    chart = "applications/%s/helm" % app
+    chart = "app/%s/k8s" % app
     r = subprocess.run(["helm", "template", "ci", chart], capture_output=True, text=True, encoding="utf-8")
     if r.returncode:
         errs.append("chart 渲染失敗：%s" % r.stderr.strip().splitlines()[-1])
@@ -439,7 +439,7 @@ for app, doc in docs.items():
     if modes[app] == "manual":
         # 手動 Helm：label 是 chart 自己的 namespace.yaml 貼的，不經 ApplicationSet
         try:
-            got = render_chart_labels("applications/%s/helm" % app, tmp)
+            got = render_chart_labels("app/%s/k8s" % app, tmp)
         except RuntimeError as err:
             report(False, app, [str(err)])
             continue
@@ -510,7 +510,7 @@ if not manual_apps:
     print("  --    沒有手動 Helm 的 app，略過 chart 的渲染檢查")
 for name, obs in cases if manual_apps else []:
     try:
-        got = render_chart_labels("applications/%s/helm" % manual_apps[0], tmp, obs)
+        got = render_chart_labels("app/%s/k8s" % manual_apps[0], tmp, obs)
     except RuntimeError as err:
         report(False, "手動 Helm %-14s" % name, [str(err)])
         continue

@@ -102,7 +102,7 @@ vmagent:
 
     # ── 抓取：把 namespace 的 label 貼到每一筆資料上 ─────────
     # 這些 label 由 ArgoCD（platform/applicationset.yaml）或 chart 自己的 namespace.yaml
-    # 依 applications/<app>/helm/values.yaml 貼到 namespace 上。vmagent 只讀 namespace 的 label，
+    # 依 app/<app>/k8s/values.yaml 貼到 namespace 上。vmagent 只讀 namespace 的 label，
     # 不知道 values.yaml 的存在，也不維護任何 app、namespace 清單。
     scrapeClasses:
       - name: default

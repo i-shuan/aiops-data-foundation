@@ -1,6 +1,6 @@
 # values.yaml → Namespace labels
 #
-# 掃每個 applications/<app>/helm/values.yaml，一個檔案長出一個 Application：
+# 掃每個 app/<app>/k8s/values.yaml，一個檔案長出一個 Application：
 #   - values.yaml 的 argocd 區塊決定 project、namespace、要不要自動同步
 #   - values.yaml 的 observability 區塊照原值變成 namespace 的 label
 #
@@ -22,10 +22,10 @@ spec:
         repoURL: https://gitlab.example.com/platform/gitops-config.git
         revision: main
         files:
-          - path: "applications/*/helm/values.yaml"
+          - path: "app/*/k8s/values.yaml"
   template:
     metadata:
-      # .path.path 是 values.yaml 所在的資料夾 applications/<app>/helm，第 2 段就是 app 名稱
+      # .path.path 是 values.yaml 所在的資料夾 app/<app>/k8s，第 2 段就是 app 名稱
       name: '{{ index .path.segments 1 }}'
       labels:
         platform.example.com/environment: '{{ .argocd.environment }}'

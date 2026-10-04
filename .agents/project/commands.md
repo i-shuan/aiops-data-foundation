@@ -59,8 +59,8 @@ python .claude/hooks/test_guard_git.py -v  # 改了 guard-git.py 之後
 | 部署 | ArgoCD ApplicationSet（E2E 用 v3.5.3 core） | `platform/applicationset.yaml` |
 | metrics | victoria-metrics-k8s-stack（vmagent → vmauth） | `platform/vmstack-values.yaml` |
 | log | Fluentd → Elasticsearch | `platform/fluent.conf` |
-| app | Python，各自一個 `Dockerfile` | `services/<app>/` |
-| chart | 每個 app 自帶 templates | `applications/<app>/helm/` |
+| app | Python，各自一個 `Dockerfile` | `app/<app>/` |
+| chart | 每個 app 自帶 templates | `app/<app>/k8s/` |
 | 執行環境 | k8s；本機 k3d | `tests/routing/run.sh`、`tests/ap1105-sim/run.sh` |
 
 ## 這台開發機的坑（Windows + Git Bash）

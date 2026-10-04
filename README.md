@@ -1,6 +1,6 @@
 # aiops-data-foundation
 
-每個 App 在自己的 `applications/<app>/helm/values.yaml` 宣告 observability identity。
+每個 App 在自己的 `app/<app>/k8s/values.yaml` 宣告 observability identity。
 
 部署時，這些資訊會成為 Kubernetes Namespace labels。
 
@@ -17,6 +17,41 @@ vmagent：抓取時貼上 tenant，送出前換成 vm_account_id，補上 site
 ```
 
 用途：讓每筆 metrics 和 log 一出生就帶著「這是誰的、要給誰看」，為之後的 AIOps 分析打資料地基。
+
+## 目錄
+
+| 資料夾 | 放什麼 | 什麼時候會動到 |
+|---|---|---|
+| `app/<app>/` | 一個 app 一個資料夾。程式碼和 `Dockerfile` 直接放在裡面 | 改 app 的程式 |
+| `app/<app>/k8s/` | 這個 app 怎麼部署到 K8s（Helm chart）。`values.yaml` 裡的 `observability` 決定它的資料算哪個部門 | 新增 app、改部門歸屬 |
+| `platform/` | 平台這一側的設定，所有 app 共用。分流、雙寫、暫存都在這裡 | 加部門、改寫入目的地 |
+| `tests/` | 檢查上面那些設定有沒有寫錯 | 改了 `app/` 或 `platform/` 之後跑 |
+| `requirements/` | 每個需求的文件：為什麼做、做成什麼樣、怎麼做、怎麼驗收。給主管看的架構圖也在這 | 開新需求 |
+| `tools/` | 檢查文件格式與規則同步的小工具，跟監控資料無關 | 改了 `.md` 或 `AGENTS.md` 之後跑 |
+| `.agents/`、`.claude/`、`.github/` | 給 AI 助手讀的規則與防護 | 改 AI 的工作規則 |
+
+平台團隊要部署 app、套監控設定、查分流問題，看 [`platform/README.md`](platform/README.md)。
+
+`platform/` 裡的每個檔：
+
+| 檔案 | 用途 |
+|---|---|
+| `vmstack-values.yaml` | 主要的設定：租戶對照、防冒充、兩條 `remoteWrite`、暫存 |
+| `site-ctsp.yaml`、`site-erlin.yaml` | 廠區標記，每個 cluster 部署時疊一個 |
+| `vmagent-routing-overlay.yaml` | 給已經在跑的環境（AP1105）用的，只帶要改的那幾段 |
+| `applicationset.yaml` | 有 ArgoCD 的環境才用。目前先做沒有 ArgoCD 的路 |
+| `fluent.conf` | log 的分流，跟 metrics 無關，這次沒動 |
+
+`tests/` 裡的每一支：
+
+| 測試 | 狀態 | 用途 |
+|---|---|---|
+| `validate.sh` | 可用 | 不需要 cluster，幾秒跑完。設定寫錯在這裡擋 |
+| `tenant-routing/` | 可用 | 本機 k3d 實測：分流、雙寫、停機補送 |
+| `routing/` | ⚠ 過期 | ArgoCD 那條路的實測，測的是改版前的分流，現在跑不過 |
+| `ap1105-sim/` | ⚠ 過期 | 模擬 AP1105 套舊 overlay，現在跑不過。等新的驗證做完才刪 |
+
+根目錄的四份文件：`README.md` 給人看的總說明；`AGENTS.md`、`CLAUDE.md` 給 AI 助手的規則；`PLAYBOOK.md` 給人看的「怎麼用 AI 改這個專案」。
 
 ## values.yaml
 
@@ -95,13 +130,13 @@ helm upgrade --install vmstack <repo>/victoria-metrics-k8s-stack --version 0.91.
 
 ## 新增一個 App
 
-1. `services/<app>/` 放程式碼和 Dockerfile
-2. 複製一份 `applications/<app>/helm/`，改 `values.yaml` 的 `argocd`、`observability` 和一般 values
+1. 開一個 `app/<app>/`，放程式碼和 Dockerfile
+2. 從別的 app 複製一份 `k8s/` 到 `app/<app>/k8s/`，改 `values.yaml` 的 `argocd`、`observability` 和一般 values
 3. `./tests/validate.sh` 過了再發 PR
 
-`services/<app>` 和 `applications/<app>` 要同名。ApplicationSet 看到新的 `helm/values.yaml` 就會自己長出一個 Application，不用改任何平台設定。
+資料夾的名字就是 app 的名字。ApplicationSet 看到新的 `app/<app>/k8s/values.yaml` 就會自己長出一個 Application，不用改任何平台設定。
 
-不走 ArgoCD、人下 `helm` 部署的 app：`values.yaml` 不寫 `argocd`，改寫 `namespace`，chart 帶一個 `templates/namespace.yaml` 自己建 namespace 並貼 label，範本是 [`applications/eqp-collector`](applications/eqp-collector/README.md)。`argocd` 區塊和 `templates/namespace.yaml` 要剛好有一個，兩個都有或都沒有 `tests/validate.sh` 會擋下。
+不走 ArgoCD、人下 `helm` 部署的 app：`values.yaml` 不寫 `argocd`，改寫 `namespace`，chart 帶一個 `templates/namespace.yaml` 自己建 namespace 並貼 label，範本是 [`app/eqp-collector`](app/eqp-collector/README.md)。`argocd` 區塊和 `templates/namespace.yaml` 要剛好有一個，兩個都有或都沒有 `tests/validate.sh` 會擋下。
 
 ## 已經在跑的 vmstack 加上分流
 
@@ -161,7 +196,7 @@ E2E 的前提：
 ```bash
 kubectl create ns argocd
 kubectl apply -n argocd --server-side -f https://raw.githubusercontent.com/argoproj/argo-cd/v3.5.3/manifests/core-install.yaml
-docker build --build-arg BASE_IMAGE=python:3.12-slim -t metrics-sim:test services/metrics-sim
+docker build --build-arg BASE_IMAGE=python:3.12-slim -t metrics-sim:test app/metrics-sim
 k3d image import metrics-sim:test victoriametrics/vmauth:v1.148.0 -c zk
 ```
 
@@ -172,10 +207,10 @@ k3d image import metrics-sim:test victoriametrics/vmauth:v1.148.0 -c zk
 - **log 還有一份 dept 對照。** `platform/fluent.conf` 依 `dept` 分流，自己寫著部門清單，而且目前只有 D3120、D1110 兩條：**D3130、D1120 的 log 會進 unassigned**（`yms-sim` 就是 D1120）。log 的分流跟 metrics 的 `tenant` 無關。
 - **dept 沒有清單可以比對**，打錯字 CI 抓不到。metrics 不受影響（看的是 `tenant`），但 log 會進 unassigned。
 - **改組要改每個相關 app 的 values.yaml。** 沒有中央的部門對照表是刻意的，代價是部門換租戶時要一個一個改。production 還要等手動 sync 才會生效。
-- **搬到 devops repo 時**：discovery 改成找 `applications/*/helm/values.yaml`，**只用 manifests、沒有 `helm/` 的 app 不會被發現**。其他 app 的 `app.yaml` 內容也要搬進各自的 `values.yaml`。
+- **搬到 devops repo 時**：這個 repo 的路徑是 `app/<app>/k8s/`，公司 devops repo 的慣例是 `applications/<app>/helm/`，搬過去要改路徑和 `platform/applicationset.yaml` 的 discovery。discovery 找的是 `values.yaml`，**只用 manifests、沒有 Helm chart 的 app 不會被發現**。其他 app 的 `app.yaml` 內容也要搬進各自的 `values.yaml`。
 - **app 的 JSON log 有 `time` 欄位，時間會變成 1970。** `platform/fluent.conf` 的 json parser 把字串 `"2026-09-22T..."` 當 epoch 秒數，只讀到 `2026` → `1970-01-01T00:33:46`。本機 argocd 的 log 全部在 `k8s-unassigned-1970.01.01`，照日期看 Kibana 看不到。app 的 log 先不要用 `time` 當欄位名。
 - **`log` 欄位型別衝突會整筆拒收。** 不是 JSON 的行（Python traceback、coredns 警告）`log` 是字串；有 app 吐 ECS 格式（`log.level`）時同一天的 index 裡 `log` 變成 object，之後的純文字行全部 400 被拒，只在 Fluentd 自己的 log 看得到。本機 unassigned 已經發生（Elasticsearch 自己的 log 造成），IT / IMC 目前還沒有。
-- **共用模板每個 app 各一份。** 標準 label、probe、VMServiceScrape 的模板（`helm/templates/_*.tpl`）每個 app 各複製一份。平台要改標準時每個 app 都要改，漏改一個不會報錯。
+- **共用模板每個 app 各一份。** 標準 label、probe、VMServiceScrape 的模板（`k8s/templates/_*.tpl`）每個 app 各複製一份。平台要改標準時每個 app 都要改，漏改一個不會報錯。
 - **token 要手動建**，Vault 還沒上線。
 - **查詢端沒有處理補送期間的缺口。** 剛恢復的那一座在補送完成前查得到的資料不完整，查詢要不要避開它不在這個 repo 的範圍。
 - **暫存的大小沒有實測依據。** 20 GiB 是起始值，要在正式的 cluster 量每小時的暫存量才知道撐不撐得住 8 小時。超過上限會丟資料，目前沒有告警。

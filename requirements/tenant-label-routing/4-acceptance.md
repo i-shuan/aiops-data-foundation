@@ -24,14 +24,14 @@ operator v0.74.0、vmagent / vminsert / vmselect / vmstorage v1.148.0。
 先跑這段，#1-3 ~ #1-5 用暫存複本，不動 repo 裡的檔：
 
 ```bash
-mk() { T=$(mktemp -d); mkdir -p "$T/tests"; cp -r applications platform "$T/"; cp tests/validate.sh "$T/tests/"; E="$T/applications/eqp-collector/helm"; }
+mk() { T=$(mktemp -d); mkdir -p "$T/tests"; cp -r app platform "$T/"; cp tests/validate.sh "$T/tests/"; E="$T/app/eqp-collector/k8s"; }
 run() { "$T/tests/validate.sh" 2>&1 | grep -A1 -E "$1|^(PASS|FAIL)|Traceback"; echo "exit=${PIPESTATUS[0]}"; }
 ```
 
 | # | 指令 | 預期輸出 | 結果 |
 | --- | --- | --- | --- |
 | 1-1 | `./tests/validate.sh; echo "exit=$?"` | `PASS`、`exit=0`；第 3 段四個 app 都列出 `tenant=…` | ☑ |
-| 1-2 | `grep -n -E "^\s+group:" applications/*/helm/values.yaml` | 沒有輸出 | ☑ |
+| 1-2 | `grep -n -E "^\s+group:" app/*/k8s/values.yaml` | 沒有輸出 | ☑ |
 | 1-3 | `mk; sed -i 's/tenant: imc/group: imc/' "$E/values.yaml"; run eqp-collector` | 第 1 段 `FAIL`，訊息有「改名」；`exit=1` | ☑ |
 | 1-4 | `mk; sed -i 's/tenant: imc/tenant: it.imc/' "$E/values.yaml"; run eqp-collector` | 第 1 段 `FAIL`，訊息有「不是允許的值」；`exit=1` | ☑ |
 | 1-5 | `mk; sed -i 's/tenant: imc/tenant: tsid/' "$E/values.yaml"; run eqp-collector` | 第 1 段 `OK`；第 3 段 `tenant=tsid`；`PASS`、`exit=0` | ☑ |
@@ -44,8 +44,8 @@ run() { "$T/tests/validate.sh" 2>&1 | grep -A1 -E "$1|^(PASS|FAIL)|Traceback"; e
 | 2-1 | `./tests/validate.sh; echo "exit=$?"` | `PASS`、`exit=0`；第 2 段印出對照：`platform=1000 tsid=1001 bsid=1002 icsd=1003 imc=1004` | ☑ |
 | 2-2 | `./tests/validate.sh \| grep "自我檢查" \| grep -E "清掉\|重複\|兜底\|兩條\|空字串"` | 五條都在、都是 `OK`：拿掉清 `vm_account_id` 那條、AccountID 重複、兜底不在最後、`remoteWrite` 兩條、兜底的 `regex` 是空字串，全部被擋下 | ☑ |
 | 2-3 | `python -c "import yaml,io;print(len(yaml.safe_load(io.open('platform/vmstack-values.yaml',encoding='utf-8'))['vmagent']['spec']['remoteWrite']))"` | `1` | ☑ |
-| 2-4 | `grep -n -w group README.md applications/eqp-collector/README.md` | 剩下的每一處都是在講歷史或 Fluentd 的欄位，逐條列在下面「人工確認」 | ☑ |
-| 2-5 | `python tools/check-md-style.py README.md applications/eqp-collector/README.md` | 違規數不比改之前多（5 和 4） | ☑ |
+| 2-4 | `grep -n -w group README.md app/eqp-collector/README.md` | 剩下的每一處都是在講歷史或 Fluentd 的欄位，逐條列在下面「人工確認」 | ☑ |
+| 2-5 | `python tools/check-md-style.py README.md app/eqp-collector/README.md` | 違規數不比改之前多（5 和 4） | ☑ |
 
 ## 第三批：k3d 實測
 
@@ -85,5 +85,5 @@ run() { "$T/tests/validate.sh" 2>&1 | grep -A1 -E "$1|^(PASS|FAIL)|Traceback"; e
 
 | 改了什麼 | 動到哪份文件 | 狀態 |
 | --- | --- | --- |
-| `group` 改 `tenant`、值與分流方式 | `README.md`、`applications/eqp-collector/README.md` | ☑ |
+| `group` 改 `tenant`、值與分流方式 | `README.md`、`app/eqp-collector/README.md` | ☑ |
 | 兩支舊測試過期、新增一支 | `.agents/project/commands.md`、`README.md` 的「Tests」 | ☑ |
