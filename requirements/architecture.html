@@ -521,6 +521,55 @@ td.n { font-family: var(--font-mono); font-variant-numeric: tabular-nums; white-
 .pill.done { color: var(--ok); } .pill.next { color: var(--warn); } .pill.later { color: var(--plat); }
 .note { font-size: 14px; color: var(--muted); }
 footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line); padding-top: 16px; }
+
+/* 圖的分頁：一套架構一列 */
+.tabgroups { display: flex; flex-direction: column; gap: 10px; }
+.tabgroup { display: grid; grid-template-columns: 230px 1fr; gap: 6px 16px; align-items: center; padding: 10px 14px;
+  border: 1px solid var(--line); border-left: 4px solid var(--line); border-radius: 6px; background: var(--surface); }
+.tabgroup.g-new { border-left-color: var(--ok); }
+.tabgroup.g-old { border-left-color: var(--plat); }
+.tabgroup.here { border-color: var(--fg); border-left-width: 4px; }
+.tabgroup.g-new.here { border-left-color: var(--ok); } .tabgroup.g-old.here { border-left-color: var(--plat); }
+.gname strong { display: block; font-size: 15px; line-height: 1.4; }
+.gname span { display: block; font-size: 13px; color: var(--muted); line-height: 1.4; }
+@media (max-width: 720px) { .tabgroup { grid-template-columns: 1fr; } }
+.gtag { align-self: flex-start; font-size: 12px; font-weight: 500; letter-spacing: .06em; padding: 1px 10px; border-radius: 4px; border: 1px solid currentColor; }
+.gtag.new { color: var(--ok); } .gtag.old { color: var(--plat); }
+
+/* 三種資料是什麼 */
+.sg-wrap { display: grid; grid-template-columns: minmax(0, 520px) minmax(0, 1fr); gap: 20px 32px; align-items: start; }
+@media (max-width: 860px) { .sg-wrap { grid-template-columns: 1fr; } }
+.sg-fig { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 12px; }
+.sg-fig svg { display: block; width: 100%; height: auto; }
+.sg-answer { font-size: 14px; color: var(--muted); border-top: 1px solid var(--line); margin-top: 8px; padding-top: 8px; }
+.sg-answer strong { color: var(--fg); }
+.sg-points { grid-template-columns: 1fr; gap: 14px; }
+.sg-t { font-family: var(--font-body); font-size: 13px; fill: var(--muted); }
+.sg-t.strong { font-weight: 700; fill: var(--fg); font-size: 15px; }
+.sg-t.bad, .sg-mono.bad { fill: var(--bad); }
+.sg-mono { font-family: var(--font-mono); font-size: 13px; fill: var(--fg); }
+.sg-axis { stroke: var(--line); stroke-width: 1.5; }
+.sg-band { fill: var(--ok); opacity: .12; }
+.sg-mark { stroke: var(--bad); stroke-width: 1.5; stroke-dasharray: 4 4; }
+.sg-term { fill: var(--bg); stroke: var(--line); }
+.sg-box { fill: var(--bg); stroke: var(--fg); stroke-width: 1.5; }
+.sg-arrow { fill: none; stroke: var(--fg); stroke-width: 2; }
+.sg-line { fill: none; stroke: var(--tsid); stroke-width: 2.5; stroke-linejoin: round; stroke-dasharray: 100; stroke-dashoffset: 0; animation: sg-draw 7s linear infinite; }
+.sg-dot { fill: var(--tsid); animation: sg-pop 7s linear infinite both; }
+.sg-dot.bad { fill: var(--bad); }
+.sg-row { animation: sg-pop 7s linear infinite both; }
+.sg-late { animation: sg-late 7s linear infinite both; }
+.sg-span { fill: var(--icsd); transform-box: fill-box; transform-origin: left center; animation: sg-grow 7s ease-out infinite both; }
+.sg-span.bad { fill: var(--bad); }
+.sg-step { animation: sg-step 6.4s linear infinite both; }
+@keyframes sg-draw { 0% { stroke-dashoffset: 100; } 55% { stroke-dashoffset: 0; } 100% { stroke-dashoffset: 0; } }
+@keyframes sg-pop { 0% { opacity: 0; } 3% { opacity: 1; } 92% { opacity: 1; } 100% { opacity: 0; } }
+@keyframes sg-late { 0%, 52% { opacity: 0; } 58%, 94% { opacity: 1; } 100% { opacity: 0; } }
+@keyframes sg-grow { 0% { transform: scaleX(0); } 12% { transform: scaleX(1); } 94% { transform: scaleX(1); opacity: 1; } 100% { transform: scaleX(1); opacity: 0; } }
+@keyframes sg-step { 0% { opacity: .25; } 4%, 26% { opacity: 1; } 32%, 100% { opacity: .25; } }
+@media (prefers-reduced-motion: reduce) {
+  .sg-line, .sg-dot, .sg-row, .sg-late, .sg-span, .sg-step { animation: none; }
+}
 </style>
 
 <div class="page">
@@ -531,8 +580,17 @@ footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line)
   <p class="lead">同一個 K8s cluster 裡住著好幾個部門的系統，目標是讓 IT 維運人員掌握程式與 server 健不健康，靠的是每個程式和每台 server 產生的數值、log、trace 三種資料。這頁把兩個做法放在一起比：原本各走各的三條路，以及討論中的「一套收集、全進 Elasticsearch、AIOps 自己訓練」。下面附廠區變多時的維運量與資料量試算。</p>
 </header>
 
+<!-- signals -->
+<section>
+  <h2>先看懂三種資料</h2>
+  <p>下面的架構圖一直出現三個詞：數值、log、trace。它們是同一個系統吐出來的三種不同的東西，各回答一個問題。用範例程式 demo-web 呼叫 demo-api、demo-api 變慢這件事當例子。</p>
+  <div id="signals"><p class="fallback">數值回答「有沒有出事、什麼時候開始」；log 回答「為什麼」；trace 回答「在哪裡」。三種要帶同一組標籤才串得起來。</p></div>
+</section>
+
+<!-- /signals -->
 <section>
   <h2>資料怎麼走</h2>
+  <p>四張圖分成兩組。上面一組是現在在做的新架構，下面一組是已經停止的原本架構；每一組各有一張全貌和一張實測過的細節。</p>
   <div id="flow"><div class="canvas"><p class="fallback">流程圖載入中。如果一直沒有出現，下面的「實測結果」表格有同樣的資訊：四個部門的資料各進 1001 到 1004，沒掛門牌、寫錯和冒充的都進 1000。</p></div></div>
 </section>
 
@@ -714,18 +772,10 @@ footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line)
   <p class="note">預設值的來源：規模是常見的量級，不是你們環境量出來的。每筆佔用的 bytes、log 留下的比例、歸類後剩的比例、出事時段的比例，全部是我放的假設。其中「一筆原始數值佔幾 bytes」和「log 留下的等級佔百分之幾」對結果影響最大，要拿你們真的資料量過才準。</p>
 </section>
 
-<section>
-  <h2>原本設計裡已經做完的：metrics 這一條</h2>
-  <ul class="points">
-    <li><strong>系統不用知道資料送去哪</strong><span>各系統只在設定檔寫一個部門代號。要換部門，改那一行，程式不用動。</span></li>
-    <li><strong>加部門不用加線</strong><span>每個 cluster 往中央的線只跟站數有關：兩站就是兩條。新增部門是在對照表加一列。</span></li>
-    <li><strong>不能冒充別的部門</strong><span>程式自己宣稱的部門代號會被丟掉，只認 namespace 上掛的門牌。這一點實際測過。</span></li>
-  </ul>
-</section>
-
 <!-- step1 -->
 <section>
-  <h2>新方向第 1 步：實測結果</h2>
+  <div class="gtag new">新架構</div>
+  <h2>第 1 步的實測結果：數值進 Elasticsearch</h2>
   <p>在本機的 k3d（一個節點）上，把正式的收集設定原樣套上去，只換 Elasticsearch 的位址與 cluster 的名稱。部署兩組範例程式與三個假程式，再進 Elasticsearch 查每一種情況的資料進了哪一份。只收數值，log 與 trace 還沒接。</p>
   <div class="tablewrap">
   <table>
@@ -758,7 +808,18 @@ footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line)
 
 <!-- /step1 -->
 <section>
-  <h2>原本設計：metrics 的實測結果</h2>
+  <div class="gtag old">原本的架構</div>
+  <h2>已經做完的：metrics 這一條</h2>
+  <ul class="points">
+    <li><strong>系統不用知道資料送去哪</strong><span>各系統只在設定檔寫一個部門代號。要換部門，改那一行，程式不用動。</span></li>
+    <li><strong>加部門不用加線</strong><span>每個 cluster 往中央的線只跟站數有關：兩站就是兩條。新增部門是在對照表加一列。</span></li>
+    <li><strong>不能冒充別的部門</strong><span>程式自己宣稱的部門代號會被丟掉，只認 namespace 上掛的門牌。這一點實際測過。</span></li>
+  </ul>
+</section>
+
+<section>
+  <div class="gtag old">原本的架構</div>
+  <h2>metrics 的實測結果</h2>
   <p>在本機的測試環境把七種情況都實際部署一次，查每個租戶裡有沒有資料。軟體版本跟 AP1105 相同。</p>
   <div class="tablewrap">
   <table>
@@ -778,7 +839,8 @@ footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line)
 </section>
 
 <section>
-  <h2>原本設計：兩廠雙寫的實測</h2>
+  <div class="gtag old">原本的架構</div>
+  <h2>兩廠雙寫的實測</h2>
   <p>實際關掉其中一站的入口，中間再把 vmagent 重啟一次，然後恢復，比較兩站收到的筆數。</p>
   <div class="tablewrap">
   <table>
@@ -796,7 +858,8 @@ footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line)
 </section>
 
 <section>
-  <h2>新方向定案前要回答的</h2>
+  <div class="gtag new">新架構</div>
+  <h2>還要回答的問題</h2>
   <div class="tablewrap">
   <table>
     <thead><tr><th>問題</th><th>為什麼重要</th></tr></thead>
@@ -916,6 +979,117 @@ if (typeof module !== 'undefined') module.exports = CALC;
   }
   keys.forEach(function (k) { document.getElementById('c-' + k).addEventListener('input', run); });
   run();
+})();
+</script>
+<script>
+// 三種資料是什麼：按鈕切換，每一種一張會動的小圖。不依賴 React，流程圖載不出來時這一節照樣能看。
+(function () {
+  var root = document.getElementById('signals');
+  if (!root) return;
+  var T = function (x, y, text, cls, anchor) {
+    return '<text x="' + x + '" y="' + y + '" class="' + (cls || 'sg-t') + '"' + (anchor ? ' text-anchor="' + anchor + '"' : '') + '>' + text + '</text>';
+  };
+
+  // 數值：一條線慢慢畫出來，中間跳上去
+  var dots = [[20, 160], [60, 158], [100, 162], [140, 157], [180, 160], [220, 159], [260, 161], [300, 158], [330, 70], [370, 66], [410, 72], [450, 68], [490, 70]];
+  var svgM = '<svg viewBox="0 0 520 210" role="img" aria-label="處理時間每 15 秒量一次，畫成一條線。前半段平穩，後半段突然升高。">' +
+    '<rect x="20" y="146" width="480" height="28" class="sg-band"/>' + T(24, 190, '平常的範圍', 'sg-t') +
+    '<line x1="20" y1="20" x2="20" y2="176" class="sg-axis"/><line x1="20" y1="176" x2="500" y2="176" class="sg-axis"/>' +
+    T(26, 30, '處理一個請求花多久') + T(500, 196, '時間 →', 'sg-t', 'end') +
+    '<path class="sg-line m" pathLength="100" d="M' + dots.map(function (d) { return d.join(','); }).join(' L') + '"/>' +
+    dots.map(function (d, i) {
+      return '<circle class="sg-dot' + (i > 7 ? ' bad' : '') + '" cx="' + d[0] + '" cy="' + d[1] + '" r="4" style="animation-delay:' + (i * 0.3).toFixed(1) + 's"/>';
+    }).join('') +
+    '<g class="sg-late"><line x1="315" y1="24" x2="315" y2="176" class="sg-mark"/>' + T(322, 40, '從這裡開始不對勁', 'sg-t bad') + '</g>' +
+    '</svg>';
+
+  // log：一行一行冒出來，中間兩行是錯誤
+  var lines = [
+    ['21:32:01 info  handled /work 42ms  trace=8f3a', ''],
+    ['21:32:02 info  handled /work 45ms  trace=b71c', ''],
+    ['21:32:03 info  handled /work 41ms  trace=2e90', ''],
+    ['21:32:04 error upstream timeout    trace=c55d', 'bad'],
+    ['21:32:04 error handled /work 502   trace=c55d', 'bad'],
+    ['21:32:05 info  handled /work 44ms  trace=a108', '']
+  ];
+  var svgL = '<svg viewBox="0 0 520 210" role="img" aria-label="程式一行一行寫下的紀錄，其中兩行是錯誤訊息。">' +
+    '<rect x="10" y="10" width="500" height="190" rx="6" class="sg-term"/>' +
+    lines.map(function (l, i) {
+      return '<text x="24" y="' + (42 + i * 28) + '" class="sg-mono sg-row ' + l[1] + '" style="animation-delay:' + (i * 0.7).toFixed(1) + 's">' + l[0] + '</text>';
+    }).join('') + '</svg>';
+
+  // trace：一次請求經過哪幾段，每段多久
+  var spans = [
+    ['demo-web  收到請求', 130, 320, '484 ms', ''],
+    ['demo-api  被呼叫', 150, 290, '438 ms', 'bad'],
+    ['demo-api  內部運算', 160, 30, '38 ms', '']
+  ];
+  var svgT = '<svg viewBox="0 0 520 210" role="img" aria-label="一次請求先到 demo-web，再呼叫 demo-api。大部分的時間花在 demo-api 那一段。">' +
+    T(10, 26, '同一次請求（trace 編號 c55d）') + '<line x1="130" y1="40" x2="130" y2="180" class="sg-axis"/>' +
+    spans.map(function (s, i) {
+      var y = 56 + i * 44;
+      return T(10, y + 16, s[0]) +
+        '<rect class="sg-span ' + s[4] + '" x="' + s[1] + '" y="' + y + '" width="' + s[2] + '" height="24" rx="3" style="animation-delay:' + (i * 0.9).toFixed(1) + 's"/>' +
+        '<text x="' + (s[1] + s[2] + 6) + '" y="' + (y + 16) + '" class="sg-t sg-row ' + s[4] + '" style="animation-delay:' + (i * 0.9 + 0.6).toFixed(1) + 's">' + s[3] + '</text>';
+    }).join('') +
+    '<g class="sg-late">' + T(150, 196, '↑ 慢在這一段，不是 demo-web 自己慢', 'sg-t bad') + '</g></svg>';
+
+  // 三種合起來：發現 → 在哪 → 為什麼
+  var steps = [['① 數值', '處理時間變長了', '什麼時候開始'], ['② trace', '慢在 demo-api', '在哪一段'], ['③ log', 'upstream timeout', '為什麼']];
+  var svgA = '<svg viewBox="0 0 520 210" role="img" aria-label="先從數值發現變慢，再用 trace 找到慢在哪個服務，最後看那個服務的 log 知道原因。">' +
+    steps.map(function (s, i) {
+      var x = 10 + i * 175;
+      return '<g class="sg-step" style="animation-delay:' + (i * 1.6).toFixed(1) + 's"><rect x="' + x + '" y="50" width="150" height="96" rx="6" class="sg-box"/>' +
+        T(x + 12, 76, s[0], 'sg-t strong') + T(x + 12, 102, s[1], 'sg-mono') + T(x + 12, 130, '回答：' + s[2]) + '</g>' +
+        (i < 2 ? '<path class="sg-arrow" d="M' + (x + 153) + ',98 h18 m-6,-5 l6,5 l-6,5"/>' : '');
+    }).join('') +
+    T(260, 180, '三種資料帶著同一組標籤與同一個 trace 編號，才串得起來', 'sg-t', 'middle') + '</svg>';
+
+  var SIGNALS = [
+    { id: 'm', label: '數值（metrics）', svg: svgM, answers: '有沒有出事、什麼時候開始',
+      what: '固定每隔幾秒量一次的數字：CPU 用了多少、每秒幾個請求、處理一個請求花多久、重啟了幾次。',
+      use: '畫成線看趨勢、設告警。佔的空間最小，可以留很久，所以拿來學「平常的樣子」做異常偵測。',
+      without: '不知道系統什麼時候開始變慢，要等使用者來反應才知道出事。也沒有東西可以拿來做異常偵測。',
+      status: '第 1 步已經在收，並在本機實測過。' },
+    { id: 'l', label: '文字紀錄（log）', svg: svgL, answers: '為什麼',
+      what: '程式做事時自己寫下的一行一行文字，每行帶著時間：做了什麼、遇到什麼錯。',
+      use: '出事之後回頭看那個時間點程式說了什麼：錯誤訊息、是哪一筆、卡在哪個步驟。',
+      without: '知道壞了，但不知道為什麼。只能猜，或是想辦法讓它再壞一次。',
+      status: '範例程式有吐，還沒有人收。第 2 步。' },
+    { id: 't', label: '請求的足跡（trace）', svg: svgT, answers: '在哪裡',
+      what: '一次請求從進來到回應，經過哪幾個服務、每一段花多久。同一次請求的每一段帶著同一個編號。',
+      use: '服務互相呼叫時，找出慢或錯在哪一段。把很多次請求合起來，就知道誰呼叫誰，找根因要靠這張關係圖。',
+      without: 'demo-web 變慢時，分不出是它自己慢，還是它呼叫的 demo-api 慢。每個團隊都只看得到自己那一段。',
+      status: '範例程式有傳編號，還沒有人收。第 4 步。各部門的程式要先埋追蹤，平台單方面做不完。' },
+    { id: 'all', label: '三種合起來', svg: svgA, answers: '出事時最可能的源頭',
+      what: '三種資料各回答一個問題。單獨一種都不夠：數值知道有事，trace 知道在哪，log 知道為什麼。',
+      use: '從異常的數值出發，順著 trace 找到是哪個服務，再看那個服務當時的 log。AIOps 要自動做的就是這條路。',
+      without: '三種資料如果標籤對不起來（部門、系統、廠區寫法不同），就只能靠人在三個畫面之間比對時間。',
+      status: '這是整個專案叫 data foundation 的原因：先讓三種資料帶同一組標籤。' }
+  ];
+
+  var current = 'm';
+  function render() {
+    var s = SIGNALS.filter(function (x) { return x.id === current; })[0];
+    root.innerHTML =
+      '<div class="modes" role="group" aria-label="要看哪一種資料">' + SIGNALS.map(function (x) {
+        return '<button type="button" data-id="' + x.id + '" aria-pressed="' + (x.id === current) + '">' + x.label + '</button>';
+      }).join('') + '</div>' +
+      '<div class="sg-wrap"><div class="sg-fig sig-' + s.id + '">' + s.svg + '<div class="sg-answer">它回答：<strong>' + s.answers + '</strong></div></div>' +
+      '<ul class="points sg-points"><li><strong>是什麼</strong><span>' + s.what + '</span></li>' +
+      '<li><strong>怎麼用</strong><span>' + s.use + '</span></li>' +
+      '<li><strong>沒有的話</strong><span>' + s.without + '</span></li></ul></div>' +
+      '<p class="note">在這個專案裡：' + s.status + '</p>';
+  }
+  root.addEventListener('click', function (e) {
+    var b = e.target.closest ? e.target.closest('button[data-id]') : null;
+    if (!b) return;
+    current = b.getAttribute('data-id');
+    render();
+    var again = root.querySelector('button[data-id="' + current + '"]');
+    if (again) again.focus();
+  });
+  render();
 })();
 </script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
@@ -1098,7 +1272,7 @@ if (typeof module !== 'undefined') module.exports = CALC;
         h('div', { className: 'n-step' }, h('div', { className: 'n-title' }, '三種資料一起收'), h('div', { className: 'n-sub' }, 'metrics、log、trace')),
         h('div', { className: 'n-step' }, h('div', { className: 'n-title' }, '同一套規則貼標籤'), h('div', { className: 'n-sub' }, '讀 namespace 的門牌，擋掉自稱的')),
         h('div', { className: 'n-step' }, h('div', { className: 'n-title' }, '送不到先存磁碟'), h('div', { className: 'n-sub' }, '恢復後補送')),
-        h('div', { className: 'n-tag plan' }, '規劃，要重新實測')) } });
+        h('div', { className: 'n-tag part' }, '數值已實測，log 與 trace 還沒接')) } });
     var many = mode === 'multi';
     nodes.push({ id: 'f-other', position: { x: 340, y: 400 }, sourcePosition: 'right', targetPosition: 'left', type: 'input',
       style: { width: 230, borderStyle: 'dashed', borderColor: many ? V('warn') : V('line'), borderWidth: many ? 2.5 : 1.5,
@@ -1113,8 +1287,8 @@ if (typeof module !== 'undefined') module.exports = CALC;
       .forEach(function (s) {
         nodes.push({ id: s[0], parentNode: 'g-es', extent: 'parent', position: { x: 16, y: s[2] },
           sourcePosition: 'right', targetPosition: 'left',
-          style: { width: 218, borderColor: V(SIG[s[1]]), borderStyle: 'dashed', opacity: op(lit('store') || mode === 'aiops') },
-          data: { label: box(s[3], s[4], '規劃', 'plan') } });
+          style: { width: 218, borderColor: V(SIG[s[1]]), borderStyle: s[1] === 'm' ? 'solid' : 'dashed', opacity: op(lit('store') || mode === 'aiops') },
+          data: { label: s[1] === 'm' ? box(s[3], s[4], '已實測', 'done') : box(s[3], s[4], '規劃', 'plan') } });
         es.push({ id: 'e-col-' + s[0], source: 'f-col', target: s[0], animated: lit('collect') || lit('store'),
           style: { stroke: V(SIG[s[1]]), strokeWidth: 2.5, opacity: op(lit('collect') || lit('store')), strokeDasharray: '4 5' } });
         es.push({ id: 'e-oth-' + s[0], source: 'f-other', target: s[0], animated: many,
@@ -1406,15 +1580,21 @@ if (typeof module !== 'undefined') module.exports = CALC;
   // </testview>
   // =====================================================================
   var VIEWS = {
-    orig: { label: '原本的設計', modes: OV_MODES, detail: OV_DETAIL, build: buildOverview, height: 560, legend: true,
+    orig: { label: '全貌：三種資料各走各的', modes: OV_MODES, detail: OV_DETAIL, build: buildOverview, height: 560, legend: true,
       banner: '原本的設計：三種資料各用一套收集程式、各存一座。只有 metrics 那一條已經做完並實測；log 是既有的設定；trace 與 AIOps 還沒開始。每個方塊上都標了狀態。' },
-    test: { label: '已實測：第 1 步的測試架構', modes: TV_MODES, detail: TV_DETAIL, build: testGraph, height: 720,
+    test: { label: '第 1 步：數值進 Elasticsearch（已實測）', modes: TV_MODES, detail: TV_DETAIL, build: testGraph, height: 720,
       banner: '新方向的第 1 步，已經做完並在本機實測：程式與 server 的健康度數值，經收集程式進 Elasticsearch，依部門分開。只收數值，log 與 trace 還沒接。只在本機的 k3d 驗過，一個節點。' },
-    future: { label: '新方向：全進 Elasticsearch，AIOps 自己訓練', modes: FU_MODES, detail: FU_DETAIL, build: futureGraph, height: 600, legend: true,
-      banner: '新方向的全貌。第 1 步（數值進 Elasticsearch、依部門分開）已經做完並實測，見「已實測」那一張；log、trace 與 AIOps 還沒做。虛線代表規劃。' },
-    metrics: { label: '原本設計的 metrics 細節（已實測）', modes: MODES, detail: DETAIL, build: metricsGraph, height: 800,
+    future: { label: '全貌：一套收集，AIOps 自己訓練（規劃）', modes: FU_MODES, detail: FU_DETAIL, build: futureGraph, height: 600, legend: true,
+      banner: '新方向的全貌。第 1 步（數值進 Elasticsearch、依部門分開）已經做完並實測，見旁邊「第 1 步」那一張；log、trace 與 AIOps 還沒做。虛線代表規劃。' },
+    metrics: { label: 'metrics 這一條的細節（已實測）', modes: MODES, detail: DETAIL, build: metricsGraph, height: 800,
       banner: '這是原本設計裡已經做完的那一條。實測的是中科那一個 cluster 加兩座模擬的中央；二林的 cluster 設定相同，本機沒有另外起一套。新方向如果定案，這裡的四件事要在 Elasticsearch 那一側重做。' }
   };
+
+  // 四張圖分成兩組：先分清楚是哪一套架構，再選要看全貌還是實測
+  var GROUPS = [
+    { id: 'g-new', title: '新架構：全進 Elasticsearch', sub: '現在在做的。一套收集程式、一座儲存', views: ['future', 'test'] },
+    { id: 'g-old', title: '原本的架構：VictoriaMetrics', sub: '已停止。三套收集程式、三座儲存', views: ['orig', 'metrics'] }
+  ];
 
   function Buttons(props) {
     return h('div', { className: props.className, role: 'group', 'aria-label': props.label },
@@ -1425,7 +1605,7 @@ if (typeof module !== 'undefined') module.exports = CALC;
   }
 
   function App() {
-    var s0 = React.useState('orig'), view = s0[0], setView = s0[1];
+    var s0 = React.useState('future'), view = s0[0], setView = s0[1];
     var s1 = React.useState({ orig: 'all', test: 'all', future: 'all', metrics: 'all' }), modeBy = s1[0], setModeBy = s1[1];
     var s2 = React.useState(null), picked = s2[0], setPicked = s2[1];
     var v = VIEWS[view], mode = modeBy[view];
@@ -1433,9 +1613,14 @@ if (typeof module !== 'undefined') module.exports = CALC;
     var detail = v.detail[picked];
     var current = v.modes.filter(function (m) { return m.id === mode; })[0];
     return h('div', { style: { display: 'flex', flexDirection: 'column', gap: 12 } },
-      h(Buttons, { className: 'tabs', label: '要看哪一張圖', prefix: 'tab-', value: view,
-        items: Object.keys(VIEWS).map(function (k) { return { id: k, label: VIEWS[k].label }; }),
-        onChange: function (k) { setView(k); setPicked(null); } }),
+      h('div', { className: 'tabgroups' }, GROUPS.map(function (g) {
+        var here = g.views.indexOf(view) >= 0;
+        return h('div', { key: g.id, className: 'tabgroup ' + g.id + (here ? ' here' : '') },
+          h('div', { className: 'gname' }, h('strong', null, g.title), h('span', null, g.sub)),
+          h(Buttons, { className: 'tabs', label: g.title, prefix: 'tab-', value: view,
+            items: g.views.map(function (k) { return { id: k, label: VIEWS[k].label }; }),
+            onChange: function (k) { setView(k); setPicked(null); } }));
+      })),
       h('div', { className: 'banner' }, v.banner),
       h(Buttons, { className: 'modes', label: '情境', prefix: 'mode-' + view + '-', value: mode, items: v.modes,
         onChange: function (m) { var next = { orig: modeBy.orig, test: modeBy.test, future: modeBy.future, metrics: modeBy.metrics }; next[view] = m; setModeBy(next); setPicked(null); } }),
