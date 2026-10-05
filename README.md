@@ -69,7 +69,7 @@ argocd:                        # ApplicationSet 讀的，chart 不會用到
 
 observability:                 # 唯一的 identity 來源
   dept: D3120                  # 必填
-  tenant: icsd                 # 必填：tsid / bsid / icsd / imc / platform
+  tenant: tsid                 # 必填：tsid / bsid / icsd / imc / platform
   system: mes                  # 選填
 
 image:                         # 以下是一般的 Helm values
@@ -85,7 +85,7 @@ image:                         # 以下是一般的 Helm values
 metadata:
   labels:
     dept: D3120
-    tenant: icsd
+    tenant: tsid
     system: mes
 ```
 

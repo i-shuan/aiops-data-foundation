@@ -21,10 +21,22 @@ IT 維運人員。值班時要知道兩件事：程式健不健康、server 健�
 | 程式健康度 | 有沒有活著、重啟幾次、回應慢不慢、錯誤比例、處理量、用了多少 CPU 與記憶體 | 程式自己吐的數值、容器的資源用量、程式的 log、trace |
 | server 健康度 | CPU、記憶體、磁碟、網路、節點是不是 Ready | 節點上的收集程式、K8s 回報的節點狀態、系統 log |
 
+### 部門各管什麼
+
+| 部門 | 管什麼 | 在這套裡對應 |
+| --- | --- | --- |
+| ICSD | infra，server 底層 | server 健康度。資料標成 `icsd` |
+| TSID | MES、RMS、EAP 相關的程式 | 程式健康度 |
+| BSID | ERP 相關的程式 | 程式健康度 |
+| IMC | app 應用 | 先放著，這一輪不處理 |
+| platform | 整套 AIOps：收集程式、Elasticsearch、Kibana、訓練與偵測的程式 | 這套系統自己的健康度。資料標成 `platform` |
+
 | 歸屬 | |
 | --- | --- |
 | 程式 | 屬於某個部門，照 namespace 的門牌貼標籤 |
-| server | 不屬於任何部門，歸平台。IT 維運看得到全部 |
+| server | 歸 ICSD。server 不在任何 namespace 裡，沒有門牌可讀，由收集程式直接標成 `icsd` |
+| AIOps 這套系統自己 | 歸 platform |
+| 沒掛門牌、門牌寫錯的 | 也先歸 `platform`：不會消失、不會混進任何部門，由管這套系統的人去追是誰沒掛 |
 
 ## 不做會怎樣
 
@@ -47,7 +59,7 @@ IT 維運人員。值班時要知道兩件事：程式健不健康、server 健�
 | 項目 | 決定 |
 | --- | --- |
 | 儲存 | 三種都進 Elasticsearch。不用 VictoriaMetrics，不架 Tempo |
-| 收集 | 一套收集程式收三種，標籤規則只寫一份 |
+| 收集 | 一套收集程式收三種，標籤規則只寫一份。用 OpenTelemetry Collector |
 | AIOps | 自己訓練。Elasticsearch 只當倉庫，不依賴它付費的機器學習功能 |
 | AIOps 的目標 | 找根因。先做異常偵測，因為要先知道「哪裡不正常、什麼時候開始」才找得到源頭 |
 | AIOps 看什麼、給誰用 | 程式健康度與 server 健康度，給 IT 維運人員用。見「監控的對象」 |
@@ -124,7 +136,6 @@ IT 維運人員。值班時要知道兩件事：程式健不健康、server 健�
 
 | # | 問題 | 為什麼卡住 |
 | --- | --- | --- |
-| 1 | 收集程式用哪一套 | OpenTelemetry Collector 或 Elastic Agent。前者中立、後者跟 Elasticsearch 整合較深 |
 | 2 | 部門在 Elasticsearch 裡怎麼隔 | 沒有 VictoriaMetrics 那種一個編號一個租戶。要用「每個部門各自的資料流加上權限」，哪些權限功能在免費版要查 |
 | 3 | 多個廠區時 Elasticsearch 怎麼擺 | 全部送一座中央的、每廠一座再跨座查詢、或收集程式自己寫兩座。決定頻寬、單點風險與維運量 |
 | 4 | 要不要像原本一樣兩站各存一份 | Elasticsearch 的跨站複寫就目前了解要付費。免費的做法是收集程式寫兩份 |
@@ -141,7 +152,7 @@ IT 維運人員。值班時要知道兩件事：程式健不健康、server 健�
 
 | 順序 | 內容 | 取代原本的 |
 | --- | --- | --- |
-| 1 | 範例程式，加上收集程式把程式與 server 的健康度數值送進 Elasticsearch：讀門牌、貼標籤、擋冒充、斷線暫存 | vmagent 與 `platform/victoriametrics/` |
+| 1 | [`health-metrics-to-elastic`](../health-metrics-to-elastic/1-intent.md)：範例程式，加上收集程式把程式與 server 的健康度數值送進 Elasticsearch：讀門牌、貼標籤、擋冒充、斷線暫存 | vmagent 與 `platform/victoriametrics/` |
 | 2 | 同一套收集程式收程式與系統的 log，用同一組標籤 | Fluentd 與 `platform/logging/` |
 | 3 | 異常偵測：程式與 server 各一組，拉壓過的資料、訓練、偵測、寫回 | 原本沒有 |
 | 4 | 同一套收集程式收 trace，並整理出「誰呼叫誰」 | 原本沒有 |

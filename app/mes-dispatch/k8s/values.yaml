@@ -12,7 +12,7 @@ argocd:
 # 部署時照原值變成 namespace 的 label，vmagent 依 tenant 決定寫進哪個 AccountID。
 observability:
   dept: D3120                  # 必填：這份資料是誰的
-  tenant: icsd                 # 必填：tsid / bsid / icsd / imc / platform
+  tenant: tsid                 # 必填：tsid / bsid / icsd / imc / platform。MES 歸 TSID
   system: mes                  # 選填：業務系統
 
 # ── 以下是一般的 Helm values ──

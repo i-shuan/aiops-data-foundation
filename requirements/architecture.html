@@ -548,7 +548,19 @@ footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line)
     </tbody>
   </table>
   </div>
-  <p class="note">不在範圍內：機台收值，以及機台與製程本身有沒有異常（溫度、壓力、流量）。那是製程與設備工程師的需求，這裡不收、不存、不拿來訓練。第三張圖裡出現的「機台收值」是原本設計實測時用的範例程式，那次測的是它的資料有沒有進對租戶。</p>
+  <div class="tablewrap">
+  <table>
+    <thead><tr><th>部門</th><th>管什麼</th><th>在這套裡對應</th></tr></thead>
+    <tbody>
+      <tr><td>ICSD</td><td>infra，server 底層的監測</td><td>server 健康度</td></tr>
+      <tr><td>TSID</td><td>MES、RMS、EAP 相關的程式</td><td>程式健康度</td></tr>
+      <tr><td>BSID</td><td>ERP 相關的程式</td><td>程式健康度</td></tr>
+      <tr><td>IMC</td><td>app 應用</td><td>先放著，這一輪不處理</td></tr>
+      <tr><td>platform</td><td>整套 AIOps：收集程式、Elasticsearch、Kibana、訓練與偵測的程式</td><td>這套系統自己的健康度</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="note">不在範圍內：機台收值，以及機台與製程本身有沒有異常（溫度、壓力、流量）。那是製程與設備工程師的需求，這裡不收、不存、不拿來訓練。</p>
 </section>
 
 <section>
@@ -892,11 +904,11 @@ if (typeof module !== 'undefined') module.exports = CALC;
   // =====================================================================
   var SIG = { m: 'tsid', l: 'bsid', t: 'icsd', ai: 'imc' };   // 顏色代表訊號種類，不是部門
   var OV_NS = [
-    { id: 'tsid', title: 'TSID 的程式', sub: 'tenant: tsid' },
-    { id: 'bsid', title: 'BSID 的程式', sub: 'tenant: bsid' },
-    { id: 'icsd', title: 'ICSD 的程式（例：MES 派工）', sub: 'tenant: icsd' },
+    { id: 'tsid', title: 'TSID 的程式', sub: 'MES、RMS、EAP　tenant: tsid' },
+    { id: 'bsid', title: 'BSID 的程式', sub: 'ERP　tenant: bsid' },
+    { id: 'icsd', title: 'ICSD：server 底層', sub: 'infra，節點的 CPU、記憶體、磁碟' },
     { id: 'imc',  title: 'IMC 的程式', sub: 'tenant: imc' },
-    { id: 'plat', title: 'server 本身與平台元件', sub: '節點的 CPU、記憶體、磁碟。算平台' }
+    { id: 'plat', title: 'platform：AIOps 這一套本身', sub: '沒掛門牌、寫錯的也先算這裡' }
   ];
   var OV_MODES = [
     { id: 'all', label: '全部', text: '每個系統都會產生三種資料：數值（metrics）、文字紀錄（log）、一次請求經過哪些服務（trace）。三種各有自己的收集程式和儲存，共同點是都要帶著同一組標籤，之後才對得起來。' },
@@ -1105,8 +1117,8 @@ if (typeof module !== 'undefined') module.exports = CALC;
       sources: [
         { id: 'tsid',  title: 'TSID 的系統', sub: '門牌 tenant: tsid', color: 'tsid', dest: '1001', y: 46 },
         { id: 'bsid',  title: 'BSID 的系統', sub: '門牌 tenant: bsid', color: 'bsid', dest: '1002', y: 108 },
-        { id: 'icsd',  title: 'ICSD 的系統（例：MES 派工）', sub: '門牌 tenant: icsd', color: 'icsd', dest: '1003', y: 170 },
-        { id: 'imc',   title: 'IMC 的系統（例：機台收值）', sub: '門牌 tenant: imc', color: 'imc', dest: '1004', y: 232 },
+        { id: 'icsd',  title: 'ICSD 的系統', sub: '門牌 tenant: icsd', color: 'icsd', dest: '1003', y: 170 },
+        { id: 'imc',   title: 'IMC 的系統', sub: '門牌 tenant: imc', color: 'imc', dest: '1004', y: 232 },
         { id: 'none',  title: '平台元件、沒掛門牌的', sub: '沒寫 tenant，或寫錯字', color: 'plat', dest: '1000', y: 304 },
         { id: 'spoof', title: '沒掛門牌，卻自稱 tsid', sub: '程式自己在資料上寫部門代號', color: 'plat', dest: '1000', y: 366, dashed: true }
       ] },
