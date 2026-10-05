@@ -1,0 +1,78 @@
+{{- /*
+同一個 image 起兩支：demo-api 做事，demo-web 呼叫它並自己產生流量。
+pod 上的 prometheus.io/* 標註是給平台的收集程式看的：「我要被抓，埠號是這個」。
+*/}}
+{{- range $role := list "api" "web" }}
+{{- $name := printf "demo-%s" $role }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  namespace: {{ $.Values.namespace }}
+  labels:
+    app.kubernetes.io/name: {{ $name }}
+    app.kubernetes.io/part-of: {{ $.Values.app.name }}
+    app.kubernetes.io/version: {{ $.Values.image.tag | quote }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ $name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ $name }}
+        app.kubernetes.io/part-of: {{ $.Values.app.name }}
+        app.kubernetes.io/version: {{ $.Values.image.tag | quote }}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: {{ $.Values.ports.metrics | quote }}
+    spec:
+      # 符合 Pod Security restricted，cluster 有強制的話也放得進去
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: {{ $name }}
+          image: {{ printf "%s:%s" $.Values.image.repository (toString $.Values.image.tag) }}
+          imagePullPolicy: {{ $.Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ $.Values.ports.http }}
+            - name: metrics
+              containerPort: {{ $.Values.ports.metrics }}
+          env:
+            - name: ROLE
+              value: {{ $role | quote }}
+            - name: SERVICE_NAME
+              value: {{ $name | quote }}
+            - name: HTTP_PORT
+              value: {{ $.Values.ports.http | quote }}
+            - name: METRICS_PORT
+              value: {{ $.Values.ports.metrics | quote }}
+            {{- if eq $role "web" }}
+            - name: UPSTREAM_URL
+              value: {{ printf "http://demo-api.%s.svc:%v/work" $.Values.namespace $.Values.ports.http | quote }}
+            - name: SELF_TRAFFIC_RPS
+              value: {{ $.Values.selfTrafficRps | quote }}
+            {{- end }}
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+          resources:
+            {{- toYaml $.Values.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+{{- end }}

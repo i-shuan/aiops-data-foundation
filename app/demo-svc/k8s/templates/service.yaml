@@ -1,0 +1,23 @@
+{{- /* demo-web 用 demo-api 這個名字找到它。demo-web 的 Service 是給人從外面打 /work 與 /admin/fault 用的。 */}}
+{{- range $role := list "api" "web" }}
+{{- $name := printf "demo-%s" $role }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  namespace: {{ $.Values.namespace }}
+  labels:
+    app.kubernetes.io/name: {{ $name }}
+    app.kubernetes.io/part-of: {{ $.Values.app.name }}
+spec:
+  selector:
+    app.kubernetes.io/name: {{ $name }}
+  ports:
+    - name: http
+      port: {{ $.Values.ports.http }}
+      targetPort: http
+    - name: metrics
+      port: {{ $.Values.ports.metrics }}
+      targetPort: metrics
+{{- end }}

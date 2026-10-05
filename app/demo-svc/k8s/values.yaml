@@ -1,0 +1,35 @@
+# 範例服務的設定。沒有 ArgoCD，namespace 和它的 label 由這個 chart 自己建立。
+#
+# 一次部署會起兩支：demo-web 呼叫 demo-api，都在同一個 namespace。
+# 要測別的部門，換 namespace 和 observability.tenant 再裝一份：
+#   helm upgrade --install demo-bsid app/demo-svc/k8s -n default --reset-values \
+#     --set namespace=demo-bsid --set observability.tenant=bsid
+
+namespace: demo-tsid
+
+observability:               # 照原值貼到 Namespace label，不查表、不推導；沒寫的欄位不會產生 label
+  dept: D3120
+  tenant: tsid
+  system: demo
+
+app:
+  name: demo-svc             # 必須跟 app/ 底下的資料夾同名
+
+image:
+  repository: demo-svc
+  tag: test
+  pullPolicy: Never          # 本機測試：image 用 k3d image import 放進 node，不去 registry 拉
+
+ports:
+  http: 8080                 # /work、/admin/fault、/healthz
+  metrics: 9464              # 收集程式抓這裡
+
+# demo-web 每秒自己打自己幾次。0 = 不產生流量
+selfTrafficRps: 2
+
+resources:
+  requests:
+    cpu: 20m
+    memory: 48Mi
+  limits:
+    memory: 256Mi            # 留空間給 /admin/fault?mem_mb= 佔記憶體，超過會被砍掉重啟

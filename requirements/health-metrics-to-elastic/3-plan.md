@@ -1,6 +1,6 @@
 # Plan — 健康度數值經 OpenTelemetry Collector 進 Elasticsearch
 
-> `2-spec.md` 已確認。分三批，前一批驗收過才做下一批，每批一個 commit。
+> `2-spec.md` 與這份 plan 已確認（2026-10-05）。分三批，前一批驗收過才做下一批，每批一個 commit。
 > 檔案數超過 3，沿用之前的做法：每批各自驗證。
 
 ## 第一批：兩支範例程式
@@ -26,15 +26,16 @@
 2. cluster 那一份：抓程式的數值、K8s 回報的狀態。佇列掛 PVC。
 3. 節點那一份：每個節點一個，收 server 的 CPU、記憶體、磁碟、網路，以及每個容器的資源用量。
 4. 標籤規則照 spec：程式讀門牌、server 標 `icsd`、其餘 `platform`。`site` 與 `cluster` 由每個 cluster 自己的一小份設定提供。
-5. 允許的 `tenant` 清單只寫在收集設定裡；`tests/validate.sh` 改成從這裡讀，腳本裡暫時的那份拿掉。
-6. `tests/validate.sh` 加檢查：重試不能是 0、先丟掉程式自己帶的再填、對 pod 的那一段還在、server 有標 `icsd`、密碼沒有寫在檔案裡。每一條加「改壞一定被擋下」的自我檢查。
+5. 第二座 Elasticsearch 的位置用註解保留在設定裡，不啟用。
+6. 允許的 `tenant` 清單只寫在收集設定裡；`tests/validate.sh` 改成從這裡讀，腳本裡暫時的那份拿掉。
+7. `tests/validate.sh` 加檢查：重試不能是 0、先丟掉程式自己帶的再填、對 pod 的那一段還在、server 有標 `icsd`、密碼沒有寫在檔案裡。每一條加「改壞一定被擋下」的自我檢查。
 
 | 檔案 | 內容 |
 | --- | --- |
 | `platform/otel/cluster-collector.yaml` | 步驟 2、4 |
 | `platform/otel/node-collector.yaml` | 步驟 3、4 |
 | `platform/otel/site-ctsp.yaml` | 這個 cluster 的 `site` 與 `cluster` |
-| `tests/validate.sh` | 步驟 5、6 |
+| `tests/validate.sh` | 步驟 6、7 |
 
 ## 第三批：k3d 實測與文件
 
@@ -43,10 +44,9 @@
 3. `check.py` 查 Elasticsearch：每個情境進了哪一份、標籤對不對、server 的在 `icsd`、容器的資源用量有進來。
 4. 弄壞的檢查：把 `demo-api` 弄慢，兩支的處理時間在 Elasticsearch 裡都看得到變化。
 5. `run.sh outage`：停掉 Elasticsearch、中間重啟收集程式、再恢復，比停機期間的筆數。
-6. `run.sh dual`：起第二座 Elasticsearch，設定兩個目的地，停掉其中一座，另一座照常。
-7. 反向驗證：用改壞的設定跑（重試改成 0、拿掉擋冒充、拿掉 PVC），每一種都要 FAIL。
-8. 文件：`README.md`、`platform/README.md`、`.agents/project/commands.md`。
-9. 刪掉 `requirements/health-metrics-to-elastic/spike/`：正式的設定與測試蓋過它之後才刪。
+6. 反向驗證：用改壞的設定跑（重試改成 0、拿掉擋冒充、拿掉 PVC），每一種都要 FAIL。
+7. 文件：`README.md`、`platform/README.md`、`.agents/project/commands.md`。
+8. 刪掉 `requirements/health-metrics-to-elastic/spike/`：正式的設定與測試蓋過它之後才刪。
 
 | 檔案 | 內容 |
 | --- | --- |
@@ -62,7 +62,6 @@
 | server 與容器的數值對不到節點或 pod，標籤是空的 | 第三批：`icsd` 那一份沒有資料，或容器的資料全在 `platform` | 調整對 pod 的那一段。這是 spike 沒涵蓋的新東西，預期要試幾次 |
 | 容器的資源用量被算成「屬於哪個部門」時對錯 | 第三批：`tsid` 的 pod 的 CPU 出現在別的部門 | 規則是照 pod 所在的 namespace，不是照節點 |
 | 節點那一份要讀主機的資料，需要比較高的權限 | pod 起不來，或起來了沒資料 | 只開需要的掛載與權限，在文件寫明 |
-| 兩座 Elasticsearch 加範例程式，本機記憶體不夠 | pod Pending 或 OOM | 第二座用較小的記憶體；不夠的話 `dual` 分開跑，跑之前停掉不需要的 |
 | 範例程式的假流量不穩，測試偶爾誤判 | 同一個設定連跑兩次結果不同 | 檢查用「有沒有、進對地方沒」而不是比精確的數字；比數字的地方留容許範圍 |
 | 弄慢 `demo-api` 之後 `demo-web` 的變化太小看不出來 | 第三批步驟 4 | 把延遲調大到明顯超過正常波動 |
 | 允許的 `tenant` 清單改成從收集設定讀時，寫法太難解析 | `tests/validate.sh` 讀不出來或讀錯 | 清單在設定裡用固定的寫法，腳本對那個寫法做檢查，寫法變了就 FAIL |
@@ -78,4 +77,5 @@
 | 分層保留與壓縮 | spec 已列為不涵蓋 |
 | 幫 `mes-dispatch` 補上「我要被抓」的標註、改成手動 Helm | 它是 ArgoCD 的寫法，另外決定 |
 | 用 Helm chart 包收集程式 | 先用單純的設定檔。很多 cluster 時怎麼發設定是之後的事 |
+| 第二座 Elasticsearch 的測試 | 已定先一座 |
 | 動 `platform/argocd/`、`platform/logging/` | 這一步不碰 |

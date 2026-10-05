@@ -1,0 +1,6 @@
+apiVersion: v2
+name: demo-svc
+description: 範例服務：demo-web 呼叫 demo-api。沒有業務意義，用來驗證監控與製造已知的故障。手動 Helm，Namespace 和它的 label 由這個 chart 自己建立。
+type: application
+version: 0.1.0
+appVersion: "test"
