@@ -1,0 +1,21 @@
+# 兩份收集程式共用的設定。每個 cluster 都一樣。
+#
+# 允許的部門清單只有這一份：tests/validate.sh 從這裡讀，app 的 values.yaml 寫的 tenant
+# 不在清單裡會被擋下；真的部署上去的話，收集程式會把它算成 DEFAULT_TENANT。
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: obs
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-common
+  namespace: obs
+data:
+  # 用 | 隔開。加部門就在這裡加，兩份收集程式都會吃到
+  ALLOWED_TENANTS: "tsid|bsid|icsd|imc|platform"
+  # namespace 沒掛門牌、或門牌不在清單裡的，算這個
+  DEFAULT_TENANT: "platform"
+  # server 沒有門牌可讀，節點層級的資料直接標成這個
+  SERVER_TENANT: "icsd"

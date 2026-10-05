@@ -1,0 +1,14 @@
+# 中科的 cluster 自己的設定。每個 cluster 一份，只放「每個 cluster 不一樣」的東西。
+#
+# ⚠ CLUSTER 與 ES_ENDPOINT 是佔位，上線前要換掉。tests/validate.sh 會印出提醒。
+#   ES_ENDPOINT 沒換的話收集程式會一直重試、資料一直排隊，不會報錯。
+# 帳號密碼不放這裡：Secret es-credentials 的 username、password。
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-site
+  namespace: obs
+data:
+  SITE: "ctsp"
+  CLUSTER: "CHANGE-ME"
+  ES_ENDPOINT: "https://elasticsearch.placeholder.invalid:9200"
