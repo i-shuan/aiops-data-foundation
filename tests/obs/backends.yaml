@@ -1,0 +1,224 @@
+# 測試用的東西：一座單節點的 Elasticsearch，加三個只回固定文字的假程式。
+# 正式的收集設定不在這裡，在 platform/otel/。run.sh 套用時只換位址與 cluster 名稱。
+#
+# 密碼不寫在這裡：run.sh 當場隨機產生，放進 Secret es-credentials。
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: elasticsearch
+  namespace: obs
+spec:
+  serviceName: elasticsearch
+  replicas: 1
+  selector:
+    matchLabels:
+      app: elasticsearch
+  template:
+    metadata:
+      labels:
+        app: elasticsearch
+    spec:
+      containers:
+        - name: elasticsearch
+          image: elasticsearch:9.5.3
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: discovery.type
+              value: single-node
+            - name: xpack.security.enabled
+              value: "true"
+            - name: xpack.security.http.ssl.enabled
+              value: "false"
+            - name: xpack.license.self_generated.type
+              value: basic
+            # 不用 mmap，就不必去改節點的 vm.max_map_count
+            - name: node.store.allow_mmap
+              value: "false"
+            - name: ES_JAVA_OPTS
+              value: "-Xms1g -Xmx1g"
+            - name: ELASTIC_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: es-credentials
+                  key: password
+          ports:
+            - containerPort: 9200
+          readinessProbe:
+            tcpSocket:
+              port: 9200
+            initialDelaySeconds: 20
+            periodSeconds: 5
+          volumeMounts:
+            - name: data
+              mountPath: /usr/share/elasticsearch/data
+          resources:
+            requests:
+              memory: 1500Mi
+            limits:
+              memory: 2Gi
+  # ⚠ 資料放 PVC：停機測試會把 Elasticsearch 整個停掉再開回來，資料要還在才驗得了補送
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests:
+            storage: 5Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: elasticsearch
+  namespace: obs
+spec:
+  selector:
+    app: elasticsearch
+  ports:
+    - port: 9200
+---
+# 情境一：namespace 沒貼門牌，程式還自己說它是 tsid → 要進 platform，自稱的值不能留下
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: fake-none
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fake
+  namespace: fake-none
+data:
+  metrics: |
+    fake_value{src="fake-none",tenant="tsid",site="fake"} 1
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fake
+  namespace: fake-none
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: fake
+  template:
+    metadata:
+      labels:
+        app: fake
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+    spec:
+      containers:
+        - name: fake
+          image: busybox:1.36
+          imagePullPolicy: IfNotPresent
+          command: ["httpd", "-f", "-p", "8080", "-h", "/www"]
+          volumeMounts:
+            - name: www
+              mountPath: /www
+      volumes:
+        - name: www
+          configMap:
+            name: fake
+---
+# 情境二：門牌打錯字（tsidd，不在清單裡）→ 要進 platform
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: fake-typo
+  labels:
+    tenant: tsidd
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fake
+  namespace: fake-typo
+data:
+  metrics: |
+    fake_value{src="fake-typo"} 1
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fake
+  namespace: fake-typo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: fake
+  template:
+    metadata:
+      labels:
+        app: fake
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+    spec:
+      containers:
+        - name: fake
+          image: busybox:1.36
+          imagePullPolicy: IfNotPresent
+          command: ["httpd", "-f", "-p", "8080", "-h", "/www"]
+          volumeMounts:
+            - name: www
+              mountPath: /www
+      volumes:
+        - name: www
+          configMap:
+            name: fake
+---
+# 情境三：冒充。namespace 貼的是 bsid，程式自己說它是 tsid、廠區是 fake。
+# target_info 那一行會變成整個程式的身分欄位，另一行是掛在單一數值上的。兩種都要被擋下，
+# 資料要進 bsid，而且樣本上不能留著程式自稱的值。
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: fake-spoof
+  labels:
+    tenant: bsid
+    dept: D9999
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fake
+  namespace: fake-spoof
+data:
+  metrics: |
+    target_info{tenant="tsid",site="fake",cluster="fake",dept="FAKE"} 1
+    fake_value{src="fake-spoof",tenant="tsid",site="fake",cluster="fake"} 1
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fake
+  namespace: fake-spoof
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: fake
+  template:
+    metadata:
+      labels:
+        app: fake
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+    spec:
+      containers:
+        - name: fake
+          image: busybox:1.36
+          imagePullPolicy: IfNotPresent
+          command: ["httpd", "-f", "-p", "8080", "-h", "/www"]
+          volumeMounts:
+            - name: www
+              mountPath: /www
+      volumes:
+        - name: www
+          configMap:
+            name: fake

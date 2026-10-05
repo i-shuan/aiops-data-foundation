@@ -496,7 +496,7 @@ button:focus-visible { outline: 2px solid var(--tsid); outline-offset: 2px; }
 .n-alert { color: var(--bad); font-size: 12px; font-weight: 500; }
 .n-wait { color: var(--warn); font-size: 12px; font-weight: 500; }
 .n-tag { display: inline-block; margin-top: 5px; font-size: 11px; font-weight: 500; padding: 0 8px; border-radius: 999px; border: 1px solid currentColor; }
-.n-tag.done { color: var(--ok); } .n-tag.part { color: var(--warn); } .n-tag.plan { color: var(--plat); }
+.n-tag.bad { color: var(--bad); } .n-tag.done { color: var(--ok); } .n-tag.part { color: var(--warn); } .n-tag.plan { color: var(--plat); }
 .legend { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 13px; color: var(--muted); }
 h3 { font-family: var(--font-body); font-size: 15px; font-weight: 700; margin: 8px 0 0; }
 .calc { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px 20px; }
@@ -526,7 +526,7 @@ footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line)
 <div class="page">
 
 <header>
-  <div class="eyebrow">AIOPS DATA FOUNDATION ・ 2026-10-04 更新</div>
+  <div class="eyebrow">AIOPS DATA FOUNDATION ・ 2026-10-05 更新</div>
   <h1>從 K8s 到 AIOps：原本的設計，與全進 Elasticsearch 的新方向</h1>
   <p class="lead">同一個 K8s cluster 裡住著好幾個部門的系統，目標是讓 IT 維運人員掌握程式與 server 健不健康，靠的是每個程式和每台 server 產生的數值、log、trace 三種資料。這頁把兩個做法放在一起比：原本各走各的三條路，以及討論中的「一套收集、全進 Elasticsearch、AIOps 自己訓練」。下面附廠區變多時的維運量與資料量試算。</p>
 </header>
@@ -573,10 +573,10 @@ footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line)
       <tr><td>儲存</td><td>三座：VictoriaMetrics、Elasticsearch、Tempo</td><td>一座：Elasticsearch</td></tr>
       <tr><td>看的畫面</td><td>Grafana</td><td>Kibana</td></tr>
       <tr><td>三種資料的標籤</td><td>各寫各的，目前對不起來</td><td>同一份規則，天生一致</td></tr>
-      <tr><td>部門之間怎麼隔</td><td>metrics 一個編號一個租戶，已實測</td><td>各自的資料流加權限，要自己設計</td></tr>
+      <tr><td>部門之間怎麼隔</td><td>metrics 一個編號一個租戶，已實測</td><td>各自的資料流已實測；誰能讀哪一份的權限還沒設</td></tr>
       <tr><td>兩站各存一份</td><td>metrics 已實測</td><td>要重做。Elasticsearch 的跨站複寫就目前了解要付費，免費的做法是收集程式寫兩份</td></tr>
       <tr><td>AIOps</td><td>還沒開始</td><td>自己訓練，不靠付費功能</td></tr>
-      <tr><td>已經做完的</td><td>metrics 整條，含防冒充、雙寫、斷線補送</td><td>都還沒有。上面那四件事要重做並重測</td></tr>
+      <tr><td>已經做完的</td><td>metrics 整條，含防冒充、雙寫、斷線補送</td><td>數值這一條：依部門分開、擋冒充、斷線補送已實測。兩站各存一份、log、trace 還沒做</td></tr>
       <tr><td>壞掉時的影響</td><td>哪一套壞，只影響那一種資料</td><td>收集程式或 Elasticsearch 壞，三種一起受影響</td></tr>
     </tbody>
   </table>
@@ -723,6 +723,40 @@ footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line)
   </ul>
 </section>
 
+<!-- step1 -->
+<section>
+  <h2>新方向第 1 步：實測結果</h2>
+  <p>在本機的 k3d（一個節點）上，把正式的收集設定原樣套上去，只換 Elasticsearch 的位址與 cluster 的名稱。部署兩組範例程式與三個假程式，再進 Elasticsearch 查每一種情況的資料進了哪一份。只收數值，log 與 trace 還沒接。</p>
+  <div class="tablewrap">
+  <table>
+    <thead><tr><th>情況</th><th>資料進了哪一份</th><th>結果</th></tr></thead>
+    <tbody>
+      <tr><td>門牌寫 tsid 的範例程式</td><td class="n">tsid</td><td><span class="pill done">符合</span></td></tr>
+      <tr><td>門牌寫 bsid 的範例程式</td><td class="n">bsid</td><td><span class="pill done">符合</span></td></tr>
+      <tr><td>沒掛門牌</td><td class="n">platform</td><td><span class="pill done">符合</span></td></tr>
+      <tr><td>門牌寫錯字（tsidd）</td><td class="n">platform</td><td><span class="pill done">符合</span></td></tr>
+      <tr><td>程式自稱是 tsid</td><td>照門牌走，自稱的值沒有留在資料上</td><td><span class="pill done">擋下</span></td></tr>
+      <tr><td>server 本身的 CPU、記憶體、磁碟、網路</td><td class="n">icsd</td><td><span class="pill done">符合</span></td></tr>
+      <tr><td>每個容器的 CPU、記憶體、重啟次數</td><td>跟著 pod 所在的部門</td><td><span class="pill done">符合</span></td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="tablewrap">
+  <table>
+    <thead><tr><th>測了什麼</th><th>結果</th><th></th></tr></thead>
+    <tbody>
+      <tr><td>把 demo-api 弄慢 400 毫秒</td><td>Elasticsearch 裡 demo-api 從 45 變 375 毫秒，呼叫它的 demo-web 從 90 變 400 毫秒</td><td><span class="pill done">看得到</span></td></tr>
+      <tr><td>Elasticsearch 停 312 秒，中間重啟收集程式</td><td>重啟前、重啟後排隊的都補回：程式 16 次補回 16 次，server 4 次補回 4 次</td><td><span class="pill done">補回來了</span></td></tr>
+      <tr><td>對照：重試改成 0</td><td>停機期間的資料補回 0 筆，收集程式不報錯</td><td><span class="pill later">會掉資料</span></td></tr>
+      <tr><td>對照：排隊的資料不放磁碟</td><td>重啟收集程式之前排隊的程式資料補回 0 筆（16 次全掉），重啟之後的正常</td><td><span class="pill later">會掉資料</span></td></tr>
+      <tr><td>對照：拿掉擋冒充</td><td>程式自稱的部門、廠區留在資料上</td><td><span class="pill later">擋不住</span></td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="note">三列對照是故意把設定改壞再跑同一套測試，確認測試真的會失敗。處理時間是從分布圖估的，取的是區間的中間值，不是精確的平均。沒驗到的：多個節點、真的 server、正式環境的 Elasticsearch、誰能讀哪一份的權限。</p>
+</section>
+
+<!-- /step1 -->
 <section>
   <h2>原本設計：metrics 的實測結果</h2>
   <p>在本機的測試環境把七種情況都實際部署一次，查每個租戶裡有沒有資料。軟體版本跟 AP1105 相同。</p>
@@ -1022,14 +1056,14 @@ if (typeof module !== 'undefined') module.exports = CALC;
   // 新方向：一套收集程式 → Elasticsearch 存三種 → 自己訓練的 AIOps
   // =====================================================================
   var FU_MODES = [
-    { id: 'all', label: '全部', text: '每個 cluster 只放一套收集程式，程式與 server 的三種資料用同一套規則貼標籤，全部送進 Elasticsearch。AIOps 是自己寫的程式，目標是幫 IT 維運找根因，結果寫回 Elasticsearch 在 Kibana 看。這一整張都還沒做。' },
-    { id: 'collect', label: '收集', text: '原本三套收集程式變一套。好處是貼標籤的規則只有一份，三種資料天生對得起來。代價是原本在 vmagent 上做完並實測的四件事（依門牌分部門、擋冒充、多個目的地、斷線暫存）要在這套軟體上重做、重測。它一掛，三種資料同時斷。' },
+    { id: 'all', label: '全部', text: '每個 cluster 只放一套收集程式，程式與 server 的三種資料用同一套規則貼標籤，全部送進 Elasticsearch。AIOps 是自己寫的程式，目標是幫 IT 維運找根因，結果寫回 Elasticsearch 在 Kibana 看。第 1 步（數值）已經做完並實測，其餘還沒做。' },
+    { id: 'collect', label: '收集', text: '原本三套收集程式變一套。好處是貼標籤的規則只有一份，三種資料天生對得起來。代價是原本在 vmagent 上做完並實測的四件事（依門牌分部門、擋冒充、多個目的地、斷線暫存）其中依門牌分部門、擋冒充、斷線暫存已經在這套軟體上重做並實測（只有數值）；多個目的地還沒做。它一掛，三種資料同時斷。' },
     { id: 'store', label: '存放', text: '一座 Elasticsearch 存三種，少維護 VictoriaMetrics 和 Tempo。壓力集中在這一座：metrics 存在這裡通常比專門的儲存佔空間；部門之間的隔離要靠各自的資料流加權限來做；它出事時三種資料一起查不到。' },
     { id: 'aiops', label: '自己訓練的 AIOps', text: '目標是幫 IT 維運找根因。順序是：先學出平常的樣子 → 偵測異常 → 把同時發生的異常併成一件事 → 排出最可能的源頭。不用付費授權，但這是一條自己要長期顧的流程。找根因要知道程式之間誰呼叫誰，這要靠 trace，是最大的外部依賴。' },
     { id: 'multi', label: '廠區變多時', danger: true, text: '每多一個廠：收集程式多幾套（跟 cluster 數成正比）、跨廠的線路多一條、送進中央的資料量等比例增加。全部進同一座時，任何一個廠的資料暴增都會拖慢所有廠的查詢與 AIOps。下面的試算可以調廠數看資料量。' }
   ];
   var FU_DETAIL = {
-    'f-col': ['一套收集程式', '例如 OpenTelemetry Collector。實際上會是同一套軟體的兩種擺法：每個節點放一個收 log，另外放一個收整個 cluster 的 metrics 和 trace。設定只有一份規則。還沒實測它能不能做到跟 vmagent 一樣的擋冒充與斷線補送。'],
+    'f-col': ['一套收集程式', '例如 OpenTelemetry Collector。實際上會是同一套軟體的兩種擺法：每個節點放一個收 log，另外放一個收整個 cluster 的 metrics 和 trace。標籤的規則只有一份。數值這一條的擋冒充與斷線補送已經實測，log 與 trace 還沒接。'],
     'f-other': ['其他廠區的 cluster', '每個 cluster 都放同一套收集程式，只差廠區標記。數量跟 cluster 數成正比，是廠區變多時最先變多的東西。'],
     'f-m': ['Metrics 的資料流', '數值存在 Elasticsearch 專門放時間序列的模式裡。跟原本 VictoriaMetrics 的差別：不能直接用 PromQL 寫的儀表板與告警，佔的空間通常比較大。'],
     'f-l': ['Log 的資料流', 'Elasticsearch 的本行。原本就在用，差別是標籤改成跟另外兩種一致。'],
@@ -1255,12 +1289,129 @@ if (typeof module !== 'undefined') module.exports = CALC;
     return { nodes: nodes, edges: es };
   }
 
+  // <testview>
+  // =====================================================================
+  // 第四張：已經實測的測試架構。本機 k3d，一個節點
+  // =====================================================================
+  var TV_SOURCES = [
+    { id: 'demo-tsid', title: 'demo-tsid：兩支範例程式', sub: 'demo-web 呼叫 demo-api。門牌 tsid', color: 'tsid', dest: 'tsid', y: 44, to: 'cluster' },
+    { id: 'demo-bsid', title: 'demo-bsid：同一組範例程式', sub: '門牌 bsid', color: 'bsid', dest: 'bsid', y: 116, to: 'cluster' },
+    { id: 'fake-none', title: '假程式：沒掛門牌', sub: '沒有 tenant，還自稱 tsid', color: 'plat', dest: 'platform', y: 188, to: 'cluster' },
+    { id: 'fake-typo', title: '假程式：門牌打錯字', sub: 'tenant: tsidd，不在清單裡', color: 'plat', dest: 'platform', y: 260, to: 'cluster' },
+    { id: 'fake-spoof', title: '假程式：冒充', sub: '門牌是 bsid，自己說是 tsid', color: 'bsid', dest: 'bsid', y: 332, to: 'cluster', dashed: true },
+    { id: 'pods', title: '每個容器的資源用量', sub: 'CPU、記憶體，由節點量', color: 'fg', dest: '*', y: 420, to: 'node' },
+    { id: 'server', title: '節點本身', sub: 'CPU、記憶體、磁碟、網路', color: 'icsd', dest: 'icsd', y: 492, to: 'node' }
+  ];
+  var TV_STREAMS = [
+    { id: 'tsid', name: 'tsid', sub: 'TSID 的程式' },
+    { id: 'bsid', name: 'bsid', sub: 'BSID 的程式' },
+    { id: 'icsd', name: 'icsd', sub: 'server 本身' },
+    { id: 'platform', name: 'platform', sub: '沒掛門牌、打錯的', color: 'plat' },
+    { id: 'imc', name: 'imc', sub: '這一輪沒有資料', empty: true }
+  ];
+  var TV_MODES = [
+    { id: 'all', label: '平常', text: '兩組範例程式、三個假程式、節點本身，資料經兩份收集程式進同一座 Elasticsearch，每個部門各一份資料流。測試腳本進 Elasticsearch 查每個情境進了哪一份：37 項全部通過。' },
+    { id: 'none', label: '沒掛門牌、打錯字', text: 'namespace 沒有 tenant，或寫成不在清單裡的值（tsidd），一律算 platform。資料不會消失，也不會混進任何部門。' },
+    { id: 'spoof', label: '冒充', text: '這個 namespace 的門牌是 bsid，裡面的程式自己說它是 tsid、廠區是 fake。收集程式只認門牌：資料進 bsid，程式自稱的那幾個值沒有留在樣本上，廠區是收集程式補的 ctsp。' },
+    { id: 'server', label: 'server 與容器', text: '每個節點一份收集程式。節點本身的 CPU、記憶體、磁碟、網路一律標成 icsd，不管上面跑的是誰的程式；每個容器的資源用量則照它所在 namespace 的門牌，demo-tsid 的進 tsid、demo-bsid 的進 bsid。' },
+    { id: 'slow', label: '把 demo-api 弄慢', text: '從外面叫 demo-api 每個請求多睡 400 毫秒，不重新部署。Elasticsearch 裡查得到：demo-api 的處理時間 從 45 毫秒變成 375 毫秒，呼叫它的 demo-web 也跟著 從 90 毫秒變成 400 毫秒。這是之後做異常偵測與找根因要用的素材。' },
+    { id: 'down', label: 'Elasticsearch 停機', danger: true, text: '把 Elasticsearch 整個停掉，中間再把兩份收集程式都重啟。送不到的資料排在磁碟上，重啟也還在。實測：停了 312 秒，恢復後重啟前、重啟後排隊的資料都補回來，程式的 16 次抓取補回 16 次，server 的 4 次補回 4 次。' },
+    { id: 'broken', label: '如果設定被改壞', danger: true, text: '這幾個設定改錯了收集程式照樣起得來，不會報錯。所以反過來測：故意改壞再跑同一套測試，一定要失敗。實測三種：重試改成 0，停機期間的資料補回 0 筆；排隊的資料不放 PVC，重啟前排隊的補回 0 筆；拿掉擋冒充，程式自稱的部門與廠區留在資料上。三種測試都失敗，符合預期。 不用 cluster 的靜態檢查另外擋 22 種改壞的寫法。' }
+  ];
+  var TV_DETAIL = {
+    'tv-cluster': ['cluster 那一份收集程式', '整個 cluster 一個。去每支有標註的程式抓數值，也收 K8s 回報的狀態（節點是不是 Ready、容器重啟幾次）。設定在 platform/otel/cluster-collector.yaml，測試時一字不改，只換 Elasticsearch 的位址與 cluster 的名稱。'],
+    'tv-node': ['節點那一份收集程式', '每個節點一個。讀 server 本身的 CPU、記憶體、磁碟、網路，並向 kubelet 要每個容器的資源用量。設定在 platform/otel/node-collector.yaml。本機只有一個節點，所以只有一個。'],
+    'tv-api': ['Elasticsearch 的入口', '測試用的單節點 Elasticsearch 9.5.3，免費版，開帳號密碼。密碼是測試腳本當場隨機產生的，放在 Secret 裡，沒有寫進任何檔案。'],
+    'tv-check': ['tests/obs/run.sh 與 check.py', '在這台電腦上跑。部署完之後進 Elasticsearch 查：每個 namespace 的資料在哪一份資料流、標籤對不對、server 的四大類數值有沒有、容器的資源用量有沒有跟著 pod 的部門走、冒充的值有沒有留下來。'],
+    'tv-validate': ['tests/validate.sh', '不需要 cluster，幾秒鐘跑完。檢查 app 的門牌寫得對不對，以及收集設定裡「改錯了不會報錯」的地方：重試、佇列、擋冒充、對 pod、server 的標籤、密碼。每一條都內建改壞的版本，確認真的擋得下來。'],
+    'tv-pods': ['每個容器用了多少資源', '這不是程式自己吐的，是節點上的 kubelet 量的。收集程式拿到之後查這個 pod 在哪個 namespace，照那個 namespace 的門牌標部門。'],
+    'tv-server': ['節點本身', '本機的 k3d 節點其實是一個 docker 容器，所以這裡量到的是那個容器看到的主機數值。真的 server 上磁碟的過濾規則要再確認一次。'],
+    'tv-fake-spoof': ['冒充的假程式', '它吐兩種冒充：一種掛在單一數值上（tenant="tsid"），一種宣稱整支程式的身分（target_info）。兩種都被擋下。'],
+    'tv-s-imc': ['imc', '部門清單裡有 imc，但這一輪沒有任何 namespace 掛這個門牌，所以沒有這一份資料流。']
+  };
+
+  function testGraph(mode) {
+    var down = mode === 'down', broken = mode === 'broken';
+    var focusIds = { none: ['fake-none', 'fake-typo'], spoof: ['fake-spoof'], server: ['pods', 'server'], slow: ['demo-tsid'] }[mode] || null;
+    var nodes = [], es = [], hot = {};
+    nodes.push({ id: 'tv-g', type: 'group', position: { x: 0, y: 0 }, style: { width: 280, height: 572 }, data: {}, selectable: false });
+    nodes.push({ id: 'tv-gl', className: 'glabel', parentNode: 'tv-g', position: { x: 14, y: 12 }, style: { width: 250 },
+      data: { label: '本機的 k3d cluster obs-test（一個節點）' }, selectable: false });
+    TV_SOURCES.forEach(function (s) {
+      var on = !focusIds || focusIds.indexOf(s.id) >= 0;
+      var color = s.color === 'fg' ? V('fg') : V(s.color);
+      if (on) { if (s.dest === '*') { hot.tsid = hot.bsid = hot.platform = true; } else { hot[s.dest] = true; } }
+      nodes.push({ id: 'tv-' + s.id, type: 'input', parentNode: 'tv-g', extent: 'parent', sourcePosition: 'right',
+        position: { x: 14, y: s.y }, style: { width: 252, borderColor: color, borderStyle: s.dashed ? 'dashed' : 'solid', opacity: on ? 1 : .3 },
+        data: { label: box(s.title, s.sub, mode === 'slow' && s.id === 'demo-tsid' ? '弄慢中' : null, 'part') } });
+      es.push({ id: 'tv-e-' + s.id, source: 'tv-' + s.id, target: 'tv-' + s.to, animated: on,
+        style: { stroke: color, strokeWidth: 2.5, opacity: on ? 1 : .15 } });
+    });
+    var collector = function (id, y, title, sub, steps, queue) {
+      nodes.push({ id: 'tv-' + id, position: { x: 370, y: y }, sourcePosition: 'right', targetPosition: 'left',
+        style: { width: 250, borderColor: broken ? V('bad') : (down ? V('part') : V('fg')), borderWidth: (down || broken) ? 2.5 : 1.5 },
+        data: { label: h('div', null,
+          h('div', { className: 'n-title' }, title),
+          h('div', { className: 'n-sub' }, sub),
+          steps.map(function (t, i) {
+            return h('div', { key: i, className: 'n-step' + (broken && t[2] ? ' off' : '') },
+              h('div', { className: 'n-title' }, t[0]), h('div', { className: 'n-sub' }, t[1]));
+          }),
+          h('div', { className: 'n-step' + (broken ? ' off' : '') }, h('div', { className: 'n-title' }, '送不到時'),
+            h('div', { className: 'n-sub' }, queue)),
+          down ? h('div', { className: 'n-wait' }, '排隊中') : null) } });
+      es.push({ id: 'tv-t-' + id, source: 'tv-' + id, target: 'tv-api', animated: !down,
+        label: down ? '送不到，先存磁碟' : undefined,
+        style: { stroke: down ? V('bad') : V('fg'), strokeWidth: 2.5, strokeDasharray: down ? '3 7' : undefined } });
+    };
+    collector('cluster', 30, 'cluster 那一份收集程式', '抓程式的數值、K8s 回報的狀態', [
+      ['① 丟掉程式自稱的', 'tenant、site、cluster 這些身分欄位', true],
+      ['② 讀門牌', '查這個 pod 在哪個 namespace，讀它的 tenant'],
+      ['③ 定部門', '門牌在清單裡才照用，其餘算 platform'],
+      ['④ 補廠區', 'site、cluster 由收集程式填']
+    ], '排在 PVC 上，一直重試到連上');
+    collector('node', 400, '節點那一份收集程式', '每個節點一個', [
+      ['server 本身', '一律標成 icsd'],
+      ['容器的資源用量', '照 pod 所在 namespace 的門牌']
+    ], '排在節點的磁碟上');
+
+    nodes.push({ id: 'tv-es', type: 'group', position: { x: 720, y: 40 },
+      style: { width: 400, height: 372, borderColor: down ? V('bad') : V('line'), borderWidth: down ? 2.5 : 1.5 }, data: {}, selectable: false });
+    nodes.push({ id: 'tv-esl', className: 'glabel', parentNode: 'tv-es', position: { x: 14, y: 10 }, style: { width: 360 },
+      data: { label: 'Elasticsearch 9.5.3（測試用，一座）' + (down ? '（停機中）' : '') }, selectable: false });
+    nodes.push({ id: 'tv-api', parentNode: 'tv-es', extent: 'parent', position: { x: 16, y: 156 }, sourcePosition: 'right', targetPosition: 'left',
+      style: { width: 130, opacity: down ? .35 : 1 }, data: { label: box('入口', '帳密從 Secret 來') } });
+    TV_STREAMS.forEach(function (t, i) {
+      var on = !!hot[t.id] && !t.empty;
+      nodes.push({ id: 'tv-s-' + t.id, type: 'output', parentNode: 'tv-es', extent: 'parent', targetPosition: 'left',
+        position: { x: 200, y: 44 + i * 64 },
+        style: { width: 186, padding: '5px 10px', borderColor: V(t.color || t.id), borderStyle: t.empty ? 'dashed' : 'solid', opacity: down ? .3 : (on ? 1 : .3) },
+        data: { label: box(t.name, t.sub) } });
+      if (on) es.push({ id: 'tv-d-' + t.id, source: 'tv-api', target: 'tv-s-' + t.id, animated: !down,
+        style: { stroke: V(t.color || t.id), strokeWidth: 2, opacity: down ? .12 : 1 } });
+    });
+
+    nodes.push({ id: 'tv-check', type: 'input', position: { x: 720, y: 452 }, sourcePosition: 'top',
+      style: { width: 400, borderColor: V('ok'), borderWidth: 2 },
+      data: { label: box('tests/obs/run.sh ＋ check.py', '在這台電腦上跑：部署，然後進 Elasticsearch 查每個情境進了哪一份',
+        broken ? '改壞的設定：測試 FAIL，是預期的' : '已實測', broken ? 'bad' : 'done') } });
+    es.push({ id: 'tv-q', source: 'tv-check', target: 'tv-api', animated: !down, label: '查詢',
+      style: { stroke: V('ok'), strokeWidth: 2, strokeDasharray: '6 5', opacity: down ? .2 : 1 } });
+    nodes.push({ id: 'tv-validate', className: 'nohandle', position: { x: 720, y: 560 },
+      style: { width: 400, borderColor: V('ok'), borderWidth: broken ? 2.5 : 1.5 },
+      data: { label: box('tests/validate.sh', '不用 cluster。收集設定裡改錯不會報錯的地方，22 種改壞的寫法都要被擋下', '已實測', 'done') } });
+    return { nodes: nodes, edges: es };
+  }
+
+  // </testview>
   // =====================================================================
   var VIEWS = {
     orig: { label: '原本的設計', modes: OV_MODES, detail: OV_DETAIL, build: buildOverview, height: 560, legend: true,
       banner: '原本的設計：三種資料各用一套收集程式、各存一座。只有 metrics 那一條已經做完並實測；log 是既有的設定；trace 與 AIOps 還沒開始。每個方塊上都標了狀態。' },
+    test: { label: '已實測：第 1 步的測試架構', modes: TV_MODES, detail: TV_DETAIL, build: testGraph, height: 720,
+      banner: '新方向的第 1 步，已經做完並在本機實測：程式與 server 的健康度數值，經收集程式進 Elasticsearch，依部門分開。只收數值，log 與 trace 還沒接。只在本機的 k3d 驗過，一個節點。' },
     future: { label: '新方向：全進 Elasticsearch，AIOps 自己訓練', modes: FU_MODES, detail: FU_DETAIL, build: futureGraph, height: 600, legend: true,
-      banner: '討論中的新方向，整張都還沒做，也還沒有任何一段實測過。虛線代表規劃。' },
+      banner: '新方向的全貌。第 1 步（數值進 Elasticsearch、依部門分開）已經做完並實測，見「已實測」那一張；log、trace 與 AIOps 還沒做。虛線代表規劃。' },
     metrics: { label: '原本設計的 metrics 細節（已實測）', modes: MODES, detail: DETAIL, build: metricsGraph, height: 800,
       banner: '這是原本設計裡已經做完的那一條。實測的是中科那一個 cluster 加兩座模擬的中央；二林的 cluster 設定相同，本機沒有另外起一套。新方向如果定案，這裡的四件事要在 Elasticsearch 那一側重做。' }
   };
@@ -1275,7 +1426,7 @@ if (typeof module !== 'undefined') module.exports = CALC;
 
   function App() {
     var s0 = React.useState('orig'), view = s0[0], setView = s0[1];
-    var s1 = React.useState({ orig: 'all', future: 'all', metrics: 'all' }), modeBy = s1[0], setModeBy = s1[1];
+    var s1 = React.useState({ orig: 'all', test: 'all', future: 'all', metrics: 'all' }), modeBy = s1[0], setModeBy = s1[1];
     var s2 = React.useState(null), picked = s2[0], setPicked = s2[1];
     var v = VIEWS[view], mode = modeBy[view];
     var g = React.useMemo(function () { return v.build(mode); }, [view, mode]);
@@ -1287,7 +1438,7 @@ if (typeof module !== 'undefined') module.exports = CALC;
         onChange: function (k) { setView(k); setPicked(null); } }),
       h('div', { className: 'banner' }, v.banner),
       h(Buttons, { className: 'modes', label: '情境', prefix: 'mode-' + view + '-', value: mode, items: v.modes,
-        onChange: function (m) { var next = { orig: modeBy.orig, future: modeBy.future, metrics: modeBy.metrics }; next[view] = m; setModeBy(next); setPicked(null); } }),
+        onChange: function (m) { var next = { orig: modeBy.orig, test: modeBy.test, future: modeBy.future, metrics: modeBy.metrics }; next[view] = m; setModeBy(next); setPicked(null); } }),
       v.legend ? h('div', { className: 'legend' },
         h('span', null, h('i', { style: { background: V(SIG.m) } }), 'metrics'),
         h('span', null, h('i', { style: { background: V(SIG.l) } }), 'log'),

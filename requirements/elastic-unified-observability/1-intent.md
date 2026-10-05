@@ -158,8 +158,8 @@ IT 維運人員。值班時要知道兩件事：程式健不健康、server 健�
 | 5 | 找根因：從同一段時間的異常裡排出最可能的源頭，附上證據 | 原本沒有 |
 | 6 | 刪掉 VictoriaMetrics 相關的設定、測試與 `eqp-collector`，改寫文件 | 已提前做完（2026-10-05）。舊的內容在 branch `chore/ai-native-scaffold` |
 
-⚠️ 第 6 步提前做了，所以第 1 步做完之前 repo 裡沒有任何一條能跑的路，只有
-[`health-metrics-to-elastic/spike/`](../health-metrics-to-elastic/spike/README.md) 的試驗設定。
+第 1 步已做完（2026-10-05），結果在
+[`health-metrics-to-elastic/4-acceptance.md`](../health-metrics-to-elastic/4-acceptance.md)。
 
 ## 對這份需求的分析
 

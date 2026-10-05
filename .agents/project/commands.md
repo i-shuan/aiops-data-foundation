@@ -8,7 +8,7 @@
 | --- | --- |
 | `npm` 任何子指令 | 沒有 `package.json`，這個 repo 沒有 Node |
 | `make` | 沒有 `Makefile` |
-| `pytest` | `tests/` 底下只有一支 bash 腳本 |
+| `pytest` | `tests/` 底下是 bash 腳本，加一支由它呼叫的 `check.py` |
 | `helm lint` / `kubeconform` | 0 處。chart 的檢查在 `tests/validate.sh` 裡 |
 | `./tests/tenant-routing/run.sh`、`./tests/ap1105-sim/run.sh`、`./tests/routing/run.sh` | 已移除。它們測的是 VictoriaMetrics 的做法，在 branch `chore/ai-native-scaffold` |
 
@@ -16,28 +16,30 @@
 
 ```bash
 ./tests/validate.sh                        # 不需要 cluster，要 python（PyYAML）和 helm
+./tests/obs/run.sh                         # 要 cluster obs-test。部署、查分流、弄慢看得到，約 5 分鐘
+./tests/obs/run.sh outage                  # 停機補送，約 7 分鐘。要先跑過上面那個
+./tests/obs/run.sh broken nospoof          # 改壞的設定一定要 FAIL。另有 retry0、nopvc，各約 8 分鐘
 python tools/sync-rules.py                 # 紅線三份一致嗎；--fix 從 AGENTS.md 複製
 python tools/check-md-style.py -v          # md 格式違規，逐條列位置
-python tools/check-md-style.py AGENTS.md   # 只看指定檔案
 python .claude/hooks/test_guard_git.py -v  # 改了 guard-git.py 之後
 ```
 
 ## 本機的 k3d
 
-目前沒有測試腳本會建 cluster。試驗用的 cluster 是手動建的：
+`tests/obs/run.sh` 用 cluster `obs-test`，不建也不刪 cluster。要先手動建，三行照順序：
 
-| cluster | 用途 |
+```bash
+k3d cluster create obs-test --image rancher/k3s:v1.30.14-k3s2 --no-lb --k3s-arg "--disable=traefik@server:0" --k3s-arg "--disable=metrics-server@server:0" --kubeconfig-switch-context=false --timeout 240s
+kubectl config set-cluster k3d-obs-test --server="https://127.0.0.1:$(docker port k3d-obs-test-server-0 6443/tcp | head -1 | sed 's/.*://')"
+docker pull busybox:1.36 && k3d image import busybox:1.36 -c obs-test
+```
+
+| ⚠️ | 為什麼 |
 | --- | --- |
-| `obs-test` | Elasticsearch 9.5.3 加 OpenTelemetry Collector 的地基試驗。重現方式見 `requirements/health-metrics-to-elastic/spike/README.md` |
-
-⚠️ `kubectl`、`helm` 一律帶 `--context k3d-obs-test` / `--kube-context k3d-obs-test`。
-
-⚠️ 這台機器的 docker 是 cgroup v1，`k3d cluster create` 預設的 k3s v1.35 起不來
-（kubelet 直接退出，k3d 卡到逾時）。要帶 `--image rancher/k3s:v1.30.14-k3s2`。
-
-⚠️ `k3d cluster create` 預設會切換目前的 context，要帶
-`--kubeconfig-switch-context=false`。刪掉目前 context 指向的 cluster 時，k3d 也會自動
-換到另一個。
+| `kubectl`、`helm` 一律帶 `--context k3d-obs-test` / `--kube-context k3d-obs-test` | 紅線。目前的 context 不一定是它 |
+| 建 cluster 要帶 `--image rancher/k3s:v1.30.14-k3s2` | 這台的 docker 是 cgroup v1，預設的 k3s v1.35 起不來，k3d 卡到逾時 |
+| 建 cluster 要帶 `--kubeconfig-switch-context=false` | 預設會切換目前的 context。刪掉目前 context 指向的 cluster 時也會自動換 |
+| 查 Elasticsearch 不用知道密碼 | 進它的 pod 用裡面的環境變數打，`tests/obs/check.py` 就是這樣做 |
 
 ## 不要讀、不要遞迴搜尋
 
@@ -47,12 +49,11 @@ python .claude/hooks/test_guard_git.py -v  # 改了 guard-git.py 之後
 
 | 層 | 用什麼 | 版本寫在哪 |
 | --- | --- | --- |
-| 收集 | OpenTelemetry Collector contrib 0.161.0 | `requirements/health-metrics-to-elastic/spike/collector.yaml` |
-| 儲存 | Elasticsearch 9.5.3，免費版 | `requirements/health-metrics-to-elastic/spike/elasticsearch.yaml` |
+| 收集 | OpenTelemetry Collector contrib 0.161.0 | `platform/otel/cluster-collector.yaml`、`node-collector.yaml` |
+| 儲存 | Elasticsearch 9.5.3，免費版。repo 裡只有測試用的 | `tests/obs/backends.yaml` |
 | app | Python，各自一個 `Dockerfile` | `app/<app>/` |
 | chart | 每個 app 自帶 templates | `app/<app>/k8s/` |
 | 部署（未實測） | ArgoCD ApplicationSet | `platform/argocd/applicationset.yaml` |
-| 執行環境 | k8s；本機 k3d | — |
 
 ## 這台開發機的坑（Windows + Git Bash）
 

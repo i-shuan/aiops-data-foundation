@@ -3,13 +3,14 @@
 給 IT 維運用的 AIOps 資料地基：把程式與 server 的健康度資料收齊、貼上一致的標籤，
 之後用來做異常偵測與找根因。
 
-⚠️ 這條 branch（`explore/elastic-all-in`）正在換方向，目前 repo 裡**沒有一條能完整
-跑起來的路**。舊的做法已移除，新的做法只有需求文件和試驗用的設定。
+這條 branch（`explore/elastic-all-in`）換了方向。目前能跑的是第 1 步：範例程式與 server 的
+健康度數值，經 OpenTelemetry Collector 進 Elasticsearch，依部門分開。只在本機 k3d 驗過。
 
 | 想知道 | 看哪裡 |
 | --- | --- |
 | 現在要做什麼、為什麼 | [`requirements/elastic-unified-observability/1-intent.md`](requirements/elastic-unified-observability/1-intent.md) |
-| 第 1 步的規格與已經實測的結果 | [`requirements/health-metrics-to-elastic/2-spec.md`](requirements/health-metrics-to-elastic/2-spec.md) |
+| 第 1 步的規格與驗收結果 | [`requirements/health-metrics-to-elastic/`](requirements/health-metrics-to-elastic/4-acceptance.md) |
+| 收集程式怎麼部署、資料怎麼分部門 | [`platform/README.md`](platform/README.md) |
 | 給主管看的架構圖與資料量試算 | [`requirements/architecture.html`](requirements/architecture.html)，用瀏覽器直接開 |
 | 舊的做法（VictoriaMetrics）在哪 | branch `chore/ai-native-scaffold` |
 
@@ -36,9 +37,10 @@ Elasticsearch（metrics、log、trace 都存這）
 | 項目 | 狀態 |
 | --- | --- |
 | 方向與原則 | 已確認 |
-| 地基的四件事（讀門牌、依部門分開存、擋冒充、停機補送） | 已在本機實測，設定在 [`requirements/health-metrics-to-elastic/spike/`](requirements/health-metrics-to-elastic/spike/README.md) |
-| 範例程式、正式的收集設定、測試腳本 | 還沒做 |
+| 範例程式（可以從外面弄壞的兩支服務） | 做完，在 `app/demo-svc/` |
+| 收集設定：程式與 server 的數值進 Elasticsearch，依部門分開、擋冒充、停機補送 | 做完，在 `platform/otel/`，本機 k3d 實測 |
 | log、trace、異常偵測、找根因 | 還沒做 |
+| 誰能看哪個部門的資料、資料保留多久 | 還沒做 |
 
 ## 目錄
 
@@ -46,8 +48,8 @@ Elasticsearch（metrics、log、trace 都存這）
 | --- | --- |
 | `app/<app>/` | 一個 app 一個資料夾，程式碼和 `Dockerfile` 直接放在裡面 |
 | `app/<app>/k8s/` | 這個 app 怎麼部署到 K8s（Helm chart） |
-| `platform/` | 平台這一側的設定。目前只剩 ArgoCD 與 log 的舊設定，見 [`platform/README.md`](platform/README.md) |
-| `tests/` | 只剩 `validate.sh`：檢查 app 的 `values.yaml` |
+| `platform/` | 平台這一側的設定。收集程式在 `platform/otel/`，見 [`platform/README.md`](platform/README.md) |
+| `tests/` | `validate.sh`：不用 cluster 的靜態檢查。`obs/`：在本機 k3d 上實測 |
 | `requirements/` | 每個需求的文件，以及架構圖 |
 | `tools/` | 檢查文件格式與規則同步的小工具 |
 | `.agents/`、`.claude/`、`.github/` | 給 AI 助手讀的規則與防護 |
@@ -79,22 +81,29 @@ observability:
 ./tests/validate.sh       # 不需要 cluster，要 python（PyYAML）和 helm
 ```
 
-檢查每個 `values.yaml` 的必填欄位、`tenant` 是否合法、namespace 不能被兩個 app 共用、
-chart 渲染得出來、namespace label 渲染結果跟 `values.yaml` 一致。內建的錯誤寫法一定要
-被擋下，否則腳本本身失敗。
+檢查每個 `values.yaml` 的必填欄位、`tenant` 是否合法、namespace label 渲染結果跟
+`values.yaml` 一致；以及 `platform/otel/` 裡改錯了不會報錯的那幾個地方。
+內建的錯誤寫法一定要被擋下，否則腳本本身失敗。
 
-⚠ 允許的 `tenant` 清單目前寫在 `tests/validate.sh` 裡。收集程式的設定進 repo 之後會改成
-從那裡讀。
+允許的 `tenant` 清單只有一份，在 `platform/otel/common.yaml`。
+
+```bash
+./tests/obs/run.sh        # 要本機的 k3d cluster obs-test，約 5 分鐘
+```
+
+把 `platform/otel/` 套到本機的 k3d，部署範例程式與三個假程式，進 Elasticsearch 查每個情境
+進了哪一份。另有 `outage`（停機補送）與 `broken`（改壞的設定一定要 FAIL）。
+cluster 的建法見 [`.agents/project/commands.md`](.agents/project/commands.md)。
 
 ## 已知的狀況
 
-- **沒有能跑的整條路。** 舊的 vmagent 設定、三支 k3d 測試都已移除。
+- **只收數值。** log 與 trace 還沒接，範例程式有吐、沒有人收。
+- **只在本機 k3d 驗過。** 一個節點、Elasticsearch 沒開 TLS。正式環境沒有碰過。
+- **`platform/otel/site-ctsp.yaml` 裡的位址是佔位。** 上線前要換，`tests/validate.sh` 會提醒。
 - **跟機台有關的範例程式都移除了**：`eqp-collector`、`metrics-sim`（模擬機台收值）、`yms-sim`
   （模擬良率）。方向是不做機台收值。
-- **只剩 `mes-dispatch` 一個 app，而且是 ArgoCD 的寫法**，chart 裡沒有 `namespace.yaml`。
-  用 `helm` 直接裝的話 namespace 不會有 label。新的範例程式在第 1 步做。
-- **沒有東西告訴收集程式去抓它。** 原本靠 VictoriaMetrics 專用的登記檔，已經拿掉；
-  新的做法在第 1 步決定。
+- **`mes-dispatch` 是 ArgoCD 的寫法**，chart 裡沒有 `namespace.yaml`，pod 上也沒有
+  「我要被抓」的標註。用 `helm` 直接裝的話 namespace 不會有 label，收集程式也不會抓它。
 - **log 的設定還是舊的。** `platform/logging/fluent.conf` 照 `dept` 分，之後由收集程式取代。
 - **ArgoCD 那條路沒有實測。** `platform/argocd/applicationset.yaml` 留著，`tests/validate.sh` 只檢查
   它貼 label 的那段樣板。
