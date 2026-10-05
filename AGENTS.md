@@ -33,17 +33,11 @@
 
 ## 讀大文件之前
 
-給人看的深入文件是各目錄的 `README.md`，其中三份很大，都在 `Read` 預設的
-2000 行以內 —— 一次 `Read` 就是整份進來，不會被截斷擋住。
-
-| 檔案 | 大小 |
-| --- | --- |
-| `app/eqp-collector/README.md` | 31 KB |
-| `tests/ap1105-sim/README.md` | 15 KB |
-| `README.md` | 12 KB |
+給人看的文件是各目錄的 `README.md` 和 `requirements/`。最大的是
+`requirements/architecture.html`（約 65 KB，內嵌樣式與程式），不要整份讀。
 
 ```bash
-grep -n "^## " app/eqp-collector/README.md    # 先拿章節行號
+grep -n "^## " requirements/elastic-unified-observability/1-intent.md    # 先拿章節行號
 ```
 
 | 想做什麼 | 怎麼讀 |

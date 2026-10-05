@@ -1,10 +1,10 @@
-"""持續模擬機台收值，吐成 Prometheus metrics 給 vmagent 抓。
+"""持續模擬機台收值，吐成 Prometheus metrics 給平台的收集程式抓。
 
 用途是驗證分流：同一支程式部署到不同 namespace，資料會進哪些 tenant
 完全由 namespace 上的 group label 決定。
 
 程式本身不知道 tenant、group、token 的存在——這正是要驗證的事。
-分流只發生在平台層那台 vmagent，應用什麼都不用改。
+分流只發生在平台層的收集程式，應用什麼都不用改。
 """
 import json
 import os

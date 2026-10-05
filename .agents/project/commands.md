@@ -8,8 +8,9 @@
 | --- | --- |
 | `npm` 任何子指令 | 沒有 `package.json`，這個 repo 沒有 Node |
 | `make` | 沒有 `Makefile` |
-| `pytest` | `tests/` 底下是 bash 腳本加 `check.py`，不是 pytest |
+| `pytest` | `tests/` 底下只有一支 bash 腳本 |
 | `helm lint` / `kubeconform` | 0 處。chart 的檢查在 `tests/validate.sh` 裡 |
+| `./tests/tenant-routing/run.sh`、`./tests/ap1105-sim/run.sh`、`./tests/routing/run.sh` | 已移除。它們測的是 VictoriaMetrics 的做法，在 branch `chore/ai-native-scaffold` |
 
 ## 從 repo 根目錄
 
@@ -21,55 +22,47 @@ python tools/check-md-style.py AGENTS.md   # 只看指定檔案
 python .claude/hooks/test_guard_git.py -v  # 改了 guard-git.py 之後
 ```
 
-⚠️ `check-md-style.py` 不帶檔名會掃全 repo，而既有的三份 `README.md` 寫在這套
-規範之前，有違規。新寫或改過的檔要指名跑，要是 0。
+## 本機的 k3d
 
-## 要本機 k3d 的（跑很久、會動 cluster）
+目前沒有測試腳本會建 cluster。試驗用的 cluster 是手動建的：
 
-```bash
-./tests/tenant-routing/run.sh          # 租戶分流、兩座雙寫的 E2E，要幾分鐘。cluster 不在就建，在就沿用
-./tests/tenant-routing/run.sh outage   # 停掉一座再恢復，看資料有沒有補回來。多花約 5 分鐘，日常不用跑
-./tests/tenant-routing/run.sh down     # 刪掉它建的 k3d cluster tenant-test
-```
-
-只用 `k3d-tenant-test` 這個 context，不會切換目前的 context。改了
-`platform/victoriametrics/vmstack-values.yaml` 的 vmagent 那一段之後要跑；動到 `remoteWrite`、
-`statefulMode`、暫存上限的話 `outage` 也要跑。
-
-| 指令 | 狀態 |
+| cluster | 用途 |
 | --- | --- |
-| `./tests/routing/run.sh` | 已過期。測的是改名前的 `group` 與三把 token，現在跑不過 |
-| `./tests/ap1105-sim/run.sh` | 已過期，同上。不帶參數會**刪掉重建** k3d cluster `ap1105` |
+| `obs-test` | Elasticsearch 9.5.3 加 OpenTelemetry Collector 的地基試驗。重現方式見 `requirements/health-metrics-to-elastic/spike/README.md` |
 
-⚠️ 這兩支不要跑，也不要順手修。前者等 ArgoCD 那條路補做，後者等 AP1105 的新 overlay
-驗證做完才淘汰，見 `requirements/multi-site-metrics-write/1-intent.md` 的拆法。
+⚠️ `kubectl`、`helm` 一律帶 `--context k3d-obs-test` / `--kube-context k3d-obs-test`。
 
 ⚠️ 這台機器的 docker 是 cgroup v1，`k3d cluster create` 預設的 k3s v1.35 起不來
 （kubelet 直接退出，k3d 卡到逾時）。要帶 `--image rancher/k3s:v1.30.14-k3s2`。
 
+⚠️ `k3d cluster create` 預設會切換目前的 context，要帶
+`--kubeconfig-switch-context=false`。刪掉目前 context 指向的 cluster 時，k3d 也會自動
+換到另一個。
+
 ## 不要讀、不要遞迴搜尋
 
-`.git/`、`__pycache__/`、`*.tar`（image tar，100 多 MB）、
-`tests/ap1105-sim/.work/`（`run.sh` 的工作檔，含 `helm get values` 的輸出）。
+`.git/`、`__pycache__/`、`*.tar`（image tar，100 多 MB）。
 
 ## 技術棧
 
 | 層 | 用什麼 | 版本寫在哪 |
 | --- | --- | --- |
-| 部署 | ArgoCD ApplicationSet（E2E 用 v3.5.3 core） | `platform/argocd/applicationset.yaml` |
-| metrics | victoria-metrics-k8s-stack（vmagent → vmauth） | `platform/victoriametrics/vmstack-values.yaml` |
-| log | Fluentd → Elasticsearch | `platform/logging/fluent.conf` |
+| 收集 | OpenTelemetry Collector contrib 0.161.0 | `requirements/health-metrics-to-elastic/spike/collector.yaml` |
+| 儲存 | Elasticsearch 9.5.3，免費版 | `requirements/health-metrics-to-elastic/spike/elasticsearch.yaml` |
 | app | Python，各自一個 `Dockerfile` | `app/<app>/` |
 | chart | 每個 app 自帶 templates | `app/<app>/k8s/` |
-| 執行環境 | k8s；本機 k3d | `tests/routing/run.sh`、`tests/ap1105-sim/run.sh` |
+| 部署（未實測） | ArgoCD ApplicationSet | `platform/argocd/applicationset.yaml` |
+| 執行環境 | k8s；本機 k3d | — |
 
 ## 這台開發機的坑（Windows + Git Bash）
 
 | 坑 | 症狀 | 做法 |
 | --- | --- | --- |
-| bash heredoc 吃掉反斜線 | 寫進檔案的 regex、`\1` 少一層，**不報錯** | 內容含反斜線就用檔案寫，不要用 heredoc |
+| bash heredoc 吃掉反斜線 | 寫進檔案的 regex、`\1`、`\r` 少一層或變成控制字元，**不報錯** | 內容含反斜線就用檔案寫，不要用 heredoc |
 | console 是 cp950 | 印 `✅` 直接 `UnicodeEncodeError`，退出碼變 1 | 腳本開頭 `sys.stdout.reconfigure(encoding="utf-8")`，或 `PYTHONIOENCODING=utf-8` |
+| Windows 的 python 印的是 CRLF | bash 的 `read` 進來的最後一欄多一個 CR | 接 `tr -d '\r'` |
 | Git Bash 改寫 `/` 開頭的參數 | 容器路徑變成 `C:/Program Files/Git/...` | 指令前加 `MSYS_NO_PATHCONV=1` |
 | `kubectl` / `helm` 是 Windows 程式 | 看不懂 Git Bash 的 `/tmp/...` | 用 `cygpath -m` 轉成 `C:/...` |
 | 檔名不分大小寫 | `git rm` 會把只差大小寫的另一個檔一起刪掉 | 新舊檔名只差大小寫時先確認 |
 | k3d 的 image store 跟本機 docker 分開 | build 完 pod 還在跑舊的 | `k3d image import <image> -c <cluster>` |
+| k3d 寫進 kubeconfig 的位址是 `host.docker.internal` | `kubectl` 連不上，一直逾時 | `kubectl config set-cluster <ctx> --server=https://127.0.0.1:<port>` |

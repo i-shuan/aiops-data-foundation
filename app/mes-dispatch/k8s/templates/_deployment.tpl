@@ -45,7 +45,7 @@ spec:
               value: {{ printf "service.version=%s,service.namespace=%s" (include "app.version" .) .Values.app.partOf | quote }}
             - name: OTEL_PROPAGATORS
               value: tracecontext,baggage
-            # metrics 以 Prometheus 格式開在 metrics port，由平台的 VMAgent 來抓
+            # metrics 以 Prometheus 格式開在 metrics port，由平台的收集程式來抓
             - name: OTEL_METRICS_EXPORTER
               value: prometheus
             - name: OTEL_EXPORTER_PROMETHEUS_HOST

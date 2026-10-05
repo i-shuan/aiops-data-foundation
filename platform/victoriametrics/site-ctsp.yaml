@@ -1,8 +1,0 @@
-# 中科的 cluster 疊在 vmstack-values.yaml（或現有 values 加 overlay）後面的小檔，只放廠區。
-#   -f platform/victoriametrics/vmstack-values.yaml -f platform/victoriametrics/site-ctsp.yaml
-# 只能有 site 這一項，其他設定放這裡會讓兩廠的 vmagent 不一樣。tests/validate.sh 會檢查。
-# app 自己吐的 site 不算數：vmagent 會把它改名成 exported_site。
-vmagent:
-  spec:
-    externalLabels:
-      site: ctsp

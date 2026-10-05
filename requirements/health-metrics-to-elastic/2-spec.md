@@ -43,7 +43,7 @@ flowchart LR
 
 ## 範例程式
 
-兩支，取代 `eqp-collector` 當範例。放在 `app/demo-web/`、`app/demo-api/`，
+兩支，取代已移除的 `eqp-collector` 當範例。放在 `app/demo-web/`、`app/demo-api/`，
 結構跟其他 app 一樣（程式加 `k8s/`）。
 
 | 項目 | 內容 |
@@ -54,18 +54,18 @@ flowchart LR
 | 可以弄壞的方式 | 變慢、回錯誤、佔 CPU、佔記憶體。各自可以只弄壞其中一支 |
 | 怎麼弄壞 | 從外面打一個管理用的網址開關，不用重新部署 |
 | log 與 trace | 這一步就會吐，log 帶著 trace 的編號。這一步不收，留給第 2、4 步 |
-| 部署方式 | 人下 `helm`，chart 自己建 namespace 並貼門牌，跟 `eqp-collector` 一樣 |
+| 部署方式 | 人下 `helm`，chart 自己帶 `templates/namespace.yaml` 建 namespace 並貼門牌 |
 
 ## 收集程式
 
 | 項目 | 內容 |
 | --- | --- |
-| 程式的數值 | 去每支程式抓，跟 vmagent 一樣的方式 |
+| 程式的數值 | 去每支程式抓。程式用 pod 上的標註表示「我要被抓」 |
 | 容器用了多少資源 | 從節點取得每個容器的 CPU 與記憶體 |
 | server 的數值 | 每個節點放一個收集程式，讀 CPU、記憶體、磁碟、網路 |
 | K8s 回報的狀態 | 節點是不是正常、程式重啟了幾次 |
 | 送到哪 | 本機的 Elasticsearch |
-| 設定放哪 | `platform/otel/`，跟 `platform/victoriametrics/` 並排，這一步不動後者 |
+| 設定放哪 | `platform/otel/`。試驗用的版本在 `spike/` |
 
 ## 標籤的規則
 
@@ -111,14 +111,10 @@ flowchart LR
 
 | 既有行為 | 會變成怎樣 | 需要改既有測試嗎 |
 | --- | --- | --- |
-| `platform/victoriametrics/`、`tests/tenant-routing/` | 不動，照樣能跑 | 不用 |
-| `tests/validate.sh` 從 VictoriaMetrics 的設定讀允許的 `tenant` | ❓ 第 3 題。這一步之後有兩份設定都寫著部門清單 | 要改，改法看第 3 題 |
+| 允許的 `tenant` 清單暫時寫在 `tests/validate.sh` 裡 | 改成從收集程式的設定讀，腳本裡那份拿掉 | 要改 |
 | `tests/validate.sh` 的 app 檢查 | 多兩個 app。兩支都是手動 Helm，現有的規則就能檢查 | 不用 |
-| `eqp-collector` 是手動 Helm 的範本 | 範本改成 `demo-api`。`eqp-collector` 留著給舊測試用 | `README.md`、`platform/README.md` 的說明要改 |
-| 每個 app 的 `vmservicescrape.yaml` | 新的兩支不帶這個檔。它是 VictoriaMetrics 專用的 | 不用 |
-
-⚠️ 新的範例程式不帶 `vmservicescrape.yaml`，所以舊的 vmagent 抓不到它們。
-這是刻意的：兩條路各用各的範例，不互相干擾。
+| repo 裡沒有手動 Helm 的 app，`tests/validate.sh` 那一段檢查目前是略過的 | 有了 `demo-web`、`demo-api` 之後那段檢查會開始跑 | 不用 |
+| 既有的三個 app 沒有東西告訴收集程式去抓它們 | 這一步定出標註的寫法。要不要幫那三個 app 補上，另外決定 | 不用 |
 
 ## 還沒談定的 ❓
 
@@ -126,7 +122,7 @@ flowchart LR
 | --- | --- | --- |
 | 1 | Elasticsearch 的版本 | 已定：用最新版。本機釘在 9.5.3，之後升版要重跑這份的驗收 |
 | 2 | 資料在 Elasticsearch 裡怎麼依部門分開 | 已實測可行：每個部門一份各自的資料流，名字結尾是部門代號，收集程式照標籤自動分。之後設權限也照這個設 |
-| 3 | 允許的 `tenant` 清單放哪 | 這一步先放在收集程式的設定裡，`tests/validate.sh` 改成從這裡讀。VictoriaMetrics 那份留著但不再是正本，第 6 步刪掉 |
+| 3 | 允許的 `tenant` 清單放哪 | 放在收集程式的設定裡，`tests/validate.sh` 改成從這裡讀。現在暫時寫在腳本裡 |
 | 4 | 本機的 Elasticsearch 要不要開帳號密碼 | 開。正式的一定有，收集程式怎麼帶憑證要一起驗。憑證放 Secret |
 | 5 | 本機的 k3d cluster | 已開，叫 `obs-test`。光 Elasticsearch 就佔約 2 GB，還沒裝 Kibana |
 

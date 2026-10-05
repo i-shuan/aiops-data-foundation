@@ -1,0 +1,80 @@
+# 本機試驗用的單節點 Elasticsearch。密碼不寫在這裡：由 Secret es-credentials 提供。
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: obs
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: elasticsearch
+  namespace: obs
+spec:
+  serviceName: elasticsearch
+  replicas: 1
+  selector:
+    matchLabels:
+      app: elasticsearch
+  template:
+    metadata:
+      labels:
+        app: elasticsearch
+    spec:
+      containers:
+        - name: elasticsearch
+          image: elasticsearch:9.5.3
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: discovery.type
+              value: single-node
+            - name: xpack.security.enabled
+              value: "true"
+            - name: xpack.security.http.ssl.enabled
+              value: "false"
+            - name: xpack.license.self_generated.type
+              value: basic
+            # 不用 mmap，就不必去改節點的 vm.max_map_count
+            - name: node.store.allow_mmap
+              value: "false"
+            - name: ES_JAVA_OPTS
+              value: "-Xms1g -Xmx1g"
+            - name: ELASTIC_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: es-credentials
+                  key: password
+          ports:
+            - containerPort: 9200
+          readinessProbe:
+            tcpSocket:
+              port: 9200
+            initialDelaySeconds: 20
+            periodSeconds: 5
+          volumeMounts:
+            - name: data
+              mountPath: /usr/share/elasticsearch/data
+          resources:
+            requests:
+              memory: 1500Mi
+            limits:
+              memory: 2Gi
+  # 資料放 PVC：把 Elasticsearch 整個停掉再開回來，資料才還在，才驗得了補送
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests:
+            storage: 5Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: elasticsearch
+  namespace: obs
+spec:
+  selector:
+    app: elasticsearch
+  ports:
+    - port: 9200

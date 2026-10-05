@@ -1,8 +1,0 @@
-{{- /*
-【VictoriaMetrics 相關】這個檔不是在部署 app，是給平台的 vmagent 看的登記單：
-「這個 Service 的 /metrics 要來抓」。VMServiceScrape 是 VictoriaMetrics operator 的資源，
-cluster 沒裝 operator 的話這個檔會套不上去。
-它只負責「要被抓」。資料寫進哪個租戶、送到哪一站，都在 platform/victoriametrics/ 決定，跟這個檔無關。
-內容在 _vmservicescrape.tpl。
-*/ -}}
-{{ include "app.vmservicescrape" . }}

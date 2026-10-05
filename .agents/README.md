@@ -1,8 +1,7 @@
 # .agents — 給 AI 的原子化模組
 
 每份 < 70 行，只放**約束與會壞掉的地方**。要看機制怎麼運作、為什麼這樣
-設計，去各目錄的 `README.md`（根目錄、`app/eqp-collector/`、
-`tests/ap1105-sim/`）。
+設計，去根目錄與 `platform/` 的 `README.md`，以及 `requirements/`。
 
 ⚠️ 兩邊**放的是不同東西**，不是同一份的長短版。寫成濃縮版的話一定會漂。
 
@@ -21,7 +20,7 @@
 | --- | --- |
 | [`project/commands.md`](project/commands.md) | 真實指令、技術棧、不要讀的目錄、這台機器的坑 |
 
-目前只有這一份。分流、log、部署的約束還散在各 `README.md`，要抽成模組時
+目前只有這一份。收集程式的約束先寫在 `platform/README.md`，要抽成模組時
 在 `AGENTS.md` 的「動手前讀哪個模組」補一列。
 
 ## 加一份新模組之前

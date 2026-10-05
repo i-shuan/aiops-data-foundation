@@ -9,7 +9,7 @@ argocd:
   autoSync: true
 
 # ── 這個 app 的 observability identity，唯一的來源 ──
-# 部署時照原值變成 namespace 的 label，vmagent 依 tenant 決定寫進哪個 AccountID。
+# 部署時照原值變成 namespace 的 label，平台的收集程式依 tenant 決定這個 app 的資料算哪個部門。
 observability:
   dept: D1120                  # 必填：這份資料是誰的
   tenant: imc                  # 必填：tsid / bsid / icsd / imc / platform

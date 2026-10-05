@@ -72,7 +72,7 @@ IT 維運人員。值班時要知道兩件事：程式健不健康、server 健�
 ## 範例程式
 
 本機驗證要有東西可以監控、可以弄壞。原本的 `eqp-collector` 是模擬機台收值的程式，
-不再當範例；它留到最後一步跟 VictoriaMetrics 的東西一起移除，因為舊測試還在用它。
+已經跟 VictoriaMetrics 的東西一起移除（2026-10-05）。
 
 新的範例程式要做到：
 
@@ -123,7 +123,6 @@ IT 維運人員。值班時要知道兩件事：程式健不健康、server 健�
 
 | 不做 | 為什麼 |
 | --- | --- |
-| 這一步就刪掉 `platform/victoriametrics/` 與相關測試 | 先讓新的路在本機走通再刪，不然中間沒有任何能跑的東西。列為拆法的最後一項 |
 | 把原本 branch 的需求 4（AP1105 換上 VictoriaMetrics 的新 overlay）做完 | 方向改了，那個需求停在 spec |
 | 一次做完 AIOps 四步 | 先做最前面的異常偵測，只用 metrics |
 | 機台收值，以及機台與製程本身的異常偵測（溫度、壓力、流量有沒有偏掉） | 那是製程與設備工程師的需求。這次只看程式與 server 健不健康 |
@@ -157,7 +156,10 @@ IT 維運人員。值班時要知道兩件事：程式健不健康、server 健�
 | 3 | 異常偵測：程式與 server 各一組，拉壓過的資料、訓練、偵測、寫回 | 原本沒有 |
 | 4 | 同一套收集程式收 trace，並整理出「誰呼叫誰」 | 原本沒有 |
 | 5 | 找根因：從同一段時間的異常裡排出最可能的源頭，附上證據 | 原本沒有 |
-| 6 | 刪掉 VictoriaMetrics 相關的設定、測試與 `eqp-collector`，改寫文件 | — |
+| 6 | 刪掉 VictoriaMetrics 相關的設定、測試與 `eqp-collector`，改寫文件 | 已提前做完（2026-10-05）。舊的內容在 branch `chore/ai-native-scaffold` |
+
+⚠️ 第 6 步提前做了，所以第 1 步做完之前 repo 裡沒有任何一條能跑的路，只有
+[`health-metrics-to-elastic/spike/`](../health-metrics-to-elastic/spike/README.md) 的試驗設定。
 
 ## 對這份需求的分析
 
