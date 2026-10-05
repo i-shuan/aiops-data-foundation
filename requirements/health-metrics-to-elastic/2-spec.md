@@ -7,8 +7,9 @@
 
 ## 先實測過的
 
-本機 k3d cluster `obs-test`：Elasticsearch 8.19.22（免費版、開帳號密碼）、
+本機 k3d cluster `obs-test`：Elasticsearch 9.5.3（當時最新，免費版、開帳號密碼）、
 OpenTelemetry Collector contrib 0.161.0。用五個只回固定文字的假程式測。
+先在 8.19.22 測過一輪，換成 9.5.3 後全部重測，結果一樣，收集程式的設定不用改。
 
 | 要確認的 | 實際結果 |
 | --- | --- |
@@ -20,7 +21,7 @@ OpenTelemetry Collector contrib 0.161.0。用五個只回固定文字的假程�
 
 | 實測時踩到的 | 說明 |
 | --- | --- |
-| 重試次數寫 0 是「不重試」 | 第一次測：Elasticsearch 停 103 秒，那段時間的資料補回 0 筆，收集程式的 log 寫 `Dropping data`。把重試改成很大的次數、間隔最長 30 秒之後：同樣停 103 秒，補回 11 筆（每 10 秒一筆），沒有丟資料的訊息 |
+| 重試次數寫 0 是「不重試」 | 第一次測：Elasticsearch 停 103 秒，那段時間的資料補回 0 筆，收集程式的 log 寫 `Dropping data`。把重試改成很大的次數、間隔最長 30 秒之後：同樣停 103 秒，補回 11 筆（每 10 秒一筆），沒有丟資料的訊息。9.5.3 上重測補回 10 筆，同樣沒有丟 |
 | 刪掉 Service 不算斷線 | 已經連上的連線還在，資料照送。要測停機得把 Elasticsearch 整個停掉 |
 | 測試用的 Elasticsearch 要掛磁碟 | 不掛的話一停資料就沒了，驗不了補送 |
 | 抓來的資料對不到是哪個 pod | 收集程式只知道對方的位址。要先把位址放進特定的欄位，讀門牌那一步才對得上。設定裡多一段 |
@@ -102,8 +103,8 @@ flowchart LR
 
 * 輸入的合法範圍：`tenant` 是 `tsid`、`bsid`、`icsd`、`imc`、`platform` 之一。
 * 超出範圍時怎麼處理：`tests/validate.sh` 擋下；真的部署上去的話進 `platform`。
-* 版本：本機用的 Elasticsearch、Kibana、OpenTelemetry Collector 版本在 plan 裡寫死。
-  ❓ 見下面第 1 題。
+* 版本：Elasticsearch 9.5.3、OpenTelemetry Collector contrib 0.161.0，在設定裡寫死。
+  Kibana 用跟 Elasticsearch 同一版。
 * 授權：只用免費版有的功能。
 
 ## 影響到哪些既有行為
@@ -123,7 +124,7 @@ flowchart LR
 
 | # | 問題 | 我的建議 |
 | --- | --- | --- |
-| 1 | 本機用的版本夠不夠代表正式的 | 試的是 Elasticsearch 8.19.22。正式環境是哪一版不知道，9.x 也已經出了。版本差太多的話要重測 |
+| 1 | Elasticsearch 的版本 | 已定：用最新版。本機釘在 9.5.3，之後升版要重跑這份的驗收 |
 | 2 | 資料在 Elasticsearch 裡怎麼依部門分開 | 已實測可行：每個部門一份各自的資料流，名字結尾是部門代號，收集程式照標籤自動分。之後設權限也照這個設 |
 | 3 | 允許的 `tenant` 清單放哪 | 這一步先放在收集程式的設定裡，`tests/validate.sh` 改成從這裡讀。VictoriaMetrics 那份留著但不再是正本，第 6 步刪掉 |
 | 4 | 本機的 Elasticsearch 要不要開帳號密碼 | 開。正式的一定有，收集程式怎麼帶憑證要一起驗。憑證放 Secret |
