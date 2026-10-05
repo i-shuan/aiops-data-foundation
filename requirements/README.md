@@ -9,16 +9,19 @@ cp -r requirements/_template requirements/add-export-to-excel
 
 ## 目前有哪些
 
+branch `explore/elastic-all-in` 上方向改了：三種資料全進 Elasticsearch，不用 VictoriaMetrics。
+
 | 資料夾 | 內容 | 狀態 |
 | --- | --- | --- |
-| [`multi-site-metrics-write/`](multi-site-metrics-write/1-intent.md) | 總綱：整件事要做什麼、拆成哪幾個需求 | 已定案 |
-| [`validate-manual-apps/`](validate-manual-apps/1-intent.md) | 需求 1：檢查工具認得不走 ArgoCD 的 app | 完成 |
-| [`tenant-label-routing/`](tenant-label-routing/1-intent.md) | 需求 2：依部門寫進各自的租戶 | 完成，本機驗證 |
-| [`dual-site-write/`](dual-site-write/1-intent.md) | 需求 3：中科、二林兩站各寫一份 | 完成，本機驗證 |
-| [`ap1105-new-overlay/`](ap1105-new-overlay/1-intent.md) | 需求 4：AP1105 換上新設定 | 進行中 |
+| [`elastic-unified-observability/`](elastic-unified-observability/1-intent.md) | 新方向的總綱：監控程式與 server 的健康度，一套收集程式、全進 Elasticsearch、AIOps 自己訓練，目標是找根因 | 方向已確認，子需求還沒開 |
+| [`multi-site-metrics-write/`](multi-site-metrics-write/1-intent.md) | 原本的總綱：metrics 寫 VictoriaMetrics | 被新方向取代，留作紀錄 |
+| [`validate-manual-apps/`](validate-manual-apps/1-intent.md) | 原需求 1：檢查工具認得不走 ArgoCD 的 app | 完成，新方向照用 |
+| [`tenant-label-routing/`](tenant-label-routing/1-intent.md) | 原需求 2：依部門寫進 VictoriaMetrics 的租戶 | 完成並實測。新方向要在 Elasticsearch 上重做 |
+| [`dual-site-write/`](dual-site-write/1-intent.md) | 原需求 3：中科、二林兩站各寫一份 | 完成並實測。新方向要重做 |
+| [`ap1105-new-overlay/`](ap1105-new-overlay/1-intent.md) | 原需求 4：AP1105 換上新設定 | 停在 spec，不繼續 |
 | `_template/` | 開新需求時複製的範本 | — |
 
-[`architecture.html`](architecture.html) 是給主管看的動態架構圖，用瀏覽器直接開（要連網）。
+[`architecture.html`](architecture.html) 是給主管看的動態架構圖，畫了原本的設計與新方向，並附多廠區時的資料量試算。用瀏覽器直接開（要連網）。
 
 ## 每個需求的四份文件
 

@@ -1,5 +1,8 @@
 # Intent — 多廠區 K8s metrics 寫入 VictoriaMetrics
 
+> ⚠️ branch `explore/elastic-all-in` 上這個方向已被
+> [`elastic-unified-observability`](../elastic-unified-observability/1-intent.md) 取代，這份留作紀錄。
+>
 > 已確認。這份是總綱，實作拆成下面「拆法」的四個需求，各自有自己的資料夾。
 > 給主管看的動態架構圖：[`architecture.html`](../architecture.html)，用瀏覽器直接開。
 

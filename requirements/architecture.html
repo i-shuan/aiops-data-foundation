@@ -495,6 +495,16 @@ button:focus-visible { outline: 2px solid var(--tsid); outline-offset: 2px; }
 .n-step.off .n-sub { color: var(--bad); }
 .n-alert { color: var(--bad); font-size: 12px; font-weight: 500; }
 .n-wait { color: var(--warn); font-size: 12px; font-weight: 500; }
+.n-tag { display: inline-block; margin-top: 5px; font-size: 11px; font-weight: 500; padding: 0 8px; border-radius: 999px; border: 1px solid currentColor; }
+.n-tag.done { color: var(--ok); } .n-tag.part { color: var(--warn); } .n-tag.plan { color: var(--plat); }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 13px; color: var(--muted); }
+h3 { font-family: var(--font-body); font-size: 15px; font-weight: 700; margin: 8px 0 0; }
+.calc { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px 20px; }
+.calc label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); min-width: 0; }
+.calc input { font: inherit; font-size: 15px; color: var(--fg); background: var(--surface); border: 1px solid var(--line); border-radius: 4px; padding: 5px 8px; width: 100%; box-sizing: border-box; font-variant-numeric: tabular-nums; }
+.calc input:focus-visible { outline: 2px solid var(--tsid); outline-offset: 1px; }
+td.n strong { font-weight: 700; }
+.legend i { display: inline-block; width: 18px; height: 3px; margin-right: 6px; vertical-align: middle; border-radius: 2px; }
 .react-flow__node.nohandle { cursor: pointer; }
 @media (prefers-reduced-motion: reduce) { .react-flow__edge.animated path { animation: none; } }
 
@@ -517,8 +527,8 @@ footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line)
 
 <header>
   <div class="eyebrow">AIOPS DATA FOUNDATION ・ 2026-10-04 更新</div>
-  <h1>各部門的監控資料，自動進到自己的租戶</h1>
-  <p class="lead">同一個 K8s cluster 裡住著好幾個部門的系統。每個系統只要在自己的設定檔寫一個部門代號，它的監控資料就會被送進該部門專屬的資料空間，別的部門看不到。資料同時寫到中科、二林兩站，任何一站停機都不會掉。</p>
+  <h1>從 K8s 到 AIOps：原本的設計，與全進 Elasticsearch 的新方向</h1>
+  <p class="lead">同一個 K8s cluster 裡住著好幾個部門的系統，目標是讓 IT 維運人員掌握程式與 server 健不健康，靠的是每個程式和每台 server 產生的數值、log、trace 三種資料。這頁把兩個做法放在一起比：原本各走各的三條路，以及討論中的「一套收集、全進 Elasticsearch、AIOps 自己訓練」。下面附廠區變多時的維運量與資料量試算。</p>
 </header>
 
 <section>
@@ -527,7 +537,173 @@ footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line)
 </section>
 
 <section>
-  <h2>這樣做的三個重點</h2>
+  <h2>監控的是什麼</h2>
+  <p>目標是讓 IT 維運人員知道兩件事：程式健不健康、server 健不健康。他們最花時間的是找根因，所以 AIOps 最終要做到的是「出事時指出最可能的源頭」；要做到這件事，得先做異常偵測。</p>
+  <div class="tablewrap">
+  <table>
+    <thead><tr><th>對象</th><th>看什麼</th><th>資料從哪來</th></tr></thead>
+    <tbody>
+      <tr><td>程式健康度</td><td>有沒有活著、重啟幾次、回應慢不慢、錯誤比例、處理量、用了多少 CPU 與記憶體</td><td>程式自己吐的數值、容器的資源用量、程式的 log、trace</td></tr>
+      <tr><td>server 健康度</td><td>CPU、記憶體、磁碟、網路、節點是不是正常</td><td>節點上的收集程式、K8s 回報的節點狀態、系統 log</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="note">不在範圍內：機台收值，以及機台與製程本身有沒有異常（溫度、壓力、流量）。那是製程與設備工程師的需求，這裡不收、不存、不拿來訓練。第三張圖裡出現的「機台收值」是原本設計實測時用的範例程式，那次測的是它的資料有沒有進對租戶。</p>
+</section>
+
+<section>
+  <h2>兩個做法差在哪</h2>
+  <div class="tablewrap">
+  <table>
+    <thead><tr><th></th><th>原本的設計</th><th>新方向</th></tr></thead>
+    <tbody>
+      <tr><td>收集程式</td><td>三套：vmagent、Fluentd、trace 收集程式</td><td>一套收三種</td></tr>
+      <tr><td>儲存</td><td>三座：VictoriaMetrics、Elasticsearch、Tempo</td><td>一座：Elasticsearch</td></tr>
+      <tr><td>看的畫面</td><td>Grafana</td><td>Kibana</td></tr>
+      <tr><td>三種資料的標籤</td><td>各寫各的，目前對不起來</td><td>同一份規則，天生一致</td></tr>
+      <tr><td>部門之間怎麼隔</td><td>metrics 一個編號一個租戶，已實測</td><td>各自的資料流加權限，要自己設計</td></tr>
+      <tr><td>兩站各存一份</td><td>metrics 已實測</td><td>要重做。Elasticsearch 的跨站複寫就目前了解要付費，免費的做法是收集程式寫兩份</td></tr>
+      <tr><td>AIOps</td><td>還沒開始</td><td>自己訓練，不靠付費功能</td></tr>
+      <tr><td>已經做完的</td><td>metrics 整條，含防冒充、雙寫、斷線補送</td><td>都還沒有。上面那四件事要重做並重測</td></tr>
+      <tr><td>壞掉時的影響</td><td>哪一套壞，只影響那一種資料</td><td>收集程式或 Elasticsearch 壞，三種一起受影響</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="note">新方向的好處是東西少、標籤一致；代價是把已經測過的部分重來，而且風險集中在同一套收集程式和同一座儲存上。</p>
+</section>
+
+<section>
+  <h2>廠區變多時，要顧的東西怎麼增加</h2>
+  <div class="tablewrap">
+  <table>
+    <thead><tr><th>要顧的東西</th><th>原本的設計</th><th>新方向</th><th>隨什麼變多</th></tr></thead>
+    <tbody>
+      <tr><td>每個 cluster 裡的收集程式</td><td>3 套</td><td>1 套（兩種擺法）</td><td>cluster 數</td></tr>
+      <tr><td>收集端的設定檔</td><td>3 種，各有自己的寫法</td><td>1 種</td><td>不隨廠數變，但每個 cluster 都要套一次</td></tr>
+      <tr><td>每個 cluster 的通行證</td><td>每一座儲存各一把</td><td>一把或兩把</td><td>cluster 數 × 目的地數</td></tr>
+      <tr><td>中央的儲存</td><td>3 種各要擴容、升級、備份</td><td>1 種，但要撐三種資料的總量</td><td>資料量</td></tr>
+      <tr><td>跨廠的線路</td><td>每廠到中央，三種資料各走各的</td><td>每廠到中央，一條</td><td>廠數</td></tr>
+      <tr><td>標籤與部門清單的一致性</td><td>三處各自維護</td><td>一處</td><td>部門數、廠數</td></tr>
+      <tr><td>自己訓練的模型</td><td>—</td><td>每個要監看的系統都要有、都要重訓</td><td>系統數 × 廠數</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="note">新方向在「種類」上省很多，在「量」上沒有省：資料量和要顧的 cluster 數一樣隨廠數等比例增加，而且全部壓在同一座 Elasticsearch 上。某一個廠的資料突然暴增時，其他廠的查詢和 AIOps 會一起變慢。</p>
+</section>
+
+<section>
+  <h2>資料量試算：不壓縮與壓縮後差多少</h2>
+  <p>下面的數字<strong>都是假設值，不是量出來的</strong>。請換成你們自己的數字再看結果，改任何一格會立刻重算。</p>
+  <h3>規模</h3>
+  <div class="calc">
+    <label for="c-sites">廠區數<input id="c-sites" type="number" min="0" value="2"></label>
+    <label for="c-clusters">每廠幾個 cluster<input id="c-clusters" type="number" min="0" value="2"></label>
+    <label for="c-pods">每個 cluster 幾個 pod<input id="c-pods" type="number" min="0" value="500"></label>
+    <label for="c-series">每個 pod 幾條數值<input id="c-series" type="number" min="0" value="400"></label>
+    <label for="c-interval">幾秒抓一次<input id="c-interval" type="number" min="0" value="30"></label>
+    <label for="c-lines">每個 pod 每秒幾行 log<input id="c-lines" type="number" min="0" step="0.1" value="2"></label>
+    <label for="c-spans">每個 pod 每秒幾筆 trace<input id="c-spans" type="number" min="0" step="0.1" value="1"></label>
+  </div>
+  <h3>每一筆存起來佔多少</h3>
+  <div class="calc">
+    <label for="c-mbytes">一筆原始數值佔幾 bytes<input id="c-mbytes" type="number" min="0" value="15"></label>
+    <label for="c-rbytes">壓過的一筆數值佔幾 bytes<input id="c-rbytes" type="number" min="0" value="40"></label>
+    <label for="c-lbytes">一行 log 佔幾 bytes<input id="c-lbytes" type="number" min="0" value="500"></label>
+    <label for="c-sbytes">一筆 trace 佔幾 bytes<input id="c-sbytes" type="number" min="0" value="700"></label>
+  </div>
+  <h3>保留多久</h3>
+  <div class="calc">
+    <label for="c-mdays">數值總共保留幾天<input id="c-mdays" type="number" min="0" value="30"></label>
+    <label for="c-ldays">log 保留幾天<input id="c-ldays" type="number" min="0" value="14"></label>
+    <label for="c-tdays">trace 保留幾天<input id="c-tdays" type="number" min="0" value="7"></label>
+    <label for="c-copies">存幾份（含副本）<input id="c-copies" type="number" min="0" value="2"></label>
+  </div>
+  <h3>怎麼壓</h3>
+  <div class="calc">
+    <label for="c-rawdays">數值：原始留幾天<input id="c-rawdays" type="number" min="0" value="7"></label>
+    <label for="c-rollmin">數值：之後壓成幾分鐘一筆<input id="c-rollmin" type="number" min="0" value="5"></label>
+    <label for="c-lkeep">log：留下的等級佔百分之幾<input id="c-lkeep" type="number" min="0" value="40"></label>
+    <label for="c-tsample">trace：正常的留百分之幾<input id="c-tsample" type="number" min="0" value="5"></label>
+    <label for="c-terr">trace：出錯或太慢的佔百分之幾（全留）<input id="c-terr" type="number" min="0" value="2"></label>
+    <label for="c-incident">出事的時段佔全部時間百分之幾（全留）<input id="c-incident" type="number" min="0" step="0.1" value="1"></label>
+  </div>
+  <h3>自己訓練與語言模型</h3>
+  <div class="calc">
+    <label for="c-weeks">訓練用幾週的歷史<input id="c-weeks" type="number" min="0" value="4"></label>
+    <label for="c-every">每條數值幾秒判斷一次<input id="c-every" type="number" min="0" value="60"></label>
+    <label for="c-lpattern">相似的 log 歸類後剩百分之幾<input id="c-lpattern" type="number" min="0" value="5"></label>
+    <label for="c-bpt">幾 bytes 算一個 token<input id="c-bpt" type="number" min="0" value="4"></label>
+    <label for="c-ipods">一次事件牽涉幾個 pod<input id="c-ipods" type="number" min="0" value="20"></label>
+    <label for="c-imin">一次事件看前後幾分鐘<input id="c-imin" type="number" min="0" value="30"></label>
+  </div>
+
+  <h3>儲存的壓力</h3>
+  <div class="tablewrap">
+  <table>
+    <thead><tr><th></th><th>每秒進來</th><th>不壓縮要存</th><th>壓縮後要存</th><th></th></tr></thead>
+    <tbody>
+      <tr><td>Metrics</td><td class="n" id="o-m-rate"></td><td class="n" id="o-m-before"></td><td class="n" id="o-m-after"></td><td class="n" id="o-m-left"></td></tr>
+      <tr><td>Log</td><td class="n" id="o-l-rate"></td><td class="n" id="o-l-before"></td><td class="n" id="o-l-after"></td><td class="n" id="o-l-left"></td></tr>
+      <tr><td>Trace</td><td class="n" id="o-t-rate"></td><td class="n" id="o-t-before"></td><td class="n" id="o-t-after"></td><td class="n" id="o-t-left"></td></tr>
+      <tr><td><strong>合計</strong></td><td class="n"></td><td class="n"><strong id="o-before"></strong></td><td class="n"><strong id="o-after"></strong></td><td class="n"><strong id="o-left"></strong></td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3>自己訓練的壓力</h3>
+  <div class="tablewrap">
+  <table>
+    <thead><tr><th></th><th>拉原始資料</th><th>拉壓過的資料</th><th></th></tr></thead>
+    <tbody>
+      <tr><td>每次重訓要從 Elasticsearch 拉出</td><td class="n" id="o-train-raw"></td><td class="n" id="o-train-roll"></td><td class="n" id="o-train-left"></td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="tablewrap">
+  <table>
+    <thead><tr><th>不管壓不壓都一樣的</th><th>數量</th><th>代表什麼</th></tr></thead>
+    <tbody>
+      <tr><td>要監看的數值條數</td><td class="n" id="o-series"></td><td>每一條都要有自己「平常的樣子」</td></tr>
+      <tr><td>每分鐘要做幾次判斷</td><td class="n" id="o-evals"></td><td>即時偵測持續的運算量</td></tr>
+      <tr><td>學出來的「平常的樣子」佔多少</td><td class="n" id="o-model"></td><td>每條數值記一週每個小時的平均與波動。每天用新資料更新，不用每次重拉歷史</td></tr>
+      <tr><td>收集程式的套數</td><td class="n" id="o-collectors"></td><td>每個 cluster 一套，要部署、升級、看它活著沒</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3>交給語言模型的壓力（token）</h3>
+  <p>處置建議那一步要把資料交給語言模型讀。模型一次能讀的量有上限，而且照量計費，所以這裡用 token 來看。</p>
+  <div class="tablewrap">
+  <table>
+    <thead><tr><th></th><th>直接給原始資料</th><th>給壓過、歸類過的</th><th></th></tr></thead>
+    <tbody>
+      <tr><td>一次事件要讀的量</td><td class="n" id="o-tok-inc-raw"></td><td class="n" id="o-tok-inc-cmp"></td><td class="n" id="o-tok-inc-left"></td></tr>
+      <tr><td>一整天的資料全部讀一遍</td><td class="n" id="o-tok-day-raw"></td><td class="n" id="o-tok-day-cmp"></td><td class="n" id="o-tok-day-left"></td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="note">就算壓過，一次事件的量通常還是超過語言模型一次讀得下的範圍。所以不能把資料直接丟給它，要先由前面的偵測與關聯步驟挑出最相關的幾條數值、幾類 log、幾筆 trace，再交給它。</p>
+
+  <h3>這個試算怎麼算的</h3>
+  <div class="tablewrap">
+  <table>
+    <thead><tr><th>項目</th><th>算法</th></tr></thead>
+    <tbody>
+      <tr><td>每秒筆數</td><td>廠數 × 每廠 cluster 數 × pod 數 × 每個 pod 的量（數值再除以抓取間隔）</td></tr>
+      <tr><td>不壓縮</td><td>每秒筆數 × 86,400 × 每筆 bytes × 保留天數 × 份數</td></tr>
+      <tr><td>數值壓縮後</td><td>最近幾天留原始；更舊的改成每幾分鐘一筆；出事的時段不管多舊都留原始</td></tr>
+      <tr><td>log 壓縮後</td><td>只留指定的等級；出事的時段全留</td></tr>
+      <tr><td>trace 壓縮後</td><td>出錯與太慢的全留；正常的抽樣；出事的時段全留</td></tr>
+      <tr><td>token</td><td>bytes ÷ 每個 token 的 bytes。壓過的版本：數值用壓過的、log 用歸類後的、trace 只給出錯與太慢的</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="note">沒有算進去的：索引的額外開銷、實際的壓縮率、尖峰時段、以及壓縮本身要花的運算。實際數字會有出入。</p>
+  <p class="note">預設值的來源：規模是常見的量級，不是你們環境量出來的。每筆佔用的 bytes、log 留下的比例、歸類後剩的比例、出事時段的比例，全部是我放的假設。其中「一筆原始數值佔幾 bytes」和「log 留下的等級佔百分之幾」對結果影響最大，要拿你們真的資料量過才準。</p>
+</section>
+
+<section>
+  <h2>原本設計裡已經做完的：metrics 這一條</h2>
   <ul class="points">
     <li><strong>系統不用知道資料送去哪</strong><span>各系統只在設定檔寫一個部門代號。要換部門，改那一行，程式不用動。</span></li>
     <li><strong>加部門不用加線</strong><span>每個 cluster 往中央的線只跟站數有關：兩站就是兩條。新增部門是在對照表加一列。</span></li>
@@ -536,7 +712,7 @@ footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line)
 </section>
 
 <section>
-  <h2>實測結果</h2>
+  <h2>原本設計：metrics 的實測結果</h2>
   <p>在本機的測試環境把七種情況都實際部署一次，查每個租戶裡有沒有資料。軟體版本跟 AP1105 相同。</p>
   <div class="tablewrap">
   <table>
@@ -556,7 +732,7 @@ footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line)
 </section>
 
 <section>
-  <h2>兩廠雙寫的實測</h2>
+  <h2>原本設計：兩廠雙寫的實測</h2>
   <p>實際關掉其中一站的入口，中間再把 vmagent 重啟一次，然後恢復，比較兩站收到的筆數。</p>
   <div class="tablewrap">
   <table>
@@ -574,41 +750,128 @@ footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line)
 </section>
 
 <section>
-  <h2>進度</h2>
+  <h2>新方向定案前要回答的</h2>
   <div class="tablewrap">
   <table>
-    <thead><tr><th>項目</th><th>內容</th><th>狀態</th></tr></thead>
+    <thead><tr><th>問題</th><th>為什麼重要</th></tr></thead>
     <tbody>
-      <tr><td>檢查工具</td><td>設定檔寫錯在送出前就擋下，不需要 cluster</td><td><span class="pill done">完成</span></td></tr>
-      <tr><td>依部門分租戶</td><td>流程圖從左到右的整條路，含防冒充與實測</td><td><span class="pill done">完成，本機驗證</span></td></tr>
-      <tr><td>兩廠雙寫</td><td>廠區標記、同時寫兩站、斷線暫存與補送</td><td><span class="pill done">完成，本機驗證</span></td></tr>
-      <tr><td>AP1105 換上新設定</td><td>在已經運作的環境套用，舊資料留在原處</td><td><span class="pill next">下一個</span></td></tr>
+      <tr><td>收集程式用哪一套</td><td>決定設定的寫法，以及擋冒充、斷線補送做不做得到</td></tr>
+      <tr><td>部門在 Elasticsearch 裡怎麼隔</td><td>沒有現成的租戶編號，要自己設計資料流與權限。哪些權限功能在免費版要查</td></tr>
+      <tr><td>多個廠區時 Elasticsearch 怎麼擺</td><td>全部送一座、每廠一座再跨座查、或寫兩座。決定頻寬、單點風險與維運量</td></tr>
+      <tr><td>三種資料各保留幾天</td><td>直接決定磁碟。上面的試算可以調</td></tr>
+      <tr><td>Elasticsearch 存一筆數值實際佔多少</td><td>試算裡影響最大的假設，要實際寫入量過</td></tr>
+      <tr><td>過去出事的紀錄有沒有留</td><td>沒有的話，自己訓練的模型無從驗證準不準</td></tr>
+      <tr><td>監控 Elasticsearch 自己的東西</td><td>三種資料和 AIOps 都在它上面。它出事時一切一起停，要有一個不依賴它的最小監控</td></tr>
+      <tr><td>訓練與偵測的程式誰維護</td><td>這是長期的工作，不是做一次</td></tr>
+      <tr><td>各部門的程式願不願意埋 trace</td><td>找根因要知道誰呼叫誰，主要靠 trace。不埋的話只能用「誰最早異常、是不是同一台 server」來推，精度會受限。這是最大的外部依賴</td></tr>
     </tbody>
   </table>
   </div>
+  <p class="note">新方向目前只有這頁的圖和一份需求草稿，沒有任何一段實作或實測。原本設計裡 metrics 那一條的結果仍然有效，但只適用於原本的設計。</p>
 </section>
 
-<section>
-  <h2>還需要別的單位確認的事</h2>
-  <div class="tablewrap">
-  <table>
-    <thead><tr><th>事項</th><th>找誰</th><th>影響</th></tr></thead>
-    <tbody>
-      <tr><td>兩站 vmauth 實際的寫入網址</td><td>Infra</td><td>目前兩個都是佔位，確認前不能上正式環境</td></tr>
-      <tr><td>每個 cluster、每一站各發一把通行證</td><td>Infra</td><td>某個 cluster 或某一站出事時，可以只停掉那一把</td></tr>
-      <tr><td>每個 cluster 給 vmagent 50 GiB 的磁碟</td><td>Infra、各 cluster 的管理者</td><td>沒有可用的儲存空間時 vmagent 起不來，那個 cluster 的監控會停</td></tr>
-      <tr><td>暫存要撐多久、要多大</td><td>要在正式的 cluster 量</td><td>目前 20 GiB 是起始值，目標撐 8 小時，還沒有實測依據</td></tr>
-      <tr><td>部門清單與租戶編號</td><td>各部門</td><td>目前是 TSID、BSID、ICSD、IMC 四個加平台</td></tr>
-    </tbody>
-  </table>
-  </div>
-  <p class="note">要注意的限制：中央只檢查通行證，不檢查資料上的租戶編號。部門之間的隔離是靠每個 cluster 上的 vmagent 設定維持的，所以那份設定的檢查與測試是必要的防線。目前的結果都來自本機測試環境，還沒有在正式環境執行。</p>
-</section>
-
-<footer>範圍只到「資料寫進中央」。查詢端（Grafana 怎麼依部門看資料、剛恢復的那一站在補送完成前資料不完整要怎麼處理）與 log 不在這次的範圍內。</footer>
+<footer>這頁同時放了已經實測的部分和還在討論的方向，每一節的標題與圖上的標示都有寫明是哪一種。試算的數字是假設值。</footer>
 
 </div>
+<!--SCRIPTS-->
+<script>
+var CALC = (function () {
+  var DEFAULTS = {
+    sites: 2, clusters: 2, pods: 500, series: 400, interval: 30, lines: 2, spans: 1,
+    mbytes: 15, rbytes: 40, lbytes: 500, sbytes: 700,
+    mdays: 30, ldays: 14, tdays: 7, copies: 2,
+    rawdays: 7, rollmin: 5, lkeep: 40, tsample: 5, terr: 2, incident: 1,
+    weeks: 4, every: 60, lpattern: 5, bpt: 4, ipods: 20, imin: 30
+  };
 
+  // 全部的算法都在這裡。頁面和需求文件裡的數字都是用這一個函式算的。
+  function compute(i) {
+    var DAY = 86400, pct = function (x) { return x / 100; };
+    var pods = i.sites * i.clusters * i.pods;
+    var series = pods * i.series;
+    var mRate = series / i.interval, lRate = pods * i.lines, tRate = pods * i.spans;
+    var inc = pct(i.incident);                       // 出事的時段佔全部時間多少：這段一律全留
+
+    // ---- 不壓縮：全部留原始 ----
+    var mDay = mRate * DAY * i.mbytes, lDay = lRate * DAY * i.lbytes, tDay = tRate * DAY * i.sbytes;
+    var before = { m: mDay * i.mdays * i.copies, l: lDay * i.ldays * i.copies, t: tDay * i.tdays * i.copies };
+
+    // ---- 壓縮後 ----
+    var rawDays = Math.min(i.rawdays, i.mdays), oldDays = i.mdays - rawDays;
+    var rollDay = series / (i.rollmin * 60) * DAY * i.rbytes;          // 壓成每 N 分鐘一筆之後，一天多少
+    var mAfter = (mDay * rawDays + (rollDay + mDay * inc) * oldDays) * i.copies;
+    var lFrac = pct(i.lkeep) + (1 - pct(i.lkeep)) * inc;               // 留下的等級，加上出事時段被丟的那些也留
+    var tBase = pct(i.terr) + (1 - pct(i.terr)) * pct(i.tsample);      // 出錯與慢的全留，正常的抽樣
+    var tFrac = tBase + (1 - tBase) * inc;
+    var after = { m: mAfter, l: before.l * lFrac, t: before.t * tFrac };
+
+    // ---- 自己訓練 ----
+    var trainRaw = series * i.weeks * 7 * DAY / i.interval;
+    var trainRoll = series * i.weeks * 7 * DAY / (i.rollmin * 60);
+    var modelBytes = series * 168 * 2 * 8;           // 每條數值：一週 168 個小時，各記平均與波動，各 8 bytes
+
+    // ---- 語言模型的 token ----
+    var dayRawTok = (mDay + lDay + tDay) / i.bpt;
+    var dayCmpTok = (rollDay + lDay * pct(i.lpattern) + tDay * pct(i.terr)) / i.bpt;
+    var secs = i.imin * 60, k = i.ipods;
+    var incRawTok = k * secs * (i.series / i.interval * i.mbytes + i.lines * i.lbytes + i.spans * i.sbytes) / i.bpt;
+    var incCmpTok = k * secs * (i.series / (i.rollmin * 60) * i.rbytes + i.lines * i.lbytes * pct(i.lpattern)
+                                + i.spans * i.sbytes * pct(i.terr)) / i.bpt;
+    return {
+      pods: pods, series: series, collectors: i.sites * i.clusters,
+      rate: { m: mRate, l: lRate, t: tRate },
+      before: before, after: after,
+      beforeTotal: before.m + before.l + before.t, afterTotal: after.m + after.l + after.t,
+      evals: series * 60 / i.every, trainRaw: trainRaw, trainRoll: trainRoll, modelBytes: modelBytes,
+      tok: { dayRaw: dayRawTok, dayCmp: dayCmpTok, incRaw: incRawTok, incCmp: incCmpTok }
+    };
+  }
+  return { DEFAULTS: DEFAULTS, compute: compute };
+})();
+
+if (typeof module !== 'undefined') module.exports = CALC;
+
+(function () {
+  if (typeof document === 'undefined' || !document.getElementById('c-sites')) return;
+  var keys = Object.keys(CALC.DEFAULTS);
+  function num(n) {
+    if (n >= 1e12) return (n / 1e12).toFixed(1) + ' 兆';
+    if (n >= 1e8) return (n / 1e8).toFixed(1) + ' 億';
+    if (n >= 1e4) return (n / 1e4).toFixed(1) + ' 萬';
+    return Math.round(n).toLocaleString();
+  }
+  function size(b) {
+    if (b >= 1e12) return (b / 1e12).toFixed(1) + ' TB';
+    if (b >= 1e9) return (b / 1e9).toFixed(1) + ' GB';
+    return (b / 1e6).toFixed(0) + ' MB';
+  }
+  function left(after, before) { return before ? '剩 ' + (after / before * 100).toFixed(after / before < 0.1 ? 1 : 0) + '%' : ''; }
+  function set(id, text) { document.getElementById(id).textContent = text; }
+  function run() {
+    var inp = {};
+    keys.forEach(function (k) {
+      var n = parseFloat(document.getElementById('c-' + k).value);
+      inp[k] = isFinite(n) && n >= 0 ? n : 0;
+    });
+    ['interval', 'rollmin', 'bpt', 'every'].forEach(function (k) { if (!inp[k]) inp[k] = 1; });
+    var r = CALC.compute(inp);
+    [['m', '筆'], ['l', '行'], ['t', '筆']].forEach(function (x) {
+      set('o-' + x[0] + '-rate', num(r.rate[x[0]]) + ' ' + x[1]);
+      set('o-' + x[0] + '-before', size(r.before[x[0]]));
+      set('o-' + x[0] + '-after', size(r.after[x[0]]));
+      set('o-' + x[0] + '-left', left(r.after[x[0]], r.before[x[0]]));
+    });
+    set('o-before', size(r.beforeTotal)); set('o-after', size(r.afterTotal)); set('o-left', left(r.afterTotal, r.beforeTotal));
+    set('o-series', num(r.series) + ' 條'); set('o-evals', num(r.evals) + ' 次'); set('o-collectors', num(r.collectors) + ' 套');
+    set('o-train-raw', num(r.trainRaw) + ' 筆'); set('o-train-roll', num(r.trainRoll) + ' 筆'); set('o-train-left', left(r.trainRoll, r.trainRaw));
+    set('o-model', size(r.modelBytes));
+    set('o-tok-day-raw', num(r.tok.dayRaw)); set('o-tok-day-cmp', num(r.tok.dayCmp)); set('o-tok-day-left', left(r.tok.dayCmp, r.tok.dayRaw));
+    set('o-tok-inc-raw', num(r.tok.incRaw)); set('o-tok-inc-cmp', num(r.tok.incCmp)); set('o-tok-inc-left', left(r.tok.incCmp, r.tok.incRaw));
+  }
+  keys.forEach(function (k) { document.getElementById('c-' + k).addEventListener('input', run); });
+  run();
+})();
+</script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/reactflow@11.11.4/dist/umd/index.js"></script>
@@ -617,7 +880,225 @@ footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line)
   if (!window.React || !window.ReactDOM || !window.ReactFlow) return;
   var h = React.createElement, RF = window.ReactFlow;
   var V = function (name) { return 'var(--' + name + ')'; };
+  var box = function (title, sub, tag, tagClass) {
+    return h('div', null,
+      h('div', { className: 'n-title' }, title),
+      sub ? h('div', { className: 'n-sub' }, sub) : null,
+      tag ? h('div', { className: 'n-tag ' + (tagClass || '') }, tag) : null);
+  };
 
+  // =====================================================================
+  // 第一張：全貌。三種訊號 → 中科站 → AIOps
+  // =====================================================================
+  var SIG = { m: 'tsid', l: 'bsid', t: 'icsd', ai: 'imc' };   // 顏色代表訊號種類，不是部門
+  var OV_NS = [
+    { id: 'tsid', title: 'TSID 的程式', sub: 'tenant: tsid' },
+    { id: 'bsid', title: 'BSID 的程式', sub: 'tenant: bsid' },
+    { id: 'icsd', title: 'ICSD 的程式（例：MES 派工）', sub: 'tenant: icsd' },
+    { id: 'imc',  title: 'IMC 的程式', sub: 'tenant: imc' },
+    { id: 'plat', title: 'server 本身與平台元件', sub: '節點的 CPU、記憶體、磁碟。算平台' }
+  ];
+  var OV_MODES = [
+    { id: 'all', label: '全部', text: '每個系統都會產生三種資料：數值（metrics）、文字紀錄（log）、一次請求經過哪些服務（trace）。三種各有自己的收集程式和儲存，共同點是都要帶著同一組標籤，之後才對得起來。' },
+    { id: 'm', label: 'Metrics → VictoriaMetrics', text: '已實測。vmagent 依 namespace 的門牌把資料分到各部門的租戶，補上廠區，同時寫中科站和二林站；其中一站停機時先存磁碟，恢復後補送。細節在第三張圖。' },
+    { id: 'l', label: 'Log → Elasticsearch', text: '既有的設定，這次沒有動。Fluentd 收容器的 log 送進 Elasticsearch。目前是照 dept 分，跟 metrics 用的 tenant 不是同一個標籤，部門清單也是寫死的，還沒跟 metrics 對齊。' },
+    { id: 't', label: 'Trace → Tempo', text: '還沒做，repo 裡目前沒有任何 trace 的設定。要做的話，各系統得先在程式裡埋追蹤（OpenTelemetry），收集程式再補上跟 metrics 一樣的標籤，送進 Tempo。這一段的工作量主要在各部門的程式。' },
+    { id: 'ai', label: '怎麼變成 AIOps', danger: false, text: 'AIOps 的前提是三種資料對得起來：同一個 tenant、system、cluster，log 裡帶著 trace 的編號。對得起來之後才能依序做：發現異常 → 把相關的告警併成一件事 → 找出根因 → 給處置建議。這一欄是方向，還沒開始做。' }
+  ];
+  var OV_DETAIL = {
+    'c-m': ['vmagent（metrics 的收集程式）', '每個 cluster 一套。已經做完並實測：依門牌分租戶、擋冒充、補廠區、雙寫、斷線暫存。'],
+    'c-l': ['Fluentd（log 的收集程式）', '既有的設定在 platform/logging/。已知的問題：照 dept 分而不是 tenant、部門清單寫死、時間欄位會被解析錯。要接 AIOps 之前得先讓它帶上跟 metrics 一樣的標籤。'],
+    'c-t': ['Trace 的收集程式（規劃）', '常見的做法是 OpenTelemetry Collector。它在 cluster 裡收各系統送出的 trace，補上 namespace 的標籤，再送到 Tempo。前提是各系統的程式要先埋追蹤，這不是平台單方面做得完的。'],
+    's-m': ['VictoriaMetrics', '存 metrics。每個部門一個租戶（1000 到 1004），彼此看不到。二林站有同樣的一份。'],
+    's-l': ['Elasticsearch', '存 log。目前照部門分 index。'],
+    's-t': ['Tempo（規劃）', '存 trace。它也支援分租戶，可以沿用同一組部門代號。'],
+    'erlin': ['二林站', '目前只有 metrics 會寫第二份到這裡，已實測。log 和 trace 要不要也寫兩份還沒討論。'],
+    'join': ['把三種資料對起來', '這是整件事的地基，也是這個專案叫 data foundation 的原因。三種資料都帶著 tenant、dept、system、site、cluster；log 再多帶 trace 的編號。有了這些，才能從一個異常的數值，找到同一時間、同一個系統的 log 和 trace。'],
+    'grafana': ['Grafana', '人看的地方。三種資料都能接進來，在同一個畫面從數值跳到 log 再跳到 trace。這是 AIOps 之前就能先得到的好處。'],
+    'ai-1': ['① 異常偵測', '不靠人設固定的門檻，而是從 metrics 的歷史學出「平常長什麼樣」，偏離時提醒。只需要 metrics，是四步裡最先能做的。'],
+    'ai-2': ['② 告警收斂與關聯', '一個故障常常同時觸發幾十個告警。靠共同的標籤（同一個 system、同一個 cluster、同一段時間）把它們併成一件事。需要標籤一致。'],
+    'ai-3': ['③ 根因分析', '從異常的數值找到當時的 trace，看是哪一段變慢或出錯，再找到那一段的 log。需要三種資料都對得起來。'],
+    'ai-4': ['④ 處置建議', '把上面整理好的脈絡交給語言模型，對照過去的處理紀錄，給值班的人建議。要先有 ①②③ 產出的乾淨脈絡，也要有過去事件的紀錄。']
+  };
+
+  function overviewGraph(mode) {
+    var on = function (sig) { return mode === 'all' || mode === sig || (mode === 'ai' && sig === 'store'); };
+    var op = function (yes) { return yes ? 1 : .22; };
+    var nodes = [
+      { id: 'g-cluster', type: 'group', position: { x: 0, y: 0 }, style: { width: 250, height: 400 }, data: {}, selectable: false },
+      { id: 'l-cluster', className: 'glabel', parentNode: 'g-cluster', position: { x: 14, y: 12 }, style: { width: 226 },
+        data: { label: '中科的 K8s cluster（多個部門混住）' }, selectable: false }
+    ];
+    OV_NS.forEach(function (n, i) {
+      nodes.push({ id: 'ns-' + n.id, type: 'input', parentNode: 'g-cluster', extent: 'parent', sourcePosition: 'right',
+        position: { x: 14, y: 46 + i * 68 }, style: { width: 222, opacity: op(mode !== 'ai') },
+        data: { label: box(n.title, n.sub) } });
+    });
+    var collectors = [
+      { id: 'c-m', sig: 'm', y: 30,  title: 'vmagent', sub: '收 metrics，依門牌分租戶', tag: '已實測', cls: 'done' },
+      { id: 'c-l', sig: 'l', y: 160, title: 'Fluentd', sub: '收 log', tag: '既有，還沒對齊標籤', cls: 'part' },
+      { id: 'c-t', sig: 't', y: 290, title: 'Trace 收集程式', sub: '例：OpenTelemetry Collector', tag: '規劃', cls: 'plan' }
+    ];
+    collectors.forEach(function (c) {
+      nodes.push({ id: c.id, position: { x: 340, y: c.y }, sourcePosition: 'right', targetPosition: 'left',
+        style: { width: 210, borderColor: V(SIG[c.sig]), borderStyle: c.cls === 'plan' ? 'dashed' : 'solid', opacity: op(on(c.sig)) },
+        data: { label: box(c.title, c.sub, c.tag, c.cls) } });
+      OV_NS.forEach(function (n) {
+        edges.push({ id: 'e-' + n.id + c.id, source: 'ns-' + n.id, target: c.id, animated: on(c.sig) && mode !== 'all',
+          style: { stroke: V(SIG[c.sig]), strokeWidth: 1.5, opacity: on(c.sig) ? (mode === 'all' ? .55 : 1) : .08,
+            strokeDasharray: c.cls === 'plan' ? '4 5' : undefined } });
+      });
+    });
+    return finish();
+
+    function finish() {
+      nodes.push({ id: 'g-site', type: 'group', position: { x: 660, y: 0 }, style: { width: 240, height: 400 }, data: {}, selectable: false });
+      nodes.push({ id: 'l-site', className: 'glabel', parentNode: 'g-site', position: { x: 14, y: 12 }, style: { width: 200 },
+        data: { label: '中科站' }, selectable: false });
+      var stores = [
+        { id: 's-m', sig: 'm', y: 46,  title: 'VictoriaMetrics', sub: 'metrics，每個部門一個租戶', tag: '已實測', cls: 'done' },
+        { id: 's-l', sig: 'l', y: 176, title: 'Elasticsearch', sub: 'log', tag: '既有', cls: 'part' },
+        { id: 's-t', sig: 't', y: 306, title: 'Tempo', sub: 'trace', tag: '規劃', cls: 'plan' }
+      ];
+      stores.forEach(function (s) {
+        var lit = on(s.sig) || mode === 'ai';
+        nodes.push({ id: s.id, parentNode: 'g-site', extent: 'parent', position: { x: 16, y: s.y },
+          sourcePosition: 'right', targetPosition: 'left',
+          style: { width: 208, borderColor: V(SIG[s.sig]), borderStyle: s.cls === 'plan' ? 'dashed' : 'solid', opacity: op(lit) },
+          data: { label: box(s.title, s.sub, s.tag, s.cls) } });
+        edges.push({ id: 'e-c' + s.id, source: 'c-' + s.sig, target: s.id, animated: on(s.sig),
+          style: { stroke: V(SIG[s.sig]), strokeWidth: 2.5, opacity: op(on(s.sig)), strokeDasharray: s.cls === 'plan' ? '4 5' : undefined } });
+        edges.push({ id: 'e-j' + s.id, source: s.id, target: 'join', animated: mode === 'ai',
+          style: { stroke: V(SIG[s.sig]), strokeWidth: 2, opacity: op(mode === 'all' || mode === 'ai'), strokeDasharray: '4 5' } });
+      });
+      nodes.push({ id: 'erlin', type: 'output', position: { x: 660, y: 430 }, targetPosition: 'left',
+        style: { width: 240, borderColor: V(SIG.m), opacity: op(on('m')) },
+        data: { label: box('二林站', 'metrics 的第二份', '已實測', 'done') } });
+      edges.push({ id: 'e-erlin', source: 'c-m', target: 'erlin', animated: on('m'),
+        style: { stroke: V(SIG.m), strokeWidth: 2.5, opacity: op(on('m')) } });
+
+      var lit = mode === 'all' || mode === 'ai';
+      nodes.push({ id: 'join', position: { x: 990, y: 110 }, sourcePosition: 'right', targetPosition: 'left',
+        style: { width: 220, borderWidth: 2.5, opacity: op(lit) },
+        data: { label: box('把三種資料對起來', '共同的標籤：tenant・dept・system・site・cluster，log 再帶 trace 的編號', 'metrics 有了，log 與 trace 還沒', 'part') } });
+      nodes.push({ id: 'grafana', type: 'output', position: { x: 990, y: 330 }, targetPosition: 'left',
+        style: { width: 220, opacity: op(lit) },
+        data: { label: box('Grafana', '人看：數值、log、trace 互相跳') } });
+      edges.push({ id: 'e-graf', source: 's-m', target: 'grafana', style: { stroke: V('plat'), strokeWidth: 1.5, opacity: op(mode === 'all') } });
+
+      nodes.push({ id: 'g-ai', type: 'group', position: { x: 1300, y: 0 }, style: { width: 250, height: 400 }, data: {}, selectable: false });
+      nodes.push({ id: 'l-ai', className: 'glabel', parentNode: 'g-ai', position: { x: 14, y: 12 }, style: { width: 226 },
+        data: { label: 'AIOps（方向，還沒開始做）' }, selectable: false });
+      [['ai-1', '① 異常偵測', '學出平常的樣子，偏離時提醒'],
+       ['ai-2', '② 告警收斂與關聯', '幾十個告警併成一件事'],
+       ['ai-3', '③ 根因分析', '從數值找到 trace 再找到 log'],
+       ['ai-4', '④ 處置建議', '對照過去的紀錄給建議']].forEach(function (a, i) {
+        nodes.push({ id: a[0], type: 'output', parentNode: 'g-ai', extent: 'parent', targetPosition: 'left',
+          position: { x: 14, y: 46 + i * 86 },
+          style: { width: 222, borderColor: V(SIG.ai), borderStyle: 'dashed', opacity: op(lit) },
+          data: { label: box(a[1], a[2]) } });
+        edges.push({ id: 'e-' + a[0], source: 'join', target: a[0], animated: mode === 'ai',
+          style: { stroke: V(SIG.ai), strokeWidth: 2, opacity: op(lit), strokeDasharray: '4 5' } });
+      });
+      return { nodes: nodes, edges: edges };
+    }
+  }
+  var edges = [];   // overviewGraph 每次重建
+  function buildOverview(mode) { edges = []; return overviewGraph(mode); }
+
+  // =====================================================================
+  // 新方向：一套收集程式 → Elasticsearch 存三種 → 自己訓練的 AIOps
+  // =====================================================================
+  var FU_MODES = [
+    { id: 'all', label: '全部', text: '每個 cluster 只放一套收集程式，程式與 server 的三種資料用同一套規則貼標籤，全部送進 Elasticsearch。AIOps 是自己寫的程式，目標是幫 IT 維運找根因，結果寫回 Elasticsearch 在 Kibana 看。這一整張都還沒做。' },
+    { id: 'collect', label: '收集', text: '原本三套收集程式變一套。好處是貼標籤的規則只有一份，三種資料天生對得起來。代價是原本在 vmagent 上做完並實測的四件事（依門牌分部門、擋冒充、多個目的地、斷線暫存）要在這套軟體上重做、重測。它一掛，三種資料同時斷。' },
+    { id: 'store', label: '存放', text: '一座 Elasticsearch 存三種，少維護 VictoriaMetrics 和 Tempo。壓力集中在這一座：metrics 存在這裡通常比專門的儲存佔空間；部門之間的隔離要靠各自的資料流加權限來做；它出事時三種資料一起查不到。' },
+    { id: 'aiops', label: '自己訓練的 AIOps', text: '目標是幫 IT 維運找根因。順序是：先學出平常的樣子 → 偵測異常 → 把同時發生的異常併成一件事 → 排出最可能的源頭。不用付費授權，但這是一條自己要長期顧的流程。找根因要知道程式之間誰呼叫誰，這要靠 trace，是最大的外部依賴。' },
+    { id: 'multi', label: '廠區變多時', danger: true, text: '每多一個廠：收集程式多幾套（跟 cluster 數成正比）、跨廠的線路多一條、送進中央的資料量等比例增加。全部進同一座時，任何一個廠的資料暴增都會拖慢所有廠的查詢與 AIOps。下面的試算可以調廠數看資料量。' }
+  ];
+  var FU_DETAIL = {
+    'f-col': ['一套收集程式', '例如 OpenTelemetry Collector。實際上會是同一套軟體的兩種擺法：每個節點放一個收 log，另外放一個收整個 cluster 的 metrics 和 trace。設定只有一份規則。還沒實測它能不能做到跟 vmagent 一樣的擋冒充與斷線補送。'],
+    'f-other': ['其他廠區的 cluster', '每個 cluster 都放同一套收集程式，只差廠區標記。數量跟 cluster 數成正比，是廠區變多時最先變多的東西。'],
+    'f-m': ['Metrics 的資料流', '數值存在 Elasticsearch 專門放時間序列的模式裡。跟原本 VictoriaMetrics 的差別：不能直接用 PromQL 寫的儀表板與告警，佔的空間通常比較大。'],
+    'f-l': ['Log 的資料流', 'Elasticsearch 的本行。原本就在用，差別是標籤改成跟另外兩種一致。'],
+    'f-t': ['Trace 的資料流', '取代原本規劃的 Tempo。跟 log 在同一座，從一筆 trace 找到當時的 log 最方便。前提是各系統的程式有埋追蹤。'],
+    'a-pull': ['① 學出平常的樣子', '用壓過的數值學出每支程式、每台 server 平常大概多少、上下波動多大。每天用新資料更新一點，不用每次重拉全部歷史。出事的時段不拿來學。'],
+    'a-train': ['② 異常偵測', '新資料跟平常的樣子比，偏離就記下「誰、從什麼時候開始、偏多少」。這一步只需要數值，是最先能做的，也是後面三步的前提。'],
+    'a-detect': ['③ 關聯', '一個故障常常讓十幾支程式同時異常。靠共同的標籤（同一台 server、同一個 namespace、同一段時間）把它們併成一件事。'],
+    'a-out': ['④ 找根因', 'IT 維運最花時間的一步。從同一件事裡排出最可能的源頭：誰最早異常、誰被誰呼叫、當時的 log 與 trace 說了什麼。產出是「最可能的幾個候選與證據」，不是唯一的答案。知道誰呼叫誰要靠 trace，這需要各部門在程式裡埋追蹤。'],
+    'kibana': ['Kibana', '取代原本的 Grafana。三種資料和自己算出來的異常都在這裡看。']
+  };
+
+  function futureGraph(mode) {
+    var lit = function (part) { return mode === 'all' || mode === part || (mode === 'multi' && part !== 'aiops'); };
+    var op = function (yes) { return yes ? 1 : .22; };
+    var nodes = [
+      { id: 'g-cluster', type: 'group', position: { x: 0, y: 0 }, style: { width: 250, height: 400 }, data: {}, selectable: false },
+      { id: 'l-cluster', className: 'glabel', parentNode: 'g-cluster', position: { x: 14, y: 12 }, style: { width: 226 },
+        data: { label: '中科的 K8s cluster（多個部門混住）' }, selectable: false }
+    ], es = [];
+    OV_NS.forEach(function (n, i) {
+      nodes.push({ id: 'ns-' + n.id, type: 'input', parentNode: 'g-cluster', extent: 'parent', sourcePosition: 'right',
+        position: { x: 14, y: 46 + i * 68 }, style: { width: 222, opacity: op(lit('collect')) },
+        data: { label: box(n.title, n.sub) } });
+      es.push({ id: 'e-ns-' + n.id, source: 'ns-' + n.id, target: 'f-col', animated: lit('collect'),
+        style: { stroke: V('fg'), strokeWidth: 1.5, opacity: lit('collect') ? .7 : .1 } });
+    });
+    nodes.push({ id: 'f-col', position: { x: 340, y: 70 }, sourcePosition: 'right', targetPosition: 'left',
+      style: { width: 230, borderStyle: 'dashed', borderWidth: 2, opacity: op(lit('collect')) },
+      data: { label: h('div', null,
+        h('div', { className: 'n-title' }, '一套收集程式'),
+        h('div', { className: 'n-sub' }, '例：OpenTelemetry Collector'),
+        h('div', { className: 'n-step' }, h('div', { className: 'n-title' }, '三種資料一起收'), h('div', { className: 'n-sub' }, 'metrics、log、trace')),
+        h('div', { className: 'n-step' }, h('div', { className: 'n-title' }, '同一套規則貼標籤'), h('div', { className: 'n-sub' }, '讀 namespace 的門牌，擋掉自稱的')),
+        h('div', { className: 'n-step' }, h('div', { className: 'n-title' }, '送不到先存磁碟'), h('div', { className: 'n-sub' }, '恢復後補送')),
+        h('div', { className: 'n-tag plan' }, '規劃，要重新實測')) } });
+    var many = mode === 'multi';
+    nodes.push({ id: 'f-other', position: { x: 340, y: 400 }, sourcePosition: 'right', targetPosition: 'left', type: 'input',
+      style: { width: 230, borderStyle: 'dashed', borderColor: many ? V('warn') : V('line'), borderWidth: many ? 2.5 : 1.5,
+        opacity: op(mode === 'all' || many) },
+      data: { label: box('其他廠區的 cluster × N', '每個各放同一套收集程式，只差廠區標記', many ? '數量跟 cluster 數成正比' : null, 'part') } });
+
+    nodes.push({ id: 'g-es', type: 'group', position: { x: 680, y: 0 },
+      style: { width: 250, height: 400, borderColor: many ? V('warn') : V('line'), borderWidth: many ? 2.5 : 1.5 }, data: {}, selectable: false });
+    nodes.push({ id: 'l-es', className: 'glabel', parentNode: 'g-es', position: { x: 14, y: 12 }, style: { width: 226 },
+      data: { label: 'Elasticsearch（中科站）' + (many ? '：所有廠的資料都壓在這' : '') }, selectable: false });
+    [['f-m', 'm', 46, 'Metrics', '依部門各自的資料流'], ['f-l', 'l', 166, 'Log', '依部門各自的資料流'], ['f-t', 't', 286, 'Trace', '依部門各自的資料流']]
+      .forEach(function (s) {
+        nodes.push({ id: s[0], parentNode: 'g-es', extent: 'parent', position: { x: 16, y: s[2] },
+          sourcePosition: 'right', targetPosition: 'left',
+          style: { width: 218, borderColor: V(SIG[s[1]]), borderStyle: 'dashed', opacity: op(lit('store') || mode === 'aiops') },
+          data: { label: box(s[3], s[4], '規劃', 'plan') } });
+        es.push({ id: 'e-col-' + s[0], source: 'f-col', target: s[0], animated: lit('collect') || lit('store'),
+          style: { stroke: V(SIG[s[1]]), strokeWidth: 2.5, opacity: op(lit('collect') || lit('store')), strokeDasharray: '4 5' } });
+        es.push({ id: 'e-oth-' + s[0], source: 'f-other', target: s[0], animated: many,
+          style: { stroke: many ? V('warn') : V(SIG[s[1]]), strokeWidth: many ? 2.5 : 1.5, opacity: op(mode === 'all' || many), strokeDasharray: '4 5' } });
+        es.push({ id: 'e-pull-' + s[0], source: s[0], target: 'a-pull', animated: mode === 'aiops',
+          style: { stroke: V(SIG.ai), strokeWidth: 2, opacity: op(lit('aiops')), strokeDasharray: '4 5' } });
+      });
+
+    nodes.push({ id: 'g-ai', type: 'group', position: { x: 1030, y: 0 }, style: { width: 250, height: 470 }, data: {}, selectable: false });
+    nodes.push({ id: 'l-ai', className: 'glabel', parentNode: 'g-ai', position: { x: 14, y: 12 }, style: { width: 226 },
+      data: { label: '自己訓練的 AIOps：目標是找根因（規劃）' }, selectable: false });
+    var chain = [['a-pull', '① 學出平常的樣子', '讀壓過的資料，每天更新'], ['a-train', '② 異常偵測', '哪裡不正常、什麼時候開始'],
+                 ['a-detect', '③ 關聯', '同一段時間的異常併成一件事'], ['a-out', '④ 找根因', '排出最可能的源頭，附證據']];
+    chain.forEach(function (a, i) {
+      nodes.push({ id: a[0], parentNode: 'g-ai', extent: 'parent', position: { x: 14, y: 46 + i * 104 },
+        type: i === chain.length - 1 ? 'output' : 'default', sourcePosition: 'bottom', targetPosition: 'top',
+        style: { width: 222, borderColor: V(SIG.ai), borderStyle: 'dashed', opacity: op(lit('aiops')) },
+        data: { label: box(a[1], a[2]) } });
+      if (i) es.push({ id: 'e-chain-' + i, source: chain[i - 1][0], target: a[0], animated: mode === 'aiops',
+        style: { stroke: V(SIG.ai), strokeWidth: 2, opacity: op(lit('aiops')), strokeDasharray: '4 5' } });
+    });
+    nodes.push({ id: 'kibana', type: 'output', position: { x: 680, y: 430 }, targetPosition: 'left',
+      style: { width: 250, borderStyle: 'dashed', opacity: op(mode === 'all' || mode === 'store' || mode === 'aiops') },
+      data: { label: box('Kibana', '人看：三種資料與算出來的異常') } });
+    return { nodes: nodes, edges: es };
+  }
+
+  // =====================================================================
+  // 第二張：metrics 的細節。分租戶與兩廠雙寫（已實測）
+  // =====================================================================
   var CLUSTERS = [
     { id: 'a', home: 's1', y: 0, height: 430, agentY: 0, bufferY: 318, full: true,
       label: '中科的一個 K8s cluster（多個部門混住）',
@@ -648,7 +1129,6 @@ footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line)
     { id: 's1', name: '中科站', y: 60 },
     { id: 's2', name: '二林站', y: 420 }
   ];
-  var NAME = { s1: '中科站', s2: '二林站' };
   var MODES = [
     { id: 'all',    label: '平常', text: '每個系統的資料只會出現在同色的租戶。兩個廠區的 cluster 都把同一份資料同時寫到中科站和二林站。' },
     { id: 'icsd',   label: 'ICSD 的系統', text: 'namespace 掛著 icsd 的門牌，vmagent 把它換成租戶編號 1003。兩站的 1003 都收到，其他租戶看不到。' },
@@ -669,17 +1149,16 @@ footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line)
     's2-1000': ['平台租戶（1000）', '節點、系統元件，以及沒掛門牌或寫錯的 namespace 都進這裡。']
   };
 
-  function graph(mode) {
+  function metricsGraph(mode) {
     var broken = mode === 'broken';
     var outage = mode === 'down1' || mode === 'split';
     var focus = (mode === 'all' || outage) ? null : (broken ? 'spoof' : mode);
     var destOf = function (s) { return broken && s.id === 'spoof' ? '1001' : s.dest; };
     var strokeOf = function (s) { return broken && s.id === 'spoof' ? V('bad') : V(s.color); };
-    // 這條線（某個 cluster → 某一站）現在送不送得到
     var cut = function (c, st) { return mode === 'down1' ? st.id === 's1' : (mode === 'split' && st.id !== c.home); };
     var cutColor = mode === 'down1' ? V('bad') : V('warn');
 
-    var nodes = [], edges = [], active = [];
+    var nodes = [], es = [], active = [];
     CLUSTERS.forEach(function (c) {
       var dimCluster = !!focus && !c.full;
       nodes.push({ id: 'g-' + c.id, type: 'group', position: { x: 0, y: c.y }, style: { width: 250, height: c.height }, data: {}, selectable: false });
@@ -692,9 +1171,9 @@ footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line)
           id: 'ns-' + s.id, type: 'input', parentNode: 'g-' + c.id, extent: 'parent', sourcePosition: 'right',
           position: { x: 14, y: s.y },
           style: { width: 222, borderColor: V(s.color), borderStyle: s.dashed ? 'dashed' : 'solid', opacity: on ? 1 : .3 },
-          data: { label: h('div', null, h('div', { className: 'n-title' }, s.title), h('div', { className: 'n-sub' }, s.sub)) }
+          data: { label: box(s.title, s.sub) }
         });
-        edges.push({ id: 's-' + s.id, source: 'ns-' + s.id, target: 'vmagent-' + c.id, animated: on,
+        es.push({ id: 's-' + s.id, source: 'ns-' + s.id, target: 'vmagent-' + c.id, animated: on,
           style: { stroke: strokeOf(s), strokeWidth: 2.5, opacity: on ? 1 : .15 } });
       });
       nodes.push({
@@ -724,7 +1203,7 @@ footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line)
       });
       STATIONS.forEach(function (st) {
         var isCut = cut(c, st);
-        edges.push({ id: 'trunk-' + c.id + '-' + st.id, source: 'vmagent-' + c.id, target: st.id + '-vmauth', animated: !isCut && !dimCluster,
+        es.push({ id: 'trunk-' + c.id + '-' + st.id, source: 'vmagent-' + c.id, target: st.id + '-vmauth', animated: !isCut && !dimCluster,
           // 只標中科那兩條：兩個 cluster 的線在中間交叉，都標的話字會疊在一起
           label: c.full ? (isCut ? '送不到，先存磁碟' : '送' + st.name) : undefined,
           style: { stroke: isCut ? cutColor : V('fg'), strokeWidth: 2.5, strokeDasharray: isCut ? '3 7' : undefined, opacity: dimCluster ? .15 : 1 } });
@@ -742,7 +1221,7 @@ footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line)
         data: { label: st.name + (down ? '（停機中）' : '') }, selectable: false });
       nodes.push({ id: st.id + '-vmauth', parentNode: 'g-' + st.id, extent: 'parent', position: { x: 16, y: 108 },
         sourcePosition: 'right', targetPosition: 'left', style: { width: 140, opacity: down ? .35 : 1 },
-        data: { label: h('div', null, h('div', { className: 'n-title' }, 'vmauth'), h('div', { className: 'n-sub' }, '檢查通行證')) } });
+        data: { label: box('vmauth', '檢查通行證') } });
       TENANTS.forEach(function (t, i) {
         var hit = broken && t.id === '1001';
         nodes.push({ id: st.id + '-' + t.id, type: 'output', parentNode: 'g-' + st.id, extent: 'parent', targetPosition: 'left',
@@ -757,36 +1236,62 @@ footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line)
         var key = destOf(s) + strokeOf(s);
         if (seen[key]) return;
         seen[key] = true;
-        edges.push({ id: st.id + '-d-' + s.id, source: st.id + '-vmauth', target: st.id + '-' + destOf(s), animated: !down,
+        es.push({ id: st.id + '-d-' + s.id, source: st.id + '-vmauth', target: st.id + '-' + destOf(s), animated: !down,
           style: { stroke: strokeOf(s), strokeWidth: 2, opacity: down ? .12 : 1 } });
       });
     });
-    return { nodes: nodes, edges: edges };
+    return { nodes: nodes, edges: es };
+  }
+
+  // =====================================================================
+  var VIEWS = {
+    orig: { label: '原本的設計', modes: OV_MODES, detail: OV_DETAIL, build: buildOverview, height: 560, legend: true,
+      banner: '原本的設計：三種資料各用一套收集程式、各存一座。只有 metrics 那一條已經做完並實測；log 是既有的設定；trace 與 AIOps 還沒開始。每個方塊上都標了狀態。' },
+    future: { label: '新方向：全進 Elasticsearch，AIOps 自己訓練', modes: FU_MODES, detail: FU_DETAIL, build: futureGraph, height: 600, legend: true,
+      banner: '討論中的新方向，整張都還沒做，也還沒有任何一段實測過。虛線代表規劃。' },
+    metrics: { label: '原本設計的 metrics 細節（已實測）', modes: MODES, detail: DETAIL, build: metricsGraph, height: 800,
+      banner: '這是原本設計裡已經做完的那一條。實測的是中科那一個 cluster 加兩座模擬的中央；二林的 cluster 設定相同，本機沒有另外起一套。新方向如果定案，這裡的四件事要在 Elasticsearch 那一側重做。' }
+  };
+
+  function Buttons(props) {
+    return h('div', { className: props.className, role: 'group', 'aria-label': props.label },
+      props.items.map(function (m) {
+        return h('button', { key: m.id, id: props.prefix + m.id, type: 'button', className: m.danger ? 'danger' : '',
+          'aria-pressed': props.value === m.id, onClick: function () { props.onChange(m.id); } }, m.label);
+      }));
   }
 
   function App() {
-    var s1 = React.useState('all'), mode = s1[0], setMode = s1[1];
+    var s0 = React.useState('orig'), view = s0[0], setView = s0[1];
+    var s1 = React.useState({ orig: 'all', future: 'all', metrics: 'all' }), modeBy = s1[0], setModeBy = s1[1];
     var s2 = React.useState(null), picked = s2[0], setPicked = s2[1];
-    var g = React.useMemo(function () { return graph(mode); }, [mode]);
-    var detail = DETAIL[picked];
-    var current = MODES.filter(function (m) { return m.id === mode; })[0];
+    var v = VIEWS[view], mode = modeBy[view];
+    var g = React.useMemo(function () { return v.build(mode); }, [view, mode]);
+    var detail = v.detail[picked];
+    var current = v.modes.filter(function (m) { return m.id === mode; })[0];
     return h('div', { style: { display: 'flex', flexDirection: 'column', gap: 12 } },
-      h('div', { className: 'banner' }, '已在本機測試環境實測的是中科那一個 cluster 加兩座模擬的中央。二林的 cluster 設定相同、只差廠區標記，本機沒有另外起一套，圖上畫出來是為了說明完整的樣子。'),
-      h('div', { className: 'modes', role: 'group', 'aria-label': '情境' },
-        MODES.map(function (m) {
-          return h('button', { key: m.id, id: 'mode-' + m.id, type: 'button', className: m.danger ? 'danger' : '',
-            'aria-pressed': mode === m.id, onClick: function () { setMode(m.id); setPicked(null); } }, m.label);
-        })),
-      h('div', { className: 'canvas' },
+      h(Buttons, { className: 'tabs', label: '要看哪一張圖', prefix: 'tab-', value: view,
+        items: Object.keys(VIEWS).map(function (k) { return { id: k, label: VIEWS[k].label }; }),
+        onChange: function (k) { setView(k); setPicked(null); } }),
+      h('div', { className: 'banner' }, v.banner),
+      h(Buttons, { className: 'modes', label: '情境', prefix: 'mode-' + view + '-', value: mode, items: v.modes,
+        onChange: function (m) { var next = { orig: modeBy.orig, future: modeBy.future, metrics: modeBy.metrics }; next[view] = m; setModeBy(next); setPicked(null); } }),
+      v.legend ? h('div', { className: 'legend' },
+        h('span', null, h('i', { style: { background: V(SIG.m) } }), 'metrics'),
+        h('span', null, h('i', { style: { background: V(SIG.l) } }), 'log'),
+        h('span', null, h('i', { style: { background: V(SIG.t) } }), 'trace'),
+        h('span', null, h('i', { style: { background: V(SIG.ai) } }), 'AIOps'),
+        h('span', null, '實線＝已經有，虛線＝還沒做')) : null,
+      h('div', { className: 'canvas', style: { height: v.height } },
         h(RF.ReactFlow, {
-          nodes: g.nodes, edges: g.edges, fitView: true, fitViewOptions: { padding: 0.04 },
+          key: view, nodes: g.nodes, edges: g.edges, fitView: true, fitViewOptions: { padding: 0.04 },
           nodesDraggable: false, nodesConnectable: false, zoomOnScroll: false, preventScrolling: false,
           minZoom: 0.25, maxZoom: 2,
           onNodeClick: function (_, node) { setPicked(node.id); }, onPaneClick: function () { setPicked(null); }
         }, h(RF.Background, { color: V('line'), gap: 18 }), h(RF.Controls, { showInteractive: false }))),
       h('div', { className: 'explain', 'aria-live': 'polite' },
         detail ? h('div', null, h('strong', null, detail[0]), detail[1]) : h('div', null, current.text)),
-      h('div', { className: 'hint' }, '按上面的按鈕切換情境；點圖上的方塊看說明；右下角可以放大縮小。')
+      h('div', { className: 'hint' }, '按上面的按鈕切換；點圖上的方塊看說明；右下角可以放大縮小。')
     );
   }
 
