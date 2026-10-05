@@ -1,5 +1,0 @@
-apiVersion: v2
-name: yms-sim
-description: 模擬 YMS，示範業務指標怎麼吐。應用團隊只填 values，其餘由 templates/ 裡的共用模板產生
-type: application
-version: 0.1.0

@@ -114,7 +114,7 @@ flowchart LR
 | 允許的 `tenant` 清單暫時寫在 `tests/validate.sh` 裡 | 改成從收集程式的設定讀，腳本裡那份拿掉 | 要改 |
 | `tests/validate.sh` 的 app 檢查 | 多兩個 app。兩支都是手動 Helm，現有的規則就能檢查 | 不用 |
 | repo 裡沒有手動 Helm 的 app，`tests/validate.sh` 那一段檢查目前是略過的 | 有了 `demo-web`、`demo-api` 之後那段檢查會開始跑 | 不用 |
-| 既有的三個 app 沒有東西告訴收集程式去抓它們 | 這一步定出標註的寫法。要不要幫那三個 app 補上，另外決定 | 不用 |
+| 既有的 `mes-dispatch` 沒有東西告訴收集程式去抓它 | 這一步定出標註的寫法。要不要幫它補上，另外決定 | 不用 |
 
 ## 還沒談定的 ❓
 

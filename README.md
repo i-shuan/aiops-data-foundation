@@ -88,12 +88,12 @@ chart 渲染得出來、namespace label 渲染結果跟 `values.yaml` 一致。�
 
 ## 已知的狀況
 
-- **沒有能跑的整條路。** 舊的 vmagent 設定、三支 k3d 測試、範例程式 `eqp-collector` 都已移除。
-- **剩下的三個 app 都是 ArgoCD 的寫法**（`mes-dispatch`、`yms-sim`、`metrics-sim`），chart 裡沒有
-  `namespace.yaml`。用 `helm` 直接裝的話 namespace 不會有 label。
-- **`metrics-sim` 和 `yms-sim` 也是模擬機台與良率的程式**，跟「不做機台收值」的方向不一致，
-  還沒決定怎麼處理。
-- **沒有東西告訴收集程式去抓這三個 app。** 原本靠 VictoriaMetrics 專用的登記檔，已經拿掉；
+- **沒有能跑的整條路。** 舊的 vmagent 設定、三支 k3d 測試都已移除。
+- **跟機台有關的範例程式都移除了**：`eqp-collector`、`metrics-sim`（模擬機台收值）、`yms-sim`
+  （模擬良率）。方向是不做機台收值。
+- **只剩 `mes-dispatch` 一個 app，而且是 ArgoCD 的寫法**，chart 裡沒有 `namespace.yaml`。
+  用 `helm` 直接裝的話 namespace 不會有 label。新的範例程式在第 1 步做。
+- **沒有東西告訴收集程式去抓它。** 原本靠 VictoriaMetrics 專用的登記檔，已經拿掉；
   新的做法在第 1 步決定。
 - **log 的設定還是舊的。** `platform/logging/fluent.conf` 照 `dept` 分，之後由收集程式取代。
 - **ArgoCD 那條路沒有實測。** `platform/argocd/applicationset.yaml` 留著，`tests/validate.sh` 只檢查
