@@ -24,6 +24,7 @@
 | 2-5 | `./tests/obs/run.sh broken retry0` | 四種資料都補回 0；最後一行 `✔` | ☑ |
 | 2-6 | `./tests/obs/run.sh broken nopvc` | 只有 cluster 那一份的數值掉；最後一行 `✔` | ☑ |
 | 2-7 | 跑完 2-4 到 2-6 之後 `python tests/obs/check.py routing` | `PASS` | ☑ |
+| 2-8 | 拿掉 cert-manager，Operator 改用 Helm 裝、憑證由 Helm 產生，重建範例程式的 pod，再跑 `./tests/obs/run.sh` | pod 照樣被掛上埋點；兩個 `PASS` | ☑ |
 
 ### 對照 spec 的「行為」表
 
@@ -54,7 +55,7 @@
 | 佇列不放 PVC | cluster 那一份重啟前的數值 0 / 16；其餘在節點磁碟上，都補回 |
 | 拿掉擋冒充 | 假程式的 trace 留著自稱的 `tenant`、`cluster`，各 54 段 |
 | 範例程式的記憶體 | 掛埋點之前約 25 MiB，之後約 50 MiB |
-| 多裝的東西佔的記憶體 | cert-manager 三個 pod 共約 150 MiB，Operator 約 35 MiB |
+| 多裝的東西佔的記憶體 | Operator 約 35 MiB。一開始連 cert-manager 一起裝時，它的三個 pod 另外約 150 MiB |
 
 ### 實作時才發現的
 
@@ -74,6 +75,7 @@
 | 多動了 `platform/otel/` 兩份收集設定的送出設定（`num_consumers`）與 `resource/scraped` | 實測發現的兩個問題，見上表 |
 | `nospoof` 的對照只拿掉「每一段自己帶的」，沒有拿掉「程式自己說的 pod」 | 假程式不知道別人的 pod 的真實編號，冒充不出會成功的情況。那幾行由 `tests/validate.sh` 擋 |
 | plan 寫完沒有另外等確認就實作 | 使用者確認 intent 時說了「好就執行」 |
+| 測試環境不裝 cert-manager，spec 寫的是要裝 | 使用者之後決定：正式環境用現成的，測試環境不裝。Operator 改用 Helm 裝，憑證由 Helm 產生。2-1 到 2-7 是有 cert-manager 時跑的，2-8 是拿掉之後補跑的；停機補送與改壞的設定沒有重跑，它們不經過 Operator |
 
 ## 已知未涵蓋
 

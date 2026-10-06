@@ -105,7 +105,16 @@ kubectl --context k3d-obs-test -n obs create secret generic es-credentials --fro
 kubectl --context k3d-obs-test apply -f platform/otel/site-ctsp.yaml -f platform/otel/cluster-collector.yaml -f platform/otel/node-collector.yaml
 ```
 
-要收 trace 的話，先裝 cert-manager 與 OpenTelemetry Operator（指令在 `.agents/project/commands.md`），再套埋點的設定：
+要收 trace 的話，先裝 OpenTelemetry Operator，再套埋點的設定。Operator 需要一張憑證，來源有兩種：
+
+| cluster 的情況 | 怎麼裝 Operator | 狀態 |
+| --- | --- | --- |
+| 沒有 cert-manager，也不想裝（測試環境） | 用 Helm 裝，關掉 cert-manager、讓 Helm 自己產生憑證。指令在 `.agents/project/commands.md` | 本機實測，測試全過 |
+| 已經有 cert-manager（正式環境） | 用 Helm 裝，不帶那兩個 `--set`，預設就是用 cert-manager | 之前用官方的安裝檔實測過，Helm 這個寫法沒有另外跑 |
+
+⚠️ Helm 自己產生的憑證有效期是 365 天，而且每次 `helm upgrade` 會重新產生。到期前要升級一次，
+不然新的 pod 會掛不上埋點；已經在跑的 pod 不受影響。有 cert-manager 的話它會自動換，沒有這個問題。
+
 
 ```bash
 kubectl --context k3d-obs-test apply -f platform/otel/instrumentation.yaml

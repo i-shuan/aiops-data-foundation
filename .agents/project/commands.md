@@ -26,14 +26,14 @@ python .claude/hooks/test_guard_git.py -v  # 改了 guard-git.py 之後
 
 ## 本機的 k3d
 
-`tests/obs/run.sh` 用 cluster `obs-test`，不建也不刪。先手動建，五行照順序；後兩行是 trace 要的 Operator，第四行的 pod 都起來才下第五行：
+`tests/obs/run.sh` 用 cluster `obs-test`，不建也不刪。先手動建，五行照順序；後兩行裝 trace 要的 Operator，測試環境不裝 cert-manager，憑證由 Helm 自己產生：
 
 ```bash
 k3d cluster create obs-test --image rancher/k3s:v1.30.14-k3s2 --no-lb --k3s-arg "--disable=traefik@server:0" --k3s-arg "--disable=metrics-server@server:0" --kubeconfig-switch-context=false --timeout 240s
 kubectl config set-cluster k3d-obs-test --server="https://127.0.0.1:$(docker port k3d-obs-test-server-0 6443/tcp | head -1 | sed 's/.*://')"
 docker pull busybox:1.36 && k3d image import busybox:1.36 -c obs-test
-kubectl --context k3d-obs-test apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.21.2/cert-manager.yaml
-kubectl --context k3d-obs-test apply -f https://github.com/open-telemetry/opentelemetry-operator/releases/download/v0.160.0/opentelemetry-operator.yaml
+helm repo add open-telemetry https://open-telemetry.github.io/opentelemetry-helm-charts
+helm --kube-context k3d-obs-test install opentelemetry-operator open-telemetry/opentelemetry-operator --version 0.124.1 -n opentelemetry-operator-system --create-namespace --set admissionWebhooks.certManager.enabled=false --set admissionWebhooks.autoGenerateCert.enabled=true --wait
 ```
 
 | ⚠️ | 為什麼 |
@@ -50,7 +50,7 @@ kubectl --context k3d-obs-test apply -f https://github.com/open-telemetry/opente
 
 | 層 | 用什麼 | 版本寫在哪 |
 | --- | --- | --- |
-| 收集 | OpenTelemetry Collector contrib 0.161.0；trace 的自動埋點靠 Operator v0.160.0 | `platform/otel/`、上面的安裝指令 |
+| 收集 | OpenTelemetry Collector contrib 0.161.0；trace 的自動埋點靠 Operator v0.160.0（chart 0.124.1） | `platform/otel/`、上面的安裝指令 |
 | 儲存 | Elasticsearch 9.5.3，免費版。repo 裡只有測試用的 | `tests/obs/backends.yaml` |
 | app | Python，各自一個 `Dockerfile` | `app/<app>/` |
 | chart | 每個 app 自帶 templates | `app/<app>/k8s/` |

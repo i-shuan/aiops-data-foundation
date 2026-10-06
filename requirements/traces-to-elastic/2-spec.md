@@ -19,7 +19,7 @@
 | 試的時候發現的 | 說明 |
 | --- | --- |
 | 自動埋點會帶上「我是哪個 pod、哪個 namespace」 | 那是程式這一側自己填的，可以亂填。所以不能信，見上面最後一列 |
-| Operator 需要 cert-manager | cluster 要多裝兩樣東西。版本釘在 cert-manager v1.21.2、Operator v0.160.0 |
+| Operator 需要一張憑證 | 一開始照預設裝了 cert-manager（v1.21.2）。之後改成測試環境不裝，憑證由 Helm 產生；正式環境用現成的 cert-manager。Operator 是 v0.160.0 |
 | 健康檢查每幾秒一次也會變成 trace | 在埋點的設定裡排除 |
 | 還沒試的 | 程式冒充別的部門、停機補送、沒掛門牌的 namespace、不認得的框架長什麼樣 |
 
