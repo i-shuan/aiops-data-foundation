@@ -28,6 +28,10 @@ spec:
       annotations:
         prometheus.io/scrape: "true"
         prometheus.io/port: {{ $.Values.ports.metrics | quote }}
+        {{- with $.Values.tracing.instrumentation }}
+        # 請平台的 Operator 在 pod 啟動時掛上 Python 的自動埋點。image 不用改
+        instrumentation.opentelemetry.io/inject-python: {{ . | quote }}
+        {{- end }}
     spec:
       # 符合 Pod Security restricted，cluster 有強制的話也放得進去
       securityContext:

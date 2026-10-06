@@ -20,7 +20,8 @@
 #   4. 自我檢查：內建的錯誤寫法一定要被擋下，渲染一定要照原值，否則這支腳本本身就是壞的
 #   5. platform/otel/ 的收集設定：改錯了不會報錯、資料只是安靜地掉或進錯部門的那幾個地方
 #      （重試、佇列、擋冒充、對 pod、server 的標籤、密碼；log 另外查讀到哪有沒有記在磁碟、
-#      有沒有排除收集程式自己的）
+#      有沒有排除收集程式自己的；trace 另外查有沒有先丟掉程式自己說的「我是哪個 pod」、
+#      入口的 Service 是不是只轉同一個節點）
 #   6. 自我檢查：第 5 項的每一條，改壞了一定要被擋下
 #
 # 渲染用的是 helm。helm 和 ArgoCD 都是 Go template + sprig，但這不是 ArgoCD 本身；
@@ -66,7 +67,8 @@ def load_otel():
     for role, name in ROLES.items():
         ds = docs("%s/%s" % (OTEL, name))
         b[role] = {"cfg": yaml.safe_load(cm(ds, "otel-%s-collector" % role)["config.yaml"]),
-                   "workload": next(d for d in ds if d.get("kind") in ("StatefulSet", "DaemonSet", "Deployment"))}
+                   "workload": next(d for d in ds if d.get("kind") in ("StatefulSet", "DaemonSet", "Deployment")),
+                   "services": [d for d in ds if d.get("kind") == "Service"]}
     for path in sorted(glob.glob(OTEL + "/site-*.yaml")):
         b["sites"][path.replace("\\", "/")] = cm(docs(path), "otel-site")
     for path in sorted(glob.glob(OTEL + "/*.yaml")):
@@ -188,6 +190,31 @@ def check_otel(b):
         if statements(cfg, "transform/tenant", "resource", "log_statements") != res:
             add("transform/tenant 給 log 用的那一段跟給數值用的不一樣，同一個 pod 的 log 與數值會被標成不同的部門")
 
+        # trace 用的那一段規則。trace 是程式自己送來的，它說自己是哪個 pod 不能信
+        tpre = statements(cfg, "transform/pre", "resource", "trace_statements")
+        for k in ("tenant", "site", "ns.tenant", "data_stream.namespace",
+                  "k8s.pod.uid", "k8s.pod.ip", "k8s.pod.name", "k8s.namespace.name"):
+            if 'delete_key(resource.attributes,"%s")' % k not in tpre:
+                add("transform/pre 給 trace 用的那一段沒有丟掉程式自己填的 %s，程式可以自稱是別的部門的 pod" % k)
+        tspan = statements(cfg, "transform/tenant", "span", "trace_statements")
+        for k in ("tenant", "site", "data_stream.namespace"):
+            if 'delete_key(span.attributes,"%s")' % k not in tspan:
+                add("transform/tenant 沒有丟掉 trace 每一段自己帶的 %s" % k)
+        if statements(cfg, "transform/tenant", "resource", "trace_statements") != res:
+            add("transform/tenant 給 trace 用的那一段跟給數值用的不一樣，同一個 pod 的 trace 與數值會被標成不同的部門")
+        if not any(x.get("from") == "connection" for a in ka.get("pod_association") or [] for x in a.get("sources") or []):
+            add("k8s_attributes 的 pod_association 少了 from: connection，trace 對不到是哪個 pod，全部進預設的部門")
+
+        # 收 trace 的入口：前面的 Service 只能轉給同一個節點
+        if any(r.split("/")[0] == "otlp" for r in cfg.get("receivers") or {}):
+            svcs = b[role].get("services") or []
+            if not svcs:
+                add("有收 trace 的入口，但沒有 Service，程式沒有位址可以送")
+            for svc in svcs:
+                if svc["spec"].get("internalTrafficPolicy") != "Local":
+                    add("Service %s 要設 internalTrafficPolicy: Local。不然 trace 會被轉到別的節點，"
+                        "那邊的收集程式只認得自己節點上的 pod，對不到" % svc["metadata"]["name"])
+
         # 讀容器 log 的來源
         for rname, rc in (cfg.get("receivers") or {}).items():
             if rname.split("/")[0] != "file_log":
@@ -211,7 +238,7 @@ def check_otel(b):
                 add("pipeline %s 的最後一個 processor 要是 transform/tenant" % pname)
             if "transform/pre" not in procs:
                 add("pipeline %s 沒有 transform/pre" % pname)
-            if set(recvs) & {"prometheus", "kubelet_stats", "k8s_cluster", "file_log"}:
+            if set(recvs) & {"prometheus", "kubelet_stats", "k8s_cluster", "file_log", "otlp"}:
                 if "k8s_attributes" not in procs:
                     add("pipeline %s 沒有 k8s_attributes，讀不到門牌，資料全部變成預設的部門" % pname)
                 elif "transform/pre" in procs and procs.index("transform/pre") > procs.index("k8s_attributes"):
@@ -487,7 +514,7 @@ for name, obs in cases if manual_apps else []:
 print("\n=== 5. platform/otel/ 收集設定 ===")
 print("        允許的 tenant（從 %s/common.yaml 讀）：%s" % (OTEL, ", ".join(sorted(ALLOWED)) or "讀不出來"))
 errs = check_otel(otel)
-report(not errs, "重試、佇列、擋冒充、對 pod、server 的標籤、密碼、log 的來源", errs)
+report(not errs, "重試、佇列、擋冒充、對 pod、server 的標籤、密碼、log 的來源、trace 的入口", errs)
 for path, st in otel["sites"].items():
     for k, v in st.items():
         if "CHANGE-ME" in str(v) or ".invalid" in str(v):
@@ -510,6 +537,17 @@ def drop_log(b, role, proc, ctx, needle):
     for blk in cfg_of(b, role)["processors"][proc]["log_statements"]:
         if blk["context"] == ctx:
             blk["statements"] = [x for x in blk["statements"] if needle not in x]
+
+
+def drop_trace(b, role, proc, ctx, needle):
+    for blk in cfg_of(b, role)["processors"][proc]["trace_statements"]:
+        if blk["context"] == ctx:
+            blk["statements"] = [x for x in blk["statements"] if needle not in x]
+
+
+def no_connection(b, role):
+    ka = cfg_of(b, role)["processors"]["k8s_attributes"]
+    ka["pod_association"] = [a for a in ka["pod_association"] if a["sources"][0].get("from") != "connection"]
 
 
 def unpipe(b, role, pipeline, proc):
@@ -563,6 +601,15 @@ broken = [
     ("log：沒排除收集程式自己的", lambda b: cfg_of(b, "node")["receivers"]["file_log"].pop("exclude")),
     ("log：拿掉對 pod 的那一步", lambda b: cfg_of(b, "node")["receivers"]["file_log"]["operators"].pop(0)),
     ("log：不是 JSON 的直接丟掉", lambda b: cfg_of(b, "node")["receivers"]["file_log"]["operators"][1].update(on_error="drop")),
+    ("trace：信程式自己說的 pod", both(lambda b, r: drop_trace(b, r, "transform/pre", "resource", '"k8s.pod.uid"'))),
+    ("trace：信程式自己說的 namespace", both(lambda b, r: drop_trace(b, r, "transform/pre", "resource", '"k8s.namespace.name"'))),
+    ("trace：沒丟掉程式自己填的 tenant", both(lambda b, r: drop_trace(b, r, "transform/pre", "resource", '"tenant"'))),
+    ("trace：沒丟掉每一段自己帶的", both(lambda b, r: drop_trace(b, r, "transform/tenant", "span", "delete_key"))),
+    ("trace：門牌不比對清單就照用", both(lambda b, r: drop_trace(b, r, "transform/tenant", "resource", "IsMatch"))),
+    ("trace：不看連線來源", both(no_connection)),
+    ("trace：pipeline 拿掉 k8s_attributes", lambda b: unpipe(b, "node", "traces/apps", "k8s_attributes")),
+    ("trace：Service 會轉到別的節點", lambda b: b["node"]["services"][0]["spec"].pop("internalTrafficPolicy")),
+    ("trace：有入口沒有 Service", lambda b: b["node"]["services"].clear()),
     ("密碼寫在設定裡", both(lambda b, r: cfg_of(b, r)["exporters"]["elasticsearch"].update(password="abc123"))),
     ("密碼寫在環境變數的值", plain_env),
     ("檔案裡有 password: 明文", lambda b: b["texts"].update(x="  password: abc123\n")),

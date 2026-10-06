@@ -26,12 +26,14 @@ python .claude/hooks/test_guard_git.py -v  # 改了 guard-git.py 之後
 
 ## 本機的 k3d
 
-`tests/obs/run.sh` 用 cluster `obs-test`，不建也不刪 cluster。要先手動建，三行照順序：
+`tests/obs/run.sh` 用 cluster `obs-test`，不建也不刪。先手動建，五行照順序；後兩行是 trace 要的 Operator，第四行的 pod 都起來才下第五行：
 
 ```bash
 k3d cluster create obs-test --image rancher/k3s:v1.30.14-k3s2 --no-lb --k3s-arg "--disable=traefik@server:0" --k3s-arg "--disable=metrics-server@server:0" --kubeconfig-switch-context=false --timeout 240s
 kubectl config set-cluster k3d-obs-test --server="https://127.0.0.1:$(docker port k3d-obs-test-server-0 6443/tcp | head -1 | sed 's/.*://')"
 docker pull busybox:1.36 && k3d image import busybox:1.36 -c obs-test
+kubectl --context k3d-obs-test apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.21.2/cert-manager.yaml
+kubectl --context k3d-obs-test apply -f https://github.com/open-telemetry/opentelemetry-operator/releases/download/v0.160.0/opentelemetry-operator.yaml
 ```
 
 | ⚠️ | 為什麼 |
@@ -39,7 +41,6 @@ docker pull busybox:1.36 && k3d image import busybox:1.36 -c obs-test
 | `kubectl`、`helm` 一律帶 `--context k3d-obs-test` / `--kube-context k3d-obs-test` | 紅線。目前的 context 不一定是它 |
 | 建 cluster 要帶 `--image rancher/k3s:v1.30.14-k3s2` | 這台的 docker 是 cgroup v1，預設的 k3s v1.35 起不來，k3d 卡到逾時 |
 | 建 cluster 要帶 `--kubeconfig-switch-context=false` | 預設會切換目前的 context。刪掉目前 context 指向的 cluster 時也會自動換 |
-| 查 Elasticsearch 不用知道密碼 | 進它的 pod 用裡面的環境變數打，`tests/obs/check.py` 就是這樣做 |
 
 ## 不要讀、不要遞迴搜尋
 
@@ -49,7 +50,7 @@ docker pull busybox:1.36 && k3d image import busybox:1.36 -c obs-test
 
 | 層 | 用什麼 | 版本寫在哪 |
 | --- | --- | --- |
-| 收集 | OpenTelemetry Collector contrib 0.161.0 | `platform/otel/cluster-collector.yaml`、`node-collector.yaml` |
+| 收集 | OpenTelemetry Collector contrib 0.161.0；trace 的自動埋點靠 Operator v0.160.0 | `platform/otel/`、上面的安裝指令 |
 | 儲存 | Elasticsearch 9.5.3，免費版。repo 裡只有測試用的 | `tests/obs/backends.yaml` |
 | app | Python，各自一個 `Dockerfile` | `app/<app>/` |
 | chart | 每個 app 自帶 templates | `app/<app>/k8s/` |
@@ -64,6 +65,5 @@ docker pull busybox:1.36 && k3d image import busybox:1.36 -c obs-test
 | Windows 的 python 印的是 CRLF | bash 的 `read` 進來的最後一欄多一個 CR | 接 `tr -d '\r'` |
 | Git Bash 改寫 `/` 開頭的參數 | 容器路徑變成 `C:/Program Files/Git/...` | 指令前加 `MSYS_NO_PATHCONV=1` |
 | `kubectl` / `helm` 是 Windows 程式 | 看不懂 Git Bash 的 `/tmp/...` | 用 `cygpath -m` 轉成 `C:/...` |
-| 檔名不分大小寫 | `git rm` 會把只差大小寫的另一個檔一起刪掉 | 新舊檔名只差大小寫時先確認 |
 | k3d 的 image store 跟本機 docker 分開 | build 完 pod 還在跑舊的 | `k3d image import <image> -c <cluster>` |
 | k3d 寫進 kubeconfig 的位址是 `host.docker.internal` | `kubectl` 連不上，一直逾時 | `kubectl config set-cluster <ctx> --server=https://127.0.0.1:<port>` |
