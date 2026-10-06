@@ -1,8 +1,8 @@
 # Intent — 程式與 server 健康度的 AIOps：三種資料全進 Elasticsearch
 
 > 方向已確認（2026-10-05）。標 ❓ 的細節留到各個子需求的 spec 再定。
-> 這是 branch `explore/elastic-all-in` 上的新方向，取代
-> [`multi-site-metrics-write`](../multi-site-metrics-write/1-intent.md) 的做法。
+> 這是 branch `explore/elastic-all-in` 上的新方向，取代原本「metrics 寫 VictoriaMetrics」的做法。
+> 原本那份需求已從這條 branch 刪掉，在 branch `chore/ai-native-scaffold`。
 
 ## 解決誰的什麼問題
 

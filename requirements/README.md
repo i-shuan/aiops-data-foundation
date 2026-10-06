@@ -9,7 +9,7 @@ cp -r requirements/_template requirements/add-export-to-excel
 
 ## 目前有哪些
 
-branch `explore/elastic-all-in` 上方向改了：三種資料全進 Elasticsearch，不用 VictoriaMetrics。
+三種資料（數值、log、trace）全進 Elasticsearch。總綱一份，底下每一步一個資料夾。
 
 | 資料夾 | 內容 | 狀態 |
 | --- | --- | --- |
@@ -17,15 +17,10 @@ branch `explore/elastic-all-in` 上方向改了：三種資料全進 Elasticsear
 | [`health-metrics-to-elastic/`](health-metrics-to-elastic/1-intent.md) | 新方向第 1 步：範例程式，健康度數值經 OpenTelemetry Collector 進 Elasticsearch | 完成，本機 k3d 實測 |
 | [`logs-to-elastic/`](logs-to-elastic/1-intent.md) | 新方向第 2 步：每個容器的 log 經同一套收集程式進 Elasticsearch | 完成，本機 k3d 實測 |
 | [`traces-to-elastic/`](traces-to-elastic/1-intent.md) | 新方向第 4 步：trace 靠自動埋點送出，經同一套收集程式進 Elasticsearch | 完成，本機 k3d 實測 |
-| [`multi-site-metrics-write/`](multi-site-metrics-write/1-intent.md) | 原本的總綱：metrics 寫 VictoriaMetrics | 被新方向取代，留作紀錄 |
-| [`validate-manual-apps/`](validate-manual-apps/1-intent.md) | 原需求 1：檢查工具認得不走 ArgoCD 的 app | 完成，新方向照用。它當時用的範例 `eqp-collector` 已移除 |
-| [`tenant-label-routing/`](tenant-label-routing/1-intent.md) | 原需求 2：依部門寫進 VictoriaMetrics 的租戶 | 當時完成並實測。實作已從這條 branch 移除 |
-| [`dual-site-write/`](dual-site-write/1-intent.md) | 原需求 3：中科、二林兩站各寫一份 | 當時完成並實測。實作已從這條 branch 移除 |
-| [`ap1105-new-overlay/`](ap1105-new-overlay/1-intent.md) | 原需求 4：AP1105 換上新設定 | 停在 spec，不繼續。相關的檔已移除 |
 | `_template/` | 開新需求時複製的範本 | — |
 
-⚠️ 標示「已移除」的那幾個需求留著當紀錄，裡面提到的檔案路徑在這條 branch 上已經不存在，
-要看當時的實作去 branch `chore/ai-native-scaffold`。
+原本寫 VictoriaMetrics 那個做法的五份需求（總綱、檢查工具、依部門分租戶、兩站雙寫、AP1105）已經從這裡刪掉。
+要看的話在 branch `chore/ai-native-scaffold`，或這條 branch 的 git 歷史。
 
 [`architecture.html`](architecture.html) 是給主管看的動態架構圖，畫了原本的設計、新方向、已經實測的測試架構，並附多廠區時的資料量試算。用瀏覽器直接開（要連網）。
 
