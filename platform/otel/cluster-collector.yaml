@@ -113,6 +113,21 @@ data:
               - set(resource.attributes["k8s.pod.ip"], resource.attributes["server.address"]) where resource.attributes["k8s.pod.uid"] == nil and resource.attributes["server.address"] != nil
               - set(resource.attributes["k8s.pod.ip"], resource.attributes["net.host.name"]) where resource.attributes["k8s.pod.uid"] == nil and resource.attributes["k8s.pod.ip"] == nil and resource.attributes["net.host.name"] != nil
 
+        log_statements:
+          - context: resource
+            statements:
+              - delete_key(resource.attributes, "tenant")
+              - delete_key(resource.attributes, "dept")
+              - delete_key(resource.attributes, "system")
+              - delete_key(resource.attributes, "site")
+              - delete_key(resource.attributes, "cluster")
+              - delete_key(resource.attributes, "ns.tenant")
+              - delete_key(resource.attributes, "ns.dept")
+              - delete_key(resource.attributes, "ns.system")
+              - delete_key(resource.attributes, "data_stream.namespace")
+              - set(resource.attributes["k8s.pod.ip"], resource.attributes["server.address"]) where resource.attributes["k8s.pod.uid"] == nil and resource.attributes["server.address"] != nil
+              - set(resource.attributes["k8s.pod.ip"], resource.attributes["net.host.name"]) where resource.attributes["k8s.pod.uid"] == nil and resource.attributes["k8s.pod.ip"] == nil and resource.attributes["net.host.name"] != nil
+
       # 讀 pod 所在 namespace 的門牌
       k8s_attributes:
         auth_type: serviceAccount
@@ -136,7 +151,8 @@ data:
               key: system
               from: namespace
 
-      # ⚠ 部門怎麼定。順序不能換：
+      # ⚠ 部門怎麼定。順序不能換。log_statements 那一段是給 log 用的同一套規則，
+      #   這一份沒有收 log，留著是因為兩份收集設定的規則要一字不差：
       #   1. 丟掉樣本自己帶的 tenant / site（程式自稱的不算數）
       #   2. 先一律當成 DEFAULT_TENANT
       #   3. 沒有 namespace、只有節點的，是 server 的資料 → SERVER_TENANT
@@ -151,6 +167,23 @@ data:
               - delete_key(datapoint.attributes, "site")
               - delete_key(datapoint.attributes, "cluster")
               - delete_key(datapoint.attributes, "data_stream.namespace")
+          - context: resource
+            statements:
+              - set(resource.attributes["tenant"], "${env:DEFAULT_TENANT}")
+              - set(resource.attributes["tenant"], "${env:SERVER_TENANT}") where resource.attributes["k8s.namespace.name"] == nil and resource.attributes["k8s.node.name"] != nil
+              - set(resource.attributes["tenant"], resource.attributes["ns.tenant"]) where resource.attributes["ns.tenant"] != nil and IsMatch(resource.attributes["ns.tenant"], "^(${env:ALLOWED_TENANTS})$")
+              - set(resource.attributes["dept"], resource.attributes["ns.dept"]) where resource.attributes["ns.dept"] != nil
+              - set(resource.attributes["system"], resource.attributes["ns.system"]) where resource.attributes["ns.system"] != nil
+              - set(resource.attributes["site"], "${env:SITE}")
+              - set(resource.attributes["cluster"], "${env:CLUSTER}")
+              - set(resource.attributes["data_stream.namespace"], resource.attributes["tenant"])
+        log_statements:
+          - context: log
+            statements:
+              - delete_key(log.attributes, "tenant")
+              - delete_key(log.attributes, "site")
+              - delete_key(log.attributes, "cluster")
+              - delete_key(log.attributes, "data_stream.namespace")
           - context: resource
             statements:
               - set(resource.attributes["tenant"], "${env:DEFAULT_TENANT}")

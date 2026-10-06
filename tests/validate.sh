@@ -19,7 +19,8 @@
 #   - 兩個都有或都沒有：擋下
 #   4. 自我檢查：內建的錯誤寫法一定要被擋下，渲染一定要照原值，否則這支腳本本身就是壞的
 #   5. platform/otel/ 的收集設定：改錯了不會報錯、資料只是安靜地掉或進錯部門的那幾個地方
-#      （重試、佇列、擋冒充、對 pod、server 的標籤、密碼）
+#      （重試、佇列、擋冒充、對 pod、server 的標籤、密碼；log 另外查讀到哪有沒有記在磁碟、
+#      有沒有排除收集程式自己的）
 #   6. 自我檢查：第 5 項的每一條，改壞了一定要被擋下
 #
 # 渲染用的是 helm。helm 和 ArgoCD 都是 Go template + sprig，但這不是 ArgoCD 本身；
@@ -77,9 +78,9 @@ def squash(s):
     return re.sub(r"\s+", "", str(s))
 
 
-def statements(cfg, proc, ctx):
+def statements(cfg, proc, ctx, kind="metric_statements"):
     out = []
-    for blk in ((cfg.get("processors") or {}).get(proc) or {}).get("metric_statements") or []:
+    for blk in ((cfg.get("processors") or {}).get(proc) or {}).get(kind) or []:
         if isinstance(blk, dict) and blk.get("context") == ctx:
             out += [squash(x) for x in blk.get("statements") or []]
     return out
@@ -176,6 +177,32 @@ def check_otel(b):
         if not res or res[-1] != want_ds:
             add("transform/tenant 的最後一行要是 data_stream.namespace = tenant，不然資料流跟 tenant 對不上")
 
+        # log 用的那一段規則：要跟數值的一樣，只是「樣本自己帶的」換成「log 自己帶的」
+        lpre = statements(cfg, "transform/pre", "resource", "log_statements")
+        if lpre != pre:
+            add("transform/pre 給 log 用的那一段跟給數值用的不一樣，log 會照另一套規則擋冒充")
+        llog = statements(cfg, "transform/tenant", "log", "log_statements")
+        for k in ("tenant", "site", "data_stream.namespace"):
+            if 'delete_key(log.attributes,"%s")' % k not in llog:
+                add("transform/tenant 沒有丟掉 log 自己帶的 %s，程式可以在 log 裡自稱是別的部門" % k)
+        if statements(cfg, "transform/tenant", "resource", "log_statements") != res:
+            add("transform/tenant 給 log 用的那一段跟給數值用的不一樣，同一個 pod 的 log 與數值會被標成不同的部門")
+
+        # 讀容器 log 的來源
+        for rname, rc in (cfg.get("receivers") or {}).items():
+            if rname.split("/")[0] != "file_log":
+                continue
+            if (rc or {}).get("storage") != "file_storage":
+                add("%s 沒有把讀到哪記在磁碟上（storage: file_storage）。收集程式一重啟就從頭重讀，每行 log 重複一次" % rname)
+            if not any("otel-" in str(x) for x in (rc or {}).get("exclude") or []):
+                add("%s 沒有排除收集程式自己的 log，會自己餵自己，越印越多" % rname)
+            kinds = [op.get("type") for op in (rc or {}).get("operators") or []]
+            if "container" not in kinds:
+                add("%s 少了 container 那一步，log 對不到是哪個 pod，全部進預設的部門" % rname)
+            for op in (rc or {}).get("operators") or []:
+                if op.get("type") == "json_parser" and op.get("on_error") not in ("send", "send_quiet"):
+                    add("%s 拆 JSON 失敗時要照樣送出（on_error: send_quiet），不然不是 JSON 的 log 會被丟掉" % rname)
+
         # 每條 pipeline 的順序
         for pname, p in ((cfg.get("service") or {}).get("pipelines") or {}).items():
             procs = p.get("processors") or []
@@ -184,7 +211,7 @@ def check_otel(b):
                 add("pipeline %s 的最後一個 processor 要是 transform/tenant" % pname)
             if "transform/pre" not in procs:
                 add("pipeline %s 沒有 transform/pre" % pname)
-            if set(recvs) & {"prometheus", "kubelet_stats", "k8s_cluster"}:
+            if set(recvs) & {"prometheus", "kubelet_stats", "k8s_cluster", "file_log"}:
                 if "k8s_attributes" not in procs:
                     add("pipeline %s 沒有 k8s_attributes，讀不到門牌，資料全部變成預設的部門" % pname)
                 elif "transform/pre" in procs and procs.index("transform/pre") > procs.index("k8s_attributes"):
@@ -460,7 +487,7 @@ for name, obs in cases if manual_apps else []:
 print("\n=== 5. platform/otel/ 收集設定 ===")
 print("        允許的 tenant（從 %s/common.yaml 讀）：%s" % (OTEL, ", ".join(sorted(ALLOWED)) or "讀不出來"))
 errs = check_otel(otel)
-report(not errs, "重試、佇列、擋冒充、對 pod、server 的標籤、密碼", errs)
+report(not errs, "重試、佇列、擋冒充、對 pod、server 的標籤、密碼、log 的來源", errs)
 for path, st in otel["sites"].items():
     for k, v in st.items():
         if "CHANGE-ME" in str(v) or ".invalid" in str(v):
@@ -475,6 +502,12 @@ def cfg_of(b, role="cluster"):
 
 def drop(b, role, proc, ctx, needle):
     for blk in cfg_of(b, role)["processors"][proc]["metric_statements"]:
+        if blk["context"] == ctx:
+            blk["statements"] = [x for x in blk["statements"] if needle not in x]
+
+
+def drop_log(b, role, proc, ctx, needle):
+    for blk in cfg_of(b, role)["processors"][proc]["log_statements"]:
         if blk["context"] == ctx:
             blk["statements"] = [x for x in blk["statements"] if needle not in x]
 
@@ -521,6 +554,15 @@ broken = [
     ("server 的資料沒補節點名稱", lambda b: unpipe(b, "node", "metrics/host", "resource/node")),
     ("拿掉 cumulative_to_delta", lambda b: unpipe(b, "cluster", "metrics/apps", "cumulative_to_delta")),
     ("兩份的規則不一樣", lambda b: drop(b, "node", "transform/tenant", "resource", '"dept"')),
+    ("log：拿掉「丟掉 log 自己帶的」", both(lambda b, r: drop_log(b, r, "transform/tenant", "log", "delete_key"))),
+    ("log：門牌不比對清單就照用", both(lambda b, r: drop_log(b, r, "transform/tenant", "resource", "IsMatch"))),
+    ("log：沒先丟掉程式帶的 ns.tenant", both(lambda b, r: drop_log(b, r, "transform/pre", "resource", '"ns.tenant"'))),
+    ("log：pipeline 拿掉 k8s_attributes", lambda b: unpipe(b, "node", "logs/containers", "k8s_attributes")),
+    ("log：最後一步不是定部門", lambda b: unpipe(b, "node", "logs/containers", "transform/tenant")),
+    ("log：讀到哪不記在磁碟", lambda b: cfg_of(b, "node")["receivers"]["file_log"].pop("storage")),
+    ("log：沒排除收集程式自己的", lambda b: cfg_of(b, "node")["receivers"]["file_log"].pop("exclude")),
+    ("log：拿掉對 pod 的那一步", lambda b: cfg_of(b, "node")["receivers"]["file_log"]["operators"].pop(0)),
+    ("log：不是 JSON 的直接丟掉", lambda b: cfg_of(b, "node")["receivers"]["file_log"]["operators"][1].update(on_error="drop")),
     ("密碼寫在設定裡", both(lambda b, r: cfg_of(b, r)["exporters"]["elasticsearch"].update(password="abc123"))),
     ("密碼寫在環境變數的值", plain_env),
     ("檔案裡有 password: 明文", lambda b: b["texts"].update(x="  password: abc123\n")),
