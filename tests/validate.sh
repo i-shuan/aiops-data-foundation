@@ -127,6 +127,9 @@ def check_otel(b):
             q = x.get("sending_queue") or {}
             if q.get("enabled") is not True or q.get("storage") != "file_storage":
                 add("%s 的 sending_queue 要開、storage 要是 file_storage，不然佇列只在記憶體裡" % name)
+            if q.get("num_consumers") != 1:
+                add("%s 的 sending_queue.num_consumers 要是 1。同時送很多批的話，Elasticsearch 連不上時"
+                    "連線逾時的那幾批不會重試、直接丟掉" % name)
             if not str(x.get("password", "")).startswith("${env:"):
                 add("%s 的 password 要寫成 ${env:...}，值從 Secret 來" % name)
         if "file_storage" not in ((cfg.get("service") or {}).get("extensions") or []):
@@ -245,6 +248,10 @@ def check_otel(b):
                     add("pipeline %s 的 transform/pre 要在 k8s_attributes 前面" % pname)
             if "prometheus" in recvs and "cumulative_to_delta" not in procs:
                 add("pipeline %s 沒有 cumulative_to_delta，處理時間的分布圖會被 Elasticsearch 的寫入程式丟掉" % pname)
+            if "prometheus" in recvs and not ("resource/scraped" in procs and "k8s_attributes" in procs
+                                               and procs.index("resource/scraped") > procs.index("k8s_attributes")):
+                add("pipeline %s 的 k8s_attributes 後面要接 resource/scraped。抓來的數值不知道是哪個容器，"
+                    "不拿掉的話會被填成 pod 裡的第一個容器" % pname)
             if "host_metrics" in recvs and "resource/node" not in procs:
                 add("pipeline %s 沒有 resource/node，server 的資料不會被標成 SERVER_TENANT" % pname)
             if not [x for x in p.get("exporters") or [] if x in exps]:
@@ -579,6 +586,7 @@ def plain_env(b):
 broken = [
     ("重試改成 0", both(lambda b, r: cfg_of(b, r)["exporters"]["elasticsearch"]["retry"].update(max_retries=0))),
     ("重試關掉", both(lambda b, r: cfg_of(b, r)["exporters"]["elasticsearch"]["retry"].update(enabled=False))),
+    ("同時送很多批", both(lambda b, r: cfg_of(b, r)["exporters"]["elasticsearch"]["sending_queue"].pop("num_consumers"))),
     ("佇列不寫磁碟", both(lambda b, r: cfg_of(b, r)["exporters"]["elasticsearch"]["sending_queue"].pop("storage"))),
     ("佇列的 PVC 換成 emptyDir", to_emptydir),
     ("拿掉「丟掉樣本自己帶的」", both(lambda b, r: drop(b, r, "transform/tenant", "datapoint", "delete_key"))),
@@ -590,6 +598,7 @@ broken = [
     ("資料流在 tenant 之前決定", both(ds_first)),
     ("server 沒有標 SERVER_TENANT", both(lambda b, r: drop(b, r, "transform/tenant", "resource", "SERVER_TENANT"))),
     ("server 的資料沒補節點名稱", lambda b: unpipe(b, "node", "metrics/host", "resource/node")),
+    ("抓來的數值帶著猜的容器名稱", lambda b: unpipe(b, "cluster", "metrics/apps", "resource/scraped")),
     ("拿掉 cumulative_to_delta", lambda b: unpipe(b, "cluster", "metrics/apps", "cumulative_to_delta")),
     ("兩份的規則不一樣", lambda b: drop(b, "node", "transform/tenant", "resource", '"dept"')),
     ("log：拿掉「丟掉 log 自己帶的」", both(lambda b, r: drop_log(b, r, "transform/tenant", "log", "delete_key"))),

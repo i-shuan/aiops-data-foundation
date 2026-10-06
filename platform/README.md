@@ -2,17 +2,18 @@
 
 | 資料夾 | 內容 | 狀態 |
 | --- | --- | --- |
-| `otel/` | OpenTelemetry Collector：收程式與 server 的健康度數值、每個容器的 log，貼標籤，送進 Elasticsearch | 已在本機 k3d 實測 |
+| `otel/` | OpenTelemetry Collector：收程式與 server 的健康度數值、每個容器的 log、程式送來的 trace，貼標籤，送進 Elasticsearch | 已在本機 k3d 實測 |
 | `argocd/applicationset.yaml` | 有 ArgoCD 的環境用：一個 app 長出一個 Application，並把 `observability` 貼成 namespace 的 label | 留著，沒有實測 |
 
-## `otel/` 的四個檔
+## `otel/` 的五個檔
 
 | 檔案 | 內容 | 每個 cluster 一樣嗎 |
 | --- | --- | --- |
 | `common.yaml` | namespace `obs`，以及允許的部門清單、預設的部門、server 算哪個部門 | 一樣 |
 | `site-ctsp.yaml` | 這個 cluster 的廠區、cluster 名稱、Elasticsearch 的位址 | 每個 cluster 一份 |
 | `cluster-collector.yaml` | 整個 cluster 一個：抓程式吐的數值、K8s 回報的狀態 | 一樣 |
-| `node-collector.yaml` | 每個節點一個：server 的 CPU、記憶體、磁碟、網路，每個容器的資源用量，以及每個容器印的 log | 一樣 |
+| `node-collector.yaml` | 每個節點一個：server 的 CPU、記憶體、磁碟、網路，每個容器的資源用量，每個容器印的 log，以及收 trace 的入口 | 一樣 |
+| `instrumentation.yaml` | trace 的自動埋點設定。要先裝 OpenTelemetry Operator | 一樣 |
 
 ⚠️ `site-ctsp.yaml` 的 `CLUSTER` 與 `ES_ENDPOINT` 是佔位，上線前要換掉。`ES_ENDPOINT` 沒換的話
 收集程式會一直重試、資料一直排隊，不會報錯。
@@ -21,13 +22,16 @@
 
 | 資料 | `tenant` 怎麼來 |
 | --- | --- |
-| 程式吐的數值、每個容器的資源用量、容器重啟次數、容器印的 log | pod 所在 namespace 的 `tenant` 門牌 |
+| 程式吐的數值、每個容器的資源用量、容器重啟次數、容器印的 log、程式送的 trace | pod 所在 namespace 的 `tenant` 門牌 |
 | namespace 沒掛門牌，或值不在清單裡 | `platform` |
 | server 本身的數值、節點是不是 Ready | `icsd`，不管那個節點上跑的是誰的程式 |
 
 每筆另外帶 `dept`、`system`（門牌有的話）、`site`、`cluster`。Elasticsearch 裡每個部門一份
-資料流，名字結尾是部門代號，例如 `metrics-prometheusreceiver.otel-tsid`、`logs-generic.otel-tsid`。
-同一個 pod 的數值與 log，這幾個標籤的值一模一樣，是同一份規則貼的。
+資料流，名字結尾是部門代號，例如 `metrics-prometheusreceiver.otel-tsid`、`logs-generic.otel-tsid`、
+`traces-generic.otel-tsid`。同一個 pod 的數值、log、trace，這幾個標籤的值一模一樣，是同一份規則貼的。
+
+⚠️ 程式吐的數值上沒有容器名稱：收集程式去抓的時候只知道是哪個 pod，不知道是裡面的哪個容器。
+要分是哪支程式用 `k8s.deployment.name`。
 
 ## app 要做什麼才會被抓
 
@@ -60,6 +64,31 @@ app 不用做任何事：印到標準輸出、標準錯誤的都會被收，沒�
 ⚠️ 收集程式第一次到一個節點時，會把節點上現有的 log 全部讀進來。之後重啟不會重讀。
 正式上線的第一次要挑時間。
 
+## trace 怎麼收
+
+app 在 pod 上加一個標註，image 與程式碼都不用改。範例見 `app/demo-svc/k8s/templates/deployment.yaml`。
+
+```yaml
+annotations:
+  instrumentation.opentelemetry.io/inject-python: "obs/python"
+```
+
+| 項目 | 行為 |
+| --- | --- |
+| 誰把埋點放進去 | OpenTelemetry Operator，在 pod 啟動的那一刻。所以設定改了、或後來才加標註，pod 要重建才會生效 |
+| 送到哪 | 同一個節點上的收集程式（Service `otel-node-collector.obs.svc:4318`） |
+| 收哪些 | 全收，不抽樣。健康檢查的請求不記 |
+| 部門怎麼定 | 看連線是從哪個 pod 進來的，再讀那個 pod 所在 namespace 的門牌。程式自己說它是哪個 pod、哪個部門都不算數 |
+| 跟 log 怎麼串 | 同一次請求的編號在 trace 裡是 `trace_id`，在 log 裡是 `attributes.trace_id`，值一樣 |
+| 沒加標註的 pod | 照樣跑，沒有 trace，不報錯 |
+
+⚠️ 自動埋點只認得常見的框架。範例程式用的 Flask 與 `urllib` 認得；不認得的那一段不會有 trace，
+也不會報錯。目前只設了 Python，其他語言各要在 `instrumentation.yaml` 加一段。
+
+⚠️ 收集程式重啟的那幾十秒，程式送不進來的 trace 會掉。log 不會，因為 log 是事後讀檔。
+
+⚠️ 從程式送出到在 Elasticsearch 查得到大約要十幾秒。
+
 ## 部署
 
 下面是本機 k3d 的寫法。正式環境把 `--context` 換成該 cluster 的，由人執行。
@@ -74,6 +103,12 @@ kubectl --context k3d-obs-test -n obs create secret generic es-credentials --fro
 
 ```bash
 kubectl --context k3d-obs-test apply -f platform/otel/site-ctsp.yaml -f platform/otel/cluster-collector.yaml -f platform/otel/node-collector.yaml
+```
+
+要收 trace 的話，先裝 cert-manager 與 OpenTelemetry Operator（指令在 `.agents/project/commands.md`），再套埋點的設定：
+
+```bash
+kubectl --context k3d-obs-test apply -f platform/otel/instrumentation.yaml
 ```
 
 ⚠️ 設定放在 ConfigMap 裡，改了之後收集程式不會自己重啟：
@@ -104,6 +139,7 @@ kubectl --context k3d-obs-test -n obs rollout restart statefulset/otel-cluster-c
 | 位置 | 改錯的後果 | 怎麼知道的 |
 | --- | --- | --- |
 | `retry.max_retries` 寫 0 | 是「不重試」。Elasticsearch 一連不上資料就直接丟掉 | 實測 |
+| `sending_queue.num_consumers` 不是 1 | 同時送很多批。Elasticsearch 連不上時，連線逾時的那幾批不會重試、直接丟掉。三種資料一起收時實測掉了三到四成 | 實測 |
 | 佇列不放 PVC（或節點的磁碟） | 收集程式一重啟，排隊中的資料就沒了 | 實測 |
 | 拿掉 `transform/tenant` 裡丟掉樣本自帶欄位的那幾行 | 程式自稱的 `tenant`、`site` 會留在樣本上 | 實測 |
 | 拿掉 `transform/pre` 裡放 `k8s.pod.ip` 的那一行 | 讀門牌時對不到 pod，程式的資料全部進 `platform` | 先前的試驗實測 |
@@ -111,8 +147,26 @@ kubectl --context k3d-obs-test -n obs rollout restart statefulset/otel-cluster-c
 | `file_log` 拿掉 `storage` | 收集程式一重啟就從頭重讀，每行 log 重複一次 | 靜態檢查 |
 | `file_log` 拿掉 `exclude` | 收集程式讀到自己的 log，越印越多 | 靜態檢查 |
 | 拿掉 `transform/tenant` 裡丟掉 log 自帶欄位的那幾行 | 程式在 log 裡自稱的 `tenant`、`site` 會留在資料上 | 實測 |
+| 拿掉 `transform/pre` 裡給 trace 用的那幾行 `k8s.*` | 程式可以自稱是別的部門的 pod | 靜態檢查 |
+| 拿掉 `transform/tenant` 裡丟掉每一段自帶欄位的那幾行 | 程式在 trace 裡自稱的 `tenant`、`cluster` 會留在資料上 | 實測 |
+| Service 拿掉 `internalTrafficPolicy: Local` | trace 被轉到別的節點，那邊對不到 pod，全部進 `platform` | 靜態檢查 |
+| 拿掉 `resource/scraped` | 掛了自動埋點的 pod，程式吐的數值會被標成初始化用的那個容器 | 實測 |
 | `filesystem` 用預設值 | 根目錄是 overlay 的節點一筆磁碟資料都沒有 | 實測（k3d） |
 | 兩份收集設定的標籤規則不一樣 | 同一種資料被標成不同的部門 | 靜態檢查 |
+
+## Elasticsearch 連不上時，哪些情況還是會掉資料
+
+這是寫入程式本身的限制，設定繞不過去。看過它的原始碼確認（contrib 0.161.0）。
+
+| 情況 | 會怎樣 |
+| --- | --- |
+| 連線被拒絕（Elasticsearch 的程式停了，機器還在） | 一直重試到連上，不會掉。停機測試測的是這一種 |
+| 連線逾時（機器整台沒回應、中間的網路或防火牆把封包吃掉） | 那一批不會重試，直接丟掉。log 只有一行 `Dropping data` |
+| 收集程式被關掉時手上正在送的那一批 | 可能掉。所以設成一次只送一批，把損失壓到最小 |
+
+⚠️ 正式環境的停機比較常是第二種。這表示現在的設定在真的網路中斷時會掉資料，本機的測試驗不到。
+上線前要先解決：例如改用 Elasticsearch 自己的 OTLP 入口（那條路的重試不分哪一種失敗），或中間加一層。
+這是另一個需求，還沒做。
 
 ## 節點那一份要的權限
 
@@ -130,7 +184,10 @@ kubectl --context k3d-obs-test -n obs rollout restart statefulset/otel-cluster-c
 
 | 項目 | 狀態 |
 | --- | --- |
-| trace | 還沒收。總綱第 4 步 |
+| Python 以外語言的自動埋點、自動埋點不認得的框架 | 只用範例程式（Flask）驗過 |
+| trace 的入口驗身分 | 沒有。cluster 裡任何 pod 都能送 |
+| trace 抽樣、留多久 | 現在全收、不刪 |
+| 多個節點時 trace 真的只送給同節點 | 本機只有一個節點，只有靜態檢查擋設定 |
 | 節點本身的系統 log | 只收容器的 |
 | log 留多久、要不要只留某些等級 | 現在全收、不刪 |
 | log 量很大時收集程式夠不夠力 | 只用範例程式的量驗過，每秒十行左右 |

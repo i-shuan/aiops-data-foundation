@@ -4,8 +4,8 @@
 之後用來做異常偵測與找根因。
 
 這條 branch（`explore/elastic-all-in`）換了方向。目前能跑的是第 1 步：範例程式與 server 的
-健康度數值，以及每個容器的 log，經 OpenTelemetry Collector 進 Elasticsearch，依部門分開。
-只在本機 k3d 驗過。
+健康度數值、每個容器的 log、程式之間呼叫的 trace，三種都經 OpenTelemetry Collector 進 Elasticsearch，
+依部門分開。只在本機 k3d 驗過。
 
 | 想知道 | 看哪裡 |
 | --- | --- |
@@ -41,7 +41,8 @@ Elasticsearch（metrics、log、trace 都存這）
 | 範例程式（可以從外面弄壞的兩支服務） | 做完，在 `app/demo-svc/` |
 | 收集設定：程式與 server 的數值進 Elasticsearch，依部門分開、擋冒充、停機補送 | 做完，在 `platform/otel/`，本機 k3d 實測 |
 | log：每個容器印的 log 進 Elasticsearch，跟數值同一套標籤 | 做完，本機 k3d 實測 |
-| trace、異常偵測、找根因 | 還沒做 |
+| trace：不改程式碼，靠自動埋點送出，跟數值、log 同一套標籤 | 做完，本機 k3d 實測 |
+| 異常偵測、找根因 | 還沒做 |
 | 誰能看哪個部門的資料、資料保留多久 | 還沒做 |
 
 ## 目錄
@@ -99,7 +100,10 @@ cluster 的建法見 [`.agents/project/commands.md`](.agents/project/commands.md
 
 ## 已知的狀況
 
-- **trace 還沒收。** 範例程式有傳編號、log 裡查得到，但沒有真的送出 trace。
+- **trace 只驗過 Python 的範例程式。** 自動埋點只認得常見的框架；真的系統用什麼寫的還沒盤點。
+- **測試 cluster 要先裝 OpenTelemetry Operator。** 指令在 `.agents/project/commands.md`。
+- **Elasticsearch 連線逾時的時候會掉資料。** 寫入程式只重試「連線被拒絕」，不重試「逾時」。本機的停機測試
+  測的是前者；正式環境的網路中斷比較常是後者。細節在 [`platform/README.md`](platform/README.md)，上線前要先解決。
 - **只在本機 k3d 驗過。** 一個節點、Elasticsearch 沒開 TLS。正式環境沒有碰過。
 - **`platform/otel/site-ctsp.yaml` 裡的位址是佔位。** 上線前要換，`tests/validate.sh` 會提醒。
 - **跟機台有關的範例程式都移除了**：`eqp-collector`、`metrics-sim`（模擬機台收值）、`yms-sim`

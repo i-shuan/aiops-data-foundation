@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """查 Elasticsearch，確認資料有進來、進對部門。由 run.sh 呼叫，也可以單獨跑。
 
-  python tests/obs/check.py routing   數值與 log 每個情境進了哪一份、標籤對不對
+  python tests/obs/check.py routing   數值、log、trace 每個情境進了哪一份、標籤對不對
   python tests/obs/check.py fault     把 demo-api 弄慢、弄成回錯誤，Elasticsearch 裡看不看得到
   python tests/obs/check.py outage    停掉 Elasticsearch、中間重啟收集程式、再恢復，比筆數與 log 的序號
   python tests/obs/check.py restart   讓一個容器重啟，新舊兩個容器的 log 都要收得到、不漏不重複
@@ -21,6 +21,8 @@ CTX = "k3d-obs-test"
 SITE, CLUSTER = "ctsp", "obs-test"
 NS = "resource.attributes.k8s.namespace.name"
 LOGS = "logs-*"
+TRACES = "traces-*"
+SVC = "resource.attributes.service.name"
 # namespace → 應該進哪個部門。(none) 是沒有 namespace 的資料，也就是 server 本身
 EXPECT = {
     "demo-tsid": "tsid",
@@ -239,11 +241,86 @@ def logs_once():
     return r
 
 
+# namespace → trace 應該進哪個部門。fake-none、fake-spoof 的是假程式自己送的，身分通通亂填
+TRACE_EXPECT = {"demo-tsid": "tsid", "demo-bsid": "bsid", "fake-none": "platform", "fake-spoof": "bsid"}
+
+
+def one_span(*filters, **extra):
+    """符合條件的一段。沒有就回 None。"""
+    body = {"size": 1, "query": {"bool": {"filter": list(filters)}}}
+    body.update(extra)
+    hits = es(TRACES + "/_search", body)["hits"]["hits"]
+    return hits[0]["_source"] if hits else None
+
+
+def traces_once():
+    r = []
+    recent = between(now() - 90, now() + 5)
+
+    def keys(bucket, name):
+        return sorted(str(x["key"]) for x in bucket[name]["buckets"])
+
+    def n(*filters):
+        return count([recent] + list(filters), TRACES)
+
+    sub = {name: {"terms": {"field": field, "missing": "(沒有)"}} for name, field in (
+        ("stream", "data_stream.namespace"), ("tenant", "resource.attributes.tenant"),
+        ("site", "resource.attributes.site"), ("cluster", "resource.attributes.cluster"),
+        ("dept", "resource.attributes.dept"))}
+    doc = es(TRACES + "/_search", {"size": 0, "query": {"bool": {"filter": [recent]}},
+                                   "aggs": {"ns": {"terms": {"field": NS, "size": 100, "missing": "(none)"}, "aggs": sub}}})
+    seen = {b["key"]: b for b in doc["aggregations"]["ns"]["buckets"]}
+    for ns, tenant in TRACE_EXPECT.items():
+        b = seen.get(ns)
+        if not b:
+            r.append((False, "trace %-22s → %s" % (ns, tenant), "最近 90 秒沒有 trace"))
+            continue
+        got = (keys(b, "stream"), keys(b, "tenant"), keys(b, "site"), keys(b, "cluster"))
+        r.append((got == ([tenant], [tenant], [SITE], [CLUSTER]), "trace %-22s → %s（%d 段）" % (ns, tenant, b["doc_count"]),
+                  "資料流 %s、tenant %s、site %s、cluster %s" % got))
+    extra = sorted(ns for ns, b in seen.items() if ns not in TRACE_EXPECT and keys(b, "stream") != ["platform"])
+    r.append((not extra, "trace：沒列在上面的都在 platform", "不在 platform 的：%s" % ", ".join(extra)))
+    got = keys(seen["demo-tsid"], "dept") if "demo-tsid" in seen else []
+    r.append((got == ["D3120"], "trace：demo-tsid 的 dept 是 D3120，跟數值、log 一樣", "實際 %s" % got))
+
+    # 冒充：假程式自稱 tsid、自稱是 demo-tsid 裡的 pod
+    fake = term(SVC, "fake-tracer")
+    got = n(fake)
+    r.append((got > 0, "trace：冒充的假程式送的有進來（%d 段）" % got, "沒有收到，下面幾項等於沒測"))
+    got = n(fake, term("data_stream.namespace", "tsid"))
+    r.append((got == 0, "trace：自稱 tsid 的沒有進 tsid", "%d 段進了 tsid" % got))
+    got = n(fake, term(NS, "demo-tsid"))
+    r.append((got == 0, "trace：自稱在 demo-tsid 的，namespace 還是它實際所在的", "%d 段被當成 demo-tsid 的" % got))
+    got = n(fake, {"bool": {"must_not": [{"prefix": {"resource.attributes.k8s.pod.name": "fake-"}}]}})
+    r.append((got == 0, "trace：資料上的 pod 是收集程式查到的，不是程式自己說的", "%d 段的 pod 名稱不是 fake- 開頭" % got))
+    for field in ("attributes.tenant", "attributes.cluster"):
+        got = n(fake, has(field))
+        r.append((got == 0, "trace：每一段自己帶的 %s 沒有留下" % field.split(".")[1], "%d 段還帶著 %s" % (got, field)))
+
+    # 健康檢查不記
+    got = n({"terms": {"attributes.http.target": ["/healthz", "/readyz"]}})
+    r.append((got == 0, "trace：健康檢查沒有變成 trace", "%d 段" % got))
+
+    # 一次請求的三段接得起來，也就是查得出誰呼叫誰
+    settled = between(now() - 80, now() - 15)       # 太新的那幾秒，上一層可能還沒送到
+    demo = term(NS, "demo-tsid")
+    api = one_span(settled, demo, term(SVC, "demo-api"), term("kind", "Server"))
+    call = api and one_span(demo, term("span_id", api["parent_span_id"]))
+    web = call and one_span(demo, term("span_id", call["parent_span_id"]))
+    ok = bool(web) and call["resource"]["attributes"]["service.name"] == "demo-web" and call["kind"] == "Client" \
+        and web["resource"]["attributes"]["service.name"] == "demo-web" and web["kind"] == "Server" \
+        and api["trace_id"] == call["trace_id"] == web["trace_id"]
+    r.append((ok, "trace：一次請求的三段接得起來（demo-web 收到 → demo-web 呼叫 → demo-api 收到）",
+              "demo-api 那一段：%s；上一層：%s；再上一層：%s" % (bool(api), bool(call), bool(web))))
+    r.append((ok, "trace：查得出誰呼叫誰（demo-web → demo-api）", "上下層接不起來"))
+    return r
+
+
 def routing():
-    print("=== 分流：每個情境進了哪一份（數值，然後 log）===")
+    print("=== 分流：每個情境進了哪一份（數值、log、trace）===")
     deadline = time.time() + 240
     while True:
-        results = routing_once() + logs_once()
+        results = routing_once() + logs_once() + traces_once()
         if all(ok for ok, _, _ in results) or time.time() > deadline:
             return show(results)
         time.sleep(15)
@@ -258,9 +335,19 @@ def latency(seconds):
         "query": {"bool": {"filter": [between(now() - seconds, now() + 5), term(NS, "demo-tsid"),
                                       term("attributes.route", "/work"),
                                       has("metrics.demo_request_duration_seconds")]}},
-        "aggs": {"c": {"terms": {"field": "resource.attributes.k8s.container.name"},
+        # 抓來的數值沒有容器名稱（收集程式不知道是 pod 裡的哪一個），用 deployment 分
+        "aggs": {"c": {"terms": {"field": "resource.attributes.k8s.deployment.name"},
                        "aggs": {"avg": {"avg": {"field": "metrics.demo_request_duration_seconds"}}}}}})
     return {b["key"]: b["avg"]["value"] for b in doc["aggregations"]["c"]["buckets"]}
+
+
+def span_ms(seconds, service, kind):
+    """最近幾秒某支程式某一種段的平均時間（毫秒）。trace 裡的時間單位是奈秒。"""
+    doc = es(TRACES + "/_search", {"size": 0, "query": {"bool": {"filter": [
+        between(now() - seconds, now() + 5), term(NS, "demo-tsid"), term(SVC, service), term("kind", kind)]}},
+        "aggs": {"avg": {"avg": {"field": "duration"}}}})
+    v = doc["aggregations"]["avg"]["value"]
+    return None if v is None else v / 1e6
 
 
 def set_fault(query):
@@ -275,10 +362,17 @@ def fault():
     set_fault("clear=1")
     time.sleep(50)
     before = latency(40)
+    t_before = {k: span_ms(40, *k) for k in (("demo-api", "Server"), ("demo-web", "Server"))}
+    slow = None
     try:
         set_fault("latency_ms=400")
         time.sleep(75)
         after = latency(40)
+        t_after = {k: span_ms(40, *k) for k in t_before}
+        # 挑一筆變慢的請求，看時間花在哪一段
+        slow = one_span(between(now() - 40, now() - 10), term(NS, "demo-tsid"), term(SVC, "demo-web"),
+                        term("kind", "Server"), {"range": {"duration": {"gte": 400000000}}})
+        call = slow and one_span(term(NS, "demo-tsid"), term("parent_span_id", slow["span_id"]))
     finally:
         set_fault("clear=1")
     for name in ("demo-api", "demo-web"):
@@ -289,23 +383,43 @@ def fault():
         r.append((b - a >= 0.2, "%s 的處理時間 %d ms → %d ms" % (name, a * 1000, b * 1000),
                   "變化不到 200 ms，在 Elasticsearch 裡看不出來"))
 
+    for (service, kind), a in t_before.items():
+        b = t_after[(service, kind)]
+        if a is None or b is None:
+            r.append((False, "trace：%s 收到請求那一段的時間" % service, "查不到：前 %s、後 %s" % (a, b)))
+            continue
+        r.append((b - a >= 300, "trace：%s 收到請求那一段 %d ms → %d ms" % (service, a, b), "變化不到 300 ms"))
+    if not slow or not call:
+        r.append((False, "trace：變慢的請求看得出時間花在哪一段", "找不到變慢的那一筆，或找不到它底下的呼叫"))
+    else:
+        whole, part = slow["duration"] / 1e6, call["duration"] / 1e6
+        r.append((part >= 0.8 * whole, "trace：變慢的那一筆 %d ms 裡，%d ms 花在呼叫 demo-api" % (whole, part),
+                  "呼叫 demo-api 那一段只佔 %d%%" % (100 * part / whole)))
+
     print("=== 弄壞看得到：demo-api 一半的請求回錯誤 ===")
     try:
         set_fault("error_rate=0.5")
         time.sleep(45)
     finally:
         set_fault("clear=1")
-    window = [between(now() - 40, now() + 5), term(NS, "demo-tsid")]
+    # trace 從程式送出到查得到要十幾秒：程式那一側每 5 秒送一批，收集程式再攢一批才寫。
+    # 所以等一下，而且只看故障開著的那一段
+    time.sleep(25)
+    window = [between(now() - 70, now() - 27), term(NS, "demo-tsid")]
     doc = es(LOGS + "/_search", {"size": 5, "query": {"bool": {"filter": window + [
         term("resource.attributes.k8s.container.name", "demo-api"), term("severity_text", "ERROR"),
         has("attributes.trace_id")]}}})
     hits = doc["hits"]["hits"]
-    r.append((bool(hits), "demo-api 的錯誤 log 查得到", "最近 40 秒沒有等級是 ERROR 的"))
+    r.append((bool(hits), "demo-api 的錯誤 log 查得到", "那段時間沒有等級是 ERROR 的"))
     if hits:
         tid = hits[0]["_source"]["attributes"]["trace_id"]
         other = count(window + [term("resource.attributes.k8s.container.name", "demo-web"),
                                 term("attributes.trace_id", tid)], LOGS)
         r.append((other > 0, "同一個 trace_id（%s…）在 demo-web 的 log 也查得到" % tid[:8], "demo-web 查不到這個 trace_id"))
+        spans = count([term("trace_id", tid)], TRACES)
+        r.append((spans >= 3, "同一個編號在 trace 裡也查得到（%d 段）" % spans, "log 的編號跟 trace 的不是同一個"))
+        bad = count([term("trace_id", tid), term(SVC, "demo-api"), has("status.code")], TRACES)
+        r.append((bad > 0, "那一筆 trace 裡 demo-api 那一段標成錯誤", "沒有標成錯誤的段"))
     return show(r)
 
 
@@ -316,7 +430,8 @@ def samples(start, end):
     t = between(start, end)
     return {"程式": count([t, term(NS, "demo-tsid"), has("metrics.demo_inflight_requests")]),
             "server": count([t, has("metrics.system.cpu.load_average.1m")]),
-            "log": count([t, term(NS, "fake-typo"), has("attributes.seq")], LOGS)}
+            "log": count([t, term(NS, "fake-typo"), has("attributes.seq")], LOGS),
+            "trace": count([t, term(NS, "demo-tsid"), term(SVC, "demo-api"), term("kind", "Server")], TRACES)}
 
 
 def seq_gaps(start, end):
@@ -346,7 +461,8 @@ def outage():
     print("=== 停機補送：Elasticsearch 停掉，中間重啟收集程式，再恢復 ===")
     end = now() - 10
     base = samples(end - WINDOW, end)
-    print("  平常 %d 秒：程式 %d 次、server %d 次、log %d 行" % (WINDOW, base["程式"], base["server"], base["log"]))
+    print("  平常 %d 秒：程式 %d 次、server %d 次、log %d 行、trace %d 段"
+          % (WINDOW, base["程式"], base["server"], base["log"], base["trace"]))
     if not all(base.values()):
         print("\nFAIL（停機前就沒有資料，先跑 ./tests/obs/run.sh）")
         return 1

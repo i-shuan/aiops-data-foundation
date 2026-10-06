@@ -94,6 +94,14 @@ data:
         include:
           metric_types: [histogram]
 
+      # ⚠ 抓來的數值只知道是哪個 pod，不知道是 pod 裡的哪個容器。讀門牌那一步會自己猜一個填上，
+      #   pod 裡有不只一個容器時會猜錯（掛了自動埋點的 pod 會被填成初始化用的那個容器）。
+      #   所以拿掉。要分是哪支程式，用 k8s.deployment.name。
+      resource/scraped:
+        attributes:
+          - key: k8s.container.name
+            action: delete
+
       # ⚠ 先清掉程式可能自己帶進來的身分欄位，再把抓取對象的位址放進 k8s.pod.ip。
       #   沒有 k8s.pod.ip，下一步讀門牌時對不到是哪個 pod，所有資料都會變成 DEFAULT_TENANT。
       transform/pre:
@@ -246,6 +254,10 @@ data:
           enabled: true
           storage: file_storage
           queue_size: 100000
+          # ⚠ 一次只送一批。預設是十批同時送：Elasticsearch 連不上時十批都卡在手上重試，
+          #   連線逾時的那幾批不會再重試、直接丟掉（這個寫入程式只重試「被拒絕」，不重試「逾時」），
+          #   收集程式這時被關掉的話手上的也會丟。實測過：三種資料一起收時，停機期間掉了三到四成
+          num_consumers: 1
         # ⚠ max_retries 寫 0 是「不重試」：Elasticsearch 一連不上資料就直接丟掉，不報錯（實測過）。
         #   給一個很大的數字、間隔最長 30 秒，等於一直重試到連上為止。
         retry:
@@ -279,7 +291,7 @@ data:
       pipelines:
         metrics/apps:
           receivers: [prometheus]
-          processors: [cumulative_to_delta, transform/pre, k8s_attributes, transform/tenant]
+          processors: [cumulative_to_delta, transform/pre, k8s_attributes, resource/scraped, transform/tenant]
           exporters: [elasticsearch]
         metrics/k8s:
           receivers: [k8s_cluster]

@@ -1,5 +1,6 @@
 # 測試用的東西：一座單節點的 Elasticsearch，加三個假程式。每個假程式有兩個容器：
 # fake 回固定文字給收集程式抓（數值），logger 每 2 秒印一行 log。
+# fake-none 與 fake-spoof 另外有 tracer：每 3 秒自己送一段亂填身分的 trace。
 # logger 收到 TERM 會結束，K8s 會把它重啟：run.sh restart 用這個驗容器重啟前後的 log。
 # 正式的收集設定不在這裡，在 platform/otel/。run.sh 套用時只換位址與 cluster 名稱。
 #
@@ -129,6 +130,22 @@ spec:
             - -c
             - |
               trap 'exit 1' TERM; i=0; while true; do i=$((i+1)); echo "plain text line $i, not json"; sleep 2; done
+        # 每 3 秒自己送一段 trace 給收集程式，而且通通亂填：自稱是 tsid、廠區是 fake、
+        # 自稱是 demo-tsid 這個 namespace 裡的 pod。收集程式不能信，要照它實際所在的 namespace
+        - name: tracer
+          image: busybox:1.36
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - |
+              i=0
+              while true; do
+                i=$((i+1)); t=$(date +%s)
+                body=$(printf '{"resourceSpans":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"fake-tracer"}},{"key":"tenant","value":{"stringValue":"tsid"}},{"key":"site","value":{"stringValue":"fake"}},{"key":"data_stream.namespace","value":{"stringValue":"tsid"}},{"key":"k8s.namespace.name","value":{"stringValue":"demo-tsid"}},{"key":"k8s.pod.name","value":{"stringValue":"demo-api-impostor"}},{"key":"k8s.pod.uid","value":{"stringValue":"00000000-0000-0000-0000-000000000000"}}]},"scopeSpans":[{"spans":[{"traceId":"%016x%016x","spanId":"%016x","name":"spoof","kind":1,"startTimeUnixNano":"%s000000000","endTimeUnixNano":"%s100000000","attributes":[{"key":"tenant","value":{"stringValue":"tsid"}},{"key":"cluster","value":{"stringValue":"fake"}}]}]}]}]}' $t $i $i $t $t)
+                wget -q -O /dev/null --header 'Content-Type: application/json' --post-data "$body" http://otel-node-collector.obs.svc:4318/v1/traces
+                sleep 3
+              done
       volumes:
         - name: www
           configMap:
@@ -247,6 +264,22 @@ spec:
             - -c
             - |
               trap 'exit 1' TERM; i=0; while true; do i=$((i+1)); echo '{"level":"error","msg":"spoof","tenant":"tsid","site":"fake","cluster":"fake","code":"E42"}'; sleep 2; done
+        # 每 3 秒自己送一段 trace 給收集程式，而且通通亂填：自稱是 tsid、廠區是 fake、
+        # 自稱是 demo-tsid 這個 namespace 裡的 pod。收集程式不能信，要照它實際所在的 namespace
+        - name: tracer
+          image: busybox:1.36
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - |
+              i=0
+              while true; do
+                i=$((i+1)); t=$(date +%s)
+                body=$(printf '{"resourceSpans":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"fake-tracer"}},{"key":"tenant","value":{"stringValue":"tsid"}},{"key":"site","value":{"stringValue":"fake"}},{"key":"data_stream.namespace","value":{"stringValue":"tsid"}},{"key":"k8s.namespace.name","value":{"stringValue":"demo-tsid"}},{"key":"k8s.pod.name","value":{"stringValue":"demo-api-impostor"}},{"key":"k8s.pod.uid","value":{"stringValue":"00000000-0000-0000-0000-000000000000"}}]},"scopeSpans":[{"spans":[{"traceId":"%016x%016x","spanId":"%016x","name":"spoof","kind":1,"startTimeUnixNano":"%s000000000","endTimeUnixNano":"%s100000000","attributes":[{"key":"tenant","value":{"stringValue":"tsid"}},{"key":"cluster","value":{"stringValue":"fake"}}]}]}]}]}' $t $i $i $t $t)
+                wget -q -O /dev/null --header 'Content-Type: application/json' --post-data "$body" http://otel-node-collector.obs.svc:4318/v1/traces
+                sleep 3
+              done
       volumes:
         - name: www
           configMap:
