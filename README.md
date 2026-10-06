@@ -4,7 +4,8 @@
 之後用來做異常偵測與找根因。
 
 這條 branch（`explore/elastic-all-in`）換了方向。目前能跑的是第 1 步：範例程式與 server 的
-健康度數值，經 OpenTelemetry Collector 進 Elasticsearch，依部門分開。只在本機 k3d 驗過。
+健康度數值，以及每個容器的 log，經 OpenTelemetry Collector 進 Elasticsearch，依部門分開。
+只在本機 k3d 驗過。
 
 | 想知道 | 看哪裡 |
 | --- | --- |
@@ -39,7 +40,8 @@ Elasticsearch（metrics、log、trace 都存這）
 | 方向與原則 | 已確認 |
 | 範例程式（可以從外面弄壞的兩支服務） | 做完，在 `app/demo-svc/` |
 | 收集設定：程式與 server 的數值進 Elasticsearch，依部門分開、擋冒充、停機補送 | 做完，在 `platform/otel/`，本機 k3d 實測 |
-| log、trace、異常偵測、找根因 | 還沒做 |
+| log：每個容器印的 log 進 Elasticsearch，跟數值同一套標籤 | 做完，本機 k3d 實測 |
+| trace、異常偵測、找根因 | 還沒做 |
 | 誰能看哪個部門的資料、資料保留多久 | 還沒做 |
 
 ## 目錄
@@ -97,13 +99,12 @@ cluster 的建法見 [`.agents/project/commands.md`](.agents/project/commands.md
 
 ## 已知的狀況
 
-- **只收數值。** log 與 trace 還沒接，範例程式有吐、沒有人收。
+- **trace 還沒收。** 範例程式有傳編號、log 裡查得到，但沒有真的送出 trace。
 - **只在本機 k3d 驗過。** 一個節點、Elasticsearch 沒開 TLS。正式環境沒有碰過。
 - **`platform/otel/site-ctsp.yaml` 裡的位址是佔位。** 上線前要換，`tests/validate.sh` 會提醒。
 - **跟機台有關的範例程式都移除了**：`eqp-collector`、`metrics-sim`（模擬機台收值）、`yms-sim`
   （模擬良率）。方向是不做機台收值。
 - **`mes-dispatch` 是 ArgoCD 的寫法**，chart 裡沒有 `namespace.yaml`，pod 上也沒有
   「我要被抓」的標註。用 `helm` 直接裝的話 namespace 不會有 label，收集程式也不會抓它。
-- **log 的設定還是舊的。** `platform/logging/fluent.conf` 照 `dept` 分，之後由收集程式取代。
 - **ArgoCD 那條路沒有實測。** `platform/argocd/applicationset.yaml` 留著，`tests/validate.sh` 只檢查
   它貼 label 的那段樣板。

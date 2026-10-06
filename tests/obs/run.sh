@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # 在本機的 k3d cluster obs-test 上實測：正式的收集設定（platform/otel/）加範例程式，
-# 資料有沒有進 Elasticsearch、有沒有進對部門。
+# 數值與 log 有沒有進 Elasticsearch、有沒有進對部門。
 #
 #   ./tests/obs/run.sh                  部署，查分流，再把 demo-api 弄慢看 Elasticsearch 裡看不看得到（約 5 分鐘）
 #   ./tests/obs/run.sh outage           停掉 Elasticsearch、中間重啟收集程式、再恢復，比筆數（約 7 分鐘，要先跑過上面那個）
@@ -31,7 +31,8 @@ render() {   # $1 = good | nospoof | retry0 | nopvc
   for f in cluster-collector node-collector; do
     case "$1" in
       # 不再丟掉樣本自己帶的：把要刪的欄位名稱換成不存在的
-      nospoof) sed 's/delete_key(datapoint.attributes, "/delete_key(datapoint.attributes, "unused./' platform/otel/$f.yaml ;;
+      nospoof) sed -e 's/delete_key(datapoint.attributes, "/delete_key(datapoint.attributes, "unused./' \
+                   -e 's/delete_key(log.attributes, "/delete_key(log.attributes, "unused./' platform/otel/$f.yaml ;;
       retry0)  sed 's/max_retries: 100000/max_retries: 0/' platform/otel/$f.yaml ;;
       *)       cat platform/otel/$f.yaml ;;
     esac > "$TMP/$f.yaml"

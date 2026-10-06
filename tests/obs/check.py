@@ -1,9 +1,9 @@
 #!/usr/bin/env python
 """查 Elasticsearch，確認資料有進來、進對部門。由 run.sh 呼叫，也可以單獨跑。
 
-  python tests/obs/check.py routing   每個情境進了哪一份、標籤對不對
-  python tests/obs/check.py fault     把 demo-api 弄慢，兩支的處理時間在 Elasticsearch 裡都變長
-  python tests/obs/check.py outage    停掉 Elasticsearch、中間重啟收集程式、再恢復，比筆數
+  python tests/obs/check.py routing   數值與 log 每個情境進了哪一份、標籤對不對
+  python tests/obs/check.py fault     把 demo-api 弄慢、弄成回錯誤，Elasticsearch 裡看不看得到
+  python tests/obs/check.py outage    停掉 Elasticsearch、中間重啟收集程式、再恢復，比筆數與 log 的序號
 
 只對本機的 k3d cluster obs-test 下指令。查詢是進 Elasticsearch 的 pod 裡用 curl 打的，
 密碼留在 pod 的環境變數裡，不會經過這支程式。
@@ -19,6 +19,7 @@ sys.stdout.reconfigure(encoding="utf-8")
 CTX = "k3d-obs-test"
 SITE, CLUSTER = "ctsp", "obs-test"
 NS = "resource.attributes.k8s.namespace.name"
+LOGS = "logs-*"
 # namespace → 應該進哪個部門。(none) 是沒有 namespace 的資料，也就是 server 本身
 EXPECT = {
     "demo-tsid": "tsid",
@@ -66,8 +67,12 @@ def between(start, end):
     return {"range": {"@timestamp": {"gte": int(start * 1000), "lt": int(end * 1000), "format": "epoch_millis"}}}
 
 
-def count(filters):
-    return es("metrics-*/_count", {"query": {"bool": {"filter": filters}}})["count"]
+def count(filters, index="metrics-*"):
+    return es(index + "/_count", {"query": {"bool": {"filter": filters}}})["count"]
+
+
+def phrase(text):
+    return {"match_phrase": {"body.text": text}}
 
 
 def has(field):
@@ -143,9 +148,11 @@ def routing_once():
         for label, field in (("記憶體", "metrics.container.memory.working_set"), ("CPU", "metrics.container.cpu.time"),
                              ("重啟次數", "metrics.k8s.container.restarts")):
             f = [recent, term(NS, ns), has(field)]
-            good, total = count(f + [term("data_stream.namespace", tenant)]), count(f)
-            r.append((good > 0 and good == total, "%s 容器的%s在 %s（%d 筆）" % (ns, label, tenant, good),
-                      "在 %s 的 %d 筆，全部 %d 筆" % (tenant, good, total)))
+            # 直接數「不在這個部門的」。分兩次數全部與對的再相減的話，兩次查詢之間進來的資料會造成誤判
+            good = count(f + [term("data_stream.namespace", tenant)])
+            wrong = count(f + [{"bool": {"must_not": [term("data_stream.namespace", tenant)]}}])
+            r.append((good > 0 and wrong == 0, "%s 容器的%s在 %s（%d 筆）" % (ns, label, tenant, good),
+                      "在 %s 的 %d 筆，在別的部門的 %d 筆" % (tenant, good, wrong)))
 
     # 程式吐的數值，包含分布圖（處理時間）
     for ns, tenant in (("demo-tsid", "tsid"), ("demo-bsid", "bsid")):
@@ -167,11 +174,75 @@ def routing_once():
     return r
 
 
+# namespace → log 應該進哪個部門。只列一定有在印 log 的
+LOG_EXPECT = {"demo-tsid": "tsid", "demo-bsid": "bsid", "fake-none": "platform", "fake-typo": "platform",
+              "fake-spoof": "bsid"}
+
+
+def logs_once():
+    r = []
+    recent = between(now() - 90, now() + 5)
+
+    def keys(bucket, name):
+        return sorted(str(x["key"]) for x in bucket[name]["buckets"])
+
+    def n(*filters):
+        return count([recent] + list(filters), LOGS)
+
+    sub = {name: {"terms": {"field": field, "missing": "(沒有)"}} for name, field in (
+        ("stream", "data_stream.namespace"), ("tenant", "resource.attributes.tenant"),
+        ("site", "resource.attributes.site"), ("cluster", "resource.attributes.cluster"),
+        ("dept", "resource.attributes.dept"))}
+    doc = es(LOGS + "/_search", {"size": 0, "query": {"bool": {"filter": [recent]}},
+                                 "aggs": {"ns": {"terms": {"field": NS, "size": 100, "missing": "(none)"}, "aggs": sub}}})
+    seen = {b["key"]: b for b in doc["aggregations"]["ns"]["buckets"]}
+    for ns, tenant in LOG_EXPECT.items():
+        b = seen.get(ns)
+        if not b:
+            r.append((False, "log %-24s → %s" % (ns, tenant), "最近 90 秒沒有 log"))
+            continue
+        got = (keys(b, "stream"), keys(b, "tenant"), keys(b, "site"), keys(b, "cluster"))
+        r.append((got == ([tenant], [tenant], [SITE], [CLUSTER]), "log %-24s → %s（%d 筆）" % (ns, tenant, b["doc_count"]),
+                  "資料流 %s、tenant %s、site %s、cluster %s" % got))
+    extra = sorted(ns for ns, b in seen.items() if ns not in LOG_EXPECT and keys(b, "stream") != ["platform"])
+    r.append((not extra, "log：沒列在上面的 namespace 都在 platform", "不在 platform 的：%s" % ", ".join(extra)))
+    for ns, dept in (("demo-tsid", "D3120"), ("fake-spoof", "D9999")):
+        got = keys(seen[ns], "dept") if ns in seen else []
+        r.append((got == [dept], "log：%s 的 dept 是 %s，跟數值一樣" % (ns, dept), "實際 %s" % got))
+
+    # 每筆都知道是哪個 pod、哪個容器
+    for field in ("k8s.pod.name", "k8s.container.name"):
+        miss = count([recent, {"bool": {"must_not": [has("resource.attributes." + field)]}}], LOGS)
+        r.append((miss == 0, "log：每筆都帶 %s" % field, "%d 筆沒有" % miss))
+
+    # JSON 的拆成欄位，等級與訊息統一
+    demo = term(NS, "demo-tsid")
+    got = n(demo, term("severity_text", "INFO"), has("attributes.trace_id"), has("attributes.message"))
+    r.append((got > 0, "log：JSON 拆成欄位，等級、訊息、trace_id 都查得到（%d 筆）" % got, "demo-tsid 查不到"))
+    got = n(term(NS, "fake-typo"), term("severity_text", "WARN"), has("attributes.message"), has("attributes.seq"))
+    r.append((got > 0, "log：另一種欄位命名（log.level）也認得等級（%d 筆）" % got, "fake-typo 查不到等級是 WARN 的"))
+    got = n(term(NS, "fake-none"), phrase("plain text line"))
+    r.append((got > 0, "log：不是 JSON 的照樣收（%d 筆）" % got, "fake-none 的純文字 log 查不到"))
+
+    # 冒充，順便是型別衝突：code 在範例程式是數字，這裡是文字
+    spoof = term(NS, "fake-spoof")
+    got = n(spoof, term("severity_text", "ERROR"), phrase("E42"))
+    r.append((got > 0, "log：欄位型別跟別人不合的照樣進得來（%d 筆）" % got, "fake-spoof 的 log 查不到，可能整筆被拒絕"))
+    for field in ("attributes.tenant", "attributes.site", "attributes.cluster"):
+        got = n(spoof, has(field))
+        r.append((got == 0, "log：fake-spoof 自稱的 %s 沒有留在資料上" % field.split(".")[1], "%d 筆還帶著 %s" % (got, field)))
+
+    # 收集程式自己的不收
+    got = n({"prefix": {"resource.attributes.k8s.pod.name": "otel-"}})
+    r.append((got == 0, "log：收集程式自己的沒有收", "收到 %d 筆" % got))
+    return r
+
+
 def routing():
-    print("=== 分流：每個情境進了哪一份 ===")
+    print("=== 分流：每個情境進了哪一份（數值，然後 log）===")
     deadline = time.time() + 240
     while True:
-        results = routing_once()
+        results = routing_once() + logs_once()
         if all(ok for ok, _, _ in results) or time.time() > deadline:
             return show(results)
         time.sleep(15)
@@ -216,6 +287,24 @@ def fault():
             continue
         r.append((b - a >= 0.2, "%s 的處理時間 %d ms → %d ms" % (name, a * 1000, b * 1000),
                   "變化不到 200 ms，在 Elasticsearch 裡看不出來"))
+
+    print("=== 弄壞看得到：demo-api 一半的請求回錯誤 ===")
+    try:
+        set_fault("error_rate=0.5")
+        time.sleep(45)
+    finally:
+        set_fault("clear=1")
+    window = [between(now() - 40, now() + 5), term(NS, "demo-tsid")]
+    doc = es(LOGS + "/_search", {"size": 5, "query": {"bool": {"filter": window + [
+        term("resource.attributes.k8s.container.name", "demo-api"), term("severity_text", "ERROR"),
+        has("attributes.trace_id")]}}})
+    hits = doc["hits"]["hits"]
+    r.append((bool(hits), "demo-api 的錯誤 log 查得到", "最近 40 秒沒有等級是 ERROR 的"))
+    if hits:
+        tid = hits[0]["_source"]["attributes"]["trace_id"]
+        other = count(window + [term("resource.attributes.k8s.container.name", "demo-web"),
+                                term("attributes.trace_id", tid)], LOGS)
+        r.append((other > 0, "同一個 trace_id（%s…）在 demo-web 的 log 也查得到" % tid[:8], "demo-web 查不到這個 trace_id"))
     return show(r)
 
 
@@ -225,7 +314,19 @@ def samples(start, end):
     """這段時間有幾次抓取進了 Elasticsearch。各挑一個每次抓取剛好一筆的數值來數。"""
     t = between(start, end)
     return {"程式": count([t, term(NS, "demo-tsid"), has("metrics.demo_inflight_requests")]),
-            "server": count([t, has("metrics.system.cpu.load_average.1m")])}
+            "server": count([t, has("metrics.system.cpu.load_average.1m")]),
+            "log": count([t, term(NS, "fake-typo"), has("attributes.seq")], LOGS)}
+
+
+def seq_gaps(start, end):
+    """這段時間 fake-typo 印的每一行都帶序號。回傳（幾行、漏了幾行、重複幾行）。"""
+    doc = es(LOGS + "/_search", {"size": 2000, "_source": ["attributes.seq"], "query": {"bool": {"filter": [
+        between(start, end), term(NS, "fake-typo"), has("attributes.seq")]}}})
+    seqs = [int(h["_source"]["attributes"]["seq"]) for h in doc["hits"]["hits"]]
+    if not seqs:
+        return 0, 0, 0
+    uniq = set(seqs)
+    return len(seqs), max(uniq) - min(uniq) + 1 - len(uniq), len(seqs) - len(uniq)
 
 
 def wait_es(timeout=300):
@@ -244,7 +345,7 @@ def outage():
     print("=== 停機補送：Elasticsearch 停掉，中間重啟收集程式，再恢復 ===")
     end = now() - 10
     base = samples(end - WINDOW, end)
-    print("  平常 %d 秒：程式 %d 次、server %d 次" % (WINDOW, base["程式"], base["server"]))
+    print("  平常 %d 秒：程式 %d 次、server %d 次、log %d 行" % (WINDOW, base["程式"], base["server"], base["log"]))
     if not all(base.values()):
         print("\nFAIL（停機前就沒有資料，先跑 ./tests/obs/run.sh）")
         return 1
@@ -277,8 +378,12 @@ def outage():
             got = samples(start, stop)
             for kind in base:
                 r.append((got[kind] >= NEED * base[kind],
-                          "%s：%s 補回 %d / %d 次" % (label, kind, got[kind], base[kind]),
+                          "%s：%s 補回 %d / %d" % (label, kind, got[kind], base[kind]),
                           "不到 %d%%" % (NEED * 100)))
+        # log 是讀檔案的，連重啟收集程式的那幾十秒也要補得回來，而且不能重複
+        total, missing, dup = seq_gaps(a, d)
+        r.append((total > 0 and missing == 0, "整段停機的 log 沒有漏（%d 行，序號連續）" % total, "漏了 %d 行" % missing))
+        r.append((total > 0 and dup == 0, "整段停機的 log 沒有重複", "重複 %d 行" % dup))
         if all(ok for ok, _, _ in r) or time.time() > deadline:
             return show(r)
         time.sleep(15)

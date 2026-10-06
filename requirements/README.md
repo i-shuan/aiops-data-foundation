@@ -15,6 +15,7 @@ branch `explore/elastic-all-in` 上方向改了：三種資料全進 Elasticsear
 | --- | --- | --- |
 | [`elastic-unified-observability/`](elastic-unified-observability/1-intent.md) | 新方向的總綱：監控程式與 server 的健康度，一套收集程式、全進 Elasticsearch、AIOps 自己訓練，目標是找根因 | 方向已確認 |
 | [`health-metrics-to-elastic/`](health-metrics-to-elastic/1-intent.md) | 新方向第 1 步：範例程式，健康度數值經 OpenTelemetry Collector 進 Elasticsearch | 完成，本機 k3d 實測 |
+| [`logs-to-elastic/`](logs-to-elastic/1-intent.md) | 新方向第 2 步：每個容器的 log 經同一套收集程式進 Elasticsearch | 完成，本機 k3d 實測 |
 | [`multi-site-metrics-write/`](multi-site-metrics-write/1-intent.md) | 原本的總綱：metrics 寫 VictoriaMetrics | 被新方向取代，留作紀錄 |
 | [`validate-manual-apps/`](validate-manual-apps/1-intent.md) | 原需求 1：檢查工具認得不走 ArgoCD 的 app | 完成，新方向照用。它當時用的範例 `eqp-collector` 已移除 |
 | [`tenant-label-routing/`](tenant-label-routing/1-intent.md) | 原需求 2：依部門寫進 VictoriaMetrics 的租戶 | 當時完成並實測。實作已從這條 branch 移除 |

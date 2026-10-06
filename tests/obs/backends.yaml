@@ -1,4 +1,5 @@
-# 測試用的東西：一座單節點的 Elasticsearch，加三個只回固定文字的假程式。
+# 測試用的東西：一座單節點的 Elasticsearch，加三個假程式。每個假程式有兩個容器：
+# fake 回固定文字給收集程式抓（數值），logger 每 2 秒印一行 log。
 # 正式的收集設定不在這裡，在 platform/otel/。run.sh 套用時只換位址與 cluster 名稱。
 #
 # 密碼不寫在這裡：run.sh 當場隨機產生，放進 Secret es-credentials。
@@ -118,6 +119,15 @@ spec:
           volumeMounts:
             - name: www
               mountPath: /www
+        # 每 2 秒印一行不是 JSON 的 log：要照樣收得到
+        - name: logger
+          image: busybox:1.36
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - |
+              i=0; while true; do i=$((i+1)); echo "plain text line $i, not json"; sleep 2; done
       volumes:
         - name: www
           configMap:
@@ -166,6 +176,15 @@ spec:
           volumeMounts:
             - name: www
               mountPath: /www
+        # 每 2 秒印一行 JSON，欄位用另一種命名（log.level、message），帶序號：停機補送用序號查有沒有漏、有沒有重複
+        - name: logger
+          image: busybox:1.36
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - |
+              i=0; while true; do i=$((i+1)); printf '{"log.level":"WARN","message":"other naming","seq":"%08d"}\n' $i; sleep 2; done
       volumes:
         - name: www
           configMap:
@@ -218,6 +237,15 @@ spec:
           volumeMounts:
             - name: www
               mountPath: /www
+        # 每 2 秒印一行冒充的 log：自稱 tsid；code 故意用文字，跟範例程式的數字型別衝突
+        - name: logger
+          image: busybox:1.36
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - |
+              i=0; while true; do i=$((i+1)); echo '{"level":"error","msg":"spoof","tenant":"tsid","site":"fake","cluster":"fake","code":"E42"}'; sleep 2; done
       volumes:
         - name: www
           configMap:
