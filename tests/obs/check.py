@@ -4,6 +4,7 @@
   python tests/obs/check.py routing   數值與 log 每個情境進了哪一份、標籤對不對
   python tests/obs/check.py fault     把 demo-api 弄慢、弄成回錯誤，Elasticsearch 裡看不看得到
   python tests/obs/check.py outage    停掉 Elasticsearch、中間重啟收集程式、再恢復，比筆數與 log 的序號
+  python tests/obs/check.py restart   讓一個容器重啟，新舊兩個容器的 log 都要收得到、不漏不重複
 
 只對本機的 k3d cluster obs-test 下指令。查詢是進 Elasticsearch 的 pod 裡用 curl 打的，
 密碼留在 pod 的環境變數裡，不會經過這支程式。
@@ -389,8 +390,52 @@ def outage():
         time.sleep(15)
 
 
+# ---------------------------------------------------------------- restart
+
+def restart():
+    print("=== 容器重啟：fake-typo 的 logger 結束後被 K8s 重啟 ===")
+    path = "{.items[0].status.containerStatuses[?(@.name=='logger')].restartCount}"
+
+    def restarts():
+        return int(kubectl("-n", "fake-typo", "get", "pod", "-l", "app=fake", "-o", "jsonpath=" + path).strip() or 0)
+
+    before = restarts()
+    start = now() - 30
+    kubectl("-n", "fake-typo", "exec", "deploy/fake", "-c", "logger", "--", "kill", "1")
+    deadline = time.time() + 90
+    while restarts() == before and time.time() < deadline:
+        time.sleep(3)
+    after = restarts()
+    print("  重啟次數 %d → %d，等 45 秒讓新的容器印一段" % (before, after))
+    if after == before:
+        print("\nFAIL（容器沒有重啟，這一項等於沒測）")
+        return 1
+    time.sleep(45)
+    doc = es(LOGS + "/_search", {"size": 2000, "query": {"bool": {"filter": [
+        between(start, now() + 5), term(NS, "fake-typo"), has("attributes.seq")]}}})
+    groups = {}
+    for h in doc["hits"]["hits"]:
+        src = h["_source"]
+        key = str(src["resource"]["attributes"].get("k8s.container.restart_count"))
+        groups.setdefault(key, []).append(int(src["attributes"]["seq"]))
+    r = []
+    old, new = groups.get(str(before), []), groups.get(str(after), [])
+    r.append((bool(old) and bool(new), "重啟前、重啟後兩個容器的 log 都收得到（%d 行、%d 行）" % (len(old), len(new)),
+              "收到的重啟次數：%s" % sorted(groups)))
+    for label, seqs in (("重啟前", old), ("重啟後", new)):
+        if not seqs:
+            continue
+        uniq = set(seqs)
+        r.append((max(uniq) - min(uniq) + 1 == len(uniq), "%s的容器：序號 %d 到 %d 連續" % (label, min(uniq), max(uniq)),
+                  "漏了 %d 行" % (max(uniq) - min(uniq) + 1 - len(uniq))))
+        r.append((len(seqs) == len(uniq), "%s的容器：沒有重複" % label, "重複 %d 行" % (len(seqs) - len(uniq))))
+    if new:
+        r.append((min(new) == 1, "重啟後的容器從第 1 行開始收", "最小的序號是 %d，前面的沒收到" % min(new)))
+    return show(r)
+
+
 if __name__ == "__main__":
-    modes = {"routing": routing, "fault": fault, "outage": outage}
+    modes = {"routing": routing, "fault": fault, "outage": outage, "restart": restart}
     if len(sys.argv) != 2 or sys.argv[1] not in modes:
         print(__doc__)
         sys.exit(2)

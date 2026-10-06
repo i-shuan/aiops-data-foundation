@@ -1,5 +1,6 @@
 # 測試用的東西：一座單節點的 Elasticsearch，加三個假程式。每個假程式有兩個容器：
 # fake 回固定文字給收集程式抓（數值），logger 每 2 秒印一行 log。
+# logger 收到 TERM 會結束，K8s 會把它重啟：run.sh restart 用這個驗容器重啟前後的 log。
 # 正式的收集設定不在這裡，在 platform/otel/。run.sh 套用時只換位址與 cluster 名稱。
 #
 # 密碼不寫在這裡：run.sh 當場隨機產生，放進 Secret es-credentials。
@@ -127,7 +128,7 @@ spec:
             - sh
             - -c
             - |
-              i=0; while true; do i=$((i+1)); echo "plain text line $i, not json"; sleep 2; done
+              trap 'exit 1' TERM; i=0; while true; do i=$((i+1)); echo "plain text line $i, not json"; sleep 2; done
       volumes:
         - name: www
           configMap:
@@ -184,7 +185,7 @@ spec:
             - sh
             - -c
             - |
-              i=0; while true; do i=$((i+1)); printf '{"log.level":"WARN","message":"other naming","seq":"%08d"}\n' $i; sleep 2; done
+              trap 'exit 1' TERM; i=0; while true; do i=$((i+1)); printf '{"log.level":"WARN","message":"other naming","seq":"%08d"}\n' $i; sleep 2; done
       volumes:
         - name: www
           configMap:
@@ -245,7 +246,7 @@ spec:
             - sh
             - -c
             - |
-              i=0; while true; do i=$((i+1)); echo '{"level":"error","msg":"spoof","tenant":"tsid","site":"fake","cluster":"fake","code":"E42"}'; sleep 2; done
+              trap 'exit 1' TERM; i=0; while true; do i=$((i+1)); echo '{"level":"error","msg":"spoof","tenant":"tsid","site":"fake","cluster":"fake","code":"E42"}'; sleep 2; done
       volumes:
         - name: www
           configMap:

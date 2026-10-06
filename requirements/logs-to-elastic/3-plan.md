@@ -1,6 +1,7 @@
 # Plan — log 經同一套收集程式進 Elasticsearch
 
 > `2-spec.md` 已確認（2026-10-06），四題都照建議。使用者同時說了開始做，所以這份 plan 寫完直接實作。
+> 實作完之後補了一步：第二批的步驟 7，容器重啟。原本的 plan 只在風險裡提到，沒有排進步驟。
 > 檔案數超過 3，沿用上一步的做法：分兩批，每批各自驗證、各一個 commit。
 
 ## 第一批：收集設定與靜態檢查
@@ -24,10 +25,11 @@
 4. 全部重跑：分流、弄壞、停機補送、三種改壞的設定。數值那一條的檢查也要照樣全過。
 5. 文件：`README.md`、`platform/README.md`，`architecture.html` 的狀態。
 6. 刪掉 `platform/logging/fluent.conf`：驗收全過才刪。
+7. `run.sh restart`：讓一個假程式的容器結束、被 K8s 重啟，查新舊兩個容器的 log 都收得到、序號連續、沒有重複。
 
 | 檔案 | 內容 |
 | --- | --- |
-| `tests/obs/backends.yaml`、`check.py`、`run.sh` | 步驟 1 到 3 |
+| `tests/obs/backends.yaml`、`check.py`、`run.sh` | 步驟 1 到 3、7 |
 | `README.md`、`platform/README.md`、`requirements/README.md`、`requirements/architecture.html` | 步驟 5 |
 | `platform/logging/fluent.conf` | 刪除 |
 
@@ -37,7 +39,7 @@
 | --- | --- | --- |
 | 同名欄位型別不同，後到的 log 被 Elasticsearch 拒絕 | 第一批步驟 1；第二批的假程式故意製造 | JSON 不拆成各自的欄位，整包放進不分型別的欄位，只把等級、訊息、`trace_id` 另外取出來 |
 | 停機補送後 log 重複 | 第二批：同一個序號出現兩次 | 查「讀到哪」是不是跟著佇列一起留在磁碟上 |
-| 容器重啟或 log 檔輪替時漏掉或重讀 | 第二批：序號不連續 | 這一步只驗容器重啟。輪替在本機不容易製造，驗不到就列進「已知未涵蓋」 |
+| 容器重啟或 log 檔輪替時漏掉或重讀 | 第二批步驟 7：序號不連續 | 這一步只驗容器重啟。輪替在本機不容易製造，列進「已知未涵蓋」 |
 | 測試 cluster 上已經有十幾個小時的舊 log，第一次會灌進幾十萬筆 | 部署後 Elasticsearch 變慢、檢查逾時 | 檢查只看最近一段時間；必要時先等它讀完 |
 | log 的 pipeline 拖慢數值 | 上一步的檢查開始不過 | 兩條 pipeline 各自的佇列分開看；必要時調高記憶體上限並寫進文件 |
 | 收集程式讀到自己的 log，越印越多 | `obs` 的 log 筆數一直漲 | 排除的寫法由 `tests/validate.sh` 檢查，實測再確認筆數是 0 |

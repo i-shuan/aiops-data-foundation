@@ -4,6 +4,7 @@
 #
 #   ./tests/obs/run.sh                  部署，查分流，再把 demo-api 弄慢看 Elasticsearch 裡看不看得到（約 5 分鐘）
 #   ./tests/obs/run.sh outage           停掉 Elasticsearch、中間重啟收集程式、再恢復，比筆數（約 7 分鐘，要先跑過上面那個）
+#   ./tests/obs/run.sh restart          讓一個容器重啟，新舊兩個容器的 log 都要收得到（約 2 分鐘，要先跑過第一個）
 #   ./tests/obs/run.sh broken nospoof   用改壞的設定跑，測試一定要 FAIL。跑完會換回正確的設定（約 8 分鐘）
 #   ./tests/obs/run.sh broken retry0    同上：重試改成 0（約 8 分鐘）
 #   ./tests/obs/run.sh broken nopvc     同上：佇列不放 PVC（約 8 分鐘）
@@ -96,6 +97,9 @@ case "${1:-routing}" in
   outage)
     python tests/obs/check.py outage
     ;;
+  restart)
+    python tests/obs/check.py restart
+    ;;
   broken)
     case "${2:-}" in
       nospoof) check=routing ;;
@@ -117,7 +121,7 @@ case "${1:-routing}" in
     exit $rc
     ;;
   *)
-    sed -n '2,15p' "$0"
+    sed -n '2,16p' "$0"
     exit 2
     ;;
 esac
