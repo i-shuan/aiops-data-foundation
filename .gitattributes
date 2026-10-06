@@ -1,0 +1,3 @@
+# 這兩種在 Windows 上一定要 CRLF
+*.cmd text eol=crlf
+*.ps1 text eol=crlf

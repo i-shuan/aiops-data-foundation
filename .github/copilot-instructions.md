@@ -13,7 +13,7 @@
 | **不臆測指令** | 只用 `.agents/project/commands.md` 列的。本專案**沒有** `npm` / `make` / `pytest` |
 | **機密不進檔案** | 含**使用者貼進對話的** token、密碼。一律改 Secret 參照（`bearerTokenSecret`、`secretKeyRef`） |
 | **不用破壞性 git** | `reset --hard`、`push --force`、`clean -fd`。⚠️ 也不要 `git checkout <file>` —— 它會把**未提交的修改一起還原**。Claude Code 會被 `.claude/hooks/guard-git.py` 擋下；Copilot 沒有這層 |
-| **不碰正式 cluster** | `kubectl` / `helm` 只對本機 k3d 下，而且要明寫 `--context` / `--kube-context`。正式環境的指令只寫進文件，由人執行 |
+| **不碰正式 cluster** | `kubectl` / `helm` 只對本機的 cluster 下（k3d、Rancher Desktop），而且要明寫 `--context` / `--kube-context`。正式環境的指令只寫進文件，由人執行 |
 | **最小變更** | 單次動 ≤ 3 個檔。不順手重構、不調整無關格式 |
 | **不改測試求過** | 測試失敗就貼原始錯誤。動到 `tests/` 要先說 |
 | **驗證要貼輸出** | 「應該可以了」不算。chart 渲染得出來**不等於**資料進對 tenant |

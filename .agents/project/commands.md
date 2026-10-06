@@ -16,6 +16,7 @@
 
 ```bash
 ./tests/validate.sh                        # 不需要 cluster，要 python（PyYAML）和 helm
+.\deploy.cmd                               # PowerShell 或 cmd。一鍵部署到本機的 Rancher Desktop，內容在 deploy.ps1
 ./tests/obs/run.sh                         # 要 cluster obs-test。部署、查分流、弄慢看得到，約 5 分鐘
 ./tests/obs/run.sh outage                  # 停機補送，約 7 分鐘。要先跑過上面那個
 ./tests/obs/run.sh broken nospoof          # 改壞的設定一定要 FAIL。另有 retry0、nopvc，各約 8 分鐘
@@ -52,9 +53,7 @@ helm --kube-context k3d-obs-test install opentelemetry-operator open-telemetry/o
 | --- | --- | --- |
 | 收集 | OpenTelemetry Collector contrib 0.161.0；trace 的自動埋點靠 Operator v0.160.0（chart 0.124.1） | `platform/otel/`、上面的安裝指令 |
 | 儲存 | Elasticsearch 9.5.3，免費版。repo 裡只有測試用的 | `tests/obs/backends.yaml` |
-| app | Python，各自一個 `Dockerfile` | `app/<app>/` |
 | chart | 每個 app 自帶 templates | `app/<app>/k8s/` |
-| 部署（未實測） | ArgoCD ApplicationSet | `platform/argocd/applicationset.yaml` |
 
 ## 這台開發機的坑（Windows + Git Bash）
 
@@ -66,4 +65,5 @@ helm --kube-context k3d-obs-test install opentelemetry-operator open-telemetry/o
 | Git Bash 改寫 `/` 開頭的參數 | 容器路徑變成 `C:/Program Files/Git/...` | 指令前加 `MSYS_NO_PATHCONV=1` |
 | `kubectl` / `helm` 是 Windows 程式 | 看不懂 Git Bash 的 `/tmp/...` | 用 `cygpath -m` 轉成 `C:/...` |
 | k3d 的 image store 跟本機 docker 分開 | build 完 pod 還在跑舊的 | `k3d image import <image> -c <cluster>` |
+| `.cmd` 批次檔裡寫中文 | cmd 用舊編碼讀檔，把字切壞，冒出 `'xxx' 不是內部或外部命令` | `.cmd` 只放純英文，內容寫在 `.ps1`（存成帶 BOM 的 UTF-8） |
 | k3d 寫進 kubeconfig 的位址是 `host.docker.internal` | `kubectl` 連不上，一直逾時 | `kubectl config set-cluster <ctx> --server=https://127.0.0.1:<port>` |

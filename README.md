@@ -78,6 +78,47 @@ observability:
 
 沒寫 `system` 就不會有 `system` 這個 label，不會變成 `system=""`。
 
+## 在自己的電腦上一鍵部署
+
+裝好 Rancher Desktop（容器引擎選 containerd、啟用 Kubernetes、PATH 設成 Automatic）之後，
+在 repo 的資料夾開終端機。
+
+PowerShell（提示符號開頭是 `PS`）：
+
+```powershell
+.\deploy.cmd
+```
+
+cmd（命令提示字元）：
+
+```
+deploy.cmd
+```
+
+它會先印出要部署到哪個 cluster，等你輸入 `y` 才動手。裝的是 Operator、兩份收集程式、
+一座測試用的 Elasticsearch、兩組範例程式，跑完會印出 Elasticsearch 裡三種資料各有幾筆。
+2026-10-07 在 Rancher Desktop（K8s 1.30.14、containerd）上實際跑過，約 5 分鐘。
+
+| 情況 | 先下這一行再跑 |
+| --- | --- |
+| 不在公司的網路（連不到公司的 Nexus） | PowerShell：`$env:BASE_IMAGE = "python:3.12-slim"`；cmd：`set BASE_IMAGE=python:3.12-slim` |
+| 不想重建範例程式的 image | PowerShell：`$env:SKIP_BUILD = "1"`；cmd：`set SKIP_BUILD=1` |
+| 不要問、直接部署 | 指令後面加 `-Yes` |
+| 對別的本機 cluster | 指令後面加 `-Context 名稱` |
+
+⚠️ 只給本機用。Elasticsearch 是測試用的單節點、沒有開 TLS。
+
+⚠️ image 與 Helm chart 都從外面拉，加起來超過 1 GB。公司的網路拉不到的話會停在那一步並說是哪一個。
+
+⚠️ PowerShell 裡一定要打 `.\deploy.cmd`，少了 `.\` 它找不到；`set 名稱=值` 在 PowerShell 裡沒有作用，
+不會報錯但環境變數沒有設進去。
+
+⚠️ Rancher Desktop 第一次啟動要從 GitHub 下載 K8s（約 220 MB），斷線會整個重來。網路慢的話可以自己
+下載 `k3s`、`k3s-airgap-images-amd64.tar.zst`、`sha256sum-amd64.txt` 三個檔，放進
+`%LOCALAPPDATA%\rancher-desktop\cache\k3s\<版本>\`（例如 `v1.30.14+k3s2`），再重開 Rancher Desktop。
+
+`deploy.cmd` 只是一行啟動檔，真正的內容與說明在 [`deploy.ps1`](deploy.ps1)。
+
 ## Tests
 
 ```bash
