@@ -53,7 +53,7 @@ flowchart LR
 | --- | --- |
 | 有門牌的 namespace 裡的容器 | 照門牌 |
 | 沒掛門牌，或值不在清單裡 | `platform` |
-| 收集設定所在的 `obs`、系統元件的 `kube-system` | `platform` |
+| 收集設定所在的 `otel-collector`、系統元件的 `kube-system` | `platform` |
 
 log 沒有「server 本身」這一類（節點的系統 log 這一步不收），所以不會有 `icsd` 的 log。
 

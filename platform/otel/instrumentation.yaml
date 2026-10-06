@@ -1,7 +1,7 @@
 # 自動埋點的設定。要先裝 OpenTelemetry Operator（指令見 .agents/project/commands.md）。
 #
 # app 在 pod 上加一個標註，Operator 就會在 pod 啟動時把埋點塞進去，image 不用改：
-#   instrumentation.opentelemetry.io/inject-python: "obs/python"
+#   instrumentation.opentelemetry.io/inject-python: "otel-collector/python"
 # 目前只有 Python 的。其他語言各加一段（java、dotnet、nodejs），標註的名字也跟著換。
 #
 # ⚠ 自動埋點只認得常見的框架。不認得的那一段不會有 trace，也不會報錯。
@@ -9,11 +9,11 @@ apiVersion: opentelemetry.io/v1alpha1
 kind: Instrumentation
 metadata:
   name: python
-  namespace: obs
+  namespace: otel-collector
 spec:
   # 送給節點那一份收集程式。這個 Service 只會轉給同一個節點上的那一個
   exporter:
-    endpoint: http://otel-node-collector.obs.svc:4318
+    endpoint: http://otel-node-collector.otel-collector.svc:4318
   propagators:
     - tracecontext
     - baggage

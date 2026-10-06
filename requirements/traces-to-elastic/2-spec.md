@@ -46,7 +46,7 @@ pod 上加一個標註，值是平台那一份設定的位置：
 
 ```yaml
 annotations:
-  instrumentation.opentelemetry.io/inject-python: "obs/python"
+  instrumentation.opentelemetry.io/inject-python: "otel-collector/python"
 ```
 
 不加的話程式照樣跑，只是沒有 trace。

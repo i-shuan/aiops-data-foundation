@@ -18,6 +18,8 @@ import time
 sys.stdout.reconfigure(encoding="utf-8")
 
 CTX = "k3d-obs-test"
+COL_NS = "otel-collector"     # 收集程式住的 namespace
+ES_NS = "elastic"             # 測試用的 Elasticsearch 住的 namespace
 SITE, CLUSTER = "ctsp", "obs-test"
 NS = "resource.attributes.k8s.namespace.name"
 LOGS = "logs-*"
@@ -30,7 +32,8 @@ EXPECT = {
     "fake-none": "platform",
     "fake-typo": "platform",
     "fake-spoof": "bsid",
-    "obs": "platform",
+    COL_NS: "platform",
+    ES_NS: "platform",
     "kube-system": "platform",
     "(none)": "icsd",
 }
@@ -50,7 +53,7 @@ def kubectl(*args, stdin=None, check=True):
 def es(path, body):
     cmd = ('curl -s -m 20 -u "elastic:$ELASTIC_PASSWORD" -H "Content-Type: application/json" '
            '"localhost:9200/%s" -d @-' % path)
-    out = kubectl("-n", "obs", "exec", "-i", "elasticsearch-0", "--", "sh", "-c", cmd, stdin=json.dumps(body))
+    out = kubectl("-n", ES_NS, "exec", "-i", "elasticsearch-0", "--", "sh", "-c", cmd, stdin=json.dumps(body))
     doc = json.loads(out)
     if "error" in doc:
         raise RuntimeError("Elasticsearch：%s" % json.dumps(doc["error"], ensure_ascii=False)[:300])
@@ -59,7 +62,7 @@ def es(path, body):
 
 def sync_clock():
     global clock_offset
-    clock_offset = float(kubectl("-n", "obs", "exec", "elasticsearch-0", "--", "date", "+%s").strip()) - time.time()
+    clock_offset = float(kubectl("-n", ES_NS, "exec", "elasticsearch-0", "--", "date", "+%s").strip()) - time.time()
 
 
 def now():
@@ -320,7 +323,11 @@ def routing():
     print("=== 分流：每個情境進了哪一份（數值、log、trace）===")
     deadline = time.time() + 240
     while True:
-        results = routing_once() + logs_once() + traces_once()
+        try:
+            results = routing_once() + logs_once() + traces_once()
+        except (KeyError, RuntimeError) as err:
+            # 全新的 Elasticsearch 一開始連資料流都還沒有，查詢會回不完整的結果。當成還沒好，再等
+            results = [(False, "Elasticsearch 裡還查不到資料", "%s：%s" % (type(err).__name__, err))]
         if all(ok for ok, _, _ in results) or time.time() > deadline:
             return show(results)
         time.sleep(15)
@@ -467,24 +474,24 @@ def outage():
         print("\nFAIL（停機前就沒有資料，先跑 ./tests/obs/run.sh）")
         return 1
     try:
-        kubectl("-n", "obs", "scale", "statefulset/elasticsearch", "--replicas=0")
-        kubectl("-n", "obs", "wait", "--for=delete", "pod/elasticsearch-0", "--timeout=180s")
+        kubectl("-n", ES_NS, "scale", "statefulset/elasticsearch", "--replicas=0")
+        kubectl("-n", ES_NS, "wait", "--for=delete", "pod/elasticsearch-0", "--timeout=180s")
         a = now()
         print("  Elasticsearch 停了，等 %d 秒" % WINDOW)
         time.sleep(WINDOW)
         b = now()
         print("  重啟兩份收集程式（Elasticsearch 還停著）")
-        kubectl("-n", "obs", "delete", "pod", "-l", "app in (otel-cluster-collector, otel-node-collector)")
-        kubectl("-n", "obs", "rollout", "status", "statefulset/otel-cluster-collector", "--timeout=180s")
-        kubectl("-n", "obs", "rollout", "status", "daemonset/otel-node-collector", "--timeout=180s")
+        kubectl("-n", COL_NS, "delete", "pod", "-l", "app in (otel-cluster-collector, otel-node-collector)")
+        kubectl("-n", COL_NS, "rollout", "status", "statefulset/otel-cluster-collector", "--timeout=180s")
+        kubectl("-n", COL_NS, "rollout", "status", "daemonset/otel-node-collector", "--timeout=180s")
         time.sleep(20)
         c = now()
         print("  收集程式回來了，再等 %d 秒" % WINDOW)
         time.sleep(WINDOW)
         d = now()
     finally:
-        kubectl("-n", "obs", "scale", "statefulset/elasticsearch", "--replicas=1")
-        kubectl("-n", "obs", "rollout", "status", "statefulset/elasticsearch", "--timeout=300s")
+        kubectl("-n", ES_NS, "scale", "statefulset/elasticsearch", "--replicas=1")
+        kubectl("-n", ES_NS, "rollout", "status", "statefulset/elasticsearch", "--timeout=300s")
         wait_es()
     print("  Elasticsearch 回來了，總共停了 %d 秒。等補送" % (now() - a))
     parts = (("重啟收集程式之前排隊的", a, b), ("重啟收集程式之後排隊的", c, d))

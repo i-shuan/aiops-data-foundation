@@ -5,11 +5,17 @@
 # 正式的收集設定不在這裡，在 platform/otel/。run.sh 套用時只換位址與 cluster 名稱。
 #
 # 密碼不寫在這裡：run.sh 當場隨機產生，放進 Secret es-credentials。
+# Elasticsearch 放在自己的 namespace，跟收集程式分開：正式環境它也不會跟收集程式住在一起。
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: elastic
+---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: elasticsearch
-  namespace: obs
+  namespace: elastic
 spec:
   serviceName: elasticsearch
   replicas: 1
@@ -73,7 +79,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: elasticsearch
-  namespace: obs
+  namespace: elastic
 spec:
   selector:
     app: elasticsearch
@@ -143,7 +149,7 @@ spec:
               while true; do
                 i=$((i+1)); t=$(date +%s)
                 body=$(printf '{"resourceSpans":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"fake-tracer"}},{"key":"tenant","value":{"stringValue":"tsid"}},{"key":"site","value":{"stringValue":"fake"}},{"key":"data_stream.namespace","value":{"stringValue":"tsid"}},{"key":"k8s.namespace.name","value":{"stringValue":"demo-tsid"}},{"key":"k8s.pod.name","value":{"stringValue":"demo-api-impostor"}},{"key":"k8s.pod.uid","value":{"stringValue":"00000000-0000-0000-0000-000000000000"}}]},"scopeSpans":[{"spans":[{"traceId":"%016x%016x","spanId":"%016x","name":"spoof","kind":1,"startTimeUnixNano":"%s000000000","endTimeUnixNano":"%s100000000","attributes":[{"key":"tenant","value":{"stringValue":"tsid"}},{"key":"cluster","value":{"stringValue":"fake"}}]}]}]}]}' $t $i $i $t $t)
-                wget -q -O /dev/null --header 'Content-Type: application/json' --post-data "$body" http://otel-node-collector.obs.svc:4318/v1/traces
+                wget -q -O /dev/null --header 'Content-Type: application/json' --post-data "$body" http://otel-node-collector.otel-collector.svc:4318/v1/traces
                 sleep 3
               done
       volumes:
@@ -277,7 +283,7 @@ spec:
               while true; do
                 i=$((i+1)); t=$(date +%s)
                 body=$(printf '{"resourceSpans":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"fake-tracer"}},{"key":"tenant","value":{"stringValue":"tsid"}},{"key":"site","value":{"stringValue":"fake"}},{"key":"data_stream.namespace","value":{"stringValue":"tsid"}},{"key":"k8s.namespace.name","value":{"stringValue":"demo-tsid"}},{"key":"k8s.pod.name","value":{"stringValue":"demo-api-impostor"}},{"key":"k8s.pod.uid","value":{"stringValue":"00000000-0000-0000-0000-000000000000"}}]},"scopeSpans":[{"spans":[{"traceId":"%016x%016x","spanId":"%016x","name":"spoof","kind":1,"startTimeUnixNano":"%s000000000","endTimeUnixNano":"%s100000000","attributes":[{"key":"tenant","value":{"stringValue":"tsid"}},{"key":"cluster","value":{"stringValue":"fake"}}]}]}]}]}' $t $i $i $t $t)
-                wget -q -O /dev/null --header 'Content-Type: application/json' --post-data "$body" http://otel-node-collector.obs.svc:4318/v1/traces
+                wget -q -O /dev/null --header 'Content-Type: application/json' --post-data "$body" http://otel-node-collector.otel-collector.svc:4318/v1/traces
                 sleep 3
               done
       volumes:

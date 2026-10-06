@@ -20,6 +20,8 @@ export MSYS_NO_PATHCONV=1 PYTHONIOENCODING=utf-8
 cd "$(dirname "$0")/../.."
 
 CTX=k3d-obs-test
+NS=otel-collector          # 收集程式住的 namespace，跟 platform/otel/ 裡寫的一樣
+ES_NS=elastic             # 測試用的 Elasticsearch 住的 namespace
 K="kubectl --context $CTX"
 H="helm --kube-context $CTX"
 TMP=$(mktemp -d)
@@ -28,7 +30,7 @@ trap 'rm -rf "$TMP"' EXIT
 TMPW=$(cygpath -m "$TMP" 2>/dev/null || echo "$TMP")
 
 render() {   # $1 = good | nospoof | retry0 | nopvc
-  sed -e 's#ES_ENDPOINT: .*#ES_ENDPOINT: "http://elasticsearch.obs.svc:9200"#' \
+  sed -e 's#ES_ENDPOINT: .*#ES_ENDPOINT: "http://elasticsearch.elastic.svc:9200"#' \
       -e 's#CLUSTER: .*#CLUSTER: "obs-test"#' platform/otel/site-ctsp.yaml > "$TMP/site.yaml"
   for f in cluster-collector node-collector; do
     case "$1" in
@@ -61,12 +63,17 @@ deploy() {   # $1 = good | nospoof | retry0 | nopvc
   $K apply -f platform/otel/common.yaml >/dev/null
   # 自動埋點的設定要比範例程式先到：Operator 是在 pod 啟動的那一刻塞進去的
   $K apply -f platform/otel/instrumentation.yaml >/dev/null
-  if ! $K -n obs get secret es-credentials >/dev/null 2>&1; then
-    $K -n obs create secret generic es-credentials --from-literal=username=elastic \
-      --from-literal=password="$(python -c 'import secrets;print(secrets.token_urlsafe(24))' | tr -d '\r')" >/dev/null
-  fi
   $K apply -f tests/obs/backends.yaml >/dev/null
-  $K -n obs rollout status statefulset/elasticsearch --timeout=300s | tail -1
+  # 同一組帳密要放兩份：Elasticsearch 自己用一份，收集程式用一份。Secret 不能跨 namespace 讀
+  if ! $K -n $NS get secret es-credentials >/dev/null 2>&1 || ! $K -n $ES_NS get secret es-credentials >/dev/null 2>&1; then
+    pw="$(python -c 'import secrets;print(secrets.token_urlsafe(24))' | tr -d '\r')"
+    for ns in $NS $ES_NS; do
+      $K -n $ns delete secret es-credentials --ignore-not-found >/dev/null
+      $K -n $ns create secret generic es-credentials --from-literal=username=elastic --from-literal=password="$pw" >/dev/null
+    done
+    unset pw
+  fi
+  $K -n $ES_NS rollout status statefulset/elasticsearch --timeout=300s | tail -1
 
   if [ "${SKIP_BUILD:-0}" != 1 ]; then
     docker build -q --build-arg BASE_IMAGE=python:3.12-slim -t demo-svc:test app/demo-svc >/dev/null
@@ -78,17 +85,17 @@ deploy() {   # $1 = good | nospoof | retry0 | nopvc
 
   render "$1"
   # StatefulSet 的 volumeClaimTemplates 不能改，有沒有 PVC 跟現在的不一樣就要砍掉重建
-  have=$($K -n obs get statefulset otel-cluster-collector -o jsonpath='{.spec.volumeClaimTemplates[0].metadata.name}' 2>/dev/null || true)
+  have=$($K -n $NS get statefulset otel-cluster-collector -o jsonpath='{.spec.volumeClaimTemplates[0].metadata.name}' 2>/dev/null || true)
   want=queue
   if [ "$1" = nopvc ]; then want=; fi
   if [ "$have" != "$want" ]; then
-    $K -n obs delete statefulset otel-cluster-collector --ignore-not-found >/dev/null
+    $K -n $NS delete statefulset otel-cluster-collector --ignore-not-found >/dev/null
   fi
   $K apply -f "$TMPW/site.yaml" -f "$TMPW/cluster-collector.yaml" -f "$TMPW/node-collector.yaml" >/dev/null
   # 設定放在 ConfigMap 裡，改了不會自己重啟
-  $K -n obs rollout restart statefulset/otel-cluster-collector daemonset/otel-node-collector >/dev/null
-  $K -n obs rollout status statefulset/otel-cluster-collector --timeout=180s | tail -1
-  $K -n obs rollout status daemonset/otel-node-collector --timeout=180s | tail -1
+  $K -n $NS rollout restart statefulset/otel-cluster-collector daemonset/otel-node-collector >/dev/null
+  $K -n $NS rollout status statefulset/otel-cluster-collector --timeout=180s | tail -1
+  $K -n $NS rollout status daemonset/otel-node-collector --timeout=180s | tail -1
   for ns in fake-none fake-typo fake-spoof; do
     $K -n $ns rollout status deployment/fake --timeout=120s >/dev/null
   done

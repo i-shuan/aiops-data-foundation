@@ -5,13 +5,13 @@
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: obs
+  name: otel-collector
 ---
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: otel-common
-  namespace: obs
+  namespace: otel-collector
 data:
   # 用 | 隔開。加部門就在這裡加，兩份收集程式都會吃到
   ALLOWED_TENANTS: "tsid|bsid|icsd|imc|platform"

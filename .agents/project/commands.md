@@ -33,7 +33,7 @@ k3d cluster create obs-test --image rancher/k3s:v1.30.14-k3s2 --no-lb --k3s-arg 
 kubectl config set-cluster k3d-obs-test --server="https://127.0.0.1:$(docker port k3d-obs-test-server-0 6443/tcp | head -1 | sed 's/.*://')"
 docker pull busybox:1.36 && k3d image import busybox:1.36 -c obs-test
 helm repo add open-telemetry https://open-telemetry.github.io/opentelemetry-helm-charts
-helm --kube-context k3d-obs-test install opentelemetry-operator open-telemetry/opentelemetry-operator --version 0.124.1 -n opentelemetry-operator-system --create-namespace --set admissionWebhooks.certManager.enabled=false --set admissionWebhooks.autoGenerateCert.enabled=true --wait
+helm --kube-context k3d-obs-test install opentelemetry-operator open-telemetry/opentelemetry-operator --version 0.124.1 -n otel-operator --create-namespace --set admissionWebhooks.certManager.enabled=false --set admissionWebhooks.autoGenerateCert.enabled=true --wait
 ```
 
 | ⚠️ | 為什麼 |

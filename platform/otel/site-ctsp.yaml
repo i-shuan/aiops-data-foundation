@@ -7,7 +7,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: otel-site
-  namespace: obs
+  namespace: otel-collector
 data:
   SITE: "ctsp"
   CLUSTER: "CHANGE-ME"

@@ -26,7 +26,7 @@ ports:
 
 # trace：用平台哪一份自動埋點的設定（namespace/名稱）。留空就不掛，程式照樣跑，只是沒有 trace
 tracing:
-  instrumentation: obs/python
+  instrumentation: otel-collector/python
 
 # demo-web 每秒自己打自己幾次。0 = 不產生流量
 selfTrafficRps: 2

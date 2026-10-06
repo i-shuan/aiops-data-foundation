@@ -9,7 +9,7 @@
 
 | 檔案 | 內容 | 每個 cluster 一樣嗎 |
 | --- | --- | --- |
-| `common.yaml` | namespace `obs`，以及允許的部門清單、預設的部門、server 算哪個部門 | 一樣 |
+| `common.yaml` | namespace `otel-collector`，以及允許的部門清單、預設的部門、server 算哪個部門 | 一樣 |
 | `site-ctsp.yaml` | 這個 cluster 的廠區、cluster 名稱、Elasticsearch 的位址 | 每個 cluster 一份 |
 | `cluster-collector.yaml` | 整個 cluster 一個：抓程式吐的數值、K8s 回報的狀態 | 一樣 |
 | `node-collector.yaml` | 每個節點一個：server 的 CPU、記憶體、磁碟、網路，每個容器的資源用量，每個容器印的 log，以及收 trace 的入口 | 一樣 |
@@ -70,13 +70,13 @@ app 在 pod 上加一個標註，image 與程式碼都不用改。範例見 `app
 
 ```yaml
 annotations:
-  instrumentation.opentelemetry.io/inject-python: "obs/python"
+  instrumentation.opentelemetry.io/inject-python: "otel-collector/python"
 ```
 
 | 項目 | 行為 |
 | --- | --- |
 | 誰把埋點放進去 | OpenTelemetry Operator，在 pod 啟動的那一刻。所以設定改了、或後來才加標註，pod 要重建才會生效 |
-| 送到哪 | 同一個節點上的收集程式（Service `otel-node-collector.obs.svc:4318`） |
+| 送到哪 | 同一個節點上的收集程式（Service `otel-node-collector.otel-collector.svc:4318`） |
 | 收哪些 | 全收，不抽樣。健康檢查的請求不記 |
 | 部門怎麼定 | 看連線是從哪個 pod 進來的，再讀那個 pod 所在 namespace 的門牌。程式自己說它是哪個 pod、哪個部門都不算數 |
 | 跟 log 怎麼串 | 同一次請求的編號在 trace 裡是 `trace_id`，在 log 裡是 `attributes.trace_id`，值一樣 |
@@ -98,7 +98,7 @@ kubectl --context k3d-obs-test apply -f platform/otel/common.yaml
 ```
 
 ```bash
-kubectl --context k3d-obs-test -n obs create secret generic es-credentials --from-literal=username=<帳號> --from-literal=password=<密碼>
+kubectl --context k3d-obs-test -n otel-collector create secret generic es-credentials --from-literal=username=<帳號> --from-literal=password=<密碼>
 ```
 
 ```bash
@@ -123,7 +123,7 @@ kubectl --context k3d-obs-test apply -f platform/otel/instrumentation.yaml
 ⚠️ 設定放在 ConfigMap 裡，改了之後收集程式不會自己重啟：
 
 ```bash
-kubectl --context k3d-obs-test -n obs rollout restart statefulset/otel-cluster-collector daemonset/otel-node-collector
+kubectl --context k3d-obs-test -n otel-collector rollout restart statefulset/otel-cluster-collector daemonset/otel-node-collector
 ```
 
 ## 加一個部門
