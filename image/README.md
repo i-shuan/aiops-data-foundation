@@ -1,7 +1,7 @@
 # image — 離線部署用的檔案
 
 這個資料夾放部署要用的 image 與 Helm chart，給拉不到外面 image 的環境用。
-裡面的檔案一共 1 GB 多，不進 git，只有這份說明在 repo 裡。
+裡面的 `.tar` 一共 1 GB 多，走 Git LFS，不是一般的 git 檔案。
 
 ## 怎麼產生
 
@@ -17,7 +17,14 @@
 
 ## 怎麼用
 
-把整個 repo 連同這個資料夾複製到另一台電腦，在那一台照常部署：
+另一台電腦要先裝 Git LFS 再 clone。已經 clone 過的話補這兩行：
+
+```bash
+git lfs install
+git lfs pull
+```
+
+然後照常部署：
 
 ```powershell
 .\deploy.cmd
@@ -25,7 +32,9 @@
 
 這個資料夾裡有 `.tar` 的話，腳本會先把它們載入，後面就不上網拉，也不用重建範例程式。
 
-⚠️ `git clone` 下來的 repo 裡這個資料夾是空的。檔案要用隨身碟、共用資料夾等方式另外複製。
+⚠️ 沒裝 Git LFS 就 clone 的話，這裡的 `.tar` 只會是一百多 bytes 的指標檔。`deploy.ps1` 遇到會停下來講。
+
+⚠️ GitHub 的 LFS 有儲存與每月流量的額度。超過的話 push 或下載會被擋，那時候改用隨身碟或共用資料夾複製這個資料夾也可以。
 
 ## 裡面應該有什麼
 

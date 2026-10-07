@@ -1,3 +1,6 @@
 # 這兩種在 Windows 上一定要 CRLF
 *.cmd text eol=crlf
 *.ps1 text eol=crlf
+
+# 離線部署用的 image，一共 1 GB 多，單檔超過 GitHub 的 100 MB 上限，走 Git LFS
+image/*.tar filter=lfs diff=lfs merge=lfs -text

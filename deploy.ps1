@@ -7,7 +7,7 @@
 #
 # 沒有網路、或公司的網路拉不到 image 時：
 #   1. 在拉得到的電腦上先部署一次，再跑 .\deploy.cmd -SaveImages
-#   2. 把整個 repo 連同 image\ 資料夾帶到另一台（image\ 不在 git 裡，要另外複製）
+#   2. image\ 裡的檔案走 Git LFS。commit 並 push 之後，另一台要裝 Git LFS 再 clone 才拿得到真的檔案
 #   3. 在那一台跑 .\deploy.cmd。image\ 裡有東西就從檔案載入，不上網，也不用重建範例程式
 #
 # 會裝這些（都是本機測試用的規模）：
@@ -94,7 +94,7 @@ if ($SaveImages) {
     Get-ChildItem $ImageDir -File | Where-Object { $_.Name -ne "README.md" } |
         ForEach-Object { Write-Host ("  {0,8:N0} MB  {1}" -f ($_.Length / 1MB), $_.Name) }
     Write-Host ""
-    Write-Host "  存好了。image\ 不在 git 裡，要帶到別台電腦的話整個資料夾另外複製過去。"
+    Write-Host "  存好了。這些檔案走 Git LFS：git add image 之後 commit、push，另一台裝了 Git LFS 再 clone 就拿得到。"
     exit 0
 }
 
@@ -130,6 +130,10 @@ if ($tars.Count -gt 0) {
     }
     foreach ($tar in $tars) {
         Write-Host "  $($tar.Name)"
+        # 沒裝 Git LFS 就 clone 的話，這裡只會是一百多 bytes 的指標檔，不是真的 image
+        if ($tar.Length -lt 100000) {
+            Stop-Deploy "image\$($tar.Name) 只有 $($tar.Length) bytes，是 Git LFS 的指標檔，不是真的 image。先裝 Git LFS，在 repo 裡下 git lfs install 與 git lfs pull，再跑一次。"
+        }
         # 同樣的原因，用導向餵進去，不給它路徑
         cmd /c "nerdctl --namespace k8s.io load < image\$($tar.Name)" | Out-Null
         Check "載入 $($tar.Name) 失敗。檔案可能沒複製完整"

@@ -125,10 +125,10 @@ deploy.cmd
 .\deploy.cmd -SaveImages
 ```
 
-把整個 repo 連同 `image\` 複製到另一台，在那一台照常跑 `.\deploy.cmd`。資料夾裡有檔案的話，
+`image\` 裡的檔案走 Git LFS。另一台裝了 Git LFS 再 clone，就能照常跑 `.\deploy.cmd`。資料夾裡有檔案的話，
 腳本會先把它們載入，後面不上網拉 image、不抓 Helm chart，也不重建範例程式。
 
-⚠️ `image\` 裡的檔案一共 1 GB 多，不在 git 裡。`git clone` 下來是空的，要用隨身碟或共用資料夾另外複製。
+⚠️ `image\` 裡的檔案一共 1 GB 多。沒裝 Git LFS 就 clone 的話拿到的只是指標檔，要補 `git lfs install` 與 `git lfs pull`。
 細節在 [`image/README.md`](image/README.md)。
 
 ⚠️ 「從資料夾載入」這條路在本機實際跑過。但那台電腦上本來就有這些 image，所以沒有證明

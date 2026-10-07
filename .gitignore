@@ -2,9 +2,6 @@
 __pycache__/
 *.pyc
 
-# image tar 100 多 MB，超過 GitHub 單檔上限，放在測試機上，不進 git
+# image tar 不進 git。例外：image/ 底下離線部署用的那幾個，走 Git LFS（見 .gitattributes）
 *.tar
-
-# 離線部署用的 image 與 Helm chart，一共 1 GB 多，不進 git。用 .\deploy.cmd -SaveImages 產生
-image/*
-!image/README.md
+!image/*.tar
