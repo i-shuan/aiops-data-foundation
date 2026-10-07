@@ -16,7 +16,7 @@
 
 ```bash
 ./tests/validate.sh                        # 不需要 cluster，要 python（PyYAML）和 helm
-.\deploy.cmd                               # PowerShell 或 cmd。一鍵部署到本機的 Rancher Desktop，內容在 deploy.ps1
+.\deploy.cmd                               # PowerShell 或 cmd。一鍵部署到本機的 Rancher Desktop。-SaveImages 把 image 存進 image\ 供離線用
 ./tests/obs/run.sh                         # 要 cluster obs-test。部署、查分流、弄慢看得到，約 5 分鐘
 ./tests/obs/run.sh outage                  # 停機補送，約 7 分鐘。要先跑過上面那個
 ./tests/obs/run.sh broken nospoof          # 改壞的設定一定要 FAIL。另有 retry0、nopvc，各約 8 分鐘
@@ -45,7 +45,7 @@ helm --kube-context k3d-obs-test install opentelemetry-operator open-telemetry/o
 
 ## 不要讀、不要遞迴搜尋
 
-`.git/`、`__pycache__/`、`*.tar`（image tar，100 多 MB）。
+`.git/`、`__pycache__/`、`image/` 底下的 `*.tar`（離線部署用的 image，一共 1 GB 多）。
 
 ## 技術棧
 

@@ -117,6 +117,23 @@ deploy.cmd
 下載 `k3s`、`k3s-airgap-images-amd64.tar.zst`、`sha256sum-amd64.txt` 三個檔，放進
 `%LOCALAPPDATA%\rancher-desktop\cache\k3s\<版本>\`（例如 `v1.30.14+k3s2`），再重開 Rancher Desktop。
 
+### 拉不到 image 的環境（離線部署）
+
+在拉得到的電腦上先部署一次，再把用到的 image 與 Helm chart 存進 `image\` 資料夾：
+
+```powershell
+.\deploy.cmd -SaveImages
+```
+
+把整個 repo 連同 `image\` 複製到另一台，在那一台照常跑 `.\deploy.cmd`。資料夾裡有檔案的話，
+腳本會先把它們載入，後面不上網拉 image、不抓 Helm chart，也不重建範例程式。
+
+⚠️ `image\` 裡的檔案一共 1 GB 多，不在 git 裡。`git clone` 下來是空的，要用隨身碟或共用資料夾另外複製。
+細節在 [`image/README.md`](image/README.md)。
+
+⚠️ 「從資料夾載入」這條路在本機實際跑過。但那台電腦上本來就有這些 image，所以沒有證明
+「完全沒有網路也裝得起來」。第一次在沒有網路的電腦上跑時要留意。
+
 `deploy.cmd` 只是一行啟動檔，真正的內容與說明在 [`deploy.ps1`](deploy.ps1)。
 
 ## Tests

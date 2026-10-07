@@ -3,6 +3,12 @@
 #   .\deploy.cmd                        對 rancher-desktop 部署，動手前會先問
 #   .\deploy.cmd -Yes                   不問，直接部署
 #   .\deploy.cmd -Context 別的名稱       對別的本機 cluster
+#   .\deploy.cmd -SaveImages           不部署。把部署要用的 image 與 Helm chart 存進 image\ 資料夾
+#
+# 沒有網路、或公司的網路拉不到 image 時：
+#   1. 在拉得到的電腦上先部署一次，再跑 .\deploy.cmd -SaveImages
+#   2. 把整個 repo 連同 image\ 資料夾帶到另一台（image\ 不在 git 裡，要另外複製）
+#   3. 在那一台跑 .\deploy.cmd。image\ 裡有東西就從檔案載入，不上網，也不用重建範例程式
 #
 # 會裝這些（都是本機測試用的規模）：
 #   otel-operator          OpenTelemetry Operator（不裝 cert-manager，憑證由 Helm 產生）
@@ -22,7 +28,8 @@
 # ⚠ 只給本機用。正式環境不要用這支：Elasticsearch 是測試用的、沒有開 TLS。
 param(
     [string]$Context = "rancher-desktop",
-    [switch]$Yes
+    [switch]$Yes,
+    [switch]$SaveImages
 )
 
 $ErrorActionPreference = "Continue"
@@ -33,6 +40,17 @@ $ColNs = "otel-collector"
 $EsNs = "elastic"
 $OpNs = "otel-operator"
 $ClusterName = if ($env:CLUSTER_NAME) { $env:CLUSTER_NAME } else { $Context }
+$ImageDir = Join-Path $PSScriptRoot "image"
+$ChartVersion = "0.124.1"
+# 部署會用到的 image。版本要跟 platform\otel\、tests\obs\backends.yaml、Operator 的 chart 一致
+$Images = [ordered]@{
+    "elasticsearch"        = "elasticsearch:9.5.3"
+    "otel-collector"       = "otel/opentelemetry-collector-contrib:0.161.0"
+    "otel-operator"        = "ghcr.io/open-telemetry/opentelemetry-operator/opentelemetry-operator:0.160.0"
+    "otel-autoinst-python" = "ghcr.io/open-telemetry/opentelemetry-operator/autoinstrumentation-python:0.66b0"
+    "busybox"              = "busybox:1.36"
+    "demo-svc"             = "demo-svc:test"
+}
 
 function Stop-Deploy([string]$Message) {
     Write-Host ""
@@ -48,6 +66,36 @@ function Step([string]$Title) {
 # 原生指令失敗時不會自己停，每一步都要看結束代碼
 function Check([string]$Message) {
     if ($LASTEXITCODE -ne 0) { Stop-Deploy $Message }
+}
+
+# ---------------------------------------------------------------- 只存 image，不部署
+if ($SaveImages) {
+    foreach ($tool in @("nerdctl", "helm")) {
+        if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) { Stop-Deploy "找不到 $tool。" }
+    }
+    New-Item -ItemType Directory -Force -Path $ImageDir | Out-Null
+    Step "把 image 存進 $ImageDir"
+    foreach ($name in $Images.Keys) {
+        Write-Host ("  {0,-22} {1}" -f $name, $Images[$name])
+        # nerdctl 實際跑在 Rancher Desktop 的虛擬機裡，看不懂 Windows 的路徑，-o 會寫到不知道哪裡去。
+        # 所以讓它印到標準輸出，由 cmd 導進檔案。不能用 PowerShell 的 >：它會把內容轉碼，檔案就壞了
+        cmd /c "nerdctl --namespace k8s.io save --platform linux/amd64 $($Images[$name]) > image\$name.tar"
+        Check "存不出 $($Images[$name])。這台要先部署過一次，containerd 裡才有這個 image。"
+        if ((Get-Item (Join-Path $ImageDir "$name.tar")).Length -lt 100000) {
+            Stop-Deploy "$name.tar 太小，應該是沒存成功。"
+        }
+    }
+    Step "把 Operator 的 Helm chart 存進 $ImageDir"
+    helm repo add open-telemetry https://open-telemetry.github.io/opentelemetry-helm-charts *> $null
+    helm repo update open-telemetry *> $null
+    helm pull open-telemetry/opentelemetry-operator --version $ChartVersion -d $ImageDir
+    Check "抓不到 Operator 的 Helm chart"
+    Write-Host ""
+    Get-ChildItem $ImageDir -File | Where-Object { $_.Name -ne "README.md" } |
+        ForEach-Object { Write-Host ("  {0,8:N0} MB  {1}" -f ($_.Length / 1MB), $_.Name) }
+    Write-Host ""
+    Write-Host "  存好了。image\ 不在 git 裡，要帶到別台電腦的話整個資料夾另外複製過去。"
+    exit 0
 }
 
 foreach ($tool in @("kubectl", "helm")) {
@@ -71,11 +119,36 @@ if (-not $Yes) {
     }
 }
 
+# image\ 裡有檔案就先載進 containerd，後面的步驟就不用上網拉
+$tars = @()
+if (Test-Path $ImageDir) { $tars = @(Get-ChildItem $ImageDir -Filter *.tar -File) }
+$loaded = @{}
+if ($tars.Count -gt 0) {
+    Step "0/6 從 image\ 載入 $($tars.Count) 個 image（不上網）"
+    if (-not (Get-Command nerdctl -ErrorAction SilentlyContinue)) {
+        Stop-Deploy "找不到 nerdctl，沒辦法載入 image\ 裡的檔案。"
+    }
+    foreach ($tar in $tars) {
+        Write-Host "  $($tar.Name)"
+        # 同樣的原因，用導向餵進去，不給它路徑
+        cmd /c "nerdctl --namespace k8s.io load < image\$($tar.Name)" | Out-Null
+        Check "載入 $($tar.Name) 失敗。檔案可能沒複製完整"
+        $loaded[$tar.BaseName] = $true
+    }
+}
+
 Step "1/6 OpenTelemetry Operator"
-helm repo add open-telemetry https://open-telemetry.github.io/opentelemetry-helm-charts *> $null
-helm repo update open-telemetry *> $null
-helm --kube-context $Context upgrade --install opentelemetry-operator open-telemetry/opentelemetry-operator `
-    --version 0.124.1 -n $OpNs --create-namespace `
+$chart = "open-telemetry/opentelemetry-operator"
+$localChart = Join-Path $ImageDir "opentelemetry-operator-$ChartVersion.tgz"
+if (Test-Path $localChart) {
+    Write-Host "  用 image\ 裡的 Helm chart"
+    $chart = $localChart
+} else {
+    helm repo add open-telemetry https://open-telemetry.github.io/opentelemetry-helm-charts *> $null
+    helm repo update open-telemetry *> $null
+}
+helm --kube-context $Context upgrade --install opentelemetry-operator $chart `
+    --version $ChartVersion -n $OpNs --create-namespace `
     --set admissionWebhooks.certManager.enabled=false `
     --set admissionWebhooks.autoGenerateCert.enabled=true `
     --set admissionWebhooks.autoGenerateCert.recreate=false `
@@ -133,7 +206,9 @@ kubectl --context $Context -n $ColNs rollout status daemonset/otel-node-collecto
 Check "節點那一份收集程式起不來"
 
 Step "5/6 範例程式的 image"
-if ($env:SKIP_BUILD -eq "1") {
+if ($loaded["demo-svc"]) {
+    Write-Host "  已經從 image\demo-svc.tar 載入，不用重建"
+} elseif ($env:SKIP_BUILD -eq "1") {
     Write-Host "  SKIP_BUILD=1，略過"
 } else {
     if (-not (Get-Command nerdctl -ErrorAction SilentlyContinue)) {

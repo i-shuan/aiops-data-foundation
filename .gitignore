@@ -5,3 +5,6 @@ __pycache__/
 # image tar 100 多 MB，超過 GitHub 單檔上限，放在測試機上，不進 git
 *.tar
 
+# 離線部署用的 image 與 Helm chart，一共 1 GB 多，不進 git。用 .\deploy.cmd -SaveImages 產生
+image/*
+!image/README.md
