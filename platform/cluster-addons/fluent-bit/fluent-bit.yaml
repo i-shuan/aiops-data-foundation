@@ -8,6 +8,10 @@ service:
   http_listen: 0.0.0.0
   http_port: 2020
   health_check: on
+  # 重試間隔是指數成長，預設上限 2000 秒。ES 停機幾分鐘後，有些資料下次重試會被排到很久以後，
+  # ES 早就恢復了還遲遲沒補。上限壓到 60 秒：ES 恢復後最慢一分鐘內就會補送。
+  scheduler.base: 5
+  scheduler.cap: 60
   # 送不出去的資料先落地，ES 停機或某把 key 失效時不會掉資料
   storage.path: /var/fluent-bit/state/flb-storage/
   storage.sync: normal

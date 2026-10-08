@@ -47,15 +47,15 @@ echo "$(ts) ES 可以用了"
 
 until kubectl -n load-test get job "gen-${run}" -o jsonpath='{.status.conditions[*].type}' 2>/dev/null | grep -qE 'Complete|Failed'; do sleep 5; done
 emitted=$(cat /var/log/pods/load-test_gen-${run}-*/gen/*.log | grep -o '"emitted": [0-9]*' | grep -o '[0-9]*')
-prev=-1; same=0
-for _ in $(seq 1 120); do
+# 等到全部補齊為止（最多 30 分鐘）。不能用「筆數一陣子沒變」判斷：重試間隔會拉長，中間可能停好幾分鐘
+prev=0
+for _ in $(seq 1 360); do
   es -X POST "${ES_URL}/k8s-imc-local/_refresh" >/dev/null
-  got=$(es "${ES_URL}/k8s-imc-local/_count" -d "{\"query\":${q}}" | jq .count)
-  [[ "$got" == "$prev" ]] && same=$((same+1)) || same=0
-  prev=$got
-  [[ "$got" -ge "$emitted" || $same -ge 6 ]] && break
+  prev=$(es "${ES_URL}/k8s-imc-local/_count" -d "{\"query\":${q}}" | jq .count)
+  [[ "$prev" -ge "$emitted" ]] && break
   sleep 5
 done
+all_in=$(date +%s)
 in_window=$(es "${ES_URL}/k8s-imc-local/_count" -d "{\"query\":{\"bool\":{\"filter\":[${q},{\"range\":{\"@timestamp\":{\"gte\":\"${down_at}\",\"lt\":\"${up_at}\"}}}]}}}" | jq .count)
 catchup=$(es "${ES_URL}/k8s-imc-local/_search" -d "{\"size\":0,\"query\":{\"bool\":{\"filter\":[${q},{\"range\":{\"@timestamp\":{\"gte\":\"${down_at}\",\"lt\":\"${up_at}\"}}}]}},\"aggs\":{\"last\":{\"max\":{\"field\":\"event.ingested\"}}}}" | jq '.aggregations.last.value/1000|floor')
 total_after_old=$(es "${ES_URL}/k8s-*/_count" -d "{\"query\":{\"range\":{\"event.ingested\":{\"lte\":\"${down_at}\"}}}}" | jq .count)
@@ -65,6 +65,6 @@ echo
 echo "結果："
 echo "  送出 ${emitted} 筆，收到 ${prev} 筆，遺失 $((emitted - prev)) 筆"
 echo "  停機期間（${down_at} ~ ${up_at}）產生的資料：${in_window} 筆（每秒 ${RATE} 筆 × ${DOWN_SECONDS} 秒 ≈ $((RATE * DOWN_SECONDS))）"
-echo "  ES 可用後 $((catchup - ready_at)) 秒補完停機期間的資料"
+echo "  ES 可用後 $((catchup - ready_at)) 秒補完停機期間的資料；全部補齊花了 $((all_in - ready_at)) 秒（含查詢間隔）"
 echo "  停機前已在 ES 的資料：關機時 ${total_before} 筆，重啟後查得到 ${total_after_old} 筆"
 echo "  Fluent Bit 這條出口累計丟棄：${dropped} 筆"
