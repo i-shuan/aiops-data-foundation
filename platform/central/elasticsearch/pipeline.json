@@ -1,0 +1,34 @@
+{
+  "description": "k8s log 正規化。script 的內容在 pipeline-normalize.painless，由 elasticsearch-setup.sh 組進來",
+  "processors": [
+    {
+      "json": {
+        "field": "log",
+        "target_field": "_app",
+        "if": "ctx.log instanceof String && ctx.log.trim().startsWith('{')",
+        "ignore_failure": true
+      }
+    },
+    {
+      "script": {
+        "lang": "painless",
+        "source": "__NORMALIZE_SCRIPT__"
+      }
+    },
+    {
+      "date": {
+        "field": "_app_ts",
+        "target_field": "@timestamp",
+        "formats": ["ISO8601"],
+        "if": "ctx._app_ts != null",
+        "ignore_failure": true
+      }
+    },
+    {"remove": {"field": "_app_ts", "ignore_missing": true}},
+    {"set": {"field": "event.ingested", "value": "{{{_ingest.timestamp}}}"}}
+  ],
+  "on_failure": [
+    {"set": {"field": "error.message", "value": "k8s-logs pipeline 失敗：{{{_ingest.on_failure_message}}}"}},
+    {"set": {"field": "event.ingested", "value": "{{{_ingest.timestamp}}}"}}
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "template": {
+    "settings": {
+      "index.lifecycle.name": "k8s-logs",
+      "index.default_pipeline": "k8s-logs",
+      "index.number_of_shards": 1,
+      "index.auto_expand_replicas": "0-1",
+      "index.codec": "best_compression",
+      "index.mapping.ignore_malformed": true
+    }
+  },
+  "_meta": {"description": "k8s log 共用設定：寫進來一律先過 k8s-logs pipeline 正規化"}
+}

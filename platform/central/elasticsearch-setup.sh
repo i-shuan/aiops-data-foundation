@@ -2,8 +2,12 @@
 # Elasticsearch 權限設定。group 清單要跟 platform/groups.yaml 一致。
 #
 # 用法：ES_URL=https://<elasticsearch-host>:9200 ES_AUTH=elastic:<password> ./elasticsearch-setup.sh
+#       只更新 index 結構、不發新 key：SKIP_KEYS=1 ./elasticsearch-setup.sh
+#       需要 curl、jq。
 #
-# 會建立三類東西：
+# 會建立四類東西：
+#   0. index 結構：ILM、mapping、正規化 pipeline、index template（./elasticsearch/）。
+#      可以重複執行，結果一樣。log 欄位規範見 docs/elasticsearch.md。
 #   1. 寫入用 API key（給 Fluent Bit）：每組只能寫自己 group 的 index。
 #      label 判斷錯了，頂多是那筆資料被拒絕，不會寫進別的 group。
 #      回應裡的 "encoded" 放進每個應用 cluster logging namespace 的 Secret es-writer-keys：
@@ -12,11 +16,13 @@
 #   3. 給人用的唯讀角色：每個 group 一個，只能看自己的 log 與事件。再指派給使用者。
 set -euo pipefail
 
+cd "$(dirname "$0")"
+
 : "${ES_URL:?請設定 ES_URL}"
 : "${ES_AUTH:?請設定 ES_AUTH（有 manage_security 權限的帳號）}"
 
 es() {
-  curl -sS -u "${ES_AUTH}" -H 'Content-Type: application/json' "$@"
+  curl -sS --max-time 60 -u "${ES_AUTH}" -H 'Content-Type: application/json' "$@"
   echo
 }
 
@@ -43,6 +49,26 @@ reader_role() {
     }]
   }"
 }
+
+put_json() {
+  local path="$1" file="$2"
+  echo "=== PUT ${path} ==="
+  # 結構設定錯了就停，不要帶著壞掉的 template 繼續發 key
+  es --fail-with-body -X PUT "${ES_URL}${path}" --data-binary "@${file}"
+}
+
+# 0. index 結構（順序有關：template 引用 component 與 pipeline，要先建）
+put_json /_ilm/policy/k8s-logs                     elasticsearch/ilm-policy.json
+pipeline_file="$(mktemp)"
+trap 'rm -f "${pipeline_file}"' EXIT
+jq --rawfile src elasticsearch/pipeline-normalize.painless \
+  '.processors[1].script.source = $src' elasticsearch/pipeline.json > "${pipeline_file}"
+put_json /_ingest/pipeline/k8s-logs                "${pipeline_file}"
+put_json /_component_template/k8s-logs-settings    elasticsearch/component-settings.json
+put_json /_component_template/k8s-logs-mappings    elasticsearch/component-mappings.json
+put_json /_index_template/k8s-logs                 elasticsearch/index-template.json
+
+[[ "${SKIP_KEYS:-}" == "1" ]] && exit 0
 
 # 1. 寫入用
 writer_key "fluent-bit-it"         '["k8s-it-*", "k8s-events-it-*"]'

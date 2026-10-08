@@ -1,0 +1,61 @@
+# 只給本機測試用的單節點 Elasticsearch。正式環境用中央那套，不要拿這份去部署。
+# 開了 security（API key 要靠它），但 HTTP 不走 TLS，省掉憑證。
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: es-test
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: es-elastic
+  namespace: es-test
+stringData:
+  password: changeme-test-only
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: elasticsearch
+  namespace: es-test
+spec:
+  serviceName: elasticsearch
+  replicas: 1
+  selector:
+    matchLabels: {app: elasticsearch}
+  template:
+    metadata:
+      labels: {app: elasticsearch}
+    spec:
+      containers:
+        - name: elasticsearch
+          image: docker.io/library/elasticsearch:8.17.2
+          env:
+            - {name: discovery.type, value: single-node}
+            - {name: xpack.security.enabled, value: "true"}
+            - {name: xpack.security.http.ssl.enabled, value: "false"}
+            - {name: xpack.security.transport.ssl.enabled, value: "false"}
+            - {name: ES_JAVA_OPTS, value: "-Xms1g -Xmx1g"}
+            # 測試機常和別人共用磁碟，使用率超過 90% 時 ES 會拒絕配置 shard，測試時不檢查
+            - {name: cluster.routing.allocation.disk.threshold_enabled, value: "false"}
+            - name: ELASTIC_PASSWORD
+              valueFrom: {secretKeyRef: {name: es-elastic, key: password}}
+          ports:
+            - {name: http, containerPort: 9200}
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "curl -sf -u elastic:$ELASTIC_PASSWORD localhost:9200/_cluster/health"]
+            periodSeconds: 10
+          resources:
+            requests: {cpu: 500m, memory: 2Gi}
+            limits: {memory: 2Gi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: elasticsearch
+  namespace: es-test
+spec:
+  selector: {app: elasticsearch}
+  ports:
+    - {name: http, port: 9200}
