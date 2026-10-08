@@ -17,8 +17,8 @@ es_pid() { pgrep -f 'Des.networkaddress.cache.ttl' | head -1; }  # ES 主程序�
 pipeline_stats() { es "${ES_URL}/_nodes/stats/ingest" | jq -r '[.nodes[].ingest.pipelines["k8s-logs"] | .count, .time_in_millis] | @tsv'; }
 
 kubectl apply -f "${here}/generator.yaml" >/dev/null
-printf "%-6s %-8s %-8s %-6s %-12s %-12s %-10s %-14s %-14s %-12s\n" \
-  速率 送出 收到 遺失 延遲p50/p99 最大延遲 消化完 FB_CPU/RSS ES_CPU/RSS pipeline/筆
+printf "%-6s %-8s %-8s %-6s %-6s %-12s %-12s %-10s %-14s %-14s %-12s\n" \
+  速率 送出 收到 遺失 重複 延遲p50/p99 最大延遲 消化完 FB_CPU/RSS ES_CPU/RSS pipeline/筆
 for rate in "${RATES[@]}"; do
   run="r${rate}-$(date +%H%M%S)"
   # 只數產生器的資料行（有 seq），不數它結束時回報的那一行
@@ -59,10 +59,12 @@ for rate in "${RATES[@]}"; do
   mx=$(jq '.aggregations.mx.value/1000|.*10|floor/10' <<<"$stats")
   last_ms=$(jq '.aggregations.last.value|floor' <<<"$stats")
   drain=$(( last_ms/1000 - gen_end )); (( drain < 0 )) && drain=0
+  # 重複：同一個 seq 出現不只一次的多餘筆數。遺失 = 送出 -（收到 - 重複）
+  dup=$(es "${ES_URL}/k8s-imc-local/_search" -d "{\"size\":0,\"query\":${q},\"aggs\":{\"d\":{\"terms\":{\"field\":\"app.seq\",\"min_doc_count\":2,\"size\":65000}}}}" | jq '[.aggregations.d.buckets[].doc_count - 1] | add // 0')
   read -r p_cnt1 p_ms1 < <(pipeline_stats)
   per_doc=$(awk -v c="$((p_cnt1-p_cnt0))" -v m="$((p_ms1-p_ms0))" 'BEGIN{ if (c>0) printf "%.3fms", m/c; else print "-"}')
-  printf "%-6s %-8s %-8s %-6s %-12s %-12s %-10s %-14s %-14s %-12s\n" \
-    "$rate" "$emitted" "$prev" "$((emitted-prev))" "${p50}s/${p99}s" "${mx}s" "+${drain}s" "${fb_cpu}/${fb_rss}MB" "${es_cpu}/${es_rss}MB" "$per_doc"
+  printf "%-6s %-8s %-8s %-6s %-6s %-12s %-12s %-10s %-14s %-14s %-12s\n" \
+    "$rate" "$emitted" "$prev" "$((emitted-prev+dup))" "$dup" "${p50}s/${p99}s" "${mx}s" "+${drain}s" "${fb_cpu}/${fb_rss}MB" "${es_cpu}/${es_rss}MB" "$per_doc"
 done
 fb_ip=$(kubectl -n logging get pod -l app.kubernetes.io/name=fluent-bit -o jsonpath='{.items[0].status.podIP}')
 echo; echo "Fluent Bit 出口統計（累計）："

@@ -24,7 +24,10 @@ pipeline:
       multiline.parser: cri, docker
       db: /var/fluent-bit/state/tail.db
       skip_long_lines: on
-      refresh_interval: 10
+      # 多久掃一次有沒有新的 log 檔。kubelet 預設 log 檔滿 10MB 就輪替並壓縮，
+      # 新 Pod 量大時，第一個檔可能在被發現前就輪替掉，那段資料直接遺失。
+      # 實測：10 秒時，每秒 5000 行的新 Pod 開頭 24100 行全部遺失。
+      refresh_interval: 2
       storage.type: filesystem
 
   filters:
