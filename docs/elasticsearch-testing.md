@@ -145,6 +145,9 @@ ES_URL=http://<ip>:9200 test/local-k3s/run-e2e.sh
 
 ### 依格式分派（10 項）
 
+> [!IMPORTANT]
+> **重點項目。** 這裡只驗證了「分派機制」，以及 `default`、`logfmt` 兩種格式。`eap` 服務的仿 SECS 測資只用來測「宣告了但還沒有規則」，**SECS 和 REST API 的真實解析還沒測**，要等真實 log 樣本。
+
 實際的原始 log 行和進 ES 後的文件，見[附錄 E](#e-依格式分派)。
 
 | 檢查 | 結果 |

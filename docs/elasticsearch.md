@@ -2,6 +2,10 @@
 
 一句話：**Fluent Bit 只負責「收」和「分流」，欄位整理一律交給中央 ES 的 pipeline。** 規則改在中央，不用動每個 cluster。
 
+> [!IMPORTANT]
+> **重點：log 格式不一致的處理，見下方「[pipeline](#pipeline)」。**
+> 依服務宣告的格式分派解析規則的機制已經完成並測過；**SECS、REST API 的規則還沒寫，等真實 log 樣本。**
+
 ## 資料怎麼走
 
 ```
@@ -76,6 +80,15 @@ pipeline 是 **Elasticsearch 內建的「寫入前加工」**（ingest pipeline�
 ```
 
 **為什麼放在中央 ES，不放在 Fluent Bit：** Fluent Bit 每個 cluster 都有一套，規則放那裡，每改一次就要每廠重新部署。放在中央只要改一處，跑一次 `elasticsearch-setup.sh` 就全廠生效。
+
+> [!IMPORTANT]
+> **這一節是 log 端的重點。** 格式拆不出欄位，AIOps 就只能看到一串文字。
+>
+> | 狀態 | 項目 |
+> |---|---|
+> | ✅ 完成 | 依格式分派的機制、`default`（JSON／純文字）、`logfmt`、沒有規則時退回並保留原文、`log.format`／`log.parser` 追蹤 |
+> | ⏳ 待辦 | **SECS**：解析規則＋Fluent Bit 多行合併。需要真實樣本：一般事件（S6F11）、告警（S5F1）、逾時（S9F9）、多行 body，以及 EAP 用的軟體或函式庫 |
+> | ⏳ 待辦 | **REST API**：只統一 method、路徑（換成樣板）、狀態碼、耗時、trace_id，body 不統一。需要兩三個服務的 log 範例，以及有沒有 ingress／API gateway 的存取紀錄 |
 
 ### 結構：共通身分 → 依格式分派 → 欄位對應
 
@@ -229,5 +242,5 @@ GET k8s-*/_search
 
 1. **K8s events**（OOMKilled、probe 失敗、BackOff）。這是 AIOps 很重要的訊號，但 event 本身只帶 namespace 名稱，不帶 dept；要分流得先決定歸屬放哪裡，見 README 待定事項第 1 點。唯讀角色裡已經預留了 `k8s-events-{group}-*`。
 2. **保留天數**要各 group 確認。
-3. **SECS、REST API 等格式的解析規則**：架構已經好了（見「pipeline」），等拿到真實的 log 樣本再寫。SECS 還要在 Fluent Bit 加多行合併。
+3. **⚠️ 重點：SECS、REST API 等格式的解析規則**：架構已經好了（見「[pipeline](#pipeline)」），等拿到真實的 log 樣本再寫。SECS 還要在 Fluent Bit 加多行合併。
 4. **dept 清單目前要手動同步三處**：`groups.yaml`、Fluent Bit 規則、vmagent regex。group 變多之前要改成從 `groups.yaml` 產生。

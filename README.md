@@ -4,6 +4,14 @@
 
 不做的話，等要上 AIOps 時第一件事是花好幾個月清資料，而且歷史資料的欄位救不回來，AI 沒有基準線可以學。
 
+> [!IMPORTANT]
+> **重點：log 格式不一致的處理**
+>
+> 全廠的 log 不可能統一成一種格式：Java 的 JSON、Go 的 key=value、設備通訊的 SECS、各服務各寫各的 REST API log。AIOps 能不能用 log，關鍵在這裡。
+>
+> - **已完成：** 依服務宣告的格式（chart 的 `logFormat`）分派到不同的解析規則。沒有規則的格式也照收、原文完整保留。見 [docs/elasticsearch.md「pipeline」](docs/elasticsearch.md#pipeline)。
+> - **待辦：SECS、REST API 的解析規則還沒寫，需要真實 log 樣本**（SECS 要含一般事件、告警、逾時、多行 body；REST API 要兩三個服務的範例）。SECS 一則跨多行，還要在 Fluent Bit 加多行合併。
+
 ## 目前的文件
 
 - [docs/vmagent.md](docs/vmagent.md)：metrics 怎麼分流。現況是一個 cluster 一台 vmagent、一把 token、資料全進同一個 tenant；分流做法是把 `remoteWrite` 從一條拆成每個 group 一條。
