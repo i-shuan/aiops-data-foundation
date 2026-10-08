@@ -49,6 +49,26 @@ spec:
           resources:
             requests: {cpu: 500m, memory: 2Gi}
             limits: {memory: 2Gi}
+          volumeMounts:
+            - {name: data, mountPath: /usr/share/elasticsearch/data}
+      securityContext:
+        fsGroup: 1000
+      initContainers:
+        # local-path 建出來的目錄是 root 的，ES 以 uid 1000 執行
+        - name: chown
+          image: docker.io/library/busybox:1.37
+          command: ["sh", "-c", "chown -R 1000:1000 /data"]
+          volumeMounts:
+            - {name: data, mountPath: /data}
+  # 掛硬碟：停機測試要 ES 重啟後資料還在
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        storageClassName: local-path
+        resources:
+          requests: {storage: 10Gi}
 ---
 apiVersion: v1
 kind: Service
