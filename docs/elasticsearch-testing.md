@@ -16,6 +16,8 @@
 
 ## 測資
 
+實際的原始 log 行和進 ES 後的文件，見[附錄 A](#a-三個常駐測試服務自動測試label-情境用)。
+
 三個 namespace 對應三種情境，定義在 [log-generators.yaml](../test/local-k3s/log-generators.yaml)。
 
 | namespace | dept label | 模擬的服務 | 輸出格式 | 預期進哪 |
@@ -137,6 +139,8 @@ ES_URL=http://<ip>:9200 test/local-k3s/run-e2e.sh
 
 ## 故障測試：一把 key 失效（手動）
 
+ES 實際回的錯誤，見[附錄 E](#e-key-失效權限情境)。
+
 要驗證的設計說法有兩個：
 
 1. 每個 group 的出口互相獨立，一把 key 失效只卡住那一條。
@@ -189,6 +193,8 @@ IMC 測試服務每 3 秒輸出一筆，45 秒應該是 15 筆，**一筆都沒�
 
 ### 測資
 
+改 label 前後的實際文件，見[附錄 B](#b-dept-label-情境)。
+
 | 項目 | 內容 |
 |---|---|
 | 對象 | `legacy` namespace，原本沒標 dept，log 進 `k8s-unassigned-local` |
@@ -222,6 +228,8 @@ IMC 測試服務每 3 秒輸出一筆，45 秒應該是 15 筆，**一筆都沒�
 ## 情境測試：大流量
 
 ### 測資
+
+實際的原始 log 行和進 ES 後的文件，見[附錄 C](#c-大流量es-停機情境同一個產生器)。
 
 產生器定義在 [load/generator.yaml](../test/local-k3s/load/generator.yaml)，跑法見 [load/run-load.sh](../test/local-k3s/load/run-load.sh)。
 
@@ -278,6 +286,8 @@ CPU 的 100% 等於一個核心。
 ## 情境測試：ES 整台停機
 
 ### 測資
+
+產生器和大流量測試相同，實際樣本見[附錄 C](#c-大流量es-停機情境同一個產生器)。
 
 跑法見 [load/run-outage.sh](../test/local-k3s/load/run-outage.sh)。
 
@@ -354,7 +364,7 @@ Fluent Bit 的 es output 加上 `generate_id: on`：
 | 單獨量成本 | 正式設定加上 `generate_id`，不製造重送，每秒 5,000 行跑 2 分鐘 | 去重複本身讓 ES 多花多少 |
 | 相同內容 | 一個 Pod 用 `yes` 一口氣輸出 10,000 行完全相同的 JSON（`{"level":"INFO","message":"heartbeat ok",...}`） | 內容一樣的兩行會不會被誤判成重複而被丟掉 |
 
-強迫重送的跑法見 [load/run-dedup.sh](../test/local-k3s/load/run-dedup.sh)。
+強迫重送的跑法見 [load/run-dedup.sh](../test/local-k3s/load/run-dedup.sh)。實際樣本見[附錄 D](#d-去重複情境)。
 
 ### 結果
 
@@ -453,3 +463,401 @@ Fluent Bit 的 es output 加上 `generate_id: on`：
 - 真實環境：你們的 Fluent Bit 版本、中央 ES 的 TLS 憑證、Rancher 上的部署流程。
 - 多節點：測試只有一個節點，沒有測多個 Fluent Bit 同時寫入、ES 多節點的情況。
 - 長時間：每段只跑 2 到 7 分鐘，沒有跑過 ILM 滾動（每天或 30GB）的情況。
+
+## 附錄：測資樣本（實際抓取）
+
+以下都是從測試環境實際抓下來的，不是手寫的範例。
+
+- **原始 log 行**：取自節點上的 `/var/log/pods/.../0.log`，也就是 Fluent Bit 讀到的東西。前面是 container runtime 加上的奈秒時間、stdout 或 stderr、`F`（完整一行）。
+- **ES 文件**：該行進 ES 後實際存成的樣子。有些省略了跟該情境無關的欄位。
+
+### A. 三個常駐測試服務（自動測試、label 情境用）
+
+**`it-mes-prod`（logback JSON，ERROR 帶 stack trace）**
+
+原始 log 行：
+
+```
+2026-10-08T13:30:24.781454536Z stdout F {"timestamp":"2026-10-08T13:30:24.000Z","level":"ERROR","message":"order 2350 failed","logger":"com.spil.mes.OrderService","thread":"http-nio-8080-exec-2","stack_trace":"java.lang.IllegalStateException: lot not found\n\tat com.spil.mes.OrderService.run(OrderService.java:42)","trace_id":"5bf92f3577b34da6a3ce929d0e0e4736"}
+```
+
+進 ES 後（完整文件，只省略 `kubernetes.labels`）：
+
+```json
+{
+  "_index": ".ds-k8s-it-local-2026.10.08-000001",
+  "_id": "b1566c7b-df1b-9c13-b26c-09d6165b81da",
+  "_source": {
+    "container": {
+      "image": {
+        "name": "docker.io/library/busybox:1.37"
+      },
+      "id": "19e4e00e1faec59c945eba3aeaab6127d72d0ee3dc84e8ce4cb892bb0a911de1"
+    },
+    "kubernetes": {
+      "container": {
+        "name": "mes-api"
+      },
+      "node": {
+        "name": "vm"
+      },
+      "pod": {
+        "uid": "19a503c6-00ba-4cdd-8193-f27cfcf9b6ff",
+        "name": "mes-api-59fddf95f6-pq46x"
+      },
+      "namespace": "it-mes-prod"
+    },
+    "process": {
+      "thread": {
+        "name": "http-nio-8080-exec-2"
+      }
+    },
+    "log": {
+      "level": "error",
+      "logger": "com.spil.mes.OrderService"
+    },
+    "message": "order 2350 failed",
+    "error": {
+      "stack_trace": "java.lang.IllegalStateException: lot not found\n\tat com.spil.mes.OrderService.run(OrderService.java:42)",
+      "type": "java.lang.IllegalStateException"
+    },
+    "labels": {
+      "dept": "D3120",
+      "group": "it"
+    },
+    "orchestrator": {
+      "cluster": {
+        "name": "local"
+      }
+    },
+    "trace": {
+      "id": "5bf92f3577b34da6a3ce929d0e0e4736"
+    },
+    "@timestamp": "2026-10-08T13:30:24.000Z",
+    "stream": "stdout",
+    "service": {
+      "name": "mes-api",
+      "namespace": "mes",
+      "version": "2.3.1"
+    },
+    "event": {
+      "ingested": "2026-10-08T13:30:25.720902543Z"
+    }
+  }
+}
+```
+
+同一個服務的 INFO 行，自帶的 `lot_id` 收進 `app`：
+
+```json
+{
+  "_index": ".ds-k8s-it-local-2026.10.08-000001",
+  "_id": "b7e51412-6c90-1eb0-929c-73c6c42a2342",
+  "_source": {
+    "@timestamp": "2026-10-08T13:30:26.000Z",
+    "message": "order 2351 accepted",
+    "log": {
+      "level": "info",
+      "logger": "com.spil.mes.OrderService"
+    },
+    "app": {
+      "lot_id": "L2351"
+    },
+    "labels": {
+      "dept": "D3120",
+      "group": "it"
+    },
+    "service": {
+      "name": "mes-api",
+      "namespace": "mes",
+      "version": "2.3.1"
+    }
+  }
+}
+```
+
+**`imc-wip-prod`（ECS 巢狀 JSON）**
+
+原始 log 行：
+
+```
+2026-10-08T13:30:20.436189884Z stdout F {"@timestamp":"2026-10-08T13:30:20.000Z","log":{"level":"WARN","logger":"wip.Queue"},"process":{"pid":1,"thread":{"name":"main"}},"message":"queue depth high","ecs":{"version":"8.11"}}
+```
+
+進 ES 後。`log.level`、`log.logger`、thread 被拆出來；沒用到的 `process.pid`、`ecs.version` 留在 `app`：
+
+```json
+{
+  "_index": ".ds-k8s-imc-local-2026.10.08-000001",
+  "_id": "2554b5bb-f0cd-8c29-98be-91b5b3cde49a",
+  "_source": {
+    "@timestamp": "2026-10-08T13:30:26.000Z",
+    "message": "queue depth high",
+    "log": {
+      "level": "warn",
+      "logger": "wip.Queue"
+    },
+    "process": {
+      "thread": {
+        "name": "main"
+      }
+    },
+    "app": {
+      "process": {
+        "pid": 1
+      },
+      "ecs": {
+        "version": "8.11"
+      }
+    },
+    "labels": {
+      "dept": "D1110",
+      "group": "imc"
+    },
+    "service": {
+      "name": "wip-worker",
+      "namespace": "wip",
+      "version": "1.0.4"
+    }
+  }
+}
+```
+
+**`legacy`（純文字、沒標 dept、沒套 chart）**
+
+原始 log 行：
+
+```
+2026-10-08T13:30:21.257066056Z stdout F plain text Thu Oct  8 13:30:21 UTC 2026
+```
+
+進 ES 後。進 unassigned，`message` 是原文，`service.name` 退回 container 名稱：
+
+```json
+{
+  "_index": ".ds-k8s-unassigned-local-2026.10.08-000001",
+  "_id": "ec3ec74c-f521-df24-ebcf-2eef314c6dde",
+  "_source": {
+    "container": {
+      "image": {
+        "name": "docker.io/library/busybox:1.37"
+      },
+      "id": "a2281eacd1e68ffa7703eb379cf0cbd1d566d4c7d41dbc6b745556e08658528a"
+    },
+    "orchestrator": {
+      "cluster": {
+        "name": "local"
+      }
+    },
+    "kubernetes": {
+      "container": {
+        "name": "legacy"
+      },
+      "node": {
+        "name": "vm"
+      },
+      "pod": {
+        "uid": "b701dd23-d4e9-4764-8314-f7a4b5b09758",
+        "name": "legacy-5c7588d6c5-wrnxj"
+      },
+      "namespace": "legacy",
+      "labels": {
+        "app": "legacy",
+        "pod-template-hash": "5c7588d6c5"
+      }
+    },
+    "@timestamp": "2026-10-08T13:30:27.267Z",
+    "stream": "stdout",
+    "service": {
+      "name": "legacy"
+    },
+    "message": "plain text Thu Oct  8 13:30:27 UTC 2026",
+    "event": {
+      "ingested": "2026-10-08T13:30:27.720083661Z"
+    },
+    "labels": {
+      "group": "unassigned"
+    }
+  }
+}
+```
+
+**ES 自己的 log（ECS 點號寫法）**
+
+原始 log 行：
+
+```
+2026-10-08T13:13:22.822671286Z stdout F {"@timestamp":"2026-10-08T13:13:22.807Z", "log.level": "INFO", "message":"vec_caps=2", "ecs.version": "1.2.0","service.name":"ES_ECS","event.dataset":"elasticsearch.server","process.thread.name":"main","log.logger":"org.elasticsearch.nativeaccess.jdk.JdkVectorLibrary","elasticsearch.node.name":"elasticsearch-0","elasticsearch.cluster.name":"docker-cluster"}
+```
+
+進 ES 後。`app` 只列出有哪些 key：
+
+```json
+{
+  "_index": ".ds-k8s-unassigned-local-2026.10.08-000001",
+  "_source": {
+    "app": {
+      "elasticsearch.cluster.name": "…",
+      "reason": "…",
+      "service.name": "…",
+      "current.health": "…",
+      "previous.health": "…",
+      "elasticsearch.cluster.uuid": "…",
+      "elasticsearch.node.name": "…",
+      "ecs.version": "…",
+      "event.dataset": "…",
+      "elasticsearch.node.id": "…"
+    },
+    "orchestrator": {
+      "cluster": {
+        "name": "local"
+      }
+    },
+    "process": {
+      "thread": {
+        "name": "elasticsearch[elasticsearch-0][masterService#updateTask][T#6]"
+      }
+    },
+    "@timestamp": "2026-10-08T13:28:11.812Z",
+    "stream": "stdout",
+    "log": {
+      "level": "info",
+      "logger": "org.elasticsearch.cluster.routing.allocation.AllocationService"
+    },
+    "service": {
+      "name": "elasticsearch"
+    },
+    "message": "Cluster health status changed from [YELLOW] to [GREEN] (reas…",
+    "event": {
+      "ingested": "2026-10-08T13:28:12.721426904Z"
+    },
+    "labels": {
+      "group": "unassigned"
+    }
+  }
+}
+```
+
+### B. dept label 情境
+
+同一個 `legacy` 服務，`kubectl label namespace legacy dept=D3120` 前後的文件。
+
+改之前（同上面 A 的 `legacy`）：進 `k8s-unassigned-local`，`labels` 只有 `group: unassigned`。
+
+改之後：進 `k8s-it-local`，帶上 dept 和 group：
+
+```json
+{
+  "_index": ".ds-k8s-it-local-2026.10.08-000001",
+  "_source": {
+    "kubernetes": {
+      "namespace": "legacy"
+    },
+    "@timestamp": "2026-10-08T13:31:00.319Z",
+    "service": {
+      "name": "legacy"
+    },
+    "message": "plain text Thu Oct  8 13:31:00 UTC 2026",
+    "labels": {
+      "dept": "D3120",
+      "group": "it"
+    }
+  }
+}
+```
+
+這份樣本是為了抓樣本另外重現的：改完 label 直接重啟 Fluent Bit，所以馬上生效。正式的測試沒有重啟，是 13 分 45 秒後才生效。
+
+### C. 大流量、ES 停機情境（同一個產生器）
+
+兩個情境用同一個產生器，差別只在速率和 `run` 名稱：
+
+| 情境 | 速率（行/秒） | `run` |
+|---|---|---|
+| 大流量 | 500、2,000、5,000 | `r500-…`、`r2000-…`、`r5000-…` |
+| ES 停機 | 100 | `outage-…` |
+
+下面是用每秒 5 行、跑 2 秒抓的樣本，`run=sample`。
+
+原始 log 行。最後一行是產生器結束時寫到 stderr 的送出筆數，統計時用它當「送出」：
+
+```
+2026-10-08T13:31:21.215859937Z stdout F {"timestamp": "2026-10-08T13:31:21.214Z", "level": "INFO", "message": "load xxxx…(250 個 x)", "logger": "load.Gen", "thread": "main", "run": "sample", "seq": 1}
+2026-10-08T13:31:21.415553835Z stdout F {"timestamp": "2026-10-08T13:31:21.414Z", "level": "INFO", "message": "load xxxx…(250 個 x)", "logger": "load.Gen", "thread": "main", "run": "sample", "seq": 2}
+2026-10-08T13:31:21.665417842Z stdout F {"timestamp": "2026-10-08T13:31:21.664Z", "level": "INFO", "message": "load xxxx…(250 個 x)", "logger": "load.Gen", "thread": "main", "run": "sample", "seq": 3}
+2026-10-08T13:31:23.025483326Z stderr F {"run": "sample", "emitted": 9, "seconds": 2.0}
+```
+
+進 ES 後。`seq` 在 `app` 裡，統計遺失和重複都靠它：
+
+```json
+{
+  "_index": ".ds-k8s-imc-local-2026.10.08-000001",
+  "_id": "69492b47-c0bc-fa69-3b76-281c2151497c",
+  "_source": {
+    "app": {
+      "run": "sample",
+      "seq": 1
+    },
+    "kubernetes": {
+      "namespace": "load-test"
+    },
+    "@timestamp": "2026-10-08T13:31:21.214Z",
+    "log": {
+      "level": "info",
+      "logger": "load.Gen"
+    },
+    "service": {
+      "name": "load-gen",
+      "version": "1.0.0"
+    },
+    "message": "load xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…",
+    "labels": {
+      "dept": "D1110",
+      "group": "imc"
+    }
+  }
+}
+```
+
+### D. 去重複情境
+
+**相同內容測試**：一口氣輸出完全相同的 JSON。下面用 5 行當樣本，正式測試是 10,000 行。
+
+原始 log 行。內容一樣，但 container runtime 給的奈秒時間都不同：
+
+```
+2026-10-08T13:31:22.288243491Z stdout F {"level":"INFO","message":"heartbeat ok","run":"same-lines"}
+2026-10-08T13:31:22.28829544Z stdout F {"level":"INFO","message":"heartbeat ok","run":"same-lines"}
+2026-10-08T13:31:22.288333319Z stdout F {"level":"INFO","message":"heartbeat ok","run":"same-lines"}
+2026-10-08T13:31:22.288336363Z stdout F {"level":"INFO","message":"heartbeat ok","run":"same-lines"}
+2026-10-08T13:31:22.288337472Z stdout F {"level":"INFO","message":"heartbeat ok","run":"same-lines"}
+```
+
+進 ES 後。5 筆都在，時間到毫秒都一樣，但 `_id` 都不同，所以沒有被當成重複：
+
+```
+{"_id":"e52a01ab-a452-3621-7885-e5121def993f","ts":"2026-10-08T13:31:22.288Z","message":"heartbeat ok"}
+{"_id":"bd03ef89-e721-ca01-af4e-2c8af90a1cbd","ts":"2026-10-08T13:31:22.288Z","message":"heartbeat ok"}
+{"_id":"fc67623e-06ad-74d3-cd1e-ef9f4035285a","ts":"2026-10-08T13:31:22.288Z","message":"heartbeat ok"}
+{"_id":"0d7f6973-0628-c3e2-7b7e-fb32075a2b89","ts":"2026-10-08T13:31:22.288Z","message":"heartbeat ok"}
+{"_id":"dca15494-bc73-6841-ead8-07c684d8cc95","ts":"2026-10-08T13:31:22.288Z","message":"heartbeat ok"}
+```
+
+**強迫重送測試**的測資跟 C 一樣，只是 Fluent Bit 換成測試專用設定。
+
+### E. key 失效、權限情境
+
+ES 實際回的錯誤。
+
+IT 的 key 寫 IMC 的 index（權限不足，403）：
+
+```json
+{"status":403,"type":"security_exception","reason":"action [indices:data/write/bulk[s]] is unauthorized for API key id [AUmyG6EBNBd9KyJ725FB] of user [elastic] on indices [k8s-imc-local], this action is granted by the index privileges [create_doc,create,delete,index,write,all]"}
+```
+
+作廢或錯誤的 key（認證失敗，401）。key 失效那段時間，Fluent Bit 每次送出都會收到這個：
+
+```json
+{"status":401,"type":"security_exception","reason":"unable to authenticate with provided credentials and anonymous access is not allowed for this request"}
+```
