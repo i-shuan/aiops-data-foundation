@@ -75,7 +75,10 @@ pipeline:
       tls.verify: ${ES_TLS_VERIFY}
       write_operation: create   # data stream 只接受 create
       suppress_type_name: on
-      buffer_size: 512KB
+      # ES bulk 回應的讀取上限，一定要 false（不限）。設成固定大小時，流量一大回應就超過上限，
+      # Fluent Bit 讀不完當成失敗而整批重送，但 ES 其實已經寫入：實測每秒 5000 行時一批被重複寫了好幾次，
+      # 而且會一直重試下去
+      buffer_size: false
       trace_error: off          # 排查 ES 拒收原因時才打開，會把整批資料印出來
       retry_limit: no_limits
       storage.total_limit_size: 2G
@@ -90,7 +93,7 @@ pipeline:
       tls.verify: ${ES_TLS_VERIFY}
       write_operation: create
       suppress_type_name: on
-      buffer_size: 512KB
+      buffer_size: false
       trace_error: off
       retry_limit: no_limits
       storage.total_limit_size: 2G
@@ -105,7 +108,7 @@ pipeline:
       tls.verify: ${ES_TLS_VERIFY}
       write_operation: create
       suppress_type_name: on
-      buffer_size: 512KB
+      buffer_size: false
       trace_error: off
       retry_limit: no_limits
       storage.total_limit_size: 2G
