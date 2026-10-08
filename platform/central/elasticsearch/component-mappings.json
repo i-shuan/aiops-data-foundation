@@ -9,7 +9,9 @@
 
         "log": {"properties": {
           "level": {"type": "keyword"},
-          "logger": {"type": "keyword"}
+          "logger": {"type": "keyword"},
+          "format": {"type": "keyword"},
+          "parser": {"type": "keyword"}
         }},
         "process": {"properties": {
           "thread": {"properties": {"name": {"type": "keyword"}}}

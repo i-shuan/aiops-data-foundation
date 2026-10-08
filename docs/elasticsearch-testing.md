@@ -18,13 +18,15 @@
 
 實際的原始 log 行和進 ES 後的文件，見[附錄 A](#a-三個常駐測試服務自動測試label-情境用)。
 
-三個 namespace 對應三種情境，定義在 [log-generators.yaml](../test/local-k3s/log-generators.yaml)。
+三個 namespace 對應三種情境，定義在 [log-generators.yaml](../test/local-k3s/log-generators.yaml)。另外兩個服務用來測「依格式分派」。
 
 | namespace | dept label | 模擬的服務 | 輸出格式 | 預期進哪 |
 |---|---|---|---|---|
 | `it-mes-prod` | `D3120` | `mes-api`（版本 2.3.1，part-of `mes`） | logback JSON | `k8s-it-local` |
 | `imc-wip-prod` | `D1110` | `wip-worker`（版本 1.0.4，part-of `wip`） | ECS 巢狀 JSON | `k8s-imc-local` |
 | `legacy` | 沒標 | 沒套 chart，只有 `app: legacy` label | 純文字 | `k8s-unassigned-local` |
+| `it-mes-prod` | `D3120` | `hold-svc`，宣告 `log-format: logfmt` | logfmt | `k8s-it-local`，走 logfmt 規則 |
+| `it-mes-prod` | `D3120` | `eap`，宣告 `log-format: secs`（中央還沒有 secs 規則） | 一行仿 SECS 的純文字，**不是真實的 SECS 格式** | `k8s-it-local`，退回 default |
 
 各 namespace 的輸出內容如下。
 
@@ -50,9 +52,21 @@
 plain text Thu Oct  8 12:00:00 UTC 2026
 ```
 
+**`hold-svc`**：每 3 秒一行 logfmt：
+
+```
+ts=2026-10-08T12:00:00.000Z level=warn msg="lot hold requested" lot_id=L1 caller=hold.go:42
+```
+
+**`eap`**：每 3 秒一行。只是用來測「宣告了格式、但中央還沒有規則」的情況，內容不代表真實的 SECS log：
+
+```
+2026-10-08 12:00:00 [EQP01] RECV S6F11 W SystemBytes=1234
+```
+
 **順帶測到的第四種格式：** ES 自己的 log 也會被收進 unassigned。它是 ECS 的點號寫法，key 直接寫成 `"log.level"`、`"log.logger"`。
 
-## 自動測試：33 項
+## 自動測試：43 項
 
 跑法：
 
@@ -64,7 +78,7 @@ ES_URL=http://<ip>:9200 test/local-k3s/run-e2e.sh
 
 腳本會依序部署 ES、執行 setup 腳本拿到 key、建 Secret、部署 Fluent Bit 和三個測試服務，等 60 秒後開始檢查。
 
-結果：**33 項全部通過。**
+結果：**43 項全部通過。**
 
 ### 分流（7 項）
 
@@ -79,6 +93,8 @@ ES_URL=http://<ip>:9200 test/local-k3s/run-e2e.sh
 | 每筆只送一份（三個 index 合計 = 全部） | PASS |
 
 ### 欄位（21 項）
+
+依格式分派加入後，下面這筆會多兩個欄位：`log.format`、`log.parser`，都是 `default`。
 
 一筆 logback 格式的 ERROR 經過 pipeline 後長這樣。這是用 `_ingest/pipeline/k8s-logs/_simulate` 跑的範例，所以 cluster 名稱和時間跟測試服務的實際輸出不同：
 
@@ -127,6 +143,25 @@ ES_URL=http://<ip>:9200 test/local-k3s/run-e2e.sh
 | Fluent Bit 不收自己的 log | PASS |
 | 沒有 pipeline 失敗的文件 | PASS |
 
+### 依格式分派（10 項）
+
+實際的原始 log 行和進 ES 後的文件，見[附錄 E](#e-依格式分派)。
+
+| 檢查 | 結果 |
+|---|---|
+| logfmt：走 logfmt 規則（`log.parser`） | PASS |
+| logfmt：`log.level` | PASS |
+| logfmt：`message` 取出 `msg` | PASS |
+| logfmt：自訂欄位 `lot_id` 收進 `app` | PASS |
+| logfmt：`@timestamp` 用 `ts` | PASS |
+| 還沒有規則的格式：記下宣告的格式（`log.format` = secs） | PASS |
+| 還沒有規則的格式：退回 default（`log.parser` = default） | PASS |
+| 還沒有規則的格式：原文完整保留 | PASS |
+| 沒宣告格式：`log.format` 是 default | PASS |
+| 每筆都有 `log.parser` | PASS |
+
+另外用 pipeline 模擬（`_simulate`）測過：宣告不合法的格式名稱（例如 `../Bad Format!`）會被當成 default，不會拿去組 pipeline 名稱。
+
 ### 權限（5 項）
 
 | 檢查 | 預期 HTTP 狀態碼 | 結果 |
@@ -139,7 +174,7 @@ ES_URL=http://<ip>:9200 test/local-k3s/run-e2e.sh
 
 ## 故障測試：一把 key 失效（手動）
 
-ES 實際回的錯誤，見[附錄 E](#e-key-失效權限情境)。
+ES 實際回的錯誤，見[附錄 F](#f-key-失效權限情境)。
 
 要驗證的設計說法有兩個：
 
@@ -846,7 +881,78 @@ Fluent Bit 的 es output 加上 `generate_id: on`：
 
 **強迫重送測試**的測資跟 C 一樣，只是 Fluent Bit 換成測試專用設定。
 
-### E. key 失效、權限情境
+### E. 依格式分派
+
+**`hold-svc`（宣告 `logfmt`）**
+
+原始 log 行：
+
+```
+2026-10-08T15:12:50.159008804Z stdout F ts=2026-10-08T15:12:50.000Z level=warn msg="lot hold requested" lot_id=L64 caller=hold.go:42
+```
+
+進 ES 後。`log.format` 和 `log.parser` 都是 logfmt；`level`、`msg`、`ts` 對應到標準欄位，其餘收進 `app`：
+
+```json
+{
+  "_index": ".ds-k8s-it-local-2026.10.08-000001",
+  "_source": {
+    "app": {
+      "caller": "hold.go:42",
+      "lot_id": "L64"
+    },
+    "@timestamp": "2026-10-08T15:12:50.000Z",
+    "log": {
+      "parser": "logfmt",
+      "level": "warn",
+      "format": "logfmt"
+    },
+    "service": {
+      "name": "hold-svc",
+      "version": "0.9.0"
+    },
+    "message": "lot hold requested",
+    "labels": {
+      "dept": "D3120",
+      "group": "it"
+    }
+  }
+}
+```
+
+**`eap`（宣告 `secs`，中央還沒有規則）**
+
+原始 log 行：
+
+```
+2026-10-08T15:12:50.158398818Z stdout F 2026-10-08 15:12:50 [EQP01] RECV S6F11 W SystemBytes=1234
+```
+
+進 ES 後。`log.format` 是 secs、`log.parser` 是 default，代表退回了預設規則；`message` 是完整原文：
+
+```json
+{
+  "_index": ".ds-k8s-it-local-2026.10.08-000001",
+  "_source": {
+    "@timestamp": "2026-10-08T15:12:50.158Z",
+    "log": {
+      "parser": "default",
+      "format": "secs"
+    },
+    "service": {
+      "name": "eap",
+      "version": "3.1.0"
+    },
+    "message": "2026-10-08 15:12:50 [EQP01] RECV S6F11 W SystemBytes=1234",
+    "labels": {
+      "dept": "D3120",
+      "group": "it"
+    }
+  }
+}
+```
+
+### F. key 失效、權限情境
 
 ES 實際回的錯誤。
 

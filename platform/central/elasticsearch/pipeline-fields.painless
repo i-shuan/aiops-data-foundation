@@ -1,13 +1,5 @@
-// k8s-logs pipeline 的主體：把 Fluent Bit 送來的原始記錄整理成固定欄位。
-// 欄位規範集中在這裡，改規則只要更新中央 pipeline，不用動每個 cluster 的 Fluent Bit。
-
-// 從 map 取字串，同時接受 "a.b" 與 Fluent Bit Replace_Dots 後的 "a_b" 兩種寫法
-String str(Map m, String key) {
-  if (m == null) return null;
-  def v = m.get(key);
-  if (v == null) v = m.get(key.replace('.', '_'));
-  return v == null ? null : v.toString();
-}
+// k8s-logs-fields：把各格式拆出來的欄位（暫存在 _app）對應成標準欄位。
+// 各格式 pipeline 只負責「原文 → _app」，對應規則集中在這裡，所有格式共用。
 
 // 取出並移除一個欄位。path 同時接受字面上的 "a.b" 與巢狀的 {a: {b: ...}}，
 // 這樣 logback 格式（logger）、ECS 格式（log.logger）兩種都吃得下
@@ -42,60 +34,20 @@ String takeStr(Map m, List keys) {
   return null;
 }
 
-Map k = ctx.remove('kubernetes');
-Map nsMeta = ctx.remove('kubernetes_namespace');
-String raw = ctx.remove('log');
+String raw = ctx.message;
 Map app = ctx.remove('_app');
-ctx.remove('_p');
-ctx.remove('logtag');
-ctx.remove('time');
+Map log = ctx.log;
+if (log == null) { log = new HashMap(); ctx.log = log; }
 
-// 歸屬：group 由 Fluent Bit 分流時蓋上，dept 來自 namespace 的 label
-Map labels = new HashMap();
-def group = ctx.remove('group');
-if (group != null) labels.put('group', group);
-Map nsLabels = nsMeta == null ? null : nsMeta.get('labels');
-String dept = str(nsLabels, 'dept');
-if (dept != null) labels.put('dept', dept);
-ctx.labels = labels;
-
-def cluster = ctx.remove('cluster');
-if (cluster != null) ctx.orchestrator = ['cluster': ['name': cluster]];
-
-// K8s 中繼資料，以及由 app-common chart 統一蓋上的服務身分
-if (k != null) {
-  Map podLabels = k.get('labels');
-  ctx.kubernetes = [
-    'namespace': k.get('namespace_name'),
-    'pod': ['name': k.get('pod_name'), 'uid': k.get('pod_id')],
-    'container': ['name': k.get('container_name')],
-    'node': ['name': k.get('host')],
-    'labels': podLabels
-  ];
-  ctx.container = ['id': k.get('docker_id'), 'image': ['name': k.get('container_image')]];
-
-  Map service = new HashMap();
-  String name = str(podLabels, 'app.kubernetes.io/name');
-  // 沒套 chart 的服務退回用 container 名稱，至少不會是空的
-  service.put('name', name != null ? name : k.get('container_name'));
-  String version = str(podLabels, 'app.kubernetes.io/version');
-  if (version != null) service.put('version', version);
-  String partOf = str(podLabels, 'app.kubernetes.io/part-of');
-  if (partOf != null) service.put('namespace', partOf);
-  ctx.service = service;
-}
-
-// 應用輸出的 JSON（見 apps/standards/java/logback-spring.xml）
+// 例：logback JSON（apps/standards/java/logback-spring.xml）、ECS JSON、logfmt
 if (app != null) {
   String msg = takeStr(app, ['message', 'msg']);
   ctx.message = msg != null ? msg : raw;
 
-  Map log = new HashMap();
-  String level = takeStr(app, ['level', 'severity', 'log.level']);
+  String level = takeStr(app, ['level', 'lvl', 'severity', 'log.level']);
   if (level != null) log.put('level', level.toLowerCase());
   String logger = takeStr(app, ['logger', 'logger_name', 'log.logger']);
   if (logger != null) log.put('logger', logger);
-  ctx.log = log;
 
   String thread = takeStr(app, ['thread', 'thread_name', 'process.thread.name']);
   if (thread != null) ctx.process = ['thread': ['name': thread]];
@@ -119,13 +71,11 @@ if (app != null) {
   if (spanId != null) ctx.span = ['id': spanId];
 
   // 應用自己的時間比 Fluent Bit 收到的時間準，交給後面的 date processor
-  String ts = takeStr(app, ['timestamp', '@timestamp']);
+  String ts = takeStr(app, ['timestamp', '@timestamp', 'ts', 'time']);
   if (ts != null) ctx._app_ts = ts;
 
   app.remove('@version');
   app.remove('level_value');
   // 其餘 MDC 等自訂欄位留在 app，型別是 flattened，不會長新欄位
   if (!prune(app)) ctx.app = app;
-} else {
-  ctx.message = raw;
 }

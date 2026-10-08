@@ -1,18 +1,25 @@
 {
-  "description": "k8s log 正規化。script 的內容在 pipeline-normalize.painless，由 elasticsearch-setup.sh 組進來",
+  "description": "k8s-logs 主 pipeline：共通身分 → 依格式分派 → 時間。說明見 docs/elasticsearch.md「pipeline」",
   "processors": [
     {
-      "json": {
-        "field": "log",
-        "target_field": "_app",
-        "if": "ctx.log instanceof String && ctx.log.trim().startsWith('{')",
-        "ignore_failure": true
+      "script": {
+        "description": "共通身分：服務、版本、group、dept、cluster；決定 log.format",
+        "lang": "painless",
+        "source": "__SCRIPT__"
       }
     },
     {
-      "script": {
-        "lang": "painless",
-        "source": "__NORMALIZE_SCRIPT__"
+      "pipeline": {
+        "description": "依格式分派到 k8s-logs-format-<格式>",
+        "name": "k8s-logs-format-{{{log.format}}}",
+        "on_failure": [
+          {
+            "pipeline": {
+              "description": "宣告的格式還沒有對應規則（或該規則出錯）：退回 default，資料照收",
+              "name": "k8s-logs-format-default"
+            }
+          }
+        ]
       }
     },
     {

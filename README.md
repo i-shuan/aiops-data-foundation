@@ -7,8 +7,8 @@
 ## 目前的文件
 
 - [docs/vmagent.md](docs/vmagent.md)：metrics 怎麼分流。現況是一個 cluster 一台 vmagent、一把 token、資料全進同一個 tenant；分流做法是把 `remoteWrite` 從一條拆成每個 group 一條。
-- [docs/elasticsearch.md](docs/elasticsearch.md)：log 怎麼進 ES。Fluent Bit 依 namespace 的 dept 分流到 `k8s-{group}-{cluster}`，欄位由中央 pipeline 統一整理成 AIOps 要的格式。已在 k3s 上端到端驗證。
-- [docs/elasticsearch-testing.md](docs/elasticsearch-testing.md)：上面那套的測資、33 項檢查結果、key 失效的故障測試，以及測試中抓到的問題。
+- [docs/elasticsearch.md](docs/elasticsearch.md)：log 怎麼進 ES。Fluent Bit 依 namespace 的 dept 分流到 `k8s-{group}-{cluster}`，欄位由中央 pipeline 統一整理成 AIOps 要的格式；log 格式不一致時，依服務宣告的格式分派到不同的解析規則。已在 k3s 上端到端驗證。
+- [docs/elasticsearch-testing.md](docs/elasticsearch-testing.md)：上面那套的測資、43 項檢查結果、key 失效的故障測試，以及測試中抓到的問題。
 - [docs/architecture/](docs/architecture)：架構圖。
 
 ## 已經定案的

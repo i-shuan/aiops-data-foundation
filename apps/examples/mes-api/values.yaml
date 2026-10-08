@@ -39,6 +39,10 @@ otel:
     enabled: true
     image: nexus.aillm.spil.com.tw/docker/open-telemetry/autoinstrumentation-java:2.10.0
 
+# log 格式。照 Java 標準（logback JSON）輸出就不用填；其他格式填名稱，例如 logfmt、secs。
+# 沒有對應解析規則的格式，log 仍會完整收進去，只是不拆欄位。
+# logFormat: logfmt
+
 # 應用自己的環境變數
 env:
   - name: SPRING_PROFILES_ACTIVE

@@ -112,6 +112,22 @@ check "ECS 巢狀格式：拿完的欄位不留空殼" "$(jq -c .app <<<"${ecs}"
 esdoc="$(es "${ES_URL}/k8s-unassigned-local/_search" -d '{"size":1,"query":{"bool":{"filter":[{"term":{"kubernetes.namespace":"es-test"}},{"exists":{"field":"log.level"}}]}},"sort":[{"@timestamp":"desc"}]}' | jq '.hits.hits[0]._source')"
 check_gt0 "ECS 字面點號格式（ES 自己的 log）：log.logger" "$(jq -r '.log.logger // "" | length' <<<"${esdoc}")"
 check "Fluent Bit 不收自己的 log" "$(count 'k8s-*' '{"bool":{"filter":[{"term":{"kubernetes.namespace":"logging"}},{"range":{"@timestamp":{"gte":"now-'"${WAIT_SECONDS}"'s"}}}]}}')" 0
+
+echo "== 5b. 依格式分派"
+svc_doc() { es "${ES_URL}/k8s-it-local/_search" -d "{\"size\":1,\"sort\":[{\"@timestamp\":\"desc\"}],\"query\":{\"term\":{\"service.name\":\"$1\"}}}" | jq '.hits.hits[0]._source'; }
+lf="$(svc_doc hold-svc)"
+check "logfmt：走 logfmt 規則"          "$(jq -r .log.parser <<<"${lf}")" logfmt
+check "logfmt：log.level"               "$(jq -r .log.level <<<"${lf}")" warn
+check "logfmt：message 取出 msg"        "$(jq -r .message <<<"${lf}")" "lot hold requested"
+check "logfmt：自訂欄位收進 app"         "$(jq -r '.app.lot_id | startswith("L")' <<<"${lf}")" true
+check "logfmt：@timestamp 用 ts"        "$(jq -r '."@timestamp" | test("\\.000Z$")' <<<"${lf}")" true
+sc="$(svc_doc eap)"
+check "還沒有規則的格式：記下宣告的格式" "$(jq -r .log.format <<<"${sc}")" secs
+check "還沒有規則的格式：退回 default"   "$(jq -r .log.parser <<<"${sc}")" default
+check "還沒有規則的格式：原文完整保留"   "$(jq -r '.message | test("RECV S6F11 W SystemBytes=1234$")' <<<"${sc}")" true
+check "沒宣告格式：format 是 default"    "$(jq -r .log.format <<<"${doc}")" default
+check "每筆都有 log.parser"              "$(count 'k8s-*' '{"bool":{"must_not":{"exists":{"field":"log.parser"}}}}')" 0
+
 check "沒有 pipeline 失敗的文件"          "$(count 'k8s-*' '{"exists":{"field":"error.message"}}')" 0
 
 echo "== 6. 權限"

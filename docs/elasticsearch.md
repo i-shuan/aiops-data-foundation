@@ -11,7 +11,7 @@ container stdout（每個節點的 /var/log/containers）
    ├─ dept 屬於 IT    → key: IT_ES_API_KEY         → k8s-it-{cluster}
    ├─ dept 屬於 IMC   → key: IMC_ES_API_KEY        → k8s-imc-{cluster}
    └─ 其他（兜底）     → key: UNASSIGNED_ES_API_KEY → k8s-unassigned-{cluster}
-        ↓ 中央 ES：k8s-logs pipeline 正規化欄位 → data stream（ILM 管保留天數）
+        ↓ 中央 ES：k8s-logs pipeline 整理欄位（依 log 格式分派）→ data stream（ILM 管保留天數）
         ↓
    AIOps 用唯讀 key 讀 k8s-*；人用各 group 的唯讀角色
 ```
@@ -27,6 +27,7 @@ container stdout（每個節點的 /var/log/containers）
 | [platform/groups.yaml](../platform/groups.yaml) | 部門 → group 對照表 |
 | [platform/central/elasticsearch-setup.sh](../platform/central/elasticsearch-setup.sh) | 中央 ES：index 結構＋各種 API key 與角色 |
 | [platform/central/elasticsearch/](../platform/central/elasticsearch) | ILM、mapping、pipeline、index template |
+| [platform/central/elasticsearch/formats/](../platform/central/elasticsearch/formats) | 各 log 格式的解析規則，一種格式一個檔 |
 | [platform/cluster-addons/fluent-bit/](../platform/cluster-addons/fluent-bit) | 每個應用 cluster 的 Fluent Bit（kustomize） |
 | [test/local-k3s/](../test/local-k3s) | 端到端測試 |
 
@@ -51,16 +52,89 @@ AIOps 只認這些欄位。標準概念用 [ECS](https://www.elastic.co/guide/en
 | `kubernetes.namespace`、`.pod.name`、`.node.name`、`.container.name` | K8s | 對回 metrics |
 | `kubernetes.labels` | 全部 pod label（flattened） | 備用 |
 | `app` | 應用自帶的其他欄位，例如 MDC 的 `lot_id`（flattened） | 業務維度 |
+| `log.format` | 服務宣告的 log 格式（pod label `log-format`），沒宣告是 `default` | 追蹤各格式的覆蓋率 |
+| `log.parser` | 實際用來解析的規則。和 `log.format` 不同，代表那個格式還沒有規則，退回 default | 找出還沒寫規則的格式 |
 | `event.ingested` | ES 收到的時間 | 算延遲 |
 
 和 metrics 的 label 對應：`service.name` ↔ `app.kubernetes.io/name`、`kubernetes.namespace` ↔ `namespace`、`labels.group` ↔ `group`、`labels.dept` ↔ `dept`。
 
-應用輸出這兩種格式都認得：
-
-- logback 格式：[apps/standards/java/logback-spring.xml](../apps/standards/java/logback-spring.xml)。
-- ECS 格式：Spring Boot 3.4 的 `logging.structured.format.console=ecs`，或 Elastic 自家元件。點號寫法和巢狀寫法都可以。
+目前認得的 log 格式見下一節「pipeline」。
 
 **為什麼自帶欄位收進 `app` 而不是攤平在最上層：** 幾百個服務共用一個 index，每個服務多幾個 MDC 欄位，欄位數很快就撞到上限，整個 index 拒收。`flattened` 型別只佔一個欄位，仍然可以用 `app.lot_id: L123` 查詢。
+
+## pipeline
+
+pipeline 是 **Elasticsearch 內建的「寫入前加工」**（ingest pipeline）。Fluent Bit 送來的資料，在存進 index 之前，先跑過一串處理步驟整理好再存。
+
+例如一筆 logback JSON：
+
+```
+送進來：  log = "{\"level\":\"ERROR\",\"message\":\"order 5 failed\",\"stack_trace\":\"java.lang.IllegalStateException: ...\"}"
+          kubernetes.labels = {app.kubernetes.io/name: mes-api, app.kubernetes.io/version: 2.3.1}
+存進去：  message = "order 5 failed"、log.level = "error"、error.type = "java.lang.IllegalStateException"
+          service.name = "mes-api"、service.version = "2.3.1"、labels.group = "it"…
+```
+
+**為什麼放在中央 ES，不放在 Fluent Bit：** Fluent Bit 每個 cluster 都有一套，規則放那裡，每改一次就要每廠重新部署。放在中央只要改一處，跑一次 `elasticsearch-setup.sh` 就全廠生效。
+
+### 結構：共通身分 → 依格式分派 → 欄位對應
+
+log 格式不可能全廠統一，例如 Java 的 JSON、Go 的 key=value、設備通訊的 SECS、各家 REST API 自己的格式。所以分三層：
+
+```
+k8s-logs（主 pipeline）
+  1. 共通身分：服務、版本、group、dept、cluster、K8s 資訊        ← 跟 log 內容長怎樣無關，每筆一定有
+     原文先放進 message
+  2. 看 pod label log-format，交給 k8s-logs-format-<格式>
+       ├─ default（沒宣告）：JSON 就拆，不是 JSON 就保留原文
+       ├─ logfmt：level=info msg="..." key=value
+       └─ 宣告了但中央還沒有這個格式的規則 → 退回 default，原文完整保留
+     各格式只負責「把原文拆成欄位」，拆出來的交給 ↓
+     k8s-logs-fields：對應成標準欄位（level/lvl → log.level、msg → message…），所有格式共用
+  3. 時間改用應用自己的時間；蓋上 ES 收到的時間
+  任何一步出錯：原文照樣入庫，錯誤寫在 error.message，不丟資料
+```
+
+**目前的格式：**
+
+| `log-format` | 給誰用 | 例子 |
+|---|---|---|
+| （不填） | Java 標準（logback JSON）、ECS JSON（Spring Boot 3.4 `logging.structured.format.console=ecs`）、純文字 | `{"level":"INFO","message":"..."}` |
+| `logfmt` | Go 等語言常見的 key=value | `level=warn msg="lot hold requested" lot_id=L123` |
+
+### 服務怎麼宣告格式
+
+用 app-common chart 的服務，在 values 填 `logFormat`，chart 會在 pod 加上 label `log-format`：
+
+```yaml
+logFormat: logfmt
+```
+
+- 名稱只能是小寫英數與減號，填錯部署直接失敗。
+- 照 Java 標準輸出的服務不用填。
+- 沒用 chart 的服務，直接在 pod template 加 label `log-format: <格式>`。
+
+### 新增一種格式（例如 SECS）
+
+1. 在 [formats/](../platform/central/elasticsearch/formats) 加 `<格式>.json`。只要做到「原文 → `_app`」，再交給 `k8s-logs-fields`。可以參考 [logfmt.json](../platform/central/elasticsearch/formats/logfmt.json)。需要寫程式的話，放同名的 `<格式>.painless`。
+2. 規則裡第一步一定要 `set log.parser = <格式>`，解析失敗時不能丟掉原文（`ignore_failure` 或自己的 `on_failure`）。
+3. 在 [test/local-k3s/](../test/local-k3s) 加一個輸出該格式的測試服務和檢查項目，跑 `run-e2e.sh`。
+4. 跑 `elasticsearch-setup.sh`（`SKIP_KEYS=1`）裝到中央。**各 cluster 的 Fluent Bit 不用動。**
+5. 服務在 values 填上 `logFormat`。
+
+可以**先讓服務宣告格式、之後再補規則**：還沒有規則的期間，log 照收、原文完整，只是沒拆欄位。規則裝上去之後，新進來的資料就會拆。
+
+**例外：一則訊息跨很多行的格式**（例如 SECS 的 SML body）。多行要在 Fluent Bit 收的時候就合併成一筆，送到中央就拼不回來了，所以這種格式除了第 1 步，還要在 Fluent Bit 加多行合併的規則。
+
+### 查哪些格式還沒有規則
+
+```
+GET k8s-*/_search
+{"size": 0, "query": {"bool": {"must_not": {"term": {"log.format": "default"}}}},
+ "aggs": {"format": {"terms": {"field": "log.format"}, "aggs": {"parser": {"terms": {"field": "log.parser"}}}}}}
+```
+
+`log.format` 是 `secs`、`log.parser` 卻是 `default` 的，就是宣告了但還沒寫規則。
 
 ## Index
 
@@ -114,10 +188,11 @@ Fluent Bit 把 namespace label 快取 15 分鐘，**標了之後最多 15 分鐘
 test/local-k3s/run-e2e.sh
 ```
 
-在單節點 k3s 上跑過（ES 8.17、Fluent Bit 4.1.1），33 項全部通過。另外跑過幾個情境測試：dept label 改了多久生效、每秒最多 5,000 行的大流量、ES 整台停機、寫入去重複。測資、每一項結果和故障測試的完整紀錄見 [elasticsearch-testing.md](elasticsearch-testing.md)。
+在單節點 k3s 上跑過（ES 8.17、Fluent Bit 4.1.1），43 項全部通過。另外跑過幾個情境測試：dept label 改了多久生效、每秒最多 5,000 行的大流量、ES 整台停機、寫入去重複。測資、每一項結果和故障測試的完整紀錄見 [elasticsearch-testing.md](elasticsearch-testing.md)。
 
 - **分流**：三個 namespace 各自只進自己的 index，沒有重複送。
 - **欄位**：logback 格式、ECS 巢狀格式、ECS 點號格式（ES 自己的 log）、純文字，四種都正確轉換。
+- **依格式分派**：宣告 `logfmt` 的服務走 logfmt 規則；宣告了還沒有規則的 `secs`，退回 default，原文完整保留。
 - **權限**：寫入 key 只能寫自己的 group，不能讀；AIOps key 能讀全部 k8s-*，不能寫。
 
 另外手動測過一把 key 失效的情況（不在腳本裡）：
@@ -154,4 +229,5 @@ GET k8s-*/_search
 
 1. **K8s events**（OOMKilled、probe 失敗、BackOff）。這是 AIOps 很重要的訊號，但 event 本身只帶 namespace 名稱，不帶 dept；要分流得先決定歸屬放哪裡，見 README 待定事項第 1 點。唯讀角色裡已經預留了 `k8s-events-{group}-*`。
 2. **保留天數**要各 group 確認。
-3. **dept 清單目前要手動同步三處**：`groups.yaml`、Fluent Bit 規則、vmagent regex。group 變多之前要改成從 `groups.yaml` 產生。
+3. **SECS、REST API 等格式的解析規則**：架構已經好了（見「pipeline」），等拿到真實的 log 樣本再寫。SECS 還要在 Fluent Bit 加多行合併。
+4. **dept 清單目前要手動同步三處**：`groups.yaml`、Fluent Bit 規則、vmagent regex。group 變多之前要改成從 `groups.yaml` 產生。
