@@ -1,0 +1,11 @@
+# 去重複測試用：以正式設定為基礎，故意把 ES 回應的讀取上限改回 512KB 製造「ES 已寫入、Fluent Bit 以為失敗而重送」，
+# 並打開 generate_id。fluent-bit.yaml 由 load/run-dedup.sh 從正式設定產生，不進版控。
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../fluent-bit
+configMapGenerator:
+  - name: fluent-bit-config
+    behavior: replace
+    files:
+      - fluent-bit.yaml
