@@ -34,6 +34,7 @@ container stdout（每個節點的 /var/log/containers）
 | [platform/central/elasticsearch/formats/](../platform/central/elasticsearch/formats) | 各 log 格式的解析規則，一種格式一個檔 |
 | [platform/cluster-addons/fluent-bit/](../platform/cluster-addons/fluent-bit) | 每個應用 cluster 的 Fluent Bit（kustomize） |
 | [test/local-k3s/](../test/local-k3s) | 端到端測試 |
+| [test/pipeline/](../test/pipeline) | pipeline 案例測試（只需要 ES） |
 
 ## 欄位規範
 
@@ -43,7 +44,7 @@ AIOps 只認這些欄位。標準概念用 [ECS](https://www.elastic.co/guide/en
 |---|---|---|
 | `@timestamp` | 應用 log 裡的時間；沒有就用 Fluent Bit 收到的時間 | 時間軸 |
 | `message` | 應用的訊息；不是 JSON 就是整行原文 | log 樣板分群 |
-| `log.level` | 應用的 level，一律轉小寫。應用沒寫的話，從原文行首附近抓 `ERROR`、`WARN` 這類關鍵字 | 錯誤率 |
+| `log.level` | 應用的 level，統一成 trace/debug/info/warn/error/fatal。應用沒寫的話，從原文抓（見「保底」） | 錯誤率 |
 | `log.level_inferred` | `true` 表示 `log.level` 是從原文猜的，不是應用自己寫的 | 分辨可信度 |
 | `log.logger`、`process.thread.name` | 應用 | 縮小範圍 |
 | `error.type` | 從 stack trace 第一行拆出的例外類別 | 例外分群，比對全文便宜很多 |
@@ -112,26 +113,41 @@ k8s-logs（主 pipeline）
 
 ### 保底：沒有規則的格式也盡量抓 level
 
-不管什麼格式，只要最後還沒有 `log.level`，就從原文**前 80 個字元**找**獨立、全大寫**的 level 關鍵字：
+不管什麼格式，只要最後還沒有 `log.level`，就從原文抓。兩條規則，依序：
 
-| 關鍵字 | `log.level` |
-|---|---|
-| `TRACE` | trace |
-| `DEBUG` | debug |
-| `INFO` | info |
-| `WARN`、`WARNING` | warn |
-| `ERROR`、`ERR` | error |
-| `FATAL`、`CRITICAL`、`CRIT` | fatal |
+| 規則 | 條件 | 例子 |
+|---|---|---|
+| A. 行首前綴 | 一行**最開頭**的字（可包在 `[` `]` 裡），後面緊接 `:` 或 `]`；不分大小寫 | `[WARN] …`、`Warning: …`、`error: …`、`[CRITICAL] …` |
+| B. 前 80 字內的全大寫關鍵字 | 前 80 個字元內，**獨立、全大寫**的關鍵字 | `2026-10-08 12:00:00 ERROR [main] …`、`ERROR - …`、`… SEVERE [main] …` |
 
-- 找到的話設 `log.level`，並標 `log.level_inferred: true`。
-- 應用自己寫了 level 的不會被覆蓋。
-- 為了少誤判，下面這些**不算**：
-  - 小寫：`no error found`。
+- 找到的話設 `log.level`，並標 `log.level_inferred: true`。應用自己寫了 level 的不會被覆蓋。
+- **刻意不算的：**
+  - 小寫散在句中：`0 errors`、`no error found`。
+  - 首字母大寫但不在行首：`Errors: 0` 的 `Errors` 不是 level 關鍵字。
   - 連在別的字上：`ERROR_CODE=5`。
   - 在第 80 個字元之後。
-- 仍然可能誤判，例如訊息開頭剛好是 `NO ERROR`。所以 AIOps 對 `log.level_inferred: true` 的資料要降低權重。
+- **仍可能誤判**，例如訊息開頭剛好是 `NO ERROR`。所以 AIOps 對 `log.level_inferred: true` 的資料要降低權重。
 
-這樣一來，就算一個服務的格式完全沒有對應規則，AIOps 至少還能算它的錯誤率。
+### level 正規化
+
+不管是應用自己寫的，還是猜出來的，一律統一成六種：
+
+| 原本的寫法（不分大小寫） | 統一成 |
+|---|---|
+| `trace` | trace |
+| `debug` | debug |
+| `info`、`notice` | info |
+| `warn`、`warning` | warn |
+| `error`、`err`、`severe`（Java 內建 logging、Tomcat） | error |
+| `fatal`、`critical`、`crit`、`panic`、`emerg`、`alert` | fatal |
+
+不認得的值，例如 `verbose`，轉小寫後原樣保留，不硬塞進六種。
+
+案例測試見 [test/pipeline/level-cases.json](../test/pipeline/level-cases.json)，不用 K8s，幾秒跑完：
+
+```bash
+ES_URL=https://<es>:9200 ES_AUTH=elastic:<password> test/pipeline/run-level-cases.sh
+```
 
 **目前的格式：**
 
@@ -226,12 +242,12 @@ Fluent Bit 把 namespace label 快取 15 分鐘，**標了之後最多 15 分鐘
 test/local-k3s/run-e2e.sh
 ```
 
-在單節點 k3s 上跑過（ES 8.17、Fluent Bit 4.1.1），49 項全部通過。另外跑過幾個情境測試：dept label 改了多久生效、每秒最多 5,000 行的大流量、ES 整台停機、寫入去重複。測資、每一項結果和故障測試的完整紀錄見 [elasticsearch-testing.md](elasticsearch-testing.md)。
+在單節點 k3s 上跑過（ES 8.17、Fluent Bit 4.1.1），53 項全部通過；另有 23 個 level 萃取案例全部通過。另外跑過幾個情境測試：dept label 改了多久生效、每秒最多 5,000 行的大流量、ES 整台停機、寫入去重複。測資、每一項結果和故障測試的完整紀錄見 [elasticsearch-testing.md](elasticsearch-testing.md)。
 
 - **分流**：三個 namespace 各自只進自己的 index，沒有重複送。
 - **欄位**：logback 格式、ECS 巢狀格式、ECS 點號格式（ES 自己的 log）、純文字，四種都正確轉換。
 - **依格式分派**：宣告 `logfmt` 的服務走 logfmt 規則；宣告了還沒有規則的 `secs`，退回 default，原文完整保留。
-- **保底抓 level**：純文字裡的 `ERROR`、`[WARNING]`、`INFO:` 都抓得到；小寫的 error、`ERROR_CODE` 不會被誤抓；應用自己寫了 level 的不會被覆蓋。
+- **保底抓 level**：`[WARN] …`、`ERROR - …`、`Warning: …`、時間戳後的 `ERROR` 都抓得到；`0 errors`、`no error found`、`ERROR_CODE` 不會被誤抓；應用自己寫了 level 的不會被覆蓋，`WARNING`、`Err` 這類寫法會統一。
 - **權限**：寫入 key 只能寫自己的 group，不能讀；AIOps key 能讀全部 k8s-*，不能寫。
 
 另外手動測過一把 key 失效的情況（不在腳本裡）：

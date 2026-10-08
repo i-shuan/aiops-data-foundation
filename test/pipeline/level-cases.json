@@ -1,0 +1,27 @@
+[
+  {"group": "命中：行首/前綴", "log": "[WARN] cache miss ratio 35%", "expect": "warn", "inferred": true},
+  {"group": "命中：行首/前綴", "log": "ERROR - payment gateway timeout", "expect": "error", "inferred": true},
+  {"group": "命中：行首/前綴", "log": "INFO: service started on port 8080", "expect": "info", "inferred": true},
+  {"group": "命中：行首/前綴", "log": "Warning: certificate expires in 7 days", "expect": "warn", "inferred": true},
+  {"group": "命中：行首/前綴", "log": "[error] upstream connect failed", "expect": "error", "inferred": true},
+  {"group": "命中：行首/前綴", "log": "error: failed to pull image", "expect": "error", "inferred": true},
+  {"group": "命中：行首/前綴", "log": "[CRITICAL] database unreachable", "expect": "fatal", "inferred": true},
+  {"group": "命中：時間戳之後", "log": "2026-10-08 12:00:00.123 ERROR [main] c.s.LotService - lot not found", "expect": "error", "inferred": true},
+  {"group": "命中：時間戳之後", "log": "2026-10-08 12:00:00 [WARNING] disk usage 91%", "expect": "warn", "inferred": true},
+  {"group": "命中：時間戳之後", "log": "08-Oct-2026 12:00:00.000 SEVERE [main] org.apache.catalina.core.StandardService.startInternal failed", "expect": "error", "inferred": true},
+
+  {"group": "防誤判", "log": "2026-10-08 12:00:00 file transfer: 0 errors, 12 files", "expect": null},
+  {"group": "防誤判", "log": "db connection ok, no error found", "expect": null},
+  {"group": "防誤判", "log": "processing batch ERROR_CODE=5 retry=1", "expect": null},
+  {"group": "防誤判", "log": "Errors: 0, warnings: 2", "expect": null},
+  {"group": "防誤判", "log": "user typed: error", "expect": null},
+  {"group": "防誤判", "log": "Information about lot L1 was updated", "expect": null},
+  {"group": "防誤判", "log": "2026-10-08T12:00:00Z this is a very long prefix that pushes the keyword beyond eighty characters ERROR here", "expect": null},
+
+  {"group": "正規化：應用自己寫的 level", "log": "{\"level\":\"WARNING\",\"message\":\"python style\"}", "expect": "warn", "inferred": false},
+  {"group": "正規化：應用自己寫的 level", "log": "{\"level\":\"Err\",\"message\":\"short form\"}", "expect": "error", "inferred": false},
+  {"group": "正規化：應用自己寫的 level", "log": "{\"severity\":\"notice\",\"message\":\"syslog style\"}", "expect": "info", "inferred": false},
+  {"group": "正規化：應用自己寫的 level", "log": "level=CRITICAL msg=\"disk full\"", "format": "logfmt", "expect": "fatal", "inferred": false},
+  {"group": "正規化：應用自己寫的 level", "log": "{\"level\":\"verbose\",\"message\":\"unknown level kept\"}", "expect": "verbose", "inferred": false},
+  {"group": "正規化：應用自己寫的 level", "log": "{\"level\":\"INFO\",\"message\":\"ERROR text but level given\"}", "expect": "info", "inferred": false}
+]

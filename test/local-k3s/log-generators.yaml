@@ -192,5 +192,9 @@ spec:
                 echo "INFO: service started on port 8080"
                 echo "db connection ok, no error found"
                 echo "processing batch ERROR_CODE=5 retry=1"
+                echo "[WARN] cache miss ratio 35%"
+                echo "ERROR - payment gateway timeout"
+                echo "$t file transfer: 0 errors, 12 files"
+                echo "Warning: certificate expires in 7 days"
                 sleep 3
               done

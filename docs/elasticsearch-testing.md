@@ -27,7 +27,7 @@
 | `legacy` | 沒標 | 沒套 chart，只有 `app: legacy` label | 純文字 | `k8s-unassigned-local` |
 | `it-mes-prod` | `D3120` | `hold-svc`，宣告 `log-format: logfmt` | logfmt | `k8s-it-local`，走 logfmt 規則 |
 | `it-mes-prod` | `D3120` | `eap`，宣告 `log-format: secs`（中央還沒有 secs 規則） | 一行仿 SECS 的純文字，**不是真實的 SECS 格式** | `k8s-it-local`，退回 default |
-| `legacy` | 沒標 | `text-app`，沒宣告格式 | 5 種純文字，測保底抓 level | `k8s-unassigned-local` |
+| `legacy` | 沒標 | `text-app`，沒宣告格式 | 9 種純文字，測保底抓 level | `k8s-unassigned-local` |
 
 各 namespace 的輸出內容如下。
 
@@ -65,7 +65,7 @@ ts=2026-10-08T12:00:00.000Z level=warn msg="lot hold requested" lot_id=L1 caller
 2026-10-08 12:00:00 [EQP01] RECV S6F11 W SystemBytes=1234
 ```
 
-**`text-app`**：每 3 秒輸出下面 5 行。前 3 行應該抓到 level，後 2 行不應該：
+**`text-app`**：每 3 秒輸出下面 9 行。第 1、2、3、6、7、9 行應該抓到 level，第 4、5、8 行不應該：
 
 ```
 2026-10-08 12:00:00 ERROR [main] c.s.LotService - lot not found
@@ -73,11 +73,15 @@ ts=2026-10-08T12:00:00.000Z level=warn msg="lot hold requested" lot_id=L1 caller
 INFO: service started on port 8080
 db connection ok, no error found
 processing batch ERROR_CODE=5 retry=1
+[WARN] cache miss ratio 35%
+ERROR - payment gateway timeout
+2026-10-08 12:00:00 file transfer: 0 errors, 12 files
+Warning: certificate expires in 7 days
 ```
 
 **順帶測到的第四種格式：** ES 自己的 log 也會被收進 unassigned。它是 ECS 的點號寫法，key 直接寫成 `"log.level"`、`"log.logger"`。
 
-## 自動測試：49 項
+## 自動測試：53 項
 
 跑法：
 
@@ -89,7 +93,7 @@ ES_URL=http://<ip>:9200 test/local-k3s/run-e2e.sh
 
 腳本會依序部署 ES、執行 setup 腳本拿到 key、建 Secret、部署 Fluent Bit 和三個測試服務，等 60 秒後開始檢查。
 
-結果：**49 項全部通過。**
+結果：**53 項全部通過。**
 
 ### 分流（7 項）
 
@@ -176,23 +180,58 @@ ES_URL=http://<ip>:9200 test/local-k3s/run-e2e.sh
 
 另外用 pipeline 模擬（`_simulate`）測過：宣告不合法的格式名稱（例如 `../Bad Format!`）會被當成 default，不會拿去組 pipeline 名稱。
 
-### 純文字保底抓 level（6 項）
+### 純文字保底抓 level（10 項）
 
 實際樣本見[附錄 F](#f-純文字保底抓-level)。
 
 | 檢查 | 結果 |
 |---|---|
-| 行首附近的 `ERROR` → error，並標 `log.level_inferred: true` | PASS |
+| 時間戳後的 `ERROR` → error，並標 `log.level_inferred: true` | PASS |
 | `[WARNING]` → warn | PASS |
 | `INFO:` → info | PASS |
+| `[WARN]` 前綴 → warn | PASS |
+| `ERROR -` 前綴 → error | PASS |
+| `Warning:` 行首（非全大寫）→ warn | PASS |
 | 小寫的 `no error found` 不算 | PASS |
+| `0 errors` 不算 | PASS |
 | `ERROR_CODE=5` 連在別的字上不算 | PASS |
 | 應用自己寫了 level 的不猜（`mes-api` 沒有任何一筆被標成猜的） | PASS |
 
-另外用 pipeline 模擬（`_simulate`）測過：
-- 關鍵字在第 80 個字元之後，不算。
-- JSON 沒寫 level、內容也沒有關鍵字，不猜。
-- JSON 寫了 `level: INFO`、內容有 `ERROR`，維持 info，不會被覆蓋。
+## pipeline 案例測試：level 萃取與正規化（23 個）
+
+不經過 K8s 和 Fluent Bit，直接把原文丟給 pipeline 的 `_simulate`，比對 `log.level` 和 `log.level_inferred`。案例在 [test/pipeline/level-cases.json](../test/pipeline/level-cases.json)，新增案例只要加一行。
+
+```bash
+ES_URL=http://<ip>:9200 ES_AUTH=elastic:<password> test/pipeline/run-level-cases.sh
+```
+
+結果：**23 個全部通過。** 也確認過把一個預期改錯時，腳本會報 FAIL 並以非 0 結束。
+
+| 分類 | 原文 | 結果 |
+|---|---|---|
+| 命中：行首/前綴 | `[WARN] cache miss ratio 35%` | warn（猜的） |
+| 命中：行首/前綴 | `ERROR - payment gateway timeout` | error（猜的） |
+| 命中：行首/前綴 | `INFO: service started on port 8080` | info（猜的） |
+| 命中：行首/前綴 | `Warning: certificate expires in 7 days` | warn（猜的） |
+| 命中：行首/前綴 | `[error] upstream connect failed` | error（猜的） |
+| 命中：行首/前綴 | `error: failed to pull image` | error（猜的） |
+| 命中：行首/前綴 | `[CRITICAL] database unreachable` | fatal（猜的） |
+| 命中：時間戳之後 | `2026-10-08 12:00:00.123 ERROR [main] c.s.LotService - lot not found` | error（猜的） |
+| 命中：時間戳之後 | `2026-10-08 12:00:00 [WARNING] disk usage 91%` | warn（猜的） |
+| 命中：時間戳之後 | `08-Oct-2026 12:00:00.000 SEVERE [main] org.apache.catalina…` | error（猜的） |
+| 防誤判 | `2026-10-08 12:00:00 file transfer: 0 errors, 12 files` | （無） |
+| 防誤判 | `db connection ok, no error found` | （無） |
+| 防誤判 | `processing batch ERROR_CODE=5 retry=1` | （無） |
+| 防誤判 | `Errors: 0, warnings: 2` | （無） |
+| 防誤判 | `user typed: error` | （無） |
+| 防誤判 | `Information about lot L1 was updated` | （無） |
+| 防誤判 | `ERROR` 出現在第 80 個字元之後 | （無） |
+| 正規化：應用自己寫的 | `{"level":"WARNING",…}` | warn |
+| 正規化：應用自己寫的 | `{"level":"Err",…}` | error |
+| 正規化：應用自己寫的 | `{"severity":"notice",…}` | info |
+| 正規化：應用自己寫的 | `level=CRITICAL msg="disk full"`（logfmt） | fatal |
+| 正規化：應用自己寫的 | `{"level":"verbose",…}`（不認得） | verbose（原樣保留） |
+| 正規化：應用自己寫的 | `{"level":"INFO","message":"ERROR text…"}` | info（不被內容覆蓋） |
 
 ### 權限（5 項）
 

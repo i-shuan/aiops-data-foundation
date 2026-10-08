@@ -25,6 +25,29 @@ boolean prune(Map m) {
   return m.isEmpty();
 }
 
+// level 正規化：各家寫法統一成 trace/debug/info/warn/error/fatal 六種。
+// 不認得的值原樣（轉小寫）保留，不硬塞。
+String normLevel(String v) {
+  if (v == null) return null;
+  String k = v.trim().toLowerCase();
+  Map aliases = ['warning': 'warn', 'err': 'error', 'severe': 'error',
+                 'critical': 'fatal', 'crit': 'fatal', 'panic': 'fatal',
+                 'emerg': 'fatal', 'emergency': 'fatal', 'alert': 'fatal',
+                 'notice': 'info'];
+  def a = aliases.get(k);
+  return a != null ? a : k;
+}
+
+// 是不是 level 關鍵字（傳入小寫）
+boolean isLevelWord(String w) {
+  return ['trace', 'debug', 'info', 'warn', 'warning', 'error', 'err', 'fatal',
+          'critical', 'crit', 'severe', 'notice', 'panic'].contains(w);
+}
+
+boolean isWordChar(char c) {
+  return Character.isLetterOrDigit(c) || c == (char) 95;
+}
+
 String takeStr(Map m, List keys) {
   if (m == null) return null;
   for (String k : keys) {
@@ -45,7 +68,7 @@ if (app != null) {
   ctx.message = msg != null ? msg : raw;
 
   String level = takeStr(app, ['level', 'lvl', 'severity', 'log.level']);
-  if (level != null) log.put('level', level.toLowerCase());
+  if (level != null) log.put('level', normLevel(level));
   String logger = takeStr(app, ['logger', 'logger_name', 'log.logger']);
   if (logger != null) log.put('logger', logger);
 
@@ -80,29 +103,41 @@ if (app != null) {
   if (!prune(app)) ctx.app = app;
 }
 
-// 保底：還是沒有 level 的（純文字 log、或 JSON 沒寫 level），從行首附近抓全大寫的 level 關鍵字。
-// 只看前 80 個字元、只認獨立成一個字的全大寫關鍵字，降低誤判：
-//   「2026-10-08 12:00:00 ERROR [main] ...」→ error
-//   「no error found」（小寫）、「ERROR_CODE=5」（連在別的字上）→ 不算
+// 保底：還是沒有 level 的（純文字 log、或 JSON 沒寫 level），從原文抓 level。兩條規則，依序：
+//   A. 行首前綴，不分大小寫：「Warning: …」「[warn] …」「error: …」
+//      只認一行最開頭的字，後面緊接「:」或「]」才算
+//   B. 前 80 個字元內，獨立、全大寫的關鍵字：「2026-10-08 12:00:00 ERROR [main] …」「ERROR - …」
+// 刻意不算的：小寫散在句中（no error found、0 errors）、連在別的字上（ERROR_CODE=5）、80 字之後
 // 猜出來的另外標 log.level_inferred: true，AIOps 可以分辨是應用寫的還是猜的。
 if (log.get('level') == null && ctx.message instanceof String) {
   String m = ctx.message;
+  String found = null;
+
+  // 規則 A：行首前綴
+  int p = 0;
+  while (p < m.length() && Character.isWhitespace(m.charAt(p))) p++;
+  if (p < m.length() && m.charAt(p) == (char) 91) p++;          // 可有可無的 [
+  int q = p;
+  while (q < m.length() && isWordChar(m.charAt(q))) q++;
+  if (q > p && q < m.length() && (m.charAt(q) == (char) 58 || m.charAt(q) == (char) 93)) {   // 後面是 : 或 ]
+    String w = m.substring(p, q).toLowerCase();
+    if (isLevelWord(w)) found = normLevel(w);
+  }
+
+  // 規則 B：前 80 個字元內獨立的全大寫關鍵字
   int end = m.length() < 80 ? m.length() : 80;
-  Map levels = ['TRACE': 'trace', 'DEBUG': 'debug', 'INFO': 'info', 'WARN': 'warn', 'WARNING': 'warn',
-                'ERROR': 'error', 'ERR': 'error', 'FATAL': 'fatal', 'CRITICAL': 'fatal', 'CRIT': 'fatal'];
   int i = 0;
-  while (i < end) {
-    char c = m.charAt(i);
-    if (!(Character.isLetterOrDigit(c) || c == (char) 95)) { i++; continue; }
-    // 一個「字」：連續的英數字與底線
+  while (found == null && i < end) {
+    if (!isWordChar(m.charAt(i))) { i++; continue; }
     int j = i;
-    while (j < m.length() && (Character.isLetterOrDigit(m.charAt(j)) || m.charAt(j) == (char) 95)) j++;
-    def found = levels.get(m.substring(i, j));
-    if (found != null) {
-      log.put('level', found);
-      log.put('level_inferred', true);
-      break;
-    }
+    while (j < m.length() && isWordChar(m.charAt(j))) j++;
+    String w = m.substring(i, j);
+    if (w.equals(w.toUpperCase()) && isLevelWord(w.toLowerCase())) found = normLevel(w);
     i = j;
+  }
+
+  if (found != null) {
+    log.put('level', found);
+    log.put('level_inferred', true);
   }
 }

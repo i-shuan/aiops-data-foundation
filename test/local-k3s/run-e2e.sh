@@ -139,6 +139,10 @@ check "[WARNING] → warn"                         "$(text_level 'disk usage')" 
 check "INFO: → info"                              "$(text_level 'service started')" info/true
 check "小寫的 error 不算"                         "$(text_level 'db connection ok')" none/false
 check "ERROR_CODE 連在別的字上不算"               "$(text_level 'processing batch')" none/false
+check "[WARN] 前綴 → warn"                        "$(text_level 'cache miss ratio')" warn/true
+check "ERROR - 前綴 → error"                      "$(text_level 'payment gateway timeout')" error/true
+check "Warning: 行首（非全大寫）→ warn"           "$(text_level 'certificate expires')" warn/true
+check "0 errors 不算"                              "$(text_level 'file transfer')" none/false
 check "應用自己寫了 level 就不猜（mes-api 沒有猜的）" \
   "$(count k8s-it-local '{"bool":{"filter":[{"term":{"service.name":"mes-api"}},{"term":{"log.level_inferred":true}}]}}')" 0
 
