@@ -87,7 +87,7 @@ check "每筆只送一份（三個 index 合計 = 全部）" \
   "$(( $(count k8s-it-local '{"match_all":{}}') + $(count k8s-imc-local '{"match_all":{}}') + $(count k8s-unassigned-local '{"match_all":{}}') ))"
 
 echo "== 5. 欄位"
-doc="$(es "${ES_URL}/k8s-it-local/_search" -d '{"size":1,"query":{"exists":{"field":"error.type"}}}' | jq '.hits.hits[0]._source')"
+doc="$(es "${ES_URL}/k8s-it-local/_search" -d '{"size":1,"query":{"bool":{"filter":[{"term":{"service.name":"mes-api"}},{"exists":{"field":"error.type"}}]}}}' | jq '.hits.hits[0]._source')"
 check "service.name（來自 pod label）"  "$(jq -r .service.name <<<"${doc}")" mes-api
 check "service.version"                 "$(jq -r .service.version <<<"${doc}")" 2.3.1
 check "service.namespace（part-of）"    "$(jq -r .service.namespace <<<"${doc}")" mes
@@ -98,13 +98,13 @@ check "log.level 轉小寫"                 "$(jq -r .log.level <<<"${doc}")" er
 check "error.type 從 stack trace 拆出"   "$(jq -r .error.type <<<"${doc}")" java.lang.IllegalStateException
 check "trace.id"                        "$(jq -r .trace.id <<<"${doc}")" 5bf92f3577b34da6a3ce929d0e0e4736
 check "@timestamp 用應用自己的時間（毫秒為 000）" "$(jq -r '."@timestamp" | test("\\.000Z$")' <<<"${doc}")" true
-info="$(es "${ES_URL}/k8s-it-local/_search" -d '{"size":1,"query":{"term":{"log.level":"info"}}}' | jq '.hits.hits[0]._source')"
+info="$(es "${ES_URL}/k8s-it-local/_search" -d '{"size":1,"query":{"bool":{"filter":[{"term":{"service.name":"mes-api"}},{"term":{"log.level":"info"}}]}}}' | jq '.hits.hits[0]._source')"
 check "自訂欄位收進 app（lot_id）"        "$(jq -r '.app.lot_id | startswith("L")' <<<"${info}")" true
 check "logstash encoder 的雜訊欄位已移除" "$(jq -r '.app | has("@version") or has("level_value")' <<<"${info}")" false
-legacy="$(es "${ES_URL}/k8s-unassigned-local/_search" -d "{\"size\":1,\"query\":$(ns_q legacy)}" | jq '.hits.hits[0]._source')"
+legacy="$(es "${ES_URL}/k8s-unassigned-local/_search" -d '{"size":1,"query":{"term":{"service.name":"legacy"}}}' | jq '.hits.hits[0]._source')"
 check "純文字 log 保留原文"              "$(jq -r '.message | startswith("plain text")' <<<"${legacy}")" true
 check "沒套 chart 的服務退回 container 名稱" "$(jq -r .service.name <<<"${legacy}")" legacy
-ecs="$(es "${ES_URL}/k8s-imc-local/_search" -d '{"size":1,"sort":[{"@timestamp":"desc"}]}' | jq '.hits.hits[0]._source')"
+ecs="$(es "${ES_URL}/k8s-imc-local/_search" -d '{"size":1,"sort":[{"@timestamp":"desc"}],"query":{"term":{"service.name":"wip-worker"}}}' | jq '.hits.hits[0]._source')"
 check "ECS 巢狀格式：log.level"       "$(jq -r .log.level <<<"${ecs}")" warn
 check "ECS 巢狀格式：log.logger"      "$(jq -r .log.logger <<<"${ecs}")" wip.Queue
 check "ECS 巢狀格式：thread"          "$(jq -r .process.thread.name <<<"${ecs}")" main
@@ -127,6 +127,20 @@ check "還沒有規則的格式：退回 default"   "$(jq -r .log.parser <<<"${s
 check "還沒有規則的格式：原文完整保留"   "$(jq -r '.message | test("RECV S6F11 W SystemBytes=1234$")' <<<"${sc}")" true
 check "沒宣告格式：format 是 default"    "$(jq -r .log.format <<<"${doc}")" default
 check "每筆都有 log.parser"              "$(count 'k8s-*' '{"bool":{"must_not":{"exists":{"field":"log.parser"}}}}')" 0
+
+
+echo "== 5c. 純文字 log 保底抓 level"
+text_level() {  # text_level <訊息開頭> → 該行的 log.level 與 log.level_inferred
+  es "${ES_URL}/k8s-unassigned-local/_search" -d "{\"size\":1,\"sort\":[{\"@timestamp\":\"desc\"}],\"query\":{\"bool\":{\"filter\":[{\"term\":{\"service.name\":\"text-app\"}},{\"match_phrase_prefix\":{\"message\":\"$1\"}}]}}}" \
+    | jq -r '.hits.hits[0]._source.log | "\(.level // "none")/\(.level_inferred // false)"'
+}
+check "行首附近的 ERROR → error（標記為猜的）" "$(text_level 'lot not found')" error/true
+check "[WARNING] → warn"                         "$(text_level 'disk usage')" warn/true
+check "INFO: → info"                              "$(text_level 'service started')" info/true
+check "小寫的 error 不算"                         "$(text_level 'db connection ok')" none/false
+check "ERROR_CODE 連在別的字上不算"               "$(text_level 'processing batch')" none/false
+check "應用自己寫了 level 就不猜（mes-api 沒有猜的）" \
+  "$(count k8s-it-local '{"bool":{"filter":[{"term":{"service.name":"mes-api"}},{"term":{"log.level_inferred":true}}]}}')" 0
 
 check "沒有 pipeline 失敗的文件"          "$(count 'k8s-*' '{"exists":{"field":"error.message"}}')" 0
 

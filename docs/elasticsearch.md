@@ -43,7 +43,8 @@ AIOps 只認這些欄位。標準概念用 [ECS](https://www.elastic.co/guide/en
 |---|---|---|
 | `@timestamp` | 應用 log 裡的時間；沒有就用 Fluent Bit 收到的時間 | 時間軸 |
 | `message` | 應用的訊息；不是 JSON 就是整行原文 | log 樣板分群 |
-| `log.level` | 應用的 level，一律轉小寫 | 錯誤率 |
+| `log.level` | 應用的 level，一律轉小寫。應用沒寫的話，從原文行首附近抓 `ERROR`、`WARN` 這類關鍵字 | 錯誤率 |
+| `log.level_inferred` | `true` 表示 `log.level` 是從原文猜的，不是應用自己寫的 | 分辨可信度 |
 | `log.logger`、`process.thread.name` | 應用 | 縮小範圍 |
 | `error.type` | 從 stack trace 第一行拆出的例外類別 | 例外分群，比對全文便宜很多 |
 | `error.stack_trace` | 應用 | 人看 |
@@ -86,7 +87,7 @@ pipeline 是 **Elasticsearch 內建的「寫入前加工」**（ingest pipeline�
 >
 > | 狀態 | 項目 |
 > |---|---|
-> | ✅ 完成 | 依格式分派的機制、`default`（JSON／純文字）、`logfmt`、沒有規則時退回並保留原文、`log.format`／`log.parser` 追蹤 |
+> | ✅ 完成 | 依格式分派的機制、`default`（JSON／純文字）、`logfmt`、沒有規則時退回並保留原文、`log.format`／`log.parser` 追蹤、純文字保底抓 level |
 > | ⏳ 待辦 | **SECS**：解析規則＋Fluent Bit 多行合併。需要真實樣本：一般事件（S6F11）、告警（S5F1）、逾時（S9F9）、多行 body，以及 EAP 用的軟體或函式庫 |
 > | ⏳ 待辦 | **REST API**：只統一 method、路徑（換成樣板）、狀態碼、耗時、trace_id，body 不統一。需要兩三個服務的 log 範例，以及有沒有 ingress／API gateway 的存取紀錄 |
 
@@ -104,9 +105,33 @@ k8s-logs（主 pipeline）
        └─ 宣告了但中央還沒有這個格式的規則 → 退回 default，原文完整保留
      各格式只負責「把原文拆成欄位」，拆出來的交給 ↓
      k8s-logs-fields：對應成標準欄位（level/lvl → log.level、msg → message…），所有格式共用
+                      還是沒有 level 的，從原文行首附近抓全大寫的 ERROR/WARN/INFO…（保底）
   3. 時間改用應用自己的時間；蓋上 ES 收到的時間
   任何一步出錯：原文照樣入庫，錯誤寫在 error.message，不丟資料
 ```
+
+### 保底：沒有規則的格式也盡量抓 level
+
+不管什麼格式，只要最後還沒有 `log.level`，就從原文**前 80 個字元**找**獨立、全大寫**的 level 關鍵字：
+
+| 關鍵字 | `log.level` |
+|---|---|
+| `TRACE` | trace |
+| `DEBUG` | debug |
+| `INFO` | info |
+| `WARN`、`WARNING` | warn |
+| `ERROR`、`ERR` | error |
+| `FATAL`、`CRITICAL`、`CRIT` | fatal |
+
+- 找到的話設 `log.level`，並標 `log.level_inferred: true`。
+- 應用自己寫了 level 的不會被覆蓋。
+- 為了少誤判，下面這些**不算**：
+  - 小寫：`no error found`。
+  - 連在別的字上：`ERROR_CODE=5`。
+  - 在第 80 個字元之後。
+- 仍然可能誤判，例如訊息開頭剛好是 `NO ERROR`。所以 AIOps 對 `log.level_inferred: true` 的資料要降低權重。
+
+這樣一來，就算一個服務的格式完全沒有對應規則，AIOps 至少還能算它的錯誤率。
 
 **目前的格式：**
 
@@ -201,11 +226,12 @@ Fluent Bit 把 namespace label 快取 15 分鐘，**標了之後最多 15 分鐘
 test/local-k3s/run-e2e.sh
 ```
 
-在單節點 k3s 上跑過（ES 8.17、Fluent Bit 4.1.1），43 項全部通過。另外跑過幾個情境測試：dept label 改了多久生效、每秒最多 5,000 行的大流量、ES 整台停機、寫入去重複。測資、每一項結果和故障測試的完整紀錄見 [elasticsearch-testing.md](elasticsearch-testing.md)。
+在單節點 k3s 上跑過（ES 8.17、Fluent Bit 4.1.1），49 項全部通過。另外跑過幾個情境測試：dept label 改了多久生效、每秒最多 5,000 行的大流量、ES 整台停機、寫入去重複。測資、每一項結果和故障測試的完整紀錄見 [elasticsearch-testing.md](elasticsearch-testing.md)。
 
 - **分流**：三個 namespace 各自只進自己的 index，沒有重複送。
 - **欄位**：logback 格式、ECS 巢狀格式、ECS 點號格式（ES 自己的 log）、純文字，四種都正確轉換。
 - **依格式分派**：宣告 `logfmt` 的服務走 logfmt 規則；宣告了還沒有規則的 `secs`，退回 default，原文完整保留。
+- **保底抓 level**：純文字裡的 `ERROR`、`[WARNING]`、`INFO:` 都抓得到；小寫的 error、`ERROR_CODE` 不會被誤抓；應用自己寫了 level 的不會被覆蓋。
 - **權限**：寫入 key 只能寫自己的 group，不能讀；AIOps key 能讀全部 k8s-*，不能寫。
 
 另外手動測過一把 key 失效的情況（不在腳本裡）：

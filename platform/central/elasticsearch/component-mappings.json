@@ -11,7 +11,8 @@
           "level": {"type": "keyword"},
           "logger": {"type": "keyword"},
           "format": {"type": "keyword"},
-          "parser": {"type": "keyword"}
+          "parser": {"type": "keyword"},
+          "level_inferred": {"type": "boolean"}
         }},
         "process": {"properties": {
           "thread": {"properties": {"name": {"type": "keyword"}}}
