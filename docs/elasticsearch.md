@@ -114,7 +114,7 @@ Fluent Bit 把 namespace label 快取 15 分鐘，**標了之後最多 15 分鐘
 test/local-k3s/run-e2e.sh
 ```
 
-在單節點 k3s 上跑過（ES 8.17、Fluent Bit 4.1.1），33 項全部通過：
+在單節點 k3s 上跑過（ES 8.17、Fluent Bit 4.1.1），33 項全部通過。測資、每一項結果和故障測試的完整紀錄見 [elasticsearch-testing.md](elasticsearch-testing.md)。
 
 - **分流**：三個 namespace 各自只進自己的 index，沒有重複送。
 - **欄位**：logback 格式、ECS 巢狀格式、ECS 點號格式（ES 自己的 log）、純文字，四種都正確轉換。
