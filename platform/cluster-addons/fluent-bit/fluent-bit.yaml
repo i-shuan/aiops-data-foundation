@@ -81,6 +81,9 @@ pipeline:
       tls: ${ES_TLS}
       tls.verify: ${ES_TLS_VERIFY}
       write_operation: create   # data stream 只接受 create
+      # 每筆用內容算出固定的 _id。重送時 _id 相同，ES 回 409 不再寫一份，Fluent Bit 視為成功。
+      # 記錄裡有 container runtime 給的奈秒時間，內容一樣的兩行也會有不同 _id。
+      generate_id: on
       suppress_type_name: on
       # ES bulk 回應的讀取上限，一定要 false（不限）。設成固定大小時，流量一大回應就超過上限，
       # Fluent Bit 讀不完當成失敗而整批重送，但 ES 其實已經寫入：實測每秒 5000 行時一批被重複寫了好幾次，
@@ -99,6 +102,7 @@ pipeline:
       tls: ${ES_TLS}
       tls.verify: ${ES_TLS_VERIFY}
       write_operation: create
+      generate_id: on
       suppress_type_name: on
       buffer_size: false
       trace_error: off
@@ -114,6 +118,7 @@ pipeline:
       tls: ${ES_TLS}
       tls.verify: ${ES_TLS_VERIFY}
       write_operation: create
+      generate_id: on
       suppress_type_name: on
       buffer_size: false
       trace_error: off

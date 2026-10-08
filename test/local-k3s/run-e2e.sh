@@ -57,9 +57,15 @@ kubectl -n logging create secret generic es-writer-keys \
 
 echo "== 3. Fluent Bit 與測試應用"
 kubectl apply -k "${here}/fluent-bit" >/dev/null
-# 每次跑都換新的 key，Fluent Bit 要重啟才會讀到
+# 情境測試會幫 legacy 標上 dept，這裡拿掉，恢復成「沒標 dept」的情境
+kubectl label namespace legacy dept- >/dev/null 2>&1 || true
+# 每次跑都換新的 key，Fluent Bit 要重啟才會讀到（也順便清掉 namespace label 快取）
 kubectl -n logging rollout restart daemonset/fluent-bit >/dev/null
 kubectl -n logging rollout status daemonset/fluent-bit --timeout=180s
+# 測試 ES 有掛硬碟，上一次（或其他情境測試）的資料會留著。等新的 Fluent Bit 把舊 Pod 留下的堆積送完，
+# 再清掉測試用的 data stream，之後進來的都是這次的資料
+sleep 15
+es -X DELETE "${ES_URL}/_data_stream/k8s-*-local" >/dev/null
 kubectl apply -f "${here}/log-generators.yaml" >/dev/null
 for ns in it-mes-prod imc-wip-prod legacy; do
   kubectl -n "${ns}" rollout status deployment --timeout=180s >/dev/null

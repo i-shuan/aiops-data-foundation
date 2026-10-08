@@ -114,7 +114,7 @@ Fluent Bit 把 namespace label 快取 15 分鐘，**標了之後最多 15 分鐘
 test/local-k3s/run-e2e.sh
 ```
 
-在單節點 k3s 上跑過（ES 8.17、Fluent Bit 4.1.1），33 項全部通過。測資、每一項結果和故障測試的完整紀錄見 [elasticsearch-testing.md](elasticsearch-testing.md)。
+在單節點 k3s 上跑過（ES 8.17、Fluent Bit 4.1.1），33 項全部通過。另外跑過幾個情境測試：dept label 改了多久生效、每秒最多 5,000 行的大流量、ES 整台停機、寫入去重複。測資、每一項結果和故障測試的完整紀錄見 [elasticsearch-testing.md](elasticsearch-testing.md)。
 
 - **分流**：三個 namespace 各自只進自己的 index，沒有重複送。
 - **欄位**：logback 格式、ECS 巢狀格式、ECS 點號格式（ES 自己的 log）、純文字，四種都正確轉換。
@@ -141,7 +141,11 @@ GET k8s-*/_search
   ```bash
   kubectl -n logging rollout restart daemonset/fluent-bit
   ```
-- **key 失效期間資料會堆在節點上**，每條出口上限 2G，放在 `/var/fluent-bit/state`。超過上限就丟最舊的。
+- **key 失效或 ES 停機期間，資料會堆在節點上**，每條出口上限 2G，放在 `/var/fluent-bit/state`，超過上限就丟最舊的。實測每秒 100 行停 3 分鐘約堆 25MB，所以每秒 100 行可以撐約 4 小時、每秒 1,000 行約 25 分鐘。
+- **ES 回應的讀取上限（`buffer_size`）一定要是 `false`。** 設成固定大小時，流量一大就會整批重複寫入、無限重送。
+- **掃新 log 檔的間隔（`refresh_interval`）不能太長。** kubelet 預設 log 檔 10MB 就輪替壓縮，量大的新 Pod 在被發現前，第一個檔可能就沒了。目前設 2 秒。平台端建議把 kubelet 的 `container-log-max-size` 調大，例如 50Mi。
+- **重試間隔上限（`scheduler.cap`）設 60 秒。** 用預設的 2,000 秒時，ES 停 3 分鐘、恢復後要 5 分多鐘才補完；改了之後約 1 分鐘。
+- **`generate_id: on` 防止重送造成重複**，代價是 ES 的 CPU 多約兩成。
 - **平台元件的 log 都進 unassigned**，例如 kube-system 和 Fluent Bit 以外的系統元件。這跟 metrics 的兜底 tenant 同一個意思。
 - **純文字的 Java stack trace 會被拆成很多行。** 標準格式是 JSON（stack trace 在一個欄位裡），所以不處理。沒照標準的服務，AIOps 在它身上的效果會比較差。
 - **節點用 Docker 當 runtime 的 cluster 要另外掛 `/var/lib/docker/containers`。** RKE2、k3s 是 containerd，不需要。
