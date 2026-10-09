@@ -10,7 +10,7 @@
 ## 怎麼接
 
 ```
-OTel Collector（DaemonSet，platform/cluster-addons/otel-logs）
+OTel Collector（比較時另開一個 DaemonSet；現在是 platform/cluster-addons/otel-collector 的節點 Collector）
    file_log 讀 /var/log/pods → 補 K8s 資訊與 namespace 的 dept → dept → group（跟 metrics 同一套規則）
    → 依 group 用各自的 key，OTLP 送到 ES 的 /_otlp/v1/logs → logs-generic.otel-<group>
         ↓ 中央 ES：logs-otel@custom 讓這些資料先跑 k8s-logs-otel
