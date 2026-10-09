@@ -5,7 +5,7 @@
 #   label    改 legacy 的 dept label（不重啟 Collector），量多久生效，最後改回來
 #   outage   ES 停 OUTAGE_SECONDS 秒（預設 180），中途重啟 Collector；確認佇列在重啟後還在、資料補齊、
 #            沒有重複、沒有被 ES 丟進 failure store
-#   keyfail  作廢 IMC 的寫入 key 3 分鐘；確認 IT 照常寫、IMC 卡住；換新 key 後看那段有沒有補回來
+#   keyfail  作廢 IMC 的寫入 key 3 分鐘；確認 IT 照常寫、IMC 停住、換新 key 後恢復（失效那段不會補回來，已知限制）
 #
 # 測試應用每 30 秒被抓一次，所以 3 分鐘內每個應該有 6 筆。
 set -euo pipefail
@@ -142,11 +142,12 @@ scenario_keyfail() {
   k -n otel-metrics rollout status daemonset/otel-node-collector --timeout=120s >/dev/null
   k -n logging rollout restart daemonset/fluent-bit >/dev/null
   echo "   $(ts) 換上新 key、重啟 Collector"
-  local secs
-  secs="$(wait_filled imc imc-wip-prod "${bad}" "${good}" 6 180)"
-  echo "   換 key 後 3 分鐘內，key 失效那段的 IMC 資料：$(app_count imc imc-wip-prod "${bad}" "${good}") 筆（預期 6；${secs} 秒，-1 表示沒補齊）"
+  sleep 90
+  refresh
   check_ge "換 key 後，IMC 恢復寫入" "$(app_count imc imc-wip-prod "${good}" "$(now)")" 1
-  check_ge "key 失效那段的 IMC 資料補回來" "$(app_count imc imc-wip-prod "${bad}" "${good}")" 6
+  # 已知限制：OTLP 出口只重試 429/502/503/504，401 當成永久錯誤直接丟，key 失效那段的 metrics 補不回來
+  #（log 不同：Fluent Bit 會一直重試，換 key 後會補回來）。這裡只記錄筆數，不判失敗。
+  echo "   key 失效那段的 IMC 資料：$(app_count imc imc-wip-prod "${bad}" "${good}") 筆（已知會遺失，見 docs/metrics.md）"
 }
 
 case "${1:-}" in

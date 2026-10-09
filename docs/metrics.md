@@ -46,7 +46,9 @@
 | [platform/cluster-addons/otel-metrics/cluster.yaml](../platform/cluster-addons/otel-metrics/cluster.yaml) | cluster 那一份收什麼：K8s 物件的狀態 |
 | [platform/cluster-addons/otel-metrics/](../platform/cluster-addons/otel-metrics) 其餘 | 權限、DaemonSet、Deployment、kustomization |
 | [platform/central/elasticsearch-setup.sh](../platform/central/elasticsearch-setup.sh) | 跟 log 共用：寫入 key、唯讀角色、AIOps key 都涵蓋 metrics |
+| [platform/central/elasticsearch/metrics-otel-custom.json](../platform/central/elasticsearch/metrics-otel-custom.json) | TSDS 可寫入時間往後 2 小時（見「坑」：ES 重啟後拒收） |
 | [test/local-k3s/run-metrics-e2e.sh](../test/local-k3s/run-metrics-e2e.sh) | 端到端測試 |
+| [test/local-k3s/run-metrics-scenarios.sh](../test/local-k3s/run-metrics-scenarios.sh) | 情境測試：改 label、ES 停機加重啟 Collector、key 失效 |
 
 兩種 Collector 啟動時都載入 `common.yaml` 加上自己那份，分部門的規則只有一處，不會兩邊各改各的。
 
@@ -128,27 +130,38 @@ kubectl apply -k platform/cluster-addons/otel-metrics
 ES_URL=http://<ip>:9200 test/local-k3s/run-metrics-e2e.sh
 ```
 
-在單節點 k3s 上跑過（ES 9.5.5、OpenTelemetry Collector contrib 0.162.0），**36 項全部通過**：
+在單節點 k3s 上跑過（ES 9.5.5、OpenTelemetry Collector contrib 0.162.0），**37 項全部通過**：
 
 | 類別 | 檢查 |
 |---|---|
 | 分流 | 三種來源各自：IT／IMC／unassigned 都只有該進來的 namespace，沒有落錯、沒有送兩份 |
 | 分流的重點 | IT 的 Pod CPU（kubelet 抓的）進 IT；Deployment 副本數（沒有 Pod 的物件）進 IT；節點本身的資料進 unassigned |
 | 欄位 | 服務名稱、版本、part-of、group、dept、cluster 都對；應用自稱的 `dept`、`group` 被拿掉；應用自己的維度（`path`）保留 |
-| 存法 | 資料流是 `time_series`（TSDS） |
+| 存法 | 資料流是 `time_series`（TSDS）；可寫入時間往後 2 小時 |
 | 權限 | IT 的 key 只能寫 IT 的 metrics、不能讀；AIOps key 能讀全部、不能寫；IT 的唯讀角色看得到 IT 的 metrics |
 
-情境測試：
+情境測試（`ES_URL=... test/local-k3s/run-metrics-scenarios.sh label|outage|keyfail`）：
 
 | 情境 | 結果 |
 |---|---|
-| 改 namespace 的 dept label（不重啟 Collector） | **2 秒內生效**：02:02:49 改 label，02:02:51 那筆就進新的 group，切換前後沒有漏、沒有重複 |
-| ES 整台停 3 分鐘（每個測試應用每 30 秒抓一次） | 停機期間的應用 metrics 各 6 筆、IT 的 Pod CPU 24 筆，**全部補齊**；ES 恢復後 5 秒內補完；Collector 丟資料的紀錄 0 筆。停機 3 分鐘節點上的佇列約 2.9 MB |
+| 改 namespace 的 dept label（不重啟 Collector） | **生效時間 2～17 秒**（跑了兩次），最多就是一個抓取週期（30 秒）；切換前後沒有漏、沒有重複 |
+| ES 整台停 3 分鐘 | 停機期間的應用 metrics 各 6 筆、IT 的 Pod CPU 24 筆，**全部補齊**；ES 恢復後 5 秒內補完 |
+| ES 整台停 10 分鐘，**中途重啟兩個 Collector** | 節點上的佇列堆到 4.8M。重啟前在佇列裡的、重啟後收到的，三個 group **全部補進 ES**（各 20 筆）；沒有重複；failure store 0 筆；Collector 丟資料的紀錄 0 筆 |
+| IMC 的 key 作廢 3 分鐘 | IT 照常寫入（6 筆），只有 IMC 停住；換新 key、重啟 Collector 後 IMC 恢復。**失效那 3 分鐘的 IMC metrics 遺失（0 筆），補不回來**，見下方「坑」 |
 
 每個 group 的佇列上限是 10,000 批（`queue_size`）。超過時新的資料會被丟掉，所以中央 ES 的停機時間要控制在佇列撐得住的範圍；量大的 cluster 要先估算或調大。
 
 ## 坑
 
+- **key 失效期間的 metrics 會遺失（log 不會）。** OTLP 出口只對 429、502、503、504 重試，401（key 錯、被作廢）當成永久錯誤，整批直接丟掉，也沒有設定可以改。log 那邊的 Fluent Bit 會一直重試，換 key 後會補回來。所以：
+  - **換 key 一定先發新的、換進兩個 namespace 的 Secret、重啟 Fluent Bit 和 Collector，確認新 key 寫得進去後，才作廢舊的。** 新舊 key 可以同時有效，照這個順序就不會有空檔。
+  - 現在發的 key 沒有到期日，不會自己失效。之後若要加到期日，要排好在到期前換。
+  - 要監控 Collector 的 `otelcol_exporter_send_failed_metric_points`（`:8888/metrics`），大於 0 就是有資料送不出去被丟掉。
+- **ES 重啟後，TSDS 曾經拒收停機期間的資料，而且回成功。** TSDS 每個 backing index 只收一段時間範圍內的資料，往後預設只開 9 分鐘（`index.look_ahead_time`）。ES 停機期間時間範圍沒有往後推，重開時佇列裡的資料加上新資料一起湧入，落在範圍外的被 ES 丟進 failure store（`.fs-metrics-*`），**回給 Collector 的卻是成功**，Collector 不會報錯也不會重送。實測停 3 分鐘時有 4,162 筆進了 failure store。改法：`metrics-otel@custom` 把 `look_ahead_time` 設成 2 小時（`elasticsearch-setup.sh` 會建），之後停 10 分鐘 0 筆。設定只對新的 backing index 生效，既有的資料流要 rollover 一次。要監控 failure store：
+  ```bash
+  curl -s -u elastic:<password> "https://<es>:9200/.fs-metrics-*/_count?expand_wildcards=all&ignore_unavailable=true"
+  ```
+- **重啟 Collector 會少抓 1～2 次。** 舊的停掉到新的開始抓之間（約 30～60 秒）沒有人抓，這段的應用 metrics、kubelet 資料就沒有，事後也補不回來。佇列裡已經抓到、還沒送出的不受影響（實測重啟後全部送出）。換版、改設定盡量排在離峰。
 - **cluster 那一份的 replicas 一定要 1。** 多一個，K8s 物件狀態的每筆資料就多一份。換版時也用 `Recreate`，避免新舊同時跑。
 - **改 namespace 的 dept：metrics 2 秒生效，log 最多 15 分鐘。** Fluent Bit 會快取 namespace 的 label，這段時間同一個 namespace 的 log 和 metrics 會在不同 group。改 label 後重啟 Fluent Bit 就一致了：
   ```bash
@@ -163,6 +176,6 @@ ES_URL=http://<ip>:9200 test/local-k3s/run-metrics-e2e.sh
 ## 還沒做
 
 1. **保留天數**：現在用 ES 內建的預設，要跟各 group 確認後設定。
-2. **量大時夠不夠力**：只用測試的量驗過（單節點、十幾個 Pod）。
+2. **量大時夠不夠力**：只用測試的量驗過（單節點、十幾個 Pod）。佇列 10,000 批在量大時能撐多久停機也還沒量。
 3. **節點本身的系統指標**（磁碟、檔案系統、load）：現在只有 kubelet 給的節點 CPU、記憶體、網路，沒有收 hostmetrics。
 4. **K8s events**：跟 log 那邊一樣還沒做。
