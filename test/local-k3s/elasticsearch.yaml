@@ -29,7 +29,7 @@ spec:
     spec:
       containers:
         - name: elasticsearch
-          image: docker.io/library/elasticsearch:8.17.2
+          image: docker.io/library/elasticsearch:9.5.5
           env:
             - {name: discovery.type, value: single-node}
             - {name: xpack.security.enabled, value: "true"}
