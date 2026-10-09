@@ -98,7 +98,9 @@ scenario_outage() {
   # 每個應用每 30 秒抓一次：停機到重啟前約 90 秒、重啟完到 ES 恢復約 90 秒，各至少 2 筆
   local g ns before after
   for g in it:it-mes-prod imc:imc-wip-prod unassigned:legacy; do
+    # 兩段都要等：重啟後，佇列裡較舊的資料可能比新抓的晚幾秒才送到
     wait_filled "${g%%:*}" "${g#*:}" "${restarted}" "${up}" 2 300 >/dev/null
+    wait_filled "${g%%:*}" "${g#*:}" "${down}" "${restart_at}" 2 300 >/dev/null
     before="$(app_count "${g%%:*}" "${g#*:}" "${down}" "${restart_at}")"
     after="$(app_count "${g%%:*}" "${g#*:}" "${restarted}" "${up}")"
     check_ge "${g%%:*}：停機後、重啟前收到的（重啟時還在佇列裡）有送進 ES" "${before}" 2
