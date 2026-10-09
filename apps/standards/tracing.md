@@ -160,7 +160,7 @@ new Thread(Context.current().wrap(() -> process(lot))).start();
 ## 3. 規則
 
 - **段的名稱不能帶 ID。** 用 `dispatch lot`，不要 `dispatch lot L1919`。名稱是拿來分群統計的，帶了 ID 每一筆都不一樣，AIOps 就算不出「這個步驟平常多快」。ID 放 attribute。
-- **attribute 名稱**：OpenTelemetry 已有標準名稱的用標準的（`http.*`、`db.*`、`messaging.*`）；我們自己的業務欄位統一用：
+- **attribute 名稱**：OpenTelemetry 已有標準名稱的用標準的（`http.*`、`db.*`、`messaging.*`）；我們自己的業務欄位**已定案**，統一用：
 
   | 欄位 | 意思 |
   |---|---|

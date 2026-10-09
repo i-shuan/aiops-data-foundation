@@ -27,6 +27,7 @@
 - **收集器：log、metrics、trace 都用 OpenTelemetry Collector**，每個節點一個，分部門的規則和 key 共用。log 原本用 Fluent Bit，比較後改用 OTel：欄位做得到完全一樣，重啟不會掉 log（Fluent Bit 每次重啟掉幾筆到 2 秒），而且只要維護一套。代價是 key 失效或 ES 拒收時資料會直接丟（metrics 本來就有這個限制），見 [docs/otel-logs-compare.md](docs/otel-logs-compare.md)。中央 pipeline 仍接受 Fluent Bit 的資料，邊緣 VM 可以用。
 - **每個 group 一把寫入 key，log 與 metrics 共用。** 某把 key 失效只影響那個 group；寫錯 group 會被 ES 擋下。
 - **換 key 不掉資料、不重啟：** Collector 從檔案讀 key，用 `platform/central/rotate-writer-key.sh` 換（新舊 key 重疊一段時間），見 [docs/elasticsearch.md「換 key」](docs/elasticsearch.md#換-key)。
+- **trace 的業務欄位名稱**：`lot.id`（批號）、`equipment.id`（機台）、`work_order.id`（工單）、`recipe.id`（配方），全廠統一，見 [apps/standards/tracing.md](apps/standards/tracing.md)。新增要先跟平台確認。
 - **應用團隊不需要知道 group、key。** 規格統一由共用 chart 產生，見 [apps/](apps)。
 - **namespace 名稱不含組織資訊**，格式是 `{cluster}-{app}-{env}` 或 `{app}-{env}`，所以歸屬要另外標。
 
