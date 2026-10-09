@@ -3,7 +3,8 @@
 #
 # 用法：ES_URL=http://<ip>:9200 test/local-k3s/run-metrics-scenarios.sh <情境>
 #   label    改 legacy 的 dept label（不重啟 Collector），量多久生效，最後改回來
-#   outage   ES 停 3 分鐘，中途重啟 Collector；確認佇列在重啟後還在、資料補齊、沒有重複
+#   outage   ES 停 OUTAGE_SECONDS 秒（預設 180），中途重啟 Collector；確認佇列在重啟後還在、資料補齊、
+#            沒有重複、沒有被 ES 丟進 failure store
 #   keyfail  作廢 IMC 的寫入 key 3 分鐘；確認 IT 照常寫、IMC 卡住；換新 key 後看那段有沒有補回來
 #
 # 測試應用每 30 秒被抓一次，所以 3 分鐘內每個應該有 6 筆。
@@ -75,20 +76,21 @@ scenario_label() {
 }
 
 scenario_outage() {
-  echo "== ES 停 3 分鐘，中途重啟 Collector"
+  local half=$(( ${OUTAGE_SECONDS:-180} / 2 ))
+  echo "== ES 停 ${OUTAGE_SECONDS:-180} 秒，中途重啟 Collector"
   local down restart_at restarted up
   down="$(now)"
   k -n es-test scale statefulset/elasticsearch --replicas=0 >/dev/null
   k -n es-test wait --for=delete pod/elasticsearch-0 --timeout=120s >/dev/null 2>&1 || true
   echo "   $(ts) ES 關掉"
-  sleep 90
+  sleep "${half}"
   restart_at="$(now)"
   k -n otel-metrics rollout restart daemonset/otel-node-collector deployment/otel-cluster-collector >/dev/null
   k -n otel-metrics rollout status daemonset/otel-node-collector --timeout=120s >/dev/null
   k -n otel-metrics rollout status deployment/otel-cluster-collector --timeout=120s >/dev/null
   restarted="$(now)"
   echo "   $(ts) 停機中重啟了兩個 Collector"
-  sleep 90
+  sleep "${half}"
   echo "   $(ts) 節點上的佇列：$(du -sh /var/lib/otelcol-metrics 2>/dev/null | cut -f1)"
   up="$(now)"
   k -n es-test scale statefulset/elasticsearch --replicas=1 >/dev/null
@@ -108,6 +110,9 @@ scenario_outage() {
     echo "         整段停機 $(app_count "${g%%:*}" "${g#*:}" "${down}" "${up}") 筆（約 6 筆減掉重啟那段沒抓到的）"
   done
   check "沒有重複（同一個 Pod 同一個時間點只有一筆）" "$(dup_count "${down}" "$(now)")" 0
+  # ES 會把時間不在可寫入範圍的資料丟進 failure store，回給 Collector 的仍是成功，Collector 不會報錯
+  check "沒有資料被 ES 丟進 failure store" \
+    "$(es "${ES_URL}/.fs-metrics-*/_count?expand_wildcards=all&ignore_unavailable=true" -d "{\"query\":{\"range\":{\"@timestamp\":{\"gte\":\"${down}\"}}}}" | jq -r '.count // 0')" 0
   local dropped=0 f
   for f in /var/log/pods/otel-metrics_*/otelcol/*.log; do
     dropped=$(( dropped + $(grep -c "Dropping data" "${f}" || true) ))

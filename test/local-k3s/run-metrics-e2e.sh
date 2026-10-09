@@ -94,6 +94,9 @@ check "應用自己的 label 保留（path）"    "$(jq -r '.attributes.path' <<
 check "存成 time series data stream" \
   "$(es "${ES_URL}/metrics-prometheusreceiver.otel-it/_settings" | jq -r '[.[].settings.index.mode] | unique | join(",")')" time_series
 
+check "TSDS 可寫入時間往後 2 小時（ES 停機重啟後才不會拒收）" \
+  "$(es "${ES_URL}/metrics-prometheusreceiver.otel-it/_settings?include_defaults=true" | jq -r '[.[] | (.settings.index.look_ahead_time // .defaults.index.look_ahead_time)] | last')" 2h
+
 echo "== 5. 權限"
 can() {  # can <api key> <index> <privilege> → true / false
   curl -sS -m 30 -H "Authorization: ApiKey $1" -H 'Content-Type: application/json' "${ES_URL}/_security/user/_has_privileges" \

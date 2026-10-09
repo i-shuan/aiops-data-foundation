@@ -82,6 +82,8 @@ put_pipeline k8s-logs                              elasticsearch/pipeline.json
 put_json /_component_template/k8s-logs-settings    elasticsearch/component-settings.json
 put_json /_component_template/k8s-logs-mappings    elasticsearch/component-mappings.json
 put_json /_index_template/k8s-logs                 elasticsearch/index-template.json
+# metrics：ES 9 內建 metrics-otel@template 預留的自訂設定（metrics-*.otel-* 的 TSDS）
+put_json /_component_template/metrics-otel@custom  elasticsearch/metrics-otel-custom.json
 
 [[ "${SKIP_KEYS:-}" == "1" ]] && exit 0
 
