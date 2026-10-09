@@ -5,7 +5,7 @@
 #   up      單節點 → 兩節點（elasticsearch-0 的資料沿用）
 #   test    兩個節點輪流卡住 DOWN_SECONDS 秒（預設 180）：先「沒有投票權」的，再「有投票權」的；
 #           看卡住期間 log、metrics 有沒有照常寫入、事後有沒有補齊、有沒有重複
-#   down    兩節點 → 單節點（先把 elasticsearch-1 移出投票、shard 搬走，再縮）
+#   down    兩節點 → 單節點（先把 elasticsearch-1 移出投票、確認 elasticsearch-0 有每個 shard，再縮）
 #
 # 前提：主機的 vm.max_map_count 至少 262144（多節點時 ES 會檢查，單節點不會）。
 set -euo pipefail
@@ -153,11 +153,17 @@ do_test() {
 
 do_down() {
   echo "== 兩節點 → 單節點"
-  # elasticsearch-1 移出投票、shard 全搬到 elasticsearch-0，再縮成一個
+  # elasticsearch-1 移出投票、不再放新的 shard，確認每個 shard 在 elasticsearch-0 都有一份，再縮成一個
   es -X POST "${ES_URL}/_cluster/voting_config_exclusions?node_names=elasticsearch-1" >/dev/null
   es -X PUT "${ES_URL}/_cluster/settings" -d '{"persistent":{"cluster.routing.allocation.exclude._name":"elasticsearch-1"}}' >/dev/null
-  until [[ "$(es "${ES_URL}/_cat/shards?h=node" | grep -c elasticsearch-1 || true)" == 0 ]]; do sleep 5; done
-  echo "   $(ts) shard 都搬離 elasticsearch-1"
+  # 主 shard 在 elasticsearch-1、副本在 elasticsearch-0 的，ES 不會對調；縮掉 elasticsearch-1 時副本會自動升成主的。
+  # 所以只要求每個 shard 在 elasticsearch-0 有一份已啟動的（主或副本都可以）
+  missing() {
+    es "${ES_URL}/_cat/shards?h=index,shard,state,node&format=json" \
+      | jq '[group_by(.index + "/" + .shard)[] | select(map(select(.node == "elasticsearch-0" and .state == "STARTED")) | length == 0)] | length'
+  }
+  until [[ "$(missing)" == 0 ]]; do sleep 5; done
+  echo "   $(ts) 每個 shard 在 elasticsearch-0 都有一份"
   k -n es-test scale statefulset/elasticsearch --replicas=1 >/dev/null
   k -n es-test wait --for=delete pod/elasticsearch-1 --timeout=300s >/dev/null 2>&1 || true
   es -X DELETE "${ES_URL}/_cluster/voting_config_exclusions?wait_for_removal=false" >/dev/null
