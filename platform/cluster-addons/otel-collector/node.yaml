@@ -1,0 +1,99 @@
+# 每個節點一個（DaemonSet）：
+#   metrics：kubelet 的節點、Pod、容器資源用量，以及這個節點上應用自己吐的 Prometheus metrics
+#   log：這個節點上所有容器的 log
+# 跟 common.yaml 一起載入。
+
+receivers:
+  kubeletstats:
+    auth_type: serviceAccount
+    endpoint: https://${env:K8S_NODE_IP}:10250
+    insecure_skip_verify: true   # kubelet 憑證通常是自簽的；正式環境若有 CA 改成驗證
+    collection_interval: 30s
+    metric_groups: [node, pod, container]
+
+  # 應用的 metrics：只抓這個節點上、Pod 標註 prometheus.io/scrape: "true" 的
+  prometheus:
+    config:
+      scrape_configs:
+        - job_name: pods
+          scrape_interval: 30s
+          kubernetes_sd_configs:
+            - role: pod
+              selectors:
+                - role: pod
+                  field: spec.nodeName=${env:K8S_NODE_NAME}
+          relabel_configs:
+            - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+              action: keep
+              regex: "true"
+            - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+              action: replace
+              target_label: __metrics_path__
+              regex: (.+)
+            - source_labels: [__meta_kubernetes_pod_ip, __meta_kubernetes_pod_annotation_prometheus_io_port]
+              action: replace
+              regex: (.+);(\d+)
+              replacement: $$1:$$2
+              target_label: __address__
+
+  # 容器的 log
+  file_log:
+    include: [/var/log/pods/*/*/*.log]
+    # 不收自己的 log：ES 拒收時 Collector 會印錯誤，收回來再送一次就是放大迴圈
+    exclude: [/var/log/pods/otel-collector_*/*/*.log]
+    # 只在第一次啟動時有用：已經存在的檔從尾巴開始讀；之後發現的新檔從頭讀
+    start_at: end
+    include_file_path: true
+    poll_interval: 200ms
+    # 讀到檔案哪裡記在節點上（file_storage），重啟後接著讀
+    storage: file_storage
+    # 後面塞住時（佇列滿）先停止讀檔，不是丟掉
+    retry_on_failure:
+      enabled: true
+      initial_interval: 1s
+      max_interval: 30s
+      max_elapsed_time: 0
+    operators:
+      # 解析 containerd / docker 的 log 格式、接回被切開的長行、從檔名補 namespace、Pod、容器
+      - type: container
+        id: container-parser
+
+processors:
+  # log 一批一批送，量大時才送得動
+  batch/logs:
+    send_batch_size: 2000
+    timeout: 1s
+
+  k8s_attributes:
+    filter:
+      node_from_env_var: K8S_NODE_NAME   # 只看自己節點上的 Pod，省記憶體
+
+connectors:
+  # log 依 group 交給各自的出口，每筆只會符合一條
+  routing/logs:
+    default_pipelines: [logs/unassigned]
+    table:
+      - condition: resource.attributes["group"] == "it"
+        pipelines: [logs/it]
+      - condition: resource.attributes["group"] == "imc"
+        pipelines: [logs/imc]
+
+service:
+  pipelines:
+    metrics/in:
+      receivers: [kubeletstats, prometheus]
+      processors: [memory_limiter, transform/pre, k8s_attributes, transform/group, transform/metrics-trim]
+      exporters: [routing/group]
+    logs/in:
+      receivers: [file_log]
+      processors: [memory_limiter, k8s_attributes, transform/group, batch/logs]
+      exporters: [routing/logs]
+    logs/it:
+      receivers: [routing/logs]
+      exporters: [otlp_http/it]
+    logs/imc:
+      receivers: [routing/logs]
+      exporters: [otlp_http/imc]
+    logs/unassigned:
+      receivers: [routing/logs]
+      exporters: [otlp_http/unassigned]

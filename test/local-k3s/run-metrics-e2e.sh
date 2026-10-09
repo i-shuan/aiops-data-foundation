@@ -3,7 +3,7 @@
 #
 # 前提：run-e2e.sh 跑過（測試 ES 與 log 的測試 namespace 都在），KUBECONFIG 指向測試 cluster。
 # 用法：ES_URL=http://<ip>:9200 test/local-k3s/run-metrics-e2e.sh
-# 會建立 namespace otel-metrics，並在 it-mes-prod、imc-wip-prod、legacy 各部署一個 metrics-app。
+# 會建立 namespace otel-collector，並在 it-mes-prod、imc-wip-prod、legacy 各部署一個 metrics-app。
 set -euo pipefail
 
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -25,30 +25,27 @@ es() { curl -sS -m 30 -u "elastic:${ES_PASSWORD}" -H 'Content-Type: application/
 echo "== 1. API key（正式腳本）"
 setup_out="$(ES_URL="${ES_URL}" ES_AUTH="elastic:${ES_PASSWORD}" "${repo}/platform/central/elasticsearch-setup.sh")"
 key_of() { echo "${setup_out}" | grep -A1 "=== $1 ===" | tail -1 | jq -r .encoded; }
-IT_KEY="$(key_of '寫入 key：fluent-bit-it')"
-IMC_KEY="$(key_of '寫入 key：fluent-bit-imc')"
-UNASSIGNED_KEY="$(key_of '寫入 key：fluent-bit-unassigned')"
+IT_KEY="$(key_of '寫入 key：es-writer-it')"
+IMC_KEY="$(key_of '寫入 key：es-writer-imc')"
+UNASSIGNED_KEY="$(key_of '寫入 key：es-writer-unassigned')"
 AIOPS_KEY="$(key_of 'AIOps 唯讀 key')"
 for key in "${IT_KEY}" "${IMC_KEY}" "${UNASSIGNED_KEY}" "${AIOPS_KEY}"; do
   [[ -n "${key}" && "${key}" != null ]] || { echo "沒拿到 API key："; echo "${setup_out}"; exit 1; }
 done
-# log 與 metrics 用同一組 key，兩個 namespace 都要有（Fluent Bit 也要換新 key，不然會被舊 key 擋）
-for ns in logging otel-metrics; do
-  k create namespace "${ns}" --dry-run=client -o yaml | k apply -f - >/dev/null
-  k -n "${ns}" create secret generic es-writer-keys \
-    --from-literal=IT_ES_API_KEY="${IT_KEY}" \
-    --from-literal=IMC_ES_API_KEY="${IMC_KEY}" \
-    --from-literal=UNASSIGNED_ES_API_KEY="${UNASSIGNED_KEY}" \
-    --dry-run=client -o yaml | k apply -f - >/dev/null
-done
-k -n logging rollout restart daemonset/fluent-bit >/dev/null 2>&1 || true
+# log 與 metrics 用同一組 key，都由 otel-collector 送
+k create namespace otel-collector --dry-run=client -o yaml | k apply -f - >/dev/null
+k -n otel-collector create secret generic es-writer-keys \
+  --from-literal=IT_ES_API_KEY="${IT_KEY}" \
+  --from-literal=IMC_ES_API_KEY="${IMC_KEY}" \
+  --from-literal=UNASSIGNED_ES_API_KEY="${UNASSIGNED_KEY}" \
+  --dry-run=client -o yaml | k apply -f - >/dev/null
 
 echo "== 2. Collector 與測試應用"
-k apply -k "${here}/otel-metrics" >/dev/null
+k apply -k "${here}/otel-collector" >/dev/null
 k apply -f "${here}/metrics-apps.yaml" >/dev/null
-k -n otel-metrics rollout restart daemonset/otel-node-collector deployment/otel-cluster-collector >/dev/null
-k -n otel-metrics rollout status daemonset/otel-node-collector --timeout=180s
-k -n otel-metrics rollout status deployment/otel-cluster-collector --timeout=180s
+k -n otel-collector rollout restart daemonset/otel-node-collector deployment/otel-cluster-collector >/dev/null
+k -n otel-collector rollout status daemonset/otel-node-collector --timeout=180s
+k -n otel-collector rollout status deployment/otel-cluster-collector --timeout=180s
 for ns in it-mes-prod imc-wip-prod legacy; do k -n "${ns}" rollout status deployment/metrics-app --timeout=180s >/dev/null; done
 start="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 echo "   只看 ${start} 之後的資料，等 Collector 送兩輪（約 90 秒）"

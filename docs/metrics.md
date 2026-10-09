@@ -41,10 +41,10 @@
 
 | 檔案 | 用途 |
 |---|---|
-| [platform/cluster-addons/otel-metrics/common.yaml](../platform/cluster-addons/otel-metrics/common.yaml) | 兩種 Collector 共用：擋冒充、讀 dept、dept → group、每個 group 的出口 |
-| [platform/cluster-addons/otel-metrics/node.yaml](../platform/cluster-addons/otel-metrics/node.yaml) | 節點那一份收什麼：kubelet、應用的 Prometheus metrics |
-| [platform/cluster-addons/otel-metrics/cluster.yaml](../platform/cluster-addons/otel-metrics/cluster.yaml) | cluster 那一份收什麼：K8s 物件的狀態 |
-| [platform/cluster-addons/otel-metrics/](../platform/cluster-addons/otel-metrics) 其餘 | 權限、DaemonSet、Deployment、kustomization |
+| [platform/cluster-addons/otel-collector/common.yaml](../platform/cluster-addons/otel-collector/common.yaml) | 兩種 Collector 共用：擋冒充、讀 dept、dept → group、每個 group 的出口 |
+| [platform/cluster-addons/otel-collector/node.yaml](../platform/cluster-addons/otel-collector/node.yaml) | 節點那一份收什麼：kubelet、應用的 Prometheus metrics |
+| [platform/cluster-addons/otel-collector/cluster.yaml](../platform/cluster-addons/otel-collector/cluster.yaml) | cluster 那一份收什麼：K8s 物件的狀態 |
+| [platform/cluster-addons/otel-collector/](../platform/cluster-addons/otel-collector) 其餘 | 權限、DaemonSet、Deployment、kustomization |
 | [platform/central/elasticsearch-setup.sh](../platform/central/elasticsearch-setup.sh) | 跟 log 共用：寫入 key、唯讀角色、AIOps key 都涵蓋 metrics |
 | [platform/central/elasticsearch/metrics-otel-custom.json](../platform/central/elasticsearch/metrics-otel-custom.json) | TSDS 可寫入時間往後 2 小時（見「坑」：ES 重啟後拒收） |
 | [test/local-k3s/run-metrics-e2e.sh](../test/local-k3s/run-metrics-e2e.sh) | 端到端測試 |
@@ -116,12 +116,12 @@ curl -s -o /dev/null -w "%{http_code}\n" -u elastic:<password> -X POST -H "Conte
 
 ### 2. 每個應用 cluster
 
-`otel-metrics` namespace 也要一份 `es-writer-keys`，內容跟 `logging` 那份一樣。怎麼建、在 Rancher 上要注意什麼，見 [elasticsearch.md 的「部署」](elasticsearch.md#部署)。
+`otel-collector` namespace 也要一份 `es-writer-keys`，內容跟 `logging` 那份一樣。怎麼建、在 Rancher 上要注意什麼，見 [elasticsearch.md 的「部署」](elasticsearch.md#部署)。
 
-改好 `platform/cluster-addons/otel-metrics/kustomization.yaml` 的 `CLUSTER_NAME`、`ES_ENDPOINT` 和 image 路徑，然後：
+改好 `platform/cluster-addons/otel-collector/kustomization.yaml` 的 `CLUSTER_NAME`、`ES_ENDPOINT` 和 image 路徑，然後：
 
 ```bash
-kubectl apply -k platform/cluster-addons/otel-metrics
+kubectl apply -k platform/cluster-addons/otel-collector
 ```
 
 ## 驗證

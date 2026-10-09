@@ -31,7 +31,7 @@
 1. **歸屬放哪裡**：目前 log 和 metrics 都實作成讀 namespace 的 `dept` label，部門 → group 對照在 `platform/groups.yaml`。要改成一份「app → group」的中央清單的話，兩邊要一起改。
 2. **你們的 Fluent Bit 是哪一版**。`namespace_labels` 3.x 就有，但用 API key 寫 ES 要 4.1 以上，見 [docs/elasticsearch.md](docs/elasticsearch.md#坑)。
 3. **app 名稱是否全廠唯一**（用中央清單的話，這是前提）。
-4. **寫入 key 怎麼自動進新廠的 cluster**：現在靠 Rancher 手動建 Secret（`logging`、`otel-metrics` 兩個 namespace 各一份），擴廠後不可行。要確認有沒有 External Secrets、Vault 或 sealed-secrets。
+4. **寫入 key 怎麼自動進新廠的 cluster**：現在靠 Rancher 手動建 Secret（`logging`、`otel-collector` 兩個 namespace 各一份），擴廠後不可行。要確認有沒有 External Secrets、Vault 或 sealed-secrets。
 5. **K8s events 怎麼歸屬**：log 與 metrics 都還沒收 events。event 帶 namespace 名稱，照現在讀 namespace label 的做法應該能分，要實測。
 
 ## 待辦

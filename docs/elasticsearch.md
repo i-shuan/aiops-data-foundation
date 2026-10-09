@@ -220,17 +220,17 @@ kubectl -n logging create secret generic es-writer-keys \
   --from-literal=UNASSIGNED_ES_API_KEY=<encoded>
 ```
 
-metrics 的 Collector 在 `otel-metrics` namespace，那邊也要一份內容相同的 `es-writer-keys`（把上面指令的 `-n logging` 換成 `-n otel-metrics` 再跑一次）。
+metrics 的 Collector 在 `otel-collector` namespace，那邊也要一份內容相同的 `es-writer-keys`（把上面指令的 `-n logging` 換成 `-n otel-collector` 再跑一次）。
 
 在 Rancher 上建或改這個 Secret：
 
 1. 切到目標 cluster，進 Storage 底下的 Secrets（路徑依 Rancher 版本略有不同）。
-2. 選 `logging` namespace（metrics 的話是 `otel-metrics`），**不是應用的 namespace**。
+2. 選 `logging` namespace（metrics 的話是 `otel-collector`），**不是應用的 namespace**。
 3. 型別 Opaque，用 key/value 的編輯模式逐一加 `IT_ES_API_KEY`、`IMC_ES_API_KEY`、`UNASSIGNED_ES_API_KEY`。
 4. 存檔後**一定要重啟** Fluent Bit 和 metrics 的 Collector，它們只在啟動時讀 Secret：
    ```bash
    kubectl -n logging rollout restart daemonset/fluent-bit
-   kubectl -n otel-metrics rollout restart daemonset/otel-node-collector deployment/otel-cluster-collector
+   kubectl -n otel-collector rollout restart daemonset/otel-node-collector deployment/otel-cluster-collector
    ```
 
 改完用 `kubectl -n logging describe secret es-writer-keys` 看每個 key 的 byte 數：**API key 的 encoded 是 60 個字元，多 1 就是結尾多了換行。**

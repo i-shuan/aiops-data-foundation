@@ -12,5 +12,5 @@ service:
   pipelines:
     metrics/in:
       receivers: [k8s_cluster]
-      processors: [memory_limiter, transform/pre, k8s_attributes, transform/group]
+      processors: [memory_limiter, transform/pre, k8s_attributes, transform/group, transform/metrics-trim]
       exporters: [routing/group]

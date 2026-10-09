@@ -84,15 +84,30 @@ put_json /_component_template/k8s-logs-mappings    elasticsearch/component-mappi
 put_json /_index_template/k8s-logs                 elasticsearch/index-template.json
 # metrics：ES 9 內建 metrics-otel@template 預留的自訂設定（metrics-*.otel-* 的 TSDS）
 put_json /_component_template/metrics-otel@custom  elasticsearch/metrics-otel-custom.json
+# log 改用 OpenTelemetry Collector 收時（比較中，見 docs/otel-logs-compare.md）：
+# logs-*.otel-* 先跑 k8s-logs-otel，我們的 Collector 送的轉到 k8s-<group>-<cluster>
+put_pipeline k8s-logs-otel                         elasticsearch/pipeline-otel.json
+put_json /_component_template/logs-otel@custom     elasticsearch/logs-otel-custom.json
+# 上面的設定只對新的 backing index 生效：已經存在、還沒用 k8s-logs-otel 的 OTel log 資料流換一個新的，
+# 不然這些資料會停在 logs-*.otel-*，不會轉到 k8s-*
+for ds in $(es "${ES_URL}/_data_stream/logs-*.otel-*" | jq -r '.data_streams[]? | .name'); do
+  wi="$(es "${ES_URL}/_data_stream/${ds}" | jq -r '.data_streams[0].indices[-1].index_name')"
+  if [[ "$(es "${ES_URL}/${wi}/_settings" | jq -r '.[].settings.index.default_pipeline')" != "k8s-logs-otel" ]]; then
+    echo "=== rollover ${ds}（換成 k8s-logs-otel）==="
+    es -X POST "${ES_URL}/${ds}/_rollover" >/dev/null
+  fi
+done
 
 [[ "${SKIP_KEYS:-}" == "1" ]] && exit 0
 
 # 1. 寫入用
 # log（Fluent Bit）與 metrics（OpenTelemetry Collector）共用同一把 key。
-# metrics 的資料流是 metrics-<來源>.otel-<group>，所以用 metrics-*-<group> 比對
-writer_key "fluent-bit-it"         '["k8s-it-*", "k8s-events-it-*", "metrics-*-it"]'
-writer_key "fluent-bit-imc"        '["k8s-imc-*", "k8s-events-imc-*", "metrics-*-imc"]'
-writer_key "fluent-bit-unassigned" '["k8s-unassigned-*", "k8s-events-unassigned-*", "metrics-*-unassigned"]'
+# metrics 的資料流是 metrics-<來源>.otel-<group>，所以用 metrics-*-<group> 比對。
+# logs-*.otel-<group>：log 改用 OpenTelemetry Collector 收時的入口（比較中），ES 會再轉到 k8s-<group>-*，
+# 轉過去時 ES 會再檢查一次權限，所以 IT 的 key 送 group=imc 的資料一樣寫不進 IMC
+writer_key "es-writer-it"         '["k8s-it-*", "k8s-events-it-*", "metrics-*-it", "logs-*.otel-it"]'
+writer_key "es-writer-imc"        '["k8s-imc-*", "k8s-events-imc-*", "metrics-*-imc", "logs-*.otel-imc"]'
+writer_key "es-writer-unassigned" '["k8s-unassigned-*", "k8s-events-unassigned-*", "metrics-*-unassigned", "logs-*.otel-unassigned"]'
 
 # 2. AIOps 唯讀
 echo "=== AIOps 唯讀 key ==="

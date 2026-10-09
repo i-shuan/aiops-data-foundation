@@ -6,6 +6,7 @@
         "@timestamp": {"type": "date"},
         "message": {"type": "match_only_text"},
         "stream": {"type": "keyword"},
+        "agent": {"properties": {"type": {"type": "keyword"}}},
 
         "log": {"properties": {
           "level": {"type": "keyword"},

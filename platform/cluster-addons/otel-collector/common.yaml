@@ -1,15 +1,18 @@
 # 兩種 Collector 共用的部分：讀 namespace 的 dept、決定 group、依 group 寫進各自的 data stream。
-# 節點那一份（node.yaml）與 cluster 那一份（cluster.yaml）都會一起載入這份，分部門的規則只有這一處。
+# 節點那一份（node.yaml）與 cluster 那一份（cluster.yaml）都會一起載入這份，分部門的規則只有這一處，
+# metrics 和 log 共用。
 #
-# 資料流名稱：metrics-<來源>.otel-<group>，例如 metrics-kubeletstatsreceiver.otel-it。
-# ES 9 內建的 metrics-otel@template（metrics-*.otel-*）會把它建成 time series data stream。
+# metrics：metrics-<來源>.otel-<group>，例如 metrics-kubeletstatsreceiver.otel-it。
+#   ES 9 內建的 metrics-otel@template（metrics-*.otel-*）會把它建成 time series data stream。
+# log（只有節點那一份收）：先進 logs-generic.otel-<group>，中央 ES 的 k8s-logs-otel pipeline
+#   整理形狀後轉到 k8s-<group>-<cluster>，跟其他來源的 log 同一條 k8s-logs pipeline。
 
 extensions:
   health_check:
     endpoint: 0.0.0.0:13133
   # 送不出去的資料放在節點上，Collector 重啟或 ES 暫時連不上都不會掉
   file_storage:
-    directory: /var/lib/otelcol-metrics
+    directory: /var/lib/otelcol
     create_directory: true
 
 processors:
@@ -62,6 +65,10 @@ processors:
         - k8s.pod.uid
         - k8s.node.name
         - k8s.deployment.name
+        # 下面三個只給 log 用（中央 pipeline 的 container.*），metrics 送出前會拿掉（transform/metrics-trim）
+        - container.image.name
+        - container.image.tags   # 新版改成複數（陣列）；單數的 container.image.tag 已經不會送
+        - container.id
       labels:
         - tag_name: dept
           key: dept
@@ -76,12 +83,18 @@ processors:
         - tag_name: service.namespace
           key: app.kubernetes.io/part-of
           from: pod
+        # 全部 pod label，只給 log 用：中央 pipeline 用 log-format 決定怎麼拆，也存成 kubernetes.labels。
+        # metrics 送出前會拿掉，不然每個 label 都會變成 time series 的維度
+        - tag_name: k8s.pod.labels.$$1
+          key_regex: (.*)
+          from: pod
 
   # dept → group。清單要跟 platform/groups.yaml、Fluent Bit 的分流規則一致。
   # 沒有 dept（例如節點本身的資料）或不在清單裡的，一律 unassigned。
   transform/group:
     error_mode: ignore
-    metric_statements:
+    # metrics 和 log 用同一份規則（YAML anchor）
+    log_statements: &group_rules
       - set(resource.attributes["group"], "unassigned")
       - set(resource.attributes["group"], "it") where resource.attributes["dept"] != nil and IsMatch(resource.attributes["dept"], "^(D3120|D3130)$")
       - set(resource.attributes["group"], "imc") where resource.attributes["dept"] != nil and IsMatch(resource.attributes["dept"], "^(D1110|D1120)$")
@@ -89,6 +102,13 @@ processors:
       - set(resource.attributes["k8s.cluster.name"], "${env:CLUSTER_NAME}")
       # Pod 沒有 app.kubernetes.io/name（沒套 app-common chart）的，退回用 Deployment 名稱
       - set(resource.attributes["service.name"], resource.attributes["k8s.deployment.name"]) where resource.attributes["service.name"] == nil and resource.attributes["k8s.deployment.name"] != nil
+    metric_statements: *group_rules
+
+  # 只給 log 用的資訊，metrics 不要：pod label 會變成 time series 的維度，container.id 每次重啟都變
+  transform/metrics-trim:
+    error_mode: ignore
+    metric_statements:
+      - delete_matching_keys(resource.attributes, "^(k8s\\.pod\\.labels\\.|container\\.)")
 
 connectors:
   # 依 group 交給各自的出口。每筆只會符合一條，不會送兩份
@@ -100,7 +120,8 @@ connectors:
       - condition: resource.attributes["group"] == "imc"
         pipelines: [metrics/imc]
 
-# 每個 group 一個出口、一把 key、一個獨立佇列：某把 key 失效只卡住那一條。
+# 每個 group 一個出口、一把 key；metrics 和 log 各有自己的佇列（同一個出口用在兩種 pipeline 時各一份）。
+# 某把 key 失效只卡住那個 group。
 #
 # ⚠ 用 OTLP 送到 ES 9 自己的 OTLP 入口（/_otlp/v1/metrics），不用 elasticsearch 寫入元件。
 #   elasticsearch 寫入元件把「連線逾時、沒拿到 HTTP 回應」當成永久錯誤，不重試、直接丟掉；
@@ -109,6 +130,7 @@ connectors:
 exporters:
   otlp_http/it:
     metrics_endpoint: ${env:ES_ENDPOINT}/_otlp/v1/metrics
+    logs_endpoint: ${env:ES_ENDPOINT}/_otlp/v1/logs
     headers:
       Authorization: ApiKey ${env:IT_ES_API_KEY}
     timeout: 30s
@@ -124,6 +146,7 @@ exporters:
       max_elapsed_time: 0
   otlp_http/imc:
     metrics_endpoint: ${env:ES_ENDPOINT}/_otlp/v1/metrics
+    logs_endpoint: ${env:ES_ENDPOINT}/_otlp/v1/logs
     headers:
       Authorization: ApiKey ${env:IMC_ES_API_KEY}
     timeout: 30s
@@ -131,6 +154,7 @@ exporters:
     retry_on_failure: *retry
   otlp_http/unassigned:
     metrics_endpoint: ${env:ES_ENDPOINT}/_otlp/v1/metrics
+    logs_endpoint: ${env:ES_ENDPOINT}/_otlp/v1/logs
     headers:
       Authorization: ApiKey ${env:UNASSIGNED_ES_API_KEY}
     timeout: 30s

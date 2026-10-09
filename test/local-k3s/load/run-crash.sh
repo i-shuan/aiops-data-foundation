@@ -85,7 +85,7 @@ check "metrics 沒有重複" "${mdup}" 0
 check "沒有資料被丟進 failure store" \
   "$(es "${ES_URL}/.fs-*/_count?expand_wildcards=all&ignore_unavailable=true" -d "{\"query\":{\"range\":{\"@timestamp\":{\"gte\":\"${start}\"}}}}" | jq -r '.count // 0')" 0
 dropped=0
-for f in /var/log/pods/otel-metrics_*/otelcol/*.log; do dropped=$(( dropped + $(grep -c "Dropping data" "${f}" || true) )); done
+for f in /var/log/pods/otel-collector_*/otelcol/*.log; do dropped=$(( dropped + $(grep -c "Dropping data" "${f}" || true) )); done
 check "Collector 沒有丟資料的紀錄" "${dropped}" 0
 
 echo

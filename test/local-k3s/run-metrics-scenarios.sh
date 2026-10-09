@@ -85,13 +85,13 @@ scenario_outage() {
   echo "   $(ts) ES 關掉"
   sleep "${half}"
   restart_at="$(now)"
-  k -n otel-metrics rollout restart daemonset/otel-node-collector deployment/otel-cluster-collector >/dev/null
-  k -n otel-metrics rollout status daemonset/otel-node-collector --timeout=120s >/dev/null
-  k -n otel-metrics rollout status deployment/otel-cluster-collector --timeout=120s >/dev/null
+  k -n otel-collector rollout restart daemonset/otel-node-collector deployment/otel-cluster-collector >/dev/null
+  k -n otel-collector rollout status daemonset/otel-node-collector --timeout=120s >/dev/null
+  k -n otel-collector rollout status deployment/otel-cluster-collector --timeout=120s >/dev/null
   restarted="$(now)"
   echo "   $(ts) 停機中重啟了兩個 Collector"
   sleep "${half}"
-  echo "   $(ts) 節點上的佇列：$(du -sh /var/lib/otelcol-metrics 2>/dev/null | cut -f1)"
+  echo "   $(ts) 節點上的佇列：$(du -sh /var/lib/otelcol 2>/dev/null | cut -f1)"
   up="$(now)"
   k -n es-test scale statefulset/elasticsearch --replicas=1 >/dev/null
   until [[ "$(es -m 5 "${ES_URL}/_cluster/health" 2>/dev/null | jq -r .status 2>/dev/null)" =~ green|yellow ]]; do sleep 2; done
@@ -114,7 +114,7 @@ scenario_outage() {
   check "沒有資料被 ES 丟進 failure store" \
     "$(es "${ES_URL}/.fs-metrics-*/_count?expand_wildcards=all&ignore_unavailable=true" -d "{\"query\":{\"range\":{\"@timestamp\":{\"gte\":\"${down}\"}}}}" | jq -r '.count // 0')" 0
   local dropped=0 f
-  for f in /var/log/pods/otel-metrics_*/otelcol/*.log; do
+  for f in /var/log/pods/otel-collector_*/otelcol/*.log; do
     dropped=$(( dropped + $(grep -c "Dropping data" "${f}" || true) ))
   done
   check "Collector 沒有丟資料的紀錄" "${dropped}" 0
@@ -124,29 +124,25 @@ scenario_keyfail() {
   echo "== 作廢 IMC 的寫入 key 3 分鐘"
   local bad good newkey
   bad="$(now)"
-  es -X DELETE "${ES_URL}/_security/api_key" -d '{"name":"fluent-bit-imc"}' | jq -c '{invalidated: (.invalidated_api_keys | length)}'
+  es -X DELETE "${ES_URL}/_security/api_key" -d '{"name":"es-writer-imc"}' | jq -c '{invalidated: (.invalidated_api_keys | length)}'
   echo "   $(ts) IMC 的 key 作廢"
   sleep 180
   good="$(now)"
   refresh
   check_ge "IMC 的 key 失效期間，IT 照常寫入" "$(app_count it it-mes-prod "${bad}" "${good}")" 5
   check "IMC 的 key 失效期間，IMC 寫不進去" "$(app_count imc imc-wip-prod "${bad}" "${good}")" 0
-  newkey="$(es -X POST "${ES_URL}/_security/api_key" -d '{"name":"fluent-bit-imc","role_descriptors":{"fluent-bit-imc":{"index":[
-    {"names":["k8s-imc-*","k8s-events-imc-*","metrics-*-imc"],"privileges":["create_doc","create_index","auto_configure"]}]}}}' | jq -r .encoded)"
-  local ns
-  for ns in logging otel-metrics; do
-    k -n "${ns}" get secret es-writer-keys -o json \
-      | jq --arg v "$(printf %s "${newkey}" | base64 -w0)" '.data.IMC_ES_API_KEY = $v' | k apply -f - >/dev/null
-  done
-  k -n otel-metrics rollout restart daemonset/otel-node-collector deployment/otel-cluster-collector >/dev/null
-  k -n otel-metrics rollout status daemonset/otel-node-collector --timeout=120s >/dev/null
-  k -n logging rollout restart daemonset/fluent-bit >/dev/null
+  newkey="$(es -X POST "${ES_URL}/_security/api_key" -d '{"name":"es-writer-imc","role_descriptors":{"es-writer-imc":{"index":[
+    {"names":["k8s-imc-*","k8s-events-imc-*","metrics-*-imc","logs-*.otel-imc"],"privileges":["create_doc","create_index","auto_configure"]}]}}}' | jq -r .encoded)"
+  k -n otel-collector get secret es-writer-keys -o json \
+    | jq --arg v "$(printf %s "${newkey}" | base64 -w0)" '.data.IMC_ES_API_KEY = $v' | k apply -f - >/dev/null
+  k -n otel-collector rollout restart daemonset/otel-node-collector deployment/otel-cluster-collector >/dev/null
+  k -n otel-collector rollout status daemonset/otel-node-collector --timeout=120s >/dev/null
   echo "   $(ts) 換上新 key、重啟 Collector"
   sleep 90
   refresh
   check_ge "換 key 後，IMC 恢復寫入" "$(app_count imc imc-wip-prod "${good}" "$(now)")" 1
-  # 已知限制：OTLP 出口只重試 429/502/503/504，401 當成永久錯誤直接丟，key 失效那段的 metrics 補不回來
-  #（log 不同：Fluent Bit 會一直重試，換 key 後會補回來）。這裡只記錄筆數，不判失敗。
+  # 已知限制：OTLP 出口只重試 429/502/503/504，401 當成永久錯誤直接丟，key 失效那段的資料補不回來
+  #（log 也一樣）。這裡只記錄筆數，不判失敗。
   echo "   key 失效那段的 IMC 資料：$(app_count imc imc-wip-prod "${bad}" "${good}") 筆（已知會遺失，見 docs/metrics.md）"
 }
 

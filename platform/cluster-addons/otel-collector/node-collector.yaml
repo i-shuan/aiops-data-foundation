@@ -1,31 +1,30 @@
 apiVersion: apps/v1
-kind: Deployment
+kind: DaemonSet
 metadata:
-  name: otel-cluster-collector
+  name: otel-node-collector
   labels:
-    app.kubernetes.io/name: otel-cluster-collector
+    app.kubernetes.io/name: otel-node-collector
 spec:
-  replicas: 1          # 一定要 1，多一個每筆就重複一份
-  strategy:
-    type: Recreate     # 換版時先停舊的，避免新舊同時跑造成重複
   selector:
     matchLabels:
-      app.kubernetes.io/name: otel-cluster-collector
+      app.kubernetes.io/name: otel-node-collector
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: otel-cluster-collector
+        app.kubernetes.io/name: otel-node-collector
     spec:
-      serviceAccountName: otel-metrics
+      serviceAccountName: otel-collector
+      tolerations:
+        - operator: Exists    # 每個節點都要收，包含 control plane
       containers:
         - name: otelcol
           image: otelcol
           args:
             - --config=/conf/common.yaml
-            - --config=/conf/cluster.yaml
+            - --config=/conf/node.yaml
           envFrom:
             - configMapRef:
-                name: otel-metrics-env
+                name: otel-collector-env
           env:
             - name: K8S_NODE_NAME
               valueFrom: {fieldRef: {fieldPath: spec.nodeName}}
@@ -46,16 +45,20 @@ spec:
           readinessProbe:
             httpGet: {path: /, port: health}
           securityContext:
-            runAsUser: 0          # 要寫節點上的佇列目錄
+            runAsUser: 0          # 要讀節點上的 log 檔、寫佇列目錄
           resources:
             requests: {cpu: 100m, memory: 128Mi}
             limits: {memory: 512Mi}
           volumeMounts:
             - {name: config, mountPath: /conf}
-            - {name: queue, mountPath: /var/lib/otelcol-metrics}
+            - {name: queue, mountPath: /var/lib/otelcol}
+            - {name: pods, mountPath: /var/log/pods, readOnly: true}
       volumes:
         - name: config
-          configMap: {name: otel-metrics-config}
+          configMap: {name: otel-collector-config}
         # 佇列放在節點上：Pod 重建、ES 暫時連不上都不會掉資料
         - name: queue
-          hostPath: {path: /var/lib/otelcol-metrics/cluster, type: DirectoryOrCreate}
+          hostPath: {path: /var/lib/otelcol/node, type: DirectoryOrCreate}
+        # 容器的 log
+        - name: pods
+          hostPath: {path: /var/log/pods}

@@ -1,12 +1,12 @@
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: otel-metrics
+  name: otel-collector
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: otel-metrics
+  name: otel-collector
 rules:
   # k8s_attributes：補 Pod 資訊、讀 namespace 的 dept
   # k8s_cluster：讀各種物件的狀態
@@ -31,12 +31,12 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: otel-metrics
+  name: otel-collector
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: otel-metrics
+  name: otel-collector
 subjects:
   - kind: ServiceAccount
-    name: otel-metrics
-    namespace: otel-metrics
+    name: otel-collector
+    namespace: otel-collector

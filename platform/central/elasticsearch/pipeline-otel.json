@@ -1,0 +1,52 @@
+{
+  "description": "k8s-logs-otel：OpenTelemetry Collector 送來的 log 整理成 Fluent Bit 的形狀，轉到 k8s-<group>-<cluster>，接著跑 k8s-logs。不是我們 Collector 送的（沒有 group）就照 ES 預設處理",
+  "processors": [
+    {
+      "script": {
+        "lang": "painless",
+        "source": "__SCRIPT__"
+      }
+    },
+    {
+      "fingerprint": {
+        "description": "同一筆被重送時 _id 相同（見 painless 的 _fp_src）",
+        "if": "ctx._fp_src != null",
+        "fields": [
+          "_fp_src"
+        ],
+        "target_field": "_fp",
+        "method": "SHA-256"
+      }
+    },
+    {
+      "script": {
+        "if": "ctx._fp != null",
+        "lang": "painless",
+        "source": "ctx._id = ctx._fp; ctx.remove('_fp'); ctx.remove('_fp_src');"
+      }
+    },
+    {
+      "pipeline": {
+        "description": "我們 Collector 送的：接著跑 k8s-logs（改了 _index 之後，ES 不會自動跑目的地的 default pipeline）",
+        "if": "ctx._index.startsWith('k8s-')",
+        "name": "k8s-logs"
+      }
+    },
+    {
+      "set": {
+        "description": "不是我們 Collector 送的：跟 ES 內建的 logs@default-pipeline 一樣",
+        "if": "ctx._index.startsWith('logs-')",
+        "field": "@timestamp",
+        "override": false,
+        "copy_from": "_ingest.timestamp"
+      }
+    },
+    {
+      "pipeline": {
+        "if": "ctx._index.startsWith('logs-')",
+        "name": "logs@custom",
+        "ignore_missing_pipeline": true
+      }
+    }
+  ]
+}

@@ -1,30 +1,31 @@
 apiVersion: apps/v1
-kind: DaemonSet
+kind: Deployment
 metadata:
-  name: otel-node-collector
+  name: otel-cluster-collector
   labels:
-    app.kubernetes.io/name: otel-node-collector
+    app.kubernetes.io/name: otel-cluster-collector
 spec:
+  replicas: 1          # 一定要 1，多一個每筆就重複一份
+  strategy:
+    type: Recreate     # 換版時先停舊的，避免新舊同時跑造成重複
   selector:
     matchLabels:
-      app.kubernetes.io/name: otel-node-collector
+      app.kubernetes.io/name: otel-cluster-collector
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: otel-node-collector
+        app.kubernetes.io/name: otel-cluster-collector
     spec:
-      serviceAccountName: otel-metrics
-      tolerations:
-        - operator: Exists    # 每個節點都要收，包含 control plane
+      serviceAccountName: otel-collector
       containers:
         - name: otelcol
           image: otelcol
           args:
             - --config=/conf/common.yaml
-            - --config=/conf/node.yaml
+            - --config=/conf/cluster.yaml
           envFrom:
             - configMapRef:
-                name: otel-metrics-env
+                name: otel-collector-env
           env:
             - name: K8S_NODE_NAME
               valueFrom: {fieldRef: {fieldPath: spec.nodeName}}
@@ -51,10 +52,10 @@ spec:
             limits: {memory: 512Mi}
           volumeMounts:
             - {name: config, mountPath: /conf}
-            - {name: queue, mountPath: /var/lib/otelcol-metrics}
+            - {name: queue, mountPath: /var/lib/otelcol}
       volumes:
         - name: config
-          configMap: {name: otel-metrics-config}
+          configMap: {name: otel-collector-config}
         # 佇列放在節點上：Pod 重建、ES 暫時連不上都不會掉資料
         - name: queue
-          hostPath: {path: /var/lib/otelcol-metrics/node, type: DirectoryOrCreate}
+          hostPath: {path: /var/lib/otelcol/cluster, type: DirectoryOrCreate}

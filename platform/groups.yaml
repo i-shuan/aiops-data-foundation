@@ -3,7 +3,7 @@
 # 目前這份是「人看的真相來源」，下面幾處要手動跟它保持一致：
 #   - platform/cluster-addons/fluent-bit/fluent-bit.yaml 的 rewrite_tag 規則
 #   - platform/central/elasticsearch-setup.sh 的寫入 key 與唯讀角色
-#   - platform/cluster-addons/otel-metrics/common.yaml 的 transform/group（metrics）
+#   - platform/cluster-addons/otel-collector/common.yaml 的 transform/group（metrics）
 # 不在清單裡的 dept、或 namespace 沒標 dept，一律歸 unassigned。
 groups:
   it:
