@@ -20,6 +20,7 @@
 - [docs/traces.md](docs/traces.md)：trace 怎麼進 ES。應用送到同節點的 OpenTelemetry Collector，依連線來源的 Pod 讀 namespace 的 dept 分 group，擋冒充；log 的 `trace.id` 對得到 trace。已在 k3s 上端到端驗證。
 - [apps/standards/tracing.md](apps/standards/tracing.md)：給應用團隊的 trace 埋點指引：哪些自動有、什麼時候要自己加、怎麼加、命名規則、取樣。
 - [docs/aiops-rca.md](docs/aiops-rca.md)：**AIOps 根因分析怎麼做**：三種資料各回答什麼、六個步驟裡哪幾步需要 AI，以及最關鍵的「怎麼知道平常的樣子」（看哪些指標、週期、方法、需要的條件）。
+- [docs/retention.md](docs/retention.md)：**保留天數與容量（方案，還沒套用）**：各種資料留多久、舊 metrics 降解析度、log 和 trace 改留統計值，以及容量估算。
 - [docs/otel-logs-compare.md](docs/otel-logs-compare.md)：log 從 Fluent Bit 改用 OpenTelemetry Collector 之前的比較紀錄與決定。
 
 ## 已經定案的
@@ -62,7 +63,7 @@
    | AI 助理（AI Assistant） | 用自然語言查資料、解釋告警 | ❌ `inference` |
 
    不買的話，AIOps 要自己做（例如 Python 從 ES 讀資料跑模型），資料地基不用改。
-2. **歷史資料保留要夠長才學得出「平常的樣子」。** log 目前保留 30 天，metrics、trace 用 ES 預設；異常偵測至少要 4 週、最好 8 週。要決定各自保留多久，或把舊的 metrics 降解析度（例如 5 分鐘一點）留久一點。
+2. **保留天數要定案並套用。** ⚠️ metrics、trace 現在用 ES 預設的 ILM，**只有 rollover、不會刪除**，硬碟遲早滿。方案見 [docs/retention.md](docs/retention.md)：metrics 原始 14 天、降成 5 分鐘留到 90 天、降成 1 小時留到 400 天；log 原文 30 天＋統計值 400 天；trace 原始 7 天＋從 trace 算的指標 400 天。要決定天數、副本，並用正式環境的量重算容量。
 
 ## 目錄
 
