@@ -59,9 +59,19 @@ spec:
               value: 0.0.0.0
             - name: OTEL_EXPORTER_PROMETHEUS_PORT
               value: {{ include "app-common.metricsPort" . | quote }}
-            # 還沒有 tracing 後端：trace 不送出，但 trace_id 仍會產生、傳遞並寫進 log
+            # trace 送到同一個節點上的平台 Collector（Service 只連同節點），由它判斷屬於哪個部門再送進 ES。
+            # trace_id 同時會寫進 log，用來把 log 和 trace 串起來
             - name: OTEL_TRACES_EXPORTER
-              value: none
+              value: otlp
+            - name: OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
+              value: http://otel-node-collector.otel-collector.svc:4318/v1/traces
+            - name: OTEL_EXPORTER_OTLP_TRACES_PROTOCOL
+              value: http/protobuf
+            # 取樣：上游已決定要不要記的跟著上游；自己開始的請求依比例（otel.traces.sampleRatio，預設全部）
+            - name: OTEL_TRACES_SAMPLER
+              value: parentbased_traceidratio
+            - name: OTEL_TRACES_SAMPLER_ARG
+              value: {{ include "app-common.traceSampleRatio" . | quote }}
             - name: OTEL_LOGS_EXPORTER
               value: none
             {{- if $javaAgent }}

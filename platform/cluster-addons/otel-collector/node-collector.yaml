@@ -32,6 +32,8 @@ spec:
               valueFrom: {fieldRef: {fieldPath: status.hostIP}}
           ports:
             - {name: health, containerPort: 13133}
+            - {name: otlp-grpc, containerPort: 4317}   # 應用送 trace 進來
+            - {name: otlp-http, containerPort: 4318}
             - {name: metrics, containerPort: 8888}   # Collector 自己的狀態：佇列長度、送出失敗數
           livenessProbe:
             httpGet: {path: /, port: health}

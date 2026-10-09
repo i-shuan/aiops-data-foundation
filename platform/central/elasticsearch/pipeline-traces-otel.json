@@ -1,0 +1,12 @@
+{
+  "description": "traces-otel：用 trace_id + span_id 當 _id。Collector 重送同一個 span 時 ES 回 409，不會多一份（跟 log 的 k8s-logs-otel、metrics 的 TSDS 一樣，重送不會重複）",
+  "processors": [
+    {
+      "set": {
+        "if": "ctx.trace_id != null && ctx.span_id != null",
+        "field": "_id",
+        "value": "{{{trace_id}}}-{{{span_id}}}"
+      }
+    }
+  ]
+}

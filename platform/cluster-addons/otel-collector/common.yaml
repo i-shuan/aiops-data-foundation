@@ -6,6 +6,7 @@
 #   ES 9 內建的 metrics-otel@template（metrics-*.otel-*）會把它建成 time series data stream。
 # log（只有節點那一份收）：先進 logs-generic.otel-<group>，中央 ES 的 k8s-logs-otel pipeline
 #   整理形狀後轉到 k8s-<group>-<cluster>，跟其他來源的 log 同一條 k8s-logs pipeline。
+# trace（只有節點那一份收，應用用 OTLP 送來）：traces-generic.otel-<group>（ES 9 內建的 traces-otel@template）。
 
 extensions:
   health_check:
@@ -70,6 +71,10 @@ processors:
             name: k8s.pod.name
           - from: resource_attribute
             name: k8s.namespace.name
+      # 應用自己用 OTLP 送來的（trace）：看連線的來源 IP 是哪個 Pod。
+      # 應用自帶的 k8s.* 會先在 transform/traces-pre 拿掉，所以一定走到這一條，不能冒充別的 Pod
+      - sources:
+          - from: connection
     extract:
       metadata:
         - k8s.namespace.name
@@ -77,7 +82,7 @@ processors:
         - k8s.pod.uid
         - k8s.node.name
         - k8s.deployment.name
-        # 下面三個只給 log 用（中央 pipeline 的 container.*），metrics 送出前會拿掉（transform/metrics-trim）
+        # 下面三個只給 log 用（中央 pipeline 的 container.*），metrics、trace 送出前會拿掉（transform/drop-log-attrs）
         - container.image.name
         - container.image.tags   # 新版改成複數（陣列）；單數的 container.image.tag 已經不會送
         - container.id
@@ -96,7 +101,7 @@ processors:
           key: app.kubernetes.io/part-of
           from: pod
         # 全部 pod label，只給 log 用：中央 pipeline 用 log-format 決定怎麼拆，也存成 kubernetes.labels。
-        # metrics 送出前會拿掉，不然每個 label 都會變成 time series 的維度
+        # metrics、trace 送出前會拿掉，不然每個 label 都會變成 time series 的維度
         - tag_name: k8s.pod.labels.$$1
           key_regex: (.*)
           from: pod
@@ -115,12 +120,14 @@ processors:
       # Pod 沒有 app.kubernetes.io/name（沒套 app-common chart）的，退回用 Deployment 名稱
       - set(resource.attributes["service.name"], resource.attributes["k8s.deployment.name"]) where resource.attributes["service.name"] == nil and resource.attributes["k8s.deployment.name"] != nil
     metric_statements: *group_rules
+    trace_statements: *group_rules
 
-  # 只給 log 用的資訊，metrics 不要：pod label 會變成 time series 的維度，container.id 每次重啟都變
-  transform/metrics-trim:
+  # 只給 log 用的資訊，metrics 和 trace 不要：pod label 會變成 metrics 的維度，container.id 每次重啟都變
+  transform/drop-log-attrs:
     error_mode: ignore
-    metric_statements:
+    metric_statements: &drop_log_attrs
       - delete_matching_keys(resource.attributes, "^(k8s\\.pod\\.labels\\.|container\\.)")
+    trace_statements: *drop_log_attrs
 
 connectors:
   # 依 group 交給各自的出口。每筆只會符合一條，不會送兩份
@@ -143,6 +150,7 @@ exporters:
   otlp_http/it:
     metrics_endpoint: ${env:ES_ENDPOINT}/_otlp/v1/metrics
     logs_endpoint: ${env:ES_ENDPOINT}/_otlp/v1/logs
+    traces_endpoint: ${env:ES_ENDPOINT}/_otlp/v1/traces
     auth:
       authenticator: bearertokenauth/it
     timeout: 30s
@@ -159,6 +167,7 @@ exporters:
   otlp_http/imc:
     metrics_endpoint: ${env:ES_ENDPOINT}/_otlp/v1/metrics
     logs_endpoint: ${env:ES_ENDPOINT}/_otlp/v1/logs
+    traces_endpoint: ${env:ES_ENDPOINT}/_otlp/v1/traces
     auth:
       authenticator: bearertokenauth/imc
     timeout: 30s
@@ -167,6 +176,7 @@ exporters:
   otlp_http/unassigned:
     metrics_endpoint: ${env:ES_ENDPOINT}/_otlp/v1/metrics
     logs_endpoint: ${env:ES_ENDPOINT}/_otlp/v1/logs
+    traces_endpoint: ${env:ES_ENDPOINT}/_otlp/v1/traces
     auth:
       authenticator: bearertokenauth/unassigned
     timeout: 30s

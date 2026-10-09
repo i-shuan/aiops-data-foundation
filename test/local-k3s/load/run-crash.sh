@@ -13,7 +13,7 @@ DURATION="${DURATION:-360}"
 es() { curl -sS -m 30 -u elastic:changeme-test-only -H 'Content-Type: application/json' "$@"; }
 now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 ts() { date -u +%H:%M:%S; }
-es_pid() { pgrep -f 'Des.networkaddress.cache.ttl' | head -1; }  # ES 主程序（不是啟動用的 CLI）
+es_pid() { pgrep -f '^/usr/share/elasticsearch/jdk/bin/java .*-Des.networkaddress.cache.ttl' | head -1; }  # ES 主程序（不是啟動用的 CLI）
 wait_es() { until [[ "$(es -m 5 "${ES_URL}/_cluster/health" 2>/dev/null | jq -r .status 2>/dev/null)" =~ green|yellow ]]; do sleep 2; done; }
 
 fail=0

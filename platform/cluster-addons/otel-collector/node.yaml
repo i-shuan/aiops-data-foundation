@@ -1,6 +1,7 @@
 # 每個節點一個（DaemonSet）：
 #   metrics：kubelet 的節點、Pod、容器資源用量，以及這個節點上應用自己吐的 Prometheus metrics
 #   log：這個節點上所有容器的 log
+#   trace：這個節點上的應用用 OTLP 送來的（Service otel-node-collector，只連到同一個節點的 Collector）
 # 跟 common.yaml 一起載入。
 
 receivers:
@@ -58,17 +59,43 @@ receivers:
       - type: container
         id: container-parser
 
+  # 應用的 trace（OpenTelemetry Java agent 等）。app-common chart 會把應用指到這裡
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
 processors:
-  # log 一批一批送，量大時才送得動
-  batch/logs:
+  # log 與 trace 一批一批送，量大時才送得動
+  batch:
     send_batch_size: 2000
     timeout: 1s
+
+  # 擋冒充：trace 是應用自己送的，資源欄位應用可以亂填。拿掉所有能決定「屬於哪個 Pod、哪個部門」的欄位，
+  # 讓 k8s_attributes 一定依連線的來源 IP 判斷是哪個 Pod
+  transform/traces-pre:
+    error_mode: ignore
+    trace_statements:
+      - delete_matching_keys(resource.attributes, "^(k8s\\.|container\\.|data_stream\\.)")
+      - delete_key(resource.attributes, "dept")
+      - delete_key(resource.attributes, "group")
+      - delete_matching_keys(span.attributes, "^data_stream\\.")
 
   k8s_attributes:
     filter:
       node_from_env_var: K8S_NODE_NAME   # 只看自己節點上的 Pod，省記憶體
 
 connectors:
+  # trace 依 group 交給各自的出口
+  routing/traces:
+    default_pipelines: [traces/unassigned]
+    table:
+      - condition: resource.attributes["group"] == "it"
+        pipelines: [traces/it]
+      - condition: resource.attributes["group"] == "imc"
+        pipelines: [traces/imc]
   # log 依 group 交給各自的出口，每筆只會符合一條
   routing/logs:
     default_pipelines: [logs/unassigned]
@@ -82,11 +109,11 @@ service:
   pipelines:
     metrics/in:
       receivers: [kubeletstats, prometheus]
-      processors: [memory_limiter, transform/pre, k8s_attributes, transform/group, transform/metrics-trim]
+      processors: [memory_limiter, transform/pre, k8s_attributes, transform/group, transform/drop-log-attrs]
       exporters: [routing/group]
     logs/in:
       receivers: [file_log]
-      processors: [memory_limiter, k8s_attributes, transform/group, batch/logs]
+      processors: [memory_limiter, k8s_attributes, transform/group, batch]
       exporters: [routing/logs]
     logs/it:
       receivers: [routing/logs]
@@ -96,4 +123,17 @@ service:
       exporters: [otlp_http/imc]
     logs/unassigned:
       receivers: [routing/logs]
+      exporters: [otlp_http/unassigned]
+    traces/in:
+      receivers: [otlp]
+      processors: [memory_limiter, transform/traces-pre, k8s_attributes, transform/group, transform/drop-log-attrs, batch]
+      exporters: [routing/traces]
+    traces/it:
+      receivers: [routing/traces]
+      exporters: [otlp_http/it]
+    traces/imc:
+      receivers: [routing/traces]
+      exporters: [otlp_http/imc]
+    traces/unassigned:
+      receivers: [routing/traces]
       exporters: [otlp_http/unassigned]

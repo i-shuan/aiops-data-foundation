@@ -1,0 +1,77 @@
+# trace 測試應用：每 5 秒「處理一個請求」——印一行帶 trace_id 的 JSON log，並把同一個 trace 的 span
+# 用 OTLP/HTTP（JSON）送到同節點的 Collector（Service otel-node-collector）。用來測：
+#   - trace 依 Pod 的 namespace 分到 group
+#   - log 的 trace.id 對得到 trace（AIOps 從錯誤 log 跳到那個請求的 trace）
+#   - 擋冒充：it-mes-prod 那個故意在資源欄位自稱 imc-wip-prod、dept D1110、假的 Pod UID，應該還是進 IT
+# 程式在 trace-app.sh，run-trace-e2e.sh 會在三個 namespace 各建一個 ConfigMap trace-app。
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: trace-app
+  namespace: it-mes-prod
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: trace-app}}
+  template:
+    metadata:
+      labels:
+        app: trace-app
+        app.kubernetes.io/name: trace-app
+        app.kubernetes.io/version: "3.0.0"
+        app.kubernetes.io/part-of: demo
+    spec:
+      containers:
+        - name: app
+          image: docker.io/curlimages/curl:8.10.1
+          command: ["sh", "/script/run.sh"]
+          env:
+            # 冒充：自稱是 IMC 的 Pod
+            - name: SPOOF
+              value: >-
+                ,{"key":"k8s.namespace.name","value":{"stringValue":"imc-wip-prod"}},{"key":"dept","value":{"stringValue":"D1110"}},{"key":"group","value":{"stringValue":"imc"}},{"key":"k8s.pod.uid","value":{"stringValue":"00000000-0000-0000-0000-000000000000"}}
+          volumeMounts: [{name: script, mountPath: /script}]
+      volumes: [{name: script, configMap: {name: trace-app}}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: trace-app, namespace: imc-wip-prod}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: trace-app}}
+  template:
+    metadata:
+      labels:
+        app: trace-app
+        app.kubernetes.io/name: trace-app
+        app.kubernetes.io/version: "3.0.0"
+        app.kubernetes.io/part-of: demo
+    spec:
+      containers:
+        - name: app
+          image: docker.io/curlimages/curl:8.10.1
+          command: ["sh", "/script/run.sh"]
+          env: [{name: SPOOF, value: ""}]
+          volumeMounts: [{name: script, mountPath: /script}]
+      volumes: [{name: script, configMap: {name: trace-app}}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: trace-app, namespace: legacy}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: trace-app}}
+  template:
+    metadata:
+      labels:
+        app: trace-app
+        app.kubernetes.io/name: trace-app
+        app.kubernetes.io/version: "3.0.0"
+        app.kubernetes.io/part-of: demo
+    spec:
+      containers:
+        - name: app
+          image: docker.io/curlimages/curl:8.10.1
+          command: ["sh", "/script/run.sh"]
+          env: [{name: SPOOF, value: ""}]
+          volumeMounts: [{name: script, mountPath: /script}]
+      volumes: [{name: script, configMap: {name: trace-app}}]

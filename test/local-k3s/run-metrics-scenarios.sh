@@ -132,7 +132,7 @@ scenario_keyfail() {
   check_ge "IMC 的 key 失效期間，IT 照常寫入" "$(app_count it it-mes-prod "${bad}" "${good}")" 5
   check "IMC 的 key 失效期間，IMC 寫不進去" "$(app_count imc imc-wip-prod "${bad}" "${good}")" 0
   newkey="$(es -X POST "${ES_URL}/_security/api_key" -d '{"name":"es-writer-imc","role_descriptors":{"es-writer-imc":{"index":[
-    {"names":["k8s-imc-*","k8s-events-imc-*","metrics-*-imc","logs-*.otel-imc"],"privileges":["create_doc","create_index","auto_configure"]}]}}}' | jq -r .encoded)"
+    {"names":["k8s-imc-*","k8s-events-imc-*","metrics-*-imc","logs-*.otel-imc","traces-*.otel-imc"],"privileges":["create_doc","create_index","auto_configure"]}]}}}' | jq -r .encoded)"
   k -n otel-collector get secret es-writer-keys -o json \
     | jq --arg v "$(printf %s "${newkey}" | base64 -w0)" '.data.IMC_ES_API_KEY = $v' | k apply -f - >/dev/null
   k -n otel-collector rollout restart daemonset/otel-node-collector deployment/otel-cluster-collector >/dev/null

@@ -20,7 +20,7 @@ ts() { date -u +%H:%M:%S; }
 read -r -a AGENTS <<<"${AGENTS:-otelcol}"
 
 ot_pid() { pgrep -f '^/otelcol-contrib --config=/conf/common.yaml --config=/conf/node.yaml' | head -1; }
-es_pid() { pgrep -f 'Des.networkaddress.cache.ttl' | head -1; }
+es_pid() { pgrep -f '^/usr/share/elasticsearch/jdk/bin/java .*-Des.networkaddress.cache.ttl' | head -1; }
 cpu_ticks() { awk '{print $14+$15}' "/proc/$1/stat" 2>/dev/null || echo 0; }
 rss_mb() { awk '/VmRSS/{printf "%d", $2/1024}' "/proc/$1/status" 2>/dev/null || echo 0; }
 wait_es() { until [[ "$(es -m 5 "${ES_URL}/_cluster/health" 2>/dev/null | jq -r .status 2>/dev/null)" =~ green|yellow ]]; do sleep 2; done; }
@@ -148,7 +148,7 @@ do_keyfail() {
   es -X DELETE "${ES_URL}/_security/api_key" -d '{"name":"es-writer-imc"}' >/dev/null
   echo "   $(ts) key 作廢"; sleep "${secs}"; good="$(now)"
   newkey="$(es -X POST "${ES_URL}/_security/api_key" -d '{"name":"es-writer-imc","role_descriptors":{"es-writer-imc":{"index":[
-    {"names":["k8s-imc-*","k8s-events-imc-*","metrics-*-imc","logs-*.otel-imc"],"privileges":["create_doc","create_index","auto_configure"]}]}}}' | jq -r .encoded)"
+    {"names":["k8s-imc-*","k8s-events-imc-*","metrics-*-imc","logs-*.otel-imc","traces-*.otel-imc"],"privileges":["create_doc","create_index","auto_configure"]}]}}}' | jq -r .encoded)"
   kubectl -n otel-collector get secret es-writer-keys -o json \
     | jq --arg v "$(printf %s "${newkey}" | base64 -w0)" '.data.IMC_ES_API_KEY = $v' | kubectl apply -f - >/dev/null
   restart_collectors

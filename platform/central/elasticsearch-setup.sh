@@ -8,12 +8,13 @@
 # 會建立四類東西：
 #   0. index 結構：ILM、mapping、pipeline（含各 log 格式）、index template（./elasticsearch/）。
 #      可以重複執行，結果一樣。log 欄位規範見 docs/elasticsearch.md。
-#   1. 寫入用 API key（給 Fluent Bit 與 OpenTelemetry Collector）：每組只能寫自己 group 的 log 與 metrics。
+#   1. 寫入用 API key（給 OpenTelemetry Collector）：每組只能寫自己 group 的 log、metrics、trace。
 #      label 判斷錯了，頂多是那筆資料被拒絕，不會寫進別的 group。
-#      回應裡的 "encoded" 放進每個應用 cluster logging namespace 的 Secret es-writer-keys：
+#      回應裡的 "encoded" 放進每個應用 cluster otel-collector namespace 的 Secret es-writer-keys：
 #        IT_ES_API_KEY、IMC_ES_API_KEY、UNASSIGNED_ES_API_KEY
-#   2. AIOps 專用唯讀 API key：可讀所有 k8s-*（log）與 metrics-*.otel-*（metrics）。
-#   3. 給人用的唯讀角色：每個 group 一個，只能看自己的 log 與事件。再指派給使用者。
+#      之後換 key 用 rotate-writer-key.sh（不掉資料）；重跑這支腳本也會發新 key，但舊的不會作廢。
+#   2. AIOps 專用唯讀 API key：可讀所有 k8s-*（log）、metrics-*.otel-*（metrics）、traces-*.otel-*（trace）。
+#   3. 給人用的唯讀角色：每個 group 一個，只能看自己的 log、事件、metrics、trace。再指派給使用者。
 set -euo pipefail
 
 cd "$(dirname "$0")"
@@ -44,7 +45,7 @@ reader_role() {
   echo "=== 唯讀角色：logs-reader-${group} ==="
   es -X PUT "${ES_URL}/_security/role/logs-reader-${group}" -d "{
     \"indices\": [{
-      \"names\": [\"k8s-${group}-*\", \"k8s-events-${group}-*\", \"metrics-*-${group}\"],
+      \"names\": [\"k8s-${group}-*\", \"k8s-events-${group}-*\", \"metrics-*-${group}\", \"traces-*.otel-${group}\"],
       \"privileges\": [\"read\", \"view_index_metadata\"]
     }]
   }"
@@ -88,26 +89,35 @@ put_json /_component_template/metrics-otel@custom  elasticsearch/metrics-otel-cu
 # logs-*.otel-* 先跑 k8s-logs-otel，我們的 Collector 送的轉到 k8s-<group>-<cluster>
 put_pipeline k8s-logs-otel                         elasticsearch/pipeline-otel.json
 put_json /_component_template/logs-otel@custom     elasticsearch/logs-otel-custom.json
-# 上面的設定只對新的 backing index 生效：已經存在、還沒用 k8s-logs-otel 的 OTel log 資料流換一個新的，
-# 不然這些資料會停在 logs-*.otel-*，不會轉到 k8s-*
-for ds in $(es "${ES_URL}/_data_stream/logs-*.otel-*" | jq -r '.data_streams[]? | .name'); do
-  wi="$(es "${ES_URL}/_data_stream/${ds}" | jq -r '.data_streams[0].indices[-1].index_name')"
-  if [[ "$(es "${ES_URL}/${wi}/_settings" | jq -r '.[].settings.index.default_pipeline')" != "k8s-logs-otel" ]]; then
-    echo "=== rollover ${ds}（換成 k8s-logs-otel）==="
-    es -X POST "${ES_URL}/${ds}/_rollover" >/dev/null
-  fi
-done
+# trace：traces-*.otel-* 用 trace_id + span_id 當 _id，重送不會重複
+put_pipeline traces-otel                           elasticsearch/pipeline-traces-otel.json
+put_json /_component_template/traces-otel@custom   elasticsearch/traces-otel-custom.json
+# 上面的設定只對新的 backing index 生效：已經存在、還沒用上新 pipeline 的 OTel 資料流換一個新的。
+# log 沒換的話，資料會停在 logs-*.otel-*，不會轉到 k8s-*
+rollover_if_not() {  # rollover_if_not <資料流樣式> <default pipeline>
+  local ds wi
+  for ds in $(es "${ES_URL}/_data_stream/$1" | jq -r '.data_streams[]? | .name'); do
+    wi="$(es "${ES_URL}/_data_stream/${ds}" | jq -r '.data_streams[0].indices[-1].index_name')"
+    if [[ "$(es "${ES_URL}/${wi}/_settings" | jq -r '.[].settings.index.default_pipeline')" != "$2" ]]; then
+      echo "=== rollover ${ds}（換成 $2）==="
+      es -X POST "${ES_URL}/${ds}/_rollover" >/dev/null
+    fi
+  done
+}
+rollover_if_not 'logs-*.otel-*' k8s-logs-otel
+rollover_if_not 'traces-*.otel-*' traces-otel
 
 [[ "${SKIP_KEYS:-}" == "1" ]] && exit 0
 
 # 1. 寫入用
-# log（Fluent Bit）與 metrics（OpenTelemetry Collector）共用同一把 key。
-# metrics 的資料流是 metrics-<來源>.otel-<group>，所以用 metrics-*-<group> 比對。
-# logs-*.otel-<group>：log 改用 OpenTelemetry Collector 收時的入口（比較中），ES 會再轉到 k8s-<group>-*，
-# 轉過去時 ES 會再檢查一次權限，所以 IT 的 key 送 group=imc 的資料一樣寫不進 IMC
-writer_key "es-writer-it"         '["k8s-it-*", "k8s-events-it-*", "metrics-*-it", "logs-*.otel-it"]'
-writer_key "es-writer-imc"        '["k8s-imc-*", "k8s-events-imc-*", "metrics-*-imc", "logs-*.otel-imc"]'
-writer_key "es-writer-unassigned" '["k8s-unassigned-*", "k8s-events-unassigned-*", "metrics-*-unassigned", "logs-*.otel-unassigned"]'
+# log、metrics、trace 共用同一把 key（都由 OpenTelemetry Collector 送）。
+#   metrics-*-<group>：metrics 的資料流是 metrics-<來源>.otel-<group>
+#   logs-*.otel-<group>：log 的入口，ES 會再轉到 k8s-<group>-*；轉過去時 ES 會再檢查一次權限，
+#     所以 IT 的 key 送 group=imc 的資料一樣寫不進 IMC
+#   traces-*.otel-<group>：trace
+writer_key "es-writer-it"         '["k8s-it-*", "k8s-events-it-*", "metrics-*-it", "logs-*.otel-it", "traces-*.otel-it"]'
+writer_key "es-writer-imc"        '["k8s-imc-*", "k8s-events-imc-*", "metrics-*-imc", "logs-*.otel-imc", "traces-*.otel-imc"]'
+writer_key "es-writer-unassigned" '["k8s-unassigned-*", "k8s-events-unassigned-*", "metrics-*-unassigned", "logs-*.otel-unassigned", "traces-*.otel-unassigned"]'
 
 # 2. AIOps 唯讀
 echo "=== AIOps 唯讀 key ==="
@@ -115,7 +125,7 @@ es -X POST "${ES_URL}/_security/api_key" -d '{
   "name": "aiops-reader",
   "role_descriptors": {
     "aiops-reader": {
-      "index": [{"names": ["k8s-*", "metrics-*.otel-*"], "privileges": ["read", "view_index_metadata"]}]
+      "index": [{"names": ["k8s-*", "metrics-*.otel-*", "traces-*.otel-*"], "privileges": ["read", "view_index_metadata"]}]
     }
   }
 }'

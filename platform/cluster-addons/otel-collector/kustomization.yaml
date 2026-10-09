@@ -1,4 +1,4 @@
-# 每個應用 cluster 一套 OpenTelemetry Collector，收 metrics、依 namespace 的 dept 分到各 group 的 data stream。
+# 每個應用 cluster 一套 OpenTelemetry Collector，收 log、metrics、trace，依 namespace 的 dept 分到各 group 的 data stream。
 # 設計說明見 docs/metrics.md。
 #
 # 部署前要先有：
@@ -11,6 +11,7 @@ resources:
   - namespace.yaml
   - rbac.yaml
   - node-collector.yaml
+  - service.yaml
   - cluster-collector.yaml
 configMapGenerator:
   - name: otel-collector-config
