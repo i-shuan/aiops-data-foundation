@@ -20,9 +20,9 @@ container stdout（每個節點的 /var/log/containers）
    AIOps 用唯讀 key 讀 k8s-*；人用各 group 的唯讀角色
 ```
 
-跟 metrics 那側（[vmagent.md](vmagent.md)）是同一套思路：收一次、每個 group 一條出口、一把 key、一個獨立佇列。
+跟 metrics（[metrics.md](metrics.md)）是同一套思路，而且共用同一組 key 與部門清單：收一次、每個 group 一條出口、一把 key、一個獨立佇列。
 
-不一樣的地方：**分流規則是依序比對、第一條符合就停**，所以不會一筆送兩份。metrics 那側的 keep/drop regex 要自己確保互斥，這裡不用。
+**分流規則是依序比對、第一條符合就停**，所以不會一筆送兩份。
 
 ## 檔案
 
@@ -220,7 +220,28 @@ kubectl -n logging create secret generic es-writer-keys \
   --from-literal=UNASSIGNED_ES_API_KEY=<encoded>
 ```
 
-在 Rancher 上做的注意事項跟 vmauth token 一樣，見 [vmagent.md 的「改 Secret 的坑」](vmagent.md#改-secret-的坑)。
+metrics 的 Collector 在 `otel-metrics` namespace，那邊也要一份內容相同的 `es-writer-keys`（把上面指令的 `-n logging` 換成 `-n otel-metrics` 再跑一次）。
+
+在 Rancher 上建或改這個 Secret：
+
+1. 切到目標 cluster，進 Storage 底下的 Secrets（路徑依 Rancher 版本略有不同）。
+2. 選 `logging` namespace（metrics 的話是 `otel-metrics`），**不是應用的 namespace**。
+3. 型別 Opaque，用 key/value 的編輯模式逐一加 `IT_ES_API_KEY`、`IMC_ES_API_KEY`、`UNASSIGNED_ES_API_KEY`。
+4. 存檔後**一定要重啟** Fluent Bit 和 metrics 的 Collector，它們只在啟動時讀 Secret：
+   ```bash
+   kubectl -n logging rollout restart daemonset/fluent-bit
+   kubectl -n otel-metrics rollout restart daemonset/otel-node-collector deployment/otel-cluster-collector
+   ```
+
+改完用 `kubectl -n logging describe secret es-writer-keys` 看每個 key 的 byte 數：**API key 的 encoded 是 60 個字元，多 1 就是結尾多了換行。**
+
+改 Secret 的坑：
+
+- **貼 key 不要多出換行或空白。** 最常見的失敗，多一個看不見的換行就一直 401，錯誤訊息不會告訴你原因。
+- **不要用「Edit as YAML」貼部分內容。** 那等於整份取代，沒貼到的 key 會消失。用 key/value 編輯模式。
+- **namespace 和 cluster 很容易選錯**，Rancher UI 上尤其。
+- **UI 改沒有紀錄可追**，誰在什麼時候改了什麼只能翻 audit log。
+- **擴廠時這樣不可行**：每開一個新廠都要手動進 UI 建一次。見 README 待定事項。
 
 改好 `platform/cluster-addons/fluent-bit/kustomization.yaml` 裡的 `CLUSTER_NAME`、`ES_HOST` 和 image 路徑，然後：
 
@@ -285,4 +306,4 @@ GET k8s-*/_search
 1. **K8s events**（OOMKilled、probe 失敗、BackOff）。這是 AIOps 很重要的訊號，但 event 本身只帶 namespace 名稱，不帶 dept；要分流得先決定歸屬放哪裡，見 README 待定事項第 1 點。唯讀角色裡已經預留了 `k8s-events-{group}-*`。
 2. **保留天數**要各 group 確認。
 3. **⚠️ 重點：SECS、REST API 等格式的解析規則**：架構已經好了（見「[pipeline](#pipeline)」），等拿到真實的 log 樣本再寫。SECS 還要在 Fluent Bit 加多行合併。
-4. **dept 清單目前要手動同步三處**：`groups.yaml`、Fluent Bit 規則、vmagent regex。group 變多之前要改成從 `groups.yaml` 產生。
+4. **dept 清單目前要手動同步三處**：`groups.yaml`、Fluent Bit 規則、metrics Collector 的 `common.yaml`。group 變多之前要改成從 `groups.yaml` 產生。
