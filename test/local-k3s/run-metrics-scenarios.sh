@@ -107,7 +107,7 @@ scenario_outage() {
     after="$(app_count "${g%%:*}" "${g#*:}" "${restarted}" "${up}")"
     check_ge "${g%%:*}：停機後、重啟前收到的（重啟時還在佇列裡）有送進 ES" "${before}" 2
     check_ge "${g%%:*}：重啟後、ES 恢復前收到的有送進 ES" "${after}" 2
-    echo "         整段停機 $(app_count "${g%%:*}" "${g#*:}" "${down}" "${up}") 筆（約 6 筆減掉重啟那段沒抓到的）"
+    echo "         整段停機 $(app_count "${g%%:*}" "${g#*:}" "${down}" "${up}") 筆（每 30 秒一筆，最多約 $(( ${OUTAGE_SECONDS:-180} / 30 )) 筆；重啟那段可能沒抓到 1～2 筆）"
   done
   check "沒有重複（同一個 Pod 同一個時間點只有一筆）" "$(dup_count "${down}" "$(now)")" 0
   # ES 會把時間不在可寫入範圍的資料丟進 failure store，回給 Collector 的仍是成功，Collector 不會報錯
