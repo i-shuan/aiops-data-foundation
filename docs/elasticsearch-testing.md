@@ -1,5 +1,8 @@
 # Log 路線測試紀錄
 
+> [!NOTE]
+> 這份是 **Fluent Bit 時期**的測試紀錄。log 已改用 OpenTelemetry Collector 收（見 [elasticsearch.md](elasticsearch.md) 的「驗證」與 [otel-logs-compare.md](otel-logs-compare.md)）；中央 pipeline 是同一套，欄位、格式分派、權限的結論不變。
+
 驗證 [elasticsearch.md](elasticsearch.md) 的設計：Fluent Bit 收 log、依 dept 分流、中央 pipeline 整理欄位、API key 權限，以及某一把 key 失效時的行為。
 
 ## 測試環境

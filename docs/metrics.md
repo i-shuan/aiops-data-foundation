@@ -2,7 +2,7 @@
 
 一句話：**每個 cluster 一套 OpenTelemetry Collector 收 metrics，依「每筆資料自己的 namespace」讀 dept 分 group，各 group 用自己的 key 寫進 ES 的 time series data stream。**
 
-分部門的規則、key、`platform/groups.yaml` 都跟 log（[elasticsearch.md](elasticsearch.md)）共用，同一個 Pod 的 log 和 metrics 會落在同一個 group。
+log 也由同一個 Collector 收（[elasticsearch.md](elasticsearch.md)）：分部門的規則只有一份（`common.yaml` 的 `transform/group`，log 和 metrics 共用）、key 也共用，同一個 Pod 的 log 和 metrics 一定落在同一個 group。
 
 ## 資料怎麼走
 
@@ -116,7 +116,7 @@ curl -s -o /dev/null -w "%{http_code}\n" -u elastic:<password> -X POST -H "Conte
 
 ### 2. 每個應用 cluster
 
-`otel-collector` namespace 也要一份 `es-writer-keys`，內容跟 `logging` 那份一樣。怎麼建、在 Rancher 上要注意什麼，見 [elasticsearch.md 的「部署」](elasticsearch.md#部署)。
+`otel-collector` namespace 要有 `es-writer-keys`（log 和 metrics 共用這一份）。怎麼建、在 Rancher 上要注意什麼，見 [elasticsearch.md 的「部署」](elasticsearch.md#部署)。
 
 改好 `platform/cluster-addons/otel-collector/kustomization.yaml` 的 `CLUSTER_NAME`、`ES_ENDPOINT` 和 image 路徑，然後：
 
@@ -153,21 +153,19 @@ ES_URL=http://<ip>:9200 test/local-k3s/run-metrics-e2e.sh
 
 ## 坑
 
-- **key 失效期間的 metrics 會遺失（log 不會）。** OTLP 出口只對 429、502、503、504 重試，401（key 錯、被作廢）當成永久錯誤，整批直接丟掉，也沒有設定可以改。log 那邊的 Fluent Bit 會一直重試，換 key 後會補回來。所以：
-  - **換 key 一定先發新的、換進兩個 namespace 的 Secret、重啟 Fluent Bit 和 Collector，確認新 key 寫得進去後，才作廢舊的。** 新舊 key 可以同時有效，照這個順序就不會有空檔。
+- **key 失效期間的資料會遺失（metrics 和 log 都是）。** OTLP 出口只對 429、502、503、504 重試，401（key 錯、被作廢）當成永久錯誤，整批直接丟掉，也沒有設定可以改。所以：
+  - **換 key 一定先發新的、換進 Secret、重啟 Collector，確認新 key 寫得進去後，才作廢舊的。** 新舊 key 可以同時有效，照這個順序就不會有空檔。
   - 現在發的 key 沒有到期日，不會自己失效。之後若要加到期日，要排好在到期前換。
-  - 要監控 Collector 的 `otelcol_exporter_send_failed_metric_points`（`:8888/metrics`），大於 0 就是有資料送不出去被丟掉。
+  - 要監控 Collector 的 `otelcol_exporter_send_failed_metric_points`、`otelcol_exporter_send_failed_log_records`（`:8888/metrics`），大於 0 就是有資料送不出去被丟掉。
+  - log 另外要看 Collector 自己的 log 裡的 `Partial success`：ES 拒收其中幾筆時只印這行、那幾筆丟掉。其中 `CONFLICT`（409）是重送的被擋掉，屬於正常的去重複，不算遺失。
 - **ES 重啟後，TSDS 曾經拒收停機期間的資料，而且回成功。** TSDS 每個 backing index 只收一段時間範圍內的資料，往後預設只開 9 分鐘（`index.look_ahead_time`）。ES 停機期間時間範圍沒有往後推，重開時佇列裡的資料加上新資料一起湧入，落在範圍外的被 ES 丟進 failure store（`.fs-metrics-*`），**回給 Collector 的卻是成功**，Collector 不會報錯也不會重送。實測停 3 分鐘時有 4,162 筆進了 failure store。改法：`metrics-otel@custom` 把 `look_ahead_time` 設成 2 小時（`elasticsearch-setup.sh` 會建），之後停 10 分鐘 0 筆。設定只對新的 backing index 生效，既有的資料流要 rollover 一次。要監控 failure store：
   ```bash
   curl -s -u elastic:<password> "https://<es>:9200/.fs-metrics-*/_count?expand_wildcards=all&ignore_unavailable=true"
   ```
 - **重啟 Collector 會少抓 1～2 次。** 舊的停掉到新的開始抓之間（約 30～60 秒）沒有人抓，這段的應用 metrics、kubelet 資料就沒有，事後也補不回來。佇列裡已經抓到、還沒送出的不受影響（實測重啟後全部送出）。換版、改設定盡量排在離峰。
 - **cluster 那一份的 replicas 一定要 1。** 多一個，K8s 物件狀態的每筆資料就多一份。換版時也用 `Recreate`，避免新舊同時跑。
-- **改 namespace 的 dept：metrics 2 秒生效，log 最多 15 分鐘。** Fluent Bit 會快取 namespace 的 label，這段時間同一個 namespace 的 log 和 metrics 會在不同 group。改 label 後重啟 Fluent Bit 就一致了：
-  ```bash
-  kubectl -n logging rollout restart daemonset/fluent-bit
-  ```
-- **dept 清單要手動同步。** `platform/groups.yaml`、Fluent Bit 的分流規則、`common.yaml` 的 `transform/group` 三處要一致。漏改一處的話，那個部門的 log 和 metrics 會分到不同 group，不會報錯。
+- **改 namespace 的 dept 幾秒內生效**（實測 2～17 秒），log 和 metrics 同時切換。
+- **dept 清單要手動同步兩處。** `platform/groups.yaml` 和 `common.yaml` 的 `transform/group`（log 和 metrics 共用）要一致。
 - **應用的 `service.name` 曾經全部是 `pods`。** Prometheus receiver 會把抓取工作的名稱填進 `service.name`，而讀 Pod label 的那一步不覆蓋已經有的值。`common.yaml` 先清掉再讀，測試裡有一項專門擋這個。
 - **不要換回 `elasticsearch` 寫入元件。** 它在連線逾時時會直接丟資料，見上方「為什麼用 OTLP 送」。
 - **向 kubelet 取資料時沒有驗它的憑證**（`insecure_skip_verify: true`）。正式環境若 kubelet 憑證由內部 CA 簽，改成驗證。
