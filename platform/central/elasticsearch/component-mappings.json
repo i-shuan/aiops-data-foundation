@@ -1,0 +1,59 @@
+{
+  "template": {
+    "mappings": {
+      "dynamic": false,
+      "properties": {
+        "@timestamp": {"type": "date"},
+        "message": {"type": "match_only_text"},
+        "stream": {"type": "keyword"},
+
+        "log": {"properties": {
+          "level": {"type": "keyword"},
+          "logger": {"type": "keyword"},
+          "format": {"type": "keyword"},
+          "parser": {"type": "keyword"},
+          "level_inferred": {"type": "boolean"}
+        }},
+        "process": {"properties": {
+          "thread": {"properties": {"name": {"type": "keyword"}}}
+        }},
+        "error": {"properties": {
+          "type": {"type": "keyword"},
+          "stack_trace": {"type": "match_only_text"},
+          "message": {"type": "keyword", "ignore_above": 1024}
+        }},
+        "trace": {"properties": {"id": {"type": "keyword"}}},
+        "span": {"properties": {"id": {"type": "keyword"}}},
+
+        "service": {"properties": {
+          "name": {"type": "keyword"},
+          "version": {"type": "keyword"},
+          "namespace": {"type": "keyword"}
+        }},
+
+        "labels": {"properties": {
+          "group": {"type": "keyword"},
+          "dept": {"type": "keyword"}
+        }},
+        "orchestrator": {"properties": {
+          "cluster": {"properties": {"name": {"type": "keyword"}}}
+        }},
+        "kubernetes": {"properties": {
+          "namespace": {"type": "keyword"},
+          "pod": {"properties": {"name": {"type": "keyword"}, "uid": {"type": "keyword"}}},
+          "container": {"properties": {"name": {"type": "keyword"}}},
+          "node": {"properties": {"name": {"type": "keyword"}}},
+          "labels": {"type": "flattened"}
+        }},
+        "container": {"properties": {
+          "id": {"type": "keyword"},
+          "image": {"properties": {"name": {"type": "keyword"}}}
+        }},
+
+        "app": {"type": "flattened"},
+        "event": {"properties": {"ingested": {"type": "date"}}}
+      }
+    }
+  },
+  "_meta": {"description": "k8s log 欄位。標準概念用 ECS 名稱；應用自帶的其他欄位一律收進 app（flattened），避免欄位數爆掉"}
+}

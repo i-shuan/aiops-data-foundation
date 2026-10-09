@@ -1,0 +1,41 @@
+{
+  "description": "k8s-logs 主 pipeline：共通身分 → 依格式分派 → 時間。說明見 docs/elasticsearch.md「pipeline」",
+  "processors": [
+    {
+      "script": {
+        "description": "共通身分：服務、版本、group、dept、cluster；決定 log.format",
+        "lang": "painless",
+        "source": "__SCRIPT__"
+      }
+    },
+    {
+      "pipeline": {
+        "description": "依格式分派到 k8s-logs-format-<格式>",
+        "name": "k8s-logs-format-{{{log.format}}}",
+        "on_failure": [
+          {
+            "pipeline": {
+              "description": "宣告的格式還沒有對應規則（或該規則出錯）：退回 default，資料照收",
+              "name": "k8s-logs-format-default"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "date": {
+        "field": "_app_ts",
+        "target_field": "@timestamp",
+        "formats": ["ISO8601"],
+        "if": "ctx._app_ts != null",
+        "ignore_failure": true
+      }
+    },
+    {"remove": {"field": "_app_ts", "ignore_missing": true}},
+    {"set": {"field": "event.ingested", "value": "{{{_ingest.timestamp}}}"}}
+  ],
+  "on_failure": [
+    {"set": {"field": "error.message", "value": "k8s-logs pipeline 失敗：{{{_ingest.on_failure_message}}}"}},
+    {"set": {"field": "event.ingested", "value": "{{{_ingest.timestamp}}}"}}
+  ]
+}

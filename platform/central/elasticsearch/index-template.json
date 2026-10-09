@@ -1,0 +1,7 @@
+{
+  "index_patterns": ["k8s-*"],
+  "data_stream": {},
+  "priority": 200,
+  "composed_of": ["k8s-logs-settings", "k8s-logs-mappings"],
+  "_meta": {"description": "k8s-{group}-{cluster}：每個 group、每個 cluster 一條 data stream"}
+}

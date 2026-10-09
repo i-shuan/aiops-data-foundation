@@ -1,0 +1,143 @@
+// k8s-logs-fields：把各格式拆出來的欄位（暫存在 _app）對應成標準欄位。
+// 各格式 pipeline 只負責「原文 → _app」，對應規則集中在這裡，所有格式共用。
+
+// 取出並移除一個欄位。path 同時接受字面上的 "a.b" 與巢狀的 {a: {b: ...}}，
+// 這樣 logback 格式（logger）、ECS 格式（log.logger）兩種都吃得下
+def takePath(Map m, String path) {
+  if (m.containsKey(path)) return m.remove(path);
+  String[] parts = path.splitOnToken('.');
+  if (parts.length < 2) return null;
+  Map cur = m;
+  for (int i = 0; i < parts.length - 1; i++) {
+    def next = cur.get(parts[i]);
+    if (!(next instanceof Map)) return null;
+    cur = next;
+  }
+  return cur.remove(parts[parts.length - 1]);
+}
+
+// 清掉拿完欄位後留下的空物件，回傳自己是否已經空了
+boolean prune(Map m) {
+  for (def key : new ArrayList(m.keySet())) {
+    def v = m.get(key);
+    if (v instanceof Map && prune((Map) v)) m.remove(key);
+  }
+  return m.isEmpty();
+}
+
+// level 正規化：各家寫法統一成 trace/debug/info/warn/error/fatal 六種。
+// 不認得的值原樣（轉小寫）保留，不硬塞。
+String normLevel(String v) {
+  if (v == null) return null;
+  String k = v.trim().toLowerCase();
+  Map aliases = ['warning': 'warn', 'err': 'error', 'severe': 'error',
+                 'critical': 'fatal', 'crit': 'fatal', 'panic': 'fatal',
+                 'emerg': 'fatal', 'emergency': 'fatal', 'alert': 'fatal',
+                 'notice': 'info'];
+  def a = aliases.get(k);
+  return a != null ? a : k;
+}
+
+// 是不是 level 關鍵字（傳入小寫）
+boolean isLevelWord(String w) {
+  return ['trace', 'debug', 'info', 'warn', 'warning', 'error', 'err', 'fatal',
+          'critical', 'crit', 'severe', 'notice', 'panic'].contains(w);
+}
+
+boolean isWordChar(char c) {
+  return Character.isLetterOrDigit(c) || c == (char) 95;
+}
+
+String takeStr(Map m, List keys) {
+  if (m == null) return null;
+  for (String k : keys) {
+    def v = takePath(m, k);
+    if (v != null) return v.toString();
+  }
+  return null;
+}
+
+String raw = ctx.message;
+Map app = ctx.remove('_app');
+Map log = ctx.log;
+if (log == null) { log = new HashMap(); ctx.log = log; }
+
+// 例：logback JSON（apps/standards/java/logback-spring.xml）、ECS JSON、logfmt
+if (app != null) {
+  String msg = takeStr(app, ['message', 'msg']);
+  ctx.message = msg != null ? msg : raw;
+
+  String level = takeStr(app, ['level', 'lvl', 'severity', 'log.level']);
+  if (level != null) log.put('level', normLevel(level));
+  String logger = takeStr(app, ['logger', 'logger_name', 'log.logger']);
+  if (logger != null) log.put('logger', logger);
+
+  String thread = takeStr(app, ['thread', 'thread_name', 'process.thread.name']);
+  if (thread != null) ctx.process = ['thread': ['name': thread]];
+
+  String stack = takeStr(app, ['stack_trace', 'exception', 'error.stack_trace']);
+  if (stack != null) {
+    // 第一行通常是「例外類別: 訊息」，拆出類別給 AIOps 分群用
+    // Painless 字串不支援 \n 跳脫，換行字元用 (char) 10
+    int eol = stack.indexOf(String.valueOf((char) 10));
+    String first = (eol >= 0 ? stack.substring(0, eol) : stack).trim();
+    int colon = first.indexOf(':');
+    ctx.error = [
+      'stack_trace': stack,
+      'type': colon > 0 ? first.substring(0, colon) : first
+    ];
+  }
+
+  String traceId = takeStr(app, ['trace_id', 'traceId', 'trace.id']);
+  if (traceId != null) ctx.trace = ['id': traceId];
+  String spanId = takeStr(app, ['span_id', 'spanId', 'span.id']);
+  if (spanId != null) ctx.span = ['id': spanId];
+
+  // 應用自己的時間比 Fluent Bit 收到的時間準，交給後面的 date processor
+  String ts = takeStr(app, ['timestamp', '@timestamp', 'ts', 'time']);
+  if (ts != null) ctx._app_ts = ts;
+
+  app.remove('@version');
+  app.remove('level_value');
+  // 其餘 MDC 等自訂欄位留在 app，型別是 flattened，不會長新欄位
+  if (!prune(app)) ctx.app = app;
+}
+
+// 保底：還是沒有 level 的（純文字 log、或 JSON 沒寫 level），從原文抓 level。兩條規則，依序：
+//   A. 行首前綴，不分大小寫：「Warning: …」「[warn] …」「error: …」
+//      只認一行最開頭的字，後面緊接「:」或「]」才算
+//   B. 前 80 個字元內，獨立、全大寫的關鍵字：「2026-10-08 12:00:00 ERROR [main] …」「ERROR - …」
+// 刻意不算的：小寫散在句中（no error found、0 errors）、連在別的字上（ERROR_CODE=5）、80 字之後
+// 猜出來的另外標 log.level_inferred: true，AIOps 可以分辨是應用寫的還是猜的。
+if (log.get('level') == null && ctx.message instanceof String) {
+  String m = ctx.message;
+  String found = null;
+
+  // 規則 A：行首前綴
+  int p = 0;
+  while (p < m.length() && Character.isWhitespace(m.charAt(p))) p++;
+  if (p < m.length() && m.charAt(p) == (char) 91) p++;          // 可有可無的 [
+  int q = p;
+  while (q < m.length() && isWordChar(m.charAt(q))) q++;
+  if (q > p && q < m.length() && (m.charAt(q) == (char) 58 || m.charAt(q) == (char) 93)) {   // 後面是 : 或 ]
+    String w = m.substring(p, q).toLowerCase();
+    if (isLevelWord(w)) found = normLevel(w);
+  }
+
+  // 規則 B：前 80 個字元內獨立的全大寫關鍵字
+  int end = m.length() < 80 ? m.length() : 80;
+  int i = 0;
+  while (found == null && i < end) {
+    if (!isWordChar(m.charAt(i))) { i++; continue; }
+    int j = i;
+    while (j < m.length() && isWordChar(m.charAt(j))) j++;
+    String w = m.substring(i, j);
+    if (w.equals(w.toUpperCase()) && isLevelWord(w.toLowerCase())) found = normLevel(w);
+    i = j;
+  }
+
+  if (found != null) {
+    log.put('level', found);
+    log.put('level_inferred', true);
+  }
+}

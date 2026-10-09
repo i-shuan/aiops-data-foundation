@@ -62,6 +62,11 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- if not (and $probes.readiness $probes.liveness) -}}
 {{- fail "probes.readiness 與 probes.liveness 必填，探測失敗的事件是 AIOps 的訊號來源" -}}
 {{- end -}}
+{{- with $v.logFormat -}}
+{{- if not (regexMatch "^[a-z0-9-]{1,32}$" (toString .)) -}}
+{{- fail "logFormat 只能用小寫英數與減號（例如 logfmt、secs），對應中央 ES 的 k8s-logs-format-<logFormat>" -}}
+{{- end -}}
+{{- end -}}
 {{- if include "app-common.javaAgentEnabled" . -}}
 {{- $_ := required "otel.javaAgent.enabled 為 true 時，otel.javaAgent.image 必填" $v.otel.javaAgent.image -}}
 {{- end -}}

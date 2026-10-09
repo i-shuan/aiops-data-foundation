@@ -16,6 +16,10 @@ spec:
     metadata:
       labels:
         {{- include "app-common.labels" . | nindent 8 }}
+        {{- with .Values.logFormat }}
+        # 中央 ES 依這個 label 選擇 log 的解析規則，見 docs/elasticsearch.md「pipeline」
+        log-format: {{ . | quote }}
+        {{- end }}
     spec:
       {{- if $javaAgent }}
       initContainers:

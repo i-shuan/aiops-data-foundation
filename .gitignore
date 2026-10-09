@@ -1,2 +1,3 @@
 # helm dependency build 產生的相依套件
 apps/examples/*/charts/
+test/local-k3s/fluent-bit-dedup/fluent-bit.yaml

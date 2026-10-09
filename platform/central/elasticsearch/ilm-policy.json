@@ -1,0 +1,16 @@
+{
+  "policy": {
+    "_meta": {"description": "k8s log 的生命週期。保留天數是暫定值，要跟各 group 確認。"},
+    "phases": {
+      "hot": {
+        "actions": {
+          "rollover": {"max_primary_shard_size": "30gb", "max_age": "1d"}
+        }
+      },
+      "delete": {
+        "min_age": "30d",
+        "actions": {"delete": {}}
+      }
+    }
+  }
+}
