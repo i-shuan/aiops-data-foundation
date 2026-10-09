@@ -73,11 +73,11 @@ voters() {
 }
 
 app_count() {  # app_count <group> <from> <to>
-  es "${ES_URL}/metrics-prometheusreceiver.otel-$1/_count" -d "{\"query\":{\"bool\":{\"filter\":[
-    {\"exists\":{\"field\":\"metrics.demo_requests_total\"}},{\"range\":{\"@timestamp\":{\"gte\":\"$2\",\"lt\":\"$3\"}}}]}}}" | jq -r '.count // 0'
+  es "${Q_URL:-${ES_URL}}/metrics-prometheusreceiver.otel-$1/_count" -d "{\"query\":{\"bool\":{\"filter\":[
+    {\"exists\":{\"field\":\"metrics.demo_requests_total\"}},{\"range\":{\"@timestamp\":{\"gte\":\"$2\",\"lt\":\"$3\"}}}]}}}" 2>/dev/null | jq -r '.count // 0' 2>/dev/null || echo "叫不到"
 }
 log_count() {  # log_count <group> <from> <to>
-  es "${ES_URL}/k8s-$1-*/_count" -d "{\"query\":{\"range\":{\"@timestamp\":{\"gte\":\"$2\",\"lt\":\"$3\"}}}}" | jq -r '.count // 0'
+  es "${Q_URL:-${ES_URL}}/k8s-$1-*/_count" -d "{\"query\":{\"range\":{\"@timestamp\":{\"gte\":\"$2\",\"lt\":\"$3\"}}}}" 2>/dev/null | jq -r '.count // 0' 2>/dev/null || echo "叫不到"
 }
 dup_count() {  # dup_count <from> <to>：同一個 Pod 同一個時間點的 metrics 不只一筆
   es "${ES_URL}/metrics-prometheusreceiver.otel-*/_search" -d "{\"size\":0,\"query\":{\"bool\":{\"filter\":[
@@ -98,19 +98,28 @@ freeze_node() {  # freeze_node <pod> <說明>
   down="$(now)"; s=$SECONDS
   k -n es-test exec "${pod}" -c elasticsearch -- sh -c 'kill -STOP $(pgrep java)'
   echo "   $(ts) 卡住"
+  # 中途失敗也一定要讓它恢復
+  trap "k -n es-test exec ${pod} -c elasticsearch -- sh -c 'kill -CONT \$(pgrep java)'" EXIT
+  local last=$SECONDS m a
   while (( SECONDS - s < secs )); do
-    t="$(curl -s -m 4 -o /dev/null -w '%{http_code}' -u "elastic:${ES_PASSWORD}" "http://${ip}:9200/_cluster/health" || true)"
-    [[ "${t}" == 200 ]] || no_master=$(( no_master + 5 ))
-    t="$(curl -s -m 4 -o /dev/null -w '%{http_code}' -u "elastic:${ES_PASSWORD}" "${ES_URL}/_cluster/health" || true)"
-    [[ "${t}" == 200 ]] || api_down=$(( api_down + 5 ))
-    sleep 5
+    m="$(curl -s -m 4 -o /dev/null -w '%{http_code}' -u "elastic:${ES_PASSWORD}" "http://${ip}:9200/_cluster/health" || true)"
+    a="$(curl -s -m 4 -o /dev/null -w '%{http_code}' -u "elastic:${ES_PASSWORD}" "${ES_URL}/_cluster/health" || true)"
+    sleep 3
+    t=$(( SECONDS - last )); last=$SECONDS
+    [[ "${m}" == 200 ]] || no_master=$(( no_master + t ))
+    [[ "${a}" == 200 ]] || api_down=$(( api_down + t ))
   done
   echo "   卡住期間：剩下的 ${survivor} 沒有 master 約 ${no_master} 秒；經過 Service 叫不到 ES 約 ${api_down} 秒"
-  # 先在恢復前數一次：這是「卡住期間即時寫進去的」
+  # 先在恢復前數一次：這是「卡住期間即時寫進去的」（沒有 master 時 Service 沒有可用的 Pod，數不到就是 0）
   local g live_m=() live_l=() cut; cut="$(now)"
-  refresh
-  for g in it imc unassigned; do live_m+=("$(app_count "${g}" "${down}" "${cut}")"); live_l+=("$(log_count "${g}" "${down}" "${cut}")"); done
+  # 直接問剩下的節點（沒有 master 時還是能讀）
+  curl -s -m 10 -u "elastic:${ES_PASSWORD}" -X POST "http://${ip}:9200/metrics-*.otel-*,k8s-*/_refresh" >/dev/null || true
+  for g in it imc unassigned; do
+    live_m+=("$(Q_URL="http://${ip}:9200" app_count "${g}" "${down}" "${cut}")")
+    live_l+=("$(Q_URL="http://${ip}:9200" log_count "${g}" "${down}" "${cut}")")
+  done
   k -n es-test exec "${pod}" -c elasticsearch -- sh -c 'kill -CONT $(pgrep java)'
+  trap - EXIT
   back="$(now)"
   echo "   $(ts) ${pod} 恢復"
   wait_health green 600
