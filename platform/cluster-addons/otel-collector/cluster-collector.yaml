@@ -31,13 +31,6 @@ spec:
               valueFrom: {fieldRef: {fieldPath: spec.nodeName}}
             - name: K8S_NODE_IP
               valueFrom: {fieldRef: {fieldPath: status.hostIP}}
-            # 每個 group 一把寫入 key，只能寫自己的 data stream（跟 log 同一組）
-            - name: IT_ES_API_KEY
-              valueFrom: {secretKeyRef: {name: es-writer-keys, key: IT_ES_API_KEY}}
-            - name: IMC_ES_API_KEY
-              valueFrom: {secretKeyRef: {name: es-writer-keys, key: IMC_ES_API_KEY}}
-            - name: UNASSIGNED_ES_API_KEY
-              valueFrom: {secretKeyRef: {name: es-writer-keys, key: UNASSIGNED_ES_API_KEY}}
           ports:
             - {name: health, containerPort: 13133}
             - {name: metrics, containerPort: 8888}   # Collector 自己的狀態：佇列長度、送出失敗數
@@ -53,7 +46,12 @@ spec:
           volumeMounts:
             - {name: config, mountPath: /conf}
             - {name: queue, mountPath: /var/lib/otelcol}
+            # 每個 group 的寫入 key，一個檔一把。Secret 改了，K8s 約 1 分鐘內更新檔案，
+            # Collector 偵測到就換用新 key，不用重啟（common.yaml 的 bearertokenauth）
+            - {name: es-keys, mountPath: /etc/es-keys, readOnly: true}
       volumes:
+        - name: es-keys
+          secret: {secretName: es-writer-keys}
         - name: config
           configMap: {name: otel-collector-config}
         # 佇列放在節點上：Pod 重建、ES 暫時連不上都不會掉資料

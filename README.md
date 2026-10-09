@@ -23,6 +23,7 @@
 - **log、metrics、trace 都進 Elasticsearch（9.x）。** 不再使用 VictoriaMetrics。
 - **收集器：log、metrics、trace 都用 OpenTelemetry Collector**，每個節點一個，分部門的規則和 key 共用。log 原本用 Fluent Bit，比較後改用 OTel：欄位做得到完全一樣，重啟不會掉 log（Fluent Bit 每次重啟掉幾筆到 2 秒），而且只要維護一套。代價是 key 失效或 ES 拒收時資料會直接丟（metrics 本來就有這個限制），見 [docs/otel-logs-compare.md](docs/otel-logs-compare.md)。中央 pipeline 仍接受 Fluent Bit 的資料，邊緣 VM 可以用。
 - **每個 group 一把寫入 key，log 與 metrics 共用。** 某把 key 失效只影響那個 group；寫錯 group 會被 ES 擋下。
+- **換 key 不掉資料、不重啟：** Collector 從檔案讀 key，用 `platform/central/rotate-writer-key.sh` 換（新舊 key 重疊一段時間），見 [docs/elasticsearch.md「換 key」](docs/elasticsearch.md#換-key)。
 - **應用團隊不需要知道 group、key。** 規格統一由共用 chart 產生，見 [apps/](apps)。
 - **namespace 名稱不含組織資訊**，格式是 `{cluster}-{app}-{env}` 或 `{app}-{env}`，所以歸屬要另外標。
 
@@ -36,8 +37,7 @@
 ## 待辦
 
 1. **trace 還沒收。** 已定用 OpenTelemetry Collector，進 ES 9 的 OTLP 入口；要跟 log 的 `trace.id`、metrics 的 `service.name` 串得起來。
-2. **換 key 不掉資料（平滑雙 key）。** 現在 key 從環境變數讀，換 key 要重啟 Collector；key 失效的期間資料會丟。
-3. **評估 Elastic 內建的 AIOps 功能（要付費授權）。** 免費的 Basic 授權實測全部不能用；異常偵測等機器學習功能要 Platinum 以上，AI 助理可能要 Enterprise（Platinum 自架版可能只賣既有客戶，要跟 Elastic 確認）。可以先開 30 天試用評估，試用只能開一次，等資料累積夠再開：
+2. **評估 Elastic 內建的 AIOps 功能（要付費授權）。** 免費的 Basic 授權實測全部不能用；異常偵測等機器學習功能要 Platinum 以上，AI 助理可能要 Enterprise（Platinum 自架版可能只賣既有客戶，要跟 Elastic 確認）。可以先開 30 天試用評估，試用只能開一次，等資料累積夠再開：
 
    | 功能 | 做什麼 | Basic 實測 |
    |---|---|---|

@@ -154,7 +154,7 @@ ES_URL=http://<ip>:9200 test/local-k3s/run-metrics-e2e.sh
 ## 坑
 
 - **key 失效期間的資料會遺失（metrics 和 log 都是）。** OTLP 出口只對 429、502、503、504 重試，401（key 錯、被作廢）當成永久錯誤，整批直接丟掉，也沒有設定可以改。所以：
-  - **換 key 一定先發新的、換進 Secret、重啟 Collector，確認新 key 寫得進去後，才作廢舊的。** 新舊 key 可以同時有效，照這個順序就不會有空檔。
+  - **換 key 用 `platform/central/rotate-writer-key.sh`**：先發新的、換進 Secret、等每個 Collector 換用新 key，才作廢舊的；Collector 從檔案讀 key，不用重啟，metrics 也就沒有重啟造成的空檔。實測見 [elasticsearch.md 的「換 key」](elasticsearch.md#換-key)。
   - 現在發的 key 沒有到期日，不會自己失效。之後若要加到期日，要排好在到期前換。
   - 要監控 Collector 的 `otelcol_exporter_send_failed_metric_points`、`otelcol_exporter_send_failed_log_records`（`:8888/metrics`），大於 0 就是有資料送不出去被丟掉。
   - log 另外要看 Collector 自己的 log 裡的 `Partial success`：ES 拒收其中幾筆時只印這行、那幾筆丟掉。其中 `CONFLICT`（409）是重送的被擋掉，屬於正常的去重複，不算遺失。

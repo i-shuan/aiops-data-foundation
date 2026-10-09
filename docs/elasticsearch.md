@@ -233,10 +233,7 @@ log 和 metrics 用同一個 Collector、同一份 Secret。
 1. 切到目標 cluster，進 Storage 底下的 Secrets（路徑依 Rancher 版本略有不同）。
 2. 選 `otel-collector` namespace，**不是應用的 namespace**。
 3. 型別 Opaque，用 key/value 的編輯模式逐一加 `IT_ES_API_KEY`、`IMC_ES_API_KEY`、`UNASSIGNED_ES_API_KEY`。
-4. 存檔後**一定要重啟** Collector，它只在啟動時讀 Secret：
-   ```bash
-   kubectl -n otel-collector rollout restart daemonset/otel-node-collector deployment/otel-cluster-collector
-   ```
+4. 存檔後**不用重啟**：Secret 以檔案掛進 Collector，K8s 約 1 分鐘內更新檔案，Collector 偵測到就換用新 key（log 會印 `refresh token`）。
 
 改完用 `kubectl -n otel-collector describe secret es-writer-keys` 看每個 key 的 byte 數：**API key 的 encoded 是 60 個字元，多 1 就是結尾多了換行。**
 
@@ -255,6 +252,20 @@ kubectl apply -k platform/cluster-addons/otel-collector
 ```
 
 **從 Fluent Bit 換過來時：** Collector 第一次啟動時，已經存在的 log 檔從尾巴開始讀，所以先部署 Collector、確認 `agent.type: otelcol` 的資料進來了，再移除 Fluent Bit。兩個並行的期間每行會有兩筆（`agent.type` 不同）。
+
+### 換 key
+
+用腳本換，不掉資料、不重啟 Collector：
+
+```bash
+ES_URL=https://<es>:9200 ES_AUTH=elastic:<password> platform/central/rotate-writer-key.sh imc <cluster 的 kube context>...
+```
+
+它照「先發新的 → 換進每個 cluster 的 Secret → 確認每個 Collector 都換用新 key → 才作廢舊的」做，新舊 key 有一段時間同時有效，所以沒有空檔。**這把 key 在哪些 cluster 用，就要全部列上**；任何一個 Collector 5 分鐘內沒換到，腳本會停下來、不作廢舊 key。
+
+實測（[run-key-rotation.sh](../test/local-k3s/run-key-rotation.sh)）：IMC 每秒 200 行 log、metrics 每 30 秒一筆的情況下換 IMC 的 key，Secret 改了之後約 70 秒兩個 Collector 都換好；**log 59,714 筆 0 遺失 0 重複、metrics 沒有空檔、Collector 沒有重啟、沒有出現 401**，舊 key 已作廢。
+
+**不要直接在 ES 作廢 key 再換 Secret**：中間那段 key 無效，Collector 收到 401 會把資料丟掉。
 
 ### 3. namespace 標上 dept
 
@@ -304,7 +315,7 @@ GET k8s-*/_search
 ## 坑
 
 - **Collector 不能收自己的 log。** ES 拒收時它會印錯誤；如果再收回來送一次，就是放大迴圈（Fluent Bit 時期實測過：一次 key 設錯，十幾分鐘就灌進一萬七千多筆）。`node.yaml` 的 `file_log` 已經排除 `otel-collector` namespace，不要拿掉。
-- **key 失效期間的 log 會遺失。** OTLP 出口只對 429、502、503、504 和連不上重試，401（key 錯、被作廢）當成永久錯誤直接丟掉，沒有設定可以改。換 key 一定先發新的、換上、確認寫得進去後才作廢舊的（見 [metrics.md 的「坑」](metrics.md#坑)，log 和 metrics 一樣）。
+- **key 失效期間的 log 會遺失。** OTLP 出口只對 429、502、503、504 和連不上重試，401（key 錯、被作廢）當成永久錯誤直接丟掉，沒有設定可以改。換 key 用 `rotate-writer-key.sh`（見「[換 key](#換-key)」），不要手動先作廢再換。
 - **ES 拒收其中幾筆時也會丟。** 例如欄位型別衝突（400）：Collector 只印 `Partial success ... dropped_log_records`。中央 pipeline 有錯誤處理，這種情況很少見，但要監控 Collector 的 log。`CONFLICT`（409）是重送的被 `_id` 擋掉，屬於正常。
 - **中央 ES 改了 `k8s-logs-otel`、`logs-otel@custom` 之後，要讓 `logs-*.otel-*` 換新的 backing index 才生效。** `elasticsearch-setup.sh` 會自動檢查並 rollover。沒生效的話，log 會停在 `logs-generic.otel-*`，不會進 `k8s-*`。
 - **改了 `_index` 之後，ES 不會自動跑目的地的 default pipeline。** 所以 `k8s-logs-otel` 最後自己呼叫 `k8s-logs`，不要拿掉。
