@@ -14,6 +14,11 @@ spec:
       {{- include "app-common.selectorLabels" . | nindent 6 }}
   template:
     metadata:
+      annotations:
+        # 平台的 OpenTelemetry Collector 依這三個標註找到要抓的 metrics，見 docs/metrics.md
+        prometheus.io/scrape: "true"
+        prometheus.io/port: {{ include "app-common.metricsPort" . | quote }}
+        prometheus.io/path: /metrics
       labels:
         {{- include "app-common.labels" . | nindent 8 }}
         {{- with .Values.logFormat }}
@@ -47,7 +52,7 @@ spec:
               value: {{ printf "service.version=%s,service.namespace=%s" (include "app-common.version" .) .Values.app.partOf | quote }}
             - name: OTEL_PROPAGATORS
               value: tracecontext,baggage
-            # metrics 以 Prometheus 格式開在 metrics port，由平台的 VMAgent 來抓
+            # metrics 以 Prometheus 格式開在 metrics port，由平台的 OpenTelemetry Collector 來抓
             - name: OTEL_METRICS_EXPORTER
               value: prometheus
             - name: OTEL_EXPORTER_PROMETHEUS_HOST

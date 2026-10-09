@@ -1,0 +1,61 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: otel-cluster-collector
+  labels:
+    app.kubernetes.io/name: otel-cluster-collector
+spec:
+  replicas: 1          # 一定要 1，多一個每筆就重複一份
+  strategy:
+    type: Recreate     # 換版時先停舊的，避免新舊同時跑造成重複
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: otel-cluster-collector
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: otel-cluster-collector
+    spec:
+      serviceAccountName: otel-metrics
+      containers:
+        - name: otelcol
+          image: otelcol
+          args:
+            - --config=/conf/common.yaml
+            - --config=/conf/cluster.yaml
+          envFrom:
+            - configMapRef:
+                name: otel-metrics-env
+          env:
+            - name: K8S_NODE_NAME
+              valueFrom: {fieldRef: {fieldPath: spec.nodeName}}
+            - name: K8S_NODE_IP
+              valueFrom: {fieldRef: {fieldPath: status.hostIP}}
+            # 每個 group 一把寫入 key，只能寫自己的 data stream（跟 log 同一組）
+            - name: IT_ES_API_KEY
+              valueFrom: {secretKeyRef: {name: es-writer-keys, key: IT_ES_API_KEY}}
+            - name: IMC_ES_API_KEY
+              valueFrom: {secretKeyRef: {name: es-writer-keys, key: IMC_ES_API_KEY}}
+            - name: UNASSIGNED_ES_API_KEY
+              valueFrom: {secretKeyRef: {name: es-writer-keys, key: UNASSIGNED_ES_API_KEY}}
+          ports:
+            - {name: health, containerPort: 13133}
+            - {name: metrics, containerPort: 8888}   # Collector 自己的狀態：佇列長度、送出失敗數
+          livenessProbe:
+            httpGet: {path: /, port: health}
+          readinessProbe:
+            httpGet: {path: /, port: health}
+          securityContext:
+            runAsUser: 0          # 要寫節點上的佇列目錄
+          resources:
+            requests: {cpu: 100m, memory: 128Mi}
+            limits: {memory: 512Mi}
+          volumeMounts:
+            - {name: config, mountPath: /conf}
+            - {name: queue, mountPath: /var/lib/otelcol-metrics}
+      volumes:
+        - name: config
+          configMap: {name: otel-metrics-config}
+        # 佇列放在節點上：Pod 重建、ES 暫時連不上都不會掉資料
+        - name: queue
+          hostPath: {path: /var/lib/otelcol-metrics/cluster, type: DirectoryOrCreate}

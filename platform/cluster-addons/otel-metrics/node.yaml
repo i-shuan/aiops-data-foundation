@@ -1,0 +1,47 @@
+# 每個節點一個（DaemonSet）：kubelet 的節點、Pod、容器資源用量，以及這個節點上應用自己吐的 Prometheus metrics。
+# 跟 common.yaml 一起載入。
+
+receivers:
+  kubeletstats:
+    auth_type: serviceAccount
+    endpoint: https://${env:K8S_NODE_IP}:10250
+    insecure_skip_verify: true   # kubelet 憑證通常是自簽的；正式環境若有 CA 改成驗證
+    collection_interval: 30s
+    metric_groups: [node, pod, container]
+
+  # 應用的 metrics：只抓這個節點上、Pod 標註 prometheus.io/scrape: "true" 的
+  prometheus:
+    config:
+      scrape_configs:
+        - job_name: pods
+          scrape_interval: 30s
+          kubernetes_sd_configs:
+            - role: pod
+              selectors:
+                - role: pod
+                  field: spec.nodeName=${env:K8S_NODE_NAME}
+          relabel_configs:
+            - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+              action: keep
+              regex: "true"
+            - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+              action: replace
+              target_label: __metrics_path__
+              regex: (.+)
+            - source_labels: [__meta_kubernetes_pod_ip, __meta_kubernetes_pod_annotation_prometheus_io_port]
+              action: replace
+              regex: (.+);(\d+)
+              replacement: $$1:$$2
+              target_label: __address__
+
+processors:
+  k8s_attributes:
+    filter:
+      node_from_env_var: K8S_NODE_NAME   # 只看自己節點上的 Pod，省記憶體
+
+service:
+  pipelines:
+    metrics/in:
+      receivers: [kubeletstats, prometheus]
+      processors: [memory_limiter, transform/pre, k8s_attributes, transform/group]
+      exporters: [routing/group]

@@ -1,0 +1,142 @@
+# 兩種 Collector 共用的部分：讀 namespace 的 dept、決定 group、依 group 寫進各自的 data stream。
+# 節點那一份（node.yaml）與 cluster 那一份（cluster.yaml）都會一起載入這份，分部門的規則只有這一處。
+#
+# 資料流名稱：metrics-<來源>.otel-<group>，例如 metrics-kubeletstatsreceiver.otel-it。
+# ES 9 內建的 metrics-otel@template（metrics-*.otel-*）會把它建成 time series data stream。
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+  # 送不出去的資料放在節點上，Collector 重啟或 ES 暫時連不上都不會掉
+  file_storage:
+    directory: /var/lib/otelcol-metrics
+    create_directory: true
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 80
+    spike_limit_percentage: 20
+
+  # 擋冒充：應用自己帶的 dept、group 或指定 data stream 的欄位一律不算數，
+  # 歸屬只看 namespace 的 dept label
+  transform/pre:
+    error_mode: ignore
+    metric_statements:
+      - delete_key(datapoint.attributes, "dept")
+      - delete_key(datapoint.attributes, "group")
+      - delete_key(datapoint.attributes, "data_stream.dataset")
+      - delete_key(datapoint.attributes, "data_stream.namespace")
+      - delete_key(resource.attributes, "dept")
+      - delete_key(resource.attributes, "group")
+      - delete_key(resource.attributes, "data_stream.dataset")
+      - delete_key(resource.attributes, "data_stream.namespace")
+      # Prometheus 抓來的資料只知道 Pod 的 IP（server.address），補成 k8s.pod.ip 才對得到是哪個 Pod
+      - set(resource.attributes["k8s.pod.ip"], resource.attributes["server.address"]) where resource.attributes["k8s.pod.ip"] == nil and resource.attributes["server.address"] != nil
+
+  # 依「這筆資料屬於哪個 Pod」補上 K8s 資訊與 namespace 的 dept。
+  # 重點：Pod 的 CPU、記憶體雖然是從節點的 kubelet 抓的，歸屬仍依那個 Pod 的 namespace，
+  # 不會因為抓取對象是節點就被分到 unassigned。
+  k8s_attributes:
+    auth_type: serviceAccount
+    passthrough: false
+    pod_association:
+      - sources:
+          - from: resource_attribute
+            name: k8s.pod.uid
+      - sources:
+          - from: resource_attribute
+            name: k8s.pod.ip
+      - sources:
+          - from: resource_attribute
+            name: k8s.pod.name
+          - from: resource_attribute
+            name: k8s.namespace.name
+    extract:
+      metadata:
+        - k8s.namespace.name
+        - k8s.pod.name
+        - k8s.pod.uid
+        - k8s.node.name
+        - k8s.deployment.name
+      labels:
+        - tag_name: dept
+          key: dept
+          from: namespace
+        # 服務身分：由 app-common chart 統一蓋的 label，跟 log 那邊的 service.* 對得上
+        - tag_name: service.name
+          key: app.kubernetes.io/name
+          from: pod
+        - tag_name: service.version
+          key: app.kubernetes.io/version
+          from: pod
+        - tag_name: service.namespace
+          key: app.kubernetes.io/part-of
+          from: pod
+
+  # dept → group。清單要跟 platform/groups.yaml、Fluent Bit 的分流規則一致。
+  # 沒有 dept（例如節點本身的資料）或不在清單裡的，一律 unassigned。
+  transform/group:
+    error_mode: ignore
+    metric_statements:
+      - set(resource.attributes["group"], "unassigned")
+      - set(resource.attributes["group"], "it") where resource.attributes["dept"] != nil and IsMatch(resource.attributes["dept"], "^(D3120|D3130)$")
+      - set(resource.attributes["group"], "imc") where resource.attributes["dept"] != nil and IsMatch(resource.attributes["dept"], "^(D1110|D1120)$")
+      - set(resource.attributes["data_stream.namespace"], resource.attributes["group"])
+      - set(resource.attributes["k8s.cluster.name"], "${env:CLUSTER_NAME}")
+
+connectors:
+  # 依 group 交給各自的出口。每筆只會符合一條，不會送兩份
+  routing/group:
+    default_pipelines: [metrics/unassigned]
+    table:
+      - condition: resource.attributes["group"] == "it"
+        pipelines: [metrics/it]
+      - condition: resource.attributes["group"] == "imc"
+        pipelines: [metrics/imc]
+
+# 每個 group 一個出口、一把 key、一個獨立佇列：某把 key 失效只卡住那一條
+exporters:
+  elasticsearch/it:
+    endpoints: ["${env:ES_ENDPOINT}"]
+    api_key: ${env:IT_ES_API_KEY}
+    sending_queue: &queue
+      enabled: true
+      storage: file_storage
+      queue_size: 100000
+    retry: &retry
+      enabled: true
+      max_retries: 100000
+      initial_interval: 1s
+      max_interval: 30s
+  elasticsearch/imc:
+    endpoints: ["${env:ES_ENDPOINT}"]
+    api_key: ${env:IMC_ES_API_KEY}
+    sending_queue: *queue
+    retry: *retry
+  elasticsearch/unassigned:
+    endpoints: ["${env:ES_ENDPOINT}"]
+    api_key: ${env:UNASSIGNED_ES_API_KEY}
+    sending_queue: *queue
+    retry: *retry
+
+service:
+  extensions: [health_check, file_storage]
+  telemetry:
+    metrics:
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                host: 0.0.0.0
+                port: 8888
+  pipelines:
+    metrics/it:
+      receivers: [routing/group]
+      exporters: [elasticsearch/it]
+    metrics/imc:
+      receivers: [routing/group]
+      exporters: [elasticsearch/imc]
+    metrics/unassigned:
+      receivers: [routing/group]
+      exporters: [elasticsearch/unassigned]
