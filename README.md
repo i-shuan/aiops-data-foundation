@@ -19,6 +19,7 @@
 - [docs/metrics.md](docs/metrics.md)：metrics 怎麼進 ES。OpenTelemetry Collector 收 kubelet、K8s 物件狀態、應用的 Prometheus metrics，依每筆資料自己的 namespace 讀 dept 分 group，寫進 ES 的 time series data stream。分部門的規則與 key 跟 log 共用。已在 k3s 上端到端驗證。
 - [docs/traces.md](docs/traces.md)：trace 怎麼進 ES。應用送到同節點的 OpenTelemetry Collector，依連線來源的 Pod 讀 namespace 的 dept 分 group，擋冒充；log 的 `trace.id` 對得到 trace。已在 k3s 上端到端驗證。
 - [apps/standards/tracing.md](apps/standards/tracing.md)：給應用團隊的 trace 埋點指引：哪些自動有、什麼時候要自己加、怎麼加、命名規則、取樣。
+- [docs/aiops-rca.md](docs/aiops-rca.md)：**AIOps 根因分析怎麼做**：三種資料各回答什麼、六個步驟裡哪幾步需要 AI，以及最關鍵的「怎麼知道平常的樣子」（看哪些指標、週期、方法、需要的條件）。
 - [docs/otel-logs-compare.md](docs/otel-logs-compare.md)：log 從 Fluent Bit 改用 OpenTelemetry Collector 之前的比較紀錄與決定。
 
 ## 已經定案的
@@ -38,6 +39,16 @@
 3. **寫入 key 怎麼自動進新廠的 cluster**：現在靠 Rancher 手動建 Secret（`otel-collector` namespace），擴廠後不可行。要確認有沒有 External Secrets、Vault 或 sealed-secrets。
 4. **K8s events 怎麼歸屬**：log 與 metrics 都還沒收 events。event 帶 namespace 名稱，照現在讀 namespace label 的做法應該能分，要實測。
 
+## AIOps 怎麼用這些資料
+
+根因分析分六步：**發現異常 → 合併告警 → 定位到哪一段 → 找出可能的原因 → 說明與建議 → 人確認**。
+
+- **需要 AI 的**：發現異常（每個服務學出「平常的樣子」，偏離就標出來），以及從大量 log 裡找出新出現或突然變多的錯誤樣式。
+- **規則、統計就做得到的**：用 trace 的呼叫關係合併告警、比對 trace 找出慢在哪一段、對照換版時間。
+- **大型語言模型**：最後把證據整理成人看得懂的結論。
+
+最關鍵的是**怎麼知道「平常的樣子」**：依服務 × API × 指標，比對過去幾週同一時段的表現，而不是固定門檻。建議先用最簡單、好解釋的方法（過去 4 週同時段的中位數與範圍）上線。前提是歷史資料夠長（至少 4 週）、不缺、不重複、欄位一致。詳見 [docs/aiops-rca.md](docs/aiops-rca.md)。
+
 ## 待辦
 
 1. **評估 Elastic 內建的 AIOps 功能（要付費授權）。** 免費的 Basic 授權實測全部不能用；異常偵測等機器學習功能要 Platinum 以上，AI 助理可能要 Enterprise（Platinum 自架版可能只賣既有客戶，要跟 Elastic 確認）。可以先開 30 天試用評估，試用只能開一次，等資料累積夠再開：
@@ -51,6 +62,7 @@
    | AI 助理（AI Assistant） | 用自然語言查資料、解釋告警 | ❌ `inference` |
 
    不買的話，AIOps 要自己做（例如 Python 從 ES 讀資料跑模型），資料地基不用改。
+2. **歷史資料保留要夠長才學得出「平常的樣子」。** log 目前保留 30 天，metrics、trace 用 ES 預設；異常偵測至少要 4 週、最好 8 週。要決定各自保留多久，或把舊的 metrics 降解析度（例如 5 分鐘一點）留久一點。
 
 ## 目錄
 
