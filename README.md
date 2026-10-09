@@ -18,6 +18,7 @@
 - [docs/elasticsearch-testing.md](docs/elasticsearch-testing.md)：Fluent Bit 時期的測資、53 項檢查結果與 23 個 level 案例、key 失效的故障測試，以及測試中抓到的問題。
 - [docs/metrics.md](docs/metrics.md)：metrics 怎麼進 ES。OpenTelemetry Collector 收 kubelet、K8s 物件狀態、應用的 Prometheus metrics，依每筆資料自己的 namespace 讀 dept 分 group，寫進 ES 的 time series data stream。分部門的規則與 key 跟 log 共用。已在 k3s 上端到端驗證。
 - [docs/traces.md](docs/traces.md)：trace 怎麼進 ES。應用送到同節點的 OpenTelemetry Collector，依連線來源的 Pod 讀 namespace 的 dept 分 group，擋冒充；log 的 `trace.id` 對得到 trace。已在 k3s 上端到端驗證。
+- [apps/standards/tracing.md](apps/standards/tracing.md)：給應用團隊的 trace 埋點指引：哪些自動有、什麼時候要自己加、怎麼加、命名規則、取樣。
 - [docs/otel-logs-compare.md](docs/otel-logs-compare.md)：log 從 Fluent Bit 改用 OpenTelemetry Collector 之前的比較紀錄與決定。
 
 ## 已經定案的
@@ -53,7 +54,7 @@
 ## 目錄
 
 ```
-apps/        應用端：共用 chart、範例、Java log 設定、CI 檢查
+apps/        應用端：共用 chart、範例、Java log 設定、trace 埋點指引、CI 檢查
 platform/    平台端：groups.yaml（部門 → group）、中央 ES 設定、各 cluster 的 OpenTelemetry Collector（log 與 metrics）
 docs/        設計文件與測試紀錄
 test/        本機 k3s 端到端測試

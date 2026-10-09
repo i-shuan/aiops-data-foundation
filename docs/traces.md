@@ -37,6 +37,8 @@
 
 沒用 chart 的服務，自己設上面這幾個環境變數。不是 Java 的服務，用該語言的 OpenTelemetry SDK，送到同一個位址。
 
+**什麼時候要自己埋點、怎麼埋（業務步驟、批號這類欄位、SECS 等 agent 不認得的元件），見 [apps/standards/tracing.md](../apps/standards/tracing.md)。**
+
 ## 跟 log、metrics 串起來
 
 - **log ↔ trace：** Java agent 會把 `trace_id` 寫進 log（logback 的 MDC），中央 pipeline 存成 log 的 `trace.id`；trace 的欄位是 `trace_id`。實測兩邊對得到（見「驗證」）。AIOps 看到一筆錯誤 log，可以直接查那個請求的完整 trace。
