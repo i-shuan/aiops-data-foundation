@@ -1,0 +1,117 @@
+# 兩個節點的測試 ES：蓋掉 elasticsearch.yaml 的 StatefulSet（同名，elasticsearch-0 的資料沿用）。
+# 不要直接 apply，用 run-es-2node.sh up（要先產生憑證、先改設定再加節點，順序錯了 StatefulSet 會卡住）。
+# replicas 由腳本設定。
+#
+# ⚠️ 測試環境限制的繞法（正式環境不要照抄）：
+# 節點之間的連線（transport）一綁非本機位址，ES 就會做上線檢查，要求可開檔案數至少 65535。
+# 這台測試機的上限是 20000、改不動，所以讓 ES 的 transport 只綁 127.0.0.1（elasticsearch-0 用 9300、
+# elasticsearch-1 用 9301），由同一個 Pod 裡的 socat 轉給另一個 Pod。兩個 Pod 還是各自獨立，
+# 砍掉一個、選 master、副本、Service 切換都跟正式環境一樣。正式環境把可開檔案數設到 65535 以上，不需要 socat。
+apiVersion: v1
+kind: Service
+metadata:
+  name: es-node-0
+  namespace: es-test
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector: {statefulset.kubernetes.io/pod-name: elasticsearch-0}
+  ports:
+    - {name: transport, port: 9300}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: es-node-1
+  namespace: es-test
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector: {statefulset.kubernetes.io/pod-name: elasticsearch-1}
+  ports:
+    - {name: transport, port: 9301}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: elasticsearch
+  namespace: es-test
+spec:
+  serviceName: elasticsearch
+  replicas: 1
+  selector:
+    matchLabels: {app: elasticsearch}
+  template:
+    metadata:
+      labels: {app: elasticsearch}
+    spec:
+      containers:
+        - name: elasticsearch
+          image: docker.io/library/elasticsearch:9.5.5
+          # transport port 依序號：elasticsearch-0 → 9300、elasticsearch-1 → 9301
+          command: ["bash", "-c", "p=$((9300 + ${HOSTNAME##*-})); exec /usr/local/bin/docker-entrypoint.sh eswrapper -Etransport.port=$p"]
+          env:
+            - {name: discovery.seed_hosts, value: "127.0.0.1:9300,127.0.0.1:9301"}
+            - {name: transport.host, value: 127.0.0.1}
+            - {name: http.host, value: 0.0.0.0}
+            - {name: xpack.security.enabled, value: "true"}
+            - {name: xpack.security.http.ssl.enabled, value: "false"}
+            # 多節點開 security 時，節點之間一定要 TLS（ES 規定）。憑證由 run-es-2node.sh 產生
+            - {name: xpack.security.transport.ssl.enabled, value: "true"}
+            - {name: xpack.security.transport.ssl.verification_mode, value: certificate}
+            - {name: xpack.security.transport.ssl.key, value: certs/node.key}
+            - {name: xpack.security.transport.ssl.certificate, value: certs/node.crt}
+            - {name: xpack.security.transport.ssl.certificate_authorities, value: certs/ca.crt}
+            - {name: ES_JAVA_OPTS, value: "-Xms1g -Xmx1g"}
+            # 測試機常和別人共用磁碟，使用率超過 90% 時 ES 會拒絕配置 shard，測試時不檢查
+            - {name: cluster.routing.allocation.disk.threshold_enabled, value: "false"}
+            - name: ELASTIC_PASSWORD
+              valueFrom: {secretKeyRef: {name: es-elastic, key: password}}
+          ports:
+            - {name: http, containerPort: 9200}
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "curl -sf -u elastic:$ELASTIC_PASSWORD localhost:9200/_cluster/health"]
+            periodSeconds: 10
+          resources:
+            requests: {cpu: 500m, memory: 2Gi}
+            limits: {memory: 2Gi}
+          volumeMounts:
+            - {name: data, mountPath: /usr/share/elasticsearch/data}
+            - {name: certs, mountPath: /usr/share/elasticsearch/config/certs, readOnly: true}
+        # 進來：本 Pod IP:自己的 port → 127.0.0.1；出去：127.0.0.1:對方的 port → 對方 Pod
+        - name: transport-proxy
+          image: docker.io/alpine/socat:1.8.0.3
+          command: ["sh", "-c"]
+          args:
+            - |
+              n=${HOSTNAME##*-}; o=$((1 - n)); me=$((9300 + n)); other=$((9300 + o))
+              socat TCP-LISTEN:$me,bind=$POD_IP,fork,reuseaddr TCP:127.0.0.1:$me &
+              socat TCP-LISTEN:$other,bind=127.0.0.1,fork,reuseaddr TCP:es-node-$o.es-test.svc:$other &
+              wait
+          env:
+            - name: POD_IP
+              valueFrom: {fieldRef: {fieldPath: status.podIP}}
+          resources:
+            requests: {cpu: 10m, memory: 16Mi}
+      volumes:
+        - name: certs
+          secret: {secretName: es-transport-certs}
+      securityContext:
+        fsGroup: 1000
+      initContainers:
+        # local-path 建出來的目錄是 root 的，ES 以 uid 1000 執行
+        - name: chown
+          image: docker.io/library/busybox:1.37
+          command: ["sh", "-c", "chown -R 1000:1000 /data"]
+          volumeMounts:
+            - {name: data, mountPath: /data}
+  # 掛硬碟：停機測試要 ES 重啟後資料還在
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        storageClassName: local-path
+        resources:
+          requests: {storage: 10Gi}
