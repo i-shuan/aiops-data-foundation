@@ -20,7 +20,8 @@
 
 ## 已經定案的
 
-- **log 和 metrics 都進 Elasticsearch（9.x）。** 不再使用 VictoriaMetrics。log 用 Fluent Bit 收，metrics 用 OpenTelemetry Collector 收。
+- **log、metrics、trace 都進 Elasticsearch（9.x）。** 不再使用 VictoriaMetrics。
+- **收集器：log 用 Fluent Bit；metrics 和 trace 用 OpenTelemetry Collector。** log 改用 OTel 比較過（branch `claude/otel-logs-compare`，只留作參考、不合併）：欄位可以做到完全一樣，但 OTel 遇到 key 失效、ES 拒收會直接丟資料，每個節點也多約 200MB 記憶體；Fluent Bit 收 metrics 則做不到 K8s 的自動發現和依 namespace 分部門。
 - **每個 group 一把寫入 key，log 與 metrics 共用。** 某把 key 失效只影響那個 group；寫錯 group 會被 ES 擋下。
 - **應用團隊不需要知道 group、key。** 規格統一由共用 chart 產生，見 [apps/](apps)。
 - **namespace 名稱不含組織資訊**，格式是 `{cluster}-{app}-{env}` 或 `{app}-{env}`，所以歸屬要另外標。
@@ -32,6 +33,22 @@
 3. **app 名稱是否全廠唯一**（用中央清單的話，這是前提）。
 4. **寫入 key 怎麼自動進新廠的 cluster**：現在靠 Rancher 手動建 Secret（`logging`、`otel-metrics` 兩個 namespace 各一份），擴廠後不可行。要確認有沒有 External Secrets、Vault 或 sealed-secrets。
 5. **K8s events 怎麼歸屬**：log 與 metrics 都還沒收 events。event 帶 namespace 名稱，照現在讀 namespace label 的做法應該能分，要實測。
+
+## 待辦
+
+1. **trace 還沒收。** 已定用 OpenTelemetry Collector，進 ES 9 的 OTLP 入口；要跟 log 的 `trace.id`、metrics 的 `service.name` 串得起來。
+2. **Fluent Bit 重啟會掉 0～2 秒的 log**（現在的正式設定就有）。原因是 `multiline.parser: cri`，改成 `parser: cri` 幾乎不掉，但超過 16KB 的單行會被拆開。要決定取捨，見 [docs/elasticsearch.md 的「坑」](docs/elasticsearch.md#坑)。
+3. **評估 Elastic 內建的 AIOps 功能（要付費授權）。** 免費的 Basic 授權實測全部不能用；異常偵測等機器學習功能要 Platinum 以上，AI 助理可能要 Enterprise（Platinum 自架版可能只賣既有客戶，要跟 Elastic 確認）。可以先開 30 天試用評估，試用只能開一次，等資料累積夠再開：
+
+   | 功能 | 做什麼 | Basic 實測 |
+   |---|---|---|
+   | 異常偵測（Anomaly detection） | 學每個服務的正常樣子，偏離時告警 | ❌ `ml` |
+   | log 樣式分群（Log pattern analysis） | 把大量 log 自動歸成幾種樣式 | ❌ `categorize_text` |
+   | log 量突變分析（Log rate analysis） | log 量突然變多時，找出是哪個服務、哪種訊息造成的 | ❌ `frequent_item_sets` |
+   | 變化點偵測（Change point detection） | 找出 metrics 開始變化的時間點 | ❌ `change_point` |
+   | AI 助理（AI Assistant） | 用自然語言查資料、解釋告警 | ❌ `inference` |
+
+   不買的話，AIOps 要自己做（例如 Python 從 ES 讀資料跑模型），資料地基不用改。
 
 ## 目錄
 

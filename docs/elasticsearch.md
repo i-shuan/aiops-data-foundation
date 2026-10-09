@@ -293,6 +293,7 @@ GET k8s-*/_search
   kubectl -n logging rollout restart daemonset/fluent-bit
   ```
 - **key 失效或 ES 停機期間，資料會堆在節點上**，每條出口上限 2G，放在 `/var/fluent-bit/state`，超過上限就丟最舊的。實測每秒 100 行停 3 分鐘約堆 25MB，所以每秒 100 行可以撐約 4 小時、每秒 1,000 行約 25 分鐘。
+- **⚠ Fluent Bit 每次重啟會掉 0～2 秒的 log。** 讀檔用的 `multiline.parser: cri` 為了接回被 containerd 切開的長行，會把最後幾行放在記憶體裡等，但讀到哪裡的位置已經記下了，一關就沒了，下次也不會重讀。實測 ES、key 都正常、只重啟 Fluent Bit 兩次，每秒 200 行掉 342 筆。改成 `parser: cri` 只掉 6 筆（剩下的是 Fluent Bit 關機本身的行為），代價是超過 16KB 的單行 log 會被拆成好幾筆。還沒決定，見 README 待辦。在決定之前，換版、改設定盡量排在離峰。
 - **ES 回應的讀取上限（`buffer_size`）一定要是 `false`。** 設成固定大小時，流量一大就會整批重複寫入、無限重送。
 - **掃新 log 檔的間隔（`refresh_interval`）不能太長。** kubelet 預設 log 檔 10MB 就輪替壓縮，量大的新 Pod 在被發現前，第一個檔可能就沒了。目前設 2 秒。平台端建議把 kubelet 的 `container-log-max-size` 調大，例如 50Mi。
 - **重試間隔上限（`scheduler.cap`）設 60 秒。** 用預設的 2,000 秒時，ES 停 3 分鐘、恢復後要 5 分多鐘才補完；改了之後約 1 分鐘。
