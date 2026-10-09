@@ -7,7 +7,7 @@
 | 項目 | 內容 |
 |---|---|
 | K8s | k3s v1.32.2，單節點（4 核、15Gi RAM） |
-| Elasticsearch | 8.17.2 單節點，開 security、HTTP 不走 TLS，heap 1g（[elasticsearch.yaml](../test/local-k3s/elasticsearch.yaml)） |
+| Elasticsearch | 8.17.2 單節點，開 security、HTTP 不走 TLS，heap 1g（[elasticsearch.yaml](../test/local-k3s/elasticsearch.yaml)）。之後測試環境改成 9.5.5，端到端 53 項與 level 案例 23 個重跑也全部通過；本文的情境測試數據是 8.17.2 上量的 |
 | Fluent Bit | 4.1.1，正式設定只換連線目標與 image 來源（[overlay](../test/local-k3s/fluent-bit/kustomization.yaml)） |
 | API key | 用正式的 [elasticsearch-setup.sh](../platform/central/elasticsearch-setup.sh) 產生 |
 | cluster 名稱 | `local`，所以 index 是 `k8s-{group}-local` |

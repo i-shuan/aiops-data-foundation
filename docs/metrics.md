@@ -16,7 +16,7 @@
         ↓ 1. 擋冒充：應用自帶的 dept、group 欄位一律拿掉
         ↓ 2. 依這筆資料屬於哪個 Pod／物件，讀它 namespace 的 dept label，補上服務身分
         ↓ 3. dept → group（清單同 platform/groups.yaml）；沒有 dept 的（例如節點本身）→ unassigned
-        ↓ 4. 依 group 交給各自的出口，每筆只送一份
+        ↓ 4. 依 group 交給各自的出口，每筆只送一份；用 OTLP 送到 ES 的 /_otlp/v1/metrics
    ├─ group it         → key: IT_ES_API_KEY         → metrics-<來源>.otel-it
    ├─ group imc        → key: IMC_ES_API_KEY        → metrics-<來源>.otel-imc
    └─ group unassigned → key: UNASSIGNED_ES_API_KEY → metrics-<來源>.otel-unassigned
@@ -49,6 +49,19 @@
 | [test/local-k3s/run-metrics-e2e.sh](../test/local-k3s/run-metrics-e2e.sh) | 端到端測試 |
 
 兩種 Collector 啟動時都載入 `common.yaml` 加上自己那份，分部門的規則只有一處，不會兩邊各改各的。
+
+## 為什麼用 OTLP 送，不用 elasticsearch 寫入元件
+
+OpenTelemetry Collector 有專門寫 ES 的 `elasticsearch` 寫入元件，一開始用的是它。ES 停機測試發現它會掉資料，所以改成用 OTLP 送到 ES 9 自己的 OTLP 入口（`/_otlp/v1/metrics`）：
+
+| | `elasticsearch` 寫入元件 | OTLP 送到 ES 的 OTLP 入口（現在用的） |
+|---|---|---|
+| 連線逾時、沒拿到 HTTP 回應 | **當成永久錯誤，整批丟掉**，log 只有一行 `Exporting failed. Dropping data.` | 重試，直到送成功 |
+| 重試設定 | 只能指定哪些 HTTP 狀態碼要重試，管不到連線錯誤 | `retry_on_failure`，`max_elapsed_time: 0` 表示一直重試 |
+| ES 停 3 分鐘 | 停機期間 18 筆應用 metrics 只剩 1 筆、Pod CPU 0 筆 | 全部補齊，ES 恢復後 5 秒內補完 |
+| 資料流名稱、欄位、分流 | 一樣 | 一樣 |
+
+⚠️ 連線逾時在正式環境很常見：網路中斷、防火牆擋掉、ES 整台當機都是。測試裡把 ES 停掉時，連線也是逾時，不是被拒絕。
 
 ## 應用要做什麼
 
@@ -91,7 +104,13 @@ AIOps 要把 log 和 metrics 串起來，用 `service.name` 加 `k8s.namespace.n
 ES_URL=https://<es>:9200 ES_AUTH=elastic:<password> platform/central/elasticsearch-setup.sh
 ```
 
-ES 要 9.x（或 8.16 以上），才有內建的 `metrics-otel@template`。
+ES 要 9.x：要有內建的 `metrics-otel@template`，以及 OTLP 入口 `/_otlp/v1/metrics`（測試用 9.5.5）。上線前先確認：
+
+```bash
+curl -s -o /dev/null -w "%{http_code}\n" -u elastic:<password> -X POST -H "Content-Type: application/x-protobuf" https://<es>:9200/_otlp/v1/metrics
+```
+
+回 `200` 才有；`404` 表示這個版本沒有，要先升級。
 
 ### 2. 每個應用 cluster
 
@@ -124,7 +143,9 @@ ES_URL=http://<ip>:9200 test/local-k3s/run-metrics-e2e.sh
 | 情境 | 結果 |
 |---|---|
 | 改 namespace 的 dept label（不重啟 Collector） | **2 秒內生效**：02:02:49 改 label，02:02:51 那筆就進新的 group，切換前後沒有漏、沒有重複 |
-| ES 整台停 3 分鐘 | 見下方 |
+| ES 整台停 3 分鐘（每個測試應用每 30 秒抓一次） | 停機期間的應用 metrics 各 6 筆、IT 的 Pod CPU 24 筆，**全部補齊**；ES 恢復後 5 秒內補完；Collector 丟資料的紀錄 0 筆。停機 3 分鐘節點上的佇列約 2.9 MB |
+
+每個 group 的佇列上限是 10,000 批（`queue_size`）。超過時新的資料會被丟掉，所以中央 ES 的停機時間要控制在佇列撐得住的範圍；量大的 cluster 要先估算或調大。
 
 ## 坑
 
@@ -135,6 +156,7 @@ ES_URL=http://<ip>:9200 test/local-k3s/run-metrics-e2e.sh
   ```
 - **dept 清單要手動同步。** `platform/groups.yaml`、Fluent Bit 的分流規則、`common.yaml` 的 `transform/group` 三處要一致。漏改一處的話，那個部門的 log 和 metrics 會分到不同 group，不會報錯。
 - **應用的 `service.name` 曾經全部是 `pods`。** Prometheus receiver 會把抓取工作的名稱填進 `service.name`，而讀 Pod label 的那一步不覆蓋已經有的值。`common.yaml` 先清掉再讀，測試裡有一項專門擋這個。
+- **不要換回 `elasticsearch` 寫入元件。** 它在連線逾時時會直接丟資料，見上方「為什麼用 OTLP 送」。
 - **向 kubelet 取資料時沒有驗它的憑證**（`insecure_skip_verify: true`）。正式環境若 kubelet 憑證由內部 CA 簽，改成驗證。
 - **`CLUSTER_NAME` 是每筆資料的 `k8s.cluster.name`**，不在資料流名稱裡（跟 log 不一樣）。每個 cluster 一定要改，不然各廠的資料會混在一起分不出來。
 
@@ -142,6 +164,5 @@ ES_URL=http://<ip>:9200 test/local-k3s/run-metrics-e2e.sh
 
 1. **保留天數**：現在用 ES 內建的預設，要跟各 group 確認後設定。
 2. **量大時夠不夠力**：只用測試的量驗過（單節點、十幾個 Pod）。
-3. **連線逾時**（不是被拒絕）時的行為：停機測試測的是 ES 停掉、連線被拒絕的情況，網路中斷造成的逾時還沒測。
-4. **節點本身的系統指標**（磁碟、檔案系統、load）：現在只有 kubelet 給的節點 CPU、記憶體、網路，沒有收 hostmetrics。
-5. **K8s events**：跟 log 那邊一樣還沒做。
+3. **節點本身的系統指標**（磁碟、檔案系統、load）：現在只有 kubelet 給的節點 CPU、記憶體、網路，沒有收 hostmetrics。
+4. **K8s events**：跟 log 那邊一樣還沒做。
