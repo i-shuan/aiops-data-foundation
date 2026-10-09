@@ -17,6 +17,7 @@ cp -r requirements/_template requirements/add-export-to-excel
 | [`health-metrics-to-elastic/`](health-metrics-to-elastic/1-intent.md) | 新方向第 1 步：範例程式，健康度數值經 OpenTelemetry Collector 進 Elasticsearch | 完成，本機 k3d 實測 |
 | [`logs-to-elastic/`](logs-to-elastic/1-intent.md) | 新方向第 2 步：每個容器的 log 經同一套收集程式進 Elasticsearch | 完成，本機 k3d 實測 |
 | [`traces-to-elastic/`](traces-to-elastic/1-intent.md) | 新方向第 4 步：trace 靠自動埋點送出，經同一套收集程式進 Elasticsearch | 完成，本機 k3d 實測 |
+| [`logs-high-volume/`](logs-high-volume/1-intent.md) | 補第 2 步：log 每秒幾千行時不掉、不重複，量出延遲與資源 | intent 待確認 |
 | `_template/` | 開新需求時複製的範本 | — |
 
 原本寫 VictoriaMetrics 那個做法的五份需求（總綱、檢查工具、依部門分租戶、兩站雙寫、AP1105）已經從這裡刪掉。
