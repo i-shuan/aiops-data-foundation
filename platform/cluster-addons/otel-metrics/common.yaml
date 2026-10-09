@@ -31,6 +31,9 @@ processors:
       - delete_key(resource.attributes, "group")
       - delete_key(resource.attributes, "data_stream.dataset")
       - delete_key(resource.attributes, "data_stream.namespace")
+      # Prometheus receiver 會把抓取工作的名稱（例如 pods）填進 service.name，不是應用的名稱。
+      # 先清掉，下面 k8s_attributes 才會用 Pod 的 app.kubernetes.io/name 填（它不覆蓋已經有的值）
+      - delete_key(resource.attributes, "service.name")
       # Prometheus 抓來的資料只知道 Pod 的 IP（server.address），補成 k8s.pod.ip 才對得到是哪個 Pod
       - set(resource.attributes["k8s.pod.ip"], resource.attributes["server.address"]) where resource.attributes["k8s.pod.ip"] == nil and resource.attributes["server.address"] != nil
 
@@ -84,6 +87,8 @@ processors:
       - set(resource.attributes["group"], "imc") where resource.attributes["dept"] != nil and IsMatch(resource.attributes["dept"], "^(D1110|D1120)$")
       - set(resource.attributes["data_stream.namespace"], resource.attributes["group"])
       - set(resource.attributes["k8s.cluster.name"], "${env:CLUSTER_NAME}")
+      # Pod 沒有 app.kubernetes.io/name（沒套 app-common chart）的，退回用 Deployment 名稱
+      - set(resource.attributes["service.name"], resource.attributes["k8s.deployment.name"]) where resource.attributes["service.name"] == nil and resource.attributes["k8s.deployment.name"] != nil
 
 connectors:
   # 依 group 交給各自的出口。每筆只會符合一條，不會送兩份

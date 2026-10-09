@@ -1,0 +1,14 @@
+# 本機測試用：沿用正式的 metrics 收集設定，只改連線目標與 image 來源。
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../../platform/cluster-addons/otel-metrics
+configMapGenerator:
+  - name: otel-metrics-env
+    behavior: replace
+    literals:
+      - CLUSTER_NAME=local
+      - ES_ENDPOINT=http://elasticsearch.es-test.svc:9200
+images:
+  - name: otel/opentelemetry-collector-contrib
+    newName: docker.io/otel/opentelemetry-collector-contrib
