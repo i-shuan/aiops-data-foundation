@@ -54,7 +54,7 @@ AIOps 只認這些欄位。標準概念用 [ECS](https://www.elastic.co/guide/en
 | `log.logger`、`process.thread.name` | 應用 | 縮小範圍 |
 | `error.type` | 從 stack trace 第一行拆出的例外類別 | 例外分群，比對全文便宜很多 |
 | `error.stack_trace` | 應用 | 人看 |
-| `trace.id`、`span.id` | OpenTelemetry Java agent 寫進 MDC | 串起同一個請求的 log |
+| `trace.id`、`span.id` | OpenTelemetry Java agent 寫進 MDC | 串起同一個請求的 log，也對得到 trace 的 `trace_id`（[traces.md](traces.md)） |
 | `service.name` | pod label `app.kubernetes.io/name`；沒有就用 container 名稱 | 分析單位 |
 | `service.version` | pod label `app.kubernetes.io/version` | 「換版之後才開始錯」 |
 | `service.namespace` | pod label `app.kubernetes.io/part-of` | 所屬系統 |

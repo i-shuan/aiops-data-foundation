@@ -17,6 +17,7 @@
 - [docs/elasticsearch.md](docs/elasticsearch.md)：log 怎麼進 ES。OpenTelemetry Collector 依 namespace 的 dept 分 group，進 `k8s-{group}-{cluster}`，欄位由中央 pipeline 統一整理成 AIOps 要的格式；log 格式不一致時，依服務宣告的格式分派到不同的解析規則。已在 k3s 上端到端驗證。
 - [docs/elasticsearch-testing.md](docs/elasticsearch-testing.md)：Fluent Bit 時期的測資、53 項檢查結果與 23 個 level 案例、key 失效的故障測試，以及測試中抓到的問題。
 - [docs/metrics.md](docs/metrics.md)：metrics 怎麼進 ES。OpenTelemetry Collector 收 kubelet、K8s 物件狀態、應用的 Prometheus metrics，依每筆資料自己的 namespace 讀 dept 分 group，寫進 ES 的 time series data stream。分部門的規則與 key 跟 log 共用。已在 k3s 上端到端驗證。
+- [docs/traces.md](docs/traces.md)：trace 怎麼進 ES。應用送到同節點的 OpenTelemetry Collector，依連線來源的 Pod 讀 namespace 的 dept 分 group，擋冒充；log 的 `trace.id` 對得到 trace。已在 k3s 上端到端驗證。
 - [docs/otel-logs-compare.md](docs/otel-logs-compare.md)：log 從 Fluent Bit 改用 OpenTelemetry Collector 之前的比較紀錄與決定。
 
 ## 已經定案的
@@ -37,8 +38,7 @@
 
 ## 待辦
 
-1. **trace 還沒收。** 已定用 OpenTelemetry Collector，進 ES 9 的 OTLP 入口；要跟 log 的 `trace.id`、metrics 的 `service.name` 串得起來。
-2. **評估 Elastic 內建的 AIOps 功能（要付費授權）。** 免費的 Basic 授權實測全部不能用；異常偵測等機器學習功能要 Platinum 以上，AI 助理可能要 Enterprise（Platinum 自架版可能只賣既有客戶，要跟 Elastic 確認）。可以先開 30 天試用評估，試用只能開一次，等資料累積夠再開：
+1. **評估 Elastic 內建的 AIOps 功能（要付費授權）。** 免費的 Basic 授權實測全部不能用；異常偵測等機器學習功能要 Platinum 以上，AI 助理可能要 Enterprise（Platinum 自架版可能只賣既有客戶，要跟 Elastic 確認）。可以先開 30 天試用評估，試用只能開一次，等資料累積夠再開：
 
    | 功能 | 做什麼 | Basic 實測 |
    |---|---|---|
