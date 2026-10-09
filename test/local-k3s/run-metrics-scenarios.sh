@@ -76,28 +76,35 @@ scenario_label() {
 
 scenario_outage() {
   echo "== ES 停 3 分鐘，中途重啟 Collector"
-  local down up
+  local down restart_at restarted up
   down="$(now)"
   k -n es-test scale statefulset/elasticsearch --replicas=0 >/dev/null
   k -n es-test wait --for=delete pod/elasticsearch-0 --timeout=120s >/dev/null 2>&1 || true
   echo "   $(ts) ES 關掉"
   sleep 90
+  restart_at="$(now)"
   k -n otel-metrics rollout restart daemonset/otel-node-collector deployment/otel-cluster-collector >/dev/null
   k -n otel-metrics rollout status daemonset/otel-node-collector --timeout=120s >/dev/null
   k -n otel-metrics rollout status deployment/otel-cluster-collector --timeout=120s >/dev/null
+  restarted="$(now)"
   echo "   $(ts) 停機中重啟了兩個 Collector"
   sleep 90
   echo "   $(ts) 節點上的佇列：$(du -sh /var/lib/otelcol-metrics 2>/dev/null | cut -f1)"
   up="$(now)"
   k -n es-test scale statefulset/elasticsearch --replicas=1 >/dev/null
   until [[ "$(es -m 5 "${ES_URL}/_cluster/health" 2>/dev/null | jq -r .status 2>/dev/null)" =~ green|yellow ]]; do sleep 2; done
-  echo "   $(ts) ES 可以用了"
-  local secs
-  secs="$(wait_filled it it-mes-prod "${down}" "${up}" 6 300)"
-  check_ge "IT：停機期間的應用 metrics 補齊" "$(app_count it it-mes-prod "${down}" "${up}")" 6
-  check_ge "IMC：停機期間的應用 metrics 補齊" "$(app_count imc imc-wip-prod "${down}" "${up}")" 6
-  check_ge "unassigned：停機期間的應用 metrics 補齊" "$(app_count unassigned legacy "${down}" "${up}")" 6
-  echo "   ES 恢復後 ${secs} 秒內補齊 IT 那段（-1 表示 5 分鐘內沒補齊）"
+  echo "   $(ts) ES 可以用了，等三個 group 都補完（最多 5 分鐘）"
+
+  # 每個應用每 30 秒抓一次：停機到重啟前約 90 秒、重啟完到 ES 恢復約 90 秒，各至少 2 筆
+  local g ns before after
+  for g in it:it-mes-prod imc:imc-wip-prod unassigned:legacy; do
+    wait_filled "${g%%:*}" "${g#*:}" "${restarted}" "${up}" 2 300 >/dev/null
+    before="$(app_count "${g%%:*}" "${g#*:}" "${down}" "${restart_at}")"
+    after="$(app_count "${g%%:*}" "${g#*:}" "${restarted}" "${up}")"
+    check_ge "${g%%:*}：停機後、重啟前收到的（重啟時還在佇列裡）有送進 ES" "${before}" 2
+    check_ge "${g%%:*}：重啟後、ES 恢復前收到的有送進 ES" "${after}" 2
+    echo "         整段停機 $(app_count "${g%%:*}" "${g#*:}" "${down}" "${up}") 筆（約 6 筆減掉重啟那段沒抓到的）"
+  done
   check "沒有重複（同一個 Pod 同一個時間點只有一筆）" "$(dup_count "${down}" "$(now)")" 0
   local dropped=0 f
   for f in /var/log/pods/otel-metrics_*/otelcol/*.log; do
