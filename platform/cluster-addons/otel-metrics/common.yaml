@@ -100,30 +100,42 @@ connectors:
       - condition: resource.attributes["group"] == "imc"
         pipelines: [metrics/imc]
 
-# 每個 group 一個出口、一把 key、一個獨立佇列：某把 key 失效只卡住那一條
+# 每個 group 一個出口、一把 key、一個獨立佇列：某把 key 失效只卡住那一條。
+#
+# ⚠ 用 OTLP 送到 ES 9 自己的 OTLP 入口（/_otlp/v1/metrics），不用 elasticsearch 寫入元件。
+#   elasticsearch 寫入元件把「連線逾時、沒拿到 HTTP 回應」當成永久錯誤，不重試、直接丟掉；
+#   實測 ES 停 3 分鐘，停機期間的 metrics 幾乎全掉（佇列有存，但沒有拿來重送）。
+#   OTLP 寫入元件對任何暫時性錯誤（連不上、逾時、429、502～504）都重試，佇列放在節點上。
 exporters:
-  elasticsearch/it:
-    endpoints: ["${env:ES_ENDPOINT}"]
-    api_key: ${env:IT_ES_API_KEY}
+  otlp_http/it:
+    metrics_endpoint: ${env:ES_ENDPOINT}/_otlp/v1/metrics
+    headers:
+      Authorization: ApiKey ${env:IT_ES_API_KEY}
+    timeout: 30s
     sending_queue: &queue
       enabled: true
       storage: file_storage
-      queue_size: 100000
-    retry: &retry
+      queue_size: 10000
+    # max_elapsed_time 0 = 一直重試到送成功為止。佇列滿了才會丟（見 queue_size）
+    retry_on_failure: &retry
       enabled: true
-      max_retries: 100000
       initial_interval: 1s
       max_interval: 30s
-  elasticsearch/imc:
-    endpoints: ["${env:ES_ENDPOINT}"]
-    api_key: ${env:IMC_ES_API_KEY}
+      max_elapsed_time: 0
+  otlp_http/imc:
+    metrics_endpoint: ${env:ES_ENDPOINT}/_otlp/v1/metrics
+    headers:
+      Authorization: ApiKey ${env:IMC_ES_API_KEY}
+    timeout: 30s
     sending_queue: *queue
-    retry: *retry
-  elasticsearch/unassigned:
-    endpoints: ["${env:ES_ENDPOINT}"]
-    api_key: ${env:UNASSIGNED_ES_API_KEY}
+    retry_on_failure: *retry
+  otlp_http/unassigned:
+    metrics_endpoint: ${env:ES_ENDPOINT}/_otlp/v1/metrics
+    headers:
+      Authorization: ApiKey ${env:UNASSIGNED_ES_API_KEY}
+    timeout: 30s
     sending_queue: *queue
-    retry: *retry
+    retry_on_failure: *retry
 
 service:
   extensions: [health_check, file_storage]
@@ -138,10 +150,10 @@ service:
   pipelines:
     metrics/it:
       receivers: [routing/group]
-      exporters: [elasticsearch/it]
+      exporters: [otlp_http/it]
     metrics/imc:
       receivers: [routing/group]
-      exporters: [elasticsearch/imc]
+      exporters: [otlp_http/imc]
     metrics/unassigned:
       receivers: [routing/group]
-      exporters: [elasticsearch/unassigned]
+      exporters: [otlp_http/unassigned]
