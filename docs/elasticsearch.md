@@ -299,6 +299,8 @@ GET k8s-*/_search
 - **`generate_id: on` 防止重送造成重複**，代價是 ES 的 CPU 多約兩成。
 - **平台元件的 log 都進 unassigned**，例如 kube-system 和 Fluent Bit 以外的系統元件。這跟 metrics 的兜底 tenant 同一個意思。
 - **純文字的 Java stack trace 會被拆成很多行。** 標準格式是 JSON（stack trace 在一個欄位裡），所以不處理。沒照標準的服務，AIOps 在它身上的效果會比較差。
+- **中央 ES 要撐得住掛一台，至少要三個 master 候選。** 兩個節點時 ES 只讓其中一個投票，那台掛了整個 cluster 就停擺，跟一個節點一樣（實測見 [elasticsearch-testing.md](elasticsearch-testing.md#情境測試es-兩個節點-vs-一個節點)）。三台一樣的節點，或兩台存資料加一台只投票的 `voting_only` 節點。ES 停擺期間資料會在 Fluent Bit、Collector 排隊，恢復後補齊，不會遺失。
+- **一個節點時 metrics 平常是 yellow。** metrics 的資料流預設要一份副本，一個節點放不下；log 的設定是有幾個節點就放幾份（`auto_expand_replicas: 0-1`），所以 log 是 green。不影響寫入。
 - **節點用 Docker 當 runtime 的 cluster 要另外掛 `/var/lib/docker/containers`。** RKE2、k3s 是 containerd，不需要。
 
 ## 還沒做
