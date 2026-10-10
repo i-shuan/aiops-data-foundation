@@ -12,7 +12,8 @@ def anomalies(es: ES, index: str, start: datetime, end: datetime, service: str |
     f = [time_range(start, end)]
     if service:
         f.append({"bool": {"should": [{"term": {"keys.resource.attributes.service.name": service}},
-                                      {"term": {"keys.entry.service": service}}], "minimum_should_match": 1}})
+                                      {"term": {"keys.entry.service": service}},
+                                      {"term": {"keys.service": service}}], "minimum_should_match": 1}})
     hits = es.search(index, {"size": 1000, "query": {"bool": {"filter": f}}, "sort": [{"@timestamp": "asc"}]})["hits"]["hits"]
     return [h["_source"] for h in hits]
 

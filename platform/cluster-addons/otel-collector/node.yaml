@@ -127,6 +127,18 @@ processors:
       - delete_key(resource.attributes, "group")
       - delete_matching_keys(span.attributes, "^data_stream\\.")
 
+  # 應用用 OTLP 推來的 metrics（.NET 自動埋點：它的 Prometheus 端點只聽 localhost，Collector 抓不到）。
+  # 跟 trace 一樣擋冒充：拿掉應用自填的 K8s、部門欄位，k8s_attributes 一定依連線的來源 IP 判斷是哪個 Pod
+  transform/metrics-otlp-pre:
+    error_mode: ignore
+    metric_statements:
+      - delete_matching_keys(resource.attributes, "^(k8s\\.|container\\.|data_stream\\.)")
+      - delete_key(resource.attributes, "dept")
+      - delete_key(resource.attributes, "group")
+      - delete_key(datapoint.attributes, "dept")
+      - delete_key(datapoint.attributes, "group")
+      - delete_matching_keys(datapoint.attributes, "^data_stream\\.")
+
   k8s_attributes:
     filter:
       node_from_env_var: K8S_NODE_NAME   # 只看自己節點上的 Pod，省記憶體
@@ -154,6 +166,10 @@ service:
     metrics/in:
       receivers: [kubeletstats, prometheus]
       processors: [memory_limiter, transform/pre, cumulativetodelta, k8s_attributes, transform/group, transform/drop-log-attrs]
+      exporters: [routing/group]
+    metrics/otlp:
+      receivers: [otlp]
+      processors: [memory_limiter, transform/metrics-otlp-pre, k8s_attributes, transform/group, transform/drop-log-attrs, cumulativetodelta]
       exporters: [routing/group]
     metrics/cadvisor:
       receivers: [prometheus/cadvisor]

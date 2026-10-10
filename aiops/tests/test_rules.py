@@ -117,6 +117,10 @@ class ConfigTest(unittest.TestCase):
                 self.assertIn("den", r, r["name"])
             self.assertLess(R._dur(r.get("for", 0)), R._dur(cfg["lookback"]), r["name"])
 
+    def test_describe_number_ratio(self):
+        rule = {"title": "執行緒暴增", "type": "ratio", "threshold": 16, "show": "number"}
+        self.assertEqual(R.describe(rule, {"key": ("ns", "pod"), "value": 44.0}), "執行緒暴增：ns、pod（44，門檻 >= 16）")
+
     def test_describe(self):
         rule = {"title": "容器重啟", "type": "increase", "threshold": 1}
         self.assertEqual(R.describe(rule, {"key": ("ns", "pod", "app"), "value": 2.0}), "容器重啟：ns、pod、app（2，門檻 >= 1）")

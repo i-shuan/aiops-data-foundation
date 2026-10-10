@@ -30,7 +30,7 @@ boolean prune(Map m) {
 String normLevel(String v) {
   if (v == null) return null;
   String k = v.trim().toLowerCase();
-  Map aliases = ['warning': 'warn', 'err': 'error', 'severe': 'error',
+  Map aliases = ['warning': 'warn', 'err': 'error', 'severe': 'error', 'information': 'info', 'verbose': 'trace',
                  'critical': 'fatal', 'crit': 'fatal', 'panic': 'fatal',
                  'emerg': 'fatal', 'emergency': 'fatal', 'alert': 'fatal',
                  'notice': 'info'];
@@ -62,20 +62,40 @@ Map app = ctx.remove('_app');
 Map log = ctx.log;
 if (log == null) { log = new HashMap(); ctx.log = log; }
 
-// 例：logback JSON（apps/standards/java/logback-spring.xml）、ECS JSON、logfmt
+// 例：logback JSON（apps/standards/java/logback-spring.xml）、ECS JSON、logfmt、
+// .NET 內建的 JSON console（Message、LogLevel、Category、Exception、Scopes 裡的 TraceId）、Serilog compact JSON（@m、@l、@x、@tr）
 if (app != null) {
-  String msg = takeStr(app, ['message', 'msg']);
+  // .NET JSON console：trace_id、span_id 放在 Scopes（一個 list）裡其中一個 scope
+  def scopes = app.get('Scopes');
+  if (scopes instanceof List) {
+    for (def sc : scopes) {
+      if (sc instanceof Map && sc.containsKey('TraceId')) {
+        app.put('trace_id', sc.remove('TraceId'));
+        if (sc.containsKey('SpanId')) app.put('span_id', sc.remove('SpanId'));
+        sc.remove('ParentId');
+        sc.remove('Message');
+      }
+    }
+    scopes.removeIf(sc -> sc instanceof Map && sc.isEmpty());
+    if (scopes.isEmpty()) app.remove('Scopes');
+  }
+  def state = app.get('State');
+  if (state instanceof Map) state.remove('Message');   // 跟外層的 Message 重複；其餘（例如 OrderId）留著
+
+  String msg = takeStr(app, ['message', 'msg', 'Message', '@m', '@mt']);
   ctx.message = msg != null ? msg : raw;
 
-  String level = takeStr(app, ['level', 'lvl', 'severity', 'log.level']);
+  String level = takeStr(app, ['level', 'lvl', 'severity', 'log.level', 'LogLevel', '@l']);
+  // Serilog compact JSON：Information 等級不寫 @l
+  if (level == null && app.containsKey('@t')) level = 'info';
   if (level != null) log.put('level', normLevel(level));
-  String logger = takeStr(app, ['logger', 'logger_name', 'log.logger']);
+  String logger = takeStr(app, ['logger', 'logger_name', 'log.logger', 'Category', 'SourceContext']);
   if (logger != null) log.put('logger', logger);
 
   String thread = takeStr(app, ['thread', 'thread_name', 'process.thread.name']);
   if (thread != null) ctx.process = ['thread': ['name': thread]];
 
-  String stack = takeStr(app, ['stack_trace', 'exception', 'error.stack_trace']);
+  String stack = takeStr(app, ['stack_trace', 'exception', 'error.stack_trace', 'Exception', '@x']);
   if (stack != null) {
     // 第一行通常是「例外類別: 訊息」，拆出類別給 AIOps 分群用
     // Painless 字串不支援 \n 跳脫，換行字元用 (char) 10
@@ -88,13 +108,13 @@ if (app != null) {
     ];
   }
 
-  String traceId = takeStr(app, ['trace_id', 'traceId', 'trace.id']);
+  String traceId = takeStr(app, ['trace_id', 'traceId', 'trace.id', 'TraceId', '@tr']);
   if (traceId != null) ctx.trace = ['id': traceId];
-  String spanId = takeStr(app, ['span_id', 'spanId', 'span.id']);
+  String spanId = takeStr(app, ['span_id', 'spanId', 'span.id', 'SpanId', '@sp']);
   if (spanId != null) ctx.span = ['id': spanId];
 
   // 應用自己的時間比 Fluent Bit 收到的時間準，交給後面的 date processor
-  String ts = takeStr(app, ['timestamp', '@timestamp', 'ts', 'time']);
+  String ts = takeStr(app, ['timestamp', '@timestamp', 'ts', 'time', 'Timestamp', '@t']);
   if (ts != null) ctx._app_ts = ts;
 
   app.remove('@version');

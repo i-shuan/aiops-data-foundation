@@ -159,7 +159,7 @@ ES_URL=https://<es>:9200 ES_AUTH=elastic:<password> test/pipeline/run-level-case
 
 | `log-format` | 給誰用 | 例子 |
 |---|---|---|
-| （不填） | Java 標準（logback JSON）、ECS JSON（Spring Boot 3.4 `logging.structured.format.console=ecs`）、純文字 | `{"level":"INFO","message":"..."}` |
+| （不填） | Java 標準（logback JSON）、ECS JSON（Spring Boot 3.4 `logging.structured.format.console=ecs`）、**.NET 內建 JSON console**（`Message`、`LogLevel`、`Category`、`Exception`、`Scopes` 裡的 `TraceId`）、**Serilog compact JSON**（`@m`、`@l`、`@x`、`@tr`）、純文字 | `{"level":"INFO","message":"..."}`、`{"LogLevel":"Information","Message":"...","Scopes":[{"TraceId":"..."}]}` |
 | `logfmt` | Go 等語言常見的 key=value | `level=warn msg="lot hold requested" lot_id=L123` |
 
 ### 服務怎麼宣告格式

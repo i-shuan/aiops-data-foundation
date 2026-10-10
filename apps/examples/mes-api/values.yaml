@@ -38,6 +38,11 @@ otel:
   javaAgent:
     enabled: true
     image: nexus.aillm.spil.com.tw/docker/open-telemetry/autoinstrumentation-java:2.10.0
+  # .NET 服務改用這個（javaAgent 關掉）：掛 OpenTelemetry .NET 自動埋點，metrics 用 OTLP 推，見 docs/dotnet.md
+  # dotnet:
+  #   enabled: true
+  #   image: nexus.aillm.spil.com.tw/ghcr/open-telemetry/opentelemetry-operator/autoinstrumentation-dotnet:1.12.0
+  #   arch: linux-x64          # Alpine（musl）的 image 用 linux-musl-x64
   # trace 取樣比例（0～1）。預設 1.0 全部記；請求量大的服務可以調低，例如 0.1
   # traces:
   #   sampleRatio: 0.1

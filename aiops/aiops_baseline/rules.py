@@ -167,7 +167,8 @@ def _fetch(es: ES, index: str, field: str, filters: list, rule: dict, start, end
 
 def describe(rule: dict, hit: dict) -> str:
     """給人看的一句話，例如「容器重啟：imc-wip-prod、crash-app-…、app（1，門檻 >= 1）」。"""
-    pct = rule["type"] in ("ratio", "increase_ratio", "rate")   # total 是次數，不是比例
+    # 比例用百分比顯示；show: number 的（例如「每核幾條執行緒」）照數字顯示。total 是次數
+    pct = rule["type"] in ("ratio", "increase_ratio", "rate") and rule.get("show") != "number"
     fmt = (lambda x: f"{x:.0%}") if pct else (lambda x: f"{x:g}")
     who = "、".join(str(k) for k in hit["key"] if k is not None)
     return f"{rule['title']}：{who}（{fmt(hit['value'])}，門檻 {rule.get('op', '>=')} {fmt(rule['threshold'])}）"
