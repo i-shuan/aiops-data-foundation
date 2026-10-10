@@ -73,6 +73,17 @@
    不買的話，AIOps 要自己做（例如 Python 從 ES 讀資料跑模型），資料地基不用改。
 2. **保留天數要定案並套用。** ⚠️ metrics、trace 現在用 ES 預設的 ILM，**只有 rollover、不會刪除**，硬碟遲早滿。方案見 [docs/retention.md](docs/retention.md)：metrics 原始 14 天、降成 5 分鐘留到 90 天、降成 1 小時留到 400 天；log 原文 30 天＋統計值 400 天；trace 原始 7 天＋從 trace 算的指標 400 天。要決定天數、副本，並用正式環境的量重算容量。
 3. **AIOps 分兩階段推進：先一般服務，再 EAP 與機台。** 階段 1 在 Web API、worker 上把三種資料串接、baseline、事故紀錄、合併告警跑通；還沒做的是從 metrics 跳到慢 trace、連續異常才報、事故紀錄、合併告警，以及用 4 週真實資料驗證 baseline。階段 2 再接 EAP：SECS 解析規則、載具／腔體／交易 ID 的欄位名稱、機台交握耗時與告警的 baseline。底層共用，不用重寫。清單見 [docs/aiops-rca.md「推進的兩個階段」](docs/aiops-rca.md#推進的兩個階段先一般服務再-eap-與機台)。
+4. **metrics 這段剩下的（branch `claude/aiops-metrics` 先停在這裡，接下來討論 trace）。** 已做：收資料（Java、.NET、K8s、cAdvisor）、7 條 baseline、狀態變化與離極限多遠的規則、跟兄弟比，四個領域的案例都在 k3s 驗過（[docs/aiops-metrics.md](docs/aiops-metrics.md)、[docs/aiops-metrics-cases.md](docs/aiops-metrics-cases.md)、[docs/dotnet.md](docs/dotnet.md)）。剩下：
+
+   | 項目 | 內容 | 備註 |
+   |---|---|---|
+   | **補 baseline** | p99、慢請求比例（超過 N 秒的請求佔多少）、往外呼叫的耗時（`http.client.request.duration`） | 已確認 ES 的 `percentile_ranks` 能在直方圖上算「N 秒內的比例」；往外呼叫要排除 .NET 送資料給 Collector 自己的那幾筆。**重啟次數不做 baseline**：規則已經是重啟一次就報 |
+   | **整合：跟兄弟比 → trace** | metrics 報「pod-B 比兄弟慢」後，自動拿 pod-B 的 trace 跟其他 Pod 逐段比，指出是哪一段（例如只有它查 DB 慢 → 不是 DB 的問題，是這個 Pod 的連線或節點） | 接進根因分析（`aiops/rca`） |
+   | **整合：告警出口、合併** | 現在 baseline、規則、跟兄弟比都只寫進 `aiops-anomalies`；同一件事會有好幾筆（服務錯誤率、Pod 錯誤率、連線池用光） | 跟第 3 點「合併告警」一起做 |
+   | **慢慢爬**（趨勢） | 洩漏、磁碟好幾天才滿：算斜率、預測幾天後到上限 | 要累積幾天資料 |
+   | **.NET 還沒驗證的** | SQL Server（SqlClient）的連線池指標、.NET 6、Serilog／NLog、Alpine（musl）image | 公司的 .NET 服務多連 SQL Server 的話先補 |
+   | **要人決定的** | chart 要不要預設 Java 加 `-XX:+ExitOnOutOfMemoryError`（不加的話 OOM 後 Pod 活著但不能用） | |
+   | **要別人配合的** | 真的 Kafka（kafka_exporter）、DB 自己的指標（慢查詢、長交易）、EAP 照名稱開機台指標、網卡丟包（node_exporter）、OEE（MES／EAP 算好吐出來） | 名稱、規則已備好，見 [aiops-metrics-cases.md](docs/aiops-metrics-cases.md) |
 
 ## 目錄
 
