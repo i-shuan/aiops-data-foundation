@@ -1,0 +1,10 @@
+# test/local-k3s/run-rca-e2e.sh 用：異常讀測試用的 index，出事前只空 1 分鐘（測試只跑十幾分鐘）
+indices:
+  anomalies: aiops-anomalies-rcatest
+  traces: traces-*.otel-*
+  logs: k8s-*
+timezone: Asia/Taipei
+compare_with: 7d
+ref_gap: 1m
+sample: 200
+interval: 5m

@@ -201,18 +201,18 @@ AIOps 的其他用途要的「平常」長得不一樣，有一部分可以共�
 
 ## 每一步要的資料，現在準備到哪裡
 
-| 步驟 | 用到的資料 | 狀態 |
-|---|---|---|
-| 1. 發現異常 | metrics、trace 的流量／錯誤率／延遲；log 的樣式筆數 | ✅ 已收；⚠️ 歷史保留要拉長 |
-| 2. 合併告警 | trace 歸納出的呼叫關係 | ✅ trace 已收；呼叫關係要從 trace 計算 |
-| 3. 定位 | trace 每一段的耗時與狀態 | ✅ |
-| 4. 找原因 | 換版（`service.version`）、資源 metrics、log 樣式 | ✅ |
-| 5. 說明 | 前面的結果＋處理手冊 | ❌ 處理手冊還沒有 |
+| 步驟 | 用到的資料 | 資料 | 程式 |
+|---|---|---|---|
+| 1. 發現異常 | metrics 的流量／錯誤率／延遲；log 的筆數 | ✅ 已收；⚠️ 歷史保留要拉長 | ✅ [aiops/baseline](../aiops/baseline/README.md) |
+| 2. 合併告警 | trace 歸納出的呼叫關係 | ✅ | ⚠️ 呼叫關係圖已做（[aiops/rca](../aiops/rca/README.md) `topology`），合併還沒做 |
+| 3. 定位 | trace 每一段的耗時與狀態 | ✅ | ✅ [aiops/rca](../aiops/rca/README.md)：慢在哪一段、錯誤從哪一段開始、瀑布圖 |
+| 4. 找原因 | 換版（`service.version`）、資源 metrics、log 樣式 | ✅ | ⚠️ log：依 trace_id 撈各服務的 log、新出現的樣式（簡單規則）；換版、資源還沒接 |
+| 5. 說明 | 前面的結果＋處理手冊 | ❌ 處理手冊還沒有 | ⚠️ 報告的「結論」一節用規則寫，還沒有大型語言模型 |
 
 ## 建議順序
 
 1. **步驟 1**：用方法 A 對每個服務的核心指標做異常偵測。整個流程的起點，最快看到效果。
-2. **步驟 3**：用 trace 定位到哪一段。純統計，效果明顯。
+2. **步驟 3**：用 trace 定位到哪一段。純統計，效果明顯。✅ 已做：[aiops/rca](../aiops/rca/README.md) 從 baseline 的異常開始，照 Metrics → Trace → Log 查一遍，產出報告。
 3. **步驟 4 的 log 樣式分析**：AI 最有價值的地方，能抓到人工翻 log 找不到的「新錯誤」。
 4. **最後加大型語言模型做說明**：前面的證據越完整，它寫的結論越可靠。
 
@@ -227,13 +227,13 @@ AIOps 的其他用途要的「平常」長得不一樣，有一部分可以共�
 | 要做到的 | 狀態 |
 |---|---|
 | **三種資料對得起來**：每個請求有 trace，log 帶 `trace.id`、`span.id` | ✅ 已驗證（[traces.md](traces.md)） |
-| 從 metrics（延遲、錯誤率）直接跳到那段時間的慢 trace | ❌ 還沒做（要 metrics 帶 exemplar，或 Kibana 用服務＋時間查 trace） |
+| 從 metrics（延遲、錯誤率）直接跳到那段時間的慢 trace | ✅ [aiops/rca](../aiops/rca/README.md)：從異常的服務、API、時間找出最慢的請求，再用 trace_id 撈各服務的 log |
 | **baseline**：4 週同時段的中位數＋MAD | ✅ 程式完成，模擬資料驗證通過（[aiops/baseline](../aiops/baseline/README.md)） |
 | baseline：MAD 為 0（值都一樣）時不亂報 | ✅ 有下限：中位數的 5%、或固定值，加上 `min_abs` |
 | baseline：連續幾個點都異常才報，避免單點抖動 | ❌ 還沒做 |
 | baseline：在真實的白天尖峰、半夜離峰確認範圍貼得住 | ⏳ 要先累積 4 週的真實資料 |
 | **事故紀錄**：每次出事記下時間、影響範圍、根因，用來對帳哪些是真異常 | ❌ 格式和寫入方式還沒做 |
-| **合併告警**：下游 DB 卡住 → worker 堵塞 → API 變慢，依 trace 的呼叫關係合成一件事 | ❌ 還沒做（呼叫關係要從 trace 算） |
+| **合併告警**：下游 DB 卡住 → worker 堵塞 → API 變慢，依 trace 的呼叫關係合成一件事 | ⚠️ 呼叫關係已經能從 trace 算（`aiops_rca topology`），合併還沒做 |
 
 ### 階段 2：EAP 與機台（之後）
 
