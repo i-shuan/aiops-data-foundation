@@ -1,18 +1,9 @@
-"""跟 ES 溝通：把一條「時間序列定義」查成 DataFrame，以及寫回 baseline 和異常。
-
-連線用環境變數：
-  ES_URL                       例如 https://es.example.internal:9200
-  ES_API_KEY 或 ES_AUTH        API key 的 encoded，或 帳號:密碼
-  ES_CA（選填）                ES 憑證的 CA 檔；不給就用系統的
-"""
+"""baseline 用的 ES 查詢：把一條「時間序列定義」查成 DataFrame，以及寫回 baseline 和異常。連線見 aiops_common.es。"""
 from __future__ import annotations
 
-import hashlib
-import json
-import os
-
 import pandas as pd
-import requests
+
+from aiops_common.es import ES, doc_id  # noqa: F401（doc_id 給 __main__ 用）
 
 BASELINE_INDEX = "aiops-baseline"
 ANOMALY_INDEX = "aiops-anomalies"
@@ -30,46 +21,6 @@ ANOMALY_MAPPING = {"mappings": {"dynamic": False, "properties": {
     "expected_high": {"type": "double"}, "z": {"type": "double"}, "level": {"type": "keyword"},
     "direction": {"type": "keyword"}, "detected_at": {"type": "date"},
 }}}
-
-
-class ES:
-    def __init__(self, url: str | None = None):
-        self.url = (url or os.environ["ES_URL"]).rstrip("/")
-        self.s = requests.Session()
-        if os.environ.get("ES_API_KEY"):
-            self.s.headers["Authorization"] = f"ApiKey {os.environ['ES_API_KEY']}"
-        elif os.environ.get("ES_AUTH"):
-            self.s.auth = tuple(os.environ["ES_AUTH"].split(":", 1))
-        if os.environ.get("ES_CA"):
-            self.s.verify = os.environ["ES_CA"]
-
-    def req(self, method: str, path: str, body=None, ok=(200, 201)):
-        r = self.s.request(method, self.url + path, json=body, timeout=120)
-        if r.status_code not in ok:
-            raise RuntimeError(f"{method} {path} → {r.status_code}: {r.text[:500]}")
-        return r.json() if r.content else {}
-
-    def ensure_index(self, name: str, body: dict):
-        if self.s.head(f"{self.url}/{name}", timeout=30).status_code == 404:
-            self.req("PUT", f"/{name}", body)
-
-    def bulk_index(self, index: str, docs: list[tuple[str, dict]], chunk: int = 2000):
-        """docs：(_id, 文件)。同一個 _id 再寫一次會覆蓋，重跑不會重複。"""
-        for i in range(0, len(docs), chunk):
-            lines = []
-            for _id, doc in docs[i:i + chunk]:
-                lines.append(json.dumps({"index": {"_index": index, "_id": _id}}))
-                lines.append(json.dumps(doc, default=str))
-            r = self.s.post(f"{self.url}/_bulk?refresh=wait_for", data="\n".join(lines) + "\n",
-                            headers={"Content-Type": "application/x-ndjson"}, timeout=300)
-            body = r.json()
-            if r.status_code != 200 or body.get("errors"):
-                bad = [it for it in body.get("items", []) if it["index"].get("error")][:3]
-                raise RuntimeError(f"bulk 寫入 {index} 失敗：{r.status_code} {bad or r.text[:500]}")
-
-
-def doc_id(*parts) -> str:
-    return hashlib.sha1(json.dumps(parts, sort_keys=True, default=str).encode()).hexdigest()
 
 
 def _value_aggs(value) -> dict:

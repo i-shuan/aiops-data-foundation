@@ -1,9 +1,5 @@
-"""根因分析的計算，不碰 ES：把 span 組回一個個請求、算每一段自己花的時間、比較出事時和平常、
-畫瀑布圖、畫服務之間的呼叫關係、把 log 歸成樣式。
-
-span 的格式（es.py 從 ES 讀出來後轉成這樣）：
-  {"trace_id", "span_id", "parent", "service", "name", "kind", "target", "start_ms", "dur_ms", "error"}
-  target：往外呼叫的對象（peer.service、db.system、server.address），沒有就是 None
+"""根因分析的計算，不碰 ES：比較出事時和平常、畫瀑布圖、畫服務之間的呼叫關係、把 log 歸成樣式。
+span 的格式與「每一段自己的時間」見 aiops_common.traces。
 """
 from __future__ import annotations
 
@@ -11,54 +7,7 @@ import re
 from collections import defaultdict
 from dataclasses import dataclass, field
 
-
-def segment(s: dict) -> str:
-    """一段的名稱：服務 › 做什麼（→ 呼叫誰）。比較、排名都以這個為單位。"""
-    label = f"{s['service']} › {s['name']}"
-    return f"{label} → {s['target']}" if s.get("target") and s["kind"] == "Client" else label
-
-
-def group_traces(spans: list[dict]) -> dict[str, list[dict]]:
-    out: dict[str, list[dict]] = defaultdict(list)
-    for s in spans:
-        out[s["trace_id"]].append(s)
-    return out
-
-
-def self_times(trace: list[dict]) -> dict[str, float]:
-    """每個 span 自己花的時間（毫秒）＝ 它的耗時 − 子 span 佔掉的時間（重疊的只算一次）。
-
-    例：wip-worker 處理 3 秒，其中 2.9 秒在等 Oracle → wip-worker 自己 0.1 秒、等 Oracle 那段 2.9 秒。
-    這樣慢的那一段才會被算在真正慢的地方，不會一路算到最上層的服務。
-    """
-    children: dict[str, list[dict]] = defaultdict(list)
-    for s in trace:
-        if s.get("parent"):
-            children[s["parent"]].append(s)
-    out = {}
-    for s in trace:
-        lo, hi = s["start_ms"], s["start_ms"] + s["dur_ms"]
-        iv = sorted((max(lo, c["start_ms"]), min(hi, c["start_ms"] + c["dur_ms"])) for c in children.get(s["span_id"], []))
-        covered, cur_lo, cur_hi = 0.0, None, None
-        for a, b in iv:
-            if b <= a:
-                continue
-            if cur_hi is None or a > cur_hi:
-                if cur_hi is not None:
-                    covered += cur_hi - cur_lo
-                cur_lo, cur_hi = a, b
-            else:
-                cur_hi = max(cur_hi, b)
-        if cur_hi is not None:
-            covered += cur_hi - cur_lo
-        out[s["span_id"]] = max(0.0, s["dur_ms"] - covered)
-    return out
-
-
-def error_origins(trace: list[dict]) -> list[dict]:
-    """錯誤最早出在哪：標了錯誤、但底下的子 span 都沒錯的那些。上層只是把錯誤往上傳，不是源頭。"""
-    has_err_child = {s["parent"] for s in trace if s["error"] and s.get("parent")}
-    return [s for s in trace if s["error"] and s["span_id"] not in has_err_child]
+from aiops_common.traces import error_origins, group_traces, root_of, segment, self_times  # noqa: F401（給 __main__ 用）
 
 
 @dataclass
@@ -97,12 +46,6 @@ def compare_segments(now: dict[str, list[dict]], ref: dict[str, list[dict]]) -> 
     out = [SegmentDiff(seg, nt.get(seg, 0.0), rt.get(seg, 0.0), nc.get(seg, 0.0), rc.get(seg, 0.0), ne.get(seg, 0), re_.get(seg, 0))
            for seg in set(nt) | set(rt)]
     return sorted(out, key=lambda d: d.delta_ms, reverse=True)
-
-
-def root_of(trace: list[dict]) -> dict:
-    ids = {s["span_id"] for s in trace}
-    roots = [s for s in trace if not s.get("parent") or s["parent"] not in ids]
-    return min(roots, key=lambda s: s["start_ms"]) if roots else trace[0]
 
 
 def waterfall(trace: list[dict], width: int = 40) -> list[str]:

@@ -1,7 +1,7 @@
 """模擬資料的端到端測試：寫 4 週＋1 天的模擬歷史進 ES，最後一天插入已知的異常，
 跑 train（只用前 4 週）與 detect（最後一天），檢查抓到了哪些、正常的點誤報多少。
 
-執行（在 aiops/baseline 底下）：ES_URL=... ES_AUTH=... python3 -m tests.synth_e2e
+執行（在 aiops 底下）：ES_URL=... ES_AUTH=... python3 -m tests.synth_e2e
 會建立／覆蓋 index aiops-synth，以及 aiops-baseline、aiops-anomalies 裡 series 名稱以 synth. 開頭的資料。
 """
 from __future__ import annotations

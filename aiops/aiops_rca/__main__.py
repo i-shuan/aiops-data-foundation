@@ -1,12 +1,12 @@
-"""用法（在 aiops/rca 底下）：
+"""用法（在 aiops 底下）：
 
   # 從 baseline 找到的異常開始（最近 30 分鐘裡最嚴重的那個服務）
-  python3 -m aiops_rca investigate --config rca.yaml
+  python3 -m aiops_rca investigate --config rca/rca.yaml
   # 指定服務、API、時間
-  python3 -m aiops_rca investigate --config rca.yaml --service mes-api --route "GET /lots/{id}" \\
+  python3 -m aiops_rca investigate --config rca/rca.yaml --service mes-api --route "GET /lots/{id}" \\
       --start 2026-10-10T02:00:00Z --end 2026-10-10T02:15:00Z
   # 服務之間的呼叫關係
-  python3 -m aiops_rca topology --config rca.yaml --window 1h
+  python3 -m aiops_rca topology --config rca/rca.yaml --window 1h
 
 investigate 照「Metrics 發現異常 → Trace 縮小到哪一段 → Log 找出原因」的順序查，印出一份 Markdown 報告；
 --out 另存成檔案。
@@ -19,6 +19,8 @@ import sys
 from datetime import datetime, timedelta, timezone
 
 import yaml
+
+from aiops_common import traces as T
 
 from . import analyze as A
 from . import es as E
@@ -49,19 +51,30 @@ def _delta(v: float) -> str:
     return ("+" if v >= 0 else "-") + _ms(abs(v))
 
 
+def _svc_of(keys: dict) -> str | None:
+    """異常是哪個服務：metrics 的序列用 resource.attributes.service.name，trace 每一段的用 entry.service。"""
+    return keys.get("resource.attributes.service.name") or keys.get("entry.service")
+
+
+def _route_of(keys: dict) -> str | None:
+    """哪支 API（trace 裡 Server span 的名稱，例如 "GET /lots/{id}"）。"""
+    if keys.get("entry.name"):
+        return keys["entry.name"]
+    if keys.get("attributes.http_request_method") and keys.get("attributes.http_route"):
+        return f"{keys['attributes.http_request_method']} {keys['attributes.http_route']}"
+    return None
+
+
 def pick_from_anomalies(es, cfg, start, end):
     """沒指定服務：從 baseline 寫的異常裡，挑這段時間最嚴重的服務（偏離倍數最大），時間範圍取它異常的那段。
     異常帶著 method、API 的話（http.* 序列），也只查那支 API。"""
     rows = E.anomalies(es, cfg["indices"]["anomalies"], start, end)
-    rows = [r for r in rows if (r.get("keys") or {}).get("resource.attributes.service.name")]
+    rows = [r for r in rows if _svc_of(r.get("keys") or {})]
     if not rows:
         return None
     top = max(rows, key=lambda r: abs(r.get("z") or 0))
-    svc = top["keys"]["resource.attributes.service.name"]
-    k = top["keys"]
-    route = f"{k['attributes.http_request_method']} {k['attributes.http_route']}" \
-        if k.get("attributes.http_request_method") and k.get("attributes.http_route") else None
-    mine = [r for r in rows if r["keys"].get("resource.attributes.service.name") == svc]
+    svc, route = _svc_of(top["keys"]), _route_of(top["keys"])
+    mine = [r for r in rows if _svc_of(r["keys"]) == svc]
     t = sorted(_ts(r["@timestamp"]) for r in mine)
     # 異常的時間是那 5 分鐘的開始，所以查到最後一個異常再往後 5 分鐘
     return svc, route, t[0], t[-1] + _dur(cfg.get("interval", "5m")), mine
@@ -101,11 +114,13 @@ def investigate(cfg: dict, args) -> str:
     # ── 1. Metrics ──
     out += ["## 1. Metrics：發現異常", ""]
     if found:
-        out += ["| 時間 | 指標 | 現在 | 平常 | 偏離 |", "|---|---|---|---|---|"]
-        for r in found[:10]:
-            out.append(f"| {_local(_ts(r['@timestamp']), tz)} | `{r['series']}` | {r['value']:.4g} | {r['median']:.4g} | {r['z']:.1f} 倍 |")
+        out += ["| 時間 | 指標 | 哪一段 | 現在 | 平常 | 偏離 |", "|---|---|---|---|---|---|"]
+        for r in sorted(found, key=lambda r: -abs(r.get("z") or 0))[:10]:
+            z = f"{r['z']:.1f} 倍" if r.get("z") is not None else "規則"
+            out.append(f"| {_local(_ts(r['@timestamp']), tz)} | `{r['series']}` | {r['keys'].get('segment', '')} "
+                       f"| {r['value']:.4g} | {r['median']:.4g} | {z} |")
         if len(found) > 10:
-            out.append(f"| … | 共 {len(found)} 筆 | | | |")
+            out.append(f"| … | 共 {len(found)} 筆 | | | | |")
     else:
         out.append("這段時間 baseline 沒有記到這個服務的異常（直接指定服務查）。")
     out.append("")
@@ -125,11 +140,11 @@ def investigate(cfg: dict, args) -> str:
 
     pad = timedelta(minutes=5)
     now_ids = E.sample_trace_ids(es, ix["traces"], service, route, start, end, n, slowest=True)
-    now_tr = A.group_traces(E.spans_of(es, ix["traces"], now_ids, start - pad, end + pad))
+    now_tr = T.group_traces(T.spans_of(es, ix["traces"], now_ids, start - pad, end + pad))
     ref_tr = {}
     if ref_start:
         ref_ids = E.sample_trace_ids(es, ix["traces"], service, route, ref_start, ref_end, n, slowest=False)
-        ref_tr = A.group_traces(E.spans_of(es, ix["traces"], ref_ids, ref_start - pad, ref_end + pad))
+        ref_tr = T.group_traces(T.spans_of(es, ix["traces"], ref_ids, ref_start - pad, ref_end + pad))
 
     # ── 3. Trace：瓶頸 ──
     diffs = A.compare_segments(now_tr, ref_tr)
@@ -194,7 +209,7 @@ def topology(cfg: dict, args) -> str:
     end = _ts(args.at)
     start = end - _dur(args.window)
     ids = E.recent_trace_ids(es, cfg["indices"]["traces"], start, end, args.sample)
-    tr = A.group_traces(E.spans_of(es, cfg["indices"]["traces"], ids, start - timedelta(minutes=5), end + timedelta(minutes=5)))
+    tr = T.group_traces(T.spans_of(es, cfg["indices"]["traces"], ids, start - timedelta(minutes=5), end + timedelta(minutes=5)))
     edges = A.topology(tr)
     tz = cfg.get("timezone", "Asia/Taipei")
     out = [f"# 服務之間的呼叫關係：{_local(start, tz)}～{_local(end, tz)}（{tz}，最近 {len(tr)} 個請求）", "",

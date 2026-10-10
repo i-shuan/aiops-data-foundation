@@ -71,11 +71,11 @@ es -X POST "${ES_URL}/traces-*.otel-*,k8s-*/_refresh" >/dev/null
 
 echo "== 6. investigate（不指定服務，從異常開始）"
 report="$(mktemp)"
-(cd "${repo}/aiops/rca" && ES_URL="${ES_URL}" ES_API_KEY="${BASELINE_KEY}" \
-  python3 -m aiops_rca investigate --config tests/k3s.yaml --at "$(iso "${t2}")" --window 15m --out "${report}" >/dev/null)
+(cd "${repo}/aiops" && ES_URL="${ES_URL}" ES_API_KEY="${BASELINE_KEY}" \
+  python3 -m aiops_rca investigate --config tests/rca_k3s.yaml --at "$(iso "${t2}")" --window 15m --out "${report}" >/dev/null)
 echo "   報告：${report}"
 has "從異常找到服務與 API"                 "rca-mes-api（GET /lots/{id}）"
-has "列出那筆異常（Metrics）"              '`http.latency_p95_s` | 1.55 | 0.08 | 41.2 倍'
+has "列出那筆異常（Metrics）"              '`http.latency_p95_s` |  | 1.55 | 0.08 | 41.2 倍'
 has "「平常」用出事前那一段（一週前沒資料）" "平常（出事前一段時間）"
 has "瓶頸：Oracle 那一段（Trace）"          "主要多在 **rca-wip-worker › SELECT LOT_HISTORY → oracle**"
 has "錯誤源頭：Oracle 那一段，不是上層"      "錯誤最早出在 **rca-wip-worker › SELECT LOT_HISTORY → oracle**"
@@ -87,8 +87,8 @@ has "呼叫關係：mes-api → wip-worker"         'rca_mes_api["rca-mes-api"] 
 has "呼叫關係：wip-worker → oracle"          'oracle["oracle"]'
 
 echo "== 7. topology"
-topo="$(cd "${repo}/aiops/rca" && ES_URL="${ES_URL}" ES_API_KEY="${BASELINE_KEY}" \
-  python3 -m aiops_rca topology --config tests/k3s.yaml --at "$(iso "${t2}")" --window 15m)"
+topo="$(cd "${repo}/aiops" && ES_URL="${ES_URL}" ES_API_KEY="${BASELINE_KEY}" \
+  python3 -m aiops_rca topology --config tests/rca_k3s.yaml --at "$(iso "${t2}")" --window 15m)"
 check "rca-mes-api → rca-wip-worker"  "$(grep -c '^| rca-mes-api | rca-wip-worker |' <<<"${topo}")" 1
 check "rca-wip-worker → oracle"       "$(grep -c '^| rca-wip-worker | oracle |' <<<"${topo}")" 1
 

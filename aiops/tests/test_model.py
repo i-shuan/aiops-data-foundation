@@ -1,4 +1,4 @@
-"""model.py 的單元測試，不需要 ES。執行：cd aiops/baseline && python3 -m unittest -v"""
+"""model.py 的單元測試，不需要 ES。執行：cd aiops && python3 -m unittest discover -s tests -t ."""
 import unittest
 
 import numpy as np

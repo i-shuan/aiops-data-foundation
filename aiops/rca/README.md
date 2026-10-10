@@ -30,20 +30,20 @@ trace 是中間那座橋：沒有它，只知道「mes-api 變慢」，要在幾
 ## 怎麼跑
 
 ```bash
-cd aiops/rca
-pip install -r requirements.txt          # pyyaml、requests
+cd aiops                                 # baseline、根因分析是同一個 Python 專案
+pip install -r requirements.txt
 export ES_URL=https://<es>:9200
 export ES_API_KEY=<baseline 的 key>      # elasticsearch-setup.sh 發的「AIOps baseline key」：能讀 log、trace、aiops-*
 
 # 從 baseline 找到的異常開始：最近 30 分鐘裡最嚴重的那個服務
-python3 -m aiops_rca investigate --config rca.yaml
+python3 -m aiops_rca investigate --config rca/rca.yaml
 
 # 指定服務、API、時間
-python3 -m aiops_rca investigate --config rca.yaml --service mes-api --route "GET /lots/{id}" \
+python3 -m aiops_rca investigate --config rca/rca.yaml --service mes-api --route "GET /lots/{id}" \
     --start 2026-10-10T02:00:00Z --end 2026-10-10T02:15:00Z --out report.md
 
 # 服務之間的呼叫關係（最近 1 小時、最近 2,000 個請求）
-python3 -m aiops_rca topology --config rca.yaml --window 1h
+python3 -m aiops_rca topology --config rca/rca.yaml --window 1h
 ```
 
 報告是 Markdown，裡面的關係圖是 mermaid，貼到 GitHub、GitLab 或 Kibana 的 Markdown 都看得到圖。
@@ -104,7 +104,7 @@ rca-mes-api › GET /lots/{id}                       |████████�
 ## 驗證
 
 ```bash
-python3 -m unittest discover -s tests -t .                  # 單元測試，不需要 ES（8 項）
+python3 -m unittest discover -s tests -t .                  # 在 aiops 底下；單元測試，不需要 ES
 ES_URL=http://<ip>:9200 test/local-k3s/run-rca-e2e.sh        # k3s 端到端，約 14 分鐘
 ```
 

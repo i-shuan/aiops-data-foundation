@@ -1,0 +1,24 @@
+# trace 每一段的 baseline（aiops_baseline/trace.py）：每個 API 的每個請求，呼叫每一段幾次、花多久、出錯比例。
+# 對應的案例見 docs/aiops-cases.md：N+1、重試風暴、快取穿透（次數）；拖累、熱點鎖（時間）。
+traces_index: traces-*.otel-*
+interval: 5m              # 每 5 分鐘一個點
+history_weeks: 4
+sample_per_bucket: 20     # 每 5 分鐘、每個 API 抽幾個請求來算（平均每個請求呼叫幾次，20 個就很穩）
+min_requests: 5           # 這 5 分鐘抽到的請求少於這個數，不判斷（太少，平均不準）
+clock_skew_ms: 500        # 呼叫方與被呼叫方的時間差超過這個就算時鐘不同步（規則，不用學）
+
+train:
+  timezone: Asia/Taipei
+  min_weeks: 2
+  min_days: 3
+  min_points: 50
+
+detect:
+  z: 5
+  rel_floor: 0.1          # 每個請求呼叫幾次這種數字很穩（MAD 常常是 0），波動至少當成平常值的 10%
+
+# 三種數字各自怎麼判斷
+metrics:
+  calls:      {direction: both, min_abs: 0.5}    # 每個請求至少多（或少）0.5 次：N+1、重試、快取穿透；少了可能是功能沒跑
+  time_ms:    {direction: up,   min_abs: 20}     # 至少多 20 毫秒：拖累、熱點鎖、慢查詢
+  error_rate: {direction: up,   min_abs: 0.05}   # 至少多 5 個百分點

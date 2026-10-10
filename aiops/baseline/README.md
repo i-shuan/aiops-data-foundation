@@ -112,25 +112,86 @@ ES（log、metrics、trace）
 | **沒見過的東西** | 新出現的錯誤訊息、新出現的呼叫關係 | 這套只看數字大小，不看「有沒有見過」 | 「集合」baseline：log 樣式字典、呼叫關係圖 |
 | **新服務、新 API** | 剛上線的服務 | 沒有歷史就沒有 baseline，前幾天不判斷 | 先用同類服務的範圍，或接受前兩週只記錄不告警 |
 
+## trace 每一段的 baseline
+
+上面是「每個服務一條線」。很多故障這樣看不到（[docs/aiops-cases.md](../../docs/aiops-cases.md)）：N+1、重試風暴、快取穿透時，每一次呼叫都很快，服務的延遲只動一點點，真正變的是**每個請求呼叫某一段幾次**。所以另外學 trace 每一段的「平常」：
+
+| 數字 | 意思 | 抓什麼 |
+|---|---|---|
+| `trace.segment.calls` | 每個請求呼叫這一段幾次 | N+1（1 次 → 100 次）、重試風暴（1 → 4）、快取穿透（0.05 → 1）；變少也報（功能可能沒跑） |
+| `trace.segment.time_ms` | 每個請求在這一段花多久 | 下游拖累（簡訊廠商掛了）、熱點鎖、慢查詢 |
+| `trace.segment.error_rate` | 這一段出錯的請求比例 | 某個呼叫開始失敗 |
+| `trace.segment.new` | 這支 API 從來沒出現過的呼叫 | 換版後開始直連另一個資料庫、多呼叫一個外部系統（規則：這支 API 有 baseline、這一段沒有，每個請求至少 0.5 次） |
+| `trace.clock_skew_ms` | 被呼叫方比呼叫方早開始（或晚結束）多少 | 時鐘不同步（規則，不用學：超過 500ms 就記） |
+
+**「段」是什麼：** 以每個 API（服務收到的請求）為單位，只算這個服務自己的部分：
+- 自己的程式：扣掉往外呼叫的時間。
+- 往外的每一個呼叫：查 DB、呼叫別的服務、外部廠商，等多久就算多久。
+
+下游服務裡面發生的事，由下游自己那支 API 的 baseline 管。所以 N+1 會出在 wip-worker 那支 API，不會連 mes-api 也一起報。
+
+```
+mes-api › GET /lots/{id}（每個請求）
+  ├─ mes-api › GET /lots/{id}            自己的程式        平常 3 ms
+  ├─ mes-api › SELECT LOT → oracle       快取沒命中才查    平常 0.05 次、5 ms
+  ├─ mes-api › GET → rca-wip-worker      呼叫 wip-worker   平常 1 次、50 ms
+  └─ mes-api › POST → sms-gateway        通知簡訊          平常 1 次、20 ms
+```
+
+**怎麼算：**
+
+```
+trace-detect（每 5 分鐘）
+   ↓ 每個 API 抽 20 個請求（依 trace_id 取前 20 個，trace_id 是隨機的，等於隨機抽）
+   ↓ 每個請求、每一段：呼叫幾次、花多久、有沒有出錯 → 平均
+   → aiops-trace-segments（統計值，很小，可以留很久；trace 原文只留 7 天）
+   ↓ 跟 baseline 比 → aiops-anomalies
+trace-train（每天）
+   ↓ 讀 aiops-trace-segments 過去 4 週 → 每個「API × 段」× 時段（星期幾 × 小時）的中位數、MAD
+   → aiops-baseline
+```
+
+學和判斷的方法跟上面一樣（中位數＋MAD、z 5 倍、`min_abs`），設定在 [trace.yaml](trace.yaml)。
+
+```bash
+python3 -m aiops_baseline trace-collect --config baseline/trace.yaml   # 第一次：補過去 7 天的統計（trace 只留 7 天）
+python3 -m aiops_baseline trace-train   --config baseline/trace.yaml   # 每天
+python3 -m aiops_baseline trace-detect  --config baseline/trace.yaml   # 每 5 分鐘（同時累積統計）
+```
+
+剛上線時只有 7 天的統計，學出來是 `hour` 或 `all` 層級；累積到 2 週以上才有「同星期幾 × 同小時」。
+
+**實測**（`test/local-k3s/run-trace-baseline-e2e.sh`，兩個模擬服務走真正的路線：Collector → ES；測試用 1 分鐘一點、學 20 分鐘）：
+
+| 情境 | 抓到的（預期那一段） | 同時也報的 |
+|---|---|---|
+| 正常 3 分鐘 | 沒有異常 ✅ | — |
+| N+1：wip-worker 每個請求查 100 次 | ✅ `calls`：wip-worker › SELECT LOT_HISTORY → oracle（z 990） | mes-api 等 wip-worker 的時間變長（正確：上游看到的是變慢） |
+| 重試風暴：mes-api 呼叫 wip-worker 4 次 | ✅ `calls`：mes-api › GET → rca-wip-worker（z 30） | mes-api 自己的時間一次（模擬程式多跑了迴圈） |
+| 快取穿透：每個請求都查 DB（平常 5%） | ✅ `calls`：mes-api › SELECT LOT → oracle（z 12） | — |
+| 簡訊廠商掛了：20ms → 3 秒 | ✅ `time_ms`：mes-api › POST → sms-gateway（z 1490） | — |
+
+單元測試（`tests/test_trace.py`）在記憶體裡模擬 4 週、每小時 20 個請求，同樣 4 個案例都抓到、正常 5 次 0 誤報。
+
 ## 怎麼跑
 
 ```bash
-cd aiops/baseline
+cd aiops                            # baseline、根因分析是同一個 Python 專案
 pip install -r requirements.txt     # pandas、numpy、pyyaml、requests
 
 export ES_URL=https://<es>:9200
 export ES_API_KEY=<elasticsearch-setup.sh 發的「AIOps baseline key」>   # 只能讀資料、寫 aiops-*
 # export ES_CA=/path/to/ca.crt      # ES 用內部 CA 的話
 
-python3 -m aiops_baseline train  --config series.yaml          # 每天跑一次（例如凌晨）
-python3 -m aiops_baseline detect --config series.yaml          # 每 5 分鐘跑一次，看最近 30 分鐘
+python3 -m aiops_baseline train  --config baseline/series.yaml   # 每天跑一次（例如凌晨）
+python3 -m aiops_baseline detect --config baseline/series.yaml   # 每 5 分鐘跑一次，看最近 30 分鐘
 ```
 
 排程例子（crontab）：
 
 ```
-15 3 * * *  cd /opt/aiops/baseline && python3 -m aiops_baseline train  --config series.yaml >> train.log 2>&1
-*/5 * * * * cd /opt/aiops/baseline && python3 -m aiops_baseline detect --config series.yaml >> detect.log 2>&1
+15 3 * * *  cd /opt/aiops && python3 -m aiops_baseline train  --config baseline/series.yaml >> train.log 2>&1
+*/5 * * * * cd /opt/aiops && python3 -m aiops_baseline detect --config baseline/series.yaml >> detect.log 2>&1
 ```
 
 回測（拿過去某個時間點當「現在」）：`train --end 2026-10-01T00:00:00Z`、`detect --at 2026-10-01T10:00:00Z --window 1D`。
@@ -149,7 +210,7 @@ detect 只看**已經結束**的 5 分鐘：還沒收齊的那一段筆數會偏
 ## 驗證
 
 ```bash
-python3 -m unittest discover -s tests -t .              # 單元測試，不需要 ES（13 項）
+python3 -m unittest discover -s tests -t .              # 在 aiops 底下；單元測試，不需要 ES
 ES_URL=... ES_AUTH=... python3 -m tests.synth_e2e      # 模擬資料，需要 ES
 ```
 

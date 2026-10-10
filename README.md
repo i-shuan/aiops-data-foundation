@@ -22,7 +22,7 @@
 - [docs/aiops-rca.md](docs/aiops-rca.md)：**AIOps 根因分析怎麼做**：三種資料各回答什麼、六個步驟裡哪幾步需要 AI，以及最關鍵的「怎麼知道平常的樣子」（看哪些指標、週期、方法、需要的條件）。
 - [docs/aiops-cases.md](docs/aiops-cases.md)：**15 個真實故障案例要哪種「平常」才抓得到**：N+1、錯誤被吞、連線池洩漏、重試風暴、單一 Pod 壞掉…逐一對到訊號、baseline 種類、資料與程式現況，排出接下來要做的順序。
 - [docs/retention.md](docs/retention.md)：**保留天數與容量（方案，還沒套用）**：各種資料留多久、舊 metrics 降解析度、log 和 trace 改留統計值，以及容量估算。
-- [aiops/baseline/](aiops/baseline/README.md)：**AIOps 第一步：學「平常的樣子」、抓異常**。每個服務 × API × 指標，取過去 4 週同時段的中位數與範圍；模擬資料測試 4 個異常全部抓到、2,592 個正常點 0 誤報。
+- [aiops/baseline/](aiops/baseline/README.md)：**AIOps 第一步：學「平常的樣子」、抓異常**。每個服務 × API × 指標，取過去 4 週同時段的中位數與範圍；模擬資料測試 4 個異常全部抓到、2,592 個正常點 0 誤報。另外學 **trace 每一段的平常**（每個請求呼叫每一段幾次、花多久）：k3s 實測 N+1、重試風暴、快取穿透、外部廠商掛掉都抓到。
 - [aiops/rca/](aiops/rca/README.md)：**AIOps 第二步：根因分析**。baseline 發現異常後，照 Metrics → Trace → Log 自動查：慢在哪一段、錯誤從哪裡開始、各服務的 log、新出現的錯誤樣式、呼叫關係圖，產出報告。k3s 實測：製造 Oracle 變慢，正確指到那一段和那行 log。
 - [docs/otel-logs-compare.md](docs/otel-logs-compare.md)：log 從 Fluent Bit 改用 OpenTelemetry Collector 之前的比較紀錄與決定。
 
@@ -74,7 +74,7 @@
 ## 目錄
 
 ```
-aiops/       AIOps：baseline（學平常的樣子、抓異常）、rca（根因分析：Metrics → Trace → Log）
+aiops/       AIOps（一個 Python 專案）：baseline（學平常的樣子、抓異常，metrics 與 trace 每一段）、rca（根因分析：Metrics → Trace → Log）
 apps/        應用端：共用 chart、範例、Java log 設定、trace 埋點指引、CI 檢查
 platform/    平台端：groups.yaml（部門 → group）、中央 ES 設定、各 cluster 的 OpenTelemetry Collector（log 與 metrics）
 docs/        設計文件與測試紀錄

@@ -1,6 +1,6 @@
 # 根因分析（aiops/rca）的測試應用：模擬兩個服務，資料走真正的路線（OTel Collector → ES）。
 #
-#   rca-mes-api（it-mes-prod）  每 0.5 秒處理一個請求「GET /lots/{id}」，呼叫 rca-wip-worker
+#   rca-mes-api（it-mes-prod）  每 0.5 秒處理一個請求「GET /lots/{id}」：5% 快取沒命中要查 Oracle、呼叫 rca-wip-worker、通知簡訊廠商
 #   rca-wip-worker（imc-wip-prod）收到後查 Oracle「SELECT LOT_HISTORY」（平常 30ms）
 #
 # 兩個服務都把自己的 span 送到 Collector、印一行帶 trace_id 的 JSON log，所以 log 和 trace 對得起來。
@@ -12,6 +12,11 @@
 # 製造事故（run-rca-e2e.sh 做）：在 rca-wip-worker 的 Pod 裡
 #   echo 1.5 > /tmp/db_delay   查 Oracle 變 1.5 秒
 #   touch /tmp/slow            印出 error log「Connection pool timeout … 10.0.1.5:5432 …」，約 1/4 的請求失敗
+#   touch /tmp/n1              N+1：每個請求查 Oracle 100 次（run-trace-baseline-e2e.sh 用，下面三個也是）
+# 在 rca-mes-api 的 Pod 裡：
+#   touch /tmp/retry           重試風暴：每個請求呼叫 wip-worker 4 次
+#   touch /tmp/cold            快取穿透：每個請求都查 Oracle「SELECT LOT」（平常 5%）
+#   touch /tmp/sms_hang        簡訊廠商掛了：通知簡訊那段從 20ms 變 3 秒
 apiVersion: v1
 kind: ConfigMap
 metadata: {name: rca-mes-api, namespace: it-mes-prod}
@@ -21,13 +26,27 @@ data:
     i=0
     while :; do
       i=$((i + 1)); lot="L$((100000 + i))"
-      tid=$(hex 16); root=$(hex 8); cli=$(hex 8)
-      t0=$(now)
-      if wget -q -O /dev/null -T 10 "http://rca-wip-worker.imc-wip-prod.svc/cgi-bin/wip?tid=${tid}&psid=${cli}&lot=${lot}" 2>/dev/null; then err=""; else err=1; fi
-      t1=$(now)
+      tid=$(hex 16); root=$(hex 8)
+      t0=$(now); spans=""; err=""
+      # 快取沒命中（平常 5%；/tmp/cold：剛開機、快取是空的，每個都查）
+      if [ -f /tmp/cold ] || [ $(( $(od -An -N1 -tu1 /dev/urandom) % 20 )) -eq 0 ]; then
+        spans="${spans},$(span "$tid" "$(hex 8)" "$root" "SELECT LOT" 3 $((t0 + 1)) $((t0 + 6)) "$(attr db.system oracle)" "")"
+      fi
+      # 呼叫 wip-worker（平常 1 次；/tmp/retry：逾時設太短，每次都重試到 4 次）
+      n=1; [ -f /tmp/retry ] && n=4
+      k=0
+      while [ $k -lt $n ]; do
+        k=$((k + 1)); cli=$(hex 8); ca=$(now)
+        if wget -q -O /dev/null -T 10 "http://rca-wip-worker.imc-wip-prod.svc/cgi-bin/wip?tid=${tid}&psid=${cli}&lot=${lot}" 2>/dev/null; then e=""; else e=1; err=1; fi
+        spans="${spans},$(span "$tid" "$cli" "$root" "GET" 3 "$ca" "$(now)" "$(attr peer.service rca-wip-worker)" "$e")"
+      done
+      # 通知簡訊廠商（平常 20ms；/tmp/sms_hang：廠商掛了、沒設逾時，等 3 秒。時間是模擬的，不真的等）
+      s0=$(now); sms=20; [ -f /tmp/sms_hang ] && sms=3000
+      spans="${spans},$(span "$tid" "$(hex 8)" "$root" "POST" 3 "$s0" $((s0 + sms)) "$(attr peer.service sms-gateway)" "")"
+      t1=$((s0 + sms + 1))
       if [ -n "$err" ]; then log ERROR "lot ${lot} failed: wip-worker returned error" "$tid" "$root"
       else log INFO "lot ${lot} handled in $((t1 - t0))ms" "$tid" "$root"; fi
-      send rca-mes-api "$(span "$tid" "$root" "" "GET /lots/{id}" 2 "$t0" $((t1 + 2)) "$(attr http.request.method GET),$(attr http.route /lots/{id})" "$err"),$(span "$tid" "$cli" "$root" "GET" 3 $((t0 + 1)) "$t1" "$(attr peer.service rca-wip-worker)" "$err")"
+      send rca-mes-api "$(span "$tid" "$root" "" "GET /lots/{id}" 2 "$t0" "$t1" "$(attr http.request.method GET),$(attr http.route /lots/{id})" "$err")${spans}"
       sleep 0.5
     done
 ---
@@ -70,7 +89,17 @@ data:
       log INFO "lot ${lot} found in LOT_HISTORY" "$tid" "$sid" > /proc/1/fd/1
     fi
     t1=$(now)
-    send rca-wip-worker "$(span "$tid" "$sid" "$psid" "GET /wip" 2 "$t0" $((t1 + 1)) "$(attr http.request.method GET)" "$fail"),$(span "$tid" "$db" "$sid" "SELECT LOT_HISTORY" 3 "$d0" "$d1" "$(attr db.system oracle),$(attr server.address 10.0.1.5)" "$fail")"
+    dbspans="$(span "$tid" "$db" "$sid" "SELECT LOT_HISTORY" 3 "$d0" "$d1" "$(attr db.system oracle),$(attr server.address 10.0.1.5)" "$fail")"
+    # /tmp/n1：換版後把查詢寫進迴圈，每個請求查 100 次、每次 2ms（時間是模擬的）
+    if [ -f /tmp/n1 ]; then
+      j=0; dbspans=""
+      while [ $j -lt 100 ]; do
+        dbspans="${dbspans}${dbspans:+,}$(span "$tid" "$(hex 8)" "$sid" "SELECT LOT_HISTORY" 3 $((d1 + j * 2)) $((d1 + j * 2 + 2)) "$(attr db.system oracle)" "")"
+        j=$((j + 1))
+      done
+      t1=$((d1 + 200))
+    fi
+    send rca-wip-worker "$(span "$tid" "$sid" "$psid" "GET /wip" 2 "$t0" $((t1 + 1)) "$(attr http.request.method GET)" "$fail"),${dbspans}"
     if [ -n "$fail" ]; then printf 'Status: 500 Internal Server Error\r\nContent-Type: text/plain\r\n\r\nerror\n'
     else printf 'Content-Type: text/plain\r\n\r\nok\n'; fi
 ---
