@@ -15,8 +15,11 @@ import sys
 import pandas as pd
 import yaml
 
+from aiops_common.es import get_field
+
 from .es import (ANOMALY_INDEX, ANOMALY_MAPPING, BASELINE_INDEX, BASELINE_MAPPING, ES, doc_id, fetch,
                  load_baseline)
+from . import rules as R
 from . import trace as T
 from .model import DetectOptions, TrainOptions, score, train
 
@@ -224,6 +227,42 @@ def cmd_trace_detect(cfg: dict, args) -> int:
     return 0
 
 
+# ── 規則：狀態變化、離極限多遠（aiops_baseline/rules.py、baseline/rules.yaml）──
+
+RULE_FIELDS = {"severity": {"type": "keyword"}, "message": {"type": "text"}, "rule": {"type": "keyword"}}
+
+
+def cmd_rules(cfg: dict, args) -> int:
+    es = ES()
+    es.ensure_index(ANOMALY_INDEX, ANOMALY_MAPPING)
+    es.req("PUT", f"/{ANOMALY_INDEX}/_mapping", {"properties": RULE_FIELDS})   # 舊的 index 補上規則用的欄位
+    now = _now(args.at)
+    slot = now.floor(_freq(cfg.get("interval", "1m")))
+    start = now - pd.Timedelta(_freq(cfg.get("lookback", "10m")))
+    names = set(args.only.split(",")) if args.only else None
+    docs, fired = [], 0
+    for rule in cfg["rules"]:
+        if names and rule["name"] not in names:
+            continue
+        hits = R.evaluate(rule, R.fetch(es, rule, start, now), now)
+        for h in hits:
+            keys = {f: v for f, v in zip(rule["by"], h["key"])}
+            # 附帶的資訊（服務名稱、節點），根因分析用來對到服務；不參與「同一個對象」的判斷
+            keys.update({f: v for f in rule.get("context", []) if (v := get_field(h["last"], f)) is not None})
+            msg = R.describe(rule, h)
+            docs.append((doc_id(f"rule.{rule['name']}", keys, slot), {
+                "@timestamp": slot.isoformat(), "series": f"rule.{rule['name']}", "rule": rule["name"], "keys": keys,
+                "value": h["value"], "median": None, "expected_low": None, "expected_high": rule["threshold"],
+                "z": None, "level": "rule", "direction": rule.get("op", ">="), "severity": rule.get("severity", "warning"),
+                "message": msg, "since": h["since"].isoformat(), "detected_at": pd.Timestamp.now(tz="UTC").isoformat()}))
+            print(f"  [{rule.get('severity', 'warning')}] {msg}")
+        fired += len(hits)
+    if docs:
+        es.bulk_index(ANOMALY_INDEX, docs)
+    print(f"{slot.tz_convert('Asia/Taipei'):%m-%d %H:%M}：{len(cfg['rules'])} 條規則，觸發 {fired} 個")
+    return 0
+
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(prog="aiops_baseline")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -247,11 +286,15 @@ def main(argv=None) -> int:
     td.add_argument("--config", required=True)
     td.add_argument("--window", default="30min")
     td.add_argument("--at")
+    r = sub.add_parser("rules")
+    r.add_argument("--config", required=True)
+    r.add_argument("--at", help="回測：拿過去某個時間點當成現在")
+    r.add_argument("--only", help="只跑這幾條（逗號分開）")
     args = p.parse_args(argv)
     with open(args.config, encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
     cmds = {"train": cmd_train, "detect": cmd_detect, "trace-collect": cmd_trace_collect,
-            "trace-train": cmd_trace_train, "trace-detect": cmd_trace_detect}
+            "trace-train": cmd_trace_train, "trace-detect": cmd_trace_detect, "rules": cmd_rules}
     return cmds[args.cmd](cfg, args)
 
 

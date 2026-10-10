@@ -173,6 +173,34 @@ python3 -m aiops_baseline trace-detect  --config baseline/trace.yaml   # 每 5 �
 
 單元測試（`tests/test_trace.py`）在記憶體裡模擬 4 週、每小時 20 個請求，同樣 4 個案例都抓到、正常 5 次 0 誤報。
 
+## 規則：狀態變化、離極限多遠
+
+有些問題不用學「平常」：發生了就是問題（容器重啟、副本不夠），或有明確的上限（記憶體、磁碟）。這些用規則判斷，**不用歷史，裝上去第一天就有用**。規則在 [rules.yaml](rules.yaml)：
+
+| 規則 | 看什麼 | 觸發 | 嚴重度 |
+|---|---|---|---|
+| `container.restarted` | 容器重啟次數 | 最近 10 分鐘增加 ≥ 1 | critical |
+| `deployment.unavailable` | 要的副本 − 可用副本 | ≥ 1，3 分鐘裡至少 80% 的時間（換版滾動的短暫不足不算；一直重啟、每次短暫起來的也抓得到） | critical |
+| `statefulset.unavailable`、`daemonset.unavailable` | 同上 | 同上 | critical／warning |
+| `pod.failed` | Pod 狀態 | Failed | critical |
+| `pod.pending` | Pod 狀態 | Pending 連續 5 分鐘（拉不到 image、資源不夠排不上去） | warning |
+| `job.failed` | Job 失敗的 Pod 數 | 增加 ≥ 1 | warning |
+| `node.not_ready`、`node.memory_pressure`、`node.disk_pressure` | 節點狀態 | 成立 | critical |
+| `scrape.down` | 應用的 metrics 抓不抓得到（`up`） | 0，連續 1 分鐘 | warning |
+| `container.memory_near_limit` | 記憶體 ÷ 上限 | ≥ 90%，連續 2 分鐘（再上去會被 OOM kill） | warning |
+| `node.memory_high` | 節點記憶體 ÷ 總量 | ≥ 90%，連續 5 分鐘 | warning |
+| `node.disk_high`、`node.disk_full` | 節點磁碟用量 ÷ 容量 | ≥ 85%（5 分鐘）／≥ 95%（1 分鐘） | warning／critical |
+
+四種寫法：`value`（欄位跟門檻比）、`compare`（兩個欄位相減）、`ratio`（欄位 ÷ 分母）、`increase`（累計值增加多少，歸零重來也算得對）。`for` 是「這段時間都成立才算」，`min_ratio` 放寬成「這段時間裡至少多少比例成立」。要加規則，在 rules.yaml 加一段，不用改程式。
+
+觸發的寫進 `aiops-anomalies`：`series` 是 `rule.<名稱>`、`level` 是 `rule`，另外有 `severity`、`message`（例如「容器重啟：rules-test、crash-app-…、app（1，門檻 >= 1）」）、`since`（從什麼時候開始成立）。同一條規則、同一個對象，1 分鐘只記一筆。
+
+```bash
+python3 -m aiops_baseline rules --config baseline/rules.yaml      # 每分鐘
+```
+
+**還沒加：** 連線池快滿、heap 快滿（GC 之後還很高），要先確認 Java agent 開出來的指標名稱；CPU 被限流（kubelet 預設沒開 throttling 指標）。
+
 ## 怎麼跑
 
 ```bash

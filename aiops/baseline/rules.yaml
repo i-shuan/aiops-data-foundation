@@ -1,0 +1,200 @@
+# 規則：狀態變化、離極限多遠（aiops_baseline/rules.py）。不用學、不用歷史。
+# 每分鐘跑一次：python3 -m aiops_baseline rules --config baseline/rules.yaml
+# 觸發的寫進 aiops-anomalies（series = rule.<name>，level = rule，另有 severity、message）。
+#
+# 門檻是常見的起始值，依現場的誤報、漏報再調。
+
+interval: 1m      # 同一條規則、同一個對象，1 分鐘內只記一筆（重跑不會重複）
+lookback: 10m     # 讀最近多久的資料（要比每條規則的 for 長）
+
+# 共用的維度（resource.attributes.*）
+_ns: &ns resource.attributes.k8s.namespace.name
+_pod: &pod resource.attributes.k8s.pod.name
+_ctr: &ctr resource.attributes.k8s.container.name
+_node: &node resource.attributes.k8s.node.name
+_svc: &svc resource.attributes.service.name
+
+rules:
+  # ── 狀態變化（K8s 物件狀態，k8s_cluster 每 30 秒）──
+  - name: container.restarted
+    title: 容器重啟
+    severity: critical
+    index: metrics-k8sclusterreceiver.otel-*
+    field: metrics.k8s.container.restarts
+    type: increase            # 這段時間重啟次數增加了
+    op: ">="
+    threshold: 1
+    by: [*ns, *pod, *ctr]
+    context: [*svc, *node]
+
+  - name: deployment.unavailable
+    title: Deployment 可用副本不夠
+    severity: critical
+    index: metrics-k8sclusterreceiver.otel-*
+    field: metrics.k8s.deployment.available
+    other: metrics.k8s.deployment.desired
+    type: compare             # 要的 − 可用
+    op: ">="
+    threshold: 1
+    for: 3m                   # 換版滾動時會短暫不足，3 分鐘裡大部分時間都不夠才算
+    min_ratio: 0.8            # 一直重啟的服務每次會短暫起來幾十秒，不能要求「全部」都不夠
+    by: [*ns, resource.attributes.k8s.deployment.name]
+    context: [*svc]
+
+  - name: statefulset.unavailable
+    title: StatefulSet ready 的 Pod 不夠
+    severity: critical
+    index: metrics-k8sclusterreceiver.otel-*
+    field: metrics.k8s.statefulset.ready_pods
+    other: metrics.k8s.statefulset.desired_pods
+    type: compare
+    op: ">="
+    threshold: 1
+    for: 3m
+    min_ratio: 0.8
+    by: [*ns, resource.attributes.k8s.statefulset.name]
+
+  - name: daemonset.unavailable
+    title: DaemonSet 有節點沒跑起來
+    severity: warning
+    index: metrics-k8sclusterreceiver.otel-*
+    field: metrics.k8s.daemonset.ready_nodes
+    other: metrics.k8s.daemonset.desired_scheduled_nodes
+    type: compare
+    op: ">="
+    threshold: 1
+    for: 3m
+    min_ratio: 0.8
+    by: [*ns, resource.attributes.k8s.daemonset.name]
+
+  # k8s.pod.phase：1 Pending、2 Running、3 Succeeded、4 Failed、5 Unknown
+  - name: pod.failed
+    title: Pod 失敗
+    severity: critical
+    index: metrics-k8sclusterreceiver.otel-*
+    field: metrics.k8s.pod.phase
+    type: value
+    op: "=="
+    threshold: 4
+    by: [*ns, *pod]
+    context: [*svc, *node]
+
+  - name: pod.pending
+    title: Pod 一直排不上去（Pending）
+    severity: warning
+    index: metrics-k8sclusterreceiver.otel-*
+    field: metrics.k8s.pod.phase
+    type: value
+    op: "=="
+    threshold: 1
+    for: 5m                   # 拉 image、排程本來就要一點時間
+    by: [*ns, *pod]
+    context: [*svc]
+
+  - name: job.failed
+    title: Job 有 Pod 失敗
+    severity: warning
+    index: metrics-k8sclusterreceiver.otel-*
+    field: metrics.k8s.job.failed_pods
+    type: increase
+    op: ">="
+    threshold: 1
+    by: [*ns, resource.attributes.k8s.job.name]
+
+  - name: node.not_ready
+    title: 節點 NotReady
+    severity: critical
+    index: metrics-k8sclusterreceiver.otel-*
+    field: metrics.k8s.node.condition_ready
+    type: value
+    op: "=="
+    threshold: 0
+    for: 1m
+    by: [*node]
+
+  - name: node.memory_pressure
+    title: 節點記憶體壓力
+    severity: critical
+    index: metrics-k8sclusterreceiver.otel-*
+    field: metrics.k8s.node.condition_memory_pressure
+    type: value
+    op: "=="
+    threshold: 1
+    by: [*node]
+
+  - name: node.disk_pressure
+    title: 節點磁碟壓力
+    severity: critical
+    index: metrics-k8sclusterreceiver.otel-*
+    field: metrics.k8s.node.condition_disk_pressure
+    type: value
+    op: "=="
+    threshold: 1
+    by: [*node]
+
+  - name: scrape.down
+    title: 抓不到應用的 metrics（服務掛了或 metrics port 壞了）
+    severity: warning
+    index: metrics-prometheusreceiver.otel-*
+    field: metrics.up
+    type: value
+    op: "=="
+    threshold: 0
+    for: 1m
+    by: [*ns, *pod]
+    context: [*svc]
+
+  # ── 離極限多遠（kubelet 每 30 秒）──
+  # 容器有設記憶體上限時，kubelet 給 available = 上限 − working_set；沒設上限就沒有 available，這條不判斷
+  - name: container.memory_near_limit
+    title: 容器記憶體快到上限（會被 OOM kill）
+    severity: warning
+    index: metrics-kubeletstatsreceiver.otel-*
+    field: metrics.container.memory.working_set
+    den: [metrics.container.memory.working_set, metrics.container.memory.available]
+    type: ratio
+    op: ">="
+    threshold: 0.9
+    for: 2m
+    by: [*ns, *pod, *ctr]
+    context: [*svc, *node]
+
+  - name: node.memory_high
+    title: 節點記憶體快滿
+    severity: warning
+    index: metrics-kubeletstatsreceiver.otel-*
+    field: metrics.k8s.node.memory.working_set
+    den: [metrics.k8s.node.memory.working_set, metrics.k8s.node.memory.available]
+    type: ratio
+    op: ">="
+    threshold: 0.9
+    for: 5m
+    by: [*node]
+
+  - name: node.disk_high
+    title: 節點磁碟快滿
+    severity: warning
+    index: metrics-kubeletstatsreceiver.otel-*
+    field: metrics.k8s.node.filesystem.usage
+    den: [metrics.k8s.node.filesystem.capacity]
+    type: ratio
+    op: ">="
+    threshold: 0.85
+    for: 5m
+    by: [*node]
+
+  - name: node.disk_full
+    title: 節點磁碟幾乎滿了（log 寫不出去會卡住服務）
+    severity: critical
+    index: metrics-kubeletstatsreceiver.otel-*
+    field: metrics.k8s.node.filesystem.usage
+    den: [metrics.k8s.node.filesystem.capacity]
+    type: ratio
+    op: ">="
+    threshold: 0.95
+    for: 1m
+    by: [*node]
+
+  # ── 之後要加（先確認 Java agent 開出來的名稱，見 docs/aiops-metrics.md）──
+  # 連線池快滿：使用中 ÷ 上限 >= 0.9
+  # heap 快滿：jvm.memory.used_after_last_gc ÷ jvm.memory.limit >= 0.9（GC 之後還這麼高才是真的不夠）
