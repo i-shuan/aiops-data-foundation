@@ -65,6 +65,8 @@ trace 怎麼收、怎麼分部門見 [traces.md](traces.md)；baseline、根因�
 
 要先決定：高流量服務打算記幾成？全部記的話不用改；要調低的話，建議評估「結束後才決定」。
 
+**實測中**：兩層 Collector（node → 依 trace_id 分配 → trace-sampler）在 k3s 上壓測，設定、壓測程式、各檔案說明見 [test/local-k3s/tail-sampling](../test/local-k3s/tail-sampling/README.md)。
+
 ## 建議順序
 
 1. **取樣**：決定場景一、三拿不拿得到出事的請求。
