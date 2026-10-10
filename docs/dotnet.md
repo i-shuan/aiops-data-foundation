@@ -76,7 +76,7 @@ otel:
 ```
 
 chart 會：
-- 加 `prometheus.io/*` 標註、metrics port（9464）、`OTEL_*` 環境變數，跟 Java 一樣。
+- 加 `prometheus.io/*` 標註、metrics port（9464）、`OTEL_*` 環境變數，跟 Java 一樣；trace 位址另外給通用的 `OTEL_EXPORTER_OTLP_ENDPOINT`／`_PROTOCOL`（.NET 不認 `_TRACES_` 那組，見坑 12）。
 - `Logging__LogLevel__Microsoft.AspNetCore=Warning`：ASP.NET Core 預設**每個請求印 5 行 Information**（實測），log 量會暴增。
 - `javaAgent` 跟 `dotnet` 只能開一個。
 
@@ -113,7 +113,7 @@ chart 會：
 
 ## 踩過的坑（實測時發現的事）
 
-1–9 是第一輪（.NET 9 ＋ 自動埋點 ＋ OTLP 推）遇到的，10–12 是改成 .NET 8 ＋ SDK ＋ pull 之後遇到的；除了有註明的，結論改完後一樣適用。
+1–9 是第一輪（.NET 9 ＋ 自動埋點 ＋ OTLP 推）遇到的，10–13 是改成 .NET 8 ＋ SDK ＋ pull 之後遇到的；除了有註明的，結論改完後一樣適用。
 
 ### 收資料
 
@@ -151,7 +151,9 @@ chart 會：
 
 **11. Collector 來抓也會被算成請求**（`http_route="/metrics"`，每 30 秒一次），會拉低 p95、多算流量；baseline 的 `http.*` 序列排除這個路徑。`/metrics` 只開在 9464（`RequireHost("*:9464")`），業務的 8080 抓 `/metrics` 是 404（e2e 有檢查）。
 
-**12. 測試環境才有的：** NuGet 經過會重簽憑證的 proxy，編譯時要信任它的 CA（[dotnet-app.yaml](../test/local-k3s/dotnet-app.yaml)），正式環境 image 先建好。另外 `OpenTelemetry.Exporter.OpenTelemetryProtocol` 1.9.0 有已知弱點警告，用 1.19.x。
+**12. `AddOtlpExporter()` 不認 `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`／`_PROTOCOL`（Java 用的那組）。** 第一次跑 trace 一筆都沒進 ES：.NET 照預設送 `localhost:4317`（gRPC），連不上就一直重試，**每次重試都丟例外**（正常時 5 分鐘 574 次），連帶讓 `dotnet.exceptions_burst` 在正常時誤報、洩漏案例的「例外暴增」也不能算數。chart 對 .NET 改給通用的 `OTEL_EXPORTER_OTLP_ENDPOINT`（`:4318`，它自己接 `/v1/traces`）和 `OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf`；改完 trace 進得來、正常時例外不再增加。取樣比例（`OTEL_TRACES_SAMPLER_ARG`）.NET 有認（實測設 0.1，trace 數掉到一成左右）。找原因的方法：在程式目錄放 `OTEL_DIAGNOSTICS.json`（OpenTelemetry .NET 的自我診斷 log）。
+
+**13. 測試環境才有的：** NuGet 經過會重簽憑證的 proxy，編譯時要信任它的 CA（[dotnet-app.yaml](../test/local-k3s/dotnet-app.yaml)），正式環境 image 先建好。另外 `OpenTelemetry.Exporter.OpenTelemetryProtocol` 1.9.0 有已知弱點警告，用 1.19.x。
 
 ## 實測結果
 

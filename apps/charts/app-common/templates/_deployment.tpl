@@ -81,7 +81,13 @@ spec:
               value: -javaagent:/otel/opentelemetry-javaagent.jar
             {{- end }}
             {{- if $dotnet }}
-            # .NET：OpenTelemetry 在程式裡設定（docs/dotnet.md），服務名稱、trace 位址、取樣都讀上面的 OTEL_* 變數。
+            # .NET：OpenTelemetry 在程式裡設定（docs/dotnet.md），服務名稱、取樣讀上面的 OTEL_* 變數。
+            # .NET 的 AddOtlpExporter() 不認 OTEL_EXPORTER_OTLP_TRACES_*（實測：照樣送 localhost:4317、一直重試丟例外），
+            # 要給通用的這兩個；http/protobuf 時它自己會接 /v1/traces
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: http://otel-node-collector.otel-collector.svc:4318
+            - name: OTEL_EXPORTER_OTLP_PROTOCOL
+              value: http/protobuf
             # ASP.NET Core 預設每個請求印 5 行 Information（實測），log 量會暴增；框架的只留 Warning 以上（要看可在 env 蓋掉）
             - name: Logging__LogLevel__Microsoft.AspNetCore
               value: Warning

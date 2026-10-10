@@ -30,7 +30,7 @@ builder.Services.AddOpenTelemetry()
         .AddAspNetCoreInstrumentation()
         .AddHttpClientInstrumentation()
         .AddNpgsql()
-        .AddOtlpExporter());                // 位址、協定來自 OTEL_EXPORTER_OTLP_TRACES_*
+        .AddOtlpExporter());                // 位址、協定來自 OTEL_EXPORTER_OTLP_ENDPOINT／_PROTOCOL（不認 _TRACES_ 那組）
 var app = builder.Build();
 // /metrics 只開在 9464（平台抓的 port），不跟業務的 8080 混在一起
 app.MapPrometheusScrapingEndpoint().RequireHost("*:9464");
