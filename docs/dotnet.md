@@ -8,6 +8,14 @@
 
 - **全部用 pull**：Collector 照同一個節奏（30 秒）去抓每個應用，速度由平台控制。用 push 的話每個應用各自決定什麼時候送，應用一多、或一起重開後同時補送，壓力全落在 Collector 上，Collector 也擋不住。
 - 先試過**自動埋點**（CLR profiler，不改程式）：實測它的 Prometheus 端點**只聽 localhost**，Collector 抓不到，只能 push。改成**在程式裡設定 SDK**，`/metrics` 就能讓 Collector 抓，跟 Java 一樣。
+- **只有 metrics 用 pull，trace 還是推**：metrics 是「現在的數字」，什麼時候來抓都可以；trace 是一筆一筆的事件，要等人來拉就得一直暫存在應用裡，所以 OTLP 本身只有推（gRPC `Export`、HTTP `POST /v1/traces`）。Java、.NET 都一樣：請求結束後 SDK 先放進記憶體佇列，批次送到同節點 Collector 的 4318。佇列有上限（.NET、Java 預設 2048 筆），Collector 連不上時滿了會**丟**，不會把應用的記憶體撐爆，但也不是零遺漏。log 則是兩者都不是：Collector 直接讀節點上的容器 log 檔。
+
+| | 誰發起 | 怎麼送 |
+|---|---|---|
+| metrics | Collector 每 30 秒來抓 | `GET :9464/metrics` |
+| trace | 應用推 | OTLP/HTTP `POST :4318/v1/traces` |
+| log | Collector 讀檔 | 節點上的 `/var/log/pods` |
+
 - 附帶的好處：指標名稱跟 Java 一樣（`http_server_request_duration_seconds`、`db_client_connections_*`），**baseline 的序列、連線池的規則跟 Java 共用**。
 
 ## 跟 Java 哪裡一樣、哪裡不一樣
