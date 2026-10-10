@@ -234,7 +234,16 @@ python3 -m aiops_baseline rules --config baseline/rules.yaml      # 每分鐘
 python3 -m aiops_baseline peer --config baseline/peer.yaml      # 每分鐘
 ```
 
-實測見下面「驗證」。
+**實測**（[test/local-k3s/run-peer-e2e.sh](../../test/local-k3s/run-peer-e2e.sh)，2026-10-10，全部通過）：真的 .NET 應用（自動埋點）開 3 個副本，每次只弄壞一個。
+
+| 案例 | 怎麼弄壞 | 抓到的 | 其他 2 個 Pod |
+|---|---|---|---|
+| 正常 | — | 不報 | 不報 |
+| 連線池漏光 | 一個 Pod 拿了連線不還，之後的請求等 2 秒後 500 | 4 分鐘：錯誤率 **13%**（其他 0%）、p95 **1,750ms**（其他 2ms） | 不報 |
+| 記憶體洩漏 | 一個 Pod 每個請求 32KB 放進不會清的 list | 第 5 分鐘：**294MB**（其他 163MB） | 不報 |
+| 無窮迴圈 | 一個 Pod 裡有程式佔滿 1 核 | 第 3 分鐘：CPU **0.65 核**（其他 0.21 核，10 分鐘平均） | 不報 |
+
+同一段時間整個服務的錯誤率是 **9%**（3 個 Pod 裡 1 個壞）。這次服務平常是 0%，跟平常比（baseline）也會報，但只知道「服務錯誤率高」、不知道是哪個 Pod；Pod 越多稀釋越多：10 個 Pod 壞 1 個大約剩 1%，就低於 baseline 的門檻（多 5 個百分點）了。
 
 ## 怎麼跑
 
