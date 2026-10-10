@@ -9,6 +9,7 @@ log 也由同一個 Collector 收（[elasticsearch.md](elasticsearch.md)）：�
 ```
 每個節點一個 Collector（DaemonSet）
    ├─ kubelet：節點、Pod、容器的 CPU、記憶體、網路、磁碟
+   ├─ kubelet 的 cAdvisor：只收 CPU 被限流的兩個數字（週期數、被限流的週期數）
    └─ 應用的 Prometheus metrics：這個節點上、Pod 標註 prometheus.io/scrape: "true" 的
 整個 cluster 一個 Collector（Deployment，replicas 1）
    └─ k8s_cluster：Pod 狀態、容器重啟次數、Deployment/ReplicaSet 副本數、namespace、節點狀態

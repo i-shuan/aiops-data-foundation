@@ -37,6 +37,29 @@ receivers:
               replacement: $$1:$$2
               target_label: __address__
 
+  # CPU 被限流（CFS throttling）：kubelet 的 stats 沒有，要從 kubelet 內建的 cAdvisor 抓。
+  # Pod 設了 CPU limit 時，瞬間用量碰到上限就會被凍結到下一個 100ms，平均 CPU 看起來不高、延遲卻變長。
+  # 只留兩個數字：總共幾個週期、其中幾個被限流（cAdvisor 一個節點有上千種指標，其他都不要）
+  prometheus/cadvisor:
+    config:
+      scrape_configs:
+        - job_name: cadvisor
+          scrape_interval: 30s
+          scheme: https
+          metrics_path: /metrics/cadvisor
+          tls_config: {insecure_skip_verify: true}   # 同 kubeletstats：kubelet 憑證通常是自簽的
+          authorization: {credentials_file: /var/run/secrets/kubernetes.io/serviceaccount/token}
+          static_configs: [{targets: ["${env:K8S_NODE_IP}:10250"]}]
+          metric_relabel_configs:
+            - source_labels: [__name__]
+              regex: container_cpu_cfs_(throttled_)?periods_total
+              action: keep
+            - source_labels: [container]           # Pod 層級的加總（container 空白或 POD）不要，只看各容器
+              regex: (|POD)
+              action: drop
+            - regex: (id|image|name)                 # cgroup 路徑、image、容器 ID：值太多，不要
+              action: labeldrop
+
   # 容器的 log
   file_log:
     include: [/var/log/pods/*/*/*.log]
@@ -68,6 +91,18 @@ receivers:
         endpoint: 0.0.0.0:4318
 
 processors:
+  # cAdvisor 的資料是「節點」吐的，每一筆屬於哪個 Pod 寫在 namespace、pod、container 這三個 label。
+  # 先依這三個 label 分組、搬到資源欄位，k8s_attributes 才能依 Pod 名稱補上部門、服務名稱
+  groupbyattrs/cadvisor:
+    keys: [namespace, pod, container]
+  transform/cadvisor:
+    error_mode: ignore
+    metric_statements:
+      - set(resource.attributes["k8s.namespace.name"], resource.attributes["namespace"])
+      - set(resource.attributes["k8s.pod.name"], resource.attributes["pod"])
+      - set(resource.attributes["k8s.container.name"], resource.attributes["container"])
+      - delete_matching_keys(resource.attributes, "^(namespace|pod|container|service\\.name|service\\.instance\\.id|server\\..*|url\\.scheme|dept|group)$$")
+
   # 應用的直方圖（例如 Java agent 的 http.server.request.duration）是 Prometheus 格式，從應用啟動一直累加。
   # 換成「這次抓取比上次多了多少」，ES 才能直接加總任一段時間：每 5 分鐘幾個請求、p95 多少（AIOps baseline 用）。
   # 每個節點的 Collector 只抓自己節點的 Pod，同一條序列一定由同一個 Collector 算。
@@ -119,6 +154,10 @@ service:
     metrics/in:
       receivers: [kubeletstats, prometheus]
       processors: [memory_limiter, transform/pre, cumulativetodelta, k8s_attributes, transform/group, transform/drop-log-attrs]
+      exporters: [routing/group]
+    metrics/cadvisor:
+      receivers: [prometheus/cadvisor]
+      processors: [memory_limiter, groupbyattrs/cadvisor, transform/cadvisor, k8s_attributes, transform/group, transform/drop-log-attrs]
       exporters: [routing/group]
     logs/in:
       receivers: [file_log]

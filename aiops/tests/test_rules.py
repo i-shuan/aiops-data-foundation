@@ -74,17 +74,46 @@ class RatioTest(unittest.TestCase):
         self.assertEqual(R.evaluate(self.rule, d, NOW), [])
 
 
+class NewTypesTest(unittest.TestCase):
+    def test_throttle_ratio(self):
+        rule = {"type": "increase_ratio", "field": "metrics.thr", "den": ["metrics.per"], "op": ">=", "threshold": 0.25, "for": "5m"}
+        # 實測 cpu-burst：每 30 秒約 180 個週期、一半被限流
+        d = {("ns", "pod", "app"): pts(0, 90, 180, 270, field="metrics.thr", extra=[{"per": p} for p in (0, 180, 360, 540)])}
+        self.assertAlmostEqual(R.evaluate(rule, d, NOW)[0]["value"], 0.5)
+
+    def test_gc_overhead_rate(self):
+        rule = {"type": "rate", "field": "metrics.gc.sum", "op": ">=", "threshold": 0.1, "for": "3m"}
+        # 每 30 秒 GC 6 秒（每個點是那 30 秒的量）→ 20%
+        series = {("ns", "pod"): [(NOW - pd.Timedelta(seconds=30 * i), {"metrics": {"gc": {"sum": 6.0}}}) for i in (5, 4, 3, 2, 1, 0)]}
+        self.assertAlmostEqual(R.evaluate(rule, series, NOW)[0]["value"], 36 / 180)
+
+    def test_major_gc_count(self):
+        rule = {"type": "total", "field": "metrics.gc", "hist_count": True, "op": ">=", "threshold": 5, "for": "5m"}
+        h = lambda n: {"metrics": {"gc": {"scale": 38, "positive": {"indices": [1, 2], "counts": [n - 1, 1]}, "sum": 0.07 * n}}}
+        # 實測 order-app OOM 前：每 30 秒 0、1、1、2、2、4 次 major GC
+        series = {("ns", "pod"): [(NOW - pd.Timedelta(seconds=30 * i), h(n) if n else {"metrics": {"gc": {"sum": 0}}})
+                                  for i, n in zip((5, 4, 3, 2, 1, 0), (0, 1, 1, 2, 2, 4))]}
+        self.assertEqual(R.evaluate(rule, series, NOW)[0]["value"], 10)
+
+    def test_join_fills_denominator(self):
+        d = {"metrics": {"usage": 5.0}}
+        R._put(d, "metrics.db_client_connections_max", 5.0)
+        self.assertEqual(d["metrics"]["db_client_connections_max"], 5.0)
+        rule = {"type": "ratio", "field": "metrics.usage", "den": ["metrics.db_client_connections_max"], "op": ">=", "threshold": 0.9}
+        self.assertEqual(R.sample_value(rule, d), 1.0)
+
+
 class ConfigTest(unittest.TestCase):
     def test_rules_yaml_is_valid(self):
         with open("baseline/rules.yaml", encoding="utf-8") as f:
             cfg = yaml.safe_load(f)
         for r in cfg["rules"]:
-            self.assertIn(r["type"], ("value", "compare", "ratio", "increase"), r["name"])
+            self.assertIn(r["type"], ("value", "compare", "ratio", "increase", "increase_ratio", "rate", "total"), r["name"])
             self.assertIn(r.get("op", ">="), R.OPS, r["name"])
             self.assertTrue(r["by"] and r["index"] and r["field"] and r["title"], r["name"])
             if r["type"] == "compare":
                 self.assertIn("other", r, r["name"])
-            if r["type"] == "ratio":
+            if r["type"] in ("ratio", "increase_ratio"):
                 self.assertIn("den", r, r["name"])
             self.assertLess(R._dur(r.get("for", 0)), R._dur(cfg["lookback"]), r["name"])
 

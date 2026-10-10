@@ -13,6 +13,7 @@
 | | `*.memory.page_faults`、`.major_page_faults` | 缺頁；major 多代表在讀硬碟換頁 |
 | | `*.filesystem.usage`、`.capacity`、`.available` | 磁碟用量與剩餘 |
 | 節點、Pod | `*.network.io`、`*.network.errors` | 網路流量、錯誤封包 |
+| 容器（kubelet 的 cAdvisor，只收這兩個） | `container_cpu_cfs_periods_total`、`container_cpu_cfs_throttled_periods_total` | CPU 週期數、其中被限流的；在 `metrics-prometheusreceiver.otel-<group>` |
 
 ### 2. K8s 物件狀態：k8s_cluster（整個 cluster 一個 Collector）→ `metrics-k8sclusterreceiver.otel-<group>`
 
@@ -31,9 +32,9 @@
 | 來源 | 指標 | 狀態 |
 |---|---|---|
 | Java agent（app-common chart 自動開） | `http.server.request.duration`（直方圖：依 method、route、狀態碼） | ✅ 收到（測試應用模擬）→ `metrics-generic.otel-<group>` |
-| | `http.client.request.duration`：往外呼叫 HTTP 的耗時 | ⚠️ agent 會開，測試環境沒有真的 Java 應用，**還沒看到** |
-| | JVM：`jvm.memory.used`、`jvm.memory.limit`、`jvm.memory.used_after_last_gc`、`jvm.gc.duration`、`jvm.thread.count`、`jvm.cpu.recent_utilization` | ⚠️ 同上，名稱依 agent 版本，要拿正式環境一個服務的 `/metrics` 確認 |
-| | 連線池（HikariCP）：使用中、閒置、上限、等待中的請求、等待時間 | ⚠️ 同上；舊版名稱 `db.client.connections.*`、新版 `db.client.connection.*` |
+| | `http.client.request.duration`：往外呼叫 HTTP 的耗時 | ⚠️ 還沒驗證（測試程式沒有往外呼叫 HTTP） |
+| | JVM：`jvm_memory_used_bytes`、`jvm_memory_limit_bytes`、`jvm_memory_used_after_last_gc_bytes`、`jvm_gc_duration_seconds`、`jvm_thread_count`、`jvm_cpu_recent_utilization_ratio` | ✅ 用真的 Java 程式＋agent 2.20.0 確認（[aiops-metrics-cases.md](aiops-metrics-cases.md)） |
+| | 連線池（HikariCP）：`db_client_connections_usage{state}`、`_max`、`_pending_requests`、`_wait_time_milliseconds` | ✅ 同上（agent 2.x 用的是舊版名稱 `db_client_connections_*`） |
 | 應用自己定義的 | 例如 `demo_requests_total`、業務量（每小時進站片數…） | 應用要自己開 |
 | 抓取本身 | `up`、`scrape_duration_seconds` | `up = 0` 代表抓不到（服務掛了或 metrics port 壞了） |
 

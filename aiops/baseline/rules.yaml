@@ -195,6 +195,155 @@ rules:
     for: 1m
     by: [*node]
 
-  # ── 之後要加（先確認 Java agent 開出來的名稱，見 docs/aiops-metrics.md）──
-  # 連線池快滿：使用中 ÷ 上限 >= 0.9
-  # heap 快滿：jvm.memory.used_after_last_gc ÷ jvm.memory.limit >= 0.9（GC 之後還這麼高才是真的不夠）
+  # CPU 被限流（kubelet 的 cAdvisor）：設了 CPU limit 的容器，瞬間用量碰到上限就被凍結到下一個 100ms。
+  # 平均 CPU 看起來不高（實測 35%），延遲卻變長。業界常用 25% 的週期被限流當門檻
+  - name: container.cpu_throttled
+    title: 容器 CPU 被限流（limit 太低，突波被凍結）
+    severity: warning
+    index: metrics-prometheusreceiver.otel-*
+    field: metrics.container_cpu_cfs_throttled_periods_total
+    den: [metrics.container_cpu_cfs_periods_total]
+    type: increase_ratio      # 這段時間被限流的週期 ÷ 全部週期
+    op: ">="
+    threshold: 0.25
+    for: 5m
+    by: [*ns, *pod, *ctr]
+    context: [*svc, *node]
+
+  # ── Java 應用（OpenTelemetry Java agent 2.x 實測的名稱，見 docs/aiops-metrics-cases.md）──
+  # heap 的老年代「GC 之後」還很滿：GC 清不掉，是真的不夠或洩漏（只看 used 會被還沒回收的垃圾騙）
+  - name: jvm.old_gen_after_gc_high
+    title: JVM 老年代 GC 後還很滿（記憶體洩漏或 heap 不夠）
+    severity: warning
+    index: metrics-*.otel-*
+    field: metrics.jvm_memory_used_after_last_gc_bytes
+    den: [metrics.jvm_memory_limit_bytes]
+    filter: [{regexp: {attributes.jvm_memory_pool_name: ".*(Old|Tenured).*"}}]
+    type: ratio
+    op: ">="
+    threshold: 0.8
+    for: 2m
+    by: [*ns, *pod, attributes.jvm_memory_pool_name]
+    context: [*svc]
+
+  # major GC（老年代的 GC，會停住整個程式）越來越頻繁：老年代清不太掉，每次清完很快又滿。
+  # 實測（heap 128MB 的洩漏）：平常 4 分鐘 1 次 → OOM 前每分鐘 2、4、8 次；但每次只 70ms，「GC 時間比例」不到 1%
+  - name: jvm.major_gc_frequent
+    title: JVM major GC 太頻繁（老年代清不掉）
+    severity: warning
+    index: metrics-*.otel-*
+    field: metrics.jvm_gc_duration_seconds
+    hist_count: true          # 數次數，不是時間
+    filter: [{term: {attributes.jvm_gc_action: "end of major GC"}}]
+    type: total
+    op: ">="
+    threshold: 5              # 5 分鐘內 5 次以上
+    for: 5m
+    by: [*ns, *pod]
+    context: [*svc]
+
+  # GC 佔掉的時間：每秒裡有多少秒在 GC（Stop-the-World 時請求全部停住）。
+  # heap 大（幾 GB）時一次 full GC 要好幾秒，這條才有意義；heap 小的時候看上面的次數
+  - name: jvm.gc_overhead
+    title: JVM 花太多時間在 GC
+    severity: warning
+    index: metrics-*.otel-*
+    field: metrics.jvm_gc_duration_seconds.sum
+    exists: metrics.jvm_gc_duration_seconds
+    type: rate                # 這段時間 GC 的秒數加總 ÷ 經過的秒數
+    op: ">="
+    threshold: 0.1
+    for: 3m
+    by: [*ns, *pod]
+    context: [*svc]
+
+  # 連線池（HikariCP；agent 2.x 的名稱是 db_client_connections_*）
+  - name: db.pool_exhausted
+    title: 資料庫連線池用光了
+    severity: critical
+    index: metrics-*.otel-*
+    field: metrics.db_client_connections_usage
+    filter: [{term: {attributes.state: used}}]
+    join: {field: metrics.db_client_connections_max}      # 上限存在另一種文件
+    den: [metrics.db_client_connections_max]
+    type: ratio
+    op: ">="
+    threshold: 0.9
+    for: 1m
+    by: [*ns, *pod, attributes.pool_name]
+    context: [*svc]
+
+  - name: db.pool_waiting
+    title: 有請求在排隊等資料庫連線
+    severity: warning
+    index: metrics-*.otel-*
+    field: metrics.db_client_connections_pending_requests
+    type: value
+    op: ">="
+    threshold: 1
+    for: 1m
+    min_ratio: 0.8
+    by: [*ns, *pod, attributes.pool_name]
+    context: [*svc]
+
+  # ── 訊息佇列（kafka_exporter 的名稱：kafka_consumergroup_lag_sum{consumergroup, topic}）──
+  - name: kafka.consumer_lag
+    title: Kafka 消費落後太多
+    severity: warning
+    index: metrics-*.otel-*
+    field: metrics.kafka_consumergroup_lag_sum
+    type: value
+    op: ">="
+    threshold: 10000          # 依每個 topic 的量調；量差很多的話改用 baseline（跟平常比）
+    for: 3m
+    min_ratio: 0.8
+    by: [attributes.consumergroup, attributes.topic]
+
+  - name: kafka.consumer_lag_growing
+    title: Kafka 消費落後一直增加（消費者跟不上）
+    severity: warning
+    index: metrics-*.otel-*
+    field: metrics.kafka_consumergroup_lag_sum
+    type: increase            # 5 分鐘內落後增加超過 5,000 筆（消費者停了或變慢）
+    op: ">="
+    threshold: 5000
+    for: 5m
+    by: [attributes.consumergroup, attributes.topic]
+
+  # ── 機台與 EAP（名稱是平台提案，EAP 的 exporter 要照這個開，見 docs/aiops-metrics-cases.md）──
+  - name: eap.secs_disconnected
+    title: 機台 SECS 通訊斷線
+    severity: critical
+    index: metrics-*.otel-*
+    field: metrics.eap_secs_communicating
+    type: value
+    op: "=="
+    threshold: 0
+    for: 1m
+    by: [attributes.equipment_id]
+    context: [*svc]
+
+  - name: eap.plc_scan_slow
+    title: PLC 掃描週期超過規格
+    severity: warning
+    index: metrics-*.otel-*
+    field: metrics.plc_scan_cycle_time_ms
+    type: value
+    op: ">="
+    threshold: 50             # 規格上限（ms），依機型設；正常約 8ms
+    for: 2m
+    min_ratio: 0.8
+    by: [attributes.equipment_id]
+    context: [*svc]
+
+  - name: eap.secs_retransmits
+    title: SECS 封包重傳變多
+    severity: warning
+    index: metrics-*.otel-*
+    field: metrics.eap_secs_retransmits_total
+    type: increase
+    op: ">="
+    threshold: 10
+    for: 5m
+    by: [attributes.equipment_id]
+    context: [*svc]

@@ -1,0 +1,83 @@
+# 指標案例驗證（run-metrics-cases-e2e.sh）用的模擬 exporter：測試環境沒有 Kafka、沒有機台，
+# 用 busybox 照真的 exporter 的格式吐 Prometheus metrics（每 5 秒更新），開關用 Pod 裡的檔案切。
+#
+# kafka-exporter-sim：照 kafka_exporter（danielqsj）的 kafka_consumergroup_lag_sum{consumergroup, topic}
+#   order-push／orders：平常落後 0～50 筆；/tmp/lag_up：下游卡住，每 5 秒多 1,500 筆
+#   report／orders    ：一直正常（不能誤報）
+# eap-exporter-sim：平台提案的 EAP 指標名稱（docs/aiops-metrics-cases.md），8 台機台 EQP-01～08
+#   eap_secs_communicating      1 通訊中、0 斷線          /tmp/eqp07_down：EQP-07 斷線
+#   plc_scan_cycle_time_ms      平常 7～9ms               /tmp/eqp03_slow：EQP-03 跳到 120ms，而且每 5 秒重傳 5 次
+#   eap_secs_retransmits_total  累計重傳次數，平常幾乎不動
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: exporter-sims, namespace: metrics-cases}
+data:
+  kafka.sh: |
+    mkdir -p /www; httpd -p 9464 -h /www
+    lag=0
+    while :; do
+      if [ -f /tmp/lag_up ]; then lag=$((lag + 1500)); else lag=$(( $(od -An -N1 -tu1 /dev/urandom) % 50 )); fi
+      r=$(( $(od -An -N1 -tu1 /dev/urandom) % 30 ))
+      {
+        echo '# TYPE kafka_consumergroup_lag_sum gauge'
+        echo "kafka_consumergroup_lag_sum{consumergroup=\"order-push\",topic=\"orders\"} ${lag}"
+        echo "kafka_consumergroup_lag_sum{consumergroup=\"report\",topic=\"orders\"} ${r}"
+      } > /www/metrics.tmp && mv /www/metrics.tmp /www/metrics
+      sleep 5
+    done
+  eap.sh: |
+    mkdir -p /www; httpd -p 9464 -h /www
+    rt3=0
+    while :; do
+      [ -f /tmp/eqp03_slow ] && rt3=$((rt3 + 5))
+      {
+        echo '# TYPE eap_secs_communicating gauge'
+        echo '# TYPE plc_scan_cycle_time_ms gauge'
+        echo '# TYPE eap_secs_retransmits_total counter'
+        for n in 01 02 03 04 05 06 07 08; do
+          up=1; [ "$n" = 07 ] && [ -f /tmp/eqp07_down ] && up=0
+          scan=$(( 7 + $(od -An -N1 -tu1 /dev/urandom) % 3 )); [ "$n" = 03 ] && [ -f /tmp/eqp03_slow ] && scan=120
+          rt=0; [ "$n" = 03 ] && rt=$rt3
+          echo "eap_secs_communicating{equipment_id=\"EQP-${n}\"} ${up}"
+          echo "plc_scan_cycle_time_ms{equipment_id=\"EQP-${n}\"} ${scan}"
+          echo "eap_secs_retransmits_total{equipment_id=\"EQP-${n}\"} ${rt}"
+        done
+      } > /www/metrics.tmp && mv /www/metrics.tmp /www/metrics
+      sleep 5
+    done
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: kafka-exporter-sim, namespace: metrics-cases}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app.kubernetes.io/name: kafka-exporter-sim}}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: kafka-exporter-sim}
+      annotations: {prometheus.io/scrape: "true", prometheus.io/port: "9464", prometheus.io/path: /metrics}
+    spec:
+      containers:
+        - name: app
+          image: docker.io/library/busybox:1.37
+          command: ["sh", "/s/kafka.sh"]
+          volumeMounts: [{name: s, mountPath: /s}]
+      volumes: [{name: s, configMap: {name: exporter-sims}}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: eap-exporter-sim, namespace: metrics-cases}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app.kubernetes.io/name: eap-exporter-sim}}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: eap-exporter-sim}
+      annotations: {prometheus.io/scrape: "true", prometheus.io/port: "9464", prometheus.io/path: /metrics}
+    spec:
+      containers:
+        - name: app
+          image: docker.io/library/busybox:1.37
+          command: ["sh", "/s/eap.sh"]
+          volumeMounts: [{name: s, mountPath: /s}]
+      volumes: [{name: s, configMap: {name: exporter-sims}}]
