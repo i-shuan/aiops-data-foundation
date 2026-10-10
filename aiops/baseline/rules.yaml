@@ -21,6 +21,7 @@ rules:
     severity: critical
     index: metrics-k8sclusterreceiver.otel-*
     field: metrics.k8s.container.restarts
+    report_gone: true         # Pod 刪掉了也照報：重啟過、失敗過就是發生過
     type: increase            # 這段時間重啟次數增加了
     op: ">="
     threshold: 1
@@ -96,6 +97,7 @@ rules:
     severity: warning
     index: metrics-k8sclusterreceiver.otel-*
     field: metrics.k8s.job.failed_pods
+    report_gone: true         # Pod 刪掉了也照報：重啟過、失敗過就是發生過
     type: increase
     op: ">="
     threshold: 1

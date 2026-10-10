@@ -24,6 +24,12 @@ class IncreaseTest(unittest.TestCase):
     def test_counter_reset_counts_from_zero(self):
         self.assertEqual(R.increase([3, 4, 4, 0, 1]), 2)   # 3→4 一次；歸零後 0→1 又一次
 
+    def test_gone_pod_counter_not_reported(self):
+        rule = {"type": "increase", "field": "metrics.x", "op": ">=", "threshold": 1}
+        old = [(NOW - pd.Timedelta(minutes=m), {"metrics": {"x": v}}) for m, v in ((7, 1), (6, 30), (5, 45))]
+        self.assertEqual(R.evaluate(rule, {("ns", "gone-pod"): old}, NOW), [])            # 5 分鐘前就沒資料了
+        self.assertEqual(len(R.evaluate({**rule, "report_gone": True}, {("ns", "gone-pod"): old}, NOW)), 1)
+
     def test_restart_fires(self):
         rule = {"type": "increase", "field": "metrics.x", "op": ">=", "threshold": 1}
         hits = R.evaluate(rule, {("ns", "pod"): pts(5, 5, 6)}, NOW)

@@ -14,7 +14,8 @@ join：分母在另一種文件時（例如連線池「使用中」和「上限�
   join: {field: metrics.db_client_connections_max}       之後 den 就可以寫這個欄位
 
 for：要「這段時間都成立」才算（例如副本不夠 3 分鐘，避免換版滾動時的短暫不足）。0 表示最新一個點成立就算。
-fresh：最新的點要在這段時間內，不然當成對象已經不在了（預設 2m；increase 不看，重啟過就是重啟過）。
+fresh：最新的點要在這段時間內，不然當成對象已經不在了（預設 2m）。
+report_gone: true：對象不在了也照報（容器重啟、Job 失敗：Pod 刪掉了，重啟過就是重啟過）。
 min_ratio：這段時間裡至少多少比例的點成立（預設 1，全部）。一直重啟的服務每次會短暫起來幾十秒，
            「全部」永遠不成立；設 0.8 表示「3 分鐘裡至少 80% 的時間不夠」。
 """
@@ -99,6 +100,9 @@ def evaluate(rule: dict, series: dict[tuple, list[tuple[pd.Timestamp, dict]]], n
                 out.append({"key": key, "value": v, "since": w[0][0], "last": w[-1][1]})
             continue
         if rule["type"] == "increase":
+            # 對象已經不在了（Pod 刪掉）：最後幾分鐘的累計值還在回溯範圍裡，不算（除非 report_gone）
+            if not rule.get("report_gone") and pts and pts[-1][0] < now - _dur(rule.get("fresh", "2m")):
+                continue
             vals = [float(v) for _, d in _window(pts, now, hold) if (v := get_field(d, rule["field"])) is not None]
             if len(vals) >= 2 and op(inc := increase(vals), th):
                 out.append({"key": key, "value": inc, "since": pts[0][0], "last": pts[-1][1]})

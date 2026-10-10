@@ -73,7 +73,7 @@ node Collector 加了一條 `metrics/otlp`：OTLP 收進來的 metrics → 拿�
 
 ## 實測結果
 
-`run-dotnet-e2e.sh`，2026-10-10，k3s 單節點；應用：ASP.NET Core 9（1 核、記憶體上限 512Mi）＋ PostgreSQL，Npgsql 連線池上限 5，每秒約 15 個請求。
+`run-dotnet-e2e.sh`，2026-10-10，k3s 單節點，最後一次全部通過；應用：ASP.NET Core 9（1 核、記憶體上限 512Mi）＋ PostgreSQL，Npgsql 連線池上限 5，每秒約 15 個請求。
 
 ### 資料
 
@@ -92,28 +92,30 @@ node Collector 加了一條 `metrics/otlp`：OTLP 收進來的 metrics → 拿�
 |---|---|---|---|
 | 連線池用光 | 拿了連線不還 | `db.pool_exhausted_otlp`：使用中 **100%** | ✅ |
 | 執行緒池飢餓 | 每個請求 `Task.Delay(2000).Wait()`，同時請求變 5 倍 | `dotnet.thread_pool_growth`：執行緒 **6 → 44 條**（1 核）；p95 2.5ms → 1.75 秒 | ✅（見下） |
-| 記憶體洩漏 | 每個請求 64KB 放進不會清的 list | `dotnet.gen2_gc_frequent` 第 7 分鐘；到底時見下。`container.memory_near_limit` **不一定觸發**（三次裡一次） | ✅ |
+| 記憶體洩漏 | 每個請求 64KB 放進不會清的 list | `dotnet.gen2_gc_frequent` 第 7 分鐘；到底時見下。`container.memory_near_limit` **不一定觸發**（四次裡一次） | ✅ |
 
 ### 實測時發現的事
 
 **1. 執行緒池飢餓時「佇列」不會排，是「執行緒」暴增。** 第一版規則看佇列長度，結果佇列一直是 0：.NET 6 以後偵測到「同步等 Task」（`.Wait()`、`.Result`）會馬上多開執行緒。所以症狀是執行緒 6 → 44 條、每條卡 2 秒、延遲變長。改成看「執行緒 ÷ CPU 核數」（`dotnet.thread_pool_growth`）；佇列那條留給 .NET 偵測不到的阻塞（lock、`Thread.Sleep`）。
 
-**2. 記憶體洩漏到底有兩種結局，同一支程式兩次不一樣：**
+**2. 記憶體洩漏到底有兩種結局，同一支程式、同樣設定，跑四次各出現兩次：**
 
-| | 第一次 | 第二次 |
+| | 結局一（第 1、4 次） | 結局二（第 2、3 次） |
 |---|---|---|
 | 結局 | 工作集到 522MB（上限 512Mi），**被容器的 OOM 砍掉、K8s 重開** | GC heap 到上限（380MB，容器的 75%）後**程式不結束**：每個請求丟 OutOfMemoryException、回 500，Gen2 GC 不停跑（2 分鐘 6,500 次） |
 | 抓到的 | `container.restarted` | `dotnet.out_of_memory`（OutOfMemoryException 1,503 次）、`dotnet.gen2_gc_frequent`；HTTP 錯誤率 baseline 也會報 |
 
 第二種跟 Java 沒加 `-XX:+ExitOnOutOfMemoryError` 一樣：Pod 看起來正常、K8s 不會重開。.NET 沒有對應的開關；要在程式裡處理（例如 OutOfMemoryException 時結束程式），或靠上面的規則通知人。
 
-**3. 容器記憶體的規則對 .NET 不可靠。** .NET 在容器裡 GC heap 的上限是容器記憶體的 75%，heap 滿了之後工作集停在 90% 上下：三次測試只有一次超過 `container.memory_near_limit` 的 90%。.NET 的洩漏要看 `dotnet.gen2_gc_frequent`，到底時看 `dotnet.out_of_memory` 或 `container.restarted`。
+**3. 容器記憶體的規則對 .NET 不可靠。** .NET 在容器裡 GC heap 的上限是容器記憶體的 75%，heap 滿了之後工作集停在 90% 上下：四次測試只有一次超過 `container.memory_near_limit` 的 90%。.NET 的洩漏要看 `dotnet.gen2_gc_frequent`，到底時看 `dotnet.out_of_memory` 或 `container.restarted`。
 
 **4. `error.type` 是短名稱**：.NET 寫 `OutOfMemoryException`，不是 `System.OutOfMemoryException`（第一版規則因此沒觸發，在記錄下來的資料上回測確認改對）。
 
 **5. Npgsql 連線池的名稱是連線字串**（密碼會拿掉），告警會顯示 `Host=…;Username=…;Maximum Pool Size=5`。建議程式用 `NpgsqlDataSourceBuilder` 設 `Name`，例如 `orders-db`。
 
-**6. 測試環境才有的：** NuGet 經過會重簽憑證的 proxy，編譯時要信任它的 CA（[dotnet-app.yaml](../test/local-k3s/dotnet-app.yaml)）。正式環境 image 先建好，不在 Pod 裡編譯。
+**6. 已經刪掉的 Pod 不該一直報。** 計數類的規則（Gen2 次數、OutOfMemoryException）原本對「已經刪掉的 Pod」也照算，刪掉後 10 分鐘內還會報。改成跟其他規則一樣：最新的資料超過 2 分鐘就不報；只有容器重啟、Job 失敗照報（`report_gone`）。
+
+**7. 測試環境才有的：** NuGet 經過會重簽憑證的 proxy，編譯時要信任它的 CA（[dotnet-app.yaml](../test/local-k3s/dotnet-app.yaml)）。正式環境 image 先建好，不在 Pod 裡編譯。
 
 ### 還沒驗證
 
