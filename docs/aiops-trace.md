@@ -65,7 +65,14 @@ trace 怎麼收、怎麼分部門見 [traces.md](traces.md)；baseline、根因�
 
 要先決定：高流量服務打算記幾成？全部記的話不用改；要調低的話，建議評估「結束後才決定」。
 
-**實測中**：兩層 Collector（node → 依 trace_id 分配 → trace-sampler）在 k3s 上壓測，設定、壓測程式、各檔案說明見 [test/local-k3s/tail-sampling](../test/local-k3s/tail-sampling/README.md)。
+**k3s 實測（結束後才決定）**：兩層 Collector（node → 依 trace_id 分配 → trace-sampler × 2），壓測每秒 500 個請求、11% 有問題（[test/local-k3s/tail-sampling](../test/local-k3s/tail-sampling/README.md)）：
+
+- 錯誤、慢、吞掉例外（回 200 但有例外事件）**100% 留下、每個都完整**；正常的留 5%，總量剩約 15%。
+- 隨機那 5% 錯的慢的也一樣抽，**trace baseline 只用這份就不會偏**（每一段記著是哪條規則留的）。
+- **decision_wait 要比最長的請求長**：等 10 秒時，「下游很快、自己之後又做了 12 秒」的請求只留下 5%（決定時還看不到最上面那段）；等 30 秒就全部留下。
+- 資源：每秒 2,000 段，trace-sampler 每台約 150MB、0.02 核。
+
+建議的設定（還沒改正式環境，要先決定）：decision_wait 30 秒、`num_traces` ≥ 每台每秒 trace 數 × 30 × 2、隨機 5%、慢的門檻 1 秒；應用端的取樣改成全部送（chart 的 `otel.traces.sampleRatio: 1`，現在預設就是）。
 
 ## 建議順序
 
