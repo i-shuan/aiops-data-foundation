@@ -181,3 +181,39 @@ AIOps 的其他用途要的「平常」長得不一樣，有一部分可以共�
 4. **最後加大型語言模型做說明**：前面的證據越完整，它寫的結論越可靠。
 
 步驟 1、4 的 AI 可以自己做（Python 從 ES 讀資料），也可以用 Elastic 的付費功能（異常偵測、log 樣式分群、log 量突變分析；免費授權實測都不能用，見 README 待辦）。
+
+## 推進的兩個階段：先一般服務，再 EAP 與機台
+
+先在一般服務（Web API、worker）把整套跑通：協定標準（HTTP、gRPC、DB、MQ）、呼叫鏈單純，問題好查。等這套流程驗證成熟，再接 EAP 與機台。底層的 ES、OTel Collector、baseline 程式都共用，EAP 主要是加解析規則和換欄位。
+
+### 階段 1：一般服務（現在）
+
+| 要做到的 | 狀態 |
+|---|---|
+| **三種資料對得起來**：每個請求有 trace，log 帶 `trace.id`、`span.id` | ✅ 已驗證（[traces.md](traces.md)） |
+| 從 metrics（延遲、錯誤率）直接跳到那段時間的慢 trace | ❌ 還沒做（要 metrics 帶 exemplar，或 Kibana 用服務＋時間查 trace） |
+| **baseline**：4 週同時段的中位數＋MAD | ✅ 程式完成，模擬資料驗證通過（[aiops/baseline](../aiops/baseline/README.md)） |
+| baseline：MAD 為 0（值都一樣）時不亂報 | ✅ 有下限：中位數的 5%、或固定值，加上 `min_abs` |
+| baseline：連續幾個點都異常才報，避免單點抖動 | ❌ 還沒做 |
+| baseline：在真實的白天尖峰、半夜離峰確認範圍貼得住 | ⏳ 要先累積 4 週的真實資料 |
+| **事故紀錄**：每次出事記下時間、影響範圍、根因，用來對帳哪些是真異常 | ❌ 格式和寫入方式還沒做 |
+| **合併告警**：下游 DB 卡住 → worker 堵塞 → API 變慢，依 trace 的呼叫關係合成一件事 | ❌ 還沒做（呼叫關係要從 trace 算） |
+
+### 階段 2：EAP 與機台（之後）
+
+階段 1 成熟後再做。要準備的：
+
+1. **SECS 的 log 解析規則**（需要真實 log 樣本，見 README 開頭）。SECS 一則跨多行，Collector 收的時候要先合併。
+2. **欄位對照**：
+
+   | | 一般服務（階段 1） | EAP／機台（階段 2） |
+   |---|---|---|
+   | 串起整件事的 ID | `trace.id`、`work_order.id` | `lot.id`、載具 ID、交易 ID |
+   | 對象 | `service.name`、Pod | `equipment.id`、腔體、EAP 實例 |
+   | 請求與回應 | HTTP 請求 → 200／500 | SECS 主訊息（例如 S2F41）→ 回覆（S2F42）與 ACK |
+   | 延遲 | API 回應時間 p95、p99 | 機台交握耗時、T3 逾時 |
+   | 異常 | 5xx 突增、慢查詢 | 機台告警（S5F1）、命令被拒（HCACK ≠ 0） |
+
+   `lot.id`、`equipment.id` 已定案；載具、腔體、交易 ID、EAP 實例的欄位名稱還沒定，要先跟平台確認。
+3. **trace 只到 EAP 為止**：機台不會把 `trace_id` 傳回來，EAP 的 log 一定要寫 `trace_id`，才能從機台事件對回請求（見 [tracing.md](../apps/standards/tracing.md)）。
+4. **baseline 加 EAP 的序列**：在 `series.yaml` 加機台交握耗時、逾時次數、告警次數等，依 `equipment.id` 切。程式不用改。

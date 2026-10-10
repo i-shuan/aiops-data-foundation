@@ -65,6 +65,7 @@
 
    不買的話，AIOps 要自己做（例如 Python 從 ES 讀資料跑模型），資料地基不用改。
 2. **保留天數要定案並套用。** ⚠️ metrics、trace 現在用 ES 預設的 ILM，**只有 rollover、不會刪除**，硬碟遲早滿。方案見 [docs/retention.md](docs/retention.md)：metrics 原始 14 天、降成 5 分鐘留到 90 天、降成 1 小時留到 400 天；log 原文 30 天＋統計值 400 天；trace 原始 7 天＋從 trace 算的指標 400 天。要決定天數、副本，並用正式環境的量重算容量。
+3. **AIOps 分兩階段推進：先一般服務，再 EAP 與機台。** 階段 1 在 Web API、worker 上把三種資料串接、baseline、事故紀錄、合併告警跑通；還沒做的是從 metrics 跳到慢 trace、連續異常才報、事故紀錄、合併告警，以及用 4 週真實資料驗證 baseline。階段 2 再接 EAP：SECS 解析規則、載具／腔體／交易 ID 的欄位名稱、機台交握耗時與告警的 baseline。底層共用，不用重寫。清單見 [docs/aiops-rca.md「推進的兩個階段」](docs/aiops-rca.md#推進的兩個階段先一般服務再-eap-與機台)。
 
 ## 目錄
 
