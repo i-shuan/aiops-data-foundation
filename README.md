@@ -22,6 +22,7 @@
 - [docs/aiops-rca.md](docs/aiops-rca.md)：**AIOps 根因分析怎麼做**：三種資料各回答什麼、六個步驟裡哪幾步需要 AI，以及最關鍵的「怎麼知道平常的樣子」（看哪些指標、週期、方法、需要的條件）。
 - [docs/aiops-metrics.md](docs/aiops-metrics.md)：**metrics 收了哪些、哪些有 baseline、能做到什麼**：五種做法（跟平常比、離極限多遠、慢慢爬、跟兄弟比、狀態變化）與做不到的。
 - [docs/aiops-metrics-cases.md](docs/aiops-metrics-cases.md)：**指標四個領域的案例與實測**：CPU 被限流、記憶體洩漏（真的 Java＋agent）、連線池用光＋Kafka 落後、機台通訊與 PLC，在 k3s 上做出來確認抓得到；附 JVM、連線池的實際指標名稱與機台指標的命名提案。
+- [docs/aiops-trace.md](docs/aiops-trace.md)：**trace 能做什麼**：六個場景（慢在哪、程式壞味道、錯誤源頭、非同步、架構治理、工廠）對照現況、缺什麼、取樣的取捨。
 - [docs/dotnet.md](docs/dotnet.md)：**應用是 .NET 時**：不改程式，chart 開 `otel.dotnet`（OpenTelemetry .NET 自動埋點），metrics、trace 推給 Collector；.NET 8／9 的指標名稱、log 格式、規則（Gen2 GC、例外、執行緒暴增），真的 ASP.NET Core 8、9 實測。
 - [docs/aiops-cases.md](docs/aiops-cases.md)：**15 個真實故障案例要哪種「平常」才抓得到**：N+1、錯誤被吞、連線池洩漏、重試風暴、單一 Pod 壞掉…逐一對到訊號、baseline 種類、資料與程式現況，排出接下來要做的順序。
 - [docs/retention.md](docs/retention.md)：**保留天數與容量（方案，還沒套用）**：各種資料留多久、舊 metrics 降解析度、log 和 trace 改留統計值，以及容量估算。
