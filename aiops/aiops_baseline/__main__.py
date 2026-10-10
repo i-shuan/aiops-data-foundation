@@ -24,6 +24,11 @@ from . import trace as T
 from .model import DetectOptions, TrainOptions, score, train
 
 
+def keys_of(spec: dict) -> list[str]:
+    """序列依什麼切：有 variants（同一個指標、不同語言的欄位名稱）時用統一的 keys，否則就是 by。"""
+    return spec.get("keys") or spec["by"]
+
+
 def _freq(interval: str) -> str:
     """設定檔用 ES 的寫法（5m、1h），pandas 要寫成 5min、1h。"""
     return interval[:-1] + "min" if interval.endswith("m") else interval
@@ -85,9 +90,9 @@ def cmd_train(cfg: dict, args) -> int:
           f"（{topts.timezone}，{interval} 一點）")
     for spec in cfg["series"]:
         hist = fetch(es, spec, start, end, interval)
-        b = train(hist, spec["by"], topts)
-        save_baseline(es, spec["name"], spec["by"], b, start, end)
-        print(train_summary(spec["name"], spec["by"], hist, b))
+        b = train(hist, keys_of(spec), topts)
+        save_baseline(es, spec["name"], keys_of(spec), b, start, end)
+        print(train_summary(spec["name"], keys_of(spec), hist, b))
     return 0
 
 
@@ -119,15 +124,15 @@ def cmd_detect(cfg: dict, args) -> int:
     print(f"偵測區間 {start.tz_convert(tz):%Y-%m-%d %H:%M} ～ {end.tz_convert(tz):%Y-%m-%d %H:%M}（{tz}）")
     for spec in cfg["series"]:
         cur = fetch(es, spec, start, end, interval)
-        base = load_baseline(es, spec["name"], spec["by"])
+        base = load_baseline(es, spec["name"], keys_of(spec))
         if spec["value"] == "count" or spec.get("fill_zero"):
-            cur = _add_silent(cur, base, spec["by"], start, end, interval)
+            cur = _add_silent(cur, base, keys_of(spec), start, end, interval)
         if cur.empty or base.empty:
             print(f"  {spec['name']}：{'沒有資料' if cur.empty else '沒有 baseline，先跑 train'}")
             continue
-        s = score(cur, base, spec["by"], direction=spec.get("direction", "both"),
+        s = score(cur, base, keys_of(spec), direction=spec.get("direction", "both"),
                   min_abs=spec.get("min_abs", 0.0), opts=dopts, tz=tz)
-        total += save_anomalies(es, spec["name"], spec["by"], s, spec.get("direction", "both"), tz)
+        total += save_anomalies(es, spec["name"], keys_of(spec), s, spec.get("direction", "both"), tz)
     print(f"共 {total} 個異常")
     return 0
 
