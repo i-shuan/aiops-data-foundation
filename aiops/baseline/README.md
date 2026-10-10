@@ -210,6 +210,32 @@ python3 -m aiops_baseline rules --config baseline/rules.yaml      # 每分鐘
 
 **還沒加：** 趨勢（例如老年代照這個速度幾小時後會滿）、網卡丟包（要 node_exporter）、資料庫自己的指標（長交易、慢查詢，要 DB 的 exporter）。
 
+## 跟兄弟比：同一個服務的 Pod 互相比
+
+10 個 Pod 只有 1 個壞掉（錯誤率 100%、或只有它記憶體一直漲），整個服務平均起來只差一點，跟平常比（baseline）可能還在範圍內。同一個服務的 Pod 跑同一份程式、分到差不多的流量，應該長得差不多，所以**拿其他 Pod 當標準**：不用歷史，裝上去第一天就有用。設定在 [peer.yaml](peer.yaml)，程式在 [aiops_baseline/peer.py](../aiops_baseline/peer.py)。
+
+| 檢查 | 每個 Pod 算什麼（最近 10 分鐘） | 分組 | 觸發（跟其他 Pod 的中位數比） |
+|---|---|---|---|
+| `peer.http_error_rate` | 錯誤率（5xx ÷ 全部） | namespace × 服務 | 高 5 倍穩健標準差，而且多 5 個百分點以上 |
+| `peer.http_latency_p95_s` | p95 延遲 | namespace × 服務 | 同上，而且慢 100ms 以上、是別人的 2 倍以上 |
+| `peer.pod_cpu` | CPU 平均 | namespace × Deployment | 同上，而且多 0.2 核以上、是別人的 3 倍以上 |
+| `peer.pod_memory_bytes` | 記憶體（working set）最高 | namespace × Deployment | 同上，而且多 100MB 以上、是別人的 1.5 倍以上 |
+
+怎麼比：每個 Pod 跟「**其他** Pod」的中位數、MAD 比（跟 baseline 一樣的穩健統計；比的時候不含自己，壞掉的那個不會把標準拉過去）。另外：
+- **至少 3 個 Pod 才比**：只有 2 個分不出誰才是怪的。
+- **只比現在還在的 Pod**（最近 2 分鐘有資料）：換版、縮容刪掉的不算兄弟。換版途中新舊 Pod 會一起比，新版的 Pod 都比舊的差也會報，這正好是想知道的。
+- **流量太少的 Pod 不比錯誤率、延遲**（10 分鐘不到 20 個請求）：一兩個錯就跳很高。
+- **全部一起壞不報**：例如下游 DB 掛了，每個 Pod 都錯，那不是「某個 Pod」的問題，交給 baseline 和規則。
+- 門檻比 baseline 寬（`rel_floor` 10%，再加上至少差多少、至少幾倍）：同一個服務的 Pod 本來就不會一模一樣。
+
+觸發的寫進 `aiops-anomalies`：`series` 是檢查名稱（`peer.…`）、`level` 是 `peer`、`median` 是其他 Pod 的中位數，`message` 例如「這個 Pod 的錯誤率比同服務其他 Pod 高：metrics-cases、dotnet-app、dotnet-app-…（100%，其他 2 個 Pod 中位數 0%，z=…）」。
+
+```bash
+python3 -m aiops_baseline peer --config baseline/peer.yaml      # 每分鐘
+```
+
+實測見下面「驗證」。
+
 ## 怎麼跑
 
 ```bash
@@ -271,5 +297,5 @@ ES_URL=... ES_AUTH=... python3 -m tests.synth_e2e      # 模擬資料，需要 E
 2. **合併**：同一個服務的流量、錯誤、延遲同時異常時，現在是好幾筆，之後依服務與時間合併成一件事（[docs/aiops-rca.md](../../docs/aiops-rca.md) 的步驟 2）。
 3. **排除已知事件**：保養、事故期間的資料目前會一起學進去（中位數不太受影響，但最好排除）。
 4. **換版**：新版本上線後要不要重新學，規則還沒定。
-5. **不是 Java 的服務**：流量、錯誤率、延遲來自 Java agent 的 `http.server.request.duration`。其他語言要用 OpenTelemetry SDK 開出同名的直方圖（Prometheus 格式），才學得到。
+5. **不是 Java、.NET 的服務**：流量、錯誤率、延遲來自 `http.server.request.duration`（Java agent、.NET 自動埋點都有，見 [docs/dotnet.md](../../docs/dotnet.md)）。其他語言要用 OpenTelemetry 開出同名的直方圖，才學得到。
 6. **更準的方法**：用一陣子、收集到誤報和漏報後，再考慮方法 B（拆週期）、C（預測模型）。

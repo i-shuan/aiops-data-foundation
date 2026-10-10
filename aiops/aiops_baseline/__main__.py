@@ -2,9 +2,13 @@
 
   python3 -m aiops_baseline train  --config baseline/series.yaml [--weeks 4] [--end 2026-10-10T00:00:00Z]
   python3 -m aiops_baseline detect --config baseline/series.yaml [--window 30m] [--at 2026-10-10T08:00:00Z]
+  python3 -m aiops_baseline rules  --config baseline/rules.yaml  [--at …] [--only 規則,…]
+  python3 -m aiops_baseline peer   --config baseline/peer.yaml   [--at …] [--only 檢查,…]
 
 train ：讀過去 N 週的資料，每條序列、每個時段學出中位數與波動範圍，寫進 ES 的 aiops-baseline。
 detect：讀最近一段時間的資料，跟 baseline 比，超出範圍的寫進 aiops-anomalies，並印出來。
+rules ：狀態變化、離極限多遠（不用學）。
+peer  ：跟兄弟比，同一個服務的 Pod 互相比，抓只有一個 Pod 壞掉（不用學）。
 --end、--at 用來回測（拿過去某個時間點當成「現在」）；不給就是現在。
 """
 from __future__ import annotations
@@ -19,6 +23,7 @@ from aiops_common.es import get_field
 
 from .es import (ANOMALY_INDEX, ANOMALY_MAPPING, BASELINE_INDEX, BASELINE_MAPPING, ES, doc_id, fetch,
                  load_baseline)
+from . import peer as P
 from . import rules as R
 from . import trace as T
 from .model import DetectOptions, TrainOptions, score, train
@@ -268,6 +273,56 @@ def cmd_rules(cfg: dict, args) -> int:
     return 0
 
 
+# ── 跟兄弟比：同一個服務的 Pod 互相比（aiops_baseline/peer.py、baseline/peer.yaml）──
+
+SHOW = {"pct": lambda x: f"{x:.0%}", "seconds": lambda x: f"{x * 1000:.0f}ms", "cores": lambda x: f"{x:.2f} 核",
+        "bytes": lambda x: f"{x / 1048576:.0f}MB"}
+
+
+def cmd_peer(cfg: dict, args) -> int:
+    es = ES()
+    es.ensure_index(ANOMALY_INDEX, ANOMALY_MAPPING)
+    es.req("PUT", f"/{ANOMALY_INDEX}/_mapping", {"properties": RULE_FIELDS})
+    end = _now(args.at)
+    start = end - pd.Timedelta(_freq(cfg.get("window", "10m")))
+    names = set(args.only.split(",")) if args.only else None
+    docs, fired, checked = [], 0, 0
+    for c in cfg["checks"]:
+        if names and c["name"] not in names:
+            continue
+        checked += 1
+        keys = keys_of(c)
+        group, member = keys[:-1], keys[-1]
+        cur = fetch(es, c, start, end, None)
+        # 只比現在還在的 Pod：最近 fresh（預設 2 分鐘）內還有資料的。換版、縮容刪掉的 Pod 不算兄弟
+        alive = fetch(es, P.count_spec(c), end - pd.Timedelta(_freq(cfg.get("fresh", "2m"))), end, None)
+        cur = cur.merge(alive[keys], on=keys) if not cur.empty and not alive.empty else cur.iloc[0:0]
+        if c.get("min_volume") and (vs := P.volume_spec(c)) is not None and not cur.empty:
+            vol = fetch(es, vs, start, end, None).rename(columns={"value": "volume"})
+            cur = cur.merge(vol[keys + ["volume"]], on=keys, how="left")
+            cur = cur[cur["volume"].fillna(0) >= c["min_volume"]]
+        res = P.compare(cur, group, member, direction=c.get("direction", "up"), z=cfg.get("z", 5.0),
+                        min_abs=c.get("min_abs", 0.0), min_ratio=c.get("min_ratio"),
+                        rel_floor=cfg.get("rel_floor", 0.1), min_peers=cfg.get("min_peers", 3))
+        fmt = SHOW.get(c.get("show"), lambda x: f"{x:g}")
+        n_groups = res.groupby(group).ngroups if not res.empty else 0
+        for r in res[res["anomaly"]].to_dict("records"):
+            k = {f: r[f] for f in keys}
+            msg = P.describe(c, r, keys, fmt)
+            docs.append((doc_id(c["name"], k, end.floor("1min")), {
+                "@timestamp": end.floor("1min").isoformat(), "series": c["name"], "rule": c["name"], "keys": k,
+                "value": r["value"], "median": r["median"], "expected_low": None, "expected_high": None, "z": r["z"],
+                "level": "peer", "direction": c.get("direction", "up"), "severity": c.get("severity", "warning"),
+                "message": msg, "detected_at": pd.Timestamp.now(tz="UTC").isoformat()}))
+            print(f"  [{c.get('severity', 'warning')}] {msg}")
+            fired += 1
+        print(f"  {c['name']}：{n_groups} 組、{len(res)} 個 Pod 比過")
+    if docs:
+        es.bulk_index(ANOMALY_INDEX, docs)
+    print(f"{end.tz_convert('Asia/Taipei'):%m-%d %H:%M}：{checked} 個檢查，觸發 {fired} 個")
+    return 0
+
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(prog="aiops_baseline")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -295,11 +350,15 @@ def main(argv=None) -> int:
     r.add_argument("--config", required=True)
     r.add_argument("--at", help="回測：拿過去某個時間點當成現在")
     r.add_argument("--only", help="只跑這幾條（逗號分開）")
+    pe = sub.add_parser("peer")
+    pe.add_argument("--config", required=True)
+    pe.add_argument("--at", help="回測：拿過去某個時間點當成現在")
+    pe.add_argument("--only", help="只跑這幾個（逗號分開）")
     args = p.parse_args(argv)
     with open(args.config, encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
     cmds = {"train": cmd_train, "detect": cmd_detect, "trace-collect": cmd_trace_collect,
-            "trace-train": cmd_trace_train, "trace-detect": cmd_trace_detect, "rules": cmd_rules}
+            "trace-train": cmd_trace_train, "trace-detect": cmd_trace_detect, "rules": cmd_rules, "peer": cmd_peer}
     return cmds[args.cmd](cfg, args)
 
 

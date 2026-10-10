@@ -1,0 +1,89 @@
+# 跟兄弟比（同儕比較）：同一個服務的 Pod 互相比，抓「只有一個 Pod 壞掉」（aiops_baseline/peer.py）。
+# 不用歷史、不用學；每次看最近 window 這段時間，每個 Pod 算一個值，跟同組其他 Pod 的中位數比。
+#
+# 每個檢查：
+#   value、variants、by、keys：跟 series.yaml 一樣的寫法；by（或 keys）最後一個是 Pod，前面的是分組
+#   direction：up 只有比別人高才算（錯誤率、延遲、記憶體）
+#   min_abs  ：至少比別人多這麼多才算
+#   min_ratio：至少是別人的幾倍才算（CPU、記憶體：各 Pod 本來就有點不一樣，倍數比較直覺）
+#   min_volume：這段時間請求數不到這麼多的 Pod 不比（錯誤率、p95 才有，從同一個直方圖數）
+#   show     ：訊息裡怎麼顯示數字（pct、seconds、cores、bytes）
+#
+# 同一個服務的 Pod 本來就不會一模一樣（分到的請求不同、快取冷熱），所以門檻比 baseline 寬：
+# rel_floor 10%（其他 Pod 幾乎一樣時，差距至少當成中位數的 10%），再加上 min_abs、min_ratio 兩道。
+
+window: 10m
+z: 5
+rel_floor: 0.1
+min_peers: 3          # 至少 3 個 Pod 才比（2 個的話分不出誰才是怪的）
+fresh: 2m            # 最近 2 分鐘還有資料的 Pod 才算（換版、縮容刪掉的不算）
+
+_ns: &ns resource.attributes.k8s.namespace.name
+_pod: &pod resource.attributes.k8s.pod.name
+_svc: &svc resource.attributes.service.name
+
+checks:
+  # ── 應用：同一個服務的 Pod（HTTP 指標，Java、.NET 兩種欄位名稱，跟 series.yaml 一樣）──
+  - name: peer.http_error_rate
+    show: pct
+    title: 這個 Pod 的錯誤率比同服務其他 Pod 高
+    severity: warning
+    keys: [namespace, service, pod]
+    variants:
+      - index: metrics-*.otel-*
+        filter: {exists: {field: metrics.http_server_request_duration_seconds}}
+        by: [*ns, *svc, *pod]
+        value: {hist_ratio: {field: metrics.http_server_request_duration_seconds,
+                             query: {prefix: {attributes.http_response_status_code: "5"}}}}
+      - index: metrics-*.otel-*
+        filter: {exists: {field: metrics.http.server.request.duration}}
+        by: [*ns, *svc, *pod]
+        value: {hist_ratio: {field: metrics.http.server.request.duration,
+                             query: {range: {attributes.http.response.status_code: {gte: 500}}}}}
+    direction: up
+    min_abs: 0.05         # 錯誤率至少多 5 個百分點
+    min_volume: 20        # 10 分鐘至少 20 個請求
+
+  - name: peer.http_latency_p95_s
+    show: seconds
+    title: 這個 Pod 比同服務其他 Pod 慢
+    severity: warning
+    keys: [namespace, service, pod]
+    variants:
+      - index: metrics-*.otel-*
+        filter: {exists: {field: metrics.http_server_request_duration_seconds}}
+        by: [*ns, *svc, *pod]
+        value: {percentile: {field: metrics.http_server_request_duration_seconds, percent: 95}}
+      - index: metrics-*.otel-*
+        filter: {exists: {field: metrics.http.server.request.duration}}
+        by: [*ns, *svc, *pod]
+        value: {percentile: {field: metrics.http.server.request.duration, percent: 95}}
+    direction: up
+    min_abs: 0.1          # 至少慢 100 毫秒
+    min_ratio: 2          # 而且是其他 Pod 的 2 倍以上
+    min_volume: 20
+
+  # ── 資源：同一個 Deployment 的 Pod ──
+  - name: peer.pod_cpu
+    show: cores
+    title: 這個 Pod 的 CPU 比同 Deployment 其他 Pod 高很多
+    severity: warning
+    index: metrics-kubeletstatsreceiver.otel-*
+    filter: {exists: {field: metrics.k8s.pod.cpu.usage}}
+    by: [*ns, resource.attributes.k8s.deployment.name, *pod]
+    value: {avg: metrics.k8s.pod.cpu.usage}
+    direction: up
+    min_abs: 0.2          # 至少多用 0.2 核
+    min_ratio: 3          # 而且是其他 Pod 的 3 倍以上（無窮迴圈、某個 Pod 卡在重試）
+
+  - name: peer.pod_memory_bytes
+    show: bytes
+    title: 這個 Pod 的記憶體比同 Deployment 其他 Pod 高很多
+    severity: warning
+    index: metrics-kubeletstatsreceiver.otel-*
+    filter: {exists: {field: metrics.k8s.pod.memory.working_set}}
+    by: [*ns, resource.attributes.k8s.deployment.name, *pod]
+    value: {max: metrics.k8s.pod.memory.working_set}   # 這段時間最高：洩漏是一路往上，看最新的高點，平均會被前段拉低
+    direction: up
+    min_abs: 104857600    # 至少多 100MB
+    min_ratio: 1.5        # 而且是其他 Pod 的 1.5 倍以上（只有一個 Pod 在洩漏）

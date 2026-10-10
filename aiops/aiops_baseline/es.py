@@ -67,7 +67,7 @@ def _bucket_value(value, b: dict):
     return b["v"]["value"]
 
 
-def fetch(es: ES, spec: dict, start: pd.Timestamp, end: pd.Timestamp, interval: str) -> pd.DataFrame:
+def fetch(es: ES, spec: dict, start: pd.Timestamp, end: pd.Timestamp, interval: str | None) -> pd.DataFrame:
     """有 variants 時：同一個指標在不同語言的欄位名稱不同（Java 經 Prometheus 是 http_server_request_duration_seconds、
     .NET 用 OTLP 推是 http.server.request.duration），每個 variant 各查一次，by 的欄位換成統一的 keys 再合併。"""
     if spec.get("variants"):
@@ -81,8 +81,9 @@ def fetch(es: ES, spec: dict, start: pd.Timestamp, end: pd.Timestamp, interval: 
     return _fetch_one(es, spec, start, end, interval)
 
 
-def _fetch_one(es: ES, spec: dict, start: pd.Timestamp, end: pd.Timestamp, interval: str) -> pd.DataFrame:
-    """把一條序列定義在 [start, end) 的資料，依 by 欄位和 interval 切好。
+def _fetch_one(es: ES, spec: dict, start: pd.Timestamp, end: pd.Timestamp, interval: str | None) -> pd.DataFrame:
+    """把一條序列定義在 [start, end) 的資料，依 by 欄位和 interval 切好。interval 是 None 時整段算一個值（ts 是 end），
+    跟兄弟比（peer.py）用：每個 Pod 最近 10 分鐘的錯誤率、p95。
 
     回傳欄位：by 的每個欄位 + ts + value。筆數類（count、或 fill_zero: true）沒有資料的時段補 0：
     沒有請求就是 0，不是「不知道」。這也是為什麼資料不能缺，缺了會被學成「平常會掉到 0」。
@@ -92,7 +93,8 @@ def _fetch_one(es: ES, spec: dict, start: pd.Timestamp, end: pd.Timestamp, inter
     if spec.get("filter"):
         filters.append(spec["filter"])
     sources = [{f"k{i}": {"terms": {"field": f}}} for i, f in enumerate(by)]
-    sources.append({"ts": {"date_histogram": {"field": spec.get("time_field", "@timestamp"), "fixed_interval": interval}}})
+    if interval:
+        sources.append({"ts": {"date_histogram": {"field": spec.get("time_field", "@timestamp"), "fixed_interval": interval}}})
     body = {"size": 0, "query": {"bool": {"filter": filters}},
             "aggs": {"s": {"composite": {"size": 5000, "sources": sources}, "aggs": _value_aggs(spec["value"])}}}
     rows, after = [], None
@@ -103,14 +105,14 @@ def _fetch_one(es: ES, spec: dict, start: pd.Timestamp, end: pd.Timestamp, inter
         agg = res.get("aggregations", {}).get("s", {})
         for b in agg.get("buckets", []):
             row = {f: b["key"][f"k{i}"] for i, f in enumerate(by)}
-            row["ts"] = pd.Timestamp(b["key"]["ts"], unit="ms", tz="UTC")
+            row["ts"] = pd.Timestamp(b["key"]["ts"], unit="ms", tz="UTC") if interval else end
             row["value"] = _bucket_value(spec["value"], b)
             rows.append(row)
         after = agg.get("after_key")
         if not after:
             break
     df = pd.DataFrame(rows, columns=by + ["ts", "value"])
-    if spec["value"] == "count" or spec.get("fill_zero"):
+    if interval and (spec["value"] == "count" or spec.get("fill_zero")):
         df = _fill_zero(df, by, start, end, interval)
     return df
 
