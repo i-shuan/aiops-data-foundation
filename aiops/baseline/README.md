@@ -17,14 +17,20 @@ ES（log、metrics、trace）
 
 學哪些序列寫在 [series.yaml](series.yaml)，目前是每個服務的核心指標：
 
-| 序列 | 依什麼切 | 什麼算異常 |
-|---|---|---|
-| `trace.requests` | 服務 × API | 請求數變多或變少 |
-| `trace.error_rate` | 服務 × API | 錯誤率變高（至少多 5 個百分點） |
-| `trace.latency_p95_ns` | 服務 × API | 延遲 p95 變高（至少慢 50 毫秒） |
-| `log.lines` | 服務 | log 筆數變多或變少 |
-| `log.errors` | 服務 | error／fatal 的 log 變多 |
-| `pod.cpu`、`pod.memory_bytes` | namespace × Deployment | 用量變高 |
+| 序列 | 來源 | 依什麼切 | 什麼算異常 |
+|---|---|---|---|
+| `http.requests` | 應用的 metrics | 服務 × method × API | 請求數變多或變少 |
+| `http.error_rate` | 應用的 metrics | 服務 × method × API | 5xx 的比例變高（至少多 5 個百分點） |
+| `http.latency_p95_s` | 應用的 metrics | 服務 × method × API | 延遲 p95 變高（至少慢 50 毫秒） |
+| `log.lines` | log | 服務 | log 筆數變多或變少 |
+| `log.errors` | log | 服務 | error／fatal 的 log 變多 |
+| `pod.cpu`、`pod.memory_bytes` | K8s metrics | namespace × Deployment | 用量變高 |
+
+**流量、錯誤率、延遲從 metrics 算，不從 trace、log 算**（分工見 [docs/aiops-rca.md「分工」](../../docs/aiops-rca.md#分工metrics-決定什麼時候告警trace-和-log-說明原因)）：
+
+- 來源是 Java agent 的 `http.server.request.duration` 直方圖（存進 ES 的欄位是 `metrics.http_server_request_duration_seconds`）。每個請求都算到；Collector 把 Prometheus 的累加值換成「每 30 秒多少」，所以任一段時間都能直接加總。
+- trace 有取樣（調到一成就只看到一成的請求），而且只留 7 天，不適合學 4 週的 baseline。
+- log 只學筆數（`log.lines`、`log.errors`）：抓得到 metrics 看不到的問題，例如背景工作一直失敗、但 API 都正常。
 
 要加序列，在 `series.yaml` 加一段就好，不用改程式。
 
@@ -143,7 +149,7 @@ detect 只看**已經結束**的 5 分鐘：還沒收齊的那一段筆數會偏
 ## 驗證
 
 ```bash
-python3 -m unittest discover -s tests -t .              # 單元測試，不需要 ES（11 項）
+python3 -m unittest discover -s tests -t .              # 單元測試，不需要 ES（13 項）
 ES_URL=... ES_AUTH=... python3 -m tests.synth_e2e      # 模擬資料，需要 ES
 ```
 
@@ -167,5 +173,5 @@ ES_URL=... ES_AUTH=... python3 -m tests.synth_e2e      # 模擬資料，需要 E
 2. **合併**：同一個服務的流量、錯誤、延遲同時異常時，現在是好幾筆，之後依服務與時間合併成一件事（[docs/aiops-rca.md](../../docs/aiops-rca.md) 的步驟 2）。
 3. **排除已知事件**：保養、事故期間的資料目前會一起學進去（中位數不太受影響，但最好排除）。
 4. **換版**：新版本上線後要不要重新學，規則還沒定。
-5. **trace 的長期指標**：現在直接從 trace 算；trace 只留 7 天、而且有取樣，之後改用 Collector 的 `spanmetrics`（見 [docs/retention.md](../../docs/retention.md)）。
+5. **不是 Java 的服務**：流量、錯誤率、延遲來自 Java agent 的 `http.server.request.duration`。其他語言要用 OpenTelemetry SDK 開出同名的直方圖（Prometheus 格式），才學得到。
 6. **更準的方法**：用一陣子、收集到誤報和漏報後，再考慮方法 B（拆週期）、C（預測模型）。

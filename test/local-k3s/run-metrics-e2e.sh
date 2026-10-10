@@ -3,7 +3,7 @@
 #
 # 前提：run-e2e.sh 跑過（測試 ES 與 log 的測試 namespace 都在），KUBECONFIG 指向測試 cluster。
 # 用法：ES_URL=http://<ip>:9200 test/local-k3s/run-metrics-e2e.sh
-# 會建立 namespace otel-collector，並在 it-mes-prod、imc-wip-prod、legacy 各部署一個 metrics-app。
+# 會建立 namespace otel-collector，並在 it-mes-prod、imc-wip-prod、legacy 各部署一個 metrics-app，imc-wip-prod 再加一個 http-metrics-app（模擬 Java agent 的請求直方圖）。
 set -euo pipefail
 
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -43,10 +43,12 @@ k -n otel-collector create secret generic es-writer-keys \
 echo "== 2. Collector 與測試應用"
 k apply -k "${here}/otel-collector" >/dev/null
 k apply -f "${here}/metrics-apps.yaml" >/dev/null
+k apply -f "${here}/http-metrics-app.yaml" >/dev/null
 k -n otel-collector rollout restart daemonset/otel-node-collector deployment/otel-cluster-collector >/dev/null
 k -n otel-collector rollout status daemonset/otel-node-collector --timeout=180s
 k -n otel-collector rollout status deployment/otel-cluster-collector --timeout=180s
 for ns in it-mes-prod imc-wip-prod legacy; do k -n "${ns}" rollout status deployment/metrics-app --timeout=180s >/dev/null; done
+k -n imc-wip-prod rollout status deployment/http-metrics-app --timeout=180s >/dev/null
 start="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 echo "   只看 ${start} 之後的資料，等 Collector 送兩輪（約 90 秒）"
 sleep 90
@@ -94,7 +96,24 @@ check "存成 time series data stream" \
 check "TSDS 可寫入時間往後 2 小時（ES 停機重啟後才不會拒收）" \
   "$(es "${ES_URL}/metrics-prometheusreceiver.otel-it/_settings?include_defaults=true" | jq -r '[.[] | (.settings.index.look_ahead_time // .defaults.index.look_ahead_time)] | last')" 2h
 
-echo "== 5. 權限"
+echo "== 5. 應用的請求直方圖（AIOps baseline 算流量、錯誤率、延遲用）"
+H=metrics.http_server_request_duration_seconds
+hq="{\"bool\":{\"filter\":[${since},{\"exists\":{\"field\":\"${H}\"}},$(ns_f imc-wip-prod)]}}"
+hdocs="$(es "${ES_URL}/metrics-*.otel-imc/_search" -d "{\"size\":100,\"query\":${hq}}" | jq '[.hits.hits[]._source]')"
+check_gt0 "進 IMC（metrics-generic.otel-imc）" "$(jq length <<<"${hdocs}")"
+check "存成直方圖（exponential_histogram）" \
+  "$(es "${ES_URL}/metrics-generic.otel-imc/_mapping/field/${H}" | jq -r '[.[].mappings[].mapping[].type] | unique | join(",")')" exponential_histogram
+check "Collector 換成差值（temporality: delta）" "$(jq -r '[.[].temporality] | unique | join(",")' <<<"${hdocs}")" delta
+# 測試應用每 5 秒 20 個成功的請求；Collector 30 秒抓一次 → 每筆約 120 個。累加值的話會一直變大
+check "每筆只有那 30 秒的量（成功的請求 ≤ 140 個）" \
+  "$(jq '[.[] | select(.attributes.http_response_status_code == "200") | .metrics["http_server_request_duration_seconds"] | ((.positive.counts // []) | add) + (.zero.count // 0)] | max <= 140' <<<"${hdocs}")" true
+agg="$(es "${ES_URL}/metrics-*.otel-imc/_search" -d "{\"size\":0,\"query\":${hq},\"aggs\":{
+  \"n\":{\"value_count\":{\"field\":\"${H}\"}},\"p\":{\"percentiles\":{\"field\":\"${H}\",\"percents\":[95]}},
+  \"e\":{\"filter\":{\"prefix\":{\"attributes.http_response_status_code\":\"5\"}},\"aggs\":{\"n\":{\"value_count\":{\"field\":\"${H}\"}}}}}}")"
+check "錯誤率算得出來（應該約 1/21 ≈ 4.8%）" "$(jq '(.aggregations.e.n.value / .aggregations.n.value) as $r | $r > 0.04 and $r < 0.056' <<<"${agg}")" true
+check "p95 算得出來（應該落在 0.25～0.5 秒）" "$(jq '.aggregations.p.values["95.0"] as $p | $p > 0.25 and $p <= 0.5' <<<"${agg}")" true
+
+echo "== 6. 權限"
 can() {  # can <api key> <index> <privilege> → true / false
   curl -sS -m 30 -H "Authorization: ApiKey $1" -H 'Content-Type: application/json' "${ES_URL}/_security/user/_has_privileges" \
     -d "{\"index\":[{\"names\":[\"$2\"],\"privileges\":[\"$3\"]}]}" | jq -r ".index[\"$2\"][\"$3\"]"

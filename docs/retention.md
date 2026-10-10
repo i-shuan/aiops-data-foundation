@@ -38,14 +38,15 @@
 |---|---|---|---|
 | **metrics** | 30 秒一點，留 **14 天** | 第 14 天起降成 **5 分鐘一點**；第 90 天起降成 **1 小時一點** | **400 天**（約 13 個月） |
 | **log** | 原文留 **30 天**（現在的設定） | 每 5 分鐘統計一次「每個服務各 level 的筆數、各 `error.type` 的筆數」，存成另一個小 index（ES 內建的 transform，免費），留 **400 天** | 原文 30 天 |
-| **trace** | 原始 span 留 **7 天** | 每個服務、每個 API 的請求數、錯誤數、延遲分布，由 Collector 在收的時候算好（`spanmetrics`），當成 metrics 存，跟著 metrics 的規則降解析度、留 **400 天** | 原始 7 天 |
+| **trace** | 原始 span 留 **7 天** | 不另外留：每個服務、每個 API 的請求數、錯誤數、延遲分布，應用的 metrics（`http.server.request.duration`）已經有，跟著 metrics 留 **400 天** | 原始 7 天 |
 | failure store（ES 拒收的資料） | 留 **30 天**，夠查原因 | — | 30 天 |
 
 **為什麼這樣分：**
 
 - **metrics 降解析度**：實測免費授權可用。每小時一點只保留那一小時的最小、最大、總和、筆數，學「平常的樣子」夠用；一小時一點的大小約是原始的 1/120。
 - **log 不留更久，改留統計**：log 原文是最佔空間的。AIOps 看 log 主要是「哪種錯誤突然變多」，留每 5 分鐘的筆數就夠，原文 30 天用來查細節。
-- **trace 原文只留 7 天**：trace 主要用來查「最近這次出事」。長期要的是每個 API 的延遲、錯誤率，用 `spanmetrics` 在 Collector 算，**還有一個好處：它在取樣之前算，就算 trace 只記一成，請求數和延遲還是準的**。
+- **trace 原文只留 7 天**：trace 主要用來查「最近這次出事」。長期要的是每個 API 的延遲、錯誤率，直接用應用的 metrics（Java agent 的 `http.server.request.duration` 直方圖）。**它每個請求都算，不受 trace 取樣影響**，就算 trace 只記一成，請求數和延遲還是準的。
+  - ⚠️ **不用 Collector 的 `spanmetrics`**：取樣是在應用裡決定的，沒被取樣的 span 根本不會送到 Collector，`spanmetrics` 只看得到被取樣的那些，請求數會少算。
 
 ### 容量估算
 
@@ -129,7 +130,7 @@ EAP log 每天寫入 = 機台數 × 每台每秒幾則訊息 × 每則 log 壓�
 | 做法 | 效果 |
 |---|---|
 | **EAP 不在 INFO 寫完整的 SML 內容**：只寫摘要（機台、訊息種類、事件編號、結果），完整內容放 DEBUG 或另外存 | EAP log 可能減到 1/5 以下，**最有效** |
-| **高流量服務的 trace 取樣調到 0.01～0.1**（`otel.traces.sampleRatio`） | 長期的請求數、延遲由 Collector 在取樣前算（`spanmetrics`），統計不受影響 |
+| **高流量服務的 trace 取樣調到 0.01～0.1**（`otel.traces.sampleRatio`） | 長期的請求數、延遲來自應用的 metrics，每個請求都算，不受取樣影響 |
 | **吵的服務把不必要的 INFO log 降成 DEBUG** | 常見的「每個請求印好幾行」可以省一大半 |
 | **高流量的原始 log 留短一點**（例如 14 天），長期改留統計值 | 依 group 設；資料流本來就依 group 分開 |
 
@@ -161,7 +162,7 @@ GET _cat/indices/.ds-k8s-*,.ds-metrics-*,.ds-traces-*?v&h=index,creation.date.st
 1. **metrics**：自己的 ILM（hot → 14 天降成 5 分鐘 → 90 天降成 1 小時 → 400 天刪），掛在 `metrics-otel@custom`。
 2. **trace**：自己的 ILM（7 天刪），掛在 `traces-otel@custom`。
 3. **log**：`k8s-logs` 維持 30 天；新增一個 transform，每 5 分鐘把「服務 × level × `error.type`」的筆數寫進 `aiops-log-stats-*`，留 400 天。
-4. **trace 的長期指標**：Collector 加 `spanmetrics`，從 trace 算每個服務、每個 API 的請求數、錯誤數、延遲分布，當成 metrics 送出。
+4. **每個 API 的長期指標**：不用另外做。應用的 `http.server.request.duration` 已經由 Collector 換成「每 30 秒多少」存進 metrics，跟著 metrics 降解析度。要確認的是**降解析度後直方圖還在**（ES 對直方圖降解析度的支援要實測）。
 5. **failure store**：設 30 天保留。
 6. 用測試環境驗證：降解析度後的資料查得到、ILM 照時間推進（測試時把天數縮短成分鐘）。
 

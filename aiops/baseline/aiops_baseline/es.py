@@ -78,12 +78,22 @@ def _value_aggs(value) -> dict:
       {sum|avg|max|min: <欄位>}              該欄位的總和、平均…
       {percentile: {field: <欄位>, percent: 95}}
       {ratio: <query>}                      符合 query 的筆數 ÷ 總筆數（例如錯誤率）
+    直方圖欄位（例如應用的 http.server.request.duration）：
+      {hist_count: <欄位>}                   直方圖裡的次數總和（例如請求數）
+      {hist_ratio: {field: <欄位>, query: <query>}}
+                                            符合 query 的次數 ÷ 總次數（例如狀態碼 5xx 的比例）
+      {percentile: ...} 也可以用在直方圖欄位（例如延遲 p95）
     """
     if value == "count":
         return {}
     (kind, arg), = value.items()
     if kind in ("sum", "avg", "max", "min"):
         return {"v": {kind: {"field": arg}}}
+    if kind == "hist_count":
+        return {"v": {"value_count": {"field": arg}}}
+    if kind == "hist_ratio":
+        n = {"value_count": {"field": arg["field"]}}
+        return {"v": n, "num": {"filter": arg["query"], "aggs": {"v": n}}}
     if kind == "percentile":
         return {"v": {"percentiles": {"field": arg["field"], "percents": [arg["percent"]]}}}
     if kind == "ratio":
@@ -97,6 +107,9 @@ def _bucket_value(value, b: dict):
     (kind, _), = value.items()
     if kind == "ratio":
         return b["num"]["doc_count"] / b["doc_count"] if b["doc_count"] else None
+    if kind == "hist_ratio":
+        total = b["v"]["value"]
+        return b["num"]["v"]["value"] / total if total else None
     if kind == "percentile":
         vals = b["v"]["values"]
         return next(iter(vals.values()))

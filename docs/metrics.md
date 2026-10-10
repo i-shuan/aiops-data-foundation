@@ -96,6 +96,25 @@ annotations:
 
 AIOps 要把 log 和 metrics 串起來，用 `service.name` 加 `k8s.namespace.name`（log 那邊是 `kubernetes.namespace`）加時間。
 
+### 應用的請求數、錯誤、延遲（AIOps baseline 用）
+
+Java agent 會開出 `http.server.request.duration`（每個 HTTP 請求的耗時直方圖，依 method、route、狀態碼分），這是 AIOps baseline 算流量、錯誤率、延遲的來源（見 [aiops-rca.md「分工」](aiops-rca.md#分工metrics-決定什麼時候告警trace-和-log-說明原因)）。
+
+| | |
+|---|---|
+| ES 欄位 | `metrics.http_server_request_duration_seconds`，型別 `exponential_histogram`（ES 9.5 自動轉） |
+| 維度 | `attributes.http_request_method`、`attributes.http_route`、`attributes.http_response_status_code` |
+| 資料流 | `metrics-generic.otel-<group>`：資料帶著應用自己的 scope 名稱（例如 `io.opentelemetry.tomcat-10.0`），不是 `prometheusreceiver` |
+| 每一筆是什麼 | **這 30 秒內**的請求：Collector 用 `cumulativetodelta` 把 Prometheus 的累加值換成差值（`temporality: delta`） |
+
+**為什麼要換成差值：** Prometheus 的數字從應用啟動一直累加。直接存的話，「10:00～10:05 有幾個請求、p95 多少」要拿頭尾相減，直方圖在 ES 裡做不到；存差值就能直接加總任一段時間。實測：沒換之前 ES 也收（`temporality: cumulative`），但一加總就是錯的。
+
+只換直方圖；計數器（counter）維持累加值，原本的資料和查法不變。
+
+實測（測試應用每 5 分鐘 1,200 個成功、60 個 500 錯誤，成功的 10% 落在 250～500ms）：baseline 從 ES 查出 **1,260 個請求、錯誤率 4.76%、p95 0.375 秒**，跟預期完全一樣。Collector 重啟的那個 5 分鐘少了約 1/5（少抓一次）。
+
+**代價：** Collector 重啟後，每條序列第一次抓到的值沒有「上一次」可以比，那 30 秒會少掉。應用重啟（數字歸零）會被當成重新開始，不會算出負數。
+
 ## 部署
 
 ### 1. 中央 ES

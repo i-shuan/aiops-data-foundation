@@ -68,6 +68,15 @@ receivers:
         endpoint: 0.0.0.0:4318
 
 processors:
+  # 應用的直方圖（例如 Java agent 的 http.server.request.duration）是 Prometheus 格式，從應用啟動一直累加。
+  # 換成「這次抓取比上次多了多少」，ES 才能直接加總任一段時間：每 5 分鐘幾個請求、p95 多少（AIOps baseline 用）。
+  # 每個節點的 Collector 只抓自己節點的 Pod，同一條序列一定由同一個 Collector 算。
+  # Collector 重啟後，每條序列的第一次抓取沒有「上一次」可以比，那一點會少掉（30 秒）。
+  # 計數器（counter）不換：ES 存累加值也能算速率，不改原本的資料。
+  cumulativetodelta:
+    include:
+      metric_types: [histogram]
+
   # log 與 trace 一批一批送，量大時才送得動
   batch:
     send_batch_size: 2000
@@ -109,7 +118,7 @@ service:
   pipelines:
     metrics/in:
       receivers: [kubeletstats, prometheus]
-      processors: [memory_limiter, transform/pre, k8s_attributes, transform/group, transform/drop-log-attrs]
+      processors: [memory_limiter, transform/pre, cumulativetodelta, k8s_attributes, transform/group, transform/drop-log-attrs]
       exporters: [routing/group]
     logs/in:
       receivers: [file_log]

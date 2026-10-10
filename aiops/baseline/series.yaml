@@ -6,6 +6,9 @@
 #   {sum|avg|max|min: <欄位>}
 #   {percentile: {field: <欄位>, percent: 95}}
 #   {ratio: <query>}                          符合 query 的筆數 ÷ 總筆數，例如錯誤率
+#   {hist_count: <直方圖欄位>}                 直方圖裡的次數總和，例如請求數
+#   {hist_ratio: {field: <直方圖欄位>, query: <query>}}  符合 query 的次數 ÷ 總次數，例如 5xx 的比例
+#   percentile 也可以用在直方圖欄位，例如延遲 p95
 # direction：up 只有變高算異常（延遲、錯誤）；down 只有變低；both 兩邊都算（流量）
 # min_abs  ：跟平常至少要差這麼多才算，避免量很小的序列一點點變化就告警
 
@@ -23,30 +26,35 @@ detect:
   rel_floor: 0.05         # 平常幾乎不動的序列，波動至少當成平常值的 5%
 
 series:
-  # ── trace：每個服務 × API（收到的請求）──
-  - name: trace.requests
-    index: traces-*.otel-*
-    filter: {term: {kind: Server}}
-    by: [resource.attributes.service.name, name]
-    value: count
+  # ── 每個服務 × API 的流量、錯誤率、延遲：從應用的 metrics 算 ──
+  # 來源是 OpenTelemetry Java agent 的 http.server.request.duration（直方圖，app-common chart 已經開好，
+  # Collector 抓來後換成「每 30 秒多少」）。每個請求都算到，不受 trace 取樣影響，也可以長期保留。
+  # 不用 trace 算：trace 有取樣（調到一成就只看到一成的請求），而且只留 7 天。
+  - name: http.requests
+    index: metrics-*.otel-*
+    filter: {exists: {field: metrics.http_server_request_duration_seconds}}
+    by: [resource.attributes.service.name, attributes.http_request_method, attributes.http_route]
+    value: {hist_count: metrics.http_server_request_duration_seconds}
+    fill_zero: true        # 沒有請求就是 0
     direction: both
     min_abs: 5
 
-  - name: trace.error_rate
-    index: traces-*.otel-*
-    filter: {term: {kind: Server}}
-    by: [resource.attributes.service.name, name]
-    value: {ratio: {term: {status.code: Error}}}
+  - name: http.error_rate
+    index: metrics-*.otel-*
+    filter: {exists: {field: metrics.http_server_request_duration_seconds}}
+    by: [resource.attributes.service.name, attributes.http_request_method, attributes.http_route]
+    value: {hist_ratio: {field: metrics.http_server_request_duration_seconds,
+                         query: {prefix: {attributes.http_response_status_code: "5"}}}}
     direction: up
     min_abs: 0.05          # 錯誤率至少多 5 個百分點
 
-  - name: trace.latency_p95_ns
-    index: traces-*.otel-*
-    filter: {term: {kind: Server}}
-    by: [resource.attributes.service.name, name]
-    value: {percentile: {field: duration, percent: 95}}
+  - name: http.latency_p95_s
+    index: metrics-*.otel-*
+    filter: {exists: {field: metrics.http_server_request_duration_seconds}}
+    by: [resource.attributes.service.name, attributes.http_request_method, attributes.http_route]
+    value: {percentile: {field: metrics.http_server_request_duration_seconds, percent: 95}}
     direction: up
-    min_abs: 50000000      # 至少慢 50 毫秒（duration 單位是奈秒）
+    min_abs: 0.05          # 至少慢 50 毫秒（單位是秒）
 
   # ── log：每個服務 ──
   - name: log.lines
