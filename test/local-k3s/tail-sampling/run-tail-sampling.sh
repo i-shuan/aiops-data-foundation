@@ -67,11 +67,11 @@ EOF
   fi
   echo "   $(ts) 送完，等 ${dw} ＋ 40 秒讓最後的 trace 決定、寫進 ES"
   sleep $(( ${dw%s} + 40 ))
-  internal="$(python3 -c "import json;print(json.dumps({
-    '收到的 trace': $(metric otelcol_processor_tail_sampling_new_trace_id_received),
-    '留下': $(metric otelcol_processor_tail_sampling_global_count_traces_sampled 'sampled=\"true\"'),
-    '來不及決定就被擠掉': $(metric otelcol_processor_tail_sampling_sampling_trace_dropped_too_early),
-    '晚到的段': $(metric otelcol_processor_tail_sampling_sampling_late_span_age_count)}, ensure_ascii=False))")"
+  got=$(metric otelcol_processor_tail_sampling_new_trace_id_received)
+  kept=$(metric otelcol_processor_tail_sampling_global_count_traces_sampled 'sampled="true"')
+  early=$(metric otelcol_processor_tail_sampling_sampling_trace_dropped_too_early)
+  late=$(metric otelcol_processor_tail_sampling_sampling_late_span_age_count)
+  internal="{\"收到的 trace\": ${got}, \"留下\": ${kept}, \"來不及決定就被擠掉\": ${early}, \"晚到的段\": ${late}}"
   curl -sS -u "${ES_AUTH}" -X POST "${ES_URL}/traces-*,metrics-*/_refresh" >/dev/null
   python3 "${here}/measure.py" "${run}" "${start}" "${end}" "${sent}" "${internal}"
 done
