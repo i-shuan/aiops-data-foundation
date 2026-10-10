@@ -37,6 +37,66 @@
 | 應用自己定義的 | 例如 `demo_requests_total`、業務量（每小時進站片數…） | 應用要自己開 |
 | 抓取本身 | `up`、`scrape_duration_seconds` | `up = 0` 代表抓不到（服務掛了或 metrics port 壞了） |
 
+## 資料結構（ES 裡長怎樣）
+
+**一個資料流一個來源 × 一個 group**：`metrics-<來源>.otel-<group>`，例如 `metrics-kubeletstatsreceiver.otel-imc`。用 ES 的 time series data stream（TSDS，`index.mode: time_series`）存。
+
+**一筆文件 = 某個時間點 × 某一條序列身分，裡面放所有「身分相同、單位相同」的指標。** 身分由資源欄位＋資料點欄位＋單位決定。所以一個 Pod 每 30 秒會變成十幾筆：
+
+```
+同一個 Pod、同一個時間點（@timestamp 1791607037047）
+├─ unit {cpu}  attributes {}                                  → metrics: k8s.pod.cpu.usage
+├─ unit s      attributes {}                                  → metrics: k8s.pod.cpu.time
+├─ unit By     attributes {}                                  → metrics: k8s.pod.memory.working_set、.rss、.usage、.available、
+│                                                                         k8s.pod.filesystem.usage、.capacity、.available
+├─ unit By     attributes {interface: eth0, direction: receive}  → metrics: k8s.pod.network.io
+├─ unit By     attributes {interface: eth0, direction: transmit} → metrics: k8s.pod.network.io
+├─ unit 1      attributes {}                                  → metrics: k8s.pod.memory.page_faults、.major_page_faults
+└─ …（容器那一層也各一組）
+```
+
+一筆實際的文件：
+
+```json
+{
+  "@timestamp": 1791607037047,
+  "start_timestamp": 1791601919000,            // 累計型的起算時間（Collector 開始抓的時間）
+  "resource": { "attributes": {                 // 這是誰：Collector 補的 K8s 資訊與部門
+      "k8s.cluster.name": "local", "k8s.namespace.name": "imc-wip-prod",
+      "k8s.deployment.name": "http-metrics-app", "k8s.pod.name": "http-metrics-app-595b657c9-r9mv9",
+      "k8s.pod.uid": "d8bd…", "k8s.node.name": "vm",
+      "service.name": "http-metrics-app", "service.version": "1.0.0", "service.namespace": "demo",
+      "dept": "D1110", "group": "imc" } },
+  "scope": { "name": "…/receiver/kubeletstatsreceiver", "version": "0.162.0" },   // 誰產生的
+  "attributes": {},                             // 這個數值自己的維度（例如網路的 direction、HTTP 的狀態碼）
+  "unit": "{cpu}",
+  "_metric_names_hash": "9e49df97",             // ES 用：這筆有哪些指標
+  "metrics": { "k8s.pod.cpu.usage": 0.0011 },   // 數值本身
+  "data_stream": { "type": "metrics", "dataset": "kubeletstatsreceiver.otel", "namespace": "imc" }
+}
+```
+
+**欄位的型別（mapping）：**
+
+| 欄位 | 型別 | 說明 |
+|---|---|---|
+| `resource.attributes.*`、`attributes.*` | `keyword`，**維度**（`time_series_dimension`） | 一組不同的值就是一條不同的序列。**不能放 `lot.id` 這種值很多的東西**，序列數會爆 |
+| `metrics.*` 量測值（例如 `k8s.pod.cpu.usage`、`memory.working_set`、`deployment.available`） | `double`／`long`，**gauge** | 抓的那一刻的值，直接平均、取最大就好 |
+| `metrics.*` 累計值（例如 `cpu.time`、`network.io`、`container.restarts`） | `double`／`long`，**counter** | 從開始一直累加；要「這 5 分鐘多少」得頭尾相減（或 ES|QL 的 `rate()`） |
+| `metrics.http_server_request_duration_seconds` | `exponential_histogram` | 每筆是**這 30 秒內**的請求耗時分布（Collector 換成差值，`temporality: delta`）。可以直接加總次數、算 p95／p99 |
+| `metrics.*` 的 `meta.unit` | — | 單位：`{cpu}` 核、`By` bytes、`s` 秒、`1` 個數 |
+
+**其他設定：**
+
+- `look_ahead_time: 2h`：ES 停機後補送的資料、時間略快的節點都收得進來（[metrics.md](metrics.md)）。
+- 每一筆的 `_id` 由「序列身分＋時間」決定：同一條序列同一個時間點只會有一筆，重送不會重複。
+
+**查詢時要注意：**
+
+- **找某個指標要先過濾 `exists`**：同一個資料流裡混了很多種文件，例如查 Pod CPU 用 `{"exists": {"field": "metrics.k8s.pod.cpu.usage"}}`。
+- **counter 不能直接平均**：要先算差值。baseline 目前只用 gauge 和直方圖，所以還沒處理；之後加「重啟次數」時要處理。
+- **應用的直方圖在 `metrics-generic.otel-<group>`**，不在 `prometheusreceiver`：資料帶著應用自己的 scope 名稱。
+
 ## 二、哪些有 baseline（[aiops/baseline/series.yaml](../aiops/baseline/series.yaml)）
 
 | baseline | 來源 | 依什麼切 | 判斷 |
