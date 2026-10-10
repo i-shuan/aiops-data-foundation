@@ -111,6 +111,48 @@ chart 會：
 
 容器層的規則（重啟、記憶體快到上限、CPU 限流…）跟語言無關，照用。
 
+## 踩過的坑（實測時發現的事）
+
+1–9 是第一輪（.NET 9 ＋ 自動埋點 ＋ OTLP 推）遇到的，10–12 是改成 .NET 8 ＋ SDK ＋ pull 之後遇到的；除了有註明的，結論改完後一樣適用。
+
+### 收資料
+
+**1. .NET 自動埋點的 Prometheus 端點只聽 localhost。** Collector 抓不到，所以一度改成 OTLP 推；後來改成在程式裡設定 SDK，`/metrics` 就抓得到了（見「為什麼是 pull」）。
+
+**2. 自動埋點預設沒有 ASP.NET Core 的 HTTP 指標。** 要加 `OTEL_DOTNET_AUTO_METRICS_ADDITIONAL_SOURCES=Microsoft.AspNetCore.Hosting,…`，不加就沒有 `http.server.request.duration`。改用 SDK 後 `AddAspNetCoreInstrumentation()` 就有，不再需要。
+
+**3. ASP.NET Core 預設每個請求印 5 行 Information。** log 量會暴增，chart 設 `Logging__LogLevel__Microsoft.AspNetCore=Warning`。
+
+**4. .NET JSON log 的 trace_id 不在最外層，在 `Scopes` 裡。** 要 `IncludeScopes = true`；中央 pipeline 改成會從 `Scopes` 拿 `TraceId`、`SpanId`（[pipeline-fields.painless](../platform/central/elasticsearch/pipeline-fields.painless)），也認得 Serilog compact JSON。
+
+**5. Npgsql 連線池的名稱是連線字串**（密碼會拿掉），告警會顯示 `Host=…;Username=…;Maximum Pool Size=5`。程式用 `NpgsqlDataSourceBuilder` 設 `Name`（例如 `orders-db`）。
+
+### 規則
+
+**6. 執行緒池飢餓時「佇列」不會排，是「執行緒」暴增。** 第一版規則看佇列長度，結果一直是 0：.NET 6 以後偵測到「同步等 Task」（`.Wait()`、`.Result`）會馬上多開執行緒。症狀是執行緒 6 → 44 條（1 核）、每條卡 2 秒、延遲變長。所以加了 `dotnet.thread_pool_growth`；佇列那條留給 .NET 偵測不到的阻塞（lock、`Thread.Sleep`）。
+
+**7. 記憶體洩漏到底有兩種結局，容器記憶體的規則對 .NET 不可靠。** 同一支程式、同樣設定，跑四次各出現兩次：
+
+| | 結局一 | 結局二 |
+|---|---|---|
+| 結局 | 工作集到上限，**被容器的 OOM 砍掉、K8s 重開** | GC heap 到上限（容器的 75%）後**程式不結束**：每個請求丟 OutOfMemoryException、回 500，Gen2 GC 不停跑 |
+| 抓到的 | `container.restarted` | `dotnet.exceptions_burst`、`dotnet.gen2_gc_frequent`；HTTP 錯誤率 baseline 也會報 |
+
+結局二跟 Java 沒加 `-XX:+ExitOnOutOfMemoryError` 一樣：Pod 看起來正常、K8s 不會重開。.NET 沒有對應的開關，要在程式裡處理（例如 OutOfMemoryException 時結束程式），或靠上面的規則通知人。
+.NET 在容器裡 heap 上限是容器記憶體的 75%，heap 滿了之後工作集停在 90% 上下：四次只有一次超過 `container.memory_near_limit` 的 90%。.NET 的洩漏要看 `dotnet.gen2_gc_frequent`。
+
+**8. 例外的種類：.NET 9 是短名稱，.NET 8 根本沒有。** .NET 9 的 `error.type` 寫 `OutOfMemoryException`，不是 `System.OutOfMemoryException`（第一版規則因此沒觸發）。.NET 8（`OpenTelemetry.Instrumentation.Runtime`）只有例外總數，所以規則改成 `dotnet.exceptions_burst`（5 分鐘 ≥ 500 次）。
+
+**9. 已經刪掉的 Pod 不該一直報。** 計數類的規則（Gen2 次數、例外次數）原本對已刪掉的 Pod 照算，刪掉後 10 分鐘內還會報。改成跟其他規則一樣：最新的資料超過 2 分鐘就不報；只有容器重啟、Job 失敗照報（`report_gone`）。
+
+### .NET 8 ＋ pull 之後
+
+**10. .NET 8 跟 .NET 9 的 runtime 指標名稱完全不同。** .NET 9 內建 `System.Runtime` meter（`dotnet.gc.collections`、`dotnet.thread_pool.thread.count`…）；.NET 8 要用 `OpenTelemetry.Instrumentation.Runtime`，名稱是 `process_runtime_dotnet_*`。而且沒有 CPU 核數，`dotnet.thread_pool_growth` 從「執行緒 ÷ 核數 ≥ 16」改成固定「≥ 32」，核數多的服務要調高。HTTP、連線池的名稱兩版都跟 Java 一樣。
+
+**11. Collector 來抓也會被算成請求**（`http_route="/metrics"`，每 30 秒一次），會拉低 p95、多算流量；baseline 的 `http.*` 序列排除這個路徑。`/metrics` 只開在 9464（`RequireHost("*:9464")`），業務的 8080 抓 `/metrics` 是 404（e2e 有檢查）。
+
+**12. 測試環境才有的：** NuGet 經過會重簽憑證的 proxy，編譯時要信任它的 CA（[dotnet-app.yaml](../test/local-k3s/dotnet-app.yaml)），正式環境 image 先建好。另外 `OpenTelemetry.Exporter.OpenTelemetryProtocol` 1.9.0 有已知弱點警告，用 1.19.x。
+
 ## 實測結果
 
 RESULTS_PLACEHOLDER
