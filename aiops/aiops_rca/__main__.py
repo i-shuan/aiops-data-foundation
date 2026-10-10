@@ -53,7 +53,7 @@ def _delta(v: float) -> str:
 
 def _svc_of(keys: dict) -> str | None:
     """異常是哪個服務：metrics 的序列用 resource.attributes.service.name，trace 每一段的用 entry.service。"""
-    return keys.get("resource.attributes.service.name") or keys.get("entry.service") or keys.get("service")
+    return keys.get("resource.attributes.service.name") or keys.get("entry.service")
 
 
 def _route_of(keys: dict) -> str | None:
@@ -62,8 +62,6 @@ def _route_of(keys: dict) -> str | None:
         return keys["entry.name"]
     if keys.get("attributes.http_request_method") and keys.get("attributes.http_route"):
         return f"{keys['attributes.http_request_method']} {keys['attributes.http_route']}"
-    if keys.get("method") and keys.get("route"):          # http.* 序列統一後的 keys
-        return f"{keys['method']} {keys['route']}"
     return None
 
 

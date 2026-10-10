@@ -31,7 +31,7 @@
 
 | 來源 | 指標 | 狀態 |
 |---|---|---|
-| **.NET 自動埋點**（chart `otel.dotnet`，用 OTLP 推） | `http.server.request.duration`、`dotnet.gc.*`、`dotnet.thread_pool.*`、`db.client.connections.*`（Npgsql） | ✅ 真的 ASP.NET Core 9 實測，見 [dotnet.md](dotnet.md) |
+| **.NET OpenTelemetry SDK**（程式裡設定、開 `/metrics`，Collector 抓；chart `otel.dotnet`） | `http_server_request_duration_seconds`（跟 Java 同名）、`process_runtime_dotnet_gc_*`、`process_runtime_dotnet_thread_pool_*`、`db_client_connections_*`（Npgsql，跟 HikariCP 同名） | ✅ 真的 ASP.NET Core 8 實測，見 [dotnet.md](dotnet.md) |
 | Java agent（app-common chart 自動開） | `http.server.request.duration`（直方圖：依 method、route、狀態碼） | ✅ 收到（測試應用模擬）→ `metrics-generic.otel-<group>` |
 | | `http.client.request.duration`：往外呼叫 HTTP 的耗時 | ⚠️ 還沒驗證（測試程式沒有往外呼叫 HTTP） |
 | | JVM：`jvm_memory_used_bytes`、`jvm_memory_limit_bytes`、`jvm_memory_used_after_last_gc_bytes`、`jvm_gc_duration_seconds`、`jvm_thread_count`、`jvm_cpu_recent_utilization_ratio` | ✅ 用真的 Java 程式＋agent 2.20.0 確認（[aiops-metrics-cases.md](aiops-metrics-cases.md)） |

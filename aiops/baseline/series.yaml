@@ -27,53 +27,35 @@ detect:
 
 series:
   # ── 每個服務 × API 的流量、錯誤率、延遲：從應用的 metrics 算 ──
-  # 來源是 http.server.request.duration（直方圖）：Java agent、ASP.NET Core 8 以上都有，每個請求都算到，不受 trace 取樣影響。
-  # 同一個指標兩種寫法（variants），結果用統一的 keys（service、method、route），哪種語言都一樣：
-  #   Java ：agent 用 Prometheus 格式開、Collector 抓 → metrics.http_server_request_duration_seconds、attributes.http_route
-  #   .NET ：自動埋點用 OTLP 推給 Collector       → metrics.http.server.request.duration、attributes.http.route（狀態碼是數字）
-  # 不用 trace 算：trace 有取樣（調到一成就只看到一成的請求），而且只留 7 天。
+  # 來源是 http.server.request.duration（直方圖）：Java agent、ASP.NET Core（程式裡設定的 OpenTelemetry SDK）都有，
+  # 都開 Prometheus 格式讓 Collector 抓，名稱一樣（metrics.http_server_request_duration_seconds）。
+  # 每個請求都算到，不受 trace 取樣影響，也可以長期保留。不用 trace 算：trace 有取樣，而且只留 7 天。
   - name: http.requests
-    keys: [service, method, route]
-    variants:
-      - index: metrics-*.otel-*
-        filter: {exists: {field: metrics.http_server_request_duration_seconds}}
-        by: [resource.attributes.service.name, attributes.http_request_method, attributes.http_route]
-        value: {hist_count: metrics.http_server_request_duration_seconds}
-      - index: metrics-*.otel-*
-        filter: {exists: {field: metrics.http.server.request.duration}}
-        by: [resource.attributes.service.name, attributes.http.request.method, attributes.http.route]
-        value: {hist_count: metrics.http.server.request.duration}
+    index: metrics-*.otel-*
+    filter: {bool: {filter: [{exists: {field: metrics.http_server_request_duration_seconds}}],
+                    must_not: [{term: {attributes.http_route: /metrics}}]}}   # Collector 來抓 /metrics 也會被記成請求，不算
+    by: [resource.attributes.service.name, attributes.http_request_method, attributes.http_route]
+    value: {hist_count: metrics.http_server_request_duration_seconds}
     fill_zero: true        # 沒有請求就是 0
     direction: both
     min_abs: 5
 
   - name: http.error_rate
-    keys: [service, method, route]
-    variants:
-      - index: metrics-*.otel-*
-        filter: {exists: {field: metrics.http_server_request_duration_seconds}}
-        by: [resource.attributes.service.name, attributes.http_request_method, attributes.http_route]
-        value: {hist_ratio: {field: metrics.http_server_request_duration_seconds,
-                             query: {prefix: {attributes.http_response_status_code: "5"}}}}
-      - index: metrics-*.otel-*
-        filter: {exists: {field: metrics.http.server.request.duration}}
-        by: [resource.attributes.service.name, attributes.http.request.method, attributes.http.route]
-        value: {hist_ratio: {field: metrics.http.server.request.duration,
-                             query: {range: {attributes.http.response.status_code: {gte: 500}}}}}
+    index: metrics-*.otel-*
+    filter: {bool: {filter: [{exists: {field: metrics.http_server_request_duration_seconds}}],
+                    must_not: [{term: {attributes.http_route: /metrics}}]}}   # Collector 來抓 /metrics 也會被記成請求，不算
+    by: [resource.attributes.service.name, attributes.http_request_method, attributes.http_route]
+    value: {hist_ratio: {field: metrics.http_server_request_duration_seconds,
+                         query: {prefix: {attributes.http_response_status_code: "5"}}}}
     direction: up
     min_abs: 0.05          # 錯誤率至少多 5 個百分點
 
   - name: http.latency_p95_s
-    keys: [service, method, route]
-    variants:
-      - index: metrics-*.otel-*
-        filter: {exists: {field: metrics.http_server_request_duration_seconds}}
-        by: [resource.attributes.service.name, attributes.http_request_method, attributes.http_route]
-        value: {percentile: {field: metrics.http_server_request_duration_seconds, percent: 95}}
-      - index: metrics-*.otel-*
-        filter: {exists: {field: metrics.http.server.request.duration}}
-        by: [resource.attributes.service.name, attributes.http.request.method, attributes.http.route]
-        value: {percentile: {field: metrics.http.server.request.duration, percent: 95}}
+    index: metrics-*.otel-*
+    filter: {bool: {filter: [{exists: {field: metrics.http_server_request_duration_seconds}}],
+                    must_not: [{term: {attributes.http_route: /metrics}}]}}   # Collector 來抓 /metrics 也會被記成請求，不算
+    by: [resource.attributes.service.name, attributes.http_request_method, attributes.http_route]
+    value: {percentile: {field: metrics.http_server_request_duration_seconds, percent: 95}}
     direction: up
     min_abs: 0.05          # 至少慢 50 毫秒（單位是秒）
 

@@ -1,19 +1,69 @@
 # 應用是 .NET 時
 
-一句話：**平台端（Collector、ES、baseline、trace baseline、根因分析）都不用換；.NET 服務在 chart 開 `otel.dotnet`，metrics 改用 OTLP 推，log 照 .NET 內建的 JSON 格式輸出就好。** 規則多了 .NET 自己的幾條（Gen2 GC、OutOfMemoryException、執行緒池飢餓）。
+一句話：**平台端（Collector、ES、baseline、trace baseline、根因分析）都不用換，.NET 跟 Java 一樣：應用在 9464 開 `/metrics`、Collector 來抓（pull）。** .NET 這邊要在程式裡設定 OpenTelemetry SDK（十行左右）、chart 開 `otel.dotnet`；log 用 .NET 內建的 JSON 格式。規則多了 .NET 自己的幾條（Gen2 GC、例外暴增、執行緒池飢餓）。
 
-實測：真的 ASP.NET Core 9 ＋ OpenTelemetry .NET 自動埋點 v1.12.0 ＋ PostgreSQL（Npgsql），腳本 [test/local-k3s/run-dotnet-e2e.sh](../test/local-k3s/run-dotnet-e2e.sh)，結果見最後。
+實測：真的 ASP.NET Core 8 ＋ OpenTelemetry .NET SDK 1.19 ＋ PostgreSQL（Npgsql），腳本 [test/local-k3s/run-dotnet-e2e.sh](../test/local-k3s/run-dotnet-e2e.sh)，結果見最後。
+
+## 為什麼是 pull、不用自動埋點
+
+- **全部用 pull**：Collector 照同一個節奏（30 秒）去抓每個應用，速度由平台控制。用 push 的話每個應用各自決定什麼時候送，應用一多、或一起重開後同時補送，壓力全落在 Collector 上，Collector 也擋不住。
+- 先試過**自動埋點**（CLR profiler，不改程式）：實測它的 Prometheus 端點**只聽 localhost**，Collector 抓不到，只能 push。改成**在程式裡設定 SDK**，`/metrics` 就能讓 Collector 抓，跟 Java 一樣。
+- 附帶的好處：指標名稱跟 Java 一樣（`http_server_request_duration_seconds`、`db_client_connections_*`），**baseline 的序列、連線池的規則跟 Java 共用**。
 
 ## 跟 Java 哪裡一樣、哪裡不一樣
 
 | | Java | .NET |
 |---|---|---|
-| 怎麼掛 | chart `otel.javaAgent`：Java agent | chart `otel.dotnet`：OpenTelemetry .NET 自動埋點（CLR profiler，不改程式） |
-| **metrics 怎麼送** | 應用開 Prometheus 格式，Collector 抓 | **用 OTLP 推給同節點的 Collector**（實測：.NET 自動埋點的 Prometheus 端點只聽 localhost，Collector 抓不到） |
-| 部門怎麼判斷 | 依 Pod（Collector 抓的對象） | 依連線的來源 IP 是哪個 Pod（跟 trace 一樣），應用自己填的 K8s、部門欄位會被拿掉 |
-| trace | agent 自動 | 自動：ASP.NET Core（Server）、Npgsql／SqlClient（Client）、HttpClient |
+| 怎麼掛 | chart `otel.javaAgent`：Java agent，不改程式 | 程式裡設定 OpenTelemetry SDK（下面的程式碼）＋ chart `otel.dotnet` |
+| metrics | 開在 9464 的 `/metrics`，Collector 抓 | **一樣** |
+| 部門怎麼判斷 | 依 Pod 的 namespace | **一樣** |
+| trace | agent 自動送 Collector | SDK 送 Collector：ASP.NET Core（Server）、Npgsql（Client）、HttpClient |
 | log | logback JSON（`trace_id`） | .NET 內建 JSON console（`AddJsonConsole`，trace_id 在 `Scopes` 裡）或 Serilog compact JSON；**中央 pipeline 兩種都認得** |
-| HTTP 指標 | `http_server_request_duration_seconds` | `http.server.request.duration`（**同一個指標**，OTLP 保留原名）；**預設沒開，chart 會加** |
+| HTTP 指標 | `http_server_request_duration_seconds` | **同名** |
+| 連線池 | HikariCP：`db_client_connections_usage`、`_max`、`_pending_requests` | Npgsql：**同名**（`usage`、`max`、`pending_requests` 都有） |
+
+## 程式裡要加的（平台要求的設定）
+
+套件（[app.csproj](../test/local-k3s/dotnet-app/app.csproj)）：
+
+| 套件 | 版本 | 用途 |
+|---|---|---|
+| `OpenTelemetry.Extensions.Hosting` | 1.19.1 | SDK |
+| `OpenTelemetry.Exporter.Prometheus.AspNetCore` | 1.19.1-**beta**.1 | 開 `/metrics` |
+| `OpenTelemetry.Exporter.OpenTelemetryProtocol` | 1.19.1 | trace 送 Collector |
+| `OpenTelemetry.Instrumentation.AspNetCore` | 1.19.0 | HTTP 指標、trace |
+| `OpenTelemetry.Instrumentation.Http` | 1.19.0 | 往外的 HTTP trace |
+| `OpenTelemetry.Instrumentation.Runtime` | 1.19.0 | GC、執行緒池、例外 |
+| `OpenTelemetry.Instrumentation.Process` | 1.19.0-**rc**.1 | 行程記憶體、CPU 時間 |
+| `Npgsql.OpenTelemetry` | 跟 Npgsql 同版 | 資料庫 trace；連線池指標是 Npgsql 內建的 meter |
+
+> Prometheus exporter 上游一直是 beta（只有這一個），公司能不能用 beta 套件要確認。
+
+`Program.cs`（[完整範例](../test/local-k3s/dotnet-app/Program.cs)）：
+
+```csharp
+builder.Logging.ClearProviders();
+builder.Logging.AddJsonConsole(o => { o.IncludeScopes = true; o.UseUtcTimestamp = true; });   // trace_id 在 scope 裡
+
+builder.Services.AddOpenTelemetry()
+    .WithMetrics(m => m
+        .AddAspNetCoreInstrumentation()     // http.server.request.duration
+        .AddRuntimeInstrumentation()        // GC、執行緒池、例外
+        .AddProcessInstrumentation()
+        .AddMeter("Npgsql")                 // 連線池（用 SqlClient 的話換掉，見「還沒驗證」）
+        .AddPrometheusExporter())
+    .WithTracing(t => t
+        .AddAspNetCoreInstrumentation()
+        .AddHttpClientInstrumentation()
+        .AddNpgsql()
+        .AddOtlpExporter());                // 位址、協定讀 chart 給的 OTEL_EXPORTER_OTLP_TRACES_*
+var app = builder.Build();
+app.MapPrometheusScrapingEndpoint().RequireHost("*:9464");   // /metrics 只開在 9464，業務的 port 沒有
+app.Urls.Add("http://0.0.0.0:8080");
+app.Urls.Add("http://0.0.0.0:9464");
+```
+
+服務名稱、trace 位址、取樣都由 chart 給的 `OTEL_*` 環境變數決定，程式不用寫死。連線池記得取名字（`NpgsqlDataSourceBuilder.Name`），不然告警裡的名稱是整串連線字串。
 
 ## chart
 
@@ -23,102 +73,44 @@ otel:
     enabled: false
   dotnet:
     enabled: true
-    image: <內部 registry>/open-telemetry/opentelemetry-operator/autoinstrumentation-dotnet:1.12.0
-    arch: linux-x64          # Alpine（musl）的 image 用 linux-musl-x64
 ```
 
 chart 會：
-- initContainer 把自動埋點複製進 Pod，設定 CLR profiler 的環境變數。
-- metrics 用 OTLP 推到 `otel-node-collector.otel-collector.svc:4318/v1/metrics`，每 30 秒（跟 Collector 抓 Java 一樣）；不加 `prometheus.io` 標註、沒有 metrics port。
-- 打開 ASP.NET Core 的 HTTP 指標：`OTEL_DOTNET_AUTO_METRICS_ADDITIONAL_SOURCES=Microsoft.AspNetCore.Hosting,Microsoft.AspNetCore.Server.Kestrel`（實測不加就沒有 `http.server.request.duration`）。
+- 加 `prometheus.io/*` 標註、metrics port（9464）、`OTEL_*` 環境變數，跟 Java 一樣。
 - `Logging__LogLevel__Microsoft.AspNetCore=Warning`：ASP.NET Core 預設**每個請求印 5 行 Information**（實測），log 量會暴增。
+- `javaAgent` 跟 `dotnet` 只能開一個。
 
-程式裡只要一件事：log 用 JSON 輸出、帶 scope（trace_id 在 scope 裡）：
+## 實測的指標名稱（.NET 8、SDK 1.19，ES 欄位是 `metrics.<名稱>`）
 
-```csharp
-builder.Logging.AddJsonConsole(o => { o.IncludeScopes = true; o.UseUtcTimestamp = true; });
-```
-
-## Collector
-
-node Collector 加了一條 `metrics/otlp`：OTLP 收進來的 metrics → 拿掉應用自填的 K8s、部門欄位 → 依連線來源 IP 補上 Pod、部門 → 直方圖換成差值 → 依部門送進 `metrics-generic.otel-<group>`（[node.yaml](../platform/cluster-addons/otel-collector/node.yaml)）。
-
-## 實測的指標名稱（.NET 9、自動埋點 v1.12.0）
-
-| 類 | 指標（ES 欄位是 `metrics.<名稱>`） | 維度 |
+| 類 | 指標 | 維度 |
 |---|---|---|
-| HTTP | `http.server.request.duration`（直方圖）、`http.server.active_requests` | `http.request.method`、`http.route`、`http.response.status_code`（**數字**） |
-| GC | `dotnet.gc.collections`（累計次數）、`dotnet.gc.last_collection.heap.size`、`dotnet.gc.pause.time`、`dotnet.gc.heap.total_allocated` | `gc.heap.generation`（gen0、gen1、gen2、loh、poh） |
-| 執行緒池 | `dotnet.thread_pool.queue.length`、`dotnet.thread_pool.thread.count`、`dotnet.thread_pool.work_item.count` | — |
-| 其他 runtime | `dotnet.exceptions`（依 `error.type`）、`dotnet.monitor.lock_contentions`、`dotnet.process.memory.working_set`、`dotnet.process.cpu.time` | |
-| 連線池（Npgsql） | `db.client.connections.usage`、`db.client.connections.max`、`db.client.connections.create_time`、`db.client.commands.duration` | `pool.name`、`state`（idle／used） |
-| 往外 HTTP | `http.client.request.duration`、`http.client.active_requests` | `server.address`、`http.response.status_code` |
+| HTTP | `http_server_request_duration_seconds`（直方圖）、`http_server_active_requests` | `http_request_method`、`http_route`、`http_response_status_code` |
+| GC | `process_runtime_dotnet_gc_collections_count_total`、`process_runtime_dotnet_gc_heap_size_bytes`、`process_runtime_dotnet_gc_allocations_size_bytes_total` | `generation`（gen0、gen1、gen2、loh、poh） |
+| 執行緒池 | `process_runtime_dotnet_thread_pool_threads_count`、`process_runtime_dotnet_thread_pool_queue_length`、`process_runtime_dotnet_thread_pool_completed_items_count_total` | — |
+| 例外 | `process_runtime_dotnet_exceptions_count_total` | **沒有分種類**（.NET 9 才有 `error.type`） |
+| GC 暫停、lock | `process_runtime_dotnet_gc_duration_nanoseconds_total`、`process_runtime_dotnet_monitor_lock_contention_count_total` | |
+| 行程 | `process_memory_usage_bytes`、`process_cpu_time_seconds_total`、`process_thread_count` | |
+| Kestrel | `kestrel_active_connections`、`kestrel_queued_connections` | |
+| 連線池（Npgsql） | `db_client_connections_usage`、`db_client_connections_max`、`db_client_connections_pending_requests`、`db_client_commands_*` | `pool_name`、`state`（idle／used） |
 
-**沒有的：** heap 的上限（.NET 在容器裡 heap 上限預設是容器記憶體的 75%，沒有指標），連線池排隊數（Npgsql 沒有 `pending_requests`）。
+**沒有的：** heap 的上限（.NET 在容器裡 heap 上限預設是容器記憶體的 75%，沒有指標）、CPU 核數、例外的種類。
+
+> Collector 每次來抓也會被算成一個請求（`http_route="/metrics"`），baseline 的 `http.*` 序列把這個路徑排除。
 
 ## baseline 與規則
 
-- **baseline 的 `http.*` 序列不用分語言**：[series.yaml](../aiops/baseline/series.yaml) 每條有兩種寫法（`variants`：Java 的欄位名稱、OTLP 的欄位名稱），結果用統一的 keys（`service`、`method`、`route`）。
-- **.NET 的規則**（[rules.yaml](../aiops/baseline/rules.yaml)）：
+- **The baseline's `http.*` series are shared with Java** ([series.yaml](../aiops/baseline/series.yaml)), and the connection-pool rules `db.pool_exhausted` and `db.pool_waiting` are shared too.
+- **.NET rules** ([rules.yaml](../aiops/baseline/rules.yaml)):
 
 | 規則 | 看什麼 | 對應 Java 的 |
 |---|---|---|
 | `dotnet.gen2_gc_frequent` | 5 分鐘內 Gen2 GC ≥ 5 次 | `jvm.major_gc_frequent` |
-| `dotnet.out_of_memory` | 5 分鐘內有 `System.OutOfMemoryException` | （Java 看老年代 ÷ 上限；.NET 沒有上限的指標） |
-| `dotnet.thread_pool_growth` | 執行緒 ÷ CPU 核數 ≥ 16，2 分鐘 | Java 沒有標準指標 |
+| `dotnet.exceptions_burst` | 5 分鐘內例外 ≥ 500 次（.NET 8 分不出種類） | — |
+| `dotnet.thread_pool_growth` | 執行緒池的執行緒 ≥ 32 條，2 分鐘 | Java 沒有標準指標 |
 | `dotnet.thread_pool_starvation` | 執行緒池排隊 ≥ 10，2 分鐘（.NET 偵測不到的阻塞：lock、`Thread.Sleep`） | 同上 |
-| `db.pool_exhausted_otlp` | 連線池使用中 ÷ 上限 ≥ 90% | `db.pool_exhausted` |
 
 容器層的規則（重啟、記憶體快到上限、CPU 限流…）跟語言無關，照用。
 
 ## 實測結果
 
-`run-dotnet-e2e.sh`，2026-10-10，k3s 單節點，最後一次全部通過；應用：ASP.NET Core 9（1 核、記憶體上限 512Mi）＋ PostgreSQL，Npgsql 連線池上限 5，每秒約 15 個請求。
-
-### 資料
-
-| 檢查 | 結果 |
-|---|---|
-| HTTP、GC、執行緒池、連線池的指標用 OTLP 進 `metrics-generic.otel-imc` | ✅ |
-| 部門依連線來源判斷（應用沒填 K8s、部門欄位，仍是 IMC／D1110） | ✅ |
-| baseline 的 `http.requests`、`http.error_rate`、`http.latency_p95_s` 跟 Java 同一條序列，算得出 .NET 的值 | ✅ |
-| .NET log 拆得出 level（`Information` → `info`）、logger（`Category`）、訊息；結構化參數（例如 `OrderId`）留在 `app.State` | ✅ |
-| .NET log 的 `trace_id`（在 `Scopes` 裡）對得到 trace：每一筆都對到 2 個 span（ASP.NET Core 的請求＋Npgsql 的查詢） | ✅ |
-| 正常時 .NET 的規則都不報 | ✅ |
-
-### 案例
-
-| 案例 | 怎麼做 | 抓到的 | 結果 |
-|---|---|---|---|
-| 連線池用光 | 拿了連線不還 | `db.pool_exhausted_otlp`：使用中 **100%** | ✅ |
-| 執行緒池飢餓 | 每個請求 `Task.Delay(2000).Wait()`，同時請求變 5 倍 | `dotnet.thread_pool_growth`：執行緒 **6 → 44 條**（1 核）；p95 2.5ms → 1.75 秒 | ✅（見下） |
-| 記憶體洩漏 | 每個請求 64KB 放進不會清的 list | `dotnet.gen2_gc_frequent` 第 7 分鐘；到底時見下。`container.memory_near_limit` **不一定觸發**（四次裡一次） | ✅ |
-
-### 實測時發現的事
-
-**1. 執行緒池飢餓時「佇列」不會排，是「執行緒」暴增。** 第一版規則看佇列長度，結果佇列一直是 0：.NET 6 以後偵測到「同步等 Task」（`.Wait()`、`.Result`）會馬上多開執行緒。所以症狀是執行緒 6 → 44 條、每條卡 2 秒、延遲變長。改成看「執行緒 ÷ CPU 核數」（`dotnet.thread_pool_growth`）；佇列那條留給 .NET 偵測不到的阻塞（lock、`Thread.Sleep`）。
-
-**2. 記憶體洩漏到底有兩種結局，同一支程式、同樣設定，跑四次各出現兩次：**
-
-| | 結局一（第 1、4 次） | 結局二（第 2、3 次） |
-|---|---|---|
-| 結局 | 工作集到 522MB（上限 512Mi），**被容器的 OOM 砍掉、K8s 重開** | GC heap 到上限（380MB，容器的 75%）後**程式不結束**：每個請求丟 OutOfMemoryException、回 500，Gen2 GC 不停跑（2 分鐘 6,500 次） |
-| 抓到的 | `container.restarted` | `dotnet.out_of_memory`（OutOfMemoryException 1,503 次）、`dotnet.gen2_gc_frequent`；HTTP 錯誤率 baseline 也會報 |
-
-第二種跟 Java 沒加 `-XX:+ExitOnOutOfMemoryError` 一樣：Pod 看起來正常、K8s 不會重開。.NET 沒有對應的開關；要在程式裡處理（例如 OutOfMemoryException 時結束程式），或靠上面的規則通知人。
-
-**3. 容器記憶體的規則對 .NET 不可靠。** .NET 在容器裡 GC heap 的上限是容器記憶體的 75%，heap 滿了之後工作集停在 90% 上下：四次測試只有一次超過 `container.memory_near_limit` 的 90%。.NET 的洩漏要看 `dotnet.gen2_gc_frequent`，到底時看 `dotnet.out_of_memory` 或 `container.restarted`。
-
-**4. `error.type` 是短名稱**：.NET 寫 `OutOfMemoryException`，不是 `System.OutOfMemoryException`（第一版規則因此沒觸發，在記錄下來的資料上回測確認改對）。
-
-**5. Npgsql 連線池的名稱是連線字串**（密碼會拿掉），告警會顯示 `Host=…;Username=…;Maximum Pool Size=5`。建議程式用 `NpgsqlDataSourceBuilder` 設 `Name`，例如 `orders-db`。
-
-**6. 已經刪掉的 Pod 不該一直報。** 計數類的規則（Gen2 次數、OutOfMemoryException）原本對「已經刪掉的 Pod」也照算，刪掉後 10 分鐘內還會報。改成跟其他規則一樣：最新的資料超過 2 分鐘就不報；只有容器重啟、Job 失敗照報（`report_gone`）。
-
-**7. 測試環境才有的：** NuGet 經過會重簽憑證的 proxy，編譯時要信任它的 CA（[dotnet-app.yaml](../test/local-k3s/dotnet-app.yaml)）。正式環境 image 先建好，不在 Pod 裡編譯。
-
-### 還沒驗證
-
-- **SQL Server（Microsoft.Data.SqlClient）的連線池指標**：這次用 PostgreSQL（Npgsql）。SqlClient 的指標名稱、有沒有連線池指標要另外確認。
-- **Serilog**：中央 pipeline 認得 compact JSON 的欄位（`@m`、`@l`、`@x`、`@tr`），但沒有用真的 Serilog 程式跑過。
-- **.NET 8**：這次是 .NET 9。.NET 8 的 runtime 指標名稱可能不同（`System.Runtime` meter 是 .NET 9 才內建）。
+RESULTS_PLACEHOLDER

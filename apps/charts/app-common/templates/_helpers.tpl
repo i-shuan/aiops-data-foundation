@@ -83,7 +83,6 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- $_ := required "otel.javaAgent.enabled 為 true 時，otel.javaAgent.image 必填" $v.otel.javaAgent.image -}}
 {{- end -}}
 {{- if include "app-common.dotnetEnabled" . -}}
-{{- $_ := required "otel.dotnet.enabled 為 true 時，otel.dotnet.image 必填" $v.otel.dotnet.image -}}
 {{- if include "app-common.javaAgentEnabled" . -}}
 {{- fail "otel.javaAgent 與 otel.dotnet 只能開一個" -}}
 {{- end -}}

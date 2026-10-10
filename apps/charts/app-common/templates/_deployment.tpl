@@ -2,7 +2,6 @@
 {{- include "app-common.validate" . -}}
 {{- $javaAgent := include "app-common.javaAgentEnabled" . -}}
 {{- $dotnet := include "app-common.dotnetEnabled" . -}}
-{{- $dotnetArch := ((.Values.otel).dotnet).arch | default "linux-x64" -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -16,13 +15,11 @@ spec:
       {{- include "app-common.selectorLabels" . | nindent 6 }}
   template:
     metadata:
-      {{- if not $dotnet }}
       annotations:
         # 平台的 OpenTelemetry Collector 依這三個標註找到要抓的 metrics，見 docs/metrics.md
         prometheus.io/scrape: "true"
         prometheus.io/port: {{ include "app-common.metricsPort" . | quote }}
         prometheus.io/path: /metrics
-      {{- end }}
       labels:
         {{- include "app-common.labels" . | nindent 8 }}
         {{- with .Values.logFormat }}
@@ -30,16 +27,6 @@ spec:
         log-format: {{ . | quote }}
         {{- end }}
     spec:
-      {{- if $dotnet }}
-      initContainers:
-        # 把 OpenTelemetry .NET 自動埋點複製到共用 volume，程式本身不用改（見 docs/dotnet.md）
-        - name: otel-dotnet
-          image: {{ .Values.otel.dotnet.image }}
-          command: ["cp", "-r", "/autoinstrumentation/.", "/otel/"]
-          volumeMounts:
-            - name: otel-agent
-              mountPath: /otel
-      {{- end }}
       {{- if $javaAgent }}
       initContainers:
         # 把 OpenTelemetry Java agent 複製到共用 volume，程式本身不用改就能輸出標準 metrics 與 trace_id
@@ -56,10 +43,8 @@ spec:
           ports:
             - name: http
               containerPort: {{ include "app-common.httpPort" . }}
-            {{- if not $dotnet }}
             - name: metrics
               containerPort: {{ include "app-common.metricsPort" . }}
-            {{- end }}
           env:
             # OpenTelemetry 標準設定：服務名稱、版本、trace 傳遞格式由平台統一
             - name: OTEL_SERVICE_NAME
@@ -68,15 +53,7 @@ spec:
               value: {{ printf "service.version=%s,service.namespace=%s" (include "app-common.version" .) .Values.app.partOf | quote }}
             - name: OTEL_PROPAGATORS
               value: tracecontext,baggage
-            {{- if $dotnet }}
-            # .NET：metrics 用 OTLP 推給同節點的 Collector（.NET 自動埋點的 Prometheus 端點只聽 localhost，Collector 抓不到）
-            - name: OTEL_METRICS_EXPORTER
-              value: otlp
-            - name: OTEL_EXPORTER_OTLP_METRICS_ENDPOINT
-              value: http://otel-node-collector.otel-collector.svc:4318/v1/metrics
-            - name: OTEL_METRIC_EXPORT_INTERVAL
-              value: "30000"
-            {{- else }}
+            {{- /* .NET 的 /metrics 由程式裡的 OpenTelemetry SDK 開，下面三個變數用不到但無害，見 docs/dotnet.md */}}
             # metrics 以 Prometheus 格式開在 metrics port，由平台的 OpenTelemetry Collector 來抓
             - name: OTEL_METRICS_EXPORTER
               value: prometheus
@@ -84,7 +61,6 @@ spec:
               value: 0.0.0.0
             - name: OTEL_EXPORTER_PROMETHEUS_PORT
               value: {{ include "app-common.metricsPort" . | quote }}
-            {{- end }}
             # trace 送到同一個節點上的平台 Collector（Service 只連同節點），由它判斷屬於哪個部門再送進 ES。
             # trace_id 同時會寫進 log，用來把 log 和 trace 串起來
             - name: OTEL_TRACES_EXPORTER
@@ -105,18 +81,10 @@ spec:
               value: -javaagent:/otel/opentelemetry-javaagent.jar
             {{- end }}
             {{- if $dotnet }}
-            # OpenTelemetry .NET 自動埋點（CLR profiler ＋ startup hook）
-            - {name: CORECLR_ENABLE_PROFILING, value: "1"}
-            - {name: CORECLR_PROFILER, value: "{918728DD-259F-4A6A-AC2B-B85E1B658318}"}
-            - {name: CORECLR_PROFILER_PATH, value: "/otel/{{ $dotnetArch }}/OpenTelemetry.AutoInstrumentation.Native.so"}
-            - {name: DOTNET_ADDITIONAL_DEPS, value: /otel/AdditionalDeps}
-            - {name: DOTNET_SHARED_STORE, value: /otel/store}
-            - {name: DOTNET_STARTUP_HOOKS, value: /otel/net/OpenTelemetry.AutoInstrumentation.StartupHook.dll}
-            - {name: OTEL_DOTNET_AUTO_HOME, value: /otel}
-            # ASP.NET Core 的 HTTP 指標（http.server.request.duration）預設沒開，要加
-            - {name: OTEL_DOTNET_AUTO_METRICS_ADDITIONAL_SOURCES, value: "Microsoft.AspNetCore.Hosting,Microsoft.AspNetCore.Server.Kestrel"}
-            # ASP.NET Core 預設每個請求印好幾行 Information，log 量會暴增；框架的只留 Warning 以上（要看可在 env 蓋掉）
-            - {name: Logging__LogLevel__Microsoft.AspNetCore, value: Warning}
+            # .NET：OpenTelemetry 在程式裡設定（docs/dotnet.md），服務名稱、trace 位址、取樣都讀上面的 OTEL_* 變數。
+            # ASP.NET Core 預設每個請求印 5 行 Information（實測），log 量會暴增；框架的只留 Warning 以上（要看可在 env 蓋掉）
+            - name: Logging__LogLevel__Microsoft.AspNetCore
+              value: Warning
             {{- end }}
             {{- with .Values.env }}
             {{- toYaml . | nindent 12 }}
@@ -127,12 +95,12 @@ spec:
             {{- toYaml .Values.probes.liveness | nindent 12 }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
-          {{- if or $javaAgent $dotnet }}
+          {{- if $javaAgent }}
           volumeMounts:
             - name: otel-agent
               mountPath: /otel
           {{- end }}
-      {{- if or $javaAgent $dotnet }}
+      {{- if $javaAgent }}
       volumes:
         - name: otel-agent
           emptyDir: {}

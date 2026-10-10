@@ -288,14 +288,15 @@ rules:
     by: [*ns, *pod, attributes.pool_name]
     context: [*svc]
 
-  # ── .NET 應用（OpenTelemetry .NET 自動埋點 v1.12.0、.NET 9 實測的名稱；用 OTLP 推，名稱是點分隔的原名）──
+  # ── .NET 應用（.NET 8、程式裡的 OpenTelemetry SDK ＋ OpenTelemetry.Instrumentation.Runtime 1.19，Prometheus 格式，實測的名稱）──
+  # 連線池（Npgsql）的名稱跟 Java 的 HikariCP 一樣是 db_client_connections_*，上面的 db.pool_exhausted 兩種都抓
   # Gen2（老年代）GC 越來越頻繁：Gen2 清不太掉，跟 Java 的 major GC 同一個意思
   - name: dotnet.gen2_gc_frequent
     title: .NET Gen2 GC 太頻繁（記憶體清不掉）
     severity: warning
     index: metrics-*.otel-*
-    field: metrics.dotnet.gc.collections
-    filter: [{term: {attributes.gc.heap.generation: gen2}}]
+    field: metrics.process_runtime_dotnet_gc_collections_count_total
+    filter: [{term: {attributes.generation: gen2}}]
     type: increase            # 累計次數：5 分鐘內增加幾次
     op: ">="
     threshold: 5
@@ -303,69 +304,48 @@ rules:
     by: [*ns, *pod]
     context: [*svc]
 
-  # 記憶體不夠時丟 OutOfMemoryException。實測洩漏有兩種結局（同一支程式、同樣的設定，兩次不一樣）：
-  #   1. 被容器的 OOM 砍掉、K8s 重開 → container.restarted 抓
-  #   2. GC heap 碰到上限（容器記憶體的 75%）後程式不會結束：每個請求都丟 OutOfMemoryException、回 500，Gen2 GC 不停跑 → 這條抓
-  #      （跟 Java 沒加 -XX:+ExitOnOutOfMemoryError 一樣，變成「活著但什麼都做不了」）
-  - name: dotnet.out_of_memory
-    title: .NET 丟出 OutOfMemoryException
-    severity: critical
+  # 大量例外：.NET 8 的例外數沒有分種類（.NET 9 才有），看不出是不是 OutOfMemoryException；
+  # 記憶體洩漏到底、程式沒結束時，每個請求都丟例外（實測時見 docs/dotnet.md）
+  - name: dotnet.exceptions_burst
+    title: .NET 例外暴增
+    severity: warning
     index: metrics-*.otel-*
-    field: metrics.dotnet.exceptions
-    filter: [{term: {attributes.error.type: OutOfMemoryException}}]   # 實測：.NET 寫的是短名稱，沒有 System.
+    field: metrics.process_runtime_dotnet_exceptions_count_total
     type: increase
     op: ">="
-    threshold: 1
+    threshold: 500            # 5 分鐘 500 次以上；依服務平常的量調，量差很多的話改用 baseline
     for: 5m
     by: [*ns, *pod]
     context: [*svc]
 
-  # 執行緒池飢餓：同步等非同步（.Result、.Wait()）把執行緒卡住，工作在佇列裡排隊；CPU 很低、請求卻進不來
+  # 執行緒暴增：.NET 偵測到「同步等 Task」（.Wait()、.Result）會馬上多開執行緒，佇列反而不會排（實測：佇列一直 0，
+  # 執行緒 6 → 44 條、p95 2.5ms → 1.75 秒）。每個被卡住的請求佔一條執行緒。
+  # .NET 8 的 metrics 沒有 CPU 核數可以相除，先用固定門檻；核數很多的服務要調高（或之後改用 baseline）
+  - name: dotnet.thread_pool_growth
+    title: .NET 執行緒暴增（請求在同步等待，可能是 .Result／.Wait()）
+    severity: warning
+    index: metrics-*.otel-*
+    field: metrics.process_runtime_dotnet_thread_pool_threads_count
+    type: value
+    op: ">="
+    threshold: 32
+    for: 2m
+    min_ratio: 0.8
+    by: [*ns, *pod]
+    context: [*svc]
+
+  # 執行緒池排隊：.NET 偵測不到的阻塞（lock、Thread.Sleep）時，工作會在佇列裡排隊
   - name: dotnet.thread_pool_starvation
     title: .NET 執行緒池飢餓（工作在排隊）
     severity: warning
     index: metrics-*.otel-*
-    field: metrics.dotnet.thread_pool.queue.length
+    field: metrics.process_runtime_dotnet_thread_pool_queue_length
     type: value
     op: ">="
     threshold: 10
     for: 2m
     min_ratio: 0.8
     by: [*ns, *pod]
-    context: [*svc]
-
-  # 執行緒暴增：.NET 6 以後偵測到「同步等 Task」（.Wait()、.Result）會馬上多開執行緒，佇列反而不會排（實測：佇列一直 0，
-  # 執行緒 6 → 44 條、p95 2.5ms → 1.75 秒）。每個被卡住的請求佔一條執行緒，看「執行緒 ÷ CPU 核數」
-  - name: dotnet.thread_pool_growth
-    title: .NET 執行緒暴增（請求在同步等待，可能是 .Result／.Wait()）
-    severity: warning
-    index: metrics-*.otel-*
-    field: metrics.dotnet.thread_pool.thread.count
-    join: {field: metrics.dotnet.process.cpu.count}
-    den: [metrics.dotnet.process.cpu.count]
-    type: ratio
-    op: ">="
-    threshold: 16             # 一核 16 條以上；平常非同步的服務大約一核幾條
-    show: number              # 顯示「44」（條／核），不是 4400%
-    for: 2m
-    min_ratio: 0.8
-    by: [*ns, *pod]
-    context: [*svc]
-
-  # 連線池（Npgsql 等用 OTLP 推的）：名稱跟 Java 的一樣是 db.client.connections.*，只是點分隔、維度叫 pool.name
-  - name: db.pool_exhausted_otlp
-    title: 資料庫連線池用光了
-    severity: critical
-    index: metrics-*.otel-*
-    field: metrics.db.client.connections.usage
-    filter: [{term: {attributes.state: used}}]
-    join: {field: metrics.db.client.connections.max}
-    den: [metrics.db.client.connections.max]
-    type: ratio
-    op: ">="
-    threshold: 0.9
-    for: 1m
-    by: [*ns, *pod, attributes.pool.name]
     context: [*svc]
 
   # ── 訊息佇列（kafka_exporter 的名稱：kafka_consumergroup_lag_sum{consumergroup, topic}）──
