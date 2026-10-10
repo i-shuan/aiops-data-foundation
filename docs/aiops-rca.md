@@ -136,6 +136,8 @@
 
 ## 不同用途要的 baseline 不一樣
 
+> 從 15 個真實故障案例反推要哪幾種 baseline，見 [aiops-cases.md](aiops-cases.md)。
+
 上面講的（[aiops/baseline/](../aiops/baseline/README.md) 已實作）是**「單一數字、依時段」的統計 baseline**：每條時間序列各自學「每個星期幾、每個小時，平常是多少、通常跳動多少」。它是**非監督式**的，不需要標好哪些是事故，只看歷史。
 
 AIOps 的其他用途要的「平常」長得不一樣，有一部分可以共用這套：

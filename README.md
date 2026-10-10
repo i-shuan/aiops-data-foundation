@@ -20,6 +20,7 @@
 - [docs/traces.md](docs/traces.md)：trace 怎麼進 ES。應用送到同節點的 OpenTelemetry Collector，依連線來源的 Pod 讀 namespace 的 dept 分 group，擋冒充；log 的 `trace.id` 對得到 trace。已在 k3s 上端到端驗證。
 - [apps/standards/tracing.md](apps/standards/tracing.md)：給應用團隊的 trace 埋點指引：哪些自動有、什麼時候要自己加、怎麼加、命名規則、取樣。
 - [docs/aiops-rca.md](docs/aiops-rca.md)：**AIOps 根因分析怎麼做**：三種資料各回答什麼、六個步驟裡哪幾步需要 AI，以及最關鍵的「怎麼知道平常的樣子」（看哪些指標、週期、方法、需要的條件）。
+- [docs/aiops-cases.md](docs/aiops-cases.md)：**15 個真實故障案例要哪種「平常」才抓得到**：N+1、錯誤被吞、連線池洩漏、重試風暴、單一 Pod 壞掉…逐一對到訊號、baseline 種類、資料與程式現況，排出接下來要做的順序。
 - [docs/retention.md](docs/retention.md)：**保留天數與容量（方案，還沒套用）**：各種資料留多久、舊 metrics 降解析度、log 和 trace 改留統計值，以及容量估算。
 - [aiops/baseline/](aiops/baseline/README.md)：**AIOps 第一步：學「平常的樣子」、抓異常**。每個服務 × API × 指標，取過去 4 週同時段的中位數與範圍；模擬資料測試 4 個異常全部抓到、2,592 個正常點 0 誤報。
 - [aiops/rca/](aiops/rca/README.md)：**AIOps 第二步：根因分析**。baseline 發現異常後，照 Metrics → Trace → Log 自動查：慢在哪一段、錯誤從哪裡開始、各服務的 log、新出現的錯誤樣式、呼叫關係圖，產出報告。k3s 實測：製造 Oracle 變慢，正確指到那一段和那行 log。
