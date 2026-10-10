@@ -1,0 +1,26 @@
+# 尾端取樣實測：在本機測試的 Collector 上，加第二層 trace-sampler，node Collector 的 trace 改送給它。
+#   kubectl apply -k test/local-k3s/tail-sampling     （回到原本：kubectl apply -k test/local-k3s/otel-collector）
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: otel-collector
+resources:
+  - ../otel-collector
+  - sampler.yaml
+configMapGenerator:
+  - name: otel-collector-config
+    behavior: merge
+    files:
+      - node-tail.yaml
+  - name: trace-sampler-config
+    files:
+      - sampler-config.yaml
+patches:
+  - target: {kind: DaemonSet, name: otel-node-collector}
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/args/-
+        value: --config=/conf/node-tail.yaml
+images:
+  - name: otelcol
+    newName: docker.io/otel/opentelemetry-collector-contrib
+    newTag: 0.162.0
