@@ -10,6 +10,9 @@ String str(Map m, String key) {
   return v == null ? null : v.toString();
 }
 
+// 哪個收集器送的：OpenTelemetry Collector 那條（k8s-logs-otel）會先填 otelcol，沒填的就是 Fluent Bit
+if (ctx.agent == null) ctx.agent = ['type': 'fluent-bit'];
+
 Map k = ctx.remove('kubernetes');
 Map nsMeta = ctx.remove('kubernetes_namespace');
 String raw = ctx.remove('log');

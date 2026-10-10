@@ -1,5 +1,8 @@
 # Log 路線測試紀錄
 
+> [!NOTE]
+> 這份是 **Fluent Bit 時期**的測試紀錄。log 已改用 OpenTelemetry Collector 收（見 [elasticsearch.md](elasticsearch.md) 的「驗證」與 [otel-logs-compare.md](otel-logs-compare.md)）；中央 pipeline 是同一套，欄位、格式分派、權限的結論不變。
+
 驗證 [elasticsearch.md](elasticsearch.md) 的設計：Fluent Bit 收 log、依 dept 分流、中央 pipeline 整理欄位、API key 權限，以及某一把 key 失效時的行為。
 
 ## 測試環境
@@ -7,7 +10,7 @@
 | 項目 | 內容 |
 |---|---|
 | K8s | k3s v1.32.2，單節點（4 核、15Gi RAM） |
-| Elasticsearch | 8.17.2 單節點，開 security、HTTP 不走 TLS，heap 1g（[elasticsearch.yaml](../test/local-k3s/elasticsearch.yaml)） |
+| Elasticsearch | 8.17.2 單節點，開 security、HTTP 不走 TLS，heap 1g（[elasticsearch.yaml](../test/local-k3s/elasticsearch.yaml)）。之後測試環境改成 9.5.5，端到端 53 項與 level 案例 23 個重跑也全部通過；本文的情境測試數據是 8.17.2 上量的 |
 | Fluent Bit | 4.1.1，正式設定只換連線目標與 image 來源（[overlay](../test/local-k3s/fluent-bit/kustomization.yaml)） |
 | API key | 用正式的 [elasticsearch-setup.sh](../platform/central/elasticsearch-setup.sh) 產生 |
 | cluster 名稱 | `local`，所以 index 是 `k8s-{group}-local` |
@@ -492,6 +495,71 @@ Fluent Bit 的 es output 加上 `generate_id: on`：
 - **限制：** 去重只在同一個底層 index 內有效。data stream 每天或 30GB 換新 index，如果第一次寫入和重送剛好跨過換 index 的時間點，還是會多一份。機率很低。
 - 上表的「強迫重送」那一列，ES CPU 74% 是去重複加上重送本身的額外工作，不是正常情況下的成本。
 
+## 情境測試：ES 當機（kill -9）
+
+前面的停機測試都是「正常關機」（ES 有機會把資料寫完再關）。這裡是**直接砍掉 ES 程序**，像斷電、OOM 被砍。腳本：[load/run-crash.sh](../test/local-k3s/load/run-crash.sh)。
+
+### 測資
+
+- ES 單節點（9.5.5），log 和 metrics 同時在寫。
+- log：產生器每秒 200 筆、跑 360 秒，每筆帶序號（`app.seq`）；結束時回報實際送出幾筆。
+- metrics：每個 group 的測試應用每 30 秒一筆。
+- 在主機上 `kill -9` ES 程序**兩次**：第 1 次在平常寫入中；第 2 次在 ES 剛恢復、Fluent Bit 和 Collector 正在補送第 1 次累積的資料時（最容易出事的時候）。
+- 每次砍之前，記下 ES 已經確認收到（`event.ingested` 早於當下）的 log 筆數，重啟後再數一次。
+
+### 結果
+
+| 檢查 | 結果 |
+|---|---|
+| 第 1 次當機前已寫入的 75,776 筆 log | 重啟後**全部還在** |
+| 第 2 次當機前已寫入的 84,577 筆 log | 重啟後**全部還在** |
+| ES 自己重啟 | 34 秒、55 秒 |
+| log 序號 0～70,943 | 送出 70,944、收到 70,944，**0 遺失、0 重複** |
+| 應用 metrics（6 分鐘，每 group 約 12 筆） | IT 13、IMC 13、unassigned 12，**沒有缺、沒有重複** |
+| failure store、Collector 丟資料 | 0 |
+
+### 結論
+
+- **ES 回了「成功」的資料，當機也不會掉。** ES 預設每個寫入請求都先寫進硬碟上的交易紀錄（translog）才回成功，重啟時從交易紀錄補回來。不要為了速度把 `index.translog.durability` 改成 `async`，改了當機就可能掉最後幾秒。
+- **還沒回成功的資料由送的那方負責**：Fluent Bit 和 Collector 沒收到成功就一直重試，重送的由 `_id` 擋掉重複。
+- 單節點唯一防不了的是**硬碟本身壞掉**：資料只有一份。這要靠兩個以上節點的副本或定期 snapshot。
+
+## 情境測試：ES 兩個節點 vs 一個節點
+
+中央 ES 從一個節點改成兩個（兩個 Pod），差在哪裡。腳本：`test/local-k3s/run-es-2node.sh up|test|down`。
+
+### 測資
+
+- ES 9.5.5 兩個節點，兩個都是 master 候選、也都存資料；`elasticsearch-0` 沿用原本單節點的資料。
+- log、metrics 照常在送（同前面的測試應用：每個 group 一個每 30 秒抓一次的 metrics-app，加上原本的 log 應用）。
+- 讓一個節點**卡住 180 秒**（暫停 ES 程序，像主機當掉或網路斷掉：連線還在、不回應），先卡「沒有投票權」的，再卡「有投票權」的。
+- 量：剩下的節點有沒有 master、經過 Service 叫不叫得到 ES、卡住期間**即時**寫進去幾筆（直接問剩下的節點）、恢復後**最後**有幾筆。
+
+⚠️ 測試機限制：多節點時 ES 要求可開檔案數至少 65535，這台上限是 20000、改不動。所以測試版讓 ES 節點之間的連線只綁 127.0.0.1，由同一個 Pod 裡的 socat 轉給另一個 Pod。兩個 Pod 各自獨立，不影響這裡量的東西；正式環境不需要這樣做。
+
+### 結果
+
+兩個 master 候選時，**ES 只讓其中一個投票**（投票的要是奇數個），這次是 `elasticsearch-0`。
+
+| | 一個節點（前面的停機測試） | 兩個節點，卡住沒有投票權的 | 兩個節點，卡住有投票權的 |
+|---|---|---|---|
+| 剩下的節點有 master | — | 一直有 | **180 秒都沒有** |
+| 經過 Service 叫不到 ES | 整段 | 約 14 秒（Service 把卡住的 Pod 移掉之前） | **180 秒** |
+| 卡住期間即時寫入的 metrics（每個 group 預期 6 筆） | 0 | **6、6、6** | 0 |
+| 卡住期間即時寫入的 log（IT／IMC／unassigned） | 0 | 211／55／650 | 0 |
+| 恢復後最後的 metrics | 補齊 | 6、6、6 | 6、6、6（補齊） |
+| 恢復後最後的 log | 補齊 | 228／60／690 | 227／60／886（補齊） |
+| 恢復後變 green | — | 9 秒 | 6 秒 |
+| 重複、failure store、Collector 丟資料 | 0 | 0 | 0 |
+| 平常的狀態 | **yellow**：metrics 的副本 shard 沒地方放（27 個沒配置） | green：66 個 shard 全配好 | |
+
+### 結論
+
+1. **兩個節點只防得住一半。** 掛的是沒有投票權的那個，寫入幾乎不受影響（只有 Service 切換的十幾秒）；掛的是有投票權的那個，**整個 cluster 停擺，跟一個節點完全一樣**。哪一個有投票權是 ES 自己決定的，所以實際上就是「看運氣」。
+2. 兩個節點多得到的是**副本**：資料有兩份，一台的硬碟壞掉不會掉資料；平常是 green。
+3. 不管哪種情況，**資料都沒有遺失**：log 和 metrics 都在節點上排隊，ES 恢復後補齊，沒有重複。差別只在 AIOps 讀到資料的延遲。
+4. 正式環境要真的「掛一台還能寫」，**至少要三個 master 候選**（三台一樣的節點，或兩台存資料加一台只投票的 `voting_only` 小節點）。這樣任一台掛掉，剩下兩台還過半數。
+
 ## 測試中抓到的問題（已修）
 
 ### 1. Fluent Bit 收自己的 log，形成放大迴圈
@@ -567,7 +635,7 @@ Fluent Bit 的 es output 加上 `generate_id: on`：
 ## 還沒測的
 
 - 真實環境：你們的 Fluent Bit 版本、中央 ES 的 TLS 憑證、Rancher 上的部署流程。
-- 多節點：測試只有一個節點，沒有測多個 Fluent Bit 同時寫入、ES 多節點的情況。
+- 多節點：k8s 只有一個節點，沒有測多個 Fluent Bit 同時寫入。ES 測過兩個節點（見上方），三個節點還沒測。
 - 長時間：每段只跑 2 到 7 分鐘，沒有跑過 ILM 滾動（每天或 30GB）的情況。
 
 ## 附錄：測資樣本（實際抓取）

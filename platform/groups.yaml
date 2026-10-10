@@ -1,9 +1,8 @@
-# 部門 → group 對照表。group 決定資料寫進哪個 index（log）／哪個 tenant（metrics）。
+# 部門 → group 對照表。group 決定 log 與 metrics 寫進哪個 group 的 data stream、用哪把 key。
 #
 # 目前這份是「人看的真相來源」，下面幾處要手動跟它保持一致：
-#   - platform/cluster-addons/fluent-bit/fluent-bit.yaml 的 rewrite_tag 規則
 #   - platform/central/elasticsearch-setup.sh 的寫入 key 與唯讀角色
-#   - docs/vmagent.md 的 remoteWrite regex
+#   - platform/cluster-addons/otel-collector/common.yaml 的 transform/group（log 與 metrics 共用）
 # 不在清單裡的 dept、或 namespace 沒標 dept，一律歸 unassigned。
 groups:
   it:

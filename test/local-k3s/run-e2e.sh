@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# log 路線端到端驗證：Fluent Bit → 分流 → ES pipeline → data stream，外加 API key 權限。
+# log 路線端到端驗證：OpenTelemetry Collector → 分流 → ES pipeline → data stream，外加 API key 權限。
 #
 # 前提：已有一個可用的 K8s（KUBECONFIG 指向它），可以拉 docker.io 的 image。
 # 用法：test/local-k3s/run-e2e.sh
 #       已經連得到測試 ES（例如直接打 ClusterIP）時：ES_URL=http://<ip>:9200 test/local-k3s/run-e2e.sh
-# 會建立 namespace es-test、logging、it-mes-prod、imc-wip-prod、legacy。只能在測試 cluster 跑。
+# 會建立 namespace es-test、otel-collector、it-mes-prod、imc-wip-prod、legacy。只能在測試 cluster 跑。
 set -euo pipefail
 
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -40,29 +40,30 @@ until [[ "$(es -m 5 "${ES_URL}/_cluster/health" | jq -r .status)" =~ green|yello
 echo "== 2. index 結構與 API key（正式腳本）"
 setup_out="$(ES_URL="${ES_URL}" ES_AUTH="elastic:${ES_PASSWORD}" "${repo}/platform/central/elasticsearch-setup.sh")"
 key_of() { echo "${setup_out}" | grep -A1 "=== $1 ===" | tail -1 | jq -r .encoded; }
-IT_KEY="$(key_of '寫入 key：fluent-bit-it')"
-IMC_KEY="$(key_of '寫入 key：fluent-bit-imc')"
-UNASSIGNED_KEY="$(key_of '寫入 key：fluent-bit-unassigned')"
+IT_KEY="$(key_of '寫入 key：es-writer-it')"
+IMC_KEY="$(key_of '寫入 key：es-writer-imc')"
+UNASSIGNED_KEY="$(key_of '寫入 key：es-writer-unassigned')"
 AIOPS_KEY="$(key_of 'AIOps 唯讀 key')"
 for k in "${IT_KEY}" "${IMC_KEY}" "${UNASSIGNED_KEY}" "${AIOPS_KEY}"; do
   [[ -n "${k}" && "${k}" != null ]] || { echo "沒拿到 API key，elasticsearch-setup.sh 的輸出："; echo "${setup_out}"; exit 1; }
 done
 
-kubectl create namespace logging --dry-run=client -o yaml | kubectl apply -f - >/dev/null
-kubectl -n logging create secret generic es-writer-keys \
+kubectl create namespace otel-collector --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+kubectl -n otel-collector create secret generic es-writer-keys \
   --from-literal=IT_ES_API_KEY="${IT_KEY}" \
   --from-literal=IMC_ES_API_KEY="${IMC_KEY}" \
   --from-literal=UNASSIGNED_ES_API_KEY="${UNASSIGNED_KEY}" \
   --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 
-echo "== 3. Fluent Bit 與測試應用"
-kubectl apply -k "${here}/fluent-bit" >/dev/null
+echo "== 3. OpenTelemetry Collector 與測試應用"
+kubectl apply -k "${here}/otel-collector" >/dev/null
 # 情境測試會幫 legacy 標上 dept，這裡拿掉，恢復成「沒標 dept」的情境
 kubectl label namespace legacy dept- >/dev/null 2>&1 || true
-# 每次跑都換新的 key，Fluent Bit 要重啟才會讀到（也順便清掉 namespace label 快取）
-kubectl -n logging rollout restart daemonset/fluent-bit >/dev/null
-kubectl -n logging rollout status daemonset/fluent-bit --timeout=180s
-# 測試 ES 有掛硬碟，上一次（或其他情境測試）的資料會留著。等新的 Fluent Bit 把舊 Pod 留下的堆積送完，
+# 每次跑都換新的 key，Collector 要重啟才會讀到
+kubectl -n otel-collector rollout restart daemonset/otel-node-collector deployment/otel-cluster-collector >/dev/null
+kubectl -n otel-collector rollout status daemonset/otel-node-collector --timeout=180s
+kubectl -n otel-collector rollout status deployment/otel-cluster-collector --timeout=180s
+# 測試 ES 有掛硬碟，上一次（或其他情境測試）的資料會留著。等新的 Collector 把舊 Pod 留下的堆積送完，
 # 再清掉測試用的 data stream，之後進來的都是這次的資料
 sleep 15
 es -X DELETE "${ES_URL}/_data_stream/k8s-*-local" >/dev/null
@@ -111,7 +112,8 @@ check "ECS 巢狀格式：thread"          "$(jq -r .process.thread.name <<<"${e
 check "ECS 巢狀格式：拿完的欄位不留空殼" "$(jq -c .app <<<"${ecs}")" '{"process":{"pid":1},"ecs":{"version":"8.11"}}'
 esdoc="$(es "${ES_URL}/k8s-unassigned-local/_search" -d '{"size":1,"query":{"bool":{"filter":[{"term":{"kubernetes.namespace":"es-test"}},{"exists":{"field":"log.level"}}]}},"sort":[{"@timestamp":"desc"}]}' | jq '.hits.hits[0]._source')"
 check_gt0 "ECS 字面點號格式（ES 自己的 log）：log.logger" "$(jq -r '.log.logger // "" | length' <<<"${esdoc}")"
-check "Fluent Bit 不收自己的 log" "$(count 'k8s-*' '{"bool":{"filter":[{"term":{"kubernetes.namespace":"logging"}},{"range":{"@timestamp":{"gte":"now-'"${WAIT_SECONDS}"'s"}}}]}}')" 0
+check "收集器標記（agent.type）"         "$(jq -r .agent.type <<<"${doc}")" otelcol
+check "Collector 不收自己的 log" "$(count 'k8s-*' '{"bool":{"filter":[{"term":{"kubernetes.namespace":"otel-collector"}},{"range":{"@timestamp":{"gte":"now-'"${WAIT_SECONDS}"'s"}}}]}}')" 0
 
 echo "== 5b. 依格式分派"
 svc_doc() { es "${ES_URL}/k8s-it-local/_search" -d "{\"size\":1,\"sort\":[{\"@timestamp\":\"desc\"}],\"query\":{\"term\":{\"service.name\":\"$1\"}}}" | jq '.hits.hits[0]._source'; }

@@ -1,0 +1,107 @@
+# metrics 測試用的應用：三個 namespace 各一個，吐固定內容的 Prometheus metrics。
+#   it-mes-prod  dept=D3120 → metrics-*.otel-it
+#   imc-wip-prod dept=D1110 → metrics-*.otel-imc
+#   legacy       沒標 dept  → metrics-*.otel-unassigned
+# 內容裡故意放了 dept="D1110"、group="imc" 兩個 label，測「應用自稱別的部門」會不會被擋掉。
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: metrics-app, namespace: it-mes-prod}
+data:
+  metrics: |
+    # TYPE demo_requests_total counter
+    demo_requests_total{path="/orders",dept="D1110",group="imc"} 42
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: metrics-app, namespace: it-mes-prod}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app.kubernetes.io/name: metrics-app}}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: metrics-app
+        app.kubernetes.io/version: "1.2.3"
+        app.kubernetes.io/part-of: demo
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9464"
+        prometheus.io/path: /metrics
+    spec:
+      containers:
+        - name: httpd
+          image: docker.io/library/busybox:1.37
+          command: ["httpd", "-f", "-p", "9464", "-h", "/www"]
+          ports: [{name: metrics, containerPort: 9464}]
+          resources: {requests: {cpu: 10m, memory: 16Mi}, limits: {memory: 32Mi}}
+          volumeMounts: [{name: www, mountPath: /www}]
+      volumes: [{name: www, configMap: {name: metrics-app}}]
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: metrics-app, namespace: imc-wip-prod}
+data:
+  metrics: |
+    # TYPE demo_requests_total counter
+    demo_requests_total{path="/orders",dept="D1110",group="imc"} 42
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: metrics-app, namespace: imc-wip-prod}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app.kubernetes.io/name: metrics-app}}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: metrics-app
+        app.kubernetes.io/version: "1.2.3"
+        app.kubernetes.io/part-of: demo
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9464"
+        prometheus.io/path: /metrics
+    spec:
+      containers:
+        - name: httpd
+          image: docker.io/library/busybox:1.37
+          command: ["httpd", "-f", "-p", "9464", "-h", "/www"]
+          ports: [{name: metrics, containerPort: 9464}]
+          resources: {requests: {cpu: 10m, memory: 16Mi}, limits: {memory: 32Mi}}
+          volumeMounts: [{name: www, mountPath: /www}]
+      volumes: [{name: www, configMap: {name: metrics-app}}]
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: metrics-app, namespace: legacy}
+data:
+  metrics: |
+    # TYPE demo_requests_total counter
+    demo_requests_total{path="/orders",dept="D1110",group="imc"} 42
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: metrics-app, namespace: legacy}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app.kubernetes.io/name: metrics-app}}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: metrics-app
+        app.kubernetes.io/version: "1.2.3"
+        app.kubernetes.io/part-of: demo
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9464"
+        prometheus.io/path: /metrics
+    spec:
+      containers:
+        - name: httpd
+          image: docker.io/library/busybox:1.37
+          command: ["httpd", "-f", "-p", "9464", "-h", "/www"]
+          ports: [{name: metrics, containerPort: 9464}]
+          resources: {requests: {cpu: 10m, memory: 16Mi}, limits: {memory: 32Mi}}
+          volumeMounts: [{name: www, mountPath: /www}]
+      volumes: [{name: www, configMap: {name: metrics-app}}]

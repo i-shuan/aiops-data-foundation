@@ -29,6 +29,12 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- (.Values.ports | default dict).metrics | default 9464 -}}
 {{- end -}}
 
+{{- define "app-common.traceSampleRatio" -}}
+{{- $otel := .Values.otel | default dict -}}
+{{- $traces := $otel.traces | default dict -}}
+{{- if hasKey $traces "sampleRatio" }}{{ $traces.sampleRatio }}{{ else }}1.0{{ end -}}
+{{- end -}}
+
 {{- define "app-common.javaAgentEnabled" -}}
 {{- $otel := .Values.otel | default dict -}}
 {{- $java := $otel.javaAgent | default dict -}}
@@ -69,5 +75,9 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- end -}}
 {{- if include "app-common.javaAgentEnabled" . -}}
 {{- $_ := required "otel.javaAgent.enabled 為 true 時，otel.javaAgent.image 必填" $v.otel.javaAgent.image -}}
+{{- end -}}
+{{- $ratio := include "app-common.traceSampleRatio" . | float64 -}}
+{{- if or (lt $ratio 0.0) (gt $ratio 1.0) -}}
+{{- fail "otel.traces.sampleRatio 要在 0 到 1 之間（例如 0.1 表示記一成的請求）" -}}
 {{- end -}}
 {{- end -}}
