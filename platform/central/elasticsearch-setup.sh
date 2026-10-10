@@ -15,6 +15,7 @@
 #      之後換 key 用 rotate-writer-key.sh（不掉資料）；重跑這支腳本也會發新 key，但舊的不會作廢。
 #   2. AIOps 專用唯讀 API key：可讀所有 k8s-*（log）、metrics-*.otel-*（metrics）、traces-*.otel-*（trace）。
 #   3. 給人用的唯讀角色：每個 group 一個，只能看自己的 log、事件、metrics、trace。再指派給使用者。
+#   另外發一把 AIOps baseline 工具用的 key（aiops/baseline）：讀上面三種資料，只能寫 aiops-*。
 set -euo pipefail
 
 cd "$(dirname "$0")"
@@ -131,5 +132,20 @@ es -X POST "${ES_URL}/_security/api_key" -d '{
 }'
 
 # 3. 給人用的唯讀角色
+# 2b. AIOps baseline 工具（aiops/baseline）：讀 log、metrics、trace，只能寫自己的 aiops-*（baseline、異常）
+echo "=== AIOps baseline key ==="
+es -X POST "${ES_URL}/_security/api_key" -d '{
+  "name": "aiops-baseline",
+  "role_descriptors": {
+    "aiops-baseline": {
+      "index": [
+        {"names": ["k8s-*", "metrics-*.otel-*", "traces-*.otel-*"], "privileges": ["read", "view_index_metadata"]},
+        {"names": ["aiops-*"], "privileges": ["read", "write", "create_index", "view_index_metadata"]}
+      ]
+    }
+  }
+}'
+echo
+
 reader_role it
 reader_role imc

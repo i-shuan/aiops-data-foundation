@@ -1,0 +1,26 @@
+# synth_e2e.py 用：模擬資料（aiops-synth，每 5 分鐘一筆已經統計好的值）
+interval: 5m
+history_weeks: 4
+train: {timezone: Asia/Taipei, min_weeks: 2, min_days: 3, min_points: 50}
+detect: {z: 5, rel_floor: 0.05}
+series:
+  - name: synth.requests
+    index: aiops-synth
+    by: [service]
+    value: {sum: requests}
+    fill_zero: true
+    direction: both
+    min_abs: 10
+  - name: synth.latency
+    index: aiops-synth
+    by: [service]
+    value: {avg: latency_ms}
+    direction: up
+    min_abs: 30
+  - name: synth.errors
+    index: aiops-synth
+    by: [service]
+    value: {sum: errors}
+    fill_zero: true
+    direction: up
+    min_abs: 5

@@ -1,0 +1,82 @@
+# 要學「平常的樣子」的時間序列。每條序列 = 一個 ES 查詢，依 by 的欄位切開，每 interval 一個值。
+# 先從每個服務的核心指標開始（docs/aiops-rca.md「看哪些數字」）：流量、錯誤、延遲、資源。
+#
+# value 的寫法：
+#   count                                     每段時間的筆數（沒資料的時段補 0）
+#   {sum|avg|max|min: <欄位>}
+#   {percentile: {field: <欄位>, percent: 95}}
+#   {ratio: <query>}                          符合 query 的筆數 ÷ 總筆數，例如錯誤率
+# direction：up 只有變高算異常（延遲、錯誤）；down 只有變低；both 兩邊都算（流量）
+# min_abs  ：跟平常至少要差這麼多才算，避免量很小的序列一點點變化就告警
+
+interval: 5m          # 每 5 分鐘一個點
+history_weeks: 4      # 學過去 4 週
+
+train:
+  timezone: Asia/Taipei   # 週期依工廠當地時間（換班、上下班）
+  min_weeks: 2            # 「同星期幾 × 同小時」至少要有 2 天，不夠就退到「每天同小時」
+  min_days: 3             # 「每天同小時」至少要有 3 天，不夠就退到「不分時段」
+  min_points: 50
+
+detect:
+  z: 5                    # 離平常 5 倍穩健標準差才算異常
+  rel_floor: 0.05         # 平常幾乎不動的序列，波動至少當成平常值的 5%
+
+series:
+  # ── trace：每個服務 × API（收到的請求）──
+  - name: trace.requests
+    index: traces-*.otel-*
+    filter: {term: {kind: Server}}
+    by: [resource.attributes.service.name, name]
+    value: count
+    direction: both
+    min_abs: 5
+
+  - name: trace.error_rate
+    index: traces-*.otel-*
+    filter: {term: {kind: Server}}
+    by: [resource.attributes.service.name, name]
+    value: {ratio: {term: {status.code: Error}}}
+    direction: up
+    min_abs: 0.05          # 錯誤率至少多 5 個百分點
+
+  - name: trace.latency_p95_ns
+    index: traces-*.otel-*
+    filter: {term: {kind: Server}}
+    by: [resource.attributes.service.name, name]
+    value: {percentile: {field: duration, percent: 95}}
+    direction: up
+    min_abs: 50000000      # 至少慢 50 毫秒（duration 單位是奈秒）
+
+  # ── log：每個服務 ──
+  - name: log.lines
+    index: k8s-*
+    by: [service.name]
+    value: count
+    direction: both
+    min_abs: 20
+
+  - name: log.errors
+    index: k8s-*
+    filter: {terms: {log.level: [error, fatal]}}
+    by: [service.name]
+    value: count
+    direction: up
+    min_abs: 5
+
+  # ── metrics：每個 Deployment（Pod 的平均）──
+  - name: pod.cpu
+    index: metrics-kubeletstatsreceiver.otel-*
+    filter: {exists: {field: metrics.k8s.pod.cpu.usage}}
+    by: [resource.attributes.k8s.namespace.name, resource.attributes.k8s.deployment.name]
+    value: {avg: metrics.k8s.pod.cpu.usage}
+    direction: up
+    min_abs: 0.1           # 至少多用 0.1 核
+
+  - name: pod.memory_bytes
+    index: metrics-kubeletstatsreceiver.otel-*
+    filter: {exists: {field: metrics.k8s.pod.memory.working_set}}
+    by: [resource.attributes.k8s.namespace.name, resource.attributes.k8s.deployment.name]
+    value: {avg: metrics.k8s.pod.memory.working_set}
+    direction: up
+    min_abs: 104857600     # 至少多用 100MB

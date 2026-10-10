@@ -21,6 +21,7 @@
 - [apps/standards/tracing.md](apps/standards/tracing.md)：給應用團隊的 trace 埋點指引：哪些自動有、什麼時候要自己加、怎麼加、命名規則、取樣。
 - [docs/aiops-rca.md](docs/aiops-rca.md)：**AIOps 根因分析怎麼做**：三種資料各回答什麼、六個步驟裡哪幾步需要 AI，以及最關鍵的「怎麼知道平常的樣子」（看哪些指標、週期、方法、需要的條件）。
 - [docs/retention.md](docs/retention.md)：**保留天數與容量（方案，還沒套用）**：各種資料留多久、舊 metrics 降解析度、log 和 trace 改留統計值，以及容量估算。
+- [aiops/baseline/](aiops/baseline/README.md)：**AIOps 第一步：學「平常的樣子」、抓異常**。每個服務 × API × 指標，取過去 4 週同時段的中位數與範圍；模擬資料測試 4 個異常全部抓到、2,592 個正常點 0 誤報。
 - [docs/otel-logs-compare.md](docs/otel-logs-compare.md)：log 從 Fluent Bit 改用 OpenTelemetry Collector 之前的比較紀錄與決定。
 
 ## 已經定案的
@@ -68,6 +69,7 @@
 ## 目錄
 
 ```
+aiops/       AIOps：baseline（學平常的樣子、抓異常）
 apps/        應用端：共用 chart、範例、Java log 設定、trace 埋點指引、CI 檢查
 platform/    平台端：groups.yaml（部門 → group）、中央 ES 設定、各 cluster 的 OpenTelemetry Collector（log 與 metrics）
 docs/        設計文件與測試紀錄
