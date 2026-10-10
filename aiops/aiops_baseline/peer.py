@@ -75,4 +75,4 @@ def count_spec(spec: dict) -> dict:
 def describe(check: dict, r: dict, keys: list[str], fmt) -> str:
     who = "、".join(str(r[k]) for k in keys if r.get(k) is not None)
     return (f"{check['title']}：{who}（{fmt(r['value'])}，其他 {r['peers']} 個 Pod 中位數 {fmt(r['median'])}，"
-            f"z={r['z']:.1f}）")
+            f"z={'>999' if abs(r['z']) > 999 else format(r['z'], '.1f')}）")   # 其他 Pod 都是 0 時 z 會上億，沒意義

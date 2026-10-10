@@ -54,6 +54,13 @@ class CompareTest(unittest.TestCase):
         self.assertEqual(hits(P.compare(pods([0.5, 0.5, 0.5, 0.0]), ["service"], "pod", min_abs=0.05)), [])
 
 
+class DescribeTest(unittest.TestCase):
+    def test_huge_z_capped(self):
+        r = {"service": "order-api", "pod": "order-api-9", "value": 0.13, "peers": 2, "median": 0.0, "z": 1.3e8}
+        msg = P.describe({"title": "錯誤率比兄弟高"}, r, ["service", "pod"], lambda x: f"{x:.0%}")
+        self.assertEqual(msg, "錯誤率比兄弟高：order-api、order-api-9（13%，其他 2 個 Pod 中位數 0%，z=>999）")
+
+
 class SpecTest(unittest.TestCase):
     def test_volume_spec_from_histogram(self):
         with open("baseline/peer.yaml", encoding="utf-8") as f:
