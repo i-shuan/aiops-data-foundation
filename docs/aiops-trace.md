@@ -41,7 +41,7 @@ trace 怎麼收、怎麼分部門見 [traces.md](traces.md)；baseline、根因�
 |---|---|
 | 生產端：HTTP 請求 → `orders publish` | ✅ 同一個 trace |
 | 消費端拿到訊息（`orders receive`） | ⚠️ **另起一個新的 trace**，只用 **link** 指回生產端的 publish |
-| 消費端處理時寫 DB | ❌ **每一筆都自成一個 trace**（實測 944／944 筆沒有上一層），對不回是哪一筆訊息 |
+| 消費端處理時寫 DB | ❌ **每一筆都自成一個 trace**（實測 961／961 筆沒有上一層），對不回是哪一筆訊息 |
 | `receive` 的時間 | 是「`Consume()` 等下一筆訊息等了多久」，不是處理時間 |
 | kafka_exporter 的名稱 | ✅ `kafka_consumergroup_lag_sum{consumergroup, topic}`，跟 [rules.yaml](../aiops/baseline/rules.yaml) 的 Kafka 規則一樣 |
 
@@ -51,12 +51,12 @@ trace 怎麼收、怎麼分部門見 [traces.md](traces.md)；baseline、根因�
 - **處理時的 DB**：沒有上一層的 span 也當成入口，所以「`order-consumer › postgres → postgresql`」自己有 baseline（平常 1.4ms）、錯誤率。看得出「這個消費者寫 DB 變慢、出錯」，只是對不到是哪一筆訊息。
 - **積壓**：kafka_exporter 的消費落後（lag）＋ Kafka 規則。
 
-**實測（`run-kafka-e2e.sh`）：**
+**實測（`run-kafka-e2e.sh`，2026-10-11，全部通過）：**
 
 | 案例 | 抓到的 |
 |---|---|
 | 正常 3 分鐘 | 沒有誤報 ✅ |
-| 消費者變慢（每筆多 150ms，跟不上每秒 10 筆） | 「排隊」那段時間 ✅；lag 10 → 399 筆 ✅ |
+| 消費者變慢（每筆多 150ms，跟不上每秒 10 筆） | 「排隊」那段時間 ✅；lag 28 → 407 筆 ✅ |
 | 寫 DB 失敗（程式 catch 掉、記 error log） | 消費者的 `postgres` 那段錯誤率 ✅ |
 
 **限制：**
