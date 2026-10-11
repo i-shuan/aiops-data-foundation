@@ -3,10 +3,11 @@ OTEL=http://otel-node-collector.otel-collector.svc:4318/v1/traces
 BT=$(awk '/btime/{print $2}' /proc/stat)
 now() { read up _ < /proc/uptime; echo $(( BT * 1000 + ${up%.*}${up#*.} * 10 )); }
 hex() { od -An -N"$1" -tx1 /dev/urandom | tr -d ' \n'; }
-# span <trace> <span> <parent> <name> <kind 2=server 3=client> <開始 ms> <結束 ms> <attributes JSON> <錯誤 1/空>
+# span <trace> <span> <parent> <name> <kind 2=server 3=client> <開始 ms> <結束 ms> <attributes JSON> <錯誤 1/空> [事件 JSON]
 span() {
   st='{}'; [ -n "$9" ] && st='{"code":2}'
-  echo "{\"traceId\":\"$1\",\"spanId\":\"$2\",\"parentSpanId\":\"$3\",\"name\":\"$4\",\"kind\":$5,\"startTimeUnixNano\":\"${6}000000\",\"endTimeUnixNano\":\"${7}000000\",\"attributes\":[$8],\"status\":$st}"
+  ev=''; [ -n "${10:-}" ] && ev=",\"events\":[${10}]"
+  echo "{\"traceId\":\"$1\",\"spanId\":\"$2\",\"parentSpanId\":\"$3\",\"name\":\"$4\",\"kind\":$5,\"startTimeUnixNano\":\"${6}000000\",\"endTimeUnixNano\":\"${7}000000\",\"attributes\":[$8],\"status\":$st$ev}"
 }
 # send <service.name> <span JSON,...>：背景送出，不影響回應時間
 send() {

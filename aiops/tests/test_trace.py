@@ -147,3 +147,45 @@ class EndToEndTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class HardRuleTest(unittest.TestCase):
+    """不用學的規則：baseline 學不出來的「從第一天就有的壞味道」。"""
+
+    def summary(self, mode, n=20, swallow=False):
+        ts = pd.Timestamp("2026-10-10T10:00:00Z")
+        samples, traces = bucket_samples(ts, n, mode, random.Random(3))
+        if swallow:   # wip-worker 查 DB 那段丟了例外，但程式 catch 掉、沒標成錯誤
+            for t in traces.values():
+                for s in t:
+                    if s["name"] == "SELECT LOT_HISTORY":
+                        s["exception"] = "System.TimeoutException"
+        df, _ = T.summarize(samples, traces)
+        return df
+
+    def test_n_plus_one_caught_without_baseline(self):
+        hits = T.repeated_calls(self.summary("n_plus_1"), 20)
+        self.assertEqual(list(hits["segment"]), ["wip-worker › SELECT LOT_HISTORY → oracle"])
+        self.assertEqual(hits.iloc[0]["calls"], 100)
+
+    def test_normal_not_repeated(self):
+        self.assertTrue(T.repeated_calls(self.summary("normal"), 20).empty)
+
+    def test_swallowed_exception(self):
+        df = self.summary("normal", swallow=True)
+        hits = T.swallowed(df, 0.05)
+        self.assertEqual(list(hits["segment"]), ["wip-worker › SELECT LOT_HISTORY → oracle"])
+        self.assertEqual((hits.iloc[0]["swallowed_rate"], hits.iloc[0]["exception_type"]), (1.0, "System.TimeoutException"))
+        self.assertTrue(T.swallowed(self.summary("normal"), 0.05).empty)
+
+    def test_error_is_not_swallowed(self):
+        # 有例外而且標成錯誤：那是錯誤（error_rate），不是吞掉
+        ts = pd.Timestamp("2026-10-10T10:00:00Z")
+        samples, traces = bucket_samples(ts, 5, "normal", random.Random(3))
+        for t in traces.values():
+            for s in t:
+                if s["name"] == "SELECT LOT_HISTORY":
+                    s["exception"], s["error"] = "System.TimeoutException", True
+        df, _ = T.summarize(samples, traces)
+        self.assertTrue(T.swallowed(df, 0.05).empty)
+        self.assertEqual(df[df["segment"] == "wip-worker › SELECT LOT_HISTORY → oracle"]["error_rate"].iloc[0], 1.0)

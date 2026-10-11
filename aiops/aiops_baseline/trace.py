@@ -15,7 +15,7 @@
 """
 from __future__ import annotations
 
-from collections import defaultdict
+from collections import Counter, defaultdict
 from dataclasses import dataclass
 
 import pandas as pd
@@ -29,10 +29,12 @@ SEGMENT_MAPPING = {"mappings": {"dynamic": False, "properties": {
     "entry": {"properties": {"service": {"type": "keyword"}, "name": {"type": "keyword"}}},
     "segment": {"type": "keyword"}, "requests": {"type": "integer"},
     "calls": {"type": "double"}, "time_ms": {"type": "double"}, "error_rate": {"type": "double"},
+    "swallowed_rate": {"type": "double"}, "exception_type": {"type": "keyword"},
     "caller": {"type": "keyword"}, "callee": {"type": "keyword"}, "skew_ms": {"type": "double"},
 }}}
 KEYS = ["entry.service", "entry.name", "segment"]
-METRICS = ("calls", "time_ms", "error_rate")
+COLUMNS = ["ts", *KEYS, "requests", "calls", "time_ms", "error_rate", "swallowed_rate", "exception_type"]
+METRICS = ("calls", "time_ms", "error_rate", "swallowed_rate")
 
 
 # ── 計算（不碰 ES）──
@@ -52,16 +54,19 @@ def own_part(trace: list[dict], entry: dict) -> list[dict]:
 
 
 def request_segments(trace: list[dict], entry: dict) -> dict[str, dict]:
-    """一個請求、每一段：呼叫幾次、花多久、有沒有出錯。
-    時間：往外呼叫（Client）算整段（就是在等對方）；其他算自己的時間（扣掉底下的呼叫）。加起來約等於整個請求的時間。"""
+    """一個請求、每一段：呼叫幾次、花多久、有沒有出錯、有沒有吞掉的例外。
+    時間：往外呼叫（Client）算整段（就是在等對方）；其他算自己的時間（扣掉底下的呼叫）。加起來約等於整個請求的時間。
+    吞掉的例外：這一段丟過例外（exception），但 status 不是錯誤（程式 catch 掉了，例如回空值、回 200）。"""
     st = self_times(trace)
     out: dict[str, dict] = {}
     for s in own_part(trace, entry):
         seg = segment(s)
-        d = out.setdefault(seg, {"calls": 0, "time_ms": 0.0, "error": False})
+        d = out.setdefault(seg, {"calls": 0, "time_ms": 0.0, "error": False, "swallowed": None})
         d["calls"] += 1
         d["time_ms"] += s["dur_ms"] if s["kind"] == "Client" else st[s["span_id"]]
         d["error"] |= bool(s["error"])
+        if s.get("exception") and not s["error"]:
+            d["swallowed"] = s["exception"]
     return out
 
 
@@ -92,7 +97,7 @@ class Sampled:
 def summarize(samples: list[Sampled], traces: dict[str, list[dict]], skew_tolerance_ms: float = 500) -> tuple[pd.DataFrame, list[dict]]:
     """抽到的請求 → 每個 (時段, API, 段) 的平均：每個請求呼叫幾次、花多久、出錯比例。
     某個請求沒呼叫某一段，那一段就是 0 次（例如快取命中時沒查 DB），所以平均是除以這個 API 被抽到的請求數。"""
-    acc = defaultdict(lambda: {"calls": 0.0, "time_ms": 0.0, "errors": 0})
+    acc = defaultdict(lambda: {"calls": 0.0, "time_ms": 0.0, "errors": 0, "swallowed": 0, "types": Counter()})
     reqs = defaultdict(int)
     skews: dict[tuple, float] = {}
     for smp in samples:
@@ -107,6 +112,9 @@ def summarize(samples: list[Sampled], traces: dict[str, list[dict]], skew_tolera
             a["calls"] += d["calls"]
             a["time_ms"] += d["time_ms"]
             a["errors"] += d["error"]
+            if d["swallowed"]:
+                a["swallowed"] += 1
+                a["types"][d["swallowed"]] += 1
     for tid, bucket in {smp.trace_id: smp.bucket for smp in samples}.items():
         for caller, callee, ms in clock_skews(traces.get(tid, []), skew_tolerance_ms):
             key = (bucket, caller, callee)
@@ -115,8 +123,10 @@ def summarize(samples: list[Sampled], traces: dict[str, list[dict]], skew_tolera
     for (b, svc, name, seg), a in acc.items():
         n = reqs[(b, svc, name)]
         rows.append({"ts": b, "entry.service": svc, "entry.name": name, "segment": seg, "requests": n,
-                     "calls": a["calls"] / n, "time_ms": a["time_ms"] / n, "error_rate": a["errors"] / n})
-    df = pd.DataFrame(rows, columns=["ts", *KEYS, "requests", *METRICS])
+                     "calls": a["calls"] / n, "time_ms": a["time_ms"] / n, "error_rate": a["errors"] / n,
+                     "swallowed_rate": a["swallowed"] / n,
+                     "exception_type": a["types"].most_common(1)[0][0] if a["types"] else None})
+    df = pd.DataFrame(rows, columns=COLUMNS)
     skew_rows = [{"ts": b, "caller": c, "callee": d, "skew_ms": ms} for (b, c, d), ms in skews.items()]
     return df, skew_rows
 
@@ -147,14 +157,37 @@ def new_segments(cur: pd.DataFrame, base: pd.DataFrame, min_calls: float = 0.5) 
     return c[c["_known"].isna() & (c["calls"] >= min_calls)].drop(columns=["_known"])
 
 
+def repeated_calls(cur: pd.DataFrame, min_calls: float) -> pd.DataFrame:
+    """同一個請求裡，同一個往外的呼叫（同一句 SQL、同一個下游）平均 ≥ min_calls 次（規則，不用學）。
+    N+1、迴圈裡打 API：如果從上線第一天就這樣，baseline 會把它學成「平常」，所以要有不用學的門檻。"""
+    if cur.empty:
+        return cur
+    return cur[cur["segment"].str.contains(" → ", regex=False) & (cur["calls"] >= min_calls)]
+
+
+def swallowed(cur: pd.DataFrame, min_rate: float) -> pd.DataFrame:
+    """吞掉的例外（規則，不用學）：這一段丟過例外但沒標成錯誤的請求 ≥ min_rate。
+    程式 catch 掉例外、回空值或 200，表面正常（假性健康）；也會學 baseline（swallowed_rate），平常就有的另外看變多沒有。"""
+    if cur.empty:
+        return cur
+    return cur[cur["swallowed_rate"] >= min_rate]
+
+
 # ── 讀寫 ES ──
 
-def sample_entries(es: ES, index: str, start: pd.Timestamp, end: pd.Timestamp, interval: str, per_bucket: int) -> list[Sampled]:
-    """每個時段、每個 API（服務的 Server span）抽 per_bucket 個請求。依 trace_id 排序取前幾個：trace_id 是隨機的，等於隨機抽。"""
+def sample_entries(es: ES, index: str, start: pd.Timestamp, end: pd.Timestamp, interval: str, per_bucket: int,
+                   policy: str | None = None) -> list[Sampled]:
+    """每個時段、每個 API（服務的 Server span）抽 per_bucket 個請求。依 trace_id 排序取前幾個：trace_id 是隨機的，等於隨機抽。
+    policy：尾端取樣時只抽這條規則留下的（random：隨機那一份）。錯的、慢的全留，混進來平均會偏高；
+    沒有標記的（還沒經過尾端取樣的舊資料）照樣抽。"""
     sources = [{"svc": {"terms": {"field": "resource.attributes.service.name"}}},
                {"name": {"terms": {"field": "name"}}},
                {"ts": {"date_histogram": {"field": "@timestamp", "fixed_interval": interval}}}]
-    body = {"size": 0, "query": {"bool": {"filter": [time_range(start, end), {"term": {"kind": "Server"}}]}},
+    filters = [time_range(start, end), {"term": {"kind": "Server"}}]
+    if policy:
+        f = "scope.attributes.tailsampling.policy"
+        filters.append({"bool": {"should": [{"term": {f: policy}}, {"bool": {"must_not": {"exists": {"field": f}}}}]}})
+    body = {"size": 0, "query": {"bool": {"filter": filters}},
             "aggs": {"e": {"composite": {"size": 1000, "sources": sources},
                            "aggs": {"t": {"top_hits": {"size": per_bucket, "sort": [{"trace_id": "asc"}],
                                                        "_source": ["trace_id", "span_id"]}}}}}}
@@ -175,9 +208,10 @@ def sample_entries(es: ES, index: str, start: pd.Timestamp, end: pd.Timestamp, i
 def collect(es: ES, cfg: dict, start: pd.Timestamp, end: pd.Timestamp) -> tuple[pd.DataFrame, list[dict]]:
     """[start, end) 每個時段抽樣、算好，寫進 aiops-trace-segments（同一個時段重算會覆蓋，不會重複）。"""
     interval = cfg.get("interval", "5m")
-    samples = sample_entries(es, cfg["traces_index"], start, end, interval, cfg.get("sample_per_bucket", 20))
+    samples = sample_entries(es, cfg["traces_index"], start, end, interval, cfg.get("sample_per_bucket", 20),
+                             cfg.get("sample_policy"))
     if not samples:
-        return pd.DataFrame(columns=["ts", *KEYS, "requests", *METRICS]), []
+        return pd.DataFrame(columns=COLUMNS), []
     pad = pd.Timedelta(minutes=5)
     traces = group_traces(spans_of(es, cfg["traces_index"], sorted({s.trace_id for s in samples}), start - pad, end + pad))
     df, skews = summarize(samples, traces, cfg.get("clock_skew_ms", 500))
@@ -185,7 +219,8 @@ def collect(es: ES, cfg: dict, start: pd.Timestamp, end: pd.Timestamp) -> tuple[
     es.ensure_index(SEGMENT_INDEX, SEGMENT_MAPPING)
     docs = [(doc_id("seg", r["ts"], r["entry.service"], r["entry.name"], r["segment"]),
              {"@timestamp": r["ts"].isoformat(), "kind": "segment", "entry": {"service": r["entry.service"], "name": r["entry.name"]},
-              "segment": r["segment"], "requests": int(r["requests"]), **{m: float(r[m]) for m in METRICS}})
+              "segment": r["segment"], "requests": int(r["requests"]), **{m: float(r[m]) for m in METRICS},
+              **({"exception_type": r["exception_type"]} if isinstance(r.get("exception_type"), str) else {})})
             for r in df.to_dict("records")]
     docs += [(doc_id("skew", r["ts"], r["caller"], r["callee"]),
               {"@timestamp": r["ts"].isoformat(), "kind": "clock_skew", "caller": r["caller"], "callee": r["callee"],
@@ -207,7 +242,7 @@ def load_segments(es: ES, start: pd.Timestamp, end: pd.Timestamp) -> pd.DataFram
             s = h["_source"]
             rows.append({"ts": pd.Timestamp(s["@timestamp"]), "entry.service": s["entry"]["service"],
                          "entry.name": s["entry"]["name"], "segment": s["segment"], "requests": s["requests"],
-                         **{m: s[m] for m in METRICS}})
+                         **{m: s.get(m, 0.0) for m in METRICS}})   # 舊的統計沒有 swallowed_rate
         if len(hits) < 10000:
             break
         after = hits[-1]["sort"]

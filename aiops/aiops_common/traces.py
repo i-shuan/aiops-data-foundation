@@ -1,7 +1,8 @@
 """trace 的共用處理：從 ES 讀 span、組回一個個請求、算每一段自己花的時間。根因分析與 trace 的 baseline 都用。
 
 span 的格式（to_span 從 ES 的文件轉成這樣）：
-  {"trace_id", "span_id", "parent", "service", "name", "kind", "target", "start_ms", "dur_ms", "error", "attrs", "resource"}
+  {"trace_id", "span_id", "parent", "service", "name", "kind", "target", "start_ms", "dur_ms", "error", "exception", "attrs", "resource"}
+  exception：這一段丟過的例外種類（Collector 從例外事件抄到 exception.type 屬性），沒有就是 None
   target：往外呼叫的對象（peer.service、db.system、server.address），沒有就是 None
 """
 from __future__ import annotations
@@ -24,6 +25,7 @@ def to_span(src: dict) -> dict:
             "service": get_field(src, "resource.attributes.service.name") or "?", "name": src.get("name", "?"),
             "kind": src.get("kind", ""), "target": target, "start_ms": start_ms,
             "dur_ms": (src.get("duration") or 0) / 1e6, "error": get_field(src, "status.code") == "Error",
+            "exception": get_field(attrs, "exception.type"),
             "attrs": attrs, "resource": get_field(src, "resource.attributes") or {}}
 
 

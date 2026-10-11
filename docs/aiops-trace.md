@@ -72,7 +72,7 @@ trace 怎麼收、怎麼分部門見 [traces.md](traces.md)；baseline、根因�
 - **decision_wait 要比最長的請求長**：等 10 秒時，「下游很快、自己之後又做了 12 秒」的請求只留下 5%（決定時還看不到最上面那段）；等 30 秒就全部留下。
 - 資源：每秒 2,000 段，trace-sampler 每台約 150MB、0.02 核。
 
-建議的設定（還沒改正式環境，要先決定）：decision_wait 30 秒、`num_traces` ≥ 每台每秒 trace 數 × 30 × 2、隨機 5%、慢的門檻 1 秒；應用端的取樣改成全部送（chart 的 `otel.traces.sampleRatio: 1`，現在預設就是）。
+**已經放進正式設定**（[platform/cluster-addons/otel-collector](../platform/cluster-addons/otel-collector)，流程見 [traces.md](traces.md)）：等 30 秒、隨機 5%、慢的門檻 1 秒、trace-sampler 2 台；應用保持全部送（`otel.traces.sampleRatio: 1.0`，預設）。trace baseline 只抽隨機那份（`sample_policy: random`）。測試環境預設全部留（random 100%），其他 e2e 的 trace 數量不變；尾端取樣的實測自己把它調回 5%。
 
 ## 建議順序
 

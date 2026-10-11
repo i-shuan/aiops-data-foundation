@@ -9,6 +9,8 @@
 #        重試風暴（mes-api 呼叫 wip-worker 4 次）→ mes-api 呼叫 wip-worker 的「次數」
 #        快取穿透（mes-api 每個請求都查 DB，平常 5%）→ mes-api 查 DB 的「次數」
 #        簡訊廠商掛了（20ms → 3 秒）→ mes-api 呼叫簡訊廠商的「時間」
+#      另外兩條不用學的規則：N+1 同時要報「同一個呼叫太多次」（repeated）；
+#        吞掉的例外（wip-worker 查 DB 逾時、catch 掉回 200）→ 那一段的 swallowed（規則）和 swallowed_rate（baseline）
 #
 # 前提：run-e2e.sh 跑過（測試 ES、Collector、測試 namespace 都在）。約 40 分鐘。
 # 用法：ES_URL=http://<ip>:9200 test/local-k3s/run-trace-baseline-e2e.sh      （KEEP=1：跑完不刪模擬服務）
@@ -85,7 +87,10 @@ run_case() {
   if [[ -z "$4" ]]; then
     check "$1：沒有誤報" "${got}" ""
   else
-    if grep -qxF -- "$4" <<<"${got}"; then echo "  PASS  $1：抓到 $4"; else echo "  FAIL  $1：沒抓到 $4；抓到的是 [${got}]"; fail=1; fi
+    local want
+    while IFS= read -r want; do   # 預期的可以有好幾個，用 ; 分開
+      if grep -qxF -- "${want}" <<<"${got}"; then echo "  PASS  $1：抓到 ${want}"; else echo "  FAIL  $1：沒抓到 ${want}；抓到的是 [${got}]"; fail=1; fi
+    done < <(tr ';' '\n' <<<"$4")
   fi
   sleep 60   # 事故結束後空 1 分鐘，下一個才開始
 }
@@ -93,10 +98,11 @@ run_case() {
 echo "== 4. 正常 3 分鐘：不能有誤報"
 run_case "正常" ":" ":" ""
 echo "== 5. 事故"
-run_case "N+1"         "wip 'touch /tmp/n1'"       "wip 'rm -f /tmp/n1'"       "calls|rca-wip-worker|rca-wip-worker › SELECT LOT_HISTORY → oracle"
+run_case "N+1"         "wip 'touch /tmp/n1'"       "wip 'rm -f /tmp/n1'"       "calls|rca-wip-worker|rca-wip-worker › SELECT LOT_HISTORY → oracle;repeated|rca-wip-worker|rca-wip-worker › SELECT LOT_HISTORY → oracle"
 run_case "重試風暴"     "api 'touch /tmp/retry'"    "api 'rm -f /tmp/retry'"    "calls|rca-mes-api|rca-mes-api › GET → rca-wip-worker"
 run_case "快取穿透"     "api 'touch /tmp/cold'"     "api 'rm -f /tmp/cold'"     "calls|rca-mes-api|rca-mes-api › SELECT LOT → oracle"
 run_case "簡訊廠商掛了" "api 'touch /tmp/sms_hang'" "api 'rm -f /tmp/sms_hang'" "time_ms|rca-mes-api|rca-mes-api › POST → sms-gateway"
+run_case "吞掉的例外"   "wip 'touch /tmp/swallow'"  "wip 'rm -f /tmp/swallow'"  "swallowed|rca-wip-worker|rca-wip-worker › SELECT LOT_HISTORY → oracle;swallowed_rate|rca-wip-worker|rca-wip-worker › SELECT LOT_HISTORY → oracle"
 
 if [[ -z "${KEEP:-}" ]]; then
   kubectl delete -f "${here}/rca-apps.yaml" --wait=false >/dev/null

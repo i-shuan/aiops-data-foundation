@@ -1,13 +1,17 @@
-# 第二層：trace-sampler（尾端取樣）。node Collector 已經補好 K8s、部門欄位，依 trace_id 把同一個 trace 的每一段
-# 都送到同一台（loadbalancing exporter），這裡等整個 trace 到齊再決定留不留，留下的依 group 送進 ES。
+# 第二層 trace-sampler（尾端取樣）的設定，跑在 StatefulSet trace-sampler（trace-sampler.yaml）。
+# node Collector 已經補好 K8s、部門欄位，依 trace_id 把同一個 trace 的每一段都送到同一台（node.yaml 的
+# loadbalancing/traces），這裡等整個 trace 到齊再決定留不留，留下的依 group 送進 ES。為什麼、實測見 docs/aiops-trace.md。
 #
-# 決定的順序（sample_on_first_match：第一個符合的就決定，tailsampling.policy 記的是它）：
-#   1. random    ：先隨機抽 RANDOM_PCT%，不管快慢對錯。trace baseline 只用這一份統計，才不會被「錯的、慢的全留」拉偏
+# 決定的順序（sample_on_first_match：第一個符合的就決定，ES 的 scope.attributes.tailsampling.policy 記的是它）：
+#   1. random    ：先隨機抽 RANDOM_PCT%，不管快慢對錯。trace baseline 只用這一份，統計才不會被「錯的、慢的全留」拉偏
 #   2. error     ：有任何一段 status = ERROR
 #   3. http-5xx  ：有任何一段 HTTP 狀態碼 5xx（status 沒設成 ERROR 的也抓）
 #   4. exception ：有任何一段帶例外事件（吞掉例外、回 200 的也抓）
 #   5. slow      ：整個 trace 超過 SLOW_MS
 #   其他的都不留。
+# 參數（trace-sampler.yaml 的環境變數）：
+#   DECISION_WAIT：第一段到了之後等多久才決定。要比最長的請求長（實測：等 10 秒時，比 10 秒長、底下的段先到的請求會漏）
+#   NUM_TRACES   ：每台記憶體裡最多放幾個還沒決定的 trace，滿了最舊的直接丟。至少「每台每秒 trace 數 × DECISION_WAIT × 2」
 extensions:
   health_check:
     endpoint: 0.0.0.0:13133
@@ -33,8 +37,8 @@ processors:
     limit_percentage: 80
     spike_limit_percentage: 20
   tail_sampling:
-    decision_wait: ${env:DECISION_WAIT}          # 第一段到了之後等多久才決定
-    num_traces: ${env:NUM_TRACES}                # 記憶體裡最多放幾個還沒決定的 trace；滿了最舊的直接丟（too early）
+    decision_wait: ${env:DECISION_WAIT}
+    num_traces: ${env:NUM_TRACES}
     expected_new_traces_per_sec: ${env:EXPECTED_TPS}
     sample_on_first_match: true
     decision_cache:                              # 決定過的 trace_id 記住，晚到的段照同一個決定（留或丟）

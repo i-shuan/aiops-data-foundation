@@ -223,6 +223,29 @@ def cmd_trace_detect(cfg: dict, args) -> int:
             print(f"  沒見過的呼叫：{d['keys']['entry.service']} {d['keys']['entry.name']} → {d['keys']['segment']}"
                   f"（每個請求 {d['value']:.1f} 次）")
     total += len(docs)
+    # 不用學的規則：N+1（同一個呼叫太多次）、吞掉的例外
+    rules = cfg.get("rules", {})
+    found = []
+    if rules.get("repeated_calls"):
+        found += [("trace.segment.repeated", r, r["calls"], rules["repeated_calls"],
+                   f"同一個呼叫太多次（可能是 N+1）：{r['entry.service']} {r['entry.name']} → {r['segment']}"
+                   f"（每個請求 {r['calls']:.0f} 次，門檻 {rules['repeated_calls']}）")
+                  for r in T.repeated_calls(cur, rules["repeated_calls"]).to_dict("records")]
+    if rules.get("swallowed_rate"):
+        found += [("trace.segment.swallowed", r, r["swallowed_rate"], rules["swallowed_rate"],
+                   f"吞掉的例外：{r['entry.service']} {r['entry.name']} → {r['segment']}"
+                   f"（{r['swallowed_rate']:.0%} 的請求丟了 {r.get('exception_type') or '例外'}，但沒標成錯誤）")
+                  for r in T.swallowed(cur, rules["swallowed_rate"]).to_dict("records")]
+    es.req("PUT", f"/{ANOMALY_INDEX}/_mapping", {"properties": RULE_FIELDS})
+    docs = [(doc_id(series, {k: r[k] for k in T.KEYS}, r["ts"]), {
+        "@timestamp": r["ts"].isoformat(), "series": series, "rule": series, "keys": {k: r[k] for k in T.KEYS},
+        "value": v, "median": None, "expected_low": None, "expected_high": th, "z": None, "level": "rule",
+        "direction": "up", "severity": "warning", "message": msg, "detected_at": now}) for series, r, v, th, msg in found]
+    if docs:
+        es.bulk_index(ANOMALY_INDEX, docs)
+        for _, d in docs[:10]:
+            print(f"  [warning] {d['message']}")
+    total += len(docs)
     # 時鐘不同步：規則，超過容許值就記
     docs = [(doc_id("trace.clock_skew_ms", r["caller"], r["callee"], r["ts"]), {
         "@timestamp": r["ts"].isoformat(), "series": "trace.clock_skew_ms", "keys": {"caller": r["caller"], "callee": r["callee"]},

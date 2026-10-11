@@ -127,6 +127,15 @@ processors:
       - delete_key(resource.attributes, "group")
       - delete_matching_keys(span.attributes, "^data_stream\\.")
 
+  # 例外事件抄到 span 的屬性上：ES 的 OTLP 入口不存 span 的事件（實測），例外的種類、訊息會不見。
+  # 抄上來之後，「吞掉的例外」（有例外事件、但 status 不是 ERROR、回 200）在 ES 裡才查得到（docs/aiops-trace.md）。
+  # 堆疊（exception.stacktrace）不抄：很長，要看細節用 trace_id 找 log。
+  transform/exceptions:
+    error_mode: ignore
+    trace_statements:
+      - set(span.attributes["exception.type"], spanevent.attributes["exception.type"]) where spanevent.name == "exception"
+      - set(span.attributes["exception.message"], spanevent.attributes["exception.message"]) where spanevent.name == "exception"
+
   # 應用用 OTLP 推來的 metrics（.NET 自動埋點：它的 Prometheus 端點只聽 localhost，Collector 抓不到）。
   # 跟 trace 一樣擋冒充：拿掉應用自填的 K8s、部門欄位，k8s_attributes 一定依連線的來源 IP 判斷是哪個 Pod
   transform/metrics-otlp-pre:
@@ -143,15 +152,25 @@ processors:
     filter:
       node_from_env_var: K8S_NODE_NAME   # 只看自己節點上的 Pod，省記憶體
 
+exporters:
+  # trace 不直接寫 ES：依 trace_id 送到第二層 trace-sampler（尾端取樣，sampler.yaml）。同一個 trace 的每一段
+  # （不同服務、不同節點送來的）都會到同一台，它等整個 trace 到齊再決定留不留，再依 group 寫進 ES。
+  loadbalancing/traces:
+    routing_key: traceID
+    protocol:
+      otlp:
+        tls: {insecure: true}
+        timeout: 10s
+    resolver:
+      dns:
+        hostname: trace-sampler-headless.otel-collector.svc.cluster.local   # headless Service：解析出每一台的 IP
+        port: "4317"
+        interval: 5s
+    # trace-sampler 重開、擴縮時，送不出去的先排隊、換到新的那台
+    sending_queue: {enabled: true, queue_size: 10000}
+    retry_on_failure: {enabled: true, max_elapsed_time: 120s}
+
 connectors:
-  # trace 依 group 交給各自的出口
-  routing/traces:
-    default_pipelines: [traces/unassigned]
-    table:
-      - condition: resource.attributes["group"] == "it"
-        pipelines: [traces/it]
-      - condition: resource.attributes["group"] == "imc"
-        pipelines: [traces/imc]
   # log 依 group 交給各自的出口，每筆只會符合一條
   routing/logs:
     default_pipelines: [logs/unassigned]
@@ -190,14 +209,5 @@ service:
       exporters: [otlp_http/unassigned]
     traces/in:
       receivers: [otlp]
-      processors: [memory_limiter, transform/traces-pre, k8s_attributes, transform/group, transform/drop-log-attrs, batch]
-      exporters: [routing/traces]
-    traces/it:
-      receivers: [routing/traces]
-      exporters: [otlp_http/it]
-    traces/imc:
-      receivers: [routing/traces]
-      exporters: [otlp_http/imc]
-    traces/unassigned:
-      receivers: [routing/traces]
-      exporters: [otlp_http/unassigned]
+      processors: [memory_limiter, transform/traces-pre, transform/exceptions, k8s_attributes, transform/group, transform/drop-log-attrs, batch]
+      exporters: [loadbalancing/traces]

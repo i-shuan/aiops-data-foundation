@@ -13,12 +13,14 @@ resources:
   - node-collector.yaml
   - service.yaml
   - cluster-collector.yaml
+  - trace-sampler.yaml
 configMapGenerator:
   - name: otel-collector-config
     files:
       - common.yaml
       - node.yaml
       - cluster.yaml
+      - sampler.yaml
   - name: otel-collector-env
     literals:
       - CLUSTER_NAME=change-me

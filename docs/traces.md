@@ -1,6 +1,6 @@
 # Trace 進 Elasticsearch
 
-一句話：**應用把 trace 送給同一個節點上的 OpenTelemetry Collector，Collector 依「送來的連線是哪個 Pod」讀 namespace 的 dept 分 group，各 group 用自己的 key 寫進 ES。**
+一句話：**應用把 trace 全部送給同一個節點上的 OpenTelemetry Collector，Collector 依「送來的連線是哪個 Pod」讀 namespace 的 dept 分 group；再依 trace_id 送到第二層 trace-sampler，等整個 trace 到齊後決定留不留（錯的、慢的、吞掉例外的全留，正常的隨機留 5%），留下的各 group 用自己的 key 寫進 ES。**
 
 收 log、metrics 的也是同一個 Collector（[elasticsearch.md](elasticsearch.md)、[metrics.md](metrics.md)），分部門的規則和 key 共用。
 
@@ -13,6 +13,11 @@
    ↓ 1. 擋冒充：應用自帶的 k8s.*、container.*、dept、group、data_stream.* 一律拿掉
    ↓ 2. 看連線的來源 IP 是哪個 Pod → 補上 namespace、Pod、Deployment、namespace 的 dept、服務版本
    ↓ 3. dept → group（跟 log、metrics 同一份規則）
+   ↓ 4. 例外事件的種類、訊息抄到 span 的屬性（exception.type、exception.message）：ES 不存 span 的事件
+   ↓ 5. 依 trace_id 送到第二層（loadbalancing exporter）：同一個 trace 的每一段一定到同一台
+trace-sampler × 2（StatefulSet，尾端取樣）
+   ↓ 等 30 秒（整個 trace 到齊）再決定：隨機 5%、錯誤、5xx、例外、超過 1 秒 → 留；其他丟
+   ↓ 每一段記下是哪條規則留的（scope.attributes.tailsampling.policy）
    ├─ group it         → key: IT_ES_API_KEY         → traces-generic.otel-it
    ├─ group imc        → key: IMC_ES_API_KEY        → traces-generic.otel-imc
    └─ group unassigned → key: UNASSIGNED_ES_API_KEY → traces-generic.otel-unassigned
@@ -24,6 +29,8 @@
 
 **為什麼要先拿掉應用自帶的欄位：** trace 是應用自己送的，資源欄位應用可以亂填（例如自稱是別的 namespace、別的部門）。拿掉之後，歸屬只看連線來源，應用無法冒充。
 
+**為什麼要兩層、等多久、留哪些：** 見 [aiops-trace.md「取樣」](aiops-trace.md#橫跨所有場景的前提取樣)。k3s 實測每秒 500 個請求：有問題的 100% 留下而且完整、總量剩約 15%、trace-sampler 每台約 150MB（[test/local-k3s/tail-sampling](../test/local-k3s/tail-sampling/README.md)）。設定在 [sampler.yaml](../platform/cluster-addons/otel-collector/sampler.yaml)（規則）、[trace-sampler.yaml](../platform/cluster-addons/otel-collector/trace-sampler.yaml)（台數、等多久、隨機幾 %）。
+
 ## 應用要做什麼
 
 用 app-common chart 而且開了 Java agent（`otel.javaAgent.enabled: true`）的服務不用做任何事，chart 會設好：
@@ -33,7 +40,7 @@
 | `OTEL_TRACES_EXPORTER` | `otlp` |
 | `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | `http://otel-node-collector.otel-collector.svc:4318/v1/traces` |
 | `OTEL_TRACES_SAMPLER` | `parentbased_traceidratio`：上游決定要記的跟著記，自己開始的請求依比例 |
-| `OTEL_TRACES_SAMPLER_ARG` | `otel.traces.sampleRatio`，預設 `1.0`（全部記）。請求量大的服務調低，例如 `0.1` |
+| `OTEL_TRACES_SAMPLER_ARG` | `otel.traces.sampleRatio`，預設 `1.0`（全部送）。**保持 1.0**：要不要留由 trace-sampler 在請求結束後決定（尾端取樣）；在應用裡調低的話，出事的請求在一開始就被丟了 |
 
 沒用 chart 的服務，自己設上面這幾個環境變數。不是 Java 的服務，用該語言的 OpenTelemetry SDK，送到同一個位址。
 

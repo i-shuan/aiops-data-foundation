@@ -13,9 +13,9 @@ otel:
   javaAgent:
     enabled: true
     image: nexus.aillm.spil.com.tw/docker/open-telemetry/autoinstrumentation-java:2.10.0
-  # 請求量大的服務才需要調（0～1，預設 1.0 全部記）
+  # 不用調：預設全部送，平台的 trace-sampler 在請求結束後決定留不留（錯的、慢的全留）
   # traces:
-  #   sampleRatio: 0.1
+  #   sampleRatio: 1.0
 ```
 
 打開之後，下面這些**自動**記錄，也會自動把 `trace_id` 傳給下游服務、寫進 log（搭配 [logback-spring.xml](java/logback-spring.xml)）：
@@ -177,15 +177,9 @@ new Thread(Context.current().wrap(() -> process(lot))).start();
 
 ## 4. 取樣
 
-每個請求都記的話，trace 的量通常比 log 還大。
+**應用不用取樣，保持 `otel.traces.sampleRatio: 1.0`（預設）全部送。** 平台的 trace-sampler 等整個請求結束後才決定留不留：錯誤、5xx、丟過例外、超過 1 秒的全留，正常的隨機留 5%（[docs/traces.md](../../docs/traces.md)、[docs/aiops-trace.md](../../docs/aiops-trace.md#橫跨所有場景的前提取樣)）。
 
-| 服務 | 建議 `otel.traces.sampleRatio` |
-|---|---|
-| 一般服務（每秒幾十個請求以下） | `1.0`（預設） |
-| 量大的 API（每秒上百個請求以上） | `0.1`～`0.2` |
-| 健康檢查、監控用的端點 | 不用特別設，量小 |
-
-取樣是看整個請求：上游決定要記的，下游一定跟著記，所以不會只記到半條。
+在應用裡調低（例如 `0.1`）的話，請求一開始就決定丟掉，那時還不知道它會不會出事：**出事的請求也只剩一成**，根因分析就是碰運氣。只有量大到 node Collector 收不動時才考慮，先跟平台確認。
 
 ## 5. 不是 Java 的服務
 

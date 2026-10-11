@@ -12,7 +12,8 @@
 # 製造事故（run-rca-e2e.sh 做）：在 rca-wip-worker 的 Pod 裡
 #   echo 1.5 > /tmp/db_delay   查 Oracle 變 1.5 秒
 #   touch /tmp/slow            印出 error log「Connection pool timeout … 10.0.1.5:5432 …」，約 1/4 的請求失敗
-#   touch /tmp/n1              N+1：每個請求查 Oracle 100 次（run-trace-baseline-e2e.sh 用，下面三個也是）
+#   touch /tmp/n1              N+1：每個請求查 Oracle 100 次（run-trace-baseline-e2e.sh 用，下面幾個也是）
+#   touch /tmp/swallow         吞掉的例外：查 Oracle 逾時，程式 catch 掉、回空結果（還是 200）
 # 在 rca-mes-api 的 Pod 裡：
 #   touch /tmp/retry           重試風暴：每個請求呼叫 wip-worker 4 次
 #   touch /tmp/cold            快取穿透：每個請求都查 Oracle「SELECT LOT」（平常 5%）
@@ -89,7 +90,10 @@ data:
       log INFO "lot ${lot} found in LOT_HISTORY" "$tid" "$sid" > /proc/1/fd/1
     fi
     t1=$(now)
-    dbspans="$(span "$tid" "$db" "$sid" "SELECT LOT_HISTORY" 3 "$d0" "$d1" "$(attr db.system oracle),$(attr server.address 10.0.1.5)" "$fail")"
+    # /tmp/swallow：查 DB 逾時，程式 catch 掉例外、回空結果（還是 200）：span 帶例外事件，但 status 沒設成錯誤
+    ev=""
+    [ -f /tmp/swallow ] && ev="{\"timeUnixNano\":\"${d1}000000\",\"name\":\"exception\",\"attributes\":[$(attr exception.type System.TimeoutException),$(attr exception.message 'query timeout, returning empty result')]}"
+    dbspans="$(span "$tid" "$db" "$sid" "SELECT LOT_HISTORY" 3 "$d0" "$d1" "$(attr db.system oracle),$(attr server.address 10.0.1.5)" "$fail" "$ev")"
     # /tmp/n1：換版後把查詢寫進迴圈，每個請求查 100 次、每次 2ms（時間是模擬的）
     if [ -f /tmp/n1 ]; then
       j=0; dbspans=""

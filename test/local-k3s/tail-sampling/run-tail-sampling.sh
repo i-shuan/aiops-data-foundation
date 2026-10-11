@@ -6,7 +6,7 @@
 # 前提：run-e2e.sh、run-metrics-e2e.sh 跑過（ES、Collector、es-writer-keys）。每輪約 7 分鐘。
 # 用法：ES_URL=http://<ip>:9200 test/local-k3s/tail-sampling/run-tail-sampling.sh
 #       ROUNDS="dw5:5s:200 dw10:10s:200"（名字:decision_wait:每秒請求數）、DURATION=300
-#       跑完會把 Collector 換回原本的（不經 trace-sampler）；KEEP=1 不換回
+#       跑完把 trace-sampler 換回測試環境的預設（全部留）；KEEP=1 不換回
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 : "${ES_URL:?請設定 ES_URL}"
@@ -25,8 +25,8 @@ metric() {  # 兩台 trace-sampler 某個內部計數的加總
   echo "${sum}"
 }
 
-echo "== 換成兩層：node Collector → trace-sampler × 2"
-kubectl apply -k "${here}" >/dev/null
+echo "== Collector（正式設定就是兩層：node Collector → trace-sampler × 2）"
+kubectl apply -k "${here}/../otel-collector" >/dev/null
 kubectl -n otel-collector rollout status daemonset/otel-node-collector --timeout=180s >/dev/null
 kubectl -n "${ns}" create configmap ts-loadgen --from-file="${here}/loadgen.py" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 
@@ -35,7 +35,7 @@ for round in ${ROUNDS}; do
   run="${name}-$(date +%H%M)"
   echo
   echo "== ${name}：decision_wait ${dw}、每秒 ${rate} 個請求、${DURATION} 秒（${run}）"
-  kubectl -n otel-collector set env statefulset/trace-sampler DECISION_WAIT="${dw}" EXPECTED_TPS="${rate}" >/dev/null
+  kubectl -n otel-collector set env statefulset/trace-sampler DECISION_WAIT="${dw}" EXPECTED_TPS="${rate}" RANDOM_PCT=5 >/dev/null
   kubectl -n otel-collector rollout restart statefulset/trace-sampler >/dev/null   # 內部計數歸零
   kubectl -n otel-collector rollout status statefulset/trace-sampler --timeout=180s >/dev/null
   sleep 20   # node Collector 的 DNS 解析到新的兩台
@@ -79,10 +79,8 @@ done
 kubectl -n "${ns}" delete job ts-load --ignore-not-found >/dev/null
 if [[ -z "${KEEP:-}" ]]; then
   echo
-  echo "== 換回原本的 Collector（不經 trace-sampler）"
-  kubectl -n otel-collector delete statefulset trace-sampler --ignore-not-found >/dev/null
-  kubectl -n otel-collector delete service trace-sampler-headless --ignore-not-found >/dev/null
+  echo "== trace-sampler 換回測試環境的預設（全部留、等 5 秒）"
   kubectl apply -k "${here}/../otel-collector" >/dev/null
-  kubectl -n otel-collector rollout restart daemonset/otel-node-collector >/dev/null
-  kubectl -n otel-collector rollout status daemonset/otel-node-collector --timeout=180s >/dev/null
+  kubectl -n otel-collector rollout restart statefulset/trace-sampler >/dev/null
+  kubectl -n otel-collector rollout status statefulset/trace-sampler --timeout=180s >/dev/null
 fi
