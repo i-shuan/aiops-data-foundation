@@ -3,13 +3,10 @@
 //   consumer：消費者（group order-push），讀 orders、寫進 PostgreSQL（Npgsql）
 // 程式裡沒有任何 OpenTelemetry：trace 全靠自動埋點（跟舊專案一樣），看 Kafka 前後能不能串成同一個 trace。
 // 實測：自動埋點對 Kafka 消費者只開「receive」span（新的 trace，只用 link 指回生產者），處理訊息時查的 DB 自成一個 trace，
-// 跟訊息串不起來。PROPAGATE=1 時多做一件事（要改程式，約 5 行）：每筆訊息開一個「orders process」span，
-// 上一層接生產者送來的 traceparent，處理時的 DB 查詢就會掛在它底下（docs/aiops-trace.md）。
+// 跟訊息串不起來（docs/aiops-trace.md 場景四）。
 // 消費者的開關（Pod 裡 /ctl 底下的檔案）：
 //   /ctl/slow   每筆訊息多處理 N 毫秒（N 寫在檔案裡，預設 200）：消費者跟不上，訊息在 Kafka 裡排隊
 //   /ctl/fail   寫 DB 失敗（寫到不存在的表），程式 catch 掉、記一行 error log 繼續下一筆
-using System.Diagnostics;
-using System.Text;
 using Confluent.Kafka;
 using Npgsql;
 
@@ -47,13 +44,11 @@ for (var i = 0; ; i++)
     catch when (i < 30) { await Task.Delay(1000); }   // 等 PostgreSQL 起來
 }
 
-var propagate = Environment.GetEnvironmentVariable("PROPAGATE") == "1";
-var source = new ActivitySource("order-consumer");   // 要在 OTEL_DOTNET_AUTO_TRACES_ADDITIONAL_SOURCES 登記，自動埋點才會送
 var worker = new Thread(() =>
 {
     var cfg = new ConsumerConfig
     {
-        BootstrapServers = bootstrap, GroupId = Environment.GetEnvironmentVariable("GROUP") ?? "order-push",
+        BootstrapServers = bootstrap, GroupId = "order-push",
         AutoOffsetReset = AutoOffsetReset.Earliest, EnableAutoCommit = true,
     };
     using var consumer = new ConsumerBuilder<string, string>(cfg).Build();
@@ -62,15 +57,6 @@ var worker = new Thread(() =>
     {
         var msg = consumer.Consume(TimeSpan.FromSeconds(1));
         if (msg == null) continue;
-        // ── PROPAGATE=1 才有的 5 行：接上生產者的 trace ──
-        Activity? act = null;
-        if (propagate)
-        {
-            var tp = msg.Message.Headers?.FirstOrDefault(h => h.Key == "traceparent");
-            ActivityContext.TryParse(tp == null ? null : Encoding.UTF8.GetString(tp.GetValueBytes()), null, out var parent);
-            act = source.StartActivity("orders process", ActivityKind.Consumer, parent);
-            act?.SetTag("messaging.system", "kafka")?.SetTag("messaging.destination.name", "orders")?.SetTag("messaging.operation", "process");
-        }
         try
         {
             if (File.Exists("/ctl/slow"))
@@ -85,10 +71,8 @@ var worker = new Thread(() =>
         }
         catch (Exception e)
         {
-            act?.SetStatus(ActivityStatusCode.Error, e.Message);
             log.LogError(e, "order {OrderId} failed", msg.Message.Key);
         }
-        finally { act?.Dispose(); }
     }
 }) { IsBackground = true, Name = "consumer" };
 worker.Start();

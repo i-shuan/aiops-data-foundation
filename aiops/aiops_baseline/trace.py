@@ -208,13 +208,18 @@ def swallowed(cur: pd.DataFrame, min_rate: float) -> pd.DataFrame:
 
 def sample_entries(es: ES, index: str, start: pd.Timestamp, end: pd.Timestamp, interval: str, per_bucket: int,
                    policy: str | None = None) -> list[Sampled]:
-    """每個時段、每個 API（服務的 Server span、訊息消費者的 Consumer span）抽 per_bucket 個請求。依 trace_id 排序取前幾個：trace_id 是隨機的，等於隨機抽。
+    """每個時段、每個入口（服務的 Server span、訊息消費者的 Consumer span、沒有上一層的 span）抽 per_bucket 個請求。依 trace_id 排序取前幾個：trace_id 是隨機的，等於隨機抽。
     policy：尾端取樣時只抽這條規則留下的（random：隨機那一份）。錯的、慢的全留，混進來平均會偏高；
     沒有標記的（還沒經過尾端取樣的舊資料）照樣抽。"""
     sources = [{"svc": {"terms": {"field": "resource.attributes.service.name"}}},
                {"name": {"terms": {"field": "name"}}},
                {"ts": {"date_histogram": {"field": "@timestamp", "fixed_interval": interval}}}]
-    filters = [time_range(start, end), {"terms": {"kind": ["Server", "Consumer"]}}]   # HTTP 請求、訊息消費者
+    # 入口：HTTP 請求（Server）、訊息消費者（Consumer），以及「沒有上一層的 span」：
+    # .NET 自動埋點的 Kafka 消費者處理訊息時查 DB，那個 DB 的 span 沒有上一層、自成一個 trace（串不回訊息），
+    # 也當成入口算，至少看得到「這個服務查 DB 變慢、出錯」（docs/aiops-trace.md 場景四）
+    entry = {"bool": {"should": [{"terms": {"kind": ["Server", "Consumer"]}},
+                                 {"bool": {"must_not": {"exists": {"field": "parent_span_id"}}}}], "minimum_should_match": 1}}
+    filters = [time_range(start, end), entry]
     if policy:
         f = "scope.attributes.tailsampling.policy"
         filters.append({"bool": {"should": [{"term": {f: policy}}, {"bool": {"must_not": {"exists": {"field": f}}}}]}})
