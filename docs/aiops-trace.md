@@ -1,6 +1,6 @@
 # trace 能做什麼：六個場景對照現況
 
-一句話：**六個場景裡，慢在哪、程式壞味道、錯誤源頭這三個已經做了而且實測過（含不用學的 N+1、吞掉例外規則）；取樣改成尾端取樣，出事的請求全部留下。非同步（Kafka）、架構治理、工廠（SECS、MES→MCS→AMHS）還沒做。**
+一句話：**六個場景裡，慢在哪、程式壞味道、錯誤源頭這三個已經做了而且實測過（含不用學的 N+1、吞掉例外規則）；取樣改成尾端取樣，出事的請求全部留下。非同步（Kafka）不改程式做到一半（排隊時間、消費者變慢出錯抓得到，但串不回是哪一筆訊息）；架構治理、工廠（SECS、MES→MCS→AMHS）還沒做。**
 
 trace 怎麼收、怎麼分部門見 [traces.md](traces.md)；baseline、根因分析的實作見 [aiops/baseline](../aiops/baseline/README.md#trace-每一段的-baseline)、[aiops/rca](../aiops/rca/README.md)。
 
@@ -11,7 +11,7 @@ trace 怎麼收、怎麼分部門見 [traces.md](traces.md)；baseline、根因�
 | **一、慢在哪** | 慢在程式本身、下游還是 DB？ | ✅ 根因分析：每一段只算自己的時間（重疊的子呼叫只算一次），出事時跟平常比，多最多的排第一；trace baseline 每一段的 `time_ms` | 循序 vs 並行、建連線耗時（見下） |
 | **二、程式壞味道** | N+1、重試太多、快取穿透？ | ✅ trace baseline 每一段的 `calls`（每個請求呼叫幾次），k3s 實測 N+1、重試風暴、快取穿透都抓到；✅ 不用學的規則 `repeated`（同一個呼叫 ≥ 20 次），一開始就有的 N+1 也抓得到 | — |
 | **三、錯誤源頭** | 鏈路裡哪一台先爆？ | ✅ 根因分析：標了錯誤、底下子呼叫都沒錯的那段才是源頭；trace baseline 每一段的 `error_rate`；✅ 吞掉的例外：規則 `swallowed` ＋ baseline `swallowed_rate` | — |
-| **四、非同步、訊息佇列** | 訊息在 Kafka 排了多久？ | ❌ 沒測過 | 生產端、消費端能不能串起來；排隊時間；消費者的 baseline |
+| **四、非同步、訊息佇列** | 訊息在 Kafka 排了多久？ | ⚠️ 真的 Kafka＋.NET 實測（不改程式）：排隊時間、消費者寫 DB 的變慢／出錯、lag 都抓得到 | 不改程式時消費端串不回訊息；正式環境的排隊時間大多算不出來（見下） |
 | **五、架構治理** | 實際的相依長怎樣？有沒有循環呼叫？ | ⚠️ 根因分析會畫呼叫關係圖；`trace.segment.new` 報「這支 API 出現沒看過的呼叫」 | 循環呼叫、越權直連 DB、舊 API 還有誰在叫 |
 | **六、工廠** | 機台交握卡在哪一道指令？工單卡在 MES、MCS、AMHS 哪一段？ | ❌ | EAP 要手動埋點；跨異質系統怎麼串（見下） |
 
@@ -33,11 +33,38 @@ trace 怎麼收、怎麼分部門見 [traces.md](traces.md)；baseline、根因�
 
 ### 四、非同步、訊息佇列
 
-都還沒做，要先用真的 Kafka 測：
+用真的 Kafka（單台，KRaft）＋ 兩個 .NET 8 服務實測，**只掛自動埋點、不改程式**（[test/local-k3s/kafka](../test/local-k3s/kafka)）：order-producer 收到 HTTP 請求就把訂單送進 Kafka，order-consumer 讀出來寫進 PostgreSQL。
 
-1. **能不能串起來**：Java agent 會自動把 `traceparent` 寫進 Kafka header、消費端讀出來接下去；.NET 自動埋點對 Confluent.Kafka 也有支援。要實測兩邊（含 Java → .NET）。
-2. **排隊時間**：消費端開始處理的時間 − 生產端送出的時間 = 在佇列裡等多久。分得出「消費者不夠力（排很久）」還是「處理本身慢」。metrics 已經有 Kafka 落後筆數的規則（[aiops-metrics-cases.md](aiops-metrics-cases.md)），trace 補的是「每一筆等多久」。
-3. **消費者的 baseline**：現在 trace baseline 以「服務收到的 HTTP 請求」為單位。消費者沒有 HTTP 入口，要改成以「消費一筆訊息」為單位。批次工作（排程）也一樣。
+**.NET 自動埋點（不改程式）串得起來的程度：**
+
+| | 結果 |
+|---|---|
+| 生產端：HTTP 請求 → `orders publish` | ✅ 同一個 trace |
+| 消費端拿到訊息（`orders receive`） | ⚠️ **另起一個新的 trace**，只用 **link** 指回生產端的 publish |
+| 消費端處理時寫 DB | ❌ **每一筆都自成一個 trace**（實測 944／944 筆沒有上一層），對不回是哪一筆訊息 |
+| `receive` 的時間 | 是「`Consume()` 等下一筆訊息等了多久」，不是處理時間 |
+| kafka_exporter 的名稱 | ✅ `kafka_consumergroup_lag_sum{consumergroup, topic}`，跟 [rules.yaml](../aiops/baseline/rules.yaml) 的 Kafka 規則一樣 |
+
+**不改程式時平台怎麼補：**（[aiops/baseline](../aiops/baseline/README.md#trace-每一段的-baseline)）
+
+- **排隊時間**：消費端拿到訊息的時間（receive 結束）− 生產端送出的時間（publish 結束），生產端用 link 找回來。trace baseline 多一段「`order-consumer › 排隊（orders）← order-producer`」，平常 0.2ms。
+- **處理時的 DB**：沒有上一層的 span 也當成入口，所以「`order-consumer › postgres → postgresql`」自己有 baseline（平常 1.4ms）、錯誤率。看得出「這個消費者寫 DB 變慢、出錯」，只是對不到是哪一筆訊息。
+- **積壓**：kafka_exporter 的消費落後（lag）＋ Kafka 規則。
+
+**實測（`run-kafka-e2e.sh`）：**
+
+| 案例 | 抓到的 |
+|---|---|
+| 正常 3 分鐘 | 沒有誤報 ✅ |
+| 消費者變慢（每筆多 150ms，跟不上每秒 10 筆） | 「排隊」那段時間 ✅；lag 10 → 399 筆 ✅ |
+| 寫 DB 失敗（程式 catch 掉、記 error log） | 消費者的 `postgres` 那段錯誤率 ✅ |
+
+**限制：**
+
+1. **正式環境的排隊時間大多算不出來。** 不改程式時生產端、消費端是兩個 trace，尾端取樣各自決定留不留；正常的只留 5%，兩邊剛好都留下的很少，找不到生產端就算不出來（測試環境全部留，所以測得到）。積壓要靠 lag。
+2. **消費端出問題時對不到是哪一筆訊息。** 要查哪一筆，用 log（消費者的 log 有訂單編號、時間）。
+3. **讓整條串起來要改程式**：消費端在「拿到訊息之後」用 header 裡的 `traceparent` 開一個處理的 span（約 5 行，.NET 內建的 `System.Diagnostics`，不用加套件），處理時的 DB、呼叫就會接在生產端的 trace 底下，排隊時間也一定算得出來。實測過可以，但**目前決定先不改程式**。
+4. 沒有測：Java agent（它的消費端行為不同）、Java ↔ .NET 互傳、RabbitMQ 等其他佇列、批次工作（排程）。
 
 ### 五、架構治理
 
@@ -78,6 +105,6 @@ trace 怎麼收、怎麼分部門見 [traces.md](traces.md)；baseline、根因�
 
 1. ✅ **取樣**：尾端取樣已放進正式設定。
 2. ✅ **場景二、三的補強**：N+1、吞掉的例外的規則。
-3. **場景四**：用真的 Kafka 測串接、排隊時間，再做消費者的 baseline。
+3. ⚠️ **場景四**：不改程式的版本做完（見上）；要整條串起來得改消費端程式，先不做。
 4. **場景五**：循環呼叫、越權直連 DB（規則要人定）。
 5. **場景六**：跟 EAP 團隊談手動埋點、跨系統用哪個業務 ID 串。

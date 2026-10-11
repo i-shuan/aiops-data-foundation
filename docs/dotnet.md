@@ -140,6 +140,16 @@ HTTP、連線池兩版同名；**runtime 的名稱 .NET 8 跟 .NET 9 完全不�
 
 **11. 測試環境才有的：** NuGet 經過會重簽憑證的 proxy，編譯時要信任它的 CA（[dotnet-app.yaml](../test/local-k3s/dotnet-app.yaml)）；正式環境 image 先建好，不在 Pod 裡編譯。
 
+## Kafka（Confluent.Kafka）
+
+自動埋點支援 Confluent.Kafka 1.4～2.x，不改程式時（k3s 實測，[docs/aiops-trace.md 場景四](aiops-trace.md#四非同步訊息佇列)）：
+
+- **生產端**：HTTP 請求 → `orders publish` 在同一個 trace。
+- **消費端**：`orders receive` 是**新的 trace**，只用 link 指回生產端；它的時間是 `Consume()` 等下一筆訊息等了多久，不是處理時間。
+- **消費端處理時查的 DB、呼叫的 API 每一筆都自成一個 trace**，對不回是哪一筆訊息。
+
+平台的做法：排隊時間從 link 找生產端算；沒有上一層的 DB span 當成自己的入口學 baseline（看得到消費者寫 DB 變慢、出錯）；積壓看 kafka_exporter 的 lag。要整條串起來得在消費端改程式（約 5 行，用 header 的 `traceparent` 開處理的 span），目前不做。
+
 ## 實測結果
 
 `run-dotnet-e2e.sh`，2026-10-10，k3s 單節點，全部通過。應用：ASP.NET Core 8（**程式沒有任何 OpenTelemetry、log 設定**，1 核、記憶體上限 512Mi）＋ PostgreSQL，Npgsql 連線池上限 5，每秒約 15 個請求。之前 .NET 9 跑的那輪也全部通過（洩漏跑四次，兩種結局各兩次，見坑 7）。

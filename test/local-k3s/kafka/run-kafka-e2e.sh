@@ -116,7 +116,7 @@ lag0=$(lag order-push)
 run_case "消費者變慢" "ctl order-consumer 'echo 150 > /ctl/slow'" \
   "lag1=\$(lag order-push); ctl order-consumer 'rm -f /ctl/slow'" \
   "time_ms|order-consumer|order-consumer › 排隊（orders）← order-producer"
-ok "消費者變慢：kafka_exporter 的落後一直漲" "$( (( lag1 > lag0 + 300 )) && echo true)" "${lag0} → ${lag1} 筆"
+ok "消費者變慢：kafka_exporter 的落後一直漲" "$(awk -v a="${lag0}" -v b="${lag1}" 'BEGIN { print (b > a + 300) ? "true" : "false" }')" "${lag0} → ${lag1} 筆"   # 數字是小數，bash 不能比
 echo "   等消費者追上（2 分鐘）"; sleep 120
 
 echo "== 7. 寫 DB 失敗（程式 catch 掉、記 error log），3 分鐘"
