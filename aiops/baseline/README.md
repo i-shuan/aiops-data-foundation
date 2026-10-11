@@ -177,6 +177,10 @@ python3 -m aiops_baseline trace-detect  --config baseline/trace.yaml   # 每 5 �
 | 重試風暴：mes-api 呼叫 wip-worker 4 次 | ✅ `calls`：mes-api › GET → rca-wip-worker（z 30） | 同一段的時間（4 次加起來 261ms，平常 66ms）；mes-api 自己的時間一次（模擬程式多跑了迴圈） |
 | 快取穿透：每個請求都查 DB（平常 5%） | ✅ `calls`：mes-api › SELECT LOT → oracle（z 12） | — |
 | 簡訊廠商掛了：20ms → 3 秒 | ✅ `time_ms`：mes-api › POST → sms-gateway（z 1490） | — |
+| N+1（同上） | ✅ 不用學的規則 `repeated`：每個請求 100 次，門檻 20 | — |
+| 吞掉的例外：wip-worker 查 DB 逾時、catch 掉回 200 | ✅ 規則 `swallowed`：「100% 的請求丟了 System.TimeoutException，但沒標成錯誤」；baseline `swallowed_rate` 也報 | — |
+
+（2026-10-11 重跑：trace 已經經過兩層 Collector、尾端取樣，全部通過；trace 收集 `run-trace-e2e.sh`、根因分析 `run-rca-e2e.sh` 也全部通過。）
 
 單元測試（`tests/test_trace.py`）在記憶體裡模擬 4 週、每小時 20 個請求，同樣 4 個案例都抓到、正常 5 次 0 誤報。
 

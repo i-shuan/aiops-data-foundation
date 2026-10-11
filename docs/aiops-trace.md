@@ -1,6 +1,6 @@
 # trace 能做什麼：六個場景對照現況
 
-一句話：**六個場景裡，慢在哪、程式壞味道、錯誤源頭這三個已經做了而且實測過；非同步（Kafka）、架構治理、工廠（SECS、MES→MCS→AMHS）還沒做。另外有一個橫跨所有場景的前提：取樣，出事的請求要被記到。**
+一句話：**六個場景裡，慢在哪、程式壞味道、錯誤源頭這三個已經做了而且實測過（含不用學的 N+1、吞掉例外規則）；取樣改成尾端取樣，出事的請求全部留下。非同步（Kafka）、架構治理、工廠（SECS、MES→MCS→AMHS）還沒做。**
 
 trace 怎麼收、怎麼分部門見 [traces.md](traces.md)；baseline、根因分析的實作見 [aiops/baseline](../aiops/baseline/README.md#trace-每一段的-baseline)、[aiops/rca](../aiops/rca/README.md)。
 
@@ -9,8 +9,8 @@ trace 怎麼收、怎麼分部門見 [traces.md](traces.md)；baseline、根因�
 | 場景 | 回答的問題 | 現況 | 缺的 |
 |---|---|---|---|
 | **一、慢在哪** | 慢在程式本身、下游還是 DB？ | ✅ 根因分析：每一段只算自己的時間（重疊的子呼叫只算一次），出事時跟平常比，多最多的排第一；trace baseline 每一段的 `time_ms` | 循序 vs 並行、建連線耗時（見下） |
-| **二、程式壞味道** | N+1、重試太多、快取穿透？ | ✅ trace baseline 每一段的 `calls`（每個請求呼叫幾次），k3s 實測 N+1、重試風暴、快取穿透都抓到 | **一開始就有的壞味道學不出來**（見下） |
-| **三、錯誤源頭** | 鏈路裡哪一台先爆？ | ✅ 根因分析：標了錯誤、底下子呼叫都沒錯的那段才是源頭；trace baseline 每一段的 `error_rate` | **吞掉的錯誤**（見下） |
+| **二、程式壞味道** | N+1、重試太多、快取穿透？ | ✅ trace baseline 每一段的 `calls`（每個請求呼叫幾次），k3s 實測 N+1、重試風暴、快取穿透都抓到；✅ 不用學的規則 `repeated`（同一個呼叫 ≥ 20 次），一開始就有的 N+1 也抓得到 | — |
+| **三、錯誤源頭** | 鏈路裡哪一台先爆？ | ✅ 根因分析：標了錯誤、底下子呼叫都沒錯的那段才是源頭；trace baseline 每一段的 `error_rate`；✅ 吞掉的例外：規則 `swallowed` ＋ baseline `swallowed_rate` | — |
 | **四、非同步、訊息佇列** | 訊息在 Kafka 排了多久？ | ❌ 沒測過 | 生產端、消費端能不能串起來；排隊時間；消費者的 baseline |
 | **五、架構治理** | 實際的相依長怎樣？有沒有循環呼叫？ | ⚠️ 根因分析會畫呼叫關係圖；`trace.segment.new` 報「這支 API 出現沒看過的呼叫」 | 循環呼叫、越權直連 DB、舊 API 還有誰在叫 |
 | **六、工廠** | 機台交握卡在哪一道指令？工單卡在 MES、MCS、AMHS 哪一段？ | ❌ | EAP 要手動埋點；跨異質系統怎麼串（見下） |
@@ -24,12 +24,12 @@ trace 怎麼收、怎麼分部門見 [traces.md](traces.md)；baseline、根因�
 
 ### 二、程式壞味道
 
-- **一開始就有的壞味道學不出來**：baseline 是跟「平常」比。N+1 如果從上線第一天就在，平常就是每個請求 500 次，會被學成正常。要加**絕對規則**，不用學：「同一個請求裡，同一句 SQL（或同一個下游）超過 N 次」。這種規則可以在測試環境就跑，上線前抓出來。
+- ✅ **一開始就有的壞味道**：baseline 是跟「平常」比，N+1 如果從上線第一天就在會被學成正常。所以加了不用學的規則 `trace.segment.repeated`：同一個請求裡，同一個往外的呼叫（同一句 SQL、同一個下游）平均 ≥ 20 次就報（[trace.yaml](../aiops/baseline/trace.yaml) 的 `rules.repeated_calls`）。k3s 實測：「同一個呼叫太多次（可能是 N+1）：rca-wip-worker GET /wip → … SELECT LOT_HISTORY → oracle（每個請求 100 次，門檻 20）」。這種規則可以在測試環境就跑，上線前抓出來。
 - 快取穿透目前看「查 DB 的次數變多」；平常就穿透的也一樣學不出來，同上。
 
 ### 三、錯誤源頭
 
-- **吞掉的錯誤（假性健康）**：程式 catch 掉例外、回傳空值和 200。外層 span 沒有錯誤，但底層的 span 會帶例外事件（exception event），有時候 status 也沒設成 error。現在只看 status，**沒看例外事件**。要做：數每一段「有例外事件但 status 不是 error」的比例，當成另一個數字學 baseline，或直接報。要先確認 ES 裡 span 的例外事件存在哪個欄位。
+- ✅ **吞掉的例外（假性健康）**：程式 catch 掉例外、回傳空值和 200，span 帶例外事件但 status 不是 error。實測發現 **ES 的 OTLP 入口不存 span 的事件**，所以 node Collector 先把例外的種類、訊息抄到 span 屬性（`exception.type`、`exception.message`）。然後每一段算「丟了例外但沒標成錯誤」的請求比例：學 baseline（`swallowed_rate`，平常就有一點的看變多沒有），另外不用學的規則 `swallowed` ≥ 5% 就報。k3s 實測：「吞掉的例外：rca-wip-worker GET /wip → … SELECT LOT_HISTORY → oracle（100% 的請求丟了 System.TimeoutException，但沒標成錯誤）」。尾端取樣也會把這種 trace 全部留下（規則 `exception`）。
 
 ### 四、非同步、訊息佇列
 
@@ -76,8 +76,8 @@ trace 怎麼收、怎麼分部門見 [traces.md](traces.md)；baseline、根因�
 
 ## 建議順序
 
-1. **取樣**：決定場景一、三拿不拿得到出事的請求。
-2. **場景二、三的補強**：「同一句 SQL 超過 N 次」的絕對規則、吞掉的錯誤。都是現有資料就能算，不用改收集。
+1. ✅ **取樣**：尾端取樣已放進正式設定。
+2. ✅ **場景二、三的補強**：N+1、吞掉的例外的規則。
 3. **場景四**：用真的 Kafka 測串接、排隊時間，再做消費者的 baseline。
 4. **場景五**：循環呼叫、越權直連 DB（規則要人定）。
 5. **場景六**：跟 EAP 團隊談手動埋點、跨系統用哪個業務 ID 串。
