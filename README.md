@@ -14,6 +14,7 @@
 
 ## 目前的文件
 
+- [docs/overview.md](docs/overview.md)：**系統總覽（從這裡看起）**：架構圖（mermaid）、log／metrics／trace 怎麼收、AIOps 怎麼判斷，各部分文件的入口。
 - [docs/elasticsearch.md](docs/elasticsearch.md)：log 怎麼進 ES。OpenTelemetry Collector 依 namespace 的 dept 分 group，進 `k8s-{group}-{cluster}`，欄位由中央 pipeline 統一整理成 AIOps 要的格式；log 格式不一致時，依服務宣告的格式分派到不同的解析規則。已在 k3s 上端到端驗證。
 - [docs/elasticsearch-testing.md](docs/elasticsearch-testing.md)：Fluent Bit 時期的測資、53 項檢查結果與 23 個 level 案例、key 失效的故障測試，以及測試中抓到的問題。
 - [docs/metrics.md](docs/metrics.md)：metrics 怎麼進 ES。OpenTelemetry Collector 收 kubelet、K8s 物件狀態、應用的 Prometheus metrics，依每筆資料自己的 namespace 讀 dept 分 group，寫進 ES 的 time series data stream。分部門的規則與 key 跟 log 共用。已在 k3s 上端到端驗證。
