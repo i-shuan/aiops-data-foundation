@@ -3,6 +3,7 @@
 span 的格式（to_span 從 ES 的文件轉成這樣）：
   {"trace_id", "span_id", "parent", "service", "name", "kind", "target", "start_ms", "dur_ms", "error", "exception", "attrs", "resource"}
   exception：這一段丟過的例外種類（Collector 從例外事件抄到 exception.type 屬性），沒有就是 None
+  links：這一段連到的其他 span（span_id）。.NET 自動埋點的 Kafka 消費者（receive）是新的 trace，只用 link 指回生產者
   target：往外呼叫的對象（peer.service、db.system、server.address），沒有就是 None
 """
 from __future__ import annotations
@@ -12,7 +13,7 @@ from datetime import datetime
 
 from .es import ES, get_field, time_range
 
-_SPAN_FIELDS = ["@timestamp", "trace_id", "span_id", "parent_span_id", "name", "kind", "duration", "status.code",
+_SPAN_FIELDS = ["@timestamp", "trace_id", "span_id", "parent_span_id", "name", "kind", "duration", "status.code", "links",
                 "resource.attributes", "attributes"]
 
 
@@ -20,13 +21,27 @@ def to_span(src: dict) -> dict:
     attrs = src.get("attributes") or {}
     target = get_field(attrs, "peer.service") or get_field(attrs, "db.system") or get_field(attrs, "server.address")
     ts = src["@timestamp"]
+    # ES 回的 @timestamp 可能是數字、數字的字串（奈秒精度時，例如 "1791687912264.916000"），或 ISO 格式
+    if isinstance(ts, str) and ts.replace(".", "", 1).isdigit():
+        ts = float(ts)
     start_ms = float(ts) if isinstance(ts, (int, float)) else datetime.fromisoformat(ts.replace("Z", "+00:00")).timestamp() * 1000
     return {"trace_id": src["trace_id"], "span_id": src["span_id"], "parent": src.get("parent_span_id") or None,
             "service": get_field(src, "resource.attributes.service.name") or "?", "name": src.get("name", "?"),
             "kind": src.get("kind", ""), "target": target, "start_ms": start_ms,
             "dur_ms": (src.get("duration") or 0) / 1e6, "error": get_field(src, "status.code") == "Error",
             "exception": get_field(attrs, "exception.type"),
+            "links": [l["span_id"] for l in src.get("links") or [] if l.get("span_id")],
             "attrs": attrs, "resource": get_field(src, "resource.attributes") or {}}
+
+
+def spans_by_id(es: ES, index: str, span_ids: list[str], start: datetime, end: datetime) -> dict[str, dict]:
+    """用 span_id 讀回 span（例如 link 指到的、另一個 trace 裡的生產者）。"""
+    out = {}
+    for i in range(0, len(span_ids), 1000):
+        body = {"size": 1000, "_source": _SPAN_FIELDS,
+                "query": {"bool": {"filter": [time_range(start, end), {"terms": {"span_id": span_ids[i:i + 1000]}}]}}}
+        out.update({h["_source"]["span_id"]: to_span(h["_source"]) for h in es.search(index, body)["hits"]["hits"]})
+    return out
 
 
 def spans_of(es: ES, index: str, trace_ids: list[str], start: datetime, end: datetime) -> list[dict]:

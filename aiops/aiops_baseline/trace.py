@@ -21,7 +21,7 @@ from dataclasses import dataclass
 import pandas as pd
 
 from aiops_common.es import ES, doc_id, time_range
-from aiops_common.traces import group_traces, segment, self_times, spans_of
+from aiops_common.traces import group_traces, segment, self_times, spans_by_id, spans_of
 
 SEGMENT_INDEX = "aiops-trace-segments"
 SEGMENT_MAPPING = {"mappings": {"dynamic": False, "properties": {
@@ -53,13 +53,43 @@ def own_part(trace: list[dict], entry: dict) -> list[dict]:
     return out
 
 
-def request_segments(trace: list[dict], entry: dict) -> dict[str, dict]:
+def producer_of(entry: dict, trace: list[dict], linked: dict[str, dict] | None = None) -> dict | None:
+    """訊息消費者（Consumer span）對應的生產者（Producer span）：上一層就是生產者（程式裡接上了 trace），
+    或用 link 指到的（.NET 自動埋點的 receive：新的 trace，只用 link 指回生產者）。"""
+    if entry.get("kind") != "Consumer":
+        return None
+    by_id = {s["span_id"]: s for s in trace}
+    p = by_id.get(entry.get("parent"))
+    if p and p["kind"] == "Producer":
+        return p
+    for sid in entry.get("links") or []:
+        p = (linked or {}).get(sid)
+        if p and p["kind"] == "Producer":
+            return p
+    return None
+
+
+def queue_wait(entry: dict, producer: dict) -> tuple[str, float]:
+    """訊息在佇列裡等了多久：消費者拿到訊息的時間 − 生產者送出的時間。回傳（段的名稱, 毫秒）。
+    receive（.NET 自動埋點）這一段是「等下一筆訊息」，結束時才拿到訊息，所以用結束時間；process 用開始時間。"""
+    got = entry["start_ms"] + entry["dur_ms"] if entry["name"].endswith(" receive") else entry["start_ms"]
+    dest = (entry.get("attrs") or {}).get("messaging.destination.name") or entry["name"].split(" ")[0]
+    return f"{entry['service']} › 排隊（{dest}）← {producer['service']}", max(0.0, got - (producer["start_ms"] + producer["dur_ms"]))
+
+
+def request_segments(trace: list[dict], entry: dict, producer: dict | None = None) -> dict[str, dict]:
     """一個請求、每一段：呼叫幾次、花多久、有沒有出錯、有沒有吞掉的例外。
     時間：往外呼叫（Client）算整段（就是在等對方）；其他算自己的時間（扣掉底下的呼叫）。加起來約等於整個請求的時間。
     吞掉的例外：這一段丟過例外（exception），但 status 不是錯誤（程式 catch 掉了，例如回空值、回 200）。"""
     st = self_times(trace)
     out: dict[str, dict] = {}
+    if producer is not None:   # 訊息消費者：多一段「在佇列裡等了多久」
+        seg, ms = queue_wait(entry, producer)
+        out[seg] = {"calls": 1, "time_ms": ms, "error": False, "swallowed": None}
     for s in own_part(trace, entry):
+        # .NET 自動埋點的 receive：時間是「等下一筆訊息」，不是處理，不算
+        if s is entry and s["kind"] == "Consumer" and s["name"].endswith(" receive"):
+            continue
         seg = segment(s)
         d = out.setdefault(seg, {"calls": 0, "time_ms": 0.0, "error": False, "swallowed": None})
         d["calls"] += 1
@@ -94,7 +124,8 @@ class Sampled:
     span_id: str
 
 
-def summarize(samples: list[Sampled], traces: dict[str, list[dict]], skew_tolerance_ms: float = 500) -> tuple[pd.DataFrame, list[dict]]:
+def summarize(samples: list[Sampled], traces: dict[str, list[dict]], skew_tolerance_ms: float = 500,
+              linked: dict[str, dict] | None = None) -> tuple[pd.DataFrame, list[dict]]:
     """抽到的請求 → 每個 (時段, API, 段) 的平均：每個請求呼叫幾次、花多久、出錯比例。
     某個請求沒呼叫某一段，那一段就是 0 次（例如快取命中時沒查 DB），所以平均是除以這個 API 被抽到的請求數。"""
     acc = defaultdict(lambda: {"calls": 0.0, "time_ms": 0.0, "errors": 0, "swallowed": 0, "types": Counter()})
@@ -107,7 +138,7 @@ def summarize(samples: list[Sampled], traces: dict[str, list[dict]], skew_tolera
             continue
         k = (smp.bucket, entry["service"], entry["name"])
         reqs[k] += 1
-        for seg, d in request_segments(t, entry).items():
+        for seg, d in request_segments(t, entry, producer_of(entry, t, linked)).items():
             a = acc[k + (seg,)]
             a["calls"] += d["calls"]
             a["time_ms"] += d["time_ms"]
@@ -177,13 +208,13 @@ def swallowed(cur: pd.DataFrame, min_rate: float) -> pd.DataFrame:
 
 def sample_entries(es: ES, index: str, start: pd.Timestamp, end: pd.Timestamp, interval: str, per_bucket: int,
                    policy: str | None = None) -> list[Sampled]:
-    """每個時段、每個 API（服務的 Server span）抽 per_bucket 個請求。依 trace_id 排序取前幾個：trace_id 是隨機的，等於隨機抽。
+    """每個時段、每個 API（服務的 Server span、訊息消費者的 Consumer span）抽 per_bucket 個請求。依 trace_id 排序取前幾個：trace_id 是隨機的，等於隨機抽。
     policy：尾端取樣時只抽這條規則留下的（random：隨機那一份）。錯的、慢的全留，混進來平均會偏高；
     沒有標記的（還沒經過尾端取樣的舊資料）照樣抽。"""
     sources = [{"svc": {"terms": {"field": "resource.attributes.service.name"}}},
                {"name": {"terms": {"field": "name"}}},
                {"ts": {"date_histogram": {"field": "@timestamp", "fixed_interval": interval}}}]
-    filters = [time_range(start, end), {"term": {"kind": "Server"}}]
+    filters = [time_range(start, end), {"terms": {"kind": ["Server", "Consumer"]}}]   # HTTP 請求、訊息消費者
     if policy:
         f = "scope.attributes.tailsampling.policy"
         filters.append({"bool": {"should": [{"term": {f: policy}}, {"bool": {"must_not": {"exists": {"field": f}}}}]}})
@@ -214,7 +245,10 @@ def collect(es: ES, cfg: dict, start: pd.Timestamp, end: pd.Timestamp) -> tuple[
         return pd.DataFrame(columns=COLUMNS), []
     pad = pd.Timedelta(minutes=5)
     traces = group_traces(spans_of(es, cfg["traces_index"], sorted({s.trace_id for s in samples}), start - pad, end + pad))
-    df, skews = summarize(samples, traces, cfg.get("clock_skew_ms", 500))
+    # 消費者用 link 指到的生產者在別的 trace 裡，另外讀回來（尾端取樣時那個 trace 可能沒被留下，就算不出排隊時間）
+    want = {sid for t in traces.values() for sp in t if sp["kind"] == "Consumer" for sid in sp.get("links") or []}
+    linked = spans_by_id(es, cfg["traces_index"], sorted(want), start - pad, end + pad) if want else {}
+    df, skews = summarize(samples, traces, cfg.get("clock_skew_ms", 500), linked)
     df = fill_missing_segments(df)
     es.ensure_index(SEGMENT_INDEX, SEGMENT_MAPPING)
     docs = [(doc_id("seg", r["ts"], r["entry.service"], r["entry.name"], r["segment"]),

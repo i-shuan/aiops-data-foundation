@@ -189,3 +189,36 @@ class HardRuleTest(unittest.TestCase):
         df, _ = T.summarize(samples, traces)
         self.assertTrue(T.swallowed(df, 0.05).empty)
         self.assertEqual(df[df["segment"] == "wip-worker › SELECT LOT_HISTORY → oracle"]["error_rate"].iloc[0], 1.0)
+
+
+class ConsumerTest(unittest.TestCase):
+    """訊息消費者（Kafka）：排隊時間、.NET 自動埋點的 receive（link 指回生產者）。"""
+
+    def producer(self, tid="p"):
+        return [span(tid, "h", None, "order-producer", "GET /orders/{id}", 0, 8),
+                span(tid, "pub", "h", "order-producer", "orders publish", 1, 6, "Producer")]
+
+    def test_process_child_of_producer(self):
+        # 程式裡接上了 trace：process 的上一層就是 publish
+        t = self.producer() + [span("p", "proc", "pub", "order-consumer", "orders process", 507, 3, "Consumer"),
+                               span("p", "db", "proc", "order-consumer", "postgres", 508, 1, "Client", "postgresql")]
+        entry = t[2]
+        segs = T.request_segments(t, entry, T.producer_of(entry, t))
+        self.assertEqual(segs["order-consumer › 排隊（orders）← order-producer"]["time_ms"], 500)   # 507 − (1 + 6)
+        self.assertIn("order-consumer › postgres → postgresql", segs)
+
+    def test_receive_linked_to_producer(self):
+        # .NET 自動埋點：receive 是新的 trace，只用 link 指回生產者；它的時間是「等下一筆訊息」，不算成處理
+        prod = self.producer()
+        recv = dict(span("c", "recv", None, "order-consumer", "orders receive", 0, 900, "Consumer"), links=["pub"])
+        entry = recv
+        p = T.producer_of(entry, [recv], {"pub": prod[1]})
+        segs = T.request_segments([recv], entry, p)
+        self.assertEqual(segs, {"order-consumer › 排隊（orders）← order-producer":
+                                {"calls": 1, "time_ms": 893, "error": False, "swallowed": None}})   # 900 − 7
+
+    def test_linked_producer_missing(self):
+        # 生產者那個 trace 沒留下（尾端取樣各自決定）：算不出排隊時間，也不報錯
+        recv = dict(span("c", "recv", None, "order-consumer", "orders receive", 0, 900, "Consumer"), links=["gone"])
+        self.assertIsNone(T.producer_of(recv, [recv], {}))
+        self.assertEqual(T.request_segments([recv], recv, None), {})
