@@ -70,6 +70,60 @@
 5. **說明（大型語言模型）**：「10:03 wip-worker 換版後，查 LOT_HISTORY 變成全表掃描，造成 mes-api 變慢；建議回退版本或檢查索引。」
 6. **確認（人）**。
 
+## metrics 異常怎麼串到 trace、log
+
+用三個共同的欄位當鑰匙，依 metrics → trace → log 一路縮小範圍（[aiops/rca](../aiops/rca/README.md)）。
+
+| 鑰匙 | metrics | trace | log | 用途 |
+|---|---|---|---|---|
+| **服務名稱** | `resource.attributes.service.name` | `resource.attributes.service.name` | `service.name` | metrics 報「哪個服務」→ 去找那個服務的 trace、log |
+| **時間** | 異常的 5 分鐘時段 | span 的 `@timestamp` | log 的 `@timestamp` | 只看出事那段 |
+| **Pod、namespace** | `k8s.pod.name` 等 | 同左 | 同左 | 規則、跟兄弟比報的是單一 Pod 時 |
+| **trace_id** | — | `trace_id` | `trace.id` | trace ↔ log 精確對到「同一個請求」 |
+
+服務名稱、Pod、namespace 都是 Collector 用同一套規則補上的（不是應用自己填），三種資料一定對得上；trace_id 由自動埋點寫進 log（Java 在 MDC、.NET 在 scope），中央 pipeline 統一成 `trace.id`。
+
+**流程（例：mes-api 的 p95 變高）：**
+
+```
+① metrics：baseline 報 mes-api GET /lots/{id} 的 p95，10:05～10:20 異常
+        │  帶著「服務＋時間」
+        ▼
+② trace：撈這段時間 mes-api 的請求
+        出事時：最慢的 200 個＋最多 100 個出錯的（尾端取樣把這些全留了）
+        平常：  一週前同一時段（沒有就用出事前同樣長的一段）
+        ├ 每一段只算「自己」的時間（扣掉底下的呼叫），跟平常比，多最多的排第一
+        │   → 「wip-worker 查 Oracle LOT_HISTORY 多了 1.4 秒」
+        ├ 錯誤源頭：標了錯誤、底下都沒錯的那段
+        └ 最慢那個請求的瀑布圖、服務之間的呼叫關係圖
+        │  帶著「最慢那個請求的 trace_id」＋「可疑的服務」
+        ▼
+③ log：用 trace_id 撈同一個請求在各服務的 log；可疑服務這段時間的 warn／error 歸成樣式跟平常比
+        → 「新出現：Connection pool timeout waiting for connection to 10.0.1.5:5432」
+        ▼
+④ 報告：哪個服務、從何時、慢在哪一段、錯誤從哪裡開始、相關的 log
+```
+
+- **為什麼要經過 trace**：慢的原因常在下游。只有 metrics 只知道「mes-api 變慢」；直接翻 log 要在幾十個服務、幾萬行裡找。trace 先縮到「哪個服務的哪一段」，log 只看那幾分鐘、那幾個服務。
+- **為什麼只算自己的時間**：wip-worker 處理 1.5 秒、其中 1.4 秒在等 Oracle；不扣的話三層都看起來慢 1.5 秒。扣掉之後只有 Oracle 那段多 1.4 秒，排第一的就是源頭。
+
+**其他偵測結果怎麼接：**
+
+| 誰報的 | 帶什麼 | 怎麼接 trace／log |
+|---|---|---|
+| metrics baseline（服務、API） | 服務、API、時間 | 上面的完整流程 |
+| trace 每一段的 baseline、N+1、吞掉的例外 | 服務、API、哪一段、時間 | 已經指出哪一段；再用 trace_id 撈 log |
+| 規則（重啟、記憶體、連線池…） | namespace、Pod、服務（`context`）、時間 | 用服務＋時間 |
+| 跟兄弟比（單一 Pod） | 服務、Pod、時間 | 目前只接到服務層級；「只拿這個 Pod 的 trace 跟其他 Pod 逐段比」在待辦 |
+
+**目前接不起來、或接得不好的：**
+
+1. **metrics 沒帶 trace_id**：可以用 exemplar（metrics 裡夾帶當時某個請求的 trace_id），目前是用「服務＋時間」去挑最慢的 trace，效果接近但不是「那一個點」的請求。
+2. **.NET 的 Kafka 消費者（不改程式）**：處理訊息時的 DB、呼叫自成一個 trace，對不回訊息，只能用服務＋時間接 log（[aiops-trace.md 場景四](aiops-trace.md#四非同步訊息佇列)）。
+3. **單一 Pod 的異常**：上表最後一列，待辦。
+4. **多個異常還不會合併成一件事**：同一個服務的錯誤率、p95、連線池同時報，現在是三筆、各跑一次根因分析。
+5. **沒有 trace_id 的 log**（純文字、程式自己印的）：只能用服務＋時間撈，對不到單一請求。
+
 ## 重點：怎麼知道「平常的樣子」
 
 步驟 1 的品質決定整個流程。判斷錯了，後面全部白做：誤報太多，大家就不看了；漏報，出事了沒人知道。
