@@ -187,9 +187,12 @@ _RENAMED = {"baseline_method": "method"}
 
 
 def load_baseline(es: ES, series: str, by: list[str]) -> pd.DataFrame:
+    """這條序列自己學出來的 baseline（不含借給別人用的組 baseline）。"""
     rows, after = [], None
     while True:
-        body = {"size": 10000, "query": {"term": {"series": series}}, "sort": [{"_doc": "asc"}]}
+        body = {"size": 10000, "query": {"bool": {"filter": [{"term": {"series": series}}],
+                                                  "must_not": [{"prefix": {"baseline_source": "group:"}}]}},
+                "sort": [{"_doc": "asc"}]}
         if after:
             body["search_after"] = after
         hits = es.req("POST", f"/{BASELINE_INDEX}/_search?ignore_unavailable=true", body).get("hits", {}).get("hits", [])
@@ -200,3 +203,13 @@ def load_baseline(es: ES, series: str, by: list[str]) -> pd.DataFrame:
             break
         after = hits[-1]["sort"]
     return pd.DataFrame(rows, columns=by + list(BASELINE_COLUMNS))
+
+
+def load_group_baselines(es: ES, series: str) -> pd.DataFrame:
+    """train 時從成員算出來的組 baseline：group + dow、hour、level、median、mad、resolution。"""
+    body = {"size": 10000, "query": {"bool": {"filter": [{"term": {"series": series}},
+                                                         {"prefix": {"baseline_source": "group:"}}]}}}
+    hits = es.req("POST", f"/{BASELINE_INDEX}/_search?ignore_unavailable=true", body).get("hits", {}).get("hits", [])
+    rows = [{"group": h["_source"]["baseline_source"][len("group:"):],
+             **{k: h["_source"].get(k) for k in ("dow", "hour", "level", "median", "mad", "resolution")}} for h in hits]
+    return pd.DataFrame(rows, columns=["group", "dow", "hour", "level", "median", "mad", "resolution"])

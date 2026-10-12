@@ -259,3 +259,38 @@ def score_poisson(current: pd.DataFrame, baseline: pd.DataFrame, keys: list[str]
     m["p"] = np.where(diff > 0, m["p_up"], m["p_down"])
     m["anomaly"] = (hit & over).fillna(False) & m["median"].notna()
     return m.drop(columns=["dow", "hour", "p_up", "p_down"])
+
+
+def group_of(key: dict, groups: list[dict]) -> list[str]:
+    """這條序列屬於哪些組（依設定的順序，由細到粗）。match 的每個欄位都要符合（正規表示式，re.search）。"""
+    import re
+    return [g["name"] for g in groups
+            if all(key.get(f) is not None and re.search(pat, str(key[f])) for f, pat in g["match"].items())]
+
+
+def train_groups(own: pd.DataFrame, keys: list[str], groups: list[dict], min_members: int = 3) -> pd.DataFrame:
+    """從成員自己的 baseline 算出每一組的 baseline（借給新 API、量太少的 API 用）。
+
+    own：train 的結果（keys + dow、hour、median、mad…，只用中位數＋MAD 學出來的）。
+    每組至少 min_members 個成員；每個時段取成員中位數的中位數、成員 MAD 的中位數。
+    回傳 group + dow、hour、level（group）、median、mad、p05、p95、n（成員數）。
+    """
+    cols = ["group", "dow", "hour", "level", "median", "mad", "p05", "p95", "n"]
+    if own.empty or not groups:
+        return pd.DataFrame(columns=cols)
+    if "baseline_method" in own:
+        own = own[own["baseline_method"].fillna("mad") == "mad"]
+    members = own[keys].drop_duplicates()
+    rows = []
+    for g in groups:
+        mine = [m for m in members.to_dict("records") if g["name"] in group_of(m, [g])]
+        if len(mine) < min_members:
+            continue
+        sub = own.merge(pd.DataFrame(mine), on=keys)
+        for (dow, hour), gg in sub.groupby(["dow", "hour"]):
+            if gg[keys].drop_duplicates().shape[0] < min_members:
+                continue
+            rows.append({"group": g["name"], "dow": dow, "hour": hour, "level": "group",
+                         "median": float(gg["median"].median()), "mad": float(gg["mad"].median()),
+                         "p05": float(gg["median"].min()), "p95": float(gg["median"].max()), "n": int(len(gg))})
+    return pd.DataFrame(rows, columns=cols)

@@ -67,6 +67,16 @@ def _route_of(keys: dict) -> str | None:
     return None
 
 
+def _trust(r: dict) -> str:
+    """異常用的 baseline 可不可信：可信度、粒度、方法、借誰的。規則、跟兄弟比沒有這些欄位。"""
+    if not r.get("confidence"):
+        return ""
+    src = r.get("baseline_source") or "self"
+    extra = [r.get("resolution") or "", "卜瓦松" if r.get("method") == "poisson" else "",
+             f"借 {src[len('group:'):]}" if src.startswith("group:") else ""]
+    return r["confidence"] + "".join(f"、{x}" for x in extra if x)
+
+
 def pick_from_anomalies(es, cfg, start, end):
     """沒指定服務：從 baseline 寫的異常裡，挑這段時間最嚴重的服務（偏離倍數最大），時間範圍取它異常的那段。
     異常帶著 method、API 的話（http.* 序列），也只查那支 API。"""
@@ -116,13 +126,17 @@ def investigate(cfg: dict, args) -> str:
     # ── 1. Metrics ──
     out += ["## 1. Metrics：發現異常", ""]
     if found:
-        out += ["| 時間 | 指標 | 哪一段 | 現在 | 平常 | 偏離 |", "|---|---|---|---|---|---|"]
+        out += ["| 時間 | 指標 | 哪一段 | 現在 | 平常 | 偏離 | 可信度 |", "|---|---|---|---|---|---|---|"]
         for r in sorted(found, key=lambda r: -abs(r.get("z") or 0))[:10]:
-            z = f"{r['z']:.1f} 倍" if r.get("z") is not None else "規則"
+            z = (f"機率 {r['p']:.1e}" if r.get("method") == "poisson" and r.get("p") is not None
+                 else f"{r['z']:.1f} 倍" if r.get("z") is not None else "規則")
+            med = f"{r['median']:.4g}" if r.get("median") is not None else "—"
             out.append(f"| {_local(_ts(r['@timestamp']), tz)} | `{r['series']}` | {r['keys'].get('segment', '')} "
-                       f"| {r['value']:.4g} | {r['median']:.4g} | {z} |")
+                       f"| {r['value']:.4g} | {med} | {z} | {_trust(r)} |")
         if len(found) > 10:
-            out.append(f"| … | 共 {len(found)} 筆 | | | | |")
+            out.append(f"| … | 共 {len(found)} 筆 | | | | | |")
+        if any(r.get("confidence") == "low" for r in found):
+            out += ["", "> 可信度 low：用的是不分時段、或借同類 API 的 baseline（不是自己的歷史），先確認是不是真的變了。"]
     else:
         out.append("這段時間 baseline 沒有記到這個服務的異常（直接指定服務查）。")
     out.append("")

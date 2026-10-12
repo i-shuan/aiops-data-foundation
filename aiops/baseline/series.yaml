@@ -24,6 +24,17 @@ adaptive:
   min_events: {rate: 20, count: 10}   # 比例、百分位類每窗至少 20 個請求；筆數類每窗至少 10 筆
   coverage: 0.3                       # 至少三成的時間窗夠（只有白天有人用的 API 也算）
 
+# 借 baseline：borrow: true 的序列，沒有自己的 baseline（新 API、量太少）時，借同一組的（README「自動調整」③）。
+# 組要依公司的服務命名定義，由細到粗；match 的每個欄位都要符合（正規表示式）。沒有 groups 就不借。
+# groups:
+#   - name: mes-query
+#     match: {service: "^mes-", route: "query|search"}
+#   - name: mes
+#     match: {service: "^mes-"}
+borrowing:
+  min_members: 3      # 組裡至少幾個成員有自己的 baseline，才算得出組 baseline
+  z: 7                # 借來的門檻調高
+
 train:
   timezone: Asia/Taipei   # 週期依工廠當地時間（換班、上下班）
   min_weeks: 2            # 「同星期幾 × 同小時」至少要有 2 天，不夠就退到「每天同小時」
@@ -58,6 +69,7 @@ series:
 
   - name: http.error_rate
     keys: [service, method, route]
+    borrow: true           # 新 API、量太少的 API 借同組的 baseline（要先定義 groups）
     variants:
       - index: metrics-*.otel-*
         filter: {exists: {field: metrics.http_server_request_duration_seconds}}
@@ -74,6 +86,7 @@ series:
 
   - name: http.latency_p95_s
     keys: [service, method, route]
+    borrow: true           # 新 API、量太少的 API 借同組的 baseline（要先定義 groups）
     variants:
       - index: metrics-*.otel-*
         filter: {exists: {field: metrics.http_server_request_duration_seconds}}

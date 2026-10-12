@@ -1,5 +1,6 @@
 """自動選粒度的端到端測試：一支忙的 API、一支很少人用的 API，最後一天各插入一段「延遲變 3 倍、持續 1 小時」；
 3 台設備的告警（平常每小時約 0.3 次），最後一天 EQP-02 在 14 點那一小時多了 8 次。
+另有一支最後一天才上線的 new-query（沒有歷史），同一段時間也變慢：要借同組（*-query）的 baseline 抓到。
 分別用「每條序列自己選粒度」（adaptive.yaml）和「固定 5 分鐘」（同一份設定拿掉 adaptive）訓練、偵測，比較結果。
 
 執行（在 aiops 底下）：ES_URL=... ES_AUTH=... python3 -m tests.adaptive_e2e
@@ -23,7 +24,9 @@ INDEX = "aiops-adaptive"
 CONFIG = "tests/adaptive.yaml"
 TODAY = pd.Timestamp("2026-10-05", tz=TZ)          # 週一
 HISTORY_START = TODAY - pd.Timedelta(weeks=4)
-APIS = {"busy-query": 100.0, "rare-query": 2.0}     # 平日白天每 5 分鐘平均幾個請求
+APIS = {"busy-query": 100.0, "rare-query": 2.0,     # 平日白天每 5 分鐘平均幾個請求
+        "lot-query": 60.0, "wip-query": 80.0, "new-query": 50.0}
+NEW_API = "new-query"                               # 最後一天才上線
 INCIDENT = ("10:00", "11:00")                        # 最後一天這段時間兩支 API 的延遲都變 3 倍
 ALARM_INDEX = "aiops-adaptive-alarm"
 EQUIPMENT = ["EQP-01", "EQP-02", "EQP-03"]
@@ -55,7 +58,7 @@ def make() -> pd.DataFrame:
         lam = np.where(day, peak, peak * 0.3) * np.where(ts.dayofweek >= 5, 0.5, 1.0)
         n = rng.poisson(lam)
         for t, k, bad in zip(ts, n, inc):
-            if k == 0:
+            if k == 0 or (api == NEW_API and t < TODAY):
                 continue
             lat = rng.gamma(2.0, 50.0, k) * (3.0 if bad else 1.0)   # 平均 100ms、個別請求從 10ms 到 300ms 都有
             rows.append({"@timestamp": t.isoformat(), "api": api, "requests": int(k), "latency_ms": float(lat.mean())})
@@ -148,6 +151,9 @@ def main() -> int:
         ("忙的 API 維持 5 分鐘、抓到事故", any(r == "5m" for _, r, _ in hit.get("busy-query", []))),
         ("少人用的 API 改成 1 小時、抓到事故", any(r == "1h" for _, r, _ in hit.get("rare-query", []))),
         ("少人用的 API 標可信度（不是 high）", all(c != "high" for _, r, c in hit.get("rare-query", []))),
+        ("新上線的 API：借同組 baseline 抓到、可信度 low", any(c == "low" for _, r, c in hit.get(NEW_API, []))
+         and all(c == "low" for _, r, c in hit.get(NEW_API, []))),
+        ("新上線的 API：沒有誤報", not false.get(NEW_API)),
         ("設備告警爆量：卜瓦松（1 小時）抓到", any(r == "1h" for _, r, _ in hit.get(ALARM_BURST[0], []))),
         ("自己選粒度：誤報 ≤ 3 個", sum(len(v) for v in false.values()) <= 3),
         ("自己選粒度的誤報比固定 5 分鐘少、或一樣", sum(len(v) for v in false.values()) <= sum(len(v) for v in fixed_false.values())),

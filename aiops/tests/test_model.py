@@ -4,8 +4,8 @@ import unittest
 import numpy as np
 import pandas as pd
 
-from aiops_baseline.model import (DetectOptions, TrainOptions, mask_thin, pick_resolution, score, score_poisson,
-                                  train)
+from aiops_baseline.model import (DetectOptions, TrainOptions, group_of, mask_thin, pick_resolution, score,
+                                  score_poisson, train, train_groups)
 
 TZ = "Asia/Taipei"
 
@@ -205,3 +205,24 @@ class PoissonTest(unittest.TestCase):
         self.assertGreater(b["median"].min(), 0)
         s = score_poisson(self.now([1]), b, ["eq"], direction="up", tz=TZ)
         self.assertFalse(s["anomaly"].item())     # 從沒發生過，出現 1 次還不算
+
+
+class GroupTest(unittest.TestCase):
+    """借同組的 baseline：組由設定的正規表示式決定，組 baseline 從成員自己的 baseline 算。"""
+    GROUPS = [{"name": "mes-query", "match": {"svc": "^mes-", "route": "query"}}, {"name": "mes", "match": {"svc": "^mes-"}}]
+
+    def test_group_of_is_ordered_fine_to_coarse(self):
+        self.assertEqual(group_of({"svc": "mes-api", "route": "/lot/query"}, self.GROUPS), ["mes-query", "mes"])
+        self.assertEqual(group_of({"svc": "mes-api", "route": "/lot/save"}, self.GROUPS), ["mes"])
+        self.assertEqual(group_of({"svc": "eap", "route": "/query"}, self.GROUPS), [])
+
+    def test_group_baseline_is_median_of_members(self):
+        own = pd.DataFrame([{"svc": f"mes-{i}", "route": "/query", "dow": 0, "hour": 10, "level": "dow_hour",
+                             "median": m, "mad": d} for i, (m, d) in enumerate([(100, 10), (120, 20), (500, 50)])])
+        g = train_groups(own, ["svc", "route"], self.GROUPS, min_members=3)
+        row = g[g.group == "mes-query"].iloc[0]
+        self.assertEqual((row["median"], row["mad"]), (120.0, 20.0))   # 一個特別慢的成員不會把組拉偏
+
+    def test_too_few_members_no_group(self):
+        own = pd.DataFrame([{"svc": "mes-1", "route": "/query", "dow": 0, "hour": 10, "level": "all", "median": 1.0, "mad": 0.1}])
+        self.assertTrue(train_groups(own, ["svc", "route"], self.GROUPS, min_members=3).empty)

@@ -14,6 +14,7 @@ peer  ：跟兄弟比，同一個服務的 Pod 互相比，抓只有一個 Pod �
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import sys
 
 import pandas as pd
@@ -22,12 +23,12 @@ import yaml
 from aiops_common.es import get_field
 
 from .es import (ANOMALY_INDEX, ANOMALY_MAPPING, BASELINE_INDEX, BASELINE_MAPPING, ES, doc_id, fetch,
-                 load_baseline, value_kind)
+                 load_baseline, load_group_baselines, value_kind)
 from . import peer as P
 from . import rules as R
 from . import trace as T
 from .model import (CONFIDENCE, RESOLUTIONS, DetectOptions, TrainOptions, mask_thin, pick_resolution, score,
-                    score_poisson, to_freq, train)
+                    group_of, score_poisson, to_freq, train, train_groups)
 
 
 def keys_of(spec: dict) -> list[str]:
@@ -42,17 +43,23 @@ def _now(arg: str | None) -> pd.Timestamp:
     return pd.Timestamp(arg) if arg else pd.Timestamp.now(tz="UTC")
 
 
+def _v(x):
+    """DataFrame 合併後空的欄位是 NaN，ES 不收：轉成 None。"""
+    return None if isinstance(x, float) and pd.isna(x) else x
+
+
 def save_baseline(es, name: str, by: list[str], b: pd.DataFrame, start, end) -> None:
     """寫進 aiops-baseline，再刪掉這條序列上一次訓練留下、這次沒有的（例如改了粒度、或 4 週內都沒出現的 API）。"""
     trained_at = pd.Timestamp.now(tz="UTC").isoformat()
     docs = []
     for r in b.to_dict("records"):
-        keys = {f: r[f] for f in by}
+        group = r.get("group") if isinstance(r.get("group"), str) else None
+        keys = {"__group": group} if group else {f: r[f] for f in by}
         docs.append((doc_id(name, keys, r["dow"], r["hour"]), {
             "series": name, "keys": keys, "dow": r["dow"], "hour": r["hour"], "level": r["level"],
             "median": r["median"], "mad": r["mad"], "p05": r["p05"], "p95": r["p95"], "n": r["n"],
-            "resolution": r.get("resolution"), "method": r.get("baseline_method") or "mad",
-            "baseline_source": r.get("baseline_source", "self"), "events": r.get("events"),
+            "resolution": _v(r.get("resolution")), "method": _v(r.get("baseline_method")) or "mad",
+            "baseline_source": f"group:{group}" if group else "self", "events": _v(r.get("events")),
             "trained_at": trained_at, "history_from": start.isoformat(), "history_to": end.isoformat()}))
     es.bulk_index(BASELINE_INDEX, docs)
     if docs:   # 這次什麼都沒學到（例如 ES 查不到資料）就不刪，保留舊的
@@ -96,7 +103,7 @@ def series_resolutions(cfg: dict, spec: dict, hist: pd.DataFrame, keys: list[str
 
 
 def save_anomalies(es, name: str, by: list[str], s: pd.DataFrame, direction: str, tz: str,
-                   resolution: str | None = None) -> int:
+                   resolution: str | None = None, note: str = "") -> int:
     """把 score 的結果裡異常的點寫進 aiops-anomalies，印出最嚴重的 5 個。回傳異常數。
 
     每筆帶 resolution（粒度）、method、baseline_source、confidence，讓根因分析知道這個 baseline 可不可信。
@@ -106,17 +113,17 @@ def save_anomalies(es, name: str, by: list[str], s: pd.DataFrame, direction: str
     docs = []
     for r in hits.to_dict("records"):
         keys = {f: r[f] for f in by}
-        source = r.get("baseline_source") or "self"
+        source = _v(r.get("baseline_source")) or "self"
         level = r["level"] if source == "self" else "group"
         docs.append((doc_id(name, keys, r["ts"]), {
             "@timestamp": r["ts"].isoformat(), "series": name, "keys": keys, "value": r["value"],
             "median": r["median"], "expected_low": r["expected_low"], "expected_high": r["expected_high"],
             "z": r["z"], "level": level, "direction": direction, "detected_at": detected_at,
-            "resolution": resolution, "method": r.get("baseline_method") or "mad", "baseline_source": source,
+            "resolution": resolution, "method": _v(r.get("baseline_method")) or "mad", "baseline_source": source,
             "confidence": CONFIDENCE.get(level, "low"), **({"p": r["p"]} if "p" in r else {})}))
     if docs:
         es.bulk_index(ANOMALY_INDEX, docs)
-    res = f"（{resolution} 一點）" if resolution else ""
+    res = f"（{resolution} 一點{note}）" if resolution else ""
     print(f"  {name}{res}：{s.groupby(by, dropna=False).ngroups} 條序列、{len(s)} 個點，異常 {len(docs)} 個")
     for (_, d), r in sorted(zip(docs, hits.to_dict("records")), key=lambda x: -abs(x[1]["z"]))[:5]:
         keys = ", ".join(str(r[f]) for f in by)
@@ -149,6 +156,7 @@ def cmd_train(cfg: dict, args) -> int:
             if not t.empty:
                 parts.append(t.merge(ks[keys + ["events"]], on=keys).assign(resolution=r))
         sparse = res[res["resolution"].isna()]
+        n_poisson = 0
         # 很稀少的筆數（最粗的粒度也大多是 0）：改用卜瓦松，學每個時段的平均次數
         coarsest = (cfg.get("adaptive") or {}).get("resolutions", RESOLUTIONS)[-1]
         if not sparse.empty and value_kind(spec) == "count":
@@ -159,11 +167,19 @@ def cmd_train(cfg: dict, args) -> int:
             sparse = sparse.merge(t[keys].drop_duplicates(), on=keys, how="left", indicator=True) if not t.empty else sparse
             if "_merge" in sparse:
                 n_poisson = int((sparse["_merge"] == "both").sum())
-                print(f"    {n_poisson} 條很稀少的筆數改用卜瓦松（{coarsest} 一點）")
                 sparse = sparse[sparse["_merge"] == "left_only"].drop(columns="_merge")
         b = pd.concat(parts, ignore_index=True) if parts else pd.DataFrame()
-        save_baseline(es, spec["name"], keys, b, start, end)
+        gb = pd.DataFrame()
+        if spec.get("borrow") and cfg.get("groups"):
+            # 從成員自己的 baseline 算出每組的 baseline，存在同一個 index，給沒有自己 baseline 的序列借
+            gb = train_groups(b, keys, cfg["groups"], cfg.get("borrowing", {}).get("min_members", 3)).assign(
+                resolution=borrow_resolution(cfg))
+        save_baseline(es, spec["name"], keys, pd.concat([b, gb], ignore_index=True), start, end)
         print(train_summary(spec["name"], keys, hist, b))
+        if n_poisson:
+            print(f"    其中 {n_poisson} 條很稀少的筆數用卜瓦松（{coarsest} 一點）")
+        if not gb.empty:
+            print(f"    組 baseline（借給新的、量少的序列）：{gb['group'].unique().tolist()}")
         if not sparse.empty:
             print(f"    {len(sparse)} 條序列 1 小時也不夠（事件數夠的時間窗太少），沒有自己的 baseline："
                   + "、".join(", ".join(str(r[k]) for k in keys) for r in sparse.head(5).to_dict("records")))
@@ -185,6 +201,47 @@ def _add_silent(cur: pd.DataFrame, base: pd.DataFrame, by: list[str], start, end
     return pd.concat([cur, zeros[by + ["ts", "value", "n"]]], ignore_index=True)
 
 
+def borrow_resolution(cfg: dict) -> str:
+    """借來的 baseline 用多粗的粒度判斷：預設最粗的（本來就是可信度低的判斷，用粗一點的窗比較穩）。"""
+    return cfg.get("borrowing", {}).get("resolution") or (cfg.get("adaptive") or {}).get("resolutions", RESOLUTIONS)[-1]
+
+
+def detect_borrowed(es, cfg: dict, spec: dict, own: pd.DataFrame, now, window, dopts, tz) -> int:
+    """沒有自己 baseline 的序列（新 API、量太少）：借第一個符合、而且有組 baseline 的組來判斷，門檻調高。"""
+    keys = keys_of(spec)
+    gb = load_group_baselines(es, spec["name"])
+    if gb.empty:
+        return 0
+    r = borrow_resolution(cfg)
+    end_r = now.floor(_freq(r))
+    start_r = end_r - max(window, pd.Timedelta(_freq(r)))
+    cur = fetch(es, spec, start_r, end_r, r)
+    if cur.empty:
+        return 0
+    if not own.empty:
+        cur = cur.merge(own[keys].drop_duplicates(), on=keys, how="left", indicator=True)
+        cur = cur[cur["_merge"] == "left_only"].drop(columns="_merge")
+    if (me := min_events(cfg, spec)) is not None:
+        cur = mask_thin(cur, me)
+    have = set(gb["group"])
+    pick = []
+    for k in cur[keys].drop_duplicates().to_dict("records"):
+        g = next((g for g in group_of(k, cfg["groups"]) if g in have), None)
+        if g:
+            pick.append({**k, "group": g})
+    if not pick:
+        return 0
+    pick = pd.DataFrame(pick)
+    base = pick.merge(gb.drop(columns="resolution"), on="group")
+    bz = dataclasses.replace(dopts, z=cfg.get("borrowing", {}).get("z", 7.0))
+    s = score(cur.merge(pick[keys], on=keys), base, keys, direction=spec.get("direction", "both"),
+              min_abs=spec.get("min_abs", 0.0), opts=bz, tz=tz)
+    s = s.merge(pick, on=keys, how="left")
+    s["baseline_source"] = "group:" + s["group"].astype(str)
+    return save_anomalies(es, spec["name"], keys, s.drop(columns="group"), spec.get("direction", "both"), tz, resolution=r,
+                          note=f"，借 {'、'.join(sorted(pick['group'].unique()))} 的 baseline，z 門檻 {bz.z:g}")
+
+
 def cmd_detect(cfg: dict, args) -> int:
     es = ES()
     es.ensure_index(ANOMALY_INDEX, ANOMALY_MAPPING)
@@ -200,6 +257,8 @@ def cmd_detect(cfg: dict, args) -> int:
     for spec in cfg["series"]:
         keys = keys_of(spec)
         base = load_baseline(es, spec["name"], keys)
+        if spec.get("borrow") and cfg.get("groups"):
+            total += detect_borrowed(es, cfg, spec, base, now, pd.Timedelta(args.window), dopts, tz)
         if base.empty:
             print(f"  {spec['name']}：沒有 baseline，先跑 train")
             continue
