@@ -9,7 +9,11 @@
   dow_hour：同一個星期幾、同一個小時，至少 min_weeks 個不同的日子
   hour    ：每天同一個小時，至少 min_days 個不同的日子
   all     ：不分時段，至少 min_points 個點
-都不夠就沒有 baseline，這條序列不判斷。
+都不夠就沒有 baseline，這條序列不判斷。每個時段至少要有 min_slot_points 個值（粒度是 1 小時時，
+「同星期幾 × 同小時」4 週只有 4 個值，會自動退到「每天同一小時」）。
+
+粒度（pick_resolution）：每條序列看「每個時間窗裡底下的事件數」（請求數、筆數），從 5m、15m、30m、1h 挑最細、
+而且事件數的中位數夠多的。p95 由 3 個請求算出來是雜訊，筆數大多是 0 時 MAD 也是 0，都要放大時間窗。
 """
 from __future__ import annotations
 
@@ -21,6 +25,14 @@ import pandas as pd
 MAD_TO_SIGMA = 1.4826  # 常態分布下 MAD 換成標準差的係數
 
 LEVELS = ("dow_hour", "hour", "all")
+RESOLUTIONS = ("5m", "15m", "30m", "1h")
+# 用哪一層當「平常」→ 可信度：自己同星期幾同小時最準；不分時段、借別人的最不準
+CONFIDENCE = {"dow_hour": "high", "hour": "medium", "all": "low", "group": "low"}
+
+
+def to_freq(interval: str) -> str:
+    """設定檔用 ES 的寫法（5m、1h），pandas 要寫成 5min、1h。"""
+    return interval[:-1] + "min" if interval.endswith("m") else interval
 
 
 @dataclass(frozen=True)
@@ -29,6 +41,7 @@ class TrainOptions:
     min_weeks: int = 2             # dow_hour：同一個星期幾至少要有幾天
     min_days: int = 3              # hour：同一個小時至少要有幾天
     min_points: int = 50           # all：至少要有幾個點
+    min_slot_points: int = 6       # dow_hour、hour：每個時段至少要有幾個值
 
 
 @dataclass(frozen=True)
@@ -76,16 +89,55 @@ def train(history: pd.DataFrame, keys: list[str], opts: TrainOptions = TrainOpti
         for dow in range(7):
             for hour in range(24):
                 gg = by_dow_hour.get((dow, hour))
-                if gg is not None and gg["day"].nunique() >= opts.min_weeks:
+                if gg is not None and gg["day"].nunique() >= opts.min_weeks and len(gg) >= opts.min_slot_points:
                     rows.append({**key_dict, "dow": dow, "hour": hour, "level": "dow_hour", **_stats(gg["value"])})
                     continue
                 gg = by_hour.get(hour)
-                if gg is not None and gg["day"].nunique() >= opts.min_days:
+                if gg is not None and gg["day"].nunique() >= opts.min_days and len(gg) >= opts.min_slot_points:
                     rows.append({**key_dict, "dow": dow, "hour": hour, "level": "hour", **_stats(gg["value"])})
                     continue
                 if all_stats is not None:
                     rows.append({**key_dict, "dow": dow, "hour": hour, "level": "all", **all_stats})
     return pd.DataFrame(rows)
+
+
+def pick_resolution(volume: pd.DataFrame, keys: list[str], min_events: float, base: str = "5m",
+                    resolutions=RESOLUTIONS, coverage: float = 0.5) -> pd.DataFrame:
+    """volume：keys + ts + n（base 粒度，n 是那個時間窗裡底下的事件數；NaN＝不知道，例如收集系統停機）。
+
+    每條序列從 resolutions 裡挑最細、而且至少 coverage 比例的時間窗事件數 ≥ min_events 的；都不夠就是 None。
+    coverage 不用 0.5（中位數）：很多 API 只有白天有人用，晚上、週末的時間窗本來就少，不該因此整條不判斷；
+    事件數不夠的時間窗之後不判斷（mask_thin）。
+    沒出現的時間窗算 0（沒有請求），但只從這條序列第一次出現算起（還沒上線不算）。
+    回傳 keys + resolution + events（選中的粒度下每窗事件數的中位數）+ covered（事件數夠的時間窗比例）。
+    """
+    cols = keys + ["resolution", "events", "covered"]
+    v = volume.dropna(subset=["ts"])
+    if v.empty:
+        return pd.DataFrame(columns=cols)
+    last = v["ts"].max()
+    rows = []
+    for key_vals, g in v.groupby(keys, sort=False, dropna=False):
+        key_vals = key_vals if isinstance(key_vals, tuple) else (key_vals,)
+        s = g.groupby("ts")["n"].sum(min_count=1)
+        s = s.reindex(pd.date_range(s.index.min(), last, freq=to_freq(base)), fill_value=0.0)
+        picked, events, covered = None, 0.0, 0.0
+        for r in resolutions:
+            w = s.resample(to_freq(r)).sum(min_count=1).dropna()
+            events = float(w.median()) if not w.empty else 0.0
+            covered = float((w >= min_events).mean()) if not w.empty else 0.0
+            if covered >= coverage:
+                picked = r
+                break
+        rows.append({**dict(zip(keys, key_vals)), "resolution": picked, "events": events, "covered": covered})
+    return pd.DataFrame(rows, columns=cols)
+
+
+def mask_thin(df: pd.DataFrame, min_events: float) -> pd.DataFrame:
+    """比例、百分位類：事件數不夠的時間窗，值是雜訊（3 個請求的 p95），當成「不知道」——不學、也不判斷。"""
+    out = df.copy()
+    out.loc[out["n"].fillna(0) < min_events, "value"] = np.nan
+    return out
 
 
 def score(current: pd.DataFrame, baseline: pd.DataFrame, keys: list[str], direction: str = "both",

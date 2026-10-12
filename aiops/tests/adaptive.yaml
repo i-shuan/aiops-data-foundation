@@ -1,0 +1,27 @@
+# adaptive_e2e.py 用：同一份資料，比較「每條序列自己選粒度」和「固定 5 分鐘」
+# 資料是預先統計好的（aiops-adaptive，每 5 分鐘一筆：requests 請求數、latency_ms 平均延遲），
+# 所以用 events 指定事件數在哪個欄位。
+interval: 5m
+history_weeks: 4
+adaptive:
+  resolutions: [5m, 15m, 30m, 1h]
+  min_events: {rate: 20, count: 10}
+train: {timezone: Asia/Taipei}
+detect: {z: 5, rel_floor: 0.05}
+series:
+  - name: adaptive.latency
+    index: aiops-adaptive
+    by: [api]
+    value: {avg: latency_ms}
+    events: {sum: requests}   # 每個時間窗有幾個請求：決定粒度
+    kind: rate
+    direction: up
+    min_abs: 30
+  - name: adaptive.requests
+    index: aiops-adaptive
+    by: [api]
+    value: {sum: requests}
+    events: value             # 值本身就是事件數
+    fill_zero: true
+    direction: both
+    min_abs: 5

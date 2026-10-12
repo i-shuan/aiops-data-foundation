@@ -22,11 +22,12 @@ import yaml
 from aiops_common.es import get_field
 
 from .es import (ANOMALY_INDEX, ANOMALY_MAPPING, BASELINE_INDEX, BASELINE_MAPPING, ES, doc_id, fetch,
-                 load_baseline)
+                 load_baseline, value_kind)
 from . import peer as P
 from . import rules as R
 from . import trace as T
-from .model import DetectOptions, TrainOptions, score, train
+from .model import (CONFIDENCE, RESOLUTIONS, DetectOptions, TrainOptions, mask_thin, pick_resolution, score,
+                    to_freq, train)
 
 
 def keys_of(spec: dict) -> list[str]:
@@ -34,9 +35,7 @@ def keys_of(spec: dict) -> list[str]:
     return spec.get("keys") or spec["by"]
 
 
-def _freq(interval: str) -> str:
-    """設定檔用 ES 的寫法（5m、1h），pandas 要寫成 5min、1h。"""
-    return interval[:-1] + "min" if interval.endswith("m") else interval
+_freq = to_freq
 
 
 def _now(arg: str | None) -> pd.Timestamp:
@@ -44,6 +43,7 @@ def _now(arg: str | None) -> pd.Timestamp:
 
 
 def save_baseline(es, name: str, by: list[str], b: pd.DataFrame, start, end) -> None:
+    """寫進 aiops-baseline，再刪掉這條序列上一次訓練留下、這次沒有的（例如改了粒度、或 4 週內都沒出現的 API）。"""
     trained_at = pd.Timestamp.now(tz="UTC").isoformat()
     docs = []
     for r in b.to_dict("records"):
@@ -51,36 +51,77 @@ def save_baseline(es, name: str, by: list[str], b: pd.DataFrame, start, end) -> 
         docs.append((doc_id(name, keys, r["dow"], r["hour"]), {
             "series": name, "keys": keys, "dow": r["dow"], "hour": r["hour"], "level": r["level"],
             "median": r["median"], "mad": r["mad"], "p05": r["p05"], "p95": r["p95"], "n": r["n"],
+            "resolution": r.get("resolution"), "method": r.get("baseline_method") or "mad",
+            "baseline_source": r.get("baseline_source", "self"), "events": r.get("events"),
             "trained_at": trained_at, "history_from": start.isoformat(), "history_to": end.isoformat()}))
     es.bulk_index(BASELINE_INDEX, docs)
+    if docs:   # 這次什麼都沒學到（例如 ES 查不到資料）就不刪，保留舊的
+        es.req("POST", f"/{BASELINE_INDEX}/_delete_by_query?refresh=true&conflicts=proceed", {"query": {"bool": {"filter": [
+            {"term": {"series": name}}, {"range": {"trained_at": {"lt": trained_at}}}]}}})
 
 
 def train_summary(name: str, by: list[str], hist: pd.DataFrame, b: pd.DataFrame) -> str:
-    n_series = hist.groupby(by).ngroups if not hist.empty else 0
+    n_series = hist.groupby(by, dropna=False).ngroups if not hist.empty else 0
     n_points = int(hist["value"].notna().sum()) if not hist.empty else 0
     levels = b["level"].value_counts().to_dict() if not b.empty else {}
+    res = ""
+    if not b.empty and b.get("resolution") is not None and b["resolution"].notna().any():
+        res = "，粒度 " + str(b.drop_duplicates(by, ignore_index=True)["resolution"].value_counts().to_dict())
     note = "（資料不夠，先不判斷）" if n_series and b.empty else ""
-    return f"  {name}：{n_series} 條序列、{n_points} 個有效的點 → {len(b)} 個時段的 baseline {levels}{note}"
+    return f"  {name}：{n_series} 條序列、{n_points} 個有效的點 → {len(b)} 個時段的 baseline {levels}{res}{note}"
 
 
-def save_anomalies(es, name: str, by: list[str], s: pd.DataFrame, direction: str, tz: str) -> int:
-    """把 score 的結果裡異常的點寫進 aiops-anomalies，印出最嚴重的 5 個。回傳異常數。"""
+def min_events(cfg: dict, spec: dict) -> float | None:
+    """比例、百分位類在自己選粒度時，每個時間窗至少要有幾個事件才判斷；其他情況不限制（None）。"""
+    ad = cfg.get("adaptive")
+    if not ad or value_kind(spec) != "rate" or spec.get("resolution"):
+        return None
+    return ad.get("min_events", {}).get("rate", 20)
+
+
+def series_resolutions(cfg: dict, spec: dict, hist: pd.DataFrame, keys: list[str]) -> pd.DataFrame:
+    """每條序列用什麼粒度：keys + resolution（None＝1 小時也不夠）+ events。
+
+    設定檔沒有 adaptive、量測值（CPU、記憶體）、或序列自己寫死 resolution 時，全部用同一個粒度。
+    """
+    base = cfg.get("interval", "5m")
+    ad = cfg.get("adaptive")
+    kind = value_kind(spec)
+    fixed = spec.get("resolution") or (None if ad and kind != "gauge" else base)
+    if fixed:
+        k = hist[keys].drop_duplicates() if not hist.empty else pd.DataFrame(columns=keys)
+        return k.assign(resolution=fixed, events=None)
+    return pick_resolution(hist[keys + ["ts", "n"]], keys, ad.get("min_events", {}).get(kind, 20 if kind == "rate" else 10),
+                           base=base, resolutions=ad.get("resolutions", RESOLUTIONS), coverage=ad.get("coverage", 0.3))
+
+
+def save_anomalies(es, name: str, by: list[str], s: pd.DataFrame, direction: str, tz: str,
+                   resolution: str | None = None) -> int:
+    """把 score 的結果裡異常的點寫進 aiops-anomalies，印出最嚴重的 5 個。回傳異常數。
+
+    每筆帶 resolution（粒度）、method、baseline_source、confidence，讓根因分析知道這個 baseline 可不可信。
+    """
     hits = s[s["anomaly"]]
     detected_at = pd.Timestamp.now(tz="UTC").isoformat()
     docs = []
     for r in hits.to_dict("records"):
         keys = {f: r[f] for f in by}
+        source = r.get("baseline_source") or "self"
+        level = r["level"] if source == "self" else "group"
         docs.append((doc_id(name, keys, r["ts"]), {
             "@timestamp": r["ts"].isoformat(), "series": name, "keys": keys, "value": r["value"],
             "median": r["median"], "expected_low": r["expected_low"], "expected_high": r["expected_high"],
-            "z": r["z"], "level": r["level"], "direction": direction, "detected_at": detected_at}))
+            "z": r["z"], "level": level, "direction": direction, "detected_at": detected_at,
+            "resolution": resolution, "method": r.get("baseline_method") or "mad", "baseline_source": source,
+            "confidence": CONFIDENCE.get(level, "low")}))
     if docs:
         es.bulk_index(ANOMALY_INDEX, docs)
-    print(f"  {name}：{s.groupby(by).ngroups} 條序列、{len(s)} 個點，異常 {len(docs)} 個")
-    for r in hits.sort_values("z", key=abs, ascending=False).head(5).to_dict("records"):
+    res = f"（{resolution} 一點）" if resolution else ""
+    print(f"  {name}{res}：{s.groupby(by, dropna=False).ngroups} 條序列、{len(s)} 個點，異常 {len(docs)} 個")
+    for (_, d), r in sorted(zip(docs, hits.to_dict("records")), key=lambda x: -abs(x[1]["z"]))[:5]:
         keys = ", ".join(str(r[f]) for f in by)
         print(f"    {r['ts'].tz_convert(tz):%m-%d %H:%M}  {keys}：{r['value']:.3g}（平常 {r['median']:.3g}，"
-              f"範圍 {r['expected_low']:.3g}～{r['expected_high']:.3g}，z={r['z']:.1f}，{r['level']}）")
+              f"範圍 {r['expected_low']:.3g}～{r['expected_high']:.3g}，z={r['z']:.1f}，{d['level']}，可信度 {d['confidence']}）")
     return len(docs)
 
 
@@ -94,10 +135,25 @@ def cmd_train(cfg: dict, args) -> int:
     print(f"學習區間 {start.tz_convert(topts.timezone):%Y-%m-%d %H:%M} ～ {end.tz_convert(topts.timezone):%Y-%m-%d %H:%M}"
           f"（{topts.timezone}，{interval} 一點）")
     for spec in cfg["series"]:
+        keys = keys_of(spec)
         hist = fetch(es, spec, start, end, interval)
-        b = train(hist, keys_of(spec), topts)
-        save_baseline(es, spec["name"], keys_of(spec), b, start, end)
-        print(train_summary(spec["name"], keys_of(spec), hist, b))
+        res = series_resolutions(cfg, spec, hist, keys)
+        parts = []
+        for r, ks in res.dropna(subset=["resolution"]).groupby("resolution"):
+            h = hist if r == interval else fetch(es, spec, start, end, r)   # 百分位不能從細的合併，粗的要重查
+            h = h.merge(ks[keys], on=keys)
+            if (me := min_events(cfg, spec)) is not None:
+                h = mask_thin(h, me)
+            t = train(h, keys, topts) if not h.empty else pd.DataFrame()
+            if not t.empty:
+                parts.append(t.merge(ks[keys + ["events"]], on=keys).assign(resolution=r))
+        b = pd.concat(parts, ignore_index=True) if parts else pd.DataFrame()
+        save_baseline(es, spec["name"], keys, b, start, end)
+        print(train_summary(spec["name"], keys, hist, b))
+        sparse = res[res["resolution"].isna()]
+        if not sparse.empty:
+            print(f"    {len(sparse)} 條序列 1 小時也不夠（事件數夠的時間窗太少），沒有自己的 baseline："
+                  + "、".join(", ".join(str(r[k]) for k in keys) for r in sparse.head(5).to_dict("records")))
     return 0
 
 
@@ -112,32 +168,46 @@ def _add_silent(cur: pd.DataFrame, base: pd.DataFrame, by: list[str], start, end
     if silent.empty:
         return cur
     grid = pd.date_range(start, end, freq=_freq(interval), inclusive="left")
-    zeros = silent.merge(pd.DataFrame({"ts": grid}), how="cross").assign(value=0.0)
-    return pd.concat([cur, zeros[by + ["ts", "value"]]], ignore_index=True)
+    zeros = silent.merge(pd.DataFrame({"ts": grid}), how="cross").assign(value=0.0, n=0.0)
+    return pd.concat([cur, zeros[by + ["ts", "value", "n"]]], ignore_index=True)
 
 
 def cmd_detect(cfg: dict, args) -> int:
     es = ES()
     es.ensure_index(ANOMALY_INDEX, ANOMALY_MAPPING)
     interval = cfg.get("interval", "5m")
+    now = _now(args.at)
     # 最後一段可能還沒收齊（筆數會偏低，看起來像「驟降」），所以只看已經結束的時段
-    end = _now(args.at).floor(_freq(interval))
+    end = now.floor(_freq(interval))
     start = end - pd.Timedelta(args.window)
     tz = cfg.get("train", {}).get("timezone", "Asia/Taipei")
     dopts = DetectOptions(**cfg.get("detect", {}))
     total = 0
     print(f"偵測區間 {start.tz_convert(tz):%Y-%m-%d %H:%M} ～ {end.tz_convert(tz):%Y-%m-%d %H:%M}（{tz}）")
     for spec in cfg["series"]:
-        cur = fetch(es, spec, start, end, interval)
-        base = load_baseline(es, spec["name"], keys_of(spec))
-        if spec["value"] == "count" or spec.get("fill_zero"):
-            cur = _add_silent(cur, base, keys_of(spec), start, end, interval)
-        if cur.empty or base.empty:
-            print(f"  {spec['name']}：{'沒有資料' if cur.empty else '沒有 baseline，先跑 train'}")
+        keys = keys_of(spec)
+        base = load_baseline(es, spec["name"], keys)
+        if base.empty:
+            print(f"  {spec['name']}：沒有 baseline，先跑 train")
             continue
-        s = score(cur, base, keys_of(spec), direction=spec.get("direction", "both"),
-                  min_abs=spec.get("min_abs", 0.0), opts=dopts, tz=tz)
-        total += save_anomalies(es, spec["name"], keys_of(spec), s, spec.get("direction", "both"), tz)
+        base["resolution"] = base["resolution"].fillna(interval)
+        # 每種粒度各查一次：1 小時一點的序列，看的是最近一個已經結束的整點（每 5 分鐘重跑會覆蓋同一筆，不會重複）
+        for r, b in base.groupby("resolution"):
+            end_r = now.floor(_freq(r))
+            start_r = end_r - max(pd.Timedelta(args.window), pd.Timedelta(_freq(r)))
+            cur = fetch(es, spec, start_r, end_r, r)
+            ks = b[keys].drop_duplicates()
+            cur = cur.merge(ks, on=keys) if not cur.empty else cur
+            if value_kind(spec) == "count" or spec.get("fill_zero"):
+                cur = _add_silent(cur, b, keys, start_r, end_r, r)
+            if (me := min_events(cfg, spec)) is not None and not cur.empty:
+                cur = mask_thin(cur, me)
+            if cur.empty:
+                print(f"  {spec['name']}（{r} 一點）：沒有資料")
+                continue
+            s = score(cur, b, keys, direction=spec.get("direction", "both"),
+                      min_abs=spec.get("min_abs", 0.0), opts=dopts, tz=tz)
+            total += save_anomalies(es, spec["name"], keys, s, spec.get("direction", "both"), tz, resolution=r)
     print(f"共 {total} 個異常")
     return 0
 

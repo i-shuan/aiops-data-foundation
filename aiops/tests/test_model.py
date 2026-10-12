@@ -4,7 +4,7 @@ import unittest
 import numpy as np
 import pandas as pd
 
-from aiops_baseline.model import DetectOptions, TrainOptions, score, train
+from aiops_baseline.model import DetectOptions, TrainOptions, mask_thin, pick_resolution, score, train
 
 TZ = "Asia/Taipei"
 
@@ -100,3 +100,63 @@ class ScoreTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ResolutionTest(unittest.TestCase):
+    """pick_resolution：依每個時間窗的事件數選粒度。"""
+
+    def volume(self, per_5m: float, days: int = 7, svc: str = "api") -> pd.DataFrame:
+        ts = pd.date_range("2026-09-07", periods=days * 288, freq="5min", tz="UTC")
+        rng = np.random.default_rng(0)
+        return pd.DataFrame({"svc": svc, "ts": ts, "n": rng.poisson(per_5m, len(ts)).astype(float)})
+
+    def test_busy_series_stays_at_5m(self):
+        r = pick_resolution(self.volume(100), ["svc"], min_events=20)
+        self.assertEqual(r["resolution"].item(), "5m")
+
+    def test_low_volume_goes_coarser(self):
+        # 每 5 分鐘約 2 個請求：15m 約 6、30m 約 12、1h 約 24 → 1h 才夠 20
+        self.assertEqual(pick_resolution(self.volume(2), ["svc"], min_events=20)["resolution"].item(), "1h")
+        # 筆數類門檻 10：30m 就夠
+        self.assertEqual(pick_resolution(self.volume(2), ["svc"], min_events=10)["resolution"].item(), "30m")
+
+    def test_too_sparse_has_no_resolution(self):
+        r = pick_resolution(self.volume(0.1), ["svc"], min_events=20)
+        self.assertIsNone(r["resolution"].item())
+
+    def test_missing_windows_count_as_zero(self):
+        # 只有偶爾有請求（ES 裡沒有 bucket 的時段＝0 個請求），不能只看有資料的時段
+        v = self.volume(100)
+        v = v[v.index % 36 == 0]          # 每 3 小時只有一個 5 分鐘有 100 個請求；只看有資料的時段會誤選 5m
+        self.assertIsNone(pick_resolution(v, ["svc"], min_events=20)["resolution"].item())
+
+    def test_unknown_windows_are_ignored(self):
+        v = self.volume(100)
+        v.loc[v.index < 288 * 3, "n"] = np.nan   # 前 3 天收集系統停機：不知道，不是 0
+        self.assertEqual(pick_resolution(v, ["svc"], min_events=20)["resolution"].item(), "5m")
+
+    def test_each_series_decides_alone(self):
+        v = pd.concat([self.volume(100, svc="busy"), self.volume(2, svc="quiet")])
+        r = pick_resolution(v, ["svc"], min_events=20).set_index("svc")["resolution"]
+        self.assertEqual((r["busy"], r["quiet"]), ("5m", "1h"))
+
+    def test_hourly_points_fall_back_to_hour_level(self):
+        # 1 小時一點、4 週：同星期幾 × 同小時只有 4 個值（< 6）→ 退到每天同一小時
+        ts = pd.date_range("2026-09-07", periods=28 * 24, freq="1h", tz=TZ)
+        h = pd.DataFrame({"svc": "api", "ts": ts.tz_convert("UTC"), "value": 10.0 + np.arange(len(ts)) % 3})
+        b = train(h, ["svc"], TrainOptions(timezone=TZ))
+        self.assertTrue((b["level"] == "hour").all())
+
+    def test_daytime_only_api_uses_coverage(self):
+        # 白天（12 小時）每 5 分鐘 2 個、晚上幾乎沒有：1 小時窗只有一半夠 20 → 中位數不夠，但 coverage 0.3 就夠
+        v = self.volume(2)
+        v.loc[v["ts"].dt.hour >= 12, "n"] = 0.0
+        self.assertIsNone(pick_resolution(v, ["svc"], min_events=20, coverage=0.6)["resolution"].item())
+        self.assertEqual(pick_resolution(v, ["svc"], min_events=20, coverage=0.3)["resolution"].item(), "1h")
+
+    def test_mask_thin_drops_noisy_windows(self):
+        df = pd.DataFrame({"svc": ["a", "a"], "ts": pd.date_range("2026-09-07", periods=2, freq="1h", tz="UTC"),
+                           "value": [0.9, 0.1], "n": [3.0, 50.0]})
+        out = mask_thin(df, 20)
+        self.assertTrue(np.isnan(out["value"].iloc[0]))
+        self.assertEqual(out["value"].iloc[1], 0.1)

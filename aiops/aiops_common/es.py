@@ -42,6 +42,9 @@ class ES:
     def ensure_index(self, name: str, body: dict):
         if self.s.head(f"{self.url}/{name}", timeout=30).status_code == 404:
             self.req("PUT", f"/{name}", body)
+        elif body.get("mappings", {}).get("properties"):
+            # 已經有的 index 補上新加的欄位（只能加，不能改型別）
+            self.req("PUT", f"/{name}/_mapping", {"properties": body["mappings"]["properties"]})
 
     def bulk_index(self, index: str, docs: list[tuple[str, dict]], chunk: int = 2000):
         """docs：(_id, 文件)。同一個 _id 再寫一次會覆蓋，重跑不會重複。"""

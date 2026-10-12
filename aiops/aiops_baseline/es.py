@@ -14,12 +14,16 @@ BASELINE_MAPPING = {"mappings": {"dynamic": False, "properties": {
     "level": {"type": "keyword"}, "median": {"type": "double"}, "mad": {"type": "double"},
     "p05": {"type": "double"}, "p95": {"type": "double"}, "n": {"type": "integer"},
     "trained_at": {"type": "date"}, "history_from": {"type": "date"}, "history_to": {"type": "date"},
+    "resolution": {"type": "keyword"}, "method": {"type": "keyword"}, "baseline_source": {"type": "keyword"},
+    "events": {"type": "double"},
 }}}
 ANOMALY_MAPPING = {"mappings": {"dynamic": False, "properties": {
     "@timestamp": {"type": "date"}, "series": {"type": "keyword"}, "keys": _KEYS_MAPPING,
     "value": {"type": "double"}, "median": {"type": "double"}, "expected_low": {"type": "double"},
     "expected_high": {"type": "double"}, "z": {"type": "double"}, "level": {"type": "keyword"},
     "direction": {"type": "keyword"}, "detected_at": {"type": "date"},
+    "resolution": {"type": "keyword"}, "method": {"type": "keyword"}, "baseline_source": {"type": "keyword"},
+    "confidence": {"type": "keyword"},
 }}}
 
 
@@ -46,7 +50,8 @@ def _value_aggs(value) -> dict:
         n = {"value_count": {"field": arg["field"]}}
         return {"v": n, "num": {"filter": arg["query"], "aggs": {"v": n}}}
     if kind == "percentile":
-        return {"v": {"percentiles": {"field": arg["field"], "percents": [arg["percent"]]}}}
+        return {"v": {"percentiles": {"field": arg["field"], "percents": [arg["percent"]]}},
+                "n": {"value_count": {"field": arg["field"]}}}
     if kind == "ratio":
         return {"num": {"filter": arg}}
     raise ValueError(f"不認得的 value：{value}")
@@ -67,6 +72,34 @@ def _bucket_value(value, b: dict):
     return b["v"]["value"]
 
 
+def value_kind(spec: dict) -> str:
+    """count：值本身就是事件數（筆數、請求數）；rate：比例或百分位，事件數是底下的請求數；
+    gauge：量測值（CPU、記憶體），不看事件數。預先統計好的筆數（例如 {sum: requests}）設 events: value。"""
+    if spec.get("events") == "value":
+        return "count"
+    if isinstance(spec.get("events"), dict):   # 預先統計好的資料：事件數在另一個欄位（例如 {sum: requests}）
+        return spec.get("kind", "rate")
+    value = (spec.get("variants") or [spec])[0]["value"]
+    if value == "count":
+        return "count"
+    (kind, _), = value.items()
+    return {"hist_count": "count", "ratio": "rate", "hist_ratio": "rate", "percentile": "rate"}.get(kind, "gauge")
+
+
+def _bucket_events(value, b: dict):
+    """這個時間窗裡底下的事件數：選粒度用（aiops_baseline.model.pick_resolution）。量測值是 None。"""
+    if value == "count":
+        return float(b["doc_count"])
+    (kind, _), = value.items()
+    if kind in ("hist_count", "hist_ratio"):
+        return b["v"]["value"]
+    if kind == "ratio":
+        return float(b["doc_count"])
+    if kind == "percentile":
+        return b["n"]["value"]
+    return None
+
+
 def fetch(es: ES, spec: dict, start: pd.Timestamp, end: pd.Timestamp, interval: str | None) -> pd.DataFrame:
     """有 variants 時：同一個指標在不同語言的欄位名稱不同（Java 經 Prometheus 是 http_server_request_duration_seconds、
     .NET 用 OTLP 推是 http.server.request.duration），每個 variant 各查一次，by 的欄位換成統一的 keys 再合併。"""
@@ -77,7 +110,7 @@ def fetch(es: ES, spec: dict, start: pd.Timestamp, end: pd.Timestamp, interval: 
             df = _fetch_one(es, sub, start, end, interval)
             parts.append(df.rename(columns=dict(zip(v["by"], spec["keys"]))))
         parts = [p for p in parts if not p.empty]
-        return pd.concat(parts, ignore_index=True) if parts else pd.DataFrame(columns=spec["keys"] + ["ts", "value"])
+        return pd.concat(parts, ignore_index=True) if parts else pd.DataFrame(columns=spec["keys"] + ["ts", "value", "n"])
     return _fetch_one(es, spec, start, end, interval)
 
 
@@ -85,7 +118,7 @@ def _fetch_one(es: ES, spec: dict, start: pd.Timestamp, end: pd.Timestamp, inter
     """把一條序列定義在 [start, end) 的資料，依 by 欄位和 interval 切好。interval 是 None 時整段算一個值（ts 是 end），
     跟兄弟比（peer.py）用：每個 Pod 最近 10 分鐘的錯誤率、p95。
 
-    回傳欄位：by 的每個欄位 + ts + value。筆數類（count、或 fill_zero: true）沒有資料的時段補 0：
+    回傳欄位：by 的每個欄位 + ts + value + n（底下的事件數，見 _bucket_events；events: value 時就是 value）。筆數類（count、或 fill_zero: true）沒有資料的時段補 0：
     沒有請求就是 0，不是「不知道」。這也是為什麼資料不能缺，缺了會被學成「平常會掉到 0」。
     """
     by = spec["by"]
@@ -95,8 +128,11 @@ def _fetch_one(es: ES, spec: dict, start: pd.Timestamp, end: pd.Timestamp, inter
     sources = [{f"k{i}": {"terms": {"field": f}}} for i, f in enumerate(by)]
     if interval:
         sources.append({"ts": {"date_histogram": {"field": spec.get("time_field", "@timestamp"), "fixed_interval": interval}}})
+    aggs = _value_aggs(spec["value"])
+    if isinstance(spec.get("events"), dict):
+        aggs["n"] = _value_aggs(spec["events"])["v"]
     body = {"size": 0, "query": {"bool": {"filter": filters}},
-            "aggs": {"s": {"composite": {"size": 5000, "sources": sources}, "aggs": _value_aggs(spec["value"])}}}
+            "aggs": {"s": {"composite": {"size": 5000, "sources": sources}, "aggs": aggs}}}
     rows, after = [], None
     while True:
         if after:
@@ -107,11 +143,13 @@ def _fetch_one(es: ES, spec: dict, start: pd.Timestamp, end: pd.Timestamp, inter
             row = {f: b["key"][f"k{i}"] for i, f in enumerate(by)}
             row["ts"] = pd.Timestamp(b["key"]["ts"], unit="ms", tz="UTC") if interval else end
             row["value"] = _bucket_value(spec["value"], b)
+            ev = spec.get("events")
+            row["n"] = row["value"] if ev == "value" else b["n"]["value"] if isinstance(ev, dict) else _bucket_events(spec["value"], b)
             rows.append(row)
         after = agg.get("after_key")
         if not after:
             break
-    df = pd.DataFrame(rows, columns=by + ["ts", "value"])
+    df = pd.DataFrame(rows, columns=by + ["ts", "value", "n"])
     if interval and (spec["value"] == "count" or spec.get("fill_zero")):
         df = _fill_zero(df, by, start, end, interval)
     return df
@@ -131,13 +169,21 @@ def _fill_zero(df: pd.DataFrame, by: list[str], start, end, interval) -> pd.Data
     for key_vals, g in df.groupby(by, sort=False):
         key_vals = key_vals if isinstance(key_vals, tuple) else (key_vals,)
         s = g.set_index("ts")["value"].reindex(grid)
+        n = g.set_index("ts")["n"].reindex(grid) if "n" in g else pd.Series(None, index=grid, dtype=float)
         known = (grid >= g["ts"].min()) & grid.isin(alive)
-        s[known & s.isna()] = 0.0
-        part = pd.DataFrame({"ts": s.index, "value": s.to_numpy()})
+        fill = known & s.isna()
+        s[fill] = 0.0
+        n[fill] = 0.0
+        part = pd.DataFrame({"ts": s.index, "value": s.to_numpy(), "n": n.to_numpy()})
         for f, v in zip(by, key_vals):
             part[f] = v
         out.append(part)
-    return pd.concat(out, ignore_index=True)[by + ["ts", "value"]]
+    return pd.concat(out, ignore_index=True)[by + ["ts", "value", "n"]]
+
+
+# 讀回來的欄位。method 存成 baseline_method：序列的 keys 也可能有 method（HTTP method），會撞名
+BASELINE_COLUMNS = ("dow", "hour", "level", "median", "mad", "resolution", "baseline_method", "baseline_source")
+_RENAMED = {"baseline_method": "method"}
 
 
 def load_baseline(es: ES, series: str, by: list[str]) -> pd.DataFrame:
@@ -149,8 +195,8 @@ def load_baseline(es: ES, series: str, by: list[str]) -> pd.DataFrame:
         hits = es.req("POST", f"/{BASELINE_INDEX}/_search?ignore_unavailable=true", body).get("hits", {}).get("hits", [])
         for h in hits:
             s = h["_source"]
-            rows.append({**{f: s["keys"].get(f) for f in by}, **{k: s[k] for k in ("dow", "hour", "level", "median", "mad")}})
+            rows.append({**{f: s["keys"].get(f) for f in by}, **{k: s.get(_RENAMED.get(k, k)) for k in BASELINE_COLUMNS}})
         if len(hits) < 10000:
             break
         after = hits[-1]["sort"]
-    return pd.DataFrame(rows, columns=by + ["dow", "hour", "level", "median", "mad"])
+    return pd.DataFrame(rows, columns=by + list(BASELINE_COLUMNS))
