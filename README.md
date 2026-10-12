@@ -83,6 +83,7 @@
    |---|---|---|
    | **補 baseline** | p99、慢請求比例（超過 N 秒的請求佔多少）、往外呼叫的耗時（`http.client.request.duration`） | 已確認 ES 的 `percentile_ranks` 能在直方圖上算「N 秒內的比例」；往外呼叫要排除 .NET 送資料給 Collector 自己的那幾筆。**重啟次數不做 baseline**：規則已經是重啟一次就報 |
    | **自動調整 baseline**（✅ 已做，正式環境要定義 `groups`） | ① 每條序列依事件數自己選粒度（5m／15m／30m／1h）② 很稀少的筆數改用卜瓦松 ③ 新 API、量少的 API 借同類的 baseline（只限比例、延遲類）；異常帶 `resolution`、`method`、`baseline_source`、`confidence` | MES、EAP、設備多是低頻資料。設計見 [aiops/baseline/README.md「自動調整」](aiops/baseline/README.md#自動調整粒度低頻事件借用-baseline) |
+   | **移動式 baseline／變化點偵測（輔助）** | 跟「剛剛」比（最近 1 小時、EWMA），標出「哪個時間點突然變了」：補新服務前幾天、換版後跳一階就停在新位置（時間序列會連報幾週）。不當主力：工廠週期明顯，會一直誤報 | 三類 baseline 的比較見 [docs/system-map.md](docs/system-map.md#baseline-的三大類我們用哪種) |
    | **整合：跟兄弟比 → trace** | metrics 報「pod-B 比兄弟慢」後，自動拿 pod-B 的 trace 跟其他 Pod 逐段比，指出是哪一段（例如只有它查 DB 慢 → 不是 DB 的問題，是這個 Pod 的連線或節點） | 接進根因分析（`aiops/rca`） |
    | **整合：告警出口、合併** | 現在 baseline、規則、跟兄弟比都只寫進 `aiops-anomalies`；同一件事會有好幾筆（服務錯誤率、Pod 錯誤率、連線池用光） | 跟第 3 點「合併告警」一起做 |
    | **慢慢爬**（趨勢） | 洩漏、磁碟好幾天才滿：算斜率、預測幾天後到上限 | 要累積幾天資料 |
