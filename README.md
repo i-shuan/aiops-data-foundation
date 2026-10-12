@@ -20,7 +20,7 @@
 - [docs/metrics.md](docs/metrics.md)：metrics 怎麼進 ES。OpenTelemetry Collector 收 kubelet、K8s 物件狀態、應用的 Prometheus metrics，依每筆資料自己的 namespace 讀 dept 分 group，寫進 ES 的 time series data stream。分部門的規則與 key 跟 log 共用。已在 k3s 上端到端驗證。
 - [docs/traces.md](docs/traces.md)：trace 怎麼進 ES。應用送到同節點的 OpenTelemetry Collector，依連線來源的 Pod 讀 namespace 的 dept 分 group，擋冒充；log 的 `trace.id` 對得到 trace。已在 k3s 上端到端驗證。
 - [apps/standards/tracing.md](apps/standards/tracing.md)：給應用團隊的 trace 埋點指引：哪些自動有、什麼時候要自己加、怎麼加、命名規則、取樣。
-- [docs/aiops-llm-mlops.md](docs/aiops-llm-mlops.md)：**後期接 LLM 還是 MLOps**：兩者在哪一層、LLM 能取代機器學習的哪些部分；決定 IT 服務用「統計＋LLM」，MLOps 留到機台、製程再評估。
+- [docs/aiops-llm-mlops.md](docs/aiops-llm-mlops.md)：**後期接 LLM 還是 MLOps**：定案以 LLMOps 為主軸、借機器學習的紀律（版本、評測、回測、feedback 閉環），統計層繼續偵測，不自己訓練模型；MLOps 留到機台、製程再評估。
 - [docs/aiops-rca.md](docs/aiops-rca.md)：**AIOps 根因分析怎麼做**：三種資料各回答什麼、六個步驟裡哪幾步需要 AI，以及最關鍵的「怎麼知道平常的樣子」（看哪些指標、週期、方法、需要的條件）。
 - [docs/aiops-metrics.md](docs/aiops-metrics.md)：**metrics 收了哪些、哪些有 baseline、能做到什麼**：五種做法（跟平常比、離極限多遠、慢慢爬、跟兄弟比、狀態變化）與做不到的。
 - [docs/aiops-metrics-cases.md](docs/aiops-metrics-cases.md)：**指標四個領域的案例與實測**：CPU 被限流、記憶體洩漏（真的 Java＋agent）、連線池用光＋Kafka 落後、機台通訊與 PLC，在 k3s 上做出來確認抓得到；附 JVM、連線池的實際指標名稱與機台指標的命名提案。
@@ -75,7 +75,7 @@
 
    不買的話，AIOps 要自己做（例如 Python 從 ES 讀資料跑模型），資料地基不用改。
 2. **保留天數要定案並套用。** ⚠️ metrics、trace 現在用 ES 預設的 ILM，**只有 rollover、不會刪除**，硬碟遲早滿。方案見 [docs/retention.md](docs/retention.md)：metrics 原始 14 天、降成 5 分鐘留到 90 天、降成 1 小時留到 400 天；log 原文 30 天＋統計值 400 天；trace 原始 7 天＋從 trace 算的指標 400 天。要決定天數、副本，並用正式環境的量重算容量。
-3. **AIOps 分兩階段推進：先一般服務，再 EAP 與機台。** 階段 1 在 Web API、worker 上把三種資料串接、baseline、事故紀錄、合併告警跑通；還沒做的是從 metrics 跳到慢 trace、連續異常才報、事故紀錄、合併告警，以及用 4 週真實資料驗證 baseline。階段 2 再接 EAP：SECS 解析規則、載具／腔體／交易 ID 的欄位名稱、機台交握耗時與告警的 baseline。底層共用，不用重寫。之後接 LLM（合併、判斷真假、摘要）或 MLOps（機台、製程）都要事故紀錄和告警回饋，見 [docs/aiops-llm-mlops.md](docs/aiops-llm-mlops.md)。清單見 [docs/aiops-rca.md「推進的兩個階段」](docs/aiops-rca.md#推進的兩個階段先一般服務再-eap-與機台)。
+3. **AIOps 分兩階段推進：先一般服務，再 EAP 與機台。** 階段 1 在 Web API、worker 上把三種資料串接、baseline、事故紀錄、合併告警跑通；還沒做的是從 metrics 跳到慢 trace、連續異常才報、事故紀錄、合併告警，以及用 4 週真實資料驗證 baseline。階段 2 再接 EAP：SECS 解析規則、載具／腔體／交易 ID 的欄位名稱、機台交握耗時與告警的 baseline。底層共用，不用重寫。之後接 LLM（合併、判斷真假、摘要）都要事故紀錄和告警回饋，還要補：訓練排除事故時段、baseline 與設定帶版本、回測指令、LLM 評測集，見 [docs/aiops-llm-mlops.md](docs/aiops-llm-mlops.md)。清單見 [docs/aiops-rca.md「推進的兩個階段」](docs/aiops-rca.md#推進的兩個階段先一般服務再-eap-與機台)。
 4. **metrics 這段剩下的（branch `claude/aiops-metrics` 先停在這裡，接下來討論 trace）。** 已做：收資料（Java、.NET、K8s、cAdvisor）、7 條 baseline、狀態變化與離極限多遠的規則、跟兄弟比，四個領域的案例都在 k3s 驗過（[docs/aiops-metrics.md](docs/aiops-metrics.md)、[docs/aiops-metrics-cases.md](docs/aiops-metrics-cases.md)、[docs/dotnet.md](docs/dotnet.md)）。剩下：
 
    | 項目 | 內容 | 備註 |
