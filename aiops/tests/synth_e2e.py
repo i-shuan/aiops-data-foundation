@@ -31,6 +31,10 @@ INJECT = [
 ]
 
 
+# 連續的異常（台北時間）：mes-api 18:00 起連續 3 個 5 分鐘錯誤數暴增 → 18:00 warning、18:05、18:10 anomaly
+SUSTAINED = ("mes-api", "18:00", 3, "errors", lambda v: v + 40)
+
+
 def make() -> pd.DataFrame:
     rng = np.random.default_rng(42)
     ts = pd.date_range(HISTORY_START, TODAY + pd.Timedelta(days=1), freq="5min", inclusive="left")
@@ -46,6 +50,11 @@ def make() -> pd.DataFrame:
     df = pd.concat(rows, ignore_index=True)
     for svc, hhmm, field, fn, _ in INJECT:
         at = TODAY + pd.Timedelta(hours=int(hhmm[:2]), minutes=int(hhmm[3:]))
+        i = df.index[(df.service == svc) & (df.ts == at)]
+        df.loc[i, field] = df.loc[i, field].map(fn)
+    svc, hhmm, n, field, fn = SUSTAINED
+    for k in range(n):
+        at = TODAY + pd.Timedelta(hours=int(hhmm[:2]), minutes=int(hhmm[3:]) + 5 * k)
         i = df.index[(df.service == svc) & (df.ts == at)]
         df.loc[i, field] = df.loc[i, field].map(fn)
     return df
@@ -75,17 +84,41 @@ def main() -> int:
 
     es.req("POST", f"/{ANOMALY_INDEX}/_refresh")
     hits = es.req("POST", f"/{ANOMALY_INDEX}/_search", {"size": 1000, "query": {"prefix": {"series": "synth."}}})["hits"]["hits"]
-    found = {(h["_source"]["series"], h["_source"]["keys"]["service"],
-              pd.Timestamp(h["_source"]["@timestamp"]).tz_convert(TZ).strftime("%H:%M")) for h in hits}
+    hits = [h for h in hits if not h["_source"].get("live")]
+    status = {(h["_source"]["series"], h["_source"]["keys"]["service"],
+               pd.Timestamp(h["_source"]["@timestamp"]).tz_convert(TZ).strftime("%H:%M")): h["_source"].get("status")
+              for h in hits}
+    found = set(status)
     series_of = {"requests": "synth.requests", "latency_ms": "synth.latency", "errors": "synth.errors"}
-    expected = {(series_of[f], svc, hhmm) for svc, hhmm, f, _, _ in INJECT}
+    svc_s, hhmm_s, n_s, field_s, _ = SUSTAINED
+    sustained = [(series_of[field_s], svc_s, (pd.Timedelta(hhmm_s + ":00") + pd.Timedelta(minutes=5 * k)).components)
+                 for k in range(n_s)]
+    sustained = [(s_, v_, f"{c.hours:02d}:{c.minutes:02d}") for s_, v_, c in sustained]
+    expected = {(series_of[f], svc, hhmm) for svc, hhmm, f, _, _ in INJECT} | set(sustained)
 
     print("\n== 結果")
     fail = 0
     for svc, hhmm, f, _, desc in INJECT:
-        ok = (series_of[f], svc, hhmm) in found
+        st = status.get((series_of[f], svc, hhmm))
+        ok = st == "warning"
         fail += not ok
-        print(f"  {'PASS' if ok else 'FAIL'}  {svc} {hhmm} {desc}")
+        print(f"  {'PASS' if ok else 'FAIL'}  {svc} {hhmm} {desc}：只跳一個點 → {st}（應該是 warning）")
+    got = [status.get(k) for k in sustained]
+    ok = got == ["warning"] + ["anomaly"] * (n_s - 1)
+    fail += not ok
+    print(f"  {'PASS' if ok else 'FAIL'}  {svc_s} {hhmm_s} 起連續 {n_s} 個 5 分鐘錯誤數暴增 → {got}（應該是 warning、anomaly、anomaly）")
+
+    # 即時檢查：18:07 看最近 5 分鐘（含 18:05 那一點）→ 先發 warning（live），不是 anomaly
+    at = TODAY + pd.Timedelta(hhmm_s + ":00") + pd.Timedelta(minutes=7)
+    print(f"\n== 即時檢查（{at:%H:%M}）")
+    cli(["live", "--config", CONFIG, "--ticks", "1", "--at", at.tz_convert("UTC").isoformat()])
+    es.req("POST", f"/{ANOMALY_INDEX}/_refresh")
+    live = es.req("POST", f"/{ANOMALY_INDEX}/_search", {"size": 100, "query": {"bool": {"filter": [
+        {"prefix": {"series": "synth."}}, {"term": {"live": True}}]}}})["hits"]["hits"]
+    lv = {(h["_source"]["series"], h["_source"]["keys"]["service"], h["_source"]["status"]) for h in live}
+    ok = (series_of[field_s], svc_s, "warning") in lv and all(st == "warning" for _, _, st in lv)
+    fail += not ok
+    print(f"  {'PASS' if ok else 'FAIL'}  即時檢查發出 warning、不直接算 anomaly：{sorted(lv)}")
     false_pos = found - expected
     points = len(SERVICES) * 288 * len(series_of)
     rate = len(false_pos) / points

@@ -2,11 +2,14 @@
 
   python3 -m aiops_baseline train  --config baseline/series.yaml [--weeks 4] [--end 2026-10-10T00:00:00Z]
   python3 -m aiops_baseline detect --config baseline/series.yaml [--window 30m] [--at 2026-10-10T08:00:00Z]
+  python3 -m aiops_baseline live   --config baseline/series.yaml [--every 30s] [--ticks N]
   python3 -m aiops_baseline rules  --config baseline/rules.yaml  [--at …] [--only 規則,…]
   python3 -m aiops_baseline peer   --config baseline/peer.yaml   [--at …] [--only 檢查,…]
 
 train ：讀過去 N 週的資料，每條序列、每個時段學出中位數與波動範圍，寫進 ES 的 aiops-baseline。
 detect：讀最近一段時間的資料，跟 baseline 比，超出範圍的寫進 aiops-anomalies，並印出來。
+        跳一次是 warning，同一條序列連續兩個時間窗超標（或連續超標滿 30 分鐘）才是 anomaly。
+live  ：常駐，每 30 秒看最近一個時間窗（滑動），超標就先發 warning；升級成 anomaly 由 detect 決定。
 rules ：狀態變化、離極限多遠（不用學）。
 peer  ：跟兄弟比，同一個服務的 Pod 互相比，抓只有一個 Pod 壞掉（不用學）。
 --end、--at 用來回測（拿過去某個時間點當成「現在」）；不給就是現在。
@@ -28,7 +31,7 @@ from . import peer as P
 from . import rules as R
 from . import trace as T
 from .model import (CONFIDENCE, RESOLUTIONS, DetectOptions, TrainOptions, mask_thin, pick_resolution, score,
-                    group_of, score_poisson, to_freq, train, train_groups)
+                    group_of, mark_status, score_poisson, to_freq, train, train_groups)
 
 
 def keys_of(spec: dict) -> list[str]:
@@ -102,8 +105,21 @@ def series_resolutions(cfg: dict, spec: dict, hist: pd.DataFrame, keys: list[str
                            base=base, resolutions=ad.get("resolutions", RESOLUTIONS), coverage=ad.get("coverage", 0.3))
 
 
+def _keep_upgraded(es, docs: list) -> None:
+    """不降級：同一個時間窗上一輪已經判成 anomaly（當時看得到前一個時間窗），這一輪查的範圍沒包含前一個時間窗、
+    只能判成 warning 時，保留 anomaly。"""
+    ids = [i for i, d in docs if d["status"] == "warning"]
+    if not ids:
+        return
+    got = es.req("POST", f"/{ANOMALY_INDEX}/_mget?_source_includes=status,streak", {"ids": ids}).get("docs", [])
+    was = {g["_id"]: g["_source"] for g in got if g.get("found") and g["_source"].get("status") == "anomaly"}
+    for i, d in docs:
+        if i in was:
+            d["status"], d["streak"] = "anomaly", was[i].get("streak", d.get("streak"))
+
+
 def save_anomalies(es, name: str, by: list[str], s: pd.DataFrame, direction: str, tz: str,
-                   resolution: str | None = None, note: str = "") -> int:
+                   resolution: str | None = None, note: str = "", live: bool = False) -> int:
     """把 score 的結果裡異常的點寫進 aiops-anomalies，印出最嚴重的 5 個。回傳異常數。
 
     每筆帶 resolution（粒度）、method、baseline_source、confidence，讓根因分析知道這個 baseline 可不可信。
@@ -114,22 +130,31 @@ def save_anomalies(es, name: str, by: list[str], s: pd.DataFrame, direction: str
     for r in hits.to_dict("records"):
         keys = {f: r[f] for f in by}
         source = _v(r.get("baseline_source")) or "self"
+        status = "warning" if live else (_v(r.get("status")) or "anomaly")
         level = r["level"] if source == "self" else "group"
-        docs.append((doc_id(name, keys, r["ts"]), {
+        # 即時檢查：同一個時間窗只留一筆（每 30 秒更新成最新的值），不會每 30 秒多一筆
+        _id = doc_id(name, keys, "live", r["ts"].floor(_freq(resolution or "5m"))) if live else doc_id(name, keys, r["ts"])
+        docs.append((_id, {
             "@timestamp": r["ts"].isoformat(), "series": name, "keys": keys, "value": r["value"],
             "median": r["median"], "expected_low": r["expected_low"], "expected_high": r["expected_high"],
             "z": r["z"], "level": level, "direction": direction, "detected_at": detected_at,
             "resolution": resolution, "method": _v(r.get("baseline_method")) or "mad", "baseline_source": source,
-            "confidence": CONFIDENCE.get(level, "low"), **({"p": r["p"]} if "p" in r else {})}))
+            "confidence": CONFIDENCE.get(level, "low"), "status": status, **({"live": True} if live else {}),
+            **({"streak": int(r["streak"])} if _v(r.get("streak")) is not None else {}),
+            **({"p": r["p"]} if "p" in r else {})}))
     if docs:
+        _keep_upgraded(es, docs)
         es.bulk_index(ANOMALY_INDEX, docs)
     res = f"（{resolution} 一點{note}）" if resolution else ""
-    print(f"  {name}{res}：{s.groupby(by, dropna=False).ngroups} 條序列、{len(s)} 個點，異常 {len(docs)} 個")
+    n_warn = sum(d["status"] == "warning" for _, d in docs)
+    print(f"  {name}{res}：{s.groupby(by, dropna=False).ngroups} 條序列、{len(s)} 個點，"
+          f"異常 {len(docs) - n_warn} 個、warning {n_warn} 個")
     for (_, d), r in sorted(zip(docs, hits.to_dict("records")), key=lambda x: -abs(x[1]["z"]))[:5]:
         keys = ", ".join(str(r[f]) for f in by)
         how = f"機率 {r['p']:.1e}，卜瓦松" if d["method"] == "poisson" else f"z={r['z']:.1f}"
         print(f"    {r['ts'].tz_convert(tz):%m-%d %H:%M}  {keys}：{r['value']:.3g}（平常 {r['median']:.3g}，"
-              f"範圍 {r['expected_low']:.3g}～{r['expected_high']:.3g}，{how}，{d['level']}，可信度 {d['confidence']}）")
+              f"範圍 {r['expected_low']:.3g}～{r['expected_high']:.3g}，{how}，{d['level']}，可信度 {d['confidence']}）"
+              f"{'' if d['status'] == 'anomaly' else '  ← warning（跳一次，還沒連續）'}")
     return len(docs)
 
 
@@ -201,6 +226,14 @@ def _add_silent(cur: pd.DataFrame, base: pd.DataFrame, by: list[str], start, end
     return pd.concat([cur, zeros[by + ["ts", "value", "n"]]], ignore_index=True)
 
 
+def with_status(cfg: dict, s: pd.DataFrame, keys: list[str], step: str, start) -> pd.DataFrame:
+    """超標的點分 warning（跳一次）／anomaly（連續）。只回傳 start 之後的點：start 之前那一個時間窗是多查的，
+    用來知道「前一個時間窗有沒有超標」，不重寫（它在上一輪已經判斷過）。"""
+    st = cfg.get("status", {})
+    out = mark_status(s, keys, step, st.get("confirm_points", 2), st.get("confirm_span", "30m"))
+    return out[out["ts"] >= start]
+
+
 def borrow_resolution(cfg: dict) -> str:
     """借來的 baseline 用多粗的粒度判斷：預設最粗的（本來就是可信度低的判斷，用粗一點的窗比較穩）。"""
     return cfg.get("borrowing", {}).get("resolution") or (cfg.get("adaptive") or {}).get("resolutions", RESOLUTIONS)[-1]
@@ -215,7 +248,7 @@ def detect_borrowed(es, cfg: dict, spec: dict, own: pd.DataFrame, now, window, d
     r = borrow_resolution(cfg)
     end_r = now.floor(_freq(r))
     start_r = end_r - max(window, pd.Timedelta(_freq(r)))
-    cur = fetch(es, spec, start_r, end_r, r)
+    cur = fetch(es, spec, start_r - pd.Timedelta(_freq(r)), end_r, r)
     if cur.empty:
         return 0
     if not own.empty:
@@ -236,10 +269,65 @@ def detect_borrowed(es, cfg: dict, spec: dict, own: pd.DataFrame, now, window, d
     bz = dataclasses.replace(dopts, z=cfg.get("borrowing", {}).get("z", 7.0))
     s = score(cur.merge(pick[keys], on=keys), base, keys, direction=spec.get("direction", "both"),
               min_abs=spec.get("min_abs", 0.0), opts=bz, tz=tz)
-    s = s.merge(pick, on=keys, how="left")
+    s = with_status(cfg, s.merge(pick, on=keys, how="left"), keys, r, start_r)
     s["baseline_source"] = "group:" + s["group"].astype(str)
     return save_anomalies(es, spec["name"], keys, s.drop(columns="group"), spec.get("direction", "both"), tz, resolution=r,
                           note=f"，借 {'、'.join(sorted(pick['group'].unique()))} 的 baseline，z 門檻 {bz.z:g}")
+
+
+def live_tick(es, cfg: dict, now, dopts, tz, cache: dict) -> int:
+    """即時檢查：每條序列算「最近一個時間窗長度」的滑動窗（5 分鐘一點的序列就是最近 5 分鐘），跟這個時段的 baseline 比。
+    只發 warning（live）：前後兩次的滑動窗大部分重疊，一個尖峰會連續好幾次都超標，不能拿來算「連續」；
+    要不要升級成 anomaly，由不重疊的時間窗（detect）決定。"""
+    total = 0
+    for spec in cfg["series"]:
+        keys = keys_of(spec)
+        if spec["name"] not in cache:
+            cache[spec["name"]] = load_baseline(es, spec["name"], keys)
+        base = cache[spec["name"]]
+        if base.empty:
+            continue
+        base = base.assign(resolution=base["resolution"].fillna(cfg.get("interval", "5m")),
+                           baseline_method=base["baseline_method"].fillna("mad"))
+        for r, b in base.groupby("resolution"):
+            cur = fetch(es, spec, now - pd.Timedelta(_freq(r)), now, None)
+            if cur.empty:
+                continue
+            cur = cur.merge(b[keys].drop_duplicates(), on=keys)
+            if (me := min_events(cfg, spec)) is not None and not cur.empty:
+                cur = mask_thin(cur, me)
+            for method, bm in b.groupby("baseline_method"):
+                cm = cur.merge(bm[keys].drop_duplicates(), on=keys)
+                if cm.empty:
+                    continue
+                fn = score_poisson if method == "poisson" else score
+                sc = fn(cm, bm, keys, direction=spec.get("direction", "both"), min_abs=spec.get("min_abs", 0.0),
+                        opts=dopts, tz=tz).assign(baseline_method=method)
+                if sc["anomaly"].any():
+                    total += save_anomalies(es, spec["name"], keys, sc, spec.get("direction", "both"), tz,
+                                            resolution=r, note="，即時", live=True)
+    return total
+
+
+def cmd_live(cfg: dict, args) -> int:
+    """每 every（預設 30 秒）跑一次 live_tick。baseline 每 10 分鐘重讀一次（train 每天才更新）。"""
+    import time
+    es = ES()
+    es.ensure_index(ANOMALY_INDEX, ANOMALY_MAPPING)
+    tz = cfg.get("train", {}).get("timezone", "Asia/Taipei")
+    dopts = DetectOptions(**cfg.get("detect", {}))
+    every = pd.Timedelta(args.every).total_seconds()
+    cache, loaded, n = {}, None, 0
+    while args.ticks is None or n < args.ticks:
+        now = _now(args.at)
+        if loaded is None or now - loaded > pd.Timedelta("10min"):
+            cache, loaded = {}, now
+        found = live_tick(es, cfg, now, dopts, tz, cache)
+        print(f"{now.tz_convert(tz):%m-%d %H:%M:%S} 即時檢查：warning {found} 個")
+        n += 1
+        if args.ticks is None or n < args.ticks:
+            time.sleep(every)
+    return 0
 
 
 def cmd_detect(cfg: dict, args) -> int:
@@ -267,11 +355,13 @@ def cmd_detect(cfg: dict, args) -> int:
         for r, b in base.groupby("resolution"):
             end_r = now.floor(_freq(r))
             start_r = end_r - max(pd.Timedelta(args.window), pd.Timedelta(_freq(r)))
-            cur = fetch(es, spec, start_r, end_r, r)
+            # 多查前一個時間窗：判斷「連續」要知道前一個有沒有超標
+            prev_r = start_r - pd.Timedelta(_freq(r))
+            cur = fetch(es, spec, prev_r, end_r, r)
             ks = b[keys].drop_duplicates()
             cur = cur.merge(ks, on=keys) if not cur.empty else cur
             if value_kind(spec) == "count" or spec.get("fill_zero"):
-                cur = _add_silent(cur, b, keys, start_r, end_r, r)
+                cur = _add_silent(cur, b, keys, prev_r, end_r, r)
             if (me := min_events(cfg, spec)) is not None and not cur.empty:
                 cur = mask_thin(cur, me)
             if cur.empty:
@@ -285,6 +375,7 @@ def cmd_detect(cfg: dict, args) -> int:
                     continue
                 s = fn(cm, bm, keys, direction=spec.get("direction", "both"),
                        min_abs=spec.get("min_abs", 0.0), opts=dopts, tz=tz).assign(baseline_method=method)
+                s = with_status(cfg, s, keys, r, start_r)
                 total += save_anomalies(es, spec["name"], keys, s, spec.get("direction", "both"), tz, resolution=r)
     print(f"共 {total} 個異常")
     return 0
@@ -356,6 +447,7 @@ def cmd_trace_detect(cfg: dict, args) -> int:
         rule = cfg.get("metrics", {}).get(m, {})
         s = score(_metric_frame(c, m), base, T.KEYS, direction=rule.get("direction", "both"),
                   min_abs=rule.get("min_abs", 0.0), opts=dopts, tz=tz)
+        s = with_status(cfg, s, T.KEYS, cfg.get("interval", "5m"), start)
         total += save_anomalies(es, name, T.KEYS, s, rule.get("direction", "both"), tz)
     # 沒見過的呼叫：規則，這支 API 有 baseline、但這一段從來沒出現過
     base = load_baseline(es, "trace.segment.calls", T.KEYS)
@@ -505,6 +597,11 @@ def main(argv=None) -> int:
     d.add_argument("--config", required=True)
     d.add_argument("--window", default="30min")
     d.add_argument("--at")
+    lv = sub.add_parser("live", help="即時檢查：每 30 秒比最近一個時間窗，只發 warning")
+    lv.add_argument("--config", required=True)
+    lv.add_argument("--every", default="30s")
+    lv.add_argument("--ticks", type=int, help="跑幾次就停（測試用；不給就一直跑）")
+    lv.add_argument("--at", help="回測：拿過去某個時間點當成現在")
     tc = sub.add_parser("trace-collect")
     tc.add_argument("--config", required=True)
     tc.add_argument("--start")
@@ -528,7 +625,7 @@ def main(argv=None) -> int:
     args = p.parse_args(argv)
     with open(args.config, encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
-    cmds = {"train": cmd_train, "detect": cmd_detect, "trace-collect": cmd_trace_collect,
+    cmds = {"train": cmd_train, "detect": cmd_detect, "live": cmd_live, "trace-collect": cmd_trace_collect,
             "trace-train": cmd_trace_train, "trace-detect": cmd_trace_detect, "rules": cmd_rules, "peer": cmd_peer}
     return cmds[args.cmd](cfg, args)
 

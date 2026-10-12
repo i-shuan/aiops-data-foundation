@@ -81,7 +81,8 @@ def pick_from_anomalies(es, cfg, start, end):
     """沒指定服務：從 baseline 寫的異常裡，挑這段時間最嚴重的服務（偏離倍數最大），時間範圍取它異常的那段。
     異常帶著 method、API 的話（http.* 序列），也只查那支 API。"""
     rows = E.anomalies(es, cfg["indices"]["anomalies"], start, end)
-    rows = [r for r in rows if _svc_of(r.get("keys") or {})]
+    # warning（只跳一次、或即時檢查的）不觸發根因分析；沒有 status 的是規則、跟兄弟比，照算
+    rows = [r for r in rows if _svc_of(r.get("keys") or {}) and r.get("status", "anomaly") == "anomaly"]
     if not rows:
         return None
     top = max(rows, key=lambda r: abs(r.get("z") or 0))
@@ -131,7 +132,8 @@ def investigate(cfg: dict, args) -> str:
             z = (f"機率 {r['p']:.1e}" if r.get("method") == "poisson" and r.get("p") is not None
                  else f"{r['z']:.1f} 倍" if r.get("z") is not None else "規則")
             med = f"{r['median']:.4g}" if r.get("median") is not None else "—"
-            out.append(f"| {_local(_ts(r['@timestamp']), tz)} | `{r['series']}` | {r['keys'].get('segment', '')} "
+            warn = "（warning）" if r.get("status") == "warning" else ""
+            out.append(f"| {_local(_ts(r['@timestamp']), tz)}{warn} | `{r['series']}` | {r['keys'].get('segment', '')} "
                        f"| {r['value']:.4g} | {med} | {z} | {_trust(r)} |")
         if len(found) > 10:
             out.append(f"| … | 共 {len(found)} 筆 | | | | | |")

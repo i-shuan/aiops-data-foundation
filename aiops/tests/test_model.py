@@ -4,8 +4,8 @@ import unittest
 import numpy as np
 import pandas as pd
 
-from aiops_baseline.model import (DetectOptions, TrainOptions, group_of, mask_thin, pick_resolution, score,
-                                  score_poisson, train, train_groups)
+from aiops_baseline.model import (DetectOptions, TrainOptions, group_of, mark_status, mask_thin, pick_resolution,
+                                  score, score_poisson, train, train_groups)
 
 TZ = "Asia/Taipei"
 
@@ -226,3 +226,40 @@ class GroupTest(unittest.TestCase):
     def test_too_few_members_no_group(self):
         own = pd.DataFrame([{"svc": "mes-1", "route": "/query", "dow": 0, "hour": 10, "level": "all", "median": 1.0, "mad": 0.1}])
         self.assertTrue(train_groups(own, ["svc", "route"], self.GROUPS, min_members=3).empty)
+
+
+class StatusTest(unittest.TestCase):
+    """跳一次 warning，連續兩次 anomaly；粗粒度一個點就夠長。"""
+
+    def frame(self, flags, step="5min", values=None):
+        ts = pd.date_range("2026-10-05", periods=len(flags), freq=step, tz="UTC")
+        v = values or [200.0 if f else 100.0 for f in flags]
+        return pd.DataFrame({"svc": "a", "ts": ts, "value": v, "median": 100.0, "anomaly": flags})
+
+    def test_single_jump_is_warning(self):
+        s = mark_status(self.frame([False, True, False]), ["svc"], "5m")
+        self.assertEqual(s["status"].tolist(), [None, "warning", None])
+
+    def test_two_in_a_row_is_anomaly(self):
+        s = mark_status(self.frame([False, True, True, True, False]), ["svc"], "5m")
+        self.assertEqual(s["status"].tolist(), [None, "warning", "anomaly", "anomaly", None])
+
+    def test_gap_resets(self):
+        s = mark_status(self.frame([True, False, True]), ["svc"], "5m")
+        self.assertEqual(s["status"].tolist(), ["warning", None, "warning"])
+
+    def test_missing_window_resets(self):
+        f = self.frame([True, True])
+        f.loc[1, "ts"] = f.loc[0, "ts"] + pd.Timedelta("10min")      # 中間那 5 分鐘沒資料
+        self.assertEqual(mark_status(f, ["svc"], "5m")["status"].tolist(), ["warning", "warning"])
+
+    def test_direction_change_resets(self):
+        s = mark_status(self.frame([True, True], values=[200.0, 10.0]), ["svc"], "5m")
+        self.assertEqual(s["status"].tolist(), ["warning", "warning"])
+
+    def test_hourly_point_is_long_enough(self):
+        s = mark_status(self.frame([False, True], step="1h"), ["svc"], "1h")
+        self.assertEqual(s["status"].tolist(), [None, "anomaly"])
+        # 15 分鐘一點：還是要連續兩個（30 分鐘）
+        s = mark_status(self.frame([True, True], step="15min"), ["svc"], "15m")
+        self.assertEqual(s["status"].tolist(), ["warning", "anomaly"])

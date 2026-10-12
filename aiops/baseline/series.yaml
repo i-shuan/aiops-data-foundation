@@ -24,6 +24,11 @@ adaptive:
   min_events: {rate: 20, count: 10}   # 比例、百分位類每窗至少 20 個請求；筆數類每窗至少 10 筆
   coverage: 0.3                       # 至少三成的時間窗夠（只有白天有人用的 API 也算）
 
+# 跳一次是 warning；同一條序列連續 confirm_points 個時間窗超標、或連續超標滿 confirm_span，才是 anomaly（README）
+status:
+  confirm_points: 2
+  confirm_span: 30m
+
 # 借 baseline：borrow: true 的序列，沒有自己的 baseline（新 API、量太少）時，借同一組的（README「自動調整」③）。
 # 組要依公司的服務命名定義，由細到粗；match 的每個欄位都要符合（正規表示式）。沒有 groups 就不借。
 # groups:

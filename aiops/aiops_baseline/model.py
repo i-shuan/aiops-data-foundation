@@ -294,3 +294,40 @@ def train_groups(own: pd.DataFrame, keys: list[str], groups: list[dict], min_mem
                          "median": float(gg["median"].median()), "mad": float(gg["mad"].median()),
                          "p05": float(gg["median"].min()), "p95": float(gg["median"].max()), "n": int(len(gg))})
     return pd.DataFrame(rows, columns=cols)
+
+
+def mark_status(scored: pd.DataFrame, keys: list[str], step: str, confirm_points: int = 2,
+                confirm_span: str = "30m") -> pd.DataFrame:
+    """超標的點分兩級（不用另外存狀態：每次偵測從資料重算，重啟也一樣）：
+
+      warning：超標，但前一個時間窗沒有超標（跳一下，先觀察）
+      anomaly：同一條序列、同一個方向，連續超標 confirm_points 個時間窗；
+               或連續超標的時間合計 ≥ confirm_span（1 小時一點的序列，一個點就是一小時，不用等兩小時）
+    中間只要有一個時間窗正常（或沒資料），就從頭算。
+
+    scored：score／score_poisson 的結果（keys + ts + value + median + anomaly）。回傳加上 status（沒超標是 None）、
+    streak（連續超標第幾個）。
+    """
+    out = scored.copy()
+    out["status"], out["streak"] = None, 0
+    if out.empty:
+        return out
+    dt = pd.Timedelta(to_freq(step))
+    need = min(confirm_points, max(1, int(np.ceil(pd.Timedelta(to_freq(confirm_span)) / dt))))
+    out = out.sort_values("ts").reset_index(drop=True)
+    sign = np.sign(out["value"].astype(float) - out["median"].astype(float))
+    for _, idx in out.groupby(keys, sort=False, dropna=False).groups.items():
+        streak, prev_t, prev_sign = 0, None, 0
+        for i in idx:
+            t, hit, sg = out.at[i, "ts"], bool(out.at[i, "anomaly"]), sign.iat[i]
+            if hit and prev_t is not None and t - prev_t == dt and prev_sign == sg and streak > 0:
+                streak += 1
+            elif hit:
+                streak = 1
+            else:
+                streak = 0
+            out.at[i, "streak"] = streak
+            if hit:
+                out.at[i, "status"] = "anomaly" if streak >= need else "warning"
+            prev_t, prev_sign = t, (sg if hit else 0)
+    return out

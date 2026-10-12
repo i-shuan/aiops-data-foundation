@@ -115,6 +115,28 @@ MAD（Median Absolute Deviation，中位數絕對偏差）＝「每個值離中�
 1. 離中位數超過 `z` 倍（預設 5）的穩健標準差（1.4826 × MAD）。
 2. 差距超過 `min_abs`。量很小的序列需要這條：例如凌晨的錯誤數平常是 1、MAD 是 0，只看倍數的話，1 變 2 就告警；`min_abs: 5` 表示至少多 5 筆才算。
 
+### 跳一次是 warning，連續才是 anomaly
+
+不要跳一點就算異常。超標的點分兩級（`status` 欄位）：
+
+| 狀況 | status | 會怎樣 |
+|---|---|---|
+| 超標，但前一個時間窗正常 | `warning` | 寫進 `aiops-anomalies`，看得到「正在變壞」；**不觸發根因分析**、不通知 |
+| 同一條序列、同一個方向，**連續 2 個時間窗**超標 | `anomaly` | 正式異常，根因分析會挑它 |
+| 連續超標的時間合計 **≥ 30 分鐘** | `anomaly` | 粗粒度的序列不用等兩個點：1 小時一點的，一個點就是一小時；30 分鐘一點的也是一個點就夠；15 分鐘一點的要兩個 |
+| 中間有一個時間窗正常、沒資料、或方向反過來 | 從頭算 | |
+
+- **不用另外存狀態**：每次偵測多查前一個時間窗，從資料重算「連續第幾個」（`streak` 欄位），程式重啟也一樣。
+- **不降級**：上一輪已判成 anomaly 的時間窗，這一輪就算查的範圍沒包含它的前一個時間窗，也維持 anomaly。
+- 設定在 `series.yaml` 的 `status: {confirm_points: 2, confirm_span: 30m}`。
+- 規則（`rules.yaml`）另外用 `for`（要持續多久）處理；重啟、Pod Failed 這類 critical 規則一次就算，不等。
+
+**即時檢查（`live`）**：常駐，每 30 秒看「最近一個時間窗長度」的滑動窗（5 分鐘一點的序列就是最近 5 分鐘），跟這個時段的 baseline 比，超標就先發 `warning`（`live: true`，同一個時間窗只留一筆、每 30 秒更新）。
+
+- 為什麼即時檢查**只發 warning**：前後兩次的滑動窗有 4 分半重疊，一個尖峰會連續 10 次都超標，拿來算「連續」就又變成「跳一點就異常」。升級成 anomaly 一律由不重疊的時間窗（`detect`）決定。
+- 為什麼不直接拿 30 秒的單點比：baseline 是用 5 分鐘（或更粗）學的，30 秒的請求數只有十分之一、p95 由幾個請求算出來，比了一直誤報。滑動窗跟 baseline 同單位。
+- 效果：出事後約 30 秒～1 分鐘先有 warning；5 分鐘一點的序列，連續兩個時間窗（約 10 分鐘）確認成 anomaly。
+
 ### 調靈敏度
 
 | 調整 | 效果 | 代價 |
@@ -400,6 +422,7 @@ export ES_API_KEY=<elasticsearch-setup.sh 發的「AIOps baseline key」>   # �
 
 python3 -m aiops_baseline train  --config baseline/series.yaml   # 每天跑一次（例如凌晨）
 python3 -m aiops_baseline detect --config baseline/series.yaml   # 每 5 分鐘跑一次，看最近 30 分鐘
+python3 -m aiops_baseline live   --config baseline/series.yaml   # 常駐：每 30 秒即時檢查，只發 warning
 ```
 
 排程例子（crontab）：
@@ -434,10 +457,12 @@ ES_URL=... ES_AUTH=... python3 -m tests.adaptive_e2e   # 自動選粒度、卜�
 
 | 插入的異常 | 結果 |
 |---|---|
-| mes-api 10:00 流量暴增 3 倍 | ✅ 抓到（z = 20.5） |
-| wip-worker 14:30 延遲變 4 倍 | ✅ 抓到（z = 43.8） |
-| eap-gw 凌晨 2:00 出現白天的流量 | ✅ 抓到（z = 53.7）：同樣的值在白天是正常的 |
-| mes-api 16:00 錯誤數暴增 | ✅ 抓到（z = 28.3） |
+| mes-api 10:00 流量暴增 3 倍（只有一個點） | ✅ 抓到（z = 20.5），**warning**（跳一次） |
+| wip-worker 14:30 延遲變 4 倍（只有一個點） | ✅ 抓到（z = 43.8），**warning** |
+| eap-gw 凌晨 2:00 出現白天的流量（只有一個點） | ✅ 抓到（z = 53.7），**warning**：同樣的值在白天是正常的 |
+| mes-api 16:00 錯誤數暴增（只有一個點） | ✅ 抓到（z = 28.3），**warning** |
+| mes-api 18:00 起連續 3 個 5 分鐘錯誤數暴增 | ✅ 18:00 **warning**、18:05、18:10 **anomaly** |
+| 即時檢查 18:07（最近 5 分鐘含 18:05 那一點） | ✅ 發 **warning**（live），不直接算 anomaly |
 | 正常的點 | **誤報 0 個／2,592 個** |
 
 寫入 2.5 萬筆＋訓練＋偵測共 15 秒。
