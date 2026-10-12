@@ -25,3 +25,9 @@ series:
     fill_zero: true
     direction: both
     min_abs: 5
+  - name: adaptive.alarms     # 設備告警：每筆告警一筆資料，平常每小時約 0.3 次
+    index: aiops-adaptive-alarm
+    by: [equipment]
+    value: count
+    direction: up
+    min_abs: 3

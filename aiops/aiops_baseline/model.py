@@ -17,6 +17,7 @@
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 import numpy as np
@@ -49,6 +50,7 @@ class DetectOptions:
     z: float = 5.0            # 離中位數幾倍穩健標準差算異常
     rel_floor: float = 0.05   # 平常幾乎不動的序列（MAD 接近 0），波動至少當成中位數的 5%，避免一點點變化就告警
     abs_floor: float = 1e-9   # 中位數也是 0 時的最小波動
+    alpha: float = 0.001      # 卜瓦松：平常的次數下，出現這麼多（或這麼少）的機率小於 alpha 才算異常
 
 
 def _slots(ts: pd.Series, tz: str) -> pd.DataFrame:
@@ -68,12 +70,34 @@ def _stats(values: pd.Series) -> dict:
     }
 
 
-def train(history: pd.DataFrame, keys: list[str], opts: TrainOptions = TrainOptions()) -> pd.DataFrame:
+def _poisson_stats(values: pd.Series, alpha: float = 0.001) -> dict:
+    """很稀少的筆數：學平均次數 λ（存在 median 欄位，mad 是 0）。
+
+    歷史裡一次事故爆量 50 筆，直接平均會把「平常每小時 0.3 次」拉高好幾倍。所以先算平均，
+    把「在這個平均下幾乎不可能」（機率 < alpha）的值壓到那個上限，再平均一次，重複到穩定。正常的值不會被壓到。
+    λ 至少 0.5 ÷ 值的個數：這個時段過去 4 週一次都沒發生過，不代表機率是 0（不然出現 1 次就報）。
+    """
+    v = values.to_numpy(dtype=float)
+    floor = 0.5 / len(v)
+    lam = max(float(v.mean()), floor)
+    for _ in range(10):
+        capped = np.minimum(v, _poisson_upper(lam, alpha))
+        new = max(float(capped.mean()), floor)
+        if abs(new - lam) < 1e-6:
+            break
+        lam = new
+    return {"median": lam, "mad": 0.0, "p05": float(np.percentile(v, 5)), "p95": float(np.percentile(v, 95)),
+            "n": int(v.size)}
+
+
+def train(history: pd.DataFrame, keys: list[str], opts: TrainOptions = TrainOptions(), method: str = "mad") -> pd.DataFrame:
     """history：欄位 keys + ["ts", "value"]，每列是一條序列的一個點（value 為 NaN 的點不算）。
 
-    回傳每條序列、每個時段（dow 0=週一 … 6、hour 0～23）一列：keys + dow、hour、level、median、mad、p05、p95、n。
-    每個時段各自從 dow_hour → hour → all 往下找第一個樣本夠的層級。
+    回傳每條序列、每個時段（dow 0=週一 … 6、hour 0～23）一列：keys + dow、hour、level、median、mad、p05、p95、n、
+    baseline_method。每個時段各自從 dow_hour → hour → all 往下找第一個樣本夠的層級。
+    method：mad（中位數＋MAD）或 poisson（很稀少的筆數，median 欄位存平均次數 λ）。
     """
+    _stats_of = _poisson_stats if method == "poisson" else _stats
     h = history.dropna(subset=["value"]).copy()
     if h.empty:
         return pd.DataFrame(columns=keys + ["dow", "hour", "level", "median", "mad", "p05", "p95", "n"])
@@ -83,22 +107,22 @@ def train(history: pd.DataFrame, keys: list[str], opts: TrainOptions = TrainOpti
     for key_vals, g in h.groupby(keys, sort=False, dropna=False):
         key_vals = key_vals if isinstance(key_vals, tuple) else (key_vals,)
         key_dict = dict(zip(keys, key_vals))
-        all_stats = _stats(g["value"]) if len(g) >= opts.min_points else None
+        all_stats = _stats_of(g["value"]) if len(g) >= opts.min_points else None
         by_hour = {hr: gg for hr, gg in g.groupby("hour")}
         by_dow_hour = {k: gg for k, gg in g.groupby(["dow", "hour"])}
         for dow in range(7):
             for hour in range(24):
                 gg = by_dow_hour.get((dow, hour))
                 if gg is not None and gg["day"].nunique() >= opts.min_weeks and len(gg) >= opts.min_slot_points:
-                    rows.append({**key_dict, "dow": dow, "hour": hour, "level": "dow_hour", **_stats(gg["value"])})
+                    rows.append({**key_dict, "dow": dow, "hour": hour, "level": "dow_hour", **_stats_of(gg["value"])})
                     continue
                 gg = by_hour.get(hour)
                 if gg is not None and gg["day"].nunique() >= opts.min_days and len(gg) >= opts.min_slot_points:
-                    rows.append({**key_dict, "dow": dow, "hour": hour, "level": "hour", **_stats(gg["value"])})
+                    rows.append({**key_dict, "dow": dow, "hour": hour, "level": "hour", **_stats_of(gg["value"])})
                     continue
                 if all_stats is not None:
                     rows.append({**key_dict, "dow": dow, "hour": hour, "level": "all", **all_stats})
-    return pd.DataFrame(rows)
+    return pd.DataFrame(rows).assign(baseline_method=method) if rows else pd.DataFrame()
 
 
 def pick_resolution(volume: pd.DataFrame, keys: list[str], min_events: float, base: str = "5m",
@@ -175,3 +199,63 @@ def score(current: pd.DataFrame, baseline: pd.DataFrame, keys: list[str], direct
         hit = (m["z"].abs() >= opts.z) & over
     m["anomaly"] = hit.fillna(False) & m["median"].notna()
     return m.drop(columns=["dow", "hour"])
+
+
+def _poisson_sf(k: float, lam: float) -> float:
+    """P(X ≥ k)，X ~ Poisson(lam)。用 log 算每一項，k 很大也不會溢位。"""
+    k = int(math.ceil(k))
+    if k <= 0:
+        return 1.0
+    cdf = sum(math.exp(-lam + i * math.log(lam) - math.lgamma(i + 1)) for i in range(k))
+    return max(0.0, 1.0 - cdf)
+
+
+def _poisson_cdf(k: float, lam: float) -> float:
+    """P(X ≤ k)。"""
+    k = int(math.floor(k))
+    if k < 0:
+        return 0.0
+    return min(1.0, sum(math.exp(-lam + i * math.log(lam) - math.lgamma(i + 1)) for i in range(k + 1)))
+
+
+def _poisson_upper(lam: float, alpha: float) -> int:
+    """最少要幾次，機率才小於 alpha：正常範圍的上限（不含）。"""
+    k, cdf = 0, 0.0
+    while True:
+        cdf += math.exp(-lam + k * math.log(lam) - math.lgamma(k + 1))
+        k += 1
+        if 1.0 - cdf < alpha:
+            return k
+
+
+def score_poisson(current: pd.DataFrame, baseline: pd.DataFrame, keys: list[str], direction: str = "both",
+                  min_abs: float = 0.0, opts: DetectOptions = DetectOptions(), tz: str = "Asia/Taipei") -> pd.DataFrame:
+    """很稀少的筆數：baseline 的 median 是平均次數 λ。這個時間窗出現 x 次，算「平常 λ 次的情況下，至少 x 次」的機率
+    （變少看「至多 x 次」），小於 alpha 才算異常。λ 很小時「0 次」本來就很常見，變少自然不會報。
+
+    回傳欄位跟 score 一樣；z 是換算的參考值 (x − λ) ÷ √λ，p 是機率；expected_high 是最少幾次就算異常。
+    """
+    c = current.dropna(subset=["value"]).copy().reset_index(drop=True)
+    slots = _slots(c["ts"], tz) if not c.empty else pd.DataFrame(columns=["dow", "hour"])
+    c["dow"], c["hour"] = slots["dow"].to_numpy(), slots["hour"].to_numpy()
+    m = c.merge(baseline[keys + ["dow", "hour", "level", "median", "mad"]], on=keys + ["dow", "hour"], how="left")
+    p_up, p_down, upper = [], [], []
+    for x, lam in zip(m["value"].to_numpy(dtype=float), m["median"].to_numpy(dtype=float)):
+        if np.isnan(lam):
+            p_up.append(np.nan), p_down.append(np.nan), upper.append(np.nan)
+            continue
+        p_up.append(_poisson_sf(x, lam))
+        p_down.append(_poisson_cdf(x, lam))
+        upper.append(_poisson_upper(lam, opts.alpha))
+    m["p_up"], m["p_down"], m["expected_high"] = p_up, p_down, upper
+    m["expected_low"] = 0.0
+    lam = m["median"].to_numpy(dtype=float)
+    diff = m["value"].to_numpy(dtype=float) - lam
+    m["z"] = diff / np.sqrt(np.maximum(lam, 1e-9))
+    over = np.abs(diff) >= min_abs
+    up = (m["p_up"] < opts.alpha) & (diff > 0)
+    down = (m["p_down"] < opts.alpha) & (diff < 0)
+    hit = up if direction == "up" else down if direction == "down" else (up | down)
+    m["p"] = np.where(diff > 0, m["p_up"], m["p_down"])
+    m["anomaly"] = (hit & over).fillna(False) & m["median"].notna()
+    return m.drop(columns=["dow", "hour", "p_up", "p_down"])

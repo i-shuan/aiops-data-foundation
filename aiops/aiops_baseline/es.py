@@ -23,7 +23,7 @@ ANOMALY_MAPPING = {"mappings": {"dynamic": False, "properties": {
     "expected_high": {"type": "double"}, "z": {"type": "double"}, "level": {"type": "keyword"},
     "direction": {"type": "keyword"}, "detected_at": {"type": "date"},
     "resolution": {"type": "keyword"}, "method": {"type": "keyword"}, "baseline_source": {"type": "keyword"},
-    "confidence": {"type": "keyword"},
+    "confidence": {"type": "keyword"}, "p": {"type": "double"},
 }}}
 
 

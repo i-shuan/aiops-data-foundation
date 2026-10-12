@@ -27,7 +27,7 @@ from . import peer as P
 from . import rules as R
 from . import trace as T
 from .model import (CONFIDENCE, RESOLUTIONS, DetectOptions, TrainOptions, mask_thin, pick_resolution, score,
-                    to_freq, train)
+                    score_poisson, to_freq, train)
 
 
 def keys_of(spec: dict) -> list[str]:
@@ -113,15 +113,16 @@ def save_anomalies(es, name: str, by: list[str], s: pd.DataFrame, direction: str
             "median": r["median"], "expected_low": r["expected_low"], "expected_high": r["expected_high"],
             "z": r["z"], "level": level, "direction": direction, "detected_at": detected_at,
             "resolution": resolution, "method": r.get("baseline_method") or "mad", "baseline_source": source,
-            "confidence": CONFIDENCE.get(level, "low")}))
+            "confidence": CONFIDENCE.get(level, "low"), **({"p": r["p"]} if "p" in r else {})}))
     if docs:
         es.bulk_index(ANOMALY_INDEX, docs)
     res = f"（{resolution} 一點）" if resolution else ""
     print(f"  {name}{res}：{s.groupby(by, dropna=False).ngroups} 條序列、{len(s)} 個點，異常 {len(docs)} 個")
     for (_, d), r in sorted(zip(docs, hits.to_dict("records")), key=lambda x: -abs(x[1]["z"]))[:5]:
         keys = ", ".join(str(r[f]) for f in by)
+        how = f"機率 {r['p']:.1e}，卜瓦松" if d["method"] == "poisson" else f"z={r['z']:.1f}"
         print(f"    {r['ts'].tz_convert(tz):%m-%d %H:%M}  {keys}：{r['value']:.3g}（平常 {r['median']:.3g}，"
-              f"範圍 {r['expected_low']:.3g}～{r['expected_high']:.3g}，z={r['z']:.1f}，{d['level']}，可信度 {d['confidence']}）")
+              f"範圍 {r['expected_low']:.3g}～{r['expected_high']:.3g}，{how}，{d['level']}，可信度 {d['confidence']}）")
     return len(docs)
 
 
@@ -147,10 +148,22 @@ def cmd_train(cfg: dict, args) -> int:
             t = train(h, keys, topts) if not h.empty else pd.DataFrame()
             if not t.empty:
                 parts.append(t.merge(ks[keys + ["events"]], on=keys).assign(resolution=r))
+        sparse = res[res["resolution"].isna()]
+        # 很稀少的筆數（最粗的粒度也大多是 0）：改用卜瓦松，學每個時段的平均次數
+        coarsest = (cfg.get("adaptive") or {}).get("resolutions", RESOLUTIONS)[-1]
+        if not sparse.empty and value_kind(spec) == "count":
+            h = fetch(es, spec, start, end, coarsest).merge(sparse[keys], on=keys)
+            t = train(h, keys, topts, method="poisson") if not h.empty else pd.DataFrame()
+            if not t.empty:
+                parts.append(t.merge(sparse[keys + ["events"]], on=keys).assign(resolution=coarsest))
+            sparse = sparse.merge(t[keys].drop_duplicates(), on=keys, how="left", indicator=True) if not t.empty else sparse
+            if "_merge" in sparse:
+                n_poisson = int((sparse["_merge"] == "both").sum())
+                print(f"    {n_poisson} 條很稀少的筆數改用卜瓦松（{coarsest} 一點）")
+                sparse = sparse[sparse["_merge"] == "left_only"].drop(columns="_merge")
         b = pd.concat(parts, ignore_index=True) if parts else pd.DataFrame()
         save_baseline(es, spec["name"], keys, b, start, end)
         print(train_summary(spec["name"], keys, hist, b))
-        sparse = res[res["resolution"].isna()]
         if not sparse.empty:
             print(f"    {len(sparse)} 條序列 1 小時也不夠（事件數夠的時間窗太少），沒有自己的 baseline："
                   + "、".join(", ".join(str(r[k]) for k in keys) for r in sparse.head(5).to_dict("records")))
@@ -205,9 +218,15 @@ def cmd_detect(cfg: dict, args) -> int:
             if cur.empty:
                 print(f"  {spec['name']}（{r} 一點）：沒有資料")
                 continue
-            s = score(cur, b, keys, direction=spec.get("direction", "both"),
-                      min_abs=spec.get("min_abs", 0.0), opts=dopts, tz=tz)
-            total += save_anomalies(es, spec["name"], keys, s, spec.get("direction", "both"), tz, resolution=r)
+            b = b.assign(baseline_method=b["baseline_method"].fillna("mad"))
+            for method, bm in b.groupby("baseline_method"):
+                fn = score_poisson if method == "poisson" else score
+                cm = cur.merge(bm[keys].drop_duplicates(), on=keys)
+                if cm.empty:
+                    continue
+                s = fn(cm, bm, keys, direction=spec.get("direction", "both"),
+                       min_abs=spec.get("min_abs", 0.0), opts=dopts, tz=tz).assign(baseline_method=method)
+                total += save_anomalies(es, spec["name"], keys, s, spec.get("direction", "both"), tz, resolution=r)
     print(f"共 {total} 個異常")
     return 0
 

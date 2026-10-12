@@ -1,8 +1,9 @@
-"""自動選粒度的端到端測試：一支忙的 API、一支很少人用的 API，最後一天各插入一段「延遲變 3 倍、持續 1 小時」，
+"""自動選粒度的端到端測試：一支忙的 API、一支很少人用的 API，最後一天各插入一段「延遲變 3 倍、持續 1 小時」；
+3 台設備的告警（平常每小時約 0.3 次），最後一天 EQP-02 在 14 點那一小時多了 8 次。
 分別用「每條序列自己選粒度」（adaptive.yaml）和「固定 5 分鐘」（同一份設定拿掉 adaptive）訓練、偵測，比較結果。
 
 執行（在 aiops 底下）：ES_URL=... ES_AUTH=... python3 -m tests.adaptive_e2e
-會建立／覆蓋 index aiops-adaptive，以及 aiops-baseline、aiops-anomalies 裡 series 名稱以 adaptive. 開頭的資料。
+會建立／覆蓋 index aiops-adaptive、aiops-adaptive-alarm，以及 aiops-baseline、aiops-anomalies 裡 series 名稱以 adaptive. 開頭的資料。
 """
 from __future__ import annotations
 
@@ -24,6 +25,23 @@ TODAY = pd.Timestamp("2026-10-05", tz=TZ)          # 週一
 HISTORY_START = TODAY - pd.Timedelta(weeks=4)
 APIS = {"busy-query": 100.0, "rare-query": 2.0}     # 平日白天每 5 分鐘平均幾個請求
 INCIDENT = ("10:00", "11:00")                        # 最後一天這段時間兩支 API 的延遲都變 3 倍
+ALARM_INDEX = "aiops-adaptive-alarm"
+EQUIPMENT = ["EQP-01", "EQP-02", "EQP-03"]
+ALARM_BURST = ("EQP-02", "14:00", 8)                 # 最後一天 EQP-02 在 14 點那一小時多了 8 次告警
+
+
+def make_alarms() -> list[dict]:
+    rng = np.random.default_rng(11)
+    hours = pd.date_range(HISTORY_START, TODAY + pd.Timedelta(days=1), freq="1h", inclusive="left")
+    rows = []
+    for eq in EQUIPMENT:
+        for h, k in zip(hours, rng.poisson(0.3, len(hours))):
+            rows += [{"@timestamp": (h + pd.Timedelta(seconds=int(rng.integers(3600)))).isoformat(), "equipment": eq}
+                     for _ in range(k)]
+    eq, hhmm, k = ALARM_BURST
+    h = TODAY + pd.Timedelta(hhmm + ":00")
+    rows += [{"@timestamp": (h + pd.Timedelta(seconds=int(rng.integers(3600)))).isoformat(), "equipment": eq} for _ in range(k)]
+    return rows
 
 
 def make() -> pd.DataFrame:
@@ -53,28 +71,35 @@ def run(es: ES, config: str, label: str) -> set:
     cli(["detect", "--config", config, "--window", "1D", "--at", (TODAY + pd.Timedelta(days=1)).tz_convert("UTC").isoformat()])
     es.req("POST", f"/{ANOMALY_INDEX}/_refresh")
     hits = es.req("POST", f"/{ANOMALY_INDEX}/_search", {"size": 2000, "query": {"prefix": {"series": "adaptive."}}})["hits"]["hits"]
-    return {(h["_source"]["series"], h["_source"]["keys"]["api"],
+    return {(h["_source"]["series"], h["_source"]["keys"].get("api") or h["_source"]["keys"].get("equipment"),
              pd.Timestamp(h["_source"]["@timestamp"]).tz_convert(TZ).strftime("%H:%M"),
              h["_source"].get("resolution"), h["_source"].get("confidence")) for h in hits}
 
 
-def in_incident(hhmm: str, resolution: str | None) -> bool:
+def overlaps(hhmm: str, resolution: str | None, period: tuple[str, str]) -> bool:
     """異常的時間點（時間窗的開頭）跟事故那段有重疊就算抓到。"""
     start = pd.Timedelta(hhmm + ":00")
     end = start + pd.Timedelta((resolution or "5m").replace("m", "min"))
-    return start < pd.Timedelta(INCIDENT[1] + ":00") and end > pd.Timedelta(INCIDENT[0] + ":00")
+    return start < pd.Timedelta(period[1] + ":00") and end > pd.Timedelta(period[0] + ":00")
+
+
+def expected(series: str, who: str, hhmm: str, res: str | None) -> bool:
+    if series == "adaptive.latency":
+        return overlaps(hhmm, res, INCIDENT)
+    if series == "adaptive.alarms":
+        eq, start, _ = ALARM_BURST
+        return who == eq and overlaps(hhmm, res, (start, f"{int(start[:2]) + 1:02d}:00"))
+    return False
 
 
 def report(found: set) -> tuple[dict, dict]:
     hit, false = {}, {}
     for series, api, hhmm, res, conf in found:
-        if series != "adaptive.latency":
-            false.setdefault(api, []).append((series, hhmm, res))
-        elif in_incident(hhmm, res):
+        if expected(series, api, hhmm, res):
             hit.setdefault(api, []).append((hhmm, res, conf))
         else:
             false.setdefault(api, []).append((series, hhmm, res))
-    for api in APIS:
+    for api in [*APIS, *EQUIPMENT]:
         h, f = sorted(hit.get(api, [])), sorted(false.get(api, []))
         print(f"  {api}：抓到事故 {len(h)} 個點 {h[:3]}{'…' if len(h) > 3 else ''}；誤報 {len(f)} 個 {f[:3]}{'…' if len(f) > 3 else ''}")
     return hit, false
@@ -94,6 +119,15 @@ def main() -> int:
                       headers={"Content-Type": "application/x-ndjson"}, timeout=300)
         if r.json().get("errors"):
             raise RuntimeError(r.text[:500])
+    es.req("DELETE", f"/{ALARM_INDEX}", ok=(200, 404))
+    es.req("PUT", f"/{ALARM_INDEX}", {"mappings": {"properties": {"@timestamp": {"type": "date"}, "equipment": {"type": "keyword"}}}})
+    alarms = make_alarms()
+    lines = []
+    for d in alarms:
+        lines += [json.dumps({"index": {"_index": ALARM_INDEX}}), json.dumps(d)]
+    es.s.post(f"{es.url}/_bulk?refresh=wait_for", data="\n".join(lines) + "\n",
+              headers={"Content-Type": "application/x-ndjson"}, timeout=300).raise_for_status()
+    print(f"設備告警 {len(alarms)} 筆（{len(EQUIPMENT)} 台，平常每小時約 0.3 次；最後一天 {ALARM_BURST[0]} {ALARM_BURST[1]} 多 {ALARM_BURST[2]} 次）")
     print(f"寫入 {len(df)} 筆（{HISTORY_START:%m-%d}～{TODAY + pd.Timedelta(days=1):%m-%d}）；"
           f"最後一天 {INCIDENT[0]}～{INCIDENT[1]} 兩支 API 的延遲都變 3 倍")
 
@@ -114,9 +148,12 @@ def main() -> int:
         ("忙的 API 維持 5 分鐘、抓到事故", any(r == "5m" for _, r, _ in hit.get("busy-query", []))),
         ("少人用的 API 改成 1 小時、抓到事故", any(r == "1h" for _, r, _ in hit.get("rare-query", []))),
         ("少人用的 API 標可信度（不是 high）", all(c != "high" for _, r, c in hit.get("rare-query", []))),
+        ("設備告警爆量：卜瓦松（1 小時）抓到", any(r == "1h" for _, r, _ in hit.get(ALARM_BURST[0], []))),
         ("自己選粒度：誤報 ≤ 3 個", sum(len(v) for v in false.values()) <= 3),
         ("自己選粒度的誤報比固定 5 分鐘少、或一樣", sum(len(v) for v in false.values()) <= sum(len(v) for v in fixed_false.values())),
     ]
+    print(f"\n  參考：固定 5 分鐘時 {ALARM_BURST[0]} 的告警爆量"
+          f"{'碰巧抓到（剛好有幾次擠在同一個 5 分鐘）' if fixed_hit.get(ALARM_BURST[0]) else '抓不到（分散在一小時裡，每 5 分鐘只有 0～2 次）'}")
     print()
     fail = 0
     for name, ok in checks:

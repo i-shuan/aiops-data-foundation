@@ -4,7 +4,8 @@ import unittest
 import numpy as np
 import pandas as pd
 
-from aiops_baseline.model import DetectOptions, TrainOptions, mask_thin, pick_resolution, score, train
+from aiops_baseline.model import (DetectOptions, TrainOptions, mask_thin, pick_resolution, score, score_poisson,
+                                  train)
 
 TZ = "Asia/Taipei"
 
@@ -160,3 +161,47 @@ class ResolutionTest(unittest.TestCase):
         out = mask_thin(df, 20)
         self.assertTrue(np.isnan(out["value"].iloc[0]))
         self.assertEqual(out["value"].iloc[1], 0.1)
+
+
+class PoissonTest(unittest.TestCase):
+    """很稀少的筆數：平均次數 λ，機率夠小才算異常。"""
+
+    def setUp(self):
+        rng = np.random.default_rng(3)
+        ts = pd.date_range("2026-09-07", periods=28 * 24, freq="1h", tz=TZ)
+        self.hist = pd.DataFrame({"eq": "EQP-01", "ts": ts.tz_convert("UTC"), "value": rng.poisson(0.3, len(ts)).astype(float)})
+        self.base = train(self.hist, ["eq"], TrainOptions(timezone=TZ), method="poisson")
+
+    def now(self, values):
+        ts = pd.date_range("2026-10-05", periods=len(values), freq="1h", tz=TZ)
+        return pd.DataFrame({"eq": "EQP-01", "ts": ts.tz_convert("UTC"), "value": np.array(values, dtype=float)})
+
+    def test_learns_mean_rate(self):
+        self.assertTrue((self.base["baseline_method"] == "poisson").all())
+        self.assertAlmostEqual(self.base["median"].mean(), 0.3, delta=0.1)
+
+    def test_burst_is_anomaly_but_normal_noise_is_not(self):
+        rng = np.random.default_rng(9)
+        normal = rng.poisson(0.3, 24).tolist()
+        s = score_poisson(self.now(normal), self.base, ["eq"], direction="up", tz=TZ)
+        self.assertEqual(int(s["anomaly"].sum()), 0)
+        s = score_poisson(self.now([0, 0, 8, 0]), self.base, ["eq"], direction="up", tz=TZ)
+        self.assertEqual(s["anomaly"].tolist(), [False, False, True, False])
+        self.assertLess(s["p"].iloc[2], 1e-5)
+
+    def test_zero_is_never_a_drop_when_rate_is_low(self):
+        s = score_poisson(self.now([0] * 24), self.base, ["eq"], direction="both", tz=TZ)
+        self.assertEqual(int(s["anomaly"].sum()), 0)
+
+    def test_one_past_burst_does_not_inflate_rate(self):
+        h = self.hist.copy()
+        h.loc[100, "value"] = 50.0               # 歷史裡有一次事故爆量
+        b = train(h, ["eq"], TrainOptions(timezone=TZ), method="poisson")
+        self.assertLess(b["median"].max(), 1.0)
+
+    def test_never_seen_slot_is_not_zero_rate(self):
+        h = self.hist.assign(value=0.0)
+        b = train(h, ["eq"], TrainOptions(timezone=TZ), method="poisson")
+        self.assertGreater(b["median"].min(), 0)
+        s = score_poisson(self.now([1]), b, ["eq"], direction="up", tz=TZ)
+        self.assertFalse(s["anomaly"].item())     # 從沒發生過，出現 1 次還不算
