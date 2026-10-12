@@ -63,7 +63,7 @@ def save_baseline(es, name: str, by: list[str], b: pd.DataFrame, start, end) -> 
             "trained_at": trained_at, "history_from": start.isoformat(), "history_to": end.isoformat()}))
     es.bulk_index(BASELINE_INDEX, docs)
     if docs:   # 這次什麼都沒學到（例如 ES 查不到資料）就不刪，保留舊的
-        es.req("POST", f"/{BASELINE_INDEX}/_delete_by_query?refresh=true&conflicts=proceed", {"query": {"bool": {"filter": [
+        es.req("POST", f"/{BASELINE_INDEX}/_delete_by_query?conflicts=proceed", {"query": {"bool": {"filter": [
             {"term": {"series": name}}, {"range": {"trained_at": {"lt": trained_at}}}]}}})
 
 
