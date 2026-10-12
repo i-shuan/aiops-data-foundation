@@ -87,6 +87,7 @@ flowchart LR
 
 | 主題 | 文件 |
 |---|---|
+| **全部串起來看（收值 → 判斷 → 串接 → 收斂 → LLM → feedback）** | [system-map.md](system-map.md) |
 | log 怎麼收、格式解析 | [elasticsearch.md](elasticsearch.md) |
 | metrics 怎麼收 | [metrics.md](metrics.md)；收了哪些、能做什麼：[aiops-metrics.md](aiops-metrics.md)、案例 [aiops-metrics-cases.md](aiops-metrics-cases.md) |
 | trace 怎麼收、尾端取樣 | [traces.md](traces.md)；能做什麼：[aiops-trace.md](aiops-trace.md) |

@@ -20,6 +20,7 @@
 - [docs/metrics.md](docs/metrics.md)：metrics 怎麼進 ES。OpenTelemetry Collector 收 kubelet、K8s 物件狀態、應用的 Prometheus metrics，依每筆資料自己的 namespace 讀 dept 分 group，寫進 ES 的 time series data stream。分部門的規則與 key 跟 log 共用。已在 k3s 上端到端驗證。
 - [docs/traces.md](docs/traces.md)：trace 怎麼進 ES。應用送到同節點的 OpenTelemetry Collector，依連線來源的 Pod 讀 namespace 的 dept 分 group，擋冒充；log 的 `trace.id` 對得到 trace。已在 k3s 上端到端驗證。
 - [apps/standards/tracing.md](apps/standards/tracing.md)：給應用團隊的 trace 埋點指引：哪些自動有、什麼時候要自己加、怎麼加、命名規則、取樣。
+- [docs/system-map.md](docs/system-map.md)：**系統全貌，一份看完**：怎麼收值、清資料、時間顆粒與頻率、四種判斷（規則／歷史／兄弟／trace 段）、metrics → trace → log 怎麼串、很多筆怎麼收斂、LLM 與 token、根因報告、對了怎麼強化、錯了怎麼 feedback，每一節標已做／還沒做。
 - [docs/aiops-llm-mlops.md](docs/aiops-llm-mlops.md)：**後期接 LLM 還是 MLOps**：定案以 LLMOps 為主軸、借機器學習的紀律（版本、評測、回測、feedback 閉環），統計層繼續偵測，不自己訓練模型；MLOps 留到機台、製程再評估。
 - [docs/aiops-rca.md](docs/aiops-rca.md)：**AIOps 根因分析怎麼做**：三種資料各回答什麼、六個步驟裡哪幾步需要 AI，以及最關鍵的「怎麼知道平常的樣子」（看哪些指標、週期、方法、需要的條件）。
 - [docs/aiops-metrics.md](docs/aiops-metrics.md)：**metrics 收了哪些、哪些有 baseline、能做到什麼**：五種做法（跟平常比、離極限多遠、慢慢爬、跟兄弟比、狀態變化）與做不到的。
