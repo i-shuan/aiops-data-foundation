@@ -4,6 +4,8 @@
 
 腳本：[test/local-k3s/run-metrics-cases-e2e.sh](../test/local-k3s/run-metrics-cases-e2e.sh)。資料都走正式的路線（應用 → OTel Collector → ES），判斷用 [aiops/baseline/rules.yaml](../aiops/baseline/rules.yaml)。
 
+> 目前的範圍是一般服務：前三個領域（基礎架構、應用、DB 與佇列）是主線；**機台、產線（案例 4）之後再做**，規則和命名提案先留著，見 [factory-later.md](factory-later.md)。
+
 ## 四個領域看什麼
 
 | 領域 | 方法 | 看什麼 | 這個 repo 怎麼收 |

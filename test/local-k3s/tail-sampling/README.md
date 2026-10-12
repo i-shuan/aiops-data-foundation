@@ -36,10 +36,7 @@ ES（traces-generic.otel-<group>）
 
 | 檔案 | 是什麼 |
 |---|---|
-| [kustomization.yaml](kustomization.yaml) | 把整套裝上去：沿用本機測試的 Collector（`../otel-collector`），加上 trace-sampler、node Collector 多讀一份 `node-tail.yaml`。`kubectl apply -k` 這個資料夾就是兩層；回到原本：`kubectl apply -k ../otel-collector` |
-| [node-tail.yaml](node-tail.yaml) | **第一層的改動**：疊在 node Collector 原本的設定後面，trace 的出口從「直接寫 ES」換成 loadbalancing exporter（依 trace_id 送 trace-sampler，用 headless Service 的 DNS 找到每一台） |
-| [sampler-config.yaml](sampler-config.yaml) | **第二層 trace-sampler 的 Collector 設定**：收 OTLP → tail_sampling（上面的規則）→ 依 group 送 ES。decision_wait、隨機比例、慢的門檻都用環境變數 |
-| [sampler.yaml](sampler.yaml) | trace-sampler 的 K8s 物件：StatefulSet（2 台）＋ headless Service；環境變數 `DECISION_WAIT`、`NUM_TRACES`（記憶體裡最多放幾個還沒決定的 trace）、`RANDOM_PCT`、`SLOW_MS` |
+| 兩層 Collector 的設定 | 實測後搬進正式設定：node Collector 的 loadbalancing 出口在 [node.yaml](../../../platform/cluster-addons/otel-collector/node.yaml)，trace-sampler 的設定與 StatefulSet 在 [sampler.yaml](../../../platform/cluster-addons/otel-collector/sampler.yaml)、[trace-sampler.yaml](../../../platform/cluster-addons/otel-collector/trace-sampler.yaml)；本機測試用的覆寫（等 5 秒、隨機 100%）在 [test/local-k3s/otel-collector](../otel-collector/kustomization.yaml) |
 | [loadgen.py](loadgen.py) | **壓測產生器**（只用 Python 內建套件）：模擬 lt-gateway → lt-order → DB 三段呼叫，每個服務像真的 SDK 一樣「每 5 秒或滿 512 段送一次」，所以同一個 trace 的段會分批、在不同時間到。請求的種類見下表，每一段都帶 `lt.category`、`lt.run` 用來對答案 |
 | [measure.py](measure.py) | **量一輪的結果**：從 ES 數每種請求送了幾個、留了幾個、有沒有缺段、是哪條規則留的；trace-sampler 的記憶體、CPU（kubelet 的數字） |
 | [run-tail-sampling.sh](run-tail-sampling.sh) | **整個實測**：裝上兩層 → 每一輪換 decision_wait、流量 → 跑 loadgen（Job）→ 等決定完 → 讀 trace-sampler 的內部計數 → measure.py。跑完換回原本的 Collector（`KEEP=1` 不換回） |

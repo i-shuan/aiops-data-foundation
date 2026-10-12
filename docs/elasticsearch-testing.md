@@ -11,7 +11,7 @@
 |---|---|
 | K8s | k3s v1.32.2，單節點（4 核、15Gi RAM） |
 | Elasticsearch | 8.17.2 單節點，開 security、HTTP 不走 TLS，heap 1g（[elasticsearch.yaml](../test/local-k3s/elasticsearch.yaml)）。之後測試環境改成 9.5.5，端到端 53 項與 level 案例 23 個重跑也全部通過；本文的情境測試數據是 8.17.2 上量的 |
-| Fluent Bit | 4.1.1，正式設定只換連線目標與 image 來源（[overlay](../test/local-k3s/fluent-bit/kustomization.yaml)） |
+| Fluent Bit | 4.1.1，正式設定只換連線目標與 image 來源（overlay `test/local-k3s/fluent-bit/`，改用 OTel 後已移除） |
 | API key | 用正式的 [elasticsearch-setup.sh](../platform/central/elasticsearch-setup.sh) 產生 |
 | cluster 名稱 | `local`，所以 index 是 `k8s-{group}-local` |
 
@@ -398,7 +398,7 @@ CPU 的 100% 等於一個核心。
 
 產生器和大流量測試相同，實際樣本見[附錄 C](#c-大流量es-停機情境同一個產生器)。
 
-跑法見 [load/run-outage.sh](../test/local-k3s/load/run-outage.sh)。
+跑法見當時的 `test/local-k3s/load/run-outage.sh`（Fluent Bit 時期的腳本，已移除；OTel 的停機測試見 [otel-logs-compare.md](otel-logs-compare.md)）。
 
 | 項目 | 內容 |
 |---|---|
@@ -473,7 +473,7 @@ Fluent Bit 的 es output 加上 `generate_id: on`：
 | 單獨量成本 | 正式設定加上 `generate_id`，不製造重送，每秒 5,000 行跑 2 分鐘 | 去重複本身讓 ES 多花多少 |
 | 相同內容 | 一個 Pod 用 `yes` 一口氣輸出 10,000 行完全相同的 JSON（`{"level":"INFO","message":"heartbeat ok",...}`） | 內容一樣的兩行會不會被誤判成重複而被丟掉 |
 
-強迫重送的跑法見 [load/run-dedup.sh](../test/local-k3s/load/run-dedup.sh)。實際樣本見[附錄 D](#d-去重複情境)。
+強迫重送的跑法見當時的 `test/local-k3s/load/run-dedup.sh`（Fluent Bit 時期的腳本，已移除）。實際樣本見[附錄 D](#d-去重複情境)。
 
 ### 結果
 

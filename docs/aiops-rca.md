@@ -48,7 +48,7 @@
 | 歷史能留多久 | ✅ 可降解析度，留 1 年以上 | 7 天 | 原文 30 天 |
 | 4 週算一次的成本 | 很低：已經是統計好的數字 | 高 | 中：只數筆數不讀原文還算快 |
 
-所以 baseline 的流量、錯誤率、延遲**從 metrics 算**（應用的 `http.server.request.duration`，見 [aiops/baseline](../aiops/baseline/README.md)）。log 只學「每個服務每 5 分鐘有幾筆 error」這種筆數：它能抓到 metrics 看不到的問題（例如背景工作一直失敗，但 API 都正常）。trace 和 log 原文主要在**告警之後**用：只查異常那段時間，不需要長期保留。
+所以 baseline 的流量、錯誤率、延遲**從 metrics 算**（應用的 `http.server.request.duration`，見 [aiops/baseline](../aiops/baseline/README.md)）。log 只學「每個服務每個時間窗有幾筆 error」這種筆數：它能抓到 metrics 看不到的問題（例如背景工作一直失敗，但 API 都正常）。trace 和 log 原文主要在**告警之後**用：只查異常那段時間，不需要長期保留。
 
 ## 根因分析的六步
 
@@ -199,7 +199,7 @@ AIOps 的其他用途要的「平常」長得不一樣，有一部分可以共�
 | AIOps 用途 | 要回答的問題 | 要的「平常」長什麼樣 | 現在這套能不能用 |
 |---|---|---|---|
 | **指標異常** | 這個數字不正常嗎？ | 每條序列 × 每個時段的中位數、波動 | ✅ 就是這套 |
-| **log 量異常** | 某個服務的錯誤 log 突然變多？ | 同上，數字是「每 5 分鐘的 log 筆數」 | ✅ 已經在學（`log.lines`、`log.errors`） |
+| **log 量異常** | 某個服務的錯誤 log 突然變多？ | 同上，數字是「每個時間窗的 log 筆數」 | ✅ 已經在學（`log.lines`、`log.errors`） |
 | **log 樣式異常** | 出現以前沒見過的錯誤訊息？某種訊息突然變多？ | ① **樣式字典**：平常會出現哪些 log 樣式（例如「order * accepted」）<br>② 每種樣式平常每 5 分鐘幾筆 | ⚠️ ② 可以用這套；① 是另一種 baseline，要先把 log 歸成樣式、記下見過哪些 |
 | **trace 延遲、錯誤** | 某個 API 變慢、錯誤變多？ | 每個服務 × API 的延遲分布、錯誤率 | ✅ 已經在學（`trace.*`） |
 | **呼叫關係改變** | 出現以前沒有的呼叫？某條呼叫消失？ | **呼叫關係圖**：平常誰呼叫誰、每條線平常多少流量 | ⚠️ 每條線的流量可以用這套；「有哪些線」是另一種 baseline |
@@ -286,28 +286,15 @@ AIOps 的其他用途要的「平常」長得不一樣，有一部分可以共�
 |---|---|
 | **三種資料對得起來**：每個請求有 trace，log 帶 `trace.id`、`span.id` | ✅ 已驗證（[traces.md](traces.md)） |
 | 從 metrics（延遲、錯誤率）直接跳到那段時間的慢 trace | ✅ [aiops/rca](../aiops/rca/README.md)：從異常的服務、API、時間找出最慢的請求，再用 trace_id 撈各服務的 log |
-| **baseline**：4 週同時段的中位數＋MAD | ✅ 程式完成，模擬資料驗證通過（[aiops/baseline](../aiops/baseline/README.md)） |
+| **baseline**：同時段的中位數＋MAD，預設 30 秒一點、依量自己往粗調 | ✅ 程式完成，模擬資料驗證通過（[aiops/baseline](../aiops/baseline/README.md)） |
 | baseline：MAD 為 0（值都一樣）時不亂報 | ✅ 有下限：中位數的 5%、或固定值，加上 `min_abs` |
-| baseline：連續幾個點都異常才報，避免單點抖動 | ❌ 還沒做 |
-| baseline：在真實的白天尖峰、半夜離峰確認範圍貼得住 | ⏳ 要先累積 4 週的真實資料 |
+| baseline：連續幾個點都異常才報，避免單點抖動 | ✅ 跳一次 warning、連續兩個時間窗才 anomaly |
+| baseline：在真實的白天尖峰、半夜離峰確認範圍貼得住 | ⏳ 要先累積 2～4 週的真實資料 |
 | **事故紀錄**：每次出事記下時間、影響範圍、根因，用來對帳哪些是真異常 | ❌ 格式和寫入方式還沒做 |
 | **合併告警**：下游 DB 卡住 → worker 堵塞 → API 變慢，依 trace 的呼叫關係合成一件事 | ⚠️ 呼叫關係已經能從 trace 算（`aiops_rca topology`），合併還沒做 |
 
+接下來要做的（服務範圍）見 [stage2-plan.md](stage2-plan.md) 與 [README 待辦](../README.md#待辦)。
+
 ### 階段 2：EAP 與機台（之後）
 
-階段 1 成熟後再做。要準備的：
-
-1. **SECS 的 log 解析規則**（需要真實 log 樣本，見 README 開頭）。SECS 一則跨多行，Collector 收的時候要先合併。
-2. **欄位對照**：
-
-   | | 一般服務（階段 1） | EAP／機台（階段 2） |
-   |---|---|---|
-   | 串起整件事的 ID | `trace.id`、`work_order.id` | `lot.id`、載具 ID、交易 ID |
-   | 對象 | `service.name`、Pod | `equipment.id`、腔體、EAP 實例 |
-   | 請求與回應 | HTTP 請求 → 200／500 | SECS 主訊息（例如 S2F41）→ 回覆（S2F42）與 ACK |
-   | 延遲 | API 回應時間 p95、p99 | 機台交握耗時、T3 逾時 |
-   | 異常 | 5xx 突增、慢查詢 | 機台告警（S5F1）、命令被拒（HCACK ≠ 0） |
-
-   `lot.id`、`equipment.id` 已定案；載具、腔體、交易 ID、EAP 實例的欄位名稱還沒定，要先跟平台確認。
-3. **trace 只到 EAP 為止**：機台不會把 `trace_id` 傳回來，EAP 的 log 一定要寫 `trace_id`，才能從機台事件對回請求（見 [tracing.md](../apps/standards/tracing.md)）。
-4. **baseline 加 EAP 的序列**：在 `series.yaml` 加機台交握耗時、逾時次數、告警次數等，依 `equipment.id` 切。程式不用改。
+集中在 [factory-later.md](factory-later.md)：SECS 解析、業務 ID 與 MES／MCS／AMHS 斷鏈、EAP 的 trace、機台 baseline 與規則、時間對齊、行事曆、機台模型。

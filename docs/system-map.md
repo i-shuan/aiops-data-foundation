@@ -1,5 +1,7 @@
 # 系統全貌：從收值到 feedback
 
+範圍：一般服務（Web API、worker、Kafka、DB）；工廠之後再做（[factory-later.md](factory-later.md)）。
+
 一份看完整條線：**怎麼收值 → 怎麼清資料 → 時間顆粒與頻率 → 怎麼判斷正常／異常 → 異常怎麼從 metrics 串到 trace、log → 很多筆怎麼收斂 → 什麼時候叫 LLM、token 怎麼省 → 根因報告 → 對了怎麼強化、錯了怎麼 feedback**。
 
 每一節標狀態：✅ 已做、在 k3s 驗過 ／ ⚠️ 做了一部分 ／ 📝 設計好、還沒做。細節連到各自的文件。
@@ -12,7 +14,7 @@
 flowchart TB
   subgraph S1["① 收值（每個應用 cluster）"]
     APP["應用 Pod<br/>Java agent／.NET 自動埋點<br/>不改程式"]
-    K8S["kubelet、cAdvisor、K8s 狀態<br/>exporter（Kafka、機台）"]
+    K8S["kubelet、cAdvisor、K8s 狀態<br/>exporter（Kafka）"]
     COL["node Collector（每節點）<br/>cluster Collector（一台）"]
     TS["trace-sampler ×2<br/>尾端取樣"]
     APP -- "log（stdout）、metrics、trace" --> COL
@@ -82,7 +84,7 @@ flowchart TB
 | **metrics：應用** | Java agent（開 `/metrics`）；.NET 自動埋點（OTLP 推） | Java 由 Collector 照 `prometheus.io` 標註來抓；.NET 自己推 | 30 秒 | [metrics.md](metrics.md)、[dotnet.md](dotnet.md) |
 | **metrics：資源** | kubelet、cAdvisor（CPU、記憶體、限流、磁碟） | node Collector | 30 秒 | [metrics.md](metrics.md) |
 | **metrics：K8s 狀態** | 重啟次數、副本數、節點狀態 | cluster Collector（一台） | 30 秒 | [metrics.md](metrics.md) |
-| **metrics：外部** | kafka_exporter、機台／EAP exporter | 照標註來抓 | 30 秒 | [aiops-metrics-cases.md](aiops-metrics-cases.md) |
+| **metrics：外部** | kafka_exporter（機台／EAP exporter 之後，見 [factory-later.md](factory-later.md)） | 照標註來抓 | 30 秒 | [aiops-metrics-cases.md](aiops-metrics-cases.md) |
 | **trace** | Java agent、.NET 自動埋點，**全部送** | node Collector 收 → 依 trace_id 分給 trace-sampler | 即時；sampler 等 30 秒讓整個 trace 到齊再決定留不留 | [traces.md](traces.md) |
 
 **trace 留哪些（尾端取樣，依序比對，符合第一條就留）**：隨機 5%（當「平常」用）→ 有錯誤 → HTTP 5xx → 有例外 → 超過 1 秒。正常的只留 5%，有問題的全留，總量約剩 15%。
@@ -169,9 +171,9 @@ flowchart TB
 | 根因分析在一週前沒資料時改用「出事前同樣長的一段」 | **移動式** |
 | 跟兄弟比 | 三類都不是：同一時間的**橫向比較** |
 | 規則 | 三類都不是：固定門檻 |
-| ML | **不用**（IT 服務這層的定案，見 [aiops-llm-mlops.md](aiops-llm-mlops.md)；機台、製程再評估） |
+| ML | **不用**（一般服務這層的定案，見 [aiops-llm-mlops.md](aiops-llm-mlops.md)；機台、製程之後再評估） |
 
-**結論**：時間序列當主力（工廠週期明顯，移動式當主力會一直誤報）；**移動式當輔助**（📝），補時間序列的兩個洞：
+**結論**：時間序列當主力（上下班、夜間批次這些週期明顯，移動式當主力會一直誤報）；**移動式當輔助**（📝），補時間序列的兩個洞：
 
 1. **新服務的前幾天**：時間序列要等歷史，移動式馬上能用（現在靠「借同組」）。
 2. **突然跳一階後停在新位置**（例如換版後每個請求都慢 200ms）：時間序列會連報好幾週，直到新值佔歷史一半；變化點偵測能明確標出「10:32 這個時間點變了」，也能拿來跟換版時間對。
@@ -187,7 +189,7 @@ flowchart TB
 | 離極限多遠 | 容器記憶體 ≥ 上限 90%、節點記憶體 ≥ 90%、磁碟 ≥ 85%（≥ 95% critical）、CPU 被限流 ≥ 25% | warning／critical |
 | JVM、.NET | Old Gen GC 後還 ≥ 80%、5 分鐘 ≥ 5 次 Full GC、GC 佔時間 ≥ 10%、.NET OOM、執行緒池飢餓、例外暴增 | warning |
 | 連線池 | DB 連線池用光、有人在排隊 | critical／warning |
-| 外部系統 | Kafka 消費落後、落後持續變大；SECS 斷線、PLC 掃描週期超規、重傳 | warning／critical |
+| 外部系統 | Kafka 消費落後、落後持續變大（機台的 SECS、PLC 規則已寫好，之後再用，見 [factory-later.md](factory-later.md)） | warning／critical |
 | trace | 同一請求同一呼叫 ≥ 20 次（N+1）、≥ 5% 請求吞掉例外、沒見過的呼叫、時鐘差 > 500ms | warning |
 
 ### B. 跟自己的歷史比 ✅
@@ -206,7 +208,7 @@ z        = (現在 − 平常值) ÷ 波動
 - 方向：延遲、錯誤只看變高；流量兩邊都看。
 - 7 條序列：請求數、錯誤率、p95、log 行數、錯誤 log 數（每個服務 × API）；Pod CPU、記憶體（每個 Deployment）。
 
-**B2. 卜瓦松（很稀少的筆數，例如設備告警一小時 0～2 次）**：學每個時段的平均次數 λ，「平常 λ 次的情況下出現這麼多次」的機率 < 0.001 才算異常。歷史裡的爆量先壓掉再平均。
+**B2. 卜瓦松（很稀少的筆數，例如某個背景工作一小時失敗 0～2 次）**：學每個時段的平均次數 λ，「平常 λ 次的情況下出現這麼多次」的機率 < 0.001 才算異常。歷史裡的爆量先壓掉再平均。
 
 **B3. 借同組（新 API、量太少的 API）**：依設定的組（例如 `mes-*` 的查詢 API）借成員 baseline 的中位數，門檻調高到 z ≥ 7，可信度標 low。請求數、筆數不借（新 API 的流量跟別人無關）。
 
@@ -230,7 +232,7 @@ z        = (現在 − 平常值) ÷ 波動
 | 只有一個 Pod 慢 | C 兄弟 | 服務平均被其他 Pod 拉平了 |
 | 換版後每個請求多查 30 次 DB | D trace | metrics 只看到稍微變慢，trace 看到「哪一段、幾次」 |
 | 新 API 上線第一天 | B3 借同組 | 沒有自己的歷史 |
-| 設備告警一小時多了 8 次 | B2 卜瓦松 | 平常大多是 0，中位數和 MAD 都是 0 |
+| 平常幾乎不失敗的排程，一小時失敗了 8 次 | B2 卜瓦松 | 平常大多是 0，中位數和 MAD 都是 0 |
 
 ---
 
@@ -427,7 +429,7 @@ flowchart TB
 
 | 模組 | ✅ 已做 | 📝／⚠️ 還沒做 |
 |---|---|---|
-| 收值 | log、metrics（Java、.NET、K8s、cAdvisor、Kafka、機台模擬）、trace＋尾端取樣 | trace-sampler 磁碟佇列；.NET SQL Server、Serilog／NLog 驗證 |
+| 收值 | log、metrics（Java、.NET、K8s、cAdvisor、Kafka）、trace＋尾端取樣 | trace-sampler 磁碟佇列；.NET SQL Server、Serilog／NLog 驗證 |
 | 清資料 | 擋冒充、補身分、分部門、格式解析、去重複、補 0 規則 | — |
 | 存 | 中央 ES、每部門寫入 key、換 key 不掉資料 | 保留天數定案 |
 | 判斷 | 規則 30 多條、7 條 baseline、自己選粒度、卜瓦松、借同組、跟兄弟比、trace 每一段、N+1、吞例外 | **正式環境排程**；p99、慢請求比例、往外呼叫耗時；趨勢；工廠行事曆；`groups` 依公司命名定義；**移動式／變化點偵測（輔助）** |
@@ -455,4 +457,5 @@ flowchart TB
 | LLM 還是 MLOps、feedback 閉環 | [aiops-llm-mlops.md](aiops-llm-mlops.md) |
 | 保留天數 | [retention.md](retention.md) |
 | PoC 現況（簡報） | [poc-status.md](poc-status.md) |
+| 工廠部分（之後再做） | [factory-later.md](factory-later.md) |
 | 階段一現況、階段二規劃（時間對齊、Kafka、業務 ID、髒資料、雜訊） | [stage2-plan.md](stage2-plan.md) |

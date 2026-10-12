@@ -1,6 +1,6 @@
 # 系統總覽
 
-一句話：**每個應用 cluster 一套 OpenTelemetry Collector，把 log、metrics、trace 依 namespace 的部門分流、用各部門自己的 key 寫進中央 Elasticsearch；AIOps 用唯讀 key 讀出來，學「平常的樣子」、跑規則、Pod 互比、做根因分析，結果寫進 `aiops-anomalies`。** 舊專案不改程式（Java agent、.NET 自動埋點）。
+一句話：**每個應用 cluster 一套 OpenTelemetry Collector，把 log、metrics、trace 依 namespace 的部門分流、用各部門自己的 key 寫進中央 Elasticsearch；AIOps 用唯讀 key 讀出來，學「平常的樣子」、跑規則、Pod 互比、做根因分析，結果寫進 `aiops-anomalies`。** 舊專案不改程式（Java agent、.NET 自動埋點）。目前範圍是一般服務，工廠之後再做（[factory-later.md](factory-later.md)）。
 
 ## 架構圖
 
@@ -13,7 +13,7 @@ flowchart TB
       JM["Java metrics<br/>開 /metrics"]
       NM[".NET metrics<br/>OTLP 推"]
       TR["trace<br/>OTLP 推（全部送）"]
-      EXP["exporter<br/>kafka_exporter、機台"]
+      EXP["exporter<br/>kafka_exporter"]
     end
 
     subgraph NODE["node Collector（每個節點一台）"]
@@ -52,7 +52,7 @@ flowchart TB
   subgraph AI["AIOps（Python，唯讀 key）"]
     direction TB
     B1["跟平常比（baseline）<br/>metrics 7 條：請求數、錯誤率、p95、CPU、記憶體、log 量<br/>trace 每一段：次數、時間、錯誤、吞掉例外、Kafka 排隊"]
-    B2["規則（不用學）<br/>狀態變化、離極限多遠、Kafka 落後、機台<br/>N+1、吞掉的例外、沒見過的呼叫"]
+    B2["規則（不用學）<br/>狀態變化、離極限多遠、Kafka 落後<br/>N+1、吞掉的例外、沒見過的呼叫"]
     B3["跟兄弟比<br/>同服務的 Pod 互比：錯誤率、p95、CPU、記憶體"]
     RCA["根因分析<br/>metrics 發現 → trace 找哪一段 → log 找新的錯誤樣式"]
     AN[("aiops-anomalies")]
@@ -98,4 +98,5 @@ flowchart LR
 | 落地五階段：階段一現況、階段二規劃 | [stage2-plan.md](stage2-plan.md) |
 | 後期接 LLM 還是 MLOps | [aiops-llm-mlops.md](aiops-llm-mlops.md) |
 | 保留天數與容量 | [retention.md](retention.md) |
-| 還沒做的 | [README 待辦](../README.md#待辦) |
+| 工廠部分（之後再做） | [factory-later.md](factory-later.md) |
+| 全部文件、閱讀順序、待辦 | [README](../README.md) |

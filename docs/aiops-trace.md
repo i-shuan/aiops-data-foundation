@@ -13,7 +13,7 @@ trace 怎麼收、怎麼分部門見 [traces.md](traces.md)；baseline、根因�
 | **三、錯誤源頭** | 鏈路裡哪一台先爆？ | ✅ 根因分析：標了錯誤、底下子呼叫都沒錯的那段才是源頭；trace baseline 每一段的 `error_rate`；✅ 吞掉的例外：規則 `swallowed` ＋ baseline `swallowed_rate` | — |
 | **四、非同步、訊息佇列** | 訊息在 Kafka 排了多久？ | ⚠️ 真的 Kafka＋.NET 實測（不改程式）：排隊時間、消費者寫 DB 的變慢／出錯、lag 都抓得到 | 不改程式時消費端串不回訊息；正式環境的排隊時間大多算不出來（見下） |
 | **五、架構治理** | 實際的相依長怎樣？有沒有循環呼叫？ | ⚠️ 根因分析會畫呼叫關係圖；`trace.segment.new` 報「這支 API 出現沒看過的呼叫」 | 循環呼叫、越權直連 DB、舊 API 還有誰在叫 |
-| **六、工廠** | 機台交握卡在哪一道指令？工單卡在 MES、MCS、AMHS 哪一段？ | ❌ | EAP 要手動埋點；跨異質系統怎麼串（見下） |
+| **六、工廠**（之後再做） | 機台交握卡在哪一道指令？工單卡在 MES、MCS、AMHS 哪一段？ | ❌ | 見 [factory-later.md](factory-later.md) |
 
 ## 各場景還缺什麼
 
@@ -74,23 +74,21 @@ trace 怎麼收、怎麼分部門見 [traces.md](traces.md)；baseline、根因�
 - **越權直連 DB**：先定義規則（例如「只有 wip-worker 能連 MES 的 Oracle」），呼叫關係裡違反的就報。規則要由架構負責人定。
 - **舊 API 還有誰在叫**：某支 API 標成「要下架」，看最近 30 天還有哪些服務在呼叫。
 
-### 六、工廠
+### 六、工廠（之後再做，集中在 [factory-later.md](factory-later.md)）
 
-- **SECS／GEM 交握**：EAP 不是 HTTP，自動埋點不會有。要 EAP 程式在送出、收到每一則 SECS 訊息時手動開 span，帶上機台、指令（S6F11…）、交易 ID（SystemBytes）。這是 [README 待辦第 3 點](../README.md#待辦)的階段 2。
+- **SECS／GEM 交握**：EAP 不是 HTTP，自動埋點不會有。要 EAP 程式在送出、收到每一則 SECS 訊息時手動開 span，帶上機台、指令（S6F11…）、交易 ID（SystemBytes）。見 [factory-later.md](factory-later.md)。
 - **MES → MCS → AMHS**：這些系統之間常常不是 HTTP（資料庫當佇列、檔案、廠商協定），`traceparent` 傳不過去。務實的做法是**用業務 ID 串**（工單號、載具 ID、搬送指令 ID）：每個系統的 span 或 log 都帶上同一個 ID，查的時候用 ID 把各段接起來，不一定要是同一個 trace。
 
 ## 橫跨所有場景的前提：取樣
 
-現在在應用裡、請求一開始就決定要不要記（例如記一成），那時還不知道這個請求會不會慢、會不會錯。調到一成時，**出事的請求也只剩一成**，場景一、三最需要的剛好是那些。
+**已改成「結束後才決定」（尾端取樣）**。原本在應用裡、請求一開始就決定要不要記（例如記一成），那時還不知道這個請求會不會慢、會不會錯，調到一成時**出事的請求也只剩一成**，場景一、三最需要的剛好是那些。
 
-| | 現在：一開始就決定 | 另一種：結束後才決定 |
+| | 原本：一開始就決定 | 現在：結束後才決定 |
 |---|---|---|
-| 怎麼做 | 應用依比例決定 | 先全部送到 Collector，整個 trace 到齊後決定：錯的、慢的全留，正常的留一成 |
+| 怎麼做 | 應用依比例決定 | 應用全部送到 Collector，整個 trace 到齊後決定：錯的、慢的全留，正常的留 5% |
 | 出事的請求 | 只留一成 | **全留** |
-| 架構 | 現在這樣 | 同一個 trace 的所有段要到同一台 Collector：多一層「依 trace_id 分配」的 Collector，要等 trace 到齊（例如 10 秒）才決定，Collector 要更多記憶體 |
-| 應用端負擔 | 低（沒記的不送） | 每個請求都要送到 Collector |
-
-要先決定：高流量服務打算記幾成？全部記的話不用改；要調低的話，建議評估「結束後才決定」。
+| 架構 | 單層 Collector | 兩層：node Collector 依 trace_id 分配 → trace-sampler，等 30 秒讓 trace 到齊 |
+| 應用端負擔 | 低（沒記的不送） | 每個請求都送到同節點的 Collector |
 
 **k3s 實測（結束後才決定）**：兩層 Collector（node → 依 trace_id 分配 → trace-sampler × 2），壓測每秒 500 個請求、11% 有問題（[test/local-k3s/tail-sampling](../test/local-k3s/tail-sampling/README.md)）：
 
@@ -107,4 +105,4 @@ trace 怎麼收、怎麼分部門見 [traces.md](traces.md)；baseline、根因�
 2. ✅ **場景二、三的補強**：N+1、吞掉的例外的規則。
 3. ⚠️ **場景四**：不改程式的版本做完（見上）；要整條串起來得改消費端程式，先不做。
 4. **場景五**：循環呼叫、越權直連 DB（規則要人定）。
-5. **場景六**：跟 EAP 團隊談手動埋點、跨系統用哪個業務 ID 串。
+5. **場景六**（工廠，之後）：跟 EAP 團隊談手動埋點、跨系統用哪個業務 ID 串，見 [factory-later.md](factory-later.md)。
