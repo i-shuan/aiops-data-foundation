@@ -274,6 +274,8 @@ AIOps 的其他用途要的「平常」長得不一樣，有一部分可以共�
 
 步驟 1、4 的 AI 可以自己做（Python 從 ES 讀資料），也可以用 Elastic 的付費功能（異常偵測、log 樣式分群、log 量突變分析；免費授權實測都不能用，見 README 待辦）。
 
+> 後期接 LLM 還是 MLOps、各在哪一層：見 [aiops-llm-mlops.md](aiops-llm-mlops.md)。
+
 ## 推進的兩個階段：先一般服務，再 EAP 與機台
 
 先在一般服務（Web API、worker）把整套跑通：協定標準（HTTP、gRPC、DB、MQ）、呼叫鏈單純，問題好查。等這套流程驗證成熟，再接 EAP 與機台。底層的 ES、OTel Collector、baseline 程式都共用，EAP 主要是加解析規則和換欄位。

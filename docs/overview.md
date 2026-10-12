@@ -93,5 +93,6 @@ flowchart LR
 | .NET | [dotnet.md](dotnet.md) |
 | baseline、規則、跟兄弟比 | [aiops/baseline/README.md](../aiops/baseline/README.md) |
 | 根因分析 | [aiops-rca.md](aiops-rca.md)、[aiops/rca/README.md](../aiops/rca/README.md) |
+| 後期接 LLM 還是 MLOps | [aiops-llm-mlops.md](aiops-llm-mlops.md) |
 | 保留天數與容量 | [retention.md](retention.md) |
 | 還沒做的 | [README 待辦](../README.md#待辦) |
