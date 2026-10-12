@@ -4,8 +4,8 @@ import unittest
 import numpy as np
 import pandas as pd
 
-from aiops_baseline.model import (DetectOptions, TrainOptions, group_of, mark_status, mask_thin, pick_resolution,
-                                  score, score_poisson, train, train_groups)
+from aiops_baseline.model import (DetectOptions, TrainOptions, group_of, mark_status, mask_thin, override_for,
+                                  pick_resolution, resolutions_from, score, score_poisson, train, train_groups)
 
 TZ = "Asia/Taipei"
 
@@ -263,3 +263,24 @@ class StatusTest(unittest.TestCase):
         # 15 分鐘一點：還是要連續兩個（30 分鐘）
         s = mark_status(self.frame([True, True], step="15min"), ["svc"], "15m")
         self.assertEqual(s["status"].tolist(), ["warning", "anomaly"])
+
+
+class TuningTest(unittest.TestCase):
+    """使用者設定、tune 指令的調整；最細粒度的限制。"""
+
+    def test_min_resolution_drops_finer(self):
+        self.assertEqual(resolutions_from(["30s", "1m", "5m"], "1m"), ["1m", "5m"])
+        self.assertEqual(resolutions_from(["30s", "1m"], None), ["30s", "1m"])
+
+    def test_finer_than_data_is_not_picked(self):
+        # 5 分鐘一筆的資料，不能選 30 秒（九成的窗是空的）
+        ts = pd.date_range("2026-09-07", periods=7 * 288, freq="5min", tz="UTC")
+        v = pd.DataFrame({"svc": "a", "ts": ts, "n": 100.0})
+        self.assertEqual(pick_resolution(v, ["svc"], 20, base="5m")["resolution"].item(), "5m")
+
+    def test_override_later_wins_and_must_match(self):
+        ov = [{"series": "http\\..*", "match": {"service": "^mes-"}, "z": 6},
+              {"series": "http.latency_p95_s", "match": {"service": "^mes-report"}, "resolution": "5m", "z": 8}]
+        self.assertEqual(override_for("http.latency_p95_s", {"service": "mes-report"}, ov), {"z": 8, "resolution": "5m"})
+        self.assertEqual(override_for("http.error_rate", {"service": "mes-api"}, ov), {"z": 6})
+        self.assertEqual(override_for("pod.cpu", {"service": "mes-api"}, ov), {})

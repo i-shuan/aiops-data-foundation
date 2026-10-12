@@ -84,7 +84,6 @@ def main() -> int:
 
     es.req("POST", f"/{ANOMALY_INDEX}/_refresh")
     hits = es.req("POST", f"/{ANOMALY_INDEX}/_search", {"size": 1000, "query": {"prefix": {"series": "synth."}}})["hits"]["hits"]
-    hits = [h for h in hits if not h["_source"].get("live")]
     status = {(h["_source"]["series"], h["_source"]["keys"]["service"],
                pd.Timestamp(h["_source"]["@timestamp"]).tz_convert(TZ).strftime("%H:%M")): h["_source"].get("status")
               for h in hits}
@@ -108,17 +107,6 @@ def main() -> int:
     fail += not ok
     print(f"  {'PASS' if ok else 'FAIL'}  {svc_s} {hhmm_s} 起連續 {n_s} 個 5 分鐘錯誤數暴增 → {got}（應該是 warning、anomaly、anomaly）")
 
-    # 即時檢查：18:07 看最近 5 分鐘（含 18:05 那一點）→ 先發 warning（live），不是 anomaly
-    at = TODAY + pd.Timedelta(hhmm_s + ":00") + pd.Timedelta(minutes=7)
-    print(f"\n== 即時檢查（{at:%H:%M}）")
-    cli(["live", "--config", CONFIG, "--ticks", "1", "--at", at.tz_convert("UTC").isoformat()])
-    es.req("POST", f"/{ANOMALY_INDEX}/_refresh")
-    live = es.req("POST", f"/{ANOMALY_INDEX}/_search", {"size": 100, "query": {"bool": {"filter": [
-        {"prefix": {"series": "synth."}}, {"term": {"live": True}}]}}})["hits"]["hits"]
-    lv = {(h["_source"]["series"], h["_source"]["keys"]["service"], h["_source"]["status"]) for h in live}
-    ok = (series_of[field_s], svc_s, "warning") in lv and all(st == "warning" for _, _, st in lv)
-    fail += not ok
-    print(f"  {'PASS' if ok else 'FAIL'}  即時檢查發出 warning、不直接算 anomaly：{sorted(lv)}")
     false_pos = found - expected
     points = len(SERVICES) * 288 * len(series_of)
     rate = len(false_pos) / points

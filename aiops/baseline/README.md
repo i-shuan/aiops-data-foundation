@@ -131,11 +131,7 @@ MAD（Median Absolute Deviation，中位數絕對偏差）＝「每個值離中�
 - 設定在 `series.yaml` 的 `status: {confirm_points: 2, confirm_span: 30m}`。
 - 規則（`rules.yaml`）另外用 `for`（要持續多久）處理；重啟、Pod Failed 這類 critical 規則一次就算，不等。
 
-**即時檢查（`live`）**：常駐，每 30 秒看「最近一個時間窗長度」的滑動窗（5 分鐘一點的序列就是最近 5 分鐘），跟這個時段的 baseline 比，超標就先發 `warning`（`live: true`，同一個時間窗只留一筆、每 30 秒更新）。
-
-- 為什麼即時檢查**只發 warning**：前後兩次的滑動窗有 4 分半重疊，一個尖峰會連續 10 次都超標，拿來算「連續」就又變成「跳一點就異常」。升級成 anomaly 一律由不重疊的時間窗（`detect`）決定。
-- 為什麼不直接拿 30 秒的單點比：baseline 是用 5 分鐘（或更粗）學的，30 秒的請求數只有十分之一、p95 由幾個請求算出來，比了一直誤報。滑動窗跟 baseline 同單位。
-- 效果：出事後約 30 秒～1 分鐘先有 warning；5 分鐘一點的序列，連續兩個時間窗（約 10 分鐘）確認成 anomaly。
+**時間上的效果**（預設 30 秒一點，見「自動調整 ①」）：30 秒一點的序列，偵測每 30 秒跑一次，**跳一次約 30 秒後 warning、連續兩個 30 秒（約 1 分鐘）就是 anomaly**；粒度被調粗的序列（量少、或使用者、feedback 調過的）照它自己的時間窗算。
 
 ### 調靈敏度
 
@@ -182,13 +178,18 @@ MAD（Median Absolute Deviation，中位數絕對偏差）＝「每個值離中�
 
 ### ① 每條序列自己選粒度
 
-- **看底下的事件數，不是看有幾個點**：p95 由 3 個請求算出來就是雜訊。每條序列算「每個時間窗的事件數」，從 5m、15m、30m、1h 裡挑**最細、而且至少三成（`coverage: 0.3`）的時間窗夠多**的。不用中位數（一半）：很多 API 只有白天有人用，晚上、週末的時間窗本來就少，用中位數會整條不判斷。
+- **預設 30 秒一點**（跟收值頻率一樣），量不夠才往粗調：**看底下的事件數，不是看有幾個點**——p95 由 3 個請求算出來就是雜訊。每條序列算「每個時間窗的事件數」，從 30s、1m、5m、15m、30m、1h 裡挑**最細、而且至少三成（`coverage: 0.3`）的時間窗夠多**的。不用中位數（一半）：很多 API 只有白天有人用，晚上、週末的時間窗本來就少，用中位數會整條不判斷。
 
   | 指標類型 | 事件數是什麼 | 預設門檻（每窗） |
   |---|---|---|
   | 比例（錯誤率）、百分位（p95） | 這段時間的請求數 | ≥ 20 |
   | 筆數（請求數、log 數、事件數） | 筆數本身 | ≥ 10 |
-  | 量測值（CPU、記憶體） | 不檢查，固定 5 分鐘 | — |
+  | 量測值（CPU、記憶體） | 不檢查，固定最細（30 秒） | — |
+
+- **有的序列不能細到 30 秒**（`min_resolution`）：請求數是「每 30 秒收一次的增量」，收值時間有抖動，30 秒窗偶爾收到 0 筆或 2 筆，看起來像歸零、翻倍，所以 `http.requests` 最細 1 分鐘。錯誤率、p95（比例、百分位不受影響）、CPU、記憶體（平均）、log 筆數（每筆有自己的時間）可以 30 秒。
+- **比原始資料細的粒度不選**：資料 5 分鐘一筆，就不會選 30 秒。
+- **細粒度只學最近 14 天**（`fine_history`）：30 秒一點 4 週是 8 萬點；14 天還夠「同星期幾 × 同小時」（每個時段 2 天 × 120 點）。5 分鐘以上照樣學 4 週。
+- **偵測往前退 30 秒**（`lag`）：剛結束的 30 秒可能還沒收齊（Collector 批次送、ES refresh），看起來像驟降。
 
 - **事件數不夠的時間窗不判斷**（比例、百分位類）：選了 1 小時之後，晚上那幾個小時可能還是只有幾個請求，那幾窗不學、也不判斷（是雜訊，不是「平常」）。筆數類不受影響（0 筆本身就有意義，例如服務停了）。
 - 粗的粒度要重新跟 ES 查（百分位不能從 5 分鐘的值合併），只對需要的序列查。
@@ -196,6 +197,18 @@ MAD（Median Absolute Deviation，中位數絕對偏差）＝「每個值離中�
 - 預先統計好的資料（例如 exporter 每 5 分鐘吐一筆「請求數、平均延遲」）：用 `events: {sum: requests}` 指定事件數在哪個欄位、`kind: rate`；值本身就是筆數的寫 `events: value`。
 - **粗粒度自然會退到粗的季節性**：1 小時一點時，「同星期幾 × 同小時」4 週只有 4 個值，不夠（每個時段至少要 6 個值），自動退到「每天同一小時」。
 - **代價是慢**：1 小時一點，最慢 1 小時後才報。要馬上知道的（設備停機、重大告警）本來就該用規則，有就報。
+
+### 使用者、feedback 調整
+
+自動選的不一定合適（例如報表 API 本來就跳動大，30 秒太敏感）。可以針對某條序列、某些對象調**粒度、z、min_abs**：
+
+| 從哪裡調 | 怎麼調 | 什麼時候生效 |
+|---|---|---|
+| 使用者設定 | `series.yaml` 的 `overrides`（`series` 可用正規表示式、`match` 依 keys 比對） | 粒度：下次 train；z、min_abs：下次 detect |
+| 指令 | `python3 -m aiops_baseline tune --series http.latency_p95_s --match service=^mes-report --resolution 5m --z 7 --reason 誤報多 --by 王小明`，寫進 `aiops-tuning`（`--list` 列出、`--remove` 刪掉） | 同上 |
+| feedback（📝） | 之後的 feedback 流程寫同一個 `aiops-tuning`：同一條序列誤報累積多次 → 建議粒度往粗一級或調高 z，回測通過才寫入（見 [docs/system-map.md 第 10 節](../../docs/system-map.md)） | 同上 |
+
+套用順序：自動選 → `series.yaml` 的 `overrides` → `aiops-tuning`，後面的蓋前面的。每筆調整記 `reason`、`by`、`at`，查得到誰、為什麼、什麼時候改的。
 
 ### ② 很稀少的事件：卜瓦松
 
@@ -421,15 +434,17 @@ export ES_API_KEY=<elasticsearch-setup.sh 發的「AIOps baseline key」>   # �
 # export ES_CA=/path/to/ca.crt      # ES 用內部 CA 的話
 
 python3 -m aiops_baseline train  --config baseline/series.yaml   # 每天跑一次（例如凌晨）
-python3 -m aiops_baseline detect --config baseline/series.yaml   # 每 5 分鐘跑一次，看最近 30 分鐘
-python3 -m aiops_baseline live   --config baseline/series.yaml   # 常駐：每 30 秒即時檢查，只發 warning
+python3 -m aiops_baseline detect --config baseline/series.yaml   # 每 30 秒跑一次，看最近 30 分鐘
+python3 -m aiops_baseline tune   --series ... --match ... --resolution 5m   # 調整某些對象的粒度、門檻
 ```
 
 排程例子（crontab）：
 
 ```
 15 3 * * *  cd /opt/aiops && python3 -m aiops_baseline train  --config baseline/series.yaml >> train.log 2>&1
-*/5 * * * * cd /opt/aiops && python3 -m aiops_baseline detect --config baseline/series.yaml >> detect.log 2>&1
+* * * * *   cd /opt/aiops && python3 -m aiops_baseline detect --config baseline/series.yaml >> detect.log 2>&1
+* * * * *   sleep 30; cd /opt/aiops && python3 -m aiops_baseline detect --config baseline/series.yaml >> detect.log 2>&1
+# crontab 最細 1 分鐘：用兩行（一行延後 30 秒）做到每 30 秒。K8s 上可以用常駐的 Deployment 跑迴圈。
 ```
 
 回測（拿過去某個時間點當「現在」）：`train --end 2026-10-01T00:00:00Z`、`detect --at 2026-10-01T10:00:00Z --window 1D`。
@@ -451,6 +466,7 @@ detect 只看**已經結束**的 5 分鐘：還沒收齊的那一段筆數會偏
 python3 -m unittest discover -s tests -t .              # 在 aiops 底下；單元測試，不需要 ES
 ES_URL=... ES_AUTH=... python3 -m tests.synth_e2e      # 模擬資料，需要 ES
 ES_URL=... ES_AUTH=... python3 -m tests.adaptive_e2e   # 自動選粒度、卜瓦松、借 baseline，需要 ES
+ES_URL=... ES_AUTH=... python3 -m tests.fine_e2e       # 30 秒粒度、連續才算、tune，需要 ES
 ```
 
 `synth_e2e`：寫 4 週＋1 天的模擬資料進 ES（3 個服務，有每日、每週的週期和雜訊），最後一天插入 4 個異常，只用前 4 週訓練、偵測最後一天：
@@ -462,10 +478,22 @@ ES_URL=... ES_AUTH=... python3 -m tests.adaptive_e2e   # 自動選粒度、卜�
 | eap-gw 凌晨 2:00 出現白天的流量（只有一個點） | ✅ 抓到（z = 53.7），**warning**：同樣的值在白天是正常的 |
 | mes-api 16:00 錯誤數暴增（只有一個點） | ✅ 抓到（z = 28.3），**warning** |
 | mes-api 18:00 起連續 3 個 5 分鐘錯誤數暴增 | ✅ 18:00 **warning**、18:05、18:10 **anomaly** |
-| 即時檢查 18:07（最近 5 分鐘含 18:05 那一點） | ✅ 發 **warning**（live），不直接算 anomaly |
 | 正常的點 | **誤報 0 個／2,592 個** |
 
 寫入 2.5 萬筆＋訓練＋偵測共 15 秒。
+
+`fine_e2e`：2 週＋1 天、每 30 秒一筆的模擬資料：
+
+| 情況 | 結果 |
+|---|---|
+| 忙的 API（每 30 秒約 60 個請求） | ✅ 自動用 30 秒 |
+| 少人用的 API（每 30 秒約 1 個請求） | ✅ 自動往粗調（15 分鐘） |
+| 最後一天 10:00:00 起延遲連續 90 秒變 3 倍 | ✅ 10:00:00 warning、10:00:30 **anomaly**（約 1 分鐘確認）、10:01:00 anomaly |
+| 14:00:00 只尖 30 秒 | ✅ 只有 warning |
+| 正常的點 | ✅ anomaly 誤報 0、warning 0／11,520 個點 |
+| `tune` 把忙的 API 固定成 1 分鐘 | ✅ 重新 train 後是 1 分鐘；刪掉調整後回到 30 秒 |
+
+訓練 2 週 × 30 秒（約 14 萬筆）5 秒、偵測一天 1 秒。k3s 真實資料（30 多條序列）用正式設定 train 20 秒、detect 2 秒。
 
 `adaptive_e2e`（`ES_URL=... ES_AUTH=... python3 -m tests.adaptive_e2e`）：4 週＋1 天的模擬資料，同一份資料分別用「固定 5 分鐘」和「自己選粒度」跑：
 

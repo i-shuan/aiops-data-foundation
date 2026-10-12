@@ -26,7 +26,7 @@ import pandas as pd
 MAD_TO_SIGMA = 1.4826  # 常態分布下 MAD 換成標準差的係數
 
 LEVELS = ("dow_hour", "hour", "all")
-RESOLUTIONS = ("5m", "15m", "30m", "1h")
+RESOLUTIONS = ("30s", "1m", "5m", "15m", "30m", "1h")   # 30 秒＝收值的頻率，最細就到這裡
 # 用哪一層當「平常」→ 可信度：自己同星期幾同小時最準；不分時段、借別人的最不準
 CONFIDENCE = {"dow_hour": "high", "hour": "medium", "all": "low", "group": "low"}
 
@@ -136,6 +136,8 @@ def pick_resolution(volume: pd.DataFrame, keys: list[str], min_events: float, ba
     回傳 keys + resolution + events（選中的粒度下每窗事件數的中位數）+ covered（事件數夠的時間窗比例）。
     """
     cols = keys + ["resolution", "events", "covered"]
+    # 比原始資料細的粒度不能選（5 分鐘一筆的資料切成 30 秒，九成的窗是空的）
+    resolutions = [r for r in resolutions if pd.Timedelta(to_freq(r)) >= pd.Timedelta(to_freq(base))]
     v = volume.dropna(subset=["ts"])
     if v.empty:
         return pd.DataFrame(columns=cols)
@@ -330,4 +332,29 @@ def mark_status(scored: pd.DataFrame, keys: list[str], step: str, confirm_points
             if hit:
                 out.at[i, "status"] = "anomaly" if streak >= need else "warning"
             prev_t, prev_sign = t, (sg if hit else 0)
+    return out
+
+
+def resolutions_from(resolutions, min_resolution: str | None) -> list[str]:
+    """候選粒度，去掉比 min_resolution 細的（例如請求數：收值有抖動，30 秒窗會收到 0 或 2 筆，最細 1 分鐘）。"""
+    if not min_resolution:
+        return list(resolutions)
+    floor = pd.Timedelta(to_freq(min_resolution))
+    return [r for r in resolutions if pd.Timedelta(to_freq(r)) >= floor]
+
+
+def match_keys(key: dict, match: dict | None) -> bool:
+    """match 的每個欄位都要符合（正規表示式，re.search）；沒有 match 就是全部。"""
+    import re
+    return all(key.get(f) is not None and re.search(str(pat), str(key[f])) for f, pat in (match or {}).items())
+
+
+def override_for(series: str, key: dict, overrides: list[dict]) -> dict:
+    """這條序列、這個對象的調整（粒度、z、min_abs）：符合的依序套上，後面的蓋前面的。
+    來源：series.yaml 的 overrides（使用者設定），再來是 aiops-tuning（tune 指令、之後的 feedback 寫的）。"""
+    import re
+    out = {}
+    for o in overrides:
+        if re.fullmatch(o.get("series", ".*"), series) and match_keys(key, o.get("match")):
+            out.update({k: o[k] for k in ("resolution", "z", "min_abs") if o.get(k) is not None})
     return out
