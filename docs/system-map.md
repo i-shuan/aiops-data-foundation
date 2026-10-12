@@ -455,3 +455,4 @@ flowchart TB
 | LLM 還是 MLOps、feedback 閉環 | [aiops-llm-mlops.md](aiops-llm-mlops.md) |
 | 保留天數 | [retention.md](retention.md) |
 | PoC 現況（簡報） | [poc-status.md](poc-status.md) |
+| 階段一現況、階段二規劃（時間對齊、Kafka、業務 ID、髒資料、雜訊） | [stage2-plan.md](stage2-plan.md) |

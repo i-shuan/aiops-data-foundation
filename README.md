@@ -76,8 +76,9 @@
 
    不買的話，AIOps 要自己做（例如 Python 從 ES 讀資料跑模型），資料地基不用改。
 2. **保留天數要定案並套用。** ⚠️ metrics、trace 現在用 ES 預設的 ILM，**只有 rollover、不會刪除**，硬碟遲早滿。方案見 [docs/retention.md](docs/retention.md)：metrics 原始 14 天、降成 5 分鐘留到 90 天、降成 1 小時留到 400 天；log 原文 30 天＋統計值 400 天；trace 原始 7 天＋從 trace 算的指標 400 天。要決定天數、副本，並用正式環境的量重算容量。
-3. **AIOps 分兩階段推進：先一般服務，再 EAP 與機台。** 階段 1 在 Web API、worker 上把三種資料串接、baseline、事故紀錄、合併告警跑通；還沒做的是從 metrics 跳到慢 trace、連續異常才報、事故紀錄、合併告警，以及用 4 週真實資料驗證 baseline。階段 2 再接 EAP：SECS 解析規則、載具／腔體／交易 ID 的欄位名稱、機台交握耗時與告警的 baseline。底層共用，不用重寫。之後接 LLM（合併、判斷真假、摘要）都要事故紀錄和告警回饋，還要補：訓練排除事故時段、baseline 與設定帶版本、回測指令、LLM 評測集，見 [docs/aiops-llm-mlops.md](docs/aiops-llm-mlops.md)。清單見 [docs/aiops-rca.md「推進的兩個階段」](docs/aiops-rca.md#推進的兩個階段先一般服務再-eap-與機台)。
-4. **metrics 這段剩下的（branch `claude/aiops-metrics` 先停在這裡，接下來討論 trace）。** 已做：收資料（Java、.NET、K8s、cAdvisor）、7 條 baseline、狀態變化與離極限多遠的規則、跟兄弟比，四個領域的案例都在 k3s 驗過（[docs/aiops-metrics.md](docs/aiops-metrics.md)、[docs/aiops-metrics-cases.md](docs/aiops-metrics-cases.md)、[docs/dotnet.md](docs/dotnet.md)）。剩下：
+3. **落地五階段：階段一（可觀測性基建）大致完成，階段二（資料清洗與上下文打標）已規劃。** 階段二五項：時間對齊、Kafka 串接、業務 ID（批號、載具、機台、工單；含 MES／MCS／AMHS 斷鏈）、髒資料排除、雜訊壓制，分三波推進，見 [docs/stage2-plan.md](docs/stage2-plan.md)。
+4. **AIOps 分兩階段推進：先一般服務，再 EAP 與機台。** 階段 1 在 Web API、worker 上把三種資料串接、baseline、事故紀錄、合併告警跑通；還沒做的是從 metrics 跳到慢 trace、連續異常才報、事故紀錄、合併告警，以及用 4 週真實資料驗證 baseline。階段 2 再接 EAP：SECS 解析規則、載具／腔體／交易 ID 的欄位名稱、機台交握耗時與告警的 baseline。底層共用，不用重寫。之後接 LLM（合併、判斷真假、摘要）都要事故紀錄和告警回饋，還要補：訓練排除事故時段、baseline 與設定帶版本、回測指令、LLM 評測集，見 [docs/aiops-llm-mlops.md](docs/aiops-llm-mlops.md)。清單見 [docs/aiops-rca.md「推進的兩個階段」](docs/aiops-rca.md#推進的兩個階段先一般服務再-eap-與機台)。
+5. **metrics 這段剩下的（branch `claude/aiops-metrics` 先停在這裡，接下來討論 trace）。** 已做：收資料（Java、.NET、K8s、cAdvisor）、7 條 baseline、狀態變化與離極限多遠的規則、跟兄弟比，四個領域的案例都在 k3s 驗過（[docs/aiops-metrics.md](docs/aiops-metrics.md)、[docs/aiops-metrics-cases.md](docs/aiops-metrics-cases.md)、[docs/dotnet.md](docs/dotnet.md)）。剩下：
 
    | 項目 | 內容 | 備註 |
    |---|---|---|
