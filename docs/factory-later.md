@@ -9,7 +9,7 @@
 | 項目 | 狀態 | 在哪裡 |
 |---|---|---|
 | 業務欄位名稱：`lot.id`（批號）、`equipment.id`（機台）、`work_order.id`（工單）、`recipe.id`（配方） | ✅ 定案 | [apps/standards/tracing.md](../apps/standards/tracing.md) |
-| 機台指標的命名提案，加上 SECS 斷線、PLC 掃描週期超規、重傳三條規則 | ✅ 用模擬 exporter 在 k3s 驗過 | [aiops-metrics-cases.md 案例 4](aiops-metrics-cases.md)、`aiops/baseline/rules.yaml`（`eap.*`） |
+| 機台指標的命名提案，加上 SECS 斷線、PLC 掃描週期超規、重傳三條規則 | ✅ 用模擬 exporter 在 k3s 驗過 | [metrics/cases.md 案例 4](metrics/cases.md)、`aiops/baseline/rules.yaml`（`eap.*`） |
 | 很稀少的筆數（設備告警一小時 0～2 次）改用卜瓦松 | ✅ 模擬資料驗過（一小時多 8 次抓到） | [baseline README「自動調整」②](../aiops/baseline/README.md#自動調整粒度低頻事件借用-baseline) |
 | 每條序列依事件數自己選粒度（低頻的 SECS 事件自動往粗調） | ✅ | 同上 ① |
 
@@ -18,7 +18,7 @@
 ### 1. log 解析
 
 - **SECS 的 log 解析規則**：需要真實 log 樣本，包括一般事件、告警、逾時、多行 body。SECS 一則跨多行，Collector 收的時候要先合併。
-- 解析規則寫在中央 pipeline 的 `formats/`，做法跟其他格式一樣（[elasticsearch.md「pipeline」](elasticsearch.md#pipeline)）。
+- 解析規則寫在中央 pipeline 的 `formats/`，做法跟其他格式一樣（[log/README.md「pipeline」](log/README.md#pipeline)）。
 
 ### 2. 業務 ID 與跨系統串接
 
@@ -67,11 +67,11 @@
 ### 6. 行事曆
 
 - 歲修、盤點、換線、停機保養的時段，不判斷，也不學進 baseline。
-- 一般服務也需要行事曆（國定假日），做法共用，見 [stage2-plan.md 2-4](stage2-plan.md)。
+- 一般服務也需要行事曆（國定假日），做法共用，見 [rca/README.md「髒資料排除」](rca/README.md#髒資料排除)。
 
 ### 7. 機台、製程的模型（MLOps）
 
-- 一般服務這層定案不自己訓練模型（[aiops-llm-mlops.md](aiops-llm-mlops.md)）。
+- 一般服務這層定案不自己訓練模型（[feedback/llm-mlops.md](feedback/llm-mlops.md)）。
 - 機台、製程的多變量資料（預測保養、FDC、虛擬量測、良率）才可能需要。先問設備、製程部門有沒有現成的，這個平台提供 IT 層的資料（EAP 通訊、交握耗時、主機狀態）給他們用。
 
 ## 什麼時候開始

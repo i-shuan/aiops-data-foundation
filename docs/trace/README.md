@@ -2,7 +2,73 @@
 
 一句話：**應用把 trace 全部送給同一個節點上的 OpenTelemetry Collector，Collector 依「送來的連線是哪個 Pod」讀 namespace 的 dept 分 group；再依 trace_id 送到第二層 trace-sampler，等整個 trace 到齊後決定留不留（錯的、慢的、吞掉例外的全留，正常的隨機留 5%），留下的各 group 用自己的 key 寫進 ES。**
 
-收 log、metrics 的也是同一個 Collector（[elasticsearch.md](elasticsearch.md)、[metrics.md](metrics.md)），分部門的規則和 key 共用。
+收 log、metrics 的也是同一個 Collector（[log/README.md](../log/README.md)、[metrics/README.md](../metrics/README.md)），分部門的規則和 key 共用。
+
+## 現況與待辦（階段一：收值、格式、欄位；階段二：清洗與打標）
+
+**階段一 ✅ 大致完成**
+
+| 項目 | 狀態 |
+|---|---|
+| Java agent、.NET 自動埋點，不改程式；應用全部送到同節點的 Collector | ✅ |
+| 依連線來源的 Pod 分部門、擋冒充 | ✅ |
+| 尾端取樣：兩層 Collector，錯的、慢的（> 1 秒）、有例外的全留，正常的隨機留 5%；每一段記著是哪條規則留的 | ✅ |
+| 例外事件抄到 span 屬性（ES 會丟掉事件） | ✅ |
+| 跟 log 串：`trace_id` ↔ log 的 `trace.id` | ✅ |
+| 重送不重複（`trace_id + span_id` 當 `_id`） | ✅ |
+
+**階段一的小尾巴**
+
+| 項目 | 要做的 |
+|---|---|
+| trace-sampler 斷線 | 佇列只在記憶體，改成磁碟佇列 |
+| 保留天數 | trace 現在只有 rollover、不會刪（[retention.md](../retention.md)） |
+
+**階段二：要做的**
+
+### 時鐘差（時間對齊）
+
+- ✅ 已有規則：呼叫方和被呼叫方的時間差超過 500ms 就記（`trace.clock_skew_ms`）。
+- 📝 每天列出時鐘差最大的前 10 對服務。主機本身的時鐘監控見 [metrics/README.md](../metrics/README.md)。
+
+### Kafka 串接
+
+**為什麼**：請求進 Kafka 後，消費者處理時查的 DB、打的呼叫要能接回原本的請求，不然根因分析在 Kafka 這裡就斷了。
+
+**現況**（[scenarios.md 場景四](scenarios.md#四非同步訊息佇列)）：
+
+- ✅ 排隊時間、消費落後（kafka_exporter）抓得到。
+- ✅ 消費端的 `receive` span 有 link 指回生產端的 `publish`。
+- ❌ **.NET 不改程式時，消費者處理訊息時的 DB、呼叫自成一個 trace**（k3s 實測 961／961 筆都是孤兒），接不回訊息。
+- ❓ Java agent 理論上會自動帶 header、自動串起來，還沒在 k3s 驗證。
+
+| 路線 | 內容 | 代價 | 建議 |
+|---|---|---|---|
+| A. 驗證 Java | k3s 加 Java 的生產者、消費者，確認不改程式就能串起來 | 我們，1～2 天 | 先做：確認問題範圍是不是只有 .NET |
+| B. .NET 加幾行 | 消費者收到訊息時，從 header 取出 trace context 當成處理時的上層（約 5 行） | 各應用團隊改程式 | 只對重要的消費者要求；之前決定先不改，列為「之後談」 |
+| C. 業務 ID 事後關聯 | 訊息帶交易 ID、單號，生產端和消費端的 log 都記這個 ID，用 ID 接起來 | 依賴下面的業務 ID | 不改程式時的退路 |
+
+**驗收**：有 trace 能從 HTTP 入口一路看到消費者處理時查的 DB（A／B）；或給一個交易 ID 能列出生產、消費兩邊的 log（C）。
+
+### 業務 ID（服務層）
+
+**為什麼**：trace 斷掉的地方（Kafka 不改程式、批次工作、排程、呼叫外部系統）只能靠業務上的 ID 接起來；根因報告也要能說「影響了哪些交易、哪些單」。
+
+**現況**：
+
+- ✅ 工廠用的欄位已定案：`lot.id`、`equipment.id`、`work_order.id`、`recipe.id`（[apps/standards/tracing.md](../../apps/standards/tracing.md)）。工廠的其餘欄位見 [factory-later.md](../factory-later.md)。
+- ❌ 服務層通用的「交易 ID」（一次操作從頭到尾的 ID，跨同步、非同步）還沒定名稱。
+- ❌ 很多 ID 只寫在 log 訊息裡，沒有獨立欄位。
+
+| 步驟 | 內容 | 誰 | 驗收 |
+|---|---|---|---|
+| 1. 訂名稱 | 例如 `txn.id`，跟已定案的 `work_order.id` 等並列；新增要先跟平台確認 | 我們 | 寫進 [tracing.md](../../apps/standards/tracing.md) |
+| 2. 不改程式：從 log 抽出來 | 中央 pipeline 依格式抽成標準欄位（[log/README.md](../log/README.md)） | 我們（要幾行 log 樣本） | 舊服務的 log 查得到 |
+| 3. 新程式：放 MDC／scope、span 屬性 | 入口把 ID 放進 log 的 MDC（Java）或 scope（.NET），重要的也放成 span 屬性 | 各應用團隊（寫進開發規範） | 新服務的 log、trace 都帶 |
+| 4. 查詢工具 | 給一個交易 ID，列出所有服務的 log、trace，依時間排序 | 我們 | 輸入一個 ID 看得到完整時間線 |
+| 5. 根因報告帶 ID | 報告列出受影響的交易、單號 | 我們 | 報告裡有「影響哪些交易」 |
+
+**一定要注意**：業務 ID **只放 log、trace，不放 metrics**（每個值一條新序列，序列數會爆炸）。
 
 ## 資料怎麼走
 
@@ -29,7 +95,7 @@ trace-sampler × 2（StatefulSet，尾端取樣）
 
 **為什麼要先拿掉應用自帶的欄位：** trace 是應用自己送的，資源欄位應用可以亂填（例如自稱是別的 namespace、別的部門）。拿掉之後，歸屬只看連線來源，應用無法冒充。
 
-**為什麼要兩層、等多久、留哪些：** 見 [aiops-trace.md「取樣」](aiops-trace.md#橫跨所有場景的前提取樣)。k3s 實測每秒 500 個請求：有問題的 100% 留下而且完整、總量剩約 15%、trace-sampler 每台約 150MB（[test/local-k3s/tail-sampling](../test/local-k3s/tail-sampling/README.md)）。設定在 [sampler.yaml](../platform/cluster-addons/otel-collector/sampler.yaml)（規則）、[trace-sampler.yaml](../platform/cluster-addons/otel-collector/trace-sampler.yaml)（台數、等多久、隨機幾 %）。
+**為什麼要兩層、等多久、留哪些：** 見 [trace/scenarios.md「取樣」](scenarios.md#橫跨所有場景的前提取樣)。k3s 實測每秒 500 個請求：有問題的 100% 留下而且完整、總量剩約 15%、trace-sampler 每台約 150MB（[test/local-k3s/tail-sampling](../../test/local-k3s/tail-sampling/README.md)）。設定在 [sampler.yaml](../../platform/cluster-addons/otel-collector/sampler.yaml)（規則）、[trace-sampler.yaml](../../platform/cluster-addons/otel-collector/trace-sampler.yaml)（台數、等多久、隨機幾 %）。
 
 ## 應用要做什麼
 
@@ -44,7 +110,7 @@ trace-sampler × 2（StatefulSet，尾端取樣）
 
 沒用 chart 的服務，自己設上面這幾個環境變數。不是 Java 的服務，用該語言的 OpenTelemetry SDK，送到同一個位址。
 
-**什麼時候要自己埋點、怎麼埋（業務步驟、批號這類欄位、SECS 等 agent 不認得的元件），見 [apps/standards/tracing.md](../apps/standards/tracing.md)。**
+**什麼時候要自己埋點、怎麼埋（業務步驟、批號這類欄位、SECS 等 agent 不認得的元件），見 [apps/standards/tracing.md](../../apps/standards/tracing.md)。**
 
 ## 跟 log、metrics 串起來
 
@@ -69,7 +135,7 @@ pod label、`container.*` 不會帶進 trace（只給 log 用）。
 
 ## 部署
 
-中央 ES 和每個 cluster 的步驟跟 log、metrics 一樣（[elasticsearch.md 的「部署」](elasticsearch.md#部署)）：重跑 `elasticsearch-setup.sh`，新發的 key 才有 `traces-*.otel-*` 的權限（或用 `rotate-writer-key.sh` 一個一個 group 換，不掉資料）；`kubectl apply -k platform/cluster-addons/otel-collector` 會多一個 Service `otel-node-collector`。
+中央 ES 和每個 cluster 的步驟跟 log、metrics 一樣（[log/README.md 的「部署」](../log/README.md#部署)）：重跑 `elasticsearch-setup.sh`，新發的 key 才有 `traces-*.otel-*` 的權限（或用 `rotate-writer-key.sh` 一個一個 group 換，不掉資料）；`kubectl apply -k platform/cluster-addons/otel-collector` 會多一個 Service `otel-node-collector`。
 
 ES 要有 `/_otlp/v1/traces`（測試用 9.5.5）：
 
@@ -83,7 +149,7 @@ curl -s -o /dev/null -w "%{http_code}\n" -u elastic:<password> -X POST -H "Conte
 ES_URL=http://<ip>:9200 test/local-k3s/run-trace-e2e.sh
 ```
 
-測試應用（[trace-app.sh](../test/local-k3s/trace-app.sh)）每 5 秒印一行帶 `trace_id` 的 log、送一個同 `trace_id` 的 span。it-mes-prod 那個故意在資源欄位自稱 imc-wip-prod、dept D1110、group imc、假的 Pod UID。**24 項全部通過**：
+測試應用（[trace-app.sh](../../test/local-k3s/trace-app.sh)）每 5 秒印一行帶 `trace_id` 的 log、送一個同 `trace_id` 的 span。it-mes-prod 那個故意在資源欄位自稱 imc-wip-prod、dept D1110、group imc、假的 Pod UID。**24 項全部通過**：
 
 | 類別 | 檢查 |
 |---|---|

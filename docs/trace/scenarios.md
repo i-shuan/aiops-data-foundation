@@ -2,7 +2,7 @@
 
 一句話：**六個場景裡，慢在哪、程式壞味道、錯誤源頭這三個已經做了而且實測過（含不用學的 N+1、吞掉例外規則）；取樣改成尾端取樣，出事的請求全部留下。非同步（Kafka）不改程式做到一半（排隊時間、消費者變慢出錯抓得到，但串不回是哪一筆訊息）；架構治理、工廠（SECS、MES→MCS→AMHS）還沒做。**
 
-trace 怎麼收、怎麼分部門見 [traces.md](traces.md)；baseline、根因分析的實作見 [aiops/baseline](../aiops/baseline/README.md#trace-每一段的-baseline)、[aiops/rca](../aiops/rca/README.md)。
+trace 怎麼收、怎麼分部門見 [trace/README.md](README.md)；baseline、根因分析的實作見 [aiops/baseline](../../aiops/baseline/README.md#trace-每一段的-baseline)、[aiops/rca](../../aiops/rca/README.md)。
 
 ## 對照表
 
@@ -13,7 +13,7 @@ trace 怎麼收、怎麼分部門見 [traces.md](traces.md)；baseline、根因�
 | **三、錯誤源頭** | 鏈路裡哪一台先爆？ | ✅ 根因分析：標了錯誤、底下子呼叫都沒錯的那段才是源頭；trace baseline 每一段的 `error_rate`；✅ 吞掉的例外：規則 `swallowed` ＋ baseline `swallowed_rate` | — |
 | **四、非同步、訊息佇列** | 訊息在 Kafka 排了多久？ | ⚠️ 真的 Kafka＋.NET 實測（不改程式）：排隊時間、消費者寫 DB 的變慢／出錯、lag 都抓得到 | 不改程式時消費端串不回訊息；正式環境的排隊時間大多算不出來（見下） |
 | **五、架構治理** | 實際的相依長怎樣？有沒有循環呼叫？ | ⚠️ 根因分析會畫呼叫關係圖；`trace.segment.new` 報「這支 API 出現沒看過的呼叫」 | 循環呼叫、越權直連 DB、舊 API 還有誰在叫 |
-| **六、工廠**（之後再做） | 機台交握卡在哪一道指令？工單卡在 MES、MCS、AMHS 哪一段？ | ❌ | 見 [factory-later.md](factory-later.md) |
+| **六、工廠**（之後再做） | 機台交握卡在哪一道指令？工單卡在 MES、MCS、AMHS 哪一段？ | ❌ | 見 [factory-later.md](../factory-later.md) |
 
 ## 各場景還缺什麼
 
@@ -24,7 +24,7 @@ trace 怎麼收、怎麼分部門見 [traces.md](traces.md)；baseline、根因�
 
 ### 二、程式壞味道
 
-- ✅ **一開始就有的壞味道**：baseline 是跟「平常」比，N+1 如果從上線第一天就在會被學成正常。所以加了不用學的規則 `trace.segment.repeated`：同一個請求裡，同一個往外的呼叫（同一句 SQL、同一個下游）平均 ≥ 20 次就報（[trace.yaml](../aiops/baseline/trace.yaml) 的 `rules.repeated_calls`）。k3s 實測：「同一個呼叫太多次（可能是 N+1）：rca-wip-worker GET /wip → … SELECT LOT_HISTORY → oracle（每個請求 100 次，門檻 20）」。這種規則可以在測試環境就跑，上線前抓出來。
+- ✅ **一開始就有的壞味道**：baseline 是跟「平常」比，N+1 如果從上線第一天就在會被學成正常。所以加了不用學的規則 `trace.segment.repeated`：同一個請求裡，同一個往外的呼叫（同一句 SQL、同一個下游）平均 ≥ 20 次就報（[trace.yaml](../../aiops/baseline/trace.yaml) 的 `rules.repeated_calls`）。k3s 實測：「同一個呼叫太多次（可能是 N+1）：rca-wip-worker GET /wip → … SELECT LOT_HISTORY → oracle（每個請求 100 次，門檻 20）」。這種規則可以在測試環境就跑，上線前抓出來。
 - 快取穿透目前看「查 DB 的次數變多」；平常就穿透的也一樣學不出來，同上。
 
 ### 三、錯誤源頭
@@ -33,7 +33,7 @@ trace 怎麼收、怎麼分部門見 [traces.md](traces.md)；baseline、根因�
 
 ### 四、非同步、訊息佇列
 
-用真的 Kafka（單台，KRaft）＋ 兩個 .NET 8 服務實測，**只掛自動埋點、不改程式**（[test/local-k3s/kafka](../test/local-k3s/kafka)）：order-producer 收到 HTTP 請求就把訂單送進 Kafka，order-consumer 讀出來寫進 PostgreSQL。
+用真的 Kafka（單台，KRaft）＋ 兩個 .NET 8 服務實測，**只掛自動埋點、不改程式**（[test/local-k3s/kafka](../../test/local-k3s/kafka)）：order-producer 收到 HTTP 請求就把訂單送進 Kafka，order-consumer 讀出來寫進 PostgreSQL。
 
 **.NET 自動埋點（不改程式）串得起來的程度：**
 
@@ -43,9 +43,9 @@ trace 怎麼收、怎麼分部門見 [traces.md](traces.md)；baseline、根因�
 | 消費端拿到訊息（`orders receive`） | ⚠️ **另起一個新的 trace**，只用 **link** 指回生產端的 publish |
 | 消費端處理時寫 DB | ❌ **每一筆都自成一個 trace**（實測 961／961 筆沒有上一層），對不回是哪一筆訊息 |
 | `receive` 的時間 | 是「`Consume()` 等下一筆訊息等了多久」，不是處理時間 |
-| kafka_exporter 的名稱 | ✅ `kafka_consumergroup_lag_sum{consumergroup, topic}`，跟 [rules.yaml](../aiops/baseline/rules.yaml) 的 Kafka 規則一樣 |
+| kafka_exporter 的名稱 | ✅ `kafka_consumergroup_lag_sum{consumergroup, topic}`，跟 [rules.yaml](../../aiops/baseline/rules.yaml) 的 Kafka 規則一樣 |
 
-**不改程式時平台怎麼補：**（[aiops/baseline](../aiops/baseline/README.md#trace-每一段的-baseline)）
+**不改程式時平台怎麼補：**（[aiops/baseline](../../aiops/baseline/README.md#trace-每一段的-baseline)）
 
 - **排隊時間**：消費端拿到訊息的時間（receive 結束）− 生產端送出的時間（publish 結束），生產端用 link 找回來。trace baseline 多一段「`order-consumer › 排隊（orders）← order-producer`」，平常 0.2ms。
 - **處理時的 DB**：沒有上一層的 span 也當成入口，所以「`order-consumer › postgres → postgresql`」自己有 baseline（平常 1.4ms）、錯誤率。看得出「這個消費者寫 DB 變慢、出錯」，只是對不到是哪一筆訊息。
@@ -74,9 +74,9 @@ trace 怎麼收、怎麼分部門見 [traces.md](traces.md)；baseline、根因�
 - **越權直連 DB**：先定義規則（例如「只有 wip-worker 能連 MES 的 Oracle」），呼叫關係裡違反的就報。規則要由架構負責人定。
 - **舊 API 還有誰在叫**：某支 API 標成「要下架」，看最近 30 天還有哪些服務在呼叫。
 
-### 六、工廠（之後再做，集中在 [factory-later.md](factory-later.md)）
+### 六、工廠（之後再做，集中在 [factory-later.md](../factory-later.md)）
 
-- **SECS／GEM 交握**：EAP 不是 HTTP，自動埋點不會有。要 EAP 程式在送出、收到每一則 SECS 訊息時手動開 span，帶上機台、指令（S6F11…）、交易 ID（SystemBytes）。見 [factory-later.md](factory-later.md)。
+- **SECS／GEM 交握**：EAP 不是 HTTP，自動埋點不會有。要 EAP 程式在送出、收到每一則 SECS 訊息時手動開 span，帶上機台、指令（S6F11…）、交易 ID（SystemBytes）。見 [factory-later.md](../factory-later.md)。
 - **MES → MCS → AMHS**：這些系統之間常常不是 HTTP（資料庫當佇列、檔案、廠商協定），`traceparent` 傳不過去。務實的做法是**用業務 ID 串**（工單號、載具 ID、搬送指令 ID）：每個系統的 span 或 log 都帶上同一個 ID，查的時候用 ID 把各段接起來，不一定要是同一個 trace。
 
 ## 橫跨所有場景的前提：取樣
@@ -90,14 +90,14 @@ trace 怎麼收、怎麼分部門見 [traces.md](traces.md)；baseline、根因�
 | 架構 | 單層 Collector | 兩層：node Collector 依 trace_id 分配 → trace-sampler，等 30 秒讓 trace 到齊 |
 | 應用端負擔 | 低（沒記的不送） | 每個請求都送到同節點的 Collector |
 
-**k3s 實測（結束後才決定）**：兩層 Collector（node → 依 trace_id 分配 → trace-sampler × 2），壓測每秒 500 個請求、11% 有問題（[test/local-k3s/tail-sampling](../test/local-k3s/tail-sampling/README.md)）：
+**k3s 實測（結束後才決定）**：兩層 Collector（node → 依 trace_id 分配 → trace-sampler × 2），壓測每秒 500 個請求、11% 有問題（[test/local-k3s/tail-sampling](../../test/local-k3s/tail-sampling/README.md)）：
 
 - 錯誤、慢、吞掉例外（回 200 但有例外事件）**100% 留下、每個都完整**；正常的留 5%，總量剩約 15%。
 - 隨機那 5% 錯的慢的也一樣抽，**trace baseline 只用這份就不會偏**（每一段記著是哪條規則留的）。
 - **decision_wait 要比最長的請求長**：等 10 秒時，「下游很快、自己之後又做了 12 秒」的請求只留下 5%（決定時還看不到最上面那段）；等 30 秒就全部留下。
 - 資源：每秒 2,000 段，trace-sampler 每台約 150MB、0.02 核。
 
-**已經放進正式設定**（[platform/cluster-addons/otel-collector](../platform/cluster-addons/otel-collector)，流程見 [traces.md](traces.md)）：等 30 秒、隨機 5%、慢的門檻 1 秒、trace-sampler 2 台；應用保持全部送（`otel.traces.sampleRatio: 1.0`，預設）。trace baseline 只抽隨機那份（`sample_policy: random`）。測試環境預設全部留（random 100%），其他 e2e 的 trace 數量不變；尾端取樣的實測自己把它調回 5%。
+**已經放進正式設定**（[platform/cluster-addons/otel-collector](../../platform/cluster-addons/otel-collector)，流程見 [trace/README.md](README.md)）：等 30 秒、隨機 5%、慢的門檻 1 秒、trace-sampler 2 台；應用保持全部送（`otel.traces.sampleRatio: 1.0`，預設）。trace baseline 只抽隨機那份（`sample_policy: random`）。測試環境預設全部留（random 100%），其他 e2e 的 trace 數量不變；尾端取樣的實測自己把它調回 5%。
 
 ## 建議順序
 
@@ -105,4 +105,4 @@ trace 怎麼收、怎麼分部門見 [traces.md](traces.md)；baseline、根因�
 2. ✅ **場景二、三的補強**：N+1、吞掉的例外的規則。
 3. ⚠️ **場景四**：不改程式的版本做完（見上）；要整條串起來得改消費端程式，先不做。
 4. **場景五**：循環呼叫、越權直連 DB（規則要人定）。
-5. **場景六**（工廠，之後）：跟 EAP 團隊談手動埋點、跨系統用哪個業務 ID 串，見 [factory-later.md](factory-later.md)。
+5. **場景六**（工廠，之後）：跟 EAP 團隊談手動埋點、跨系統用哪個業務 ID 串，見 [factory-later.md](../factory-later.md)。

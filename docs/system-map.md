@@ -80,12 +80,12 @@ flowchart TB
 
 | 資料 | 從哪裡來 | 怎麼收 | 多久一次 | 細節 |
 |---|---|---|---|---|
-| **log** | 應用寫 stdout | node Collector 讀節點上的 `/var/log/pods` | 0.2 秒掃一次檔案（幾乎即時） | [elasticsearch.md](elasticsearch.md) |
-| **metrics：應用** | Java agent（開 `/metrics`）；.NET 自動埋點（OTLP 推） | Java 由 Collector 照 `prometheus.io` 標註來抓；.NET 自己推 | 30 秒 | [metrics.md](metrics.md)、[dotnet.md](dotnet.md) |
-| **metrics：資源** | kubelet、cAdvisor（CPU、記憶體、限流、磁碟） | node Collector | 30 秒 | [metrics.md](metrics.md) |
-| **metrics：K8s 狀態** | 重啟次數、副本數、節點狀態 | cluster Collector（一台） | 30 秒 | [metrics.md](metrics.md) |
-| **metrics：外部** | kafka_exporter（機台／EAP exporter 之後，見 [factory-later.md](factory-later.md)） | 照標註來抓 | 30 秒 | [aiops-metrics-cases.md](aiops-metrics-cases.md) |
-| **trace** | Java agent、.NET 自動埋點，**全部送** | node Collector 收 → 依 trace_id 分給 trace-sampler | 即時；sampler 等 30 秒讓整個 trace 到齊再決定留不留 | [traces.md](traces.md) |
+| **log** | 應用寫 stdout | node Collector 讀節點上的 `/var/log/pods` | 0.2 秒掃一次檔案（幾乎即時） | [log/README.md](log/README.md) |
+| **metrics：應用** | Java agent（開 `/metrics`）；.NET 自動埋點（OTLP 推） | Java 由 Collector 照 `prometheus.io` 標註來抓；.NET 自己推 | 30 秒 | [metrics/README.md](metrics/README.md)、[metrics/dotnet.md](metrics/dotnet.md) |
+| **metrics：資源** | kubelet、cAdvisor（CPU、記憶體、限流、磁碟） | node Collector | 30 秒 | [metrics/README.md](metrics/README.md) |
+| **metrics：K8s 狀態** | 重啟次數、副本數、節點狀態 | cluster Collector（一台） | 30 秒 | [metrics/README.md](metrics/README.md) |
+| **metrics：外部** | kafka_exporter（機台／EAP exporter 之後，見 [factory-later.md](factory-later.md)） | 照標註來抓 | 30 秒 | [metrics/cases.md](metrics/cases.md) |
+| **trace** | Java agent、.NET 自動埋點，**全部送** | node Collector 收 → 依 trace_id 分給 trace-sampler | 即時；sampler 等 30 秒讓整個 trace 到齊再決定留不留 | [trace/README.md](trace/README.md) |
 
 **trace 留哪些（尾端取樣，依序比對，符合第一條就留）**：隨機 5%（當「平常」用）→ 有錯誤 → HTTP 5xx → 有例外 → 超過 1 秒。正常的只留 5%，有問題的全留，總量約剩 15%。
 
@@ -171,7 +171,7 @@ flowchart TB
 | 根因分析在一週前沒資料時改用「出事前同樣長的一段」 | **移動式** |
 | 跟兄弟比 | 三類都不是：同一時間的**橫向比較** |
 | 規則 | 三類都不是：固定門檻 |
-| ML | **不用**（一般服務這層的定案，見 [aiops-llm-mlops.md](aiops-llm-mlops.md)；機台、製程之後再評估） |
+| ML | **不用**（一般服務這層的定案，見 [feedback/llm-mlops.md](feedback/llm-mlops.md)；機台、製程之後再評估） |
 
 **結論**：時間序列當主力（上下班、夜間批次這些週期明顯，移動式當主力會一直誤報）；**移動式當輔助**（📝），補時間序列的兩個洞：
 
@@ -307,7 +307,7 @@ sequenceDiagram
 | `aiops-baseline` | train 寫、detect 讀 | 每條序列每個時段的平常值，帶粒度、方法、來源 |
 | `*.yaml` 設定 | 各模組 | 加序列、加規則、調門檻不用改程式 |
 
-**接不起來的**：metrics 沒帶 trace_id（沒有 exemplar，用「服務＋時間」挑最慢的 trace 代替）；.NET Kafka 消費者不改程式時對不回訊息；沒有 trace_id 的 log 只能用服務＋時間撈；單一 Pod 異常還沒接到「拿這個 Pod 的 trace 逐段比」。詳見 [aiops-rca.md「metrics 異常怎麼串到 trace、log」](aiops-rca.md#metrics-異常怎麼串到-tracelog)。
+**接不起來的**：metrics 沒帶 trace_id（沒有 exemplar，用「服務＋時間」挑最慢的 trace 代替）；.NET Kafka 消費者不改程式時對不回訊息；沒有 trace_id 的 log 只能用服務＋時間撈；單一 Pod 異常還沒接到「拿這個 Pod 的 trace 逐段比」。詳見 [rca/README.md「metrics 異常怎麼串到 trace、log」](rca/README.md#metrics-異常怎麼串到-tracelog)。
 
 ---
 
@@ -339,36 +339,7 @@ flowchart TB
 
 ## 8. 什麼時候叫 LLM、token 怎麼省 📝
 
-**原則：程式負責「算」和「收斂」，LLM 只看收斂後、整理好的一件事。** 不把原始 metrics、log 丟給它。
-
-```mermaid
-flowchart LR
-  I["一件事故<br/>（收斂後）"] --> P["組成一包<br/>結構化摘要"]
-  P --> L{"LLM"}
-  L -- "要更多？" --> T["工具：查某服務的 trace、<br/>某段時間的 log 樣式、<br/>某 API 的 p95"]
-  T --> L
-  L --> O["摘要、判斷真假、<br/>處置建議、對照過去事故<br/>（只加註，不擋告警）"]
-```
-
-**一包裡放什麼（估計的 token 數，實際依內容）：**
-
-| 內容 | 怎麼壓 | 約多少 token |
-|---|---|---|
-| 指示（prompt） | 固定 | ~800 |
-| 異常表 | 收斂後最多 10 筆，每筆一行：序列、對象、現在、平常、z、可信度 | ~500 |
-| trace 段落 | 差最多的前 5 段、錯誤源頭、最慢請求的瀑布圖摘要 | ~1,000 |
-| log 樣式 | 新出現或變多的前 10 種樣式（樣式不是原文） | ~600 |
-| 過去事故 | 用 RAG 找最像的 3 件，每件只放結論 | ~900 |
-| **輸入合計** | | **~4,000** |
-| 輸出 | 摘要、判斷、建議 | ~500 |
-
-**省 token 的做法：**
-
-1. **只送收斂後的事故**：一天幾十件，不是幾千筆異常。粗估一天 50 件 × 4,500 ≈ 22.5 萬 token。
-2. **只送樣式和統計，不送原文**：log 歸成樣式、trace 只送差異最大的段。
-3. **讓 LLM 自己叫工具**：先給摘要，需要才查。不先塞「可能用得到」的資料。
-4. **固定的指示放前面**，用提示快取（prompt caching），每次只算變動的部分。
-5. **分級**：低嚴重度、可信度 low 的只做摘要；critical 的才做完整推理和對照過去事故。
+**原則：程式負責「算」和「收斂」，LLM 只看收斂後、整理好的一件事**（約 4,000 token 輸入；一天 50 件約 22.5 萬 token）。細節見 [feedback/README.md「什麼時候叫 LLM」](feedback/README.md#什麼時候叫-llmtoken-怎麼省)。
 
 ---
 
@@ -391,37 +362,7 @@ flowchart LR
 
 ## 10. 對了怎麼強化、錯了怎麼 feedback 📝
 
-```mermaid
-flowchart TB
-  R["事故報告送到值班"] --> J{"值班判斷"}
-  J -- "真的，根因對" --> OK["✅ 確認"]
-  J -- "真的，根因錯" --> WR["⚠️ 根因錯"]
-  J -- "不是問題" --> FP["❌ 誤報"]
-  M["事後發現沒報到"] --> FN["❌ 漏報"]
-
-  OK --> K1["寫進事故紀錄（RAG）：<br/>症狀 → 根因 → 處置"]
-  OK --> K2["同樣的根因出現 ≥ 3 次<br/>→ 考慮升級成規則（一次就報）"]
-  OK --> K3["加進評測集"]
-  WR --> W1["記下正確根因<br/>加進評測集（看 LLM、根因分析哪裡錯）"]
-  FP --> F1["累積同一條序列的誤報"]
-  F1 --> F2["回測通過才調：<br/>門檻、min_abs、排除時段、行事曆"]
-  FN --> N1["補序列、補規則、降門檻<br/>回測確認抓得到、誤報沒變多"]
-```
-
-| 結果 | 寫到哪 | 之後怎麼用 |
-|---|---|---|
-| **確認（真的、根因對）** | `aiops-incidents`：症狀、根因、處置、相關異常 | ① LLM 的 RAG：下次類似症狀先參考；② 同樣根因反覆出現 → 升級成規則（一次就報，不用等歷史）；③ 加進評測集；④ 事故期間在 baseline 訓練時排除 |
-| **根因錯** | 同上，加正確根因 | 評測集：改根因分析或 prompt 時要能答對這題 |
-| **誤報** | `aiops-feedback`：哪一筆、為什麼不是問題（例如月底批次） | 同一條序列累積多次才動：調門檻、加 `min_abs`、把那個時段標成特殊時段（行事曆）；**單次回饋不直接生效** |
-| **漏報** | `aiops-feedback`：時間、哪個服務、為什麼沒報 | 補序列或規則、降門檻 |
-
-**一定要有的紀律**（不需要 MLOps 平台，見 [aiops-llm-mlops.md](aiops-llm-mlops.md)）：
-
-1. **版本**：baseline、設定、prompt 都帶版本，每筆異常記下是哪一版產生的。
-2. **回測**：改門檻前，用新設定重跑過去 4 週，確認過去的事故還抓得到、誤報變少。
-3. **評測集**：20～30 件過去的事故，改根因分析、prompt、換模型前都跑一次。
-4. **防污染**：回饋要累積多次、或第二個人確認；確認過的事故紀錄優先於單次回饋。
-5. **LLM 只加註、降級，不刪告警**：統計層照常報，LLM 錯了也不會漏。
+值班判斷「確認／根因錯／誤報／漏報」，各自寫進事故紀錄或回饋，用來做 RAG、升級規則、評測集、回測後調門檻；紀律是版本、回測、評測集、防污染、LLM 只加註。細節見 [feedback/README.md](feedback/README.md#對了怎麼強化錯了怎麼-feedback)。
 
 ---
 
@@ -448,14 +389,14 @@ flowchart TB
 | 主題 | 文件 |
 |---|---|
 | 架構總覽（兩張圖） | [overview.md](overview.md) |
-| 收 log、格式解析 | [elasticsearch.md](elasticsearch.md) |
-| 收 metrics；收了什麼、能做什麼；案例 | [metrics.md](metrics.md)、[aiops-metrics.md](aiops-metrics.md)、[aiops-metrics-cases.md](aiops-metrics-cases.md) |
-| 收 trace、尾端取樣；能做什麼 | [traces.md](traces.md)、[aiops-trace.md](aiops-trace.md) |
-| .NET | [dotnet.md](dotnet.md) |
+| 收 log、格式解析 | [log/README.md](log/README.md) |
+| 收 metrics；收了什麼、能做什麼；案例 | [metrics/README.md](metrics/README.md)、[metrics/catalog.md](metrics/catalog.md)、[metrics/cases.md](metrics/cases.md) |
+| 收 trace、尾端取樣；能做什麼 | [trace/README.md](trace/README.md)、[trace/scenarios.md](trace/scenarios.md) |
+| .NET | [metrics/dotnet.md](metrics/dotnet.md) |
 | baseline、規則、跟兄弟比、自動調整 | [aiops/baseline/README.md](../aiops/baseline/README.md) |
-| 根因分析、串接 | [aiops-rca.md](aiops-rca.md)、[aiops/rca/README.md](../aiops/rca/README.md) |
-| LLM 還是 MLOps、feedback 閉環 | [aiops-llm-mlops.md](aiops-llm-mlops.md) |
+| 根因分析、串接 | [rca/README.md](rca/README.md)、[aiops/rca/README.md](../aiops/rca/README.md) |
+| LLM 還是 MLOps、feedback 閉環 | [feedback/llm-mlops.md](feedback/llm-mlops.md) |
 | 保留天數 | [retention.md](retention.md) |
 | PoC 現況（簡報） | [poc-status.md](poc-status.md) |
 | 工廠部分（之後再做） | [factory-later.md](factory-later.md) |
-| 階段一現況、階段二規劃（時間對齊、Kafka、業務 ID、髒資料、雜訊） | [stage2-plan.md](stage2-plan.md) |
+| 階段一、二的現況與待辦 | 各資料夾 README 開頭：[log](log/README.md)、[metrics](metrics/README.md)、[trace](trace/README.md)、[rca](rca/README.md)、[feedback](feedback/README.md) |

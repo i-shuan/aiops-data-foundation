@@ -31,10 +31,10 @@
 
 | 來源 | 指標 | 狀態 |
 |---|---|---|
-| **.NET 自動埋點**（chart `otel.dotnet`，不改程式，用 OTLP 推） | `http.server.request.duration`、`process.runtime.dotnet.*`（.NET 8）／`dotnet.*`（.NET 9）、`db.client.connections.*`（Npgsql） | ✅ 真的 ASP.NET Core 8、9 實測，見 [dotnet.md](dotnet.md) |
+| **.NET 自動埋點**（chart `otel.dotnet`，不改程式，用 OTLP 推） | `http.server.request.duration`、`process.runtime.dotnet.*`（.NET 8）／`dotnet.*`（.NET 9）、`db.client.connections.*`（Npgsql） | ✅ 真的 ASP.NET Core 8、9 實測，見 [metrics/dotnet.md](dotnet.md) |
 | Java agent（app-common chart 自動開） | `http.server.request.duration`（直方圖：依 method、route、狀態碼） | ✅ 收到（測試應用模擬）→ `metrics-generic.otel-<group>` |
 | | `http.client.request.duration`：往外呼叫 HTTP 的耗時 | ⚠️ 還沒驗證（測試程式沒有往外呼叫 HTTP） |
-| | JVM：`jvm_memory_used_bytes`、`jvm_memory_limit_bytes`、`jvm_memory_used_after_last_gc_bytes`、`jvm_gc_duration_seconds`、`jvm_thread_count`、`jvm_cpu_recent_utilization_ratio` | ✅ 用真的 Java 程式＋agent 2.20.0 確認（[aiops-metrics-cases.md](aiops-metrics-cases.md)） |
+| | JVM：`jvm_memory_used_bytes`、`jvm_memory_limit_bytes`、`jvm_memory_used_after_last_gc_bytes`、`jvm_gc_duration_seconds`、`jvm_thread_count`、`jvm_cpu_recent_utilization_ratio` | ✅ 用真的 Java 程式＋agent 2.20.0 確認（[metrics/cases.md](cases.md)） |
 | | 連線池（HikariCP）：`db_client_connections_usage{state}`、`_max`、`_pending_requests`、`_wait_time_milliseconds` | ✅ 同上（agent 2.x 用的是舊版名稱 `db_client_connections_*`） |
 | 應用自己定義的 | 例如 `demo_requests_total`、業務量（每小時進站片數…） | 應用要自己開 |
 | 抓取本身 | `up`、`scrape_duration_seconds` | `up = 0` 代表抓不到（服務掛了或 metrics port 壞了） |
@@ -90,7 +90,7 @@
 
 **其他設定：**
 
-- `look_ahead_time: 2h`：ES 停機後補送的資料、時間略快的節點都收得進來（[metrics.md](metrics.md)）。
+- `look_ahead_time: 2h`：ES 停機後補送的資料、時間略快的節點都收得進來（[metrics/README.md](README.md)）。
 - 每一筆的 `_id` 由「序列身分＋時間」決定：同一條序列同一個時間點只會有一筆，重送不會重複。
 
 **查詢時要注意：**
@@ -99,7 +99,7 @@
 - **counter 不能直接平均**：要先算差值。baseline 目前只用 gauge 和直方圖，所以還沒處理；之後加「重啟次數」時要處理。
 - **應用的直方圖在 `metrics-generic.otel-<group>`**，不在 `prometheusreceiver`：資料帶著應用自己的 scope 名稱。
 
-## 二、哪些有 baseline（[aiops/baseline/series.yaml](../aiops/baseline/series.yaml)）
+## 二、哪些有 baseline（[aiops/baseline/series.yaml](../../aiops/baseline/series.yaml)）
 
 | baseline | 來源 | 依什麼切 | 判斷 |
 |---|---|---|---|
@@ -119,9 +119,9 @@
 | 做法 | 適合什麼 | 例子 | 要學嗎 | 現在 |
 |---|---|---|---|---|
 | **1. 跟平常比**（baseline） | 有週期、沒有固定標準的數字 | 請求數、延遲、錯誤率、CPU | 要 | ✅ 7 條 |
-| **2. 離極限多遠**（飽和度） | 有上限的東西：滿了就出事 | 記憶體 ÷ 上限 > 90%、磁碟剩 < 10%、連線池使用中 ÷ 上限 > 90%、節點 disk/memory pressure | 不用：規則 | ✅ 容器記憶體、節點記憶體、節點磁碟、CPU 限流、連線池、JVM 老年代、GC、.NET 執行緒池（[rules.yaml](../aiops/baseline/rules.yaml)） |
+| **2. 離極限多遠**（飽和度） | 有上限的東西：滿了就出事 | 記憶體 ÷ 上限 > 90%、磁碟剩 < 10%、連線池使用中 ÷ 上限 > 90%、節點 disk/memory pressure | 不用：規則 | ✅ 容器記憶體、節點記憶體、節點磁碟、CPU 限流、連線池、JVM 老年代、GC、.NET 執行緒池（[rules.yaml](../../aiops/baseline/rules.yaml)） |
 | **3. 慢慢爬**（趨勢） | 每天都在範圍內，但一直往上 | 連線池洩漏、heap 越來越高、磁碟越來越滿：算斜率，預測**幾天後到上限** | 不用學週期，算斜率 | ❌ |
-| **4. 跟兄弟比**（同儕） | 同一個服務多個 Pod，一個壞掉被平均稀釋 | 只有 pod-7 錯誤率 100%、只有一個 Pod 記憶體一直漲 | 不用：當下比 | ✅ 錯誤率、p95、CPU、記憶體（[peer.yaml](../aiops/baseline/peer.yaml)，見 [aiops/baseline「跟兄弟比」](../aiops/baseline/README.md#跟兄弟比同一個服務的-pod-互相比)） |
+| **4. 跟兄弟比**（同儕） | 同一個服務多個 Pod，一個壞掉被平均稀釋 | 只有 pod-7 錯誤率 100%、只有一個 Pod 記憶體一直漲 | 不用：當下比 | ✅ 錯誤率、p95、CPU、記憶體（[peer.yaml](../../aiops/baseline/peer.yaml)，見 [aiops/baseline「跟兄弟比」](../../aiops/baseline/README.md#跟兄弟比同一個服務的-pod-互相比)） |
 | **5. 狀態變化**（事件） | 發生了就是問題 | 重啟次數增加、可用副本 < 要的副本、Pod Failed、節點 NotReady、`up = 0`、Job 失敗 | 不用：規則 | ✅ 全部（k3s 實測：5 種壞法都抓到、正常的不誤報） |
 
 另外兩種用法：
@@ -162,9 +162,9 @@
 
 例如連線池洩漏：metrics 看得到「連線池滿了」，還能用趨勢預測「4 天後會滿」。但「哪個例外路徑忘了 close」要靠 trace 和 log，最後是人看程式。
 
-**前提：原因指標要收得到。** 現在收了資源（CPU、記憶體、磁碟）、K8s 狀態（重啟、副本、節點），以及 Java、.NET 的 GC、執行緒池、連線池（[aiops-metrics-cases.md](aiops-metrics-cases.md)、[dotnet.md](dotnet.md)）。
+**前提：原因指標要收得到。** 現在收了資源（CPU、記憶體、磁碟）、K8s 狀態（重啟、副本、節點），以及 Java、.NET 的 GC、執行緒池、連線池（[metrics/cases.md](cases.md)、[metrics/dotnet.md](dotnet.md)）。
 
-### 對應 15 個案例（[aiops-cases.md](aiops-cases.md)）
+### 對應 15 個案例（[rca/cases.md](../rca/cases.md)）
 
 | 案例 | 用 metrics 怎麼抓 | 做法 |
 |---|---|---|
@@ -180,15 +180,15 @@
 
 | 做不到 | 為什麼 | 要靠 |
 |---|---|---|
-| 慢在請求裡的哪一段、呼叫了幾次 | metrics 只有整體的數字 | trace（[trace 每一段的 baseline](../aiops/baseline/README.md#trace-每一段的-baseline)） |
+| 慢在請求裡的哪一段、呼叫了幾次 | metrics 只有整體的數字 | trace（[trace 每一段的 baseline](../../aiops/baseline/README.md#trace-每一段的-baseline)） |
 | 錯誤被吞掉、回 200 | 狀態碼是 200，metrics 全綠 | log 樣式、業務量指標 |
 | 哪一批貨、哪一台機台 | 不能用 `lot.id` 這種值當維度（每個值一條序列，ES 會爆） | trace 的屬性 |
 | 30 秒內的短暫尖峰 | 30 秒才抓一次；直方圖記得住每個請求的耗時，但 CPU、記憶體這種只看得到抓的那一刻 | 直方圖、trace |
 
 ## 四、建議順序（待討論）
 
-1. **狀態變化與飽和度（做法 5、2）**：✅ 已做，見 [aiops/baseline「規則」](../aiops/baseline/README.md#規則狀態變化離極限多遠)。
-2. **跟兄弟比（做法 4）**：✅ 已做，見 [aiops/baseline「跟兄弟比」](../aiops/baseline/README.md#跟兄弟比同一個服務的-pod-互相比)。
+1. **狀態變化與飽和度（做法 5、2）**：✅ 已做，見 [aiops/baseline「規則」](../../aiops/baseline/README.md#規則狀態變化離極限多遠)。
+2. **跟兄弟比（做法 4）**：✅ 已做，見 [aiops/baseline「跟兄弟比」](../../aiops/baseline/README.md#跟兄弟比同一個服務的-pod-互相比)。
 3. **補 baseline**：p99、超過 N 秒的比例、往外呼叫的耗時（`http.client.request.duration`）、重啟次數。
-4. **確認 Java agent 的 JVM、連線池指標名稱**，再加飽和度：✅ 已做（[aiops-metrics-cases.md](aiops-metrics-cases.md)）；趨勢見下一項。
+4. **確認 Java agent 的 JVM、連線池指標名稱**，再加飽和度：✅ 已做（[metrics/cases.md](cases.md)）；趨勢見下一項。
 5. **趨勢（做法 3）**：要有幾天以上的資料才算得出斜率。

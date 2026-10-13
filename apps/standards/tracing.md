@@ -2,7 +2,7 @@
 
 一句話：**Java 服務用 app-common chart 打開 Java agent，大部分 trace 就自動有了，不用改程式。** 只有想看業務步驟、帶業務欄位，或用到 agent 不認得的元件時，才需要自己加幾行。
 
-平台端怎麼收、存在哪裡，見 [docs/traces.md](../../docs/traces.md)。
+平台端怎麼收、存在哪裡，見 [docs/trace/README.md](../../docs/trace/README.md)。
 
 ## 1. 先打開自動埋點（必做，零程式碼）
 
@@ -177,7 +177,7 @@ new Thread(Context.current().wrap(() -> process(lot))).start();
 
 ## 4. 取樣
 
-**應用不用取樣，保持 `otel.traces.sampleRatio: 1.0`（預設）全部送。** 平台的 trace-sampler 等整個請求結束後才決定留不留：錯誤、5xx、丟過例外、超過 1 秒的全留，正常的隨機留 5%（[docs/traces.md](../../docs/traces.md)、[docs/aiops-trace.md](../../docs/aiops-trace.md#橫跨所有場景的前提取樣)）。
+**應用不用取樣，保持 `otel.traces.sampleRatio: 1.0`（預設）全部送。** 平台的 trace-sampler 等整個請求結束後才決定留不留：錯誤、5xx、丟過例外、超過 1 秒的全留，正常的隨機留 5%（[docs/trace/README.md](../../docs/trace/README.md)、[docs/trace/scenarios.md](../../docs/trace/scenarios.md#橫跨所有場景的前提取樣)）。
 
 在應用裡調低（例如 `0.1`）的話，請求一開始就決定丟掉，那時還不知道它會不會出事：**出事的請求也只剩一成**，根因分析就是碰運氣。只有量大到 node Collector 收不動時才考慮，先跟平台確認。
 

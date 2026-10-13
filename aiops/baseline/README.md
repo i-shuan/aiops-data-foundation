@@ -2,7 +2,7 @@
 
 一句話：**每條時間序列（服務 × API × 指標），取過去 4 週同一個星期幾、同一個小時的中位數與波動範圍當「平常」；之後的值超出範圍就記成異常。**
 
-這是 [docs/aiops-rca.md](../../docs/aiops-rca.md) 的「方法 A」，屬於四種 baseline 裡的「數字 × 時段」（其他三種：集合、關係、趨勢與標註，見[不同用途要的 baseline](../../docs/aiops-rca.md#不同用途要的-baseline-不一樣)）：不需要 GPU、不需要付費授權，結果好解釋（「比過去四週同時段高 5 倍」）。一台 16GB 記憶體的機器就跑得動。
+這是 [docs/rca/README.md](../../docs/rca/README.md) 的「方法 A」，屬於四種 baseline 裡的「數字 × 時段」（其他三種：集合、關係、趨勢與標註，見[不同用途要的 baseline](../../docs/rca/README.md#不同用途要的-baseline-不一樣)）：不需要 GPU、不需要付費授權，結果好解釋（「比過去四週同時段高 5 倍」）。一台 16GB 記憶體的機器就跑得動。
 
 ## 做什麼
 
@@ -26,7 +26,7 @@ ES（log、metrics、trace）
 | `log.errors` | log | 服務 | error／fatal 的 log 變多 |
 | `pod.cpu`、`pod.memory_bytes` | K8s metrics | namespace × Deployment | 用量變高 |
 
-**流量、錯誤率、延遲從 metrics 算，不從 trace、log 算**（分工見 [docs/aiops-rca.md「分工」](../../docs/aiops-rca.md#分工metrics-決定什麼時候告警trace-和-log-說明原因)）：
+**流量、錯誤率、延遲從 metrics 算，不從 trace、log 算**（分工見 [docs/rca/README.md「分工」](../../docs/rca/README.md#分工metrics-決定什麼時候告警trace-和-log-說明原因)）：
 
 - 來源是 Java agent 的 `http.server.request.duration` 直方圖（存進 ES 的欄位是 `metrics.http_server_request_duration_seconds`）。每個請求都算到；Collector 把 Prometheus 的累加值換成「每 30 秒多少」，所以任一段時間都能直接加總。
 - trace 有取樣（調到一成就只看到一成的請求），而且只留 7 天，不適合學 4 週的 baseline。
@@ -266,7 +266,7 @@ series:
 
 ## 抓不到的
 
-這是方法本身的限制，不是程式的 bug。要靠其他種類的 baseline 補（見 [docs/aiops-rca.md 的「不同用途要的 baseline」](../../docs/aiops-rca.md#不同用途要的-baseline-不一樣)）：
+這是方法本身的限制，不是程式的 bug。要靠其他種類的 baseline 補（見 [docs/rca/README.md 的「不同用途要的 baseline」](../../docs/rca/README.md#不同用途要的-baseline-不一樣)）：
 
 | 抓不到的狀況 | 例子 | 原因 | 要怎麼補 |
 |---|---|---|---|
@@ -279,7 +279,7 @@ series:
 
 ## trace 每一段的 baseline
 
-上面是「每個服務一條線」。很多故障這樣看不到（[docs/aiops-cases.md](../../docs/aiops-cases.md)）：N+1、重試風暴、快取穿透時，每一次呼叫都很快，服務的延遲只動一點點，真正變的是**每個請求呼叫某一段幾次**。所以另外學 trace 每一段的「平常」：
+上面是「每個服務一條線」。很多故障這樣看不到（[docs/rca/cases.md](../../docs/rca/cases.md)）：N+1、重試風暴、快取穿透時，每一次呼叫都很快，服務的延遲只動一點點，真正變的是**每個請求呼叫某一段幾次**。所以另外學 trace 每一段的「平常」：
 
 | 數字 | 意思 | 抓什麼 |
 |---|---|---|
@@ -292,7 +292,7 @@ series:
 | `trace.segment.repeated` | 同一個請求裡，同一個往外的呼叫平均幾次 | **N+1、迴圈裡打 API**（規則，不用學：≥ 20 次）。從上線第一天就有的 N+1，baseline 會學成平常，所以要有固定門檻 |
 | `trace.segment.swallowed` | 同上的吞掉例外比例 | **吞掉的例外**（規則，不用學：≥ 5% 的請求）。訊息帶例外種類，例如「5% 的請求丟了 System.TimeoutException，但沒標成錯誤」 |
 
-**訊息消費者（Kafka）：** 入口除了 HTTP 請求（Server），也算訊息消費者（Consumer）和「沒有上一層的 span」。消費者多一段「`服務 › 排隊（topic）← 生產者`」＝拿到訊息的時間 − 生產者送出的時間（生產者是上一層，或用 link 找回來）。.NET 自動埋點的消費者處理時查的 DB 自成一個 trace，當成自己的入口算，所以看得到「這個消費者寫 DB 變慢、出錯」。實測見 [docs/aiops-trace.md 場景四](../../docs/aiops-trace.md#四非同步訊息佇列)。
+**訊息消費者（Kafka）：** 入口除了 HTTP 請求（Server），也算訊息消費者（Consumer）和「沒有上一層的 span」。消費者多一段「`服務 › 排隊（topic）← 生產者`」＝拿到訊息的時間 − 生產者送出的時間（生產者是上一層，或用 link 找回來）。.NET 自動埋點的消費者處理時查的 DB 自成一個 trace，當成自己的入口算，所以看得到「這個消費者寫 DB 變慢、出錯」。實測見 [docs/trace/scenarios.md 場景四](../../docs/trace/scenarios.md#四非同步訊息佇列)。
 
 吞掉的例外要靠 Collector：ES 不存 span 的例外事件，node Collector 先把例外的種類、訊息抄到 span 的屬性（`exception.type`、`exception.message`，[node.yaml](../../platform/cluster-addons/otel-collector/node.yaml) 的 `transform/exceptions`）。
 
@@ -376,7 +376,7 @@ python3 -m aiops_baseline trace-detect  --config baseline/trace.yaml   # 每 5 �
 | `kafka.consumer_lag`、`kafka.consumer_lag_growing` | 消費落後筆數；5 分鐘增加多少 | ≥ 10,000，3 分鐘；≥ 5,000 | warning |
 | `eap.secs_disconnected`、`eap.plc_scan_slow`、`eap.secs_retransmits` | 機台 SECS 通訊、PLC 掃描週期、重傳（依 `equipment_id`） | 斷線 1 分鐘；≥ 規格 50ms，2 分鐘；5 分鐘重傳 ≥ 10 次 | critical／warning |
 
-四個領域的案例與實測見 [docs/aiops-metrics-cases.md](../../docs/aiops-metrics-cases.md)。
+四個領域的案例與實測見 [docs/metrics/cases.md](../../docs/metrics/cases.md)。
 
 寫法：`value`（欄位跟門檻比）、`compare`（兩個欄位相減）、`ratio`（欄位 ÷ 分母）、`increase`（累計值增加多少，歸零重來也算得對）、`increase_ratio`（兩個累計值增加量的比例）、`rate`（加總 ÷ 秒數）、`total`（加總；`hist_count` 數直方圖的次數）。分母在另一種文件時用 `join` 補進來。`for` 是「這段時間都成立才算」，`min_ratio` 放寬成「這段時間裡至少多少比例成立」。對象不在了（Pod 刪掉、節點拿掉，最新的資料超過 2 分鐘）就不報；只有容器重啟、Job 失敗設了 `report_gone: true`，刪掉了也照報。要加規則，在 rules.yaml 加一段，不用改程式。
 
@@ -509,8 +509,8 @@ ES_URL=... ES_AUTH=... python3 -m tests.fine_e2e       # 30 秒粒度、連續�
 ## 還沒做
 
 1. **告警**：現在只寫進 `aiops-anomalies`。接 Kibana 的告警規則、或推到通訊軟體，要再決定。
-2. **合併**：同一個服務的流量、錯誤、延遲同時異常時，現在是好幾筆，之後依服務與時間合併成一件事（[docs/aiops-rca.md](../../docs/aiops-rca.md) 的步驟 2）。
+2. **合併**：同一個服務的流量、錯誤、延遲同時異常時，現在是好幾筆，之後依服務與時間合併成一件事（[docs/rca/README.md](../../docs/rca/README.md) 的步驟 2）。
 3. **排除已知事件**：保養、事故期間的資料目前會一起學進去（中位數不太受影響，但最好排除）。
 4. **換版**：新版本上線後要不要重新學，規則還沒定。
-5. **不是 Java、.NET 的服務**：流量、錯誤率、延遲來自 `http.server.request.duration`（Java agent、.NET 自動埋點都有，見 [docs/dotnet.md](../../docs/dotnet.md)）。其他語言要用 OpenTelemetry 開出同名的直方圖，才學得到。
+5. **不是 Java、.NET 的服務**：流量、錯誤率、延遲來自 `http.server.request.duration`（Java agent、.NET 自動埋點都有，見 [docs/metrics/dotnet.md](../../docs/metrics/dotnet.md)）。其他語言要用 OpenTelemetry 開出同名的直方圖，才學得到。
 6. **更準的方法**：用一陣子、收集到誤報和漏報後，再考慮方法 B（拆週期）、C（預測模型）。

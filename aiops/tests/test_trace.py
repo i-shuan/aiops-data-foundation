@@ -1,5 +1,5 @@
 """trace 每一段的 baseline（aiops_baseline/trace.py）的單元測試，不需要 ES。
-最後一組在記憶體裡跑完整流程：模擬 4 週的請求 → 統計 → 學 → 對 docs/aiops-cases.md 的案例判斷。"""
+最後一組在記憶體裡跑完整流程：模擬 4 週的請求 → 統計 → 學 → 對 docs/rca/cases.md 的案例判斷。"""
 import random
 import unittest
 

@@ -1,7 +1,7 @@
 # log 收集：Fluent Bit vs OpenTelemetry Collector
 
 > [!NOTE]
-> **結論：已改用 OpenTelemetry Collector 收 log**，併進原本收 metrics 的同一個 Collector（見 [elasticsearch.md](elasticsearch.md)）。
+> **結論：已改用 OpenTelemetry Collector 收 log**，併進原本收 metrics 的同一個 Collector（見 [log/README.md](README.md)）。
 > 這份是決定前的比較紀錄：兩個收集器同時跑、讀同一批 log 檔。當時 OTel 是另外開一個 Collector 專收 log，所以記憶體看起來多 200MB；
 > 併進原本的 Collector 後，實際只多約 75MB，拿掉 Fluent Bit 又省回 25～50MB。
 
@@ -25,10 +25,10 @@ OTel Collector（比較時另開一個 DaemonSet；現在是 platform/cluster-ad
 
 | 檔案 | 用途 |
 |---|---|
-| [platform/cluster-addons/otel-collector/node.yaml](../platform/cluster-addons/otel-collector/node.yaml) | 收 log 的設定（比較時是另一個 DaemonSet，現在併進節點 Collector） |
-| [platform/central/elasticsearch/pipeline-otel.*](../platform/central/elasticsearch/pipeline-otel.painless) | `k8s-logs-otel`：整理形狀、`_id`、轉資料流 |
-| [platform/central/elasticsearch/logs-otel-custom.json](../platform/central/elasticsearch/logs-otel-custom.json) | 讓 `logs-*.otel-*` 先跑 `k8s-logs-otel` |
-| [test/local-k3s/load/run-load.sh](../test/local-k3s/load/run-load.sh) | `volume`、`outage`、`crash`、`keyfail`、`restart`（比較時兩邊一起數，現在預設只數 OTel） |
+| [platform/cluster-addons/otel-collector/node.yaml](../../platform/cluster-addons/otel-collector/node.yaml) | 收 log 的設定（比較時是另一個 DaemonSet，現在併進節點 Collector） |
+| [platform/central/elasticsearch/pipeline-otel.*](../../platform/central/elasticsearch/pipeline-otel.painless) | `k8s-logs-otel`：整理形狀、`_id`、轉資料流 |
+| [platform/central/elasticsearch/logs-otel-custom.json](../../platform/central/elasticsearch/logs-otel-custom.json) | 讓 `logs-*.otel-*` 先跑 `k8s-logs-otel` |
+| [test/local-k3s/load/run-load.sh](../../test/local-k3s/load/run-load.sh) | `volume`、`outage`、`crash`、`keyfail`、`restart`（比較時兩邊一起數，現在預設只數 OTel） |
 
 比較用的腳本（兩個收集器並行、逐欄位比對）留在 branch `claude/otel-logs-compare`。
 
@@ -78,7 +78,7 @@ CPU 差不多；**OTel 記憶體約多 200MB**（每個節點）。
 
 OTel 寫入元件只對連不上、逾時、429、502、503、504 重試；其他錯誤直接丟：
 
-- **401（key 錯、被作廢）**：整批丟掉，補不回來（上面 key 作廢那列）。這跟 metrics 一樣，見 [metrics.md](metrics.md) 的「坑」。換 key 一定要先發新的、換上、確認後才作廢舊的。
+- **401（key 錯、被作廢）**：整批丟掉，補不回來（上面 key 作廢那列）。這跟 metrics 一樣，見 [metrics/README.md](../metrics/README.md) 的「坑」。換 key 一定要先發新的、換上、確認後才作廢舊的。
 - **某幾筆被拒（例如欄位型別衝突）**：只在 log 印 `Partial success ... dropped`，那幾筆丟掉。
 - **409（重送的被擋）也算進「dropped」**：所以 OTel 的丟棄數不能直接當遺失告警，要看錯誤類型（`CONFLICT` 是正常的去重複）。
 

@@ -26,4 +26,4 @@
 3. **05 合併告警**（連續異常才報已做：跳一次 warning、連續兩個時間窗才 anomaly）：誤報降下來再接通知。
 4. **06 LLM**：從根因報告摘要開始（只加註），先用 20～30 件過去事故評測。
 
-依據：[aiops-llm-mlops.md](aiops-llm-mlops.md)（feedback 閉環、LLMOps）、[aiops-rca.md](aiops-rca.md)、[aiops/baseline/README.md](../aiops/baseline/README.md)。
+依據：[feedback/llm-mlops.md](feedback/llm-mlops.md)（feedback 閉環、LLMOps）、[rca/README.md](rca/README.md)、[aiops/baseline/README.md](../aiops/baseline/README.md)。

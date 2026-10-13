@@ -1,5 +1,5 @@
 {
-  "description": "k8s-logs 主 pipeline：共通身分 → 依格式分派 → 時間。說明見 docs/elasticsearch.md「pipeline」",
+  "description": "k8s-logs 主 pipeline：共通身分 → 依格式分派 → 時間。說明見 docs/log/README.md「pipeline」",
   "processors": [
     {
       "script": {

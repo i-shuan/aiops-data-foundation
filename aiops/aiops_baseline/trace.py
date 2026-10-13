@@ -1,6 +1,6 @@
 """trace 每一段的 baseline：每個 API 的每個請求，平常呼叫每一段幾次、每段花多久、出錯的比例。
 
-為什麼要有（docs/aiops-cases.md）：N+1（每個請求打同一句 SQL 100 次）、重試風暴（一個請求打下游 4 次）、
+為什麼要有（docs/rca/cases.md）：N+1（每個請求打同一句 SQL 100 次）、重試風暴（一個請求打下游 4 次）、
 快取穿透（平常 5% 的請求才查 DB，現在每個都查）——每一次呼叫都很快，服務的延遲、錯誤率可能只動一點點；
 要看「次數」。拖累（簡訊廠商掛了）、熱點鎖則是某一段的時間變長。
 
@@ -216,7 +216,7 @@ def sample_entries(es: ES, index: str, start: pd.Timestamp, end: pd.Timestamp, i
                {"ts": {"date_histogram": {"field": "@timestamp", "fixed_interval": interval}}}]
     # 入口：HTTP 請求（Server）、訊息消費者（Consumer），以及「沒有上一層的 span」：
     # .NET 自動埋點的 Kafka 消費者處理訊息時查 DB，那個 DB 的 span 沒有上一層、自成一個 trace（串不回訊息），
-    # 也當成入口算，至少看得到「這個服務查 DB 變慢、出錯」（docs/aiops-trace.md 場景四）
+    # 也當成入口算，至少看得到「這個服務查 DB 變慢、出錯」（docs/trace/scenarios.md 場景四）
     entry = {"bool": {"should": [{"terms": {"kind": ["Server", "Consumer"]}},
                                  {"bool": {"must_not": {"exists": {"field": "parent_span_id"}}}}], "minimum_should_match": 1}}
     filters = [time_range(start, end), entry]

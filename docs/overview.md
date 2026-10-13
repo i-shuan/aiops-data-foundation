@@ -88,15 +88,12 @@ flowchart LR
 | 主題 | 文件 |
 |---|---|
 | **全部串起來看（收值 → 判斷 → 串接 → 收斂 → LLM → feedback）** | [system-map.md](system-map.md) |
-| log 怎麼收、格式解析 | [elasticsearch.md](elasticsearch.md) |
-| metrics 怎麼收 | [metrics.md](metrics.md)；收了哪些、能做什麼：[aiops-metrics.md](aiops-metrics.md)、案例 [aiops-metrics-cases.md](aiops-metrics-cases.md) |
-| trace 怎麼收、尾端取樣 | [traces.md](traces.md)；能做什麼：[aiops-trace.md](aiops-trace.md) |
-| .NET | [dotnet.md](dotnet.md) |
-| baseline、規則、跟兄弟比 | [aiops/baseline/README.md](../aiops/baseline/README.md) |
-| 根因分析 | [aiops-rca.md](aiops-rca.md)、[aiops/rca/README.md](../aiops/rca/README.md) |
-| PoC 現況與下一步（簡報） | [poc-status.md](poc-status.md) |
-| 落地五階段：階段一現況、階段二規劃 | [stage2-plan.md](stage2-plan.md) |
-| 後期接 LLM 還是 MLOps | [aiops-llm-mlops.md](aiops-llm-mlops.md) |
+| log：收值、格式解析、欄位 | [log/](log/README.md) |
+| metrics：收值、欄位、收了哪些、案例、.NET | [metrics/](metrics/README.md) |
+| trace：收值、尾端取樣、Kafka、業務 ID | [trace/](trace/README.md) |
+| 判斷與根因分析 | [rca/](rca/README.md)；程式 [aiops/baseline](../aiops/baseline/README.md)、[aiops/rca](../aiops/rca/README.md) |
+| 告警出口、事故紀錄、回饋、LLM | [feedback/](feedback/README.md) |
 | 保留天數與容量 | [retention.md](retention.md) |
 | 工廠部分（之後再做） | [factory-later.md](factory-later.md) |
-| 全部文件、閱讀順序、待辦 | [README](../README.md) |
+| PoC 現況（簡報） | [poc-status.md](poc-status.md) |
+| 全部文件、待辦 | [README](../README.md) |

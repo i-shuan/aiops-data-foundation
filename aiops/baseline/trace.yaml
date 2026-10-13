@@ -1,12 +1,12 @@
 # trace 每一段的 baseline（aiops_baseline/trace.py）：每個 API 的每個請求，呼叫每一段幾次、花多久、出錯比例。
-# 對應的案例見 docs/aiops-cases.md：N+1、重試風暴、快取穿透（次數）；拖累、熱點鎖（時間）。
+# 對應的案例見 docs/rca/cases.md：N+1、重試風暴、快取穿透（次數）；拖累、熱點鎖（時間）。
 traces_index: traces-*.otel-*
 interval: 5m              # 每 5 分鐘一個點
 history_weeks: 4
 sample_per_bucket: 20     # 每 5 分鐘、每個 API 抽幾個請求來算（平均每個請求呼叫幾次，20 個就很穩）
 min_requests: 5           # 這 5 分鐘抽到的請求少於這個數，不判斷（太少，平均不準）
 clock_skew_ms: 500        # 呼叫方與被呼叫方的時間差超過這個就算時鐘不同步（規則，不用學）
-sample_policy: random     # 尾端取樣時只抽隨機留下的那份（錯的、慢的全留，混進來平均會偏；docs/aiops-trace.md）
+sample_policy: random     # 尾端取樣時只抽隨機留下的那份（錯的、慢的全留，混進來平均會偏；docs/trace/scenarios.md）
 
 # 不用學的規則：baseline 會把「從上線第一天就有的壞味道」學成平常，所以另外設門檻
 rules:

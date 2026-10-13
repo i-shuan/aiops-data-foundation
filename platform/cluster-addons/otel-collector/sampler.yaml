@@ -1,6 +1,6 @@
 # 第二層 trace-sampler（尾端取樣）的設定，跑在 StatefulSet trace-sampler（trace-sampler.yaml）。
 # node Collector 已經補好 K8s、部門欄位，依 trace_id 把同一個 trace 的每一段都送到同一台（node.yaml 的
-# loadbalancing/traces），這裡等整個 trace 到齊再決定留不留，留下的依 group 送進 ES。為什麼、實測見 docs/aiops-trace.md。
+# loadbalancing/traces），這裡等整個 trace 到齊再決定留不留，留下的依 group 送進 ES。為什麼、實測見 docs/trace/scenarios.md。
 #
 # 決定的順序（sample_on_first_match：第一個符合的就決定，ES 的 scope.attributes.tailsampling.policy 記的是它）：
 #   1. random    ：先隨機抽 RANDOM_PCT%，不管快慢對錯。trace baseline 只用這一份，統計才不會被「錯的、慢的全留」拉偏

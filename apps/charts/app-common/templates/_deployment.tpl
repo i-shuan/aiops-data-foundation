@@ -18,7 +18,7 @@ spec:
     metadata:
       {{- if not $dotnet }}
       annotations:
-        # 平台的 OpenTelemetry Collector 依這三個標註找到要抓的 metrics，見 docs/metrics.md
+        # 平台的 OpenTelemetry Collector 依這三個標註找到要抓的 metrics，見 docs/metrics/README.md
         prometheus.io/scrape: "true"
         prometheus.io/port: {{ include "app-common.metricsPort" . | quote }}
         prometheus.io/path: /metrics
@@ -26,13 +26,13 @@ spec:
       labels:
         {{- include "app-common.labels" . | nindent 8 }}
         {{- with .Values.logFormat }}
-        # 中央 ES 依這個 label 選擇 log 的解析規則，見 docs/elasticsearch.md「pipeline」
+        # 中央 ES 依這個 label 選擇 log 的解析規則，見 docs/log/README.md「pipeline」
         log-format: {{ . | quote }}
         {{- end }}
     spec:
       {{- if $dotnet }}
       initContainers:
-        # 把 OpenTelemetry .NET 自動埋點複製到共用 volume，程式本身不用改（見 docs/dotnet.md）
+        # 把 OpenTelemetry .NET 自動埋點複製到共用 volume，程式本身不用改（見 docs/metrics/dotnet.md）
         - name: otel-dotnet
           image: {{ .Values.otel.dotnet.image }}
           command: ["cp", "-r", "/autoinstrumentation/.", "/otel/"]
@@ -94,7 +94,7 @@ spec:
             - name: OTEL_EXPORTER_OTLP_TRACES_PROTOCOL
               value: http/protobuf
             # 取樣：上游已決定要不要記的跟著上游；自己開始的請求依比例（otel.traces.sampleRatio，預設全部送，
-            # 平台的 trace-sampler 在請求結束後才決定留不留，見 docs/traces.md）
+            # 平台的 trace-sampler 在請求結束後才決定留不留，見 docs/trace/README.md）
             - name: OTEL_TRACES_SAMPLER
               value: parentbased_traceidratio
             - name: OTEL_TRACES_SAMPLER_ARG
@@ -119,7 +119,7 @@ spec:
             # ASP.NET Core 預設每個請求印好幾行 Information，log 量會暴增；框架的只留 Warning 以上（要看可在 env 蓋掉）
             - {name: Logging__LogLevel__Microsoft.AspNetCore, value: Warning}
             # log 用 JSON、帶 scope（trace_id 在裡面），中央 pipeline 認得；用環境變數設定，舊專案不用改程式。
-            # 程式自己用 Serilog、NLog 的話這幾個沒作用，要另外設定（見 docs/dotnet.md）
+            # 程式自己用 Serilog、NLog 的話這幾個沒作用，要另外設定（見 docs/metrics/dotnet.md）
             - {name: Logging__Console__FormatterName, value: json}
             - {name: Logging__Console__FormatterOptions__IncludeScopes, value: "true"}
             - {name: Logging__Console__FormatterOptions__UseUtcTimestamp, value: "true"}

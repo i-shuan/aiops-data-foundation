@@ -3,7 +3,7 @@
 //   consumer：消費者（group order-push），讀 orders、寫進 PostgreSQL（Npgsql）
 // 程式裡沒有任何 OpenTelemetry：trace 全靠自動埋點（跟舊專案一樣），看 Kafka 前後能不能串成同一個 trace。
 // 實測：自動埋點對 Kafka 消費者只開「receive」span（新的 trace，只用 link 指回生產者），處理訊息時查的 DB 自成一個 trace，
-// 跟訊息串不起來（docs/aiops-trace.md 場景四）。
+// 跟訊息串不起來（docs/trace/scenarios.md 場景四）。
 // 消費者的開關（Pod 裡 /ctl 底下的檔案）：
 //   /ctl/slow   每筆訊息多處理 N 毫秒（N 寫在檔案裡，預設 200）：消費者跟不上，訊息在 Kafka 裡排隊
 //   /ctl/fail   寫 DB 失敗（寫到不存在的表），程式 catch 掉、記一行 error log 繼續下一筆

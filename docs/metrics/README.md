@@ -2,7 +2,34 @@
 
 一句話：**每個 cluster 一套 OpenTelemetry Collector 收 metrics，依「每筆資料自己的 namespace」讀 dept 分 group，各 group 用自己的 key 寫進 ES 的 time series data stream。**
 
-log 也由同一個 Collector 收（[elasticsearch.md](elasticsearch.md)）：分部門的規則只有一份（`common.yaml` 的 `transform/group`，log 和 metrics 共用）、key 也共用，同一個 Pod 的 log 和 metrics 一定落在同一個 group。
+log 也由同一個 Collector 收（[log/README.md](../log/README.md)）：分部門的規則只有一份（`common.yaml` 的 `transform/group`，log 和 metrics 共用）、key 也共用，同一個 Pod 的 log 和 metrics 一定落在同一個 group。
+
+## 現況與待辦（階段一：收值、格式、欄位；階段二：清洗與打標）
+
+**階段一 ✅ 大致完成**
+
+| 項目 | 狀態 |
+|---|---|
+| node Collector：kubelet、cAdvisor（CPU 限流）、應用的指標（Java 照標註來抓、.NET 用 OTLP 推）；cluster Collector：K8s 物件狀態 | ✅ 每 30 秒 |
+| 依每筆資料自己的 namespace 分部門、每部門寫入 key | ✅ |
+| 直方圖從累加值換成「每 30 秒多少」，任一段時間直接加總 | ✅ |
+| 外部系統：kafka_exporter | ✅ |
+| 寫進 ES 的時序資料流（TSDS），重送不重複 | ✅ |
+
+**階段一的小尾巴**
+
+| 項目 | 要做的 |
+|---|---|
+| 指標名稱不一致 | Java（Prometheus 格式）是 `http_server_request_duration_seconds`、`http_route`、狀態碼字串；.NET（OTLP）是 `http.server.request.duration`、`http.route`、狀態碼數字。目前靠 baseline 設定的 `variants` 在查詢時對應。改成 Collector 把 Java 的名稱轉成 OTel 名稱、狀態碼轉數字，之後拿掉 `variants` |
+| .NET 還沒驗證的 | SQL Server（SqlClient）連線池指標、.NET 6、Alpine（musl）image（[metrics/dotnet.md](dotnet.md)） |
+| 保留天數 | metrics 現在只有 rollover、不會刪（[retention.md](../retention.md)） |
+
+**階段二：要做的**
+
+| 項目 | 內容 | 驗收 |
+|---|---|---|
+| 主機時鐘監控（時間對齊） | K8s 節點、DB 主機：node_exporter 的時間偏移（`node_timex_offset_seconds`）；規則：偏移 > 100ms warning、> 1 秒 critical。根因分析靠「誰先變壞」排順序，時鐘差 1 秒順序就可能顛倒 | 每台主機都有偏移值，故意調偏一台會報 |
+| 業務 ID 不放 metrics | 交易 ID、單號只放 log、trace；放進 metrics 每個值一條新序列，序列數會爆炸 | 資料品質檢查會報序列數暴增（[rca/README.md「髒資料排除」](../rca/README.md#髒資料排除)） |
 
 ## 資料怎麼走
 
@@ -42,14 +69,14 @@ log 也由同一個 Collector 收（[elasticsearch.md](elasticsearch.md)）：�
 
 | 檔案 | 用途 |
 |---|---|
-| [platform/cluster-addons/otel-collector/common.yaml](../platform/cluster-addons/otel-collector/common.yaml) | 兩種 Collector 共用：擋冒充、讀 dept、dept → group、每個 group 的出口 |
-| [platform/cluster-addons/otel-collector/node.yaml](../platform/cluster-addons/otel-collector/node.yaml) | 節點那一份收什麼：kubelet、應用的 Prometheus metrics |
-| [platform/cluster-addons/otel-collector/cluster.yaml](../platform/cluster-addons/otel-collector/cluster.yaml) | cluster 那一份收什麼：K8s 物件的狀態 |
-| [platform/cluster-addons/otel-collector/](../platform/cluster-addons/otel-collector) 其餘 | 權限、DaemonSet、Deployment、kustomization |
-| [platform/central/elasticsearch-setup.sh](../platform/central/elasticsearch-setup.sh) | 跟 log 共用：寫入 key、唯讀角色、AIOps key 都涵蓋 metrics |
-| [platform/central/elasticsearch/metrics-otel-custom.json](../platform/central/elasticsearch/metrics-otel-custom.json) | TSDS 可寫入時間往後 2 小時（見「坑」：ES 重啟後拒收） |
-| [test/local-k3s/run-metrics-e2e.sh](../test/local-k3s/run-metrics-e2e.sh) | 端到端測試 |
-| [test/local-k3s/run-metrics-scenarios.sh](../test/local-k3s/run-metrics-scenarios.sh) | 情境測試：改 label、ES 停機加重啟 Collector、key 失效 |
+| [platform/cluster-addons/otel-collector/common.yaml](../../platform/cluster-addons/otel-collector/common.yaml) | 兩種 Collector 共用：擋冒充、讀 dept、dept → group、每個 group 的出口 |
+| [platform/cluster-addons/otel-collector/node.yaml](../../platform/cluster-addons/otel-collector/node.yaml) | 節點那一份收什麼：kubelet、應用的 Prometheus metrics |
+| [platform/cluster-addons/otel-collector/cluster.yaml](../../platform/cluster-addons/otel-collector/cluster.yaml) | cluster 那一份收什麼：K8s 物件的狀態 |
+| [platform/cluster-addons/otel-collector/](../../platform/cluster-addons/otel-collector) 其餘 | 權限、DaemonSet、Deployment、kustomization |
+| [platform/central/elasticsearch-setup.sh](../../platform/central/elasticsearch-setup.sh) | 跟 log 共用：寫入 key、唯讀角色、AIOps key 都涵蓋 metrics |
+| [platform/central/elasticsearch/metrics-otel-custom.json](../../platform/central/elasticsearch/metrics-otel-custom.json) | TSDS 可寫入時間往後 2 小時（見「坑」：ES 重啟後拒收） |
+| [test/local-k3s/run-metrics-e2e.sh](../../test/local-k3s/run-metrics-e2e.sh) | 端到端測試 |
+| [test/local-k3s/run-metrics-scenarios.sh](../../test/local-k3s/run-metrics-scenarios.sh) | 情境測試：改 label、ES 停機加重啟 Collector、key 失效 |
 
 兩種 Collector 啟動時都載入 `common.yaml` 加上自己那份，分部門的規則只有一處，不會兩邊各改各的。
 
@@ -99,7 +126,7 @@ AIOps 要把 log 和 metrics 串起來，用 `service.name` 加 `k8s.namespace.n
 
 ### 應用的請求數、錯誤、延遲（AIOps baseline 用）
 
-Java agent 會開出 `http.server.request.duration`（每個 HTTP 請求的耗時直方圖，依 method、route、狀態碼分），這是 AIOps baseline 算流量、錯誤率、延遲的來源（見 [aiops-rca.md「分工」](aiops-rca.md#分工metrics-決定什麼時候告警trace-和-log-說明原因)）。
+Java agent 會開出 `http.server.request.duration`（每個 HTTP 請求的耗時直方圖，依 method、route、狀態碼分），這是 AIOps baseline 算流量、錯誤率、延遲的來源（見 [rca/README.md「分工」](../rca/README.md#分工metrics-決定什麼時候告警trace-和-log-說明原因)）。
 
 | | |
 |---|---|
@@ -136,7 +163,7 @@ curl -s -o /dev/null -w "%{http_code}\n" -u elastic:<password> -X POST -H "Conte
 
 ### 2. 每個應用 cluster
 
-`otel-collector` namespace 要有 `es-writer-keys`（log 和 metrics 共用這一份）。怎麼建、在 Rancher 上要注意什麼，見 [elasticsearch.md 的「部署」](elasticsearch.md#部署)。
+`otel-collector` namespace 要有 `es-writer-keys`（log 和 metrics 共用這一份）。怎麼建、在 Rancher 上要注意什麼，見 [log/README.md 的「部署」](../log/README.md#部署)。
 
 改好 `platform/cluster-addons/otel-collector/kustomization.yaml` 的 `CLUSTER_NAME`、`ES_ENDPOINT` 和 image 路徑，然後：
 
@@ -174,7 +201,7 @@ ES_URL=http://<ip>:9200 test/local-k3s/run-metrics-e2e.sh
 ## 坑
 
 - **key 失效期間的資料會遺失（metrics 和 log 都是）。** OTLP 出口只對 429、502、503、504 重試，401（key 錯、被作廢）當成永久錯誤，整批直接丟掉，也沒有設定可以改。所以：
-  - **換 key 用 `platform/central/rotate-writer-key.sh`**：先發新的、換進 Secret、等每個 Collector 換用新 key，才作廢舊的；Collector 從檔案讀 key，不用重啟，metrics 也就沒有重啟造成的空檔。實測見 [elasticsearch.md 的「換 key」](elasticsearch.md#換-key)。
+  - **換 key 用 `platform/central/rotate-writer-key.sh`**：先發新的、換進 Secret、等每個 Collector 換用新 key，才作廢舊的；Collector 從檔案讀 key，不用重啟，metrics 也就沒有重啟造成的空檔。實測見 [log/README.md 的「換 key」](../log/README.md#換-key)。
   - 現在發的 key 沒有到期日，不會自己失效。之後若要加到期日，要排好在到期前換。
   - 要監控 Collector 的 `otelcol_exporter_send_failed_metric_points`、`otelcol_exporter_send_failed_log_records`（`:8888/metrics`），大於 0 就是有資料送不出去被丟掉。
   - log 另外要看 Collector 自己的 log 裡的 `Partial success`：ES 拒收其中幾筆時只印這行、那幾筆丟掉。其中 `CONFLICT`（409）是重送的被擋掉，屬於正常的去重複，不算遺失。

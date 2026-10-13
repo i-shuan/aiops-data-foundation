@@ -7,7 +7,7 @@
 #
 # 會建立四類東西：
 #   0. index 結構：ILM、mapping、pipeline（含各 log 格式）、index template（./elasticsearch/）。
-#      可以重複執行，結果一樣。log 欄位規範見 docs/elasticsearch.md。
+#      可以重複執行，結果一樣。log 欄位規範見 docs/log/README.md。
 #   1. 寫入用 API key（給 OpenTelemetry Collector）：每組只能寫自己 group 的 log、metrics、trace。
 #      label 判斷錯了，頂多是那筆資料被拒絕，不會寫進別的 group。
 #      回應裡的 "encoded" 放進每個應用 cluster otel-collector namespace 的 Secret es-writer-keys：
@@ -86,7 +86,7 @@ put_json /_component_template/k8s-logs-mappings    elasticsearch/component-mappi
 put_json /_index_template/k8s-logs                 elasticsearch/index-template.json
 # metrics：ES 9 內建 metrics-otel@template 預留的自訂設定（metrics-*.otel-* 的 TSDS）
 put_json /_component_template/metrics-otel@custom  elasticsearch/metrics-otel-custom.json
-# log 改用 OpenTelemetry Collector 收時（比較中，見 docs/otel-logs-compare.md）：
+# log 改用 OpenTelemetry Collector 收時（比較中，見 docs/log/fluentbit-vs-otel.md）：
 # logs-*.otel-* 先跑 k8s-logs-otel，我們的 Collector 送的轉到 k8s-<group>-<cluster>
 put_pipeline k8s-logs-otel                         elasticsearch/pipeline-otel.json
 put_json /_component_template/logs-otel@custom     elasticsearch/logs-otel-custom.json
