@@ -38,6 +38,8 @@
 | ILM 照時間降解析度 | ✅ 時間範圍已過的 index 套「馬上降成 1 小時」的測試政策，約 30 秒換成 `downsample-1h-…` |
 | ILM 照時間刪除 | ✅ 測試政策（1 分鐘 rollover、1 分鐘刪）：rollover 後約 1 分鐘舊 index 刪掉 |
 | 有問題的 trace 分流 | ✅ 寫一筆 `tailsampling.policy: error` 的 span，進到 `traces-problem.otel-<group>`，自動套 `traces-problem-otel` 模板與 30 天政策；`random`、沒有 policy 的留在 `traces-generic` |
+| 真的 trace-sampler 取樣後分流 | ✅ 尾端取樣壓測一輪（正式比例：正常的隨機留 5%；每秒 100 個請求、2 分鐘）：錯誤、慢、吞掉例外的 1,256 個 trace（5,024 段）全進 `traces-problem.otel-imc`（policy 是 slow、error、exception）；隨機留下的 615 個 trace（2,460 段）全在 `traces-generic.otel-imc`。兩邊合起來跟壓測統計的「留下」數字一致，沒有漏 |
+| 根因分析、trace baseline 回歸 | ✅ k3s 回歸 11 項、9 項全過（讀 `traces-*.otel-*`，兩個資料流都看得到） |
 | log 統計 | ✅ 65 萬筆 log 統計成 2,192 筆（約 1/300） |
 | 重跑設定腳本 | ✅ 第二次不會重複 rollover，transform 走更新 |
 
