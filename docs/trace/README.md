@@ -22,7 +22,7 @@
 | 項目 | 要做的 |
 |---|---|
 | trace-sampler 斷線 | 佇列只在記憶體，改成磁碟佇列 |
-| 保留天數 | trace 現在只有 rollover、不會刪（[retention.md](../retention.md)） |
+| 保留天數 | ✅ 隨機留下的 7 天；有問題的（錯誤、5xx、例外、慢）由 pipeline 轉到 `traces-problem.otel-<group>`，留 30 天（[retention.md](../retention.md)） |
 
 **階段二：要做的**
 
@@ -176,6 +176,6 @@ ES_URL=http://<ip>:9200 test/local-k3s/run-trace-e2e.sh
 
 ## 還沒做
 
-1. **保留天數**：現在用 ES 內建的預設，要跟各 group 確認。
+1. **保留天數**：已套用（[retention.md](../retention.md)），各 group 要不要不同還要確認。
 2. **取樣策略**：現在是各服務在源頭依比例取樣。要「錯誤和慢的請求一定留」的話，要改成在 Collector 收齊整個 trace 再決定（tail sampling），需要另外設計（同一個 trace 的 span 會分散在不同節點）。
 3. **Kibana 的 APM 畫面**：資料是 OTel 原生格式，Kibana 的 Observability 應該能直接看，還沒確認。

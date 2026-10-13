@@ -1,0 +1,10 @@
+{
+  "template": {
+    "settings": {
+      "index.lifecycle.name": "traces-problem-otel"
+    }
+  },
+  "_meta": {
+    "description": "traces-problem.otel-*（有問題的 trace）的保留天數：ILM traces-problem-otel，比隨機留下的 trace 留久（platform/central/retention.conf）"
+  }
+}

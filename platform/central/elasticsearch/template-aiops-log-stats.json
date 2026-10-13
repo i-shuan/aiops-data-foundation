@@ -1,0 +1,25 @@
+{
+  "index_patterns": ["aiops-log-stats-*"],
+  "priority": 200,
+  "template": {
+    "settings": {
+      "index.lifecycle.name": "aiops-log-stats",
+      "index.lifecycle.rollover_alias": "aiops-log-stats",
+      "number_of_shards": 1
+    },
+    "mappings": {
+      "dynamic": false,
+      "properties": {
+        "@timestamp": {"type": "date"},
+        "group": {"type": "keyword"},
+        "cluster": {"type": "keyword"},
+        "namespace": {"type": "keyword"},
+        "service": {"type": "keyword"},
+        "level": {"type": "keyword"},
+        "error_type": {"type": "keyword"},
+        "count": {"type": "long"}
+      }
+    }
+  },
+  "_meta": {"description": "log 的長期統計（transform aiops-log-stats 寫的）：每 5 分鐘、每個 group × cluster × namespace × 服務 × level × error.type 的筆數。log 原文只留 30 天，年度週期、長期趨勢靠這份（docs/retention.md）"}
+}

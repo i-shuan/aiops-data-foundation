@@ -22,7 +22,7 @@ log 也由同一個 Collector 收（[log/README.md](../log/README.md)）：分�
 |---|---|
 | 指標名稱不一致 | Java（Prometheus 格式）是 `http_server_request_duration_seconds`、`http_route`、狀態碼字串；.NET（OTLP）是 `http.server.request.duration`、`http.route`、狀態碼數字。目前靠 baseline 設定的 `variants` 在查詢時對應。改成 Collector 把 Java 的名稱轉成 OTel 名稱、狀態碼轉數字，之後拿掉 `variants` |
 | .NET 還沒驗證的 | SQL Server（SqlClient）連線池指標、.NET 6、Alpine（musl）image（[metrics/dotnet.md](dotnet.md)） |
-| 保留天數 | metrics 現在只有 rollover、不會刪（[retention.md](../retention.md)） |
+| 保留天數 | ✅ 原始 14 天 → 5 分鐘一點 → 第 90 天 1 小時一點 → 第 400 天刪；降解析度後直方圖照樣保留（[retention.md](../retention.md)） |
 
 **階段二：要做的**
 
@@ -220,7 +220,7 @@ ES_URL=http://<ip>:9200 test/local-k3s/run-metrics-e2e.sh
 
 ## 還沒做
 
-1. **保留天數**：現在用 ES 內建的預設，要跟各 group 確認後設定。
+1. **保留天數**：已套用（[retention.md](../retention.md)），各 group 要不要不同還要確認。
 2. **量大時夠不夠力**：只用測試的量驗過（單節點、十幾個 Pod）。佇列 10,000 批在量大時能撐多久停機也還沒量。
 3. **節點本身的系統指標**（磁碟、檔案系統、load）：現在只有 kubelet 給的節點 CPU、記憶體、網路，沒有收 hostmetrics。
 4. **K8s events**：跟 log 那邊一樣還沒做。

@@ -1,0 +1,22 @@
+{
+  "description": "log 的長期統計：每 5 分鐘、每個 group × cluster × namespace × 服務 × level × error.type 的筆數，寫進 aiops-log-stats（留 400 天；log 原文只留 30 天）",
+  "source": {"index": ["k8s-*"]},
+  "dest": {"index": "aiops-log-stats"},
+  "frequency": "5m",
+  "sync": {"time": {"field": "@timestamp", "delay": "120s"}},
+  "pivot": {
+    "group_by": {
+      "@timestamp": {"date_histogram": {"field": "@timestamp", "fixed_interval": "5m"}},
+      "group": {"terms": {"field": "labels.group", "missing_bucket": true}},
+      "cluster": {"terms": {"field": "orchestrator.cluster.name", "missing_bucket": true}},
+      "namespace": {"terms": {"field": "kubernetes.namespace", "missing_bucket": true}},
+      "service": {"terms": {"field": "service.name", "missing_bucket": true}},
+      "level": {"terms": {"field": "log.level", "missing_bucket": true}},
+      "error_type": {"terms": {"field": "error.type", "missing_bucket": true}}
+    },
+    "aggregations": {
+      "count": {"value_count": {"field": "@timestamp"}}
+    }
+  },
+  "settings": {"max_page_search_size": 1000}
+}

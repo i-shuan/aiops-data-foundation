@@ -1,0 +1,14 @@
+{
+  "policy": {
+    "_meta": {"description": "traces-problem.otel-*（錯誤、5xx、例外、慢：trace-sampler 全留的）：__TRACES_PROBLEM_DELETE_AFTER__ 刪，事故檢討常常一兩週後才開。天數改 platform/central/retention.conf"},
+    "phases": {
+      "hot": {
+        "actions": {"rollover": {"max_age": "__ROLLOVER_MAX_AGE__", "max_primary_shard_size": "__ROLLOVER_MAX_SIZE__"}}
+      },
+      "delete": {
+        "min_age": "__TRACES_PROBLEM_DELETE_AFTER__",
+        "actions": {"delete": {}}
+      }
+    }
+  }
+}

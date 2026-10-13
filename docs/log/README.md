@@ -26,7 +26,7 @@ log 和 metrics 用同一個 Collector（[metrics/README.md](../metrics/README.m
 |---|---|
 | 欄位路徑跟 metrics、trace 不一致 | log 是 `service.name`（平的），metrics、trace 是 `resource.attributes.service.name`。log 補別名欄位，三種資料用同一個路徑查 |
 | REST API 的解析規則 | 需要兩三個服務的真實 log 樣本 |
-| 保留天數 | 見 [retention.md](../retention.md) |
+| 保留天數 | ✅ 原文 30 天；另外每 5 分鐘統計各服務 × level × `error.type` 的筆數，留 400 天（[retention.md](../retention.md)） |
 
 **階段二：要做的**
 
@@ -231,7 +231,7 @@ GET k8s-*/_search
   - 名稱帶 cluster，某一廠出狀況要整批清掉或調保留天數時，不會動到別廠。
 - `CLUSTER_NAME` 要小寫，ES 的 index 名稱不接受大寫。
 - shard：每條 data stream 1 個 primary，每天或 30GB 滾一次。
-- 保留天數：先暫定 30 天，見 [ilm-policy.json](../../platform/central/elasticsearch/ilm-policy.json)。
+- 保留天數：30 天，天數在 [retention.conf](../../platform/central/retention.conf)，見 [retention.md](../retention.md)。
 - 這套用到的功能都在免費授權（Basic）內：API key、ILM、data stream、flattened。
 
 ## 部署
@@ -361,6 +361,6 @@ GET k8s-*/_search
 ## 還沒做
 
 1. **K8s events**（OOMKilled、probe 失敗、BackOff）。這是 AIOps 很重要的訊號，但 event 本身只帶 namespace 名稱，不帶 dept；要分流得先決定歸屬放哪裡，見 README 待定事項第 1 點。唯讀角色裡已經預留了 `k8s-events-{group}-*`。
-2. **保留天數**要各 group 確認。
+2. **保留天數**：已套用 30 天（[retention.md](../retention.md)），各 group 要不要不同還要確認。
 3. **⚠️ 重點：SECS、REST API 等格式的解析規則**：架構已經好了（見「[pipeline](#pipeline)」），等拿到真實的 log 樣本再寫。SECS 還要在 Collector 的 `file_log` 加多行合併。
 4. **dept 清單目前要手動同步兩處**：`groups.yaml`、Collector 的 `common.yaml`（log 與 metrics 共用）。group 變多之前要改成從 `groups.yaml` 產生。

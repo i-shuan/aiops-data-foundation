@@ -50,7 +50,7 @@ docs/
 2. **app 名稱是否全公司唯一**（用中央清單的話，這是前提）。
 3. **寫入 key 怎麼自動進新的 cluster**：現在靠 Rancher 手動建 Secret；cluster 一多就不可行，要確認有沒有 External Secrets、Vault 或 sealed-secrets。
 4. **K8s events 怎麼歸屬**：還沒收 events，照讀 namespace label 的做法應該能分，要實測。
-5. **保留天數**：metrics、trace 現在**只有 rollover、不會刪**，硬碟遲早滿。方案見 [docs/retention.md](docs/retention.md)，要決定天數、副本，並用正式環境的量重算容量。
+5. **保留天數**：✅ 已套用建議值（metrics 原始 14 天、降解析度到 400 天；log 原文 30 天＋統計 400 天；trace 隨機 7 天、有問題的 30 天），天數在 `platform/central/retention.conf`。還要決定：天數確認、各部門要不要不同、正式環境的副本，以及用正式環境的量重算容量（[docs/retention.md](docs/retention.md#還要決定的)）。
 6. **Java 要不要預設加 `-XX:+ExitOnOutOfMemoryError`**：不加的話 OOM 後 Pod 活著但不能用。
 
 ## 待辦
