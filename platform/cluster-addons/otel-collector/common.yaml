@@ -13,7 +13,7 @@ extensions:
     endpoint: 0.0.0.0:13133
   # 每個 group 的寫入 key 從檔案讀（Secret es-writer-keys 掛在 /etc/es-keys）。
   # 檔案一變就換用新 key，不用重啟：換 key 時先換上新的、確認都在用了，才作廢舊的，就不會有 key 失效的空檔
-  #（key 失效期間的資料會被丟掉，見 docs/metrics.md 的「坑」）。換 key 用 platform/central/rotate-writer-key.sh
+  #（key 失效期間的資料會被丟掉，見 docs/metrics/README.md 的「坑」）。換 key 用 platform/central/rotate-writer-key.sh
   bearertokenauth/it:
     scheme: ApiKey
     filename: /etc/es-keys/IT_ES_API_KEY

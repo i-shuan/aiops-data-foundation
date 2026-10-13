@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>order-app</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Npgsql" Version="8.0.9" />
+  </ItemGroup>
+</Project>

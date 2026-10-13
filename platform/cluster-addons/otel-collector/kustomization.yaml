@@ -1,5 +1,5 @@
 # 每個應用 cluster 一套 OpenTelemetry Collector，收 log、metrics、trace，依 namespace 的 dept 分到各 group 的 data stream。
-# 設計說明見 docs/elasticsearch.md（log）、docs/metrics.md、docs/traces.md。
+# 設計說明見 docs/log/README.md（log）、docs/metrics/README.md、docs/trace/README.md。
 #
 # 部署前要先有：
 #   1. Secret es-writer-keys（log、metrics、trace 共用，由 platform/central/elasticsearch-setup.sh 產生）
@@ -13,12 +13,14 @@ resources:
   - node-collector.yaml
   - service.yaml
   - cluster-collector.yaml
+  - trace-sampler.yaml
 configMapGenerator:
   - name: otel-collector-config
     files:
       - common.yaml
       - node.yaml
       - cluster.yaml
+      - sampler.yaml
   - name: otel-collector-env
     literals:
       - CLUSTER_NAME=change-me

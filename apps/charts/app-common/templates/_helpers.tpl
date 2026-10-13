@@ -35,6 +35,12 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- if hasKey $traces "sampleRatio" }}{{ $traces.sampleRatio }}{{ else }}1.0{{ end -}}
 {{- end -}}
 
+{{- define "app-common.dotnetEnabled" -}}
+{{- $otel := .Values.otel | default dict -}}
+{{- $dn := $otel.dotnet | default dict -}}
+{{- if $dn.enabled }}true{{ end -}}
+{{- end -}}
+
 {{- define "app-common.javaAgentEnabled" -}}
 {{- $otel := .Values.otel | default dict -}}
 {{- $java := $otel.javaAgent | default dict -}}
@@ -75,6 +81,12 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- end -}}
 {{- if include "app-common.javaAgentEnabled" . -}}
 {{- $_ := required "otel.javaAgent.enabled 為 true 時，otel.javaAgent.image 必填" $v.otel.javaAgent.image -}}
+{{- end -}}
+{{- if include "app-common.dotnetEnabled" . -}}
+{{- $_ := required "otel.dotnet.enabled 為 true 時，otel.dotnet.image 必填" $v.otel.dotnet.image -}}
+{{- if include "app-common.javaAgentEnabled" . -}}
+{{- fail "otel.javaAgent 與 otel.dotnet 只能開一個" -}}
+{{- end -}}
 {{- end -}}
 {{- $ratio := include "app-common.traceSampleRatio" . | float64 -}}
 {{- if or (lt $ratio 0.0) (gt $ratio 1.0) -}}

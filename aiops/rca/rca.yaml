@@ -1,0 +1,10 @@
+# 根因分析讀哪裡
+indices:
+  anomalies: aiops-anomalies      # aiops/baseline 的 detect 寫的
+  traces: traces-*.otel-*
+  logs: k8s-*
+timezone: Asia/Taipei             # 報告裡的時間
+compare_with: 7d                  # 「平常」= 一週前同一段時間
+ref_gap: 10m                      # 一週前沒有資料時：改用出事前、同樣長的一段，中間空 10 分鐘（避開剛開始變壞的時候）
+sample: 200                       # 出事時挑最慢的 200 個（再加最多 100 個出錯的）請求來比
+interval: 5m                      # 跟 baseline 一樣：異常的時間是那 5 分鐘的開始

@@ -38,9 +38,14 @@ otel:
   javaAgent:
     enabled: true
     image: nexus.aillm.spil.com.tw/docker/open-telemetry/autoinstrumentation-java:2.10.0
-  # trace 取樣比例（0～1）。預設 1.0 全部記；請求量大的服務可以調低，例如 0.1
+  # .NET 服務改用這個（javaAgent 關掉）：掛 OpenTelemetry .NET 自動埋點，metrics 用 OTLP 推，見 docs/metrics/dotnet.md
+  # dotnet:
+  #   enabled: true
+  #   image: nexus.aillm.spil.com.tw/ghcr/open-telemetry/opentelemetry-operator/autoinstrumentation-dotnet:1.12.0
+  #   arch: linux-x64          # Alpine（musl）的 image 用 linux-musl-x64
+  # trace 取樣比例（0～1）。保持預設 1.0 全部送：平台在請求結束後才決定留不留（錯的、慢的全留，正常的留 5%）
   # traces:
-  #   sampleRatio: 0.1
+  #   sampleRatio: 1.0
 
 # log 格式。照 Java 標準（logback JSON）輸出就不用填；其他格式填名稱，例如 logfmt、secs。
 # 沒有對應解析規則的格式，log 仍會完整收進去，只是不拆欄位。

@@ -23,9 +23,9 @@ rules:
   - apiGroups: [autoscaling]
     resources: [horizontalpodautoscalers]
     verbs: [get, list, watch]
-  # kubeletstats：向 kubelet 要資源用量
+  # kubeletstats：向 kubelet 要資源用量；prometheus/cadvisor：CPU 限流
   - apiGroups: [""]
-    resources: [nodes/stats, nodes/proxy]
+    resources: [nodes/stats, nodes/proxy, nodes/metrics]
     verbs: [get]
 ---
 apiVersion: rbac.authorization.k8s.io/v1

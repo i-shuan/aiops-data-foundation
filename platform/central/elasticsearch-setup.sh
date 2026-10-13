@@ -7,7 +7,7 @@
 #
 # 會建立四類東西：
 #   0. index 結構：ILM、mapping、pipeline（含各 log 格式）、index template（./elasticsearch/）。
-#      可以重複執行，結果一樣。log 欄位規範見 docs/elasticsearch.md。
+#      可以重複執行，結果一樣。log 欄位規範見 docs/log/README.md。
 #   1. 寫入用 API key（給 OpenTelemetry Collector）：每組只能寫自己 group 的 log、metrics、trace。
 #      label 判斷錯了，頂多是那筆資料被拒絕，不會寫進別的 group。
 #      回應裡的 "encoded" 放進每個應用 cluster otel-collector namespace 的 Secret es-writer-keys：
@@ -15,6 +15,7 @@
 #      之後換 key 用 rotate-writer-key.sh（不掉資料）；重跑這支腳本也會發新 key，但舊的不會作廢。
 #   2. AIOps 專用唯讀 API key：可讀所有 k8s-*（log）、metrics-*.otel-*（metrics）、traces-*.otel-*（trace）。
 #   3. 給人用的唯讀角色：每個 group 一個，只能看自己的 log、事件、metrics、trace。再指派給使用者。
+#   另外發一把 AIOps baseline 工具用的 key（aiops/baseline）：讀上面三種資料，只能寫 aiops-*。
 set -euo pipefail
 
 cd "$(dirname "$0")"
@@ -85,7 +86,7 @@ put_json /_component_template/k8s-logs-mappings    elasticsearch/component-mappi
 put_json /_index_template/k8s-logs                 elasticsearch/index-template.json
 # metrics：ES 9 內建 metrics-otel@template 預留的自訂設定（metrics-*.otel-* 的 TSDS）
 put_json /_component_template/metrics-otel@custom  elasticsearch/metrics-otel-custom.json
-# log 改用 OpenTelemetry Collector 收時（比較中，見 docs/otel-logs-compare.md）：
+# log 改用 OpenTelemetry Collector 收時（比較中，見 docs/log/fluentbit-vs-otel.md）：
 # logs-*.otel-* 先跑 k8s-logs-otel，我們的 Collector 送的轉到 k8s-<group>-<cluster>
 put_pipeline k8s-logs-otel                         elasticsearch/pipeline-otel.json
 put_json /_component_template/logs-otel@custom     elasticsearch/logs-otel-custom.json
@@ -131,5 +132,20 @@ es -X POST "${ES_URL}/_security/api_key" -d '{
 }'
 
 # 3. 給人用的唯讀角色
+# 2b. AIOps baseline 工具（aiops/baseline）：讀 log、metrics、trace，只能寫自己的 aiops-*（baseline、異常）
+echo "=== AIOps baseline key ==="
+es -X POST "${ES_URL}/_security/api_key" -d '{
+  "name": "aiops-baseline",
+  "role_descriptors": {
+    "aiops-baseline": {
+      "index": [
+        {"names": ["k8s-*", "metrics-*.otel-*", "traces-*.otel-*"], "privileges": ["read", "view_index_metadata"]},
+        {"names": ["aiops-*"], "privileges": ["read", "write", "create_index", "view_index_metadata"]}
+      ]
+    }
+  }
+}'
+echo
+
 reader_role it
 reader_role imc

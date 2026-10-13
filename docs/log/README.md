@@ -2,11 +2,39 @@
 
 一句話：**每個節點的 OpenTelemetry Collector 只負責「收」和「分流」，欄位整理一律交給中央 ES 的 pipeline。** 規則改在中央，不用動每個 cluster。
 
-log 和 metrics 用同一個 Collector（[metrics.md](metrics.md)），分部門的規則、key 都共用。原本用 Fluent Bit，改用 OTel 的原因與比較見 [otel-logs-compare.md](otel-logs-compare.md)。
+log 和 metrics 用同一個 Collector（[metrics/README.md](../metrics/README.md)），分部門的規則、key 都共用。原本用 Fluent Bit，改用 OTel 的原因與比較見 [log/fluentbit-vs-otel.md](fluentbit-vs-otel.md)。
 
 > [!IMPORTANT]
 > **重點：log 格式不一致的處理，見下方「[pipeline](#pipeline)」。**
-> 依服務宣告的格式分派解析規則的機制已經完成並測過；**SECS、REST API 的規則還沒寫，等真實 log 樣本。**
+> 依服務宣告的格式分派解析規則的機制已經完成並測過；**REST API 的規則還沒寫，等真實 log 樣本**（SECS 屬工廠，之後再做，見 [factory-later.md](../factory-later.md)）。
+
+## 現況與待辦（階段一：收值、格式、欄位；階段二：清洗與打標）
+
+**階段一 ✅ 大致完成**
+
+| 項目 | 狀態 |
+|---|---|
+| Collector 讀節點上的 `/var/log/pods`，依 namespace 的部門分流、每部門寫入 key、換 key 不掉資料 | ✅ |
+| 擋冒充：拿掉應用自己填的 K8s、部門欄位，由 Collector 依 Pod 補上 | ✅ |
+| 中央 pipeline 依格式解析：logback、ECS、.NET JSON、Serilog、logfmt、純文字（保底抓 level） | ✅ |
+| 統一欄位：`service.name`、`log.level`、`trace.id`、時間（UTC） | ✅ |
+| 去重複（內容指紋當 `_id`）、斷線先寫磁碟再補送 | ✅ |
+
+**階段一的小尾巴**
+
+| 項目 | 要做的 |
+|---|---|
+| 欄位路徑跟 metrics、trace 不一致 | log 是 `service.name`（平的），metrics、trace 是 `resource.attributes.service.name`。log 補別名欄位，三種資料用同一個路徑查 |
+| REST API 的解析規則 | 需要兩三個服務的真實 log 樣本 |
+| 保留天數 | 見 [retention.md](../retention.md) |
+
+**階段二：要做的**
+
+| 項目 | 內容 | 驗收 |
+|---|---|---|
+| 收資料延遲（時間對齊） | 記「事件時間」和「Collector 收到的時間」，算延遲分佈；延遲 > 1 分鐘報 warning。Collector 卡住、ES 慢時，看起來會像流量掉 | 停掉 ES 一段時間再恢復，延遲規則會報、恢復後消失 |
+| 時區規範（時間對齊） | 所有系統寫 UTC 或帶時區的 ISO 8601；沒帶時區的 log 依主機所在地時區解讀，並確認中央 pipeline 的預設 | 規範寫進應用標準 |
+| 從 log 抽業務 ID | 中央 pipeline 依格式把 `txnId=…`、`orderNo: …` 抽成標準欄位，舊系統不用改（業務 ID 的完整規劃見 [trace/README.md「業務 ID」](../trace/README.md#業務-id服務層)） | 舊服務的 log 查得到交易 ID |
 
 ## 資料怎麼走
 
@@ -32,14 +60,14 @@ container stdout（每個節點的 /var/log/pods）
 
 | 檔案 | 用途 |
 |---|---|
-| [platform/groups.yaml](../platform/groups.yaml) | 部門 → group 對照表 |
-| [platform/central/elasticsearch-setup.sh](../platform/central/elasticsearch-setup.sh) | 中央 ES：index 結構＋各種 API key 與角色 |
-| [platform/central/elasticsearch/](../platform/central/elasticsearch) | ILM、mapping、pipeline、index template |
-| [platform/central/elasticsearch/formats/](../platform/central/elasticsearch/formats) | 各 log 格式的解析規則，一種格式一個檔 |
-| [platform/central/elasticsearch/pipeline-otel.*](../platform/central/elasticsearch/pipeline-otel.painless)、[logs-otel-custom.json](../platform/central/elasticsearch/logs-otel-custom.json) | `k8s-logs-otel`：OTel 送來的 log 整理形狀、算 `_id`、轉到 `k8s-{group}-{cluster}` |
-| [platform/cluster-addons/otel-collector/](../platform/cluster-addons/otel-collector) | 每個應用 cluster 的 OpenTelemetry Collector（log 與 metrics，kustomize）；log 的收法在 `node.yaml` |
-| [test/local-k3s/](../test/local-k3s) | 端到端測試 |
-| [test/pipeline/](../test/pipeline) | pipeline 案例測試（只需要 ES） |
+| [platform/groups.yaml](../../platform/groups.yaml) | 部門 → group 對照表 |
+| [platform/central/elasticsearch-setup.sh](../../platform/central/elasticsearch-setup.sh) | 中央 ES：index 結構＋各種 API key 與角色 |
+| [platform/central/elasticsearch/](../../platform/central/elasticsearch) | ILM、mapping、pipeline、index template |
+| [platform/central/elasticsearch/formats/](../../platform/central/elasticsearch/formats) | 各 log 格式的解析規則，一種格式一個檔 |
+| [platform/central/elasticsearch/pipeline-otel.*](../../platform/central/elasticsearch/pipeline-otel.painless)、[logs-otel-custom.json](../../platform/central/elasticsearch/logs-otel-custom.json) | `k8s-logs-otel`：OTel 送來的 log 整理形狀、算 `_id`、轉到 `k8s-{group}-{cluster}` |
+| [platform/cluster-addons/otel-collector/](../../platform/cluster-addons/otel-collector) | 每個應用 cluster 的 OpenTelemetry Collector（log 與 metrics，kustomize）；log 的收法在 `node.yaml` |
+| [test/local-k3s/](../../test/local-k3s) | 端到端測試 |
+| [test/pipeline/](../../test/pipeline) | pipeline 案例測試（只需要 ES） |
 
 ## 欄位規範
 
@@ -54,7 +82,7 @@ AIOps 只認這些欄位。標準概念用 [ECS](https://www.elastic.co/guide/en
 | `log.logger`、`process.thread.name` | 應用 | 縮小範圍 |
 | `error.type` | 從 stack trace 第一行拆出的例外類別 | 例外分群，比對全文便宜很多 |
 | `error.stack_trace` | 應用 | 人看 |
-| `trace.id`、`span.id` | OpenTelemetry Java agent 寫進 MDC | 串起同一個請求的 log，也對得到 trace 的 `trace_id`（[traces.md](traces.md)） |
+| `trace.id`、`span.id` | OpenTelemetry Java agent 寫進 MDC | 串起同一個請求的 log，也對得到 trace 的 `trace_id`（[trace/README.md](../trace/README.md)） |
 | `service.name` | pod label `app.kubernetes.io/name`；沒有就用 container 名稱 | 分析單位 |
 | `service.version` | pod label `app.kubernetes.io/version` | 「換版之後才開始錯」 |
 | `service.namespace` | pod label `app.kubernetes.io/part-of` | 所屬系統 |
@@ -149,7 +177,7 @@ k8s-logs（主 pipeline）
 
 不認得的值，例如 `verbose`，轉小寫後原樣保留，不硬塞進六種。
 
-案例測試見 [test/pipeline/level-cases.json](../test/pipeline/level-cases.json)，不用 K8s，幾秒跑完：
+案例測試見 [test/pipeline/level-cases.json](../../test/pipeline/level-cases.json)，不用 K8s，幾秒跑完：
 
 ```bash
 ES_URL=https://<es>:9200 ES_AUTH=elastic:<password> test/pipeline/run-level-cases.sh
@@ -159,7 +187,7 @@ ES_URL=https://<es>:9200 ES_AUTH=elastic:<password> test/pipeline/run-level-case
 
 | `log-format` | 給誰用 | 例子 |
 |---|---|---|
-| （不填） | Java 標準（logback JSON）、ECS JSON（Spring Boot 3.4 `logging.structured.format.console=ecs`）、純文字 | `{"level":"INFO","message":"..."}` |
+| （不填） | Java 標準（logback JSON）、ECS JSON（Spring Boot 3.4 `logging.structured.format.console=ecs`）、**.NET 內建 JSON console**（`Message`、`LogLevel`、`Category`、`Exception`、`Scopes` 裡的 `TraceId`）、**Serilog compact JSON**（`@m`、`@l`、`@x`、`@tr`）、純文字 | `{"level":"INFO","message":"..."}`、`{"LogLevel":"Information","Message":"...","Scopes":[{"TraceId":"..."}]}` |
 | `logfmt` | Go 等語言常見的 key=value | `level=warn msg="lot hold requested" lot_id=L123` |
 
 ### 服務怎麼宣告格式
@@ -176,9 +204,9 @@ logFormat: logfmt
 
 ### 新增一種格式（例如 SECS）
 
-1. 在 [formats/](../platform/central/elasticsearch/formats) 加 `<格式>.json`。只要做到「原文 → `_app`」，再交給 `k8s-logs-fields`。可以參考 [logfmt.json](../platform/central/elasticsearch/formats/logfmt.json)。需要寫程式的話，放同名的 `<格式>.painless`。
+1. 在 [formats/](../../platform/central/elasticsearch/formats) 加 `<格式>.json`。只要做到「原文 → `_app`」，再交給 `k8s-logs-fields`。可以參考 [logfmt.json](../../platform/central/elasticsearch/formats/logfmt.json)。需要寫程式的話，放同名的 `<格式>.painless`。
 2. 規則裡第一步一定要 `set log.parser = <格式>`，解析失敗時不能丟掉原文（`ignore_failure` 或自己的 `on_failure`）。
-3. 在 [test/local-k3s/](../test/local-k3s) 加一個輸出該格式的測試服務和檢查項目，跑 `run-e2e.sh`。
+3. 在 [test/local-k3s/](../../test/local-k3s) 加一個輸出該格式的測試服務和檢查項目，跑 `run-e2e.sh`。
 4. 跑 `elasticsearch-setup.sh`（`SKIP_KEYS=1`）裝到中央。**各 cluster 的 Collector 不用動。**
 5. 服務在 values 填上 `logFormat`。
 
@@ -203,7 +231,7 @@ GET k8s-*/_search
   - 名稱帶 cluster，某一廠出狀況要整批清掉或調保留天數時，不會動到別廠。
 - `CLUSTER_NAME` 要小寫，ES 的 index 名稱不接受大寫。
 - shard：每條 data stream 1 個 primary，每天或 30GB 滾一次。
-- 保留天數：先暫定 30 天，見 [ilm-policy.json](../platform/central/elasticsearch/ilm-policy.json)。
+- 保留天數：先暫定 30 天，見 [ilm-policy.json](../../platform/central/elasticsearch/ilm-policy.json)。
 - 這套用到的功能都在免費授權（Basic）內：API key、ILM、data stream、flattened。
 
 ## 部署
@@ -263,7 +291,7 @@ ES_URL=https://<es>:9200 ES_AUTH=elastic:<password> platform/central/rotate-writ
 
 它照「先發新的 → 換進每個 cluster 的 Secret → 確認每個 Collector 都換用新 key → 才作廢舊的」做，新舊 key 有一段時間同時有效，所以沒有空檔。**這把 key 在哪些 cluster 用，就要全部列上**；任何一個 Collector 5 分鐘內沒換到，腳本會停下來、不作廢舊 key。
 
-實測（[run-key-rotation.sh](../test/local-k3s/run-key-rotation.sh)）：IMC 每秒 200 行 log、metrics 每 30 秒一筆的情況下換 IMC 的 key，Secret 改了之後約 70 秒兩個 Collector 都換好；**log 59,714 筆 0 遺失 0 重複、metrics 沒有空檔、Collector 沒有重啟、沒有出現 401**，舊 key 已作廢。
+實測（[run-key-rotation.sh](../../test/local-k3s/run-key-rotation.sh)）：IMC 每秒 200 行 log、metrics 每 30 秒一筆的情況下換 IMC 的 key，Secret 改了之後約 70 秒兩個 Collector 都換好；**log 59,714 筆 0 遺失 0 重複、metrics 沒有空檔、Collector 沒有重啟、沒有出現 401**，舊 key 已作廢。
 
 **不要直接在 ES 作廢 key 再換 Secret**：中間那段 key 無效，Collector 收到 401 會把資料丟掉。
 
@@ -289,7 +317,7 @@ test/local-k3s/run-e2e.sh
 - **保底抓 level**：`[WARN] …`、`ERROR - …`、`Warning: …`、時間戳後的 `ERROR` 都抓得到；`0 errors`、`no error found`、`ERROR_CODE` 不會被誤抓；應用自己寫了 level 的不會被覆蓋，`WARNING`、`Err` 這類寫法會統一。
 - **權限**：寫入 key 只能寫自己的 group，不能讀；AIOps key 能讀全部 k8s-*，不能寫。
 
-可靠度與量（[load/run-load.sh](../test/local-k3s/load/run-load.sh)，產生器每行帶序號，用序號數遺失與重複）：
+可靠度與量（[load/run-load.sh](../../test/local-k3s/load/run-load.sh)，產生器每行帶序號，用序號數遺失與重複）：
 
 | 情境 | 遺失 | 重複 | 其他 |
 |---|---|---|---|
@@ -302,7 +330,7 @@ test/local-k3s/run-e2e.sh
 
 記憶體：節點 Collector 只收 metrics 時約 217MB，加上 log 後平常約 290MB（多約 75MB）；拿掉的 Fluent Bit 原本約 25～50MB。
 
-Fluent Bit 時期的測資與結果（分流、欄位、大流量、ES 停機、去重複）見 [elasticsearch-testing.md](elasticsearch-testing.md)；中央 pipeline 跟當時是同一套，欄位的結論不變。
+Fluent Bit 時期的測資與結果（分流、欄位、大流量、ES 停機、去重複）見 [log/testing.md](testing.md)；中央 pipeline 跟當時是同一套，欄位的結論不變。
 
 正式上線後，用 AIOps key 查一次，確認每個 namespace 只落在一個 group：
 
@@ -325,8 +353,8 @@ GET k8s-*/_search
 - **kubelet 預設 log 檔 10MB 就輪替壓縮。** 量大的服務在 Collector 讀完前檔案就被壓縮的話，那段會掉（Fluent Bit 時期實測過）。Collector 每 0.2 秒掃一次（`poll_interval`），每秒 5,000 行實測沒掉；平台端仍建議把 kubelet 的 `container-log-max-size` 調大，例如 50Mi。
 - **平台元件的 log 都進 unassigned**，例如 kube-system 和其他系統元件。這跟 metrics 的兜底 tenant 同一個意思。
 - **純文字的 Java stack trace 會被拆成很多行。** 標準格式是 JSON（stack trace 在一個欄位裡），所以不處理。沒照標準的服務，AIOps 在它身上的效果會比較差。
-- **中央 ES 要撐得住掛一台，至少要三個 master 候選。** 兩個節點時 ES 只讓其中一個投票，那台掛了整個 cluster 就停擺，跟一個節點一樣（實測見 [elasticsearch-testing.md](elasticsearch-testing.md#情境測試es-兩個節點-vs-一個節點)）。三台一樣的節點，或兩台存資料加一台只投票的 `voting_only` 節點。ES 停擺期間資料會在 Collector 排隊，恢復後補齊，不會遺失。
-- **ES 當機（kill -9）不會掉已經回成功的資料。** 實測砍兩次（一次在補送中），log 70,944 筆 0 遺失 0 重複，metrics 沒缺（見 [elasticsearch-testing.md](elasticsearch-testing.md#情境測試es-當機kill--9)）。前提是 `index.translog.durability` 保持預設的 `request`，不要改成 `async`。
+- **中央 ES 要撐得住掛一台，至少要三個 master 候選。** 兩個節點時 ES 只讓其中一個投票，那台掛了整個 cluster 就停擺，跟一個節點一樣（實測見 [log/testing.md](testing.md#情境測試es-兩個節點-vs-一個節點)）。三台一樣的節點，或兩台存資料加一台只投票的 `voting_only` 節點。ES 停擺期間資料會在 Collector 排隊，恢復後補齊，不會遺失。
+- **ES 當機（kill -9）不會掉已經回成功的資料。** 實測砍兩次（一次在補送中），log 70,944 筆 0 遺失 0 重複，metrics 沒缺（見 [log/testing.md](testing.md#情境測試es-當機kill--9)）。前提是 `index.translog.durability` 保持預設的 `request`，不要改成 `async`。
 - **一個節點時 metrics 平常是 yellow。** metrics 的資料流預設要一份副本，一個節點放不下；log 的設定是有幾個節點就放幾份（`auto_expand_replicas: 0-1`），所以 log 是 green。不影響寫入。
 - **節點用 Docker 當 runtime 的 cluster 要另外掛 `/var/lib/docker/containers`。** RKE2、k3s 是 containerd，不需要。
 

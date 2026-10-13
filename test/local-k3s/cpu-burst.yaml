@@ -1,0 +1,16 @@
+# CPU 限流（throttling）案例：CPU limit 200m，每 0.5 秒同時開 4 個 dd 跑一小段。
+# 平均用量不高，但每次突波都超過「每 100ms 只能用 20ms」的配額，被凍結到下一個週期 → 很多週期被限流。
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: cpu-burst, namespace: metrics-cases}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app.kubernetes.io/name: cpu-burst}}
+  template:
+    metadata: {labels: {app.kubernetes.io/name: cpu-burst}}
+    spec:
+      containers:
+        - name: app
+          image: docker.io/library/busybox:1.37
+          command: ["sh", "-c", "while true; do for i in 1 2 3 4; do dd if=/dev/zero of=/dev/null bs=64k count=2000 2>/dev/null & done; wait; sleep 0.5; done"]
+          resources: {requests: {cpu: 50m}, limits: {cpu: 200m, memory: 32Mi}}
