@@ -1,4 +1,4 @@
-# 系統全貌：從收值到 feedback
+# Roadmap：從收值到 feedback
 
 > 先看 [architecture.md](architecture.md) 的架構圖。
 

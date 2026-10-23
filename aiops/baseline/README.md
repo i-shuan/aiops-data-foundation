@@ -206,7 +206,7 @@ MAD（Median Absolute Deviation，中位數絕對偏差）＝「每個值離中�
 |---|---|---|
 | 使用者設定 | `series.yaml` 的 `overrides`（`series` 可用正規表示式、`match` 依 keys 比對） | 粒度：下次 train；z、min_abs：下次 detect |
 | 指令 | `python3 -m aiops_baseline tune --series http.latency_p95_s --match service=^mes-report --resolution 5m --z 7 --reason 誤報多 --by 王小明`，寫進 `aiops-tuning`（`--list` 列出、`--remove` 刪掉） | 同上 |
-| feedback（📝） | 之後的 feedback 流程寫同一個 `aiops-tuning`：同一條序列誤報累積多次 → 建議粒度往粗一級或調高 z，回測通過才寫入（見 [docs/system-map.md 第 10 節](../../docs/system-map.md)） | 同上 |
+| feedback（📝） | 之後的 feedback 流程寫同一個 `aiops-tuning`：同一條序列誤報累積多次 → 建議粒度往粗一級或調高 z，回測通過才寫入（見 [docs/roadmap.md 第 10 節](../../docs/roadmap.md)） | 同上 |
 
 套用順序：自動選 → `series.yaml` 的 `overrides` → `aiops-tuning`，後面的蓋前面的。每筆調整記 `reason`、`by`、`at`，查得到誰、為什麼、什麼時候改的。
 
