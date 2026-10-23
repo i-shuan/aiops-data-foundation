@@ -66,4 +66,3 @@ PDCA 的意思：**Plan** 定規則與門檻 → **Do** 收值、判斷、報告
 |---|---|---|
 | [2026-10-metrics-to-trace.md](2026-10-metrics-to-trace.md) | metrics 異常怎麼找到對的 trace：為什麼 exemplar 做不到、方案 A（exemplar 轉 log）vs B（時間區間撈一批） | 採 B；根因分析改看一批慢 trace 的共同瓶頸（程式還沒改） |
 | [2026-10-retention.md](2026-10-retention.md) | 保留天數（metrics 降解析度、log 統計、trace 分兩種） | 已實作在 `claude/retention`，合併前要確認 trace baseline 讀哪個 index |
-| [2026-10-docs-vs-code.md](2026-10-docs-vs-code.md) | 文件對照程式核對與整併 | 修正不符處；現況與待辦以本資料夾為準，其他處待改成連結 |
