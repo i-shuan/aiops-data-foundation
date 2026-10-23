@@ -183,7 +183,7 @@ new Thread(Context.current().wrap(() -> process(lot))).start();
 
 ## 5. 不是 Java 的服務
 
-chart 目前只會自動掛 Java agent。其他語言用該語言的 OpenTelemetry SDK 或 agent，設好這幾個環境變數就會送到平台：
+chart 會自動掛 Java agent 和 .NET 自動埋點（`otel.dotnet.enabled: true`）。其他語言用該語言的 OpenTelemetry SDK 或 agent，設好這幾個環境變數就會送到平台：
 
 | 環境變數 | 值 |
 |---|---|
@@ -191,7 +191,7 @@ chart 目前只會自動掛 Java agent。其他語言用該語言的 OpenTelemet
 | `OTEL_TRACES_EXPORTER` | `otlp` |
 | `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | `http://otel-node-collector.otel-collector.svc:4318/v1/traces` |
 | `OTEL_EXPORTER_OTLP_TRACES_PROTOCOL` | `http/protobuf` |
-| `OTEL_TRACES_SAMPLER`、`OTEL_TRACES_SAMPLER_ARG` | `parentbased_traceidratio`、取樣比例 |
+| `OTEL_TRACES_SAMPLER`、`OTEL_TRACES_SAMPLER_ARG` | `parentbased_traceidratio`、`1.0`（全部送，見第 4 節） |
 
 | 語言 | 自動埋點 |
 |---|---|

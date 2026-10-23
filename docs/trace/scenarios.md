@@ -68,7 +68,7 @@ trace 怎麼收、怎麼分部門見 [trace/README.md](README.md)；baseline、�
 
 ### 五、架構治理
 
-都從 trace 統計就算得出來；`aiops-trace-segments` 已經是每支 API 往外呼叫誰的統計，可以留很久（trace 原文只留 7 天）。
+都從 trace 統計就算得出來；`aiops-trace-segments` 已經是每支 API 往外呼叫誰的統計，可以留很久（trace 原文預計只留 7 天；現在只有 rollover、不會刪，見 [retention.md](../retention.md)）。
 
 - **循環呼叫**：從呼叫關係找環（A → B → C → A）。
 - **越權直連 DB**：先定義規則（例如「只有 wip-worker 能連 MES 的 Oracle」），呼叫關係裡違反的就報。規則要由架構負責人定。

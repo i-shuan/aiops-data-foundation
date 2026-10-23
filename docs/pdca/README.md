@@ -1,0 +1,68 @@
+# PDCA：現況與待辦、每一輪紀錄
+
+整個專案的「做到哪、還要做什麼」放這一份。各資料夾 README 開頭有自己那一塊的細節，這裡只列項目和去哪看。
+
+PDCA 的意思：**Plan** 定規則與門檻 → **Do** 收值、判斷、報告 → **Check** 值班判斷對錯、量測 → **Act** 依結果調整。目前 Do 最完整，**Check 是最大缺口**，沒補上就形成不了閉環（[feedback/README.md](../feedback/README.md#用-pdca-看整條線)）。
+
+狀態：✅ 已做、在 k3s 驗過 ／ ⚠️ 做了一部分 ／ 📝 設計好、還沒做 ／ ❌ 沒做、也還沒設計。
+
+## Plan：定規則、定門檻
+
+| 項目 | 狀態 | 細節 |
+|---|---|---|
+| 判斷設定：序列、粒度、z、`min_abs`、規則門檻 | ✅ | [aiops/baseline](../../aiops/baseline/README.md)（`series.yaml`、`rules.yaml`、`peer.yaml`、`trace.yaml`） |
+| 上線前記下基準（每天告警幾筆、誤報多少、從告警到找到原因多久） | ❌ | [feedback/](../feedback/README.md) |
+| 用真實資料校正門檻 | 📝 要先排程跑 2～4 週 | [rca/](../rca/README.md) |
+| 歸屬放哪裡（讀 namespace 的 `dept`，或改成 app → group 中央清單）、app 名稱是否全公司唯一 | 未定案 | [README「還沒定案的」](../../README.md#還沒定案的) |
+| 保留天數與容量（用正式環境的量重算） | ⚠️ 分支 `claude/retention` 已寫好、未合進 master | [retention.md](../retention.md) |
+| 服務命名規則（`groups`）、交易 ID 命名、寫入 key 怎麼自動進新 cluster | 未定案，要別人配合 | 各資料夾 |
+
+## Do：收值、判斷、報告
+
+| 項目 | 狀態 | 細節 |
+|---|---|---|
+| 收值（log、metrics、trace、尾端取樣）、清資料、存 | ✅ | [log](../log/README.md)、[metrics](../metrics/README.md)、[trace](../trace/README.md) |
+| 判斷：規則、跟歷史比、跟兄弟比、trace 每一段 | ✅ | [aiops/baseline](../../aiops/baseline/README.md) |
+| 根因分析：metrics → trace → log | ✅ | [aiops/rca](../../aiops/rca/README.md) |
+| **正式環境排程**（train 每天、detect 每 30 秒、rules 與 peer 每分鐘） | ⚠️ 程式好了，沒部署 | [rca/](../rca/README.md) |
+| 階段一小尾巴：統一指標名稱（metrics）、統一欄位路徑（log）、trace-sampler 磁碟佇列（trace） | ⚠️ | 各資料夾 README 開頭 |
+| 時間對齊：主機時鐘監控（metrics）、收資料延遲與時區（log）、時鐘差日報（trace） | 📝 | 同上 |
+| 業務 ID：交易 ID 命名、從 log 抽出；Kafka 驗證 Java | 📝 | [trace/](../trace/README.md#業務-id服務層) |
+| 根因分析改看一批慢 trace 找共同瓶頸（不用 exemplar，ES 不存） | 📝 | [feedback/](2026-10-metrics-to-trace.md) |
+| baseline 補強：p99、慢請求比例、往外呼叫耗時、變化點、Pod → trace 逐段比、趨勢 | 📝 | [rca/](../rca/README.md) |
+| 收斂：① 連續的點合成一段、② 同服務合成一件、③ 沿呼叫關係找源頭 | 📝 | [rca/「雜訊壓制」](../rca/README.md#雜訊壓制) |
+| 常駐拓撲、交易時間線工具、根因報告帶業務 ID | 📝 | [rca/](../rca/README.md) |
+
+## Check：看對不對
+
+| 項目 | 狀態 | 細節 |
+|---|---|---|
+| 告警出口（通知） | ❌ 現在只寫進 ES | [feedback/](../feedback/README.md) |
+| 事故紀錄 `aiops-incidents` | ❌ | 同上 |
+| 值班回饋 `aiops-feedback`（真的／誤報／根因錯／漏報） | ❌ 先只收集，不自動生效 | 同上 |
+| 髒資料排除：行事曆、排除事故時段、慢性病清單、資料品質檢查、排除測試流量 | ⚠️ 偵測得到，訓練時不會排除 | [rca/「髒資料排除」](../rca/README.md#髒資料排除) |
+| 版本（每筆異常記哪一版產生）、回測、評測集（20～30 件過去事故） | ❌ | [feedback/](../feedback/README.md) |
+| REST API 的 log 樣本、重要 .NET Kafka 消費者加幾行 | 要別人配合 | 各資料夾 |
+
+## Act：依結果調整
+
+| 項目 | 狀態 | 細節 |
+|---|---|---|
+| 手動調整：`series.yaml` 的 `overrides`、`tune` 指令（記原因、誰、何時） | ✅ | [baseline README「使用者、feedback 調整」](../../aiops/baseline/README.md#使用者feedback-調整) |
+| 修慢性病（天天噴錯、沒人修的） | 要別人配合 | [rca/](../rca/README.md#髒資料排除) |
+| 同一個根因 ≥ 3 次 → 升級成規則 | 📝 | [feedback/](../feedback/README.md) |
+| 回饋累積夠且回測通過 → 自動調門檻、排除時段 | 📝 | 同上 |
+| LLM：根因報告摘要（只加註、不擋告警）、RAG 讀確認過的事故 | 📝 | [feedback/llm-mlops.md](../feedback/llm-mlops.md) |
+
+**之後**：Elastic 付費 AIOps 功能評估（試用只能開一次，等資料累積夠再開）；工廠（[factory-later.md](../factory-later.md)）。
+
+**建議順序**：正式排程（只寫入不通知）→ 收斂①②＋告警出口＋事故紀錄、回饋 → 用 2～4 週真實資料校正門檻 → LLM 摘要 → 回測、版本 → 收斂③、自動調門檻。
+
+## 每一輪的紀錄
+
+做完一件值得記的事（一個問題、一次實測、一個決定），照 [TEMPLATE.md](TEMPLATE.md) 寫一份，檔名 `YYYY-MM-主題.md`，放在這個資料夾，並在下表加一行。**上面四張表是「現在還剩什麼」，這裡是「做過什麼、為什麼這樣決定」**，兩邊互相連結，不要抄一份。
+
+| 檔案 | 主題 | 結論 |
+|---|---|---|
+| [2026-10-metrics-to-trace.md](2026-10-metrics-to-trace.md) | metrics 異常怎麼找到對的 trace：為什麼 exemplar 做不到、方案 A（exemplar 轉 log）vs B（時間區間撈一批） | 採 B；根因分析改看一批慢 trace 的共同瓶頸（程式還沒改） |
+| [2026-10-retention.md](2026-10-retention.md) | 保留天數（metrics 降解析度、log 統計、trace 分兩種） | 已實作在 `claude/retention`，合併前要確認 trace baseline 讀哪個 index |

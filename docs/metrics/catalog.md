@@ -27,12 +27,12 @@
 | Job | `k8s.job.failed_pods`、`.successful_pods`… | 批次工作成功失敗 |
 | 節點 | `k8s.node.condition_ready`、`_memory_pressure`、`_disk_pressure` | 節點狀態 |
 
-### 3. 應用：Prometheus 格式（Pod 標了 `prometheus.io/scrape`，30 秒一次）
+### 3. 應用：Java 是 Prometheus 格式（Pod 標了 `prometheus.io/scrape`，Collector 30 秒抓一次）；.NET 用 OTLP 推（30 秒一次）
 
 | 來源 | 指標 | 狀態 |
 |---|---|---|
 | **.NET 自動埋點**（chart `otel.dotnet`，不改程式，用 OTLP 推） | `http.server.request.duration`、`process.runtime.dotnet.*`（.NET 8）／`dotnet.*`（.NET 9）、`db.client.connections.*`（Npgsql） | ✅ 真的 ASP.NET Core 8、9 實測，見 [metrics/dotnet.md](dotnet.md) |
-| Java agent（app-common chart 自動開） | `http.server.request.duration`（直方圖：依 method、route、狀態碼） | ✅ 收到（測試應用模擬）→ `metrics-generic.otel-<group>` |
+| Java agent（app-common chart 自動開） | `http_server_request_duration_seconds`（即 `http.server.request.duration`，直方圖：依 method、route、狀態碼） | ✅ 收到（測試應用模擬）→ `metrics-generic.otel-<group>` |
 | | `http.client.request.duration`：往外呼叫 HTTP 的耗時 | ⚠️ 還沒驗證（測試程式沒有往外呼叫 HTTP） |
 | | JVM：`jvm_memory_used_bytes`、`jvm_memory_limit_bytes`、`jvm_memory_used_after_last_gc_bytes`、`jvm_gc_duration_seconds`、`jvm_thread_count`、`jvm_cpu_recent_utilization_ratio` | ✅ 用真的 Java 程式＋agent 2.20.0 確認（[metrics/cases.md](cases.md)） |
 | | 連線池（HikariCP）：`db_client_connections_usage{state}`、`_max`、`_pending_requests`、`_wait_time_milliseconds` | ✅ 同上（agent 2.x 用的是舊版名稱 `db_client_connections_*`） |
@@ -183,6 +183,7 @@
 | 慢在請求裡的哪一段、呼叫了幾次 | metrics 只有整體的數字 | trace（[trace 每一段的 baseline](../../aiops/baseline/README.md#trace-每一段的-baseline)） |
 | 錯誤被吞掉、回 200 | 狀態碼是 200，metrics 全綠 | log 樣式、業務量指標 |
 | 哪一批貨、哪一台機台 | 不能用 `lot.id` 這種值當維度（每個值一條序列，ES 會爆） | trace 的屬性 |
+| 從某個慢的資料點直接跳到那一筆 trace | exemplar（帶 trace_id）寫進 ES 時被丟掉（實測 ES 9.5.5：`/_otlp/v1/metrics`、Collector `elasticsearch` 寫入元件都一樣），metrics 帶不了 trace_id | 用服務、時間範圍查 trace |
 | 30 秒內的短暫尖峰 | 30 秒才抓一次；直方圖記得住每個請求的耗時，但 CPU、記憶體這種只看得到抓的那一刻 | 直方圖、trace |
 
 ## 四、建議順序（待討論）
