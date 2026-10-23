@@ -423,6 +423,39 @@ python3 -m aiops_baseline peer --config baseline/peer.yaml      # 每分鐘
 
 同一段時間整個服務的錯誤率是 **9%**（3 個 Pod 裡 1 個壞）。這次服務平常是 0%，跟平常比（baseline）也會報，但只知道「服務錯誤率高」、不知道是哪個 Pod；Pod 越多稀釋越多：10 個 Pod 壞 1 個大約剩 1%，就低於 baseline 的門檻（多 5 個百分點）了。
 
+## 資料品質檢查：資料本身怪不怪
+
+baseline 用中位數＋MAD，只擋得住「少數」怪的點。資料本身壞掉時，學出來的「平常」就是錯的，或根本學不到。這幾種壞法不用學，用規則看得出來。設定在 [quality.yaml](quality.yaml)，程式在 [aiops_baseline/quality.py](../aiops_baseline/quality.py)。每個檢查看最近 1 小時，跟 24 小時前同一段比。
+
+| 檢查 | 看什麼 | 觸發 |
+|---|---|---|
+| `quality.route_cardinality`（Java）、`…_dotnet` | 每個服務有幾條路由；抽 50 個值看像不像帶了 ID（數字、UUID、長 hex） | 超過 500 條；或比昨天多 3 倍且多 50 條以上；或至少 50 條且一半以上像 ID（路由沒參數化：`/orders/123` 沒換成 `/orders/{id}`） |
+| `quality.log_missing_identity` | log 缺 `service.name`、`kubernetes.pod.name`（依 namespace） | 缺 5% 以上（至少 100 筆才看） |
+| `quality.metrics_missing_identity` | 應用 metrics 缺 Pod、namespace（依服務） | 缺 5% 以上 |
+| `quality.log_trace_id_drop` | 帶 `trace.id` 的 log（依服務） | 缺的比例比昨天多 30 個百分點以上（本來就不是每行都有，只看變化） |
+| `quality.log_stopped`、`quality.metrics_stopped` | 之前 1 小時有資料、最近 15 分鐘（metrics 5 分鐘）一筆都沒有 | 之前至少 30 筆（metrics 20 筆） |
+| `quality.log_unassigned_share`、`quality.metrics_unassigned_share` | 落到 `unassigned` 的比例（namespace 沒標 dept、`dept` 清單漏同步） | 比昨天多 5 個百分點以上 |
+
+門檻是先估的，要等正式環境跑 2～4 週再校。觸發的寫進 `aiops-anomalies`：`level` 是 `quality`、`median` 放昨天的值、`keys` 缺欄位時多一個 `field`。
+
+```bash
+python3 -m aiops_baseline quality --config baseline/quality.yaml   # 每 10 分鐘
+```
+
+**實測**（2026-10-23，ES 9.5.5 跑過 `elasticsearch-setup.sh`；metrics 走 `/_otlp/v1/metrics`，log 直接寫 `k8s-*`）：
+
+| 放進去的壞資料 | 結果 |
+|---|---|
+| `order` 有 80 條 `/orders/<數字>` 路由 | ✅ 報：從 0 變 80 條；抽樣 100% 像 ID |
+| `pay` 3 條樣板路由（對照組） | ✅ 不報 |
+| `mes` namespace 三成 log 沒有 `service.name` | ✅ 報 30% |
+| `nopod` 的 metrics 沒有 Pod | ✅ 報 100% |
+| `legacy` 10 分鐘前起沒有 metrics | ✅ 報「之前 40 筆，最近沒有」 |
+| `tr` 昨天九成 log 有 `trace.id`、今天兩成 | ✅ 報「缺的比例從 10% 變 80%」 |
+| 落到 unassigned 的 log 佔 13%（沒有昨天的資料） | 不報（沒有比較對象）；加上 `max_share: 0.1` 會報 |
+
+沒驗證：正式環境的量下查詢要多久（`cardinality` 是近似值，3,000 以下準確）。
+
 ## 怎麼跑
 
 ```bash
@@ -436,6 +469,7 @@ export ES_API_KEY=<elasticsearch-setup.sh 發的「AIOps baseline key」>   # �
 python3 -m aiops_baseline train  --config baseline/series.yaml   # 每天跑一次（例如凌晨）
 python3 -m aiops_baseline detect --config baseline/series.yaml   # 每 30 秒跑一次，看最近 30 分鐘
 python3 -m aiops_baseline tune   --series ... --match ... --resolution 5m   # 調整某些對象的粒度、門檻
+python3 -m aiops_baseline quality --config baseline/quality.yaml  # 每 10 分鐘，資料品質檢查
 ```
 
 排程例子（crontab）：

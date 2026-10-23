@@ -1,0 +1,127 @@
+# 資料品質檢查（aiops_baseline/quality.py）：餵給 baseline 之前，先看資料本身怪不怪。不用學、不用歷史。
+# 每個檢查看最近 window，跟 ref_offset 之前同一個時段比（預設 24 小時前：避開上下班、夜間批次的週期）。
+#
+# type：
+#   cardinality  field 的不同值有幾個（依 by 分組）。max_values 上限；ratio 倍＋min_increase 個是暴增；
+#                抽樣的值 ≥ id_share 像帶了 ID（數字、UUID、長 hex）也算
+#   missing      fields 缺了幾成（依 by 分組）。max_missing 是比例上限；max_increase 是比 ref 多幾成
+#   stopped      lookback 這段時間（不含最近 silent）有 ≥ min_docs 筆、最近 silent 一筆都沒有
+#   share        part_index 佔 index 的比例。max_share 上限；min_increase 是比 ref 多幾成
+#   min_docs：量太少的不看（幾筆缺一筆就是好幾成）
+#
+# 門檻都是先估的，要等正式環境排程跑 2～4 週再校（docs/pdca/2026-10-data-cleaning.md）。
+# 建議每 10 分鐘跑一次：python3 -m aiops_baseline quality --config baseline/quality.yaml
+
+interval: 10m       # 同一個檢查、同一個對象，10 分鐘內只記一筆（重跑不會重複）
+window: 1h
+ref_offset: 24h
+
+_svc: &svc resource.attributes.service.name
+
+checks:
+  # ── 路由沒參數化：每個服務有幾條路由（http.requests 等序列依路由切，路由爆炸 = 序列爆炸）──
+  # Java、.NET 欄位名稱不同（跟 series.yaml 的 variants 一樣），各一個檢查
+  - name: quality.route_cardinality
+    title: 路由數暴增或像帶了 ID（沒參數化）
+    type: cardinality
+    index: metrics-*.otel-*
+    filter: {exists: {field: metrics.http_server_request_duration_seconds}}
+    by: [*svc]
+    keys: [service]
+    field: attributes.http_route
+    max_values: 500
+    ratio: 3
+    min_increase: 50
+    id_share: 0.5
+
+  - name: quality.route_cardinality_dotnet
+    title: 路由數暴增或像帶了 ID（沒參數化）
+    type: cardinality
+    index: metrics-*.otel-*
+    filter: {exists: {field: metrics.http.server.request.duration}}
+    by: [*svc]
+    keys: [service]
+    field: attributes.http.route
+    max_values: 500
+    ratio: 3
+    min_increase: 50
+    id_share: 0.5
+
+  # ── 必填欄位缺：對不到服務、Pod 的資料學不進任何序列 ──
+  - name: quality.log_missing_identity
+    title: log 缺服務或 Pod
+    type: missing
+    index: k8s-*
+    by: [kubernetes.namespace]
+    keys: [namespace]
+    fields: [service.name, kubernetes.pod.name]
+    max_missing: 0.05
+    min_docs: 100
+
+  - name: quality.metrics_missing_identity
+    title: 應用 metrics 缺 Pod 或 namespace
+    type: missing
+    index: metrics-*.otel-*
+    filter: {bool: {should: [{exists: {field: metrics.http_server_request_duration_seconds}},
+                             {exists: {field: metrics.http.server.request.duration}}]}}
+    by: [*svc]
+    keys: [service]
+    fields: [resource.attributes.k8s.pod.name, resource.attributes.k8s.namespace.name]
+    max_missing: 0.05
+    min_docs: 20
+
+  # trace.id 本來就不是每行 log 都有（背景工作、啟動訊息），所以只看「比昨天少很多」：
+  # 埋點掉了、換版拿掉 agent，log 就串不到 trace
+  - name: quality.log_trace_id_drop
+    title: 帶 trace.id 的 log 變少
+    type: missing
+    index: k8s-*
+    by: [service.name]
+    keys: [service]
+    fields: [trace.id]
+    max_missing: null
+    max_increase: 0.3
+    min_docs: 200
+
+  # ── 資料停了：收不到，不是 0 流量 ──
+  - name: quality.log_stopped
+    title: log 停了
+    type: stopped
+    index: k8s-*
+    by: [service.name]
+    keys: [service]
+    lookback: 1h
+    silent: 15m
+    min_docs: 30
+
+  - name: quality.metrics_stopped
+    title: 應用 metrics 停了
+    type: stopped
+    index: metrics-*.otel-*
+    filter: {bool: {should: [{exists: {field: metrics.http_server_request_duration_seconds}},
+                             {exists: {field: metrics.http.server.request.duration}}]}}
+    by: [*svc]
+    keys: [service]
+    lookback: 1h
+    silent: 5m          # 每 30 秒一筆，5 分鐘都沒有就是停了
+    min_docs: 20
+
+  # ── 落到 unassigned 變多：namespace 沒標 dept、或 dept 清單漏同步（platform/groups.yaml、common.yaml）──
+  - name: quality.log_unassigned_share
+    title: 落到 unassigned 的 log 變多
+    type: share
+    index: k8s-*
+    part_index: k8s-unassigned-*
+    min_increase: 0.05
+    min_docs: 1000
+
+  # 節點本身的 metrics 本來就是 unassigned，所以只看應用的 metrics
+  - name: quality.metrics_unassigned_share
+    title: 落到 unassigned 的應用 metrics 變多
+    type: share
+    index: metrics-*.otel-*
+    part_index: metrics-*.otel-unassigned
+    filter: {bool: {should: [{exists: {field: metrics.http_server_request_duration_seconds}},
+                             {exists: {field: metrics.http.server.request.duration}}]}}
+    min_increase: 0.05
+    min_docs: 100

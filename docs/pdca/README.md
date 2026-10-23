@@ -40,7 +40,8 @@ PDCA 的意思：**Plan** 定規則與門檻 → **Do** 收值、判斷、報告
 | 告警出口（通知） | ❌ 現在只寫進 ES | [feedback/](../feedback/README.md) |
 | 事故紀錄 `aiops-incidents` | ❌ | 同上 |
 | 值班回饋 `aiops-feedback`（真的／誤報／根因錯／漏報） | ❌ 先只收集，不自動生效 | 同上 |
-| 髒資料排除：行事曆、排除事故時段、慢性病清單、資料品質檢查、排除測試流量 | ⚠️ 偵測得到，訓練時不會排除 | [rca/「髒資料排除」](../rca/README.md#髒資料排除) |
+| 資料品質檢查：路由沒參數化、必填欄位缺、資料停了、落到 unassigned 變多（`quality`） | ⚠️ 程式好了、實測過，沒排程 | [baseline README](../../aiops/baseline/README.md#資料品質檢查資料本身怪不怪) |
+| 髒資料排除：排除事故時段、測試流量、維護；慢性病清單、行事曆 | ❌ | [2026-10-data-cleaning.md](2026-10-data-cleaning.md) |
 | 版本（每筆異常記哪一版產生）、回測、評測集（20～30 件過去事故） | ❌ | [feedback/](../feedback/README.md) |
 | REST API 的 log 樣本、重要 .NET Kafka 消費者加幾行 | 要別人配合 | 各資料夾 |
 

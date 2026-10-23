@@ -1,6 +1,6 @@
 # 清資料：餵給 baseline 前的資料檢查（2026-10）
 
-**狀態**：盤點與規劃完成；檢查程式另開分支做　　**日期**：2026-10-23　　**相關**：[rca/README.md「髒資料排除」](../rca/README.md#髒資料排除)、`aiops/aiops_baseline/model.py`、`es.py`
+**狀態**：盤點與規劃完成；① 資料品質檢查已實作、實測（`quality` 指令），② ③ 還沒做　　**日期**：2026-10-23　　**相關**：[rca/README.md「髒資料排除」](../rca/README.md#髒資料排除)、`aiops/aiops_baseline/model.py`、`es.py`
 
 **一句話**：資料進來時已經洗過（可信、不重複、格式統一）；但**拿去學「平常的樣子」之前，還沒有挑掉壞資料**，壞習慣、事故、壓測、假日都會被學成正常。
 
@@ -59,3 +59,10 @@
 - **要改的**：`aiops/aiops_baseline` 新增檢查指令，結果寫 `aiops-*` index；`docs/pdca/README.md` 的 Check 表更新狀態。
 - **未驗證**：沒有用真實資料量過這些檢查要多久、誤報多少；門檻要等排程跑 2～4 週再校。
 - **下一輪要驗證**：故意送一批沒參數化的路由，確認會被檢查抓到；插入一段事故再訓練，baseline 是否被拉偏。
+
+## 進度：① 資料品質檢查（2026-10-23）
+
+- `python3 -m aiops_baseline quality --config baseline/quality.yaml`：9 個檢查，四種類型（路由數暴增或像 ID、必填欄位缺、資料停了、落到 unassigned 變多），結果寫 `aiops-anomalies`（`level: quality`）。
+- 單元測試 22 個（`aiops/tests/test_quality.py`），全部 114 個通過。
+- 實測：ES 9.5.5 跑過 `elasticsearch-setup.sh`，放 6 種壞資料加 1 個對照組，6 種都抓到、對照組不報（細節見 [baseline README](../../aiops/baseline/README.md#資料品質檢查資料本身怪不怪)）。
+- 還沒做：排程；用正式環境的量校門檻、量查詢時間；`share` 第一天沒有昨天的資料可比，不會報。
