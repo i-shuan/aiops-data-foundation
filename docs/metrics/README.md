@@ -37,7 +37,8 @@ log 也由同一個 Collector 收（[log/README.md](../log/README.md)）：分�
 每個節點一個 Collector（DaemonSet）
    ├─ kubelet：節點、Pod、容器的 CPU、記憶體、網路、磁碟
    ├─ kubelet 的 cAdvisor：只收 CPU 被限流的兩個數字（週期數、被限流的週期數）
-   └─ 應用的 Prometheus metrics：這個節點上、Pod 標註 prometheus.io/scrape: "true" 的
+   ├─ 應用的 Prometheus metrics：這個節點上、Pod 標註 prometheus.io/scrape: "true" 的（Java）
+   └─ 應用用 OTLP 推來的 metrics（.NET，見 dotnet.md）
 整個 cluster 一個 Collector（Deployment，replicas 1）
    └─ k8s_cluster：Pod 狀態、容器重啟次數、Deployment/ReplicaSet 副本數、namespace、節點狀態
         ↓ 兩種 Collector 共用同一份規則（common.yaml）
@@ -52,7 +53,7 @@ log 也由同一個 Collector 收（[log/README.md](../log/README.md)）：分�
    AIOps 用唯讀 key 讀 metrics-*.otel-*；人用各 group 的唯讀角色
 ```
 
-`<來源>` 是 `kubeletstatsreceiver`、`k8sclusterreceiver`、`prometheusreceiver` 三種，所以每個 group 有三條資料流。
+`<來源>` 是 `kubeletstatsreceiver`、`k8sclusterreceiver`、`prometheusreceiver`，加上 `generic`（資料帶著應用自己的 scope 名稱的：Java agent 的指標、.NET 用 OTLP 推的），所以每個 group 有四條資料流。
 
 ## 為什麼依「每筆資料自己的 namespace」分
 
@@ -70,7 +71,7 @@ log 也由同一個 Collector 收（[log/README.md](../log/README.md)）：分�
 | 檔案 | 用途 |
 |---|---|
 | [platform/cluster-addons/otel-collector/common.yaml](../../platform/cluster-addons/otel-collector/common.yaml) | 兩種 Collector 共用：擋冒充、讀 dept、dept → group、每個 group 的出口 |
-| [platform/cluster-addons/otel-collector/node.yaml](../../platform/cluster-addons/otel-collector/node.yaml) | 節點那一份收什麼：kubelet、應用的 Prometheus metrics |
+| [platform/cluster-addons/otel-collector/node.yaml](../../platform/cluster-addons/otel-collector/node.yaml) | 節點那一份收什麼：kubelet、cAdvisor（CPU 限流）、應用的 Prometheus metrics、應用用 OTLP 推的 metrics |
 | [platform/cluster-addons/otel-collector/cluster.yaml](../../platform/cluster-addons/otel-collector/cluster.yaml) | cluster 那一份收什麼：K8s 物件的狀態 |
 | [platform/cluster-addons/otel-collector/](../../platform/cluster-addons/otel-collector) 其餘 | 權限、DaemonSet、Deployment、kustomization |
 | [platform/central/elasticsearch-setup.sh](../../platform/central/elasticsearch-setup.sh) | 跟 log 共用：寫入 key、唯讀角色、AIOps key 都涵蓋 metrics |
@@ -95,7 +96,9 @@ OpenTelemetry Collector 有專門寫 ES 的 `elasticsearch` 寫入元件，一�
 
 ## 應用要做什麼
 
-用 app-common chart 的服務不用做任何事：chart 會在 Pod 加上三個 annotation，Collector 就會來抓。
+用 app-common chart 的服務不用做任何事：chart 會在 Pod 加上三個 annotation，Collector 就會來抓（`otel.dotnet` 的 .NET 服務例外：不加 annotation，改用 OTLP 推，見 [dotnet.md](dotnet.md)）。
+
+Java 的 metrics 也是 OTel：chart 設 `OTEL_METRICS_EXPORTER=prometheus`，OTel Java agent 在 9464 開 `/metrics`，由 OTel Collector 的 prometheus receiver 來抓；Prometheus 只是傳輸格式，沒有 Prometheus server。
 
 ```yaml
 annotations:
@@ -123,6 +126,8 @@ annotations:
 | `data_stream.namespace` | 等於 group | 資料流名稱裡的 group |
 
 AIOps 要把 log 和 metrics 串起來，用 `service.name` 加 `k8s.namespace.name`（log 那邊是 `kubernetes.namespace`）加時間。
+
+**metrics 帶不了 trace_id。** OTLP metrics 的 exemplar（帶 trace_id）寫進 ES 時會被丟掉：送到 `/_otlp/v1/metrics`、或用 Collector 的 `elasticsearch` 寫入元件（otel mode）都一樣，`_source`、mapping、全文搜尋都找不到 trace_id（實測 ES 9.5.5、Collector contrib 0.162.0）。要從 metrics 找 trace，用服務、時間範圍去查。
 
 ### 應用的請求數、錯誤、延遲（AIOps baseline 用）
 

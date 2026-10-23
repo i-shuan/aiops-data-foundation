@@ -10,7 +10,7 @@ flowchart TB
     direction TB
     subgraph PODS["應用 Pod（不改程式：Java agent／.NET 自動埋點）"]
       LOGS["stdout log"]
-      JM["Java metrics<br/>開 /metrics"]
+      JM["Java metrics<br/>OTel agent 以 Prometheus 格式開 /metrics"]
       NM[".NET metrics<br/>OTLP 推"]
       TR["trace<br/>OTLP 推（全部送）"]
       EXP["exporter<br/>kafka_exporter"]

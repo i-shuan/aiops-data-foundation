@@ -307,7 +307,7 @@ sequenceDiagram
 | `aiops-baseline` | train 寫、detect 讀 | 每條序列每個時段的平常值，帶粒度、方法、來源 |
 | `*.yaml` 設定 | 各模組 | 加序列、加規則、調門檻不用改程式 |
 
-**接不起來的**：metrics 沒帶 trace_id（沒有 exemplar，用「服務＋時間」挑最慢的 trace 代替）；.NET Kafka 消費者不改程式時對不回訊息；沒有 trace_id 的 log 只能用服務＋時間撈；單一 Pod 異常還沒接到「拿這個 Pod 的 trace 逐段比」。詳見 [rca/README.md「metrics 異常怎麼串到 trace、log」](rca/README.md#metrics-異常怎麼串到-tracelog)。
+**接不起來的**：metrics 沒帶 trace_id（ES 9.5.5 不存 exemplar，實測；用「服務＋時間」挑最慢的 200 個＋最多 100 個出錯的 trace 代替）；.NET Kafka 消費者不改程式時對不回訊息；沒有 trace_id 的 log 只能用服務＋時間撈；單一 Pod 異常還沒接到「拿這個 Pod 的 trace 逐段比」。詳見 [rca/README.md「metrics 異常怎麼串到 trace、log」](rca/README.md#metrics-異常怎麼串到-tracelog)。
 
 ---
 
@@ -374,7 +374,7 @@ flowchart TB
 | 清資料 | 擋冒充、補身分、分部門、格式解析、去重複、補 0 規則 | — |
 | 存 | 中央 ES、每部門寫入 key、換 key 不掉資料 | 保留天數定案 |
 | 判斷 | 規則 30 多條、7 條 baseline、自己選粒度、卜瓦松、借同組、跟兄弟比、trace 每一段、N+1、吞例外 | **正式環境排程**；p99、慢請求比例、往外呼叫耗時；趨勢；工廠行事曆；`groups` 依公司命名定義；**移動式／變化點偵測（輔助）** |
-| 串接 | metrics → trace → log、呼叫關係 | exemplar；單一 Pod → trace 逐段比 |
+| 串接 | metrics → trace → log、呼叫關係 | 單一 Pod → trace 逐段比（exemplar：ES 不存，不做） |
 | 收斂 | — | 📝 四層收斂、`aiops-incidents` |
 | LLM | — | 📝 摘要、判斷真假、RAG、評測集 |
 | 出口 | 寫進 `aiops-anomalies` | 📝 通知、事故紀錄 |

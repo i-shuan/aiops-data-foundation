@@ -2,9 +2,9 @@
 
 ## 1. Metrics：發現異常
 
-| 時間 | 指標 | 現在 | 平常 | 偏離 |
-|---|---|---|---|---|
-| 10-10 10:26 | `http.latency_p95_s` | 1.55 | 0.08 | 41.2 倍 |
+| 時間 | 指標 | 哪一段 | 現在 | 平常 | 偏離 | 可信度 |
+|---|---|---|---|---|---|---|
+| 10-10 10:26 | `http.latency_p95_s` |  | 1.55 | 0.08 | 41.2 倍 |  |
 
 ## 2. Trace：這個服務收到的請求
 
@@ -67,7 +67,7 @@ graph LR
 
 ## 結論（給人確認）
 
-- rca-mes-api（GET /lots/{id}） 變慢，主要多在 **rca-wip-worker › SELECT LOT_HISTORY → oracle**：每個請求多花 1.47 s（平常 33 ms）。
+- rca-mes-api（GET /lots/{id}）變慢，主要多在 **rca-wip-worker › SELECT LOT_HISTORY → oracle**：每個請求多花 1.47 s（平常 33 ms）。
 - 錯誤最早出在 **rca-wip-worker › SELECT LOT_HISTORY → oracle**（27 個請求，平常 0）。
 - 同時間 rca-wip-worker 新出現 log「Connection pool timeout waiting for connection to 10.0.1.5:5432 after 1510ms, lot L100849」，145 次。
 - 同時間 rca-mes-api 新出現 log「lot L100850 failed: wip-worker returned error」，27 次。

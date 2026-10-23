@@ -168,14 +168,14 @@ k8s-logs（主 pipeline）
 
 | 原本的寫法（不分大小寫） | 統一成 |
 |---|---|
-| `trace` | trace |
+| `trace`、`verbose` | trace |
 | `debug` | debug |
-| `info`、`notice` | info |
+| `info`、`information`、`notice` | info |
 | `warn`、`warning` | warn |
 | `error`、`err`、`severe`（Java 內建 logging、Tomcat） | error |
-| `fatal`、`critical`、`crit`、`panic`、`emerg`、`alert` | fatal |
+| `fatal`、`critical`、`crit`、`panic`、`emerg`、`emergency`、`alert` | fatal |
 
-不認得的值，例如 `verbose`，轉小寫後原樣保留，不硬塞進六種。
+不認得的值，例如 `fine`，轉小寫後原樣保留，不硬塞進六種。
 
 案例測試見 [test/pipeline/level-cases.json](../../test/pipeline/level-cases.json)，不用 K8s，幾秒跑完：
 
@@ -271,7 +271,7 @@ log 和 metrics 用同一個 Collector、同一份 Secret。
 - **不要用「Edit as YAML」貼部分內容。** 那等於整份取代，沒貼到的 key 會消失。用 key/value 編輯模式。
 - **namespace 和 cluster 很容易選錯**，Rancher UI 上尤其。
 - **UI 改沒有紀錄可追**，誰在什麼時候改了什麼只能翻 audit log。
-- **擴廠時這樣不可行**：每開一個新廠都要手動進 UI 建一次。見 README 待定事項。
+- **擴廠時這樣不可行**：每開一個新廠都要手動進 UI 建一次。見 README「還沒定案的」第 3 點。
 
 改好 `platform/cluster-addons/otel-collector/kustomization.yaml` 裡的 `CLUSTER_NAME`、`ES_ENDPOINT` 和 image 路徑，然後：
 
@@ -309,7 +309,7 @@ Collector 會即時看到 namespace label 的變化，**標了之後幾秒內就
 test/local-k3s/run-e2e.sh
 ```
 
-在單節點 k3s 上跑過（ES 9.5.5、OpenTelemetry Collector contrib 0.162.0），**54 項全部通過**；另有 23 個 level 萃取案例全部通過。
+在單節點 k3s 上跑過（ES 9.5.5、OpenTelemetry Collector contrib 0.162.0），**54 項全部通過**；另有 24 個 level 萃取案例全部通過。
 
 - **分流**：三個 namespace 各自只進自己的 index，沒有重複送。
 - **欄位**：logback 格式、ECS 巢狀格式、ECS 點號格式（ES 自己的 log）、純文字，四種都正確轉換；`agent.type` 是 `otelcol`。
@@ -360,7 +360,7 @@ GET k8s-*/_search
 
 ## 還沒做
 
-1. **K8s events**（OOMKilled、probe 失敗、BackOff）。這是 AIOps 很重要的訊號，但 event 本身只帶 namespace 名稱，不帶 dept；要分流得先決定歸屬放哪裡，見 README 待定事項第 1 點。唯讀角色裡已經預留了 `k8s-events-{group}-*`。
+1. **K8s events**（OOMKilled、probe 失敗、BackOff）。這是 AIOps 很重要的訊號，但 event 本身只帶 namespace 名稱，不帶 dept；要分流得先決定歸屬放哪裡，見 README「還沒定案的」第 1 點。唯讀角色裡已經預留了 `k8s-events-{group}-*`。
 2. **保留天數**要各 group 確認。
 3. **⚠️ 重點：SECS、REST API 等格式的解析規則**：架構已經好了（見「[pipeline](#pipeline)」），等拿到真實的 log 樣本再寫。SECS 還要在 Collector 的 `file_log` 加多行合併。
 4. **dept 清單目前要手動同步兩處**：`groups.yaml`、Collector 的 `common.yaml`（log 與 metrics 共用）。group 變多之前要改成從 `groups.yaml` 產生。
