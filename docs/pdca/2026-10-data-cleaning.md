@@ -1,6 +1,6 @@
 # 清資料：餵給 baseline 前的資料檢查（2026-10）
 
-**狀態**：盤點與規劃完成；① 資料品質檢查已實作、實測（`quality` 指令），② ③ 還沒做　　**日期**：2026-10-23　　**相關**：[rca/README.md「髒資料排除」](../rca/README.md#髒資料排除)、`aiops/aiops_baseline/model.py`、`es.py`
+**狀態**：① 資料品質檢查、② 排除已知干擾已實作、實測（`quality`、`adjust` 指令），③ 還沒做　　**日期**：2026-10-23　　**相關**：[rca/README.md「髒資料排除」](../rca/README.md#髒資料排除)、`aiops/aiops_baseline/model.py`、`es.py`
 
 **一句話**：資料進來時已經洗過（可信、不重複、格式統一）；但**拿去學「平常的樣子」之前，還沒有挑掉壞資料**，壞習慣、事故、壓測、假日都會被學成正常。
 
@@ -80,3 +80,7 @@
 
 - **之後的 learning loop**（[feedback/README.md](../feedback/README.md) 的設計，還沒做）：值班標記真的／誤報／根因錯／漏報寫 `aiops-feedback` → 同一個對象誤報累積多次才考慮調（單次不生效）→ 用新門檻回測過去 4 週，事故還抓得到、誤報變少才生效 → 記版本。是半自動的統計門檻調整，不是訓練模型。
 - **要做到要先有**：告警出口與值班回饋、回測工具、`quality` 讀 `aiops-tuning` 的覆寫（目前只有 `detect` 讀，這項小，可以先補）。
+
+## 進度：② 排除已知干擾（2026-10-23）
+
+`adjust` 指令：`exclude_window`（事故、維護、壓測不學，可選也不報）、`reset_point`（換版後只學新的）、`recurring_override`（月底批次放寬或不報）。細節見 [baseline 正式定義的進度](2026-10-baseline-definition.md#進度排除重置放寬2026-10-23)。

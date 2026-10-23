@@ -3,6 +3,8 @@
   python3 -m aiops_baseline train  --config baseline/series.yaml [--weeks 4] [--end 2026-10-10T00:00:00Z]
   python3 -m aiops_baseline detect --config baseline/series.yaml [--window 30m] [--at 2026-10-10T08:00:00Z]
   python3 -m aiops_baseline tune   --series http.latency_p95_s --match service=mes-api --resolution 5m --reason 誤報多
+  python3 -m aiops_baseline adjust add --kind exclude_window --match service=mes-api --start … --end … --reason 事故
+  python3 -m aiops_baseline adjust list | approve --id … | remove --id …
   python3 -m aiops_baseline rules  --config baseline/rules.yaml  [--at …] [--only 規則,…]
   python3 -m aiops_baseline peer   --config baseline/peer.yaml   [--at …] [--only 檢查,…]
   python3 -m aiops_baseline quality --config baseline/quality.yaml [--at …] [--only 檢查,…]
@@ -12,6 +14,8 @@ detect：讀最近一段時間的資料，跟 baseline 比，超出範圍的寫�
         跳一次是 warning，同一條序列連續兩個時間窗超標（或連續超標滿 30 分鐘）才是 anomaly。
         預設 30 秒一點（跟收值一樣），每 30 秒跑一次：連續兩個 30 秒（約 1 分鐘）就是 anomaly。
 tune  ：調整某條序列、某些對象的粒度、z、min_abs（寫進 aiops-tuning；之後 feedback 也寫這裡），下次 train／detect 生效。
+adjust：排除時段（事故、維護、壓測不學）、重置點（換版後只學新的）、週期放寬（月底批次放寬或不報），
+        也寫 aiops-tuning（aiops_baseline/adjust.py）。status: proposed 的要 approve 才生效。
 rules ：狀態變化、離極限多遠（不用學）。
 peer  ：跟兄弟比，同一個服務的 Pod 互相比，抓只有一個 Pod 壞掉（不用學）。
 quality：資料品質檢查（路由沒參數化、必填欄位缺、資料停了、落到 unassigned 變多），餵給 baseline 之前先看資料本身。
@@ -30,6 +34,7 @@ from aiops_common.es import get_field
 
 from .es import (ANOMALY_INDEX, ANOMALY_MAPPING, BASELINE_INDEX, BASELINE_MAPPING, ES, doc_id, fetch,
                  load_baseline, load_group_baselines, value_kind)
+from . import adjust as A
 from . import peer as P
 from . import quality as Q
 from . import rules as R
@@ -187,18 +192,25 @@ def cmd_train(cfg: dict, args) -> int:
     fine = lambda r: pd.Timedelta(_freq(r)) < pd.Timedelta("5min")
     topts = TrainOptions(**cfg.get("train", {}))
     overrides = load_overrides(es, cfg)
+    adjs = data_adjustments(es, cfg, end)
     print(f"學習區間 {start.tz_convert(topts.timezone):%Y-%m-%d %H:%M} ～ {end.tz_convert(topts.timezone):%Y-%m-%d %H:%M}"
           f"（{topts.timezone}，{interval} 一點；5 分鐘以下的粒度學最近 {cfg.get('fine_history', '14d')}）")
+    if adjs:
+        print(f"  {len(adjs)} 筆排除時段、重置點、週期放寬生效中")
     for spec in cfg["series"]:
         keys = keys_of(spec)
+        # 排除時段、重置點之前、要排除的週期時段：這些點不學（adjust.py）
         hist_start = fine_start if fine(interval) else start
         hist = fetch(es, spec, hist_start, end, interval)
+        had_data = not hist.empty
+        hist, dropped = A.train_filter(hist, keys, spec["name"], adjs, topts.timezone)
+        excluded = lambda df: A.train_filter(df, keys, spec["name"], adjs, topts.timezone)[0]
         res = apply_resolution_overrides(series_resolutions(cfg, spec, hist, keys), spec, keys, overrides)
         parts = []
         for r, ks in res.dropna(subset=["resolution"]).groupby("resolution"):
             r_start = fine_start if fine(r) else start
             # 百分位不能從細的合併，粗的要重查
-            h = hist if (r == interval and r_start == hist_start) else fetch(es, spec, r_start, end, r)
+            h = hist if (r == interval and r_start == hist_start) else excluded(fetch(es, spec, r_start, end, r))
             h = h.merge(ks[keys], on=keys)
             if (me := min_events(cfg, spec)) is not None:
                 h = mask_thin(h, me)
@@ -210,7 +222,7 @@ def cmd_train(cfg: dict, args) -> int:
         # 很稀少的筆數（最粗的粒度也大多是 0）：改用卜瓦松，學每個時段的平均次數
         coarsest = (cfg.get("adaptive") or {}).get("resolutions", RESOLUTIONS)[-1]
         if not sparse.empty and value_kind(spec) == "count":
-            h = fetch(es, spec, start, end, coarsest).merge(sparse[keys], on=keys)
+            h = excluded(fetch(es, spec, start, end, coarsest)).merge(sparse[keys], on=keys)
             t = train(h, keys, topts, method="poisson") if not h.empty else pd.DataFrame()
             if not t.empty:
                 parts.append(t.merge(sparse[keys + ["events"]], on=keys).assign(resolution=coarsest))
@@ -224,8 +236,10 @@ def cmd_train(cfg: dict, args) -> int:
             # 從成員自己的 baseline 算出每組的 baseline，存在同一個 index，給沒有自己 baseline 的序列借
             gb = train_groups(b, keys, cfg["groups"], cfg.get("borrowing", {}).get("min_members", 3)).assign(
                 resolution=borrow_resolution(cfg))
-        save_baseline(es, spec["name"], keys, pd.concat([b, gb], ignore_index=True), start, end, had_data=not hist.empty)
+        save_baseline(es, spec["name"], keys, pd.concat([b, gb], ignore_index=True), start, end, had_data=had_data)
         print(train_summary(spec["name"], keys, hist, b))
+        if dropped:
+            print(f"    排除 {dropped} 個點（排除時段、重置點之前、要排除的週期時段）")
         if n_poisson:
             print(f"    其中 {n_poisson} 條很稀少的筆數用卜瓦松（{coarsest} 一點）")
         if not gb.empty:
@@ -262,27 +276,38 @@ def with_status(cfg: dict, s: pd.DataFrame, keys: list[str], step: str, start) -
 TUNING_INDEX = "aiops-tuning"
 
 
+TUNING_MAPPING = {"mappings": {"dynamic": False, "properties": {
+    "kind": {"type": "keyword"}, "series": {"type": "keyword"}, "match": {"type": "flattened"},
+    "resolution": {"type": "keyword"}, "z": {"type": "double"}, "min_abs": {"type": "double"},
+    "start": {"type": "date"}, "end": {"type": "date"}, "reset_at": {"type": "date"}, "warmup": {"type": "keyword"},
+    "apply_to": {"type": "keyword"},
+    "schedule": {"type": "flattened"}, "effect": {"type": "flattened"},
+    "status": {"type": "keyword"}, "source": {"type": "keyword"}, "expires_at": {"type": "date"},
+    "reason": {"type": "text"}, "by": {"type": "keyword"}, "at": {"type": "date"}}}}
+
+
+def load_adjustments(es, cfg: dict) -> list[dict]:
+    """全部調整（四種 kind）：設定檔（overrides、adjustments_file）＋ aiops-tuning（tune、adjust 指令、之後的 learning loop）。"""
+    return A.load(es, TUNING_INDEX, cfg)
+
+
 def load_overrides(es, cfg: dict) -> list[dict]:
-    """調整：先 series.yaml 的 overrides（使用者設定），再 aiops-tuning（tune 指令寫的；之後 feedback 也寫這裡），後面蓋前面。"""
-    out = list(cfg.get("overrides") or [])
-    try:
-        hits = es.req("POST", f"/{TUNING_INDEX}/_search?ignore_unavailable=true",
-                      {"size": 1000, "sort": [{"at": "asc"}]}).get("hits", {}).get("hits", [])
-    except RuntimeError:
-        hits = []
-    return out + [h["_source"] for h in hits]
+    """粒度、z、min_abs 的調整（kind: override；舊資料沒有 kind 也是），生效中的，後面蓋前面。"""
+    return A.active(load_adjustments(es, cfg), pd.Timestamp.now(tz="UTC"), kinds=("override",))
+
+
+def data_adjustments(es, cfg: dict, now) -> list[dict]:
+    """排除時段、重置點、週期放寬，生效中的。"""
+    return A.active(load_adjustments(es, cfg), now, kinds=("exclude_window", "reset_point", "recurring_override"))
 
 
 def cmd_tune(cfg: dict, args) -> int:
     """寫一筆調整進 aiops-tuning（同一條序列＋同一組 match 會覆蓋）；--remove 刪掉；--list 列出。"""
     es = ES()
-    es.ensure_index(TUNING_INDEX, {"mappings": {"dynamic": False, "properties": {
-        "series": {"type": "keyword"}, "match": {"type": "flattened"}, "resolution": {"type": "keyword"},
-        "z": {"type": "double"}, "min_abs": {"type": "double"}, "reason": {"type": "text"},
-        "by": {"type": "keyword"}, "at": {"type": "date"}}}})
+    es.ensure_index(TUNING_INDEX, TUNING_MAPPING)
     if args.list:
         for o in load_overrides(es, cfg):
-            print(o)
+            print(A.describe(o))
         return 0
     match = dict(m.split("=", 1) for m in (args.match or []))
     _id = doc_id("tune", args.series, match)
@@ -290,7 +315,7 @@ def cmd_tune(cfg: dict, args) -> int:
         es.req("DELETE", f"/{TUNING_INDEX}/_doc/{_id}?refresh=true", ok=(200, 404))
         print(f"已刪除：{args.series} {match}")
         return 0
-    doc = {"series": args.series, "match": match, "resolution": args.resolution, "z": args.z, "min_abs": args.min_abs,
+    doc = {"kind": "override", "series": args.series, "match": match, "resolution": args.resolution, "z": args.z, "min_abs": args.min_abs,
            "reason": args.reason, "by": args.by, "at": pd.Timestamp.now(tz="UTC").isoformat()}
     es.req("PUT", f"/{TUNING_INDEX}/_doc/{_id}?refresh=true", {k: v for k, v in doc.items() if v is not None})
     print(f"已調整：{args.series} {match} → " + "，".join(f"{k}={doc[k]}" for k in ("resolution", "z", "min_abs") if doc[k] is not None)
@@ -321,7 +346,7 @@ def borrow_resolution(cfg: dict) -> str:
     return cfg.get("borrowing", {}).get("resolution") or (cfg.get("adaptive") or {}).get("resolutions", RESOLUTIONS)[-1]
 
 
-def detect_borrowed(es, cfg: dict, spec: dict, own: pd.DataFrame, now, window, dopts, tz) -> int:
+def detect_borrowed(es, cfg: dict, spec: dict, own: pd.DataFrame, now, window, dopts, tz, adjs=()) -> int:
     """沒有自己 baseline 的序列（新 API、量太少）：借第一個符合、而且有組 baseline 的組來判斷，門檻調高。"""
     keys = keys_of(spec)
     gb = load_group_baselines(es, spec["name"])
@@ -351,6 +376,7 @@ def detect_borrowed(es, cfg: dict, spec: dict, own: pd.DataFrame, now, window, d
     bz = dataclasses.replace(dopts, z=cfg.get("borrowing", {}).get("z", 7.0))
     s = score(cur.merge(pick[keys], on=keys), base, keys, direction=spec.get("direction", "both"),
               min_abs=spec.get("min_abs", 0.0), opts=bz, tz=tz)
+    s, _ = A.detect_filter(s, keys, spec["name"], list(adjs), tz)
     s = with_status(cfg, s.merge(pick, on=keys, how="left"), keys, r, start_r)
     s["baseline_source"] = "group:" + s["group"].astype(str)
     return save_anomalies(es, spec["name"], keys, s.drop(columns="group"), spec.get("direction", "both"), tz, resolution=r,
@@ -368,6 +394,7 @@ def cmd_detect(cfg: dict, args) -> int:
     tz = cfg.get("train", {}).get("timezone", "Asia/Taipei")
     dopts = DetectOptions(**cfg.get("detect", {}))
     overrides = load_overrides(es, cfg)
+    adjs = data_adjustments(es, cfg, now)
     # 剛結束的時間窗可能還沒收齊（Collector 批次送、ES refresh），往前退 lag 再看
     lag = pd.Timedelta(_freq(cfg.get("lag", "0s")))
     total = 0
@@ -376,7 +403,7 @@ def cmd_detect(cfg: dict, args) -> int:
         keys = keys_of(spec)
         base = load_baseline(es, spec["name"], keys)
         if spec.get("borrow") and cfg.get("groups"):
-            total += detect_borrowed(es, cfg, spec, base, now, pd.Timedelta(args.window), dopts, tz)
+            total += detect_borrowed(es, cfg, spec, base, now, pd.Timedelta(args.window), dopts, tz, adjs)
         if base.empty:
             print(f"  {spec['name']}：沒有 baseline，先跑 train")
             continue
@@ -404,9 +431,68 @@ def cmd_detect(cfg: dict, args) -> int:
                 if cm.empty:
                     continue
                 s = score_tuned(fn, cm, bm, keys, spec, dopts, tz, overrides).assign(baseline_method=method)
+                s, muted = A.detect_filter(s, keys, spec["name"], adjs, tz, baseline=bm)
+                if muted:
+                    print(f"  {spec['name']}（{r} 一點）：{muted} 個點在排除時段、週期放寬、重置點之後，不算")
                 s = with_status(cfg, s, keys, r, start_r)
                 total += save_anomalies(es, spec["name"], keys, s, spec.get("direction", "both"), tz, resolution=r)
     print(f"共 {total} 個異常")
+    return 0
+
+
+def cmd_adjust(cfg: dict, args) -> int:
+    """排除時段、重置點、週期放寬（adjust.py）：add 寫一筆進 aiops-tuning；list 列出全部（含設定檔、tune 的）；
+    approve 把 proposed 改成 active（learning loop 提的建議，人核准才生效）；remove 刪掉。"""
+    es = ES()
+    es.ensure_index(TUNING_INDEX, TUNING_MAPPING)
+    if args.action == "list":
+        for a in load_adjustments(es, cfg):
+            print(f"{a.get('id') or '（設定檔）'}  {A.describe(a)}")
+        return 0
+    if args.action in ("approve", "remove"):
+        if not args.id:
+            print("要給 --id（adjust list 看得到）")
+            return 2
+        if args.action == "remove":
+            es.req("DELETE", f"/{TUNING_INDEX}/_doc/{args.id}?refresh=true", ok=(200, 404))
+            print(f"已刪除：{args.id}")
+        else:
+            es.req("POST", f"/{TUNING_INDEX}/_update/{args.id}?refresh=true",
+                   {"doc": {"status": "active", "approved_by": args.by, "approved_at": pd.Timestamp.now(tz="UTC").isoformat()}})
+            print(f"已核准：{args.id}")
+        return 0
+    need = {"exclude_window": ("start", "end"), "reset_point": ("at",), "recurring_override": ("cron", "duration")}
+    missing = [f"--{f.replace('_', '-')}" for f in need[args.kind] if not getattr(args, f)]
+    if missing:
+        print(f"{args.kind} 要給 {'、'.join(missing)}")
+        return 2
+    match = dict(m.split("=", 1) for m in (args.match or []))
+    doc = {"kind": args.kind, "series": args.series, "match": match, "status": args.status, "source": args.source,
+           "reason": args.reason, "by": args.by, "expires_at": args.expires, "at": pd.Timestamp.now(tz="UTC").isoformat()}
+    if args.kind == "exclude_window":
+        doc.update(start=pd.Timestamp(args.start).isoformat(), end=pd.Timestamp(args.end).isoformat(),
+                   apply_to=args.apply_to.split(","))
+    elif args.kind == "reset_point":
+        doc["reset_at"] = pd.Timestamp(args.at).isoformat()
+        doc["warmup"] = args.warmup
+    else:
+        sched = {"cron": args.cron, "duration": args.duration}
+        if args.days_of_month:
+            sched["days_of_month"] = [int(d) for d in args.days_of_month.split(",")]
+        effect = {k: v for k, v in (("z", args.z), ("min_abs", args.min_abs), ("mute", args.mute or None),
+                                    ("train", args.train)) if v is not None}
+        if not ({"z", "min_abs", "mute"} & set(effect)):
+            print("recurring_override 要給 --z、--min-abs 或 --mute")
+            return 2
+        doc.update(schedule=sched, effect=effect)
+    doc = {k: v for k, v in doc.items() if v not in (None, {}, [])} | {"match": match}
+    _id = args.id or doc_id(args.kind, args.series, match, doc.get("start"), doc.get("reset_at"), doc.get("schedule"))
+    es.req("PUT", f"/{TUNING_INDEX}/_doc/{_id}?refresh=true", doc)
+    print(f"已寫入 {_id}：{A.describe(doc)}")
+    if doc["status"] == "proposed":
+        print("  status 是 proposed，要 adjust approve --id 之後才生效")
+    else:
+        print("  不學的部分下次 train 生效；不報的部分下次 detect 生效")
     return 0
 
 
@@ -442,13 +528,14 @@ def cmd_trace_train(cfg: dict, args) -> int:
     topts = TrainOptions(**cfg.get("train", {}))
     hist = T.load_segments(es, start, end)
     hist = hist[hist["requests"] >= cfg.get("min_requests", 5)]
+    adjs = data_adjustments(es, cfg, end)
     print(f"學習區間 {start.tz_convert(topts.timezone):%Y-%m-%d %H:%M} ～ {end.tz_convert(topts.timezone):%Y-%m-%d %H:%M}"
           f"（{topts.timezone}），{len(hist)} 筆統計")
     for m in T.METRICS:
-        h = _metric_frame(hist, m)
+        h, dropped = A.train_filter(_metric_frame(hist, m), T.KEYS, f"trace.segment.{m}", adjs, topts.timezone)
         b = train(h, T.KEYS, topts)
         save_baseline(es, f"trace.segment.{m}", T.KEYS, b, start, end)
-        print(train_summary(f"trace.segment.{m}", T.KEYS, h, b))
+        print(train_summary(f"trace.segment.{m}", T.KEYS, h, b) + (f"；排除 {dropped} 個點" if dropped else ""))
     return 0
 
 
@@ -463,6 +550,7 @@ def cmd_trace_detect(cfg: dict, args) -> int:
     dopts = DetectOptions(**cfg.get("detect", {}))
     print(f"偵測區間 {start.tz_convert(tz):%Y-%m-%d %H:%M} ～ {end.tz_convert(tz):%Y-%m-%d %H:%M}（{tz}）")
     cur, skews = T.collect(es, cfg, start, end)
+    adjs = data_adjustments(es, cfg, end)
     cur = cur[cur["requests"] >= cfg.get("min_requests", 5)]
     total = 0
     for m in T.METRICS:
@@ -476,6 +564,7 @@ def cmd_trace_detect(cfg: dict, args) -> int:
         rule = cfg.get("metrics", {}).get(m, {})
         s = score(_metric_frame(c, m), base, T.KEYS, direction=rule.get("direction", "both"),
                   min_abs=rule.get("min_abs", 0.0), opts=dopts, tz=tz)
+        s, _ = A.detect_filter(s, T.KEYS, name, adjs, tz, baseline=base)
         s = with_status(cfg, s, T.KEYS, cfg.get("interval", "5m"), start)
         total += save_anomalies(es, name, T.KEYS, s, rule.get("direction", "both"), tz)
     # 沒見過的呼叫：規則，這支 API 有 baseline、但這一段從來沒出現過
@@ -695,6 +784,30 @@ def main(argv=None) -> int:
     tu.add_argument("--by", help="誰調的（使用者、feedback）")
     tu.add_argument("--remove", action="store_true")
     tu.add_argument("--list", action="store_true")
+    ad = sub.add_parser("adjust", help="排除時段、重置點、週期放寬（寫進 aiops-tuning）")
+    ad.add_argument("action", choices=["add", "list", "approve", "remove"])
+    ad.add_argument("--config", default="baseline/series.yaml")
+    ad.add_argument("--kind", choices=["exclude_window", "reset_point", "recurring_override"], default="exclude_window")
+    ad.add_argument("--id", help="指定 id（同 id 再寫會覆蓋）；approve、remove 必填")
+    ad.add_argument("--series", help="哪些序列（正規表示式，不給就是全部）")
+    ad.add_argument("--match", nargs="*", help="對象，例如 service=^mes-api$（正規表示式；欄位可用別名：service、namespace、pod…）")
+    ad.add_argument("--start", help="exclude_window：開始（ISO 時間，例如 2026-10-20T02:00:00+08:00）")
+    ad.add_argument("--end", help="exclude_window：結束")
+    ad.add_argument("--apply-to", dest="apply_to", default="train", help="exclude_window：train（不學，預設）、train,detect（也不報）")
+    ad.add_argument("--at", help="reset_point：從這個時間點起重新學")
+    ad.add_argument("--warmup", help="reset_point：重置後多久內不判斷（預設 24h）")
+    ad.add_argument("--cron", help="recurring_override：開始時間（5 欄 cron，台北時間），例如 '0 20 * * *'")
+    ad.add_argument("--duration", help="recurring_override：持續多久，例如 4h")
+    ad.add_argument("--days-of-month", dest="days_of_month", help="recurring_override：哪幾天，-1 是每月最後一天（逗號分開）")
+    ad.add_argument("--z", type=float, help="recurring_override：這段時間 z 至少要多少才算")
+    ad.add_argument("--min-abs", dest="min_abs", type=float, help="recurring_override：這段時間至少差多少才算")
+    ad.add_argument("--mute", action="store_true", help="recurring_override：這段時間不報")
+    ad.add_argument("--train", choices=["keep", "exclude"], help="recurring_override：這段時間要不要學（預設 keep）")
+    ad.add_argument("--status", choices=["active", "proposed"], default="active")
+    ad.add_argument("--source", default="manual", help="manual、feedback、cicd")
+    ad.add_argument("--expires", help="到期時間（選填）")
+    ad.add_argument("--reason")
+    ad.add_argument("--by")
     tc = sub.add_parser("trace-collect")
     tc.add_argument("--config", required=True)
     tc.add_argument("--start")
@@ -724,7 +837,7 @@ def main(argv=None) -> int:
         cfg = yaml.safe_load(f)
     cmds = {"train": cmd_train, "detect": cmd_detect, "tune": cmd_tune, "trace-collect": cmd_trace_collect,
             "trace-train": cmd_trace_train, "trace-detect": cmd_trace_detect, "rules": cmd_rules, "peer": cmd_peer,
-            "quality": cmd_quality}
+            "quality": cmd_quality, "adjust": cmd_adjust}
     return cmds[args.cmd](cfg, args)
 
 

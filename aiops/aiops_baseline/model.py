@@ -344,9 +344,9 @@ def resolutions_from(resolutions, min_resolution: str | None) -> list[str]:
 
 
 def match_keys(key: dict, match: dict | None) -> bool:
-    """match 的每個欄位都要符合（正規表示式，re.search）；沒有 match 就是全部。"""
-    import re
-    return all(key.get(f) is not None and re.search(str(pat), str(key[f])) for f, pat in (match or {}).items())
+    """match 的每個欄位都要符合（正規表示式，re.search；欄位可以用別名，見 adjust.ALIASES）；沒有 match 就是全部。"""
+    from .adjust import match_keys as _match
+    return _match(key, match)
 
 
 def override_for(series: str, key: dict, overrides: list[dict]) -> dict:
@@ -355,6 +355,8 @@ def override_for(series: str, key: dict, overrides: list[dict]) -> dict:
     import re
     out = {}
     for o in overrides:
-        if re.fullmatch(o.get("series", ".*"), series) and match_keys(key, o.get("match")):
+        if (o.get("kind") or "override") != "override":   # 排除時段、重置點、週期放寬由 adjust.py 處理
+            continue
+        if re.fullmatch(o.get("series") or ".*", series) and match_keys(key, o.get("match")):
             out.update({k: o[k] for k in ("resolution", "z", "min_abs") if o.get(k) is not None})
     return out

@@ -1,6 +1,6 @@
 # baseline 正式定義（2026-10）
 
-**狀態**：定義完成（對照程式整理）；已知限制留給之後的 learning loop　　**日期**：2026-10-23　　**相關**：`aiops/aiops_baseline/model.py`、`aiops/baseline/series.yaml`、[baseline README](../../aiops/baseline/README.md)
+**狀態**：定義完成（對照程式整理）；排除、重置、放寬已實作（`adjust`）；其他限制留給之後的 learning loop　　**日期**：2026-10-23　　**相關**：`aiops/aiops_baseline/model.py`、`aiops/baseline/series.yaml`、[baseline README](../../aiops/baseline/README.md)
 
 **定位**：baseline 只抓**一般的異常**（跟自己平常同一個時段比，偏離很多）。統計公式刻意保持簡單；換版、長週期、假警報收斂不改公式，留給 learning loop（見最後一節）。
 
@@ -96,11 +96,19 @@ z        = (現在 − 平常值) ÷ 波動
 
 | # | 限制 | 方向 | 狀態 |
 |---|---|---|---|
-| 1 | 訓練資料有壞資料 | **排除時段**（`exclude_window`）：事故、維護、壓測的資料不學；之後「確認是真事故」的回饋自動寫入 | 下一步實作（設計確認中） |
-| 3 | 換版變一階 | **基準重置點**（`reset_point`）：某服務從某個時間點起重新學，丟掉舊版歷史；之後可串 CI/CD 或人工標記 | 下一步實作（設計確認中） |
-| 5 | 月底、季底批次 | **週期性放寬**（`recurring_override`）：特定時段放寬 z 或不報；之後「這是正常批次」的回饋自動寫入 | 下一步實作（設計確認中） |
+| 1 | 訓練資料有壞資料 | **排除時段**（`exclude_window`）：事故、維護、壓測的資料不學；之後「確認是真事故」的回饋自動寫入 | ✅ 已實作（`adjust`），沒排程 |
+| 3 | 換版變一階 | **基準重置點**（`reset_point`）：某服務從某個時間點起重新學，丟掉舊版歷史；之後可串 CI/CD 或人工標記 | ✅ 已實作（`adjust`），沒排程 |
+| 5 | 月底、季底批次 | **週期性放寬**（`recurring_override`）：特定時段放寬 z 或不報；之後「這是正常批次」的回饋自動寫入 | ✅ 已實作（`adjust`），沒排程 |
 | 2 | 指標不夠 | 加序列（設定，不改公式） | 待排 |
 | 4 | 借同組沒作用 | 依公司服務命名定義 `groups`（要別人配合） | 待決定 |
 | — | 假警報收斂 | 收斂（連續的點合成一段、同服務合成一件）＋回饋累積多次、回測通過才調門檻 | 待排 |
 
 **不做**：在公式裡加月份、季度的時段；自己訓練模型（[feedback/llm-mlops.md](../feedback/llm-mlops.md) 的定案）。
+
+## 進度：排除、重置、放寬（2026-10-23）
+
+- 設計決定：跟 `tune` 共用 `aiops-tuning`（`kind` 區分，learning loop 只有一個寫入點）；`reset_point` 之後**不判斷**（`warmup` 預設 24 小時，之後 baseline 要是重置後重新學的）；`match` 欄位可用別名。
+- 統計公式（`model.py` 的 `train`、`score`）沒改；只在 train 之前拿掉點、detect 之後拿掉異常。
+- 實測與用法見 [baseline README「調整」](../../aiops/baseline/README.md#調整哪些資料不學從哪裡重新學哪些時段放寬)。
+- 實作中發現：只靠 `min_points`（50 點），重置後 30 秒一點 25 分鐘就有 baseline，太短，所以加了 `warmup`。
+- 還沒做：排程；跟告警出口、值班回饋串（之後回饋寫 `status: proposed`）；CI/CD 換版時自動寫 `reset_point`。

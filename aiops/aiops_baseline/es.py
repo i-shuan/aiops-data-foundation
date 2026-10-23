@@ -183,7 +183,8 @@ def _fill_zero(df: pd.DataFrame, by: list[str], start, end, interval) -> pd.Data
 
 
 # 讀回來的欄位。method 存成 baseline_method：序列的 keys 也可能有 method（HTTP method），會撞名
-BASELINE_COLUMNS = ("dow", "hour", "level", "median", "mad", "resolution", "baseline_method", "baseline_source")
+BASELINE_COLUMNS = ("dow", "hour", "level", "median", "mad", "resolution", "baseline_method", "baseline_source",
+                    "trained_at")
 _RENAMED = {"baseline_method": "method"}
 
 
