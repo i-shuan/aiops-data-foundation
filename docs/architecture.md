@@ -2,7 +2,7 @@
 
 一句話：**每個應用 cluster 一套 OpenTelemetry Collector，把 log、metrics、trace 依 namespace 的部門分流、用各部門自己的 key 寫進中央 Elasticsearch 9；AIOps 用唯讀 key 讀出來，學「平常的樣子」、跑規則、Pod 互比、做根因分析，結果寫進 `aiops-anomalies`。** 舊專案不改程式（Java agent、.NET 自動埋點）。
 
-範圍：一般服務（Web API、worker、Kafka、DB）；工廠之後再做（[factory-later.md](factory-later.md)）。每個階段的細節、判斷方法、收斂、LLM、feedback 見 [roadmap.md](roadmap.md)；現況與待辦見 [pdca/](pdca/README.md)。
+範圍：一般服務（Web API、worker、Kafka、DB）；工廠之後再做（[factory-later.md](factory-later.md)）。每個階段的細節、判斷方法、收斂、LLM、feedback 見 [system-stages.md](system-stages.md)；現況與待辦見 [pdca/](pdca/README.md)。
 
 ## 一張圖看全部
 
