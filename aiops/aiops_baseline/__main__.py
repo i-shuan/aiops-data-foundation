@@ -5,6 +5,7 @@
   python3 -m aiops_baseline tune   --series http.latency_p95_s --match service=mes-api --resolution 5m --reason 誤報多
   python3 -m aiops_baseline rules  --config baseline/rules.yaml  [--at …] [--only 規則,…]
   python3 -m aiops_baseline peer   --config baseline/peer.yaml   [--at …] [--only 檢查,…]
+  python3 -m aiops_baseline quality --config baseline/quality.yaml [--at …] [--only 檢查,…]
 
 train ：讀過去 N 週的資料，每條序列、每個時段學出中位數與波動範圍，寫進 ES 的 aiops-baseline。
 detect：讀最近一段時間的資料，跟 baseline 比，超出範圍的寫進 aiops-anomalies，並印出來。
@@ -13,6 +14,7 @@ detect：讀最近一段時間的資料，跟 baseline 比，超出範圍的寫�
 tune  ：調整某條序列、某些對象的粒度、z、min_abs（寫進 aiops-tuning；之後 feedback 也寫這裡），下次 train／detect 生效。
 rules ：狀態變化、離極限多遠（不用學）。
 peer  ：跟兄弟比，同一個服務的 Pod 互相比，抓只有一個 Pod 壞掉（不用學）。
+quality：資料品質檢查（路由沒參數化、必填欄位缺、資料停了、落到 unassigned 變多），餵給 baseline 之前先看資料本身。
 --end、--at 用來回測（拿過去某個時間點當成「現在」）；不給就是現在。
 """
 from __future__ import annotations
@@ -29,6 +31,7 @@ from aiops_common.es import get_field
 from .es import (ANOMALY_INDEX, ANOMALY_MAPPING, BASELINE_INDEX, BASELINE_MAPPING, ES, doc_id, fetch,
                  load_baseline, load_group_baselines, value_kind)
 from . import peer as P
+from . import quality as Q
 from . import rules as R
 from . import trace as T
 from .model import (CONFIDENCE, RESOLUTIONS, DetectOptions, TrainOptions, mask_thin, pick_resolution, score,
@@ -612,6 +615,64 @@ def cmd_peer(cfg: dict, args) -> int:
     return 0
 
 
+# ── 資料品質檢查（aiops_baseline/quality.py、baseline/quality.yaml）──
+
+def quality_hits(es, c: dict, now, window, ref_offset) -> list[dict]:
+    """跑一個檢查，回傳觸發的對象（Q.eval_* 的結果）。"""
+    start, rs, re_ = now - window, now - window - ref_offset, now - ref_offset
+    keys, t = Q._keys(c), c["type"]
+    if t == "cardinality":
+        return Q.eval_cardinality(Q.fetch_cardinality(es, c, start, now), Q.fetch_cardinality(es, c, rs, re_, 0), keys,
+                                  max_values=c.get("max_values"), ratio=c.get("ratio", 3.0),
+                                  min_increase=c.get("min_increase", 50), id_share_min=c.get("id_share", 0.5))
+    if t == "missing":
+        return Q.eval_missing(Q.fetch_missing(es, c, start, now), Q.fetch_missing(es, c, rs, re_), keys, c["fields"],
+                              min_docs=c.get("min_docs", 100), max_missing=c.get("max_missing"),
+                              max_increase=c.get("max_increase"))
+    if t == "stopped":
+        silent = pd.Timedelta(_freq(c.get("silent", "10m")))
+        lookback = pd.Timedelta(_freq(c.get("lookback", "1h")))
+        return Q.eval_stopped(Q.fetch_counts(es, c, now - lookback, now - silent), Q.fetch_counts(es, c, now - silent, now),
+                              keys, min_docs=c.get("min_docs", 10))
+    if t == "share":
+        return Q.eval_share(Q.count(es, c["part_index"], c, start, now), Q.count(es, c["index"], c, start, now),
+                            Q.count(es, c["part_index"], c, rs, re_), Q.count(es, c["index"], c, rs, re_),
+                            min_docs=c.get("min_docs", 100), max_share=c.get("max_share"),
+                            min_increase=c.get("min_increase", 0.1))
+    raise ValueError(f"不認得的檢查種類：{t}")
+
+
+def cmd_quality(cfg: dict, args) -> int:
+    es = ES()
+    es.ensure_index(ANOMALY_INDEX, ANOMALY_MAPPING)
+    es.req("PUT", f"/{ANOMALY_INDEX}/_mapping", {"properties": RULE_FIELDS})
+    now = _now(args.at)
+    slot = now.floor(_freq(cfg.get("interval", "10m")))
+    ref_offset = pd.Timedelta(_freq(cfg.get("ref_offset", "24h")))
+    names = set(args.only.split(",")) if args.only else None
+    docs, fired, checked = [], 0, 0
+    for c in cfg["checks"]:
+        if names and c["name"] not in names:
+            continue
+        checked += 1
+        window = pd.Timedelta(_freq(c.get("window", cfg.get("window", "1h"))))
+        hits = quality_hits(es, c, now, window, ref_offset)
+        for h in hits:
+            keys = {**{k: v for k, v in h["key"].items() if v is not None}, **({"field": h["field"]} if "field" in h else {})}
+            msg = Q.describe(c, h)
+            docs.append((doc_id(c["name"], keys, slot), {
+                "@timestamp": slot.isoformat(), "series": c["name"], "rule": c["name"], "keys": keys,
+                "value": h["value"], "median": _v(h.get("ref")), "expected_low": None, "expected_high": None, "z": None,
+                "level": "quality", "direction": "up", "severity": c.get("severity", "warning"), "message": msg,
+                "detected_at": pd.Timestamp.now(tz="UTC").isoformat()}))
+            print(f"  [{c.get('severity', 'warning')}] {msg}")
+        fired += len(hits)
+    if docs:
+        es.bulk_index(ANOMALY_INDEX, docs)
+    print(f"{slot.tz_convert('Asia/Taipei'):%m-%d %H:%M}：{checked} 個檢查，觸發 {fired} 個")
+    return 0
+
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(prog="aiops_baseline")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -654,11 +715,16 @@ def main(argv=None) -> int:
     pe.add_argument("--config", required=True)
     pe.add_argument("--at", help="回測：拿過去某個時間點當成現在")
     pe.add_argument("--only", help="只跑這幾個（逗號分開）")
+    q = sub.add_parser("quality")
+    q.add_argument("--config", required=True)
+    q.add_argument("--at", help="回測：拿過去某個時間點當成現在")
+    q.add_argument("--only", help="只跑這幾個（逗號分開）")
     args = p.parse_args(argv)
     with open(args.config, encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
     cmds = {"train": cmd_train, "detect": cmd_detect, "tune": cmd_tune, "trace-collect": cmd_trace_collect,
-            "trace-train": cmd_trace_train, "trace-detect": cmd_trace_detect, "rules": cmd_rules, "peer": cmd_peer}
+            "trace-train": cmd_trace_train, "trace-detect": cmd_trace_detect, "rules": cmd_rules, "peer": cmd_peer,
+            "quality": cmd_quality}
     return cmds[args.cmd](cfg, args)
 
 
