@@ -9,7 +9,8 @@
 ```
 docs/
   pdca/              現況與待辦（依 PDCA 分）、每一輪紀錄、TEMPLATE.md
-  system-map.md      架構總覽、整條線一份看完（從這裡看起）：收值 → 判斷 → 串接 → 收斂 → LLM → 根因 → feedback
+  architecture.md    架構（從這裡看起）：架構圖、三種資料怎麼收、共用什麼
+  system-stages.md   整條線一份看完：收值 → 判斷 → 串接 → 收斂 → LLM → 根因 → feedback
   log/               log：收值、格式解析、欄位，階段一二的現況與待辦
   metrics/           metrics：收值、欄位、收了哪些、案例、.NET，階段一二
   trace/             trace：收值、尾端取樣、欄位、Kafka 串接、業務 ID，階段一二
@@ -22,7 +23,7 @@ docs/
 
 每個資料夾的 `README.md` 開頭都有「現況與待辦」：前三個（log、metrics、trace）是**階段一（收值、格式、欄位）**和**階段二（清洗與打標）**，rca、feedback 是上線前要補的。
 
-閱讀順序：[system-map.md](docs/system-map.md) → 各資料夾。
+閱讀順序：[architecture.md](docs/architecture.md) → [system-stages.md](docs/system-stages.md) → 各資料夾。
 
 | 資料夾 | 主文件 | 其他 |
 |---|---|---|
