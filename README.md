@@ -8,7 +8,7 @@
 
 ```
 docs/
-  pdca.md            現況與待辦（依 PDCA 分）
+  pdca/              現況與待辦（依 PDCA 分）、每一輪紀錄、TEMPLATE.md
   system-map.md      架構總覽、整條線一份看完（從這裡看起）：收值 → 判斷 → 串接 → 收斂 → LLM → 根因 → feedback
   log/               log：收值、格式解析、欄位，階段一二的現況與待辦
   metrics/           metrics：收值、欄位、收了哪些、案例、.NET，階段一二
@@ -55,7 +55,7 @@ docs/
 
 ## 待辦
 
-依 PDCA 分（Plan 定門檻、Do 收值與判斷、Check 看對不對、Act 調整），整份在 [docs/pdca.md](docs/pdca.md)。**最大缺口是 Check**（告警出口、事故紀錄、回饋）。範圍是一般服務。
+依 PDCA 分（Plan 定門檻、Do 收值與判斷、Check 看對不對、Act 調整），整份在 [docs/pdca/](docs/pdca/README.md)。**最大缺口是 Check**（告警出口、事故紀錄、回饋）。範圍是一般服務。
 
 ## 目錄
 
