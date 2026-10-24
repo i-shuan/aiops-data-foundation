@@ -39,7 +39,7 @@ status:
 #     resolution: 5m          # 報表 API 本來就慢、跳動大，30 秒太敏感
 #     z: 7
 
-# 借 baseline：borrow: true 的序列，沒有自己的 baseline（新 API、量太少）時，借同一組的（README「自動調整」③）。
+# 借 baseline：borrow: true 的序列，沒有自己的 baseline（新 API、量太少）時，借同一組的（README「自動調整」(3)）。
 # 組要依公司的服務命名定義，由細到粗；match 的每個欄位都要符合（正規表示式）。沒有 groups 就不借。
 # groups:
 #   - name: mes-query

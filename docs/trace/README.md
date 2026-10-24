@@ -4,9 +4,9 @@
 
 收 log、metrics 的也是同一個 Collector（[log/README.md](../log/README.md)、[metrics/README.md](../metrics/README.md)），分部門的規則和 key 共用。
 
-## 現況與待辦（階段一：收值、格式、欄位；階段二：清洗與打標）
+## 現況與待辦（①收值、②清資料、③存）
 
-**階段一 ✅ 大致完成**
+**已完成 ✅**
 
 | 項目 | 狀態 |
 |---|---|
@@ -17,21 +17,25 @@
 | 跟 log 串：`trace_id` ↔ log 的 `trace.id` | ✅ |
 | 重送不重複（`trace_id + span_id` 當 `_id`） | ✅ |
 
-**階段一的小尾巴**
+**已完成的部分，還差一點**
 
 | 項目 | 要做的 |
 |---|---|
-| trace-sampler 斷線 | 佇列只在記憶體，改成磁碟佇列 |
-| 保留天數 | ✅ 隨機留下的 7 天；有問題的（錯誤、5xx、例外、慢）由 pipeline 轉到 `traces-problem.otel-<group>`，留 30 天（[retention.md](../retention.md)） |
+| ① trace-sampler 斷線 | 佇列只在記憶體，改成磁碟佇列 |
+| ③ 保留天數 | ✅ 隨機留下的 7 天；有問題的（錯誤、5xx、例外、慢）由 pipeline 轉到 `traces-problem.otel-<group>`，留 30 天（[retention.md](../retention.md)） |
 
-**階段二：要做的**
+**要做的（①收值、②清資料、④判斷）**
 
 ### 時鐘差（時間對齊）
+
+*模組：④判斷（規則）。*
 
 - ✅ 已有規則：呼叫方和被呼叫方的時間差超過 500ms 就記（`trace.clock_skew_ms`）。
 - 📝 每天列出時鐘差最大的前 10 對服務。主機本身的時鐘監控見 [metrics/README.md](../metrics/README.md)。
 
 ### Kafka 串接
+
+*模組：①收值（埋點要能接回原本的請求），為了讓 ⑦根因分析不在 Kafka 斷掉。*
 
 **為什麼**：請求進 Kafka 後，消費者處理時查的 DB、打的呼叫要能接回原本的請求，不然根因分析在 Kafka 這裡就斷了。
 
@@ -51,6 +55,8 @@
 **驗收**：有 trace 能從 HTTP 入口一路看到消費者處理時查的 DB（A／B）；或給一個交易 ID 能列出生產、消費兩邊的 log（C）。
 
 ### 業務 ID（服務層）
+
+*模組：②清資料（抽成標準欄位）。*
 
 **為什麼**：trace 斷掉的地方（Kafka 不改程式、批次工作、排程、呼叫外部系統）只能靠業務上的 ID 接起來；根因報告也要能說「影響了哪些交易、哪些單」。
 

@@ -339,4 +339,4 @@ flowchart TB
 | PoC 現況（簡報） | [poc-status.md](poc-status.md) |
 | 工廠部分（之後再做） | [factory-later.md](factory-later.md) |
 | 整個專案的現況與待辦（依 PDCA 分） | [pdca/](pdca/README.md) |
-| 階段一、二的現況與待辦 | 各資料夾 README 開頭：[log](log/README.md)、[metrics](metrics/README.md)、[trace](trace/README.md)、[rca](rca/README.md)、[feedback](feedback/README.md) |
+| ①②③ 的現況與待辦（每一項標模組） | 各資料夾 README 開頭：[log](log/README.md)、[metrics](metrics/README.md)、[trace](trace/README.md)、[rca](rca/README.md)、[feedback](feedback/README.md) |

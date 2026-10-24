@@ -1,6 +1,7 @@
 # metrics 異常怎麼找到對的 trace（2026-10）
 
 **狀態**：決定採方案 B；根因分析的程式改動還沒做　　**日期**：2026-10-23　　**相關**：[rca/README.md](../rca/README.md#metrics-異常怎麼串到-tracelog)、`aiops/aiops_rca/`
+**模組**：⑦ 根因分析（metrics → trace → log 的串接）
 
 ## Plan：這一次要達到什麼
 
@@ -49,8 +50,8 @@
 | 每一段用平均，一兩筆特別慢的會拉高平均 | 讀 `analyze.py` 的 `compare_segments` | 少數極慢的請求可能讓排名失真 | 加「這批慢請求裡有幾成最卡的是這一段」和中位數 |
 | 瀑布圖和撈 log 只用最慢的 1 筆 | 讀 `__main__.py` | 最慢的那筆可能是特例 | 改成幾筆有代表性的（卡在主要瓶頸段的） |
 | 出事時挑最慢的、平常隨機挑，兩邊樣本性質不同 | 讀 `sample_trace_ids` | 差距被放大；排名可信、絕對值要保守看 | 文件註明；之後可改成平常也挑同等級的 |
-| 比 1 秒快的變慢（例如 200ms → 800ms）只剩隨機 5% 的 trace 可用 | 對照尾端取樣的 1 秒門檻 | 這類變慢的結論弱 | 評估降低慢的門檻或提高隨機比例 |
-| 慢、錯的 trace 放在 `traces-problem`（保留 30 天），RCA 讀 `traces-*.otel-*` 兩種都讀得到；沒有實際用它跑過 RCA | 對照 `aiops/rca/rca.yaml` 與 retention 的 reroute | B 依賴慢、錯的 trace 保留夠久且讀得到 | 見 [retention 紀錄](2026-10-retention.md)；用故障案例驗證 |
-| Java 路線能否帶 exemplar 沒測 | 實驗只用 OTLP 直送 | 若之後 ES 支援，Java 這條還要另外驗證 | ES 升級時用同一個腳本重測 |
+| [①] 比 1 秒快的變慢（例如 200ms → 800ms）只剩隨機 5% 的 trace 可用 | 對照尾端取樣的 1 秒門檻 | 這類變慢的結論弱 | 評估降低慢的門檻或提高隨機比例 |
+| [③] 慢、錯的 trace 放在 `traces-problem`（保留 30 天），RCA 讀 `traces-*.otel-*` 兩種都讀得到；沒有實際用它跑過 RCA | 對照 `aiops/rca/rca.yaml` 與 retention 的 reroute | B 依賴慢、錯的 trace 保留夠久且讀得到 | 見 [retention 紀錄](2026-10-retention.md)；用故障案例驗證 |
+| [①] Java 路線能否帶 exemplar 沒測 | 實驗只用 OTLP 直送 | 若之後 ES 支援，Java 這條還要另外驗證 | ES 升級時用同一個腳本重測 |
 
 **下一輪**：改 `aiops/aiops_rca`（`analyze.py`、`__main__.py`），用 k3s 的故障案例（`test/local-k3s/run-rca-e2e.sh`）確認「幾成卡在這段」比只看平均更準。

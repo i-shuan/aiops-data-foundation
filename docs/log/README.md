@@ -8,9 +8,9 @@ log 和 metrics 用同一個 Collector（[metrics/README.md](../metrics/README.m
 > **重點：log 格式不一致的處理，見下方「[pipeline](#pipeline)」。**
 > 依服務宣告的格式分派解析規則的機制已經完成並測過；**REST API 的規則還沒寫，等真實 log 樣本**（SECS 屬工廠，之後再做，見 [factory-later.md](../factory-later.md)）。
 
-## 現況與待辦（階段一：收值、格式、欄位；階段二：清洗與打標）
+## 現況與待辦（①收值、②清資料、③存）
 
-**階段一 ✅ 大致完成**
+**已完成 ✅**
 
 | 項目 | 狀態 |
 |---|---|
@@ -20,21 +20,21 @@ log 和 metrics 用同一個 Collector（[metrics/README.md](../metrics/README.m
 | 統一欄位：`service.name`、`log.level`、`trace.id`、時間（UTC） | ✅ |
 | 去重複（內容指紋當 `_id`）、斷線先寫磁碟再補送 | ✅ |
 
-**階段一的小尾巴**
+**已完成的部分，還差一點**
 
 | 項目 | 要做的 |
 |---|---|
-| 欄位路徑跟 metrics、trace 不一致 | log 是 `service.name`（平的），metrics、trace 是 `resource.attributes.service.name`。log 補別名欄位，三種資料用同一個路徑查 |
-| REST API 的解析規則 | 需要兩三個服務的真實 log 樣本 |
-| 保留天數 | ✅ 原文 30 天；另外每 5 分鐘統計各服務 × level × `error.type` 的筆數，留 400 天（[retention.md](../retention.md)） |
+| ② 欄位路徑跟 metrics、trace 不一致 | log 是 `service.name`（平的），metrics、trace 是 `resource.attributes.service.name`。log 補別名欄位，三種資料用同一個路徑查 |
+| ② REST API 的解析規則 | 需要兩三個服務的真實 log 樣本 |
+| ③ 保留天數 | ✅ 原文 30 天；另外每 5 分鐘統計各服務 × level × `error.type` 的筆數，留 400 天（[retention.md](../retention.md)） |
 
-**階段二：要做的**
+**要做的（②清資料）**
 
 | 項目 | 內容 | 驗收 |
 |---|---|---|
-| 收資料延遲（時間對齊） | 記「事件時間」和「Collector 收到的時間」，算延遲分佈；延遲 > 1 分鐘報 warning。Collector 卡住、ES 慢時，看起來會像流量掉 | 停掉 ES 一段時間再恢復，延遲規則會報、恢復後消失 |
-| 時區規範（時間對齊） | 所有系統寫 UTC 或帶時區的 ISO 8601；沒帶時區的 log 依主機所在地時區解讀，並確認中央 pipeline 的預設 | 規範寫進應用標準 |
-| 從 log 抽業務 ID | 中央 pipeline 依格式把 `txnId=…`、`orderNo: …` 抽成標準欄位，舊系統不用改（業務 ID 的完整規劃見 [trace/README.md「業務 ID」](../trace/README.md#業務-id服務層)） | 舊服務的 log 查得到交易 ID |
+| ② 收資料延遲（時間對齊） | 記「事件時間」和「Collector 收到的時間」，算延遲分佈；延遲 > 1 分鐘報 warning。Collector 卡住、ES 慢時，看起來會像流量掉 | 停掉 ES 一段時間再恢復，延遲規則會報、恢復後消失 |
+| ② 時區規範（時間對齊） | 所有系統寫 UTC 或帶時區的 ISO 8601；沒帶時區的 log 依主機所在地時區解讀，並確認中央 pipeline 的預設 | 規範寫進應用標準 |
+| ② 從 log 抽業務 ID | 中央 pipeline 依格式把 `txnId=…`、`orderNo: …` 抽成標準欄位，舊系統不用改（業務 ID 的完整規劃見 [trace/README.md「業務 ID」](../trace/README.md#業務-id服務層)） | 舊服務的 log 查得到交易 ID |
 
 ## 資料怎麼走
 

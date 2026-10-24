@@ -4,9 +4,9 @@
 
 log 也由同一個 Collector 收（[log/README.md](../log/README.md)）：分部門的規則只有一份（`common.yaml` 的 `transform/group`，log 和 metrics 共用）、key 也共用，同一個 Pod 的 log 和 metrics 一定落在同一個 group。
 
-## 現況與待辦（階段一：收值、格式、欄位；階段二：清洗與打標）
+## 現況與待辦（①收值、②清資料、③存）
 
-**階段一 ✅ 大致完成**
+**已完成 ✅**
 
 | 項目 | 狀態 |
 |---|---|
@@ -16,20 +16,20 @@ log 也由同一個 Collector 收（[log/README.md](../log/README.md)）：分�
 | 外部系統：kafka_exporter | ✅ |
 | 寫進 ES 的時序資料流（TSDS），重送不重複 | ✅ |
 
-**階段一的小尾巴**
+**已完成的部分，還差一點**
 
 | 項目 | 要做的 |
 |---|---|
-| 指標名稱不一致 | Java（Prometheus 格式）是 `http_server_request_duration_seconds`、`http_route`、狀態碼字串；.NET（OTLP）是 `http.server.request.duration`、`http.route`、狀態碼數字。目前靠 baseline 設定的 `variants` 在查詢時對應。改成 Collector 把 Java 的名稱轉成 OTel 名稱、狀態碼轉數字，之後拿掉 `variants` |
-| .NET 還沒驗證的 | SQL Server（SqlClient）連線池指標、.NET 6、Alpine（musl）image（[metrics/dotnet.md](dotnet.md)） |
-| 保留天數 | ✅ 原始 14 天 → 5 分鐘一點 → 第 90 天 1 小時一點 → 第 400 天刪；降解析度後直方圖照樣保留（[retention.md](../retention.md)） |
+| ② 指標名稱不一致 | Java（Prometheus 格式）是 `http_server_request_duration_seconds`、`http_route`、狀態碼字串；.NET（OTLP）是 `http.server.request.duration`、`http.route`、狀態碼數字。目前靠 baseline 設定的 `variants` 在查詢時對應。改成 Collector 把 Java 的名稱轉成 OTel 名稱、狀態碼轉數字，之後拿掉 `variants` |
+| ① .NET 還沒驗證的 | SQL Server（SqlClient）連線池指標、.NET 6、Alpine（musl）image（[metrics/dotnet.md](dotnet.md)） |
+| ③ 保留天數 | ✅ 原始 14 天 → 5 分鐘一點 → 第 90 天 1 小時一點 → 第 400 天刪；降解析度後直方圖照樣保留（[retention.md](../retention.md)） |
 
-**階段二：要做的**
+**要做的（①收值、②清資料）**
 
 | 項目 | 內容 | 驗收 |
 |---|---|---|
-| 主機時鐘監控（時間對齊） | K8s 節點、DB 主機：node_exporter 的時間偏移（`node_timex_offset_seconds`）；規則：偏移 > 100ms warning、> 1 秒 critical。根因分析靠「誰先變壞」排順序，時鐘差 1 秒順序就可能顛倒 | 每台主機都有偏移值，故意調偏一台會報 |
-| 業務 ID 不放 metrics | 交易 ID、單號只放 log、trace；放進 metrics 每個值一條新序列，序列數會爆炸 | 資料品質檢查會報序列數暴增（[rca/README.md「髒資料排除」](../rca/README.md#髒資料排除)） |
+| ① 主機時鐘監控（時間對齊；規則在 ④判斷） | K8s 節點、DB 主機：node_exporter 的時間偏移（`node_timex_offset_seconds`）；規則：偏移 > 100ms warning、> 1 秒 critical。根因分析靠「誰先變壞」排順序，時鐘差 1 秒順序就可能顛倒 | 每台主機都有偏移值，故意調偏一台會報 |
+| ② 業務 ID 不放 metrics | 交易 ID、單號只放 log、trace；放進 metrics 每個值一條新序列，序列數會爆炸 | 資料品質檢查會報序列數暴增（[rca/README.md「髒資料排除」](../rca/README.md#髒資料排除)） |
 
 ## 資料怎麼走
 

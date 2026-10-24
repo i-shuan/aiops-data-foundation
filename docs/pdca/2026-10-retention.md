@@ -1,6 +1,7 @@
 # 保留天數（2026-10）
 
 **狀態**：已實作、已合進 master　　**日期**：2026-10-13　　**相關**：commit `3a38430`、`187d1c8`、[retention.md](../retention.md)
+**模組**：③ 存
 
 > 這份是我讀 commit 與 diff 整理的，沒有重跑它的測試；「Check」欄的結果來自 commit 說明與 [retention.md](../retention.md)。
 
@@ -36,9 +37,9 @@
 
 | 沒改善的 | 在什麼情況下發現的 | 影響 | 後續 |
 |---|---|---|---|
-| trace baseline 合併後會讀到「全留的壞 trace」 | 檢視這個分支時，發現 trace baseline 讀 `traces-*.otel-*`，而 `traces-problem` 也符合 | baseline 的樣本偏向異常，平常值被拉歪 | **合併時已改**：`aiops/baseline/trace.yaml` 的 `traces_index` 改成 `traces-generic.otel-*`。只改了正式設定，**沒用真實資料驗證**；k3s 測試用的 `aiops/tests/trace_k3s.yaml` 沒動，也沒重跑 |
-| 隨機 trace 只留 7 天，trace baseline 設定 `min_weeks: 2` | 對照 `aiops/baseline/trace.yaml` | 若要學「同星期幾」的樣式，7 天不夠 | 確認 trace baseline 實際要幾天 |
-| metrics 降成 5 分鐘後，30 秒粒度的 baseline 只剩 `fine_history: 14d` | 對照 `series.yaml` | 兩個數字要一起維護，只改一個會出問題 | 文件註明；改任一邊時同步檢查 |
+| [④] trace baseline 合併後會讀到「全留的壞 trace」 | 檢視這個分支時，發現 trace baseline 讀 `traces-*.otel-*`，而 `traces-problem` 也符合 | baseline 的樣本偏向異常，平常值被拉歪 | **合併時已改**：`aiops/baseline/trace.yaml` 的 `traces_index` 改成 `traces-generic.otel-*`。只改了正式設定，**沒用真實資料驗證**；k3s 測試用的 `aiops/tests/trace_k3s.yaml` 沒動，也沒重跑 |
+| [④] 隨機 trace 只留 7 天，trace baseline 設定 `min_weeks: 2` | 對照 `aiops/baseline/trace.yaml` | 若要學「同星期幾」的樣式，7 天不夠 | 確認 trace baseline 實際要幾天 |
+| [④] metrics 降成 5 分鐘後，30 秒粒度的 baseline 只剩 `fine_history: 14d` | 對照 `series.yaml` | 兩個數字要一起維護，只改一個會出問題 | 文件註明；改任一邊時同步檢查 |
 | log 的 `max_primary_shard_size` 寫死 30gb，其他政策用 `retention.conf` 的 50gb | 讀 diff | 設定不一致 | 統一進 `retention.conf` |
 | `traces-problem` 的 template 是從內建 `traces-otel@template` 複製出來的 | 讀 `elasticsearch-setup.sh` | ES 升級後內建組成改了，要重跑腳本才會跟上 | README 註明 |
 | 天數是暫定值 | [retention.md](../retention.md) | 容量可能不夠或浪費 | 用正式環境的量重算 |

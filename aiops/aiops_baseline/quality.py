@@ -51,9 +51,9 @@ def eval_cardinality(now: pd.DataFrame, ref: pd.DataFrame | None, keys: list[str
     """now、ref：keys + ["values"]（不同值的個數）；now 另有 "examples"（抽樣的值）。
 
     觸發（任一）：
-      ① values ≥ max_values（有設才看）
-      ② 跟 ref 比 ≥ ratio 倍，而且多了 ≥ min_increase 個（ref 沒有這個對象時，當成從 0 開始）
-      ③ 抽樣的值裡 ≥ id_share_min 像帶了 ID，而且 values ≥ min_increase（少數幾個不算）
+      (1) values ≥ max_values（有設才看）
+      (2) 跟 ref 比 ≥ ratio 倍，而且多了 ≥ min_increase 個（ref 沒有這個對象時，當成從 0 開始）
+      (3) 抽樣的值裡 ≥ id_share_min 像帶了 ID，而且 values ≥ min_increase（少數幾個不算）
     """
     before = _ref_of(ref, keys, "values")
     hits = []
