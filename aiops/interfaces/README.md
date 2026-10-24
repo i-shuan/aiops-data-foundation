@@ -14,8 +14,10 @@
 | provider | 設定 | 說明 |
 |---|---|---|
 | `file` | `path` | 讀本機 JSON |
-| `http` | `url`、`headers`、`timeout` | GET 一個 URL，回傳同樣格式的 JSON |
-| `taiwan`（只有 calendar） | `years`、`url`、`cache_dir` | 抓台灣的行事曆（[TaiwanCalendar](https://github.com/ruyut/TaiwanCalendar)，每年一個 JSON）。放假的日子（國定假日、補假、彈性放假、春節）和補班日各一筆；週六日不列（baseline 本來就依星期幾學）。`years` 不寫就是今年和明年，明年還沒公告（404）就略過；抓失敗用 `cache_dir` 的快取，都沒有就是沒有行事曆 |
+| `http` | `url`、`headers`、`timeout`、`cache_ttl`、`cache_dir` | GET 一個 URL，回傳同樣格式的 JSON |
+| `taiwan`（只有 calendar） | `years`、`url`、`cache_ttl`、`cache_dir` | 抓台灣的行事曆（[TaiwanCalendar](https://github.com/ruyut/TaiwanCalendar)，每年一個 JSON）。放假的日子（國定假日、補假、彈性放假、春節）和補班日各一筆；週六日不列（baseline 本來就依星期幾學）。`years` 不寫就是今年和明年，明年還沒公告（404）就略過 |
+
+**快取**（`http`、`taiwan`）：`detect` 每 30 秒跑一次、每次都讀調整，不能每次打網路。所以抓到的結果存在 `cache_dir`（`taiwan` 預設 `.cache/calendar`，`http` 預設 `.cache/http`），`cache_ttl`（預設 `24h`）內不重抓；對方說沒有（404）也記下來，`cache_ttl` 內不再問。抓失敗時用上次的快取（不論多舊），都沒有就當作沒有，不讓指令掛掉。`cache_ttl: 0` 是每次都抓。
 
 ## owners 的格式
 

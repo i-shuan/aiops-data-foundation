@@ -18,7 +18,7 @@ timezone: Asia/Taipei
 # 某個來源失敗只印警告、不擋訓練。
 sources:
   # 台灣行事曆（https://github.com/ruyut/TaiwanCalendar）：國定假日、補假、彈性放假、春節，以及補班日。
-  # years 不寫就是今年和明年；明年還沒公告就略過。抓失敗時用 .cache/calendar 的快取。
+  # years 不寫就是今年和明年；明年還沒公告就略過。結果存在 .cache/calendar，24 小時內不重抓（cache_ttl）；抓失敗時用快取。
   - provider: taiwan
     # years: [2026, 2027]
     # cache_dir: .cache/calendar

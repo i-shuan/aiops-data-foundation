@@ -509,7 +509,7 @@ python3 -m aiops_baseline chronic --config baseline/chronic.yaml   # 每週一�
 
 **資料來源**：負責人（`owners`）和行事曆（`calendar`）是要別人提供的資料，程式只認格式，來源可以換（`file`、`http`，行事曆另有 `taiwan`）。**接口**在 [aiops_baseline/sources.py](../aiops_baseline/sources.py) 和 [interfaces/](../interfaces/README.md)，**假資料**在 [fake-data/](../fake-data/README.md)，兩邊分開；換成真的只改設定。
 
-**行事曆**：國定假日、維護日、大型活動，寫在 [calendar.yaml](calendar.yaml)；假日用 `taiwan` provider 直接抓（[TaiwanCalendar](https://github.com/ruyut/TaiwanCalendar)），不用每年手動填。每一筆變成 `exclude_window`：預設不學也不報；`detect: true` 時只是不學、照常判斷（例如活動日流量本來就高）。日期是當地的一整天（`date`），或一段（`start`、`end`，可帶時間）。補班日（週六上班）也列入：用「週六」的 baseline 比會誤報，所以也不學、不判斷。抓失敗用 `.cache/calendar` 的快取，都沒有就是沒有行事曆，不擋訓練。`adjust list` 會一起列出。
+**行事曆**：國定假日、維護日、大型活動，寫在 [calendar.yaml](calendar.yaml)；假日用 `taiwan` provider 直接抓（[TaiwanCalendar](https://github.com/ruyut/TaiwanCalendar)），不用每年手動填。每一筆變成 `exclude_window`：預設不學也不報；`detect: true` 時只是不學、照常判斷（例如活動日流量本來就高）。日期是當地的一整天（`date`），或一段（`start`、`end`，可帶時間）。補班日（週六上班）也列入：用「週六」的 baseline 比會誤報，所以也不學、不判斷。抓到的結果存在 `.cache/calendar`，24 小時內不重抓（`detect` 每 30 秒跑一次，不能每次打網路）；抓失敗用快取，都沒有就是沒有行事曆，不擋訓練。`adjust list` 會一起列出。
 
 **實測**（2026-10-24，ES 9.5.5）：
 

@@ -61,11 +61,13 @@ class TaiwanCalendar(unittest.TestCase):
             self.assertEqual(len(got), 3)
             self.assertEqual(len(calls), 2)
             self.assertTrue(os.path.exists(os.path.join(d, "taiwan-2026.json")))
-            self.assertFalse(os.path.exists(os.path.join(d, "taiwan-2027.json")))   # 404 不寫快取
+            self.assertFalse(os.path.exists(os.path.join(d, "taiwan-2027.json")))   # 404 不當成資料存
 
-    def test_network_failure_uses_cache(self):
+    def test_network_failure_uses_cache_even_if_old(self):
         with tempfile.TemporaryDirectory() as d:
             S.taiwan_calendar([2026], cache_dir=d, fetch=fetcher({2026: YEAR_2026}))
+            old = os.path.join(d, "taiwan-2026.json")
+            os.utime(old, (0, 0))   # 很舊的快取：過期了，會去抓；抓失敗就用它
             got = S.taiwan_calendar([2026], cache_dir=d, fetch=fetcher({2026: "boom"}))
             self.assertEqual(len(got), 3)
 
@@ -73,12 +75,53 @@ class TaiwanCalendar(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             self.assertEqual(S.taiwan_calendar([2026], cache_dir=d, fetch=fetcher({2026: "boom"})), [])
 
+    def test_fresh_cache_means_no_network(self):
+        # detect 每 30 秒跑一次：快取還新鮮就不能再打網路
+        with tempfile.TemporaryDirectory() as d:
+            calls = []
+            S.taiwan_calendar([2026], cache_dir=d, fetch=fetcher({2026: YEAR_2026}, calls))
+            for _ in range(5):
+                got = S.taiwan_calendar([2026], cache_dir=d, fetch=fetcher({2026: YEAR_2026}, calls))
+            self.assertEqual((len(calls), len(got)), (1, 3))
+
+    def test_expired_cache_refetches(self):
+        with tempfile.TemporaryDirectory() as d:
+            calls = []
+            S.taiwan_calendar([2026], cache_dir=d, fetch=fetcher({2026: YEAR_2026}, calls))
+            os.utime(os.path.join(d, "taiwan-2026.json"), (0, 0))
+            S.taiwan_calendar([2026], cache_dir=d, fetch=fetcher({2026: YEAR_2026}, calls))
+            self.assertEqual(len(calls), 2)
+
+    def test_ttl_zero_always_fetches(self):
+        with tempfile.TemporaryDirectory() as d:
+            calls = []
+            for _ in range(3):
+                S.taiwan_calendar([2026], cache_dir=d, ttl=0, fetch=fetcher({2026: YEAR_2026}, calls))
+            self.assertEqual(len(calls), 3)
+
+    def test_year_not_published_is_not_asked_every_time(self):
+        with tempfile.TemporaryDirectory() as d:
+            calls = []
+            for _ in range(4):
+                S.taiwan_calendar([2028], cache_dir=d, fetch=fetcher({}, calls))
+            self.assertEqual(len(calls), 1)   # 404 也記下來，ttl 內不再問
+
+    def test_year_published_later_is_picked_up_after_ttl(self):
+        with tempfile.TemporaryDirectory() as d:
+            self.assertEqual(S.taiwan_calendar([2028], cache_dir=d, fetch=fetcher({})), [])
+            os.utime(os.path.join(d, "taiwan-2028.json.missing"), (0, 0))
+            self.assertEqual(len(S.taiwan_calendar([2028], cache_dir=d, fetch=fetcher({2028: YEAR_2026}))), 3)
+            self.assertFalse(os.path.exists(os.path.join(d, "taiwan-2028.json.missing")))
+
     def test_default_years_this_and_next(self):
         calls = []
         entries, _ = S.load_calendar({"sources": [{"provider": "taiwan", "cache_dir": None}]},
                                      fetch=fetcher({}, calls), now=NOW)
         self.assertEqual([c.rsplit("/", 1)[1] for c in calls], ["2026.json", "2027.json"])
         self.assertEqual(entries, [])
+
+    def test_ttl_parse(self):
+        self.assertEqual([S._ttl_seconds(x) for x in ("24h", "30m", "1d", "90s", 0, 5)], [86400, 1800, 86400, 90, 0, 5])
 
 
 class LoadCalendar(unittest.TestCase):
@@ -92,7 +135,7 @@ class LoadCalendar(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             f = self.write(d, "c.json", {"calendar": [{"date": "2099-01-01", "name": "假"}]})
             cfg = {"timezone": "Asia/Taipei", "calendar": [{"date": "2026-11-11", "name": "活動"}],
-                   "sources": [{"provider": "file", "path": f}, {"provider": "http", "url": "http://x/c.json"},
+                   "sources": [{"provider": "file", "path": f}, {"provider": "http", "url": "http://x/c.json", "cache_dir": None},
                                {"provider": "taiwan", "years": [2026], "cache_dir": None}]}
             http = {"http://x/c.json": [{"date": "2030-01-01", "name": "http"}]}   # 直接回傳陣列也可以
 
@@ -130,6 +173,20 @@ class LoadCalendar(unittest.TestCase):
             self.assertEqual([(a["kind"], a["source"]) for a in got], [("exclude_window", "calendar")])
 
 
+class HttpProviderCache(unittest.TestCase):
+    def test_http_source_is_cached(self):
+        with tempfile.TemporaryDirectory() as d:
+            calls = []
+            cfg = {"sources": [{"provider": "http", "url": "http://x/c.json", "cache_dir": d}]}
+
+            def fetch(url, headers=None, timeout=20):
+                calls.append(url)
+                return {"calendar": [{"date": "2099-01-01", "name": "x"}]}
+            for _ in range(3):
+                entries, _tz = S.load_calendar(cfg, fetch=fetch)
+            self.assertEqual((len(calls), len(entries)), (1, 1))
+
+
 class LoadOwners(unittest.TestCase):
     def test_inline_first_then_sources(self):
         with tempfile.TemporaryDirectory() as d:
@@ -137,7 +194,7 @@ class LoadOwners(unittest.TestCase):
             with open(p, "w", encoding="utf-8") as f:
                 json.dump({"owners": [{"match": {"service": "^mes-"}, "owner": "檔案"}]}, f)
             cfg = {"owners": [{"match": {"service": "^mes-api$"}, "owner": "直接寫"}],
-                   "owners_source": [{"provider": "file", "path": p}, {"provider": "http", "url": "http://x/o"}]}
+                   "owners_source": [{"provider": "file", "path": p}, {"provider": "http", "url": "http://x/o", "cache_dir": None}]}
             got = S.load_owners(cfg, fetch=lambda url, headers=None, timeout=20: [{"match": {}, "owner": "http"}])
             self.assertEqual([o["owner"] for o in got], ["直接寫", "檔案", "http"])
 

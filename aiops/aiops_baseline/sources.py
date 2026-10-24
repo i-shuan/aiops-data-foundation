@@ -12,8 +12,10 @@
   http     GET 一個 URL，回傳同樣格式的 JSON：url（可帶 headers、timeout）
   taiwan   （只有 calendar）抓台灣的行事曆 https://github.com/ruyut/TaiwanCalendar ：每年一個 JSON，
            放假的日子（國定假日、補假、彈性放假、春節…）和補班日各變成一筆；週六日不列（baseline 本來就依星期幾學）。
-           years 不寫就是今年和明年；明年的還沒公告時（404）略過。抓失敗時用上次的快取（cache_dir），都沒有就空的，
-           不讓行事曆壞掉擋住訓練。
+           years 不寫就是今年和明年；明年的還沒公告時（404）略過。
+
+http 和 taiwan 都帶快取（cache_ttl，預設 24h）：detect 每 30 秒跑一次、每次都讀調整，不能每次都打網路。
+抓失敗時用上次的快取（不論多舊），都沒有就空的，不讓行事曆壞掉擋住訓練。
 
 多個來源的結果合在一起；某個來源失敗只印警告，不讓整個指令掛掉（行事曆、負責人是輔助資訊）。
 """
@@ -22,6 +24,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import time
 
 import pandas as pd
 
@@ -67,30 +70,61 @@ def parse_taiwan(days: list[dict]) -> list[dict]:
     return out
 
 
+def _ttl_seconds(v) -> float:
+    """"24h"、"30m"、"1d"、秒數 → 秒。0 表示不用快取、每次都抓。"""
+    if isinstance(v, (int, float)):
+        return float(v)
+    n, unit = float(str(v)[:-1]), str(v)[-1]
+    return n * {"s": 1, "m": 60, "h": 3600, "d": 86400}[unit]
+
+
+def cached_fetch(fetch, url: str, cache_path: str | None, ttl: float = 86400, headers: dict | None = None,
+                 timeout: float = 20, *, label: str = ""):
+    """抓 url，帶快取：快取還新鮮（ttl 秒內）就不連網路。回傳 JSON；None 表示對方說沒有（404），也記下來 ttl 內不再問。
+
+    為什麼要：detect 每 30 秒跑一次，每次都會讀調整（含行事曆）。行事曆一天變不了幾次，不能每 30 秒打一次網路。
+    抓失敗（網路、5xx）時用舊的快取（不論多舊）；都沒有就回 []，不讓行事曆、負責人壞掉擋住訓練。
+    """
+    missing = cache_path + ".missing" if cache_path else None
+
+    def fresh(path):
+        return bool(path) and ttl > 0 and os.path.exists(path) and time.time() - os.path.getmtime(path) < ttl
+    if fresh(cache_path):
+        return _file_json(cache_path)
+    if fresh(missing):
+        return None
+    try:
+        data = fetch(url, headers, timeout)
+    except Exception as e:   # 網路、DNS、5xx
+        if cache_path and os.path.exists(cache_path):
+            _warn(f"{label or url} 抓不到（{type(e).__name__}），用快取 {cache_path}")
+            return _file_json(cache_path)
+        _warn(f"{label or url} 抓不到（{type(e).__name__}），也沒有快取：先當作沒有")
+        return []
+    if data is None:
+        if missing:
+            os.makedirs(os.path.dirname(missing), exist_ok=True)
+            open(missing, "w").close()
+        return None
+    if cache_path:
+        os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+        with open(cache_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False)
+        if os.path.exists(missing):
+            os.remove(missing)
+    return data
+
+
 def taiwan_calendar(years: list[int], *, url: str = TAIWAN_URL, cache_dir: str | None = ".cache/calendar",
-                    fetch=_http_json) -> list[dict]:
-    """抓指定年份。fetch(url) 回 None 表示那一年還沒有（404）；丟例外表示抓失敗（用快取）。"""
+                    ttl: float = 86400, fetch=_http_json) -> list[dict]:
+    """抓指定年份。快取 ttl 秒內不重抓；該年還沒公告（404）就略過。"""
     out = []
     for y in years:
-        cache = os.path.join(cache_dir, f"taiwan-{y}.json") if cache_dir else None
-        try:
-            data = fetch(url.format(year=y))
-        except Exception as e:   # 網路、DNS、5xx
-            data = None
-            if cache and os.path.exists(cache):
-                _warn(f"台灣行事曆 {y} 抓不到（{type(e).__name__}），用快取 {cache}")
-                data = _file_json(cache)
-            else:
-                _warn(f"台灣行事曆 {y} 抓不到（{type(e).__name__}），也沒有快取：這一年沒有行事曆")
-            out += parse_taiwan(data or [])
-            continue
+        data = cached_fetch(fetch, url.format(year=y), os.path.join(cache_dir, f"taiwan-{y}.json") if cache_dir else None,
+                            ttl, label=f"台灣行事曆 {y}")
         if data is None:
             _warn(f"台灣行事曆 {y} 還沒公告（404），略過")
             continue
-        if cache:
-            os.makedirs(cache_dir, exist_ok=True)
-            with open(cache, "w", encoding="utf-8") as f:
-                json.dump(data, f, ensure_ascii=False)
         out += parse_taiwan(data)
     return out
 
@@ -102,6 +136,15 @@ def _years(src: dict, now: pd.Timestamp | None = None) -> list[int]:
         return [int(y) for y in src["years"]]
     y = (now or pd.Timestamp.now(tz="UTC")).year
     return [y, y + 1]
+
+
+def _http_source(src: dict, fetch) -> object:
+    """provider: http。帶快取（cache_ttl，預設 24h；cache_dir 預設 .cache/http）。"""
+    import hashlib
+    d = src.get("cache_dir", ".cache/http")
+    path = os.path.join(d, hashlib.sha1(src["url"].encode()).hexdigest()[:16] + ".json") if d else None
+    return cached_fetch(fetch, src["url"], path, _ttl_seconds(src.get("cache_ttl", "24h")), src.get("headers"),
+                        src.get("timeout", 20), label=src["url"])
 
 
 def load_calendar(cfg: dict, *, fetch=_http_json, now: pd.Timestamp | None = None) -> tuple[list[dict], str | None]:
@@ -117,11 +160,12 @@ def load_calendar(cfg: dict, *, fetch=_http_json, now: pd.Timestamp | None = Non
                 data = _file_json(src["path"])
                 entries += data.get("calendar", []) if isinstance(data, dict) else data
             elif p == "http":
-                data = fetch(src["url"], src.get("headers"), src.get("timeout", 20))
+                data = _http_source(src, fetch)
                 entries += (data or {}).get("calendar", []) if isinstance(data, dict) else (data or [])
             elif p == "taiwan":
                 entries += taiwan_calendar(_years(src, now), url=src.get("url", TAIWAN_URL),
-                                           cache_dir=src.get("cache_dir", ".cache/calendar"), fetch=fetch)
+                                           cache_dir=src.get("cache_dir", ".cache/calendar"),
+                                           ttl=_ttl_seconds(src.get("cache_ttl", "24h")), fetch=fetch)
             else:
                 raise ValueError(f"不認得的 provider：{p}")
         except Exception as e:
@@ -139,7 +183,7 @@ def load_owners(cfg: dict, *, fetch=_http_json) -> list[dict]:
             if p == "file":
                 data = _file_json(src["path"])
             elif p == "http":
-                data = fetch(src["url"], src.get("headers"), src.get("timeout", 20))
+                data = _http_source(src, fetch)
             else:
                 raise ValueError(f"不認得的 provider：{p}")
             out += (data or {}).get("owners", []) if isinstance(data, dict) else (data or [])
