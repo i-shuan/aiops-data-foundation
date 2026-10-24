@@ -13,7 +13,8 @@
           "logger": {"type": "keyword"},
           "format": {"type": "keyword"},
           "parser": {"type": "keyword"},
-          "level_inferred": {"type": "boolean"}
+          "level_inferred": {"type": "boolean"},
+          "timestamp_source": {"type": "keyword"}
         }},
         "process": {"properties": {
           "thread": {"properties": {"name": {"type": "keyword"}}}
@@ -52,7 +53,7 @@
         }},
 
         "app": {"type": "flattened"},
-        "event": {"properties": {"ingested": {"type": "date"}}}
+        "event": {"properties": {"ingested": {"type": "date"}, "created": {"type": "date"}, "timezone": {"type": "keyword"}}}
       }
     }
   },

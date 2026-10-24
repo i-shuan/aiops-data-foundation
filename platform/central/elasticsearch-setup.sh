@@ -63,14 +63,19 @@ put_json() {
 tmp_dir="$(mktemp -d)"
 trap 'rm -rf "${tmp_dir}"' EXIT
 
-# pipeline 的 JSON 裡 "__SCRIPT__" 換成同名 .painless 的內容（沒有 .painless 就原樣送出）
+# 應用 log 的時間沒帶時區時，當成哪個時區（中央 pipeline 的 date processor）。各 cluster 不同時區的話要另外處理
+LOG_DEFAULT_TIMEZONE="${LOG_DEFAULT_TIMEZONE:-Asia/Taipei}"
+
+# pipeline 的 JSON 裡 "__SCRIPT__" 換成同名 .painless 的內容（沒有 .painless 就原樣送出）；
+# "__TZ_SCRIPT__" 換成 pipeline-tz.painless；"__LOG_DEFAULT_TIMEZONE__" 換成上面的時區
 put_pipeline() {
   local name="$1" json="$2" painless="${2%.json}.painless" out="${tmp_dir}/$1.json"
-  if [[ -f "${painless}" ]]; then
-    jq --rawfile src "${painless}" 'walk(if . == "__SCRIPT__" then $src else . end)' "${json}" > "${out}"
-  else
-    cp "${json}" "${out}"
-  fi
+  local tz_script="elasticsearch/pipeline-tz.painless"
+  local src=""
+  [[ -f "${painless}" ]] && src="$(cat "${painless}")"
+  jq --arg src "${src}" --rawfile tzsrc "${tz_script}" --arg tz "${LOG_DEFAULT_TIMEZONE}" \
+    'walk(if . == "__SCRIPT__" and $src != "" then $src elif . == "__TZ_SCRIPT__" then $tzsrc
+          elif . == "__LOG_DEFAULT_TIMEZONE__" then $tz else . end)' "${json}" > "${out}"
   put_json "/_ingest/pipeline/${name}" "${out}"
 }
 

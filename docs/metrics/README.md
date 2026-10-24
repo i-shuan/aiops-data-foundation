@@ -28,7 +28,7 @@ log 也由同一個 Collector 收（[log/README.md](../log/README.md)）：分�
 
 | 項目 | 內容 | 驗收 |
 |---|---|---|
-| ① 主機時鐘監控（時間對齊；規則在 ④判斷） | K8s 節點、DB 主機：node_exporter 的時間偏移（`node_timex_offset_seconds`）；規則：偏移 > 100ms warning、> 1 秒 critical。根因分析靠「誰先變壞」排順序，時鐘差 1 秒順序就可能顛倒 | 每台主機都有偏移值，故意調偏一台會報 |
+| ① 主機時鐘監控（時間對齊；規則在 ④判斷） | ✅ K8s 節點：node Collector 的 `ntp` receiver（不用 node_exporter），30 分鐘量一次（receiver 的最短間隔），寫 `metrics-ntpreceiver.otel-*` 的 `metrics.ntp.offset`（奈秒）；規則 `node.clock_offset`：快慢超過 100ms warning、超過 1 秒 critical。📝 DB 主機（不在 K8s 裡）還沒有。`NTP_SERVER` 要填公司的 NTP。[PDCA](../pdca/2026-10-time-alignment.md) | 實測：假 NTP 伺服器快 2.5 秒、慢 0.3 秒、差 0.05 秒，三台分別報 critical、warning、不報 |
 | ② 業務 ID 不放 metrics | 交易 ID、單號只放 log、trace；放進 metrics 每個值一條新序列，序列數會爆炸 | 資料品質檢查會報序列數暴增（[rca/README.md「髒資料排除」](../rca/README.md#髒資料排除)） |
 
 ## 資料怎麼走

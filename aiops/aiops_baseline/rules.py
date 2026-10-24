@@ -15,6 +15,8 @@ join：分母在另一種文件時（例如連線池「使用中」和「上限�
 
 for：要「這段時間都成立」才算（例如副本不夠 3 分鐘，避免換版滾動時的短暫不足）。0 表示最新一個點成立就算。
 fresh：最新的點要在這段時間內，不然當成對象已經不在了（預設 2m）。
+lookback：這條規則讀最近多久的資料（預設用 rules.yaml 的 lookback）。很久才收一次的（主機時鐘 30 分鐘一次）要調長。
+abs: true：type value 取絕對值再比（時鐘偏移：快、慢都不對）。
 report_gone: true：對象不在了也照報（容器重啟、Job 失敗：Pod 刪掉了，重啟過就是重啟過）。
 min_ratio：這段時間裡至少多少比例的點成立（預設 1，全部）。一直重啟的服務每次會短暫起來幾十秒，
            「全部」永遠不成立；設 0.8 表示「3 分鐘裡至少 80% 的時間不夠」。
@@ -42,7 +44,7 @@ def sample_value(rule: dict, doc: dict):
         return None
     t = rule["type"]
     if t == "value":
-        return float(v)
+        return abs(float(v)) if rule.get("abs") else float(v)
     if t == "compare":
         other = get_field(doc, rule["other"])
         return None if other is None else float(other) - float(v)
@@ -174,5 +176,7 @@ def describe(rule: dict, hit: dict) -> str:
     # 比例用百分比顯示；show: number 的（例如「每核幾條執行緒」）照數字顯示。total 是次數
     pct = rule["type"] in ("ratio", "increase_ratio", "rate") and rule.get("show") != "number"
     fmt = (lambda x: f"{x:.0%}") if pct else (lambda x: f"{x:g}")
+    if rule.get("show") == "ns_as_ms":   # 奈秒的數字（主機時鐘偏移）顯示成毫秒
+        fmt = lambda x: f"{x / 1e6:,.0f} 毫秒"
     who = "、".join(str(k) for k in hit["key"] if k is not None)
     return f"{rule['title']}：{who}（{fmt(hit['value'])}，門檻 {rule.get('op', '>=')} {fmt(rule['threshold'])}）"

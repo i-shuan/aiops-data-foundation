@@ -9,6 +9,7 @@ configMapGenerator:
     literals:
       - CLUSTER_NAME=local
       - ES_ENDPOINT=http://elasticsearch.es-test.svc:9200
+      - NTP_SERVER=pool.ntp.org:123   # 測試機要能連外；不能的話換成區網的 NTP（沒設這個 Collector 起不來）
 images:
   - name: otel/opentelemetry-collector-contrib
     newName: docker.io/otel/opentelemetry-collector-contrib

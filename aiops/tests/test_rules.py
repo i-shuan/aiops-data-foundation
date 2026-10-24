@@ -132,5 +132,23 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(R.describe(rule, {"key": ("ns", "pod", "app"), "value": 2.0}), "容器重啟：ns、pod、app（2，門檻 >= 1）")
 
 
+class ClockOffsetTest(unittest.TestCase):
+    """主機時鐘偏移：快、慢都算（abs），奈秒顯示成毫秒。"""
+    rule = {"name": "node.clock_offset", "title": "主機時鐘偏移超過 100 毫秒", "type": "value", "abs": True,
+            "op": ">=", "threshold": 100_000_000, "show": "ns_as_ms", "field": "metrics.ntp.offset", "by": ["n"],
+            "fresh": "40m"}
+
+    def test_abs_both_directions(self):
+        from aiops_baseline import rules as R
+        self.assertEqual(R.sample_value(self.rule, {"metrics": {"ntp.offset": -300_000_000}}), 300_000_000)
+        self.assertEqual(R.sample_value({**self.rule, "abs": False}, {"metrics": {"ntp.offset": -300_000_000}}), -300_000_000)
+
+    def test_message_in_ms(self):
+        from aiops_baseline import rules as R
+        msg = R.describe(self.rule, {"key": ("node-1",), "value": 2_500_460_925})
+        self.assertIn("2,500 毫秒", msg)
+        self.assertIn("100 毫秒", msg)
+
+
 if __name__ == "__main__":
     unittest.main()
