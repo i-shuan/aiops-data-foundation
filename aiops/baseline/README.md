@@ -459,6 +459,33 @@ python3 -m aiops_baseline adjust remove  --id mes-api-v2
 | `long` 最近 40 分鐘 log 爆 10 倍 | 報 | 週期時段 `mute` → 不報；`reset_point` 後 24 小時暖機 → 不報 |
 | 舊的 `tune` 調整 | — | 照常生效，`adjust list` 一起列出 |
 
+## 慢性病清單、行事曆
+
+**慢性病清單**：天天噴錯、沒人修的。baseline 跟自己的歷史比，天天都有的錯會被學成「平常」、永遠不報，所以另外列出來讓人修。設定在 [chronic.yaml](chronic.yaml)，程式在 [aiops_baseline/chronic.py](../aiops_baseline/chronic.py)。
+
+| 來源 | 看什麼 | 算慢性病 |
+|---|---|---|
+| `chronic.log_errors` | 錯誤 log（error、fatal），依服務 × `error.type`（沒有的歸成「（無）」） | 最近 7 個完整的日子裡至少 6 天、每天至少 20 筆 |
+| `chronic.anomalies` | `aiops-anomalies` 裡的規則、跟兄弟比（N+1、吞掉的例外、CPU 被限流、只有一個 Pod 壞…） | 同一條、同一個對象，7 天裡至少 6 天觸發 |
+
+每個來源排前 10 名（天數多的先，再看量），依 `owners`（match 可用別名）附負責人，寫進 `aiops-chronic`（每週一份），並印成報告。修掉的下週自然從清單消失。
+
+```bash
+python3 -m aiops_baseline chronic --config baseline/chronic.yaml   # 每週一次（例如週一早上）
+```
+
+**行事曆**：國定假日、維護日、大型活動，寫在 [calendar.yaml](calendar.yaml)。每一筆變成 `exclude_window`：預設不學也不報；`detect: true` 時只是不學、照常判斷（例如活動日流量本來就高）。日期是當地的一整天（`date`），或一段（`start`、`end`，可帶時間）。假日每年日期不同（含補假），每年底依公司公告更新。`adjust list` 會一起列出。
+
+**實測**（2026-10-24，ES 9.5.5）：
+
+| 放進去的 | 結果 |
+|---|---|
+| `mes-api` 逾時錯誤天天 60 筆 | ✅ 列入（7 天），負責人依別名對到「MES 團隊」 |
+| `wip-worker` 7 天裡 6 天、沒有 `error.type` | ✅ 列入 |
+| `pay` 只有 2 天、`tiny` 每天 5 筆、今天（還沒過完）的 999 筆 | ✅ 都不算 |
+| N+1 規則天天觸發；CPU 限流只觸發一次 | ✅ N+1 列入、限流不列 |
+| 行事曆寫前天是假日 | ✅ `train` 排除那天（台北時間一整天）的點 |
+
 ## 資料品質檢查：資料本身怪不怪
 
 baseline 用中位數＋MAD，只擋得住「少數」怪的點。資料本身壞掉時，學出來的「平常」就是錯的，或根本學不到。這幾種壞法不用學，用規則看得出來。設定在 [quality.yaml](quality.yaml)，程式在 [aiops_baseline/quality.py](../aiops_baseline/quality.py)。每個檢查看最近 1 小時，跟 24 小時前同一段比。
@@ -506,6 +533,7 @@ python3 -m aiops_baseline train  --config baseline/series.yaml   # 每天跑一�
 python3 -m aiops_baseline detect --config baseline/series.yaml   # 每 30 秒跑一次，看最近 30 分鐘
 python3 -m aiops_baseline tune   --series ... --match ... --resolution 5m   # 調整某些對象的粒度、門檻
 python3 -m aiops_baseline quality --config baseline/quality.yaml  # 每 10 分鐘，資料品質檢查
+python3 -m aiops_baseline chronic --config baseline/chronic.yaml  # 每週一次，慢性病清單
 ```
 
 排程例子（crontab）：

@@ -8,6 +8,7 @@
   python3 -m aiops_baseline rules  --config baseline/rules.yaml  [--at …] [--only 規則,…]
   python3 -m aiops_baseline peer   --config baseline/peer.yaml   [--at …] [--only 檢查,…]
   python3 -m aiops_baseline quality --config baseline/quality.yaml [--at …] [--only 檢查,…]
+  python3 -m aiops_baseline chronic --config baseline/chronic.yaml [--at …]
 
 train ：讀過去 N 週的資料，每條序列、每個時段學出中位數與波動範圍，寫進 ES 的 aiops-baseline。
 detect：讀最近一段時間的資料，跟 baseline 比，超出範圍的寫進 aiops-anomalies，並印出來。
@@ -18,6 +19,7 @@ adjust：排除時段（事故、維護、壓測不學）、重置點（換版�
         也寫 aiops-tuning（aiops_baseline/adjust.py）。status: proposed 的要 approve 才生效。
 rules ：狀態變化、離極限多遠（不用學）。
 peer  ：跟兄弟比，同一個服務的 Pod 互相比，抓只有一個 Pod 壞掉（不用學）。
+chronic：慢性病清單（天天噴錯、沒人修的前 10 名，附負責人），每週一次；寫 aiops-chronic。
 quality：資料品質檢查（路由沒參數化、必填欄位缺、資料停了、落到 unassigned 變多），餵給 baseline 之前先看資料本身。
 --end、--at 用來回測（拿過去某個時間點當成「現在」）；不給就是現在。
 """
@@ -25,6 +27,7 @@ from __future__ import annotations
 
 import argparse
 import dataclasses
+import json
 import sys
 
 import pandas as pd
@@ -35,6 +38,7 @@ from aiops_common.es import get_field
 from .es import (ANOMALY_INDEX, ANOMALY_MAPPING, BASELINE_INDEX, BASELINE_MAPPING, ES, doc_id, fetch,
                  load_baseline, load_group_baselines, value_kind)
 from . import adjust as A
+from . import chronic as C
 from . import peer as P
 from . import quality as Q
 from . import rules as R
@@ -496,6 +500,65 @@ def cmd_adjust(cfg: dict, args) -> int:
     return 0
 
 
+# ── 慢性病清單（aiops_baseline/chronic.py、baseline/chronic.yaml）──
+
+CHRONIC_INDEX = "aiops-chronic"
+CHRONIC_MAPPING = {"mappings": {"dynamic": False, "properties": {
+    "@timestamp": {"type": "date"}, "week": {"type": "keyword"}, "source": {"type": "keyword"}, "rank": {"type": "integer"},
+    "keys": {"type": "flattened"}, "days": {"type": "integer"}, "total": {"type": "long"}, "per_day": {"type": "double"},
+    "first_day": {"type": "date"}, "last_day": {"type": "date"}, "owner": {"type": "keyword"}, "message": {"type": "text"}}}}
+
+
+def cmd_chronic(cfg: dict, args) -> int:
+    es = ES()
+    es.ensure_index(CHRONIC_INDEX, CHRONIC_MAPPING)
+    tz = cfg.get("timezone", "Asia/Taipei")
+    now = _now(args.at)
+    days = cfg.get("days", 7)
+    # 看最近 days 個「完整的日子」（當地時間）：今天還沒過完，不算
+    end = now.tz_convert(tz).normalize().tz_convert("UTC")
+    start = end - pd.Timedelta(days=days)
+    week = f"{end.tz_convert(tz) - pd.Timedelta(days=1):%G-W%V}"
+    owners = cfg.get("owners") or []
+    docs, lines = [], [f"# 慢性病清單 {week}（{start.tz_convert(tz):%m/%d}～{(end - pd.Timedelta(days=1)).tz_convert(tz):%m/%d}，"
+                       f"{days} 天裡至少 {cfg.get('min_days', 6)} 天有）", ""]
+    for src in cfg["sources"]:
+        if src["type"] == "log":
+            daily = C.fetch_log_daily(es, src, start, end, tz)
+            keys = src.get("keys") or [f.split(".")[-1] for f in src["by"]]
+        elif src["type"] == "anomalies":
+            daily = C.fetch_anomaly_daily(es, ANOMALY_INDEX, src, start, end, tz)
+            keys = ["series", "target"]
+        else:
+            raise ValueError(f"不認得的來源種類：{src['type']}")
+        found = C.find_chronic(daily, keys, min_days=src.get("min_days", cfg.get("min_days", 6)),
+                               min_per_day=src.get("min_per_day", 1), top=src.get("top", cfg.get("top", 10)))
+        lines += [f"## {src.get('title', src['name'])}（{len(found)} 個）", ""]
+        if not found.empty:
+            lines += ["| # | 對象 | 天數 | 每天約 | 共 | 負責人 |", "|---|---|---|---|---|---|"]
+        for rank, r in enumerate(found.to_dict("records"), 1):
+            if src["type"] == "anomalies":
+                target = json.loads(r["target"])
+                key = {"series": r["series"], **target}
+                who = f"{r['series']}：" + "、".join(f"{v}" for v in target.values())
+            else:
+                key = {k: _v(r[k]) for k in keys}
+                who = "、".join(str(v) if v is not None else "（無）" for v in key.values())
+            owner = C.owner_of(key, owners) or "未指定"
+            msg = C.describe(src, r, keys, days) if src["type"] == "log" else (
+                f"{src.get('title', src['name'])}：{who}，{days} 天裡 {int(r['days'])} 天有")
+            docs.append((doc_id("chronic", week, src["name"], key), {
+                "@timestamp": now.isoformat(), "week": week, "source": src["name"], "rank": rank, "keys": key,
+                "days": int(r["days"]), "total": int(r["total"]), "per_day": float(r["per_day"]),
+                "first_day": str(r["first_day"]), "last_day": str(r["last_day"]), "owner": owner, "message": msg}))
+            lines.append(f"| {rank} | {who} | {int(r['days'])} | {r['per_day']:.0f} | {int(r['total'])} | {owner} |")
+        lines.append("")
+    if docs:
+        es.bulk_index(CHRONIC_INDEX, docs)
+    print("\n".join(lines))
+    return 0
+
+
 # ── trace 每一段的 baseline（aiops_baseline/trace.py、baseline/trace.yaml）──
 
 def _metric_frame(df: pd.DataFrame, m: str) -> pd.DataFrame:
@@ -828,6 +891,9 @@ def main(argv=None) -> int:
     pe.add_argument("--config", required=True)
     pe.add_argument("--at", help="回測：拿過去某個時間點當成現在")
     pe.add_argument("--only", help="只跑這幾個（逗號分開）")
+    ch = sub.add_parser("chronic", help="慢性病清單：天天噴錯、沒人修的（每週）")
+    ch.add_argument("--config", required=True)
+    ch.add_argument("--at", help="回測：拿過去某個時間點當成現在")
     q = sub.add_parser("quality")
     q.add_argument("--config", required=True)
     q.add_argument("--at", help="回測：拿過去某個時間點當成現在")
@@ -837,7 +903,8 @@ def main(argv=None) -> int:
         cfg = yaml.safe_load(f)
     cmds = {"train": cmd_train, "detect": cmd_detect, "tune": cmd_tune, "trace-collect": cmd_trace_collect,
             "trace-train": cmd_trace_train, "trace-detect": cmd_trace_detect, "rules": cmd_rules, "peer": cmd_peer,
-            "quality": cmd_quality, "adjust": cmd_adjust}
+            "quality": cmd_quality, "adjust": cmd_adjust,
+            "chronic": cmd_chronic}
     return cmds[args.cmd](cfg, args)
 
 

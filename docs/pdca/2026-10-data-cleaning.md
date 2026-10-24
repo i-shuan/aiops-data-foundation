@@ -1,6 +1,6 @@
 # 清資料：餵給 baseline 前的資料檢查（2026-10）
 
-**狀態**：① 資料品質檢查、② 排除已知干擾已實作、實測（`quality`、`adjust` 指令），③ 還沒做　　**日期**：2026-10-23　　**相關**：[rca/README.md「髒資料排除」](../rca/README.md#髒資料排除)、`aiops/aiops_baseline/model.py`、`es.py`
+**狀態**：①②③ 都已實作、實測（`quality`、`adjust`、`chronic` 指令、`calendar.yaml`）；都還沒排程　　**日期**：2026-10-23　　**相關**：[rca/README.md「髒資料排除」](../rca/README.md#髒資料排除)、`aiops/aiops_baseline/model.py`、`es.py`
 
 **一句話**：資料進來時已經洗過（可信、不重複、格式統一）；但**拿去學「平常的樣子」之前，還沒有挑掉壞資料**，壞習慣、事故、壓測、假日都會被學成正常。
 
@@ -84,3 +84,11 @@
 ## 進度：② 排除已知干擾（2026-10-23）
 
 `adjust` 指令：`exclude_window`（事故、維護、壓測不學，可選也不報）、`reset_point`（換版後只學新的）、`recurring_override`（月底批次放寬或不報）。細節見 [baseline 正式定義的進度](2026-10-baseline-definition.md#進度排除重置放寬2026-10-23)。
+
+## 進度：③ 慢性病清單、行事曆（2026-10-24）
+
+- **慢性病清單**（`chronic`，每週）：錯誤 log（服務 × `error.type`）、規則與跟兄弟比，7 天裡至少 6 天有就列，每個來源前 10 名附負責人，寫 `aiops-chronic`。
+- **行事曆**（`baseline/calendar.yaml`）：變成 `exclude_window`，預設不學也不報；沿用 ② 的機制，不另外做一套。
+- 實測見 [baseline README](../../aiops/baseline/README.md#慢性病清單行事曆)。
+- 要人做的：`calendar.yaml` 依公司公告填實際假日（含補假）；`chronic.yaml` 的 `owners` 填負責人。
+- 還沒做：排程；慢性病清單送到負責人手上（現在只寫 ES、印報告）；修好後的追蹤（例如連續幾週沒修就升級）。

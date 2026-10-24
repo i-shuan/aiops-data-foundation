@@ -9,7 +9,8 @@
   recurring_override  符合 schedule 的時段（例如每月最後一天 20:00 起 4 小時）放寬：z、min_abs 調高，或 mute 不報
 
 來源（後面蓋前面，同 id 以後面的為準）：
-  ① 設定檔：series.yaml 的 overrides、adjustments_file（預設 baseline/adjustments.yaml）── 人寫、進版控
+  ① 設定檔：series.yaml 的 overrides、adjustments_file（預設 baseline/adjustments.yaml）、
+     calendar_file（預設 baseline/calendar.yaml：國定假日、維護日、大型活動，變成不學、不判斷的 exclude_window）── 人寫、進版控
   ② ES 的 aiops-tuning ── tune、adjust 指令寫的；之後 learning loop（值班回饋、CI/CD）也寫這裡
 
 learning loop 的接口：status: proposed 的不生效，人用 `adjust approve` 改成 active 才生效；source 記誰寫的
@@ -244,6 +245,39 @@ def detect_filter(scored: pd.DataFrame, keys: list[str], series: str, adjs: list
     return out, int((hit & ~keep).sum())
 
 
+# ── 行事曆：國定假日、維護日、大型活動 → 不學、不判斷 ──
+
+def _local(x, tz: str, end: bool = False) -> pd.Timestamp:
+    """日期（2026-10-10）當成當地的一整天：開始是 00:00，end=True 時是隔天 00:00；有時間的（2026-11-01T02:00）照原樣。"""
+    s = str(x)
+    t = pd.Timestamp(s)
+    if t.tzinfo is None:
+        t = t.tz_localize(tz)
+    if "T" not in s and " " not in s.strip():
+        t = t.normalize() + (pd.Timedelta(days=1) if end else pd.Timedelta(0))
+    return t.tz_convert("UTC")
+
+
+def calendar_adjustments(entries: list[dict], tz: str = "Asia/Taipei") -> list[dict]:
+    """行事曆的每一天（或一段）變成 exclude_window：預設不學也不判斷（detect: false 時只是不學）。
+
+    entries：[{date: 2026-10-10, name: 國慶日, type: holiday}, {start: 2026-11-01T02:00, end: 2026-11-01T06:00,
+    name: 機房維護, type: maintenance, match: {...}}, …]。沒有 match 就是全部。
+    """
+    out = []
+    for e in entries or []:
+        start = e.get("start", e.get("date"))
+        end = e.get("end", e.get("date"))
+        if start is None or end is None:
+            raise ValueError(f"行事曆要有 date，或 start＋end：{e}")
+        out.append({"id": f"calendar:{e.get('type', 'holiday')}:{start}:{e.get('name', '')}", "kind": "exclude_window",
+                    "series": e.get("series"), "match": e.get("match"),
+                    "start": _local(start, tz).isoformat(), "end": _local(end, tz, end=True).isoformat(),
+                    "apply_to": ["train", "detect"] if e.get("detect", False) is False else ["train"],
+                    "source": "calendar", "reason": f"{e.get('type', 'holiday')}：{e.get('name', '')}"})
+    return out
+
+
 # ── 讀 ──
 
 def load(es, index: str, cfg: dict) -> list[dict]:
@@ -256,6 +290,11 @@ def load(es, index: str, cfg: dict) -> list[dict]:
     if path and os.path.exists(path):
         with open(path, encoding="utf-8") as f:
             out += (yaml.safe_load(f) or {}).get("adjustments") or []
+    cal = cfg.get("calendar_file", "baseline/calendar.yaml")
+    if cal and os.path.exists(cal):
+        with open(cal, encoding="utf-8") as f:
+            c = yaml.safe_load(f) or {}
+        out += calendar_adjustments(c.get("calendar"), c.get("timezone") or cfg.get("train", {}).get("timezone", "Asia/Taipei"))
     try:
         hits = es.req("POST", f"/{index}/_search?ignore_unavailable=true",
                       {"size": 10000, "sort": [{"at": {"order": "asc", "unmapped_type": "date"}}]}
