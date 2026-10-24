@@ -9,6 +9,8 @@
   python3 -m aiops_baseline peer   --config baseline/peer.yaml   [--at …] [--only 檢查,…]
   python3 -m aiops_baseline quality --config baseline/quality.yaml [--at …] [--only 檢查,…]
   python3 -m aiops_baseline chronic --config baseline/chronic.yaml [--at …]
+  python3 -m aiops_baseline feedback pending|add|list|summary|suggest   值班回饋（真的／誤報／根因錯／漏報）
+  python3 -m aiops_baseline incident add|list|resolve                   事故紀錄
 
 train ：讀過去 N 週的資料，每條序列、每個時段學出中位數與波動範圍，寫進 ES 的 aiops-baseline。
 detect：讀最近一段時間的資料，跟 baseline 比，超出範圍的寫進 aiops-anomalies，並印出來。
@@ -19,6 +21,8 @@ adjust：排除時段（事故、維護、壓測不學）、重置點（換版�
         也寫 aiops-tuning（aiops_baseline/adjust.py）。status: proposed 的要 approve 才生效。
 rules ：狀態變化、離極限多遠（不用學）。
 peer  ：跟兄弟比，同一個服務的 Pod 互相比，抓只有一個 Pod 壞掉（不用學）。
+feedback：值班對每筆異常的判斷，統計誤報率；誤報累積多次才提放寬門檻的建議（proposed，人核准才生效）。
+incident：事故紀錄（時間、服務、根因、處置）；--exclude-training 同時提一筆「這段不學」（proposed）。
 chronic：慢性病清單（天天噴錯、沒人修的前 10 名，附負責人），每週一次；寫 aiops-chronic。
 quality：資料品質檢查（路由沒參數化、必填欄位缺、資料停了、落到 unassigned 變多），餵給 baseline 之前先看資料本身。
 --end、--at 用來回測（拿過去某個時間點當成「現在」）；不給就是現在。
@@ -39,6 +43,7 @@ from .es import (ANOMALY_INDEX, ANOMALY_MAPPING, BASELINE_INDEX, BASELINE_MAPPIN
                  load_baseline, load_group_baselines, value_kind)
 from . import adjust as A
 from . import chronic as C
+from . import feedback as F
 from . import peer as P
 from . import quality as Q
 from . import rules as R
@@ -500,6 +505,147 @@ def cmd_adjust(cfg: dict, args) -> int:
     return 0
 
 
+# ── Check：事故紀錄、值班回饋（aiops_baseline/feedback.py）──
+
+def _anomaly_rows(es, days: int, now) -> pd.DataFrame:
+    """最近 days 天的異常（series、target、status、id、時間）。"""
+    rows, after = [], None
+    while True:
+        body = {"size": 5000, "_source": ["@timestamp", "series", "keys", "status", "severity", "level"],
+                "query": {"range": {"@timestamp": {"gte": (now - pd.Timedelta(days=days)).isoformat(), "lt": now.isoformat()}}},
+                "sort": [{"@timestamp": "asc"}, {"_doc": "asc"}]}
+        if after:
+            body["search_after"] = after
+        hits = es.req("POST", f"/{ANOMALY_INDEX}/_search?ignore_unavailable=true", body).get("hits", {}).get("hits", [])
+        rows += [{"id": h["_id"], "series": h["_source"]["series"], "target": F.target_of(h["_source"].get("keys")),
+                  # 規則、跟兄弟比、品質檢查沒有 warning／anomaly 之分，都是直接通知的
+                  "status": h["_source"].get("status") or "anomaly", "at": h["_source"]["@timestamp"]} for h in hits]
+        if len(hits) < 5000:
+            break
+        after = hits[-1]["sort"]
+    return pd.DataFrame(rows, columns=["id", "series", "target", "status", "at"])
+
+
+def _feedback_rows(es, days: int, now) -> pd.DataFrame:
+    hits = es.req("POST", f"/{F.FEEDBACK_INDEX}/_search?ignore_unavailable=true", {
+        "size": 10000, "sort": [{"@timestamp": "asc"}],
+        "query": {"range": {"@timestamp": {"gte": (now - pd.Timedelta(days=days)).isoformat()}}}}).get("hits", {}).get("hits", [])
+    return pd.DataFrame([{"series": h["_source"]["series"], "target": F.target_of(h["_source"].get("keys")),
+                          "verdict": h["_source"]["verdict"], "anomaly_id": h["_source"].get("anomaly_id"),
+                          "at": h["_source"]["@timestamp"], "by": h["_source"].get("by"), "note": h["_source"].get("note")}
+                         for h in hits], columns=["series", "target", "verdict", "anomaly_id", "at", "by", "note"])
+
+
+def cmd_feedback(cfg: dict, args) -> int:
+    es = ES()
+    es.ensure_index(F.FEEDBACK_INDEX, F.FEEDBACK_MAPPING)
+    now = _now(None)
+    days = args.days
+    if args.action == "pending":
+        a, f = _anomaly_rows(es, days, now), _feedback_rows(es, days, now)
+        done = set(f["anomaly_id"].dropna())
+        a = a[(a["status"] == "anomaly") & ~a["id"].isin(done)]
+        if args.series:
+            a = a[a["series"].str.contains(args.series)]
+        print(f"最近 {days} 天還沒人標記的異常 {len(a)} 筆（顯示最新 {args.limit} 筆）：")
+        for r in a.sort_values("at", ascending=False).head(args.limit).to_dict("records"):
+            print(f"  {r['id']}  {r['at'][:16]}  {r['series']}  {r['target']}")
+        return 0
+    if args.action == "list":
+        f = _feedback_rows(es, days, now)
+        for r in f.sort_values("at", ascending=False).head(args.limit).to_dict("records"):
+            print(f"  {r['at'][:16]}  {r['verdict']:<16}  {r['series']}  {r['target']}  ({r['by'] or '?'}) {r['note'] or ''}")
+        print(f"共 {len(f)} 筆")
+        return 0
+    if args.action == "summary":
+        a, f = _anomaly_rows(es, days, now), _feedback_rows(es, days, now)
+        print("\n".join(F.format_summary(F.summarize(a, f, min_false_positive=args.min_false_positive), days)))
+        return 0
+    if args.action == "suggest":
+        s = F.summarize(_anomaly_rows(es, days, now), _feedback_rows(es, days, now), min_false_positive=args.min_false_positive)
+        z0 = DetectOptions(**cfg.get("detect", {})).z
+        existing = {(a.get("series"), json.dumps(a.get("match"), sort_keys=True)) for a in load_adjustments(es, cfg)
+                    if (a.get("kind") or "override") == "override" and a.get("z")}
+        n = 0
+        for r in s["candidates"].to_dict("records"):
+            sug = F.suggest_override(r["series"], r["target"], r["false_positive"], z0)
+            if (sug["series"], json.dumps(sug["match"], sort_keys=True)) in existing:
+                print(f"  已經有調整或建議：{r['series']} {r['target']}")
+                continue
+            sug.update({"at": now.isoformat(), "by": "feedback"})
+            _id = doc_id("suggest", sug["series"], sug["match"])
+            es.ensure_index(TUNING_INDEX, TUNING_MAPPING)
+            es.req("PUT", f"/{TUNING_INDEX}/_doc/{_id}?refresh=true", sug)
+            print(f"  建議 {_id}：{A.describe(sug)}")
+            n += 1
+        print(f"{n} 筆建議（status: proposed，用 adjust approve --id … 核准才生效）；"
+              f"誤報不到 {args.min_false_positive} 次的不提")
+        return 0
+    # add
+    if args.verdict not in F.VERDICTS:
+        print(f"--verdict 要是 {'、'.join(F.VERDICTS)}")
+        return 2
+    doc = {"@timestamp": now.isoformat(), "verdict": args.verdict, "note": args.note, "by": args.by,
+           "incident_id": args.incident, "correct_root_cause": args.root_cause}
+    if args.anomaly:
+        got = es.req("GET", f"/{ANOMALY_INDEX}/_doc/{args.anomaly}", ok=(200, 404))
+        if not got.get("found"):
+            print(f"找不到異常 {args.anomaly}（feedback pending 看得到 id）")
+            return 2
+        src = got["_source"]
+        doc.update(anomaly_id=args.anomaly, anomaly_at=src["@timestamp"], series=src["series"], keys=src.get("keys") or {})
+    elif args.verdict == "missed" and args.series:
+        doc.update(series=args.series, keys=dict(m.split("=", 1) for m in (args.match or [])), anomaly_at=args.at)
+    else:
+        print("要給 --anomaly <id>；漏報（missed）給 --series、--match、--at")
+        return 2
+    doc = {k: v for k, v in doc.items() if v not in (None, "")}
+    _id = doc_id("feedback", doc.get("anomaly_id") or [doc["series"], doc.get("keys"), doc.get("anomaly_at")], args.by or "")
+    es.req("PUT", f"/{F.FEEDBACK_INDEX}/_doc/{_id}?refresh=true", doc)   # 同一個人對同一筆再標記會覆蓋
+    print(f"已記錄：{args.verdict}  {doc['series']}  {F.target_of(doc.get('keys'))}")
+    return 0
+
+
+def cmd_incident(cfg: dict, args) -> int:
+    es = ES()
+    es.ensure_index(F.INCIDENT_INDEX, F.INCIDENT_MAPPING)
+    now = _now(None)
+    if args.action == "list":
+        hits = es.req("POST", f"/{F.INCIDENT_INDEX}/_search?ignore_unavailable=true",
+                      {"size": 200, "sort": [{"start": "desc"}]}).get("hits", {}).get("hits", [])
+        for h in hits:
+            i = h["_source"]
+            print(f"  {h['_id']}  [{i.get('status')}] {i['start'][:16]}～{i['end'][:16]}  {i.get('title')}  "
+                  f"服務={','.join(i.get('services') or []) or '—'}  根因={i.get('root_cause') or '—'}")
+        print(f"共 {len(hits)} 件")
+        return 0
+    if args.action == "resolve":
+        es.req("POST", f"/{F.INCIDENT_INDEX}/_update/{args.id}?refresh=true",
+               {"doc": {"status": "resolved", "resolved_at": now.isoformat(), "action": args.action_taken,
+                        "root_cause": args.root_cause}})
+        print(f"已結案：{args.id}")
+        return 0
+    if not (args.title and args.start and args.end):
+        print("要給 --title、--start、--end")
+        return 2
+    doc = {"@timestamp": now.isoformat(), "title": args.title, "start": pd.Timestamp(args.start).isoformat(),
+           "end": pd.Timestamp(args.end).isoformat(), "services": args.service or [], "severity": args.severity,
+           "status": "open", "root_cause": args.root_cause, "action": args.action_taken, "by": args.by,
+           "anomaly_ids": args.anomaly or []}
+    doc = {k: v for k, v in doc.items() if v not in (None, "", [])}
+    _id = args.id or doc_id("incident", doc["title"], doc["start"])
+    es.req("PUT", f"/{F.INCIDENT_INDEX}/_doc/{_id}?refresh=true", doc)
+    print(f"已記錄事故 {_id}：{args.title}（{doc['start'][:16]}～{doc['end'][:16]}）")
+    if args.exclude_training:
+        es.ensure_index(TUNING_INDEX, TUNING_MAPPING)
+        for sug in F.suggest_exclude({**doc, "id": _id}):
+            sid = doc_id("incident-exclude", _id, sug.get("match"))
+            es.req("PUT", f"/{TUNING_INDEX}/_doc/{sid}?refresh=true", {**sug, "at": now.isoformat(), "by": args.by or "incident"})
+            print(f"  建議 {sid}：{A.describe(sug)}")
+        print("  status 是 proposed，用 adjust approve --id … 核准後，下次 train 才不學這段")
+    return 0
+
+
 # ── 慢性病清單（aiops_baseline/chronic.py、baseline/chronic.yaml）──
 
 CHRONIC_INDEX = "aiops-chronic"
@@ -891,6 +1037,37 @@ def main(argv=None) -> int:
     pe.add_argument("--config", required=True)
     pe.add_argument("--at", help="回測：拿過去某個時間點當成現在")
     pe.add_argument("--only", help="只跑這幾個（逗號分開）")
+    fb = sub.add_parser("feedback", help="值班回饋：pending（還沒標記的）、add、list、summary（誤報統計）、suggest（誤報多次→建議放寬）")
+    fb.add_argument("action", choices=["pending", "add", "list", "summary", "suggest"])
+    fb.add_argument("--config", default="baseline/series.yaml")
+    fb.add_argument("--anomaly", help="add：異常的 id（pending 看得到）")
+    fb.add_argument("--verdict", help="add：true_positive（真的）、false_positive（誤報）、wrong_root_cause（根因錯）、missed（漏報）")
+    fb.add_argument("--note")
+    fb.add_argument("--by")
+    fb.add_argument("--incident", help="add：屬於哪件事故")
+    fb.add_argument("--root-cause", dest="root_cause", help="add：正確的根因（wrong_root_cause 時）")
+    fb.add_argument("--series", help="add missed：哪條序列；pending：序列名稱包含")
+    fb.add_argument("--match", nargs="*", help="add missed：對象，例如 service=mes-api")
+    fb.add_argument("--at", help="add missed：漏報的時間")
+    fb.add_argument("--days", type=int, default=28)
+    fb.add_argument("--limit", type=int, default=50)
+    fb.add_argument("--min-false-positive", dest="min_false_positive", type=int, default=3,
+                    help="同一個對象誤報幾次才列入、才提建議（預設 3）")
+    inc = sub.add_parser("incident", help="事故紀錄：add、list、resolve")
+    inc.add_argument("action", choices=["add", "list", "resolve"])
+    inc.add_argument("--config", default="baseline/series.yaml")
+    inc.add_argument("--id")
+    inc.add_argument("--title")
+    inc.add_argument("--start")
+    inc.add_argument("--end")
+    inc.add_argument("--service", nargs="*", help="影響的服務")
+    inc.add_argument("--severity", help="例如 sev1、sev2")
+    inc.add_argument("--root-cause", dest="root_cause")
+    inc.add_argument("--action-taken", dest="action_taken", help="處置")
+    inc.add_argument("--anomaly", nargs="*", help="相關的異常 id")
+    inc.add_argument("--by")
+    inc.add_argument("--exclude-training", dest="exclude_training", action="store_true",
+                     help="同時提一筆「這段時間不學」的建議（proposed，adjust approve 才生效）")
     ch = sub.add_parser("chronic", help="慢性病清單：天天噴錯、沒人修的（每週）")
     ch.add_argument("--config", required=True)
     ch.add_argument("--at", help="回測：拿過去某個時間點當成現在")
@@ -904,7 +1081,7 @@ def main(argv=None) -> int:
     cmds = {"train": cmd_train, "detect": cmd_detect, "tune": cmd_tune, "trace-collect": cmd_trace_collect,
             "trace-train": cmd_trace_train, "trace-detect": cmd_trace_detect, "rules": cmd_rules, "peer": cmd_peer,
             "quality": cmd_quality, "adjust": cmd_adjust,
-            "chronic": cmd_chronic}
+            "chronic": cmd_chronic, "feedback": cmd_feedback, "incident": cmd_incident}
     return cmds[args.cmd](cfg, args)
 
 

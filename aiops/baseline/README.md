@@ -459,6 +459,39 @@ python3 -m aiops_baseline adjust remove  --id mes-api-v2
 | `long` 最近 40 分鐘 log 爆 10 倍 | 報 | 週期時段 `mute` → 不報；`reset_point` 後 24 小時暖機 → 不報 |
 | 舊的 `tune` 調整 | — | 照常生效，`adjust list` 一起列出 |
 
+## 事故紀錄與值班回饋
+
+PDCA 的 Check：告警出去之後，人判斷對不對，才知道門檻準不準、哪裡要調。**先只收集，不自動生效**；單次回饋不動門檻。程式在 [aiops_baseline/feedback.py](../aiops_baseline/feedback.py)（計算）和 `__main__.py`（指令）。
+
+| 指令 | 做什麼 |
+|---|---|
+| `feedback pending` | 最近還沒人標記的告警（只列 `anomaly`；`warning` 還沒通知任何人）和它們的 id |
+| `feedback add --anomaly <id> --verdict …` | `true_positive` 真的、`false_positive` 誤報、`wrong_root_cause` 真的但根因錯（`--root-cause` 寫正確的）、`missed` 漏報（沒有 id，給 `--series --match --at`）。同一個人對同一筆再標會覆蓋 |
+| `feedback summary` | 每條序列的告警數、已標記比例、誤報率；誤報累積多次的對象；漏報 |
+| `feedback suggest` | 同一個對象誤報 ≥ 3 次 → 提一筆放寬 z（× 1.4）的建議，`status: proposed`，`adjust approve` 才生效。match 完全符合那個對象（路由的 `{id}` 等字元已跳脫） |
+| `incident add --title --start --end --service …` | 事故紀錄：時間、影響的服務、根因、處置、相關異常。`--exclude-training` 同時提「這段不學」（`exclude_window`，proposed，只排除列出的服務；沒列就全部） |
+| `incident list`／`incident resolve --id` | 列出／結案（補根因、處置） |
+
+寫進 `aiops-feedback`、`aiops-incidents`；建議寫進 `aiops-tuning`（跟 `tune`、`adjust` 同一處）。
+
+**測資與結果**（2026-10-24，ES 9.5.5；14 筆異常：同一個對象 6 次、另一條路由 1 次、錯誤率 4 次＋1 個 warning、log 1 次、規則 1 次）：
+
+| 情境 | 結果 |
+|---|---|
+| `pending` | ✅ 13 筆（warning 不列；規則沒有 `status` 也算告警） |
+| 同一個對象標 4 次誤報、1 次真的 | ✅ 誤報率 80%；列為候選 |
+| 同一個人對同一筆先標誤報、改標真的 | ✅ 覆蓋，只算一次 |
+| 兩個人對同一筆都標誤報 | ✅ 只算一筆（不會因為重複點而湊滿 3 次） |
+| 漏報（沒有 id） | ✅ 列在漏報、對象不重複 |
+| `wrong_root_cause` 附正確根因 | ✅ 記錄、不算誤報 |
+| `suggest` | ✅ 只對誤報 ≥ 3 次的那個對象提一筆（z 5 → 7）；誤報 1 次的不提；再跑一次不重複 |
+| `proposed` 時 | ✅ 不生效（`override_for` 回空） |
+| `approve` 後 | ✅ 只對那個對象生效；同服務的 `/health`、名稱相近的 `mesXapi` 不受影響 |
+| 事故 `--exclude-training` | ✅ proposed 時 `train` 不排除；`approve` 後排除那段（7,200 點）；沒列服務的建議是全部 |
+| 缺參數、不存在的 id、錯的 verdict | ✅ 清楚的錯誤訊息，不寫入 |
+
+**還沒做**：告警出口（通知）；每筆異常記是哪一版產生的、回測、評測集；回饋靠指令標記，還沒有通知裡的按鈕；事故根因還沒餵給 RAG；`suggest` 只調 z，不調 `min_abs`、粒度。
+
 ## 慢性病清單、行事曆
 
 **慢性病清單**：天天噴錯、沒人修的。baseline 跟自己的歷史比，天天都有的錯會被學成「平常」、永遠不報，所以另外列出來讓人修。設定在 [chronic.yaml](chronic.yaml)，程式在 [aiops_baseline/chronic.py](../aiops_baseline/chronic.py)。

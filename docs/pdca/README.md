@@ -38,8 +38,8 @@ PDCA 的意思：**Plan** 定規則與門檻 → **Do** 收值、判斷、報告
 | 項目 | 狀態 | 細節 |
 |---|---|---|
 | 告警出口（通知） | ❌ 現在只寫進 ES | [feedback/](../feedback/README.md) |
-| 事故紀錄 `aiops-incidents` | ❌ | 同上 |
-| 值班回饋 `aiops-feedback`（真的／誤報／根因錯／漏報） | ❌ 先只收集，不自動生效 | 同上 |
+| 事故紀錄 `aiops-incidents`（`incident` 指令） | ⚠️ 程式好了、實測過；沒排程、沒接告警 | [baseline README「事故紀錄與值班回饋」](../../aiops/baseline/README.md#事故紀錄與值班回饋) |
+| 值班回饋 `aiops-feedback`（`feedback` 指令：真的／誤報／根因錯／漏報；誤報率統計） | ⚠️ 程式好了、實測過；收集靠指令，不自動生效 | 同上 |
 | 資料品質檢查：路由沒參數化、必填欄位缺、資料停了、落到 unassigned 變多（`quality`） | ⚠️ 程式好了、實測過，沒排程 | [baseline README](../../aiops/baseline/README.md#資料品質檢查資料本身怪不怪) |
 | 排除已知干擾：事故、維護、壓測時段不學（`exclude_window`）；換版重新學（`reset_point`）；月底批次放寬（`recurring_override`） | ⚠️ 程式好了、實測過，沒排程 | [baseline README「調整」](../../aiops/baseline/README.md#調整哪些資料不學從哪裡重新學哪些時段放寬) |
 | 慢性病清單（`chronic`，每週）、行事曆（`calendar.yaml`） | ⚠️ 程式好了、實測過，沒排程；行事曆要填實際假日、`owners` 要填負責人 | [baseline README「慢性病清單、行事曆」](../../aiops/baseline/README.md#慢性病清單行事曆) |
