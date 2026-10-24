@@ -423,6 +423,42 @@ python3 -m aiops_baseline peer --config baseline/peer.yaml      # 每分鐘
 
 同一段時間整個服務的錯誤率是 **9%**（3 個 Pod 裡 1 個壞）。這次服務平常是 0%，跟平常比（baseline）也會報，但只知道「服務錯誤率高」、不知道是哪個 Pod；Pod 越多稀釋越多：10 個 Pod 壞 1 個大約剩 1%，就低於 baseline 的門檻（多 5 個百分點）了。
 
+## 調整：哪些資料不學、從哪裡重新學、哪些時段放寬
+
+統計公式不動；baseline 學錯、報錯的情況，用「調整資料」修正（[docs/pdca/2026-10-baseline-definition.md](../../docs/pdca/2026-10-baseline-definition.md)）。程式在 [aiops_baseline/adjust.py](../aiops_baseline/adjust.py)，跟 `tune` 寫同一個 index `aiops-tuning`（`kind` 區分）；長期的規則寫 [adjustments.yaml](adjustments.yaml)。
+
+| kind | 用途 | train | detect |
+|---|---|---|---|
+| `override` | 固定粒度、改 z、`min_abs`（`tune` 指令；舊資料沒有 `kind` 也是） | 粒度 | z、`min_abs` |
+| `exclude_window` | 事故、維護、壓測 | `start`～`end` 的點不學 | `apply_to` 含 `detect` 時這段不報 |
+| `reset_point` | 換版、架構調整 | `reset_at` 之前的歷史不學 | 之後 `warmup`（預設 24 小時）內不報；之後 baseline 要是重置後重新學的才判斷 |
+| `recurring_override` | 月底批次、固定排程 | 預設照學；`effect.train: exclude` 不學 | 符合 `schedule` 的時段：`mute` 不報，或 z、`min_abs` 放寬（只會變少報，不會變嚴） |
+
+- **對象**：`series`（正規表示式）、`match`（正規表示式，欄位可用別名：`service` 同時對到 `service`、`service.name`、`resource.attributes.service.name`、`entry.service`；另有 `namespace`、`pod`、`deployment`、`route`、`method`）。`tune` 的 `match` 也能用別名。
+- **週期**：`schedule: {cron: "0 20 * * *", duration: 4h, days_of_month: [-1]}`：台北時間每天 20:00 起 4 小時，只限每月最後一天（cron 寫不出「最後一天」）。
+- **learning loop 的接口**：`status: proposed` 不生效，`adjust approve` 才生效；`source` 記誰寫的（`manual`／`feedback`／`cicd`）；`expires_at` 到期自動失效。
+
+```bash
+python3 -m aiops_baseline adjust add --kind exclude_window --match service=^mes-api$ \
+    --start 2026-10-20T02:00:00+08:00 --end 2026-10-20T05:00:00+08:00 --reason "DB 鎖表事故"
+python3 -m aiops_baseline adjust add --kind reset_point --match service=^mes-api$ --at 2026-10-22T10:00:00+08:00 \
+    --source cicd --status proposed --id mes-api-v2 --reason "v2 上線"
+python3 -m aiops_baseline adjust add --kind recurring_override --match service=^mes-report --series "log\..*" \
+    --cron "0 20 * * *" --duration 4h --days-of-month -1 --z 8 --reason "月底報表批次"
+python3 -m aiops_baseline adjust list
+python3 -m aiops_baseline adjust approve --id mes-api-v2 --by bob
+python3 -m aiops_baseline adjust remove  --id mes-api-v2
+```
+
+**實測**（2026-10-23，ES 9.5.5，log 8 天）：
+
+| 案例 | 沒有調整 | 有調整 |
+|---|---|---|
+| `long`：8 天裡 5 天是長事故（log 3 倍） | 平常學成 13.57（每 5 分鐘；正常是 5）：事故變成平常 | `exclude_window` 排掉事故 → 15.00（每 15 分鐘，即每 5 分鐘 5）：回到正常 |
+| `ver`：3 天前換版，log 變 2 倍 | 平常學成 5.36（舊版） | `reset_point`（`proposed` 時不變；`approve` 後）→ 10.00（新版） |
+| `long` 最近 40 分鐘 log 爆 10 倍 | 報 | 週期時段 `mute` → 不報；`reset_point` 後 24 小時暖機 → 不報 |
+| 舊的 `tune` 調整 | — | 照常生效，`adjust list` 一起列出 |
+
 ## 資料品質檢查：資料本身怪不怪
 
 baseline 用中位數＋MAD，只擋得住「少數」怪的點。資料本身壞掉時，學出來的「平常」就是錯的，或根本學不到。這幾種壞法不用學，用規則看得出來。設定在 [quality.yaml](quality.yaml)，程式在 [aiops_baseline/quality.py](../aiops_baseline/quality.py)。每個檢查看最近 1 小時，跟 24 小時前同一段比。

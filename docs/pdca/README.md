@@ -41,7 +41,8 @@ PDCA 的意思：**Plan** 定規則與門檻 → **Do** 收值、判斷、報告
 | 事故紀錄 `aiops-incidents` | ❌ | 同上 |
 | 值班回饋 `aiops-feedback`（真的／誤報／根因錯／漏報） | ❌ 先只收集，不自動生效 | 同上 |
 | 資料品質檢查：路由沒參數化、必填欄位缺、資料停了、落到 unassigned 變多（`quality`） | ⚠️ 程式好了、實測過，沒排程 | [baseline README](../../aiops/baseline/README.md#資料品質檢查資料本身怪不怪) |
-| 髒資料排除：排除事故時段、測試流量、維護；慢性病清單、行事曆 | ❌ | [2026-10-data-cleaning.md](2026-10-data-cleaning.md) |
+| 排除已知干擾：事故、維護、壓測時段不學（`exclude_window`）；換版重新學（`reset_point`）；月底批次放寬（`recurring_override`） | ⚠️ 程式好了、實測過，沒排程 | [baseline README「調整」](../../aiops/baseline/README.md#調整哪些資料不學從哪裡重新學哪些時段放寬) |
+| 慢性病清單、行事曆 | ❌ | [2026-10-data-cleaning.md](2026-10-data-cleaning.md) |
 | 版本（每筆異常記哪一版產生）、回測、評測集（20～30 件過去事故） | ❌ | [feedback/](../feedback/README.md) |
 | REST API 的 log 樣本、重要 .NET Kafka 消費者加幾行 | 要別人配合 | 各資料夾 |
 
@@ -69,3 +70,4 @@ PDCA 的意思：**Plan** 定規則與門檻 → **Do** 收值、判斷、報告
 | [2026-10-metrics-to-trace.md](2026-10-metrics-to-trace.md) | metrics 異常怎麼找到對的 trace：為什麼 exemplar 做不到、方案 A（exemplar 轉 log）vs B（時間區間撈一批） | 採 B；根因分析改看一批慢 trace 的共同瓶頸（程式還沒改） |
 | [2026-10-retention.md](2026-10-retention.md) | 保留天數（metrics 降解析度、log 統計、trace 分兩種） | 已實作在 `claude/retention`，合併前要確認 trace baseline 讀哪個 index |
 | [2026-10-data-cleaning.md](2026-10-data-cleaning.md) | 清資料：餵給 baseline 前的資料檢查（盤點現有防護與缺口） | 資料進來時已洗過；訓練前的壞資料挑除大部分沒做。順序：資料品質檢查 → 排除已知干擾 → 慢性病、行事曆 |
+| [2026-10-baseline-definition.md](2026-10-baseline-definition.md) | baseline 正式定義（學什麼、平常怎麼算、什麼算異常、已知限制） | 統計公式維持簡單只抓一般異常；換版、長週期、壞資料用排除／重置／放寬解，之後由 learning loop 寫入 |
