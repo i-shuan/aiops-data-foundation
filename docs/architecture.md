@@ -62,7 +62,7 @@ flowchart TB
 |---|---|---|---|---|
 | ① | 收值 | log、metrics、trace 三種資料，舊專案不改程式 | `platform/cluster-addons/otel-collector/` | ✅ |
 | ② | 清資料 | Collector 補身分、擋冒充；中央 pipeline 統一格式、去重複 | 同上、`platform/central/elasticsearch/` | ✅ |
-| ③ | 存 | 中央 ES，每個部門 group 一把寫入 key | `platform/central/` | ✅（保留天數待定案） |
+| ③ | 存 | 中央 ES，每個部門 group 一把寫入 key；保留天數、降解析度 | `platform/central/` | ✅ |
 | ④ | 判斷 | 規則、跟歷史比、跟兄弟比、trace 每一段 | `aiops/aiops_baseline/`、`aiops/baseline/*.yaml` | ✅（正式環境還沒排程） |
 | ⑤ | 異常總表 | 所有判斷結果寫同一個 index | `aiops-anomalies` | ✅ |
 | ⑥ | 收斂 | 很多筆異常 → 幾件事 | — | 📝 |

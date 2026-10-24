@@ -1,6 +1,6 @@
 # Check：事故紀錄與值班回饋（2026-10）
 
-**狀態**：已完成（分支 `claude/check-feedback`，未合進 master）；告警出口、版本、回測沒做　　**日期**：2026-10-24　　**相關**：[feedback/README.md](../feedback/README.md)、[排除已知干擾](2026-10-exclude-adjust.md)
+**狀態**：已完成（已合進 master）；告警出口、版本、回測沒做　　**日期**：2026-10-24　　**相關**：[feedback/README.md](../feedback/README.md)、[排除已知干擾](2026-10-exclude-adjust.md)
 
 ## Plan：這一次要達到什麼
 

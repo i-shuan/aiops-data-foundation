@@ -1,6 +1,6 @@
 # trace 每一段的 baseline（aiops_baseline/trace.py）：每個 API 的每個請求，呼叫每一段幾次、花多久、出錯比例。
 # 對應的案例見 docs/rca/cases.md：N+1、重試風暴、快取穿透（次數）；拖累、熱點鎖（時間）。
-traces_index: traces-*.otel-*
+traces_index: traces-generic.otel-*   # 只讀隨機留下的；有問題的（錯誤、慢…）在 traces-problem.otel-*，全留，混進來平常值會偏
 interval: 5m              # 每 5 分鐘一個點
 history_weeks: 4
 sample_per_bucket: 20     # 每 5 分鐘、每個 API 抽幾個請求來算（平均每個請求呼叫幾次，20 個就很穩）

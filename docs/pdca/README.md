@@ -14,7 +14,7 @@ PDCA 的意思：**Plan** 定規則與門檻 → **Do** 收值、判斷、報告
 | 上線前記下基準（每天告警幾筆、誤報多少、從告警到找到原因多久） | ❌ | [feedback/](../feedback/README.md) |
 | 用真實資料校正門檻 | 📝 要先排程跑 2～4 週 | [rca/](../rca/README.md) |
 | 歸屬放哪裡（讀 namespace 的 `dept`，或改成 app → group 中央清單）、app 名稱是否全公司唯一 | 未定案 | [README「還沒定案的」](../../README.md#還沒定案的) |
-| 保留天數與容量（用正式環境的量重算） | ⚠️ 分支 `claude/retention` 已寫好、未合進 master | [retention.md](../retention.md) |
+| 保留天數與容量（用正式環境的量重算） | ⚠️ 已合進 master；天數是暫定值，要用正式環境的量重算 | [retention.md](../retention.md) |
 | 服務命名規則（`groups`）、交易 ID 命名、寫入 key 怎麼自動進新 cluster | 未定案，要別人配合 | 各資料夾 |
 
 ## Do：收值、判斷、報告
@@ -77,11 +77,11 @@ PDCA 的意思：**Plan** 定規則與門檻 → **Do** 收值、判斷、報告
 | 檔案 | 主題 | 結論 |
 |---|---|---|
 | [2026-10-metrics-to-trace.md](2026-10-metrics-to-trace.md) | metrics 異常怎麼找到對的 trace：exemplar 做不做得到、方案 A（exemplar 轉 log）vs B（時間區間撈一批） | ES 9.5.5 不存 exemplar；採 B；根因分析的程式還沒改 |
-| [2026-10-retention.md](2026-10-retention.md) | 保留天數（metrics 降解析度、log 統計、trace 分兩種） | 已實作在 `claude/retention`，未合；合併前要處理 trace baseline 讀哪個 index |
+| [2026-10-retention.md](2026-10-retention.md) | 保留天數（metrics 降解析度、log 統計、trace 分兩種） | 已合；trace baseline 改成只讀隨機留下的 `traces-generic`（沒用真實資料驗證） |
 | [2026-10-data-cleaning.md](2026-10-data-cleaning.md) | 清資料盤點：餵給 baseline 前缺什麼 | 資料進來時已洗過；訓練前的壞資料挑除幾乎都沒有；排出三輪順序 |
 | [2026-10-baseline-definition.md](2026-10-baseline-definition.md) | baseline 正式定義與限制 | 統計公式維持簡單；5 項限制，用調整資料解；`groups` 沒定義，借同組實際不會發生 |
 | [2026-10-data-quality-check.md](2026-10-data-quality-check.md) | 資料品質檢查（路由沒參數化、欄位缺、資料停了、unassigned 變多） | 已合；第一天只靠昨天比的檢查不會報；門檻是估的 |
 | [2026-10-exclude-adjust.md](2026-10-exclude-adjust.md) | 排除已知干擾（排除時段、重置點、週期放寬） | 已合；重置後暖機 24 小時內不判斷（估的）；只放寬不變嚴 |
 | [2026-10-chronic-calendar.md](2026-10-chronic-calendar.md) | 慢性病清單與行事曆 | 已合；清單沒送到負責人手上；假日預設連當天故障也不報 |
-| [2026-10-check-feedback.md](2026-10-check-feedback.md) | Check：事故紀錄與值班回饋 | 分支未合；沒有告警出口、回測；回饋靠指令 |
-| [2026-10-data-sources.md](2026-10-data-sources.md) | 資料來源接口＋假資料分開；抓台灣行事曆 | 分支未合；行事曆來源非官方；負責人真來源還沒有 |
+| [2026-10-check-feedback.md](2026-10-check-feedback.md) | Check：事故紀錄與值班回饋 | 已合；沒有告警出口、回測；回饋靠指令 |
+| [2026-10-data-sources.md](2026-10-data-sources.md) | 資料來源接口＋假資料分開；抓台灣行事曆 | 已合；行事曆來源非官方；負責人真來源還沒有 |

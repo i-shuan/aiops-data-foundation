@@ -312,7 +312,7 @@ flowchart TB
 |---|---|---|
 | 收值 | log、metrics（Java、.NET、K8s、cAdvisor、Kafka）、trace＋尾端取樣 | trace-sampler 磁碟佇列；.NET SQL Server、Serilog／NLog 驗證 |
 | 清資料 | 擋冒充、補身分、分部門、格式解析、去重複、補 0 規則 | — |
-| 存 | 中央 ES、每部門寫入 key、換 key 不掉資料 | 保留天數定案 |
+| 存 | 中央 ES、每部門寫入 key、換 key 不掉資料、保留天數與降解析度 | 副本、正式環境容量 |
 | 判斷 | 規則 30 多條、7 條 baseline、自己選粒度、卜瓦松、借同組、跟兄弟比、trace 每一段、N+1、吞例外 | **正式環境排程**；p99、慢請求比例、往外呼叫耗時；趨勢；工廠行事曆；`groups` 依公司命名定義；**移動式／變化點偵測（輔助）** |
 | 串接 | metrics → trace → log、呼叫關係 | 單一 Pod → trace 逐段比（exemplar：ES 不存，不做） |
 | 收斂 | — | 📝 四層收斂、`aiops-incidents` |
