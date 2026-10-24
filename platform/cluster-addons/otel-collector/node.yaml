@@ -5,6 +5,12 @@
 # 跟 common.yaml 一起載入。
 
 receivers:
+  # 這台節點的時鐘跟 NTP 伺服器差多少（ntp.offset，奈秒）。最短 30 分鐘一次（receiver 的限制，避免打爆 NTP 伺服器；
+  # 時鐘偏移是慢慢漂的，30 分鐘夠）。NTP_SERVER 在 kustomization.yaml 的 otel-collector-env，要用公司的 NTP。
+  # 規則在 aiops/baseline/rules.yaml 的 node.clock_offset。docs/pdca/2026-10-time-alignment.md
+  ntp:
+    endpoint: ${env:NTP_SERVER}
+    collection_interval: 30m
   kubeletstats:
     auth_type: serviceAccount
     endpoint: https://${env:K8S_NODE_IP}:10250
@@ -148,6 +154,10 @@ processors:
       - delete_key(datapoint.attributes, "group")
       - delete_matching_keys(datapoint.attributes, "^data_stream\\.")
 
+  # ntp 的資料只帶 ntp.host，不知道是哪台節點量的：補上節點名稱
+  resource/node:
+    attributes:
+      - {key: k8s.node.name, value: "${env:K8S_NODE_NAME}", action: upsert}
   k8s_attributes:
     filter:
       node_from_env_var: K8S_NODE_NAME   # 只看自己節點上的 Pod，省記憶體
@@ -161,14 +171,16 @@ exporters:
       otlp:
         tls: {insecure: true}
         timeout: 10s
+        # 佇列要設在這裡（每台 trace-sampler 一個子 exporter），寫在節點磁碟上：trace-sampler 停很久、node Collector 重啟都不會掉。
+        # 設在外層沒用：資料一進來就移到子 exporter 的記憶體佇列，實測 node 重啟照掉（docs/pdca/2026-10-trace-durability.md）
+        sending_queue: {enabled: true, queue_size: 10000, storage: file_storage}
+        retry_on_failure: {enabled: true, max_elapsed_time: 0}   # 一直重試到送成功（佇列滿了才會丟）
     resolver:
       dns:
         hostname: trace-sampler-headless.otel-collector.svc.cluster.local   # headless Service：解析出每一台的 IP
         port: "4317"
         interval: 5s
-    # trace-sampler 重開、擴縮時，送不出去的先排隊、換到新的那台
-    sending_queue: {enabled: true, queue_size: 10000}
-    retry_on_failure: {enabled: true, max_elapsed_time: 120s}
+    sending_queue: {enabled: false}   # 外層只是過路，不排隊（排隊在上面的子 exporter）
 
 connectors:
   # log 依 group 交給各自的出口，每筆只會符合一條
@@ -193,6 +205,10 @@ service:
     metrics/cadvisor:
       receivers: [prometheus/cadvisor]
       processors: [memory_limiter, groupbyattrs/cadvisor, transform/cadvisor, k8s_attributes, transform/group, transform/drop-log-attrs]
+      exporters: [routing/group]
+    metrics/ntp:
+      receivers: [ntp]
+      processors: [memory_limiter, resource/node, transform/group]   # 節點本身的資料：沒有 dept，歸 unassigned
       exporters: [routing/group]
     logs/in:
       receivers: [file_log]

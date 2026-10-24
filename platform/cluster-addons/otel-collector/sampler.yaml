@@ -13,6 +13,9 @@
 #   DECISION_WAIT：第一段到了之後等多久才決定。要比最長的請求長（實測：等 10 秒時，比 10 秒長、底下的段先到的請求會漏）
 #   NUM_TRACES   ：每台記憶體裡最多放幾個還沒決定的 trace，滿了最舊的直接丟。至少「每台每秒 trace 數 × DECISION_WAIT × 2」
 extensions:
+  file_storage:
+    directory: /var/lib/otelcol
+    create_directory: true
   health_check:
     endpoint: 0.0.0.0:13133
   bearertokenauth/it:
@@ -80,7 +83,9 @@ exporters:
     traces_endpoint: ${env:ES_ENDPOINT}/_otlp/v1/traces
     auth: {authenticator: bearertokenauth/it}
     timeout: 30s
-    sending_queue: &queue {enabled: true, queue_size: 10000}
+    # 佇列寫在磁碟（PVC，trace-sampler.yaml）：ES 停機時 trace-sampler 重啟不會掉。記憶體佇列重啟時整個默默不見
+    #（實測 ES 停機中重啟，3,000 個 trace 掉 2,540 個，大部分沒有任何 log；docs/pdca/2026-10-trace-durability.md）
+    sending_queue: &queue {enabled: true, queue_size: 10000, storage: file_storage}
     retry_on_failure: &retry {enabled: true, initial_interval: 1s, max_interval: 30s, max_elapsed_time: 0}
   otlp_http/imc:
     traces_endpoint: ${env:ES_ENDPOINT}/_otlp/v1/traces
@@ -96,7 +101,7 @@ exporters:
     retry_on_failure: *retry
 
 service:
-  extensions: [health_check, bearertokenauth/it, bearertokenauth/imc, bearertokenauth/unassigned]
+  extensions: [health_check, bearertokenauth/it, bearertokenauth/imc, bearertokenauth/unassigned, file_storage]
   telemetry:
     metrics:
       level: detailed

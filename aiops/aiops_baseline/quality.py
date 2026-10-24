@@ -11,6 +11,10 @@
   type: missing      必填欄位缺了幾成（例如 service.name、k8s.pod.name）。缺的資料對不到服務，學不進任何序列。
   type: stopped      之前有資料、最近 silent 這段時間完全沒有（服務、或整個來源停了）。不是 0 流量，是收不到。
   type: share        某一部分佔全部的比例變多（例如落到 unassigned 的 log）：dept 清單漏同步、namespace 沒標 dept。
+  type: lag          兩個時間欄位差多少（依 by 分組，看百分位）：
+                     收資料延遲 event.created（Collector 讀到）→ event.ingested（寫進 ES）：Collector 卡住、ES 慢時，
+                     最新幾分鐘還沒進來，看起來像流量掉；
+                     應用時鐘偏差 @timestamp（應用自己寫的）→ event.created：應用主機時鐘偏了、或時區寫錯。
 
 eval_* 只做計算，不碰 ES（單元測試用）；fetch_* 是查詢。
 """
@@ -51,9 +55,9 @@ def eval_cardinality(now: pd.DataFrame, ref: pd.DataFrame | None, keys: list[str
     """now、ref：keys + ["values"]（不同值的個數）；now 另有 "examples"（抽樣的值）。
 
     觸發（任一）：
-      ① values ≥ max_values（有設才看）
-      ② 跟 ref 比 ≥ ratio 倍，而且多了 ≥ min_increase 個（ref 沒有這個對象時，當成從 0 開始）
-      ③ 抽樣的值裡 ≥ id_share_min 像帶了 ID，而且 values ≥ min_increase（少數幾個不算）
+      (1) values ≥ max_values（有設才看）
+      (2) 跟 ref 比 ≥ ratio 倍，而且多了 ≥ min_increase 個（ref 沒有這個對象時，當成從 0 開始）
+      (3) 抽樣的值裡 ≥ id_share_min 像帶了 ID，而且 values ≥ min_increase（少數幾個不算）
     """
     before = _ref_of(ref, keys, "values")
     hits = []
@@ -132,6 +136,21 @@ def eval_share(part: int, total: int, ref_part: int | None, ref_total: int | Non
     return [{"key": {}, "value": share, "ref": b, "part": part, "total": total, "why": why}] if why else []
 
 
+def eval_lag(df: pd.DataFrame, keys: list[str], *, stat: str = "p95", max_seconds: float = 60, min_docs: int = 50,
+             absolute: bool = False) -> list[dict]:
+    """df：keys + ["docs", "p50", "p95"]（秒，第二個欄位減第一個）。stat 的值 ≥ max_seconds 就報。
+    absolute：兩個方向都算（時鐘偏差：應用的時間比節點快或慢都不對）。筆數 < min_docs 的不看。"""
+    hits = []
+    for r in df.to_dict("records"):
+        v = r.get(stat)
+        if r["docs"] < min_docs or v is None or v != v:
+            continue
+        if (abs(v) if absolute else v) >= max_seconds:
+            hits.append({"key": {k: r[k] for k in keys}, "value": float(v), "ref": None, "docs": int(r["docs"]),
+                         "why": [f"{stat} {v:+.0f} 秒（{int(r['docs'])} 筆）" if absolute else f"{stat} {v:.0f} 秒（{int(r['docs'])} 筆）"]})
+    return hits
+
+
 def describe(check: dict, hit: dict) -> str:
     who = "、".join(f"{v}" for v in hit["key"].values() if v is not None) or "全部"
     msg = f"{check.get('title', check['name'])}：{who}，{'；'.join(hit['why'])}"
@@ -143,7 +162,9 @@ def describe(check: dict, hit: dict) -> str:
 # ── 查詢 ──
 
 def _query(check: dict, start, end) -> dict:
-    f = [time_range(start, end)]
+    # time_field：用哪個時間篩「最近這段」。預設 @timestamp；時鐘偏差、收資料延遲的檢查不能用 @timestamp，
+    # 因為那種資料的 @timestamp 本身就錯了（8 小時前、在未來）或很舊（卡住的），會被篩掉
+    f = [time_range(start, end, check.get("time_field", "@timestamp"))]
     if check.get("filter"):
         f.append(check["filter"])
     return {"bool": {"filter": f}}
@@ -197,3 +218,20 @@ def fetch_counts(es: ES, check: dict, start, end) -> pd.DataFrame:
 def count(es: ES, index: str, check: dict, start, end) -> int:
     body = {"size": 0, "track_total_hits": True, "query": _query(check, start, end)}
     return int(es.search(index, body)["hits"]["total"]["value"])
+
+
+def fetch_lag(es: ES, check: dict, start, end) -> pd.DataFrame:
+    """每組的時間差百分位（秒）：check 的 to 欄位減 from 欄位。兩個欄位都要有。"""
+    keys = _keys(check)
+    q = _query(check, start, end)
+    q["bool"]["filter"] += [{"exists": {"field": check["from"]}}, {"exists": {"field": check["to"]}}]
+    script = {"source": "doc[params.t].value.toInstant().toEpochMilli() - doc[params.f].value.toInstant().toEpochMilli()",
+              "params": {"f": check["from"], "t": check["to"]}}
+    aggs = {"lag": {"percentiles": {"script": script, "percents": [50, 95]}}}
+    rows = _composite(es, check["index"], q, keys, check.get("by", []), aggs)
+    out = []
+    for r in rows:
+        v = r["lag"]["values"]
+        ms = lambda k: v.get(k) if v.get(k) is not None else float("nan")
+        out.append({**{k: r[k] for k in keys}, "docs": r["docs"], "p50": ms("50.0") / 1000, "p95": ms("95.0") / 1000})
+    return pd.DataFrame(out, columns=keys + ["docs", "p50", "p95"])

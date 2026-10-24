@@ -132,5 +132,33 @@ class Describe(unittest.TestCase):
                          "路由數暴增：order，從 40 個變 400 個（例如 /orders/1）")
 
 
+class Lag(unittest.TestCase):
+    keys = ["service"]
+
+    def df(self, rows):
+        return pd.DataFrame([{"service": s, "docs": n, "p50": p50, "p95": p95} for s, n, p50, p95 in rows])
+
+    def test_ingest_lag_over_limit(self):
+        h = Q.eval_lag(self.df([("a", 500, 2, 180), ("b", 500, 1, 5)]), self.keys, stat="p95", max_seconds=60)
+        self.assertEqual([x["key"] for x in h], [{"service": "a"}])
+        self.assertIn("p95 180 秒", h[0]["why"][0])
+
+    def test_too_few_docs(self):
+        self.assertEqual(Q.eval_lag(self.df([("a", 10, 2, 999)]), self.keys, min_docs=50), [])
+
+    def test_clock_skew_both_directions(self):
+        # 應用的時間比節點慢 8 小時（時區寫錯）、或快 10 分鐘（時鐘偏了），都要報
+        h = Q.eval_lag(self.df([("tz", 500, 28800, 28801), ("fast", 500, -600, -590), ("ok", 500, 0.3, 1)]),
+                       self.keys, stat="p50", max_seconds=300, absolute=True)
+        self.assertEqual([x["key"]["service"] for x in h], ["tz", "fast"])
+        self.assertIn("-600", h[1]["why"][0])
+
+    def test_one_direction_ignores_negative(self):
+        self.assertEqual(Q.eval_lag(self.df([("a", 500, -999, -999)]), self.keys, stat="p95", max_seconds=60), [])
+
+    def test_missing_percentile(self):
+        self.assertEqual(Q.eval_lag(self.df([("a", 500, float("nan"), float("nan"))]), self.keys), [])
+
+
 if __name__ == "__main__":
     unittest.main()

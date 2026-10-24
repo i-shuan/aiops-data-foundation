@@ -3,7 +3,7 @@
 #
 # 部署前要先有：
 #   1. Secret es-writer-keys（log、metrics、trace 共用，由 platform/central/elasticsearch-setup.sh 產生）
-#   2. 下面 otel-collector-env 的 CLUSTER_NAME、ES_ENDPOINT 改成實際值
+#   2. 下面 otel-collector-env 的 CLUSTER_NAME、ES_ENDPOINT、NTP_SERVER 改成實際值
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 namespace: otel-collector
@@ -25,6 +25,7 @@ configMapGenerator:
     literals:
       - CLUSTER_NAME=change-me
       - ES_ENDPOINT=https://elasticsearch.example.internal:9200
+      - NTP_SERVER=ntp.example.internal:123   # 公司的 NTP 伺服器（主機時鐘偏移，node.yaml 的 ntp receiver）
 images:
   - name: otelcol
     newName: otel/opentelemetry-collector-contrib   # 換成 Nexus 的路徑

@@ -23,19 +23,86 @@
       }
     },
     {
+      "set": {
+        "description": "Collector 讀到這行的時間（container runtime 寫進 log 檔的時間，用節點的時鐘）。@timestamp 之後會被應用自己的時間蓋掉，先留一份：收資料延遲、應用時鐘偏差都靠它",
+        "field": "event.created",
+        "copy_from": "@timestamp",
+        "ignore_empty_value": true
+      }
+    },
+    {
+      "script": {
+        "description": "應用自己寫的時間有沒有帶時區：沒帶的依 LOG_DEFAULT_TIMEZONE 解讀，並記在 event.timezone；log.timestamp_source 記時間從哪來",
+        "lang": "painless",
+        "params": {
+          "tz": "__LOG_DEFAULT_TIMEZONE__"
+        },
+        "source": "__TZ_SCRIPT__"
+      }
+    },
+    {
       "date": {
         "field": "_app_ts",
         "target_field": "@timestamp",
-        "formats": ["ISO8601"],
+        "formats": [
+          "ISO8601",
+          "yyyy-MM-dd HH:mm:ss.SSS",
+          "yyyy-MM-dd HH:mm:ss,SSS",
+          "yyyy-MM-dd HH:mm:ss",
+          "UNIX_MS"
+        ],
+        "timezone": "__LOG_DEFAULT_TIMEZONE__",
         "if": "ctx._app_ts != null",
-        "ignore_failure": true
+        "description": "應用自己的時間比 Collector 讀到的準。沒帶時區的用 timezone（帶了時區的照它自己的）；格式都不認得就保留 Collector 的時間，並在 log.timestamp_source 記 collector_unparsed，不再默默換掉",
+        "on_failure": [
+          {
+            "set": {
+              "field": "log.timestamp_source",
+              "value": "collector_unparsed"
+            }
+          },
+          {
+            "remove": {
+              "field": "event.timezone",
+              "ignore_missing": true
+            }
+          }
+        ]
       }
     },
-    {"remove": {"field": "_app_ts", "ignore_missing": true}},
-    {"set": {"field": "event.ingested", "value": "{{{_ingest.timestamp}}}"}}
+    {
+      "script": {
+        "description": "date processor 依 timezone 輸出成 +08:00 的字串；換回 UTC（docs/log/README.md：時間一律 UTC）",
+        "lang": "painless",
+        "if": "ctx.log?.timestamp_source != null && ctx.log.timestamp_source.startsWith('app') && ctx['@timestamp'] != null",
+        "source": "ctx['@timestamp'] = ZonedDateTime.parse(ctx['@timestamp'].toString()).withZoneSameInstant(ZoneOffset.UTC).format(DateTimeFormatter.ofPattern(\"yyyy-MM-dd'T'HH:mm:ss.SSS'Z'\"));"
+      }
+    },
+    {
+      "remove": {
+        "field": "_app_ts",
+        "ignore_missing": true
+      }
+    },
+    {
+      "set": {
+        "field": "event.ingested",
+        "value": "{{{_ingest.timestamp}}}"
+      }
+    }
   ],
   "on_failure": [
-    {"set": {"field": "error.message", "value": "k8s-logs pipeline 失敗：{{{_ingest.on_failure_message}}}"}},
-    {"set": {"field": "event.ingested", "value": "{{{_ingest.timestamp}}}"}}
+    {
+      "set": {
+        "field": "error.message",
+        "value": "k8s-logs pipeline 失敗：{{{_ingest.on_failure_message}}}"
+      }
+    },
+    {
+      "set": {
+        "field": "event.ingested",
+        "value": "{{{_ingest.timestamp}}}"
+      }
+    }
   ]
 }

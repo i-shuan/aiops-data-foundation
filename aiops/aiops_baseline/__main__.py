@@ -845,7 +845,8 @@ def cmd_rules(cfg: dict, args) -> int:
     for rule in cfg["rules"]:
         if names and rule["name"] not in names:
             continue
-        hits = R.evaluate(rule, R.fetch(es, rule, start, now), now)
+        r_start = now - pd.Timedelta(_freq(rule["lookback"])) if rule.get("lookback") else start
+        hits = R.evaluate(rule, R.fetch(es, rule, r_start, now), now)
         for h in hits:
             keys = {f: v for f, v in zip(rule["by"], h["key"])}
             # 附帶的資訊（服務名稱、節點），根因分析用來對到服務；不參與「同一個對象」的判斷
@@ -938,6 +939,10 @@ def quality_hits(es, c: dict, now, window, ref_offset) -> list[dict]:
                             Q.count(es, c["part_index"], c, rs, re_), Q.count(es, c["index"], c, rs, re_),
                             min_docs=c.get("min_docs", 100), max_share=c.get("max_share"),
                             min_increase=c.get("min_increase", 0.1))
+    if t == "lag":
+        return Q.eval_lag(Q.fetch_lag(es, c, start, now), keys, stat=c.get("stat", "p95"),
+                          max_seconds=c.get("max_seconds", 60), min_docs=c.get("min_docs", 50),
+                          absolute=c.get("absolute", False))
     raise ValueError(f"不認得的檢查種類：{t}")
 
 

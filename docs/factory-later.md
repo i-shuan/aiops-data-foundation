@@ -10,8 +10,8 @@
 |---|---|---|
 | 業務欄位名稱：`lot.id`（批號）、`equipment.id`（機台）、`work_order.id`（工單）、`recipe.id`（配方） | ✅ 定案 | [apps/standards/tracing.md](../apps/standards/tracing.md) |
 | 機台指標的命名提案，加上 SECS 斷線、PLC 掃描週期超規、重傳三條規則 | ✅ 用模擬 exporter 在 k3s 驗過 | [metrics/cases.md 案例 4](metrics/cases.md)、`aiops/baseline/rules.yaml`（`eap.*`） |
-| 很稀少的筆數（設備告警一小時 0～2 次）改用卜瓦松 | ✅ 模擬資料驗過（一小時多 8 次抓到） | [baseline README「自動調整」②](../aiops/baseline/README.md#自動調整粒度低頻事件借用-baseline) |
-| 每條序列依事件數自己選粒度（低頻的 SECS 事件自動往粗調） | ✅ | 同上 ① |
+| 很稀少的筆數（設備告警一小時 0～2 次）改用卜瓦松 | ✅ 模擬資料驗過（一小時多 8 次抓到） | [baseline README「自動調整」(2)](../aiops/baseline/README.md#自動調整粒度低頻事件借用-baseline) |
+| 每條序列依事件數自己選粒度（低頻的 SECS 事件自動往粗調） | ✅ | 同上 (1) |
 
 ## 還沒做的
 

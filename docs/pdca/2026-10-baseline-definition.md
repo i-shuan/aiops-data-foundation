@@ -1,6 +1,7 @@
 # baseline 正式定義（2026-10）
 
 **狀態**：已完成（文件）　　**日期**：2026-10-23　　**相關**：PR #7、`aiops/aiops_baseline/model.py`、`aiops/baseline/series.yaml`、[baseline README](../../aiops/baseline/README.md)
+**模組**：④ 判斷
 
 ## Plan：這一次要達到什麼
 
@@ -38,7 +39,7 @@
 | 3 | 換版後突然變一階、停在新位置 | 推演：新值要佔歷史一半（約 2 週）baseline 才跟上 | 這段期間一直報 | [重置點](2026-10-exclude-adjust.md)（已做） |
 | 4 | 借同組沒作用 | 讀 `series.yaml` 發現沒有 `groups` | 新 API 沒有 baseline | 依公司服務命名定義 `groups`（要別人配合，待決定） |
 | 5 | 比一週長的週期（月底、季底批次） | 推演：168 格只涵蓋一週 | 月底會誤報 | [週期放寬](2026-10-exclude-adjust.md)（已做） |
-| — | 假警報收斂 | 文件設計（雜訊壓制）還沒實作 | 通知太吵 | 收斂＋回饋累積多次、回測通過才調門檻（待排） |
+| [⑥] — | 假警報收斂 | 文件設計（雜訊壓制）還沒實作 | 通知太吵 | 收斂＋回饋累積多次、回測通過才調門檻（待排） |
 
 **不做**：在公式裡加月份、季度的時段；自己訓練模型（[feedback/llm-mlops.md](../feedback/llm-mlops.md) 的定案）。
 

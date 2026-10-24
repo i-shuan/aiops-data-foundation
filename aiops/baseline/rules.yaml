@@ -114,6 +114,36 @@ rules:
     for: 1m
     by: [*node]
 
+  # 主機時鐘偏移（node Collector 的 ntp receiver，30 分鐘量一次，單位奈秒）：根因分析靠「誰先變壞」排順序，
+  # 時鐘偏了順序就錯。快、慢都算（abs）。docs/pdca/2026-10-time-alignment.md
+  - name: node.clock_offset
+    title: 主機時鐘偏移超過 100 毫秒
+    severity: warning
+    index: metrics-ntpreceiver.otel-*
+    field: metrics.ntp.offset
+    type: value
+    abs: true
+    op: ">="
+    threshold: 100000000      # 100ms（奈秒）
+    show: ns_as_ms
+    by: [*node]
+    lookback: 40m             # 30 分鐘才量一次
+    fresh: 40m
+
+  - name: node.clock_offset_critical
+    title: 主機時鐘偏移超過 1 秒
+    severity: critical
+    index: metrics-ntpreceiver.otel-*
+    field: metrics.ntp.offset
+    type: value
+    abs: true
+    op: ">="
+    threshold: 1000000000     # 1 秒（奈秒）
+    show: ns_as_ms
+    by: [*node]
+    lookback: 40m
+    fresh: 40m
+
   - name: node.memory_pressure
     title: 節點記憶體壓力
     severity: critical

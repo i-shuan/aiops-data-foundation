@@ -7,6 +7,8 @@
 #   missing      fields 缺了幾成（依 by 分組）。max_missing 是比例上限；max_increase 是比 ref 多幾成
 #   stopped      lookback 這段時間（不含最近 silent）有 ≥ min_docs 筆、最近 silent 一筆都沒有
 #   share        part_index 佔 index 的比例。max_share 上限；min_increase 是比 ref 多幾成
+#   lag          to 欄位減 from 欄位（秒）的百分位（stat：p50、p95）≥ max_seconds；absolute: true 兩個方向都算
+#   time_field   用哪個時間篩最近這段（預設 @timestamp）
 #   min_docs：量太少的不看（幾筆缺一筆就是好幾成）
 #
 # 門檻都是先估的，要等正式環境排程跑 2～4 週再校（docs/pdca/2026-10-data-cleaning.md）。
@@ -125,3 +127,38 @@ checks:
                              {exists: {field: metrics.http.server.request.duration}}]}}
     min_increase: 0.05
     min_docs: 100
+
+  # ── 時間對齊（docs/pdca/2026-10-time-alignment.md）──
+  # 收資料延遲：Collector 讀到（event.created）→ 寫進 ES（event.ingested）。Collector 卡住、ES 慢時，最新幾分鐘還沒進來，
+  # baseline 看起來像流量掉。p95 超過 1 分鐘就報。只看最近 15 分鐘（要的是「現在」卡不卡）
+  - name: quality.log_ingest_lag
+    title: 收資料延遲
+    type: lag
+    index: k8s-*
+    by: [service.name]
+    keys: [service]
+    from: event.created
+    to: event.ingested
+    time_field: event.ingested   # 用「寫進 ES 的時間」篩：卡了很久才進來的，@timestamp 早就不在最近 15 分鐘裡
+    stat: p95
+    max_seconds: 60
+    min_docs: 50
+    window: 15m
+
+  # 應用時鐘偏差：應用自己寫的時間（@timestamp）→ Collector 讀到（event.created，節點的時鐘）。
+  # 中位數差超過 5 分鐘（不論快慢）：應用主機時鐘偏了，或時區寫錯（沒帶時區又不是 LOG_DEFAULT_TIMEZONE）。
+  # 只看時間是應用自己寫的（log.timestamp_source = app、app_assumed_tz）
+  - name: quality.log_clock_skew
+    title: 應用的時間跟節點對不上
+    type: lag
+    index: k8s-*
+    filter: {terms: {log.timestamp_source: [app, app_assumed_tz]}}
+    by: [service.name, log.timestamp_source]
+    keys: [service, timestamp_source]
+    from: "@timestamp"
+    to: event.created
+    time_field: event.created    # 用「Collector 讀到的時間」篩：時鐘偏了的資料，@timestamp 本身就錯（8 小時前、在未來）
+    stat: p50
+    max_seconds: 300
+    absolute: true
+    min_docs: 50

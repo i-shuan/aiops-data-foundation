@@ -126,6 +126,7 @@ flowchart TB
 |---|---|---|
 | 狀態變化 | 容器重啟 ≥1 次、Deployment／StatefulSet 有副本不可用、Pod Failed、Pending、Job 失敗、節點 NotReady、記憶體或磁碟壓力 | critical／warning |
 | 收不到 | 抓 metrics 失敗（`scrape.down`） | warning |
+| 時鐘 | 節點時鐘跟 NTP 差 ≥ 100ms（≥ 1 秒 critical，`node.clock_offset`） | warning／critical |
 | 離極限多遠 | 容器記憶體 ≥ 上限 90%、節點記憶體 ≥ 90%、磁碟 ≥ 85%（≥ 95% critical）、CPU 被限流 ≥ 25% | warning／critical |
 | JVM、.NET | Old Gen GC 後還 ≥ 80%、5 分鐘 ≥ 5 次 Full GC、GC 佔時間 ≥ 10%、.NET OOM、執行緒池飢餓、例外暴增 | warning |
 | 連線池 | DB 連線池用光、有人在排隊 | critical／warning |
@@ -339,4 +340,4 @@ flowchart TB
 | PoC 現況（簡報） | [poc-status.md](poc-status.md) |
 | 工廠部分（之後再做） | [factory-later.md](factory-later.md) |
 | 整個專案的現況與待辦（依 PDCA 分） | [pdca/](pdca/README.md) |
-| 階段一、二的現況與待辦 | 各資料夾 README 開頭：[log](log/README.md)、[metrics](metrics/README.md)、[trace](trace/README.md)、[rca](rca/README.md)、[feedback](feedback/README.md) |
+| ①②③ 的現況與待辦（每一項標模組） | 各資料夾 README 開頭：[log](log/README.md)、[metrics](metrics/README.md)、[trace](trace/README.md)、[rca](rca/README.md)、[feedback](feedback/README.md) |

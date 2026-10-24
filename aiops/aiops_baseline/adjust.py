@@ -9,10 +9,10 @@
   recurring_override  符合 schedule 的時段（例如每月最後一天 20:00 起 4 小時）放寬：z、min_abs 調高，或 mute 不報
 
 來源（後面蓋前面，同 id 以後面的為準）：
-  ① 設定檔：series.yaml 的 overrides、adjustments_file（預設 baseline/adjustments.yaml）、
+  (1) 設定檔：series.yaml 的 overrides、adjustments_file（預設 baseline/adjustments.yaml）、
      calendar_file（預設 baseline/calendar.yaml：國定假日、維護日、大型活動，變成不學、不判斷的 exclude_window；
      來源可以是檔案、URL、台灣行事曆，見 sources.py）── 人寫、進版控
-  ② ES 的 aiops-tuning ── tune、adjust 指令寫的；之後 learning loop（值班回饋、CI/CD）也寫這裡
+  (2) ES 的 aiops-tuning ── tune、adjust 指令寫的；之後 learning loop（值班回饋、CI/CD）也寫這裡
 
 learning loop 的接口：status: proposed 的不生效，人用 `adjust approve` 改成 active 才生效；source 記誰寫的
 （manual／feedback／cicd）；expires_at 到期自動失效。

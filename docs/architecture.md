@@ -58,6 +58,8 @@ flowchart TB
   FB -. "確認過的事故" .-> LLM
 ```
 
+**編號只有這一套（①～⑨）**：整個專案的文件、PDCA 紀錄、待辦都用它，不另外編「階段」。
+
 | # | 模組 | 做什麼 | 在哪裡 | 狀態 |
 |---|---|---|---|---|
 | ① | 收值 | log、metrics、trace 三種資料，舊專案不改程式 | `platform/cluster-addons/otel-collector/` | ✅ |
