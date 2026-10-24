@@ -7,16 +7,27 @@
 #   match   只影響哪些對象（欄位可用別名：service、namespace…）；不寫就是全部
 #   series  只影響哪些序列（正規表示式）；不寫就是全部
 #   detect  false（預設）：不學也不報；true：照常判斷、只是不學
-# 假日每年日期不同（農曆），每年底更新下一年的。改這裡不用重啟，下次 train／detect 生效。
+# 假日每年日期不同（農曆）：用 sources 的 taiwan 直接抓，不用每年手動更新。改這裡不用重啟，下次 train／detect 生效。
 #
 # 注意：假日「不學」之後，假日的時段就沒有 baseline 能比；假日當天本來就不判斷，所以沒關係。
 #       但如果假日佔了 4 週裡同一個星期幾的大部分（例如連假），那個時段會退到「每天同一小時」。
 
 timezone: Asia/Taipei
 
-# 實際放假日（含補假、彈性放假）請依公司公告填；下面是格式範例
+# 資料從哪來（aiops_baseline/sources.py；格式、假資料見 interfaces/README.md、fake-data/README.md）。多個來源合在一起，
+# 某個來源失敗只印警告、不擋訓練。
+sources:
+  # 台灣行事曆（https://github.com/ruyut/TaiwanCalendar）：國定假日、補假、彈性放假、春節，以及補班日。
+  # years 不寫就是今年和明年；明年還沒公告就略過。結果存在 .cache/calendar，24 小時內不重抓（cache_ttl）；抓失敗時用快取。
+  - provider: taiwan
+    # years: [2026, 2027]
+    # cache_dir: .cache/calendar
+  # 範例用的假資料（日期都在 2099 年，不會影響真的訓練）；不要的話刪掉或 enabled: false
+  - provider: file
+    path: fake-data/calendar.json
+    enabled: true
+
+# 自己補的（維護日、活動）直接寫這裡；跟 sources 的合在一起
 calendar: []
-  # - {date: 2026-10-10, name: 國慶日, type: holiday}
-  # - {start: 2027-02-05, end: 2027-02-14, name: 春節連假, type: holiday}
   # - {start: 2026-11-01T02:00, end: 2026-11-01T06:00, name: 機房維護, type: maintenance}
   # - {date: 2026-11-11, name: 雙 11 活動, type: event, match: {service: "^order"}, detect: true}   # 流量本來就高：不學，但照常判斷

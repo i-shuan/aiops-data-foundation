@@ -10,7 +10,8 @@
 
 來源（後面蓋前面，同 id 以後面的為準）：
   ① 設定檔：series.yaml 的 overrides、adjustments_file（預設 baseline/adjustments.yaml）、
-     calendar_file（預設 baseline/calendar.yaml：國定假日、維護日、大型活動，變成不學、不判斷的 exclude_window）── 人寫、進版控
+     calendar_file（預設 baseline/calendar.yaml：國定假日、維護日、大型活動，變成不學、不判斷的 exclude_window；
+     來源可以是檔案、URL、台灣行事曆，見 sources.py）── 人寫、進版控
   ② ES 的 aiops-tuning ── tune、adjust 指令寫的；之後 learning loop（值班回饋、CI/CD）也寫這裡
 
 learning loop 的接口：status: proposed 的不生效，人用 `adjust approve` 改成 active 才生效；source 記誰寫的
@@ -292,9 +293,10 @@ def load(es, index: str, cfg: dict) -> list[dict]:
             out += (yaml.safe_load(f) or {}).get("adjustments") or []
     cal = cfg.get("calendar_file", "baseline/calendar.yaml")
     if cal and os.path.exists(cal):
+        from .sources import load_calendar
         with open(cal, encoding="utf-8") as f:
-            c = yaml.safe_load(f) or {}
-        out += calendar_adjustments(c.get("calendar"), c.get("timezone") or cfg.get("train", {}).get("timezone", "Asia/Taipei"))
+            entries, tz = load_calendar(yaml.safe_load(f) or {})
+        out += calendar_adjustments(entries, tz or cfg.get("train", {}).get("timezone", "Asia/Taipei"))
     try:
         hits = es.req("POST", f"/{index}/_search?ignore_unavailable=true",
                       {"size": 10000, "sort": [{"at": {"order": "asc", "unmapped_type": "date"}}]}
