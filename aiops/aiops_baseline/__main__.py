@@ -665,7 +665,8 @@ def cmd_chronic(cfg: dict, args) -> int:
     end = now.tz_convert(tz).normalize().tz_convert("UTC")
     start = end - pd.Timedelta(days=days)
     week = f"{end.tz_convert(tz) - pd.Timedelta(days=1):%G-W%V}"
-    owners = cfg.get("owners") or []
+    from .sources import load_owners
+    owners = load_owners(cfg)
     docs, lines = [], [f"# 慢性病清單 {week}（{start.tz_convert(tz):%m/%d}～{(end - pd.Timedelta(days=1)).tz_convert(tz):%m/%d}，"
                        f"{days} 天裡至少 {cfg.get('min_days', 6)} 天有）", ""]
     for src in cfg["sources"]:

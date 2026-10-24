@@ -26,6 +26,10 @@ sources:
     min_per_day: 1
 
 # 負責人：依對象找第一個符合的（match 欄位可用別名：service、namespace…）。沒有符合的顯示「未指定」
+# 資料從哪來（aiops_baseline/sources.py；格式、假資料見 interfaces/README.md、fake-data/README.md）：
+#   owners         直接寫在這裡的（優先）
+#   owners_source  讀檔案或 URL；多個來源合在一起，某個失敗只印警告
 owners: []
-#  - match: {service: "^mes-"}
-#    owner: MES 團隊
+owners_source:
+  - provider: file
+    path: fake-data/owners.json      # 【假資料】換成真的：改成 {provider: http, url: …}，或換掉這個檔

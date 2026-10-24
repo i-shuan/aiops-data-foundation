@@ -92,3 +92,9 @@
 - 實測見 [baseline README](../../aiops/baseline/README.md#慢性病清單行事曆)。
 - 要人做的：`calendar.yaml` 依公司公告填實際假日（含補假）；`chronic.yaml` 的 `owners` 填負責人。
 - 還沒做：排程；慢性病清單送到負責人手上（現在只寫 ES、印報告）；修好後的追蹤（例如連續幾週沒修就升級）。
+
+## 進度：資料來源改成接口＋假資料分開（2026-10-24）
+
+- 要別人提供的資料（負責人 `owners`、行事曆 `calendar`）改走**介面**（`aiops_baseline/sources.py`、`interfaces/`）：provider `file`、`http`，行事曆另有 `taiwan`。**假資料**（`fake-data/`）和接口分開，假資料每筆都標「【假】」，行事曆的假日期在 2099 年，不會影響真的訓練。
+- 行事曆直接抓台灣行事曆（TaiwanCalendar）：實抓 2026、2027 共 46 筆；補班日也列入；失敗用快取，不擋訓練。
+- 還沒做：`owners` 的真來源（CMDB 或團隊清單）；TaiwanCalendar 是社群維護的專案，不是政府的官方 API，是否採用、要不要備援（例如政府資料開放平臺的辦公日曆表），要你們決定；2028 年以後的資料要等它更新。
