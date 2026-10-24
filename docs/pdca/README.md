@@ -27,7 +27,7 @@ PDCA 的意思：**Plan** 定規則與門檻 → **Do** 收值、判斷、報告
 | ④ 判斷：規則、跟歷史比、跟兄弟比、trace 每一段 | ✅ | [aiops/baseline](../../aiops/baseline/README.md) |
 | ⑦ 根因分析：metrics → trace → log | ✅ | [aiops/rca](../../aiops/rca/README.md) |
 | ④ **正式環境排程**（train 每天、detect 每 30 秒、rules 與 peer 每分鐘） | ⚠️ 程式好了，沒部署 | [rca/](../rca/README.md) |
-| 已完成部分的小尾巴：② 統一指標名稱（metrics）、② 統一欄位路徑（log）、① trace-sampler 磁碟佇列（trace） | ⚠️ | 各資料夾 README 開頭 |
+| 已完成部分的小尾巴：② 統一指標名稱（metrics）、② 統一欄位路徑（log）（① trace-sampler 磁碟佇列已做） | ⚠️ | 各資料夾 README 開頭 |
 | ①②④ 時間對齊：主機時鐘監控（metrics）、收資料延遲與時區（log）、時鐘差日報（trace） | 📝 | 同上 |
 | ①② 業務 ID：交易 ID 命名、從 log 抽出；Kafka 驗證 Java | 📝 | [trace/](../trace/README.md#業務-id服務層) |
 | ⑦ 根因分析改看一批慢 trace 找共同瓶頸（不用 exemplar，ES 不存） | 📝 | [feedback/](2026-10-metrics-to-trace.md) |
@@ -88,4 +88,4 @@ PDCA 的意思：**Plan** 定規則與門檻 → **Do** 收值、判斷、報告
 | [2026-10-check-feedback.md](2026-10-check-feedback.md) | Check：事故紀錄與值班回饋 | 已合；沒有告警出口、回測；回饋靠指令 |
 | [2026-10-data-sources.md](2026-10-data-sources.md) | 資料來源接口＋假資料分開；抓台灣行事曆 | 已合；行事曆來源非官方；負責人真來源還沒有 |
 | [2026-10-time-alignment.md](2026-10-time-alignment.md) | ② 時間對齊：log 沒帶時區、收資料延遲、主機時鐘 | 沒帶時區的原本差 8 小時、空白分隔的默默換時間，已修；延遲與時鐘偏差、主機時鐘都抓得到；`NTP_SERVER` 要填 |
-| [2026-10-trace-durability.md](2026-10-trace-durability.md) | ① trace 收值線要不要 message queue | 進行中 |
+| [2026-10-trace-durability.md](2026-10-trace-durability.md) | ① trace 收值線要不要 message queue | 不用 Kafka；兩段佇列改寫磁碟（node 端要設在 loadbalancing 的子 exporter）；當掉仍掉約 20% |

@@ -21,7 +21,7 @@
 
 | 項目 | 要做的 |
 |---|---|
-| ① trace-sampler 斷線 | 佇列只在記憶體，改成磁碟佇列 |
+| ① trace-sampler 斷線 | ✅ 兩段佇列都改寫在磁碟：node 端寫節點磁碟、trace-sampler 端寫 PVC。實測 trace-sampler 停 400 秒、node 重啟、ES 停機中 trace-sampler 重啟都不掉；**trace-sampler 當掉（kill -9）仍掉約 20%**（等 30 秒決定的那段在記憶體）。不用 Kafka（實測沒有多擋住任何情況）。[PDCA](../pdca/2026-10-trace-durability.md) |
 | ③ 保留天數 | ✅ 隨機留下的 7 天；有問題的（錯誤、5xx、例外、慢）由 pipeline 轉到 `traces-problem.otel-<group>`，留 30 天（[retention.md](../retention.md)） |
 
 **要做的（①收值、②清資料、④判斷）**

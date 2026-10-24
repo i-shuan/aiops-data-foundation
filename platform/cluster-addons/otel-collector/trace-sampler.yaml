@@ -27,6 +27,7 @@ spec:
     metadata:
       labels: {app.kubernetes.io/name: trace-sampler}
     spec:
+      securityContext: {fsGroup: 10001}   # PVC 要讓 Collector（uid 10001）寫得進去
       containers:
         - name: otelcol
           image: otelcol
@@ -55,8 +56,16 @@ spec:
           volumeMounts:
             - {name: config, mountPath: /conf}
             - {name: es-keys, mountPath: /etc/es-keys, readOnly: true}
+            - {name: queue, mountPath: /var/lib/otelcol}   # 送 ES 的佇列（sampler.yaml 的 file_storage）
       volumes:
         - name: config
           configMap: {name: otel-collector-config}
         - name: es-keys
           secret: {secretName: es-writer-keys}
+  # 每台 trace-sampler 自己一顆磁碟放送 ES 的佇列：Pod 重啟、搬到別的節點都還在。
+  # 大小：佇列上限 10,000 批，每批約幾十 KB，1Gi 夠；用 cluster 預設的 StorageClass
+  volumeClaimTemplates:
+    - metadata: {name: queue}
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources: {requests: {storage: 1Gi}}

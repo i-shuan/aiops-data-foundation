@@ -171,14 +171,16 @@ exporters:
       otlp:
         tls: {insecure: true}
         timeout: 10s
+        # 佇列要設在這裡（每台 trace-sampler 一個子 exporter），寫在節點磁碟上：trace-sampler 停很久、node Collector 重啟都不會掉。
+        # 設在外層沒用：資料一進來就移到子 exporter 的記憶體佇列，實測 node 重啟照掉（docs/pdca/2026-10-trace-durability.md）
+        sending_queue: {enabled: true, queue_size: 10000, storage: file_storage}
+        retry_on_failure: {enabled: true, max_elapsed_time: 0}   # 一直重試到送成功（佇列滿了才會丟）
     resolver:
       dns:
         hostname: trace-sampler-headless.otel-collector.svc.cluster.local   # headless Service：解析出每一台的 IP
         port: "4317"
         interval: 5s
-    # trace-sampler 重開、擴縮時，送不出去的先排隊、換到新的那台
-    sending_queue: {enabled: true, queue_size: 10000}
-    retry_on_failure: {enabled: true, max_elapsed_time: 120s}
+    sending_queue: {enabled: false}   # 外層只是過路，不排隊（排隊在上面的子 exporter）
 
 connectors:
   # log 依 group 交給各自的出口，每筆只會符合一條

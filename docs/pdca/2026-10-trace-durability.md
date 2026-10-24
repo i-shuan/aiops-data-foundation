@@ -1,6 +1,6 @@
 # trace 收值線要不要 message queue（2026-10）
 
-**狀態**：進行中（Plan）　　**日期**：2026-10-24　　**相關**：分支 `claude/collect-time-mq`
+**狀態**：已完成（分支，未合進 master）　　**日期**：2026-10-24　　**相關**：分支 `claude/collect-time-mq`
 **模組**：① 收值（trace 這條線）
 
 ## Plan：這一次要達到什麼
@@ -17,12 +17,58 @@
 
 ## Do：改動哪些 code、改了什麼、為何要改
 
-（進行中）
+| 檔案 | 改了什麼 | 為何要改 |
+|---|---|---|
+| `platform/cluster-addons/otel-collector/node.yaml` | `loadbalancing/traces`：佇列移到 `protocol.otlp`（每台 trace-sampler 的子 exporter），寫節點磁碟（`file_storage`），一直重試；外層佇列關掉 | 實測佇列設在外層沒用（資料一進來就移到子 exporter 的記憶體佇列，node 重啟照掉）；原本重試 120 秒的限制也拿掉 |
+| `platform/cluster-addons/otel-collector/sampler.yaml` | 加 `file_storage` extension；三個送 ES 的出口佇列寫磁碟 | ES 停機時 trace-sampler 重啟，記憶體佇列整個默默不見 |
+| `platform/cluster-addons/otel-collector/trace-sampler.yaml` | 每台加 1Gi PVC（`volumeClaimTemplates`）掛在 `/var/lib/otelcol`；`fsGroup: 10001` | Pod 重啟、搬節點後佇列還在；Collector 不是 root，要寫得進去 |
+| `docs/trace/README.md`、`docs/pdca/README.md` | 狀態 | — |
+
+測試用的腳本（docker 模擬兩層 Collector、送 trace、製造狀況、數 ES 裡的 trace）放在工作目錄外，沒有進 repo。
 
 ## Check：測試的目的與結果
 
-（進行中）
+**怎麼測**：docker 跑 ES 9.5.5、node 端 Collector、trace-sampler（用正式的 `sampler.yaml`），版本 0.162.0。每秒送 20 個 trace、送 150 秒（共 3,000 個，每個 2 段，ID 都不一樣）；trace-sampler 設成全留（`RANDOM_PCT=100`），所以 ES 裡少幾個就是掉幾個。中間依情境製造狀況，結束後等 90 秒（決定的 30 秒＋佇列送完），用精確的段數算 trace 數。
+
+**設定**：
+- **現況**：跟正式設定一樣（node 端記憶體佇列、重試 120 秒；trace-sampler 送 ES 記憶體佇列）
+- **A**：node 端外層佇列加磁碟；trace-sampler 送 ES 加磁碟
+- **A2**：node 端磁碟佇列改設在子 exporter；trace-sampler 同 A（**就是這次改的正式設定**）
+- **B**：node 端寫 Kafka（依 trace_id 分 partition），trace-sampler 從 Kafka 讀；trace-sampler 送 ES 跟現況一樣
+
+| 情境（為了確認什麼） | 現況 | A | A2 | B |
+|---|---|---|---|---|
+| 對照：沒有任何狀況（測試本身準不準） | 掉 0（600 個） | — | — | — |
+| S1：trace-sampler 停 3 分鐘（node 端重試 120 秒會不會丟） | 掉 0 | 掉 0 | — | — |
+| S1L：trace-sampler 停 400 秒 | **掉 200** | — | 掉 0 | 掉 0 |
+| S2：trace-sampler 正常重啟 | 掉 0 | 掉 0 | — | — |
+| S2K：trace-sampler 當掉（kill -9）馬上起來 | **掉 600** | — | **掉 620** | **掉 600** |
+| S3：trace-sampler 停著時 node Collector 重啟 | **掉 820** | **掉 820** | 掉 0 | 掉 0 |
+| S4：ES 停機中 trace-sampler 重啟 | **掉 2,540～2,620** | 掉 0 | 掉 0（兩次） | **掉 2,420** |
+| S4，用改過的正式 `sampler.yaml` | — | — | 掉 0 | — |
+
+**測的過程中發現的**：
+
+| 發現 | 怎麼發現的 |
+|---|---|
+| Plan 的推論「trace-sampler 掛超過 2 分鐘就丟」不對：停 3 分鐘沒掉、停 400 秒才掉。推測 loadbalancing 裡每台的子 exporter 有自己預設的重試（約 5 分鐘），**未讀程式確認** | S1、S1L |
+| 佇列設在 loadbalancing 外層沒用 | S3 的 A 跟現況一樣掉 820；改設在子 exporter（A2）才不掉 |
+| **記憶體佇列在重啟時默默不見**：S4 掉 2,620 個，log 只記到約 420 個（關機時正在送的那幾批），其他沒有任何紀錄 | 讀 S4 的 trace-sampler log |
+| **ES 剛起來的幾秒回 401**，Collector 當成永久錯誤、不重試直接丟（log：`Permanent error … 401`） | 讀 S4 的 trace-sampler log；A2 的兩次 S4 沒遇到 |
+| trace-sampler 當掉時，等 30 秒決定的那段只在記憶體，任何佇列都救不了（約掉 20%） | S2K 四種設定都掉約 600 |
+| Kafka 沒有多擋住任何情況：入口換成 Kafka 跟 A2 一樣；trace-sampler 送 ES 那段 Kafka 管不到，S4 照掉 | B 的四個情境 |
+
+沒測到：k3s 上用真的 PVC、真的 headless Service（docker 用的是固定主機名）；trace-sampler 兩台以上時，一台當掉的情況；長時間 ES 停機（佇列滿 10,000 批）；PVC 的 1Gi 夠不夠（沒量佇列實際佔多少）。
 
 ## Act：Check 後沒改善的、還沒解決的
 
-（進行中）
+**決定**：不用 Kafka。兩段佇列都寫磁碟（A2）就擋住了 Kafka 擋得住的所有情況，還多擋住「ES 停機中 trace-sampler 重啟」；Kafka 要多維運一套叢集，換不到額外的保護。
+
+| 沒改善的 | 在什麼情況下發現的 | 影響 | 後續 |
+|---|---|---|---|
+| trace-sampler 當掉（OOM、kill -9）掉約 20% | S2K，四種設定都一樣 | 當掉前 30 秒內的 trace 沒了；剛好出事時最可能 OOM | 盯 trace-sampler 記憶體（`memory_limiter`、`GOMEMLIMIT` 已設）；兩台以上時一台掉只影響它負責的那部分 |
+| ES 剛起來回 401，Collector 不重試直接丟 | S4 現況的 log | 磁碟佇列也一樣會被丟（永久錯誤會從佇列移除） | 查 ES 啟動時為什麼回 401（安全索引還沒好）；評估 ES 前面放 LB 健康檢查，或 Collector 端能不能把 401 當可重試 |
+| 子 exporter 預設重試約 5 分鐘是推測 | S1 停 3 分鐘沒掉 | 不影響 A2（已設一直重試） | — |
+| PVC 依賴 cluster 有預設的 StorageClass | 實作時 | 沒有的話 trace-sampler 起不來（Pending） | 部署前確認；k3s 有 local-path |
+| PVC 1Gi 夠不夠沒量 | 沒測長時間 ES 停機 | 佇列滿了就丟 | 正式環境看 `/var/lib/otelcol` 用量 |
+| [④] 其他兩條線（log、metrics）也有「ES 剛起來回 401 直接丟」的可能（推論） | 它們用同樣的 `otlp_http` exporter | 同上 | 一起驗證 |
