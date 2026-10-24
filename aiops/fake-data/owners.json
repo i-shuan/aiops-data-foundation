@@ -1,0 +1,8 @@
+{
+  "_fake": "【假資料】範例用的負責人對照，團隊名稱都是編的。正式的來源換掉 chronic.yaml 的 owners_source（file 換成 http，或直接換這個檔）。格式見 fake-data/README.md",
+  "owners": [
+    {"match": {"service": "^mes-"}, "owner": "【假】MES 團隊"},
+    {"match": {"service": "^wip-"}, "owner": "【假】WIP 團隊"},
+    {"match": {"namespace": "^pay"}, "owner": "【假】金流團隊"}
+  ]
+}

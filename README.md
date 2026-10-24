@@ -8,8 +8,9 @@
 
 ```
 docs/
-  overview.md        架構總覽（從這裡看起）
-  system-map.md      整條線一份看完：收值 → 判斷 → 串接 → 收斂 → LLM → 根因 → feedback
+  pdca/              現況與待辦（依 PDCA 分）、每一輪紀錄、TEMPLATE.md
+  architecture.md    架構（從這裡看起）：架構圖、三種資料怎麼收、共用什麼
+  system-stages.md   整條線一份看完：收值 → 判斷 → 串接 → 收斂 → LLM → 根因 → feedback
   log/               log：收值、格式解析、欄位，階段一二的現況與待辦
   metrics/           metrics：收值、欄位、收了哪些、案例、.NET，階段一二
   trace/             trace：收值、尾端取樣、欄位、Kafka 串接、業務 ID，階段一二
@@ -22,7 +23,7 @@ docs/
 
 每個資料夾的 `README.md` 開頭都有「現況與待辦」：前三個（log、metrics、trace）是**階段一（收值、格式、欄位）**和**階段二（清洗與打標）**，rca、feedback 是上線前要補的。
 
-閱讀順序：[overview.md](docs/overview.md) → [system-map.md](docs/system-map.md) → 各資料夾。
+閱讀順序：[architecture.md](docs/architecture.md) → [system-stages.md](docs/system-stages.md) → 各資料夾。
 
 | 資料夾 | 主文件 | 其他 |
 |---|---|---|
@@ -55,22 +56,7 @@ docs/
 
 ## 待辦
 
-範圍是一般服務。各項細節在各資料夾 README 開頭的「現況與待辦」。
-
-| 波次 | 項目 | 細節 |
-|---|---|---|
-| **第一波：我們自己就能做** | 正式環境排程（train 每天、detect 每 30 秒、rules、peer 每分鐘） | [rca/](docs/rca/README.md) |
-| | 收斂第 1、2 層（連續的點合成一段、同服務合成一件）＋告警出口 | [rca/](docs/rca/README.md#雜訊壓制)、[feedback/](docs/feedback/README.md) |
-| | 事故紀錄、回饋（先只收集） | [feedback/](docs/feedback/README.md) |
-| | 髒資料排除：行事曆、排除事故時段、慢性病清單、資料品質檢查、排除測試流量 | [rca/](docs/rca/README.md#髒資料排除) |
-| | 階段一小尾巴：統一指標名稱（metrics）、統一欄位路徑（log）、trace-sampler 磁碟佇列（trace） | [metrics/](docs/metrics/README.md)、[log/](docs/log/README.md)、[trace/](docs/trace/README.md) |
-| | 時間對齊：主機時鐘監控（metrics）、收資料延遲與時區規範（log）、時鐘差日報（trace） | 同上 |
-| | 業務 ID：交易 ID 命名、從 log 抽出；Kafka：驗證 Java | [trace/](docs/trace/README.md#業務-id服務層) |
-| | baseline 補強：p99、慢請求比例、往外呼叫耗時、變化點、Pod → trace 逐段比、趨勢 | [rca/](docs/rca/README.md) |
-| **第二波：要別人配合** | REST API 的 log 樣本、服務命名規則（`groups`）、新服務把交易 ID 寫進 log、重要的 .NET Kafka 消費者加幾行、修慢性病、用真實資料校正門檻 | 各資料夾 |
-| **第三波** | 常駐拓撲、收斂第 3 層（沿呼叫關係找源頭）、交易時間線工具、根因報告帶業務 ID、LLM 摘要、版本與回測 | [rca/](docs/rca/README.md)、[feedback/](docs/feedback/README.md) |
-
-**之後**：Elastic 付費 AIOps 功能評估（試用只能開一次，等資料累積夠再開）；工廠（[docs/factory-later.md](docs/factory-later.md)）。
+依 PDCA 分（Plan 定門檻、Do 收值與判斷、Check 看對不對、Act 調整），整份在 [docs/pdca/](docs/pdca/README.md)。**最大缺口是 Check**（告警出口、事故紀錄、回饋）。範圍是一般服務。
 
 ## 目錄
 

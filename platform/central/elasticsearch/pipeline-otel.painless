@@ -1,4 +1,4 @@
-// OpenTelemetry Collector（platform/cluster-addons/otel-logs）送來的 log：
+// OpenTelemetry Collector（platform/cluster-addons/otel-collector）送來的 log：
 // 整理成 Fluent Bit 送來的形狀，改寫 _index 轉到 k8s-<group>-<cluster>，接著在 k8s-logs-otel 裡呼叫 k8s-logs，
 // 拆欄位的規則跟 Fluent Bit 那條完全共用。
 // ⚠ 改了 _index 之後 ES 不會自動跑目的地的 default pipeline（實測），所以要自己呼叫。

@@ -99,7 +99,7 @@ trace-sampler × 2（StatefulSet，尾端取樣）
 
 ## 應用要做什麼
 
-用 app-common chart 而且開了 Java agent（`otel.javaAgent.enabled: true`）的服務不用做任何事，chart 會設好：
+用 app-common chart 而且開了 Java agent（`otel.javaAgent.enabled: true`）或 .NET 自動埋點（`otel.dotnet.enabled: true`）的服務不用做任何事，chart 會設好：
 
 | 環境變數 | 值 |
 |---|---|
@@ -108,7 +108,7 @@ trace-sampler × 2（StatefulSet，尾端取樣）
 | `OTEL_TRACES_SAMPLER` | `parentbased_traceidratio`：上游決定要記的跟著記，自己開始的請求依比例 |
 | `OTEL_TRACES_SAMPLER_ARG` | `otel.traces.sampleRatio`，預設 `1.0`（全部送）。**保持 1.0**：要不要留由 trace-sampler 在請求結束後決定（尾端取樣）；在應用裡調低的話，出事的請求在一開始就被丟了 |
 
-沒用 chart 的服務，自己設上面這幾個環境變數。不是 Java 的服務，用該語言的 OpenTelemetry SDK，送到同一個位址。
+沒用 chart 的服務，自己設上面這幾個環境變數。不是 Java、.NET 的服務，用該語言的 OpenTelemetry SDK，送到同一個位址。
 
 **什麼時候要自己埋點、怎麼埋（業務步驟、批號這類欄位、SECS 等 agent 不認得的元件），見 [apps/standards/tracing.md](../../apps/standards/tracing.md)。**
 
@@ -135,7 +135,7 @@ pod label、`container.*` 不會帶進 trace（只給 log 用）。
 
 ## 部署
 
-中央 ES 和每個 cluster 的步驟跟 log、metrics 一樣（[log/README.md 的「部署」](../log/README.md#部署)）：重跑 `elasticsearch-setup.sh`，新發的 key 才有 `traces-*.otel-*` 的權限（或用 `rotate-writer-key.sh` 一個一個 group 換，不掉資料）；`kubectl apply -k platform/cluster-addons/otel-collector` 會多一個 Service `otel-node-collector`。
+中央 ES 和每個 cluster 的步驟跟 log、metrics 一樣（[log/README.md 的「部署」](../log/README.md#部署)）：重跑 `elasticsearch-setup.sh`，新發的 key 才有 `traces-*.otel-*` 的權限（或用 `rotate-writer-key.sh` 一個一個 group 換，不掉資料）；`kubectl apply -k platform/cluster-addons/otel-collector` 會多一個 Service `otel-node-collector`、StatefulSet `trace-sampler`（尾端取樣）。
 
 ES 要有 `/_otlp/v1/traces`（測試用 9.5.5）：
 
@@ -149,7 +149,7 @@ curl -s -o /dev/null -w "%{http_code}\n" -u elastic:<password> -X POST -H "Conte
 ES_URL=http://<ip>:9200 test/local-k3s/run-trace-e2e.sh
 ```
 
-測試應用（[trace-app.sh](../../test/local-k3s/trace-app.sh)）每 5 秒印一行帶 `trace_id` 的 log、送一個同 `trace_id` 的 span。it-mes-prod 那個故意在資源欄位自稱 imc-wip-prod、dept D1110、group imc、假的 Pod UID。**24 項全部通過**：
+測試應用（[trace-app.sh](../../test/local-k3s/trace-app.sh)）每 5 秒印一行帶 `trace_id` 的 log、送一個同 `trace_id` 的 span。it-mes-prod 那個故意在資源欄位自稱 imc-wip-prod、dept D1110、group imc、假的 Pod UID。**23 項全部通過**：
 
 | 類別 | 檢查 |
 |---|---|
@@ -172,10 +172,9 @@ ES_URL=http://<ip>:9200 test/local-k3s/run-trace-e2e.sh
 - **Service 一定要 `internalTrafficPolicy: Local`。** 拿掉的話，應用可能連到別的節點的 Collector，那裡認不得這個 Pod，trace 會進 unassigned。
 - **應用不能用 hostNetwork。** 用節點 IP 送出來的連線對不到 Pod，會進 unassigned。
 - **key 失效期間的 trace 會遺失**，跟 log、metrics 一樣。換 key 用 `rotate-writer-key.sh`。
-- **量**：trace 通常比 log 還大。請求量大的服務先調低 `otel.traces.sampleRatio`；全廠量起來前要估算 ES 的空間。
+- **量**：trace 通常比 log 還大。尾端取樣後約剩 15%（不要在應用調低 `otel.traces.sampleRatio`，見「應用要做什麼」）；全廠量起來前要估算 ES 的空間。
 
 ## 還沒做
 
 1. **保留天數**：已套用（[retention.md](../retention.md)），各 group 要不要不同還要確認。
-2. **取樣策略**：現在是各服務在源頭依比例取樣。要「錯誤和慢的請求一定留」的話，要改成在 Collector 收齊整個 trace 再決定（tail sampling），需要另外設計（同一個 trace 的 span 會分散在不同節點）。
-3. **Kibana 的 APM 畫面**：資料是 OTel 原生格式，Kibana 的 Observability 應該能直接看，還沒確認。
+2. **Kibana 的 APM 畫面**：資料是 OTel 原生格式，Kibana 的 Observability 應該能直接看，還沒確認。

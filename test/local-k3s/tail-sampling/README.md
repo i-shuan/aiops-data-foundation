@@ -2,7 +2,7 @@
 
 一句話：**先把 trace 全部收進來，等整個 trace 到齊後再決定留不留：錯的、慢的、吞掉例外的全留，正常的隨機留 5%。** 這個資料夾是在本機 k3s 上驗證這件事的設定、壓測程式、量測腳本。為什麼要做見 [docs/trace/scenarios.md「取樣」](../../../docs/trace/scenarios.md#橫跨所有場景的前提取樣)。
 
-> 這裡是**實測用**，還沒改正式的設定（`platform/`）。結果出來、決定要用之後才搬過去。
+> 這裡是**實測用**。結果已搬進正式設定（`platform/cluster-addons/otel-collector`，等 30 秒），見下面「各檔案」。
 
 ## 架構
 
@@ -12,7 +12,7 @@
 node Collector（每個節點一台，跟現在一樣補 K8s、部門欄位）
    ↓ loadbalancing exporter：依 trace_id 決定送哪一台 → 同一個 trace 的每一段一定到同一台
 trace-sampler × 2（StatefulSet）
-   ↓ tail_sampling：第一段到了之後等 decision_wait（5 或 10 秒），看整個 trace 決定
+   ↓ tail_sampling：第一段到了之後等 decision_wait（正式設定 30 秒；實測每輪另設），看整個 trace 決定
    ↓ 依 group 分流
 ES（traces-generic.otel-<group>）
 ```
@@ -39,7 +39,7 @@ ES（traces-generic.otel-<group>）
 | 兩層 Collector 的設定 | 實測後搬進正式設定：node Collector 的 loadbalancing 出口在 [node.yaml](../../../platform/cluster-addons/otel-collector/node.yaml)，trace-sampler 的設定與 StatefulSet 在 [sampler.yaml](../../../platform/cluster-addons/otel-collector/sampler.yaml)、[trace-sampler.yaml](../../../platform/cluster-addons/otel-collector/trace-sampler.yaml)；本機測試用的覆寫（等 5 秒、隨機 100%）在 [test/local-k3s/otel-collector](../otel-collector/kustomization.yaml) |
 | [loadgen.py](loadgen.py) | **壓測產生器**（只用 Python 內建套件）：模擬 lt-gateway → lt-order → DB 三段呼叫，每個服務像真的 SDK 一樣「每 5 秒或滿 512 段送一次」，所以同一個 trace 的段會分批、在不同時間到。請求的種類見下表，每一段都帶 `lt.category`、`lt.run` 用來對答案 |
 | [measure.py](measure.py) | **量一輪的結果**：從 ES 數每種請求送了幾個、留了幾個、有沒有缺段、是哪條規則留的；trace-sampler 的記憶體、CPU（kubelet 的數字） |
-| [run-tail-sampling.sh](run-tail-sampling.sh) | **整個實測**：裝上兩層 → 每一輪換 decision_wait、流量 → 跑 loadgen（Job）→ 等決定完 → 讀 trace-sampler 的內部計數 → measure.py。跑完換回原本的 Collector（`KEEP=1` 不換回） |
+| [run-tail-sampling.sh](run-tail-sampling.sh) | **整個實測**：套用 Collector（正式設定就是兩層）→ 每一輪換 decision_wait、流量 → 跑 loadgen（Job）→ 等決定完 → 讀 trace-sampler 的內部計數 → measure.py。跑完 trace-sampler 換回測試環境的預設（全部留、等 5 秒；`KEEP=1` 不換回） |
 
 ## 壓測的請求種類（loadgen.py）
 

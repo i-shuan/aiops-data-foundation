@@ -22,6 +22,7 @@
   {"group": "正規化：應用自己寫的 level", "log": "{\"level\":\"Err\",\"message\":\"short form\"}", "expect": "error", "inferred": false},
   {"group": "正規化：應用自己寫的 level", "log": "{\"severity\":\"notice\",\"message\":\"syslog style\"}", "expect": "info", "inferred": false},
   {"group": "正規化：應用自己寫的 level", "log": "level=CRITICAL msg=\"disk full\"", "format": "logfmt", "expect": "fatal", "inferred": false},
-  {"group": "正規化：應用自己寫的 level", "log": "{\"level\":\"verbose\",\"message\":\"unknown level kept\"}", "expect": "verbose", "inferred": false},
+  {"group": "正規化：應用自己寫的 level", "log": "{\"level\":\"verbose\",\"message\":\".NET Verbose\"}", "expect": "trace", "inferred": false},
+  {"group": "正規化：應用自己寫的 level", "log": "{\"level\":\"fine\",\"message\":\"unknown level kept\"}", "expect": "fine", "inferred": false},
   {"group": "正規化：應用自己寫的 level", "log": "{\"level\":\"INFO\",\"message\":\"ERROR text but level given\"}", "expect": "info", "inferred": false}
 ]

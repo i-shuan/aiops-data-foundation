@@ -9,14 +9,27 @@
 | 異常總表 `aiops-anomalies` | ✅ | 所有判斷結果都寫這裡，帶 `status`（warning／anomaly）、可信度、粒度、方法 |
 | 使用者、指令調整（粒度、z、min_abs） | ✅ | `series.yaml` 的 `overrides`、`tune` 指令寫進 `aiops-tuning`，記原因、誰、何時（[baseline README「使用者、feedback 調整」](../../aiops/baseline/README.md#使用者feedback-調整)）；之後 feedback 也寫同一處 |
 | 告警出口 | ❌ | 現在只寫進 ES，還沒有通知；要接在收斂之後（[rca/README.md「雜訊壓制」](../rca/README.md#雜訊壓制)） |
-| 事故紀錄 `aiops-incidents` | ❌ | 每次事故記時間、影響、根因、處置、相關異常 |
-| 值班回饋 `aiops-feedback` | ❌ | 真的／誤報／根因錯／漏報 |
+| 事故紀錄 `aiops-incidents` | ⚠️ | `incident add／list／resolve`：時間、服務、根因、處置、相關異常；`--exclude-training` 同時提「這段不學」（proposed）。沒排程、沒接告警；根因還沒餵給 RAG |
+| 值班回饋 `aiops-feedback` | ⚠️ | `feedback pending／add／list／summary／suggest`：真的／誤報／根因錯／漏報；誤報同一個對象累積 3 次才提放寬 z 的建議（proposed，`adjust approve` 才生效）。收集靠指令，還沒有網頁或通知裡的按鈕 |
 | 版本、回測、評測集 | ❌ | 每筆異常記下是哪一版產生的；改門檻前回測；改 prompt 前跑評測集 |
 | LLM | ❌ | 從根因報告摘要開始，只加註、不擋告警 |
 
 **建議順序**：告警出口（收斂後）→ 事故紀錄、回饋（先只收集，不自動生效）→ 版本、回測 → LLM 摘要 → 回饋累積夠且回測通過，才自動調門檻。
 
 上線前先記下現況當基準（每天告警幾筆、多少是誤報、從告警到找到原因平均多久），之後才量得出有沒有改善。
+
+## 用 PDCA 看整條線
+
+| PDCA | 對應 | 狀態 |
+|---|---|---|
+| **Plan** | `series.yaml`、`rules.yaml` 的門檻與粒度；上線前記下現況基準（每天告警幾筆、誤報多少、找到原因要多久） | ⚠️ 設定有了，基準還沒記 |
+| **Do** | 收值 → baseline／規則／Pod 互比／trace 每一段 → `aiops-anomalies` → 根因分析 | ✅ 在 k3s 驗過 |
+| **Check** | 告警出口、事故紀錄 `aiops-incidents`、值班回饋 `aiops-feedback` | ⚠️ 事故、回饋可以收集與統計誤報率；告警出口、版本與回測還沒做 |
+| **Act** | 調門檻、排除時段、補指標、重複根因升級成規則；回測通過才生效，記在 `aiops-tuning` | ⚠️ 手動調整有了，自動回饋沒有 |
+
+目前走到「偵測＋報告」；Check 是最大缺口，補上後才形成閉環。
+
+完整的一輪紀錄（exemplar 實測、方案比較）見 [pdca/2026-10-metrics-to-trace.md](../pdca/2026-10-metrics-to-trace.md)；紀錄格式見 [pdca/TEMPLATE.md](../pdca/TEMPLATE.md)。
 
 ## 對了怎麼強化、錯了怎麼 feedback
 

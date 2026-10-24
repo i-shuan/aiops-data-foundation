@@ -105,7 +105,7 @@ MAD（Median Absolute Deviation，中位數絕對偏差）＝「每個值離中�
 | | 時間 |
 |---|---|
 | 每條序列多細 | 預設 30 秒一點（跟收值一樣），量不夠的自己往粗調到 1 分鐘～1 小時（見「自動調整」①）；每條序列切成 168 個時段（星期幾 × 小時）各自學 |
-| 最快多久開始判斷 | 約 4 小時（50 個點，`all` 層）；3 天後有「每天同一小時」；2 週後有「同星期幾 × 同小時」 |
+| 最快多久開始判斷 | 50 個點（`all` 層）：30 秒一點約 25 分鐘、5 分鐘一點約 4 小時；3 天後有「每天同一小時」；2 週後有「同星期幾 × 同小時」 |
 | 訓練（`train`） | 建議每天一次；5 分鐘以上的粒度用最近 4 週，30 秒、1 分鐘用最近 14 天（跟 metrics 原始資料留 14 天一致，見 [retention.md](../../docs/retention.md)） |
 | 偵測（`detect`） | 建議每 30 秒一次，看最近 30 分鐘、只看已經結束（再退 30 秒確定收齊）的時間窗 |
 | 現況 | ⚠️ 正式環境還沒排程，目前是測試環境手動跑（排程範例見「怎麼跑」） |
@@ -157,11 +157,11 @@ MAD（Median Absolute Deviation，中位數絕對偏差）＝「每個值離中�
 所有序列用同一個粒度不合適：很多 API、背景工作、外部呼叫都是低頻，一個時間窗只有幾筆，p95 是雜訊、筆數大多是 0、MAD 變 0；新 API 沒有歷史就完全不判斷。（工廠的設備告警、SECS 事件也一樣，見 [factory-later.md](../../docs/factory-later.md)。）改成**每條序列自己決定**，分三個方向，彼此獨立：
 
 ```
-原始資料（5 分鐘）
+原始資料（30 秒）
       │
       ▼
 ① 粒度：看每個時間窗裡「底下的事件」夠不夠多
-      ├─ 夠        → 5 分鐘
+      ├─ 夠        → 30 秒 / 1 分鐘 / 5 分鐘
       ├─ 中        → 15 / 30 分鐘
       ├─ 少        → 1 小時
       └─ 1 小時還不夠 → 筆數類改用卜瓦松；比例、延遲類沒有自己的 baseline
@@ -206,7 +206,7 @@ MAD（Median Absolute Deviation，中位數絕對偏差）＝「每個值離中�
 |---|---|---|
 | 使用者設定 | `series.yaml` 的 `overrides`（`series` 可用正規表示式、`match` 依 keys 比對） | 粒度：下次 train；z、min_abs：下次 detect |
 | 指令 | `python3 -m aiops_baseline tune --series http.latency_p95_s --match service=^mes-report --resolution 5m --z 7 --reason 誤報多 --by 王小明`，寫進 `aiops-tuning`（`--list` 列出、`--remove` 刪掉） | 同上 |
-| feedback（📝） | 之後的 feedback 流程寫同一個 `aiops-tuning`：同一條序列誤報累積多次 → 建議粒度往粗一級或調高 z，回測通過才寫入（見 [docs/system-map.md 第 10 節](../../docs/system-map.md)） | 同上 |
+| feedback（📝） | 之後的 feedback 流程寫同一個 `aiops-tuning`：同一條序列誤報累積多次 → 建議粒度往粗一級或調高 z，回測通過才寫入（見 [docs/system-stages.md 第 10 節](../../docs/system-stages.md)） | 同上 |
 
 套用順序：自動選 → `series.yaml` 的 `overrides` → `aiops-tuning`，後面的蓋前面的。每筆調整記 `reason`、`by`、`at`，查得到誰、為什麼、什麼時候改的。
 
@@ -256,7 +256,7 @@ series:
 
 | 欄位 | 值 |
 |---|---|
-| `resolution` | 5m / 15m / 30m / 1h |
+| `resolution` | 30s / 1m / 5m / 15m / 30m / 1h |
 | `method` | `mad`（中位數＋MAD）／`poisson` |
 | `level` | dow_hour / hour / all / group |
 | `baseline_source` | `self` 或 `group:<組名>` |
@@ -423,6 +423,139 @@ python3 -m aiops_baseline peer --config baseline/peer.yaml      # 每分鐘
 
 同一段時間整個服務的錯誤率是 **9%**（3 個 Pod 裡 1 個壞）。這次服務平常是 0%，跟平常比（baseline）也會報，但只知道「服務錯誤率高」、不知道是哪個 Pod；Pod 越多稀釋越多：10 個 Pod 壞 1 個大約剩 1%，就低於 baseline 的門檻（多 5 個百分點）了。
 
+## 調整：哪些資料不學、從哪裡重新學、哪些時段放寬
+
+統計公式不動；baseline 學錯、報錯的情況，用「調整資料」修正（[docs/pdca/2026-10-baseline-definition.md](../../docs/pdca/2026-10-baseline-definition.md)）。程式在 [aiops_baseline/adjust.py](../aiops_baseline/adjust.py)，跟 `tune` 寫同一個 index `aiops-tuning`（`kind` 區分）；長期的規則寫 [adjustments.yaml](adjustments.yaml)。
+
+| kind | 用途 | train | detect |
+|---|---|---|---|
+| `override` | 固定粒度、改 z、`min_abs`（`tune` 指令；舊資料沒有 `kind` 也是） | 粒度 | z、`min_abs` |
+| `exclude_window` | 事故、維護、壓測 | `start`～`end` 的點不學 | `apply_to` 含 `detect` 時這段不報 |
+| `reset_point` | 換版、架構調整 | `reset_at` 之前的歷史不學 | 之後 `warmup`（預設 24 小時）內不報；之後 baseline 要是重置後重新學的才判斷 |
+| `recurring_override` | 月底批次、固定排程 | 預設照學；`effect.train: exclude` 不學 | 符合 `schedule` 的時段：`mute` 不報，或 z、`min_abs` 放寬（只會變少報，不會變嚴） |
+
+- **對象**：`series`（正規表示式）、`match`（正規表示式，欄位可用別名：`service` 同時對到 `service`、`service.name`、`resource.attributes.service.name`、`entry.service`；另有 `namespace`、`pod`、`deployment`、`route`、`method`）。`tune` 的 `match` 也能用別名。
+- **週期**：`schedule: {cron: "0 20 * * *", duration: 4h, days_of_month: [-1]}`：台北時間每天 20:00 起 4 小時，只限每月最後一天（cron 寫不出「最後一天」）。
+- **learning loop 的接口**：`status: proposed` 不生效，`adjust approve` 才生效；`source` 記誰寫的（`manual`／`feedback`／`cicd`）；`expires_at` 到期自動失效。
+
+```bash
+python3 -m aiops_baseline adjust add --kind exclude_window --match service=^mes-api$ \
+    --start 2026-10-20T02:00:00+08:00 --end 2026-10-20T05:00:00+08:00 --reason "DB 鎖表事故"
+python3 -m aiops_baseline adjust add --kind reset_point --match service=^mes-api$ --at 2026-10-22T10:00:00+08:00 \
+    --source cicd --status proposed --id mes-api-v2 --reason "v2 上線"
+python3 -m aiops_baseline adjust add --kind recurring_override --match service=^mes-report --series "log\..*" \
+    --cron "0 20 * * *" --duration 4h --days-of-month -1 --z 8 --reason "月底報表批次"
+python3 -m aiops_baseline adjust list
+python3 -m aiops_baseline adjust approve --id mes-api-v2 --by bob
+python3 -m aiops_baseline adjust remove  --id mes-api-v2
+```
+
+**實測**（2026-10-23，ES 9.5.5，log 8 天）：
+
+| 案例 | 沒有調整 | 有調整 |
+|---|---|---|
+| `long`：8 天裡 5 天是長事故（log 3 倍） | 平常學成 13.57（每 5 分鐘；正常是 5）：事故變成平常 | `exclude_window` 排掉事故 → 15.00（每 15 分鐘，即每 5 分鐘 5）：回到正常 |
+| `ver`：3 天前換版，log 變 2 倍 | 平常學成 5.36（舊版） | `reset_point`（`proposed` 時不變；`approve` 後）→ 10.00（新版） |
+| `long` 最近 40 分鐘 log 爆 10 倍 | 報 | 週期時段 `mute` → 不報；`reset_point` 後 24 小時暖機 → 不報 |
+| 舊的 `tune` 調整 | — | 照常生效，`adjust list` 一起列出 |
+
+## 事故紀錄與值班回饋
+
+PDCA 的 Check：告警出去之後，人判斷對不對，才知道門檻準不準、哪裡要調。**先只收集，不自動生效**；單次回饋不動門檻。程式在 [aiops_baseline/feedback.py](../aiops_baseline/feedback.py)（計算）和 `__main__.py`（指令）。
+
+| 指令 | 做什麼 |
+|---|---|
+| `feedback pending` | 最近還沒人標記的告警（只列 `anomaly`；`warning` 還沒通知任何人）和它們的 id |
+| `feedback add --anomaly <id> --verdict …` | `true_positive` 真的、`false_positive` 誤報、`wrong_root_cause` 真的但根因錯（`--root-cause` 寫正確的）、`missed` 漏報（沒有 id，給 `--series --match --at`）。同一個人對同一筆再標會覆蓋 |
+| `feedback summary` | 每條序列的告警數、已標記比例、誤報率；誤報累積多次的對象；漏報 |
+| `feedback suggest` | 同一個對象誤報 ≥ 3 次 → 提一筆放寬 z（× 1.4）的建議，`status: proposed`，`adjust approve` 才生效。match 完全符合那個對象（路由的 `{id}` 等字元已跳脫） |
+| `incident add --title --start --end --service …` | 事故紀錄：時間、影響的服務、根因、處置、相關異常。`--exclude-training` 同時提「這段不學」（`exclude_window`，proposed，只排除列出的服務；沒列就全部） |
+| `incident list`／`incident resolve --id` | 列出／結案（補根因、處置） |
+
+寫進 `aiops-feedback`、`aiops-incidents`；建議寫進 `aiops-tuning`（跟 `tune`、`adjust` 同一處）。
+
+**測資與結果**（2026-10-24，ES 9.5.5；14 筆異常：同一個對象 6 次、另一條路由 1 次、錯誤率 4 次＋1 個 warning、log 1 次、規則 1 次）：
+
+| 情境 | 結果 |
+|---|---|
+| `pending` | ✅ 13 筆（warning 不列；規則沒有 `status` 也算告警） |
+| 同一個對象標 4 次誤報、1 次真的 | ✅ 誤報率 80%；列為候選 |
+| 同一個人對同一筆先標誤報、改標真的 | ✅ 覆蓋，只算一次 |
+| 兩個人對同一筆都標誤報 | ✅ 只算一筆（不會因為重複點而湊滿 3 次） |
+| 漏報（沒有 id） | ✅ 列在漏報、對象不重複 |
+| `wrong_root_cause` 附正確根因 | ✅ 記錄、不算誤報 |
+| `suggest` | ✅ 只對誤報 ≥ 3 次的那個對象提一筆（z 5 → 7）；誤報 1 次的不提；再跑一次不重複 |
+| `proposed` 時 | ✅ 不生效（`override_for` 回空） |
+| `approve` 後 | ✅ 只對那個對象生效；同服務的 `/health`、名稱相近的 `mesXapi` 不受影響 |
+| 事故 `--exclude-training` | ✅ proposed 時 `train` 不排除；`approve` 後排除那段（7,200 點）；沒列服務的建議是全部 |
+| 缺參數、不存在的 id、錯的 verdict | ✅ 清楚的錯誤訊息，不寫入 |
+
+**還沒做**：告警出口（通知）；每筆異常記是哪一版產生的、回測、評測集；回饋靠指令標記，還沒有通知裡的按鈕；事故根因還沒餵給 RAG；`suggest` 只調 z，不調 `min_abs`、粒度。
+
+## 慢性病清單、行事曆
+
+**慢性病清單**：天天噴錯、沒人修的。baseline 跟自己的歷史比，天天都有的錯會被學成「平常」、永遠不報，所以另外列出來讓人修。設定在 [chronic.yaml](chronic.yaml)，程式在 [aiops_baseline/chronic.py](../aiops_baseline/chronic.py)。
+
+| 來源 | 看什麼 | 算慢性病 |
+|---|---|---|
+| `chronic.log_errors` | 錯誤 log（error、fatal），依服務 × `error.type`（沒有的歸成「（無）」） | 最近 7 個完整的日子裡至少 6 天、每天至少 20 筆 |
+| `chronic.anomalies` | `aiops-anomalies` 裡的規則、跟兄弟比（N+1、吞掉的例外、CPU 被限流、只有一個 Pod 壞…） | 同一條、同一個對象，7 天裡至少 6 天觸發 |
+
+每個來源排前 10 名（天數多的先，再看量），依 `owners`（match 可用別名）附負責人，寫進 `aiops-chronic`（每週一份），並印成報告。修掉的下週自然從清單消失。
+
+```bash
+python3 -m aiops_baseline chronic --config baseline/chronic.yaml   # 每週一次（例如週一早上）
+```
+
+**資料來源**：負責人（`owners`）和行事曆（`calendar`）是要別人提供的資料，程式只認格式，來源可以換（`file`、`http`，行事曆另有 `taiwan`）。**接口**在 [aiops_baseline/sources.py](../aiops_baseline/sources.py) 和 [interfaces/](../interfaces/README.md)，**假資料**在 [fake-data/](../fake-data/README.md)，兩邊分開；換成真的只改設定。
+
+**行事曆**：國定假日、維護日、大型活動，寫在 [calendar.yaml](calendar.yaml)；假日用 `taiwan` provider 直接抓（[TaiwanCalendar](https://github.com/ruyut/TaiwanCalendar)），不用每年手動填。每一筆變成 `exclude_window`：預設不學也不報；`detect: true` 時只是不學、照常判斷（例如活動日流量本來就高）。日期是當地的一整天（`date`），或一段（`start`、`end`，可帶時間）。補班日（週六上班）也列入：用「週六」的 baseline 比會誤報，所以也不學、不判斷。抓到的結果存在 `.cache/calendar`，24 小時內不重抓（`detect` 每 30 秒跑一次，不能每次打網路）；抓失敗用快取，都沒有就是沒有行事曆，不擋訓練。`adjust list` 會一起列出。
+
+**實測**（2026-10-24，ES 9.5.5）：
+
+| 放進去的 | 結果 |
+|---|---|
+| `mes-api` 逾時錯誤天天 60 筆 | ✅ 列入（7 天），負責人依別名對到「MES 團隊」 |
+| `wip-worker` 7 天裡 6 天、沒有 `error.type` | ✅ 列入 |
+| `pay` 只有 2 天、`tiny` 每天 5 筆、今天（還沒過完）的 999 筆 | ✅ 都不算 |
+| N+1 規則天天觸發；CPU 限流只觸發一次 | ✅ N+1 列入、限流不列 |
+| 行事曆寫前天是假日 | ✅ `train` 排除那天（台北時間一整天）的點 |
+| 抓台灣行事曆（2026-10-24 實抓） | ✅ 2026、2027 共 46 筆（開國紀念日、春節、補假…）；週六日不列；斷網用快取；斷網又沒快取只剩假資料，指令不掛 |
+| 負責人改走介面（`fake-data/owners.json`） | ✅ `mes-api` 對到「【假】MES 團隊」，沒對到的「未指定」；檔案壞掉只警告、清單照出 |
+
+## 資料品質檢查：資料本身怪不怪
+
+baseline 用中位數＋MAD，只擋得住「少數」怪的點。資料本身壞掉時，學出來的「平常」就是錯的，或根本學不到。這幾種壞法不用學，用規則看得出來。設定在 [quality.yaml](quality.yaml)，程式在 [aiops_baseline/quality.py](../aiops_baseline/quality.py)。每個檢查看最近 1 小時，跟 24 小時前同一段比。
+
+| 檢查 | 看什麼 | 觸發 |
+|---|---|---|
+| `quality.route_cardinality`（Java）、`…_dotnet` | 每個服務有幾條路由；抽 50 個值看像不像帶了 ID（數字、UUID、長 hex） | 超過 500 條；或比昨天多 3 倍且多 50 條以上；或至少 50 條且一半以上像 ID（路由沒參數化：`/orders/123` 沒換成 `/orders/{id}`） |
+| `quality.log_missing_identity` | log 缺 `service.name`、`kubernetes.pod.name`（依 namespace） | 缺 5% 以上（至少 100 筆才看） |
+| `quality.metrics_missing_identity` | 應用 metrics 缺 Pod、namespace（依服務） | 缺 5% 以上 |
+| `quality.log_trace_id_drop` | 帶 `trace.id` 的 log（依服務） | 缺的比例比昨天多 30 個百分點以上（本來就不是每行都有，只看變化） |
+| `quality.log_stopped`、`quality.metrics_stopped` | 之前 1 小時有資料、最近 15 分鐘（metrics 5 分鐘）一筆都沒有 | 之前至少 30 筆（metrics 20 筆） |
+| `quality.log_unassigned_share`、`quality.metrics_unassigned_share` | 落到 `unassigned` 的比例（namespace 沒標 dept、`dept` 清單漏同步） | 比昨天多 5 個百分點以上 |
+
+門檻是先估的，要等正式環境跑 2～4 週再校。觸發的寫進 `aiops-anomalies`：`level` 是 `quality`、`median` 放昨天的值、`keys` 缺欄位時多一個 `field`。
+
+```bash
+python3 -m aiops_baseline quality --config baseline/quality.yaml   # 每 10 分鐘
+```
+
+**實測**（2026-10-23，ES 9.5.5 跑過 `elasticsearch-setup.sh`；metrics 走 `/_otlp/v1/metrics`，log 直接寫 `k8s-*`）：
+
+| 放進去的壞資料 | 結果 |
+|---|---|
+| `order` 有 80 條 `/orders/<數字>` 路由 | ✅ 報：從 0 變 80 條；抽樣 100% 像 ID |
+| `pay` 3 條樣板路由（對照組） | ✅ 不報 |
+| `mes` namespace 三成 log 沒有 `service.name` | ✅ 報 30% |
+| `nopod` 的 metrics 沒有 Pod | ✅ 報 100% |
+| `legacy` 10 分鐘前起沒有 metrics | ✅ 報「之前 40 筆，最近沒有」 |
+| `tr` 昨天九成 log 有 `trace.id`、今天兩成 | ✅ 報「缺的比例從 10% 變 80%」 |
+| 落到 unassigned 的 log 佔 13%（沒有昨天的資料） | 不報（沒有比較對象）；加上 `max_share: 0.1` 會報 |
+
+沒驗證：正式環境的量下查詢要多久（`cardinality` 是近似值，3,000 以下準確）。
+
 ## 怎麼跑
 
 ```bash
@@ -436,6 +569,8 @@ export ES_API_KEY=<elasticsearch-setup.sh 發的「AIOps baseline key」>   # �
 python3 -m aiops_baseline train  --config baseline/series.yaml   # 每天跑一次（例如凌晨）
 python3 -m aiops_baseline detect --config baseline/series.yaml   # 每 30 秒跑一次，看最近 30 分鐘
 python3 -m aiops_baseline tune   --series ... --match ... --resolution 5m   # 調整某些對象的粒度、門檻
+python3 -m aiops_baseline quality --config baseline/quality.yaml  # 每 10 分鐘，資料品質檢查
+python3 -m aiops_baseline chronic --config baseline/chronic.yaml  # 每週一次，慢性病清單
 ```
 
 排程例子（crontab）：
@@ -449,7 +584,7 @@ python3 -m aiops_baseline tune   --series ... --match ... --resolution 5m   # �
 
 回測（拿過去某個時間點當「現在」）：`train --end 2026-10-01T00:00:00Z`、`detect --at 2026-10-01T10:00:00Z --window 1D`。
 
-detect 只看**已經結束**的 5 分鐘：還沒收齊的那一段筆數會偏低，看起來像驟降。重跑同一段時間不會重複寫（異常的 `_id` 由序列、維度、時間決定）。
+detect 只看**已經結束**的時間窗（再往前退 `lag` 30 秒）：還沒收齊的那一段筆數會偏低，看起來像驟降。重跑同一段時間不會重複寫（異常的 `_id` 由序列、維度、時間決定）。
 
 ## 結果在哪裡
 

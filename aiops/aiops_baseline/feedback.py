@@ -1,0 +1,125 @@
+"""Check：事故紀錄、值班回饋、誤報統計（docs/feedback/README.md、docs/pdca/README.md 的 Check）。
+
+先只收集、不自動生效：
+  事故 aiops-incidents   每次事故記時間、影響的服務、根因、處置；可選擇同時提一筆「這段不學」（proposed，人核准才生效）
+  回饋 aiops-feedback    值班對每一筆異常的判斷：true_positive（真的）、false_positive（誤報）、
+                         wrong_root_cause（真的但根因報告錯了）、missed（漏報：該報卻沒報）
+  summary               每條序列的告警數、被標記的比例、誤報率；誤報累積到 min_false_positive 次的列出來
+  suggest               誤報累積多次的 → 提一筆放寬門檻的建議（status: proposed，人 approve 才生效）；
+                        單次回饋不動門檻（防污染：一個人按錯不會改壞）
+
+這裡只做計算（單元測試用）；讀寫 ES 在 __main__.py。
+"""
+from __future__ import annotations
+
+import json
+import re
+
+import pandas as pd
+
+FEEDBACK_INDEX = "aiops-feedback"
+INCIDENT_INDEX = "aiops-incidents"
+VERDICTS = ("true_positive", "false_positive", "wrong_root_cause", "missed")
+
+FEEDBACK_MAPPING = {"mappings": {"dynamic": False, "properties": {
+    "@timestamp": {"type": "date"}, "anomaly_id": {"type": "keyword"}, "anomaly_at": {"type": "date"},
+    "series": {"type": "keyword"}, "keys": {"type": "flattened"}, "verdict": {"type": "keyword"},
+    "incident_id": {"type": "keyword"}, "correct_root_cause": {"type": "text"}, "note": {"type": "text"},
+    "by": {"type": "keyword"}}}}
+INCIDENT_MAPPING = {"mappings": {"dynamic": False, "properties": {
+    "@timestamp": {"type": "date"}, "title": {"type": "text"}, "start": {"type": "date"}, "end": {"type": "date"},
+    "services": {"type": "keyword"}, "severity": {"type": "keyword"}, "status": {"type": "keyword"},
+    "root_cause": {"type": "text"}, "action": {"type": "text"}, "anomaly_ids": {"type": "keyword"},
+    "detected_at": {"type": "date"}, "resolved_at": {"type": "date"}, "by": {"type": "keyword"}}}}
+
+
+def target_of(keys: dict | None) -> str:
+    """一個異常的「對象」，用來把同一個對象的回饋歸在一起。"""
+    return json.dumps(keys or {}, sort_keys=True, ensure_ascii=False)
+
+
+def summarize(anomalies: pd.DataFrame, feedback: pd.DataFrame, *, min_false_positive: int = 3) -> dict:
+    """anomalies：series、target、status（只算 anomaly；warning 還沒通知任何人）；
+    feedback：series、target、verdict、anomaly_id（missed 沒有）。
+
+    回傳 {"series": 每條序列一列的 DataFrame, "candidates": 誤報累積到 min_false_positive 次的（序列＋對象）,
+          "missed": 漏報的}。
+    """
+    a = anomalies[anomalies["status"] == "anomaly"] if not anomalies.empty else anomalies
+    cols = ["series", "alerts", "reviewed", "true_positive", "false_positive", "wrong_root_cause", "missed",
+            "fp_rate", "reviewed_rate"]
+    if a.empty and feedback.empty:
+        return {"series": pd.DataFrame(columns=cols), "candidates": pd.DataFrame(columns=["series", "target", "false_positive"]),
+                "missed": pd.DataFrame(columns=["series", "target"])}
+    alerts = a.groupby("series").size().rename("alerts") if not a.empty else pd.Series(dtype=int, name="alerts")
+    f = feedback.copy() if not feedback.empty else pd.DataFrame(columns=["series", "target", "verdict", "anomaly_id"])
+    # 同一筆異常多人標記：最後一筆為準（feedback 已依時間排序）
+    judged = f[f["verdict"] != "missed"]
+    if "anomaly_id" in judged and judged["anomaly_id"].notna().any():
+        judged = pd.concat([judged[judged["anomaly_id"].notna()].drop_duplicates("anomaly_id", keep="last"),
+                            judged[judged["anomaly_id"].isna()]])
+    counts = judged.groupby(["series", "verdict"]).size().unstack(fill_value=0)
+    for v in VERDICTS[:3]:
+        if v not in counts:
+            counts[v] = 0
+    out = pd.concat([alerts, counts[list(VERDICTS[:3])]], axis=1).fillna(0)
+    out["missed"] = f[f["verdict"] == "missed"].groupby("series").size().reindex(out.index).fillna(0)
+    # 只在漏報裡出現的序列
+    only_missed = set(f[f["verdict"] == "missed"]["series"]) - set(out.index)
+    for s in only_missed:
+        out.loc[s] = [0, 0, 0, 0, int((f[(f["verdict"] == "missed") & (f["series"] == s)]).shape[0])]
+    out = out.astype(int).reset_index().rename(columns={"index": "series"})
+    out["reviewed"] = out["true_positive"] + out["false_positive"] + out["wrong_root_cause"]
+    out["fp_rate"] = (out["false_positive"] / out["reviewed"]).where(out["reviewed"] > 0)
+    out["reviewed_rate"] = (out["reviewed"] / out["alerts"]).where(out["alerts"] > 0)
+    fp = judged[judged["verdict"] == "false_positive"].groupby(["series", "target"]).size().rename("false_positive").reset_index()
+    return {"series": out[cols].sort_values(["alerts", "series"], ascending=[False, True]).reset_index(drop=True),
+            "candidates": fp[fp["false_positive"] >= min_false_positive].sort_values("false_positive", ascending=False).reset_index(drop=True),
+            "missed": f[f["verdict"] == "missed"][["series", "target"]].drop_duplicates().reset_index(drop=True)}
+
+
+def suggest_override(series: str, target: str, n_false_positive: int, current_z: float = 5.0, factor: float = 1.4) -> dict:
+    """誤報累積多次 → 放寬門檻的建議（z 乘 factor）。status: proposed，人 approve 才生效。
+    match 用「完全符合這個對象」：欄位名稱不變，值前後加 ^$ 並跳脫。"""
+    keys = json.loads(target)
+    return {"kind": "override", "series": re.escape(series), "match": {k: f"^{re.escape(str(v))}$" for k, v in keys.items()},
+            "z": round(current_z * factor, 1), "status": "proposed", "source": "feedback",
+            "reason": f"誤報 {n_false_positive} 次（值班回饋），z {current_z:g} → {round(current_z * factor, 1)}"}
+
+
+def suggest_exclude(incident: dict) -> list[dict]:
+    """事故 → 這段時間不學的建議（status: proposed）。有列影響的服務就只排除那些服務，沒有就全部。"""
+    services = incident.get("services") or []
+    base = {"kind": "exclude_window", "start": incident["start"], "end": incident["end"], "apply_to": ["train"],
+            "status": "proposed", "source": "incident", "incident_id": incident["id"],
+            "reason": f"事故：{incident.get('title', '')}"}
+    if not services:
+        return [base]
+    return [{**base, "match": {"service": f"^{re.escape(s)}$"}} for s in services]
+
+
+def format_summary(s: dict, days: int) -> list[str]:
+    lines = [f"# 回饋統計（最近 {days} 天）", ""]
+    t = s["series"]
+    if t.empty:
+        return lines + ["沒有資料", ""]
+    tot = t[["alerts", "reviewed", "true_positive", "false_positive", "wrong_root_cause", "missed"]].sum()
+    fp = tot["false_positive"] / tot["reviewed"] if tot["reviewed"] else float("nan")
+    lines += [f"告警 {int(tot['alerts'])} 筆，已標記 {int(tot['reviewed'])} 筆（{tot['reviewed'] / tot['alerts']:.0%}），"
+              f"誤報率 {fp:.0%}，漏報 {int(tot['missed'])} 筆" if tot["alerts"] and tot["reviewed"] else
+              f"告警 {int(tot['alerts'])} 筆，已標記 {int(tot['reviewed'])} 筆，漏報 {int(tot['missed'])} 筆", "",
+              "| 序列 | 告警 | 已標記 | 真的 | 誤報 | 根因錯 | 漏報 | 誤報率 |", "|---|---|---|---|---|---|---|---|"]
+    for r in t.to_dict("records"):
+        rate = "—" if pd.isna(r["fp_rate"]) else f"{r['fp_rate']:.0%}"
+        lines.append(f"| {r['series']} | {r['alerts']} | {r['reviewed']} | {r['true_positive']} | {r['false_positive']} | "
+                     f"{r['wrong_root_cause']} | {r['missed']} | {rate} |")
+    lines.append("")
+    if not s["candidates"].empty:
+        lines += ["## 誤報累積多次（可以考慮放寬，`feedback suggest`）", ""]
+        lines += [f"- {r['series']}：{r['target']}，{r['false_positive']} 次" for r in s["candidates"].to_dict("records")]
+        lines.append("")
+    if not s["missed"].empty:
+        lines += ["## 漏報（補序列、補規則、降門檻）", ""]
+        lines += [f"- {r['series']}：{r['target']}" for r in s["missed"].to_dict("records")]
+        lines.append("")
+    return lines

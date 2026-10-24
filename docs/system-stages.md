@@ -1,4 +1,6 @@
-# 系統全貌：從收值到 feedback
+# 系統各階段：從收值到 feedback
+
+> 先看 [architecture.md](architecture.md) 的架構圖。
 
 範圍：一般服務（Web API、worker、Kafka、DB）；工廠之後再做（[factory-later.md](factory-later.md)）。
 
@@ -8,71 +10,9 @@
 
 ---
 
-## 0. 一張圖看全部
+## 0. 架構
 
-```mermaid
-flowchart TB
-  subgraph S1["① 收值（每個應用 cluster）"]
-    APP["應用 Pod<br/>Java agent／.NET 自動埋點<br/>不改程式"]
-    K8S["kubelet、cAdvisor、K8s 狀態<br/>exporter（Kafka）"]
-    COL["node Collector（每節點）<br/>cluster Collector（一台）"]
-    TS["trace-sampler ×2<br/>尾端取樣"]
-    APP -- "log（stdout）、metrics、trace" --> COL
-    K8S -- "30 秒抓一次" --> COL
-    COL -- "trace 依 trace_id 分配" --> TS
-  end
-
-  subgraph S2["② 清資料"]
-    C1["Collector：擋冒充、補 K8s 身分、<br/>部門→group、直方圖換增量、<br/>例外事件抄到 span"]
-    C2["中央 ES pipeline：log 依格式解析、<br/>統一欄位、去重複"]
-  end
-
-  subgraph S3["③ 存（中央 Elasticsearch）"]
-    LOG[("log<br/>k8s-*")]
-    MET[("metrics<br/>metrics-*.otel-*")]
-    TRA[("trace<br/>traces-*.otel-*")]
-  end
-
-  subgraph S4["④ 判斷（baseline 家族）"]
-    R["一次就算：規則"]
-    H["跟自己的歷史比<br/>MAD／卜瓦松／借同組"]
-    P["跟兄弟比<br/>同服務的 Pod"]
-    T["trace 每一段<br/>＋N+1、吞例外"]
-  end
-
-  AN[("⑤ aiops-anomalies<br/>所有異常一個地方")]
-
-  subgraph S6["⑥ 收斂（📝）"]
-    CV["同一條連續 → 一段<br/>同服務同時間 → 一件<br/>呼叫關係 → 找上游源頭"]
-  end
-
-  subgraph S7["⑦ 根因分析"]
-    RCA["metrics 異常 → trace 哪一段 → log 哪個新錯誤"]
-    LLM["LLM（📝）：只看收斂後的事件<br/>摘要、判斷真假、對照過去"]
-  end
-
-  OUT["⑧ 報告／告警（📝 出口）"]
-  FB["⑨ feedback（📝）<br/>對：寫進知識、升級成規則<br/>錯：調門檻、排除時段、補指標"]
-
-  S1 --> S2 --> S3
-  LOG & MET & TRA --> S4
-  R & H & P & T --> AN
-  AN --> CV --> RCA --> LLM --> OUT --> FB
-  FB -. "門檻、排除時段、新規則" .-> S4
-  FB -. "確認過的事故" .-> LLM
-```
-
-| # | 模組 | 做什麼 | 在哪裡 | 狀態 |
-|---|---|---|---|---|
-| ① | 收值 | log、metrics、trace 三種資料，舊專案不改程式 | `platform/cluster-addons/otel-collector/` | ✅ |
-| ② | 清資料 | Collector 補身分、擋冒充；中央 pipeline 統一格式、去重複 | 同上、`platform/central/elasticsearch/` | ✅ |
-| ③ | 存 | 中央 ES，每個部門 group 一把寫入 key；保留天數、降解析度 | `platform/central/` | ✅ |
-| ④ | 判斷 | 規則、跟歷史比、跟兄弟比、trace 每一段 | `aiops/aiops_baseline/`、`aiops/baseline/*.yaml` | ✅（正式環境還沒排程） |
-| ⑤ | 異常總表 | 所有判斷結果寫同一個 index | `aiops-anomalies` | ✅ |
-| ⑥ | 收斂 | 很多筆異常 → 幾件事 | — | 📝 |
-| ⑦ | 根因分析 | metrics → trace → log | `aiops/aiops_rca/` | ✅（LLM 📝） |
-| ⑧ | 出口 | 通知、事故紀錄 | — | 📝 |
-| ⑨ | feedback | 對了強化、錯了修正 | — | 📝 |
+架構圖（一張圖看全部、cluster 內怎麼收值、三種資料各自怎麼收、共用什麼）搬到 [architecture.md](architecture.md)。下面從「怎麼收值」開始講每個階段。
 
 ---
 
@@ -307,7 +247,7 @@ sequenceDiagram
 | `aiops-baseline` | train 寫、detect 讀 | 每條序列每個時段的平常值，帶粒度、方法、來源 |
 | `*.yaml` 設定 | 各模組 | 加序列、加規則、調門檻不用改程式 |
 
-**接不起來的**：metrics 沒帶 trace_id（沒有 exemplar，用「服務＋時間」挑最慢的 trace 代替）；.NET Kafka 消費者不改程式時對不回訊息；沒有 trace_id 的 log 只能用服務＋時間撈；單一 Pod 異常還沒接到「拿這個 Pod 的 trace 逐段比」。詳見 [rca/README.md「metrics 異常怎麼串到 trace、log」](rca/README.md#metrics-異常怎麼串到-tracelog)。
+**接不起來的**：metrics 沒帶 trace_id（ES 9.5.5 不存 exemplar，實測；用「服務＋時間」挑最慢的 200 個＋最多 100 個出錯的 trace 代替）；.NET Kafka 消費者不改程式時對不回訊息；沒有 trace_id 的 log 只能用服務＋時間撈；單一 Pod 異常還沒接到「拿這個 Pod 的 trace 逐段比」。詳見 [rca/README.md「metrics 異常怎麼串到 trace、log」](rca/README.md#metrics-異常怎麼串到-tracelog)。
 
 ---
 
@@ -374,7 +314,7 @@ flowchart TB
 | 清資料 | 擋冒充、補身分、分部門、格式解析、去重複、補 0 規則 | — |
 | 存 | 中央 ES、每部門寫入 key、換 key 不掉資料、保留天數與降解析度 | 副本、正式環境容量 |
 | 判斷 | 規則 30 多條、7 條 baseline、自己選粒度、卜瓦松、借同組、跟兄弟比、trace 每一段、N+1、吞例外 | **正式環境排程**；p99、慢請求比例、往外呼叫耗時；趨勢；工廠行事曆；`groups` 依公司命名定義；**移動式／變化點偵測（輔助）** |
-| 串接 | metrics → trace → log、呼叫關係 | exemplar；單一 Pod → trace 逐段比 |
+| 串接 | metrics → trace → log、呼叫關係 | 單一 Pod → trace 逐段比（exemplar：ES 不存，不做） |
 | 收斂 | — | 📝 四層收斂、`aiops-incidents` |
 | LLM | — | 📝 摘要、判斷真假、RAG、評測集 |
 | 出口 | 寫進 `aiops-anomalies` | 📝 通知、事故紀錄 |
@@ -388,7 +328,6 @@ flowchart TB
 
 | 主題 | 文件 |
 |---|---|
-| 架構總覽（兩張圖） | [overview.md](overview.md) |
 | 收 log、格式解析 | [log/README.md](log/README.md) |
 | 收 metrics；收了什麼、能做什麼；案例 | [metrics/README.md](metrics/README.md)、[metrics/catalog.md](metrics/catalog.md)、[metrics/cases.md](metrics/cases.md) |
 | 收 trace、尾端取樣；能做什麼 | [trace/README.md](trace/README.md)、[trace/scenarios.md](trace/scenarios.md) |
@@ -399,4 +338,5 @@ flowchart TB
 | 保留天數 | [retention.md](retention.md) |
 | PoC 現況（簡報） | [poc-status.md](poc-status.md) |
 | 工廠部分（之後再做） | [factory-later.md](factory-later.md) |
+| 整個專案的現況與待辦（依 PDCA 分） | [pdca/](pdca/README.md) |
 | 階段一、二的現況與待辦 | 各資料夾 README 開頭：[log](log/README.md)、[metrics](metrics/README.md)、[trace](trace/README.md)、[rca](rca/README.md)、[feedback](feedback/README.md) |
