@@ -117,12 +117,13 @@
 
 | 鑰匙 | metrics | trace | log | 用途 |
 |---|---|---|---|---|
-| **服務名稱** | `resource.attributes.service.name` | `resource.attributes.service.name` | `service.name` | metrics 報「哪個服務」→ 去找那個服務的 trace、log |
+| **服務名稱** | `resource.attributes.service.name` | `resource.attributes.service.name` | `resource.attributes.service.name`（alias → `service.name`） | metrics 報「哪個服務」→ 去找那個服務的 trace、log |
 | **時間** | 異常的 5 分鐘時段 | span 的 `@timestamp` | log 的 `@timestamp` | 只看出事那段 |
-| **Pod、namespace** | `k8s.pod.name` 等 | 同左 | 同左 | 規則、跟兄弟比報的是單一 Pod 時 |
-| **trace_id** | — | `trace_id` | `trace.id` | trace ↔ log 精確對到「同一個請求」 |
+| **路由** | `attributes.http.route`、`http.request.method`（Java 的由 Collector 改成這個名字） | span 的同名 attribute | —（REST API 解析規則做了才有） | metrics 報「哪支 API」→ 撈那條路由的 trace |
+| **Pod、namespace** | `resource.attributes.k8s.pod.name` 等 | 同左 | 同左（alias → `kubernetes.pod.name`） | 規則、跟兄弟比報的是單一 Pod 時 |
+| **trace_id** | — | `trace_id` | `trace_id`（alias → `trace.id`） | trace ↔ log 精確對到「同一個請求」 |
 
-服務名稱、Pod、namespace 都是 Collector 用同一套規則補上的（不是應用自己填），三種資料一定對得上；trace_id 由自動埋點寫進 log（Java 在 MDC、.NET 在 scope），中央 pipeline 統一成 `trace.id`。
+服務名稱、Pod、namespace 都是 Collector 用同一套規則補上的（不是應用自己填），三種資料一定對得上；trace_id 由自動埋點寫進 log（Java 在 MDC、.NET 在 scope），中央 pipeline 存成 `trace.id`，alias `trace_id` 跟 trace 同名。**三種資料的鑰匙都是同一條路徑**（log 的是 alias；Java 指標名字由 Collector 改），查哪一種都不用翻譯（[pdca/2026-10-field-unify.md](../pdca/2026-10-field-unify.md)）。
 
 **流程（例：mes-api 的 p95 變高）：**
 

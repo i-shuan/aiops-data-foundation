@@ -53,9 +53,22 @@
         }},
 
         "app": {"type": "flattened"},
+
+        "resource": {"properties": {"attributes": {"properties": {
+          "service": {"properties": {"name": {"type": "alias", "path": "service.name"}}},
+          "k8s": {"properties": {
+            "namespace": {"properties": {"name": {"type": "alias", "path": "kubernetes.namespace"}}},
+            "pod": {"properties": {"name": {"type": "alias", "path": "kubernetes.pod.name"}}},
+            "container": {"properties": {"name": {"type": "alias", "path": "kubernetes.container.name"}}},
+            "node": {"properties": {"name": {"type": "alias", "path": "kubernetes.node.name"}}},
+            "cluster": {"properties": {"name": {"type": "alias", "path": "orchestrator.cluster.name"}}}
+          }}
+        }}}},
+        "trace_id": {"type": "alias", "path": "trace.id"},
+        "span_id": {"type": "alias", "path": "span.id"},
         "event": {"properties": {"ingested": {"type": "date"}, "created": {"type": "date"}, "timezone": {"type": "keyword"}}}
       }
     }
   },
-  "_meta": {"description": "k8s log 欄位。標準概念用 ECS 名稱；應用自帶的其他欄位一律收進 app（flattened），避免欄位數爆掉"}
+  "_meta": {"description": "k8s log 欄位。標準概念用 ECS 名稱；應用自帶的其他欄位一律收進 app（flattened），避免欄位數爆掉。resource.attributes.*、trace_id、span_id 是 alias：跟 metrics、trace 同一條路徑查（不佔空間、_source 裡沒有，要用 fields 取）"}
 }

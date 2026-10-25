@@ -17,7 +17,7 @@
 learning loop 的接口：status: proposed 的不生效，人用 `adjust approve` 改成 active 才生效；source 記誰寫的
 （manual／feedback／cicd）；expires_at 到期自動失效。
 
-match 的欄位可以用別名（ALIASES）：寫 service 就同時對到 HTTP 序列的 service、log 的 service.name、
+match 的欄位可以用別名（ALIASES）：寫 service 就同時對到 HTTP 序列的 service、log 與
 metrics 的 resource.attributes.service.name、trace 的 entry.service。
 
 這裡只做計算（單元測試用）；讀 ES 的是 load。
@@ -34,14 +34,14 @@ KINDS = ("override", "exclude_window", "reset_point", "recurring_override")
 DEFAULT_WARMUP = "24h"   # reset_point 之後多久內不判斷
 
 # 同一個概念在不同序列的欄位名稱。match 寫其中任何一個，都會找序列裡有的那一個
+# log、metrics、trace 的鑰匙都是 OTel 路徑（log 的是 alias；Java 的 HTTP 指標由 Collector 改名），所以只剩「短名字 ↔ 路徑」
 ALIASES = [
-    ("service", "service.name", "resource.attributes.service.name", "entry.service"),
-    ("namespace", "kubernetes.namespace", "k8s.namespace.name", "resource.attributes.k8s.namespace.name"),
-    ("pod", "kubernetes.pod.name", "k8s.pod.name", "resource.attributes.k8s.pod.name"),
+    ("service", "resource.attributes.service.name", "entry.service"),
+    ("namespace", "k8s.namespace.name", "resource.attributes.k8s.namespace.name"),
+    ("pod", "k8s.pod.name", "resource.attributes.k8s.pod.name"),
     ("deployment", "k8s.deployment.name", "resource.attributes.k8s.deployment.name"),
-    ("route", "http.route", "http_route", "attributes.http.route", "attributes.http_route"),
-    ("method", "http.request.method", "http_request_method", "attributes.http.request.method",
-     "attributes.http_request_method"),
+    ("route", "http.route", "attributes.http.route"),
+    ("method", "http.request.method", "attributes.http.request.method"),
 ]
 _ALIAS_OF = {name: group for group in ALIASES for name in group}
 

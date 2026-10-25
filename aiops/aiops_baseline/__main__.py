@@ -54,7 +54,7 @@ from .model import (CONFIDENCE, RESOLUTIONS, DetectOptions, TrainOptions, mask_t
 
 
 def keys_of(spec: dict) -> list[str]:
-    """序列依什麼切：有 variants（同一個指標、不同語言的欄位名稱）時用統一的 keys，否則就是 by。"""
+    """序列依什麼切：有 keys（統一的名字，例如 service、method、route）用 keys，否則就是 by 的欄位路徑。"""
     return spec.get("keys") or spec["by"]
 
 
@@ -934,6 +934,8 @@ def quality_hits(es, c: dict, now, window, ref_offset) -> list[dict]:
         lookback = pd.Timedelta(_freq(c.get("lookback", "1h")))
         return Q.eval_stopped(Q.fetch_counts(es, c, now - lookback, now - silent), Q.fetch_counts(es, c, now - silent, now),
                               keys, min_docs=c.get("min_docs", 10))
+    if t == "present":
+        return Q.eval_present(Q.fetch_counts(es, c, start, now), keys, min_docs=c.get("min_docs", 1))
     if t == "share":
         return Q.eval_share(Q.count(es, c["part_index"], c, start, now), Q.count(es, c["index"], c, start, now),
                             Q.count(es, c["part_index"], c, rs, re_), Q.count(es, c["index"], c, rs, re_),

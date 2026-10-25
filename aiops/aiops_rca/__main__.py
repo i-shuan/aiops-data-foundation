@@ -60,8 +60,8 @@ def _route_of(keys: dict) -> str | None:
     """哪支 API（trace 裡 Server span 的名稱，例如 "GET /lots/{id}"）。"""
     if keys.get("entry.name"):
         return keys["entry.name"]
-    if keys.get("attributes.http_request_method") and keys.get("attributes.http_route"):
-        return f"{keys['attributes.http_request_method']} {keys['attributes.http_route']}"
+    if keys.get("attributes.http.request.method") and keys.get("attributes.http.route"):
+        return f"{keys['attributes.http.request.method']} {keys['attributes.http.route']}"
     if keys.get("method") and keys.get("route"):          # http.* 序列統一後的 keys
         return f"{keys['method']} {keys['route']}"
     return None

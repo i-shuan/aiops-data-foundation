@@ -207,7 +207,7 @@ class LoadOwners(unittest.TestCase):
         with open(os.path.join(here, "fake-data", "owners.json"), encoding="utf-8") as f:
             owners = json.load(f)["owners"]
         from aiops_baseline.chronic import owner_of
-        self.assertEqual(owner_of({"service.name": "mes-api"}, owners), "【假】MES 團隊")
+        self.assertEqual(owner_of({"resource.attributes.service.name": "mes-api"}, owners), "【假】MES 團隊")
         self.assertIsNone(owner_of({"service": "other"}, owners))
         with open(os.path.join(here, "fake-data", "calendar.json"), encoding="utf-8") as f:
             cal = json.load(f)

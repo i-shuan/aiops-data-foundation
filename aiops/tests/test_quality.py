@@ -125,6 +125,17 @@ class Share(unittest.TestCase):
         self.assertEqual(Q.eval_share(50, 50, 0, 1000), [])
 
 
+class Present(unittest.TestCase):
+    def test_legacy_metric_name_reported(self):
+        now = pd.DataFrame([{"service": "old-java", "docs": 12}, {"service": "zero", "docs": 0}])
+        h = Q.eval_present(now, ["service"], min_docs=1)
+        self.assertEqual([x["key"] for x in h], [{"service": "old-java"}])
+        self.assertEqual(h[0]["why"], ["最近有 12 筆"])
+
+    def test_nothing_present(self):
+        self.assertEqual(Q.eval_present(pd.DataFrame(columns=["service", "docs"]), ["service"]), [])
+
+
 class Describe(unittest.TestCase):
     def test_message(self):
         h = {"key": {"service": "order"}, "why": ["從 40 個變 400 個"], "examples": ["/orders/1"]}

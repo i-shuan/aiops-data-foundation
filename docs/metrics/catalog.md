@@ -32,7 +32,7 @@
 | 來源 | 指標 | 狀態 |
 |---|---|---|
 | **.NET 自動埋點**（chart `otel.dotnet`，不改程式，用 OTLP 推） | `http.server.request.duration`、`process.runtime.dotnet.*`（.NET 8）／`dotnet.*`（.NET 9）、`db.client.connections.*`（Npgsql） | ✅ 真的 ASP.NET Core 8、9 實測，見 [metrics/dotnet.md](dotnet.md) |
-| Java agent（app-common chart 自動開） | `http_server_request_duration_seconds`（即 `http.server.request.duration`，直方圖：依 method、route、狀態碼） | ✅ 收到（測試應用模擬）→ `metrics-generic.otel-<group>` |
+| Java agent（app-common chart 自動開） | `http_server_request_duration_seconds` → node Collector 改成 `http.server.request.duration`（直方圖：依 method、route、狀態碼；跟 .NET 同名） | ✅ 收到（測試應用模擬）→ `metrics-generic.otel-<group>` |
 | | `http.client.request.duration`：往外呼叫 HTTP 的耗時 | ⚠️ 還沒驗證（測試程式沒有往外呼叫 HTTP） |
 | | JVM：`jvm_memory_used_bytes`、`jvm_memory_limit_bytes`、`jvm_memory_used_after_last_gc_bytes`、`jvm_gc_duration_seconds`、`jvm_thread_count`、`jvm_cpu_recent_utilization_ratio` | ✅ 用真的 Java 程式＋agent 2.20.0 確認（[metrics/cases.md](cases.md)） |
 | | 連線池（HikariCP）：`db_client_connections_usage{state}`、`_max`、`_pending_requests`、`_wait_time_milliseconds` | ✅ 同上（agent 2.x 用的是舊版名稱 `db_client_connections_*`） |
@@ -85,7 +85,7 @@
 | `resource.attributes.*`、`attributes.*` | `keyword`，**維度**（`time_series_dimension`） | 一組不同的值就是一條不同的序列。**不能放 `lot.id` 這種值很多的東西**，序列數會爆 |
 | `metrics.*` 量測值（例如 `k8s.pod.cpu.usage`、`memory.working_set`、`deployment.available`） | `double`／`long`，**gauge** | 抓的那一刻的值，直接平均、取最大就好 |
 | `metrics.*` 累計值（例如 `cpu.time`、`network.io`、`container.restarts`） | `double`／`long`，**counter** | 從開始一直累加；要「這 5 分鐘多少」得頭尾相減（或 ES|QL 的 `rate()`） |
-| `metrics.http_server_request_duration_seconds` | `exponential_histogram` | 每筆是**這 30 秒內**的請求耗時分布（Collector 換成差值，`temporality: delta`）。可以直接加總次數、算 p95／p99 |
+| `metrics.http.server.request.duration` | `exponential_histogram` | 每筆是**這 30 秒內**的請求耗時分布（Collector 換成差值，`temporality: delta`）。可以直接加總次數、算 p95／p99 |
 | `metrics.*` 的 `meta.unit` | — | 單位：`{cpu}` 核、`By` bytes、`s` 秒、`1` 個數 |
 
 **其他設定：**

@@ -60,7 +60,7 @@ class Owner(unittest.TestCase):
     owners = [{"match": {"service": "^mes-"}, "owner": "MES 團隊"}, {"match": {"namespace": "^pay"}, "owner": "金流"}]
 
     def test_alias_and_order(self):
-        self.assertEqual(C.owner_of({"service.name": "mes-api"}, self.owners), "MES 團隊")
+        self.assertEqual(C.owner_of({"resource.attributes.service.name": "mes-api"}, self.owners), "MES 團隊")
         self.assertEqual(C.owner_of({"resource.attributes.k8s.namespace.name": "pay-prod"}, self.owners), "金流")
         self.assertIsNone(C.owner_of({"service": "other"}, self.owners))
 

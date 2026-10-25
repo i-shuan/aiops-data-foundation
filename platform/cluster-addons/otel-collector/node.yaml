@@ -109,6 +109,29 @@ processors:
       - set(resource.attributes["k8s.container.name"], resource.attributes["container"])
       - delete_matching_keys(resource.attributes, "^(namespace|pod|container|service\\.name|service\\.instance\\.id|server\\..*|url\\.scheme|dept|group)$$")
 
+  # Java agent 用 Prometheus 格式開給 Collector 抓，名字是 Prometheus 慣例（底線、單位後綴、狀態碼是字串）；
+  # .NET 用 OTLP 推來的是 OTel 名字（點號、狀態碼是數字）。進來時就改成 OTel 名字，ES 裡只有一種，
+  # 下游（baseline、quality、RCA）不用再各寫兩套（docs/pdca/2026-10-field-unify.md）。
+  # 條件只對舊名字生效：Java agent 升版後自己吐 OTel 名字的話直接過，不會改錯。多一種語言就在這裡多一組。
+  metricstransform/java-http:
+    transforms:
+      - include: http_server_request_duration_seconds
+        action: update
+        new_name: http.server.request.duration
+  transform/java-http:
+    error_mode: ignore
+    metric_statements:
+      - context: datapoint
+        conditions: ['metric.name == "http.server.request.duration"']
+        statements:
+          - set(datapoint.attributes["http.request.method"], datapoint.attributes["http_request_method"]) where datapoint.attributes["http_request_method"] != nil
+          - set(datapoint.attributes["http.route"], datapoint.attributes["http_route"]) where datapoint.attributes["http_route"] != nil
+          - set(datapoint.attributes["http.response.status_code"], Int(datapoint.attributes["http_response_status_code"])) where datapoint.attributes["http_response_status_code"] != nil
+          - set(datapoint.attributes["error.type"], datapoint.attributes["error_type"]) where datapoint.attributes["error_type"] != nil
+          - set(datapoint.attributes["network.protocol.version"], datapoint.attributes["network_protocol_version"]) where datapoint.attributes["network_protocol_version"] != nil
+          - set(datapoint.attributes["url.scheme"], datapoint.attributes["url_scheme"]) where datapoint.attributes["url_scheme"] != nil
+          - delete_matching_keys(datapoint.attributes, "^(http_request_method|http_route|http_response_status_code|error_type|network_protocol_version|url_scheme)$$")
+
   # 應用的直方圖（例如 Java agent 的 http.server.request.duration）是 Prometheus 格式，從應用啟動一直累加。
   # 換成「這次抓取比上次多了多少」，ES 才能直接加總任一段時間：每 5 分鐘幾個請求、p95 多少（AIOps baseline 用）。
   # 每個節點的 Collector 只抓自己節點的 Pod，同一條序列一定由同一個 Collector 算。
@@ -196,7 +219,7 @@ service:
   pipelines:
     metrics/in:
       receivers: [kubeletstats, prometheus]
-      processors: [memory_limiter, transform/pre, cumulativetodelta, k8s_attributes, transform/group, transform/drop-log-attrs]
+      processors: [memory_limiter, transform/pre, metricstransform/java-http, transform/java-http, cumulativetodelta, k8s_attributes, transform/group, transform/drop-log-attrs]
       exporters: [routing/group]
     metrics/otlp:
       receivers: [otlp]

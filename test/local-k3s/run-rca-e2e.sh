@@ -65,7 +65,7 @@ es -X PUT "${ES_URL}/aiops-anomalies-rcatest" -d '{"mappings":{"dynamic":false,"
 es -X POST "${ES_URL}/aiops-anomalies-rcatest/_doc?refresh=true" -d "{\"@timestamp\":\"$(iso "${t1}")\",
   \"series\":\"http.latency_p95_s\",\"value\":1.55,\"median\":0.08,\"expected_low\":0.07,\"expected_high\":0.1,\"z\":41.2,
   \"level\":\"dow_hour\",\"direction\":\"up\",\"keys\":{\"resource.attributes.service.name\":\"rca-mes-api\",
-  \"attributes.http_request_method\":\"GET\",\"attributes.http_route\":\"/lots/{id}\"}}" >/dev/null
+  \"attributes.http.request.method\":\"GET\",\"attributes.http.route\":\"/lots/{id}\"}}" >/dev/null
 sleep 20   # 等最後的 span、log 寫進 ES
 es -X POST "${ES_URL}/traces-*.otel-*,k8s-*/_refresh" >/dev/null
 

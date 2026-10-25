@@ -80,7 +80,7 @@ def value_kind(spec: dict) -> str:
         return "count"
     if isinstance(spec.get("events"), dict):   # 預先統計好的資料：事件數在另一個欄位（例如 {sum: requests}）
         return spec.get("kind", "rate")
-    value = (spec.get("variants") or [spec])[0]["value"]
+    value = spec["value"]
     if value == "count":
         return "count"
     (kind, _), = value.items()
@@ -102,17 +102,12 @@ def _bucket_events(value, b: dict):
 
 
 def fetch(es: ES, spec: dict, start: pd.Timestamp, end: pd.Timestamp, interval: str | None) -> pd.DataFrame:
-    """有 variants 時：同一個指標在不同語言的欄位名稱不同（Java 經 Prometheus 是 http_server_request_duration_seconds、
-    .NET 用 OTLP 推是 http.server.request.duration），每個 variant 各查一次，by 的欄位換成統一的 keys 再合併。"""
-    if spec.get("variants"):
-        parts = []
-        for v in spec["variants"]:
-            sub = {k: x for k, x in spec.items() if k not in ("variants", "keys")} | v
-            df = _fetch_one(es, sub, start, end, interval)
-            parts.append(df.rename(columns=dict(zip(v["by"], spec["keys"]))))
-        parts = [p for p in parts if not p.empty]
-        return pd.concat(parts, ignore_index=True) if parts else pd.DataFrame(columns=spec["keys"] + ["ts", "value", "n"])
-    return _fetch_one(es, spec, start, end, interval)
+    """有 keys 時（統一的名字，例如 service、method、route），回傳的欄位用 keys 取代 by 的欄位路徑。
+    同一個指標不同語言名字不同的問題在 node Collector 改名解決（docs/pdca/2026-10-field-unify.md），這裡不再分語言各查一次。"""
+    df = _fetch_one(es, spec, start, end, interval)
+    if spec.get("keys"):
+        df = df.rename(columns=dict(zip(spec["by"], spec["keys"])))
+    return df
 
 
 def _fetch_one(es: ES, spec: dict, start: pd.Timestamp, end: pd.Timestamp, interval: str | None) -> pd.DataFrame:

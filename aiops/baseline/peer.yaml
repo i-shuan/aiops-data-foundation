@@ -2,7 +2,7 @@
 # 不用歷史、不用學；每次看最近 window 這段時間，每個 Pod 算一個值，跟同組其他 Pod 的中位數比。
 #
 # 每個檢查：
-#   value、variants、by、keys：跟 series.yaml 一樣的寫法；by（或 keys）最後一個是 Pod，前面的是分組
+#   value、by、keys：跟 series.yaml 一樣的寫法；by（或 keys）最後一個是 Pod，前面的是分組
 #   direction：up 只有比別人高才算（錯誤率、延遲、記憶體）
 #   min_abs  ：至少比別人多這麼多才算
 #   min_ratio：至少是別人的幾倍才算（CPU、記憶體：各 Pod 本來就有點不一樣，倍數比較直覺）
@@ -29,17 +29,11 @@ checks:
     title: 這個 Pod 的錯誤率比同服務其他 Pod 高
     severity: warning
     keys: [namespace, service, pod]
-    variants:
-      - index: metrics-*.otel-*
-        filter: {exists: {field: metrics.http_server_request_duration_seconds}}
-        by: [*ns, *svc, *pod]
-        value: {hist_ratio: {field: metrics.http_server_request_duration_seconds,
-                             query: {prefix: {attributes.http_response_status_code: "5"}}}}
-      - index: metrics-*.otel-*
-        filter: {exists: {field: metrics.http.server.request.duration}}
-        by: [*ns, *svc, *pod]
-        value: {hist_ratio: {field: metrics.http.server.request.duration,
-                             query: {range: {attributes.http.response.status_code: {gte: 500}}}}}
+    index: metrics-*.otel-*
+    filter: {exists: {field: metrics.http.server.request.duration}}
+    by: [*ns, *svc, *pod]
+    value: {hist_ratio: {field: metrics.http.server.request.duration,
+                         query: {range: {attributes.http.response.status_code: {gte: 500}}}}}
     direction: up
     min_abs: 0.05         # 錯誤率至少多 5 個百分點
     min_volume: 20        # 10 分鐘至少 20 個請求
@@ -49,15 +43,10 @@ checks:
     title: 這個 Pod 比同服務其他 Pod 慢
     severity: warning
     keys: [namespace, service, pod]
-    variants:
-      - index: metrics-*.otel-*
-        filter: {exists: {field: metrics.http_server_request_duration_seconds}}
-        by: [*ns, *svc, *pod]
-        value: {percentile: {field: metrics.http_server_request_duration_seconds, percent: 95}}
-      - index: metrics-*.otel-*
-        filter: {exists: {field: metrics.http.server.request.duration}}
-        by: [*ns, *svc, *pod]
-        value: {percentile: {field: metrics.http.server.request.duration, percent: 95}}
+    index: metrics-*.otel-*
+    filter: {exists: {field: metrics.http.server.request.duration}}
+    by: [*ns, *svc, *pod]
+    value: {percentile: {field: metrics.http.server.request.duration, percent: 95}}
     direction: up
     min_abs: 0.1          # 至少慢 100 毫秒
     min_ratio: 2          # 而且是其他 Pod 的 2 倍以上

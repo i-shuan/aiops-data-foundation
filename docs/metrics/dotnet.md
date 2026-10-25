@@ -38,7 +38,7 @@
 | 部門怎麼判斷 | 依 Pod 的 namespace | 依連線的來源 IP 是哪個 Pod（跟 trace 一樣）；應用自己填的 K8s、部門欄位會被拿掉 |
 | trace | agent 自動 | 自動：ASP.NET Core（Server）、Npgsql／SqlClient（Client）、HttpClient |
 | log | logback JSON（`trace_id`） | .NET 內建 JSON console（chart 用環境變數打開，trace_id 在 `Scopes` 裡）或 Serilog compact JSON；**中央 pipeline 兩種都認得** |
-| HTTP 指標 | `http_server_request_duration_seconds` | `http.server.request.duration`（**同一個指標**，OTLP 保留原名）；**預設沒開，chart 會加** |
+| HTTP 指標 | `http_server_request_duration_seconds`（node Collector 改成 `http.server.request.duration`） | `http.server.request.duration`（**同一個指標**，OTLP 保留原名）；**預設沒開，chart 會加** |
 
 ## chart
 
