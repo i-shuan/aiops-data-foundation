@@ -82,7 +82,7 @@ flowchart LR
 ## 哪裡不足（會影響能不能用、能不能賣）
 
 1. **全部是模擬資料**。相似事故在沒有 trace 時只靠「同服務＋同指標」剛好壓在門檻上；LLM 真的模型沒跑過（閘道 401）；K8s 沒跑過。這三件事排在所有新功能前面。
-2. **程式有幾個會讓整輪失敗的點**（`/code-review` 2026-10-25 的 10 項，對過程式，前 4 項是真的要修）：
+2. **程式有幾個會讓整輪失敗的點**（`/code-review` 2026-10-25 的 10 項，對過程式，前 4 項是真的要修；**前 4 項已修**，[pdca/2026-10-fix-critical.md](pdca/2026-10-fix-critical.md)）：
    - `cmd_alert.py`：LLM 那段沒有 try/except，輸入包裡一個 NaN 就讓整輪 alert 掛掉，連心跳都不寫，Grafana 會誤報「AIOps 停了」（違反自己的「只加註不擋告警」）。
    - `cmd_backtest.py`：`incident add` 存的時間沒有時區，回測比較 tz-aware 的異常時間會丟 TypeError，從此所有建議都要 `--force`。
    - `cmd_alert.py`：事故「已確認不覆蓋」是先讀再寫，老師傅剛好在中間送出就被蓋掉（要用 `_update` 加條件、或 `if_seq_no`）。

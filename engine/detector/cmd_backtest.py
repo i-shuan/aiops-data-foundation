@@ -37,6 +37,22 @@ def _missed(es, since) -> list[dict]:
     return [h["_source"] for h in hits if h["_source"].get("anomaly_at")]
 
 
+def _ts(x, tz: str) -> pd.Timestamp:
+    """事故、漏報存的時間可能沒有時區（incident add 打 "2026-10-05 10:00"）：當成設定檔的時區，才能跟有時區的異常時間比。"""
+    t = pd.Timestamp(x)
+    return t.tz_localize(tz) if t.tzinfo is None else t
+
+
+def caught(df: pd.DataFrame, services, start, end, tz: str = "UTC") -> bool:
+    """這段時間、這些服務在 detect 結果裡至少有一個 anomaly。"""
+    if df.empty:
+        return False
+    m = df["ts"].between(_ts(start, tz), _ts(end, tz))
+    if services:
+        m &= df["_svc"].isin([str(s) for s in services])
+    return bool(m.any())
+
+
 def _service_of(row: dict, keys: list[str]):
     for f in ("service", "resource.attributes.service.name", "entry.service"):
         if f in keys and row.get(f) is not None:
@@ -82,24 +98,16 @@ def run_backtest(es, cfg: dict, proposal: dict, weeks: int, now=None, quiet: boo
     before = pd.concat(frames["before"], ignore_index=True) if frames["before"] else pd.DataFrame(columns=["ts", "_series", "_svc"])
     after = pd.concat(frames["after"], ignore_index=True) if frames["after"] else pd.DataFrame(columns=["ts", "_series", "_svc"])
 
-    def caught(df: pd.DataFrame, services, start, end) -> bool:
-        if df.empty:
-            return False
-        m = df["ts"].between(pd.Timestamp(start), pd.Timestamp(end))
-        if services:
-            m &= df["_svc"].isin([str(s) for s in services])
-        return bool(m.any())
-
     incidents = []
     for inc in _confirmed_incidents(es, since):
-        b, a = caught(before, inc.get("services"), inc["start"], inc["end"]), caught(after, inc.get("services"), inc["start"], inc["end"])
+        b, a = caught(before, inc.get("services"), inc["start"], inc["end"], tz), caught(after, inc.get("services"), inc["start"], inc["end"], tz)
         incidents.append({"id": inc["id"], "title": inc.get("title"), "services": inc.get("services"), "before": b, "after": a})
     missed = []
     for m in _missed(es, since):
-        t = pd.Timestamp(m["anomaly_at"])
+        t = _ts(m["anomaly_at"], tz)
         svc = (m.get("keys") or {}).get("service") or (m.get("keys") or {}).get("resource.attributes.service.name")
         missed.append({"series": m.get("series"), "service": svc, "at": m["anomaly_at"],
-                       "after": caught(after, [svc] if svc else None, t - pd.Timedelta(_freq(cfg.get("interval", "5m"))), t + pd.Timedelta("15min"))})
+                       "after": caught(after, [svc] if svc else None, t - pd.Timedelta(_freq(cfg.get("interval", "5m"))), t + pd.Timedelta("15min"), tz)})
     lost = [i for i in incidents if i["before"] and not i["after"]]
     res = {"weeks": weeks, "series": [s["name"] for s in specs], "anomalies_before": int(len(before)), "anomalies_after": int(len(after)),
            "incidents_total": len(incidents), "incidents_caught_before": sum(i["before"] for i in incidents),

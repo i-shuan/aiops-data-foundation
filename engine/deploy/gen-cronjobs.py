@@ -5,7 +5,9 @@ import os
 JOBS = [
     ("rules",         "* * * * *",    ["detector", "rules", "--config", "configs/baseline/rules.yaml"],   "狀態變化（容器重啟、錯誤率 5%、p95 2 秒保底…）要快", 50),
     ("detect",        "* * * * *",    ["detector", "detect", "--config", "configs/baseline/series.yaml", "--window", "10m"], "每分鐘看最近 10 分鐘；同一筆重跑會覆蓋", 50),
-    ("alert",         "* * * * *",    ["investigator", "alert", "--config", "configs/rca/rca.yaml"],     "合成一件、根因分析、相似事故、心跳", 110),
+    # alert：一件新的 = 根因分析（幾秒）＋ LLM（真的模型最多 60 秒逾時）；一輪可能好幾件新的，給 10 分鐘。
+    # Forbid 會擋住下一分鐘的，所以跑久一點只是晚一點，被砍才是什麼都沒寫（連心跳都沒有）
+    ("alert",         "* * * * *",    ["investigator", "alert", "--config", "configs/rca/rca.yaml"],     "合成一件、根因分析、相似事故、LLM、心跳", 600),
     ("peer",          "*/5 * * * *",  ["detector", "peer", "--config", "configs/baseline/peer.yaml"],     "跟兄弟比看最近 10 分鐘", 240),
     ("trace-collect", "*/5 * * * *",  ["detector", "trace-collect", "--config", "configs/baseline/trace.yaml"], "trace 每一段的量", 240),
     ("trace-detect",  "*/5 * * * *",  ["detector", "trace-detect", "--config", "configs/baseline/trace.yaml", "--window", "10m"], "trace 每一段跟 baseline 比", 240),

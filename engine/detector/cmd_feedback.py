@@ -129,7 +129,10 @@ def cmd_feedback(cfg: dict, args) -> int:
         src = got["_source"]
         doc.update(anomaly_id=args.anomaly, anomaly_at=src["@timestamp"], series=src["series"], keys=src.get("keys") or {})
     elif args.verdict == "missed" and args.series:
-        doc.update(series=args.series, keys=dict(m.split("=", 1) for m in (args.match or [])), anomaly_at=args.at)
+        tz = cfg.get("train", {}).get("timezone", "Asia/Taipei")
+        at = pd.Timestamp(args.at)
+        doc.update(series=args.series, keys=dict(m.split("=", 1) for m in (args.match or [])),
+                   anomaly_at=(at.tz_localize(tz) if at.tzinfo is None else at).isoformat())
     else:
         print("要給 --anomaly <id>；漏報（missed）給 --series、--match、--at")
         return 2
@@ -161,8 +164,10 @@ def cmd_incident(cfg: dict, args) -> int:
     if not (args.title and args.start and args.end):
         print("要給 --title、--start、--end")
         return 2
-    doc = {"@timestamp": now.isoformat(), "title": args.title, "start": pd.Timestamp(args.start).isoformat(),
-           "end": pd.Timestamp(args.end).isoformat(), "services": args.service or [], "severity": args.severity,
+    tz = cfg.get("train", {}).get("timezone", "Asia/Taipei")
+    local = lambda x: (pd.Timestamp(x).tz_localize(tz) if pd.Timestamp(x).tzinfo is None else pd.Timestamp(x)).isoformat()   # 沒寫時區的當台北時間
+    doc = {"@timestamp": now.isoformat(), "title": args.title, "start": local(args.start),
+           "end": local(args.end), "services": args.service or [], "severity": args.severity,
            "status": "open", "root_cause": args.root_cause, "action": args.action_taken, "by": args.by,
            "anomaly_ids": args.anomaly or []}
     doc = {k: v for k, v in doc.items() if v not in (None, "", [])}

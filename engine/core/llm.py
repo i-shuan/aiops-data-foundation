@@ -26,6 +26,20 @@ PROMPT = """你是工廠 IT 維運的值班助理。根據下面的輸入包，�
 """
 
 
+def _num(x):
+    """輸入包裡的數字：NaN、None、不是數字的都變 None（根因分析沒有對照組時 delta_ms 是 NaN；round(nan) 會丟例外）。"""
+    try:
+        v = float(x)
+    except (TypeError, ValueError):
+        return None
+    return None if v != v or v in (float("inf"), float("-inf")) else v
+
+
+def _r(x):
+    v = _num(x)
+    return None if v is None else round(v)
+
+
 def build_pack(alert: dict, findings: dict | None, similar: list[dict]) -> dict:
     """輸入包：每個項目一個 id。"""
     f = findings or {}
@@ -36,11 +50,11 @@ def build_pack(alert: dict, findings: dict | None, similar: list[dict]) -> dict:
             "anomalies": [], "segments": [], "error_origins": [], "new_patterns": [], "similar": []}
     for i, a in enumerate(f.get("anomalies") or [], 1):
         k = f"A{i}"; items[k] = a
-        pack["anomalies"].append({"id": k, "series": a.get("series"), "value": a.get("value"), "usual": a.get("median"), "z": a.get("z")})
+        pack["anomalies"].append({"id": k, "series": a.get("series"), "value": _num(a.get("value")), "usual": _num(a.get("median")), "z": _num(a.get("z"))})
     for i, s in enumerate(f.get("segments") or [], 1):
         k = f"S{i}"; items[k] = s
-        pack["segments"].append({"id": k, "segment": s["segment"], "now_ms": round(s["now_ms"]), "usual_ms": round(s["ref_ms"]),
-                                 "extra_ms": round(s["delta_ms"])})
+        pack["segments"].append({"id": k, "segment": s["segment"], "now_ms": _r(s.get("now_ms")), "usual_ms": _r(s.get("ref_ms")),
+                                 "extra_ms": _r(s.get("delta_ms"))})
     for i, e in enumerate(f.get("error_origins") or [], 1):
         k = f"E{i}"; items[k] = e
         pack["error_origins"].append({"id": k, "segment": e["segment"], "requests_with_error": e["now_errors"], "usual": e["ref_errors"]})
@@ -78,7 +92,7 @@ def template(pack: dict) -> str:
     """不叫模型的固定句型：從輸入包組 3～5 句，每句帶依據。"""
     a, out = pack["alert"], []
     seg, err, sim, pats, anoms = pack["segments"], pack["error_origins"], pack["similar"], pack["new_patterns"], pack["anomalies"]
-    if seg and seg[0]["extra_ms"] > 0:
+    if seg and (seg[0]["extra_ms"] or 0) > 0:
         s = seg[0]
         out.append(f"{a['service']} 變慢，主要多在 {s['segment']}：每個請求多花約 {s['extra_ms']} 毫秒（平常 {s['usual_ms']} 毫秒）[{s['id']}]。")
     if err:
@@ -86,8 +100,9 @@ def template(pack: dict) -> str:
         out.append(f"錯誤最早出在 {e['segment']}（{e['requests_with_error']} 個請求，平常 {e['usual']}）[{e['id']}]。")
     if anoms and not (seg or err):
         x = anoms[0]
-        usual = f"，平常 {x['usual']:.4g}" if isinstance(x.get("usual"), (int, float)) else ""
-        out.append(f"{a['service']} 的 {x['series']} 異常：現在 {x['value']:.4g}{usual} [{x['id']}]。")
+        usual = f"，平常 {x['usual']:.4g}" if x.get("usual") is not None else ""
+        now_v = f"{x['value']:.4g}" if x.get("value") is not None else "（沒有值）"
+        out.append(f"{a['service']} 的 {x['series']} 異常：現在 {now_v}{usual} [{x['id']}]。")
     if pats:
         p = pats[0]
         out.append(f"同時間 {p['service']} 新出現 log「{p['pattern'][:60]}」{p['now']} 次 [{p['id']}]。")
