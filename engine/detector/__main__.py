@@ -62,6 +62,8 @@ def main(argv=None) -> int:
     tu.add_argument("--resolution", help="固定粒度，例如 5m")
     tu.add_argument("--z", type=float)
     tu.add_argument("--min-abs", dest="min_abs", type=float)
+    tu.add_argument("--confirm-points", dest="confirm_points", type=int, help="連續幾個時間窗超標才算 anomaly（1 = 一次就算）")
+    tu.add_argument("--instant-z", dest="instant_z", type=float, help="偏離幾倍就不用等連續，直接算 anomaly")
     tu.add_argument("--reason", help="為什麼調（例如：誤報多、月底批次）")
     tu.add_argument("--by", help="誰調的（使用者、feedback）")
     tu.add_argument("--remove", action="store_true")

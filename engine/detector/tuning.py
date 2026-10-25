@@ -11,6 +11,7 @@ TUNING_INDEX = "aiops-tuning"
 TUNING_MAPPING = {"mappings": {"dynamic": False, "properties": {
     "kind": {"type": "keyword"}, "series": {"type": "keyword"}, "match": {"type": "flattened"},
     "resolution": {"type": "keyword"}, "z": {"type": "double"}, "min_abs": {"type": "double"},
+    "confirm_points": {"type": "integer"}, "instant_z": {"type": "double"},
     "start": {"type": "date"}, "end": {"type": "date"}, "reset_at": {"type": "date"}, "warmup": {"type": "keyword"},
     "apply_to": {"type": "keyword"},
     "schedule": {"type": "flattened"}, "effect": {"type": "flattened"},
@@ -22,7 +23,7 @@ def load_adjustments(es, cfg: dict) -> list[dict]:
     return A.load(es, TUNING_INDEX, cfg)
 
 def load_overrides(es, cfg: dict) -> list[dict]:
-    """粒度、z、min_abs 的調整（kind: override；舊資料沒有 kind 也是），生效中的，後面蓋前面。"""
+    """粒度、z、min_abs、confirm_points、instant_z 的調整（kind: override；舊資料沒有 kind 也是），生效中的，後面蓋前面。"""
     return A.active(load_adjustments(es, cfg), pd.Timestamp.now(tz="UTC"), kinds=("override",))
 
 def data_adjustments(es, cfg: dict, now) -> list[dict]:

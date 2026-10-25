@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import dataclasses
 
+import numpy as np
 import pandas as pd
 
 from .es import (ANOMALY_INDEX, ANOMALY_MAPPING, BASELINE_INDEX, BASELINE_MAPPING, ES, doc_id, fetch, load_baseline, load_group_baselines, value_kind)
@@ -208,11 +209,30 @@ def _add_silent(cur: pd.DataFrame, base: pd.DataFrame, by: list[str], start, end
     zeros = silent.merge(pd.DataFrame({"ts": grid}), how="cross").assign(value=0.0, n=0.0)
     return pd.concat([cur, zeros[by + ["ts", "value", "n"]]], ignore_index=True)
 
-def with_status(cfg: dict, s: pd.DataFrame, keys: list[str], step: str, start) -> pd.DataFrame:
-    """超標的點分 warning（跳一次）／anomaly（連續）。只回傳 start 之後的點：start 之前那一個時間窗是多查的，
-    用來知道「前一個時間窗有沒有超標」，不重寫（它在上一輪已經判斷過）。"""
-    st = cfg.get("status", {})
-    out = mark_status(s, keys, step, st.get("confirm_points", 2), st.get("confirm_span", "30m"))
+def status_params(cfg: dict, spec: dict | None, key: dict, overrides=()) -> tuple[int, float | None]:
+    """(confirm_points, instant_z)：aiops-tuning 的 override（依序列＋對象）＞ 這條序列的設定 ＞ series.yaml 的 status 全域值。"""
+    st, spec = cfg.get("status", {}), spec or {}
+    o = override_for(spec["name"], key, overrides) if spec.get("name") and overrides else {}
+    cp = o.get("confirm_points", spec.get("confirm_points", st.get("confirm_points", 2)))
+    iz = o.get("instant_z", spec.get("instant_z", st.get("instant_z")))
+    return int(cp), (float(iz) if iz is not None else None)
+
+
+def with_status(cfg: dict, s: pd.DataFrame, keys: list[str], step: str, start, spec: dict | None = None, overrides=()) -> pd.DataFrame:
+    """超標的點分 warning（跳一次）／anomaly（連續、或偏太多）。只回傳 start 之後的點：start 之前那一個時間窗是多查的，
+    用來知道「前一個時間窗有沒有超標」，不重寫（它在上一輪已經判斷過）。
+    「連續幾次才算」「偏多少不用等」依序列、依對象（status_params），同一組設定的對象一起算。"""
+    span = cfg.get("status", {}).get("confirm_span", "30m")
+    if s.empty:
+        return mark_status(s, keys, step, 2, span)
+    ks = s[keys].drop_duplicates()
+    params = [status_params(cfg, spec, k, overrides) for k in ks.to_dict("records")]
+    ks = ks.assign(_cp=[p[0] for p in params], _iz=[p[1] if p[1] is not None else np.nan for p in params])
+    parts = []
+    for (cp, iz), g in ks.groupby(["_cp", "_iz"], dropna=False):
+        part = s.merge(g[keys], on=keys)
+        parts.append(mark_status(part, keys, step, int(cp), span, None if pd.isna(iz) else float(iz)))
+    out = pd.concat(parts, ignore_index=True)
     return out[out["ts"] >= start]
 
 def cmd_tune(cfg: dict, args) -> int:
@@ -230,10 +250,11 @@ def cmd_tune(cfg: dict, args) -> int:
         print(f"已刪除：{args.series} {match}")
         return 0
     doc = {"kind": "override", "series": args.series, "match": match, "resolution": args.resolution, "z": args.z, "min_abs": args.min_abs,
+           "confirm_points": args.confirm_points, "instant_z": args.instant_z,
            "reason": args.reason, "by": args.by, "at": pd.Timestamp.now(tz="UTC").isoformat()}
     es.req("PUT", f"/{TUNING_INDEX}/_doc/{_id}?refresh=true", {k: v for k, v in doc.items() if v is not None})
-    print(f"已調整：{args.series} {match} → " + "，".join(f"{k}={doc[k]}" for k in ("resolution", "z", "min_abs") if doc[k] is not None)
-          + "（粒度下次 train 生效；z、min_abs 下次 detect 生效）")
+    print(f"已調整：{args.series} {match} → " + "，".join(f"{k}={doc[k]}" for k in ("resolution", "z", "min_abs", "confirm_points", "instant_z") if doc[k] is not None)
+          + "（粒度下次 train 生效；z、min_abs、confirm_points、instant_z 下次 detect 生效）")
     return 0
 
 def score_tuned(fn, cur: pd.DataFrame, base: pd.DataFrame, keys: list[str], spec: dict, dopts, tz, overrides) -> pd.DataFrame:
@@ -288,7 +309,7 @@ def detect_borrowed(es, cfg: dict, spec: dict, own: pd.DataFrame, now, window, d
     s = score(cur.merge(pick[keys], on=keys), base, keys, direction=spec.get("direction", "both"),
               min_abs=spec.get("min_abs", 0.0), opts=bz, tz=tz)
     s, _ = A.detect_filter(s, keys, spec["name"], list(adjs), tz)
-    s = with_status(cfg, s.merge(pick, on=keys, how="left"), keys, r, start_r)
+    s = with_status(cfg, s.merge(pick, on=keys, how="left"), keys, r, start_r, spec)
     s["baseline_source"] = "group:" + s["group"].astype(str)
     return save_anomalies(es, spec["name"], keys, s.drop(columns="group"), spec.get("direction", "both"), tz, resolution=r,
                           note=f"，借 {'、'.join(sorted(pick['group'].unique()))} 的 baseline，z 門檻 {bz.z:g}")
@@ -344,7 +365,7 @@ def cmd_detect(cfg: dict, args) -> int:
                 s, muted = A.detect_filter(s, keys, spec["name"], adjs, tz, baseline=bm)
                 if muted:
                     print(f"  {spec['name']}（{r} 一點）：{muted} 個點在排除時段、週期放寬、重置點之後，不算")
-                s = with_status(cfg, s, keys, r, start_r)
+                s = with_status(cfg, s, keys, r, start_r, spec, overrides)
                 total += save_anomalies(es, spec["name"], keys, s, spec.get("direction", "both"), tz, resolution=r)
     print(f"共 {total} 個異常")
     return 0

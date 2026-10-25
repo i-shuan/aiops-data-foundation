@@ -257,6 +257,21 @@ class StatusTest(unittest.TestCase):
         s = mark_status(self.frame([True, True], values=[200.0, 10.0]), ["svc"], "5m")
         self.assertEqual(s["status"].tolist(), ["warning", "warning"])
 
+    def test_confirm_points_one(self):
+        # confirm_points 1：一次就算（錯誤率）
+        s = mark_status(self.frame([False, True, False]), ["svc"], "5m", confirm_points=1)
+        self.assertEqual(s["status"].tolist(), [None, "anomaly", None])
+
+    def test_instant_z(self):
+        # 偏太多（|z| ≥ instant_z）不用等第二個；沒那麼多的照舊是 warning
+        f = self.frame([False, True, False, True]).assign(z=[0.0, 20.0, 0.0, 6.0])
+        s = mark_status(f, ["svc"], "5m", instant_z=15)
+        self.assertEqual(s["status"].tolist(), [None, "anomaly", None, "warning"])
+        # 沒給 instant_z、或 z 是 NaN：照舊
+        self.assertEqual(mark_status(f, ["svc"], "5m")["status"].tolist(), [None, "warning", None, "warning"])
+        f2 = f.assign(z=[float("nan")] * 4)
+        self.assertEqual(mark_status(f2, ["svc"], "5m", instant_z=15)["status"].tolist(), [None, "warning", None, "warning"])
+
     def test_hourly_point_is_long_enough(self):
         s = mark_status(self.frame([False, True], step="1h"), ["svc"], "1h")
         self.assertEqual(s["status"].tolist(), [None, "anomaly"])
@@ -284,3 +299,8 @@ class TuningTest(unittest.TestCase):
         self.assertEqual(override_for("http.latency_p95_s", {"service": "mes-report"}, ov), {"z": 8, "resolution": "5m"})
         self.assertEqual(override_for("http.error_rate", {"service": "mes-api"}, ov), {"z": 6})
         self.assertEqual(override_for("pod.cpu", {"service": "mes-api"}, ov), {})
+
+    def test_override_confirm_points_and_instant_z(self):
+        ov = [{"series": "http.latency_p95_s", "match": {"service": "^pay"}, "confirm_points": 1, "instant_z": 10}]
+        self.assertEqual(override_for("http.latency_p95_s", {"service": "pay-api"}, ov), {"confirm_points": 1, "instant_z": 10})
+        self.assertEqual(override_for("http.latency_p95_s", {"service": "mes-api"}, ov), {})

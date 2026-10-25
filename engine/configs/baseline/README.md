@@ -125,10 +125,12 @@ MAD（Median Absolute Deviation，中位數絕對偏差）＝「每個值離中�
 | 同一條序列、同一個方向，**連續 2 個時間窗**超標 | `anomaly` | 正式異常，根因分析會挑它 |
 | 連續超標的時間合計 **≥ 30 分鐘** | `anomaly` | 粗粒度的序列不用等兩個點：1 小時一點的，一個點就是一小時；30 分鐘一點的也是一個點就夠；15 分鐘一點的要兩個 |
 | 中間有一個時間窗正常、沒資料、或方向反過來 | 從頭算 | |
+| **這條序列設了 `confirm_points: 1`**（例如 `http.error_rate`：一跳就是出事） | `anomaly` | 一次就算，不等第二個時間窗 |
+| **偏太多**：一個點 \|z\| ≥ `instant_z`（預設 15，正常門檻 5 的 3 倍） | `anomaly` | 任何序列都適用，擋沒想到的暴衝 |
 
 - **不用另外存狀態**：每次偵測多查前一個時間窗，從資料重算「連續第幾個」（`streak` 欄位），程式重啟也一樣。
 - **不降級**：上一輪已判成 anomaly 的時間窗，這一輪就算查的範圍沒包含它的前一個時間窗，也維持 anomaly。
-- 設定在 `series.yaml` 的 `status: {confirm_points: 2, confirm_span: 30m}`。
+- 設定在 `series.yaml` 的 `status: {confirm_points: 2, confirm_span: 30m, instant_z: 15}`。每條序列可以自己設 `confirm_points`、`instant_z`；`tune --confirm-points 1 --instant-z 10` 可以再依對象調（寫進 `aiops-tuning`，之後回饋的建議也能調）。優先順序：對象 > 序列 > 全域（[pdca/2026-10-instant-anomaly.md](../../../docs/pdca/2026-10-instant-anomaly.md)）。
 - 規則（`rules.yaml`）另外用 `for`（要持續多久）處理；重啟、Pod Failed 這類 critical 規則一次就算，不等。
 
 **時間上的效果**（預設 30 秒一點，見「自動調整 (1)」）：30 秒一點的序列，偵測每 30 秒跑一次，**跳一次約 30 秒後 warning、連續兩個 30 秒（約 1 分鐘）就是 anomaly**；粒度被調粗的序列（量少、或使用者、feedback 調過的）照它自己的時間窗算。
