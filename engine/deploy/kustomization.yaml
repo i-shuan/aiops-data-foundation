@@ -16,8 +16,9 @@ kind: Kustomization
 namespace: aiops
 resources:
   - namespace.yaml
-  - cronjobs.yaml
+  - cronjobs.yaml            # 第一階段：rules、detect、alert、train（故事跑得通的最少集合）
   - feedback-web.yaml
+  # - cronjobs-stage2.yaml   # 之後：trace-collect／trace-train／trace-detect、peer、quality、chronic；四個跑穩了再一個一個開
 configMapGenerator:
   - name: aiops-env
     literals:

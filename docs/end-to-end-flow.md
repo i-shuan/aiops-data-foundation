@@ -28,7 +28,7 @@ flowchart LR
 | ① 收值 | node Collector 收 log、抓 metrics、收 trace；cluster Collector 收 K8s 狀態；trace-sampler 尾端取樣（錯的慢的全留、正常留 5%） | `telemetry/collectors/*.yaml` | 常駐；metrics 30 秒抓一次 | 同上；斷線、ES 401 的情況（[pdca/trace-durability](pdca/2026-10-trace-durability.md)、[es-startup-401](pdca/2026-10-es-startup-401.md)） |
 | ② 清資料 | Collector：擋應用自帶的 dept/group、讀 namespace label 分部門、Prometheus 累加值換成每 30 秒的增量、Java 指標改名跟 .NET 一樣；ES pipeline：log 依格式解析、時區、去重複 | `telemetry/collectors/common.yaml`、`telemetry/storage/` | 進來就做 | `e2e/pipeline/`（時間、格式案例）；[pdca/field-unify](pdca/2026-10-field-unify.md)、[time-alignment](pdca/2026-10-time-alignment.md) |
 | ③ 存 | 一把寫入 key，資料依 group 進 `k8s-<group>-<cluster>`、`metrics-*.otel-<group>`、`traces-*.otel-<group>`；被拒的進 failure store；保留天數 | `telemetry/scripts/elasticsearch-setup.sh`、`retention.conf` | — | `run-key-rotation.sh`、`run-es-2node.sh` |
-| ④ 判斷 | **規則**（容器重啟、錯誤率 ≥ 5%、p95 ≥ 2 秒等，一次就算）、**baseline**（每條序列 × 星期幾 × 小時的中位數＋MAD，連續 2 點才 anomaly、偏太多一點就算）、**跟兄弟比**（同服務的 Pod）、**trace 每一段**；資料品質（資料停了、欄位缺）；排除時段、行事曆 | `engine/detector/`、`engine/configs/baseline/*.yaml` | rules／detect 每 1 分鐘、peer／trace 每 5 分鐘、quality 每 10 分鐘、train 每天 02:00（[deploy/](../engine/deploy/README.md)） | 單元測試；`tests/synth_e2e.py`、`adaptive_e2e.py`、`fine_e2e.py`；k3s `run-rules-e2e.sh`、`run-peer-e2e.sh`、`run-trace-baseline-e2e.sh` |
+| ④ 判斷 | **規則**（容器重啟、錯誤率 ≥ 5%、p95 ≥ 2 秒等，一次就算；老師傅核准的規則也在這）、**baseline**（每條序列 × 星期幾 × 小時的中位數＋MAD，連續 2 點才 anomaly、偏太多一點就算）、**跟兄弟比**（同服務的 Pod）、**trace 每一段**；資料品質（資料停了、欄位缺）；排除時段、歲修 | `engine/detector/`、`engine/configs/baseline/*.yaml` | 第一階段只開 rules／detect 每 1 分鐘、train 每天 02:00；peer／trace／quality／chronic 第二階段（[deploy/](../engine/deploy/README.md)） | 單元測試；`tests/synth_e2e.py`、`adaptive_e2e.py`、`fine_e2e.py`；k3s `run-rules-e2e.sh`、`run-peer-e2e.sh`、`run-trace-baseline-e2e.sh` |
 | ⑤ 異常總表 | 所有判斷結果一個 index：`series`、`keys`（服務、API…）、`value`、`median`、`z`、`status`（warning／anomaly）、`dept`、`group` | `aiops-anomalies` | — | — |
 | ⑥ 收斂 | **同一個服務、30 分鐘內接著來的異常 = 一件**（同 dept 的兩個服務是兩件）；30 分鐘沒新的 → resolved；每次跑寫一筆心跳 | `engine/investigator/alerts.py`、`cmd_alert.py`；`configs/rca/rca.yaml` 的 `alerts:` | 每 1 分鐘 | `tests/test_alerts.py`；[pdca/alert-exit](pdca/2026-10-alert-exit.md)（Grafana 12.2 實測） |
 | ⑦ 根因分析 | 新的一件：從異常拿服務＋API＋時間 → 出事時最慢 200 個 trace 跟一週前比 → **慢在哪一段**（扣掉下游）、**錯從哪開始** → 用 trace_id 撈 log、**新出現的 log 樣式** → Markdown 報告；再用這件的**指紋**去 `aiops-incidents` 找老師傅確認過的**相似事故**（為什麼像、當時根因、處置、怎麼看出來的）；**LLM 摘要**三到五句、每句附依據 | `engine/investigator/__main__.py`、`similar.py`、`engine/core/llm.py` | 跟 ⑥ 同一次 | k3s `run-rca-e2e.sh`（有 trace）；`tests/loop_e2e.py`（相似事故、LLM template）；`test_similar.py`、`test_llm.py` |
@@ -101,6 +101,6 @@ flowchart LR
 | ~~規則草稿 `rule_suggestion` 的門檻留 `<填：…>`~~ | 做了一半：提了草稿但人還是要自己查數字、改 yaml | **已改**：門檻 = 三件事故延遲峰值的最小值，核准後 `rules` 自動載入（同上） |
 | 回饋表單 10 個「查了哪裡」、6 種誤報原因、9 類根因 | 選項是估的，沒人填過 | 第一週看真的填了什麼再縮 |
 | `metrics` 的「最吵的服務」、依 dept | Grafana 讀 `aiops-alerts` 畫更合適 | 留表格，不再加欄 |
-| 四個 5～10 分鐘的 CronJob（peer、trace-collect、trace-detect、quality） | 正式環境先只要 rules、detect、alert、train 四個就能跑通故事 | deploy 加註「第一階段只開這四個」 |
+| ~~四個 5～10 分鐘的 CronJob（peer、trace-collect、trace-detect、quality）~~ | 正式環境先只要 rules、detect、alert、train 四個就能跑通故事 | **已改**：`cronjobs.yaml` 只剩 4 個，其他 6 個在 `cronjobs-stage2.yaml`、kustomization 預設註解 |
 
 **不是過度、一定要的**：Collector 的擋冒充與分部門、一把 key 可換、failure store、規則的保底門檻、連續才算、心跳、「已確認不覆蓋」、每句附依據的檢查、沒回測不能核准。這些是可靠度，不是功能。

@@ -19,13 +19,24 @@ def load_gen():
 class CronJobs(unittest.TestCase):
     def setUp(self):
         self.gen = load_gen()
-        with open(os.path.join(DEPLOY, "cronjobs.yaml"), encoding="utf-8") as f:
-            self.docs = {d["metadata"]["name"]: d for d in yaml.safe_load_all(f) if d}
+        self.docs = {}
+        for name in ("cronjobs.yaml", "cronjobs-stage2.yaml"):
+            with open(os.path.join(DEPLOY, name), encoding="utf-8") as f:
+                self.docs.update({d["metadata"]["name"]: d for d in yaml.safe_load_all(f) if d})
 
-    def test_file_matches_generator(self):
-        expected = "\n".join(self.gen.HEAD + [self.gen.render(*j) for j in self.gen.JOBS]) + "\n"
+    def test_files_match_generator(self):
+        for name, expected in self.gen.render_all().items():
+            with open(os.path.join(DEPLOY, name), encoding="utf-8") as f:
+                self.assertEqual(f.read(), expected, f"{name}：改了 gen-cronjobs.py 要重跑它")
+
+    def test_stage1_is_the_minimal_loop(self):
         with open(os.path.join(DEPLOY, "cronjobs.yaml"), encoding="utf-8") as f:
-            self.assertEqual(f.read(), expected, "改了 gen-cronjobs.py 要重跑它")
+            s1 = sorted(d["metadata"]["name"] for d in yaml.safe_load_all(f) if d)
+        self.assertEqual(s1, ["aiops-alert", "aiops-detect", "aiops-rules", "aiops-train"])
+        with open(os.path.join(DEPLOY, "kustomization.yaml"), encoding="utf-8") as f:
+            k = yaml.safe_load(f)
+        self.assertIn("cronjobs.yaml", k["resources"])
+        self.assertNotIn("cronjobs-stage2.yaml", k["resources"])     # 第二階段預設不開
 
     def test_alert_deadline_covers_llm_calls(self):
         # 一件新的：LLM 最多 60 秒逾時（core/llm.py）；一輪至少要能處理好幾件，不然被砍什麼都沒寫
