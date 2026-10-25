@@ -12,7 +12,7 @@
       "reroute": {
         "if": "def a = ctx.scope?.attributes; def p = a == null ? null : a['tailsampling.policy']; return p != null && p != 'random' && ctx.data_stream?.dataset == 'generic.otel';",
         "dataset": "problem.otel",
-        "description": "有問題的 trace 轉到 traces-problem.otel-<group>（同一個 group、同一把寫入 key 的權限 traces-*.otel-<group>）。隨機的、沒經過 trace-sampler 的（沒有 policy）留在原地"
+        "description": "有問題的 trace 轉到 traces-problem.otel-<group>（同一個 group；寫入 key 的權限 traces-*.otel-*）。隨機的、沒經過 trace-sampler 的（沒有 policy）留在原地"
       }
     }
   ]

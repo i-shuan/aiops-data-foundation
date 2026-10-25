@@ -7,7 +7,7 @@
 #   volume [速率...]  大流量（預設 2000 5000，各 DURATION 秒，預設 120）
 #   outage            ES 正常關機 DOWN_SECONDS 秒（預設 180）
 #   crash             kill -9 ES 兩次（第 2 次在補送中）
-#   keyfail           IMC 的 key 作廢 DOWN_SECONDS 秒，再換新 key
+#   keyfail           寫入 key 作廢 DOWN_SECONDS 秒，再換新 key
 #   restart           ES、key 都正常，只重啟收集器兩次
 # 前提：run-e2e.sh 跑過；測試 ES 單節點；要在節點上執行（讀 /proc、kill ES）。
 set -euo pipefail
@@ -141,16 +141,16 @@ do_crash() {
 do_keyfail() {
   local secs=${DOWN_SECONDS:-180} run emitted bad good newkey ns
   run="key-$(date +%H%M%S)"
-  echo "== IMC 的 key 作廢 ${secs} 秒（每秒 200 行，產生器在 IMC，run=${run}）"
+  echo "== 寫入 key 作廢 ${secs} 秒（每秒 200 行，產生器在 IMC，run=${run}）"
   start_gen "${run}" 200 $(( secs + 180 ))
   sleep 60
   bad="$(now)"
-  es -X DELETE "${ES_URL}/_security/api_key" -d '{"name":"es-writer-imc"}' >/dev/null
+  es -X DELETE "${ES_URL}/_security/api_key" -d '{"name":"es-writer"}' >/dev/null
   echo "   $(ts) key 作廢"; sleep "${secs}"; good="$(now)"
-  newkey="$(es -X POST "${ES_URL}/_security/api_key" -d '{"name":"es-writer-imc","role_descriptors":{"es-writer-imc":{"index":[
-    {"names":["k8s-imc-*","k8s-events-imc-*","metrics-*-imc","logs-*.otel-imc","traces-*.otel-imc"],"privileges":["create_doc","create_index","auto_configure"]}]}}}' | jq -r .encoded)"
+  newkey="$(es -X POST "${ES_URL}/_security/api_key" -d '{"name":"es-writer","role_descriptors":{"es-writer":{"index":[
+    {"names":["k8s-*","metrics-*.otel-*","logs-*.otel-*","traces-*.otel-*"],"privileges":["create_doc","create_index","auto_configure"]}]}}}' | jq -r .encoded)"
   kubectl -n otel-collector get secret es-writer-keys -o json \
-    | jq --arg v "$(printf %s "${newkey}" | base64 -w0)" '.data.IMC_ES_API_KEY = $v' | kubectl apply -f - >/dev/null
+    | jq --arg v "$(printf %s "${newkey}" | base64 -w0)" '.data.ES_WRITER_API_KEY = $v' | kubectl apply -f - >/dev/null
   restart_collectors
   echo "   $(ts) 換上新 key、重啟收集器"
   emitted="$(wait_gen "${run}")"; wait_both "${run}" "${emitted}" 300

@@ -114,9 +114,10 @@ class ConfigTest(unittest.TestCase):
         with open("baseline/rules.yaml", encoding="utf-8") as f:
             cfg = yaml.safe_load(f)
         for r in cfg["rules"]:
-            self.assertIn(r["type"], ("value", "compare", "ratio", "increase", "increase_ratio", "rate", "total"), r["name"])
+            self.assertIn(r["type"], ("value", "compare", "ratio", "increase", "increase_ratio", "rate", "total", "window"), r["name"])
             self.assertIn(r.get("op", ">="), R.OPS, r["name"])
-            self.assertTrue(r["by"] and r["index"] and r["field"] and r["title"], r["name"])
+            # window 用 series.yaml 的 value 寫法（hist_ratio、percentile），其他用 field
+            self.assertTrue(r["by"] and r["index"] and (r.get("value") if r["type"] == "window" else r["field"]) and r["title"], r["name"])
             if r["type"] == "compare":
                 self.assertIn("other", r, r["name"])
             if r["type"] in ("ratio", "increase_ratio"):
@@ -148,6 +149,38 @@ class ClockOffsetTest(unittest.TestCase):
         msg = R.describe(self.rule, {"key": ("node-1",), "value": 2_500_460_925})
         self.assertIn("2,500 毫秒", msg)
         self.assertIn("100 毫秒", msg)
+
+
+class WindowFloorTest(unittest.TestCase):
+    """type window：整段算一個值（錯誤率、p95），請求數不夠的不判斷。"""
+    def rule(self, **kw):
+        with open("baseline/rules.yaml", encoding="utf-8") as f:
+            rules = {r["name"]: r for r in yaml.safe_load(f)["rules"]}
+        return {**rules["http.error_rate_floor"], **kw}
+
+    def df(self, rows):
+        by = self.rule()["by"]
+        return pd.DataFrame([dict(zip(by, k)) | {"value": v, "n": n} for k, v, n in rows])
+
+    def test_error_rate_over_floor(self):
+        r = self.rule()
+        since = pd.Timestamp("2026-10-25T03:00:00Z")
+        hits = R.evaluate_window(r, self.df([(("order", "GET", "/a"), 0.12, 200), (("order", "GET", "/b"), 0.01, 500)]), since)
+        self.assertEqual([h["key"] for h in hits], [("order", "GET", "/a")])
+        self.assertEqual(R.describe(r, hits[0]), "API 錯誤率超過 5%：order、GET、/a（12%，門檻 >= 5%）")
+
+    def test_too_few_requests_not_judged(self):
+        # 5 分鐘 3 個請求錯 1 個：不是「錯誤率 33%」
+        self.assertEqual(R.evaluate_window(self.rule(), self.df([(("order", "GET", "/a"), 0.33, 3)]), pd.Timestamp.now(tz="UTC")), [])
+
+    def test_no_value(self):
+        self.assertEqual(R.evaluate_window(self.rule(), self.df([(("order", "GET", "/a"), float("nan"), 0)]), pd.Timestamp.now(tz="UTC")), [])
+
+    def test_latency_shown_in_seconds(self):
+        with open("baseline/rules.yaml", encoding="utf-8") as f:
+            r = {x["name"]: x for x in yaml.safe_load(f)["rules"]}["http.latency_p95_floor"]
+        hit = R.evaluate_window(r, self.df([(("order", "GET", "/a"), 2.5, 100)]), pd.Timestamp.now(tz="UTC"))[0]
+        self.assertEqual(R.describe(r, hit), "API p95 超過 2 秒：order、GET、/a（2.50 秒，門檻 >= 2.00 秒）")
 
 
 if __name__ == "__main__":

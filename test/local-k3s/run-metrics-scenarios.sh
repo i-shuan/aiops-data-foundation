@@ -5,7 +5,7 @@
 #   label    改 legacy 的 dept label（不重啟 Collector），量多久生效，最後改回來
 #   outage   ES 停 OUTAGE_SECONDS 秒（預設 180），中途重啟 Collector；確認佇列在重啟後還在、資料補齊、
 #            沒有重複、沒有被 ES 丟進 failure store
-#   keyfail  作廢 IMC 的寫入 key 3 分鐘；確認 IT 照常寫、IMC 停住、換新 key 後恢復（失效那段不會補回來，已知限制）
+#   keyfail  作廢寫入 key 3 分鐘；確認 IT、IMC 都停住、換新 key 後恢復（失效那段不會補回來，已知限制）
 #
 # 測試應用每 30 秒被抓一次，所以 3 分鐘內每個應該有 6 筆。
 set -euo pipefail
@@ -121,25 +121,26 @@ scenario_outage() {
 }
 
 scenario_keyfail() {
-  echo "== 作廢 IMC 的寫入 key 3 分鐘"
+  echo "== 作廢寫入 key 3 分鐘（所有 group 共用一把）"
   local bad good newkey
   bad="$(now)"
-  es -X DELETE "${ES_URL}/_security/api_key" -d '{"name":"es-writer-imc"}' | jq -c '{invalidated: (.invalidated_api_keys | length)}'
-  echo "   $(ts) IMC 的 key 作廢"
+  es -X DELETE "${ES_URL}/_security/api_key" -d '{"name":"es-writer"}' | jq -c '{invalidated: (.invalidated_api_keys | length)}'
+  echo "   $(ts) 寫入 key 作廢"
   sleep 180
   good="$(now)"
   refresh
-  check_ge "IMC 的 key 失效期間，IT 照常寫入" "$(app_count it it-mes-prod "${bad}" "${good}")" 5
-  check "IMC 的 key 失效期間，IMC 寫不進去" "$(app_count imc imc-wip-prod "${bad}" "${good}")" 0
-  newkey="$(es -X POST "${ES_URL}/_security/api_key" -d '{"name":"es-writer-imc","role_descriptors":{"es-writer-imc":{"index":[
-    {"names":["k8s-imc-*","k8s-events-imc-*","metrics-*-imc","logs-*.otel-imc","traces-*.otel-imc"],"privileges":["create_doc","create_index","auto_configure"]}]}}}' | jq -r .encoded)"
+  check "key 失效期間，IT 寫不進去" "$(app_count it it-mes-prod "${bad}" "${good}")" 0
+  check "key 失效期間，IMC 寫不進去" "$(app_count imc imc-wip-prod "${bad}" "${good}")" 0
+  newkey="$(es -X POST "${ES_URL}/_security/api_key" -d '{"name":"es-writer","role_descriptors":{"es-writer":{"index":[
+    {"names":["k8s-*","metrics-*.otel-*","logs-*.otel-*","traces-*.otel-*"],"privileges":["create_doc","create_index","auto_configure"]}]}}}' | jq -r .encoded)"
   k -n otel-collector get secret es-writer-keys -o json \
-    | jq --arg v "$(printf %s "${newkey}" | base64 -w0)" '.data.IMC_ES_API_KEY = $v' | k apply -f - >/dev/null
+    | jq --arg v "$(printf %s "${newkey}" | base64 -w0)" '.data.ES_WRITER_API_KEY = $v' | k apply -f - >/dev/null
   k -n otel-collector rollout restart daemonset/otel-node-collector deployment/otel-cluster-collector >/dev/null
   k -n otel-collector rollout status daemonset/otel-node-collector --timeout=120s >/dev/null
   echo "   $(ts) 換上新 key、重啟 Collector"
   sleep 90
   refresh
+  check_ge "換 key 後，IT 恢復寫入" "$(app_count it it-mes-prod "${good}" "$(now)")" 1
   check_ge "換 key 後，IMC 恢復寫入" "$(app_count imc imc-wip-prod "${good}" "$(now)")" 1
   # 已知限制：OTLP 出口只重試 429/502/503/504，401 當成永久錯誤直接丟，key 失效那段的資料補不回來
   #（log 也一樣）。這裡只記錄筆數，不判失敗。

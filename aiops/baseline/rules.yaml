@@ -15,6 +15,38 @@ _node: &node resource.attributes.k8s.node.name
 _svc: &svc resource.attributes.service.name
 
 rules:
+  # ── 保底：一定是壞了的固定門檻（docs/pdca/2026-10-ingest-simplify.md）──
+  # baseline 要累積資料才準（同星期×同小時要 2 週，退到每天同小時要 3 天）；這兩條不用學，上線第一天就有用。
+  # 門檻刻意寬：只抓「不用比歷史也知道是壞了」的；比平常差一點點的交給 baseline。
+  - name: http.error_rate_floor
+    title: API 錯誤率超過 5%
+    severity: critical
+    type: window
+    lookback: 5m
+    index: metrics-*.otel-*
+    filter: {exists: {field: metrics.http.server.request.duration}}
+    by: [*svc, attributes.http.request.method, attributes.http.route]
+    value: {hist_ratio: {field: metrics.http.server.request.duration,
+                         query: {range: {attributes.http.response.status_code: {gte: 500}}}}}
+    op: ">="
+    threshold: 0.05
+    min_events: 20          # 5 分鐘不到 20 個請求的不判斷（錯 1 個就 5%）
+    show: pct
+
+  - name: http.latency_p95_floor
+    title: API p95 超過 2 秒
+    severity: warning
+    type: window
+    lookback: 5m
+    index: metrics-*.otel-*
+    filter: {exists: {field: metrics.http.server.request.duration}}
+    by: [*svc, attributes.http.request.method, attributes.http.route]
+    value: {percentile: {field: metrics.http.server.request.duration, percent: 95}}
+    op: ">="
+    threshold: 2
+    min_events: 20
+    show: seconds
+
   # ── 狀態變化（K8s 物件狀態，k8s_cluster 每 30 秒）──
   - name: container.restarted
     title: 容器重啟

@@ -9,6 +9,8 @@
   type: increase_ratio  兩個累計值增加量的比例        例：被限流的週期 ÷ 全部週期 >= 25%（CPU throttling）
   type: rate      這段時間的加總 ÷ 秒數 op 門檻       例：GC 花的秒數 ÷ 經過的秒數 >= 10%（直方圖的 sum）
   type: total     這段時間的加總 op 門檻              例：5 分鐘內 major GC 幾次 >= 5（hist_count: true 時數直方圖的次數）
+  type: window    整段 lookback 算一個值 op 門檻      例：5 分鐘內的錯誤率 >= 5%、p95 >= 2 秒（直方圖的比例、百分位）
+                  value、filter 的寫法跟 series.yaml 一樣（hist_ratio、percentile…）；min_events：請求數不到的不判斷
 
 join：分母在另一種文件時（例如連線池「使用中」和「上限」分開存），用同一個對象、同一個時間點的值補進來：
   join: {field: metrics.db_client_connections_max}       之後 den 就可以寫這個欄位
@@ -171,11 +173,22 @@ def _fetch(es: ES, index: str, field: str, filters: list, rule: dict, start, end
     return out
 
 
+def evaluate_window(rule: dict, df: pd.DataFrame, since: pd.Timestamp) -> list[dict]:
+    """type window：df 是 aiops_baseline.es.fetch（interval=None）的結果，每個對象一列（by + value + n）。
+    事件數（請求數）不到 min_events 的不判斷：3 個請求錯 1 個不是「錯誤率 33%」。"""
+    op, th, need = OPS[rule.get("op", ">=")], rule["threshold"], rule.get("min_events", 0)
+    return [{"key": tuple(r[f] for f in rule["by"]), "value": float(r["value"]), "since": since, "last": {}}
+            for r in df.to_dict("records")
+            if r["value"] is not None and not pd.isna(r["value"]) and (r["n"] or 0) >= need and op(r["value"], th)]
+
+
 def describe(rule: dict, hit: dict) -> str:
     """給人看的一句話，例如「容器重啟：imc-wip-prod、crash-app-…、app（1，門檻 >= 1）」。"""
     # 比例用百分比顯示；show: number 的（例如「每核幾條執行緒」）照數字顯示。total 是次數
-    pct = rule["type"] in ("ratio", "increase_ratio", "rate") and rule.get("show") != "number"
+    pct = (rule["type"] in ("ratio", "increase_ratio", "rate") and rule.get("show") != "number") or rule.get("show") == "pct"
     fmt = (lambda x: f"{x:.0%}") if pct else (lambda x: f"{x:g}")
+    if rule.get("show") == "seconds":
+        fmt = lambda x: f"{x:.2f} 秒"
     if rule.get("show") == "ns_as_ms":   # 奈秒的數字（主機時鐘偏移）顯示成毫秒
         fmt = lambda x: f"{x / 1e6:,.0f} 毫秒"
     who = "、".join(str(k) for k in hit["key"] if k is not None)

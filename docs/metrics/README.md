@@ -11,7 +11,7 @@ log 也由同一個 Collector 收（[log/README.md](../log/README.md)）：分�
 | 項目 | 狀態 |
 |---|---|
 | node Collector：kubelet、cAdvisor（CPU 限流）、應用的指標（Java 照標註來抓、.NET 用 OTLP 推）；cluster Collector：K8s 物件狀態 | ✅ 每 30 秒 |
-| 依每筆資料自己的 namespace 分部門、每部門寫入 key | ✅ |
+| 依每筆資料自己的 namespace 分部門（寫進各部門的 data stream）、一把寫入 key 所有部門共用 | ✅ |
 | 直方圖從累加值換成「每 30 秒多少」，任一段時間直接加總 | ✅ |
 | 外部系統：kafka_exporter | ✅ |
 | 寫進 ES 的時序資料流（TSDS），重送不重複 | ✅ |
@@ -46,10 +46,8 @@ log 也由同一個 Collector 收（[log/README.md](../log/README.md)）：分�
         ↓ 1. 擋冒充：應用自帶的 dept、group 欄位一律拿掉
         ↓ 2. 依這筆資料屬於哪個 Pod／物件，讀它 namespace 的 dept label，補上服務身分
         ↓ 3. dept → group（清單同 platform/groups.yaml）；沒有 dept 的（例如節點本身）→ unassigned
-        ↓ 4. 依 group 交給各自的出口，每筆只送一份；用 OTLP 送到 ES 的 /_otlp/v1/metrics
-   ├─ group it         → key: IT_ES_API_KEY         → metrics-<來源>.otel-it
-   ├─ group imc        → key: IMC_ES_API_KEY        → metrics-<來源>.otel-imc
-   └─ group unassigned → key: UNASSIGNED_ES_API_KEY → metrics-<來源>.otel-unassigned
+        ↓ 4. data_stream.namespace = group；一個出口、一把寫入 key（ES_WRITER_API_KEY），用 OTLP 送到 ES 的 /_otlp/v1/metrics
+        ↓    → metrics-<來源>.otel-<group>（例如 metrics-prometheusreceiver.otel-it）
         ↓ 中央 ES 9 內建的 metrics-otel@template 把它建成 time series data stream（TSDS）
    AIOps 用唯讀 key 讀 metrics-*.otel-*；人用各 group 的唯讀角色
 ```
@@ -191,7 +189,7 @@ ES_URL=http://<ip>:9200 test/local-k3s/run-metrics-e2e.sh
 | 分流的重點 | IT 的 Pod CPU（kubelet 抓的）進 IT；Deployment 副本數（沒有 Pod 的物件）進 IT；節點本身的資料進 unassigned |
 | 欄位 | 服務名稱、版本、part-of、group、dept、cluster 都對；應用自稱的 `dept`、`group` 被拿掉；應用自己的維度（`path`）保留 |
 | 存法 | 資料流是 `time_series`（TSDS）；可寫入時間往後 2 小時 |
-| 權限 | IT 的 key 只能寫 IT 的 metrics、不能讀；AIOps key 能讀全部、不能寫；IT 的唯讀角色看得到 IT 的 metrics |
+| 權限 | 寫入 key 能寫所有 group 的 metrics、不能讀（2026-10 起一把共用，之前每個 group 一把）；AIOps key 能讀全部、不能寫；IT 的唯讀角色看得到 IT 的 metrics |
 
 情境測試（`ES_URL=... test/local-k3s/run-metrics-scenarios.sh label|outage|keyfail`）：
 
@@ -200,7 +198,7 @@ ES_URL=http://<ip>:9200 test/local-k3s/run-metrics-e2e.sh
 | 改 namespace 的 dept label（不重啟 Collector） | **生效時間 2～17 秒**（跑了兩次），最多就是一個抓取週期（30 秒）；切換前後沒有漏、沒有重複 |
 | ES 整台停 3 分鐘 | 停機期間的應用 metrics 各 6 筆、IT 的 Pod CPU 24 筆，**全部補齊**；ES 恢復後 5 秒內補完 |
 | ES 整台停 10 分鐘，**中途重啟兩個 Collector** | 節點上的佇列堆到 4.8M。重啟前在佇列裡的、重啟後收到的，三個 group **全部補進 ES**（各 20 筆）；沒有重複；failure store 0 筆；Collector 丟資料的紀錄 0 筆 |
-| IMC 的 key 作廢 3 分鐘 | IT 照常寫入（6 筆），只有 IMC 停住；換新 key、重啟 Collector 後 IMC 恢復。**失效那 3 分鐘的 IMC metrics 遺失（0 筆），補不回來**，見下方「坑」 |
+| IMC 的 key 作廢 3 分鐘（每個 group 一把 key 時的結果；現在一把共用，作廢就是全部停住，腳本已改成驗這個、還沒在 k3s 重跑） | IT 照常寫入（6 筆），只有 IMC 停住；換新 key、重啟 Collector 後 IMC 恢復。**失效那 3 分鐘的 IMC metrics 遺失（0 筆），補不回來**，見下方「坑」 |
 
 每個 group 的佇列上限是 10,000 批（`queue_size`）。超過時新的資料會被丟掉，所以中央 ES 的停機時間要控制在佇列撐得住的範圍；量大的 cluster 要先估算或調大。
 

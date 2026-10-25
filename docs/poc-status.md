@@ -10,7 +10,7 @@
 |---|---|---|---|
 | ① | 收值 | Metrics / Logs / Traces 收進來，舊專案不改程式；尾端取樣保留問題 trace | PoC 已驗證 |
 | ② | 清資料 | 欄位一致（服務、Pod、namespace）＋ Trace ID 關聯；擋冒充、去重複、格式統一。餵給 baseline 前再檢查一次：資料品質、排除事故與維護時段、換版重置、慢性病清單、行事曆 | 進來時的清理 PoC 已驗證｜餵給 baseline 前的檢查程式已完成、實測過，尚未排程 |
-| ③ | 存 | 中央 ES，每個部門一把寫入 key；保留天數、降解析度 | PoC 已驗證｜天數是暫定值 |
+| ③ | 存 | 中央 ES，資料依部門分開存、一把寫入 key；被拒的文件進 failure store；保留天數、降解析度 | PoC 已驗證｜天數是暫定值 |
 | ④ | 判斷 | Median + MAD Baseline（星期 × 小時）：流量、錯誤率、延遲、CPU、記憶體＋trace 每一段；規則（Rule）；同服務 Pod 互比（Peer），判斷是資源、平台還是單一 Pod | PoC 已驗證｜下一步：正式排程｜Peer → Trace 待整合 |
 | ⑤ | 異常總表 | 所有判斷結果寫同一個 index（`aiops-anomalies`） | PoC 已驗證 |
 | ⑥ | 收斂 | 合併同一事件與上下游影響（Alert Correlation） | 規劃中 |

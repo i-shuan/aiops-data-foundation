@@ -40,20 +40,16 @@ until [[ "$(es -m 5 "${ES_URL}/_cluster/health" | jq -r .status)" =~ green|yello
 echo "== 2. index 結構與 API key（正式腳本）"
 setup_out="$(ES_URL="${ES_URL}" ES_AUTH="elastic:${ES_PASSWORD}" "${repo}/platform/central/elasticsearch-setup.sh")"
 key_of() { echo "${setup_out}" | grep -A1 "=== $1 ===" | tail -1 | jq -r .encoded; }
-IT_KEY="$(key_of '寫入 key：es-writer-it')"
-IMC_KEY="$(key_of '寫入 key：es-writer-imc')"
-UNASSIGNED_KEY="$(key_of '寫入 key：es-writer-unassigned')"
+WRITER_KEY="$(key_of '寫入 key：es-writer')"
 AIOPS_KEY="$(key_of 'AIOps 唯讀 key')"
 PROBE_KEY="$(key_of '健康檢查 key')"
-for k in "${IT_KEY}" "${IMC_KEY}" "${UNASSIGNED_KEY}" "${AIOPS_KEY}" "${PROBE_KEY}"; do
+for k in "${WRITER_KEY}" "${AIOPS_KEY}" "${PROBE_KEY}"; do
   [[ -n "${k}" && "${k}" != null ]] || { echo "沒拿到 API key，elasticsearch-setup.sh 的輸出："; echo "${setup_out}"; exit 1; }
 done
 
 kubectl create namespace otel-collector --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 kubectl -n otel-collector create secret generic es-writer-keys \
-  --from-literal=IT_ES_API_KEY="${IT_KEY}" \
-  --from-literal=IMC_ES_API_KEY="${IMC_KEY}" \
-  --from-literal=UNASSIGNED_ES_API_KEY="${UNASSIGNED_KEY}" \
+  --from-literal=ES_WRITER_API_KEY="${WRITER_KEY}" \
   --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 # ES 的 readinessProbe 改用這把 key 打 GET /（elasticsearch.yaml）：ES 剛起來 API key 還不能用的那 1 秒多不會被導流量
 kubectl -n es-test create secret generic es-probe-key --from-literal=PROBE_ES_API_KEY="${PROBE_KEY}" \
@@ -156,11 +152,13 @@ check "沒有 pipeline 失敗的文件"          "$(count 'k8s-*' '{"exists":{"f
 
 echo "== 6. 權限"
 code() { curl -s -o /dev/null -w '%{http_code}' -H "Authorization: ApiKey $1" -H 'Content-Type: application/json' "${@:2}"; }
-check "IT 的 key 不能寫 IMC 的 index" \
-  "$(code "${IT_KEY}" -X POST "${ES_URL}/k8s-imc-local/_doc?op_type=create" -d '{"@timestamp":"2026-01-01T00:00:00Z","message":"x"}')" 403
-check "IT 的 key 可以寫自己的 index" \
-  "$(code "${IT_KEY}" -X POST "${ES_URL}/k8s-it-local/_doc?op_type=create" -d '{"@timestamp":"2026-01-01T00:00:00Z","message":"x"}')" 201
-check "IT 的 key 不能讀" "$(code "${IT_KEY}" "${ES_URL}/k8s-it-local/_search")" 403
+# 寫入 key 只有一把、所有 group 共用（docs/pdca/2026-10-ingest-simplify.md）：資料屬於哪個 group 由 Collector 決定，
+# 上面「冒充」那幾項驗的就是這個；這裡只驗 key 能寫、不能讀
+check "寫入 key 可以寫 IT 的 index" \
+  "$(code "${WRITER_KEY}" -X POST "${ES_URL}/k8s-it-local/_doc?op_type=create" -d '{"@timestamp":"2026-01-01T00:00:00Z","message":"x"}')" 201
+check "寫入 key 可以寫 IMC 的 index" \
+  "$(code "${WRITER_KEY}" -X POST "${ES_URL}/k8s-imc-local/_doc?op_type=create" -d '{"@timestamp":"2026-01-01T00:00:00Z","message":"x"}')" 201
+check "寫入 key 不能讀" "$(code "${WRITER_KEY}" "${ES_URL}/k8s-it-local/_search")" 403
 check "AIOps 唯讀 key 可以讀全部 k8s-*" "$(code "${AIOPS_KEY}" "${ES_URL}/k8s-*/_search")" 200
 check "AIOps 唯讀 key 不能寫" \
   "$(code "${AIOPS_KEY}" -X POST "${ES_URL}/k8s-it-local/_doc?op_type=create" -d '{"@timestamp":"2026-01-01T00:00:00Z","message":"x"}')" 403

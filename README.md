@@ -37,7 +37,7 @@ docs/
 
 - **log、metrics、trace 都進 Elasticsearch（9.x）**，不用 VictoriaMetrics。
 - **收集器都用 OpenTelemetry Collector**：每個節點一個，分部門的規則和 key 共用。log 原本用 Fluent Bit，比較後改用 OTel（[docs/log/fluentbit-vs-otel.md](docs/log/fluentbit-vs-otel.md)）；中央 pipeline 仍接受 Fluent Bit 的資料，邊緣 VM 可以用。
-- **每個 group 一把寫入 key**，log、metrics、trace 共用；某把失效只影響那個 group，寫錯 group 會被 ES 擋下。**換 key 不掉資料、不重啟**（`platform/central/rotate-writer-key.sh`）。
+- **一把寫入 key**，所有 group、log、metrics、trace 共用；資料屬於哪個 group 由 Collector 依 Pod 決定（讀取權限照樣依 group 分）。**換 key 不掉資料、不重啟**（`platform/central/rotate-writer-key.sh`）。被 ES 拒絕的文件留在 failure store，`quality.ingest_rejected` 會報。
 - **舊專案不改程式**：Java 用 agent，.NET 用自動埋點＋OTLP 推（[docs/metrics/dotnet.md](docs/metrics/dotnet.md)）。
 - **trace 用尾端取樣**：錯的、慢的、有例外的全留，正常的留 5%。
 - **應用團隊不需要知道 group、key**：規格由共用 chart 產生（[apps/](apps)）。

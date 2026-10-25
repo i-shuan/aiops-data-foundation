@@ -205,47 +205,28 @@ exporters:
         interval: 5s
     sending_queue: {enabled: false}   # 外層只是過路，不排隊（排隊在上面的子 exporter）
 
-connectors:
-  # log 依 group 交給各自的出口，每筆只會符合一條
-  routing/logs:
-    default_pipelines: [logs/unassigned]
-    table:
-      - condition: resource.attributes["group"] == "it"
-        pipelines: [logs/it]
-      - condition: resource.attributes["group"] == "imc"
-        pipelines: [logs/imc]
-
 service:
   pipelines:
     metrics/in:
       receivers: [kubeletstats, prometheus]
       processors: [memory_limiter, transform/pre, metricstransform/java-http, transform/java-http, cumulativetodelta, k8s_attributes, transform/group, transform/drop-log-attrs]
-      exporters: [routing/group]
+      exporters: [otlp_http/es]
     metrics/otlp:
       receivers: [otlp]
       processors: [memory_limiter, transform/metrics-otlp-pre, k8s_attributes, transform/group, transform/drop-log-attrs, cumulativetodelta]
-      exporters: [routing/group]
+      exporters: [otlp_http/es]
     metrics/cadvisor:
       receivers: [prometheus/cadvisor]
       processors: [memory_limiter, groupbyattrs/cadvisor, transform/cadvisor, k8s_attributes, transform/group, transform/drop-log-attrs]
-      exporters: [routing/group]
+      exporters: [otlp_http/es]
     metrics/ntp:
       receivers: [ntp]
       processors: [memory_limiter, resource/node, transform/group]   # 節點本身的資料：沒有 dept，歸 unassigned
-      exporters: [routing/group]
+      exporters: [otlp_http/es]
     logs/in:
       receivers: [file_log]
       processors: [memory_limiter, k8s_attributes, transform/group, batch]
-      exporters: [routing/logs]
-    logs/it:
-      receivers: [routing/logs]
-      exporters: [otlp_http/it]
-    logs/imc:
-      receivers: [routing/logs]
-      exporters: [otlp_http/imc]
-    logs/unassigned:
-      receivers: [routing/logs]
-      exporters: [otlp_http/unassigned]
+      exporters: [otlp_http/es]
     traces/in:
       receivers: [otlp]
       processors: [memory_limiter, transform/traces-pre, transform/exceptions, k8s_attributes, transform/group, transform/drop-log-attrs, batch]

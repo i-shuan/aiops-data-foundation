@@ -91,9 +91,7 @@
 trace-sampler × 2（StatefulSet，尾端取樣）
    ↓ 等 30 秒（整個 trace 到齊）再決定：隨機 5%、錯誤、5xx、例外、超過 1 秒 → 留；其他丟
    ↓ 每一段記下是哪條規則留的（scope.attributes.tailsampling.policy）
-   ├─ group it         → key: IT_ES_API_KEY         → traces-generic.otel-it
-   ├─ group imc        → key: IMC_ES_API_KEY        → traces-generic.otel-imc
-   └─ group unassigned → key: UNASSIGNED_ES_API_KEY → traces-generic.otel-unassigned
+   ↓ 一個出口、一把寫入 key（ES_WRITER_API_KEY）；data_stream.namespace = group → traces-generic.otel-<group>
         ↓ 中央 ES：traces-otel pipeline 用 trace_id-span_id 當 _id（重送不會重複）
    AIOps 用唯讀 key 讀 traces-*.otel-*；人用各 group 的唯讀角色
 ```
@@ -165,7 +163,7 @@ ES_URL=http://<ip>:9200 test/local-k3s/run-trace-e2e.sh
 | 欄位 | 服務名稱、版本、cluster、Pod 名稱；沒有夾帶 pod label |
 | 串起來 | 從 trace 的 `trace_id` 找得到那行 log，反過來也找得到 |
 | 去重複 | 同一個 span 送 3 次，ES 只有 1 筆（另外兩次回 409） |
-| 權限 | IT 的 key 只能寫 IT 的 trace；AIOps key 能讀全部；IT 的唯讀角色看得到 IT 的 trace |
+| 權限 | 寫入 key 能寫所有 group 的 trace、不能讀（2026-10 起一把共用）；AIOps key 能讀全部；IT 的唯讀角色看得到 IT 的 trace |
 
 另外手動測過（每個測試應用每 5 秒一個 span）：
 

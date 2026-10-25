@@ -64,7 +64,7 @@ flowchart TB
 |---|---|---|---|---|
 | ① | 收值 | log、metrics、trace 三種資料，舊專案不改程式 | `platform/cluster-addons/otel-collector/` | ✅ |
 | ② | 清資料 | Collector 補身分、擋冒充；中央 pipeline 統一格式、去重複 | 同上、`platform/central/elasticsearch/` | ✅ |
-| ③ | 存 | 中央 ES，每個部門 group 一把寫入 key；保留天數、降解析度 | `platform/central/` | ✅ |
+| ③ | 存 | 中央 ES，資料依部門 group 分 data stream、一把寫入 key；被拒的進 failure store；保留天數、降解析度 | `platform/central/` | ✅ |
 | ④ | 判斷 | 規則、跟歷史比、跟兄弟比、trace 每一段 | `aiops/aiops_baseline/`、`aiops/baseline/*.yaml` | ✅（正式環境還沒排程） |
 | ⑤ | 異常總表 | 所有判斷結果寫同一個 index | `aiops-anomalies` | ✅ |
 | ⑥ | 收斂 | 很多筆異常 → 幾件事 | — | 📝 |
@@ -107,7 +107,7 @@ flowchart TB
     NODE -- trace 依 trace_id 分配 --> TS
   end
 
-  subgraph ES["中央 Elasticsearch 9（OTLP 入口，各 group 用自己的寫入 key）"]
+  subgraph ES["中央 Elasticsearch 9（OTLP 入口，一把寫入 key）"]
     direction LR
     EL["log<br/>k8s-&lt;group&gt;-&lt;cluster&gt;<br/>（中央 pipeline 統一格式）"]
     EM["metrics<br/>metrics-*.otel-&lt;group&gt;"]
@@ -159,7 +159,7 @@ flowchart LR
 |---|---|---|
 | 同一種收集器 | 都是 OpenTelemetry Collector：每個節點一台（node），K8s 物件狀態一台（cluster），trace 多兩台 trace-sampler | `platform/cluster-addons/otel-collector/` |
 | 同一份分部門規則 | 擋冒充、讀 namespace 的 `dept`、對應成 group；同一個 Pod 的三種資料一定落在同一個 group | `common.yaml` 的 `transform/group` |
-| 同一把寫入 key | 每個 group 一把，三種資料共用；某把失效只影響那個 group，寫錯 group 會被 ES 擋下 | `es-writer-keys`、`platform/central/elasticsearch-setup.sh` |
+| 同一把寫入 key | 一把，所有 group、三種資料共用；資料屬於哪個 group 由 Collector 依 Pod 決定，不靠 key 擋（沒有部門間寫入隔離的要求；少了「key 權限漏了 → ES 回 200 默默拒收」的機會）（[pdca/2026-10-ingest-simplify.md](pdca/2026-10-ingest-simplify.md)） | `es-writer-keys`、`platform/central/elasticsearch-setup.sh` |
 | 同一套身分欄位 | `service.name`、namespace、Pod、`group`，由 Collector 補，三種資料對得上 | Collector |
 | 串接鑰匙 | trace 的 `trace_id` ↔ log 的 `trace.id`；metrics 沒有 trace_id（ES 不存 exemplar，見 [pdca/2026-10-metrics-to-trace.md](pdca/2026-10-metrics-to-trace.md)），改用服務＋時間 | — |
 | 同一把 AIOps 唯讀 key | 讀三種資料；只寫 `aiops-*` | `elasticsearch-setup.sh` |

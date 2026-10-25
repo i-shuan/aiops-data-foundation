@@ -3,5 +3,6 @@
   "data_stream": {},
   "priority": 200,
   "composed_of": ["k8s-logs-settings", "k8s-logs-mappings"],
-  "_meta": {"description": "k8s-{group}-{cluster}：每個 group、每個 cluster 一條 data stream"}
+  "template": {"data_stream_options": {"failure_store": {"enabled": true}}},
+  "_meta": {"description": "k8s-{group}-{cluster}：每個 group、每個 cluster 一條 data stream。failure store 開著：pipeline 失敗、型別不合被拒的文件留在 <data stream>::failures，查得到、可以告警（OTel 的 metrics-*.otel-*、traces-*.otel-* ES 預設就開了）"}
 }

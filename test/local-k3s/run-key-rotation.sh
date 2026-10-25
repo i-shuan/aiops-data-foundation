@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 換 key 不掉資料的測試：log 與 metrics 持續寫入時，用 platform/central/rotate-writer-key.sh 換 IMC 的 key。
+# 換 key 不掉資料的測試：log 與 metrics 持續寫入時，用 platform/central/rotate-writer-key.sh 換寫入 key（所有 group 共用一把）。
 # 確認：log 0 遺失 0 重複、IMC 的 metrics 沒有空檔、Collector 沒有重啟、沒有 401、舊 key 已作廢。
 #
 # 前提：run-e2e.sh、run-metrics-e2e.sh 跑過；要在節點上執行（讀 /var/log/pods）。
@@ -20,12 +20,12 @@ pods() { kubectl -n otel-collector get pods -o jsonpath='{range .items[*]}{.meta
 run="rot-$(date +%H%M%S)"
 start="$(now)"
 pods_before="$(pods)"
-old_ids="$(es "${ES_URL}/_security/api_key?name=es-writer-imc&active_only=true" | jq -c '[.api_keys[].id]')"
+old_ids="$(es "${ES_URL}/_security/api_key?name=es-writer&active_only=true" | jq -c '[.api_keys[].id]')"
 kubectl apply -f "${here}/load/generator.yaml" >/dev/null
 sed -e "s/\${RUN}/${run}/g" -e "s/\${RATE}/200/g" -e "s/\${DURATION}/300/g" "${here}/load/job.tpl.yaml" | kubectl apply -f - >/dev/null
-echo "== $(ts) 產生器開始（IMC，每秒 200 行，300 秒，run=${run}）；60 秒後換 IMC 的 key"
+echo "== $(ts) 產生器開始（IMC，每秒 200 行，300 秒，run=${run}）；60 秒後換寫入 key"
 sleep 60
-ES_URL="${ES_URL}" ES_AUTH="${A}" "${repo}/platform/central/rotate-writer-key.sh" imc | sed 's/^/   | /'
+ES_URL="${ES_URL}" ES_AUTH="${A}" "${repo}/platform/central/rotate-writer-key.sh" | sed 's/^/   | /'
 
 until kubectl -n load-test get job "gen-${run}" -o jsonpath='{.status.conditions[*].type}' 2>/dev/null | grep -qE 'Complete|Failed'; do sleep 5; done
 end="$(now)"
@@ -60,8 +60,8 @@ for f in /var/log/pods/otel-collector_*/otelcol/*.log; do
   unauthorized=$(( unauthorized + $(awk -v t="${start}" '$1 >= t' "${f}" | grep -cE '401|Unauthorized|unauthorized' || true) ))
 done
 check "換 key 期間沒有 401" "${unauthorized}" 0
-check "舊 key 都已作廢" "$(es "${ES_URL}/_security/api_key?name=es-writer-imc&active_only=true" | jq -c --argjson old "${old_ids}" '[.api_keys[].id] - ([.api_keys[].id] - $old) | length')" 0
-check "只剩一把有效的新 key" "$(es "${ES_URL}/_security/api_key?name=es-writer-imc&active_only=true" | jq '.api_keys | length')" 1
+check "舊 key 都已作廢" "$(es "${ES_URL}/_security/api_key?name=es-writer&active_only=true" | jq -c --argjson old "${old_ids}" '[.api_keys[].id] - ([.api_keys[].id] - $old) | length')" 0
+check "只剩一把有效的新 key" "$(es "${ES_URL}/_security/api_key?name=es-writer&active_only=true" | jq '.api_keys | length')" 1
 
 echo
 if [[ ${fail} -eq 0 ]]; then echo "全部通過"; else echo "有項目失敗"; exit 1; fi

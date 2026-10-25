@@ -85,6 +85,17 @@ checks:
     max_increase: 0.3
     min_docs: 200
 
+  # ── 被 ES 拒絕的資料：pipeline 失敗、型別不合（例如 @timestamp 壞掉）的文件留在 failure store（<data stream>::failures）──
+  # ES 回 201（不是錯誤），Collector 看不到、不會重試；這些資料 baseline、RCA 都讀不到。有一筆就報，看 error.type 修
+  #（docs/pdca/2026-10-ingest-simplify.md）。權限不夠（403）不會進 failure store，那種靠下面的 *_stopped 抓
+  - name: quality.ingest_rejected
+    title: 有資料被 ES 拒收（在 failure store）
+    type: present
+    index: "k8s-*::failures,metrics-*.otel-*::failures,traces-*.otel-*::failures"
+    by: [document.index, error.type]
+    keys: [index, error_type]
+    min_docs: 1
+
   # ── 資料停了：收不到，不是 0 流量 ──
   - name: quality.log_stopped
     title: log 停了

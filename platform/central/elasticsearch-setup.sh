@@ -8,10 +8,10 @@
 # 會建立四類東西：
 #   0. index 結構：ILM、mapping、pipeline（含各 log 格式）、index template（./elasticsearch/）。
 #      可以重複執行，結果一樣。log 欄位規範見 docs/log/README.md。
-#   1. 寫入用 API key（給 OpenTelemetry Collector）：每組只能寫自己 group 的 log、metrics、trace。
-#      label 判斷錯了，頂多是那筆資料被拒絕，不會寫進別的 group。
-#      回應裡的 "encoded" 放進每個應用 cluster otel-collector namespace 的 Secret es-writer-keys：
-#        IT_ES_API_KEY、IMC_ES_API_KEY、UNASSIGNED_ES_API_KEY
+#   1. 寫入用 API key（給 OpenTelemetry Collector）：一把，所有 group 共用，只能寫、不能讀。
+#      資料屬於哪個 group 由 Collector 依 Pod 決定（data_stream.namespace），不靠 key 擋：沒有部門間寫入隔離的要求，
+#      一把 key 少了「key 權限 pattern 漏了 → ES 回 200 但整批拒絕、Collector 看不到」的機會（docs/pdca/2026-10-ingest-simplify.md）。
+#      回應裡的 "encoded" 放進每個應用 cluster otel-collector namespace 的 Secret es-writer-keys 的 ES_WRITER_API_KEY。
 #      之後換 key 用 rotate-writer-key.sh（不掉資料）；重跑這支腳本也會發新 key，但舊的不會作廢。
 #   2. AIOps 專用唯讀 API key：可讀所有 k8s-*（log）、metrics-*.otel-*（metrics）、traces-*.otel-*（trace）。
 #   3. 給人用的唯讀角色：每個 group 一個，只能看自己的 log、事件、metrics、trace。再指派給使用者。
@@ -177,17 +177,19 @@ rollover_if_not() {  # rollover_if_not <資料流樣式> <default pipeline>
 rollover_if_not 'logs-*.otel-*' k8s-logs-otel
 rollover_if_not 'traces-*.otel-*' traces-otel
 
+# failure store：被拒的文件（pipeline 失敗、型別不合）留在 <data stream>::failures。template 只管新建的資料流，
+# 已經存在的要另外打開（docs/pdca/2026-10-ingest-simplify.md）。OTel 的 metrics、traces 資料流 ES 預設就開了
+if [[ -n "$(es "${ES_URL}/_data_stream/k8s-*" | jq -r '.data_streams[]? | .name' | head -1)" ]]; then
+  es -X PUT "${ES_URL}/_data_stream/k8s-*/_options" -d '{"failure_store": {"enabled": true}}' >/dev/null
+fi
+
 [[ "${SKIP_KEYS:-}" == "1" ]] && exit 0
 
-# 1. 寫入用
-# log、metrics、trace 共用同一把 key（都由 OpenTelemetry Collector 送）。
-#   metrics-*-<group>：metrics 的資料流是 metrics-<來源>.otel-<group>
-#   logs-*.otel-<group>：log 的入口，ES 會再轉到 k8s-<group>-*；轉過去時 ES 會再檢查一次權限，
-#     所以 IT 的 key 送 group=imc 的資料一樣寫不進 IMC
-#   traces-*.otel-<group>：trace
-writer_key "es-writer-it"         '["k8s-it-*", "k8s-events-it-*", "metrics-*-it", "logs-*.otel-it", "traces-*.otel-it"]'
-writer_key "es-writer-imc"        '["k8s-imc-*", "k8s-events-imc-*", "metrics-*-imc", "logs-*.otel-imc", "traces-*.otel-imc"]'
-writer_key "es-writer-unassigned" '["k8s-unassigned-*", "k8s-events-unassigned-*", "metrics-*-unassigned", "logs-*.otel-unassigned", "traces-*.otel-unassigned"]'
+# 1. 寫入用：一把，log、metrics、trace、所有 group 共用（都由 OpenTelemetry Collector 送）。
+#   metrics-*.otel-*：metrics 的資料流是 metrics-<來源>.otel-<group>
+#   logs-*.otel-*：log 的入口，ES 會再轉到 k8s-<group>-*（轉過去時 ES 會再檢查一次權限，所以 k8s-* 也要）
+#   traces-*.otel-*：trace（有問題的轉到 traces-problem.otel-<group>）
+writer_key "es-writer" '["k8s-*", "metrics-*.otel-*", "logs-*.otel-*", "traces-*.otel-*"]'
 
 # 2. AIOps 唯讀
 echo "=== AIOps 唯讀 key ==="
@@ -201,14 +203,15 @@ es -X POST "${ES_URL}/_security/api_key" -d '{
 }'
 
 # 3. 給人用的唯讀角色
-# 2b. AIOps baseline 工具（aiops/baseline）：讀 log、metrics、trace，只能寫自己的 aiops-*（baseline、異常）
+# 2b. AIOps baseline 工具（aiops/baseline）：讀 log、metrics、trace，只能寫自己的 aiops-*（baseline、異常）。
+#     read_failure_store：quality.ingest_rejected 要數被 ES 拒絕、留在 failure store 的文件
 echo "=== AIOps baseline key ==="
 es -X POST "${ES_URL}/_security/api_key" -d '{
   "name": "aiops-baseline",
   "role_descriptors": {
     "aiops-baseline": {
       "index": [
-        {"names": ["k8s-*", "metrics-*.otel-*", "traces-*.otel-*"], "privileges": ["read", "view_index_metadata"]},
+        {"names": ["k8s-*", "metrics-*.otel-*", "traces-*.otel-*"], "privileges": ["read", "view_index_metadata", "read_failure_store"]},
         {"names": ["aiops-*"], "privileges": ["read", "write", "create_index", "view_index_metadata"]}
       ]
     }

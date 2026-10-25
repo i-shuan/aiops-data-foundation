@@ -28,9 +28,7 @@ echo "== 1. API key、Collector（含 OTLP metrics）"
 setup_out="$(ES_URL="${ES_URL}" ES_AUTH="elastic:${ES_PASSWORD}" "${repo}/platform/central/elasticsearch-setup.sh")"
 key_of() { echo "${setup_out}" | grep -A1 "=== $1 ===" | tail -1 | jq -r .encoded; }
 kubectl -n otel-collector create secret generic es-writer-keys \
-  --from-literal=IT_ES_API_KEY="$(key_of '寫入 key：es-writer-it')" \
-  --from-literal=IMC_ES_API_KEY="$(key_of '寫入 key：es-writer-imc')" \
-  --from-literal=UNASSIGNED_ES_API_KEY="$(key_of '寫入 key：es-writer-unassigned')" \
+  --from-literal=ES_WRITER_API_KEY="$(key_of '寫入 key：es-writer')" \
   --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 BASELINE_KEY="$(key_of 'AIOps baseline key')"
 kubectl apply -k "${here}/otel-collector" >/dev/null

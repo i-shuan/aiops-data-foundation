@@ -25,19 +25,15 @@ es() { curl -sS -m 30 -u "elastic:${ES_PASSWORD}" -H 'Content-Type: application/
 echo "== 1. API key（正式腳本）"
 setup_out="$(ES_URL="${ES_URL}" ES_AUTH="elastic:${ES_PASSWORD}" "${repo}/platform/central/elasticsearch-setup.sh")"
 key_of() { echo "${setup_out}" | grep -A1 "=== $1 ===" | tail -1 | jq -r .encoded; }
-IT_KEY="$(key_of '寫入 key：es-writer-it')"
-IMC_KEY="$(key_of '寫入 key：es-writer-imc')"
-UNASSIGNED_KEY="$(key_of '寫入 key：es-writer-unassigned')"
+WRITER_KEY="$(key_of '寫入 key：es-writer')"
 AIOPS_KEY="$(key_of 'AIOps 唯讀 key')"
-for key in "${IT_KEY}" "${IMC_KEY}" "${UNASSIGNED_KEY}" "${AIOPS_KEY}"; do
+for key in "${WRITER_KEY}" "${AIOPS_KEY}"; do
   [[ -n "${key}" && "${key}" != null ]] || { echo "沒拿到 API key："; echo "${setup_out}"; exit 1; }
 done
-# log 與 metrics 用同一組 key，都由 otel-collector 送
+# log、metrics、trace 用同一把 key，都由 otel-collector 送
 k create namespace otel-collector --dry-run=client -o yaml | k apply -f - >/dev/null
 k -n otel-collector create secret generic es-writer-keys \
-  --from-literal=IT_ES_API_KEY="${IT_KEY}" \
-  --from-literal=IMC_ES_API_KEY="${IMC_KEY}" \
-  --from-literal=UNASSIGNED_ES_API_KEY="${UNASSIGNED_KEY}" \
+  --from-literal=ES_WRITER_API_KEY="${WRITER_KEY}" \
   --dry-run=client -o yaml | k apply -f - >/dev/null
 
 echo "== 2. Collector 與測試應用"
@@ -118,9 +114,10 @@ can() {  # can <api key> <index> <privilege> → true / false
   curl -sS -m 30 -H "Authorization: ApiKey $1" -H 'Content-Type: application/json' "${ES_URL}/_security/user/_has_privileges" \
     -d "{\"index\":[{\"names\":[\"$2\"],\"privileges\":[\"$3\"]}]}" | jq -r ".index[\"$2\"][\"$3\"]"
 }
-check "IT 的 key 可以寫 IT 的 metrics"       "$(can "${IT_KEY}" metrics-x.otel-it create_doc)" true
-check "IT 的 key 不能寫 IMC 的 metrics"      "$(can "${IT_KEY}" metrics-x.otel-imc create_doc)" false
-check "IT 的 key 不能讀 metrics"             "$(can "${IT_KEY}" metrics-x.otel-it read)" false
+check "寫入 key 可以寫 IT 的 metrics"         "$(can "${WRITER_KEY}" metrics-x.otel-it create_doc)" true
+check "寫入 key 可以寫 IMC 的 metrics"        "$(can "${WRITER_KEY}" metrics-x.otel-imc create_doc)" true
+check "寫入 key 不能讀 metrics"               "$(can "${WRITER_KEY}" metrics-x.otel-it read)" false
+check "寫入 key 不能寫 aiops-*（只給 baseline 工具）" "$(can "${WRITER_KEY}" aiops-anomalies create_doc)" false
 check "AIOps 唯讀 key 可以讀全部 metrics"    "$(can "${AIOPS_KEY}" metrics-x.otel-imc read)" true
 check "AIOps 唯讀 key 不能寫 metrics"        "$(can "${AIOPS_KEY}" metrics-x.otel-it create_doc)" false
 check "IT 的唯讀角色看得到 IT 的 metrics"     "$(es "${ES_URL}/_security/role/logs-reader-it" | jq -r '.["logs-reader-it"].indices[0].names | index("metrics-*-it") != null')" true

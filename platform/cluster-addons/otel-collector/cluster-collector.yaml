@@ -46,7 +46,7 @@ spec:
           volumeMounts:
             - {name: config, mountPath: /conf}
             - {name: queue, mountPath: /var/lib/otelcol}
-            # 每個 group 的寫入 key，一個檔一把。Secret 改了，K8s 約 1 分鐘內更新檔案，
+            # 寫入 key（ES_WRITER_API_KEY，所有 group 共用一把）。Secret 改了，K8s 約 1 分鐘內更新檔案，
             # Collector 偵測到就換用新 key，不用重啟（common.yaml 的 bearertokenauth）
             - {name: es-keys, mountPath: /etc/es-keys, readOnly: true}
       volumes:

@@ -846,7 +846,10 @@ def cmd_rules(cfg: dict, args) -> int:
         if names and rule["name"] not in names:
             continue
         r_start = now - pd.Timedelta(_freq(rule["lookback"])) if rule.get("lookback") else start
-        hits = R.evaluate(rule, R.fetch(es, rule, r_start, now), now)
+        if rule["type"] == "window":   # 整段算一個值（錯誤率、p95）：跟 series.yaml 同一套查法
+            hits = R.evaluate_window(rule, fetch(es, rule, r_start, now, None), r_start)
+        else:
+            hits = R.evaluate(rule, R.fetch(es, rule, r_start, now), now)
         for h in hits:
             keys = {f: v for f, v in zip(rule["by"], h["key"])}
             # 附帶的資訊（服務名稱、節點），根因分析用來對到服務；不參與「同一個對象」的判斷

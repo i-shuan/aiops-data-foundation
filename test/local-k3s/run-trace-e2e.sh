@@ -16,10 +16,8 @@ check_gt0() { if [[ "$2" -gt 0 ]]; then echo "  PASS  $1（$2）"; else echo "  
 echo "== 1. API key（正式腳本，含 trace 權限）"
 setup_out="$(ES_URL="${ES_URL}" ES_AUTH="elastic:${ES_PASSWORD}" "${repo}/platform/central/elasticsearch-setup.sh")"
 key_of() { echo "${setup_out}" | grep -A1 "=== $1 ===" | tail -1 | jq -r .encoded; }
-IT_KEY="$(key_of '寫入 key：es-writer-it')"; IMC_KEY="$(key_of '寫入 key：es-writer-imc')"
-UNASSIGNED_KEY="$(key_of '寫入 key：es-writer-unassigned')"; AIOPS_KEY="$(key_of 'AIOps 唯讀 key')"
-kubectl -n otel-collector create secret generic es-writer-keys --from-literal=IT_ES_API_KEY="${IT_KEY}" \
-  --from-literal=IMC_ES_API_KEY="${IMC_KEY}" --from-literal=UNASSIGNED_ES_API_KEY="${UNASSIGNED_KEY}" \
+WRITER_KEY="$(key_of '寫入 key：es-writer')"; AIOPS_KEY="$(key_of 'AIOps 唯讀 key')"
+kubectl -n otel-collector create secret generic es-writer-keys --from-literal=ES_WRITER_API_KEY="${WRITER_KEY}" \
   --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 
 echo "== 2. Collector 與測試應用"
@@ -86,8 +84,9 @@ check "同一個 span 送 3 次，ES 只有 1 筆" "$(es "${ES_URL}/traces-*.ote
 echo "== 8. 權限"
 can() { curl -sS -m 30 -H "Authorization: ApiKey $1" -H 'Content-Type: application/json' "${ES_URL}/_security/user/_has_privileges" \
   -d "{\"index\":[{\"names\":[\"$2\"],\"privileges\":[\"$3\"]}]}" | jq -r ".index[\"$2\"][\"$3\"]"; }
-check "IT 的 key 可以寫 IT 的 trace"      "$(can "${IT_KEY}" traces-x.otel-it create_doc)" true
-check "IT 的 key 不能寫 IMC 的 trace"     "$(can "${IT_KEY}" traces-x.otel-imc create_doc)" false
+check "寫入 key 可以寫 IT 的 trace"        "$(can "${WRITER_KEY}" traces-x.otel-it create_doc)" true
+check "寫入 key 可以寫 IMC 的 trace"       "$(can "${WRITER_KEY}" traces-x.otel-imc create_doc)" true
+check "寫入 key 不能讀 trace"              "$(can "${WRITER_KEY}" traces-x.otel-it read)" false
 check "AIOps 唯讀 key 可以讀全部 trace"   "$(can "${AIOPS_KEY}" traces-x.otel-imc read)" true
 check "IT 的唯讀角色看得到 IT 的 trace"   "$(es "${ES_URL}/_security/role/logs-reader-it" | jq -r '.["logs-reader-it"].indices[0].names | index("traces-*.otel-it") != null')" true
 

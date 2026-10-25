@@ -14,7 +14,7 @@ log 和 metrics 用同一個 Collector（[metrics/README.md](../metrics/README.m
 
 | 項目 | 狀態 |
 |---|---|
-| Collector 讀節點上的 `/var/log/pods`，依 namespace 的部門分流、每部門寫入 key、換 key 不掉資料 | ✅ |
+| Collector 讀節點上的 `/var/log/pods`，依 namespace 的部門分流（寫進各部門的 data stream）、一把寫入 key 所有部門共用、換 key 不掉資料 | ✅ |
 | 擋冒充：拿掉應用自己填的 K8s、部門欄位，由 Collector 依 Pod 補上 | ✅ |
 | 中央 pipeline 依格式解析：logback、ECS、.NET JSON、Serilog、logfmt、純文字（保底抓 level） | ✅ |
 | 統一欄位：`service.name`、`log.level`、`trace.id`、時間（UTC）；跟 metrics、trace 同一條路徑的 alias（`resource.attributes.service.name`、`trace_id` 等） | ✅ |
@@ -43,11 +43,9 @@ log 和 metrics 用同一個 Collector（[metrics/README.md](../metrics/README.m
 container stdout（每個節點的 /var/log/pods）
         ↓ 節點的 OpenTelemetry Collector（DaemonSet，跟 metrics 同一個）：補上 pod label、namespace 的 dept、cluster
         ↓ dept → group（跟 metrics 同一份規則）
-   ├─ group it         → key: IT_ES_API_KEY         ─┐
-   ├─ group imc        → key: IMC_ES_API_KEY        ─┼→ OTLP 送到 ES 的 /_otlp/v1/logs → logs-generic.otel-{group}
-   └─ group unassigned → key: UNASSIGNED_ES_API_KEY ─┘
+        ↓ 一把寫入 key（ES_WRITER_API_KEY）、一個出口；data_stream.namespace = group
+        ↓ OTLP 送到 ES 的 /_otlp/v1/logs → logs-generic.otel-{group}
         ↓ 中央 ES：k8s-logs-otel 整理形狀、用內容算 _id（擋重送的重複）、轉到 k8s-{group}-{cluster}
-        ↓          轉過去時 ES 會再檢查一次 key 的權限，IT 的 key 寫不進 IMC
         ↓ 中央 ES：k8s-logs pipeline 整理欄位（依 log 格式分派）→ data stream（ILM 管保留天數）
         ↓
    AIOps 用唯讀 key 讀 k8s-*；人用各 group 的唯讀角色
@@ -254,21 +252,19 @@ ES_URL=https://<es>:9200 ES_AUTH=elastic:<password> platform/central/elasticsear
 ```bash
 kubectl create namespace otel-collector
 kubectl -n otel-collector create secret generic es-writer-keys \
-  --from-literal=IT_ES_API_KEY=<encoded> \
-  --from-literal=IMC_ES_API_KEY=<encoded> \
-  --from-literal=UNASSIGNED_ES_API_KEY=<encoded>
+  --from-literal=ES_WRITER_API_KEY=<encoded>
 ```
 
-log 和 metrics 用同一個 Collector、同一份 Secret。
+log、metrics、trace 用同一份 Secret、同一把 key（setup 輸出的「寫入 key：es-writer」）（[pdca/2026-10-ingest-simplify.md](../pdca/2026-10-ingest-simplify.md)）。
 
 在 Rancher 上建或改這個 Secret：
 
 1. 切到目標 cluster，進 Storage 底下的 Secrets（路徑依 Rancher 版本略有不同）。
 2. 選 `otel-collector` namespace，**不是應用的 namespace**。
-3. 型別 Opaque，用 key/value 的編輯模式逐一加 `IT_ES_API_KEY`、`IMC_ES_API_KEY`、`UNASSIGNED_ES_API_KEY`。
+3. 型別 Opaque，用 key/value 的編輯模式加 `ES_WRITER_API_KEY`。
 4. 存檔後**不用重啟**：Secret 以檔案掛進 Collector，K8s 約 1 分鐘內更新檔案，Collector 偵測到就換用新 key（log 會印 `refresh token`）。
 
-改完用 `kubectl -n otel-collector describe secret es-writer-keys` 看每個 key 的 byte 數：**API key 的 encoded 是 60 個字元，多 1 就是結尾多了換行。**
+改完用 `kubectl -n otel-collector describe secret es-writer-keys` 看 key 的 byte 數：**API key 的 encoded 是 60 個字元，多 1 就是結尾多了換行。**
 
 改 Secret 的坑：
 
@@ -320,7 +316,8 @@ test/local-k3s/run-e2e.sh
 - **欄位**：logback 格式、ECS 巢狀格式、ECS 點號格式（ES 自己的 log）、純文字，四種都正確轉換；`agent.type` 是 `otelcol`。
 - **依格式分派**：宣告 `logfmt` 的服務走 logfmt 規則；宣告了還沒有規則的 `secs`，退回 default，原文完整保留。
 - **保底抓 level**：`[WARN] …`、`ERROR - …`、`Warning: …`、時間戳後的 `ERROR` 都抓得到；`0 errors`、`no error found`、`ERROR_CODE` 不會被誤抓；應用自己寫了 level 的不會被覆蓋，`WARNING`、`Err` 這類寫法會統一。
-- **權限**：寫入 key 只能寫自己的 group，不能讀；AIOps key 能讀全部 k8s-*，不能寫。
+- **權限**：寫入 key 一把、所有 group 共用，只能寫、不能讀（資料屬於哪個 group 由 Collector 依 Pod 決定）；AIOps key 能讀全部 k8s-*，不能寫；人用各 group 的唯讀角色。
+- **被拒的文件**：pipeline 失敗、型別不合的留在 failure store（`k8s-<group>-<cluster>::failures`），`quality.ingest_rejected` 有一筆就報（[pdca/2026-10-ingest-simplify.md](../pdca/2026-10-ingest-simplify.md)）。
 
 可靠度與量（[load/run-load.sh](../../test/local-k3s/load/run-load.sh)，產生器每行帶序號，用序號數遺失與重複）：
 
