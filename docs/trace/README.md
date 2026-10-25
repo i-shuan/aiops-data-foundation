@@ -22,7 +22,7 @@
 | 項目 | 要做的 |
 |---|---|
 | ① trace-sampler 斷線 | ✅ 兩段佇列都改寫在磁碟：node 端寫節點磁碟、trace-sampler 端寫 PVC。實測 trace-sampler 停 400 秒、node 重啟、ES 停機中 trace-sampler 重啟都不掉；**trace-sampler 當掉（kill -9）仍掉約 20%**（等 30 秒決定的那段在記憶體）。不用 Kafka（實測沒有多擋住任何情況）。[PDCA](../pdca/2026-10-trace-durability.md) |
-| ① ES 剛起來回 401、Collector 直接丟 | ✅ 修在 ES 入口：健康檢查（LB 或 readinessProbe）要用 API key 打 GET /、等 200；ES 剛起來的 1 秒多 API key 會被拒，但 elastic 帳號、`/_cluster/health` 都正常，用它們檢查會把流量導進去。實測直連掉 420、經健康檢查的 LB 掉 0；兩台 ES 滾動重啟用舊檢查掉 200～280、用新檢查掉 0（兩台的投票名單只有一台，重啟到它就沒 master；三台以上才能真的滾動）。📝 中央 ES 前面的健康檢查要請管 ES 的人改（範例 `platform/central/elasticsearch/healthcheck-haproxy.cfg`）。[PDCA](../pdca/2026-10-es-startup-401.md) |
+| ① ES 剛起來回 401、Collector 直接丟 | ✅ 修在 ES 入口：健康檢查（LB 或 readinessProbe）要用 API key 打 GET /、等 200；ES 剛起來的 1 秒多 API key 會被拒，但 elastic 帳號、`/_cluster/health` 都正常，用它們檢查會把流量導進去。實測直連掉 420、經健康檢查的 LB 掉 0；兩台 ES 滾動重啟用舊檢查掉 200～280、用新檢查掉 0（兩台的投票名單只有一台，重啟到它就沒 master；三台以上才能真的滾動）。📝 中央 ES 前面的健康檢查要請管 ES 的人改（範例 `telemetry/storage/healthcheck-haproxy.cfg`）。[PDCA](../pdca/2026-10-es-startup-401.md) |
 | ③ 保留天數 | ✅ 隨機留下的 7 天；有問題的（錯誤、5xx、例外、慢）由 pipeline 轉到 `traces-problem.otel-<group>`，留 30 天（[retention.md](../retention.md)） |
 
 **要做的（①收值、②清資料、④判斷）**
@@ -63,13 +63,13 @@
 
 **現況**：
 
-- ✅ 工廠用的欄位已定案：`lot.id`、`equipment.id`、`work_order.id`、`recipe.id`（[apps/standards/tracing.md](../../apps/standards/tracing.md)）。工廠的其餘欄位見 [factory-later.md](../factory-later.md)。
+- ✅ 工廠用的欄位已定案：`lot.id`、`equipment.id`、`work_order.id`、`recipe.id`（[sdk/standards/tracing.md](../../sdk/standards/tracing.md)）。工廠的其餘欄位見 [factory-later.md](../factory-later.md)。
 - ❌ 服務層通用的「交易 ID」（一次操作從頭到尾的 ID，跨同步、非同步）還沒定名稱。
 - ❌ 很多 ID 只寫在 log 訊息裡，沒有獨立欄位。
 
 | 步驟 | 內容 | 誰 | 驗收 |
 |---|---|---|---|
-| 1. 訂名稱 | 例如 `txn.id`，跟已定案的 `work_order.id` 等並列；新增要先跟平台確認 | 我們 | 寫進 [tracing.md](../../apps/standards/tracing.md) |
+| 1. 訂名稱 | 例如 `txn.id`，跟已定案的 `work_order.id` 等並列；新增要先跟平台確認 | 我們 | 寫進 [tracing.md](../../sdk/standards/tracing.md) |
 | 2. 不改程式：從 log 抽出來 | 中央 pipeline 依格式抽成標準欄位（[log/README.md](../log/README.md)） | 我們（要幾行 log 樣本） | 舊服務的 log 查得到 |
 | 3. 新程式：放 MDC／scope、span 屬性 | 入口把 ID 放進 log 的 MDC（Java）或 scope（.NET），重要的也放成 span 屬性 | 各應用團隊（寫進開發規範） | 新服務的 log、trace 都帶 |
 | 4. 查詢工具 | 給一個交易 ID，列出所有服務的 log、trace，依時間排序 | 我們 | 輸入一個 ID 看得到完整時間線 |
@@ -100,7 +100,7 @@ trace-sampler × 2（StatefulSet，尾端取樣）
 
 **為什麼要先拿掉應用自帶的欄位：** trace 是應用自己送的，資源欄位應用可以亂填（例如自稱是別的 namespace、別的部門）。拿掉之後，歸屬只看連線來源，應用無法冒充。
 
-**為什麼要兩層、等多久、留哪些：** 見 [trace/scenarios.md「取樣」](scenarios.md#橫跨所有場景的前提取樣)。k3s 實測每秒 500 個請求：有問題的 100% 留下而且完整、總量剩約 15%、trace-sampler 每台約 150MB（[test/local-k3s/tail-sampling](../../test/local-k3s/tail-sampling/README.md)）。設定在 [sampler.yaml](../../platform/cluster-addons/otel-collector/sampler.yaml)（規則）、[trace-sampler.yaml](../../platform/cluster-addons/otel-collector/trace-sampler.yaml)（台數、等多久、隨機幾 %）。
+**為什麼要兩層、等多久、留哪些：** 見 [trace/scenarios.md「取樣」](scenarios.md#橫跨所有場景的前提取樣)。k3s 實測每秒 500 個請求：有問題的 100% 留下而且完整、總量剩約 15%、trace-sampler 每台約 150MB（[e2e/local-k3s/tail-sampling](../../e2e/local-k3s/tail-sampling/README.md)）。設定在 [sampler.yaml](../../telemetry/collectors/sampler.yaml)（規則）、[trace-sampler.yaml](../../telemetry/collectors/trace-sampler.yaml)（台數、等多久、隨機幾 %）。
 
 ## 應用要做什麼
 
@@ -115,7 +115,7 @@ trace-sampler × 2（StatefulSet，尾端取樣）
 
 沒用 chart 的服務，自己設上面這幾個環境變數。不是 Java、.NET 的服務，用該語言的 OpenTelemetry SDK，送到同一個位址。
 
-**什麼時候要自己埋點、怎麼埋（業務步驟、批號這類欄位、SECS 等 agent 不認得的元件），見 [apps/standards/tracing.md](../../apps/standards/tracing.md)。**
+**什麼時候要自己埋點、怎麼埋（業務步驟、批號這類欄位、SECS 等 agent 不認得的元件），見 [sdk/standards/tracing.md](../../sdk/standards/tracing.md)。**
 
 ## 跟 log、metrics 串起來
 
@@ -140,7 +140,7 @@ pod label、`container.*` 不會帶進 trace（只給 log 用）。
 
 ## 部署
 
-中央 ES 和每個 cluster 的步驟跟 log、metrics 一樣（[log/README.md 的「部署」](../log/README.md#部署)）：重跑 `elasticsearch-setup.sh`，新發的 key 才有 `traces-*.otel-*` 的權限（或用 `rotate-writer-key.sh` 一個一個 group 換，不掉資料）；`kubectl apply -k platform/cluster-addons/otel-collector` 會多一個 Service `otel-node-collector`、StatefulSet `trace-sampler`（尾端取樣）。
+中央 ES 和每個 cluster 的步驟跟 log、metrics 一樣（[log/README.md 的「部署」](../log/README.md#部署)）：重跑 `elasticsearch-setup.sh`，新發的 key 才有 `traces-*.otel-*` 的權限（或用 `rotate-writer-key.sh` 一個一個 group 換，不掉資料）；`kubectl apply -k telemetry/collectors` 會多一個 Service `otel-node-collector`、StatefulSet `trace-sampler`（尾端取樣）。
 
 ES 要有 `/_otlp/v1/traces`（測試用 9.5.5）：
 
@@ -151,10 +151,10 @@ curl -s -o /dev/null -w "%{http_code}\n" -u elastic:<password> -X POST -H "Conte
 ## 驗證
 
 ```bash
-ES_URL=http://<ip>:9200 test/local-k3s/run-trace-e2e.sh
+ES_URL=http://<ip>:9200 e2e/local-k3s/run-trace-e2e.sh
 ```
 
-測試應用（[trace-app.sh](../../test/local-k3s/trace-app.sh)）每 5 秒印一行帶 `trace_id` 的 log、送一個同 `trace_id` 的 span。it-mes-prod 那個故意在資源欄位自稱 imc-wip-prod、dept D1110、group imc、假的 Pod UID。**23 項全部通過**：
+測試應用（[trace-app.sh](../../e2e/local-k3s/trace-app.sh)）每 5 秒印一行帶 `trace_id` 的 log、送一個同 `trace_id` 的 span。it-mes-prod 那個故意在資源欄位自稱 imc-wip-prod、dept D1110、group imc、假的 Pod UID。**23 項全部通過**：
 
 | 類別 | 檢查 |
 |---|---|

@@ -12,7 +12,7 @@ PDCA 的意思：**Plan** 定規則與門檻 → **Do** 收值、判斷、報告
 
 | 項目 | 狀態 | 細節 |
 |---|---|---|
-| ④ 判斷設定：序列、粒度、z、`min_abs`、規則門檻 | ✅ | [aiops/baseline](../../aiops/baseline/README.md)（`series.yaml`、`rules.yaml`、`peer.yaml`、`trace.yaml`） |
+| ④ 判斷設定：序列、粒度、z、`min_abs`、規則門檻 | ✅ | [engine/configs/baseline](../../engine/configs/baseline/README.md)（`series.yaml`、`rules.yaml`、`peer.yaml`、`trace.yaml`） |
 | ⑨ 上線前記下基準（每天告警幾筆、誤報多少、從告警到找到原因多久） | ❌ | [feedback/](../feedback/README.md) |
 | ④ 用真實資料校正門檻 | 📝 要先排程跑 2～4 週 | [rca/](../rca/README.md) |
 | ② 歸屬放哪裡（讀 namespace 的 `dept`，或改成 app → group 中央清單）、app 名稱是否全公司唯一 | 未定案 | [README「還沒定案的」](../../README.md#還沒定案的) |
@@ -24,8 +24,8 @@ PDCA 的意思：**Plan** 定規則與門檻 → **Do** 收值、判斷、報告
 | 項目 | 狀態 | 細節 |
 |---|---|---|
 | ①②③ 收值（log、metrics、trace、尾端取樣）、清資料、存 | ✅ | [log](../log/README.md)、[metrics](../metrics/README.md)、[trace](../trace/README.md) |
-| ④ 判斷：規則、跟歷史比、跟兄弟比、trace 每一段 | ✅ | [aiops/baseline](../../aiops/baseline/README.md) |
-| ⑦ 根因分析：metrics → trace → log | ✅ | [aiops/rca](../../aiops/rca/README.md) |
+| ④ 判斷：規則、跟歷史比、跟兄弟比、trace 每一段 | ✅ | [engine/configs/baseline](../../engine/configs/baseline/README.md) |
+| ⑦ 根因分析：metrics → trace → log | ✅ | [engine/configs/rca](../../engine/configs/rca/README.md) |
 | ④ **正式環境排程**（train 每天、detect 每 30 秒、rules 與 peer 每分鐘） | ⚠️ 程式好了，沒部署 | [rca/](../rca/README.md) |
 | 已完成部分的小尾巴：② 統一指標名稱（metrics）、② 統一欄位路徑（log）（① trace-sampler 磁碟佇列已做） | ⚠️ | 各資料夾 README 開頭 |
 | ①②④ 時間對齊：主機時鐘監控（metrics）、收資料延遲與時區（log）、時鐘差日報（trace） | 📝 | 同上 |
@@ -40,11 +40,11 @@ PDCA 的意思：**Plan** 定規則與門檻 → **Do** 收值、判斷、報告
 | 項目 | 狀態 | 細節 |
 |---|---|---|
 | ⑧ 告警出口（通知） | ❌ 現在只寫進 ES | [feedback/](../feedback/README.md) |
-| ⑧ 事故紀錄 `aiops-incidents`（`incident` 指令） | ⚠️ 程式好了、實測過；沒排程、沒接告警 | [baseline README「事故紀錄與值班回饋」](../../aiops/baseline/README.md#事故紀錄與值班回饋) |
+| ⑧ 事故紀錄 `aiops-incidents`（`incident` 指令） | ⚠️ 程式好了、實測過；沒排程、沒接告警 | [baseline README「事故紀錄與值班回饋」](../../engine/configs/baseline/README.md#事故紀錄與值班回饋) |
 | ⑨ 值班回饋 `aiops-feedback`（`feedback` 指令：真的／誤報／根因錯／漏報；誤報率統計） | ⚠️ 程式好了、實測過；收集靠指令，不自動生效 | 同上 |
-| ② 資料品質檢查：路由沒參數化、必填欄位缺、資料停了、落到 unassigned 變多（`quality`） | ⚠️ 程式好了、實測過，沒排程 | [baseline README](../../aiops/baseline/README.md#資料品質檢查資料本身怪不怪) |
-| ② 排除已知干擾：事故、維護、壓測時段不學（`exclude_window`）；換版重新學（`reset_point`）；月底批次放寬（`recurring_override`） | ⚠️ 程式好了、實測過，沒排程 | [baseline README「調整」](../../aiops/baseline/README.md#調整哪些資料不學從哪裡重新學哪些時段放寬) |
-| ② 慢性病清單（`chronic`，每週）、行事曆（`calendar.yaml`） | ⚠️ 程式好了、實測過，沒排程；假日已改成直接抓台灣行事曆（`taiwan` provider）；`owners` 目前是**假資料**（`fake-data/owners.json`），要換成真的來源 | [baseline README「慢性病清單、行事曆」](../../aiops/baseline/README.md#慢性病清單行事曆) |
+| ② 資料品質檢查：路由沒參數化、必填欄位缺、資料停了、落到 unassigned 變多（`quality`） | ⚠️ 程式好了、實測過，沒排程 | [baseline README](../../engine/configs/baseline/README.md#資料品質檢查資料本身怪不怪) |
+| ② 排除已知干擾：事故、維護、壓測時段不學（`exclude_window`）；換版重新學（`reset_point`）；月底批次放寬（`recurring_override`） | ⚠️ 程式好了、實測過，沒排程 | [baseline README「調整」](../../engine/configs/baseline/README.md#調整哪些資料不學從哪裡重新學哪些時段放寬) |
+| ② 慢性病清單（`chronic`，每週）、行事曆（`calendar.yaml`） | ⚠️ 程式好了、實測過，沒排程；假日已改成直接抓台灣行事曆（`taiwan` provider）；`owners` 目前是**假資料**（`fake-data/owners.json`），要換成真的來源 | [baseline README「慢性病清單、行事曆」](../../engine/configs/baseline/README.md#慢性病清單行事曆) |
 | ⑨ 版本（每筆異常記哪一版產生）、回測、評測集（20～30 件過去事故） | ❌ | [feedback/](../feedback/README.md) |
 | ①② REST API 的 log 樣本、重要 .NET Kafka 消費者加幾行 | 要別人配合 | 各資料夾 |
 
@@ -52,7 +52,7 @@ PDCA 的意思：**Plan** 定規則與門檻 → **Do** 收值、判斷、報告
 
 | 項目 | 狀態 | 細節 |
 |---|---|---|
-| ④ 手動調整：`series.yaml` 的 `overrides`、`tune` 指令（記原因、誰、何時） | ✅ | [baseline README「使用者、feedback 調整」](../../aiops/baseline/README.md#使用者feedback-調整) |
+| ④ 手動調整：`series.yaml` 的 `overrides`、`tune` 指令（記原因、誰、何時） | ✅ | [baseline README「使用者、feedback 調整」](../../engine/configs/baseline/README.md#使用者feedback-調整) |
 | ② 修慢性病（天天噴錯、沒人修的） | 要別人配合 | [rca/](../rca/README.md#髒資料排除) |
 | ⑨ 同一個根因 ≥ 3 次 → 升級成規則 | 📝 | [feedback/](../feedback/README.md) |
 | ⑨ 回饋累積夠且回測通過 → 自動調門檻、排除時段 | 📝 | 同上 |
@@ -94,3 +94,4 @@ PDCA 的意思：**Plan** 定規則與門檻 → **Do** 收值、判斷、報告
 | [2026-10-ingest-simplify.md](2026-10-ingest-simplify.md) | ①③④ 一把寫入 key、ES failure store、靜態保底規則 | 一把寬 pattern 的 key、一個出口，資料照樣依 group 分；log 的 `k8s-*` 開 failure store（OTel 的預設已開），`quality.ingest_rejected` 有一筆就報；rules 加 `window` 類型，錯誤率 ≥ 5%、p95 ≥ 2 秒保底 |
 | [2026-10-alert-exit.md](2026-10-alert-exit.md) | ⑥⑧ 告警出口：一件事一則通知 | 只有 Plan：同服務合成一件、先 dry-run 記基準；通知管道、每個 group 送給誰、夜間要不要發待定 |
 | [2026-10-product-loop.md](2026-10-product-loop.md) | ①～⑨ 產品主線 8 步：收值到 learning loop | 盤點：1～4 穩、5 一半；6 收斂、7 的 RAG、8 的回饋入口是斷點；照順序補：告警出口 → 老師傅回饋入口 → 相似事故檢索 → 回饋更新 RAG → 門檻接回饋＋回測 → LLM → 量化 |
+| [2026-10-restructure.md](2026-10-restructure.md) | 全部 目錄改名：專案名 it-aiops | `platform/`→`telemetry/`、`aiops/`→`engine/`、`apps/`→`sdk/`、`test/`→`e2e/`；Python 套件改名；行為不變，200 個單元測試與連結檢查過 |

@@ -10,9 +10,9 @@
 | 項目 | 內容 |
 |---|---|
 | K8s | k3s v1.32.2，單節點（4 核、15Gi RAM） |
-| Elasticsearch | 8.17.2 單節點，開 security、HTTP 不走 TLS，heap 1g（[elasticsearch.yaml](../../test/local-k3s/elasticsearch.yaml)）。之後測試環境改成 9.5.5，端到端 53 項與 level 案例 23 個重跑也全部通過；本文的情境測試數據是 8.17.2 上量的 |
-| Fluent Bit | 4.1.1，正式設定只換連線目標與 image 來源（overlay `test/local-k3s/fluent-bit/`，改用 OTel 後已移除） |
-| API key | 用正式的 [elasticsearch-setup.sh](../../platform/central/elasticsearch-setup.sh) 產生 |
+| Elasticsearch | 8.17.2 單節點，開 security、HTTP 不走 TLS，heap 1g（[elasticsearch.yaml](../../e2e/local-k3s/elasticsearch.yaml)）。之後測試環境改成 9.5.5，端到端 53 項與 level 案例 23 個重跑也全部通過；本文的情境測試數據是 8.17.2 上量的 |
+| Fluent Bit | 4.1.1，正式設定只換連線目標與 image 來源（overlay `e2e/local-k3s/fluent-bit/`，改用 OTel 後已移除） |
+| API key | 用正式的 [elasticsearch-setup.sh](../../telemetry/scripts/elasticsearch-setup.sh) 產生 |
 | cluster 名稱 | `local`，所以 index 是 `k8s-{group}-local` |
 
 這是模擬環境，連不到 Nexus、Rancher 和中央 ES。正式上線前要在實際的 cluster 再驗一次。
@@ -21,7 +21,7 @@
 
 實際的原始 log 行和進 ES 後的文件，見[附錄 A](#a-三個常駐測試服務自動測試label-情境用)。
 
-三個 namespace 對應三種情境，定義在 [log-generators.yaml](../../test/local-k3s/log-generators.yaml)。另外兩個服務用來測「依格式分派」。
+三個 namespace 對應三種情境，定義在 [log-generators.yaml](../../e2e/local-k3s/log-generators.yaml)。另外兩個服務用來測「依格式分派」。
 
 | namespace | dept label | 模擬的服務 | 輸出格式 | 預期進哪 |
 |---|---|---|---|---|
@@ -89,9 +89,9 @@ Warning: certificate expires in 7 days
 跑法：
 
 ```bash
-test/local-k3s/run-e2e.sh
+e2e/local-k3s/run-e2e.sh
 # 已經連得到測試 ES 時（例如直接打 ClusterIP）：
-ES_URL=http://<ip>:9200 test/local-k3s/run-e2e.sh
+ES_URL=http://<ip>:9200 e2e/local-k3s/run-e2e.sh
 ```
 
 腳本會依序部署 ES、執行 setup 腳本拿到 key、建 Secret、部署 Fluent Bit 和三個測試服務，等 60 秒後開始檢查。
@@ -202,10 +202,10 @@ ES_URL=http://<ip>:9200 test/local-k3s/run-e2e.sh
 
 ## pipeline 案例測試：level 萃取與正規化（23 個）
 
-不經過 K8s 和 Fluent Bit，直接把原文丟給 pipeline 的 `_simulate`，比對 `log.level` 和 `log.level_inferred`。案例在 [test/pipeline/level-cases.json](../../test/pipeline/level-cases.json)，新增案例只要加一行。
+不經過 K8s 和 Fluent Bit，直接把原文丟給 pipeline 的 `_simulate`，比對 `log.level` 和 `log.level_inferred`。案例在 [e2e/pipeline/level-cases.json](../../e2e/pipeline/level-cases.json)，新增案例只要加一行。
 
 ```bash
-ES_URL=http://<ip>:9200 ES_AUTH=elastic:<password> test/pipeline/run-level-cases.sh
+ES_URL=http://<ip>:9200 ES_AUTH=elastic:<password> e2e/pipeline/run-level-cases.sh
 ```
 
 結果：**23 個全部通過。** 也確認過把一個預期改錯時，腳本會報 FAIL 並以非 0 結束。
@@ -340,7 +340,7 @@ IMC 測試服務每 3 秒輸出一筆，45 秒應該是 15 筆，**一筆都沒�
 
 實際的原始 log 行和進 ES 後的文件，見[附錄 C](#c-大流量es-停機情境同一個產生器)。
 
-產生器定義在 [load/generator.yaml](../../test/local-k3s/load/generator.yaml)，跑法見 [load/run-load.sh](../../test/local-k3s/load/run-load.sh)。
+產生器定義在 [load/generator.yaml](../../e2e/local-k3s/load/generator.yaml)，跑法見 [load/run-load.sh](../../e2e/local-k3s/load/run-load.sh)。
 
 | 項目 | 內容 |
 |---|---|
@@ -398,7 +398,7 @@ CPU 的 100% 等於一個核心。
 
 產生器和大流量測試相同，實際樣本見[附錄 C](#c-大流量es-停機情境同一個產生器)。
 
-跑法見當時的 `test/local-k3s/load/run-outage.sh`（Fluent Bit 時期的腳本，已移除；OTel 的停機測試見 [log/fluentbit-vs-otel.md](fluentbit-vs-otel.md)）。
+跑法見當時的 `e2e/local-k3s/load/run-outage.sh`（Fluent Bit 時期的腳本，已移除；OTel 的停機測試見 [log/fluentbit-vs-otel.md](fluentbit-vs-otel.md)）。
 
 | 項目 | 內容 |
 |---|---|
@@ -473,7 +473,7 @@ Fluent Bit 的 es output 加上 `generate_id: on`：
 | 單獨量成本 | 正式設定加上 `generate_id`，不製造重送，每秒 5,000 行跑 2 分鐘 | 去重複本身讓 ES 多花多少 |
 | 相同內容 | 一個 Pod 用 `yes` 一口氣輸出 10,000 行完全相同的 JSON（`{"level":"INFO","message":"heartbeat ok",...}`） | 內容一樣的兩行會不會被誤判成重複而被丟掉 |
 
-強迫重送的跑法見當時的 `test/local-k3s/load/run-dedup.sh`（Fluent Bit 時期的腳本，已移除）。實際樣本見[附錄 D](#d-去重複情境)。
+強迫重送的跑法見當時的 `e2e/local-k3s/load/run-dedup.sh`（Fluent Bit 時期的腳本，已移除）。實際樣本見[附錄 D](#d-去重複情境)。
 
 ### 結果
 
@@ -497,7 +497,7 @@ Fluent Bit 的 es output 加上 `generate_id: on`：
 
 ## 情境測試：ES 當機（kill -9）
 
-前面的停機測試都是「正常關機」（ES 有機會把資料寫完再關）。這裡是**直接砍掉 ES 程序**，像斷電、OOM 被砍。腳本：[load/run-crash.sh](../../test/local-k3s/load/run-crash.sh)。
+前面的停機測試都是「正常關機」（ES 有機會把資料寫完再關）。這裡是**直接砍掉 ES 程序**，像斷電、OOM 被砍。腳本：[load/run-crash.sh](../../e2e/local-k3s/load/run-crash.sh)。
 
 ### 測資
 
@@ -526,7 +526,7 @@ Fluent Bit 的 es output 加上 `generate_id: on`：
 
 ## 情境測試：ES 兩個節點 vs 一個節點
 
-中央 ES 從一個節點改成兩個（兩個 Pod），差在哪裡。腳本：`test/local-k3s/run-es-2node.sh up|test|down`。
+中央 ES 從一個節點改成兩個（兩個 Pod），差在哪裡。腳本：`e2e/local-k3s/run-es-2node.sh up|test|down`。
 
 ### 測資
 

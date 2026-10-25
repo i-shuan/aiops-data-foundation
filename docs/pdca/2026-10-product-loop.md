@@ -34,7 +34,7 @@
 
 ## Do：改動哪些 code、改了什麼、為何要改
 
-無 code 改動。這一輪只盤點：讀 `aiops/aiops_baseline`、`aiops/aiops_rca`、`platform/`、各 PDCA，對照 8 步。
+無 code 改動。這一輪只盤點：讀 `engine/detector`、`engine/investigator`、`telemetry/`、各 PDCA，對照 8 步。
 
 ## Check：現況盤點（每一步有什麼、缺什麼）
 
@@ -45,10 +45,10 @@
 | 1 收值、共同鑰匙 | log、metrics、trace 都由 Collector 收，服務、Pod、namespace、部門由 Collector 依 Pod 補（`common.yaml`）；trace 全送、尾端取樣留錯的慢的；斷線兩段磁碟佇列（[trace-durability](2026-10-trace-durability.md)）；ES 剛起來 401 的修法（[es-startup-401](2026-10-es-startup-401.md)）；三種資料鑰匙同一條路徑（[field-unify](2026-10-field-unify.md)）；一把寫入 key（[ingest-simplify](2026-10-ingest-simplify.md)） | ✅ | 中央 ES 前面的健康檢查還沒套（要管 ES 的人）；Kafka 消費者那段 trace 會斷（.NET 要加幾行、Java 沒驗）；DB 主機沒有時鐘監控 |
 | 2 清洗資料 | 進來時：格式統一、去重複、時區（[time-alignment](2026-10-time-alignment.md)）；Java 指標改名；被拒的進 failure store。餵 baseline 前：資料品質 `quality`（停了、缺欄位、路由爆炸、延遲、時鐘偏差、被拒收）、排除時段／重置點（`adjust`）、慢性病（`chronic`）、行事曆 | ✅ 程式｜⚠️ 沒排程 | 業務 ID（交易 ID）沒命名、沒從 log 抽；REST API log 的解析規則（要樣本） |
 | 3 異常分析 | **基本樣式**：Median＋MAD（星期×小時，退階到每天同小時、不分時段）、trace 每一段的 baseline（`trace-train`、`trace-detect`）、連續才算（`status`、`streak`）。**單次異常**：39 條規則（容器重啟、副本不夠、資源快滿…＋錯誤率 5%、p95 2 秒保底）、跟兄弟比（`peer`）。結果都寫 `aiops-anomalies` | ✅ 程式（k3s 驗過）｜⚠️ 沒用真實資料跑過、沒排程 | 門檻都是估的；正式環境只寫入不通知跑 2～4 週 |
-| 4 串 metrics → trace → log | `aiops_rca investigate`：從異常拿服務＋路由＋時間 → 撈出事時最慢 200、出錯 100 個 trace 跟一週前比 → 慢在哪一段（扣掉下游）、錯從哪開始 → 用 trace_id 撈 log、新出現的 log 樣式。產出 Markdown 報告（`aiops/rca/example-report.md`） | ✅（k3s 驗過） | 每一段用平均，少數極慢的會拉偏（[metrics-to-trace](2026-10-metrics-to-trace.md) 的 Act）；瀑布圖、撈 log 只用最慢的 1 筆 |
+| 4 串 metrics → trace → log | `investigator investigate`：從異常拿服務＋路由＋時間 → 撈出事時最慢 200、出錯 100 個 trace 跟一週前比 → 慢在哪一段（扣掉下游）、錯從哪開始 → 用 trace_id 撈 log、新出現的 log 樣式。產出 Markdown 報告（`engine/configs/rca/example-report.md`） | ✅（k3s 驗過） | 每一段用平均，少數極慢的會拉偏（[metrics-to-trace](2026-10-metrics-to-trace.md) 的 Act）；瀑布圖、撈 log 只用最慢的 1 筆 |
 | 5 輔助查問題 | 呼叫關係圖（`topology`、mermaid）、瀑布圖、log 樣式比較 | ⚠️ | 用業務 ID 查一筆交易的時間線（等業務 ID）；給 LLM 用的查詢工具（查某服務的 trace、某段 log 樣式、某 API 的 p95）；Kafka 那段斷鏈要靠業務 ID 補接 |
 | 6 整合事件 | 只有「同一條序列連續才算」 | ❌ | 同服務合成一件、沿呼叫關係合併上下游、排優先（[system-stages 第 7 節](../system-stages.md)）；告警出口（[alert-exit](2026-10-alert-exit.md)，只有 Plan） |
-| 7 RCA＋RAG | 根因報告（第 4 步）；事故紀錄 `aiops-incidents` 存症狀、根因、處置、相關異常 | ⚠️ RCA ✅｜RAG ❌ | **報告不會去找過去的事故**：`aiops_rca` 完全沒讀 `aiops-incidents`、`aiops-feedback`。沒有相似事故檢索、沒有 LLM 摘要；沒有評測集（20～30 件過去事故） |
+| 7 RCA＋RAG | 根因報告（第 4 步）；事故紀錄 `aiops-incidents` 存症狀、根因、處置、相關異常 | ⚠️ RCA ✅｜RAG ❌ | **報告不會去找過去的事故**：`investigator` 完全沒讀 `aiops-incidents`、`aiops-feedback`。沒有相似事故檢索、沒有 LLM 摘要；沒有評測集（20～30 件過去事故） |
 | 8 learning loop | `feedback add`（真的／誤報／根因錯／漏報＋正確根因）；`feedback suggest`：同一個對象誤報 3 次 → 提「放寬門檻」（proposed）；`adjust approve` 才生效；`incident add --exclude-training` 提「這段不學」；`tune` 調粒度、z | ⚠️ | **回饋只能打指令**，老師傅不會用；沒記「怎麼看出來的」（老師傅經驗的核心）；回饋不會更新 RAG（因為沒有 RAG）；漏報不會變成新規則；沒有「學之前、學之後」誤報率、找到原因時間的數字；沒有回測 |
 
 **總結**：1～4 是穩的，5 有一半，**6、7 的 RAG、8 的入口是斷點**。賣點的三個字：RCA 有了；老師傅 feedback 有存的地方、沒有給老師傅用的入口；learning loop 有「誤報 → 建議放寬」這一小圈，沒有「經驗 → RAG → 下一次報告」這一圈。

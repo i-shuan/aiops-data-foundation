@@ -1,0 +1,11 @@
+{
+  "template": {
+    "settings": {
+      "index.default_pipeline": "traces-otel",
+      "index.lifecycle.name": "traces-otel"
+    }
+  },
+  "_meta": {
+    "description": "trace（traces-*.otel-*）先跑 traces-otel：用 trace_id + span_id 當 _id，重送不會重複；保留天數用 ILM traces-otel（telemetry/scripts/retention.conf）"
+  }
+}

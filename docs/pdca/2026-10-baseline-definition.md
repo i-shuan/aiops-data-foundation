@@ -1,6 +1,6 @@
 # baseline 正式定義（2026-10）
 
-**狀態**：已完成（文件）　　**日期**：2026-10-23　　**相關**：PR #7、`aiops/aiops_baseline/model.py`、`aiops/baseline/series.yaml`、[baseline README](../../aiops/baseline/README.md)
+**狀態**：已完成（文件）　　**日期**：2026-10-23　　**相關**：PR #7、`engine/detector/model.py`、`engine/configs/baseline/series.yaml`、[baseline README](../../engine/configs/baseline/README.md)
 **模組**：④ 判斷
 
 ## Plan：這一次要達到什麼

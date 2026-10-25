@@ -99,7 +99,7 @@
 - **counter 不能直接平均**：要先算差值。baseline 目前只用 gauge 和直方圖，所以還沒處理；之後加「重啟次數」時要處理。
 - **應用的直方圖在 `metrics-generic.otel-<group>`**，不在 `prometheusreceiver`：資料帶著應用自己的 scope 名稱。
 
-## 二、哪些有 baseline（[aiops/baseline/series.yaml](../../aiops/baseline/series.yaml)）
+## 二、哪些有 baseline（[engine/configs/baseline/series.yaml](../../engine/configs/baseline/series.yaml)）
 
 | baseline | 來源 | 依什麼切 | 判斷 |
 |---|---|---|---|
@@ -119,9 +119,9 @@
 | 做法 | 適合什麼 | 例子 | 要學嗎 | 現在 |
 |---|---|---|---|---|
 | **1. 跟平常比**（baseline） | 有週期、沒有固定標準的數字 | 請求數、延遲、錯誤率、CPU | 要 | ✅ 7 條 |
-| **2. 離極限多遠**（飽和度） | 有上限的東西：滿了就出事 | 記憶體 ÷ 上限 > 90%、磁碟剩 < 10%、連線池使用中 ÷ 上限 > 90%、節點 disk/memory pressure | 不用：規則 | ✅ 容器記憶體、節點記憶體、節點磁碟、CPU 限流、連線池、JVM 老年代、GC、.NET 執行緒池（[rules.yaml](../../aiops/baseline/rules.yaml)） |
+| **2. 離極限多遠**（飽和度） | 有上限的東西：滿了就出事 | 記憶體 ÷ 上限 > 90%、磁碟剩 < 10%、連線池使用中 ÷ 上限 > 90%、節點 disk/memory pressure | 不用：規則 | ✅ 容器記憶體、節點記憶體、節點磁碟、CPU 限流、連線池、JVM 老年代、GC、.NET 執行緒池（[rules.yaml](../../engine/configs/baseline/rules.yaml)） |
 | **3. 慢慢爬**（趨勢） | 每天都在範圍內，但一直往上 | 連線池洩漏、heap 越來越高、磁碟越來越滿：算斜率，預測**幾天後到上限** | 不用學週期，算斜率 | ❌ |
-| **4. 跟兄弟比**（同儕） | 同一個服務多個 Pod，一個壞掉被平均稀釋 | 只有 pod-7 錯誤率 100%、只有一個 Pod 記憶體一直漲 | 不用：當下比 | ✅ 錯誤率、p95、CPU、記憶體（[peer.yaml](../../aiops/baseline/peer.yaml)，見 [aiops/baseline「跟兄弟比」](../../aiops/baseline/README.md#跟兄弟比同一個服務的-pod-互相比)） |
+| **4. 跟兄弟比**（同儕） | 同一個服務多個 Pod，一個壞掉被平均稀釋 | 只有 pod-7 錯誤率 100%、只有一個 Pod 記憶體一直漲 | 不用：當下比 | ✅ 錯誤率、p95、CPU、記憶體（[peer.yaml](../../engine/configs/baseline/peer.yaml)，見 [engine/configs/baseline「跟兄弟比」](../../engine/configs/baseline/README.md#跟兄弟比同一個服務的-pod-互相比)） |
 | **5. 狀態變化**（事件） | 發生了就是問題 | 重啟次數增加、可用副本 < 要的副本、Pod Failed、節點 NotReady、`up = 0`、Job 失敗 | 不用：規則 | ✅ 全部（k3s 實測：5 種壞法都抓到、正常的不誤報） |
 
 另外兩種用法：
@@ -180,7 +180,7 @@
 
 | 做不到 | 為什麼 | 要靠 |
 |---|---|---|
-| 慢在請求裡的哪一段、呼叫了幾次 | metrics 只有整體的數字 | trace（[trace 每一段的 baseline](../../aiops/baseline/README.md#trace-每一段的-baseline)） |
+| 慢在請求裡的哪一段、呼叫了幾次 | metrics 只有整體的數字 | trace（[trace 每一段的 baseline](../../engine/configs/baseline/README.md#trace-每一段的-baseline)） |
 | 錯誤被吞掉、回 200 | 狀態碼是 200，metrics 全綠 | log 樣式、業務量指標 |
 | 哪一批貨、哪一台機台 | 不能用 `lot.id` 這種值當維度（每個值一條序列，ES 會爆） | trace 的屬性 |
 | 從某個慢的資料點直接跳到那一筆 trace | exemplar（帶 trace_id）寫進 ES 時被丟掉（實測 ES 9.5.5：`/_otlp/v1/metrics`、Collector `elasticsearch` 寫入元件都一樣），metrics 帶不了 trace_id | 用服務、時間範圍查 trace |
@@ -188,8 +188,8 @@
 
 ## 四、建議順序（待討論）
 
-1. **狀態變化與飽和度（做法 5、2）**：✅ 已做，見 [aiops/baseline「規則」](../../aiops/baseline/README.md#規則狀態變化離極限多遠)。
-2. **跟兄弟比（做法 4）**：✅ 已做，見 [aiops/baseline「跟兄弟比」](../../aiops/baseline/README.md#跟兄弟比同一個服務的-pod-互相比)。
+1. **狀態變化與飽和度（做法 5、2）**：✅ 已做，見 [engine/configs/baseline「規則」](../../engine/configs/baseline/README.md#規則狀態變化離極限多遠)。
+2. **跟兄弟比（做法 4）**：✅ 已做，見 [engine/configs/baseline「跟兄弟比」](../../engine/configs/baseline/README.md#跟兄弟比同一個服務的-pod-互相比)。
 3. **補 baseline**：p99、超過 N 秒的比例、往外呼叫的耗時（`http.client.request.duration`）、重啟次數。
 4. **確認 Java agent 的 JVM、連線池指標名稱**，再加飽和度：✅ 已做（[metrics/cases.md](cases.md)）；趨勢見下一項。
 5. **趨勢（做法 3）**：要有幾天以上的資料才算得出斜率。

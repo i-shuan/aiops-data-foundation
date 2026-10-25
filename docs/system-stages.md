@@ -120,7 +120,7 @@ flowchart TB
 
 ### A. 一次就算失敗：規則 ✅
 
-不用學，狀態本身就是壞事，或離極限太近。`aiops/baseline/rules.yaml`，每 1 分鐘看一次。
+不用學，狀態本身就是壞事，或離極限太近。`engine/configs/baseline/rules.yaml`，每 1 分鐘看一次。
 
 | 類別 | 例子（門檻） | 嚴重度 |
 |---|---|---|
@@ -145,7 +145,7 @@ z        = (現在 − 平常值) ÷ 波動
 異常     = |z| ≥ 5，而且 |現在 − 平常值| ≥ min_abs
 ```
 
-- 用中位數不用平均：歷史裡混了幾次事故不會被拉偏（算法範例見 [baseline README「MAD 一步一步算」](../aiops/baseline/README.md#mad-一步一步算)）。
+- 用中位數不用平均：歷史裡混了幾次事故不會被拉偏（算法範例見 [baseline README「MAD 一步一步算」](../engine/configs/baseline/README.md#mad-一步一步算)）。
 - 方向：延遲、錯誤只看變高；流量兩邊都看。
 - 7 條序列：請求數、錯誤率、p95、log 行數、錯誤 log 數（每個服務 × API）；Pod CPU、記憶體（每個 Deployment）。
 
@@ -187,7 +187,7 @@ z        = (現在 − 平常值) ÷ 波動
 | 中間正常、沒資料、方向反過來 | 從頭算 |
 | critical 規則（重啟、Pod Failed、節點 NotReady、磁碟 95%） | 一次就算；其他規則用 `for` 要持續一段時間 |
 
-不用另外存狀態：每次偵測多查前一個時間窗重算；已經判成 anomaly 的不會被降級。細節見 [baseline README「跳一次是 warning」](../aiops/baseline/README.md#跳一次是-warning連續才是-anomaly)。
+不用另外存狀態：每次偵測多查前一個時間窗重算；已經判成 anomaly 的不會被降級。細節見 [baseline README「跳一次是 warning」](../engine/configs/baseline/README.md#跳一次是-warning連續才是-anomaly)。
 
 ## 5. 異常總表 `aiops-anomalies` ✅
 
@@ -242,8 +242,8 @@ sequenceDiagram
 | 共用的東西 | 誰用 | 作用 |
 |---|---|---|
 | Collector 補的欄位 | 全部 | 三種資料用同一組鑰匙 |
-| `aiops_common/es.py` | baseline、根因分析 | 同一套連線、查詢、寫入（同一把唯讀＋只寫 `aiops-*` 的 key） |
-| `aiops_common/traces.py` | trace baseline、根因分析 | 同一套「span → 每段自己的時間、錯誤源頭」算法 |
+| `core/es.py` | baseline、根因分析 | 同一套連線、查詢、寫入（同一把唯讀＋只寫 `aiops-*` 的 key） |
+| `core/traces.py` | trace baseline、根因分析 | 同一套「span → 每段自己的時間、錯誤源頭」算法 |
 | `aiops-anomalies` | 所有判斷 → 根因分析 →（之後）收斂、LLM、feedback | 模組之間只透過這個 index 交接，彼此不直接呼叫 |
 | `aiops-baseline` | train 寫、detect 讀 | 每條序列每個時段的平常值，帶粒度、方法、來源 |
 | `*.yaml` 設定 | 各模組 | 加序列、加規則、調門檻不用改程式 |
@@ -286,7 +286,7 @@ flowchart TB
 
 ## 9. 根因報告 ✅（LLM 部分 📝）
 
-`aiops/aiops_rca` 產出 Markdown 報告（範例：[aiops/rca/example-report.md](../aiops/rca/example-report.md)）：
+`engine/investigator` 產出 Markdown 報告（範例：[engine/configs/rca/example-report.md](../engine/configs/rca/example-report.md)）：
 
 | 段落 | 內容 |
 |---|---|
@@ -333,8 +333,8 @@ flowchart TB
 | 收 metrics；收了什麼、能做什麼；案例 | [metrics/README.md](metrics/README.md)、[metrics/catalog.md](metrics/catalog.md)、[metrics/cases.md](metrics/cases.md) |
 | 收 trace、尾端取樣；能做什麼 | [trace/README.md](trace/README.md)、[trace/scenarios.md](trace/scenarios.md) |
 | .NET | [metrics/dotnet.md](metrics/dotnet.md) |
-| baseline、規則、跟兄弟比、自動調整 | [aiops/baseline/README.md](../aiops/baseline/README.md) |
-| 根因分析、串接 | [rca/README.md](rca/README.md)、[aiops/rca/README.md](../aiops/rca/README.md) |
+| baseline、規則、跟兄弟比、自動調整 | [engine/configs/baseline/README.md](../engine/configs/baseline/README.md) |
+| 根因分析、串接 | [rca/README.md](rca/README.md)、[engine/configs/rca/README.md](../engine/configs/rca/README.md) |
 | LLM 還是 MLOps、feedback 閉環 | [feedback/llm-mlops.md](feedback/llm-mlops.md) |
 | 保留天數 | [retention.md](retention.md) |
 | PoC 現況（簡報） | [poc-status.md](poc-status.md) |

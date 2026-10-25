@@ -1,2 +1,2 @@
 # helm dependency build 產生的相依套件
-apps/examples/*/charts/
+sdk/examples/*/charts/

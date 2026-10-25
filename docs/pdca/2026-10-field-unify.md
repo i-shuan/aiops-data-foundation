@@ -22,7 +22,7 @@
 
 ### (1) log 的身分欄位：ES ingest pipeline 補 OTel 路徑
 
-log 進 ES 時走中央 pipeline（`platform/central/elasticsearch/pipeline.json`），在這裡把 ECS 名字的值**同時放一份**到 OTel 路徑（`set` + `copy_from`，不是改名：原本的欄位留著，Kibana 現有的查詢不會壞）。
+log 進 ES 時走中央 pipeline（`telemetry/storage/pipeline.json`），在這裡把 ECS 名字的值**同時放一份**到 OTel 路徑（`set` + `copy_from`，不是改名：原本的欄位留著，Kibana 現有的查詢不會壞）。
 
 | log 現在的欄位（ECS） | 補到（OTel，跟 metrics、trace 一樣） |
 |---|---|
@@ -90,7 +90,7 @@ log：那些 trace 的 log，看錯誤訊息、例外
 - **不放 metrics**（鐵則）：每個不同的值就是一條新序列，交易 ID 每筆都不同，序列數會爆炸。所以 metrics 跟交易 ID 永遠不直接接，走 (3) 的路徑：metrics → trace → 交易 ID。
 - **新程式**：入口把交易 ID 放 span attribute，同時放 log 的 MDC／scope。trace、log 都直接帶。
 - **舊程式不改**：log 裡本來就印 `txnId=…` 這類字串，中央 pipeline 依格式抽成標準欄位；再靠 log 的 `trace.id` 對到 trace。
-- **卡住的**：名稱沒定（`apps/standards/tracing.md` 已定案的只有 `lot.id`、`equipment.id`、`work_order.id`、`recipe.id`）；抽取規則要兩三個服務的真實 log 樣本。
+- **卡住的**：名稱沒定（`sdk/standards/tracing.md` 已定案的只有 `lot.id`、`equipment.id`、`work_order.id`、`recipe.id`）；抽取規則要兩三個服務的真實 log 樣本。
 
 ## Do：改動哪些 code、改了什麼、為何要改
 
@@ -98,24 +98,24 @@ log：那些 trace 的 log，看錯誤訊息、例外
 
 | 檔案 | 改了什麼 | 為何要改 |
 |---|---|---|
-| `platform/cluster-addons/otel-collector/node.yaml` | Prometheus 那條 metrics pipeline 加 `metricstransform/java-http`（`http_server_request_duration_seconds` → `http.server.request.duration`）和 `transform/java-http`（`http_route` → `http.route`、`http_request_method` → `http.request.method`、狀態碼字串 → 數字、`error_type`、`network_protocol_version`、`url_scheme` 同樣改點號；刪舊 key），放在 `cumulativetodelta` 之前 | 名字的差異在進來時處理掉，ES 裡只剩 OTel 名字；下游不用再分語言。條件只對舊名字生效，Java agent 升版自己吐 OTel 名字也不會改錯；多一種語言在這裡多一組 |
-| `platform/central/elasticsearch/component-mappings.json` | 加 `alias` 欄位：`resource.attributes.service.name`、`resource.attributes.k8s.{namespace,pod,container,node,cluster}.name`、`trace_id`、`span_id`，指到原本的 ECS 欄位 | log 用跟 metrics、trace 同一條路徑查。選 alias 不選多存一份：不佔空間、原欄位留著 Kibana 現有查詢不壞。代價是 alias 不在 `_source`，程式要用 `fields` 取 |
-| `aiops/baseline/series.yaml` | `http.requests`、`http.error_rate`、`http.latency_p95_s` 各從兩份 `variants` 改成一份 OTel 名字；`log.lines`、`log.errors` 的 `by` 改 `resource.attributes.service.name` | 名字統一後不需要分語言；log 的鑰匙跟 metrics 同路徑 |
-| `aiops/baseline/quality.yaml` | `route_cardinality` 和 `_dotnet` 合成一個；`metrics_*` 的雙名字 filter 改單一；log 檢查的 `by`、`fields` 改 OTel 路徑（`trace_id`、`resource.attributes.k8s.pod.name`…）；新增 `quality.metric_name_legacy`（type `present`）：ES 裡又出現舊名字就報 | 舊名字出現代表 Collector 沒改名（設定漏了、新 cluster 沒更新、agent 吐了對照表沒列的名字），那些服務 baseline、RCA 會默默看不到 |
-| `aiops/baseline/peer.yaml`、`chronic.yaml` | 拿掉 `variants`；`by` 改 OTel 路徑 | 同上 |
-| `aiops/aiops_baseline/es.py`、`peer.py`、`__main__.py` | 刪掉 `variants` 的分支；`fetch` 保留「有 `keys` 就把 `by` 的欄位改名成 keys」；`__main__` 加 `present` 類型 | 程式少一條路徑；keys 仍要（quality、peer 用短名字） |
-| `aiops/aiops_baseline/quality.py` | 加 `eval_present` | `metric_name_legacy` 用 |
-| `aiops/aiops_baseline/adjust.py` | `ALIASES` 拿掉 ECS 名字和底線名字，只剩「短名字 ↔ OTel 路徑」 | 不再有別的寫法要對 |
-| `aiops/aiops_rca/es.py`、`__main__.py` | log 查詢改用 `resource.attributes.service.name`、`trace_id`；取值從 `_source` 改成 `fields`（alias 不在 `_source`）；路由鑰匙改 `attributes.http.route`、`http.request.method` | 跟三種資料同一條路徑；alias 的限制 |
-| `aiops/tests/*` | 依新名字改；加 `Present` 測試 | — |
-| `test/local-k3s/run-metrics-e2e.sh`、`run-rca-e2e.sh` | ES 裡查的欄位名改 OTel；狀態碼從 `prefix "5"` 改 `range gte 500` | Collector 改名後 ES 裡就是新名字、數字 |
-| 文件：`docs/log/README.md`、`metrics/README.md`、`metrics/catalog.md`、`metrics/dotnet.md`、`rca/README.md` 鑰匙表、`aiops/baseline/README.md` | 欄位名、② 兩列改 ✅、鑰匙表加路由列並標 alias | — |
+| `telemetry/collectors/node.yaml` | Prometheus 那條 metrics pipeline 加 `metricstransform/java-http`（`http_server_request_duration_seconds` → `http.server.request.duration`）和 `transform/java-http`（`http_route` → `http.route`、`http_request_method` → `http.request.method`、狀態碼字串 → 數字、`error_type`、`network_protocol_version`、`url_scheme` 同樣改點號；刪舊 key），放在 `cumulativetodelta` 之前 | 名字的差異在進來時處理掉，ES 裡只剩 OTel 名字；下游不用再分語言。條件只對舊名字生效，Java agent 升版自己吐 OTel 名字也不會改錯；多一種語言在這裡多一組 |
+| `telemetry/storage/component-mappings.json` | 加 `alias` 欄位：`resource.attributes.service.name`、`resource.attributes.k8s.{namespace,pod,container,node,cluster}.name`、`trace_id`、`span_id`，指到原本的 ECS 欄位 | log 用跟 metrics、trace 同一條路徑查。選 alias 不選多存一份：不佔空間、原欄位留著 Kibana 現有查詢不壞。代價是 alias 不在 `_source`，程式要用 `fields` 取 |
+| `engine/configs/baseline/series.yaml` | `http.requests`、`http.error_rate`、`http.latency_p95_s` 各從兩份 `variants` 改成一份 OTel 名字；`log.lines`、`log.errors` 的 `by` 改 `resource.attributes.service.name` | 名字統一後不需要分語言；log 的鑰匙跟 metrics 同路徑 |
+| `engine/configs/baseline/quality.yaml` | `route_cardinality` 和 `_dotnet` 合成一個；`metrics_*` 的雙名字 filter 改單一；log 檢查的 `by`、`fields` 改 OTel 路徑（`trace_id`、`resource.attributes.k8s.pod.name`…）；新增 `quality.metric_name_legacy`（type `present`）：ES 裡又出現舊名字就報 | 舊名字出現代表 Collector 沒改名（設定漏了、新 cluster 沒更新、agent 吐了對照表沒列的名字），那些服務 baseline、RCA 會默默看不到 |
+| `engine/configs/baseline/peer.yaml`、`chronic.yaml` | 拿掉 `variants`；`by` 改 OTel 路徑 | 同上 |
+| `engine/detector/es.py`、`peer.py`、`__main__.py` | 刪掉 `variants` 的分支；`fetch` 保留「有 `keys` 就把 `by` 的欄位改名成 keys」；`__main__` 加 `present` 類型 | 程式少一條路徑；keys 仍要（quality、peer 用短名字） |
+| `engine/detector/quality.py` | 加 `eval_present` | `metric_name_legacy` 用 |
+| `engine/detector/adjust.py` | `ALIASES` 拿掉 ECS 名字和底線名字，只剩「短名字 ↔ OTel 路徑」 | 不再有別的寫法要對 |
+| `engine/investigator/es.py`、`__main__.py` | log 查詢改用 `resource.attributes.service.name`、`trace_id`；取值從 `_source` 改成 `fields`（alias 不在 `_source`）；路由鑰匙改 `attributes.http.route`、`http.request.method` | 跟三種資料同一條路徑；alias 的限制 |
+| `engine/tests/*` | 依新名字改；加 `Present` 測試 | — |
+| `e2e/local-k3s/run-metrics-e2e.sh`、`run-rca-e2e.sh` | ES 裡查的欄位名改 OTel；狀態碼從 `prefix "5"` 改 `range gte 500` | Collector 改名後 ES 裡就是新名字、數字 |
+| 文件：`docs/log/README.md`、`metrics/README.md`、`metrics/catalog.md`、`metrics/dotnet.md`、`rca/README.md` 鑰匙表、`engine/configs/baseline/README.md` | 欄位名、② 兩列改 ✅、鑰匙表加路由列並標 alias | — |
 
 ## Check：測試的目的與結果
 
 | 測試目的（為了確認什麼） | 怎麼測 | 結果 |
 |---|---|---|
-| Collector 的改名寫法對不對（名字、屬性、狀態碼型別、直方圖 bucket 有沒有保住） | docker：假的 Prometheus 端點吐 Java agent 格式的 `http_server_request_duration_seconds`（跟 `test/local-k3s/http-metrics-app.yaml` 同一份）＋ `jvm_memory_used_bytes`，Collector 0.162.0 跑 `metricstransform/java-http` + `transform/java-http`，debug exporter 看輸出 | 名字 `http.server.request.duration`；屬性 `http.request.method=GET`、`http.route=/orders`、`http.response.status_code=Int(200)`、`error.type`、`network.protocol.version`、`url.scheme`；舊 key 都刪掉；14 個 bucket 邊界原樣；`jvm_memory_used_bytes` 不受影響 |
+| Collector 的改名寫法對不對（名字、屬性、狀態碼型別、直方圖 bucket 有沒有保住） | docker：假的 Prometheus 端點吐 Java agent 格式的 `http_server_request_duration_seconds`（跟 `e2e/local-k3s/http-metrics-app.yaml` 同一份）＋ `jvm_memory_used_bytes`，Collector 0.162.0 跑 `metricstransform/java-http` + `transform/java-http`，debug exporter 看輸出 | 名字 `http.server.request.duration`；屬性 `http.request.method=GET`、`http.route=/orders`、`http.response.status_code=Int(200)`、`error.type`、`network.protocol.version`、`url.scheme`；舊 key 都刪掉；14 個 bucket 邊界原樣；`jvm_memory_used_bytes` 不受影響 |
 | ES alias 在我們用到的每種查法都能用 | es-t：用改過的 `component-mappings.json` 建 index，寫 3 筆 ECS 格式的 log，依序查 | `terms` 聚合（service、namespace）對；`exists trace_id` 2 筆對；`must_not exists pod`（quality.missing 的寫法）0 對；`composite`（quality 的 `_composite`，含 `missing_bucket`）對；RCA 的 `terms trace_id` + `fields` 取值對；**跟沒有 alias 的舊 index 一起查不會錯**（舊 index 那部分沒值而已）；`_source` 裡確實沒有 alias（所以 RCA 改用 `fields`） |
 | 拿掉 `variants` 之後程式的行為 | 單元測試（`/usr/bin/python3.13 -m pytest`） | 196 個全過：`test_peer` 的 `volume_spec` 回單一 `hist_count`；`test_values` 的 `hist_ratio` 用 `range gte 500`；`test_adjust`、`test_chronic`、`test_sources` 的 service 鑰匙改 `resource.attributes.service.name` 後 match 得到；新加的 `Present`：12 筆報、0 筆不報 |
 | Java 和 .NET 的直方圖 bucket 一不一樣（p95 會不會算出兩種結果） | 讀測試應用吐的 bucket 邊界，對照 OTel SDK 預設 | Java agent 用 Prometheus 格式吐的 14 個邊界 `[0.005 … 10]` 就是 OTel SDK 對 `http.server.request.duration` 的預設邊界，.NET 自動埋點同一個 SDK 預設；ES 兩邊都轉成 `exponential_histogram`。**推論**兩邊 p95 一致，沒有實際跑 Java、.NET 比對 |

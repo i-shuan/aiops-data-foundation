@@ -16,13 +16,13 @@
 
 | 檔案 | 改了什麼 | 為何要改 |
 |---|---|---|
-| `aiops/aiops_baseline/adjust.py`（新） | 四種 `kind`（含舊的 `override`）；`train_filter`（訓練前拿掉點）、`detect_filter`（偵測後拿掉異常）、`in_schedule`（cron＋duration＋每月最後一天）、欄位別名、`status: proposed`／`expires_at` | 全部做成純函式，統計公式不動；`proposed` 是留給 learning loop 的接口：機器提的建議要人核准才生效 |
-| `aiops/aiops_baseline/model.py` | `match_keys` 改用 `adjust.match_keys`（支援別名）；`override_for` 只套 `kind: override` | 新的 `kind` 共用 `aiops-tuning`，不能被當成粒度／z 的調整；同一個服務在各序列欄位名稱不同（`service`、`service.name`、`resource.attributes.service.name`、`entry.service`），要寫一次就對得到 |
-| `aiops/aiops_baseline/es.py` | `load_baseline` 多讀 `trained_at` | `reset_point` 要判斷某個 baseline 是不是重置之前學的 |
-| `aiops/aiops_baseline/__main__.py` | `train`：抓到歷史後、`train()` 之前呼叫 `train_filter`（粗粒度重查與稀少筆數的卜瓦松也要）；`detect`：打分後呼叫 `detect_filter`；`trace-train`／`trace-detect` 同樣處理；新增 `adjust` 指令（add／list／approve／remove）；`tune` 寫入補上 `kind: override`；`aiops-tuning` mapping 擴充 | 排除要在學之前；放寬要在判斷之後；跟 `tune` 共用同一個 index，learning loop 只有一個寫入點 |
-| `aiops/baseline/adjustments.yaml`（新） | 長期規則的設定檔與說明 | 月底批次這類長期規則進版控；事件類（事故、換版）用指令寫 ES |
-| `aiops/tests/test_adjust.py`（新） | 別名、生效條件、cron、各種 filter 的邊界 | — |
-| `aiops/baseline/README.md`、`docs/pdca` | 文件 | — |
+| `engine/detector/adjust.py`（新） | 四種 `kind`（含舊的 `override`）；`train_filter`（訓練前拿掉點）、`detect_filter`（偵測後拿掉異常）、`in_schedule`（cron＋duration＋每月最後一天）、欄位別名、`status: proposed`／`expires_at` | 全部做成純函式，統計公式不動；`proposed` 是留給 learning loop 的接口：機器提的建議要人核准才生效 |
+| `engine/detector/model.py` | `match_keys` 改用 `adjust.match_keys`（支援別名）；`override_for` 只套 `kind: override` | 新的 `kind` 共用 `aiops-tuning`，不能被當成粒度／z 的調整；同一個服務在各序列欄位名稱不同（`service`、`service.name`、`resource.attributes.service.name`、`entry.service`），要寫一次就對得到 |
+| `engine/detector/es.py` | `load_baseline` 多讀 `trained_at` | `reset_point` 要判斷某個 baseline 是不是重置之前學的 |
+| `engine/detector/__main__.py` | `train`：抓到歷史後、`train()` 之前呼叫 `train_filter`（粗粒度重查與稀少筆數的卜瓦松也要）；`detect`：打分後呼叫 `detect_filter`；`trace-train`／`trace-detect` 同樣處理；新增 `adjust` 指令（add／list／approve／remove）；`tune` 寫入補上 `kind: override`；`aiops-tuning` mapping 擴充 | 排除要在學之前；放寬要在判斷之後；跟 `tune` 共用同一個 index，learning loop 只有一個寫入點 |
+| `engine/configs/baseline/adjustments.yaml`（新） | 長期規則的設定檔與說明 | 月底批次這類長期規則進版控；事件類（事故、換版）用指令寫 ES |
+| `engine/tests/test_adjust.py`（新） | 別名、生效條件、cron、各種 filter 的邊界 | — |
+| `engine/configs/baseline/README.md`、`docs/pdca` | 文件 | — |
 
 ## Check：測試的目的與結果
 

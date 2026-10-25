@@ -34,7 +34,7 @@ log 和 metrics 用同一個 Collector（[metrics/README.md](../metrics/README.m
 | 項目 | 內容 | 驗收 |
 |---|---|---|
 | ② 收資料延遲（時間對齊） | ✅ `event.created`（Collector 讀到）→ `event.ingested`（寫進 ES），p95 > 1 分鐘報（`quality.log_ingest_lag`）；應用的時間跟節點差 > 5 分鐘報（`quality.log_clock_skew`）。[PDCA](../pdca/2026-10-time-alignment.md) | 實測：卡 3 分鐘、20 分鐘的都報；時區錯、時鐘快 10 分鐘的都報 |
-| ② 時區規範（時間對齊） | ✅ 中央 pipeline：沒帶時區的依 `LOG_DEFAULT_TIMEZONE`（預設 Asia/Taipei）解讀並記 `event.timezone`；多認得空白分隔、逗號毫秒、epoch 秒／毫秒；不認得的記 `log.timestamp_source: collector_unparsed`。📝 規範（寫 UTC 或帶時區）還沒寫進應用標準 | `test/pipeline/run-timestamp-cases.sh` |
+| ② 時區規範（時間對齊） | ✅ 中央 pipeline：沒帶時區的依 `LOG_DEFAULT_TIMEZONE`（預設 Asia/Taipei）解讀並記 `event.timezone`；多認得空白分隔、逗號毫秒、epoch 秒／毫秒；不認得的記 `log.timestamp_source: collector_unparsed`。📝 規範（寫 UTC 或帶時區）還沒寫進應用標準 | `e2e/pipeline/run-timestamp-cases.sh` |
 | ② 從 log 抽業務 ID | 中央 pipeline 依格式把 `txnId=…`、`orderNo: …` 抽成標準欄位，舊系統不用改（業務 ID 的完整規劃見 [trace/README.md「業務 ID」](../trace/README.md#業務-id服務層)） | 舊服務的 log 查得到交易 ID |
 
 ## 資料怎麼走
@@ -59,14 +59,14 @@ container stdout（每個節點的 /var/log/pods）
 
 | 檔案 | 用途 |
 |---|---|
-| [platform/groups.yaml](../../platform/groups.yaml) | 部門 → group 對照表 |
-| [platform/central/elasticsearch-setup.sh](../../platform/central/elasticsearch-setup.sh) | 中央 ES：index 結構＋各種 API key 與角色 |
-| [platform/central/elasticsearch/](../../platform/central/elasticsearch) | ILM、mapping、pipeline、index template |
-| [platform/central/elasticsearch/formats/](../../platform/central/elasticsearch/formats) | 各 log 格式的解析規則，一種格式一個檔 |
-| [platform/central/elasticsearch/pipeline-otel.*](../../platform/central/elasticsearch/pipeline-otel.painless)、[logs-otel-custom.json](../../platform/central/elasticsearch/logs-otel-custom.json) | `k8s-logs-otel`：OTel 送來的 log 整理形狀、算 `_id`、轉到 `k8s-{group}-{cluster}` |
-| [platform/cluster-addons/otel-collector/](../../platform/cluster-addons/otel-collector) | 每個應用 cluster 的 OpenTelemetry Collector（log 與 metrics，kustomize）；log 的收法在 `node.yaml` |
-| [test/local-k3s/](../../test/local-k3s) | 端到端測試 |
-| [test/pipeline/](../../test/pipeline) | pipeline 案例測試（只需要 ES） |
+| [telemetry/groups.yaml](../../telemetry/groups.yaml) | 部門 → group 對照表 |
+| [telemetry/scripts/elasticsearch-setup.sh](../../telemetry/scripts/elasticsearch-setup.sh) | 中央 ES：index 結構＋各種 API key 與角色 |
+| [telemetry/storage/](../../telemetry/storage) | ILM、mapping、pipeline、index template |
+| [telemetry/storage/formats/](../../telemetry/storage/formats) | 各 log 格式的解析規則，一種格式一個檔 |
+| [telemetry/storage/pipeline-otel.*](../../telemetry/storage/pipeline-otel.painless)、[logs-otel-custom.json](../../telemetry/storage/logs-otel-custom.json) | `k8s-logs-otel`：OTel 送來的 log 整理形狀、算 `_id`、轉到 `k8s-{group}-{cluster}` |
+| [telemetry/collectors/](../../telemetry/collectors) | 每個應用 cluster 的 OpenTelemetry Collector（log 與 metrics，kustomize）；log 的收法在 `node.yaml` |
+| [e2e/local-k3s/](../../e2e/local-k3s) | 端到端測試 |
+| [e2e/pipeline/](../../e2e/pipeline) | pipeline 案例測試（只需要 ES） |
 
 ## 欄位規範
 
@@ -180,10 +180,10 @@ k8s-logs（主 pipeline）
 
 不認得的值，例如 `fine`，轉小寫後原樣保留，不硬塞進六種。
 
-案例測試見 [test/pipeline/level-cases.json](../../test/pipeline/level-cases.json)，不用 K8s，幾秒跑完：
+案例測試見 [e2e/pipeline/level-cases.json](../../e2e/pipeline/level-cases.json)，不用 K8s，幾秒跑完：
 
 ```bash
-ES_URL=https://<es>:9200 ES_AUTH=elastic:<password> test/pipeline/run-level-cases.sh
+ES_URL=https://<es>:9200 ES_AUTH=elastic:<password> e2e/pipeline/run-level-cases.sh
 ```
 
 **目前的格式：**
@@ -207,9 +207,9 @@ logFormat: logfmt
 
 ### 新增一種格式（例如 SECS）
 
-1. 在 [formats/](../../platform/central/elasticsearch/formats) 加 `<格式>.json`。只要做到「原文 → `_app`」，再交給 `k8s-logs-fields`。可以參考 [logfmt.json](../../platform/central/elasticsearch/formats/logfmt.json)。需要寫程式的話，放同名的 `<格式>.painless`。
+1. 在 [formats/](../../telemetry/storage/formats) 加 `<格式>.json`。只要做到「原文 → `_app`」，再交給 `k8s-logs-fields`。可以參考 [logfmt.json](../../telemetry/storage/formats/logfmt.json)。需要寫程式的話，放同名的 `<格式>.painless`。
 2. 規則裡第一步一定要 `set log.parser = <格式>`，解析失敗時不能丟掉原文（`ignore_failure` 或自己的 `on_failure`）。
-3. 在 [test/local-k3s/](../../test/local-k3s) 加一個輸出該格式的測試服務和檢查項目，跑 `run-e2e.sh`。
+3. 在 [e2e/local-k3s/](../../e2e/local-k3s) 加一個輸出該格式的測試服務和檢查項目，跑 `run-e2e.sh`。
 4. 跑 `elasticsearch-setup.sh`（`SKIP_KEYS=1`）裝到中央。**各 cluster 的 Collector 不用動。**
 5. 服務在 values 填上 `logFormat`。
 
@@ -234,7 +234,7 @@ GET k8s-*/_search
   - 名稱帶 cluster，某一廠出狀況要整批清掉或調保留天數時，不會動到別廠。
 - `CLUSTER_NAME` 要小寫，ES 的 index 名稱不接受大寫。
 - shard：每條 data stream 1 個 primary，每天或 30GB 滾一次。
-- 保留天數：30 天，天數在 [retention.conf](../../platform/central/retention.conf)，見 [retention.md](../retention.md)。
+- 保留天數：30 天，天數在 [retention.conf](../../telemetry/scripts/retention.conf)，見 [retention.md](../retention.md)。
 - 這套用到的功能都在免費授權（Basic）內：API key、ILM、data stream、flattened。
 
 ## 部署
@@ -242,7 +242,7 @@ GET k8s-*/_search
 ### 1. 中央 ES（一次）
 
 ```bash
-ES_URL=https://<es>:9200 ES_AUTH=elastic:<password> platform/central/elasticsearch-setup.sh
+ES_URL=https://<es>:9200 ES_AUTH=elastic:<password> telemetry/scripts/elasticsearch-setup.sh
 ```
 
 輸出裡每把 key 的 `encoded` 要記下來。只更新 index 結構、不發新 key 時，加上 `SKIP_KEYS=1`。
@@ -274,10 +274,10 @@ log、metrics、trace 用同一份 Secret、同一把 key（setup 輸出的「�
 - **UI 改沒有紀錄可追**，誰在什麼時候改了什麼只能翻 audit log。
 - **擴廠時這樣不可行**：每開一個新廠都要手動進 UI 建一次。見 README「還沒定案的」第 3 點。
 
-改好 `platform/cluster-addons/otel-collector/kustomization.yaml` 裡的 `CLUSTER_NAME`、`ES_ENDPOINT` 和 image 路徑，然後：
+改好 `telemetry/collectors/kustomization.yaml` 裡的 `CLUSTER_NAME`、`ES_ENDPOINT` 和 image 路徑，然後：
 
 ```bash
-kubectl apply -k platform/cluster-addons/otel-collector
+kubectl apply -k telemetry/collectors
 ```
 
 **從 Fluent Bit 換過來時：** Collector 第一次啟動時，已經存在的 log 檔從尾巴開始讀，所以先部署 Collector、確認 `agent.type: otelcol` 的資料進來了，再移除 Fluent Bit。兩個並行的期間每行會有兩筆（`agent.type` 不同）。
@@ -287,12 +287,12 @@ kubectl apply -k platform/cluster-addons/otel-collector
 用腳本換，不掉資料、不重啟 Collector：
 
 ```bash
-ES_URL=https://<es>:9200 ES_AUTH=elastic:<password> platform/central/rotate-writer-key.sh imc <cluster 的 kube context>...
+ES_URL=https://<es>:9200 ES_AUTH=elastic:<password> telemetry/scripts/rotate-writer-key.sh imc <cluster 的 kube context>...
 ```
 
 它照「先發新的 → 換進每個 cluster 的 Secret → 確認每個 Collector 都換用新 key → 才作廢舊的」做，新舊 key 有一段時間同時有效，所以沒有空檔。**這把 key 在哪些 cluster 用，就要全部列上**；任何一個 Collector 5 分鐘內沒換到，腳本會停下來、不作廢舊 key。
 
-實測（[run-key-rotation.sh](../../test/local-k3s/run-key-rotation.sh)）：IMC 每秒 200 行 log、metrics 每 30 秒一筆的情況下換 IMC 的 key，Secret 改了之後約 70 秒兩個 Collector 都換好；**log 59,714 筆 0 遺失 0 重複、metrics 沒有空檔、Collector 沒有重啟、沒有出現 401**，舊 key 已作廢。
+實測（[run-key-rotation.sh](../../e2e/local-k3s/run-key-rotation.sh)）：IMC 每秒 200 行 log、metrics 每 30 秒一筆的情況下換 IMC 的 key，Secret 改了之後約 70 秒兩個 Collector 都換好；**log 59,714 筆 0 遺失 0 重複、metrics 沒有空檔、Collector 沒有重啟、沒有出現 401**，舊 key 已作廢。
 
 **不要直接在 ES 作廢 key 再換 Secret**：中間那段 key 無效，Collector 收到 401 會把資料丟掉。
 
@@ -307,7 +307,7 @@ Collector 會即時看到 namespace label 的變化，**標了之後幾秒內就
 ## 驗證
 
 ```bash
-test/local-k3s/run-e2e.sh
+e2e/local-k3s/run-e2e.sh
 ```
 
 在單節點 k3s 上跑過（ES 9.5.5、OpenTelemetry Collector contrib 0.162.0），**54 項全部通過**；另有 24 個 level 萃取案例全部通過。
@@ -319,7 +319,7 @@ test/local-k3s/run-e2e.sh
 - **權限**：寫入 key 一把、所有 group 共用，只能寫、不能讀（資料屬於哪個 group 由 Collector 依 Pod 決定）；AIOps key 能讀全部 k8s-*，不能寫；人用各 group 的唯讀角色。
 - **被拒的文件**：pipeline 失敗、型別不合的留在 failure store（`k8s-<group>-<cluster>::failures`），`quality.ingest_rejected` 有一筆就報（[pdca/2026-10-ingest-simplify.md](../pdca/2026-10-ingest-simplify.md)）。
 
-可靠度與量（[load/run-load.sh](../../test/local-k3s/load/run-load.sh)，產生器每行帶序號，用序號數遺失與重複）：
+可靠度與量（[load/run-load.sh](../../e2e/local-k3s/load/run-load.sh)，產生器每行帶序號，用序號數遺失與重複）：
 
 | 情境 | 遺失 | 重複 | 其他 |
 |---|---|---|---|

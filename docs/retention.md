@@ -2,7 +2,7 @@
 
 一句話：**原始資料只留查問題需要的天數；AIOps 學「平常的樣子」需要的長期資料，用降解析度的 metrics 和統計值留，便宜很多。**
 
-✅ **已套用**（2026-10-13，k3s 驗過）。天數都在 [platform/central/retention.conf](../platform/central/retention.conf)，改那裡、重跑 `elasticsearch-setup.sh` 就生效。
+✅ **已套用**（2026-10-13，k3s 驗過）。天數都在 [telemetry/scripts/retention.conf](../telemetry/scripts/retention.conf)，改那裡、重跑 `elasticsearch-setup.sh` 就生效。
 
 ## 現在的設定
 
@@ -19,11 +19,11 @@
 - 天數從「換到下一個 index（rollover）」那一刻起算；rollover 每天一次，所以實際最多多留約 1 天。
 - 30 秒、1 分鐘粒度的 baseline 只學最近 14 天（`fine_history`），剛好對齊 metrics 原始資料的 14 天；5 分鐘以上的粒度學 4 週，用降解析度後的資料也夠。
 
-## 怎麼做的（[platform/central/elasticsearch-setup.sh](../platform/central/elasticsearch-setup.sh)）
+## 怎麼做的（[telemetry/scripts/elasticsearch-setup.sh](../telemetry/scripts/elasticsearch-setup.sh)）
 
 | 項目 | 做法 |
 |---|---|
-| 天數 | `retention.conf` 的值填進 ILM 的 JSON（`elasticsearch/ilm-*.json` 裡的 `__變數名__`） |
+| 天數 | `retention.conf` 的值填進 ILM 的 JSON（`storage/ilm-*.json` 裡的 `__變數名__`） |
 | metrics、trace 掛上自己的 ILM | ES 9 內建模板預留的 `metrics-otel@custom`、`traces-otel@custom` 加 `index.lifecycle.name`；已經存在的 index 也一起換 |
 | 有問題的 trace 分開存 | trace 的 pipeline（`traces-otel`）看 `scope.attributes.tailsampling.policy`（trace-sampler 記的是哪條規則留下的）：不是 `random` 的轉到 `traces-problem.otel-<group>`。Collector 不用改；寫入 key 的權限 `traces-*.otel-<group>` 本來就涵蓋；讀的人（根因分析、唯讀角色）查 `traces-*.otel-*` 兩邊都看得到 |
 | `traces-problem.otel-*` 的模板 | 每次從內建的 `traces-otel@template` 複製組成、多疊 `traces-problem-otel@custom`（換 ILM），ES 升級改了內建組成也會跟上 |
@@ -98,7 +98,7 @@
 | log | 警告、錯誤常駐；正常的可以壓縮放冷儲存 | 中到長：30～180 天 | 原文 30 天＋每 5 分鐘的統計 400 天（沒有冷儲存） |
 | trace | 正常的抽 5%、有問題的 100%（尾端取樣） | 最短：3～7 天，過期直接刪 | 隨機的 7 天、有問題的 30 天 |
 
-這也是為什麼要做尾端取樣（[docs/trace/scenarios.md](trace/scenarios.md#橫跨所有場景的前提取樣)、[實測](../test/local-k3s/tail-sampling/README.md)）：trace 不能全部長存，有限的空間要留給「出問題的 100%」和「隨機抽的 5%」。實測每秒 500 個請求時，留下的量約是全部的 15%。
+這也是為什麼要做尾端取樣（[docs/trace/scenarios.md](trace/scenarios.md#橫跨所有場景的前提取樣)、[實測](../e2e/local-k3s/tail-sampling/README.md)）：trace 不能全部長存，有限的空間要留給「出問題的 100%」和「隨機抽的 5%」。實測每秒 500 個請求時，留下的量約是全部的 15%。
 
 > 改成尾端取樣後，上面「不用 `spanmetrics`」的理由要重看：應用改成全部送，node Collector 看得到每一段，在**取樣之前**算的 spanmetrics 就不會少算。不過每個 API 的請求數、延遲應用的 metrics 已經有，目前不需要。
 

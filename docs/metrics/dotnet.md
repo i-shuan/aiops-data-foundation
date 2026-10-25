@@ -2,7 +2,7 @@
 
 一句話：**不改程式。** chart 開 `otel.dotnet`，掛 OpenTelemetry .NET 自動埋點（跟 Java agent 一樣的做法）；metrics、trace 都由應用推給同節點的 Collector（OTLP），log 的格式也用環境變數設定。平台端（ES、baseline、trace baseline、根因分析）不用換，規則多了 .NET 自己的幾條（Gen2 GC、例外、執行緒池）。
 
-實測：真的 ASP.NET Core 8（當作幾年前留下來、不能改的舊專案）＋ 自動埋點 v1.12.0 ＋ PostgreSQL（Npgsql），腳本 [test/local-k3s/run-dotnet-e2e.sh](../../test/local-k3s/run-dotnet-e2e.sh)，結果見後面。之前也用 .NET 9 跑過一輪，全部通過。
+實測：真的 ASP.NET Core 8（當作幾年前留下來、不能改的舊專案）＋ 自動埋點 v1.12.0 ＋ PostgreSQL（Npgsql），腳本 [e2e/local-k3s/run-dotnet-e2e.sh](../../e2e/local-k3s/run-dotnet-e2e.sh)，結果見後面。之前也用 .NET 9 跑過一輪，全部通過。
 
 ## 為什麼選「自動埋點＋推」
 
@@ -70,7 +70,7 @@ Logging__Console__FormatterOptions__TimestampFormat: yyyy-MM-ddTHH:mm:ss.fffZ
 
 ## Collector
 
-node Collector 有一條 `metrics/otlp`：OTLP 收進來的 metrics → 拿掉應用自填的 K8s、部門欄位 → 依連線來源 IP 補上 Pod、部門 → 直方圖換成差值 → 依部門送進 `metrics-generic.otel-<group>`（[node.yaml](../../platform/cluster-addons/otel-collector/node.yaml)）。
+node Collector 有一條 `metrics/otlp`：OTLP 收進來的 metrics → 拿掉應用自填的 K8s、部門欄位 → 依連線來源 IP 補上 Pod、部門 → 直方圖換成差值 → 依部門送進 `metrics-generic.otel-<group>`（[node.yaml](../../telemetry/collectors/node.yaml)）。
 
 ## 實測的指標名稱（自動埋點 v1.12.0，ES 欄位是 `metrics.<名稱>`）
 
@@ -91,8 +91,8 @@ HTTP、連線池兩版同名；**runtime 的名稱 .NET 8 跟 .NET 9 完全不�
 
 ## baseline 與規則
 
-- **baseline 的 `http.*` 序列不用分語言**：[series.yaml](../../aiops/baseline/series.yaml) 每條有兩種寫法（`variants`：Java 的欄位名稱、OTLP 的欄位名稱），結果用統一的 keys（`service`、`method`、`route`）。
-- **.NET 的規則**（[rules.yaml](../../aiops/baseline/rules.yaml)）：.NET 8 以前用 `dotnet8.*`、.NET 9 以後用 `dotnet.*`，一個服務只會有其中一種名稱，不會重複報。
+- **baseline 的 `http.*` 序列不用分語言**：[series.yaml](../../engine/configs/baseline/series.yaml) 每條有兩種寫法（`variants`：Java 的欄位名稱、OTLP 的欄位名稱），結果用統一的 keys（`service`、`method`、`route`）。
+- **.NET 的規則**（[rules.yaml](../../engine/configs/baseline/rules.yaml)）：.NET 8 以前用 `dotnet8.*`、.NET 9 以後用 `dotnet.*`，一個服務只會有其中一種名稱，不會重複報。
 
 | 規則（.NET 8 ／ .NET 9） | 看什麼 | 對應 Java 的 |
 |---|---|---|
@@ -114,7 +114,7 @@ HTTP、連線池兩版同名；**runtime 的名稱 .NET 8 跟 .NET 9 完全不�
 
 **3. ASP.NET Core 預設每個請求印 5 行 Information。** log 量會暴增，chart 設 `Logging__LogLevel__Microsoft.AspNetCore=Warning`。
 
-**4. .NET JSON log 的 trace_id 不在最外層，在 `Scopes` 裡。** 要 `IncludeScopes`；中央 pipeline 改成會從 `Scopes` 拿 `TraceId`、`SpanId`（[pipeline-fields.painless](../../platform/central/elasticsearch/pipeline-fields.painless)），也認得 Serilog compact JSON。JSON 格式、scope 都能用環境變數打開（`Logging__Console__*`），舊專案不用改程式。
+**4. .NET JSON log 的 trace_id 不在最外層，在 `Scopes` 裡。** 要 `IncludeScopes`；中央 pipeline 改成會從 `Scopes` 拿 `TraceId`、`SpanId`（[pipeline-fields.painless](../../telemetry/storage/pipeline-fields.painless)），也認得 Serilog compact JSON。JSON 格式、scope 都能用環境變數打開（`Logging__Console__*`），舊專案不用改程式。
 
 **5. Npgsql 連線池的名稱是連線字串**（密碼會拿掉），告警會顯示 `Host=…;Username=…;Maximum Pool Size=5`。舊專案不改程式就只能這樣；能改的話用 `NpgsqlDataSourceBuilder` 設 `Name`。
 
@@ -138,7 +138,7 @@ HTTP、連線池兩版同名；**runtime 的名稱 .NET 8 跟 .NET 9 完全不�
 
 **10. .NET 8 跟 .NET 9 的 runtime 指標名稱完全不同。** .NET 9 內建 `System.Runtime` meter（`dotnet.*`）；.NET 8 以前是 `process.runtime.dotnet.*`，維度也不一樣（`generation` vs `gc.heap.generation`）。所以 .NET 的規則有兩套（`dotnet8.*`、`dotnet.*`）。HTTP、連線池兩版同名。
 
-**11. 測試環境才有的：** NuGet 經過會重簽憑證的 proxy，編譯時要信任它的 CA（[dotnet-app.yaml](../../test/local-k3s/dotnet-app.yaml)）；正式環境 image 先建好，不在 Pod 裡編譯。
+**11. 測試環境才有的：** NuGet 經過會重簽憑證的 proxy，編譯時要信任它的 CA（[dotnet-app.yaml](../../e2e/local-k3s/dotnet-app.yaml)）；正式環境 image 先建好，不在 Pod 裡編譯。
 
 ## Kafka（Confluent.Kafka）
 
@@ -184,7 +184,7 @@ HTTP、連線池兩版同名；**runtime 的名稱 .NET 8 跟 .NET 9 完全不�
 
 能改程式的新專案也可以在程式裡加 OpenTelemetry SDK，開 `/metrics` 讓 Collector 抓，好處是指標名稱跟 Java 一樣（`http_server_request_duration_seconds`、`db_client_connections_*`）、部門照 namespace。目前平台**沒有**為它準備 chart 模式和規則（採用的是 A）；要用的話先討論。
 
-2026-10-10 實測過一輪（ASP.NET Core 8 ＋ SDK 1.19，程式在 git 歷史 `4a36110` 的 `test/local-k3s/dotnet-app/`）：資料、log 對 trace、正常不報、連線池用光、執行緒暴增（44 條）、洩漏（Gen2 第 7 分鐘、到底一直丟例外）全部通過。踩到的：
+2026-10-10 實測過一輪（ASP.NET Core 8 ＋ SDK 1.19，程式在 git 歷史 `4a36110` 的 `e2e/local-k3s/dotnet-app/`）：資料、log 對 trace、正常不報、連線池用光、執行緒暴增（44 條）、洩漏（Gen2 第 7 分鐘、到底一直丟例外）全部通過。踩到的：
 
 - 要加 8 個套件，其中 `OpenTelemetry.Exporter.Prometheus.AspNetCore` 一直是 beta、`Instrumentation.Process` 是 rc。
 - Collector 每次來抓也算一個請求（`http_route="/metrics"`），baseline 要排除；`/metrics` 只開在 9464（`RequireHost("*:9464")`）。

@@ -17,10 +17,10 @@
 
 | 檔案 | 改了什麼 | 為何要改 |
 |---|---|---|
-| `aiops/aiops_baseline/feedback.py`（新） | `summarize`（告警數、已標記、誤報率、候選、漏報）、`suggest_override`、`suggest_exclude`、`format_summary`、兩個 index 的 mapping | 計算與 ES 讀寫分開，統計邏輯可以不連 ES 測 |
-| `aiops/aiops_baseline/__main__.py` | 新增 `feedback`（pending／add／list／summary／suggest）和 `incident`（add／list／resolve）指令 | 值班要有地方標記；建議與排除沿用 `aiops-tuning`，learning loop 仍是同一個寫入點 |
-| `aiops/tests/test_feedback.py`（新） | 統計口徑、防污染、建議、事故的案例 | — |
-| `aiops/baseline/README.md`、`docs/feedback/README.md`、`docs/pdca` | 文件與狀態 | — |
+| `engine/detector/feedback.py`（新） | `summarize`（告警數、已標記、誤報率、候選、漏報）、`suggest_override`、`suggest_exclude`、`format_summary`、兩個 index 的 mapping | 計算與 ES 讀寫分開，統計邏輯可以不連 ES 測 |
+| `engine/detector/__main__.py` | 新增 `feedback`（pending／add／list／summary／suggest）和 `incident`（add／list／resolve）指令 | 值班要有地方標記；建議與排除沿用 `aiops-tuning`，learning loop 仍是同一個寫入點 |
+| `engine/tests/test_feedback.py`（新） | 統計口徑、防污染、建議、事故的案例 | — |
+| `engine/configs/baseline/README.md`、`docs/feedback/README.md`、`docs/pdca` | 文件與狀態 | — |
 
 幾個設計決定：
 - 只算 `status: anomaly` 的當告警；`warning` 還沒通知任何人。規則、跟兄弟比、品質檢查沒有 `status`，是直接通知的，算告警。

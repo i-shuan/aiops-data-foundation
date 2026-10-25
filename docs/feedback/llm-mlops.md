@@ -24,7 +24,7 @@ feedback → 記憶（RAG）、排除訓練時段、調門檻
 | **RCA（根因分析）** | AIOps 裡的一個步驟：出事後找是哪裡造成的 |
 | **MLOps／LLMOps** | 一種做法：怎麼管機器學習模型／LLM（版本、上線、驗證、監控） |
 
-**現在的 RCA 不是 MLOps**：[aiops/rca](../../aiops/rca/README.md) 全是程式算（排序取最慢的 trace、每段扣掉下游時間跟平常比、找錯誤源頭、log 樣式比對），沒有訓練任何模型。整條線只有 baseline 有「學」，而且只是統計。RCA 要是改用「拿歷史事故訓練模型學症狀 → 根因」才會需要 MLOps；這裡的方向是用 LLM 加強，不訓練。
+**現在的 RCA 不是 MLOps**：[engine/configs/rca](../../engine/configs/rca/README.md) 全是程式算（排序取最慢的 trace、每段扣掉下游時間跟平常比、找錯誤源頭、log 樣式比對），沒有訓練任何模型。整條線只有 baseline 有「學」，而且只是統計。RCA 要是改用「拿歷史事故訓練模型學症狀 → 根因」才會需要 MLOps；這裡的方向是用 LLM 加強，不訓練。
 
 LLM 和 MLOps 原本的比較如下（這是定案前的分析，結論見上）：
 

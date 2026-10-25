@@ -7,7 +7,7 @@
 | 項目 | 狀態 | 說明 |
 |---|---|---|
 | 異常總表 `aiops-anomalies` | ✅ | 所有判斷結果都寫這裡，帶 `status`（warning／anomaly）、可信度、粒度、方法 |
-| 使用者、指令調整（粒度、z、min_abs） | ✅ | `series.yaml` 的 `overrides`、`tune` 指令寫進 `aiops-tuning`，記原因、誰、何時（[baseline README「使用者、feedback 調整」](../../aiops/baseline/README.md#使用者feedback-調整)）；之後 feedback 也寫同一處 |
+| 使用者、指令調整（粒度、z、min_abs） | ✅ | `series.yaml` 的 `overrides`、`tune` 指令寫進 `aiops-tuning`，記原因、誰、何時（[baseline README「使用者、feedback 調整」](../../engine/configs/baseline/README.md#使用者feedback-調整)）；之後 feedback 也寫同一處 |
 | 告警出口 | ❌ | 現在只寫進 ES，還沒有通知；要接在收斂之後（[rca/README.md「雜訊壓制」](../rca/README.md#雜訊壓制)） |
 | 事故紀錄 `aiops-incidents` | ⚠️ | `incident add／list／resolve`：時間、服務、根因、處置、相關異常；`--exclude-training` 同時提「這段不學」（proposed）。沒排程、沒接告警；根因還沒餵給 RAG |
 | 值班回饋 `aiops-feedback` | ⚠️ | `feedback pending／add／list／summary／suggest`：真的／誤報／根因錯／漏報；誤報同一個對象累積 3 次才提放寬 z 的建議（proposed，`adjust approve` 才生效）。收集靠指令，還沒有網頁或通知裡的按鈕 |

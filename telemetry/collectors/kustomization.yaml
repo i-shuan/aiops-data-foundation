@@ -1,0 +1,32 @@
+# 每個應用 cluster 一套 OpenTelemetry Collector，收 log、metrics、trace，依 namespace 的 dept 分到各 group 的 data stream。
+# 設計說明見 docs/log/README.md（log）、docs/metrics/README.md、docs/trace/README.md。
+#
+# 部署前要先有：
+#   1. Secret es-writer-keys（log、metrics、trace 共用，由 telemetry/scripts/elasticsearch-setup.sh 產生）
+#   2. 下面 otel-collector-env 的 CLUSTER_NAME、ES_ENDPOINT、NTP_SERVER 改成實際值
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: otel-collector
+resources:
+  - namespace.yaml
+  - rbac.yaml
+  - node-collector.yaml
+  - service.yaml
+  - cluster-collector.yaml
+  - trace-sampler.yaml
+configMapGenerator:
+  - name: otel-collector-config
+    files:
+      - common.yaml
+      - node.yaml
+      - cluster.yaml
+      - sampler.yaml
+  - name: otel-collector-env
+    literals:
+      - CLUSTER_NAME=change-me
+      - ES_ENDPOINT=https://elasticsearch.example.internal:9200
+      - NTP_SERVER=ntp.example.internal:123   # 公司的 NTP 伺服器（主機時鐘偏移，node.yaml 的 ntp receiver）
+images:
+  - name: otelcol
+    newName: otel/opentelemetry-collector-contrib   # 換成 Nexus 的路徑
+    newTag: 0.162.0
