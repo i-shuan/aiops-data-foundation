@@ -26,6 +26,7 @@ log 和 metrics 用同一個 Collector（[metrics/README.md](../metrics/README.m
 |---|---|
 | ② 欄位路徑跟 metrics、trace 不一致 | log 是 `service.name`（平的），metrics、trace 是 `resource.attributes.service.name`。log 補別名欄位，三種資料用同一個路徑查 |
 | ② REST API 的解析規則 | 需要兩三個服務的真實 log 樣本 |
+| ① ES 剛起來回 401、Collector 直接丟 | 修在 ES 入口：健康檢查要用 API key 打 GET /（trace 線實測；log 用同一種 exporter，推論相同）。📝 中央 ES 前面的健康檢查要請管 ES 的人改。[PDCA](../pdca/2026-10-es-startup-401.md) |
 | ③ 保留天數 | ✅ 原文 30 天；另外每 5 分鐘統計各服務 × level × `error.type` 的筆數，留 400 天（[retention.md](../retention.md)） |
 
 **要做的（②清資料）**
