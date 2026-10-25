@@ -25,6 +25,16 @@
 | 跟兄弟比（peer） | ✅ 併進同一個服務 | 「哪一個 Pod」是根因線索 |
 | 資料品質（`quality.*`） | ✅ **送平台的地方，不送應用團隊** | 是收值的問題（資料停了、被拒收、路由爆炸），應用團隊處理不了 |
 
+### 兩件事不要搞混：「合成一件」看服務，「送給誰」看 dept
+
+| | 依什麼 | 為什麼 |
+|---|---|---|
+| **合成一件**（⑥ 收斂） | **服務** | AIOps 的分析單位是服務：同一個服務的 p95、錯誤率、Pod 互比是同一件事；**同一個 dept 的兩個不相關服務出事，是兩件**，不能因為同部門就併 |
+| **送給誰**（⑧ 出口） | **dept**（對不到 dept 的用 group，再沒有就 `unassigned` → 平台） | 值班是依部門分的；一件事的 dept 取自它的異常（[anomaly-owner](2026-10-anomaly-owner.md) 已讓每筆異常帶 `dept`、`group`） |
+| 同一個 dept 的多件 | 各自一則，送到同一個地方；可以加一則「這個部門目前 N 件進行中」的彙總（之後） | 讓部門值班看到全貌，但每件的根因分析、回饋仍是各自的 |
+
+一件事跨兩個 dept（例：IT 的 mes-api 慢，是因為 IMC 的 wip-worker 慢）：第一版**各自一件、各送各的**；沿呼叫關係合併上下游是下一輪（③ 拓撲合併），合併後送給兩邊。
+
 ### 怎麼合成一件（⑥ 最小版）
 
 - **鑰匙**：服務（`resource.attributes.service.name`；trace 序列的 `entry.service`；規則的 context）。沒有服務的（節點、PV）用 namespace，再沒有用節點名。
@@ -52,7 +62,7 @@
 | 項目 | 選項 | 影響 |
 |---|---|---|
 | 通知送到哪 | Teams、Slack、Email、LINE、內部工單系統；或先只要一個 webhook 網址 | 決定 webhook 的格式。dry-run 不用 |
-| 每個 group 送給誰 | 例：it → IT 值班頻道、imc → IMC 頻道、資料品質 → 平台頻道 | `groups.yaml` 每個 group 加一個 `notify` |
+| 每個 dept 送給誰 | 例：D3120、D3130 → IT 值班頻道；D1110 → IMC 頻道；沒有 dept、資料品質 → 平台頻道。沒列到的 dept 用它的 group 的設定 | `groups.yaml` 每個 group 加 `notify`，要細分的 dept 另外列 |
 | 夜間、假日 | 全部照發；或只發 critical | 行事曆（`calendar.yaml`）已有台灣假日 |
 
 ### 驗收
