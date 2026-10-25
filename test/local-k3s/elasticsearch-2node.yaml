@@ -69,16 +69,20 @@ spec:
               valueFrom: {secretKeyRef: {name: es-elastic, key: password}}
           ports:
             - {name: http, containerPort: 9200}
+          # 健康檢查要用 API key 打 GET /：ES 剛起來的 1 秒多，/_cluster/health（elastic 帳號）已經 200、API key 卻 401，
+          # Collector 收到 401 會直接丟資料（docs/pdca/2026-10-es-startup-401.md）。
+          # 第一次啟動還沒有 key（run-e2e.sh 跑完 elasticsearch-setup.sh 才建 Secret es-probe-key），先退回 /_cluster/health
           readinessProbe:
             exec:
-              command: ["sh", "-c", "curl -sf -u elastic:$ELASTIC_PASSWORD localhost:9200/_cluster/health"]
-            periodSeconds: 10
+              command: ["sh", "-c", "if [ -s /probe/PROBE_ES_API_KEY ]; then curl -sf -H \"Authorization: ApiKey $(cat /probe/PROBE_ES_API_KEY)\" localhost:9200/ >/dev/null; else curl -sf -u elastic:$ELASTIC_PASSWORD localhost:9200/_cluster/health >/dev/null; fi"]
+            periodSeconds: 5
           resources:
             requests: {cpu: 500m, memory: 2Gi}
             limits: {memory: 2Gi}
           volumeMounts:
             - {name: data, mountPath: /usr/share/elasticsearch/data}
             - {name: certs, mountPath: /usr/share/elasticsearch/config/certs, readOnly: true}
+            - {name: probe-key, mountPath: /probe, readOnly: true}
         # 進來：本 Pod IP:自己的 port → 127.0.0.1；出去：127.0.0.1:對方的 port → 對方 Pod
         - name: transport-proxy
           image: docker.io/alpine/socat:1.8.0.3
@@ -97,6 +101,8 @@ spec:
       volumes:
         - name: certs
           secret: {secretName: es-transport-certs}
+        - name: probe-key
+          secret: {secretName: es-probe-key, optional: true}   # setup 之後才有（run-e2e.sh）
       securityContext:
         fsGroup: 1000
       initContainers:
