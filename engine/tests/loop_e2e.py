@@ -184,6 +184,14 @@ def main():
         r = run("detector", "feedback", "suggest", "--config", SYNTH, "--days", "60", quiet=True)
         miss = [h for h in es.search("aiops-tuning", {"size": 50, "query": {"match_all": {}}})["hits"]["hits"] if "漏報" in (h["_source"].get("reason") or "")]
         check("漏報 → 一筆降 z 的建議（proposed）", len(miss) == 1 and miss[0]["_source"]["z"] == 4.0, str([h["_source"].get("reason") for h in miss]))
+        # 之前被放寬過的對象（mes-report synth.requests，剛核准 z 7）漏報了：建議不能被吃掉，要從 7 往下降（pdca/2026-10-fix-feedback-ux.md 5）
+        run("detector", "feedback", "add", "--config", SYNTH, "--verdict", "missed", "--series", "synth.requests", "--match", "service=mes-report", "--at", iso(1, "16:00"), "--by", "amy", "--note", "批次之外真的掉量沒報", quiet=True)
+        r = run("detector", "feedback", "suggest", "--config", SYNTH, "--days", "60", quiet=True)
+        miss2 = [h for h in es.search("aiops-tuning", {"size": 50, "query": {"match_all": {}}})["hits"]["hits"]
+                 if "漏報" in (h["_source"].get("reason") or "") and "mes\\-report" in (h["_source"].get("series", "") + json.dumps(h["_source"].get("match")))]
+        check("被放寬過的對象漏報 → 仍提建議，從現在的 z 7 降到 5.6", len(miss2) == 1 and miss2[0]["_source"]["z"] == 5.6 and "之前" not in r.stdout or "往下降" in r.stdout, str([(h["_source"].get("z"), h["_source"].get("reason")) for h in miss2]) + r.stdout[-300:])
+        r = run("detector", "feedback", "suggest", "--config", SYNTH, "--days", "60", quiet=True)
+        check("再跑一次不重複、有說已經有了", "漏報的建議已經有了" in r.stdout, r.stdout[-200:])
         print("== 12. metrics：兩段並排")
         r = run("detector", "metrics", "--config", SYNTH, "--from", "2026-10-05", "--to", "2026-10-26", "--compare-from", "2026-09-07", "--compare-to", "2026-10-05", "--out", os.path.join(tempfile.gettempdir(), "aiops-loop-metrics.md"))
         check("metrics 印出件數、誤報率、怎麼看出來的比例", "| 件數 | 0（每天 0.0） | 6（每天" in r.stdout and "誤報率（回饋裡標誤報的） | — | 50%" in r.stdout and "「怎麼看出來的」有填的比例 | — | 67%" in r.stdout, r.stdout)

@@ -76,8 +76,9 @@ def cmd_feedback(cfg: dict, args) -> int:
     if args.action == "suggest":
         s = F.summarize(_anomaly_rows(es, days, now), _feedback_rows(es, days, now), min_false_positive=args.min_false_positive)
         z0 = DetectOptions(**cfg.get("detect", {})).z
-        existing = {(a.get("series"), json.dumps(a.get("match"), sort_keys=True)) for a in load_adjustments(es, cfg)
-                    if (a.get("kind") or "override") == "override" and a.get("z")}
+        overrides = {(a.get("series"), json.dumps(a.get("match"), sort_keys=True)): a for a in load_adjustments(es, cfg)
+                     if (a.get("kind") or "override") == "override" and a.get("z")}
+        existing = set(overrides)
         n = 0
         for r in s["candidates"].to_dict("records"):
             sug = F.suggest_override(r["series"], r["target"], r["false_positive"], z0)
@@ -92,11 +93,18 @@ def cmd_feedback(cfg: dict, args) -> int:
             n += 1
         # 漏報：那條序列、那個對象的 z 降 0.8 倍（proposed，回測看抓不抓得到）
         for r in s["missed"].to_dict("records"):
-            sug = F.suggest_missed(r["series"], r["target"], z0)
-            if (sug["series"], json.dumps(sug["match"], sort_keys=True)) in existing:
-                continue
-            sug.update({"at": now.isoformat(), "by": "feedback"})
+            # 這個對象已經有調整（例如之前誤報被放寬成 z 7）：從那個值往下降，不是從設定檔的 z；漏報不能因為以前放寬過就沒建議
+            sug0 = F.suggest_missed(r["series"], r["target"], z0)
+            cur = overrides.get((sug0["series"], json.dumps(sug0["match"], sort_keys=True)))
+            sug = F.suggest_missed(r["series"], r["target"], float(cur["z"])) if cur else sug0
             _id = doc_id("suggest-missed", sug["series"], sug["match"])
+            if es.req("GET", f"/{TUNING_INDEX}/_doc/{_id}", ok=(200, 404)).get("found"):
+                print(f"  漏報的建議已經有了：{r['series']} {r['target']}（{_id}）")
+                continue
+            if cur:
+                sug["reason"] += f"（這個對象現在是 {cur.get('status')} 的 z {float(cur['z']):g}：{cur.get('reason') or ''}）"
+                print(f"  注意：{r['series']} {r['target']} 之前被放寬過（z {float(cur['z']):g}），漏報的建議從它往下降")
+            sug.update({"at": now.isoformat(), "by": "feedback"})
             es.ensure_index(TUNING_INDEX, TUNING_MAPPING)
             es.req("PUT", f"/{TUNING_INDEX}/_doc/{_id}?refresh=true", sug)
             print(f"  建議 {_id}（漏報）：{A.describe(sug)}")
