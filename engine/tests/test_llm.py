@@ -17,13 +17,13 @@ SIMILAR = [{"start": "2026-09-12T02:00:00+00:00", "root_cause_category": "db", "
 class Pack(unittest.TestCase):
     def test_ids(self):
         p = LLM.build_pack(ALERT, FINDINGS, SIMILAR)
-        self.assertEqual(p["_ids"], ["A1", "E1", "I1", "L1", "S1"])
+        self.assertEqual(p["_ids"], ["A1", "E1", "I1", "L1", "S1", "T1"])
         self.assertEqual(p["segments"][0]["extra_ms"], 1470)
         self.assertEqual(p["similar"][0]["action"], "重跑 analyze")
 
     def test_no_findings_no_similar(self):
         p = LLM.build_pack(ALERT, None, [])
-        self.assertEqual(p["_ids"], [])
+        self.assertEqual(p["_ids"], ["T1"])     # 這件告警本身永遠有 id，模型講「持續 10 分鐘」才有依據
 
 
 class Validate(unittest.TestCase):
@@ -88,6 +88,13 @@ class Summarize(unittest.TestCase):
         self.assertEqual(r["text"], "")
         self.assertIn("R9", r["reason"])
 
+    def test_model_empty_output_falls_back_to_template(self):
+        with mock.patch.object(LLM, "_call_openai", return_value="  \n"):
+            r = LLM.summarize(self.pack, "openai")
+        self.assertTrue(r["ok"])
+        self.assertIn("回空的", r["provider"])
+        self.assertIn("[S1]", r["text"])
+
     def test_model_output_ok_is_kept(self):
         with mock.patch.object(LLM, "_call_anthropic", return_value="Oracle 那段多花 1.4 秒 [S1]。\n建議先重跑 analyze [I1]。"):
             r = LLM.summarize(self.pack, "anthropic")
@@ -113,3 +120,24 @@ class BadInputs(unittest.TestCase):
         self.assertIn("ok", r)
         text = LLM.template(pack)
         self.assertTrue(LLM.validate(text, pack)[0] or not text)
+
+
+class SegmentsThatDidNotSlowDown(unittest.TestCase):
+    """docs/pdca/2026-10-fix-feedback-ux.md 8：有段但沒變慢（extra_ms ≤ 0）、沒有錯誤源頭時，摘要不能空、不能叫人去查變快的那段。"""
+    f = {"anomalies": [{"series": "http.latency_p95_s", "value": 3.1, "median": 0.2, "z": 20}],
+         "segments": [{"segment": "mes-api › redis GET", "now_ms": 10.0, "ref_ms": 22.0, "delta_ms": -12.0}], "error_origins": [], "new_patterns": []}
+
+    def test_anomaly_sentence_still_written(self):
+        pack = LLM.build_pack(ALERT, self.f, [])
+        text = LLM.template(pack)
+        self.assertIn("http.latency_p95_s 異常：現在 3.1", text)
+        self.assertNotIn("redis", text)                 # 變快的那段不提、不叫人去查它
+        self.assertIn("trace 也沒看到哪一段變慢", text)
+        ok, why = LLM.validate(text, pack)
+        self.assertTrue(ok, why)
+        self.assertTrue(LLM.summarize(pack, "template")["ok"])
+
+    def test_with_similar_uses_similar(self):
+        text = LLM.template(LLM.build_pack(ALERT, self.f, SIMILAR))
+        self.assertIn("[I1]", text)
+        self.assertNotIn("redis", text)

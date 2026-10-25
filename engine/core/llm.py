@@ -2,7 +2,7 @@
 
 原則：
   - 只看輸入包（結構化、約 4,000 token）：這件告警、根因分析的前幾名、最像的過去事故。不丟原始 metrics、log。
-  - 每一句結尾要有依據的 id（[A1]、[S1]、[E1]、[L1]、[I1]）；引用了不存在的 id、或一句沒有依據 → 整段不顯示（程式檢查，不靠 LLM 自律）。
+  - 每一句結尾要有依據的 id（[T1] 這件告警、[A1] 異常、[S1] 慢的那段、[E1] 錯誤源頭、[L1] log 樣式、[I1] 過去事故）；引用了不存在的 id、或一句沒有依據 → 整段不顯示（程式檢查，不靠 LLM 自律）。
   - 只加註、不擋告警：LLM 掛了、逾時，報告照出，只是沒有這一段。
 
 provider（環境變數 LLM_PROVIDER）：
@@ -20,7 +20,7 @@ import requests
 
 CITE = re.compile(r"\[([A-Z]\d+)\]")
 PROMPT = """你是工廠 IT 維運的值班助理。根據下面的輸入包，用繁體中文寫 3～5 句話：最可能的原因、影響（哪些服務、API、多久）、建議先做什麼（有過去事故就引用它的處置）。
-規則：每一句結尾一定要放依據的 id，格式像 [S1] 或 [A1][I1]；只能引用輸入包裡有的 id；不能自己編服務名、數字；不確定就說「不確定」。只輸出那幾句，一句一行，不要標題。
+規則：每一句結尾一定要放依據的 id，格式像 [S1] 或 [A1][I1]（講這件告警本身：服務、持續多久、嚴重度，引用 [T1]）；只能引用輸入包裡有的 id；不能自己編服務名、數字；不確定就說「不確定」。只輸出那幾句，一句一行，不要標題。
 
 輸入包（JSON）：
 """
@@ -44,10 +44,13 @@ def build_pack(alert: dict, findings: dict | None, similar: list[dict]) -> dict:
     """輸入包：每個項目一個 id。"""
     f = findings or {}
     items = {}
-    pack = {"alert": {"id": alert.get("alert_id"), "service": alert.get("service"), "severity": alert.get("severity"),
+    # 這件告警本身也要有 id（T1）：模型講「影響 mes-api、持續 10 分鐘」這種話要有依據可引用，
+    # 不然沒有相似事故時它只能寫沒依據的句子，整段被擋（實測 gpt-6-luna 3 次 3 次都這樣）
+    pack = {"alert": {"id": "T1", "alert_id": alert.get("alert_id"), "service": alert.get("service"), "severity": alert.get("severity"),
                       "started_at": str(alert.get("started_at") or "")[:16], "minutes": alert.get("minutes"),
                       "routes": alert.get("routes") or [], "dept": alert.get("dept")},
             "anomalies": [], "segments": [], "error_origins": [], "new_patterns": [], "similar": []}
+    items["T1"] = alert
     for i, a in enumerate(f.get("anomalies") or [], 1):
         k = f"A{i}"; items[k] = a
         pack["anomalies"].append({"id": k, "series": a.get("series"), "value": _num(a.get("value")), "usual": _num(a.get("median")), "z": _num(a.get("z"))})
@@ -92,13 +95,13 @@ def template(pack: dict) -> str:
     """不叫模型的固定句型：從輸入包組 3～5 句，每句帶依據。"""
     a, out = pack["alert"], []
     seg, err, sim, pats, anoms = pack["segments"], pack["error_origins"], pack["similar"], pack["new_patterns"], pack["anomalies"]
-    if seg and (seg[0]["extra_ms"] or 0) > 0:
-        s = seg[0]
-        out.append(f"{a['service']} 變慢，主要多在 {s['segment']}：每個請求多花約 {s['extra_ms']} 毫秒（平常 {s['usual_ms']} 毫秒）[{s['id']}]。")
+    slow = seg[0] if seg and (seg[0]["extra_ms"] or 0) > 0 else None      # 第一段沒變慢（可能還變快）就不算「慢在哪」
+    if slow:
+        out.append(f"{a['service']} 變慢，主要多在 {slow['segment']}：每個請求多花約 {slow['extra_ms']} 毫秒（平常 {slow['usual_ms']} 毫秒）[{slow['id']}]。")
     if err:
         e = err[0]
         out.append(f"錯誤最早出在 {e['segment']}（{e['requests_with_error']} 個請求，平常 {e['usual']}）[{e['id']}]。")
-    if anoms and not (seg or err):
+    if anoms and not (slow or err):
         x = anoms[0]
         usual = f"，平常 {x['usual']:.4g}" if x.get("usual") is not None else ""
         now_v = f"{x['value']:.4g}" if x.get("value") is not None else "（沒有值）"
@@ -112,11 +115,12 @@ def template(pack: dict) -> str:
         act = f"，當時的處置：{s['action']}" if s.get("action") else ""
         out.append(f"跟 {s['when']} 的事故相似（{'；'.join(s.get('why_similar') or [])[:80]}），當時的根因是 {cat}{s.get('root_cause') or '未記錄'}{act} [{s['id']}]。")
         out.append(f"建議先照上次的方式確認：{s.get('how_detected') or '看同一段的指標'} [{s['id']}]。")
-    else:
-        if seg or err:
-            where = (seg[0]["segment"] if seg else err[0]["segment"]).split(" › ")[-1]
-            ref = seg[0]["id"] if seg else err[0]["id"]
-            out.append(f"沒有相似的過去事故；建議先查 {where} 這一段的下游（DB、外部系統）[{ref}]。")
+    elif slow or err:
+        where = (slow["segment"] if slow else err[0]["segment"]).split(" › ")[-1]
+        ref = slow["id"] if slow else err[0]["id"]
+        out.append(f"沒有相似的過去事故；建議先查 {where} 這一段的下游（DB、外部系統）[{ref}]。")
+    elif anoms:
+        out.append(f"沒有相似的過去事故，trace 也沒看到哪一段變慢或出錯；先看 {a['service']} 本身的資源和 log [{anoms[0]['id']}]。")
     return "\n".join(out[:5])
 
 
@@ -132,12 +136,15 @@ def _call_anthropic(prompt: str) -> str:
 
 def _call_openai(prompt: str) -> str:
     base = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com").rstrip("/")
-    r = requests.post(f"{base}/v1/chat/completions", timeout=60,
-                      headers={"Authorization": f"Bearer {os.environ['LLM_API_KEY']}", "content-type": "application/json"},
-                      json={"model": os.environ.get("LLM_CHAT_MODEL", "gpt-4o-mini"), "max_tokens": 600,
-                            "messages": [{"role": "user", "content": prompt}]})
+    body = {"model": os.environ.get("LLM_CHAT_MODEL", "gpt-4o-mini"), "messages": [{"role": "user", "content": prompt}]}
+    headers = {"Authorization": f"Bearer {os.environ['LLM_API_KEY']}", "content-type": "application/json"}
+    # 新的模型只收 max_completion_tokens、舊的只收 max_tokens：先用新的，被 400 說不支援就換舊的
+    # 會推理的模型把預算花在推理上，600 不夠就回空的（實測 gpt-6-luna 3 次有 1 次）：給 2000
+    r = requests.post(f"{base}/v1/chat/completions", timeout=60, headers=headers, json={**body, "max_completion_tokens": 2000})
+    if r.status_code == 400 and "max_completion_tokens" in r.text:
+        r = requests.post(f"{base}/v1/chat/completions", timeout=60, headers=headers, json={**body, "max_tokens": 600})
     r.raise_for_status()
-    return r.json()["choices"][0]["message"]["content"]
+    return r.json()["choices"][0]["message"]["content"] or ""
 
 
 def summarize(pack: dict, provider: str | None = None) -> dict:
@@ -150,6 +157,8 @@ def summarize(pack: dict, provider: str | None = None) -> dict:
     try:
         prompt = PROMPT + json.dumps({k: v for k, v in pack.items() if k != "_ids"}, ensure_ascii=False)
         text = {"anthropic": _call_anthropic, "openai": _call_openai}[provider](prompt)
+        if not text.strip():   # 回空的（推理模型預算用完、或被內容過濾）：跟掛了一樣退回固定句型
+            text, provider = template(pack), f"template（{provider} 回空的）"
     except Exception as e:    # 模型掛了：退回固定句型，報告照出
         text, provider = template(pack), f"template（{provider} 失敗：{str(e)[:80]}）"
     ok, reason = validate(text, pack)

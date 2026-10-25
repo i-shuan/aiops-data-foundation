@@ -81,13 +81,13 @@ flowchart LR
 
 ## 哪裡不足（會影響能不能用、能不能賣）
 
-1. **全部是模擬資料**。相似事故在沒有 trace 時只靠「同服務＋同指標」剛好壓在門檻上；LLM 真的模型沒跑過（閘道 401）；K8s 沒跑過。這三件事排在所有新功能前面。
+1. **全部是模擬資料**。相似事故在沒有 trace 時只靠「同服務＋同指標」剛好壓在門檻上；K8s 沒跑過。真的 LLM（OpenAI）2026-10-25 跑過 12 次、修了三個只有真跑才看得到的問題（[pdca/2026-10-fix-feedback-ux.md](pdca/2026-10-fix-feedback-ux.md)），但沒有評測集。這些排在所有新功能前面。
 2. **程式有幾個會讓整輪失敗的點**（`/code-review` 2026-10-25 的 10 項，對過程式，前 4 項是真的要修；**前 4 項已修**，[pdca/2026-10-fix-critical.md](pdca/2026-10-fix-critical.md)）：
    - `cmd_alert.py`：LLM 那段沒有 try/except，輸入包裡一個 NaN 就讓整輪 alert 掛掉，連心跳都不寫，Grafana 會誤報「AIOps 停了」（違反自己的「只加註不擋告警」）。
    - `cmd_backtest.py`：`incident add` 存的時間沒有時區，回測比較 tz-aware 的異常時間會丟 TypeError，從此所有建議都要 `--force`。
    - `cmd_alert.py`：事故「已確認不覆蓋」是先讀再寫，老師傅剛好在中間送出就被蓋掉（要用 `_update` 加條件、或 `if_seq_no`）。
    - `deploy/gen-cronjobs.py`：alert 的 `activeDeadlineSeconds: 110`，叫真的 LLM 一件 60 秒逾時，兩件就被砍，下一分鐘重來一樣被砍。
-   - 其餘（metrics 回饋跨段、漏報建議被既有 override 擋住沒印、回測重複查 ES、網頁 ES 錯誤沒回應、template 空句、相似事故 ES 前 20 截斷）是對的但影響小，排在後面。
+   - 其餘 6 項裡，漏報建議被擋、網頁 ES 錯誤沒回應、template 空句**已修**（[pdca/2026-10-fix-feedback-ux.md](pdca/2026-10-fix-feedback-ux.md)）；metrics 回饋跨段、回測重複查 ES、相似事故 ES 前 20 截斷還沒動。
 3. **回饋網頁沒登入、漏報沒網頁入口**；月底批次只會提「放寬 z」不會提排除時段。
 4. **門檻全是估的**：z 5、instant_z 15、相似分數 4、誤報 3 次、權重；要 2～4 週真實資料。
 
