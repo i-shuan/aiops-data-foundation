@@ -43,6 +43,10 @@
 報告：<連結或附檔>　　回饋：feedback add --alert a-20261025-mes-api-1005 --verdict ...
 ```
 
+### 前置（已做）：異常總表帶 dept、group
+
+告警要依部門分送，但 `aiops-anomalies` 原本沒記部門，只有服務、namespace。已補上（[anomaly-owner](2026-10-anomaly-owner.md)）：每筆異常有 `dept`、`group`，可以直接 `terms group` 分。
+
 ### 要先定的（我沒辦法替你決定）
 
 | 項目 | 選項 | 影響 |

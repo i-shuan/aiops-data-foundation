@@ -25,6 +25,7 @@ ANOMALY_MAPPING = {"mappings": {"dynamic": False, "properties": {
     "resolution": {"type": "keyword"}, "method": {"type": "keyword"}, "baseline_source": {"type": "keyword"},
     "confidence": {"type": "keyword"}, "p": {"type": "double"},
     "status": {"type": "keyword"}, "streak": {"type": "integer"},
+    "dept": {"type": "keyword"}, "group": {"type": "keyword"},
 }}}
 
 

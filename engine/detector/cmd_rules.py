@@ -7,6 +7,7 @@ from core.es import get_field
 from .es import ANOMALY_INDEX, ANOMALY_MAPPING, ES, doc_id, fetch
 from . import rules as R
 from .common import RULE_FIELDS, _freq, _now
+from .owner import write_anomalies
 
 
 def cmd_rules(cfg: dict, args) -> int:
@@ -39,6 +40,6 @@ def cmd_rules(cfg: dict, args) -> int:
             print(f"  [{rule.get('severity', 'warning')}] {msg}")
         fired += len(hits)
     if docs:
-        es.bulk_index(ANOMALY_INDEX, docs)
+        write_anomalies(es, docs)
     print(f"{slot.tz_convert('Asia/Taipei'):%m-%d %H:%M}：{len(cfg['rules'])} 條規則，觸發 {fired} 個")
     return 0

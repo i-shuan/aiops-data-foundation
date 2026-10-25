@@ -125,6 +125,31 @@
 
 服務名稱、Pod、namespace 都是 Collector 用同一套規則補上的（不是應用自己填），三種資料一定對得上；trace_id 由自動埋點寫進 log（Java 在 MDC、.NET 在 scope），中央 pipeline 存成 `trace.id`，alias `trace_id` 跟 trace 同名。**三種資料的鑰匙都是同一條路徑**（log 的是 alias；Java 指標名字由 Collector 改），查哪一種都不用翻譯（[pdca/2026-10-field-unify.md](../pdca/2026-10-field-unify.md)）。
 
+### 歸屬 label 和共同鑰匙是兩種東西
+
+兩者都是 Collector 補在資料上的，但用途不同，**不要混成一種**：
+
+| | 歸屬 label | 共同鑰匙 |
+|---|---|---|
+| 用來做什麼 | 這筆資料**是誰的**：寫到哪個 data stream、誰看得到、保留幾天、告警送給誰 | 把三種資料**接起來**：從 metrics 找到 trace，再找到 log |
+| 有哪些 | `dept`、`group` | 服務、路由、Pod、namespace、時間窗、`trace_id` |
+| 怎麼來的 | `k8s_attributes` 讀 **namespace 的 `dept` label** → `transform/group` 依 `telemetry/groups.yaml` 算出 group；應用自己帶的 `dept`、`group` 一律先拿掉 | 服務、Pod、namespace 由 Collector 依 Pod 補；`trace_id` 由 agent 產生、自動傳遞 |
+| 在哪裡 | metrics、trace：`resource.attributes.dept`、`.group`；log：`labels.dept`、`labels.group` | 見上表 |
+| 異常總表 | `dept`、`group`（寫異常時補，`detector/owner.py`） | `keys` 裡 |
+
+### 共同鑰匙圈：完整清單
+
+| 鑰匙 | 路徑（三種資料一樣） | 目的 | 現況 |
+|---|---|---|---|
+| 服務 | `resource.attributes.service.name` | metrics 報哪個服務 → 去找它的 trace、log | ✅（log 用 alias） |
+| 路由＋方法 | `attributes.http.route`、`attributes.http.request.method` | 哪支 API → 撈那條路由的 trace | ✅ metrics、trace；log ❌（REST 解析規則沒做） |
+| Pod | `resource.attributes.k8s.pod.name` | 規則、Pod 互比報的是單一 Pod | ✅ |
+| namespace | `resource.attributes.k8s.namespace.name` | 服務重名時分開；對回部門 | ✅ |
+| 時間窗 | `@timestamp` | 只看出事那段 | ✅ |
+| trace_id、span_id | `trace_id`、`span_id` | trace ↔ log 精確到同一個請求 | ✅（log 用 alias） |
+| cluster | `resource.attributes.k8s.cluster.name` | 多個 cluster 時分開 | ✅（log 用 alias） |
+| 業務 ID（交易 ID…） | 名稱未定 | 用一筆交易查全部 | ❌ 不放 metrics（每個值一條序列會爆炸），只放 trace、log |
+
 **流程（例：mes-api 的 p95 變高）：**
 
 ```

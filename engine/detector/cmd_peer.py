@@ -6,6 +6,7 @@ import pandas as pd
 from .es import ANOMALY_INDEX, ANOMALY_MAPPING, ES, doc_id, fetch
 from . import peer as P
 from .common import RULE_FIELDS, _freq, _now, keys_of
+from .owner import write_anomalies
 
 
 SHOW = {"pct": lambda x: f"{x:.0%}", "seconds": lambda x: f"{x * 1000:.0f}ms", "cores": lambda x: f"{x:.2f} 核",
@@ -50,6 +51,6 @@ def cmd_peer(cfg: dict, args) -> int:
             fired += 1
         print(f"  {c['name']}：{n_groups} 組、{len(res)} 個 Pod 比過")
     if docs:
-        es.bulk_index(ANOMALY_INDEX, docs)
+        write_anomalies(es, docs)
     print(f"{end.tz_convert('Asia/Taipei'):%m-%d %H:%M}：{checked} 個檢查，觸發 {fired} 個")
     return 0

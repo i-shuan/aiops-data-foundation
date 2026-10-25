@@ -9,6 +9,7 @@ from . import trace as T
 from .model import DetectOptions, TrainOptions, score, train
 from .cmd_baseline import save_anomalies, save_baseline, train_summary, with_status
 from .common import RULE_FIELDS, _freq, _now
+from .owner import write_anomalies
 from .tuning import data_adjustments
 
 
@@ -87,7 +88,7 @@ def cmd_trace_detect(cfg: dict, args) -> int:
         "value": r["calls"], "median": 0.0, "expected_low": 0.0, "expected_high": 0.0, "z": None, "level": "rule",
         "direction": "up", "detected_at": now}) for r in new.to_dict("records")]
     if docs:
-        es.bulk_index(ANOMALY_INDEX, docs)
+        write_anomalies(es, docs)
         for _, d in docs[:5]:
             print(f"  沒見過的呼叫：{d['keys']['entry.service']} {d['keys']['entry.name']} → {d['keys']['segment']}"
                   f"（每個請求 {d['value']:.1f} 次）")
@@ -111,7 +112,7 @@ def cmd_trace_detect(cfg: dict, args) -> int:
         "value": v, "median": None, "expected_low": None, "expected_high": th, "z": None, "level": "rule",
         "direction": "up", "severity": "warning", "message": msg, "detected_at": now}) for series, r, v, th, msg in found]
     if docs:
-        es.bulk_index(ANOMALY_INDEX, docs)
+        write_anomalies(es, docs)
         for _, d in docs[:10]:
             print(f"  [warning] {d['message']}")
     total += len(docs)
@@ -121,7 +122,7 @@ def cmd_trace_detect(cfg: dict, args) -> int:
         "value": r["skew_ms"], "median": 0.0, "expected_low": 0.0, "expected_high": cfg.get("clock_skew_ms", 500),
         "z": None, "level": "rule", "direction": "up", "detected_at": pd.Timestamp.now(tz="UTC").isoformat()}) for r in skews]
     if docs:
-        es.bulk_index(ANOMALY_INDEX, docs)
+        write_anomalies(es, docs)
         for _, d in docs[:5]:
             print(f"  時鐘不同步：{d['keys']['caller']} → {d['keys']['callee']} 差 {d['value']:.0f} ms")
     total += len(docs)

@@ -9,6 +9,7 @@ from .es import (ANOMALY_INDEX, ANOMALY_MAPPING, BASELINE_INDEX, BASELINE_MAPPIN
 from . import adjust as A
 from .model import (CONFIDENCE, RESOLUTIONS, DetectOptions, TrainOptions, mask_thin, pick_resolution, score, group_of, mark_status, override_for, resolutions_from, score_poisson, train, train_groups)
 from .common import _freq, _now, _v, keys_of
+from .owner import write_anomalies
 from .tuning import TUNING_INDEX, TUNING_MAPPING, data_adjustments, load_overrides
 
 
@@ -111,7 +112,7 @@ def save_anomalies(es, name: str, by: list[str], s: pd.DataFrame, direction: str
             **({"p": r["p"]} if "p" in r else {})}))
     if docs:
         _keep_upgraded(es, docs)
-        es.bulk_index(ANOMALY_INDEX, docs)
+        write_anomalies(es, docs)
     res = f"（{resolution} 一點{note}）" if resolution else ""
     n_warn = sum(d["status"] == "warning" for _, d in docs)
     print(f"  {name}{res}：{s.groupby(by, dropna=False).ngroups} 條序列、{len(s)} 個點，"

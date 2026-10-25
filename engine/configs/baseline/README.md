@@ -260,6 +260,7 @@ series:
 | `method` | `mad`（中位數＋MAD）／`poisson` |
 | `level` | dow_hour / hour / all / group |
 | `baseline_source` | `self` 或 `group:<組名>` |
+| `dept`、`group` | 這筆異常屬於哪個部門、哪個 group（告警依它分送、人只看自己部門的）。寫入時依 keys 裡的 namespace（優先）或服務，對回資料裡的 `resource.attributes.dept`、`.group`；對不到的 `dept` 空、`group` 是 `unassigned`（跟 Collector 對沒有 dept 的處理一樣）。程式 `detector/owner.py` |
 | `confidence` | dow_hour → high；hour → medium；all、借來的 → low |
 
 卜瓦松的異常另外記 `p`（機率）。根因報告的異常表多一欄「可信度」（例如 `low、1h、借 query-apis`），有 low 時加註「用的是不分時段、或借同類 API 的 baseline（不是自己的歷史），先確認是不是真的變了」。
@@ -593,7 +594,7 @@ detect 只看**已經結束**的時間窗（再往前退 `lag` 30 秒）：還�
 | index | 內容 |
 |---|---|
 | `aiops-baseline` | `series`、`keys`（例如 `keys.service.name`）、`dow`（0 = 週一）、`hour`、`level`、`median`、`mad`、`p05`、`p95`、`n`、`trained_at` |
-| `aiops-anomalies` | `@timestamp`、`series`、`keys`、`value`、`median`、`expected_low`／`expected_high`（正常範圍）、`z`（偏離幾倍）、`level`、`direction` |
+| `aiops-anomalies` | `@timestamp`、`series`、`keys`、`value`、`median`、`expected_low`／`expected_high`（正常範圍）、`z`（偏離幾倍）、`level`、`direction`、`dept`、`group` |
 
 在 Kibana 建一個 `aiops-anomalies` 的 data view，就能依 `series`、`keys` 看哪個服務、哪個時間點異常。
 

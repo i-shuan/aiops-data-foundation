@@ -96,3 +96,4 @@ PDCA 的意思：**Plan** 定規則與門檻 → **Do** 收值、判斷、報告
 | [2026-10-product-loop.md](2026-10-product-loop.md) | ①～⑨ 產品主線 8 步：收值到 learning loop | 盤點：1～4 穩、5 一半；6 收斂、7 的 RAG、8 的回饋入口是斷點；照順序補：告警出口 → 老師傅回饋入口 → 相似事故檢索 → 回饋更新 RAG → 門檻接回饋＋回測 → LLM → 量化 |
 | [2026-10-restructure.md](2026-10-restructure.md) | 全部 目錄改名：專案名 it-aiops | `platform/`→`telemetry/`、`aiops/`→`engine/`、`apps/`→`sdk/`、`test/`→`e2e/`；Python 套件改名；行為不變，200 個單元測試與連結檢查過 |
 | [2026-10-split-detector-cli.md](2026-10-split-detector-cli.md) | ④⑤⑨ detector 的 `__main__.py`（1,100 行）依指令拆檔 | 1,100 行 → `__main__.py` 160 行＋ 10 個檔；只搬不改，200 個測試、ruff、9 個指令實跑都過 |
+| [2026-10-anomaly-owner.md](2026-10-anomaly-owner.md) | ⑤ 異常總表帶 `dept`、`group` | 資料本來就帶，異常寫回時補；namespace 優先、其次服務、對不到 unassigned；告警依 group 分送的前置 |

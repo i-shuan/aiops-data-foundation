@@ -6,6 +6,7 @@ import pandas as pd
 from .es import ANOMALY_INDEX, ANOMALY_MAPPING, ES, doc_id
 from . import quality as Q
 from .common import RULE_FIELDS, _freq, _now, _v
+from .owner import write_anomalies
 
 
 def quality_hits(es, c: dict, now, window, ref_offset) -> list[dict]:
@@ -64,6 +65,6 @@ def cmd_quality(cfg: dict, args) -> int:
             print(f"  [{c.get('severity', 'warning')}] {msg}")
         fired += len(hits)
     if docs:
-        es.bulk_index(ANOMALY_INDEX, docs)
+        write_anomalies(es, docs)
     print(f"{slot.tz_convert('Asia/Taipei'):%m-%d %H:%M}：{checked} 個檢查，觸發 {fired} 個")
     return 0
