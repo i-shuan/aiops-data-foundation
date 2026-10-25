@@ -10,9 +10,13 @@ from argparse import Namespace
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
+from core import llm as LLM
 from core.es import ES
 
 from . import alerts as AL
+from . import similar as SIM
+
+INCIDENT_INDEX = "aiops-incidents"
 
 ALERT_INDEX = "aiops-alerts"
 
@@ -31,6 +35,10 @@ ALERT_MAPPING = {"mappings": {"dynamic": False, "properties": {
     # Grafana 的告警只能帶 labels（terms 分組的值），所以標題、摘要、報告連結都存成 keyword
     "title": {"type": "keyword", "ignore_above": 1024}, "summary": {"type": "keyword", "ignore_above": 4096},
     "report_url": {"type": "keyword"}, "report": {"type": "text", "index": False}, "report_at": {"type": "date"},
+    "feedback_url": {"type": "keyword"},
+    # 結構化的根因分析結果（相似事故檢索、LLM 用；不索引）、相似事故、LLM 摘要
+    "findings": {"type": "object", "enabled": False}, "similar": {"type": "object", "enabled": False},
+    "llm_summary": {"type": "text", "index": False}, "llm_provider": {"type": "keyword"},
 }}}
 
 
@@ -60,8 +68,16 @@ def _done_ids(es: ES, since: datetime) -> set:
     return {i for h in es.search(ALERT_INDEX, body)["hits"]["hits"] for i in h["_source"].get("anomaly_ids") or []}
 
 
+def _incident_doc(al: dict, doc: dict, findings: dict | None) -> dict:
+    """事件整合自動開的事故（status auto）：回饋表單確認後變 confirmed，才會被相似事故檢索拿來用。"""
+    return {"@timestamp": doc["@timestamp"], "alert_id": al["alert_id"], "title": doc.get("title"), "start": doc["started_at"],
+            "end": doc.get("resolved_at") or doc["updated_at"], "services": [al["service"]], "severity": al["severity"],
+            "status": "auto", "dept": doc.get("dept"), "group": doc.get("group"), "anomaly_ids": al["anomaly_ids"][:200],
+            "detected_at": doc["started_at"], "fingerprint": SIM.fingerprint(al, findings)}
+
+
 def run(cfg: dict, args, investigate) -> int:
-    """investigate：根因分析的函式（investigator.__main__.investigate），傳進來避免循環 import。"""
+    """investigate：根因分析的函式（investigator.__main__.investigate_full），傳進來避免循環 import。"""
     es = ES()
     es.ensure_index(ALERT_INDEX, ALERT_MAPPING)
     acfg = cfg.get("alerts", {})
@@ -74,27 +90,48 @@ def run(cfg: dict, args, investigate) -> int:
     start = min(now - lookback, oldest - close_after)
     alerts = AL.merge(open_alerts, _anomalies(es, cfg["indices"]["anomalies"], start, now), now, close_after,
                       _done_ids(es, start - close_after))
-    docs, new, resolved = [], 0, 0
+    docs, incidents, new, resolved = [], [], 0, 0
     for al in alerts:
         al["dept"], al["group"] = AL.owner(al) if al.get("_anoms") else (al.get("dept"), al.get("group") or "unassigned")
-        report = al.get("report")
+        report, findings, similar, llm = al.get("report"), al.get("findings"), al.get("similar") or [], None
         if (al.get("_new") or not report) and acfg.get("rca", True) and al["category"] == "service" and al["status"] == "open":
             # 新的一件跑一次根因分析：時間是這件的開始到最後一筆異常再往後一個 interval；只有一支 API 時只查那支
             route = al["routes"][0] if len(al["routes"]) == 1 else None
             try:
-                report = investigate(cfg, Namespace(service=al["service"], route=route, start=AL._ts(al["started_at"]).isoformat(),
-                                                    end=(AL._ts(al["updated_at"]) + interval).isoformat(), at=None, window=None))
+                report, findings = investigate(cfg, Namespace(service=al["service"], route=route, start=AL._ts(al["started_at"]).isoformat(),
+                                                              end=(AL._ts(al["updated_at"]) + interval).isoformat(), at=None, window=None))
             except Exception as e:   # 根因分析失敗不擋這一件
-                report = f"根因分析失敗：{e}"
+                report, findings = f"根因分析失敗：{e}", None
             al["report_at"] = now
+            # 相似事故（老師傅確認過的）→ 附在報告最前面；LLM 摘要（只加註）
+            try:
+                similar = SIM.search(es, SIM.fingerprint(al, findings)) if acfg.get("similar", True) else []
+            except Exception as e:
+                similar = []
+                print(f"  相似事故檢索失敗：{e}")
+            if acfg.get("llm", True):
+                pack = LLM.build_pack({**al, "minutes": int((AL._ts(al["updated_at"]) - AL._ts(al["started_at"])).total_seconds() // 60)},
+                                      findings, similar)
+                llm = LLM.summarize(pack, acfg.get("llm_provider"))
+                if not llm["ok"]:
+                    print(f"  LLM 摘要不顯示（{llm['reason']}）")
+            head = ([f"> {l}" for l in llm["text"].splitlines()] + [""] if llm and llm["ok"] else []) + SIM.format_similar(similar)
+            if head and report:
+                report = "\n".join(head) + "\n" + report
+            al["findings"], al["similar"] = findings, similar
         if al.get("_anoms") or al.get("_new") or not al.get("summary"):
-            al["title"], al["summary"] = AL.headline(al), AL.summary(al, report, tz)
-        url = acfg.get("report_url")
+            al["title"], al["summary"] = AL.headline(al), AL.summary(al, report, tz, similar)
+        url, furl = acfg.get("report_url"), acfg.get("feedback_url")
         doc = {k: v for k, v in al.items() if not k.startswith("_")}
         doc.update({"report": report, "report_url": url.format(alert_id=al["alert_id"]) if url else None,
-                    "anomaly_count": len(al["anomaly_ids"]),
+                    "feedback_url": furl.format(alert_id=al["alert_id"]) if furl else None,
+                    "anomaly_count": len(al["anomaly_ids"]), "findings": findings, "similar": similar,
+                    "llm_summary": (llm or {}).get("text") or al.get("llm_summary"), "llm_provider": (llm or {}).get("provider") or al.get("llm_provider"),
                     "@timestamp": (al["resolved_at"] if al["status"] == "resolved" else now)})
-        docs.append((al["alert_id"], {k: (v.isoformat() if isinstance(v, datetime) else v) for k, v in doc.items()}))
+        doc = {k: (v.isoformat() if isinstance(v, datetime) else v) for k, v in doc.items()}
+        docs.append((al["alert_id"], doc))
+        if al["category"] == "service" and (al.get("_new") or al.get("_anoms") or al["status"] == "resolved"):
+            incidents.append((al["alert_id"], _incident_doc(al, doc, findings)))
         if al.get("_new") and al["status"] == "resolved":   # 已經過去的（例如這支停了一陣子才跑）：記下來，不算新開、不通知
             print(f"  ⏺ 已經過去的：{doc['title']}")
         elif al.get("_new"):
@@ -105,8 +142,21 @@ def run(cfg: dict, args, investigate) -> int:
             print(f"  ✅ 結束：{doc['title']}")
         elif al.get("_upgraded"):
             print(f"  ⬆️ {doc['title']}")
-    if docs:
-        es.bulk_index(ALERT_INDEX, docs)
+    # 心跳：每次跑都寫一筆（不是一件事，status ok；Grafana 查 status:open 不會抓到）。
+    # aiops-alerts 10 分鐘沒有任何寫入 → Grafana 的「AIOps 停了」規則送平台（configs/grafana/alert-rules.yaml）
+    docs.append(("heartbeat", {"@timestamp": now.isoformat(), "alert_id": "heartbeat", "category": "heartbeat", "status": "ok",
+                               "service": "aiops", "title": "investigator alert 心跳", "group": "unassigned", "started_at": now.isoformat(),
+                               "updated_at": now.isoformat(), "anomaly_ids": [], "series": [], "routes": [], "anomaly_count": 0}))
+    es.bulk_index(ALERT_INDEX, docs)
+    if incidents:
+        # 已經被老師傅確認的不覆蓋（只更新還是 auto 的）
+        from detector.feedback import INCIDENT_MAPPING
+        es.ensure_index(INCIDENT_INDEX, INCIDENT_MAPPING)
+        got = es.req("POST", f"/{INCIDENT_INDEX}/_mget?_source_includes=status", {"ids": [i for i, _ in incidents]}).get("docs", [])
+        confirmed = {g["_id"] for g in got if g.get("found") and g["_source"].get("status") not in (None, "auto")}
+        keep = [(i, d) for i, d in incidents if i not in confirmed]
+        if keep:
+            es.bulk_index(INCIDENT_INDEX, keep)
     still = sum(1 for _, d in docs if d["status"] == "open")
     print(f"{now.astimezone(tz):%m-%d %H:%M}：新開 {new} 件、結束 {resolved} 件、進行中 {still} 件")
     return 0

@@ -1,6 +1,6 @@
 # 產品主線：從收值到 learning loop 的 8 步（2026-10）
 
-**狀態**：進行中（計畫＋現況盤點，還沒動工）　　**日期**：2026-10-25　　**相關**：分支 `claude/product-loop`（從 `claude/alert-exit` 開）
+**狀態**：8 步都接上了（docker ES、模擬資料跑通整個故事；真實資料、K8s 還沒）　　**日期**：2026-10-25　　**相關**：分支 `claude/product-loop` → `claude/loop-complete`
 **模組**：①～⑨ 全部（下面每一步標它屬於哪個模組；**編號仍以 ①～⑨ 為準**，8 步是產品的說法）
 
 ## Plan：這一次要達到什麼
@@ -51,7 +51,23 @@
 | 7 RCA＋RAG | 根因報告（第 4 步）；事故紀錄 `aiops-incidents` 存症狀、根因、處置、相關異常 | ⚠️ RCA ✅｜RAG ❌ | **報告不會去找過去的事故**：`investigator` 完全沒讀 `aiops-incidents`、`aiops-feedback`。沒有相似事故檢索、沒有 LLM 摘要；沒有評測集（20～30 件過去事故） |
 | 8 learning loop | `feedback add`（真的／誤報／根因錯／漏報＋正確根因）；`feedback suggest`：同一個對象誤報 3 次 → 提「放寬門檻」（proposed）；`adjust approve` 才生效；`incident add --exclude-training` 提「這段不學」；`tune` 調粒度、z | ⚠️ | **回饋只能打指令**，老師傅不會用；沒記「怎麼看出來的」（老師傅經驗的核心）；回饋不會更新 RAG（因為沒有 RAG）；漏報不會變成新規則；沒有「學之前、學之後」誤報率、找到原因時間的數字；沒有回測 |
 
-**總結**：1～4 是穩的，5 有一半，**6、7 的 RAG、8 的入口是斷點**。賣點的三個字：RCA 有了；老師傅 feedback 有存的地方、沒有給老師傅用的入口；learning loop 有「誤報 → 建議放寬」這一小圈，沒有「經驗 → RAG → 下一次報告」這一圈。
+**總結（10-25 盤點時）**：1～4 是穩的，5 有一半，**6、7 的 RAG、8 的入口是斷點**。
+
+### 整合驗證（2026-10-25，分支 `claude/loop-complete`，docker 的 ES 9.5.5）
+
+目的：Plan 裡那個故事能不能**一次跑通**，不是一段一段各自過。腳本 [`engine/tests/loop_e2e.py`](../../engine/tests/loop_e2e.py)（模擬資料 `aiops-synth`：3 個服務 4 週歷史＋2 天；mes-api 延遲 ×4 三次、mes-report「月底批次」請求 +50 三次），37 個檢查全部通過：
+
+| 故事 | 跑了什麼 | 看到什麼 |
+|---|---|---|
+| 第 1 次：mes-api 變慢 → 告警＋報告送到值班 | `train` → `detect --at 10-05 10:20` → `investigator alert` | 開一件 `a-20261005-0205-mes-api`（D3120／it），帶 `feedback_url`；`aiops-incidents` 同時有一筆 `status: auto`、帶指紋；心跳 `heartbeat` 寫了；沒有相似事故（知識庫空的） |
+| 老師傅回饋 | `GET /feedback?alert=…`（表單預填標題、摘要）→ `POST`：真的、db、「Oracle 統計資訊過期」、處置「重跑 analyze」、怎麼看出來的「只有 lots 慢、AWR 看到執行計畫變了」、查了 AWR 和瀑布圖 | `aiops-feedback` 3 筆（每筆異常一筆）；事故變 `confirmed`、五樣東西都在；15 分鐘後件 `resolved`，事故仍 `confirmed` |
+| 第 2 次：類似症狀 → 報告最前面多一段 | 10-06 同樣的事 → `detect` → `alert` | 第 2 件 `similar[0]` = 第 1 件，為什麼像：「同服務（mes-api）；同樣的指標異常（synth.latency）」；報告有「## 過去相似的事故」；通知摘要有「過去相似：2026-10-05 [db] Oracle 統計資訊過期…；處置：重跑 analyze」；LLM 摘要（template）三句，每句附 `[A1]`／`[I1]`，第三句「建議先照上次的方式確認：只有 lots 那張表的查詢慢…」 |
+| 第 3 次 → 同根因 3 次 | 再一次、再確認 db | 第 3 件附 2 件相似；`similar-eval` recall@3 = 3/3；`feedback suggest` 提「升級成規則」草稿 `mes-api.db.recurring` |
+| 另一邊：月底批次誤報 3 次 → 建議 → 核准 → 不再報 | 三次批次各開一件、網頁各標誤報（`fp_reason: batch`）→ `suggest` → 先 `approve`（被拒：沒回測）→ `backtest --weeks 1` → `approve` → 同一段再 `detect` | 建議 z 5 → 7；回測「告警 3 → 1；已確認事故 3 件都不是這條序列抓的，不受影響 → 建議核准」；核准記 amy；再 detect 沒有 anomaly |
+| 漏報 | `feedback add --verdict missed` → `suggest` | 一筆降 z 的建議 |
+| 量化 | `metrics` 兩段並排 | 6 件、有回饋 100%（3 人）、誤報率 50%、確認的事故 3、「怎麼看出來的」67% |
+
+另外：image `docker build` 成功，用它跑 `alert`、`metrics`、`feedback_web` 對測試 ES 都正常；單元測試 276 個、ruff 過。每一步的細節與沒改善的在各自的 PDCA：[schedule](2026-10-schedule.md)、[expert-feedback](2026-10-expert-feedback.md)、[similar-incidents](2026-10-similar-incidents.md)、[loop-update](2026-10-loop-update.md)、[llm-summary](2026-10-llm-summary.md)、[metrics-kpi](2026-10-metrics-kpi.md)。賣點的三個字：RCA 有了；老師傅 feedback 有存的地方、沒有給老師傅用的入口；learning loop 有「誤報 → 建議放寬」這一小圈，沒有「經驗 → RAG → 下一次報告」這一圈。
 
 ## Act：要補的（依順序：每一步都是那個故事缺的一環）
 
@@ -66,9 +82,15 @@
 | 7 | **量化**：學之前、學之後的誤報率、從告警到找到原因多久、老師傅回饋了幾件 | 8／⑨ | 賣「會學」一定要數字 | 試點產線 |
 | — | 第 5 步的工具（業務 ID 查交易、給 LLM 的查詢工具） | 5／⑦ | 等業務 ID 命名、log 樣本；LLM 工具跟順序 6 一起 | 業務 ID 名稱 |
 
-- **還沒解決、要誠實面對的**：
+- **10-25 整合驗證後還剩的（各 PDCA 的 Act 彙整，只列會影響「能不能賣」的）**：
+  - **全部是模擬資料、沒有 trace**：相似事故只靠「同服務＋同指標」剛好壓在門檻 4 上；recall 3/3 是 3 件一樣的東西。要 k3s 造兩種根因、再要試點產線的真事故 20～30 件。
+  - **真的 LLM 沒跑過**（閘道 401）：只驗了「捏造一定被擋」和退回固定句型。
+  - **沒上 K8s**：CronJob、Forbid、Grafana 心跳規則都只到 yaml 能讀。
+  - **月底批次用放寬 z 是治標**：`suggest` 還不會依 `fp_reason: batch` 提 `recurring_override`。
+  - 回饋網頁沒登入、漏報沒網頁入口、相似事故時間顯示 UTC。
+- **還沒解決、要誠實面對的（盤點時寫的，仍成立）**：
   - **沒有真實事故資料**（在什麼情況下發現：盤點第 3、7 步時，所有驗證都是 k3s 造的）。展示可以用造的，賣的時候客戶會問「實際降了多少誤報」，需要一個試點產線跑 1～2 個月。
   - **RAG 要有料**：至少 20～30 件過去的事故（症狀、根因、處置）。工廠有舊的事故單、交接紀錄的話，現在就該開始收。
   - **第 5 步的意思是我推的**（「輔助 4 查問題」），不對要改。
 - **決定**：不再加新的偵測機制；照上表順序把這一圈接起來。之前評估「adjust、feedback 偏早」是從可靠度看的；它們是賣點的零件，留著，但不再擴。
-- **下一輪**：每一項都有自己的 Plan 了：順序 1 [事件整合，通知交給 Grafana](2026-10-alert-exit.md)、2 [老師傅回饋入口](2026-10-expert-feedback.md)、3 [相似事故檢索](2026-10-similar-incidents.md)、4＋5 [回饋回到系統](2026-10-loop-update.md)、6 [LLM 摘要](2026-10-llm-summary.md)；7 量化等有試點產線再寫。
+- **下一輪**：順序 1～7 的程式都在了（[alert-exit](2026-10-alert-exit.md)、[expert-feedback](2026-10-expert-feedback.md)、[similar-incidents](2026-10-similar-incidents.md)、[loop-update](2026-10-loop-update.md)、[llm-summary](2026-10-llm-summary.md)、[metrics-kpi](2026-10-metrics-kpi.md)、[schedule](2026-10-schedule.md)）。下一步不是再加功能：**上 k3s 跑 `deploy/`、用有 trace 的事故驗相似事故與 LLM、找試點產線只寫入不通知跑 2～4 週**。

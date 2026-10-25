@@ -1,6 +1,6 @@
 # 相似事故檢索：RAG 的「檢索」（2026-10）
 
-**狀態**：進行中（只有 Plan）　　**日期**：2026-10-25　　**相關**：分支 `claude/loop-plans`；前置 [老師傅回饋入口](2026-10-expert-feedback.md)；主線 [product-loop](2026-10-product-loop.md) 第 7 步
+**狀態**：完成（欄位比對版，docker ES 實測；舊事故匯入格式見 Act）　　**日期**：2026-10-25　　**相關**：分支 `claude/loop-plans`；前置 [老師傅回饋入口](2026-10-expert-feedback.md)；主線 [product-loop](2026-10-product-loop.md) 第 7 步
 **模組**：⑦ 根因分析、⑨ feedback（知識庫）
 
 ## Plan：這一次要達到什麼
@@ -50,12 +50,32 @@
 
 ## Do：改動哪些 code、改了什麼、為何要改
 
-（還沒動工）
+| 檔案 | 改了什麼 | 為何 |
+|---|---|---|
+| `engine/investigator/__main__.py` | `investigate` 拆成 `investigate_full(cfg, args) → (報告, findings)`：`findings` 是結構化結果（`anomalies`、`segments`、`error_origins`、`new_patterns`、`topology`、`requests`）；`alert` 改用它；新增 `similar-eval` 子指令 | 指紋要「慢在哪一段、錯從哪開始」，以前只在 Markdown 裡 |
+| `engine/investigator/similar.py`（新） | `fingerprint(alert, findings)`：服務、API、指標組合、慢的那段（前 3，SQL 裡的數字換成 `#`）、錯誤源頭（前 3）、新 log 樣式（前 5）。`query`：ES bool／terms／match，只檢索 `status` confirmed／corrected。`explain`：**自己算分**（每個欄位有交集就加權重：慢段 4、錯誤源頭 4、服務 3、API 2、log 樣式 2、指標 1）並寫出交集的內容。`search`：分數 ≥ 4 的前 3 件。`format_similar`：報告那一段。`evaluate`：留一法 recall@k | 分數自己算才解釋得出「為什麼像」；權重先估 |
+| `engine/investigator/cmd_alert.py` | 新的一件：`investigate_full` → `search` → 相似事故附在報告最前面、存 `similar`、`findings`；摘要多一行「過去相似：…」；同時寫一筆 `aiops-incidents`（`status: auto`、帶 `fingerprint`） | 告警一出來就查；事故的指紋在產生時就存好 |
+| `engine/investigator/alerts.py` | `summary(..., similar)` 多一行 | 通知裡就看得到上次的根因、處置 |
+| `engine/investigator/es.py` | `anomalies()` 回傳 `_id` | 指紋要對回異常 |
+| `engine/detector/feedback.py` | `INCIDENT_MAPPING` 加 `fingerprint`（6 個 keyword／text 欄位）、`root_cause_category` | 查得到 |
+| `engine/configs/rca/rca.yaml` | `alerts.similar: true` | 可以關 |
+| `engine/tests/test_similar.py`（新） | 9 個：指紋（去數字）、沒有 findings、explain 只列真的相同的欄位、只檢索已確認、分數不到不附、排除自己、留一法、格式 | |
 
 ## Check：測試的目的與結果
 
-（還沒動工）
+| 目的 | 怎麼測 | 結果 |
+|---|---|---|
+| 第 2 次的報告最前面出現第 1 次（Plan 驗收 4） | `loop_e2e`：mes-api 延遲 ×4 兩次（隔一天），第 1 次老師傅確認 db | 第 2 件的 `similar[0]` 就是第 1 件；報告有「## 過去相似的事故」；通知摘要有「過去相似：2026-10-05 [db] Oracle 統計資訊過期…；處置：重跑 analyze」 |
+| 「為什麼像」每一點對得到兩邊（驗收 2） | 看 `why` | 「同服務（mes-api）；同樣的指標異常（synth.latency）」，兩邊的指紋確實都有；單元測試另驗：路由不同就不會說「同一支 API」 |
+| 沒有前例就不附（驗收 3） | 第 1 件（知識庫空的）；單元測試：只有同服務（3 分）的事故 | 第 1 件 `similar` 空；3 分的不附 |
+| 未確認的不拿來教人 | 單元測試：同指紋但 `status: auto` | 不出現 |
+| 留一法 recall@3（驗收 1） | `similar-eval`：3 件 db 事故 | 3/3；但這 3 件是同一種模擬，**不能當成 70% 達標的證據**（見 Act） |
+| 第 3 件附 2 件 | 同上 | 附 2 件，分數都 4.0 |
 
 ## Act：Check 後沒改善的、還沒解決的
 
-（還沒動工）
+- **模擬資料沒有 trace，指紋只有服務＋指標**（在什麼情況下發現：loop_e2e 的分數都剛好 4.0 ＝ 同服務 3 ＋ 同指標 1，正好壓在門檻上）。慢的那段、錯誤源頭這兩個「強特徵」在 k3s 的 rca e2e 才有；**門檻 4 和權重都還是估的**，要用有 trace 的事故（k3s 造兩種不同根因）再看一次：同服務不同根因的事故會不會被當成像。
+- **recall@3 = 3/3 沒有意義**：3 件長得一樣。真正的評測要 20～30 件真實事故，含幾件「沒有前例」的。
+- **舊事故單的匯入格式還沒寫**（Plan 範圍有）：欄位就是 `aiops-incidents` 的（`title`、`start`、`end`、`services`、`root_cause_category`、`root_cause`、`action`、`how_detected`、`checked`、`fingerprint.{services,routes,series,slow_segments,error_origins,patterns}`、`status: confirmed`、`by`），一件一筆 JSON 直接 bulk 進去就能被查到；要補一個 `interfaces/incidents.md` 和一支匯入指令。
+- **相似事故的時間顯示 UTC**（`start[:16]`）：報告、LLM 摘要裡是 `2026-10-05T02:05`，老師傅看的是台北時間，要轉。
+- 指紋裡的 `patterns` 用 `match`（BM25），其他用 `terms`；log 樣式字數多時 `match` 容易「部分像」就加 2 分，之後看誤判再改成 `match_phrase`。

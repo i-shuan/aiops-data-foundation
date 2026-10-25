@@ -1,6 +1,6 @@
 # 老師傅的回饋入口（2026-10）
 
-**狀態**：進行中（只有 Plan）　　**日期**：2026-10-25　　**相關**：分支 `claude/loop-plans`；前置 [告警出口](2026-10-alert-exit.md)；主線 [product-loop](2026-10-product-loop.md) 第 8 步
+**狀態**：完成（網頁＋寫入，docker ES 實測）　　**日期**：2026-10-25　　**相關**：分支 `claude/loop-plans`；前置 [告警出口](2026-10-alert-exit.md)；主線 [product-loop](2026-10-product-loop.md) 第 8 步
 **模組**：⑧ 出口（回饋從人回來）、⑨ feedback
 
 ## Plan：這一次要達到什麼
@@ -48,12 +48,33 @@
 
 ## Do：改動哪些 code、改了什麼、為何要改
 
-（還沒動工）
+入口選 **C. 小網頁**（Plan 的表）：不綁通知管道，Teams、LINE、Email 的通知都只是帶一個連結；先不做登入（內網、表單裡填名字）。
+
+| 檔案 | 改了什麼 | 為何 |
+|---|---|---|
+| `engine/feedback_web/__init__.py`、`__main__.py`（新） | 標準函式庫 `http.server`：`GET /feedback?alert=<id>` 表單、`POST /feedback`（表單）／`/api/feedback`（JSON）、`GET /report?alert=<id>` 報告全文、`/health`；環境變數 `ES_URL`、`ES_API_KEY`、`FEEDBACK_PORT` | 不另外裝套件；跟其他指令同一個 image |
+| `engine/feedback_web/app.py`（新） | `form_data`：從 `aiops-alerts` 預填標題、摘要、LLM 摘要、相似事故、報告連結。`submit`：寫 `aiops-feedback`（**一件的每筆異常各一筆**，帶 `alert_id`、`series`、`keys`）、更新 `aiops-incidents`（`true_positive → confirmed`、`wrong_root_cause → corrected`、`false_positive → false_positive`；存根因分類、根因、處置、怎麼看出來的、查了哪裡、下次怎麼更快、`confirmed_by/at`；事故還沒開出來就 upsert 一筆）；先用正式 mapping 建 index | 每筆異常一筆，現有的 `feedback summary／suggest`（依序列＋對象算）才對得起來；事故要變 `confirmed` 相似事故檢索才會拿來用 |
+| 表單欄位（`render_form`） | 一鍵：真的／誤報／真的但根因錯；真的時：根因分類（下拉 9 類）、根因一句話、處置、**怎麼看出來的**（提示「這是最值錢的」）、查了哪些地方（10 個勾選）、下次怎麼更快；誤報時：為什麼不是問題（月底批次、壓測、本來就慢、量太少、換版、其他）；名字必填 | Plan 的表；老師傅只填空的 |
+| `engine/detector/feedback.py` | `INCIDENT_MAPPING` 加 `alert_id`、`dept`、`group`、`root_cause_category`、`how_detected`、`checked`、`improve`、`confirmed_at`、`confirmed_by`、`fingerprint`；`FEEDBACK_MAPPING` 加 `alert_id`、`alert_started_at`、`fp_reason`；`ROOT_CAUSE_CATEGORIES` 9 類 | 要存的欄位；分類固定才比得準 |
+| `engine/investigator/cmd_alert.py`、`configs/rca/rca.yaml` | 每一件寫 `feedback_url`（`alerts.feedback_url`，含 `{alert_id}`）；新的一件同時寫一筆 `aiops-incidents`（`status: auto`，帶指紋），**已確認的不覆蓋** | 通知裡要有連結；事故一開始就存在，老師傅只是改狀態 |
+| `engine/deploy/feedback-web.yaml` | Deployment＋Service | 要有地方跑 |
+| `engine/tests/test_feedback_web.py`（新） | 7 個：預填、報告頁、確認寫幾筆、誤報存原因不存根因、根因錯存正確根因、異常過期仍留一筆、錯的輸入不寫 | |
 
 ## Check：測試的目的與結果
 
-（還沒動工）
+| 目的 | 怎麼測 | 結果 |
+|---|---|---|
+| 從通知點進來就能填、不用查 | `loop_e2e`（docker ES 9.5.5、模擬資料）：第 1 件開了後 `GET /feedback?alert=…` | 200；表單裡有那件的標題、摘要、「怎麼看出來的」欄位；`/report` 有報告全文 |
+| 五樣東西存進去 | `POST /api/feedback` 真的＋db＋根因＋處置＋怎麼看出來的＋查了 2 個地方＋下次怎麼更快 | `aiops-incidents` 那件變 `confirmed`，`root_cause_category: db`、`how_detected` 有 AWR、`confirmed_by: 老王`；`aiops-feedback` 寫了跟異常數一樣多的筆數（3 筆） |
+| 件結束不會蓋掉老師傅的 | 確認後再跑 alert 讓那件 `resolved` | 事故仍 `confirmed`、根因分類還在 |
+| 誤報的原因留下來、給 suggest 用 | 3 件批次各標誤報（`fp_reason: batch`） | `feedback suggest` 算到同一個對象誤報 3 次（見 [loop-update](2026-10-loop-update.md)） |
+| 第一筆寫入不能讓 mapping 壞掉 | 第一次跑時 `aiops-feedback` 還不存在 | **第一次發現問題**：網頁先寫，ES 把 `anomaly_id` 猜成 text，之後 `feedback suggest` 的 `ensure_index` 400。改成網頁寫入前先用正式 mapping 建 index，重跑過 |
+| 邏輯不連 ES 也能測 | `test_feedback_web.py` 用假 ES | 7 個情境都如預期 |
 
 ## Act：Check 後沒改善的、還沒解決的
 
-（還沒動工）
+- **沒有登入**（在什麼情況下發現：設計入口時）。內網、連結只在通知裡，先這樣；要防亂填時最省的是放在公司 SSO 的反向代理後面，表單的 `by` 改讀 header。
+- **「回饋後在通知下面回一則」沒做**（Plan 的範圍有寫）：Grafana 的通知是單向的；要做要在 Grafana 用 annotation 或另發一則，之後看通知管道再決定。
+- **還沒有真人填過**：欄位是照老師傅會講的話設計的，10 個「查了哪裡」的選項是估的；試點時看第一週填了什麼再改。
+- **漏報沒有網頁入口**：漏報沒有告警可以點，現在仍只能 `feedback add --verdict missed`；之後在網頁加一個「回報漏報」頁。
+- LLM 摘要、相似事故在表單裡是給人參考，**人看了會不會被它帶著走**（anchoring）要觀察：之後可以考慮預設收合。

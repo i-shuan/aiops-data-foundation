@@ -131,3 +131,31 @@ class Suggest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SuggestFromIncidents(unittest.TestCase):
+    """回饋回到系統（docs/pdca/2026-10-loop-update.md）：漏報 → 降 z；同根因 3 次 → 升級成規則。"""
+
+    def test_missed_lowers_z(self):
+        s = F.suggest_missed("log.errors", F.target_of({"service": "pay"}), current_z=5.0)
+        self.assertEqual((s["kind"], s["z"], s["status"]), ("override", 4.0, "proposed"))
+        self.assertEqual(s["match"], {"service": "^pay$"})
+        self.assertIn("漏報", s["reason"])
+
+    def inc(self, i, svc="mes-api", cat="db", seg="mes-api › wip-worker › Oracle SELECT lots #"):
+        return {"id": f"i{i}", "services": [svc], "root_cause_category": cat, "fingerprint": {"slow_segments": [seg], "error_origins": []}}
+
+    def test_three_same_root_cause_become_rule_suggestion(self):
+        out = F.suggest_rules([self.inc(1), self.inc(2), self.inc(3), self.inc(4, cat="network"), self.inc(5, svc="pay"), self.inc(6, svc="pay")])
+        self.assertEqual(len(out), 1)
+        s = out[0]
+        self.assertEqual((s["kind"], s["service"], s["root_cause_category"], s["status"]), ("rule_suggestion", "mes-api", "db", "proposed"))
+        self.assertEqual(s["incident_ids"], ["i1", "i2", "i3"])
+        d = s["rule_draft"]
+        self.assertEqual((d["name"], d["type"], d["op"]), ("mes-api.db.recurring", "window", ">="))
+        self.assertIn("Oracle SELECT lots", d["_note"])
+        self.assertIn("<填", d["threshold"])    # 門檻要人看事故填，不自己猜
+
+    def test_below_min_recurring_nothing(self):
+        self.assertEqual(F.suggest_rules([self.inc(1), self.inc(2)]), [])
+        self.assertEqual(len(F.suggest_rules([self.inc(1), self.inc(2)], min_recurring=2)), 1)

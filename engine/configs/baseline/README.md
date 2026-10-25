@@ -471,7 +471,11 @@ PDCA 的 Check：告警出去之後，人判斷對不對，才知道門檻準不
 | `feedback pending` | 最近還沒人標記的告警（只列 `anomaly`；`warning` 還沒通知任何人）和它們的 id |
 | `feedback add --anomaly <id> --verdict …` | `true_positive` 真的、`false_positive` 誤報、`wrong_root_cause` 真的但根因錯（`--root-cause` 寫正確的）、`missed` 漏報（沒有 id，給 `--series --match --at`）。同一個人對同一筆再標會覆蓋 |
 | `feedback summary` | 每條序列的告警數、已標記比例、誤報率；誤報累積多次的對象；漏報 |
-| `feedback suggest` | 同一個對象誤報 ≥ 3 次 → 提一筆放寬 z（× 1.4）的建議，`status: proposed`，`adjust approve` 才生效。match 完全符合那個對象（路由的 `{id}` 等字元已跳脫） |
+| `feedback suggest` | (1) 同一個對象誤報 ≥ 3 次 → 提一筆放寬 z（× 1.4）的建議；(2) 漏報 → 那條序列、那個對象降 z（× 0.8）；(3) 同一個服務、同一個根因分類被老師傅確認 ≥ 3 次（`--min-recurring`）→ 提「升級成規則」，附規則草稿 `rule_draft`（人看過、填門檻，加進 `rules.yaml`）。都是 `status: proposed`；override 要先 `backtest` 再 `adjust approve` |
+| `backtest --id <建議> --weeks 4` | 改門檻前先回測：用「現行」和「現行＋這筆建議」各重跑過去 N 週的 detect（不寫 ES），比告警少幾個、已確認的事故（`aiops-incidents` confirmed／corrected／resolved）還抓不抓得到、漏報抓到沒；少抓一件已確認的事故就「不建議」。結果寫回建議的 `backtest` 欄位，`adjust list` 看得到 |
+| `adjust approve --id … --by …` | override 類的建議**沒回測、或回測不建議的不能核准**（要跳過用 `--force`）；記 `approved_by`、`approved_at` |
+| `metrics --from … --to … [--compare-from … --compare-to …]` | 量化：件數（每天、依 dept）、有回饋的比例、誤報率、根因錯的比例、漏報、從告警到第一筆回饋的中位時間、老師傅確認的事故數、「怎麼看出來的」有填的比例；兩段並排就是「學之前 vs 學之後」。只印 Markdown（`--out` 存檔），畫圖交給 Grafana |
+| `python3 -m feedback_web` | 老師傅的回饋網頁（通知裡的連結）：一鍵真的／誤報／根因錯，多填根因分類、根因、處置、**怎麼看出來的**、查了哪裡、下次怎麼更快；寫 `aiops-feedback`（一件的每筆異常各一筆）和 `aiops-incidents`（`confirmed`／`corrected`／`false_positive`） |
 | `incident add --title --start --end --service …` | 事故紀錄：時間、影響的服務、根因、處置、相關異常。`--exclude-training` 同時提「這段不學」（`exclude_window`，proposed，只排除列出的服務；沒列就全部） |
 | `incident list`／`incident resolve --id` | 列出／結案（補根因、處置） |
 
@@ -493,7 +497,9 @@ PDCA 的 Check：告警出去之後，人判斷對不對，才知道門檻準不
 | 事故 `--exclude-training` | ✅ proposed 時 `train` 不排除；`approve` 後排除那段（7,200 點）；沒列服務的建議是全部 |
 | 缺參數、不存在的 id、錯的 verdict | ✅ 清楚的錯誤訊息，不寫入 |
 
-**還沒做**：告警出口（通知）；每筆異常記是哪一版產生的、回測、評測集；回饋靠指令標記，還沒有通知裡的按鈕；事故根因還沒餵給 RAG；`suggest` 只調 z，不調 `min_abs`、粒度。
+**2026-10-25 補的**（docker ES、模擬資料實測，見 [pdca/2026-10-loop-update.md](../../../docs/pdca/2026-10-loop-update.md)、[2026-10-expert-feedback.md](../../../docs/pdca/2026-10-expert-feedback.md)）：回饋網頁；誤報 3 次 → 建議 → `backtest`（告警 3 → 1、已確認事故不受影響）→ `approve` → 同樣的批次不再報；同根因 3 次 → 規則草稿；漏報 → 降 z 的建議；`metrics` 兩段並排。
+
+**還沒做**：每筆異常記是哪一版產生的、評測集（要真實事故）；`suggest` 只調 z，不調 `min_abs`、粒度，也不會提「排除時段」（月底批次更該用 `adjust add --kind recurring_override`，現在要人手動）；規則草稿的門檻要人填。
 
 ## 慢性病清單、行事曆
 

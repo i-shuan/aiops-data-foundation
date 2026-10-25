@@ -1,0 +1,35 @@
+# AIOps engine 的排程（docs/pdca/2026-10-schedule.md）：每個指令一個 CronJob，照它該跑的頻率；回饋網頁一個 Deployment。
+#
+# 部署前要先有：
+#   1. image：cd engine && docker build -t <nexus>/aiops-engine:<tag> .   （下面 images 換成實際路徑）
+#   2. Secret aiops-secrets（手動建，不進 git）：
+#        kubectl -n aiops create secret generic aiops-secrets \
+#          --from-literal=ES_API_KEY=<elasticsearch-setup.sh 發的「AIOps baseline key」> \
+#          --from-literal=LLM_API_KEY=<沒有就給空字串>
+#   3. 下面 aiops-env 的 ES_URL 改成實際值；LLM_PROVIDER 沒有模型就留 template
+#   4. 設定檔要跟 image 裡的不一樣時，打開 configMapGenerator aiops-configs 那段（蓋在 /app/configs 上）
+#
+# 先只寫入、不通知：Grafana 那邊先不設 contact point（或 policies 全送到一個沒人看的 webhook），跑 2～4 週，
+# 用 python3 -m detector metrics --from … --to … 記下基準，再開通知。
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: aiops
+resources:
+  - namespace.yaml
+  - cronjobs.yaml
+  - feedback-web.yaml
+configMapGenerator:
+  - name: aiops-env
+    literals:
+      - ES_URL=https://elasticsearch.example.internal:9200
+      - LLM_PROVIDER=template          # template（不叫模型）／anthropic／openai；anthropic 要再給 LLM_CHAT_MODEL、ANTHROPIC_BASE_URL
+      - TZ=Asia/Taipei
+  # - name: aiops-configs
+  #   files:
+  #     - series.yaml=../configs/baseline/series.yaml
+  #     - rules.yaml=../configs/baseline/rules.yaml
+  #     - rca.yaml=../configs/rca/rca.yaml
+images:
+  - name: aiops-engine
+    newName: nexus.example.internal/aiops/aiops-engine   # 換成 Nexus 的路徑
+    newTag: "0.1.0"

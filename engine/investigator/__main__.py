@@ -9,6 +9,8 @@
   python3 -m investigator topology --config configs/rca/rca.yaml --window 1h
   # 事件整合：最近的異常合成一件、新的那件跑根因分析，寫 aiops-alerts（Grafana 讀它發通知）。每 1～2 分鐘跑一次
   python3 -m investigator alert --config configs/rca/rca.yaml [--at …]
+  # 相似事故檢索的評測（留一法 recall@3）
+  python3 -m investigator similar-eval --config configs/rca/rca.yaml
 
 investigate 照「Metrics 發現異常 → Trace 縮小到哪一段 → Log 找出原因」的順序查，印出一份 Markdown 報告；
 --out 另存成檔案。
@@ -97,7 +99,15 @@ def pick_from_anomalies(es, cfg, start, end):
 
 
 def investigate(cfg: dict, args) -> str:
+    return investigate_full(cfg, args)[0]
+
+
+def investigate_full(cfg: dict, args) -> tuple[str, dict]:
+    """回傳 (Markdown 報告, findings)。findings 是結構化的結果：異常、慢在哪一段、錯從哪開始、新 log 樣式、呼叫關係，
+    給事件整合存進 aiops-alerts、相似事故檢索（investigator/similar.py）和 LLM 摘要（core/llm.py）用。"""
     es = E.ES()
+    findings: dict = {"service": None, "route": None, "anomalies": [], "segments": [], "error_origins": [], "new_patterns": [],
+                      "topology": [], "requests": None, "ref_label": None}
     ix = cfg["indices"]
     tz = cfg.get("timezone", "Asia/Taipei")
     n = cfg.get("sample", 200)
@@ -110,7 +120,7 @@ def investigate(cfg: dict, args) -> str:
     if not service:
         picked = pick_from_anomalies(es, cfg, start, end)
         if not picked:
-            return f"{_local(start, tz)}～{_local(end, tz)} 沒有 baseline 找到的異常。要查特定服務的話用 --service。"
+            return f"{_local(start, tz)}～{_local(end, tz)} 沒有 baseline 找到的異常。要查特定服務的話用 --service。", findings
         service, route, start, end, found = picked
     elif not found:
         found = E.anomalies(es, ix["anomalies"], start, end, service)
@@ -125,6 +135,10 @@ def investigate(cfg: dict, args) -> str:
             break
 
     what = f"{service}" + (f"（{route}）" if route else "")
+    findings.update({"service": service, "route": route, "start": start.isoformat(), "end": end.isoformat(), "ref_label": ref_label or None,
+                     "anomalies": [{"id": r.get("_id"), "series": r.get("series"), "value": r.get("value"), "median": r.get("median"),
+                                    "z": r.get("z"), "status": r.get("status"), "severity": r.get("severity"), "at": r.get("@timestamp")}
+                                   for r in sorted(found, key=lambda r: -abs(r.get("z") or 0))[:10]]})
     out = [f"# 根因分析：{what}，{_local(start, tz)}～{_local(end, tz)}（{tz}）", ""]
 
     # ── 1. Metrics ──
@@ -149,9 +163,10 @@ def investigate(cfg: dict, args) -> str:
     # ── 2. Trace：範圍 ──
     now = E.entry_stats(es, ix["traces"], service, route, start, end)
     out += ["## 2. Trace：這個服務收到的請求", ""]
+    findings["requests"] = now
     if not now["requests"]:
         out.append("這段時間沒有這個服務的 trace（服務沒埋點、取樣太低、或名稱不對）。只能從 log 找。")
-        return "\n".join(out)
+        return "\n".join(out), findings
     ref = E.entry_stats(es, ix["traces"], service, route, ref_start, ref_end) if ref_start else None
     out += [f"| | 現在 | 平常（{ref_label or '沒有資料'}） |", "|---|---|---|"]
     for k, label in (("requests", "請求數（trace，有取樣）"), ("errors", "錯誤"), ("p50_ms", "p50"), ("p95_ms", "p95")):
@@ -177,6 +192,9 @@ def investigate(cfg: dict, args) -> str:
         out.append(f"| {d.segment} | {_ms(d.now_ms)} | {_ms(d.ref_ms)} | **{_delta(d.delta_ms)}** "
                    f"| {d.now_calls:.1f}（平常 {d.ref_calls:.1f}） |")
     errs = sorted([d for d in diffs if d.now_errors > d.ref_errors], key=lambda d: d.now_errors - d.ref_errors, reverse=True)
+    findings["segments"] = [{"segment": d.segment, "now_ms": d.now_ms, "ref_ms": d.ref_ms, "delta_ms": d.delta_ms,
+                             "now_calls": d.now_calls, "ref_calls": d.ref_calls} for d in diffs[:6]]
+    findings["error_origins"] = [{"segment": d.segment, "now_errors": d.now_errors, "ref_errors": d.ref_errors} for d in errs[:5]]
     if errs:
         out += ["", "錯誤最早出在哪一段（上層只是把錯誤往上傳）：", "", "| 段 | 現在 | 平常 |", "|---|---|---|"]
         out += [f"| {d.segment} | {d.now_errors} 個請求 | {d.ref_errors} |" for d in errs[:5]]
@@ -194,6 +212,8 @@ def investigate(cfg: dict, args) -> str:
     p_now = E.problem_logs(es, ix["logs"], suspects, start, end)
     p_ref = E.problem_logs(es, ix["logs"], suspects, ref_start, ref_end) if ref_start else []
     pats = A.compare_patterns(p_now, p_ref)
+    findings["new_patterns"] = [{"service": p.service, "pattern": p.pattern[:200], "now": p.now, "ref": p.ref, "is_new": bool(p.is_new),
+                                 "example": p.example.splitlines()[0][:200]} for p in pats[:8]]
     if pats:
         out += ["| 服務 | 樣式 | 現在 | 平常 | 例子 |", "|---|---|---|---|---|"]
         for p in pats[:8]:
@@ -208,6 +228,7 @@ def investigate(cfg: dict, args) -> str:
 
     # ── 6. 呼叫關係 ──
     edges = A.topology(now_tr)
+    findings["topology"] = [{"caller": e.caller, "callee": e.callee, "calls": e.calls, "errors": e.errors} for e in edges]
     out += ["## 6. 這些請求經過的服務", "", "```mermaid", A.mermaid(edges), "```", ""]
 
     # ── 結論 ──
@@ -222,7 +243,7 @@ def investigate(cfg: dict, args) -> str:
         out.append(f"- 同時間 {p.service} 新出現 log「{p.example.splitlines()[0][:100]}」，{p.now} 次。")
     if not (top or errs or new):
         out.append("- 跟平常比看不出哪一段變化特別大，可能是整體量變大，或問題不在有 trace 的地方。")
-    return "\n".join(out)
+    return "\n".join(out), findings
 
 
 def topology(cfg: dict, args) -> str:
@@ -261,11 +282,20 @@ def main(argv=None) -> int:
     al = sub.add_parser("alert", help="異常合成一件、新的那件跑根因分析，寫 aiops-alerts（Grafana 讀它發通知）")
     al.add_argument("--config", required=True)
     al.add_argument("--at", help="回測：拿這個時間當成「現在」")
+    se = sub.add_parser("similar-eval", help="相似事故檢索的評測：留一法 recall@3（同一個根因分類有沒有排進前 3）")
+    se.add_argument("--config", required=True)
     args = p.parse_args(argv)
     with open(args.config, encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
     if args.cmd == "alert":
-        return cmd_alert.run(cfg, args, investigate)
+        return cmd_alert.run(cfg, args, investigate_full)
+    if args.cmd == "similar-eval":
+        from . import similar as SIM
+        r = SIM.evaluate(E.ES())
+        for row in r["rows"]:
+            print(f"  {'✓' if row['hit'] else '✗'} {row['id'][:24]:<24} [{row['category']}] {row['title'] or ''}  → {row['found']}")
+        print(f"recall@3：{r['hit']}/{r['n']}" + (f"（{r['recall']:.0%}）" if r["recall"] is not None else "（沒有已確認、有根因分類的事故）"))
+        return 0
     report = investigate(cfg, args) if args.cmd == "investigate" else topology(cfg, args)
     print(report)
     if args.out:
