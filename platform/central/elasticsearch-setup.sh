@@ -16,6 +16,10 @@
 #   2. AIOps 專用唯讀 API key：可讀所有 k8s-*（log）、metrics-*.otel-*（metrics）、traces-*.otel-*（trace）。
 #   3. 給人用的唯讀角色：每個 group 一個，只能看自己的 log、事件、metrics、trace。再指派給使用者。
 #   另外發一把 AIOps baseline 工具用的 key（aiops/baseline）：讀上面三種資料，只能寫 aiops-*。
+#   4. 健康檢查用 key（es-probe，只能 GET /）：給 ES 前面的 LB／Service 的健康檢查用。
+#      ES 剛起來的 1 秒多，API key 會被拒（401）但 elastic 帳號、/_cluster/health 都正常；Collector 收到 401
+#      會當成「key 錯了」直接丟資料。所以健康檢查一定要用 API key 打 GET /、等 200 才把流量導過去
+#      （範例：elasticsearch/healthcheck-haproxy.cfg；docs/pdca/2026-10-es-startup-401.md）。
 set -euo pipefail
 
 cd "$(dirname "$0")"
@@ -209,6 +213,15 @@ es -X POST "${ES_URL}/_security/api_key" -d '{
       ]
     }
   }
+}'
+echo
+
+# 4. 健康檢查 key：只能 GET /（cluster:monitor/main）。放進 ES 前面 LB 的健康檢查、或 ES Pod 的 readinessProbe
+#    （test/local-k3s/elasticsearch.yaml 的 Secret es-probe-key）
+echo "=== 健康檢查 key ==="
+es -X POST "${ES_URL}/_security/api_key" -d '{
+  "name": "es-probe",
+  "role_descriptors": {"es-probe": {"cluster": ["monitor"]}}
 }'
 echo
 

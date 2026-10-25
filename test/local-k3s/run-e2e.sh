@@ -44,7 +44,8 @@ IT_KEY="$(key_of '寫入 key：es-writer-it')"
 IMC_KEY="$(key_of '寫入 key：es-writer-imc')"
 UNASSIGNED_KEY="$(key_of '寫入 key：es-writer-unassigned')"
 AIOPS_KEY="$(key_of 'AIOps 唯讀 key')"
-for k in "${IT_KEY}" "${IMC_KEY}" "${UNASSIGNED_KEY}" "${AIOPS_KEY}"; do
+PROBE_KEY="$(key_of '健康檢查 key')"
+for k in "${IT_KEY}" "${IMC_KEY}" "${UNASSIGNED_KEY}" "${AIOPS_KEY}" "${PROBE_KEY}"; do
   [[ -n "${k}" && "${k}" != null ]] || { echo "沒拿到 API key，elasticsearch-setup.sh 的輸出："; echo "${setup_out}"; exit 1; }
 done
 
@@ -53,6 +54,9 @@ kubectl -n otel-collector create secret generic es-writer-keys \
   --from-literal=IT_ES_API_KEY="${IT_KEY}" \
   --from-literal=IMC_ES_API_KEY="${IMC_KEY}" \
   --from-literal=UNASSIGNED_ES_API_KEY="${UNASSIGNED_KEY}" \
+  --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+# ES 的 readinessProbe 改用這把 key 打 GET /（elasticsearch.yaml）：ES 剛起來 API key 還不能用的那 1 秒多不會被導流量
+kubectl -n es-test create secret generic es-probe-key --from-literal=PROBE_ES_API_KEY="${PROBE_KEY}" \
   --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 
 echo "== 3. OpenTelemetry Collector 與測試應用"
