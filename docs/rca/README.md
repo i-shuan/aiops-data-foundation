@@ -6,7 +6,7 @@
 
 ## 現況與待辦
 
-判斷（baseline、規則、跟兄弟比、trace 每一段）和根因分析（Metrics → Trace → Log）的程式都做好了，在 k3s 驗過（程式說明：[aiops/baseline](../../aiops/baseline/README.md)、[aiops/rca](../../aiops/rca/README.md)）。上線前要補的是下面四項；告警出口、事故紀錄、回饋見 [feedback/](../feedback/README.md)。
+判斷（baseline、規則、跟兄弟比、trace 每一段）和根因分析（Metrics → Trace → Log）的程式都做好了，在 k3s 驗過（程式說明：[engine/configs/baseline](../../engine/configs/baseline/README.md)、[engine/configs/rca](../../engine/configs/rca/README.md)）。上線前要補的是下面四項；告警出口、事故紀錄、回饋見 [feedback/](../feedback/README.md)。
 
 | 項目 | 現況 |
 |---|---|
@@ -89,7 +89,7 @@
 | 歷史能留多久 | ✅ 可降解析度，留 1 年以上 | 7 天 | 原文 30 天 |
 | 4 週算一次的成本 | 很低：已經是統計好的數字 | 高 | 中：只數筆數不讀原文還算快 |
 
-所以 baseline 的流量、錯誤率、延遲**從 metrics 算**（應用的 `http.server.request.duration`，見 [aiops/baseline](../../aiops/baseline/README.md)）。log 只學「每個服務每個時間窗有幾筆 error」這種筆數：它能抓到 metrics 看不到的問題（例如背景工作一直失敗，但 API 都正常）。trace 和 log 原文主要在**告警之後**用：只查異常那段時間，不需要長期保留。
+所以 baseline 的流量、錯誤率、延遲**從 metrics 算**（應用的 `http.server.request.duration`，見 [engine/configs/baseline](../../engine/configs/baseline/README.md)）。log 只學「每個服務每個時間窗有幾筆 error」這種筆數：它能抓到 metrics 看不到的問題（例如背景工作一直失敗，但 API 都正常）。trace 和 log 原文主要在**告警之後**用：只查異常那段時間，不需要長期保留。
 
 ## 根因分析的六步
 
@@ -113,7 +113,7 @@
 
 ## metrics 異常怎麼串到 trace、log
 
-用三個共同的欄位當鑰匙，依 metrics → trace → log 一路縮小範圍（[aiops/rca](../../aiops/rca/README.md)）。
+用三個共同的欄位當鑰匙，依 metrics → trace → log 一路縮小範圍（[engine/configs/rca](../../engine/configs/rca/README.md)）。
 
 | 鑰匙 | metrics | trace | log | 用途 |
 |---|---|---|---|---|
@@ -208,7 +208,7 @@
 | **C. 預測模型** | 用過去的資料預測現在「應該」是多少、範圍多大，實際值超出範圍就是異常 | 準度較好、能給信心區間 | 每個組合一個模型，數量多時要管理 |
 | **D. 機器學習** | 讓模型自己找週期與分布（Elastic 的異常偵測就是這類，付費功能） | 自動、可同時看多個指標 | 比較像黑盒子，要有解釋 |
 
-**建議從 A 開始**（已實作：[aiops/baseline/](../../aiops/baseline/README.md)）：
+**建議從 A 開始**（已實作：[engine/configs/baseline/](../../engine/configs/baseline/README.md)）：
 
 - 不用買授權、不用訓練，ES 的查詢加上一點 Python 就做得到。
 - 結果好解釋，工程師比較願意相信。
@@ -228,13 +228,13 @@
 ### 5. log 和 trace 的「平常」
 
 - **log**：先把 log 歸成樣式（把變動的數字、ID 拿掉，例如「order * accepted」），再學「每種樣式平常每分鐘幾筆」。**新出現的樣式**和**突然變多的樣式**最有用。我們統一了 `message`、`log.level`、`error.type`，歸樣式比較準。
-- **trace**：每個服務的每個 API（段名稱）學一份延遲分布。段名稱不能帶 ID（見 [apps/standards/tracing.md](../../apps/standards/tracing.md)），不然每個請求都是不同的名稱，學不出來。
+- **trace**：每個服務的每個 API（段名稱）學一份延遲分布。段名稱不能帶 ID（見 [sdk/standards/tracing.md](../../sdk/standards/tracing.md)），不然每個請求都是不同的名稱，學不出來。
 
 ## 不同用途要的 baseline 不一樣
 
 > 從 15 個真實故障案例反推要哪幾種 baseline，見 [rca/cases.md](cases.md)。
 
-上面講的（[aiops/baseline/](../../aiops/baseline/README.md) 已實作）是**「單一數字、依時段」的統計 baseline**：每條時間序列各自學「每個星期幾、每個小時，平常是多少、通常跳動多少」。它是**非監督式**的，不需要標好哪些是事故，只看歷史。
+上面講的（[engine/configs/baseline/](../../engine/configs/baseline/README.md) 已實作）是**「單一數字、依時段」的統計 baseline**：每條時間序列各自學「每個星期幾、每個小時，平常是多少、通常跳動多少」。它是**非監督式**的，不需要標好哪些是事故，只看歷史。
 
 AIOps 的其他用途要的「平常」長得不一樣，有一部分可以共用這套：
 
@@ -263,7 +263,7 @@ AIOps 的其他用途要的「平常」長得不一樣，有一部分可以共�
 
 | 順序 | 做什麼 | 狀態 |
 |---|---|---|
-| 1 | 「數字 × 時段」上線，累積資料與誤報、漏報的回饋 | ✅ 已完成（[aiops/baseline/](../../aiops/baseline/README.md)） |
+| 1 | 「數字 × 時段」上線，累積資料與誤報、漏報的回饋 | ✅ 已完成（[engine/configs/baseline/](../../engine/configs/baseline/README.md)） |
 | 2 | **log 樣式字典**：抓「新出現的錯誤訊息」。歸好樣式後，每種樣式的筆數直接交給第 1 項學 | 下一步 |
 | 3 | **trace 呼叫關係圖**：抓新出現或消失的呼叫，也用在根因分析的「合併告警」 | |
 | 4 | **多指標關係、預測事故**：要先累積事故紀錄 | 有事故紀錄之後 |
@@ -301,16 +301,16 @@ AIOps 的其他用途要的「平常」長得不一樣，有一部分可以共�
 
 | 步驟 | 用到的資料 | 資料 | 程式 |
 |---|---|---|---|
-| 1. 發現異常 | metrics 的流量／錯誤率／延遲；log 的筆數 | ✅ 已收；⚠️ 歷史保留要拉長 | ✅ [aiops/baseline](../../aiops/baseline/README.md) |
-| 2. 合併告警 | trace 歸納出的呼叫關係 | ✅ | ⚠️ 呼叫關係圖已做（[aiops/rca](../../aiops/rca/README.md) `topology`），合併還沒做 |
-| 3. 定位 | trace 每一段的耗時與狀態 | ✅ | ✅ [aiops/rca](../../aiops/rca/README.md)：慢在哪一段、錯誤從哪一段開始、瀑布圖 |
+| 1. 發現異常 | metrics 的流量／錯誤率／延遲；log 的筆數 | ✅ 已收；⚠️ 歷史保留要拉長 | ✅ [engine/configs/baseline](../../engine/configs/baseline/README.md) |
+| 2. 合併告警 | trace 歸納出的呼叫關係 | ✅ | ⚠️ 呼叫關係圖已做（[engine/configs/rca](../../engine/configs/rca/README.md) `topology`），合併還沒做 |
+| 3. 定位 | trace 每一段的耗時與狀態 | ✅ | ✅ [engine/configs/rca](../../engine/configs/rca/README.md)：慢在哪一段、錯誤從哪一段開始、瀑布圖 |
 | 4. 找原因 | 換版（`service.version`）、資源 metrics、log 樣式 | ✅ | ⚠️ log：依 trace_id 撈各服務的 log、新出現的樣式（簡單規則）；換版、資源還沒接 |
 | 5. 說明 | 前面的結果＋處理手冊 | ❌ 處理手冊還沒有 | ⚠️ 報告的「結論」一節用規則寫，還沒有大型語言模型 |
 
 ## 建議順序
 
 1. **步驟 1**：用方法 A 對每個服務的核心指標做異常偵測。整個流程的起點，最快看到效果。
-2. **步驟 3**：用 trace 定位到哪一段。純統計，效果明顯。✅ 已做：[aiops/rca](../../aiops/rca/README.md) 從 baseline 的異常開始，照 Metrics → Trace → Log 查一遍，產出報告。
+2. **步驟 3**：用 trace 定位到哪一段。純統計，效果明顯。✅ 已做：[engine/configs/rca](../../engine/configs/rca/README.md) 從 baseline 的異常開始，照 Metrics → Trace → Log 查一遍，產出報告。
 3. **步驟 4 的 log 樣式分析**：AI 最有價值的地方，能抓到人工翻 log 找不到的「新錯誤」。
 4. **最後加大型語言模型做說明**：前面的證據越完整，它寫的結論越可靠。
 
@@ -327,13 +327,13 @@ AIOps 的其他用途要的「平常」長得不一樣，有一部分可以共�
 | 要做到的 | 狀態 |
 |---|---|
 | **三種資料對得起來**：每個請求有 trace，log 帶 `trace.id`、`span.id` | ✅ 已驗證（[trace/README.md](../trace/README.md)） |
-| 從 metrics（延遲、錯誤率）直接跳到那段時間的慢 trace | ✅ [aiops/rca](../../aiops/rca/README.md)：從異常的服務、API、時間找出最慢的請求，再用 trace_id 撈各服務的 log |
-| **baseline**：同時段的中位數＋MAD，預設 30 秒一點、依量自己往粗調 | ✅ 程式完成，模擬資料驗證通過（[aiops/baseline](../../aiops/baseline/README.md)） |
+| 從 metrics（延遲、錯誤率）直接跳到那段時間的慢 trace | ✅ [engine/configs/rca](../../engine/configs/rca/README.md)：從異常的服務、API、時間找出最慢的請求，再用 trace_id 撈各服務的 log |
+| **baseline**：同時段的中位數＋MAD，預設 30 秒一點、依量自己往粗調 | ✅ 程式完成，模擬資料驗證通過（[engine/configs/baseline](../../engine/configs/baseline/README.md)） |
 | baseline：MAD 為 0（值都一樣）時不亂報 | ✅ 有下限：中位數的 5%、或固定值，加上 `min_abs` |
 | baseline：連續幾個點都異常才報，避免單點抖動 | ✅ 跳一次 warning、連續兩個時間窗才 anomaly |
 | baseline：在真實的白天尖峰、半夜離峰確認範圍貼得住 | ⏳ 要先累積 2～4 週的真實資料 |
 | **事故紀錄**：每次出事記下時間、影響範圍、根因，用來對帳哪些是真異常 | ❌ 格式和寫入方式還沒做 |
-| **合併告警**：下游 DB 卡住 → worker 堵塞 → API 變慢，依 trace 的呼叫關係合成一件事 | ⚠️ 呼叫關係已經能從 trace 算（`aiops_rca topology`），合併還沒做 |
+| **合併告警**：下游 DB 卡住 → worker 堵塞 → API 變慢，依 trace 的呼叫關係合成一件事 | ⚠️ 呼叫關係已經能從 trace 算（`investigator topology`），合併還沒做 |
 
 接下來要做的（服務範圍）見本文件開頭「現況與待辦」與 [README 待辦](../../README.md#待辦)。
 

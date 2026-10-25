@@ -15,12 +15,12 @@
 
 | 檔案 | 改了什麼 | 為何要改 |
 |---|---|---|
-| `aiops/aiops_baseline/chronic.py`（新） | `find_chronic`（7 天裡至少 6 天有、每天至少 N 筆）、`owner_of`、`fetch_log_daily`（錯誤 log 依服務 × error.type 每天幾筆）、`fetch_anomaly_daily`（規則、跟兄弟比每天觸發幾次） | 計算與查詢分開；「天天」用「7 天裡 6 天」，週末量少那天沒出現也算 |
-| `aiops/baseline/chronic.yaml`（新） | 來源（錯誤 log、規則）、天數、門檻、負責人 | 門檻寫設定，調整不用改程式 |
-| `aiops/aiops_baseline/__main__.py` | 新增 `chronic` 指令與 `aiops-chronic` index（每週一份）；報告印成表格 | 結果要存起來，之後才看得出哪些修好了 |
-| `aiops/aiops_baseline/adjust.py` | 新增 `calendar_adjustments`：行事曆每一筆變成 `exclude_window`；`load` 讀 `calendar_file` | 沿用排除機制，不另做一套；預設不學也不報，`detect: true` 時只是不學 |
-| `aiops/baseline/calendar.yaml`（新） | 行事曆設定與格式說明 | — |
-| `aiops/tests/test_chronic.py`（新）、README、`docs/pdca` | — | — |
+| `engine/detector/chronic.py`（新） | `find_chronic`（7 天裡至少 6 天有、每天至少 N 筆）、`owner_of`、`fetch_log_daily`（錯誤 log 依服務 × error.type 每天幾筆）、`fetch_anomaly_daily`（規則、跟兄弟比每天觸發幾次） | 計算與查詢分開；「天天」用「7 天裡 6 天」，週末量少那天沒出現也算 |
+| `engine/configs/baseline/chronic.yaml`（新） | 來源（錯誤 log、規則）、天數、門檻、負責人 | 門檻寫設定，調整不用改程式 |
+| `engine/detector/__main__.py` | 新增 `chronic` 指令與 `aiops-chronic` index（每週一份）；報告印成表格 | 結果要存起來，之後才看得出哪些修好了 |
+| `engine/detector/adjust.py` | 新增 `calendar_adjustments`：行事曆每一筆變成 `exclude_window`；`load` 讀 `calendar_file` | 沿用排除機制，不另做一套；預設不學也不報，`detect: true` 時只是不學 |
+| `engine/configs/baseline/calendar.yaml`（新） | 行事曆設定與格式說明 | — |
+| `engine/tests/test_chronic.py`（新）、README、`docs/pdca` | — | — |
 
 ## Check：測試的目的與結果
 

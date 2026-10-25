@@ -10,7 +10,7 @@
 ## 怎麼接
 
 ```
-OTel Collector（比較時另開一個 DaemonSet；現在是 platform/cluster-addons/otel-collector 的節點 Collector）
+OTel Collector（比較時另開一個 DaemonSet；現在是 telemetry/collectors 的節點 Collector）
    file_log 讀 /var/log/pods → 補 K8s 資訊與 namespace 的 dept → dept → group（跟 metrics 同一套規則）
    → 依 group 用各自的 key，OTLP 送到 ES 的 /_otlp/v1/logs → logs-generic.otel-<group>
         ↓ 中央 ES：logs-otel@custom 讓這些資料先跑 k8s-logs-otel
@@ -25,10 +25,10 @@ OTel Collector（比較時另開一個 DaemonSet；現在是 platform/cluster-ad
 
 | 檔案 | 用途 |
 |---|---|
-| [platform/cluster-addons/otel-collector/node.yaml](../../platform/cluster-addons/otel-collector/node.yaml) | 收 log 的設定（比較時是另一個 DaemonSet，現在併進節點 Collector） |
-| [platform/central/elasticsearch/pipeline-otel.*](../../platform/central/elasticsearch/pipeline-otel.painless) | `k8s-logs-otel`：整理形狀、`_id`、轉資料流 |
-| [platform/central/elasticsearch/logs-otel-custom.json](../../platform/central/elasticsearch/logs-otel-custom.json) | 讓 `logs-*.otel-*` 先跑 `k8s-logs-otel` |
-| [test/local-k3s/load/run-load.sh](../../test/local-k3s/load/run-load.sh) | `volume`、`outage`、`crash`、`keyfail`、`restart`（比較時兩邊一起數，現在預設只數 OTel） |
+| [telemetry/collectors/node.yaml](../../telemetry/collectors/node.yaml) | 收 log 的設定（比較時是另一個 DaemonSet，現在併進節點 Collector） |
+| [telemetry/storage/pipeline-otel.*](../../telemetry/storage/pipeline-otel.painless) | `k8s-logs-otel`：整理形狀、`_id`、轉資料流 |
+| [telemetry/storage/logs-otel-custom.json](../../telemetry/storage/logs-otel-custom.json) | 讓 `logs-*.otel-*` 先跑 `k8s-logs-otel` |
+| [e2e/local-k3s/load/run-load.sh](../../e2e/local-k3s/load/run-load.sh) | `volume`、`outage`、`crash`、`keyfail`、`restart`（比較時兩邊一起數，現在預設只數 OTel） |
 
 比較用的腳本（兩個收集器並行、逐欄位比對）留在 branch `claude/otel-logs-compare`。
 

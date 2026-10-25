@@ -11,7 +11,7 @@ log 也由同一個 Collector 收（[log/README.md](../log/README.md)）：分�
 | 項目 | 狀態 |
 |---|---|
 | node Collector：kubelet、cAdvisor（CPU 限流）、應用的指標（Java 照標註來抓、.NET 用 OTLP 推）；cluster Collector：K8s 物件狀態 | ✅ 每 30 秒 |
-| 依每筆資料自己的 namespace 分部門、每部門寫入 key | ✅ |
+| 依每筆資料自己的 namespace 分部門（寫進各部門的 data stream）、一把寫入 key 所有部門共用 | ✅ |
 | 直方圖從累加值換成「每 30 秒多少」，任一段時間直接加總 | ✅ |
 | 外部系統：kafka_exporter | ✅ |
 | 寫進 ES 的時序資料流（TSDS），重送不重複 | ✅ |
@@ -45,11 +45,9 @@ log 也由同一個 Collector 收（[log/README.md](../log/README.md)）：分�
         ↓ 兩種 Collector 共用同一份規則（common.yaml）
         ↓ 1. 擋冒充：應用自帶的 dept、group 欄位一律拿掉
         ↓ 2. 依這筆資料屬於哪個 Pod／物件，讀它 namespace 的 dept label，補上服務身分
-        ↓ 3. dept → group（清單同 platform/groups.yaml）；沒有 dept 的（例如節點本身）→ unassigned
-        ↓ 4. 依 group 交給各自的出口，每筆只送一份；用 OTLP 送到 ES 的 /_otlp/v1/metrics
-   ├─ group it         → key: IT_ES_API_KEY         → metrics-<來源>.otel-it
-   ├─ group imc        → key: IMC_ES_API_KEY        → metrics-<來源>.otel-imc
-   └─ group unassigned → key: UNASSIGNED_ES_API_KEY → metrics-<來源>.otel-unassigned
+        ↓ 3. dept → group（清單同 telemetry/groups.yaml）；沒有 dept 的（例如節點本身）→ unassigned
+        ↓ 4. data_stream.namespace = group；一個出口、一把寫入 key（ES_WRITER_API_KEY），用 OTLP 送到 ES 的 /_otlp/v1/metrics
+        ↓    → metrics-<來源>.otel-<group>（例如 metrics-prometheusreceiver.otel-it）
         ↓ 中央 ES 9 內建的 metrics-otel@template 把它建成 time series data stream（TSDS）
    AIOps 用唯讀 key 讀 metrics-*.otel-*；人用各 group 的唯讀角色
 ```
@@ -71,14 +69,14 @@ log 也由同一個 Collector 收（[log/README.md](../log/README.md)）：分�
 
 | 檔案 | 用途 |
 |---|---|
-| [platform/cluster-addons/otel-collector/common.yaml](../../platform/cluster-addons/otel-collector/common.yaml) | 兩種 Collector 共用：擋冒充、讀 dept、dept → group、每個 group 的出口 |
-| [platform/cluster-addons/otel-collector/node.yaml](../../platform/cluster-addons/otel-collector/node.yaml) | 節點那一份收什麼：kubelet、cAdvisor（CPU 限流）、應用的 Prometheus metrics、應用用 OTLP 推的 metrics |
-| [platform/cluster-addons/otel-collector/cluster.yaml](../../platform/cluster-addons/otel-collector/cluster.yaml) | cluster 那一份收什麼：K8s 物件的狀態 |
-| [platform/cluster-addons/otel-collector/](../../platform/cluster-addons/otel-collector) 其餘 | 權限、DaemonSet、Deployment、kustomization |
-| [platform/central/elasticsearch-setup.sh](../../platform/central/elasticsearch-setup.sh) | 跟 log 共用：寫入 key、唯讀角色、AIOps key 都涵蓋 metrics |
-| [platform/central/elasticsearch/metrics-otel-custom.json](../../platform/central/elasticsearch/metrics-otel-custom.json) | TSDS 可寫入時間往後 2 小時（見「坑」：ES 重啟後拒收） |
-| [test/local-k3s/run-metrics-e2e.sh](../../test/local-k3s/run-metrics-e2e.sh) | 端到端測試 |
-| [test/local-k3s/run-metrics-scenarios.sh](../../test/local-k3s/run-metrics-scenarios.sh) | 情境測試：改 label、ES 停機加重啟 Collector、key 失效 |
+| [telemetry/collectors/common.yaml](../../telemetry/collectors/common.yaml) | 兩種 Collector 共用：擋冒充、讀 dept、dept → group、每個 group 的出口 |
+| [telemetry/collectors/node.yaml](../../telemetry/collectors/node.yaml) | 節點那一份收什麼：kubelet、cAdvisor（CPU 限流）、應用的 Prometheus metrics、應用用 OTLP 推的 metrics |
+| [telemetry/collectors/cluster.yaml](../../telemetry/collectors/cluster.yaml) | cluster 那一份收什麼：K8s 物件的狀態 |
+| [telemetry/collectors/](../../telemetry/collectors) 其餘 | 權限、DaemonSet、Deployment、kustomization |
+| [telemetry/scripts/elasticsearch-setup.sh](../../telemetry/scripts/elasticsearch-setup.sh) | 跟 log 共用：寫入 key、唯讀角色、AIOps key 都涵蓋 metrics |
+| [telemetry/storage/metrics-otel-custom.json](../../telemetry/storage/metrics-otel-custom.json) | TSDS 可寫入時間往後 2 小時（見「坑」：ES 重啟後拒收） |
+| [e2e/local-k3s/run-metrics-e2e.sh](../../e2e/local-k3s/run-metrics-e2e.sh) | 端到端測試 |
+| [e2e/local-k3s/run-metrics-scenarios.sh](../../e2e/local-k3s/run-metrics-scenarios.sh) | 情境測試：改 label、ES 停機加重啟 Collector、key 失效 |
 
 兩種 Collector 啟動時都載入 `common.yaml` 加上自己那份，分部門的規則只有一處，不會兩邊各改各的。
 
@@ -156,7 +154,7 @@ Java agent 會開出 `http.server.request.duration`（每個 HTTP 請求的耗�
 跟 log 共用同一份腳本，已經部署過 log 的話重跑一次，新發的 key 才有 metrics 的權限：
 
 ```bash
-ES_URL=https://<es>:9200 ES_AUTH=elastic:<password> platform/central/elasticsearch-setup.sh
+ES_URL=https://<es>:9200 ES_AUTH=elastic:<password> telemetry/scripts/elasticsearch-setup.sh
 ```
 
 ES 要 9.x：要有內建的 `metrics-otel@template`，以及 OTLP 入口 `/_otlp/v1/metrics`（測試用 9.5.5）。上線前先確認：
@@ -171,16 +169,16 @@ curl -s -o /dev/null -w "%{http_code}\n" -u elastic:<password> -X POST -H "Conte
 
 `otel-collector` namespace 要有 `es-writer-keys`（log 和 metrics 共用這一份）。怎麼建、在 Rancher 上要注意什麼，見 [log/README.md 的「部署」](../log/README.md#部署)。
 
-改好 `platform/cluster-addons/otel-collector/kustomization.yaml` 的 `CLUSTER_NAME`、`ES_ENDPOINT` 和 image 路徑，然後：
+改好 `telemetry/collectors/kustomization.yaml` 的 `CLUSTER_NAME`、`ES_ENDPOINT` 和 image 路徑，然後：
 
 ```bash
-kubectl apply -k platform/cluster-addons/otel-collector
+kubectl apply -k telemetry/collectors
 ```
 
 ## 驗證
 
 ```bash
-ES_URL=http://<ip>:9200 test/local-k3s/run-metrics-e2e.sh
+ES_URL=http://<ip>:9200 e2e/local-k3s/run-metrics-e2e.sh
 ```
 
 在單節點 k3s 上跑過（ES 9.5.5、OpenTelemetry Collector contrib 0.162.0），**37 項全部通過**：
@@ -191,23 +189,23 @@ ES_URL=http://<ip>:9200 test/local-k3s/run-metrics-e2e.sh
 | 分流的重點 | IT 的 Pod CPU（kubelet 抓的）進 IT；Deployment 副本數（沒有 Pod 的物件）進 IT；節點本身的資料進 unassigned |
 | 欄位 | 服務名稱、版本、part-of、group、dept、cluster 都對；應用自稱的 `dept`、`group` 被拿掉；應用自己的維度（`path`）保留 |
 | 存法 | 資料流是 `time_series`（TSDS）；可寫入時間往後 2 小時 |
-| 權限 | IT 的 key 只能寫 IT 的 metrics、不能讀；AIOps key 能讀全部、不能寫；IT 的唯讀角色看得到 IT 的 metrics |
+| 權限 | 寫入 key 能寫所有 group 的 metrics、不能讀（2026-10 起一把共用，之前每個 group 一把）；AIOps key 能讀全部、不能寫；IT 的唯讀角色看得到 IT 的 metrics |
 
-情境測試（`ES_URL=... test/local-k3s/run-metrics-scenarios.sh label|outage|keyfail`）：
+情境測試（`ES_URL=... e2e/local-k3s/run-metrics-scenarios.sh label|outage|keyfail`）：
 
 | 情境 | 結果 |
 |---|---|
 | 改 namespace 的 dept label（不重啟 Collector） | **生效時間 2～17 秒**（跑了兩次），最多就是一個抓取週期（30 秒）；切換前後沒有漏、沒有重複 |
 | ES 整台停 3 分鐘 | 停機期間的應用 metrics 各 6 筆、IT 的 Pod CPU 24 筆，**全部補齊**；ES 恢復後 5 秒內補完 |
 | ES 整台停 10 分鐘，**中途重啟兩個 Collector** | 節點上的佇列堆到 4.8M。重啟前在佇列裡的、重啟後收到的，三個 group **全部補進 ES**（各 20 筆）；沒有重複；failure store 0 筆；Collector 丟資料的紀錄 0 筆 |
-| IMC 的 key 作廢 3 分鐘 | IT 照常寫入（6 筆），只有 IMC 停住；換新 key、重啟 Collector 後 IMC 恢復。**失效那 3 分鐘的 IMC metrics 遺失（0 筆），補不回來**，見下方「坑」 |
+| IMC 的 key 作廢 3 分鐘（每個 group 一把 key 時的結果；現在一把共用，作廢就是全部停住，腳本已改成驗這個、還沒在 k3s 重跑） | IT 照常寫入（6 筆），只有 IMC 停住；換新 key、重啟 Collector 後 IMC 恢復。**失效那 3 分鐘的 IMC metrics 遺失（0 筆），補不回來**，見下方「坑」 |
 
 每個 group 的佇列上限是 10,000 批（`queue_size`）。超過時新的資料會被丟掉，所以中央 ES 的停機時間要控制在佇列撐得住的範圍；量大的 cluster 要先估算或調大。
 
 ## 坑
 
 - **key 失效期間的資料會遺失（metrics 和 log 都是）。** OTLP 出口只對 429、502、503、504 重試，401（key 錯、被作廢）當成永久錯誤，整批直接丟掉，也沒有設定可以改。所以：
-  - **換 key 用 `platform/central/rotate-writer-key.sh`**：先發新的、換進 Secret、等每個 Collector 換用新 key，才作廢舊的；Collector 從檔案讀 key，不用重啟，metrics 也就沒有重啟造成的空檔。實測見 [log/README.md 的「換 key」](../log/README.md#換-key)。
+  - **換 key 用 `telemetry/scripts/rotate-writer-key.sh`**：先發新的、換進 Secret、等每個 Collector 換用新 key，才作廢舊的；Collector 從檔案讀 key，不用重啟，metrics 也就沒有重啟造成的空檔。實測見 [log/README.md 的「換 key」](../log/README.md#換-key)。
   - 現在發的 key 沒有到期日，不會自己失效。之後若要加到期日，要排好在到期前換。
   - 要監控 Collector 的 `otelcol_exporter_send_failed_metric_points`、`otelcol_exporter_send_failed_log_records`（`:8888/metrics`），大於 0 就是有資料送不出去被丟掉。
   - log 另外要看 Collector 自己的 log 裡的 `Partial success`：ES 拒收其中幾筆時只印這行、那幾筆丟掉。其中 `CONFLICT`（409）是重送的被擋掉，屬於正常的去重複，不算遺失。
@@ -218,7 +216,7 @@ ES_URL=http://<ip>:9200 test/local-k3s/run-metrics-e2e.sh
 - **重啟 Collector 會少抓 1～2 次。** 舊的停掉到新的開始抓之間（約 30～60 秒）沒有人抓，這段的應用 metrics、kubelet 資料就沒有，事後也補不回來。佇列裡已經抓到、還沒送出的不受影響（實測重啟後全部送出）。換版、改設定盡量排在離峰。
 - **cluster 那一份的 replicas 一定要 1。** 多一個，K8s 物件狀態的每筆資料就多一份。換版時也用 `Recreate`，避免新舊同時跑。
 - **改 namespace 的 dept 幾秒內生效**（實測 2～17 秒），log 和 metrics 同時切換。
-- **dept 清單要手動同步兩處。** `platform/groups.yaml` 和 `common.yaml` 的 `transform/group`（log 和 metrics 共用）要一致。
+- **dept 清單要手動同步兩處。** `telemetry/groups.yaml` 和 `common.yaml` 的 `transform/group`（log 和 metrics 共用）要一致。
 - **應用的 `service.name` 曾經全部是 `pods`。** Prometheus receiver 會把抓取工作的名稱填進 `service.name`，而讀 Pod label 的那一步不覆蓋已經有的值。`common.yaml` 先清掉再讀，測試裡有一項專門擋這個。
 - **不要換回 `elasticsearch` 寫入元件。** 它在連線逾時時會直接丟資料，見上方「為什麼用 OTLP 送」。
 - **向 kubelet 取資料時沒有驗它的憑證**（`insecure_skip_verify: true`）。正式環境若 kubelet 憑證由內部 CA 簽，改成驗證。

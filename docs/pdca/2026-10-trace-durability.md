@@ -19,9 +19,9 @@
 
 | 檔案 | 改了什麼 | 為何要改 |
 |---|---|---|
-| `platform/cluster-addons/otel-collector/node.yaml` | `loadbalancing/traces`：佇列移到 `protocol.otlp`（每台 trace-sampler 的子 exporter），寫節點磁碟（`file_storage`），一直重試；外層佇列關掉 | 實測佇列設在外層沒用（資料一進來就移到子 exporter 的記憶體佇列，node 重啟照掉）；原本重試 120 秒的限制也拿掉 |
-| `platform/cluster-addons/otel-collector/sampler.yaml` | 加 `file_storage` extension；三個送 ES 的出口佇列寫磁碟 | ES 停機時 trace-sampler 重啟，記憶體佇列整個默默不見 |
-| `platform/cluster-addons/otel-collector/trace-sampler.yaml` | 每台加 1Gi PVC（`volumeClaimTemplates`）掛在 `/var/lib/otelcol`；`fsGroup: 10001` | Pod 重啟、搬節點後佇列還在；Collector 不是 root，要寫得進去 |
+| `telemetry/collectors/node.yaml` | `loadbalancing/traces`：佇列移到 `protocol.otlp`（每台 trace-sampler 的子 exporter），寫節點磁碟（`file_storage`），一直重試；外層佇列關掉 | 實測佇列設在外層沒用（資料一進來就移到子 exporter 的記憶體佇列，node 重啟照掉）；原本重試 120 秒的限制也拿掉 |
+| `telemetry/collectors/sampler.yaml` | 加 `file_storage` extension；三個送 ES 的出口佇列寫磁碟 | ES 停機時 trace-sampler 重啟，記憶體佇列整個默默不見 |
+| `telemetry/collectors/trace-sampler.yaml` | 每台加 1Gi PVC（`volumeClaimTemplates`）掛在 `/var/lib/otelcol`；`fsGroup: 10001` | Pod 重啟、搬節點後佇列還在；Collector 不是 root，要寫得進去 |
 | `docs/trace/README.md`、`docs/pdca/README.md` | 狀態 | — |
 
 測試用的腳本（docker 模擬兩層 Collector、送 trace、製造狀況、數 ES 裡的 trace）放在工作目錄外，沒有進 repo。

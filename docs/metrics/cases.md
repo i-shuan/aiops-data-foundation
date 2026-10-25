@@ -2,7 +2,7 @@
 
 一句話：**四個領域（基礎架構、應用、DB 與佇列、機台）各拿一個典型故障，在 k3s 上真的做出來，確認現在的資料與規則抓得到；做不到的列在最後。**
 
-腳本：[test/local-k3s/run-metrics-cases-e2e.sh](../../test/local-k3s/run-metrics-cases-e2e.sh)。資料都走正式的路線（應用 → OTel Collector → ES），判斷用 [aiops/baseline/rules.yaml](../../aiops/baseline/rules.yaml)。
+腳本：[e2e/local-k3s/run-metrics-cases-e2e.sh](../../e2e/local-k3s/run-metrics-cases-e2e.sh)。資料都走正式的路線（應用 → OTel Collector → ES），判斷用 [engine/configs/baseline/rules.yaml](../../engine/configs/baseline/rules.yaml)。
 
 > 目前的範圍是一般服務：前三個領域（基礎架構、應用、DB 與佇列）是主線；**機台、產線（案例 4）之後再做**，規則和命名提案先留著，見 [factory-later.md](../factory-later.md)。
 
@@ -43,7 +43,7 @@
 | 規則 | `jvm.old_gen_after_gc_high`：≥ 80%，連續 2 分鐘；`jvm.major_gc_frequent`：5 分鐘內 major GC ≥ 5 次；`jvm.gc_overhead`：3 分鐘內 ≥ 10% 的時間在 GC（heap 大的服務才有用） |
 | 處置 | 先重開止血；之後抓 heap dump 給開發找誰一直放東西。**JVM 要加 `-XX:+ExitOnOutOfMemoryError`**（見下面「實測時發現的事」） |
 
-**實測 ✅**（第二次）：見下方「實測紀錄」。用**真的 Java 程式**（[java-app/OrderApp.java](../../test/local-k3s/java-app/OrderApp.java)）掛**真的 OpenTelemetry Java agent 2.20.0**，每個請求往不會清的 list 放 64KB。
+**實測 ✅**（第二次）：見下方「實測紀錄」。用**真的 Java 程式**（[java-app/OrderApp.java](../../e2e/local-k3s/java-app/OrderApp.java)）掛**真的 OpenTelemetry Java agent 2.20.0**，每個請求往不會清的 list 放 64KB。
 
 ### 3. DB 與佇列：訂單建好了，推播 10 分鐘後才到
 

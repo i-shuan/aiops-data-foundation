@@ -1,0 +1,19 @@
+{
+  "description": "traces-otel：用 trace_id + span_id 當 _id（Collector 重送同一個 span 時 ES 回 409，不會多一份）；有問題的 trace（trace-sampler 依錯誤、5xx、例外、慢的規則全留的）轉到 traces-problem.otel-<group>，保留天數比隨機留下的長",
+  "processors": [
+    {
+      "set": {
+        "if": "ctx.trace_id != null && ctx.span_id != null",
+        "field": "_id",
+        "value": "{{{trace_id}}}-{{{span_id}}}"
+      }
+    },
+    {
+      "reroute": {
+        "if": "def a = ctx.scope?.attributes; def p = a == null ? null : a['tailsampling.policy']; return p != null && p != 'random' && ctx.data_stream?.dataset == 'generic.otel';",
+        "dataset": "problem.otel",
+        "description": "有問題的 trace 轉到 traces-problem.otel-<group>（同一個 group；寫入 key 的權限 traces-*.otel-*）。隨機的、沒經過 trace-sampler 的（沒有 policy）留在原地"
+      }
+    }
+  ]
+}

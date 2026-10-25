@@ -22,8 +22,8 @@
 
 | 測試目的（為了確認什麼） | 怎麼測 | 結果 |
 |---|---|---|
-| 程式現在擋了哪些壞資料 | 讀 `aiops_baseline/model.py`、`es.py` | 已擋：(1)中位數＋MAD，少數幾次事故拉不歪平常 (2)卜瓦松把稀少筆數裡的爆量先壓掉再平均 (3)`mask_thin`：量太少的時間窗當「不知道」 (4)歷史不夠往下退層，再不夠就不給 baseline (5)收集系統停機的時段不當成零流量 (6)`lag` 避開還沒收齊的時間窗 |
-| 哪些完全沒有 | 在 `aiops_baseline`、`aiops_common`、`aiops_rca`、`aiops/baseline/*.yaml` 搜尋 exclude、calendar、holiday、quality、chronic、loadgen、maintenance、incident | **零命中**：事故時段排除、行事曆、測試流量、資料品質檢查、慢性病清單都沒有 |
+| 程式現在擋了哪些壞資料 | 讀 `detector/model.py`、`es.py` | 已擋：(1)中位數＋MAD，少數幾次事故拉不歪平常 (2)卜瓦松把稀少筆數裡的爆量先壓掉再平均 (3)`mask_thin`：量太少的時間窗當「不知道」 (4)歷史不夠往下退層，再不夠就不給 baseline (5)收集系統停機的時段不當成零流量 (6)`lag` 避開還沒收齊的時間窗 |
+| 哪些完全沒有 | 在 `detector`、`core`、`investigator`、`engine/configs/baseline/*.yaml` 搜尋 exclude、calendar、holiday、quality、chronic、loadgen、maintenance、incident | **零命中**：事故時段排除、行事曆、測試流量、資料品質檢查、慢性病清單都沒有 |
 | 現有防護的極限在哪（推演） | 對照「平常 = 同時段中位數」 | 中位數＋MAD 只擋得住「少數」：慢性病**天天**發生，它就是中位數本身；事故連續一兩週也會把中位數拉走 |
 
 ## Act：Check 後沒改善的、還沒解決的

@@ -19,19 +19,19 @@
 
 | 檔案 | 改了什麼 | 為何要改 |
 |---|---|---|
-| `platform/central/elasticsearch/pipeline.json` | 在「應用自己的時間蓋掉 `@timestamp`」之前，先把原本的時間（container runtime 寫下這行的時間）存成 `event.created`；`date` processor 加 `timezone`（沒帶時區的才用）和更多格式（空白分隔、逗號毫秒、沒有毫秒、epoch 毫秒）；格式都不認得時記 `log.timestamp_source: collector_unparsed`，不再默默換掉；解析後的時間換回 UTC 字串 | 實測沒帶時區的被當成 UTC（差 8 小時）、空白分隔的被默默換成 Collector 的時間；`event.created` 是量延遲、時鐘偏差的基準 |
-| `platform/central/elasticsearch/pipeline-tz.painless`（新） | 判斷應用的時間有沒有帶時區（`Z`、`±hh:mm`、`±hhmm`；日期裡的 `-` 不算）；epoch 10 位是秒、13 位是毫秒；記 `log.timestamp_source`、`event.timezone` | `date` processor 自己分不出「有沒有帶時區」，也會把 10 位的 epoch 秒當成毫秒（實測變 1970 年） |
-| `platform/central/elasticsearch-setup.sh` | `put_pipeline` 也代入 `__TZ_SCRIPT__`、`__LOG_DEFAULT_TIMEZONE__`；新變數 `LOG_DEFAULT_TIMEZONE`（預設 Asia/Taipei） | 時區寫在設定，不寫死在 pipeline 裡 |
-| `platform/central/elasticsearch/component-mappings.json` | 加 `event.created`（date）、`event.timezone`、`log.timestamp_source`（keyword） | mapping 是 `dynamic: false`，沒加就查不到 |
-| `test/pipeline/timestamp-cases.json`、`run-timestamp-cases.sh`（新） | 12 種時間寫法的案例測試 | 時間解析以後改壞要能馬上發現 |
-| `aiops/aiops_baseline/quality.py`、`__main__.py` | 新檢查類型 `lag`（兩個時間欄位相減的百分位）；檢查可以指定 `time_field` 篩「最近這段」 | 量收資料延遲、應用時鐘偏差；`time_field` 見 Check 發現的問題 |
-| `aiops/baseline/quality.yaml` | `quality.log_ingest_lag`（p95 ≥ 60 秒）、`quality.log_clock_skew`（中位數快或慢 ≥ 5 分鐘） | — |
-| `platform/cluster-addons/otel-collector/node.yaml` | 新增 `ntp` receiver（30 分鐘一次）、`resource/node`（補節點名稱）、pipeline `metrics/ntp` | 主機時鐘偏移；`ntp` 的資料只帶 NTP 伺服器名稱，不補就不知道是哪台節點 |
-| `platform/cluster-addons/otel-collector/kustomization.yaml`、`test/local-k3s/otel-collector/kustomization.yaml` | 加 `NTP_SERVER` | 沒設的話 Collector 起不來（實測：`missing port in address`）；測試的 overlay 會整份取代設定，也要加 |
-| `aiops/aiops_baseline/rules.py`、`__main__.py` | 規則可以 `abs: true`（取絕對值）、各自設 `lookback`；`show: ns_as_ms` | 時鐘快、慢都不對；30 分鐘才量一次，預設 10 分鐘的 lookback 看不到；奈秒的數字人看不懂 |
-| `aiops/baseline/rules.yaml` | `node.clock_offset`（≥ 100ms warning）、`node.clock_offset_critical`（≥ 1 秒） | — |
-| `aiops/tests/test_quality.py`、`test_rules.py` | `lag`、`abs`、顯示的單元測試 | — |
-| `docs/log/README.md`、`docs/metrics/README.md`、`aiops/baseline/README.md`、`docs/system-stages.md` | 欄位、狀態、檢查與規則 | — |
+| `telemetry/storage/pipeline.json` | 在「應用自己的時間蓋掉 `@timestamp`」之前，先把原本的時間（container runtime 寫下這行的時間）存成 `event.created`；`date` processor 加 `timezone`（沒帶時區的才用）和更多格式（空白分隔、逗號毫秒、沒有毫秒、epoch 毫秒）；格式都不認得時記 `log.timestamp_source: collector_unparsed`，不再默默換掉；解析後的時間換回 UTC 字串 | 實測沒帶時區的被當成 UTC（差 8 小時）、空白分隔的被默默換成 Collector 的時間；`event.created` 是量延遲、時鐘偏差的基準 |
+| `telemetry/storage/pipeline-tz.painless`（新） | 判斷應用的時間有沒有帶時區（`Z`、`±hh:mm`、`±hhmm`；日期裡的 `-` 不算）；epoch 10 位是秒、13 位是毫秒；記 `log.timestamp_source`、`event.timezone` | `date` processor 自己分不出「有沒有帶時區」，也會把 10 位的 epoch 秒當成毫秒（實測變 1970 年） |
+| `telemetry/scripts/elasticsearch-setup.sh` | `put_pipeline` 也代入 `__TZ_SCRIPT__`、`__LOG_DEFAULT_TIMEZONE__`；新變數 `LOG_DEFAULT_TIMEZONE`（預設 Asia/Taipei） | 時區寫在設定，不寫死在 pipeline 裡 |
+| `telemetry/storage/component-mappings.json` | 加 `event.created`（date）、`event.timezone`、`log.timestamp_source`（keyword） | mapping 是 `dynamic: false`，沒加就查不到 |
+| `e2e/pipeline/timestamp-cases.json`、`run-timestamp-cases.sh`（新） | 12 種時間寫法的案例測試 | 時間解析以後改壞要能馬上發現 |
+| `engine/detector/quality.py`、`__main__.py` | 新檢查類型 `lag`（兩個時間欄位相減的百分位）；檢查可以指定 `time_field` 篩「最近這段」 | 量收資料延遲、應用時鐘偏差；`time_field` 見 Check 發現的問題 |
+| `engine/configs/baseline/quality.yaml` | `quality.log_ingest_lag`（p95 ≥ 60 秒）、`quality.log_clock_skew`（中位數快或慢 ≥ 5 分鐘） | — |
+| `telemetry/collectors/node.yaml` | 新增 `ntp` receiver（30 分鐘一次）、`resource/node`（補節點名稱）、pipeline `metrics/ntp` | 主機時鐘偏移；`ntp` 的資料只帶 NTP 伺服器名稱，不補就不知道是哪台節點 |
+| `telemetry/collectors/kustomization.yaml`、`e2e/local-k3s/otel-collector/kustomization.yaml` | 加 `NTP_SERVER` | 沒設的話 Collector 起不來（實測：`missing port in address`）；測試的 overlay 會整份取代設定，也要加 |
+| `engine/detector/rules.py`、`__main__.py` | 規則可以 `abs: true`（取絕對值）、各自設 `lookback`；`show: ns_as_ms` | 時鐘快、慢都不對；30 分鐘才量一次，預設 10 分鐘的 lookback 看不到；奈秒的數字人看不懂 |
+| `engine/configs/baseline/rules.yaml` | `node.clock_offset`（≥ 100ms warning）、`node.clock_offset_critical`（≥ 1 秒） | — |
+| `engine/tests/test_quality.py`、`test_rules.py` | `lag`、`abs`、顯示的單元測試 | — |
+| `docs/log/README.md`、`docs/metrics/README.md`、`engine/configs/baseline/README.md`、`docs/system-stages.md` | 欄位、狀態、檢查與規則 | — |
 
 ## Check：測試的目的與結果
 
@@ -64,7 +64,7 @@
 | 沒改善的 | 在什麼情況下發現的 | 影響 | 後續 |
 |---|---|---|---|
 | 所有 cluster 共用一個 `LOG_DEFAULT_TIMEZONE` | 設計：時區是中央 pipeline 的一個設定 | 不同時區的 cluster（例如海外廠）沒帶時區的 log 會差幾小時（`quality.log_clock_skew` 會報） | 需要時改成依 `orchestrator.cluster.name` 對照時區 |
-| 時區規範（寫 UTC 或帶時區）還沒寫進應用標準 | — | 新服務還是可能沒帶時區，只能靠 pipeline 推定 | 寫進 [apps/standards](../../apps/standards/tracing.md)；`event.timezone` 有值的服務列出來請團隊改 |
+| 時區規範（寫 UTC 或帶時區）還沒寫進應用標準 | — | 新服務還是可能沒帶時區，只能靠 pipeline 推定 | 寫進 [sdk/standards](../../sdk/standards/tracing.md)；`event.timezone` 有值的服務列出來請團隊改 |
 | 已經寫進 ES 的舊資料不會更正 | pipeline 只影響新進來的資料 | 改之前沒帶時區的 log 仍差 8 小時 | 需要的話對特定服務 reindex |
 | [①] DB 主機（不在 K8s 裡）沒有時鐘監控 | 只做了 node Collector | DB 慢、DB 時鐘偏了的話，根因分析順序可能錯 | 在 DB 主機裝 Collector（或 node_exporter）＋同一條規則 |
 | [①] `NTP_SERVER` 預設是佔位的 `ntp.example.internal:123` | 實作時 | 沒改的話 `ntp` receiver 每 30 分鐘報錯、沒有資料 | 部署時填公司的 NTP |

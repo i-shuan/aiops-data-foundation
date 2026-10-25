@@ -17,11 +17,11 @@
 
 | 檔案 | 改了什麼 | 為何要改 |
 |---|---|---|
-| `aiops/aiops_baseline/quality.py`（新） | `eval_cardinality`、`eval_missing`、`eval_stopped`、`eval_share`（純計算）＋ `fetch_*`（用 composite aggregation 查 ES）＋ `looks_like_id` | 計算與查詢分開，計算可以不連 ES 就測；`looks_like_id` 用來判斷路由是不是帶了 ID |
-| `aiops/baseline/quality.yaml`（新） | 9 個檢查；看最近 1 小時，跟 24 小時前同一段比 | 跟昨天同時段比，避開上下班、夜間批次的週期；門檻寫設定檔，調整不用改程式 |
-| `aiops/aiops_baseline/__main__.py` | 新增 `quality` 指令（`quality_hits`、`cmd_quality`），結果寫 `aiops-anomalies`（`level: quality`） | 跟 `rules`、`peer` 同一個模式，後面的收斂、根因都只讀同一個 index |
-| `aiops/tests/test_quality.py`（新） | 各檢查的邊界案例 | — |
-| `aiops/baseline/README.md` | 加一節說明檢查與實測 | — |
+| `engine/detector/quality.py`（新） | `eval_cardinality`、`eval_missing`、`eval_stopped`、`eval_share`（純計算）＋ `fetch_*`（用 composite aggregation 查 ES）＋ `looks_like_id` | 計算與查詢分開，計算可以不連 ES 就測；`looks_like_id` 用來判斷路由是不是帶了 ID |
+| `engine/configs/baseline/quality.yaml`（新） | 9 個檢查；看最近 1 小時，跟 24 小時前同一段比 | 跟昨天同時段比，避開上下班、夜間批次的週期；門檻寫設定檔，調整不用改程式 |
+| `engine/detector/__main__.py` | 新增 `quality` 指令（`quality_hits`、`cmd_quality`），結果寫 `aiops-anomalies`（`level: quality`） | 跟 `rules`、`peer` 同一個模式，後面的收斂、根因都只讀同一個 index |
+| `engine/tests/test_quality.py`（新） | 各檢查的邊界案例 | — |
+| `engine/configs/baseline/README.md` | 加一節說明檢查與實測 | — |
 
 ## Check：測試的目的與結果
 

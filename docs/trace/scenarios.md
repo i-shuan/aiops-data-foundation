@@ -2,7 +2,7 @@
 
 一句話：**六個場景裡，慢在哪、程式壞味道、錯誤源頭這三個已經做了而且實測過（含不用學的 N+1、吞掉例外規則）；取樣改成尾端取樣，出事的請求全部留下。非同步（Kafka）不改程式做到一半（排隊時間、消費者變慢出錯抓得到，但串不回是哪一筆訊息）；架構治理、工廠（SECS、MES→MCS→AMHS）還沒做。**
 
-trace 怎麼收、怎麼分部門見 [trace/README.md](README.md)；baseline、根因分析的實作見 [aiops/baseline](../../aiops/baseline/README.md#trace-每一段的-baseline)、[aiops/rca](../../aiops/rca/README.md)。
+trace 怎麼收、怎麼分部門見 [trace/README.md](README.md)；baseline、根因分析的實作見 [engine/configs/baseline](../../engine/configs/baseline/README.md#trace-每一段的-baseline)、[engine/configs/rca](../../engine/configs/rca/README.md)。
 
 ## 對照表
 
@@ -24,7 +24,7 @@ trace 怎麼收、怎麼分部門見 [trace/README.md](README.md)；baseline、�
 
 ### 二、程式壞味道
 
-- ✅ **一開始就有的壞味道**：baseline 是跟「平常」比，N+1 如果從上線第一天就在會被學成正常。所以加了不用學的規則 `trace.segment.repeated`：同一個請求裡，同一個往外的呼叫（同一句 SQL、同一個下游）平均 ≥ 20 次就報（[trace.yaml](../../aiops/baseline/trace.yaml) 的 `rules.repeated_calls`）。k3s 實測：「同一個呼叫太多次（可能是 N+1）：rca-wip-worker GET /wip → … SELECT LOT_HISTORY → oracle（每個請求 100 次，門檻 20）」。這種規則可以在測試環境就跑，上線前抓出來。
+- ✅ **一開始就有的壞味道**：baseline 是跟「平常」比，N+1 如果從上線第一天就在會被學成正常。所以加了不用學的規則 `trace.segment.repeated`：同一個請求裡，同一個往外的呼叫（同一句 SQL、同一個下游）平均 ≥ 20 次就報（[trace.yaml](../../engine/configs/baseline/trace.yaml) 的 `rules.repeated_calls`）。k3s 實測：「同一個呼叫太多次（可能是 N+1）：rca-wip-worker GET /wip → … SELECT LOT_HISTORY → oracle（每個請求 100 次，門檻 20）」。這種規則可以在測試環境就跑，上線前抓出來。
 - 快取穿透目前看「查 DB 的次數變多」；平常就穿透的也一樣學不出來，同上。
 
 ### 三、錯誤源頭
@@ -33,7 +33,7 @@ trace 怎麼收、怎麼分部門見 [trace/README.md](README.md)；baseline、�
 
 ### 四、非同步、訊息佇列
 
-用真的 Kafka（單台，KRaft）＋ 兩個 .NET 8 服務實測，**只掛自動埋點、不改程式**（[test/local-k3s/kafka](../../test/local-k3s/kafka)）：order-producer 收到 HTTP 請求就把訂單送進 Kafka，order-consumer 讀出來寫進 PostgreSQL。
+用真的 Kafka（單台，KRaft）＋ 兩個 .NET 8 服務實測，**只掛自動埋點、不改程式**（[e2e/local-k3s/kafka](../../e2e/local-k3s/kafka)）：order-producer 收到 HTTP 請求就把訂單送進 Kafka，order-consumer 讀出來寫進 PostgreSQL。
 
 **.NET 自動埋點（不改程式）串得起來的程度：**
 
@@ -43,9 +43,9 @@ trace 怎麼收、怎麼分部門見 [trace/README.md](README.md)；baseline、�
 | 消費端拿到訊息（`orders receive`） | ⚠️ **另起一個新的 trace**，只用 **link** 指回生產端的 publish |
 | 消費端處理時寫 DB | ❌ **每一筆都自成一個 trace**（實測 961／961 筆沒有上一層），對不回是哪一筆訊息 |
 | `receive` 的時間 | 是「`Consume()` 等下一筆訊息等了多久」，不是處理時間 |
-| kafka_exporter 的名稱 | ✅ `kafka_consumergroup_lag_sum{consumergroup, topic}`，跟 [rules.yaml](../../aiops/baseline/rules.yaml) 的 Kafka 規則一樣 |
+| kafka_exporter 的名稱 | ✅ `kafka_consumergroup_lag_sum{consumergroup, topic}`，跟 [rules.yaml](../../engine/configs/baseline/rules.yaml) 的 Kafka 規則一樣 |
 
-**不改程式時平台怎麼補：**（[aiops/baseline](../../aiops/baseline/README.md#trace-每一段的-baseline)）
+**不改程式時平台怎麼補：**（[engine/configs/baseline](../../engine/configs/baseline/README.md#trace-每一段的-baseline)）
 
 - **排隊時間**：消費端拿到訊息的時間（receive 結束）− 生產端送出的時間（publish 結束），生產端用 link 找回來。trace baseline 多一段「`order-consumer › 排隊（orders）← order-producer`」，平常 0.2ms。
 - **處理時的 DB**：沒有上一層的 span 也當成入口，所以「`order-consumer › postgres → postgresql`」自己有 baseline（平常 1.4ms）、錯誤率。看得出「這個消費者寫 DB 變慢、出錯」，只是對不到是哪一筆訊息。
@@ -90,14 +90,14 @@ trace 怎麼收、怎麼分部門見 [trace/README.md](README.md)；baseline、�
 | 架構 | 單層 Collector | 兩層：node Collector 依 trace_id 分配 → trace-sampler，等 30 秒讓 trace 到齊 |
 | 應用端負擔 | 低（沒記的不送） | 每個請求都送到同節點的 Collector |
 
-**k3s 實測（結束後才決定）**：兩層 Collector（node → 依 trace_id 分配 → trace-sampler × 2），壓測每秒 500 個請求、11% 有問題（[test/local-k3s/tail-sampling](../../test/local-k3s/tail-sampling/README.md)）：
+**k3s 實測（結束後才決定）**：兩層 Collector（node → 依 trace_id 分配 → trace-sampler × 2），壓測每秒 500 個請求、11% 有問題（[e2e/local-k3s/tail-sampling](../../e2e/local-k3s/tail-sampling/README.md)）：
 
 - 錯誤、慢、吞掉例外（回 200 但有例外事件）**100% 留下、每個都完整**；正常的留 5%，總量剩約 15%。
 - 隨機那 5% 錯的慢的也一樣抽，**trace baseline 只用這份就不會偏**（每一段記著是哪條規則留的）。
 - **decision_wait 要比最長的請求長**：等 10 秒時，「下游很快、自己之後又做了 12 秒」的請求只留下 5%（決定時還看不到最上面那段）；等 30 秒就全部留下。
 - 資源：每秒 2,000 段，trace-sampler 每台約 150MB、0.02 核。
 
-**已經放進正式設定**（[platform/cluster-addons/otel-collector](../../platform/cluster-addons/otel-collector)，流程見 [trace/README.md](README.md)）：等 30 秒、隨機 5%、慢的門檻 1 秒、trace-sampler 2 台；應用保持全部送（`otel.traces.sampleRatio: 1.0`，預設）。trace baseline 只抽隨機那份（`sample_policy: random`）。測試環境預設全部留（random 100%），其他 e2e 的 trace 數量不變；尾端取樣的實測自己把它調回 5%。
+**已經放進正式設定**（[telemetry/collectors](../../telemetry/collectors)，流程見 [trace/README.md](README.md)）：等 30 秒、隨機 5%、慢的門檻 1 秒、trace-sampler 2 台；應用保持全部送（`otel.traces.sampleRatio: 1.0`，預設）。trace baseline 只抽隨機那份（`sample_policy: random`）。測試環境預設全部留（random 100%），其他 e2e 的 trace 數量不變；尾端取樣的實測自己把它調回 5%。
 
 ## 建議順序
 

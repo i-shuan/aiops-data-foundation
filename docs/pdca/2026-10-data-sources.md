@@ -1,6 +1,6 @@
 # 資料來源改成接口＋假資料分開；行事曆抓台灣行事曆（2026-10）
 
-**狀態**：已完成（已合進 master）　　**日期**：2026-10-24　　**相關**：[慢性病清單與行事曆](2026-10-chronic-calendar.md)、[`aiops/interfaces/README.md`](../../aiops/interfaces/README.md)、[`aiops/fake-data/README.md`](../../aiops/fake-data/README.md)
+**狀態**：已完成（已合進 master）　　**日期**：2026-10-24　　**相關**：[慢性病清單與行事曆](2026-10-chronic-calendar.md)、[`engine/interfaces/README.md`](../../engine/interfaces/README.md)、[`engine/fake-data/README.md`](../../engine/fake-data/README.md)
 **模組**：② 清資料（外部資料來源）
 
 ## Plan：這一次要達到什麼
@@ -16,15 +16,15 @@
 
 | 檔案 | 改了什麼 | 為何要改 |
 |---|---|---|
-| `aiops/aiops_baseline/sources.py`（新） | `load_calendar`、`load_owners`；provider `file`／`http`／`taiwan`；`parse_taiwan`；`cached_fetch`（快取、404 記錄、失敗退回快取）；某個來源失敗只警告 | 資料來源之後會換，程式不該綁死；行事曆、負責人是輔助資訊，不能讓它們壞掉擋住訓練 |
-| `aiops/aiops_baseline/adjust.py` | `load` 的行事曆改走 `sources.load_calendar` | 行事曆來源可以多個、可以換 |
-| `aiops/aiops_baseline/__main__.py` | `chronic` 的負責人改走 `sources.load_owners` | 同上 |
-| `aiops/baseline/calendar.yaml` | 加 `sources`：`taiwan`（啟用）＋假資料 `file` | 假日自動抓；留一個假資料示範格式 |
-| `aiops/baseline/chronic.yaml` | `owners` 改成 `owners_source`（指向假資料） | 負責人從來源讀 |
-| `aiops/fake-data/`（新）：`owners.json`、`calendar.json`、`README.md` | 假資料，名稱標「【假】」，行事曆日期在 2099 年；README 列出每個檔案假的是什麼、對應哪個接口、怎麼換成真的 | 假資料與接口分開，不會被誤當真的；2099 年的日期不會影響真的訓練 |
-| `aiops/interfaces/README.md`（新） | 兩個介面的格式、provider、快取、換成真來源的步驟 | 接口是長期的，要有地方說清楚 |
+| `engine/detector/sources.py`（新） | `load_calendar`、`load_owners`；provider `file`／`http`／`taiwan`；`parse_taiwan`；`cached_fetch`（快取、404 記錄、失敗退回快取）；某個來源失敗只警告 | 資料來源之後會換，程式不該綁死；行事曆、負責人是輔助資訊，不能讓它們壞掉擋住訓練 |
+| `engine/detector/adjust.py` | `load` 的行事曆改走 `sources.load_calendar` | 行事曆來源可以多個、可以換 |
+| `engine/detector/__main__.py` | `chronic` 的負責人改走 `sources.load_owners` | 同上 |
+| `engine/configs/baseline/calendar.yaml` | 加 `sources`：`taiwan`（啟用）＋假資料 `file` | 假日自動抓；留一個假資料示範格式 |
+| `engine/configs/baseline/chronic.yaml` | `owners` 改成 `owners_source`（指向假資料） | 負責人從來源讀 |
+| `engine/fake-data/`（新）：`owners.json`、`calendar.json`、`README.md` | 假資料，名稱標「【假】」，行事曆日期在 2099 年；README 列出每個檔案假的是什麼、對應哪個接口、怎麼換成真的 | 假資料與接口分開，不會被誤當真的；2099 年的日期不會影響真的訓練 |
+| `engine/interfaces/README.md`（新） | 兩個介面的格式、provider、快取、換成真來源的步驟 | 接口是長期的，要有地方說清楚 |
 | `aiops/.gitignore` | 加 `.cache/` | 行事曆的快取不進版控 |
-| `aiops/tests/test_sources.py`（新） | 各 provider、快取、失敗情況 | — |
+| `engine/tests/test_sources.py`（新） | 各 provider、快取、失敗情況 | — |
 
 ## Check：測試的目的與結果
 

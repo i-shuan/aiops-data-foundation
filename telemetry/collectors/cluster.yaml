@@ -1,0 +1,16 @@
+# 整個 cluster 一個（Deployment，replicas 一定要 1，不然每筆都會重複）：
+# K8s 物件的狀態，例如 Pod 的 phase、容器重啟次數、Deployment 的副本數、節點是否 Ready。
+# 跟 common.yaml 一起載入。
+
+receivers:
+  k8s_cluster:
+    auth_type: serviceAccount
+    collection_interval: 30s
+    node_conditions_to_report: [Ready, MemoryPressure, DiskPressure]
+
+service:
+  pipelines:
+    metrics/in:
+      receivers: [k8s_cluster]
+      processors: [memory_limiter, transform/pre, k8s_attributes, transform/group, transform/drop-log-attrs]
+      exporters: [otlp_http/es]

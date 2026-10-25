@@ -1,0 +1,80 @@
+# 規則（engine/configs/baseline/rules.yaml）的測試應用：每一個都故意壞一種，run-rules-e2e.sh 檢查有沒有被對的規則抓到。
+# namespace rules-test（dept=D1110 → IMC）由 run-rules-e2e.sh 建。
+---
+# 容器重啟：跑 20 秒就結束（exit 1），K8s 一直重啟 → container.restarted；可用副本 0 → deployment.unavailable
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: crash-app, namespace: rules-test}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app.kubernetes.io/name: crash-app}}
+  template:
+    metadata: {labels: {app.kubernetes.io/name: crash-app}}
+    spec:
+      containers:
+        - name: app
+          image: docker.io/library/busybox:1.37
+          command: ["sh", "-c", "echo starting; sleep 20; echo 'fatal: cannot connect'; exit 1"]
+---
+# 拉不到 image：Pod 一直 Pending → pod.pending；可用副本 0 → deployment.unavailable
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: bad-image, namespace: rules-test}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app.kubernetes.io/name: bad-image}}
+  template:
+    metadata: {labels: {app.kubernetes.io/name: bad-image}}
+    spec:
+      containers:
+        - name: app
+          image: docker.io/library/busybox:this-tag-does-not-exist
+---
+# 記憶體快到上限：上限 64Mi，佔 60MB（約 91%）→ container.memory_near_limit
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: mem-hog, namespace: rules-test}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app.kubernetes.io/name: mem-hog}}
+  template:
+    metadata: {labels: {app.kubernetes.io/name: mem-hog}}
+    spec:
+      containers:
+        - name: app
+          image: docker.io/library/busybox:1.37
+          # tail 會把讀到的 60MB 都留在記憶體裡，直到輸入結束（sleep 完）
+          command: ["sh", "-c", "{ head -c 60000000 /dev/zero; sleep 86400; } | tail -c 61000000 > /dev/null"]
+          resources: {limits: {memory: 64Mi}}
+---
+# metrics 抓不到：標了要抓，但那個 port 沒有東西 → scrape.down
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: no-metrics, namespace: rules-test}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app.kubernetes.io/name: no-metrics}}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: no-metrics}
+      annotations: {prometheus.io/scrape: "true", prometheus.io/port: "9999", prometheus.io/path: /metrics}
+    spec:
+      containers:
+        - name: app
+          image: docker.io/library/busybox:1.37
+          command: ["sleep", "86400"]
+---
+# Job 失敗：exit 1、不重試 → job.failed（Pod 失敗 → pod.failed）
+apiVersion: batch/v1
+kind: Job
+metadata: {name: fail-job, namespace: rules-test}
+spec:
+  backoffLimit: 0
+  template:
+    metadata: {labels: {app.kubernetes.io/name: fail-job}}
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: app
+          image: docker.io/library/busybox:1.37
+          command: ["sh", "-c", "sleep 90; echo 'report failed'; exit 1"]
