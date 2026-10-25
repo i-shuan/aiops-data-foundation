@@ -97,3 +97,7 @@ PDCA 的意思：**Plan** 定規則與門檻 → **Do** 收值、判斷、報告
 | [2026-10-restructure.md](2026-10-restructure.md) | 全部 目錄改名：專案名 it-aiops | `platform/`→`telemetry/`、`aiops/`→`engine/`、`apps/`→`sdk/`、`test/`→`e2e/`；Python 套件改名；行為不變，200 個單元測試與連結檢查過 |
 | [2026-10-split-detector-cli.md](2026-10-split-detector-cli.md) | ④⑤⑨ detector 的 `__main__.py`（1,100 行）依指令拆檔 | 1,100 行 → `__main__.py` 160 行＋ 10 個檔；只搬不改，200 個測試、ruff、9 個指令實跑都過 |
 | [2026-10-anomaly-owner.md](2026-10-anomaly-owner.md) | ⑤ 異常總表帶 `dept`、`group` | 資料本來就帶，異常寫回時補；namespace 優先、其次服務、對不到 unassigned；告警依 group 分送的前置 |
+| [2026-10-expert-feedback.md](2026-10-expert-feedback.md) | ⑧⑨ 老師傅的回饋入口 | 只有 Plan：從通知點一下、1 分鐘內回饋；多存根因分類、處置、怎麼看出來的、查了哪裡；入口建議做成小網頁（不綁通知管道） |
+| [2026-10-similar-incidents.md](2026-10-similar-incidents.md) | ⑦⑨ 相似事故檢索（RAG 的檢索） | 只有 Plan：事故指紋（服務、API、慢的那段、錯的源頭、log 樣式、根因分類）；先用欄位比對不用向量；舊事故單匯入格式；留一法 recall@3 評測 |
+| [2026-10-loop-update.md](2026-10-loop-update.md) | ⑨④ 回饋回到系統：更新知識庫、門檻加回測 | 只有 Plan：每種回饋都有去處；改門檻前回測過去 4 週（告警少幾則、已確認事故還抓不抓得到）；同根因 3 次提升級成規則 |
+| [2026-10-llm-summary.md](2026-10-llm-summary.md) | ⑦⑨ LLM 摘要（RAG 的生成） | 只有 Plan：三到五句、每句附依據、引用不存在的 id 就不顯示；只加註不擋告警；評測集測根因命中與捏造率 |

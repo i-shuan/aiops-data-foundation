@@ -12,7 +12,7 @@
   3. **先只記錄、不發送**（dry-run）跑 2～4 週：每天會發幾則、哪些是誤報，記下基準（[feedback/README.md](../feedback/README.md) 要的「上線前先記下現況」），門檻調過才真的開通知。
 - **範圍**：
   - 做：收斂最小版（[system-stages.md 第 7 節](../system-stages.md) 的 ① 時間合併已有 `status`；這次做 ② **同一個服務合成一件**）；一件存一筆 `aiops-alerts`；`notify` 指令（dry-run、webhook 兩種）；依 group 送不同的地方；一件事跑一次根因分析、附在通知裡。
-  - 不做：③ 沿呼叫關係合併上下游（要 trace 拓撲，下一輪）；LLM 摘要；通知裡的回饋按鈕（回饋先用現有的 `feedback add`，填通知裡的 alert id）；排程部署（先手動或 cron 跑指令）。
+  - 不做：③ 沿呼叫關係合併上下游（要 trace 拓撲，下一輪）；LLM 摘要；通知裡的回饋按鈕（另一份：[老師傅回饋入口](2026-10-expert-feedback.md)；這份先在通知裡放 alert id，用現有的 `feedback add`）；排程部署（先手動或 cron 跑指令）。
 
 ### 哪些異常會變成告警
 
