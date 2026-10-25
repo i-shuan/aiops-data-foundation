@@ -4,7 +4,7 @@ import unittest
 import numpy as np
 import pandas as pd
 
-from detector.model import (DetectOptions, TrainOptions, group_of, mark_status, mask_thin, override_for,
+from detector.model import (TrainOptions, group_of, mark_status, mask_thin, override_for,
                                   pick_resolution, resolutions_from, score, score_poisson, train, train_groups)
 
 TZ = "Asia/Taipei"

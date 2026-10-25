@@ -13,7 +13,7 @@ PDCA 的意思：**Plan** 定規則與門檻 → **Do** 收值、判斷、報告
 | 項目 | 狀態 | 細節 |
 |---|---|---|
 | ④ 判斷設定：序列、粒度、z、`min_abs`、規則門檻 | ✅ | [engine/configs/baseline](../../engine/configs/baseline/README.md)（`series.yaml`、`rules.yaml`、`peer.yaml`、`trace.yaml`） |
-| ⑨ 上線前記下基準（每天告警幾筆、誤報多少、從告警到找到原因多久） | ❌ | [feedback/](../feedback/README.md) |
+| ⑨ 上線前記下基準（每天告警幾筆、誤報多少、從告警到回饋多久） | ⚠️ `metrics` 指令有了，數字要等試點 | [2026-10-metrics-kpi.md](2026-10-metrics-kpi.md) |
 | ④ 用真實資料校正門檻 | 📝 要先排程跑 2～4 週 | [rca/](../rca/README.md) |
 | ② 歸屬放哪裡（讀 namespace 的 `dept`，或改成 app → group 中央清單）、app 名稱是否全公司唯一 | 未定案 | [README「還沒定案的」](../../README.md#還沒定案的) |
 | ③ 保留天數與容量（用正式環境的量重算） | ⚠️ 已合進 master；天數是暫定值，要用正式環境的量重算 | [retention.md](../retention.md) |
@@ -39,13 +39,14 @@ PDCA 的意思：**Plan** 定規則與門檻 → **Do** 收值、判斷、報告
 
 | 項目 | 狀態 | 細節 |
 |---|---|---|
-| ⑧ 告警出口（通知） | ❌ 現在只寫進 ES | [feedback/](../feedback/README.md) |
-| ⑧ 事故紀錄 `aiops-incidents`（`incident` 指令） | ⚠️ 程式好了、實測過；沒排程、沒接告警 | [baseline README「事故紀錄與值班回饋」](../../engine/configs/baseline/README.md#事故紀錄與值班回饋) |
-| ⑨ 值班回饋 `aiops-feedback`（`feedback` 指令：真的／誤報／根因錯／漏報；誤報率統計） | ⚠️ 程式好了、實測過；收集靠指令，不自動生效 | 同上 |
+| ⑧ 告警出口（通知） | ✅ 合成一件寫 `aiops-alerts`，Grafana 分送；排程 yaml 有了、K8s 沒跑過 | [2026-10-alert-exit.md](2026-10-alert-exit.md)、[2026-10-schedule.md](2026-10-schedule.md) |
+| ⑧ 事故紀錄 `aiops-incidents`（`incident` 指令、alert 自動開 `auto`、回饋網頁確認） | ✅ 接上告警與回饋；存根因分類、怎麼看出來的、指紋 | [2026-10-expert-feedback.md](2026-10-expert-feedback.md) |
+| ⑨ 值班回饋 `aiops-feedback`（回饋網頁＋`feedback` 指令） | ✅ 網頁入口（沒登入）；漏報仍靠指令 | 同上 |
 | ② 資料品質檢查：路由沒參數化、必填欄位缺、資料停了、落到 unassigned 變多（`quality`） | ⚠️ 程式好了、實測過，沒排程 | [baseline README](../../engine/configs/baseline/README.md#資料品質檢查資料本身怪不怪) |
 | ② 排除已知干擾：事故、維護、壓測時段不學（`exclude_window`）；換版重新學（`reset_point`）；月底批次放寬（`recurring_override`） | ⚠️ 程式好了、實測過，沒排程 | [baseline README「調整」](../../engine/configs/baseline/README.md#調整哪些資料不學從哪裡重新學哪些時段放寬) |
 | ② 慢性病清單（`chronic`，每週）、行事曆（`calendar.yaml`） | ⚠️ 程式好了、實測過，沒排程；假日已改成直接抓台灣行事曆（`taiwan` provider）；`owners` 目前是**假資料**（`fake-data/owners.json`），要換成真的來源 | [baseline README「慢性病清單、行事曆」](../../engine/configs/baseline/README.md#慢性病清單行事曆) |
-| ⑨ 版本（每筆異常記哪一版產生）、回測、評測集（20～30 件過去事故） | ❌ | [feedback/](../feedback/README.md) |
+| ⑨ 回測（`backtest`：改門檻前重跑過去 N 週） | ✅ 沒回測不能核准 | [2026-10-loop-update.md](2026-10-loop-update.md) |
+| ⑨ 版本（每筆異常記哪一版產生）、評測集（20～30 件過去事故） | ❌ 要真實事故 | [feedback/](../feedback/README.md) |
 | ①② REST API 的 log 樣本、重要 .NET Kafka 消費者加幾行 | 要別人配合 | 各資料夾 |
 
 ## Act：依結果調整
@@ -54,10 +55,11 @@ PDCA 的意思：**Plan** 定規則與門檻 → **Do** 收值、判斷、報告
 |---|---|---|
 | ④ 手動調整：`series.yaml` 的 `overrides`、`tune` 指令（記原因、誰、何時） | ✅ | [baseline README「使用者、feedback 調整」](../../engine/configs/baseline/README.md#使用者feedback-調整) |
 | ② 修慢性病（天天噴錯、沒人修的） | 要別人配合 | [rca/](../rca/README.md#髒資料排除) |
-| ⑨ 同一個根因 ≥ 3 次 → 升級成規則 | 📝 | [feedback/](../feedback/README.md) |
-| ⑨ 回饋累積夠且回測通過 → 自動調門檻、排除時段 | 📝 | 同上 |
+| ⑨ 同一個根因 ≥ 3 次 → 升級成規則 | ⚠️ 提規則草稿（proposed），門檻要人填 | [2026-10-loop-update.md](2026-10-loop-update.md) |
+| ⑨ 回饋累積夠且回測通過 → 調門檻、排除時段 | ⚠️ 誤報 3 次 → 放寬 z → 回測 → 人核准；還不會提排除時段 | 同上 |
 | ② 資料品質檢查的門檻：先估的，正式環境只記錄跑 2～4 週再手動校；`quality` 還不能用 `tune` 調 | 📝 | [2026-10-data-cleaning.md](2026-10-data-cleaning.md#門檻怎麼校之後誰來調) |
-| ⑨ LLM：根因報告摘要（只加註、不擋告警）、RAG 讀確認過的事故 | 📝 | [feedback/llm-mlops.md](../feedback/llm-mlops.md) |
+| ⑦⑨ 相似事故檢索（RAG 的檢索，欄位比對） | ✅ 模擬資料驗過；門檻、權重是估的 | [2026-10-similar-incidents.md](2026-10-similar-incidents.md) |
+| ⑦⑨ LLM：根因報告摘要（只加註、每句附依據） | ⚠️ 骨架與 template 驗過；真的模型沒跑過 | [2026-10-llm-summary.md](2026-10-llm-summary.md) |
 
 **之後**：Elastic 付費 AIOps 功能評估（試用只能開一次，等資料累積夠再開）；工廠（[factory-later.md](../factory-later.md)）。
 
@@ -94,13 +96,13 @@ PDCA 的意思：**Plan** 定規則與門檻 → **Do** 收值、判斷、報告
 | [2026-10-ingest-simplify.md](2026-10-ingest-simplify.md) | ①③④ 一把寫入 key、ES failure store、靜態保底規則 | 一把寬 pattern 的 key、一個出口，資料照樣依 group 分；log 的 `k8s-*` 開 failure store（OTel 的預設已開），`quality.ingest_rejected` 有一筆就報；rules 加 `window` 類型，錯誤率 ≥ 5%、p95 ≥ 2 秒保底 |
 | [2026-10-alert-exit.md](2026-10-alert-exit.md) | ⑥ 事件整合，通知交給 Grafana | 同服務合成一件寫 `aiops-alerts`（帶 dept、摘要、根因報告）；Grafana 12.2 實測一件一則、依 dept 分送、資料品質送平台、結束發恢復；ES 9 要寫 `orderBy: _count` |
 | [2026-10-instant-anomaly.md](2026-10-instant-anomaly.md) | ④ 單次就報：依序列設 `confirm_points`、偏太多（`instant_z`）不用等；`tune` 能調 | `http.error_rate` 一次就算、全域 `instant_z: 15`；模擬資料實測 z 20～49 的單點變 anomaly、z 5.2 的誤報仍是 warning |
-| [2026-10-schedule.md](2026-10-schedule.md) | ④⑤⑥⑧ 排程上線：CronJob、「AIOps 停了」告警、先只寫入不通知 | 進行中 |
-| [2026-10-metrics-kpi.md](2026-10-metrics-kpi.md) | ⑨ 量化：學之前、學之後的數字 | 進行中 |
-| [2026-10-product-loop.md](2026-10-product-loop.md) | ①～⑨ 產品主線 8 步：收值到 learning loop | 盤點：1～4 穩、5 一半；6 收斂、7 的 RAG、8 的回饋入口是斷點；照順序補：告警出口 → 老師傅回饋入口 → 相似事故檢索 → 回饋更新 RAG → 門檻接回饋＋回測 → LLM → 量化 |
+| [2026-10-schedule.md](2026-10-schedule.md) | ④⑤⑥⑧ 排程上線：CronJob、「AIOps 停了」告警、先只寫入不通知 | Dockerfile、10 個 CronJob、回饋網頁 Deployment、心跳＋Grafana 規則；image 建好跑過，K8s 沒跑過 |
+| [2026-10-metrics-kpi.md](2026-10-metrics-kpi.md) | ⑨ 量化：學之前、學之後的數字 | `metrics` 指令兩段並排；模擬資料驗算法，真實數字等試點 |
+| [2026-10-product-loop.md](2026-10-product-loop.md) | ①～⑨ 產品主線 8 步：收值到 learning loop | 盤點後照順序補完；10-25 整合驗證：第 1 次事故 → 回饋 → 第 2 次附相似事故＋LLM 摘要；誤報 3 次 → 回測 → 核准 → 不再報，37 項全過（模擬資料、docker ES） |
 | [2026-10-restructure.md](2026-10-restructure.md) | 全部 目錄改名：專案名 it-aiops | `platform/`→`telemetry/`、`aiops/`→`engine/`、`apps/`→`sdk/`、`test/`→`e2e/`；Python 套件改名；行為不變，200 個單元測試與連結檢查過 |
 | [2026-10-split-detector-cli.md](2026-10-split-detector-cli.md) | ④⑤⑨ detector 的 `__main__.py`（1,100 行）依指令拆檔 | 1,100 行 → `__main__.py` 160 行＋ 10 個檔；只搬不改，200 個測試、ruff、9 個指令實跑都過 |
 | [2026-10-anomaly-owner.md](2026-10-anomaly-owner.md) | ⑤ 異常總表帶 `dept`、`group` | 資料本來就帶，異常寫回時補；namespace 優先、其次服務、對不到 unassigned；告警依 group 分送的前置 |
-| [2026-10-expert-feedback.md](2026-10-expert-feedback.md) | ⑧⑨ 老師傅的回饋入口 | 只有 Plan：從通知點一下、1 分鐘內回饋；多存根因分類、處置、怎麼看出來的、查了哪裡；入口建議做成小網頁（不綁通知管道） |
-| [2026-10-similar-incidents.md](2026-10-similar-incidents.md) | ⑦⑨ 相似事故檢索（RAG 的檢索） | 只有 Plan：事故指紋（服務、API、慢的那段、錯的源頭、log 樣式、根因分類）；先用欄位比對不用向量；舊事故單匯入格式；留一法 recall@3 評測 |
-| [2026-10-loop-update.md](2026-10-loop-update.md) | ⑨④ 回饋回到系統：更新知識庫、門檻加回測 | 只有 Plan：每種回饋都有去處；改門檻前回測過去 4 週（告警少幾則、已確認事故還抓不抓得到）；同根因 3 次提升級成規則 |
-| [2026-10-llm-summary.md](2026-10-llm-summary.md) | ⑦⑨ LLM 摘要（RAG 的生成） | 只有 Plan：三到五句、每句附依據、引用不存在的 id 就不顯示；只加註不擋告警；評測集測根因命中與捏造率 |
+| [2026-10-expert-feedback.md](2026-10-expert-feedback.md) | ⑧⑨ 老師傅的回饋入口 | 小網頁（`feedback_web`）：預填告警、一鍵判斷、存根因分類、處置、怎麼看出來的、查了哪裡；每筆異常一筆回饋、事故變 confirmed；沒登入、漏報沒入口 |
+| [2026-10-similar-incidents.md](2026-10-similar-incidents.md) | ⑦⑨ 相似事故檢索（RAG 的檢索） | 指紋＋欄位比對、自己算分寫出為什麼像、只檢索已確認；第 2 件附上第 1 件實測過；門檻權重是估的、模擬沒 trace、舊事故匯入格式未寫 |
+| [2026-10-loop-update.md](2026-10-loop-update.md) | ⑨④ 回饋回到系統：更新知識庫、門檻加回測 | `backtest`（現行 vs 建議重跑）、沒回測不能核准、漏報降 z、同根因 3 次規則草稿；誤報 3 次 → 回測 → 核准 → 不再報實測過；月底批次放寬 z 是治標 |
+| [2026-10-llm-summary.md](2026-10-llm-summary.md) | ⑦⑨ LLM 摘要（RAG 的生成） | 輸入包＋每句附依據的檢查＋template 退路；捏造 id 整段不顯示實測過；真的模型（閘道 401）沒跑過、沒評測集 |

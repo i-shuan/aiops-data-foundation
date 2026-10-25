@@ -63,8 +63,9 @@ docs/
 ```
 telemetry/   收值與存（①②③）：collectors/（各 cluster 的 OpenTelemetry Collector）、storage/（中央 ES：mapping、pipeline、ILM）、
              scripts/（setup、換 key）、groups.yaml（部門 → group）
-engine/      AIOps 分析核心（④～⑨，一個 Python 專案）：core/（共用）、detector/（學平常的樣子、規則、資料品質、回饋）、
-             investigator/（根因分析）、configs/（baseline、rca 的 yaml）
+engine/      AIOps 分析核心（④～⑨，一個 Python 專案）：core/（共用：ES、trace、LLM）、detector/（學平常的樣子、規則、資料品質、回饋、回測、量化）、
+             investigator/（根因分析、事件整合、相似事故）、feedback_web/（老師傅的回饋網頁）、configs/（baseline、rca、grafana 的 yaml）、
+             deploy/（K8s CronJob）、Dockerfile
 sdk/         給應用團隊：通用 Helm chart、範例、Java log 設定、trace 埋點指引、CI 檢查
 e2e/         本機 k3s 端到端測試、ES pipeline 案例
 docs/        設計文件、規劃、測試紀錄（docs/pdca/ 每一輪的紀錄）

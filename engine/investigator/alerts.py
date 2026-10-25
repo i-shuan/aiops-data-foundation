@@ -168,11 +168,15 @@ def conclusion(report: str) -> list[str]:
     return [l[2:].strip() for l in (m.group(1).splitlines() if m else []) if l.startswith("- ")]
 
 
-def summary(al: dict, report: str | None, tz) -> str:
+def summary(al: dict, report: str | None, tz, similar: list[dict] | None = None) -> str:
     start = _ts(al["started_at"]).astimezone(tz)
     mins = int((_ts(al["updated_at"]) - _ts(al["started_at"])).total_seconds() // 60)
     lines = [headline(al), f"從 {start:%m-%d %H:%M} 開始，持續 {mins} 分鐘；異常：{'、'.join(al['series'][:6])}"]
     concl = conclusion(report or "")
     if concl:
         lines.append("根因分析：" + "；".join(re.sub(r"\*\*", "", c) for c in concl[:3]))
+    if similar:
+        s = similar[0]
+        cat = f"[{s['root_cause_category']}] " if s.get("root_cause_category") else ""
+        lines.append(f"過去相似：{(s.get('start') or '')[:10]} {cat}{s.get('root_cause') or ''}；處置：{s.get('action') or '未記錄'}（{'；'.join(s['why'][:2])}）")
     return "\n".join(lines)

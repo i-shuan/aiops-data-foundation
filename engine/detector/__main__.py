@@ -36,6 +36,8 @@ import yaml
 
 from .cmd_baseline import cmd_train, cmd_tune, cmd_detect
 from .cmd_adjust import cmd_adjust
+from .cmd_backtest import cmd_backtest
+from .cmd_metrics import cmd_metrics
 from .cmd_feedback import cmd_feedback, cmd_incident
 from .cmd_chronic import cmd_chronic
 from .cmd_trace import cmd_trace_collect, cmd_trace_train, cmd_trace_detect
@@ -68,6 +70,12 @@ def main(argv=None) -> int:
     tu.add_argument("--by", help="誰調的（使用者、feedback）")
     tu.add_argument("--remove", action="store_true")
     tu.add_argument("--list", action="store_true")
+    bt = sub.add_parser("backtest", help="改門檻前先回測：一筆建議用過去 N 週重跑，看告警少幾個、已確認事故還抓不抓得到")
+    bt.add_argument("--config", default="configs/baseline/series.yaml")
+    bt.add_argument("--id", required=True, help="aiops-tuning 的建議 id（adjust list 看得到）")
+    bt.add_argument("--weeks", type=int, default=4)
+    bt.add_argument("--at")
+    bt.add_argument("--verbose", action="store_true")
     ad = sub.add_parser("adjust", help="排除時段、重置點、週期放寬（寫進 aiops-tuning）")
     ad.add_argument("action", choices=["add", "list", "approve", "remove"])
     ad.add_argument("--config", default="configs/baseline/series.yaml")
@@ -92,6 +100,7 @@ def main(argv=None) -> int:
     ad.add_argument("--expires", help="到期時間（選填）")
     ad.add_argument("--reason")
     ad.add_argument("--by")
+    ad.add_argument("--force", action="store_true", help="approve：沒回測、或回測不建議也硬核准")
     tc = sub.add_parser("trace-collect")
     tc.add_argument("--config", required=True)
     tc.add_argument("--start")
@@ -128,6 +137,15 @@ def main(argv=None) -> int:
     fb.add_argument("--limit", type=int, default=50)
     fb.add_argument("--min-false-positive", dest="min_false_positive", type=int, default=3,
                     help="同一個對象誤報幾次才列入、才提建議（預設 3）")
+    fb.add_argument("--min-recurring", dest="min_recurring", type=int, default=3,
+                    help="suggest：同一個服務、同一個根因分類確認幾次才提「升級成規則」（預設 3）")
+    me = sub.add_parser("metrics", help="量化：每天幾件、有回饋的比例、誤報率、從告警到回饋多久；兩段時間並排比「學之前 vs 學之後」")
+    me.add_argument("--config", default="configs/baseline/series.yaml")
+    me.add_argument("--from", dest="start", required=True, help="例如 2026-10-01")
+    me.add_argument("--to", dest="end", required=True)
+    me.add_argument("--compare-from", dest="cstart", help="另一段（學之前）")
+    me.add_argument("--compare-to", dest="cend")
+    me.add_argument("--out")
     inc = sub.add_parser("incident", help="事故紀錄：add、list、resolve")
     inc.add_argument("action", choices=["add", "list", "resolve"])
     inc.add_argument("--config", default="configs/baseline/series.yaml")
@@ -155,7 +173,7 @@ def main(argv=None) -> int:
         cfg = yaml.safe_load(f)
     cmds = {"train": cmd_train, "detect": cmd_detect, "tune": cmd_tune, "trace-collect": cmd_trace_collect,
             "trace-train": cmd_trace_train, "trace-detect": cmd_trace_detect, "rules": cmd_rules, "peer": cmd_peer,
-            "quality": cmd_quality, "adjust": cmd_adjust,
+            "quality": cmd_quality, "adjust": cmd_adjust, "backtest": cmd_backtest, "metrics": cmd_metrics,
             "chronic": cmd_chronic, "feedback": cmd_feedback, "incident": cmd_incident}
     return cmds[args.cmd](cfg, args)
 

@@ -1,2 +1,8 @@
 # helm dependency build 產生的相依套件
 sdk/examples/*/charts/
+
+# Python
+__pycache__/
+*.pyc
+# 本機 docker build 時暫放的 proxy CA
+engine/.proxy-ca.crt

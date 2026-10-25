@@ -15,7 +15,9 @@ def cmd_adjust(cfg: dict, args) -> int:
     es.ensure_index(TUNING_INDEX, TUNING_MAPPING)
     if args.action == "list":
         for a in load_adjustments(es, cfg):
-            print(f"{a.get('id') or '（設定檔）'}  {A.describe(a)}")
+            bt = a.get("backtest")
+            tail = f"  ｜回測：{'建議核准' if bt.get('recommended') else '不建議'}，{bt.get('reason')}" if bt else ("  ｜還沒回測" if a.get("status") == "proposed" else "")
+            print(f"{a.get('id') or '（設定檔）'}  {A.describe(a)}{tail}")
         return 0
     if args.action in ("approve", "remove"):
         if not args.id:
@@ -25,9 +27,19 @@ def cmd_adjust(cfg: dict, args) -> int:
             es.req("DELETE", f"/{TUNING_INDEX}/_doc/{args.id}?refresh=true", ok=(200, 404))
             print(f"已刪除：{args.id}")
         else:
+            got = es.req("GET", f"/{TUNING_INDEX}/_doc/{args.id}", ok=(200, 404))
+            src = got.get("_source") or {}
+            bt = src.get("backtest")
+            if src.get("kind", "override") in ("override", "recurring_override") and not getattr(args, "force", False):
+                if not bt:
+                    print(f"這筆還沒回測：先跑 backtest --id {args.id}（要跳過用 --force）")
+                    return 2
+                if not bt.get("recommended"):
+                    print(f"回測不建議核准：{bt.get('reason')}（硬要核准用 --force）")
+                    return 2
             es.req("POST", f"/{TUNING_INDEX}/_update/{args.id}?refresh=true",
                    {"doc": {"status": "active", "approved_by": args.by, "approved_at": pd.Timestamp.now(tz="UTC").isoformat()}})
-            print(f"已核准：{args.id}")
+            print(f"已核准：{args.id}" + (f"（回測：{bt.get('reason')}）" if bt else "（沒回測，--force）"))
         return 0
     need = {"exclude_window": ("start", "end"), "reset_point": ("at",), "recurring_override": ("cron", "duration")}
     missing = [f"--{f.replace('_', '-')}" for f in need[args.kind] if not getattr(args, f)]

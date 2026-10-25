@@ -1,0 +1,18 @@
+indices:
+  anomalies: aiops-anomalies
+  traces: traces-*.otel-*
+  logs: k8s-*
+timezone: Asia/Taipei
+compare_with: 7d
+ref_gap: 10m
+sample: 200
+interval: 5m
+alerts:
+  close_after: 15m
+  lookback: 2h
+  rca: true
+  similar: true
+  llm: true
+  llm_provider: template
+  feedback_url: http://localhost:18080/feedback?alert={alert_id}
+  report_url: http://localhost:18080/report?alert={alert_id}

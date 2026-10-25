@@ -8,13 +8,15 @@
 |---|---|---|
 | 異常總表 `aiops-anomalies` | ✅ | 所有判斷結果都寫這裡，帶 `status`（warning／anomaly）、可信度、粒度、方法 |
 | 使用者、指令調整（粒度、z、min_abs） | ✅ | `series.yaml` 的 `overrides`、`tune` 指令寫進 `aiops-tuning`，記原因、誰、何時（[baseline README「使用者、feedback 調整」](../../engine/configs/baseline/README.md#使用者feedback-調整)）；之後 feedback 也寫同一處 |
-| 告警出口 | ❌ | 現在只寫進 ES，還沒有通知；要接在收斂之後（[rca/README.md「雜訊壓制」](../rca/README.md#雜訊壓制)） |
-| 事故紀錄 `aiops-incidents` | ⚠️ | `incident add／list／resolve`：時間、服務、根因、處置、相關異常；`--exclude-training` 同時提「這段不學」（proposed）。沒排程、沒接告警；根因還沒餵給 RAG |
-| 值班回饋 `aiops-feedback` | ⚠️ | `feedback pending／add／list／summary／suggest`：真的／誤報／根因錯／漏報；誤報同一個對象累積 3 次才提放寬 z 的建議（proposed，`adjust approve` 才生效）。收集靠指令，還沒有網頁或通知裡的按鈕 |
-| 版本、回測、評測集 | ❌ | 每筆異常記下是哪一版產生的；改門檻前回測；改 prompt 前跑評測集 |
-| LLM | ❌ | 從根因報告摘要開始，只加註、不擋告警 |
+| 告警出口 | ✅ | 同服務合成一件寫 `aiops-alerts`，Grafana 依 dept 分送（[pdca/2026-10-alert-exit.md](../pdca/2026-10-alert-exit.md)）；排程與「AIOps 停了」（[pdca/2026-10-schedule.md](../pdca/2026-10-schedule.md)） |
+| 事故紀錄 `aiops-incidents` | ✅ | 告警一開就有一筆（`auto`、帶指紋）；老師傅在回饋網頁確認 → `confirmed`，存根因分類、處置、**怎麼看出來的**、查了哪裡；相似事故檢索只讀確認過的（[pdca/2026-10-expert-feedback.md](../pdca/2026-10-expert-feedback.md)、[2026-10-similar-incidents.md](../pdca/2026-10-similar-incidents.md)） |
+| 值班回饋 `aiops-feedback` | ✅ | 回饋網頁 `feedback_web`（通知裡的連結）＋指令；誤報 3 次 → 建議、漏報 → 降 z、同根因 3 次 → 規則草稿（都 proposed）。漏報還只能用指令；沒登入 |
+| 回測 | ✅ | `backtest`：現行 vs 現行＋建議重跑過去 N 週，已確認事故少抓一件就不建議；沒回測不能核准（[pdca/2026-10-loop-update.md](../pdca/2026-10-loop-update.md)） |
+| 版本、評測集 | ❌ | 每筆異常記下是哪一版產生的；20～30 件真實事故的評測集（相似事故、LLM 共用） |
+| LLM | ⚠️ | 報告最前面三到五句、每句附依據、捏造就整段不顯示、掛了退回固定句型（[pdca/2026-10-llm-summary.md](../pdca/2026-10-llm-summary.md)）；真的模型還沒跑過 |
+| 量化 | ⚠️ | `metrics` 兩段並排（件數、有回饋比例、誤報率、到回饋多久、怎麼看出來的有沒有填）；數字要等試點（[pdca/2026-10-metrics-kpi.md](../pdca/2026-10-metrics-kpi.md)） |
 
-**建議順序**：告警出口（收斂後）→ 事故紀錄、回饋（先只收集，不自動生效）→ 版本、回測 → LLM 摘要 → 回饋累積夠且回測通過，才自動調門檻。
+**順序都走過一輪了**（2026-10-25，模擬資料；[pdca/2026-10-product-loop.md](../pdca/2026-10-product-loop.md) 的整合驗證）。下一步：上 K8s、用有 trace 的事故驗、試點產線先只寫入不通知 2～4 週。
 
 上線前先記下現況當基準（每天告警幾筆、多少是誤報、從告警到找到原因平均多久），之後才量得出有沒有改善。
 
@@ -24,10 +26,10 @@
 |---|---|---|
 | **Plan** | `series.yaml`、`rules.yaml` 的門檻與粒度；上線前記下現況基準（每天告警幾筆、誤報多少、找到原因要多久） | ⚠️ 設定有了，基準還沒記 |
 | **Do** | 收值 → baseline／規則／Pod 互比／trace 每一段 → `aiops-anomalies` → 根因分析 | ✅ 在 k3s 驗過 |
-| **Check** | 告警出口、事故紀錄 `aiops-incidents`、值班回饋 `aiops-feedback` | ⚠️ 事故、回饋可以收集與統計誤報率；告警出口、版本與回測還沒做 |
-| **Act** | 調門檻、排除時段、補指標、重複根因升級成規則；回測通過才生效，記在 `aiops-tuning` | ⚠️ 手動調整有了，自動回饋沒有 |
+| **Check** | 告警出口、事故紀錄 `aiops-incidents`、回饋網頁 `aiops-feedback`、`metrics` | ✅ 接上了（模擬資料驗過）；真實數字要等試點 |
+| **Act** | 調門檻、排除時段、補指標、重複根因升級成規則；回測通過才生效，記在 `aiops-tuning` | ⚠️ 誤報 → 建議 → 回測 → 人核准有了；排除時段、規則草稿還要人動手 |
 
-目前走到「偵測＋報告」；Check 是最大缺口，補上後才形成閉環。
+閉環的每一段都有程式、都在模擬資料上跑通；缺的是真實資料和真的 LLM。
 
 完整的一輪紀錄（exemplar 實測、方案比較）見 [pdca/2026-10-metrics-to-trace.md](../pdca/2026-10-metrics-to-trace.md)；紀錄格式見 [pdca/TEMPLATE.md](../pdca/TEMPLATE.md)。
 

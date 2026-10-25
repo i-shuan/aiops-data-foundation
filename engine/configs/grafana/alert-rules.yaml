@@ -42,3 +42,31 @@ groups:
         annotations:
           summary: "{{ $labels.summary }}"
           report: "{{ $labels.report_url }}"
+      # AIOps 停了：investigator alert 每次跑都寫一筆心跳（_id heartbeat，status ok）。10 分鐘內 aiops-alerts 沒有任何寫入 → 送平台
+      # （labels 沒有 dept，policies.yaml 的預設 receiver 就是 platform）。沒有這條，alert 停了所有件都查不到，Grafana 會當成全部恢復。
+      - uid: aiops-heartbeat
+        title: AIOps 停了（investigator alert 10 分鐘沒寫入）
+        condition: C
+        data:
+          - refId: A
+            datasourceUid: aiops-alerts
+            relativeTimeRange: {from: 600, to: 0}
+            model:
+              refId: A
+              query: "alert_id:heartbeat"
+              timeField: "@timestamp"
+              metrics: [{id: "1", type: count}]
+              bucketAggs:
+                - {id: "2", type: date_histogram, field: "@timestamp", settings: {interval: 10m, min_doc_count: "0"}}
+          - refId: B
+            datasourceUid: __expr__
+            model: {refId: B, type: reduce, expression: A, reducer: sum, settings: {mode: replaceNN, replaceWithValue: 0}}
+          - refId: C
+            datasourceUid: __expr__
+            model: {refId: C, type: threshold, expression: B, conditions: [{evaluator: {type: lt, params: [1]}}]}
+        noDataState: Alerting     # 查不到心跳就是停了（跟上面那條相反）
+        execErrState: Error
+        for: 2m
+        labels: {source: aiops, severity: critical}
+        annotations:
+          summary: "AIOps 的 investigator alert 已經 10 分鐘沒有寫入 aiops-alerts：排程停了、或連不到 ES。停著的期間所有件都看不到，不是真的恢復。"

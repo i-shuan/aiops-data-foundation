@@ -1,0 +1,44 @@
+# 老師傅的回饋入口（engine/feedback_web）：通知裡的連結點進來填。只讀寫 aiops-alerts、aiops-feedback、aiops-incidents、aiops-anomalies。
+# rca.yaml 的 alerts.feedback_url、report_url 填這個 Service 的網址（Grafana 通知裡帶的連結）：
+#   feedback_url: http://aiops-feedback.aiops.svc:8080/feedback?alert={alert_id}
+# 要讓人從公司網路點得到：再加一個 Ingress（或 NodePort）指到這個 Service；表單沒有登入，放內網就好。
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aiops-feedback
+  labels: {app.kubernetes.io/name: aiops-engine, app.kubernetes.io/component: feedback-web}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: aiops-engine, app.kubernetes.io/component: feedback-web}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: aiops-engine, app.kubernetes.io/component: feedback-web}
+    spec:
+      containers:
+        - name: web
+          image: aiops-engine
+          args: ["feedback_web"]
+          env:
+            - {name: FEEDBACK_PORT, value: "8080"}
+          envFrom:
+            - configMapRef: {name: aiops-env}
+            - secretRef: {name: aiops-secrets}
+          ports:
+            - {name: http, containerPort: 8080}
+          livenessProbe:
+            httpGet: {path: /health, port: http}
+          readinessProbe:
+            httpGet: {path: /health, port: http}
+          resources:
+            requests: {cpu: 50m, memory: 128Mi}
+            limits: {memory: 512Mi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: aiops-feedback
+spec:
+  selector: {app.kubernetes.io/name: aiops-engine, app.kubernetes.io/component: feedback-web}
+  ports:
+    - {name: http, port: 8080, targetPort: http}

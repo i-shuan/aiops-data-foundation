@@ -40,6 +40,14 @@ def _feedback_rows(es, days: int, now) -> pd.DataFrame:
                           "at": h["_source"]["@timestamp"], "by": h["_source"].get("by"), "note": h["_source"].get("note")}
                          for h in hits], columns=["series", "target", "verdict", "anomaly_id", "at", "by", "note"])
 
+def _confirmed_incidents(es, days: int, now) -> list[dict]:
+    """老師傅確認過、有根因分類的事故（升級成規則的材料）。"""
+    hits = es.req("POST", f"/{F.INCIDENT_INDEX}/_search?ignore_unavailable=true", {
+        "size": 1000, "query": {"bool": {"filter": [{"terms": {"status": ["confirmed", "corrected"]}}, {"exists": {"field": "root_cause_category"}},
+                                                    {"range": {"start": {"gte": (now - pd.Timedelta(days=days)).isoformat()}}}]}}}).get("hits", {}).get("hits", [])
+    return [{"id": h["_id"], **h["_source"]} for h in hits]
+
+
 def cmd_feedback(cfg: dict, args) -> int:
     es = ES()
     es.ensure_index(F.FEEDBACK_INDEX, F.FEEDBACK_MAPPING)
@@ -82,7 +90,29 @@ def cmd_feedback(cfg: dict, args) -> int:
             es.req("PUT", f"/{TUNING_INDEX}/_doc/{_id}?refresh=true", sug)
             print(f"  建議 {_id}：{A.describe(sug)}")
             n += 1
-        print(f"{n} 筆建議（status: proposed，用 adjust approve --id … 核准才生效）；"
+        # 漏報：那條序列、那個對象的 z 降 0.8 倍（proposed，回測看抓不抓得到）
+        for r in s["missed"].to_dict("records"):
+            sug = F.suggest_missed(r["series"], r["target"], z0)
+            if (sug["series"], json.dumps(sug["match"], sort_keys=True)) in existing:
+                continue
+            sug.update({"at": now.isoformat(), "by": "feedback"})
+            _id = doc_id("suggest-missed", sug["series"], sug["match"])
+            es.ensure_index(TUNING_INDEX, TUNING_MAPPING)
+            es.req("PUT", f"/{TUNING_INDEX}/_doc/{_id}?refresh=true", sug)
+            print(f"  建議 {_id}（漏報）：{A.describe(sug)}")
+            n += 1
+        # 同一個服務、同一個根因分類被確認 ≥ N 次 → 提「升級成規則」（不用等 baseline，一次就報）
+        for sug in F.suggest_rules(_confirmed_incidents(es, days, now), args.min_recurring):
+            _id = doc_id("suggest-rule", sug["service"], sug["root_cause_category"])
+            got = es.req("GET", f"/{TUNING_INDEX}/_doc/{_id}", ok=(200, 404))
+            if got.get("found"):
+                continue
+            sug.update({"at": now.isoformat(), "by": "feedback"})
+            es.ensure_index(TUNING_INDEX, TUNING_MAPPING)
+            es.req("PUT", f"/{TUNING_INDEX}/_doc/{_id}?refresh=true", sug)
+            print(f"  建議 {_id}（升級成規則）：{sug['reason']}")
+            n += 1
+        print(f"{n} 筆建議（status: proposed；override 先 backtest --id … 再 adjust approve --id …；規則草稿照 rule_draft 加進 rules.yaml）；"
               f"誤報不到 {args.min_false_positive} 次的不提")
         return 0
     # add

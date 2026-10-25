@@ -314,6 +314,47 @@ def detect_borrowed(es, cfg: dict, spec: dict, own: pd.DataFrame, now, window, d
     return save_anomalies(es, spec["name"], keys, s.drop(columns="group"), spec.get("direction", "both"), tz, resolution=r,
                           note=f"，借 {'、'.join(sorted(pick['group'].unique()))} 的 baseline，z 門檻 {bz.z:g}")
 
+def detect_series(es, cfg: dict, spec: dict, base: pd.DataFrame, now, window: pd.Timedelta, dopts, tz, overrides, adjs,
+                  quiet: bool = False) -> list[tuple[str, pd.DataFrame]]:
+    """一條序列、每種粒度各算一次：回傳 [(粒度, 打完分、標好 status 的 DataFrame)]，不寫 ES。
+    cmd_detect 拿去存；backtest（cmd_backtest.py）拿去比「現行設定 vs 建議的設定」。"""
+    keys, interval = keys_of(spec), cfg.get("interval", "5m")
+    # 剛結束的時間窗可能還沒收齊（Collector 批次送、ES refresh），往前退 lag 再看
+    lag = pd.Timedelta(_freq(cfg.get("lag", "0s")))
+    base = base.copy()
+    base["resolution"] = base["resolution"].fillna(interval)
+    out = []
+    # 每種粒度各查一次：1 小時一點的序列，看的是最近一個已經結束的整點（每 5 分鐘重跑會覆蓋同一筆，不會重複）
+    for r, b in base.groupby("resolution"):
+        end_r = (now - lag).floor(_freq(r))
+        start_r = end_r - max(window, pd.Timedelta(_freq(r)))
+        # 多查前一個時間窗：判斷「連續」要知道前一個有沒有超標
+        prev_r = start_r - pd.Timedelta(_freq(r))
+        cur = fetch(es, spec, prev_r, end_r, r)
+        ks = b[keys].drop_duplicates()
+        cur = cur.merge(ks, on=keys) if not cur.empty else cur
+        if value_kind(spec) == "count" or spec.get("fill_zero"):
+            cur = _add_silent(cur, b, keys, prev_r, end_r, r)
+        if (me := min_events(cfg, spec)) is not None and not cur.empty:
+            cur = mask_thin(cur, me)
+        if cur.empty:
+            if not quiet:
+                print(f"  {spec['name']}（{r} 一點）：沒有資料")
+            continue
+        b = b.assign(baseline_method=b["baseline_method"].fillna("mad"))
+        for method, bm in b.groupby("baseline_method"):
+            fn = score_poisson if method == "poisson" else score
+            cm = cur.merge(bm[keys].drop_duplicates(), on=keys)
+            if cm.empty:
+                continue
+            s = score_tuned(fn, cm, bm, keys, spec, dopts, tz, overrides).assign(baseline_method=method)
+            s, muted = A.detect_filter(s, keys, spec["name"], adjs, tz, baseline=bm)
+            if muted and not quiet:
+                print(f"  {spec['name']}（{r} 一點）：{muted} 個點在排除時段、週期放寬、重置點之後，不算")
+            out.append((r, with_status(cfg, s, keys, r, start_r, spec, overrides)))
+    return out
+
+
 def cmd_detect(cfg: dict, args) -> int:
     es = ES()
     es.ensure_index(ANOMALY_INDEX, ANOMALY_MAPPING)
@@ -326,8 +367,6 @@ def cmd_detect(cfg: dict, args) -> int:
     dopts = DetectOptions(**cfg.get("detect", {}))
     overrides = load_overrides(es, cfg)
     adjs = data_adjustments(es, cfg, now)
-    # 剛結束的時間窗可能還沒收齊（Collector 批次送、ES refresh），往前退 lag 再看
-    lag = pd.Timedelta(_freq(cfg.get("lag", "0s")))
     total = 0
     print(f"偵測區間 {start.tz_convert(tz):%Y-%m-%d %H:%M} ～ {end.tz_convert(tz):%Y-%m-%d %H:%M}（{tz}）")
     for spec in cfg["series"]:
@@ -338,34 +377,7 @@ def cmd_detect(cfg: dict, args) -> int:
         if base.empty:
             print(f"  {spec['name']}：沒有 baseline，先跑 train")
             continue
-        base["resolution"] = base["resolution"].fillna(interval)
-        # 每種粒度各查一次：1 小時一點的序列，看的是最近一個已經結束的整點（每 5 分鐘重跑會覆蓋同一筆，不會重複）
-        for r, b in base.groupby("resolution"):
-            end_r = (now - lag).floor(_freq(r))
-            start_r = end_r - max(pd.Timedelta(args.window), pd.Timedelta(_freq(r)))
-            # 多查前一個時間窗：判斷「連續」要知道前一個有沒有超標
-            prev_r = start_r - pd.Timedelta(_freq(r))
-            cur = fetch(es, spec, prev_r, end_r, r)
-            ks = b[keys].drop_duplicates()
-            cur = cur.merge(ks, on=keys) if not cur.empty else cur
-            if value_kind(spec) == "count" or spec.get("fill_zero"):
-                cur = _add_silent(cur, b, keys, prev_r, end_r, r)
-            if (me := min_events(cfg, spec)) is not None and not cur.empty:
-                cur = mask_thin(cur, me)
-            if cur.empty:
-                print(f"  {spec['name']}（{r} 一點）：沒有資料")
-                continue
-            b = b.assign(baseline_method=b["baseline_method"].fillna("mad"))
-            for method, bm in b.groupby("baseline_method"):
-                fn = score_poisson if method == "poisson" else score
-                cm = cur.merge(bm[keys].drop_duplicates(), on=keys)
-                if cm.empty:
-                    continue
-                s = score_tuned(fn, cm, bm, keys, spec, dopts, tz, overrides).assign(baseline_method=method)
-                s, muted = A.detect_filter(s, keys, spec["name"], adjs, tz, baseline=bm)
-                if muted:
-                    print(f"  {spec['name']}（{r} 一點）：{muted} 個點在排除時段、週期放寬、重置點之後，不算")
-                s = with_status(cfg, s, keys, r, start_r, spec, overrides)
-                total += save_anomalies(es, spec["name"], keys, s, spec.get("direction", "both"), tz, resolution=r)
+        for r, s in detect_series(es, cfg, spec, base, now, pd.Timedelta(args.window), dopts, tz, overrides, adjs):
+            total += save_anomalies(es, spec["name"], keys, s, spec.get("direction", "both"), tz, resolution=r)
     print(f"共 {total} 個異常")
     return 0

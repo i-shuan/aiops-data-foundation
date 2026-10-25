@@ -25,12 +25,24 @@ FEEDBACK_MAPPING = {"mappings": {"dynamic": False, "properties": {
     "@timestamp": {"type": "date"}, "anomaly_id": {"type": "keyword"}, "anomaly_at": {"type": "date"},
     "series": {"type": "keyword"}, "keys": {"type": "flattened"}, "verdict": {"type": "keyword"},
     "incident_id": {"type": "keyword"}, "correct_root_cause": {"type": "text"}, "note": {"type": "text"},
-    "by": {"type": "keyword"}}}}
+    "by": {"type": "keyword"}, "alert_id": {"type": "keyword"}, "alert_started_at": {"type": "date"},
+    "fp_reason": {"type": "keyword"}}}}
+# status：open／resolved（人補登的）、auto（事件整合自動開的，還沒人看）、confirmed（老師傅標真的）、corrected（真的但根因改過）
+# 相似事故檢索只用 confirmed、corrected（investigator/similar.py）
+ROOT_CAUSE_CATEGORIES = ("db", "network", "config_change", "deploy", "external", "resource", "bug", "data", "other")
 INCIDENT_MAPPING = {"mappings": {"dynamic": False, "properties": {
     "@timestamp": {"type": "date"}, "title": {"type": "text"}, "start": {"type": "date"}, "end": {"type": "date"},
     "services": {"type": "keyword"}, "severity": {"type": "keyword"}, "status": {"type": "keyword"},
     "root_cause": {"type": "text"}, "action": {"type": "text"}, "anomaly_ids": {"type": "keyword"},
-    "detected_at": {"type": "date"}, "resolved_at": {"type": "date"}, "by": {"type": "keyword"}}}}
+    "detected_at": {"type": "date"}, "resolved_at": {"type": "date"}, "by": {"type": "keyword"},
+    # 老師傅的經驗（docs/pdca/2026-10-expert-feedback.md）
+    "alert_id": {"type": "keyword"}, "dept": {"type": "keyword"}, "group": {"type": "keyword"},
+    "root_cause_category": {"type": "keyword"}, "how_detected": {"type": "text"}, "checked": {"type": "keyword"},
+    "improve": {"type": "text"}, "confirmed_at": {"type": "date"}, "confirmed_by": {"type": "keyword"},
+    # 指紋：相似事故檢索用（investigator/similar.py）
+    "fingerprint": {"properties": {"services": {"type": "keyword"}, "routes": {"type": "keyword"}, "series": {"type": "keyword"},
+                                   "slow_segments": {"type": "keyword"}, "error_origins": {"type": "keyword"},
+                                   "patterns": {"type": "text"}}}}}}
 
 
 def target_of(keys: dict | None) -> str:
@@ -85,6 +97,42 @@ def suggest_override(series: str, target: str, n_false_positive: int, current_z:
     return {"kind": "override", "series": re.escape(series), "match": {k: f"^{re.escape(str(v))}$" for k, v in keys.items()},
             "z": round(current_z * factor, 1), "status": "proposed", "source": "feedback",
             "reason": f"誤報 {n_false_positive} 次（值班回饋），z {current_z:g} → {round(current_z * factor, 1)}"}
+
+
+def suggest_missed(series: str, target: str, current_z: float = 5.0, factor: float = 0.8) -> dict:
+    """漏報 → 那條序列、那個對象的 z 降一點（proposed；backtest 看抓不抓得到、誤報會不會變多）。"""
+    keys = json.loads(target)
+    return {"kind": "override", "series": re.escape(series), "match": {k: f"^{re.escape(str(v))}$" for k, v in keys.items()},
+            "z": round(current_z * factor, 1), "status": "proposed", "source": "feedback",
+            "reason": f"漏報（值班回饋），z {current_z:g} → {round(current_z * factor, 1)}"}
+
+
+def suggest_rules(incidents: list[dict], min_recurring: int = 3) -> list[dict]:
+    """同一個服務、同一個根因分類被確認 ≥ min_recurring 次 → 提「升級成規則」：給一份規則草稿（rule_draft），人看過加進 rules.yaml。
+    草稿用那幾件事故指紋裡最常見的慢段／錯誤源頭：那一段的 p95 超過門檻就直接報，不用等 baseline。"""
+    from collections import Counter
+    by: dict[tuple, list[dict]] = {}
+    for inc in incidents:
+        for svc in inc.get("services") or []:
+            by.setdefault((svc, inc.get("root_cause_category")), []).append(inc)
+    out = []
+    for (svc, cat), incs in by.items():
+        if len(incs) < min_recurring:
+            continue
+        segs = Counter(s for i in incs for s in ((i.get("fingerprint") or {}).get("slow_segments") or []))
+        errs = Counter(s for i in incs for s in ((i.get("fingerprint") or {}).get("error_origins") or []))
+        where = (segs or errs).most_common(1)[0][0] if (segs or errs) else None
+        draft = {"name": f"{svc}.{cat}.recurring", "title": f"{svc} 又出現 {cat} 的狀況（確認過 {len(incs)} 次）", "severity": "critical",
+                 "type": "window", "lookback": "5m", "index": "metrics-*.otel-*",
+                 "filter": {"exists": {"field": "metrics.http.server.request.duration"}},
+                 "by": ["resource.attributes.service.name", "attributes.http.request.method", "attributes.http.route"],
+                 "value": {"percentile": {"field": "metrics.http.server.request.duration", "percent": 95}},
+                 "op": ">=", "threshold": "<填：那幾次事故時的 p95，秒>", "min_events": 20, "show": "seconds",
+                 "_note": f"慢的那段／錯的源頭最常是：{where}" if where else "指紋裡沒有慢段、錯誤源頭，門檻要自己看事故的報告填"}
+        out.append({"kind": "rule_suggestion", "service": svc, "root_cause_category": cat, "incident_ids": [i["id"] for i in incs],
+                    "status": "proposed", "source": "feedback", "rule_draft": draft,
+                    "reason": f"{svc} 的「{cat}」被確認 {len(incs)} 次：建議升級成規則（一次就報、不用等 baseline），草稿見 rule_draft"})
+    return out
 
 
 def suggest_exclude(incident: dict) -> list[dict]:

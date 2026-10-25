@@ -15,7 +15,7 @@ def anomalies(es: ES, index: str, start: datetime, end: datetime, service: str |
                                       {"term": {"keys.entry.service": service}},
                                       {"term": {"keys.service": service}}], "minimum_should_match": 1}})
     hits = es.search(index, {"size": 1000, "query": {"bool": {"filter": f}}, "sort": [{"@timestamp": "asc"}]})["hits"]["hits"]
-    return [h["_source"] for h in hits]
+    return [{**h["_source"], "_id": h["_id"]} for h in hits]
 
 
 # ── 2. trace ──

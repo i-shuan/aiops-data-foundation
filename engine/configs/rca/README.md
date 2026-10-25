@@ -45,9 +45,15 @@ python3 -m investigator investigate --config configs/rca/rca.yaml --service mes-
 # 服務之間的呼叫關係（最近 1 小時、最近 2,000 個請求）
 python3 -m investigator topology --config configs/rca/rca.yaml --window 1h
 
-# 事件整合：最近的異常依服務合成一件、新的那件跑一次根因分析，寫 aiops-alerts（Grafana 讀它發通知）
-# 要定期跑，建議每 1～2 分鐘（rules、detect 之後）
+# 事件整合：最近的異常依服務合成一件、新的那件跑一次根因分析＋相似事故＋LLM 摘要，寫 aiops-alerts（Grafana 讀它發通知）
+# 要定期跑，建議每 1～2 分鐘（rules、detect 之後）；排程見 deploy/
 python3 -m investigator alert --config configs/rca/rca.yaml
+
+# 相似事故檢索的評測：留一法 recall@3（每件已確認的事故輪流當新的，同一個根因分類有沒有排進前 3）
+python3 -m investigator similar-eval --config configs/rca/rca.yaml
+
+# 老師傅的回饋入口（通知裡的連結點進來填；寫 aiops-feedback、aiops-incidents）
+FEEDBACK_PORT=8080 python3 -m feedback_web
 ```
 
 ### 事件整合（`alert`）
@@ -55,7 +61,10 @@ python3 -m investigator alert --config configs/rca/rca.yaml
 - **合成一件看服務**：同一個服務、30 分鐘內接著來的異常是同一件（`alerts.close_after`）；同一個 dept 的兩個服務是兩件。30 分鐘沒有新的 → `resolved`。
 - **哪些會開一件**：critical 規則、baseline 連續才算的 `anomaly`、資料品質；warning 規則和跟兄弟比要同一個服務 2 筆以上；只跳一次的 baseline `warning` 只併進已經開著的那件。
 - **送給誰看 dept**：每一件帶 `dept`、`group`（取它的異常的，異常寫入時已補上）；資料品質一律 `group: unassigned`（送平台）。Grafana 依 `dept` 分送，設定範例在 [configs/grafana](../grafana/README.md)。
-- 新的那件跑一次 `investigate`：結論寫進 `summary`（Grafana 通知帶這個）、全文存 `report`。
+- 新的那件跑一次 `investigate`：結論寫進 `summary`（Grafana 通知帶這個）、全文存 `report`；結構化結果存 `findings`（慢在哪一段、錯從哪開始、新 log 樣式），也拿來算這件的**指紋**，寫一筆 `aiops-incidents`（`status: auto`）。
+- **過去相似的事故**（`alerts.similar`，[investigator/similar.py](../../investigator/similar.py)）：用指紋（服務、API、慢的那段、錯的源頭、異常的指標組合、新 log 樣式）去 `aiops-incidents` 找老師傅**確認過的**（`confirmed`、`corrected`）最像的 3 件，附在報告最前面：當時的根因、處置、怎麼看出來的、誰處理的，和**為什麼像**（哪幾點相同）。分數不到 4（至少一個強特徵：同一段變慢、同一個錯誤源頭；或同服務＋同指標）就不附。用 ES 的欄位比對、自己算分，不用向量，看得出為什麼像。通知摘要多一行「過去相似：…」。
+- **LLM 摘要**（`alerts.llm`，[core/llm.py](../../core/llm.py)）：報告最前面三到五句（原因、影響、建議先做什麼），每句結尾附依據的 id（`[A1]` 異常、`[S1]` 慢的那段、`[E1]` 錯誤源頭、`[L1]` log 樣式、`[I1]` 過去事故）；引用了不存在的 id、或有一句沒依據，**整段不顯示**（程式檢查）。模型掛了退回固定句型（`template`），報告照出。provider 用環境變數 `LLM_PROVIDER`（`template`／`anthropic`／`openai`）或 `alerts.llm_provider` 蓋過；`template` 不叫模型，沒有模型也能跑。
+- **回饋連結**：`alerts.feedback_url`、`report_url`（含 `{alert_id}`）寫進每一件，Grafana 通知帶著；指到 [feedback_web](../../feedback_web/__init__.py)。
 - 重跑不會重複：已經在某一件裡的異常、最近結束的件裡的異常都不會再開一次。停了一陣子才跑時，已經過去的件只記錄（`resolved`），不算新開、不會通知。
 
 報告是 Markdown，裡面的關係圖是 mermaid，貼到 GitHub、GitLab 或 Kibana 的 Markdown 都看得到圖。
@@ -119,5 +128,7 @@ rca-mes-api › GET /lots/{id}                       |████████�
 python3 -m unittest discover -s tests -t .                  # 在 aiops 底下；單元測試，不需要 ES
 ES_URL=http://<ip>:9200 e2e/local-k3s/run-rca-e2e.sh        # k3s 端到端，約 14 分鐘
 ```
+
+`loop_e2e`（2026-10-25，docker 的 ES 9.5.5、模擬資料，見 [pdca/2026-10-product-loop.md](../../../docs/pdca/2026-10-product-loop.md) 的 Check）：第 1 次事故 → 回饋網頁確認 → 第 2 次同樣症狀的報告附上第 1 件（為什麼像、當時的根因、處置、怎麼看出來的）、LLM 摘要（template）每句附依據；`similar-eval` 3/3；誤報 3 次 → 建議 → 回測 → 核准 → 不再報。
 
 `run-rca-e2e.sh`：兩個模擬服務走真正的路線（Collector → ES），正常 7 分鐘、事故 5 分鐘，再模擬 baseline 記到一筆延遲異常，**不指定服務**跑 investigate，檢查 11 項：從異常找到服務與 API、瓶頸、錯誤源頭、新的 log 樣式、log 依 trace_id 串到兩個服務、關係圖。
