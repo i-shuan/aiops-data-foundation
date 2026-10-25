@@ -252,7 +252,7 @@ sequenceDiagram
 
 ---
 
-## 7. 很多筆怎麼收斂 📝（① 的「連續才算」✅）
+## 7. 很多筆怎麼收斂（①「連續才算」✅、② 同服務合成一件 ✅；③④ 📝）
 
 **現況**：每一筆異常各自獨立。一次 DB 變慢，可能同時有：好幾個 API 的 p95、錯誤率、連線池規則、跟兄弟比、trace 段……30 分鐘裡上百筆，各跑一次根因分析。
 
@@ -270,21 +270,21 @@ flowchart TB
 | 層 | 規則 | 用到什麼 |
 |---|---|---|
 | ① 時間合併 | ✅ 已做「跳一次 warning、連續才 anomaly」（`status`、`streak`）；📝 還沒做：連續的點合成一段（一筆記開始、結束） | `aiops-anomalies` |
-| ② 服務合併 | 同一個服務（或同一個 Pod）、時間重疊的不同序列合成一件 | `keys` 裡的服務、Pod |
-| ③ 拓撲合併 | 用 trace 算出的呼叫關係（已經有：根因分析的 `topology`），上下游同時異常的合成一件，**最下游、最早開始的**當源頭候選 | 呼叫關係圖 |
-| ④ 排序 | critical 規則 > 影響多個服務 > 可信度高 > 持續久 | `severity`、`confidence` |
+| ② 服務合併 | ✅ 同一個服務、30 分鐘內接著來的異常合成一件（`investigator alert`，[pdca/2026-10-alert-exit.md](pdca/2026-10-alert-exit.md)）；同 dept 的兩個服務是兩件 | `keys` 裡的服務 |
+| ③ 拓撲合併 | 📝 用 trace 算出的呼叫關係（已經有：根因分析的 `topology`），上下游同時異常的合成一件，**最下游、最早開始的**當源頭候選 | 呼叫關係圖 |
+| ④ 排序 | 📝 critical 規則 > 影響多個服務 > 可信度高 > 持續久 | `severity`、`confidence` |
 
-收斂後寫進 `aiops-incidents`（📝）：一件一筆，裡面列它包含的異常 id、源頭候選、開始結束時間。根因分析、LLM、feedback 都以「件」為單位。
+收斂後一件一筆寫 `aiops-alerts`（給 Grafana）和 `aiops-incidents`（`status: auto`，老師傅確認後變知識庫）：包含的異常 id、開始結束、根因報告、指紋。根因分析、相似事故、LLM、feedback 都以「件」為單位。
 
 ---
 
-## 8. 什麼時候叫 LLM、token 怎麼省 📝
+## 8. 什麼時候叫 LLM、token 怎麼省（摘要 ✅ template、真的模型 ⚠️）
 
 **原則：程式負責「算」和「收斂」，LLM 只看收斂後、整理好的一件事**（約 4,000 token 輸入；一天 50 件約 22.5 萬 token）。細節見 [feedback/README.md「什麼時候叫 LLM」](feedback/README.md#什麼時候叫-llmtoken-怎麼省)。
 
 ---
 
-## 9. 根因報告 ✅（LLM 部分 📝）
+## 9. 根因報告 ✅（相似事故 ✅、LLM 摘要 template ✅）
 
 `engine/investigator` 產出 Markdown 報告（範例：[engine/configs/rca/example-report.md](../engine/configs/rca/example-report.md)）：
 
@@ -297,11 +297,11 @@ flowchart TB
 | 5. Log | 最慢請求的 log（用 trace_id 串各服務）；新出現或變多的 warn／error 樣式 |
 | 6. 呼叫關係 | 這段時間誰呼叫誰 |
 
-之後 LLM 讀這份報告（加上過去事故），寫成「原因、影響、建議處置」的一段話，貼在報告最前面。
+報告最前面已經多兩段：**過去相似的事故**（老師傅確認過的，為什麼像、當時根因、處置、怎麼看出來的；[pdca/2026-10-similar-incidents.md](pdca/2026-10-similar-incidents.md)）和 **LLM 摘要**（三到五句、每句附依據，捏造就整段不顯示；真的模型還沒跑過，[pdca/2026-10-llm-summary.md](pdca/2026-10-llm-summary.md)）。
 
 ---
 
-## 10. 對了怎麼強化、錯了怎麼 feedback 📝
+## 10. 對了怎麼強化、錯了怎麼 feedback ✅（模擬資料跑通；版本、評測集 📝）
 
 值班判斷「確認／根因錯／誤報／漏報」，各自寫進事故紀錄或回饋，用來做 RAG、升級規則、評測集、回測後調門檻；紀律是版本、回測、評測集、防污染、LLM 只加註。細節見 [feedback/README.md](feedback/README.md#對了怎麼強化錯了怎麼-feedback)。
 
@@ -316,12 +316,12 @@ flowchart TB
 | 存 | 中央 ES、一把寫入 key（資料依部門分 data stream）、換 key 不掉資料、被拒的文件進 failure store、保留天數與降解析度 | 副本、正式環境容量 |
 | 判斷 | 規則 30 多條、7 條 baseline、自己選粒度、卜瓦松、借同組、跟兄弟比、trace 每一段、N+1、吞例外 | **正式環境排程**；p99、慢請求比例、往外呼叫耗時；趨勢；工廠行事曆；`groups` 依公司命名定義；**移動式／變化點偵測（輔助）** |
 | 串接 | metrics → trace → log、呼叫關係 | 單一 Pod → trace 逐段比（exemplar：ES 不存，不做） |
-| 收斂 | — | 📝 四層收斂、`aiops-incidents` |
-| LLM | — | 📝 摘要、判斷真假、RAG、評測集 |
-| 出口 | 寫進 `aiops-anomalies` | 📝 通知、事故紀錄 |
-| feedback | — | 📝 回饋、回測、版本 |
+| 收斂 | 同服務合成一件、`aiops-alerts`、`aiops-incidents` | 📝 沿呼叫關係合併、排優先 |
+| LLM | 相似事故檢索（欄位比對）、摘要骨架＋每句附依據、template 退路 | ⚠️ 真的模型沒跑過；📝 評測集、判斷真假 |
+| 出口 | `aiops-alerts` → Grafana 依 dept、恢復、「AIOps 停了」；回饋網頁；Dockerfile、CronJob | ⚠️ K8s 沒跑過；📝 網頁登入 |
+| feedback | 回饋網頁、誤報 3 次 → 建議 → 回測 → 核准、漏報降 z、同根因 3 次規則草稿、`metrics` | 📝 版本、評測集、第二人確認、排除時段的建議 |
 
-**建議順序**：正式排程（只寫入不通知）→ 收斂①②＋出口＋事故紀錄、回饋 → 用 2～4 週真實資料校正門檻 → LLM 摘要（只加註）→ 回測、版本 → 收斂③、自動調門檻。
+**順序都走過一輪（模擬資料）**。下一步：上 K8s、有 trace 的事故驗相似事故與 LLM、試點產線只寫入不通知 2～4 週（[pdca/2026-10-product-loop.md](pdca/2026-10-product-loop.md)）。整條線一次看：[end-to-end-flow.md](end-to-end-flow.md)。
 
 ---
 

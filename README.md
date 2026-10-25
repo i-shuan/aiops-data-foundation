@@ -10,6 +10,7 @@
 docs/
   pdca/              現況與待辦（依 PDCA 分）、每一輪紀錄、TEMPLATE.md
   architecture.md    架構（從這裡看起）：架構圖、三種資料怎麼收、共用什麼
+  end-to-end-flow.md 從一個應用到 AIOps 到 Grafana 告警：每步做什麼、程式在哪、多久跑、怎麼驗；不足、過度設計
   system-stages.md   整條線一份看完：收值 → 判斷 → 串接 → 收斂 → LLM → 根因 → feedback
   log/               log：收值、格式解析、欄位（①②③的現況與待辦）
   metrics/           metrics：收值、欄位、收了哪些、案例、.NET（①②③的現況與待辦）
@@ -23,7 +24,7 @@ docs/
 
 **編號只有一套：①～⑨ 資料模組**（定義在 [docs/architecture.md](docs/architecture.md)）：① 收值、② 清資料、③ 存、④ 判斷、⑤ 異常總表、⑥ 收斂、⑦ 根因分析、⑧ 出口、⑨ feedback。每個資料夾的 `README.md` 開頭都有「現況與待辦」，每一項標它屬於哪個模組。
 
-閱讀順序：[architecture.md](docs/architecture.md) → [system-stages.md](docs/system-stages.md) → 各資料夾。
+閱讀順序：[architecture.md](docs/architecture.md) → [end-to-end-flow.md](docs/end-to-end-flow.md)（一個應用到 Grafana 告警，每步程式在哪、怎麼驗）→ [system-stages.md](docs/system-stages.md) → 各資料夾。
 
 | 資料夾 | 主文件 | 其他 |
 |---|---|---|
@@ -56,7 +57,7 @@ docs/
 
 ## 待辦
 
-依 PDCA 分（Plan 定門檻、Do 收值與判斷、Check 看對不對、Act 調整），整份在 [docs/pdca/](docs/pdca/README.md)。**最大缺口是 Check**（告警出口、事故紀錄、回饋）。範圍是一般服務。
+依 PDCA 分（Plan 定門檻、Do 收值與判斷、Check 看對不對、Act 調整），整份在 [docs/pdca/](docs/pdca/README.md)。閉環的每一段都有程式、模擬資料跑通；**缺的是真實資料、真的 LLM、K8s 上跑**（[docs/end-to-end-flow.md](docs/end-to-end-flow.md)「哪裡不足」）。範圍是一般服務。
 
 ## 目錄
 
