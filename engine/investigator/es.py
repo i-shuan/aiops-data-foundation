@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from core.es import ES, get_field, time_range
+from core.es import ES, time_range
 
 
 # ── 1. metrics：baseline 找到的異常 ──

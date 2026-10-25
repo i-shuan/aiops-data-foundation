@@ -7,6 +7,8 @@
       --start 2026-10-10T02:00:00Z --end 2026-10-10T02:15:00Z
   # 服務之間的呼叫關係
   python3 -m investigator topology --config configs/rca/rca.yaml --window 1h
+  # 事件整合：最近的異常合成一件、新的那件跑根因分析，寫 aiops-alerts（Grafana 讀它發通知）。每 1～2 分鐘跑一次
+  python3 -m investigator alert --config configs/rca/rca.yaml [--at …]
 
 investigate 照「Metrics 發現異常 → Trace 縮小到哪一段 → Log 找出原因」的順序查，印出一份 Markdown 報告；
 --out 另存成檔案。
@@ -23,6 +25,7 @@ import yaml
 from core import traces as T
 
 from . import analyze as A
+from . import cmd_alert
 from . import es as E
 
 
@@ -255,9 +258,14 @@ def main(argv=None) -> int:
     t.add_argument("--window", default="1h")
     t.add_argument("--sample", type=int, default=2000)
     t.add_argument("--out")
+    al = sub.add_parser("alert", help="異常合成一件、新的那件跑根因分析，寫 aiops-alerts（Grafana 讀它發通知）")
+    al.add_argument("--config", required=True)
+    al.add_argument("--at", help="回測：拿這個時間當成「現在」")
     args = p.parse_args(argv)
     with open(args.config, encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
+    if args.cmd == "alert":
+        return cmd_alert.run(cfg, args, investigate)
     report = investigate(cfg, args) if args.cmd == "investigate" else topology(cfg, args)
     print(report)
     if args.out:

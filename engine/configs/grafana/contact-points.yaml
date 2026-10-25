@@ -1,0 +1,12 @@
+# 各部門的通知管道。範例用 webhook；正式換成 Teams、Email、LINE…（Grafana 的 contact point 類型）
+apiVersion: 1
+contactPoints:
+  - orgId: 1
+    name: it-oncall
+    receivers: [{uid: it-oncall, type: webhook, settings: {url: "${NOTIFY_IT_URL}", httpMethod: POST}}]
+  - orgId: 1
+    name: imc-oncall
+    receivers: [{uid: imc-oncall, type: webhook, settings: {url: "${NOTIFY_IMC_URL}", httpMethod: POST}}]
+  - orgId: 1
+    name: platform
+    receivers: [{uid: platform, type: webhook, settings: {url: "${NOTIFY_PLATFORM_URL}", httpMethod: POST}}]

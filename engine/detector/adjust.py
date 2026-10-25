@@ -317,6 +317,6 @@ def describe(a: dict) -> str:
                                       + ("、不報" if "detect" in (a.get("apply_to") or []) else ""),
             "reset_point": lambda: f"{a.get('reset_at')} 之前不學，之後 {a.get('warmup') or DEFAULT_WARMUP} 不判斷",
             "recurring_override": lambda: f"{a.get('schedule')} → {a.get('effect')}",
-            "override": lambda: ", ".join(f"{f}={a[f]}" for f in ("resolution", "z", "min_abs") if a.get(f) is not None)}[k]()
+            "override": lambda: ", ".join(f"{f}={a[f]}" for f in ("resolution", "z", "min_abs", "confirm_points", "instant_z") if a.get(f) is not None)}[k]()
     return (f"[{a.get('status') or 'active'}] {k} {a.get('series') or '.*'} {who}：{what}"
             f"（{a.get('source') or 'manual'}；{a.get('reason') or ''}）")

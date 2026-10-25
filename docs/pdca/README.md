@@ -92,6 +92,13 @@ PDCA 的意思：**Plan** 定規則與門檻 → **Do** 收值、判斷、報告
 | [2026-10-es-startup-401.md](2026-10-es-startup-401.md) | ① ES 剛起來回 401，Collector 直接丟 | 401 窗口約 1 秒（.security 還沒恢復）；修在 ES 入口：健康檢查用 API key 打 GET /（實測掉 0）；兩台 ES 滾動重啟也有窗口（投票名單只有一台）、新檢查都掉 0；不加 Kafka、不改 Collector |
 | [2026-10-field-unify.md](2026-10-field-unify.md) | ② 欄位統一：log 身分欄位補 OTel 路徑、Java HTTP 指標在 Collector 改名；metrics ↔ trace 怎麼連 | 在 ingestion 處理、不在查詢層：log 加 alias、Java 指標在 Collector 改名；`variants` 拿掉；`quality.metric_name_legacy` 盯舊名字 |
 | [2026-10-ingest-simplify.md](2026-10-ingest-simplify.md) | ①③④ 一把寫入 key、ES failure store、靜態保底規則 | 一把寬 pattern 的 key、一個出口，資料照樣依 group 分；log 的 `k8s-*` 開 failure store（OTel 的預設已開），`quality.ingest_rejected` 有一筆就報；rules 加 `window` 類型，錯誤率 ≥ 5%、p95 ≥ 2 秒保底 |
-| [2026-10-alert-exit.md](2026-10-alert-exit.md) | ⑥⑧ 告警出口：一件事一則通知 | 只有 Plan：同服務合成一件、先 dry-run 記基準；通知管道、每個 group 送給誰、夜間要不要發待定 |
+| [2026-10-alert-exit.md](2026-10-alert-exit.md) | ⑥ 事件整合，通知交給 Grafana | 同服務合成一件寫 `aiops-alerts`（帶 dept、摘要、根因報告）；Grafana 12.2 實測一件一則、依 dept 分送、資料品質送平台、結束發恢復；ES 9 要寫 `orderBy: _count` |
+| [2026-10-instant-anomaly.md](2026-10-instant-anomaly.md) | ④ 單次就報：依序列設 `confirm_points`、偏太多（`instant_z`）不用等；`tune` 能調 | `http.error_rate` 一次就算、全域 `instant_z: 15`；模擬資料實測 z 20～49 的單點變 anomaly、z 5.2 的誤報仍是 warning |
 | [2026-10-product-loop.md](2026-10-product-loop.md) | ①～⑨ 產品主線 8 步：收值到 learning loop | 盤點：1～4 穩、5 一半；6 收斂、7 的 RAG、8 的回饋入口是斷點；照順序補：告警出口 → 老師傅回饋入口 → 相似事故檢索 → 回饋更新 RAG → 門檻接回饋＋回測 → LLM → 量化 |
 | [2026-10-restructure.md](2026-10-restructure.md) | 全部 目錄改名：專案名 it-aiops | `platform/`→`telemetry/`、`aiops/`→`engine/`、`apps/`→`sdk/`、`test/`→`e2e/`；Python 套件改名；行為不變，200 個單元測試與連結檢查過 |
+| [2026-10-split-detector-cli.md](2026-10-split-detector-cli.md) | ④⑤⑨ detector 的 `__main__.py`（1,100 行）依指令拆檔 | 1,100 行 → `__main__.py` 160 行＋ 10 個檔；只搬不改，200 個測試、ruff、9 個指令實跑都過 |
+| [2026-10-anomaly-owner.md](2026-10-anomaly-owner.md) | ⑤ 異常總表帶 `dept`、`group` | 資料本來就帶，異常寫回時補；namespace 優先、其次服務、對不到 unassigned；告警依 group 分送的前置 |
+| [2026-10-expert-feedback.md](2026-10-expert-feedback.md) | ⑧⑨ 老師傅的回饋入口 | 只有 Plan：從通知點一下、1 分鐘內回饋；多存根因分類、處置、怎麼看出來的、查了哪裡；入口建議做成小網頁（不綁通知管道） |
+| [2026-10-similar-incidents.md](2026-10-similar-incidents.md) | ⑦⑨ 相似事故檢索（RAG 的檢索） | 只有 Plan：事故指紋（服務、API、慢的那段、錯的源頭、log 樣式、根因分類）；先用欄位比對不用向量；舊事故單匯入格式；留一法 recall@3 評測 |
+| [2026-10-loop-update.md](2026-10-loop-update.md) | ⑨④ 回饋回到系統：更新知識庫、門檻加回測 | 只有 Plan：每種回饋都有去處；改門檻前回測過去 4 週（告警少幾則、已確認事故還抓不抓得到）；同根因 3 次提升級成規則 |
+| [2026-10-llm-summary.md](2026-10-llm-summary.md) | ⑦⑨ LLM 摘要（RAG 的生成） | 只有 Plan：三到五句、每句附依據、引用不存在的 id 就不顯示；只加註不擋告警；評測集測根因命中與捏造率 |

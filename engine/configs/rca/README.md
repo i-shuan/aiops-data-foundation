@@ -44,7 +44,19 @@ python3 -m investigator investigate --config configs/rca/rca.yaml --service mes-
 
 # 服務之間的呼叫關係（最近 1 小時、最近 2,000 個請求）
 python3 -m investigator topology --config configs/rca/rca.yaml --window 1h
+
+# 事件整合：最近的異常依服務合成一件、新的那件跑一次根因分析，寫 aiops-alerts（Grafana 讀它發通知）
+# 要定期跑，建議每 1～2 分鐘（rules、detect 之後）
+python3 -m investigator alert --config configs/rca/rca.yaml
 ```
+
+### 事件整合（`alert`）
+
+- **合成一件看服務**：同一個服務、30 分鐘內接著來的異常是同一件（`alerts.close_after`）；同一個 dept 的兩個服務是兩件。30 分鐘沒有新的 → `resolved`。
+- **哪些會開一件**：critical 規則、baseline 連續才算的 `anomaly`、資料品質；warning 規則和跟兄弟比要同一個服務 2 筆以上；只跳一次的 baseline `warning` 只併進已經開著的那件。
+- **送給誰看 dept**：每一件帶 `dept`、`group`（取它的異常的，異常寫入時已補上）；資料品質一律 `group: unassigned`（送平台）。Grafana 依 `dept` 分送，設定範例在 [configs/grafana](../grafana/README.md)。
+- 新的那件跑一次 `investigate`：結論寫進 `summary`（Grafana 通知帶這個）、全文存 `report`。
+- 重跑不會重複：已經在某一件裡的異常、最近結束的件裡的異常都不會再開一次。停了一陣子才跑時，已經過去的件只記錄（`resolved`），不算新開、不會通知。
 
 報告是 Markdown，裡面的關係圖是 mermaid，貼到 GitHub、GitLab 或 Kibana 的 Markdown 都看得到圖。
 

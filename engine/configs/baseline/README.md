@@ -125,10 +125,12 @@ MAD（Median Absolute Deviation，中位數絕對偏差）＝「每個值離中�
 | 同一條序列、同一個方向，**連續 2 個時間窗**超標 | `anomaly` | 正式異常，根因分析會挑它 |
 | 連續超標的時間合計 **≥ 30 分鐘** | `anomaly` | 粗粒度的序列不用等兩個點：1 小時一點的，一個點就是一小時；30 分鐘一點的也是一個點就夠；15 分鐘一點的要兩個 |
 | 中間有一個時間窗正常、沒資料、或方向反過來 | 從頭算 | |
+| **這條序列設了 `confirm_points: 1`**（例如 `http.error_rate`：一跳就是出事） | `anomaly` | 一次就算，不等第二個時間窗 |
+| **偏太多**：一個點 \|z\| ≥ `instant_z`（預設 15，正常門檻 5 的 3 倍） | `anomaly` | 任何序列都適用，擋沒想到的暴衝 |
 
 - **不用另外存狀態**：每次偵測多查前一個時間窗，從資料重算「連續第幾個」（`streak` 欄位），程式重啟也一樣。
 - **不降級**：上一輪已判成 anomaly 的時間窗，這一輪就算查的範圍沒包含它的前一個時間窗，也維持 anomaly。
-- 設定在 `series.yaml` 的 `status: {confirm_points: 2, confirm_span: 30m}`。
+- 設定在 `series.yaml` 的 `status: {confirm_points: 2, confirm_span: 30m, instant_z: 15}`。每條序列可以自己設 `confirm_points`、`instant_z`；`tune --confirm-points 1 --instant-z 10` 可以再依對象調（寫進 `aiops-tuning`，之後回饋的建議也能調）。優先順序：對象 > 序列 > 全域（[pdca/2026-10-instant-anomaly.md](../../../docs/pdca/2026-10-instant-anomaly.md)）。
 - 規則（`rules.yaml`）另外用 `for`（要持續多久）處理；重啟、Pod Failed 這類 critical 規則一次就算，不等。
 
 **時間上的效果**（預設 30 秒一點，見「自動調整 (1)」）：30 秒一點的序列，偵測每 30 秒跑一次，**跳一次約 30 秒後 warning、連續兩個 30 秒（約 1 分鐘）就是 anomaly**；粒度被調粗的序列（量少、或使用者、feedback 調過的）照它自己的時間窗算。
@@ -260,6 +262,7 @@ series:
 | `method` | `mad`（中位數＋MAD）／`poisson` |
 | `level` | dow_hour / hour / all / group |
 | `baseline_source` | `self` 或 `group:<組名>` |
+| `dept`、`group` | 這筆異常屬於哪個部門、哪個 group（告警依它分送、人只看自己部門的）。寫入時依 keys 裡的 namespace（優先）或服務，對回資料裡的 `resource.attributes.dept`、`.group`；對不到的 `dept` 空、`group` 是 `unassigned`（跟 Collector 對沒有 dept 的處理一樣）。程式 `detector/owner.py` |
 | `confidence` | dow_hour → high；hour → medium；all、借來的 → low |
 
 卜瓦松的異常另外記 `p`（機率）。根因報告的異常表多一欄「可信度」（例如 `low、1h、借 query-apis`），有 low 時加註「用的是不分時段、或借同類 API 的 baseline（不是自己的歷史），先確認是不是真的變了」。
@@ -593,7 +596,7 @@ detect 只看**已經結束**的時間窗（再往前退 `lag` 30 秒）：還�
 | index | 內容 |
 |---|---|
 | `aiops-baseline` | `series`、`keys`（例如 `keys.service.name`）、`dow`（0 = 週一）、`hour`、`level`、`median`、`mad`、`p05`、`p95`、`n`、`trained_at` |
-| `aiops-anomalies` | `@timestamp`、`series`、`keys`、`value`、`median`、`expected_low`／`expected_high`（正常範圍）、`z`（偏離幾倍）、`level`、`direction` |
+| `aiops-anomalies` | `@timestamp`、`series`、`keys`、`value`、`median`、`expected_low`／`expected_high`（正常範圍）、`z`（偏離幾倍）、`level`、`direction`、`dept`、`group` |
 
 在 Kibana 建一個 `aiops-anomalies` 的 data view，就能依 `series`、`keys` 看哪個服務、哪個時間點異常。
 

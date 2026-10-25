@@ -299,13 +299,14 @@ def train_groups(own: pd.DataFrame, keys: list[str], groups: list[dict], min_mem
 
 
 def mark_status(scored: pd.DataFrame, keys: list[str], step: str, confirm_points: int = 2,
-                confirm_span: str = "30m") -> pd.DataFrame:
+                confirm_span: str = "30m", instant_z: float | None = None) -> pd.DataFrame:
     """超標的點分兩級（不用另外存狀態：每次偵測從資料重算，重啟也一樣）：
 
       warning：超標，但前一個時間窗沒有超標（跳一下，先觀察）
       anomaly：同一條序列、同一個方向，連續超標 confirm_points 個時間窗；
-               或連續超標的時間合計 ≥ confirm_span（1 小時一點的序列，一個點就是一小時，不用等兩小時）
-    中間只要有一個時間窗正常（或沒資料），就從頭算。
+               或連續超標的時間合計 ≥ confirm_span（1 小時一點的序列，一個點就是一小時，不用等兩小時）；
+               或偏離 |z| ≥ instant_z（偏太多就不用等：擋沒想到的暴衝）
+    中間只要有一個時間窗正常（或沒資料），就從頭算。confirm_points 1 就是一次就算（錯誤率這種一跳就是出事的序列）。
 
     scored：score／score_poisson 的結果（keys + ts + value + median + anomaly）。回傳加上 status（沒超標是 None）、
     streak（連續超標第幾個）。
@@ -330,7 +331,8 @@ def mark_status(scored: pd.DataFrame, keys: list[str], step: str, confirm_points
                 streak = 0
             out.at[i, "streak"] = streak
             if hit:
-                out.at[i, "status"] = "anomaly" if streak >= need else "warning"
+                instant = instant_z is not None and "z" in out and pd.notna(out.at[i, "z"]) and abs(float(out.at[i, "z"])) >= instant_z
+                out.at[i, "status"] = "anomaly" if streak >= need or instant else "warning"
             prev_t, prev_sign = t, (sg if hit else 0)
     return out
 
@@ -350,7 +352,7 @@ def match_keys(key: dict, match: dict | None) -> bool:
 
 
 def override_for(series: str, key: dict, overrides: list[dict]) -> dict:
-    """這條序列、這個對象的調整（粒度、z、min_abs）：符合的依序套上，後面的蓋前面的。
+    """這條序列、這個對象的調整（粒度、z、min_abs、confirm_points、instant_z）：符合的依序套上，後面的蓋前面的。
     來源：series.yaml 的 overrides（使用者設定），再來是 aiops-tuning（tune 指令、之後的 feedback 寫的）。"""
     import re
     out = {}
@@ -358,5 +360,5 @@ def override_for(series: str, key: dict, overrides: list[dict]) -> dict:
         if (o.get("kind") or "override") != "override":   # 排除時段、重置點、週期放寬由 adjust.py 處理
             continue
         if re.fullmatch(o.get("series") or ".*", series) and match_keys(key, o.get("match")):
-            out.update({k: o[k] for k in ("resolution", "z", "min_abs") if o.get(k) is not None})
+            out.update({k: o[k] for k in ("resolution", "z", "min_abs", "confirm_points", "instant_z") if o.get(k) is not None})
     return out
