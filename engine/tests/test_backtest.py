@@ -24,3 +24,24 @@ class Format(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+import pandas as pd
+
+
+class Timezones(unittest.TestCase):
+    """docs/pdca/2026-10-fix-critical.md 2：incident add 存的時間沒有時區，跟有時區的異常時間比不能丟 TypeError。"""
+    df = pd.DataFrame({"ts": [pd.Timestamp("2026-10-05T02:05:00Z"), pd.Timestamp("2026-10-05T09:00:00Z")], "_series": ["x", "x"], "_svc": ["mes-api", "pay"]})
+
+    def test_naive_incident_time_is_local(self):
+        # 事故寫「10-05 10:00～10:20」沒時區 → 當台北時間 = 02:00～02:20 UTC → 抓到 02:05 的那筆
+        self.assertTrue(B.caught(self.df, ["mes-api"], "2026-10-05 10:00", "2026-10-05 10:20", "Asia/Taipei"))
+        # 當成 UTC 的話 10:00～10:20Z 沒有 mes-api 的異常
+        self.assertFalse(B.caught(self.df, ["mes-api"], "2026-10-05 10:00", "2026-10-05 10:20", "UTC"))
+
+    def test_aware_time_kept(self):
+        self.assertTrue(B.caught(self.df, ["mes-api"], "2026-10-05T02:00:00+00:00", "2026-10-05T02:20:00+00:00", "Asia/Taipei"))
+        self.assertEqual(B._ts("2026-10-05T02:00:00+00:00", "Asia/Taipei").tzname(), "UTC")
+
+    def test_empty_df(self):
+        self.assertFalse(B.caught(self.df.iloc[0:0], None, "2026-10-05 10:00", "2026-10-05 10:20"))

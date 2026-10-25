@@ -6,6 +6,8 @@ Grafana 讀 aiops-alerts 發通知（engine/configs/grafana/）：status open �
 """
 from __future__ import annotations
 
+import json
+
 from argparse import Namespace
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
@@ -76,6 +78,43 @@ def _incident_doc(al: dict, doc: dict, findings: dict | None) -> dict:
             "detected_at": doc["started_at"], "fingerprint": SIM.fingerprint(al, findings)}
 
 
+def llm_summary(al: dict, findings: dict | None, similar: list[dict], acfg: dict) -> dict | None:
+    """LLM 摘要：只加註、不擋告警。輸入包裡有 NaN、模型掛了、程式有 bug，都只是這件沒有摘要，這一輪照寫。"""
+    if not acfg.get("llm", True):
+        return None
+    try:
+        pack = LLM.build_pack({**al, "minutes": int((AL._ts(al["updated_at"]) - AL._ts(al["started_at"])).total_seconds() // 60)},
+                              findings, similar)
+        llm = LLM.summarize(pack, acfg.get("llm_provider"))
+    except Exception as e:
+        print(f"  LLM 摘要失敗（{type(e).__name__}: {str(e)[:80]}），這件沒有摘要")
+        return None
+    if not llm["ok"]:
+        print(f"  LLM 摘要不顯示（{llm['reason']}）")
+    return llm
+
+
+def write_incidents(es: ES, incidents: list[tuple[str, dict]]) -> int:
+    """事故：只更新還是 auto 的；已被老師傅確認的（confirmed、corrected、false_positive…）一個欄位都不動。
+    用 ES 的 scripted upsert 一次做完判斷和寫入（原子），不是先讀再寫：讀和寫之間老師傅送出回饋也不會被蓋掉。"""
+    if not incidents:
+        return 0
+    from detector.feedback import INCIDENT_MAPPING
+    es.ensure_index(INCIDENT_INDEX, INCIDENT_MAPPING)
+    script = {"lang": "painless", "params": {},
+              "source": "if (ctx._source.status == null || ctx._source.status == 'auto') { ctx._source.putAll(params.doc) } else { ctx.op = 'none' }"}
+    lines = []
+    for _id, doc in incidents:
+        lines.append(json.dumps({"update": {"_index": INCIDENT_INDEX, "_id": _id}}))
+        lines.append(json.dumps({"script": {**script, "params": {"doc": doc}}, "upsert": doc}, default=str))
+    r = es.s.post(f"{es.url}/_bulk?refresh=wait_for", data="\n".join(lines) + "\n", headers={"Content-Type": "application/x-ndjson"}, timeout=300)
+    body = r.json()
+    if r.status_code != 200 or body.get("errors"):
+        bad = [it for it in body.get("items", []) if it["update"].get("error")][:3]
+        raise RuntimeError(f"寫入 {INCIDENT_INDEX} 失敗：{r.status_code} {bad or r.text[:500]}")
+    return sum(1 for it in body.get("items", []) if it["update"].get("result") in ("created", "updated"))
+
+
 def run(cfg: dict, args, investigate) -> int:
     """investigate：根因分析的函式（investigator.__main__.investigate_full），傳進來避免循環 import。"""
     es = ES()
@@ -109,12 +148,7 @@ def run(cfg: dict, args, investigate) -> int:
             except Exception as e:
                 similar = []
                 print(f"  相似事故檢索失敗：{e}")
-            if acfg.get("llm", True):
-                pack = LLM.build_pack({**al, "minutes": int((AL._ts(al["updated_at"]) - AL._ts(al["started_at"])).total_seconds() // 60)},
-                                      findings, similar)
-                llm = LLM.summarize(pack, acfg.get("llm_provider"))
-                if not llm["ok"]:
-                    print(f"  LLM 摘要不顯示（{llm['reason']}）")
+            llm = llm_summary(al, findings, similar, acfg)
             head = ([f"> {l}" for l in llm["text"].splitlines()] + [""] if llm and llm["ok"] else []) + SIM.format_similar(similar)
             if head and report:
                 report = "\n".join(head) + "\n" + report
@@ -148,15 +182,7 @@ def run(cfg: dict, args, investigate) -> int:
                                "service": "aiops", "title": "investigator alert 心跳", "group": "unassigned", "started_at": now.isoformat(),
                                "updated_at": now.isoformat(), "anomaly_ids": [], "series": [], "routes": [], "anomaly_count": 0}))
     es.bulk_index(ALERT_INDEX, docs)
-    if incidents:
-        # 已經被老師傅確認的不覆蓋（只更新還是 auto 的）
-        from detector.feedback import INCIDENT_MAPPING
-        es.ensure_index(INCIDENT_INDEX, INCIDENT_MAPPING)
-        got = es.req("POST", f"/{INCIDENT_INDEX}/_mget?_source_includes=status", {"ids": [i for i, _ in incidents]}).get("docs", [])
-        confirmed = {g["_id"] for g in got if g.get("found") and g["_source"].get("status") not in (None, "auto")}
-        keep = [(i, d) for i, d in incidents if i not in confirmed]
-        if keep:
-            es.bulk_index(INCIDENT_INDEX, keep)
+    write_incidents(es, incidents)    # 已被老師傅確認的不覆蓋（原子，不是先讀再寫）
     still = sum(1 for _, d in docs if d["status"] == "open")
     print(f"{now.astimezone(tz):%m-%d %H:%M}：新開 {new} 件、結束 {resolved} 件、進行中 {still} 件")
     return 0

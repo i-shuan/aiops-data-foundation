@@ -97,3 +97,19 @@ class Summarize(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BadInputs(unittest.TestCase):
+    """docs/pdca/2026-10-fix-critical.md 1：根因分析沒有對照組時 delta_ms 是 NaN、異常的 value 可能是 None，摘要不能因此丟例外。"""
+
+    def test_nan_segment_and_none_value_do_not_raise(self):
+        f = {"anomalies": [{"series": "http.latency_p95_s", "value": None, "median": float("nan"), "z": None}],
+             "segments": [{"segment": "mes-api › Oracle", "now_ms": 1500.0, "ref_ms": float("nan"), "delta_ms": float("nan")}],
+             "error_origins": [], "new_patterns": []}
+        pack = LLM.build_pack(ALERT, f, [])
+        self.assertIsNone(pack["segments"][0]["extra_ms"])
+        self.assertIsNone(pack["anomalies"][0]["value"])
+        r = LLM.summarize(pack, "template")      # 不丟例外；有沒有句子都可以
+        self.assertIn("ok", r)
+        text = LLM.template(pack)
+        self.assertTrue(LLM.validate(text, pack)[0] or not text)
