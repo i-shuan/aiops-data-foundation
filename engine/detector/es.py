@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from core.es import ES, doc_id  # noqa: F401（doc_id 給 __main__ 用）
+from core.es import ES, doc_id  # noqa: F401  doc_id 給 cmd_*.py 用（從 .es 一起 import）
 
 BASELINE_INDEX = "aiops-baseline"
 ANOMALY_INDEX = "aiops-anomalies"
