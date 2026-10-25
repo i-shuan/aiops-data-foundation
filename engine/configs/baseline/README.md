@@ -578,19 +578,19 @@ export ES_API_KEY=<elasticsearch-setup.sh 發的「AIOps baseline key」>   # �
 # export ES_CA=/path/to/ca.crt      # ES 用內部 CA 的話
 
 python3 -m detector train  --config configs/baseline/series.yaml   # 每天跑一次（例如凌晨）
-python3 -m detector detect --config configs/baseline/series.yaml   # 每 30 秒跑一次，看最近 30 分鐘
+python3 -m detector detect --config configs/baseline/series.yaml --window 10m   # 每 1 分鐘跑一次，看最近 10 分鐘（重跑會覆蓋）
 python3 -m detector tune   --series ... --match ... --resolution 5m   # 調整某些對象的粒度、門檻
 python3 -m detector quality --config configs/baseline/quality.yaml  # 每 10 分鐘，資料品質檢查
 python3 -m detector chronic --config configs/baseline/chronic.yaml  # 每週一次，慢性病清單
 ```
 
-排程例子（crontab）：
+正式環境用 K8s CronJob：[engine/deploy/](../../deploy/README.md)（rules／detect／alert 每 1 分鐘、train 每天）。單機的 crontab 例子：
 
 ```
 15 3 * * *  cd /opt/aiops && python3 -m detector train  --config configs/baseline/series.yaml >> train.log 2>&1
 * * * * *   cd /opt/aiops && python3 -m detector detect --config configs/baseline/series.yaml >> detect.log 2>&1
 * * * * *   sleep 30; cd /opt/aiops && python3 -m detector detect --config configs/baseline/series.yaml >> detect.log 2>&1
-# crontab 最細 1 分鐘：用兩行（一行延後 30 秒）做到每 30 秒。K8s 上可以用常駐的 Deployment 跑迴圈。
+# crontab 最細 1 分鐘：要每 30 秒就用兩行（一行延後 30 秒）；deploy/ 的 CronJob 是每 1 分鐘 --window 10m
 ```
 
 回測（拿過去某個時間點當「現在」）：`train --end 2026-10-01T00:00:00Z`、`detect --at 2026-10-01T10:00:00Z --window 1D`。

@@ -99,6 +99,7 @@ PDCA 的意思：**Plan** 定規則與門檻 → **Do** 收值、判斷、報告
 | [2026-10-schedule.md](2026-10-schedule.md) | ④⑤⑥⑧ 排程上線：CronJob、「AIOps 停了」告警、先只寫入不通知 | Dockerfile、10 個 CronJob、回饋網頁 Deployment、心跳＋Grafana 規則；image 建好跑過，K8s 沒跑過 |
 | [2026-10-metrics-kpi.md](2026-10-metrics-kpi.md) | ⑨ 量化：學之前、學之後的數字 | `metrics` 指令兩段並排；模擬資料驗算法，真實數字等試點 |
 | [2026-10-product-loop.md](2026-10-product-loop.md) | ①～⑨ 產品主線 8 步：收值到 learning loop | 盤點後照順序補完；10-25 整合驗證：第 1 次事故 → 回饋 → 第 2 次附相似事故＋LLM 摘要；誤報 3 次 → 回測 → 核准 → 不再報，37 項全過（模擬資料、docker ES） |
+| [2026-10-docs-vs-code.md](2026-10-docs-vs-code.md) | ①～⑨ 文件對程式：整條線一份看完（[end-to-end-flow.md](../end-to-end-flow.md)）、總覽狀態對齊 | 只改文件；6 處對不上改掉 5 處；code-review 的 10 項對過程式，4 項要修、記在流程文件的「不足」 |
 | [2026-10-restructure.md](2026-10-restructure.md) | 全部 目錄改名：專案名 it-aiops | `platform/`→`telemetry/`、`aiops/`→`engine/`、`apps/`→`sdk/`、`test/`→`e2e/`；Python 套件改名；行為不變，200 個單元測試與連結檢查過 |
 | [2026-10-split-detector-cli.md](2026-10-split-detector-cli.md) | ④⑤⑨ detector 的 `__main__.py`（1,100 行）依指令拆檔 | 1,100 行 → `__main__.py` 160 行＋ 10 個檔；只搬不改，200 個測試、ruff、9 個指令實跑都過 |
 | [2026-10-anomaly-owner.md](2026-10-anomaly-owner.md) | ⑤ 異常總表帶 `dept`、`group` | 資料本來就帶，異常寫回時補；namespace 優先、其次服務、對不到 unassigned；告警依 group 分送的前置 |

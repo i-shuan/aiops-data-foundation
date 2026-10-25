@@ -2,7 +2,7 @@
 
 一句話：**每個應用 cluster 一套 OpenTelemetry Collector，把 log、metrics、trace 依 namespace 的部門分流、用各部門自己的 key 寫進中央 Elasticsearch 9；AIOps 用唯讀 key 讀出來，學「平常的樣子」、跑規則、Pod 互比、做根因分析，結果寫進 `aiops-anomalies`。** 舊專案不改程式（Java agent、.NET 自動埋點）。
 
-範圍：一般服務（Web API、worker、Kafka、DB）；工廠之後再做（[factory-later.md](factory-later.md)）。每個階段的細節、判斷方法、收斂、LLM、feedback 見 [system-stages.md](system-stages.md)；現況與待辦見 [pdca/](pdca/README.md)。
+範圍：一般服務（Web API、worker、Kafka、DB）；工廠之後再做（[factory-later.md](factory-later.md)）。整條線每一步做什麼、程式在哪、怎麼驗：[end-to-end-flow.md](end-to-end-flow.md)。每個階段的細節、判斷方法、收斂、LLM、feedback 見 [system-stages.md](system-stages.md)；現況與待辦見 [pdca/](pdca/README.md)。
 
 ## 一張圖看全部
 
@@ -38,17 +38,17 @@ flowchart TB
 
   AN[("⑤ aiops-anomalies<br/>所有異常一個地方")]
 
-  subgraph S6["⑥ 收斂（📝）"]
+  subgraph S6["⑥ 收斂（同服務合成一件 ✅；沿呼叫關係 📝）"]
     CV["同一條連續 → 一段<br/>同服務同時間 → 一件<br/>呼叫關係 → 找上游源頭"]
   end
 
   subgraph S7["⑦ 根因分析"]
     RCA["metrics 異常 → trace 哪一段 → log 哪個新錯誤"]
-    LLM["LLM（📝）：只看收斂後的事件<br/>摘要、判斷真假、對照過去"]
+    LLM["相似事故 ✅＋LLM 摘要（template ✅、真的模型 ⚠️）<br/>只看收斂後的一件事"]
   end
 
-  OUT["⑧ 報告／告警（📝 出口）"]
-  FB["⑨ feedback（📝）<br/>對：寫進知識、升級成規則<br/>錯：調門檻、排除時段、補指標"]
+  OUT["⑧ aiops-alerts → Grafana 依 dept 送 ✅<br/>回饋網頁 ✅"]
+  FB["⑨ feedback ✅（模擬資料）<br/>對：進知識庫、3 次提規則草稿<br/>錯：3 次提放寬 → 回測 → 核准"]
 
   S1 --> S2 --> S3
   LOG & MET & TRA --> S4
@@ -67,10 +67,10 @@ flowchart TB
 | ③ | 存 | 中央 ES，資料依部門 group 分 data stream、一把寫入 key；被拒的進 failure store；保留天數、降解析度 | `telemetry/scripts/` | ✅ |
 | ④ | 判斷 | 規則、跟歷史比、跟兄弟比、trace 每一段 | `engine/detector/`、`engine/configs/baseline/*.yaml` | ✅（正式環境還沒排程） |
 | ⑤ | 異常總表 | 所有判斷結果寫同一個 index | `aiops-anomalies` | ✅ |
-| ⑥ | 收斂 | 很多筆異常 → 幾件事 | — | 📝 |
-| ⑦ | 根因分析 | metrics → trace → log | `engine/investigator/` | ✅（LLM 📝） |
-| ⑧ | 出口 | 通知、事故紀錄 | — | 📝 |
-| ⑨ | feedback | 對了強化、錯了修正 | — | 📝 |
+| ⑥ | 收斂 | 同一個服務、30 分鐘內的異常合成一件 | `engine/investigator/alerts.py` | ✅（沿呼叫關係合併 📝） |
+| ⑦ | 根因分析 | metrics → trace → log；相似事故檢索；LLM 摘要 | `engine/investigator/`、`engine/core/llm.py` | ✅（真的 LLM ⚠️ 沒跑過） |
+| ⑧ | 出口 | `aiops-alerts` 一件一筆、Grafana 依 dept 發通知、回饋網頁 | `engine/configs/grafana/`、`engine/feedback_web/` | ✅（K8s 排程 ⚠️ 沒跑過） |
+| ⑨ | feedback | 回饋 → 建議 → 回測 → 核准；確認的事故進知識庫；量化 | `engine/detector/`（feedback、backtest、metrics） | ✅（模擬資料；真實數字 ⚠️） |
 
 ## 收值側細節：一個 cluster 裡資料怎麼走
 
