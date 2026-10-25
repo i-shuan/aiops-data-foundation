@@ -14,7 +14,7 @@ sources:
     type: log
     index: k8s-*
     filter: {terms: {log.level: [error, fatal]}}
-    by: [service.name, error.type]
+    by: [resource.attributes.service.name, error.type]
     keys: [service, error_type]
     min_per_day: 20      # 每天至少 20 筆才算那天「有」（零星一兩筆不算慢性病）
 

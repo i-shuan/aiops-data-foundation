@@ -97,7 +97,7 @@ check "TSDS 可寫入時間往後 2 小時（ES 停機重啟後才不會拒收�
   "$(es "${ES_URL}/metrics-prometheusreceiver.otel-it/_settings?include_defaults=true" | jq -r '[.[] | (.settings.index.look_ahead_time // .defaults.index.look_ahead_time)] | last')" 2h
 
 echo "== 5. 應用的請求直方圖（AIOps baseline 算流量、錯誤率、延遲用）"
-H=metrics.http_server_request_duration_seconds
+H=metrics.http.server.request.duration   # Java 的 Prometheus 名字由 node Collector 改成 OTel 名字（node.yaml metricstransform/java-http）
 hq="{\"bool\":{\"filter\":[${since},{\"exists\":{\"field\":\"${H}\"}},$(ns_f imc-wip-prod)]}}"
 hdocs="$(es "${ES_URL}/metrics-*.otel-imc/_search" -d "{\"size\":100,\"query\":${hq}}" | jq '[.hits.hits[]._source]')"
 check_gt0 "進 IMC（metrics-generic.otel-imc）" "$(jq length <<<"${hdocs}")"
@@ -106,10 +106,10 @@ check "存成直方圖（exponential_histogram）" \
 check "Collector 換成差值（temporality: delta）" "$(jq -r '[.[].temporality] | unique | join(",")' <<<"${hdocs}")" delta
 # 測試應用每 5 秒 20 個成功的請求；Collector 30 秒抓一次 → 每筆約 120 個。累加值的話會一直變大
 check "每筆只有那 30 秒的量（成功的請求 ≤ 140 個）" \
-  "$(jq '[.[] | select(.attributes.http_response_status_code == "200") | .metrics["http_server_request_duration_seconds"] | ((.positive.counts // []) | add) + (.zero.count // 0)] | max <= 140' <<<"${hdocs}")" true
+  "$(jq '[.[] | select(.attributes.http.response.status_code == 200) | .metrics["http.server.request.duration"] | ((.positive.counts // []) | add) + (.zero.count // 0)] | max <= 140' <<<"${hdocs}")" true
 agg="$(es "${ES_URL}/metrics-*.otel-imc/_search" -d "{\"size\":0,\"query\":${hq},\"aggs\":{
   \"n\":{\"value_count\":{\"field\":\"${H}\"}},\"p\":{\"percentiles\":{\"field\":\"${H}\",\"percents\":[95]}},
-  \"e\":{\"filter\":{\"prefix\":{\"attributes.http_response_status_code\":\"5\"}},\"aggs\":{\"n\":{\"value_count\":{\"field\":\"${H}\"}}}}}}")"
+  \"e\":{\"filter\":{\"range\":{\"attributes.http.response.status_code\":{\"gte\":500}}},\"aggs\":{\"n\":{\"value_count\":{\"field\":\"${H}\"}}}}}}")"
 check "錯誤率算得出來（應該約 1/21 ≈ 4.8%）" "$(jq '(.aggregations.e.n.value / .aggregations.n.value) as $r | $r > 0.04 and $r < 0.056' <<<"${agg}")" true
 check "p95 算得出來（應該落在 0.25～0.5 秒）" "$(jq '.aggregations.p.values["95.0"] as $p | $p > 0.25 and $p <= 0.5' <<<"${agg}")" true
 

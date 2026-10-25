@@ -62,24 +62,28 @@ def recent_trace_ids(es: ES, index: str, start: datetime, end: datetime, n: int)
 
 # ── 3. log ──
 
-def _to_log(src: dict) -> dict:
-    return {"ts": src.get("@timestamp"), "service": get_field(src, "service.name") or "?", "level": get_field(src, "log.level"),
-            "trace_id": get_field(src, "trace.id"), "message": src.get("message") or ""}
+LOG_FIELDS = ["@timestamp", "resource.attributes.service.name", "log.level", "trace_id", "message"]
+
+
+def _to_log(hit: dict) -> dict:
+    """log 的 resource.attributes.service.name、trace_id 是 alias（跟 metrics、trace 同一條路徑），_source 裡沒有，要用 fields 取。"""
+    f = {k: (v[0] if isinstance(v, list) and v else v) for k, v in hit.get("fields", {}).items()}
+    return {"ts": f.get("@timestamp"), "service": f.get("resource.attributes.service.name") or "?", "level": f.get("log.level"),
+            "trace_id": f.get("trace_id"), "message": f.get("message") or ""}
 
 
 def logs_of_traces(es: ES, index: str, trace_ids: list[str], start: datetime, end: datetime, size: int = 2000) -> list[dict]:
-    """這些請求在各服務留下的 log（log 的 trace.id = trace 的 trace_id）。"""
+    """這些請求在各服務留下的 log（log 的 trace_id 是 alias，指到 trace.id；跟 trace 的 trace_id 同名）。"""
     if not trace_ids:
         return []
-    body = {"size": size, "sort": [{"@timestamp": "asc"}],
-            "_source": ["@timestamp", "service.name", "log.level", "trace.id", "message"],
-            "query": {"bool": {"filter": [time_range(start, end), {"terms": {"trace.id": trace_ids[:1000]}}]}}}
-    return [_to_log(h["_source"]) for h in es.search(index, body)["hits"]["hits"]]
+    body = {"size": size, "sort": [{"@timestamp": "asc"}], "_source": False, "fields": LOG_FIELDS,
+            "query": {"bool": {"filter": [time_range(start, end), {"terms": {"trace_id": trace_ids[:1000]}}]}}}
+    return [_to_log(h) for h in es.search(index, body)["hits"]["hits"]]
 
 
 def problem_logs(es: ES, index: str, services: list[str], start: datetime, end: datetime, size: int = 5000) -> list[dict]:
-    """這些服務在這段時間的 warn、error、fatal log（不限有沒有 trace.id：有些錯誤不在請求裡，例如背景工作）。"""
-    body = {"size": size, "_source": ["@timestamp", "service.name", "log.level", "trace.id", "message"],
-            "query": {"bool": {"filter": [time_range(start, end), {"terms": {"service.name": services}},
+    """這些服務在這段時間的 warn、error、fatal log（不限有沒有 trace_id：有些錯誤不在請求裡，例如背景工作）。"""
+    body = {"size": size, "_source": False, "fields": LOG_FIELDS,
+            "query": {"bool": {"filter": [time_range(start, end), {"terms": {"resource.attributes.service.name": services}},
                                           {"terms": {"log.level": ["warn", "error", "fatal"]}}]}}}
-    return [_to_log(h["_source"]) for h in es.search(index, body)["hits"]["hits"]]
+    return [_to_log(h) for h in es.search(index, body)["hits"]["hits"]]

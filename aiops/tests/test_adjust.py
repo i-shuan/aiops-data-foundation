@@ -17,8 +17,7 @@ def series(keys: dict, start: str, periods: int, freq: str = "1h", value: float 
 
 class Aliases(unittest.TestCase):
     def test_service_alias_matches_every_naming(self):
-        for key in ({"service": "mes-api"}, {"service.name": "mes-api"},
-                    {"resource.attributes.service.name": "mes-api"}, {"entry.service": "mes-api"}):
+        for key in ({"service": "mes-api"}, {"resource.attributes.service.name": "mes-api"}, {"entry.service": "mes-api"}):
             self.assertTrue(A.match_keys(key, {"service": "^mes-api$"}), key)
 
     def test_no_such_field_does_not_match(self):
@@ -30,7 +29,7 @@ class Aliases(unittest.TestCase):
     def test_override_for_uses_alias_and_ignores_other_kinds(self):
         overrides = [{"series": "log.lines", "match": {"service": "^a$"}, "z": 7},
                      {"kind": "exclude_window", "series": "log.lines", "start": "2026-01-01", "end": "2026-01-02"}]
-        self.assertEqual(override_for("log.lines", {"service.name": "a"}, overrides), {"z": 7})
+        self.assertEqual(override_for("log.lines", {"resource.attributes.service.name": "a"}, overrides), {"z": 7})
 
 
 class Active(unittest.TestCase):

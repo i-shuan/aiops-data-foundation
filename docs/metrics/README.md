@@ -20,7 +20,7 @@ log 也由同一個 Collector 收（[log/README.md](../log/README.md)）：分�
 
 | 項目 | 要做的 |
 |---|---|
-| ② 指標名稱不一致 | Java（Prometheus 格式）是 `http_server_request_duration_seconds`、`http_route`、狀態碼字串；.NET（OTLP）是 `http.server.request.duration`、`http.route`、狀態碼數字。目前靠 baseline 設定的 `variants` 在查詢時對應。改成 Collector 把 Java 的名稱轉成 OTel 名稱、狀態碼轉數字，之後拿掉 `variants` |
+| ② 指標名稱不一致 | ✅ node Collector 進來時把 Java（Prometheus 格式）的 `http_server_request_duration_seconds`、`http_route`、`http_request_method`、狀態碼字串改成 OTel 的 `http.server.request.duration`、`http.route`、`http.request.method`、狀態碼數字（`node.yaml` 的 `metricstransform/java-http`、`transform/java-http`）。ES 裡只有一種名字，baseline 的 `variants` 拿掉。只對舊名字生效：Java agent 升版自己吐 OTel 名字也不會改錯。`quality.metric_name_legacy` 盯「舊名字又出現」。[PDCA](../pdca/2026-10-field-unify.md) |
 | ① .NET 還沒驗證的 | SQL Server（SqlClient）連線池指標、.NET 6、Alpine（musl）image（[metrics/dotnet.md](dotnet.md)） |
 | ③ 保留天數 | ✅ 原始 14 天 → 5 分鐘一點 → 第 90 天 1 小時一點 → 第 400 天刪；降解析度後直方圖照樣保留（[retention.md](../retention.md)） |
 
@@ -135,8 +135,8 @@ Java agent 會開出 `http.server.request.duration`（每個 HTTP 請求的耗�
 
 | | |
 |---|---|
-| ES 欄位 | `metrics.http_server_request_duration_seconds`，型別 `exponential_histogram`（ES 9.5 自動轉） |
-| 維度 | `attributes.http_request_method`、`attributes.http_route`、`attributes.http_response_status_code` |
+| ES 欄位 | `metrics.http.server.request.duration`，型別 `exponential_histogram`（ES 9.5 自動轉）。Java 經 Prometheus 進來的 `http_server_request_duration_seconds` 由 node Collector 改成這個名字，跟 .NET 一樣 |
+| 維度 | `attributes.http.request.method`、`attributes.http.route`、`attributes.http.response.status_code`（數字） |
 | 資料流 | `metrics-generic.otel-<group>`：資料帶著應用自己的 scope 名稱（例如 `io.opentelemetry.tomcat-10.0`），不是 `prometheusreceiver` |
 | 每一筆是什麼 | **這 30 秒內**的請求：Collector 用 `cumulativetodelta` 把 Prometheus 的累加值換成差值（`temporality: delta`） |
 

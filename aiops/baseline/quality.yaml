@@ -8,9 +8,11 @@
 #   stopped      lookback 這段時間（不含最近 silent）有 ≥ min_docs 筆、最近 silent 一筆都沒有
 #   share        part_index 佔 index 的比例。max_share 上限；min_increase 是比 ref 多幾成
 #   lag          to 欄位減 from 欄位（秒）的百分位（stat：p50、p95）≥ max_seconds；absolute: true 兩個方向都算
+#   present      最近 window 有 ≥ min_docs 筆符合 filter 的就報（不該出現的資料出現了）
 #   time_field   用哪個時間篩最近這段（預設 @timestamp）
 #   min_docs：量太少的不看（幾筆缺一筆就是好幾成）
 #
+# log 的 resource.attributes.*、trace_id 是 alias（component-mappings.json），跟 metrics、trace 同一條路徑。
 # 門檻都是先估的，要等正式環境排程跑 2～4 週再校（docs/pdca/2026-10-data-cleaning.md）。
 # 建議每 10 分鐘跑一次：python3 -m aiops_baseline quality --config baseline/quality.yaml
 
@@ -22,21 +24,8 @@ _svc: &svc resource.attributes.service.name
 
 checks:
   # ── 路由沒參數化：每個服務有幾條路由（http.requests 等序列依路由切，路由爆炸 = 序列爆炸）──
-  # Java、.NET 欄位名稱不同（跟 series.yaml 的 variants 一樣），各一個檢查
+  # Java、.NET 進 ES 都是 OTel 名字（Java 的由 node Collector 改名），一個檢查就夠
   - name: quality.route_cardinality
-    title: 路由數暴增或像帶了 ID（沒參數化）
-    type: cardinality
-    index: metrics-*.otel-*
-    filter: {exists: {field: metrics.http_server_request_duration_seconds}}
-    by: [*svc]
-    keys: [service]
-    field: attributes.http_route
-    max_values: 500
-    ratio: 3
-    min_increase: 50
-    id_share: 0.5
-
-  - name: quality.route_cardinality_dotnet
     title: 路由數暴增或像帶了 ID（沒參數化）
     type: cardinality
     index: metrics-*.otel-*
@@ -49,14 +38,26 @@ checks:
     min_increase: 50
     id_share: 0.5
 
+  # ── 指標名字沒統一：Prometheus 慣例的舊名字（http_server_request_duration_seconds）進到 ES ──
+  # 代表 node Collector 的改名沒生效（設定漏了、新 cluster 沒更新、或 Java agent 吐了對照表沒列的名字）。
+  # 這些資料 baseline、RCA 都看不到，會默默少掉一個服務（docs/pdca/2026-10-field-unify.md）
+  - name: quality.metric_name_legacy
+    title: 有服務的 HTTP 指標還是舊名字（Collector 沒改名）
+    type: present
+    index: metrics-*.otel-*
+    filter: {exists: {field: metrics.http_server_request_duration_seconds}}
+    by: [*svc]
+    keys: [service]
+    min_docs: 1
+
   # ── 必填欄位缺：對不到服務、Pod 的資料學不進任何序列 ──
   - name: quality.log_missing_identity
     title: log 缺服務或 Pod
     type: missing
     index: k8s-*
-    by: [kubernetes.namespace]
+    by: [resource.attributes.k8s.namespace.name]
     keys: [namespace]
-    fields: [service.name, kubernetes.pod.name]
+    fields: [resource.attributes.service.name, resource.attributes.k8s.pod.name]
     max_missing: 0.05
     min_docs: 100
 
@@ -64,23 +65,22 @@ checks:
     title: 應用 metrics 缺 Pod 或 namespace
     type: missing
     index: metrics-*.otel-*
-    filter: {bool: {should: [{exists: {field: metrics.http_server_request_duration_seconds}},
-                             {exists: {field: metrics.http.server.request.duration}}]}}
+    filter: {exists: {field: metrics.http.server.request.duration}}
     by: [*svc]
     keys: [service]
     fields: [resource.attributes.k8s.pod.name, resource.attributes.k8s.namespace.name]
     max_missing: 0.05
     min_docs: 20
 
-  # trace.id 本來就不是每行 log 都有（背景工作、啟動訊息），所以只看「比昨天少很多」：
+  # trace_id 本來就不是每行 log 都有（背景工作、啟動訊息），所以只看「比昨天少很多」：
   # 埋點掉了、換版拿掉 agent，log 就串不到 trace
   - name: quality.log_trace_id_drop
-    title: 帶 trace.id 的 log 變少
+    title: 帶 trace_id 的 log 變少
     type: missing
     index: k8s-*
-    by: [service.name]
+    by: [resource.attributes.service.name]
     keys: [service]
-    fields: [trace.id]
+    fields: [trace_id]
     max_missing: null
     max_increase: 0.3
     min_docs: 200
@@ -90,7 +90,7 @@ checks:
     title: log 停了
     type: stopped
     index: k8s-*
-    by: [service.name]
+    by: [resource.attributes.service.name]
     keys: [service]
     lookback: 1h
     silent: 15m
@@ -100,8 +100,7 @@ checks:
     title: 應用 metrics 停了
     type: stopped
     index: metrics-*.otel-*
-    filter: {bool: {should: [{exists: {field: metrics.http_server_request_duration_seconds}},
-                             {exists: {field: metrics.http.server.request.duration}}]}}
+    filter: {exists: {field: metrics.http.server.request.duration}}
     by: [*svc]
     keys: [service]
     lookback: 1h
@@ -123,8 +122,7 @@ checks:
     type: share
     index: metrics-*.otel-*
     part_index: metrics-*.otel-unassigned
-    filter: {bool: {should: [{exists: {field: metrics.http_server_request_duration_seconds}},
-                             {exists: {field: metrics.http.server.request.duration}}]}}
+    filter: {exists: {field: metrics.http.server.request.duration}}
     min_increase: 0.05
     min_docs: 100
 
@@ -135,7 +133,7 @@ checks:
     title: 收資料延遲
     type: lag
     index: k8s-*
-    by: [service.name]
+    by: [resource.attributes.service.name]
     keys: [service]
     from: event.created
     to: event.ingested
@@ -153,7 +151,7 @@ checks:
     type: lag
     index: k8s-*
     filter: {terms: {log.timestamp_source: [app, app_assumed_tz]}}
-    by: [service.name, log.timestamp_source]
+    by: [resource.attributes.service.name, log.timestamp_source]
     keys: [service, timestamp_source]
     from: "@timestamp"
     to: event.created

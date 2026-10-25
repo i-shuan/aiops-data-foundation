@@ -59,16 +59,11 @@ def volume_spec(spec: dict) -> dict | None:
         if kind in ("hist_ratio", "percentile"):
             return {**v, "value": {"hist_count": arg["field"]}}
         return None
-    if spec.get("variants"):
-        vs = [one(v) for v in spec["variants"]]
-        return {**spec, "variants": vs} if all(vs) else None
     return one(spec)
 
 
 def count_spec(spec: dict) -> dict:
     """同一個查詢、只數筆數：看哪些 Pod 最近還有資料。"""
-    if spec.get("variants"):
-        return {**spec, "variants": [{**v, "value": "count"} for v in spec["variants"]]}
     return {**spec, "value": "count"}
 
 

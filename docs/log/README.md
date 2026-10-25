@@ -17,14 +17,14 @@ log 和 metrics 用同一個 Collector（[metrics/README.md](../metrics/README.m
 | Collector 讀節點上的 `/var/log/pods`，依 namespace 的部門分流、每部門寫入 key、換 key 不掉資料 | ✅ |
 | 擋冒充：拿掉應用自己填的 K8s、部門欄位，由 Collector 依 Pod 補上 | ✅ |
 | 中央 pipeline 依格式解析：logback、ECS、.NET JSON、Serilog、logfmt、純文字（保底抓 level） | ✅ |
-| 統一欄位：`service.name`、`log.level`、`trace.id`、時間（UTC） | ✅ |
+| 統一欄位：`service.name`、`log.level`、`trace.id`、時間（UTC）；跟 metrics、trace 同一條路徑的 alias（`resource.attributes.service.name`、`trace_id` 等） | ✅ |
 | 去重複（內容指紋當 `_id`）、斷線先寫磁碟再補送 | ✅ |
 
 **已完成的部分，還差一點**
 
 | 項目 | 要做的 |
 |---|---|
-| ② 欄位路徑跟 metrics、trace 不一致 | log 是 `service.name`（平的），metrics、trace 是 `resource.attributes.service.name`。log 補別名欄位，三種資料用同一個路徑查 |
+| ② 欄位路徑跟 metrics、trace 不一致 | ✅ mapping 加 alias：`resource.attributes.service.name`、`resource.attributes.k8s.{namespace,pod,container,node,cluster}.name`、`trace_id`、`span_id` 指到原本的 ECS 欄位。baseline、quality、RCA 一律用 OTel 路徑查 log；原欄位留著，Kibana 現有查詢不受影響。alias 不在 `_source` 裡，程式要用 `fields` 取值。[PDCA](../pdca/2026-10-field-unify.md) |
 | ② REST API 的解析規則 | 需要兩三個服務的真實 log 樣本 |
 | ③ 保留天數 | ✅ 原文 30 天；另外每 5 分鐘統計各服務 × level × `error.type` 的筆數，留 400 天（[retention.md](../retention.md)） |
 
@@ -82,7 +82,8 @@ AIOps 只認這些欄位。標準概念用 [ECS](https://www.elastic.co/guide/en
 | `log.logger`、`process.thread.name` | 應用 | 縮小範圍 |
 | `error.type` | 從 stack trace 第一行拆出的例外類別 | 例外分群，比對全文便宜很多 |
 | `error.stack_trace` | 應用 | 人看 |
-| `trace.id`、`span.id` | OpenTelemetry Java agent 寫進 MDC | 串起同一個請求的 log，也對得到 trace 的 `trace_id`（[trace/README.md](../trace/README.md)） |
+| `trace.id`、`span.id` | OpenTelemetry Java agent 寫進 MDC | 串起同一個請求的 log，也對得到 trace 的 `trace_id`（[trace/README.md](../trace/README.md)）。alias `trace_id`、`span_id` 跟 trace 同名 |
+| `resource.attributes.service.name`、`resource.attributes.k8s.*.name`、`trace_id`、`span_id` | alias（`component-mappings.json`），指到上面的 ECS 欄位 | 跟 metrics、trace 同一條路徑查；不佔空間、不在 `_source`（用 `fields` 取） |
 | `service.name` | pod label `app.kubernetes.io/name`；沒有就用 container 名稱 | 分析單位 |
 | `service.version` | pod label `app.kubernetes.io/version` | 「換版之後才開始錯」 |
 | `service.namespace` | pod label `app.kubernetes.io/part-of` | 所屬系統 |

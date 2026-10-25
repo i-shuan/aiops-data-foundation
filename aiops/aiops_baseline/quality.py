@@ -118,6 +118,12 @@ def eval_stopped(before: pd.DataFrame, recent: pd.DataFrame | None, keys: list[s
             if r["docs"] >= min_docs and (k := tuple(r[f] for f in keys)) not in alive]
 
 
+def eval_present(now: pd.DataFrame, keys: list[str], *, min_docs: int = 1) -> list[dict]:
+    """now：keys + ["docs"]。有 ≥ min_docs 筆就報：這個檢查的 filter 是「不該出現的資料」（例如 Collector 沒改名的舊指標名字）。"""
+    return [{"key": dict(zip(keys, (r[k] for k in keys))), "value": int(r["docs"]), "why": [f"最近有 {int(r['docs'])} 筆"]}
+            for r in now.to_dict("records") if r["docs"] >= min_docs]
+
+
 def eval_share(part: int, total: int, ref_part: int | None, ref_total: int | None, *, min_docs: int = 100,
                max_share: float | None = None, min_increase: float = 0.1) -> list[dict]:
     """part／total：最近這段時間「那一部分」和全部的筆數；ref_*：ref 那段時間的。

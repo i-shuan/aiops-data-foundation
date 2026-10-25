@@ -28,7 +28,7 @@ ES（log、metrics、trace）
 
 **流量、錯誤率、延遲從 metrics 算，不從 trace、log 算**（分工見 [docs/rca/README.md「分工」](../../docs/rca/README.md#分工metrics-決定什麼時候告警trace-和-log-說明原因)）：
 
-- 來源是 Java agent 的 `http.server.request.duration` 直方圖（存進 ES 的欄位是 `metrics.http_server_request_duration_seconds`）。每個請求都算到；Collector 把 Prometheus 的累加值換成「每 30 秒多少」，所以任一段時間都能直接加總。
+- 來源是 `http.server.request.duration` 直方圖（ES 欄位 `metrics.http.server.request.duration`；Java agent 經 Prometheus 進來的名字由 node Collector 改成這個，跟 .NET 一樣）。每個請求都算到；Collector 把 Prometheus 的累加值換成「每 30 秒多少」，所以任一段時間都能直接加總。
 - trace 有取樣（調到一成就只看到一成的請求），而且只留 7 天，不適合學 4 週的 baseline。
 - log 只學筆數（`log.lines`、`log.errors`）：抓得到 metrics 看不到的問題，例如背景工作一直失敗、但 API 都正常。
 

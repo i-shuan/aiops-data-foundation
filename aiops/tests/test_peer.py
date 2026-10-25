@@ -67,9 +67,7 @@ class SpecTest(unittest.TestCase):
             cfg = yaml.safe_load(f)
         by = {c["name"]: c for c in cfg["checks"]}
         v = P.volume_spec(by["peer.http_error_rate"])
-        self.assertEqual([x["value"] for x in v["variants"]],
-                         [{"hist_count": "metrics.http_server_request_duration_seconds"},
-                          {"hist_count": "metrics.http.server.request.duration"}])
+        self.assertEqual(v["value"], {"hist_count": "metrics.http.server.request.duration"})
         self.assertIsNone(P.volume_spec(by["peer.pod_cpu"]))   # CPU 不用看請求數
         self.assertEqual(P.count_spec(by["peer.pod_cpu"])["value"], "count")
 
