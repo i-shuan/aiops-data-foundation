@@ -30,6 +30,9 @@ def cmd_adjust(cfg: dict, args) -> int:
             got = es.req("GET", f"/{TUNING_INDEX}/_doc/{args.id}", ok=(200, 404))
             src = got.get("_source") or {}
             bt = src.get("backtest")
+            if src.get("kind") == "rule_suggestion" and not isinstance((src.get("rule_draft") or {}).get("threshold"), (int, float)):
+                print(f"這條規則算不出門檻（{(src.get('rule_draft') or {}).get('_note')}），不能核准；要的話自己寫進 rules.yaml")
+                return 2
             if src.get("kind", "override") in ("override", "recurring_override") and not getattr(args, "force", False):
                 if not bt:
                     print(f"這筆還沒回測：先跑 backtest --id {args.id}（要跳過用 --force）")
@@ -39,7 +42,10 @@ def cmd_adjust(cfg: dict, args) -> int:
                     return 2
             es.req("POST", f"/{TUNING_INDEX}/_update/{args.id}?refresh=true",
                    {"doc": {"status": "active", "approved_by": args.by, "approved_at": pd.Timestamp.now(tz="UTC").isoformat()}})
-            print(f"已核准：{args.id}" + (f"（回測：{bt.get('reason')}）" if bt else "（沒回測，--force）"))
+            if src.get("kind") == "rule_suggestion":
+                print(f"已核准：{args.id}（規則 {src['rule_draft']['name']}，下一次 detector rules 就會載入）")
+            else:
+                print(f"已核准：{args.id}" + (f"（回測：{bt.get('reason')}）" if bt else "（沒回測，--force）"))
         return 0
     need = {"exclude_window": ("start", "end"), "reset_point": ("at",), "recurring_override": ("cron", "duration")}
     missing = [f"--{f.replace('_', '-')}" for f in need[args.kind] if not getattr(args, f)]

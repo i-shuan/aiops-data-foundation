@@ -33,7 +33,7 @@ flowchart LR
 | ⑥ 收斂 | **同一個服務、30 分鐘內接著來的異常 = 一件**（同 dept 的兩個服務是兩件）；30 分鐘沒新的 → resolved；每次跑寫一筆心跳 | `engine/investigator/alerts.py`、`cmd_alert.py`；`configs/rca/rca.yaml` 的 `alerts:` | 每 1 分鐘 | `tests/test_alerts.py`；[pdca/alert-exit](pdca/2026-10-alert-exit.md)（Grafana 12.2 實測） |
 | ⑦ 根因分析 | 新的一件：從異常拿服務＋API＋時間 → 出事時最慢 200 個 trace 跟一週前比 → **慢在哪一段**（扣掉下游）、**錯從哪開始** → 用 trace_id 撈 log、**新出現的 log 樣式** → Markdown 報告；再用這件的**指紋**去 `aiops-incidents` 找老師傅確認過的**相似事故**（為什麼像、當時根因、處置、怎麼看出來的）；**LLM 摘要**三到五句、每句附依據 | `engine/investigator/__main__.py`、`similar.py`、`engine/core/llm.py` | 跟 ⑥ 同一次 | k3s `run-rca-e2e.sh`（有 trace）；`tests/loop_e2e.py`（相似事故、LLM template）；`test_similar.py`、`test_llm.py` |
 | ⑧ 出口 | 一件一筆寫 `aiops-alerts`：`status`、`service`、`dept`、`group`、`severity`、`summary`（通知帶這個）、`report`、`feedback_url`。**通知交給 Grafana**：每件一則（`group_by: alert_id`）、依 `dept` 送各部門、沒 dept 送平台、結束發恢復；**心跳 10 分鐘沒寫 → 「AIOps 停了」** | `engine/configs/grafana/*.yaml`（provisioning 範例） | Grafana 每 1 分鐘查 | Grafana 12.2 實測一件一則、依 dept、恢復（心跳規則只到 yaml 能讀） |
-| ⑨ 回饋 | 通知裡的連結 → 回饋網頁：一鍵真的／誤報／根因錯，真的時填根因分類、根因、處置、**怎麼看出來的**、查了哪裡；寫 `aiops-feedback`（每筆異常一筆）、`aiops-incidents`（confirmed）。回來：確認的事故 → 下次相似事故查得到；誤報 3 次 → `feedback suggest` 放寬 → `backtest` → `adjust approve`；漏報 → 降 z；同根因 3 次 → 規則草稿；`metrics` 算學之前／之後 | `engine/feedback_web/`、`detector/cmd_feedback.py`、`cmd_backtest.py`、`cmd_metrics.py` | 網頁常駐；suggest／backtest 人跑 | `tests/loop_e2e.py` 整個故事 37 項；`test_feedback_web.py`、`test_feedback.py`、`test_metrics.py` |
+| ⑨ 回饋 | 通知裡的連結 → 回饋網頁：一鍵真的／誤報／根因錯，真的時填根因分類、根因、處置、**怎麼看出來的**、查了哪裡；寫 `aiops-feedback`（每筆異常一筆）、`aiops-incidents`（confirmed）。回來：確認的事故 → 下次相似事故查得到；誤報 3 次 → `feedback suggest` 放寬 → `backtest` → `adjust approve`；漏報 → 降 z；同根因 3 次 → 規則（門檻算好，核准後 `rules` 自動載入）；`metrics` 算學之前／之後 | `engine/feedback_web/`、`detector/cmd_feedback.py`、`cmd_backtest.py`、`cmd_metrics.py` | 網頁常駐；suggest／backtest 人跑 | `tests/loop_e2e.py` 整個故事 37 項；`test_feedback_web.py`、`test_feedback.py`、`test_metrics.py` |
 
 ## 一件事從頭到尾長什麼樣（loop_e2e 跑出來的）
 
@@ -96,9 +96,9 @@ flowchart LR
 | 東西 | 為什麼算過度 | 建議 |
 |---|---|---|
 | baseline 的三個自動機制同時存在：自選粒度（6 階）、卜瓦松、借同組 | 沒有真實資料就先做了三種退路；設定、文件、測試都跟著變厚 | 留著但不再擴；真實資料跑過再決定砍哪個 |
-| 行事曆自動變成幾十筆 `exclude_window`（`adjust list` 一整頁假日） | 一年的假日每天一筆，蓋掉真正要看的調整 | 行事曆改成一筆規則（kind calendar），list 預設摺疊 |
+| ~~行事曆自動變成幾十筆 `exclude_window`~~ | 工廠 24×7，國定假日根本不該列；該列的是歲修，一次一筆 | **已改**：拿掉國定假日來源，歲修一筆一筆寫（[pdca/2026-10-rule-threshold.md](pdca/2026-10-rule-threshold.md)） |
 | trace 每一段的 baseline（`trace-train`／`trace-detect`）＋ N+1、吞例外規則 | trace 有取樣、只留 7 天，學出來的「平常」本來就偏；根因分析已經會比「慢在哪一段」 | 先只跑根因分析那條；trace baseline 等有真資料 |
-| 規則草稿 `rule_suggestion` 的門檻留 `<填：…>` | 做了一半：提了草稿但人還是要自己查數字、改 yaml | 要嘛從那幾件事故的 p95 直接算門檻，要嘛先不提草稿只提「同根因 3 次」的提醒 |
+| ~~規則草稿 `rule_suggestion` 的門檻留 `<填：…>`~~ | 做了一半：提了草稿但人還是要自己查數字、改 yaml | **已改**：門檻 = 三件事故延遲峰值的最小值，核准後 `rules` 自動載入（同上） |
 | 回饋表單 10 個「查了哪裡」、6 種誤報原因、9 類根因 | 選項是估的，沒人填過 | 第一週看真的填了什麼再縮 |
 | `metrics` 的「最吵的服務」、依 dept | Grafana 讀 `aiops-alerts` 畫更合適 | 留表格，不再加欄 |
 | 四個 5～10 分鐘的 CronJob（peer、trace-collect、trace-detect、quality） | 正式環境先只要 rules、detect、alert、train 四個就能跑通故事 | deploy 加註「第一階段只開這四個」 |

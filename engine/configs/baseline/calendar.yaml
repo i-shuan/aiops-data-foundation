@@ -1,5 +1,6 @@
-# 行事曆（detector/adjust.py 的 calendar_adjustments）：國定假日、維護日、大型活動。
-# 每一筆變成 exclude_window：那段時間的資料不學（baseline 不會把假日的低流量學成平常），也不判斷（不報）。
+# 行事曆（detector/adjust.py 的 calendar_adjustments）：歲修、機房維護、大型活動。
+# 工廠 24×7，國定假日跟平日一樣，不列（列了反而把假日的資料從 baseline 挖掉）；要列的是歲修，一次歲修一筆、不合併。
+# 每一筆變成 exclude_window：那段時間的資料不學（baseline 不會把歲修的零流量學成平常），也不判斷（不報）。
 #   date: 2026-10-10                       一整天（當地時間 00:00～隔天 00:00）
 #   start: 2026-10-01、end: 2026-10-04      好幾天（含頭尾）
 #   start: 2026-11-01T02:00、end: 2026-11-01T06:00   一段時間
@@ -7,27 +8,27 @@
 #   match   只影響哪些對象（欄位可用別名：service、namespace…）；不寫就是全部
 #   series  只影響哪些序列（正規表示式）；不寫就是全部
 #   detect  false（預設）：不學也不報；true：照常判斷、只是不學
-# 假日每年日期不同（農曆）：用 sources 的 taiwan 直接抓，不用每年手動更新。改這裡不用重啟，下次 train／detect 生效。
+# 改這裡不用重啟，下次 train／detect 生效。
 #
-# 注意：假日「不學」之後，假日的時段就沒有 baseline 能比；假日當天本來就不判斷，所以沒關係。
-#       但如果假日佔了 4 週裡同一個星期幾的大部分（例如連假），那個時段會退到「每天同一小時」。
+# 注意：「不學」之後，那段時間就沒有 baseline 能比；歲修期間本來就不判斷，所以沒關係。
+#       歲修完剛開機那幾天流量、延遲都還不穩，要的話再加一筆 detect: true 的（只是不學、照常判斷）或用 adjust add --kind reset_point。
 
 timezone: Asia/Taipei
 
 # 資料從哪來（detector/sources.py；格式、假資料見 interfaces/README.md、fake-data/README.md）。多個來源合在一起，
 # 某個來源失敗只印警告、不擋訓練。
 sources:
-  # 台灣行事曆（https://github.com/ruyut/TaiwanCalendar）：國定假日、補假、彈性放假、春節，以及補班日。
-  # years 不寫就是今年和明年；明年還沒公告就略過。結果存在 .cache/calendar，24 小時內不重抓（cache_ttl）；抓失敗時用快取。
-  - provider: taiwan
-    # years: [2026, 2027]
-    # cache_dir: .cache/calendar
-  # 範例用的假資料（日期都在 2099 年，不會影響真的訓練）；不要的話刪掉或 enabled: false
+  # 台灣國定假日（https://github.com/ruyut/TaiwanCalendar）：工廠 24×7 不用；只有週休的辦公室系統才打開
+  # - provider: taiwan
+  #   years: [2026, 2027]
+  # 範例用的假資料（日期都在 2099 年）；要看格式再打開
   - provider: file
     path: fake-data/calendar.json
-    enabled: true
+    enabled: false
 
-# 自己補的（維護日、活動）直接寫這裡；跟 sources 的合在一起
+# 歲修、機房維護、活動：直接寫這裡，一次一筆、不合併（match 限定哪些服務、namespace；不寫就是全部）
 calendar: []
-  # - {start: 2026-11-01T02:00, end: 2026-11-01T06:00, name: 機房維護, type: maintenance}
+  # - {start: 2026-02-14T08:00, end: 2026-02-18T20:00, name: 2026 春節歲修 fab1, type: maintenance, match: {namespace: "^fab1-"}}
+  # - {start: 2026-07-04T08:00, end: 2026-07-05T20:00, name: 2026 年中歲修 fab1, type: maintenance, match: {namespace: "^fab1-"}}
+  # - {start: 2026-11-01T02:00, end: 2026-11-01T06:00, name: 機房 UPS 維護, type: maintenance}
   # - {date: 2026-11-11, name: 雙 11 活動, type: event, match: {service: "^order"}, detect: true}   # 流量本來就高：不學，但照常判斷

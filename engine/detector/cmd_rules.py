@@ -10,6 +10,19 @@ from .common import RULE_FIELDS, _freq, _now
 from .owner import write_anomalies
 
 
+def approved_rules(es: ES, cfg: dict) -> list[dict]:
+    """老師傅核准的「升級成規則」（aiops-tuning 的 rule_suggestion，status active，門檻是數字）：跟 rules.yaml 的一起跑。"""
+    from .tuning import load_adjustments
+    try:
+        adjs = load_adjustments(es, cfg)
+    except Exception as e:
+        print(f"  讀 aiops-tuning 的規則失敗（{e}），只跑 rules.yaml 的")
+        return []
+    return [{k: v for k, v in a["rule_draft"].items() if not k.startswith("_")}
+            for a in adjs if a.get("kind") == "rule_suggestion" and a.get("status") == "active"
+            and isinstance((a.get("rule_draft") or {}).get("threshold"), (int, float))]
+
+
 def cmd_rules(cfg: dict, args) -> int:
     es = ES()
     es.ensure_index(ANOMALY_INDEX, ANOMALY_MAPPING)
@@ -18,8 +31,12 @@ def cmd_rules(cfg: dict, args) -> int:
     slot = now.floor(_freq(cfg.get("interval", "1m")))
     start = now - pd.Timedelta(_freq(cfg.get("lookback", "10m")))
     names = set(args.only.split(",")) if args.only else None
+    extra = approved_rules(es, cfg)
+    if extra:
+        print(f"  從 aiops-tuning 載入 {len(extra)} 條核准的規則：{'、'.join(r['name'] for r in extra)}")
+    rules = list(cfg["rules"]) + extra
     docs, fired = [], 0
-    for rule in cfg["rules"]:
+    for rule in rules:
         if names and rule["name"] not in names:
             continue
         r_start = now - pd.Timedelta(_freq(rule["lookback"])) if rule.get("lookback") else start
@@ -41,5 +58,5 @@ def cmd_rules(cfg: dict, args) -> int:
         fired += len(hits)
     if docs:
         write_anomalies(es, docs)
-    print(f"{slot.tz_convert('Asia/Taipei'):%m-%d %H:%M}：{len(cfg['rules'])} 條規則，觸發 {fired} 個")
+    print(f"{slot.tz_convert('Asia/Taipei'):%m-%d %H:%M}：{len(rules)} 條規則，觸發 {fired} 個")
     return 0

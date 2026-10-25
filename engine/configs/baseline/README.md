@@ -471,7 +471,7 @@ PDCA 的 Check：告警出去之後，人判斷對不對，才知道門檻準不
 | `feedback pending` | 最近還沒人標記的告警（只列 `anomaly`；`warning` 還沒通知任何人）和它們的 id |
 | `feedback add --anomaly <id> --verdict …` | `true_positive` 真的、`false_positive` 誤報、`wrong_root_cause` 真的但根因錯（`--root-cause` 寫正確的）、`missed` 漏報（沒有 id，給 `--series --match --at`）。同一個人對同一筆再標會覆蓋 |
 | `feedback summary` | 每條序列的告警數、已標記比例、誤報率；誤報累積多次的對象；漏報 |
-| `feedback suggest` | (1) 同一個對象誤報 ≥ 3 次 → 提一筆放寬 z（× 1.4）的建議；(2) 漏報 → 那條序列、那個對象降 z（× 0.8）；(3) 同一個服務、同一個根因分類被老師傅確認 ≥ 3 次（`--min-recurring`）→ 提「升級成規則」，附規則草稿 `rule_draft`（人看過、填門檻，加進 `rules.yaml`）。都是 `status: proposed`；override 要先 `backtest` 再 `adjust approve` |
+| `feedback suggest` | (1) 同一個對象誤報 ≥ 3 次 → 提一筆放寬 z（× 1.4）的建議；(2) 漏報 → 那條序列、那個對象降 z（× 0.8）；(3) 同一個服務、同一個根因分類被老師傅確認 ≥ 3 次（`--min-recurring`）→ 提「升級成規則」：**門檻算好**（那幾件事故的延遲峰值取最小值，三件都抓得到）、查法跟那條 baseline 序列一樣、只看這個服務（三件同一支 API 就只看它）；`adjust approve` 後 **`rules` 自動載入**，不用改 `rules.yaml`；算不出門檻的不能核准。都是 `status: proposed`；override 要先 `backtest` 再 `adjust approve` |
 | `backtest --id <建議> --weeks 4` | 改門檻前先回測：用「現行」和「現行＋這筆建議」各重跑過去 N 週的 detect（不寫 ES），比告警少幾個、已確認的事故（`aiops-incidents` confirmed／corrected／resolved）還抓不抓得到、漏報抓到沒；少抓一件已確認的事故就「不建議」。結果寫回建議的 `backtest` 欄位，`adjust list` 看得到 |
 | `adjust approve --id … --by …` | override 類的建議**沒回測、或回測不建議的不能核准**（要跳過用 `--force`）；記 `approved_by`、`approved_at` |
 | `metrics --from … --to … [--compare-from … --compare-to …]` | 量化：件數（每天、依 dept）、有回饋的比例、誤報率、根因錯的比例、漏報、從告警到第一筆回饋的中位時間、老師傅確認的事故數、「怎麼看出來的」有填的比例；兩段並排就是「學之前 vs 學之後」。只印 Markdown（`--out` 存檔），畫圖交給 Grafana |
@@ -499,7 +499,7 @@ PDCA 的 Check：告警出去之後，人判斷對不對，才知道門檻準不
 
 **2026-10-25 補的**（docker ES、模擬資料實測，見 [pdca/2026-10-loop-update.md](../../../docs/pdca/2026-10-loop-update.md)、[2026-10-expert-feedback.md](../../../docs/pdca/2026-10-expert-feedback.md)）：回饋網頁；誤報 3 次 → 建議 → `backtest`（告警 3 → 1、已確認事故不受影響）→ `approve` → 同樣的批次不再報；同根因 3 次 → 規則草稿；漏報 → 降 z 的建議；`metrics` 兩段並排。
 
-**還沒做**：每筆異常記是哪一版產生的、評測集（要真實事故）；`suggest` 只調 z，不調 `min_abs`、粒度，也不會提「排除時段」（月底批次更該用 `adjust add --kind recurring_override`，現在要人手動）；規則草稿的門檻要人填。
+**還沒做**：每筆異常記是哪一版產生的、評測集（要真實事故）；`suggest` 只調 z，不調 `min_abs`、粒度，也不會提「排除時段」（月底批次更該用 `adjust add --kind recurring_override`，現在要人手動）；規則核准前沒有回測（用 `rules --at <事故時間>` 看會不會觸發）。
 
 ## 慢性病清單、行事曆
 
@@ -518,7 +518,7 @@ python3 -m detector chronic --config configs/baseline/chronic.yaml   # 每週一
 
 **資料來源**：負責人（`owners`）和行事曆（`calendar`）是要別人提供的資料，程式只認格式，來源可以換（`file`、`http`，行事曆另有 `taiwan`）。**接口**在 [detector/sources.py](../../detector/sources.py) 和 [interfaces/](../../interfaces/README.md)，**假資料**在 [fake-data/](../../fake-data/README.md)，兩邊分開；換成真的只改設定。
 
-**行事曆**：國定假日、維護日、大型活動，寫在 [calendar.yaml](calendar.yaml)；假日用 `taiwan` provider 直接抓（[TaiwanCalendar](https://github.com/ruyut/TaiwanCalendar)），不用每年手動填。每一筆變成 `exclude_window`：預設不學也不報；`detect: true` 時只是不學、照常判斷（例如活動日流量本來就高）。日期是當地的一整天（`date`），或一段（`start`、`end`，可帶時間）。補班日（週六上班）也列入：用「週六」的 baseline 比會誤報，所以也不學、不判斷。抓到的結果存在 `.cache/calendar`，24 小時內不重抓（`detect` 每 30 秒跑一次，不能每次打網路）；抓失敗用快取，都沒有就是沒有行事曆，不擋訓練。`adjust list` 會一起列出。
+**行事曆**：歲修、機房維護、大型活動，寫在 [calendar.yaml](calendar.yaml)，**一次歲修一筆、不合併**（`match` 限定哪個廠、哪些服務）。工廠 24×7，國定假日跟平日一樣，**不列**（列了會把假日的資料從 baseline 挖掉）；只有週休的辦公室系統才打開 `taiwan` provider（[TaiwanCalendar](https://github.com/ruyut/TaiwanCalendar)，含補班日，抓到的存 `.cache/calendar`，失敗用快取）。每一筆變成 `exclude_window`：預設不學也不報；`detect: true` 時只是不學、照常判斷（例如活動日流量本來就高）。日期是當地的一整天（`date`），或一段（`start`、`end`，可帶時間）。`adjust list` 會一起列出。
 
 **實測**（2026-10-24，ES 9.5.5）：
 
