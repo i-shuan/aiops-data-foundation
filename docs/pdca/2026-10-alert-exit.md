@@ -107,7 +107,7 @@
 | 在 ES 上實跑 | es-t：Collector 送兩組假 Java（mes-api／D3120、wip-worker／D1110），跑保底規則 → `investigator alert` 兩次 | 第一次：mes-api、wip-worker 各一件（`D3120／it`、`D1110／imc`），先前測試留下的舊異常記成「已經過去的」不算新開；第二次：新開 0。**第一次實跑抓到兩個 bug**：(1) 已結束的件，重跑時它的異常又被開一次 → 加 `done_ids`；(2) 比這件開始早很多的舊異常會被併進來（開始時間變早、筆數變多）→ 早於開始時間 `close_after` 以上的不併。兩個都補了單元測試 |
 | 根因分析接得上 | 同上，看 `report` | 有跑 `investigate`、報告存進去；測試資料沒有 trace，所以報告寫「沒有 trace，只能從 log 找」，摘要只有標題兩行（有結論時才加第三行，單元測試驗過） |
 | Grafana 讀得到、一件一則、依 dept 分送 | docker：Grafana 12.2.0 掛 `engine/configs/grafana/` 的四個 provisioning 檔，contact point 指到一個記錄收到什麼的 webhook | mes-api → `/it`、wip-worker → `/imc`、資料品質（被拒收）→ `/platform`（`dept: none`）；labels 帶 `alert_id`、`service`、`dept`、`severity`，annotation 帶摘要 |
-| 件結束時 Grafana 發恢復 | 測試設定 `close_after` 改短，停掉假資料 | mes-api、wip-worker 都收到 `resolved` |
+| 件結束時 Grafana 發恢復 | 測試設定 `close_after` 改短，停掉假資料 | mes-api（`/it`）、wip-worker（`/imc`）、資料品質那件（`/platform`）都收到 `resolved` |
 | Grafana 唯讀 key 的權限 | 用 key 打 ES | 讀 `aiops-alerts` 200、讀 `aiops-anomalies` 403 |
 
 **測的過程中發現的**：
