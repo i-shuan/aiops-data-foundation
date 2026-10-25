@@ -1,6 +1,6 @@
 # 事件整合，通知交給 Grafana（2026-10）
 
-**狀態**：進行中（只有 Plan；2026-10-25 改範圍：通知交給 Grafana）　　**日期**：2026-10-25　　**相關**：分支 `claude/alert-exit`（從 `claude/single-writer-key` 開，要用到它的保底規則）
+**狀態**：已完成（k3s e2e、正式 Grafana 待接）；2026-10-25 改範圍：通知交給 Grafana　　**日期**：2026-10-25　　**相關**：Plan 在分支 `claude/alert-exit`；實作在 `claude/alerts`
 **模組**：⑥ 收斂（最小版）；⑧ 出口交給 Grafana
 
 ## Plan：這一次要達到什麼
@@ -40,8 +40,8 @@
 
 - **鑰匙**：服務（`resource.attributes.service.name`；trace 序列的 `entry.service`；規則的 context）。沒有服務的（節點、PV）用 namespace，再沒有用節點名。
 - **開一件**：這個服務沒有開著的件，來了一筆會進告警的異常。
-- **併進去**：開著的件，最後一筆異常在 15 分鐘內（`merge_gap`）。
-- **結束**：30 分鐘（`close_after`）沒有新的異常 → `resolved`，發恢復通知。
+- **併進去**：開著的件，最後一筆異常在 30 分鐘內（`close_after`；Plan 原本另有 15 分鐘的 `merge_gap`，實作時合成一個參數：15～30 分鐘之間的異常要併還是要開新的，兩個參數反而說不清）。
+- **結束**：30 分鐘（`close_after`）沒有新的異常 → `resolved`，Grafana 發恢復通知。
 - **嚴重度**：件裡最高的那筆；升級（warning → critical）時更新通知，降級不發。
 
 ### 交給 Grafana 的分工
@@ -88,12 +88,47 @@
 
 ## Do：改動哪些 code、改了什麼、為何要改
 
-（還沒動工）
+| 檔案 | 改了什麼 | 為何要改 |
+|---|---|---|
+| `engine/investigator/alerts.py`（新） | 合成一件的計算：`entity_of`（服務 → namespace → 節點；資料品質另一類）、`kind_of`（open／weak／attach）、`merge`（併進開著的、開新的、30 分鐘沒新的就結束；`done_ids` 讓重跑不重開）、`owner`（dept、group 取異常裡最多的；資料品質一律 unassigned）、`headline`／`summary`（一行標題＋開始時間、持續多久、哪些指標＋根因分析的結論） | 放在 investigator：一件事要跑根因分析，也只有它要讀 `aiops-anomalies` 全部；不讓 detector 去 import investigator |
+| `engine/investigator/cmd_alert.py`（新） | `alert` 指令：讀開著的件、最近結束的件、最近 2 小時的異常 → `merge` → 新的那件跑一次 `investigate` → 寫 `aiops-alerts`。開著的件每次都更新 `@timestamp`（心跳） | Grafana 只要查「最近 5 分鐘有心跳、status open」就知道哪些件還在 |
+| `engine/investigator/__main__.py` | 加 `alert` 子指令 | — |
+| `engine/configs/rca/rca.yaml` | `alerts:`：`close_after`、`lookback`、`rca`、`report_url`（回饋網頁做好再填） | — |
+| `engine/configs/grafana/`（新） | `datasource.yaml`（ES，只讀 `aiops-alerts`）、`alert-rules.yaml`（每一件一則，labels 帶 `alert_id`、`service`、`dept`、`group`、`severity`、`summary`）、`contact-points.yaml`（範例 webhook）、`policies.yaml`（依 dept 分送、沒有 dept 送平台、`group_by: [alert_id]`）、`README.md` | 管 Grafana 的人照著改 contact point 和 dept 清單 |
+| `telemetry/scripts/elasticsearch-setup.sh` | 多發一把「Grafana 唯讀 key」：只讀 `aiops-alerts`＋ cluster `monitor` | Grafana 的 ES data source 要先打 `GET /` 看版本 |
+| `engine/investigator/es.py`、`analyze.py` | 拿掉沒在用的 `get_field` import；`noqa` 註解格式 | ruff 檢查時順手 |
+| `engine/tests/test_alerts.py`（新） | 16 個測試 | — |
 
 ## Check：測試的目的與結果
 
-（還沒動工）
+| 測試目的（為了確認什麼） | 怎麼測 | 結果 |
+|---|---|---|
+| 合成一件的規則 | 單元測試 16 個 | 同服務 10 分鐘 20 筆 → 1 件；同 dept 兩個服務 → 2 件；只跳一次的 warning 不開、併得進開著的；weak 一筆不開、兩筆開；critical 規則馬上開；warning 升 critical 有標記；重跑不重複；30 分鐘沒新的結束；結束後再出事是新的一件；資料品質另一件、送平台 |
+| 在 ES 上實跑 | es-t：Collector 送兩組假 Java（mes-api／D3120、wip-worker／D1110），跑保底規則 → `investigator alert` 兩次 | 第一次：mes-api、wip-worker 各一件（`D3120／it`、`D1110／imc`），先前測試留下的舊異常記成「已經過去的」不算新開；第二次：新開 0。**第一次實跑抓到兩個 bug**：(1) 已結束的件，重跑時它的異常又被開一次 → 加 `done_ids`；(2) 比這件開始早很多的舊異常會被併進來（開始時間變早、筆數變多）→ 早於開始時間 `close_after` 以上的不併。兩個都補了單元測試 |
+| 根因分析接得上 | 同上，看 `report` | 有跑 `investigate`、報告存進去；測試資料沒有 trace，所以報告寫「沒有 trace，只能從 log 找」，摘要只有標題兩行（有結論時才加第三行，單元測試驗過） |
+| Grafana 讀得到、一件一則、依 dept 分送 | docker：Grafana 12.2.0 掛 `engine/configs/grafana/` 的四個 provisioning 檔，contact point 指到一個記錄收到什麼的 webhook | mes-api → `/it`、wip-worker → `/imc`、資料品質（被拒收）→ `/platform`（`dept: none`）；labels 帶 `alert_id`、`service`、`dept`、`severity`，annotation 帶摘要 |
+| 件結束時 Grafana 發恢復 | 測試設定 `close_after` 改短，停掉假資料 | mes-api、wip-worker 都收到 `resolved` |
+| Grafana 唯讀 key 的權限 | 用 key 打 ES | 讀 `aiops-alerts` 200、讀 `aiops-anomalies` 403 |
+
+**測的過程中發現的**：
+
+| 發現 | 怎麼發現的 |
+|---|---|
+| **Grafana 的 ES terms 預設用 `_term` 排序，ES 9 已經不認得**：ES 回 400、整條規則 Error，Grafana 還發了一則「規則錯誤」到預設的平台頻道 | 第一次跑 Grafana 規則狀態 `health: error`；用 Grafana 的查詢 API 拆開每個 terms 一個一個試，有寫 `orderBy` 的才過 → 每個 terms 都寫 `orderBy: _count` |
+| Grafana 的 ES data source 要 cluster `monitor` 權限 | data source 測試回 403；只給 index 讀權限時 `GET /` 是 403 |
+| 資料品質的異常時間是 10 分鐘時段的開頭，`close_after` 太短時一進來就被當成「已經過去的」 | 測試把 `close_after` 改成 3 分鐘時，資料品質那件沒開；正式的 30 分鐘沒有這個問題 |
+
+**沒測到**：k3s e2e；有 trace 的情境下摘要帶根因分析結論（只有單元測試）；正式的 Grafana（版本、權限、contact point）。
 
 ## Act：Check 後沒改善的、還沒解決的
 
-（還沒動工）
+| 沒改善的 | 在什麼情況下發現的 | 影響 | 後續 |
+|---|---|---|---|
+| `investigator alert` 停了，Grafana 會以為所有件都恢復了 | 設計時：心跳停了查不到 | 值班收到一堆「恢復」 | Grafana 再加一條「`aiops-alerts` 10 分鐘沒有任何寫入」的告警送平台；排程（CronJob）上線時一起做 |
+| 跨 dept 的上下游還是各自一件 | 範圍 | IT、IMC 各收一則，看不出是同一件事 | 下一輪：沿呼叫關係合併（③） |
+| 摘要放在 label 裡（Grafana 只能從 terms 分組拿值） | Grafana 只能用 labels 帶文字 | 摘要很長時 label 也很長 | 夠用；`summary` 欄位 `ignore_above: 4096` |
+| 一件的嚴重度只有 warning／critical：baseline 的異常都算 warning | 實作時 | baseline 抓到再嚴重也只是 warning | 等試跑 2～4 週看分佈再決定要不要依 z 分級 |
+| 每件只在新開時跑一次根因分析 | 實作時 | 事情持續很久、後面才出現的線索不會進報告 | 之後可在嚴重度升級時重跑 |
+
+- **決定**：合成一件看服務、送給誰看 dept；通知完全交給 Grafana，`group_by: [alert_id]`，Grafana 不再合併。
+- **下一輪**：排程上線（CronJob：rules、detect、quality、alert）＋「alert 停了」的告警；老師傅回饋入口（通知裡的連結）。

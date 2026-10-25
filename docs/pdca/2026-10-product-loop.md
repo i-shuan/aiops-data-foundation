@@ -47,7 +47,7 @@
 | 3 異常分析 | **基本樣式**：Median＋MAD（星期×小時，退階到每天同小時、不分時段）、trace 每一段的 baseline（`trace-train`、`trace-detect`）、連續才算（`status`、`streak`）。**單次異常**：39 條規則（容器重啟、副本不夠、資源快滿…＋錯誤率 5%、p95 2 秒保底）、跟兄弟比（`peer`）。結果都寫 `aiops-anomalies` | ✅ 程式（k3s 驗過）｜⚠️ 沒用真實資料跑過、沒排程 | 門檻都是估的；正式環境只寫入不通知跑 2～4 週 |
 | 4 串 metrics → trace → log | `investigator investigate`：從異常拿服務＋路由＋時間 → 撈出事時最慢 200、出錯 100 個 trace 跟一週前比 → 慢在哪一段（扣掉下游）、錯從哪開始 → 用 trace_id 撈 log、新出現的 log 樣式。產出 Markdown 報告（`engine/configs/rca/example-report.md`） | ✅（k3s 驗過） | 每一段用平均，少數極慢的會拉偏（[metrics-to-trace](2026-10-metrics-to-trace.md) 的 Act）；瀑布圖、撈 log 只用最慢的 1 筆 |
 | 5 輔助查問題 | 呼叫關係圖（`topology`、mermaid）、瀑布圖、log 樣式比較 | ⚠️ | 用業務 ID 查一筆交易的時間線（等業務 ID）；給 LLM 用的查詢工具（查某服務的 trace、某段 log 樣式、某 API 的 p95）；Kafka 那段斷鏈要靠業務 ID 補接 |
-| 6 整合事件 | 只有「同一條序列連續才算」 | ❌ | 同服務合成一件、沿呼叫關係合併上下游、排優先（[system-stages 第 7 節](../system-stages.md)）；事件整合＋通知交給 Grafana（[alert-exit](2026-10-alert-exit.md)，只有 Plan） |
+| 6 整合事件 | 「同一條序列連續才算」；**同服務合成一件**（`investigator alert`，寫 `aiops-alerts`），通知交給 Grafana 依 dept 分送（2026-10-25 做完，[alert-exit](2026-10-alert-exit.md)） | ⚠️ 最小版 ✅ | 同服務合成一件、沿呼叫關係合併上下游、排優先（[system-stages 第 7 節](../system-stages.md)）；事件整合＋通知交給 Grafana（[alert-exit](2026-10-alert-exit.md)，只有 Plan） |
 | 7 RCA＋RAG | 根因報告（第 4 步）；事故紀錄 `aiops-incidents` 存症狀、根因、處置、相關異常 | ⚠️ RCA ✅｜RAG ❌ | **報告不會去找過去的事故**：`investigator` 完全沒讀 `aiops-incidents`、`aiops-feedback`。沒有相似事故檢索、沒有 LLM 摘要；沒有評測集（20～30 件過去事故） |
 | 8 learning loop | `feedback add`（真的／誤報／根因錯／漏報＋正確根因）；`feedback suggest`：同一個對象誤報 3 次 → 提「放寬門檻」（proposed）；`adjust approve` 才生效；`incident add --exclude-training` 提「這段不學」；`tune` 調粒度、z | ⚠️ | **回饋只能打指令**，老師傅不會用；沒記「怎麼看出來的」（老師傅經驗的核心）；回饋不會更新 RAG（因為沒有 RAG）；漏報不會變成新規則；沒有「學之前、學之後」誤報率、找到原因時間的數字；沒有回測 |
 

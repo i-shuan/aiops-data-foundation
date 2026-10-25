@@ -219,6 +219,15 @@ es -X POST "${ES_URL}/_security/api_key" -d '{
 }'
 echo
 
+# 5. Grafana 唯讀 key：只讀 aiops-alerts（AIOps 合併過的事件），Grafana 依它發通知（engine/configs/grafana/）。
+#    cluster monitor：Grafana 的 ES data source 會先打 GET / 看版本（實測沒有這個權限 data source 測試回 403）
+echo "=== Grafana 唯讀 key ==="
+es -X POST "${ES_URL}/_security/api_key" -d '{
+  "name": "grafana-aiops-alerts",
+  "role_descriptors": {"grafana-aiops-alerts": {"cluster": ["monitor"], "index": [{"names": ["aiops-alerts"], "privileges": ["read", "view_index_metadata"]}]}}
+}'
+echo
+
 # 4. 健康檢查 key：只能 GET /（cluster:monitor/main）。放進 ES 前面 LB 的健康檢查、或 ES Pod 的 readinessProbe
 #    （e2e/local-k3s/elasticsearch.yaml 的 Secret es-probe-key）
 echo "=== 健康檢查 key ==="

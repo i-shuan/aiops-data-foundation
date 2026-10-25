@@ -7,7 +7,7 @@ import re
 from collections import defaultdict
 from dataclasses import dataclass, field
 
-from core.traces import error_origins, group_traces, root_of, segment, self_times  # noqa: F401（給 __main__ 用）
+from core.traces import error_origins, group_traces, root_of, segment, self_times  # noqa: F401  給 __main__ 用
 
 
 @dataclass

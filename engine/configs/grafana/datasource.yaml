@@ -1,0 +1,14 @@
+# Grafana 的 ES data source：只讀 aiops-alerts（AIOps 合併過的事件）
+apiVersion: 1
+datasources:
+  - name: aiops-alerts
+    uid: aiops-alerts
+    type: elasticsearch
+    access: proxy
+    url: ${ES_URL}
+    jsonData:
+      index: aiops-alerts
+      timeField: "@timestamp"
+      httpHeaderName1: Authorization
+    secureJsonData:
+      httpHeaderValue1: ApiKey ${GRAFANA_ES_API_KEY}

@@ -1,0 +1,44 @@
+# 每一件 status: open 的事件一則告警（docs/pdca/2026-10-alert-exit.md）
+apiVersion: 1
+groups:
+  - orgId: 1
+    name: aiops
+    folder: AIOps
+    interval: 1m
+    rules:
+      - uid: aiops-incident
+        title: AIOps 事件
+        condition: C
+        data:
+          - refId: A
+            datasourceUid: aiops-alerts
+            relativeTimeRange: {from: 300, to: 0}      # investigator alert 每 1～2 分鐘更新一次 @timestamp
+            model:
+              refId: A
+              query: "status:open"
+              timeField: "@timestamp"
+              metrics: [{id: "1", type: count}]
+              bucketAggs:
+                # 每一件一組；其他欄位跟著帶成 labels（同一件只有一個值）。missing：沒有 dept 的（資料品質、節點）也要算
+                # orderBy 一定要寫：Grafana 預設用 _term 排序，ES 9 已經不認得（實測 ES 回 400，整條規則 Error）
+                - {id: "2", type: terms, field: alert_id, settings: {size: "500", min_doc_count: "1", order: desc, orderBy: _count}}
+                - {id: "3", type: terms, field: service, settings: {size: "1", min_doc_count: "1", order: desc, orderBy: _count, missing: "—"}}
+                - {id: "4", type: terms, field: dept, settings: {size: "1", min_doc_count: "1", order: desc, orderBy: _count, missing: "none"}}
+                - {id: "5", type: terms, field: group, settings: {size: "1", min_doc_count: "1", order: desc, orderBy: _count, missing: "unassigned"}}
+                - {id: "6", type: terms, field: severity, settings: {size: "1", min_doc_count: "1", order: desc, orderBy: _count, missing: "warning"}}
+                - {id: "7", type: terms, field: summary, settings: {size: "1", min_doc_count: "1", order: desc, orderBy: _count, missing: ""}}
+                - {id: "8", type: terms, field: report_url, settings: {size: "1", min_doc_count: "1", order: desc, orderBy: _count, missing: ""}}
+                - {id: "9", type: date_histogram, field: "@timestamp", settings: {interval: 1m, min_doc_count: "0"}}
+          - refId: B
+            datasourceUid: __expr__
+            model: {refId: B, type: reduce, expression: A, reducer: max, settings: {mode: dropNN}}
+          - refId: C
+            datasourceUid: __expr__
+            model: {refId: C, type: threshold, expression: B, conditions: [{evaluator: {type: gt, params: [0]}}]}
+        noDataState: OK          # 沒有開著的件 = 正常
+        execErrState: Error
+        for: 0s                  # AIOps 已經做過「連續才算」，這裡不再等
+        labels: {source: aiops}
+        annotations:
+          summary: "{{ $labels.summary }}"
+          report: "{{ $labels.report_url }}"
