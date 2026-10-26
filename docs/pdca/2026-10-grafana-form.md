@@ -39,9 +39,11 @@
 2. 外掛替換變數時會做 URL 編碼：網址用變數 `${feedback_api}` 會變成 `http%3A%2F%2F…`、打到 Grafana 自己。網址只能寫死，部署時改。
 3. 瀏覽器語系字串是 `en-US@posix` 時 Grafana 前端起不來（跟外掛無關，是測試環境的問題，指定語系就好）。
 
+**決定（2026-10-26）**：回饋入口**用 Grafana 表單**，外掛用「把資料夾放進現有 Grafana 的外掛資料夾、重啟」的方式裝，不重做 Grafana image；回饋服務自己的小網頁留著當備案。給管 Grafana 的人的步驟：[INSTALL-form-plugin.md](../../engine/configs/grafana/INSTALL-form-plugin.md)（下載網址、SHA-256 `1eece14d…98d0`、確認方法）。
+
 ## Act：Check 後沒改善的、還沒解決的
 
-- **要能裝外掛**（在什麼情況下發現：Plan 時）：公司 Grafana 管理者要同意裝 `volkovlabs-form-panel` 6.3.1；內網沒辦法連 grafana.com 就把外掛目錄放進 `/var/lib/grafana/plugins`（這次就是這樣測的）。Grafana 升到 12.3 以上可以用新版。
+- **要管 Grafana 的人同意、照步驟裝**（在什麼情況下發現：Plan 時）：還沒在公司的 Grafana 裝過，只在測試的 Grafana 12.2 用同樣方式（放資料夾）驗過。公司的 Grafana 是不是 12.2、外掛資料夾在哪、裝第三方外掛要不要審查，要問。
 - **回饋服務的網址寫死在儀表板裡**（`http://localhost:18080`，兩處）：部署時要改成使用者瀏覽器連得到的網址（Ingress），還要開 `FEEDBACK_CORS_ORIGIN`。通知裡 Grafana 的網址也是範例。
 - **身分還是自己填名字**：Grafana 知道是誰登入，但這次沒有把 Grafana 的使用者帶進表單（外掛的程式碼裡拿得到 `context.grafana.user`，下一輪可以預填 `by`、設成唯讀）。
 - **服務掛掉時的訊息是外掛的英文**（Failed to fetch），送出失敗的中文提示有寫，但預填就失敗時看不到。

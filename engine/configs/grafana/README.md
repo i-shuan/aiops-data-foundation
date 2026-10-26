@@ -24,7 +24,7 @@ AIOps 把異常合成「一件事」寫進 `aiops-alerts`（`python3 -m investig
 
 一件事已經是 AIOps 合併過的結果（同一個服務的多筆異常）。Grafana 這邊**不要再依 dept 或 service 合併**，不然同一個 dept 的兩件不相關的事會被併成一則通知。
 
-## 回饋表單放在 Grafana 裡（選用）
+## 回饋表單放在 Grafana 裡（定案：用這個）
 
 老師傅從通知點 `feedback` 連結，直接在 Grafana 裡填回饋：預填那件告警（標題、摘要、AI 摘要、相似事故），選真的／誤報／根因錯，填根因、處置、怎麼看出來的，按送出。寫回 ES 的還是回饋服務（[engine/feedback_web](../../feedback_web/__init__.py)，Grafana 本身不能寫 ES），所以兩邊都要有。
 
@@ -32,9 +32,9 @@ AIOps 把異常合成「一件事」寫進 `aiops-alerts`（`python3 -m investig
 
 要做的：
 
-1. **裝外掛** Business Forms（`volkovlabs-form-panel`，Apache 2.0、Grafana 簽章）。**Grafana 12.2 只能用 6.3.1**（6.3.2 以後要 12.3）。連得到 grafana.com：`grafana cli plugins install volkovlabs-form-panel 6.3.1`；內網：把 `https://grafana.com/api/plugins/volkovlabs-form-panel/versions/6.3.1/download` 解開放進 `/var/lib/grafana/plugins/`（實測用這種）。
+1. **裝外掛** Business Forms（`volkovlabs-form-panel`，Apache 2.0、Grafana 簽章）。**Grafana 12.2 只能用 6.3.1**（6.3.2 以後要 12.3）。做法是把外掛資料夾放進 Grafana 的外掛資料夾、重啟，**不換 Grafana image**；給管 Grafana 的人照做的那一頁：[INSTALL-form-plugin.md](INSTALL-form-plugin.md)（含下載網址、SHA-256、怎麼確認）。
 2. **儀表板**：`dashboards.yaml` 和 `dashboards/` 放進 `/etc/grafana/provisioning/dashboards/`。`aiops-feedback.json` 裡兩個網址 `http://localhost:18080` 改成**使用者瀏覽器連得到的**回饋服務網址（Ingress）。外掛會把變數做 URL 編碼，所以網址不能用變數，只能寫死。
 3. **回饋服務開 CORS**：`FEEDBACK_CORS_ORIGIN=<Grafana 的網址>`（[deploy/feedback-web.yaml](../../deploy/feedback-web.yaml)），只對 `/api/*`。
 4. `alert-rules.yaml` 的 `feedback` annotation 換成你們的 Grafana 網址。
 
-不能裝外掛時，用回饋服務自己的小網頁（`rca.yaml` 的 `alerts.feedback_url`），兩個寫進 ES 的東西一樣。實測紀錄：[pdca/2026-10-grafana-form.md](../../../docs/pdca/2026-10-grafana-form.md)。
+**備案**：外掛還沒裝好、或 Grafana 升級後外掛壞了，用回饋服務自己的小網頁（`rca.yaml` 的 `alerts.feedback_url`），寫進 ES 的東西一樣。實測紀錄：[pdca/2026-10-grafana-form.md](../../../docs/pdca/2026-10-grafana-form.md)。
