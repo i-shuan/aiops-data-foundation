@@ -32,7 +32,7 @@ AIOps 把異常合成「一件事」寫進 `aiops-alerts`（`python3 -m investig
 
 要做的：
 
-1. **裝外掛** Business Forms（`volkovlabs-form-panel`，Apache 2.0、Grafana 簽章）。**Grafana 12.2 只能用 6.3.1**（6.3.2 以後要 12.3）。做法是把外掛資料夾放進 Grafana 的外掛資料夾、重啟，**不換 Grafana image**；給管 Grafana 的人照做的那一頁：[INSTALL-form-plugin.md](INSTALL-form-plugin.md)（含下載網址、SHA-256、怎麼確認）。
+1. **裝外掛** Business Forms（`volkovlabs-form-panel`，Apache 2.0、Grafana 簽章）。**Grafana 12.2 只能用 6.3.1**（6.3.2 以後要 12.3）。Grafana 跑在 K8s 上：**用 initContainer**，Grafana 啟動前從 Nexus 下載、核對 SHA-256、解開到外掛資料夾（[engine/deploy/grafana/](../../deploy/grafana/README.md)），**不換 Grafana image**；裝在一般主機上：解開放進外掛資料夾、重啟。給管 Grafana 的人照做的那一頁：[INSTALL-form-plugin.md](INSTALL-form-plugin.md)。
 2. **儀表板**：`dashboards.yaml` 和 `dashboards/` 放進 `/etc/grafana/provisioning/dashboards/`。`aiops-feedback.json` 裡兩個網址 `http://localhost:18080` 改成**使用者瀏覽器連得到的**回饋服務網址（Ingress）。外掛會把變數做 URL 編碼，所以網址不能用變數，只能寫死。
 3. **回饋服務開 CORS**：`FEEDBACK_CORS_ORIGIN=<Grafana 的網址>`（[deploy/feedback-web.yaml](../../deploy/feedback-web.yaml)），只對 `/api/*`。
 4. `alert-rules.yaml` 的 `feedback` annotation 換成你們的 Grafana 網址。
