@@ -6,7 +6,8 @@
 |---|---|
 | [`../Dockerfile`](../Dockerfile) | 一個 image 裝 `detector`、`investigator`、`feedback_web` 和 `configs/`；`ENTRYPOINT python3 -m`，`args` 給套件名和指令 |
 | [`kustomization.yaml`](kustomization.yaml) | namespace `aiops`、環境變數（`ES_URL`、`LLM_PROVIDER`、`TZ`）、image 路徑；設定檔要蓋掉 image 裡的就打開 `aiops-configs` |
-| [`cronjobs.yaml`](cronjobs.yaml) | 10 個 CronJob（下表）。由 [`gen-cronjobs.py`](gen-cronjobs.py) 產生，改頻率改那裡 |
+| [`cronjobs.yaml`](cronjobs.yaml) | **第一階段 4 個**：rules、detect、alert、train（下表）。由 [`gen-cronjobs.py`](gen-cronjobs.py) 產生，改頻率改那裡 |
+| [`cronjobs-stage2.yaml`](cronjobs-stage2.yaml) | 之後再開的 6 個：trace-collect／trace-train／trace-detect、peer、quality、chronic；`kustomization.yaml` 裡預設註解掉 |
 | [`feedback-web.yaml`](feedback-web.yaml) | 老師傅回饋入口（`feedback_web`）的 Deployment＋Service `aiops-feedback:8080` |
 
 ## 怎麼上
@@ -24,15 +25,18 @@ kubectl apply -k deploy/
 kubectl -n aiops get cronjob
 ```
 
-| CronJob | 頻率 | 指令 | 為什麼 |
-|---|---|---|---|
-| `aiops-rules` | 每 1 分鐘 | `detector rules` | 狀態變化（容器重啟、錯誤率 5%、p95 2 秒保底）要快 |
-| `aiops-detect` | 每 1 分鐘 | `detector detect --window 10m` | 每分鐘看最近 10 分鐘；同一筆重跑會覆蓋 |
-| `aiops-alert` | 每 1 分鐘 | `investigator alert` | 合成一件、根因分析、相似事故、LLM 摘要、**心跳** |
-| `aiops-peer`、`aiops-trace-collect`、`aiops-trace-detect` | 每 5 分鐘 | `detector peer`／`trace-collect`／`trace-detect` | 跟兄弟比、trace 每一段 |
-| `aiops-quality` | 每 10 分鐘 | `detector quality` | 資料品質 |
-| `aiops-train`、`aiops-trace-train` | 每天 02:00、02:20 | `detector train`／`trace-train` | 學過去 4 週 |
-| `aiops-chronic` | 每週一 08:00 | `detector chronic` | 慢性病清單 |
+**第一階段只開 4 個**：能跑通「告警 → 回饋 → 調門檻」這一圈的最少集合。偵測來源少，第一個月誤報來了容易知道是哪裡出的；四個在真實資料上跑穩、看過一輪誤報，再把 stage2 的一個一個打開（建議順序：quality → peer → trace 三個 → chronic）。
+
+| CronJob | 階段 | 頻率 | 指令 | 為什麼 |
+|---|---|---|---|---|
+| `aiops-rules` | 1 | 每 1 分鐘 | `detector rules` | 狀態變化（容器重啟、錯誤率 5%、p95 2 秒保底）要快；老師傅核准的規則也在這裡跑 |
+| `aiops-detect` | 1 | 每 1 分鐘 | `detector detect --window 10m` | 每分鐘看最近 10 分鐘；同一筆重跑會覆蓋 |
+| `aiops-alert` | 1 | 每 1 分鐘 | `investigator alert` | 合成一件、根因分析、相似事故、LLM 摘要、**心跳** |
+| `aiops-train` | 1 | 每天 02:00 | `detector train` | 學過去 4 週 |
+| `aiops-quality` | 2 | 每 10 分鐘 | `detector quality` | 資料品質（第一個月人天天看，先不用它報） |
+| `aiops-peer` | 2 | 每 5 分鐘 | `detector peer` | 跟兄弟比：多一種告警來源 |
+| `aiops-trace-collect`、`aiops-trace-train`、`aiops-trace-detect` | 2 | 每 5 分鐘／每天 02:20／每 5 分鐘 | `detector trace-*` | trace 每一段的 baseline；trace 有取樣、只留 7 天，學出來本來就偏 |
+| `aiops-chronic` | 2 | 每週一 08:00 | `detector chronic` | 慢性病清單，要幾週資料才有意義 |
 
 共同點：`concurrencyPolicy: Forbid`（上一次沒跑完就跳過這次，不會兩份同時寫）、`startingDeadlineSeconds`（錯過就不補跑）、`activeDeadlineSeconds`（卡住就砍）、`backoffLimit: 0`（失敗不重試，下一分鐘再來）、留最近 1 次成功、3 次失敗的 Pod 看 log。
 

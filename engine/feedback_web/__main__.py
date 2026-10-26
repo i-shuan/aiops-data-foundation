@@ -12,21 +12,49 @@ from core.es import ES
 from . import app as A
 
 
+def _cors_origins() -> set[str]:
+    """FEEDBACK_CORS_ORIGIN：允許哪些網頁從瀏覽器打 /api/*（例如 Grafana 的網址 https://grafana.example.internal）；逗號分隔；不設就不開。
+    Grafana 儀表板裡的表單（Business Forms 外掛）是從瀏覽器直接打這裡，跟 Grafana 不同網域，要開。"""
+    return {o.strip().rstrip("/") for o in os.environ.get("FEEDBACK_CORS_ORIGIN", "").split(",") if o.strip()}
+
+
 class Handler(BaseHTTPRequestHandler):
     es: ES = None
+
+    def _cors(self):
+        origin = (self.headers.get("Origin") or "").rstrip("/")
+        allowed = _cors_origins()
+        if origin and (origin in allowed or "*" in allowed):
+            self.send_header("Access-Control-Allow-Origin", origin)
+            self.send_header("Vary", "Origin")
+            self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+            self.send_header("Access-Control-Allow-Headers", "Content-Type")
 
     def _send(self, code: int, body: bytes, ctype: str = "text/html; charset=utf-8"):
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
+        if self.path.startswith("/api/"):
+            self._cors()
         self.end_headers()
         self.wfile.write(body)
+
+    def do_OPTIONS(self):    # 瀏覽器跨網域送 JSON 之前會先問一次（preflight）
+        self.send_response(204 if self.path.startswith("/api/") else 404)
+        self._cors()
+        self.send_header("Content-Length", "0")
+        self.end_headers()
 
     def do_GET(self):
         u = urlparse(self.path)
         q = {k: v[0] for k, v in parse_qs(u.query).items()}
         if u.path == "/health":
             return self._send(200, b"ok", "text/plain")
+        if u.path == "/api/alert":    # Grafana 表單的預填（initial request）：一層的 JSON，key 對到表單元素的 id
+            alert = A.load_alert(self.es, q.get("alert", ""))
+            if not alert:
+                return self._send(404, A.to_json({"error": f"找不到告警 {q.get('alert')}"}), "application/json")
+            return self._send(200, A.to_json(A.form_json(A.form_data(alert))), "application/json")
         if u.path in ("/feedback", "/report"):
             alert = A.load_alert(self.es, q.get("alert", ""))
             if not alert:

@@ -161,7 +161,18 @@ def main():
         ov = [h for h in tun if h["_source"].get("kind") == "override"]; rule = [h for h in tun if h["_source"].get("kind") == "rule_suggestion"]
         check("一筆放寬 z 的建議（proposed，mes-report synth.requests）", len(ov) == 1 and ov[0]["_source"]["status"] == "proposed" and ov[0]["_source"]["series"] == "synth\\.requests", str([h["_source"].get("series") for h in ov]))
         check("一筆升級成規則的建議（mes-api db ×3），附規則草稿", len(rule) == 1 and rule[0]["_source"]["service"] == "mes-api" and rule[0]["_source"]["rule_draft"]["type"] == "window", str(len(rule)))
-        if rule: print("    規則草稿：" + json.dumps(rule[0]["_source"]["rule_draft"], ensure_ascii=False)[:400])
+        if rule: print("    規則草稿：" + json.dumps(rule[0]["_source"]["rule_draft"], ensure_ascii=False)[:500])
+        # 門檻算出來：三件事故 synth.latency 的峰值取最小值；查法跟 synth.latency 一樣、只看 mes-api（pdca/2026-10-rule-threshold.md）
+        d = rule[0]["_source"]["rule_draft"] if rule else {}
+        floors = (d.get("_source") or {}).get("floors") or []
+        check("  門檻 = 三件各自最低異常值的最小值（synth.latency，約 450）", isinstance(d.get("threshold"), (int, float)) and len(floors) == 3 and d["threshold"] == round(min(floors), 3) and 400 < d["threshold"] < 500, str((d.get("threshold"), floors)))
+        check("  只看 mes-api、查法同 synth.latency", {"term": {"service": "mes-api"}} in d.get("filter", {}).get("bool", {}).get("filter", []) and d.get("value") == {"avg": "latency_ms"} and d.get("index") == "aiops-synth", json.dumps(d.get("filter")))
+        r = run("detector", "adjust", "approve", "--config", SYNTH, "--id", rule[0]["_id"], "--by", "老王")
+        check("  規則核准（不用回測）", "已核准" in r.stdout and "rules 就會載入" in r.stdout, r.stdout[-200:])
+        r = run("detector", "rules", "--config", "tests/rules_loop.yaml", "--at", iso(1, "10:12"))
+        check("  核准後 detector rules 自動載入、在第 2 次事故的時間會觸發", "載入 1 條核准的規則" in r.stdout and "觸發 1 個" in r.stdout, r.stdout[-300:])
+        r = run("detector", "rules", "--config", "tests/rules_loop.yaml", "--at", iso(1, "12:00"), quiet=True)
+        check("  平常的時間不觸發", "觸發 0 個" in r.stdout, r.stdout[-200:])
         r = run("detector", "adjust", "approve", "--config", SYNTH, "--id", ov[0]["_id"], "--by", "amy")
         check("沒回測不能核准", r.returncode != 0 and "回測" in r.stdout, r.stdout[-200:])
         print("== 9. backtest（過去 1 週重跑，現行 vs 現行＋建議）")
@@ -193,7 +204,7 @@ def main():
         r = run("detector", "feedback", "suggest", "--config", SYNTH, "--days", "60", quiet=True)
         check("再跑一次不重複、有說已經有了", "漏報的建議已經有了" in r.stdout, r.stdout[-200:])
         print("== 12. metrics：兩段並排")
-        r = run("detector", "metrics", "--config", SYNTH, "--from", "2026-10-05", "--to", "2026-10-26", "--compare-from", "2026-09-07", "--compare-to", "2026-10-05", "--out", os.path.join(tempfile.gettempdir(), "aiops-loop-metrics.md"))
+        r = run("detector", "metrics", "--config", SYNTH, "--from", "2026-10-05", "--to", "2026-10-28", "--compare-from", "2026-09-07", "--compare-to", "2026-10-05", "--out", os.path.join(tempfile.gettempdir(), "aiops-loop-metrics.md"))
         check("metrics 印出件數、誤報率、怎麼看出來的比例", "| 件數 | 0（每天 0.0） | 6（每天" in r.stdout and "誤報率（回饋裡標誤報的） | — | 50%" in r.stdout and "「怎麼看出來的」有填的比例 | — | 67%" in r.stdout, r.stdout)
     finally:
         web.terminate()

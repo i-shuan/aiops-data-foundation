@@ -107,9 +107,31 @@ def suggest_missed(series: str, target: str, current_z: float = 5.0, factor: flo
             "reason": f"漏報（值班回饋），z {current_z:g} → {round(current_z * factor, 1)}"}
 
 
-def suggest_rules(incidents: list[dict], min_recurring: int = 3) -> list[dict]:
-    """同一個服務、同一個根因分類被確認 ≥ min_recurring 次 → 提「升級成規則」：給一份規則草稿（rule_draft），人看過加進 rules.yaml。
-    草稿用那幾件事故指紋裡最常見的慢段／錯誤源頭：那一段的 p95 超過門檻就直接報，不用等 baseline。"""
+LATENCY_SERIES = re.compile(r"latency|p95|duration")
+
+
+def rule_threshold(incs: list[dict], anomalies_of: dict[str, list[dict]] | None) -> tuple[float | None, str | None, list[float], set]:
+    """門檻 = 每件事故裡「最低的那個異常值」（事故裡每個點都超過它），再取三件的最小值：三件事故、每個點都抓得到，
+    而且一跳就報（baseline 第一個點只算 warning）。用峰值的話只有在最高點那 5 分鐘才會報，實測第二件在 10:12 不觸發。
+    回傳 (門檻, 用哪條序列, 各件的最低異常值, 路由)。"""
+    peaks, series, routes = [], None, set()
+    for inc in incs:
+        anoms = [a for a in (anomalies_of or {}).get(inc["id"], []) if LATENCY_SERIES.search(a.get("series") or "") and a.get("value") is not None]
+        if not anoms:
+            continue
+        low = min(anoms, key=lambda a: float(a["value"]))
+        peaks.append(float(low["value"]))
+        series = series or low["series"]
+        routes |= {(a.get("keys") or {}).get("route") or (a.get("keys") or {}).get("attributes.http.route") for a in anoms} - {None}
+    return (round(min(peaks), 3) if peaks else None), series, peaks, routes
+
+
+def suggest_rules(incidents: list[dict], min_recurring: int = 3, anomalies_of: dict[str, list[dict]] | None = None,
+                  series_specs: list[dict] | None = None) -> list[dict]:
+    """同一個服務、同一個根因分類被確認 ≥ min_recurring 次 → 提「升級成規則」（kind rule_suggestion，附 rule_draft）。
+    門檻從那幾件事故的延遲峰值算（rule_threshold）；規則的查法直接用那條 baseline 序列的定義（同 index、欄位、切法），只多「只看這個服務」。
+    人 adjust approve 之後 detector rules 自動載入（cmd_rules），不用改 rules.yaml。算不出門檻的草稿 threshold 是 None，不能核准。
+    anomalies_of：{事故 id: [{series, value, keys}]}（事故 anomaly_ids 對到的異常）；series_specs：series.yaml 的 series。"""
     from collections import Counter
     by: dict[tuple, list[dict]] = {}
     for inc in incidents:
@@ -122,16 +144,32 @@ def suggest_rules(incidents: list[dict], min_recurring: int = 3) -> list[dict]:
         segs = Counter(s for i in incs for s in ((i.get("fingerprint") or {}).get("slow_segments") or []))
         errs = Counter(s for i in incs for s in ((i.get("fingerprint") or {}).get("error_origins") or []))
         where = (segs or errs).most_common(1)[0][0] if (segs or errs) else None
-        draft = {"name": f"{svc}.{cat}.recurring", "title": f"{svc} 又出現 {cat} 的狀況（確認過 {len(incs)} 次）", "severity": "critical",
-                 "type": "window", "lookback": "5m", "index": "metrics-*.otel-*",
-                 "filter": {"exists": {"field": "metrics.http.server.request.duration"}},
-                 "by": ["resource.attributes.service.name", "attributes.http.request.method", "attributes.http.route"],
-                 "value": {"percentile": {"field": "metrics.http.server.request.duration", "percent": 95}},
-                 "op": ">=", "threshold": "<填：那幾次事故時的 p95，秒>", "min_events": 20, "show": "seconds",
-                 "_note": f"慢的那段／錯的源頭最常是：{where}" if where else "指紋裡沒有慢段、錯誤源頭，門檻要自己看事故的報告填"}
+        threshold, series, peaks, routes = rule_threshold(incs, anomalies_of)
+        spec = next((s for s in (series_specs or []) if s.get("name") == series), None) or {
+            "index": "metrics-*.otel-*", "filter": {"exists": {"field": "metrics.http.server.request.duration"}},
+            "by": ["resource.attributes.service.name", "attributes.http.request.method", "attributes.http.route"],
+            "value": {"percentile": {"field": "metrics.http.server.request.duration", "percent": 95}}}
+        filters = ([spec["filter"]] if spec.get("filter") else []) + [{"term": {spec["by"][0]: svc}}]
+        if len(routes) == 1 and len(spec["by"]) >= 3:
+            filters.append({"term": {spec["by"][-1]: next(iter(routes))}})
+        is_rate = any(k in spec["value"] for k in ("percentile", "ratio", "hist_ratio")) if isinstance(spec.get("value"), dict) else False
+        draft = {"name": f"{svc}.{cat}.recurring", "severity": "critical", "type": "window", "lookback": "5m",
+                 "index": spec["index"], "filter": {"bool": {"filter": filters}}, "by": list(spec["by"]), "value": spec["value"],
+                 "op": ">=", "threshold": threshold, "show": "seconds" if "percentile" in str(spec.get("value")) else "value",
+                 "_source": {"series": series, "incident_ids": [i["id"] for i in incs], "floors": peaks, "route": next(iter(routes)) if len(routes) == 1 else None},
+                 "_note": (f"門檻 = 這 {len(peaks)} 件事故各自最低的 {series} 異常值（{'、'.join(f'{p:g}' for p in peaks)}）取最小值：每件、每個點都抓得到，一跳就報"
+                           if threshold is not None else "這幾件事故沒有延遲類的異常，算不出門檻：不能核准，要先看報告決定用哪條序列")
+                          + (f"；慢的那段／錯的源頭最常是：{where}" if where else "")}
+        if is_rate:
+            draft["min_events"] = 20
+        if threshold is not None:
+            draft["title"] = f"{svc} 又出現 {cat} 的狀況（確認過 {len(incs)} 次）：{series} ≥ {threshold:g}"
+        else:
+            draft["title"] = f"{svc} 又出現 {cat} 的狀況（確認過 {len(incs)} 次）"
         out.append({"kind": "rule_suggestion", "service": svc, "root_cause_category": cat, "incident_ids": [i["id"] for i in incs],
                     "status": "proposed", "source": "feedback", "rule_draft": draft,
-                    "reason": f"{svc} 的「{cat}」被確認 {len(incs)} 次：建議升級成規則（一次就報、不用等 baseline），草稿見 rule_draft"})
+                    "reason": f"{svc} 的「{cat}」被確認 {len(incs)} 次：建議升級成規則（一次就報、不用等 baseline）"
+                              + (f"，{series} ≥ {threshold:g}；核准後 rules 自動載入" if threshold is not None else "，但算不出門檻（見 rule_draft._note）")})
     return out
 
 

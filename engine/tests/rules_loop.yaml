@@ -1,0 +1,4 @@
+# loop_e2e 用：rules.yaml 裡沒有規則，只跑 aiops-tuning 裡老師傅核准的「升級成規則」
+interval: 1m
+lookback: 10m
+rules: []

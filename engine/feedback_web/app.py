@@ -34,6 +34,14 @@ def form_data(alert: dict) -> dict:
             "series": alert.get("series") or [], "report_url": alert.get("report_url")}
 
 
+def form_json(d: dict) -> dict:
+    """給 Grafana 表單預填用：一層的 key → 字串（表單元素的 id 對到這些 key）。相似事故攤成幾行文字。"""
+    sim = "\n".join(f"{(s.get('start') or '')[:16].replace('T', ' ')} [{s.get('root_cause_category') or '—'}] {s.get('root_cause') or ''}"
+                    f"｜處置：{s.get('action') or '—'}｜怎麼看出來的：{s.get('how_detected') or '—'}" for s in d["similar"]) or "沒有相似的過去事故"
+    return {"alert_id": d["alert_id"], "title": d["title"] or d["alert_id"], "summary": d["summary"], "llm": d["llm"] or "（沒有 AI 摘要）",
+            "similar": sim, "service": d["service"], "dept": d["dept"], "report_url": d["report_url"] or ""}
+
+
 def submit(es, form: dict, now: datetime | None = None) -> dict:
     """form：verdict、by、root_cause_category、root_cause、action、how_detected、checked（list）、improve、fp_reason、note。
     回傳 {"feedback": 寫了幾筆, "incident": 狀態}。"""

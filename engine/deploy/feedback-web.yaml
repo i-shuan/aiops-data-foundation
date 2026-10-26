@@ -21,6 +21,8 @@ spec:
           args: ["feedback_web"]
           env:
             - {name: FEEDBACK_PORT, value: "8080"}
+            # Grafana 儀表板裡的回饋表單從使用者瀏覽器直接打 /api/*：填 Grafana 的網址（逗號分隔；不用 Grafana 表單就拿掉）
+            - {name: FEEDBACK_CORS_ORIGIN, value: "https://grafana.example.internal"}
           envFrom:
             - configMapRef: {name: aiops-env}
             - secretRef: {name: aiops-secrets}

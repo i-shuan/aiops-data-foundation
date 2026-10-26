@@ -145,16 +145,50 @@ class SuggestFromIncidents(unittest.TestCase):
     def inc(self, i, svc="mes-api", cat="db", seg="mes-api › wip-worker › Oracle SELECT lots #"):
         return {"id": f"i{i}", "services": [svc], "root_cause_category": cat, "fingerprint": {"slow_segments": [seg], "error_origins": []}}
 
-    def test_three_same_root_cause_become_rule_suggestion(self):
-        out = F.suggest_rules([self.inc(1), self.inc(2), self.inc(3), self.inc(4, cat="network"), self.inc(5, svc="pay"), self.inc(6, svc="pay")])
+    SPECS = [{"name": "http.latency_p95_s", "index": "metrics-*.otel-*", "filter": {"exists": {"field": "metrics.http.server.request.duration"}},
+              "by": ["resource.attributes.service.name", "attributes.http.request.method", "attributes.http.route"],
+              "value": {"percentile": {"field": "metrics.http.server.request.duration", "percent": 95}}}]
+
+    def anoms(self, peaks, route="/lots/{id}"):
+        """每件事故的異常：延遲 p95 的峰值＋一筆不相干的錯誤率"""
+        return {f"i{i+1}": [{"series": "http.latency_p95_s", "value": v, "keys": {"service": "mes-api", "route": route}},
+                            {"series": "http.latency_p95_s", "value": round(v * 0.9, 2), "keys": {"service": "mes-api", "route": route}},
+                            {"series": "http.error_rate", "value": 0.9, "keys": {"service": "mes-api"}}] for i, v in enumerate(peaks)}
+
+    def test_three_same_root_cause_become_rule_with_computed_threshold(self):
+        out = F.suggest_rules([self.inc(1), self.inc(2), self.inc(3), self.inc(4, cat="network"), self.inc(5, svc="pay"), self.inc(6, svc="pay")],
+                              anomalies_of=self.anoms([3.1, 2.4, 4.0]), series_specs=self.SPECS)
         self.assertEqual(len(out), 1)
         s = out[0]
         self.assertEqual((s["kind"], s["service"], s["root_cause_category"], s["status"]), ("rule_suggestion", "mes-api", "db", "proposed"))
         self.assertEqual(s["incident_ids"], ["i1", "i2", "i3"])
         d = s["rule_draft"]
         self.assertEqual((d["name"], d["type"], d["op"]), ("mes-api.db.recurring", "window", ">="))
+        self.assertEqual(d["threshold"], 2.16)                     # 每件最低的異常值 2.79、2.16、3.6 取最小：三件、每個點都抓得到
+        self.assertEqual(d["_source"]["floors"], [2.79, 2.16, 3.6])
+        self.assertEqual(d["value"], self.SPECS[0]["value"])        # 查法跟那條 baseline 序列一樣
+        self.assertIn({"term": {"resource.attributes.service.name": "mes-api"}}, d["filter"]["bool"]["filter"])   # 只看這個服務
+        self.assertIn({"term": {"attributes.http.route": "/lots/{id}"}}, d["filter"]["bool"]["filter"])          # 三件都同一支 API → 只看它
+        self.assertEqual(d["min_events"], 20)
         self.assertIn("Oracle SELECT lots", d["_note"])
-        self.assertIn("<填", d["threshold"])    # 門檻要人看事故填，不自己猜
+        self.assertIn("≥ 2.16", d["title"])
+
+    def test_different_routes_no_route_filter(self):
+        a = self.anoms([3.0, 3.0, 3.0]); a["i2"][0]["keys"]["route"] = "/other"
+        d = F.suggest_rules([self.inc(1), self.inc(2), self.inc(3)], anomalies_of=a, series_specs=self.SPECS)[0]["rule_draft"]
+        self.assertFalse(any("attributes.http.route" in f.get("term", {}) for f in d["filter"]["bool"]["filter"]))
+        self.assertIsNone(d["_source"]["route"])
+
+    def test_no_latency_anomalies_threshold_is_none(self):
+        # 沒有延遲類的異常：算不出門檻，threshold None、說清楚，不能核准（cmd_adjust 擋）
+        out = F.suggest_rules([self.inc(1), self.inc(2), self.inc(3)], anomalies_of={"i1": [{"series": "http.error_rate", "value": 0.5, "keys": {}}]})
+        d = out[0]["rule_draft"]
+        self.assertIsNone(d["threshold"])
+        self.assertIn("算不出門檻", d["_note"])
+        self.assertIn("算不出門檻", out[0]["reason"])
+
+    def test_without_anomalies_still_proposes(self):
+        self.assertEqual(len(F.suggest_rules([self.inc(1), self.inc(2), self.inc(3)])), 1)
 
     def test_below_min_recurring_nothing(self):
         self.assertEqual(F.suggest_rules([self.inc(1), self.inc(2)]), [])

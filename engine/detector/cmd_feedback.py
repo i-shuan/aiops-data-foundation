@@ -48,6 +48,16 @@ def _confirmed_incidents(es, days: int, now) -> list[dict]:
     return [{"id": h["_id"], **h["_source"]} for h in hits]
 
 
+def _anomalies_of(es, incidents: list[dict]) -> dict[str, list[dict]]:
+    """每件事故 anomaly_ids 對到的異常（series、value、keys）：規則草稿的門檻從這裡算。"""
+    ids = sorted({a for i in incidents for a in (i.get("anomaly_ids") or [])[:200]})
+    if not ids:
+        return {}
+    got = es.req("POST", f"/{ANOMALY_INDEX}/_mget?_source_includes=series,value,keys", {"ids": ids}).get("docs", [])
+    src = {g["_id"]: g["_source"] for g in got if g.get("found")}
+    return {i["id"]: [src[a] for a in (i.get("anomaly_ids") or []) if a in src] for i in incidents}
+
+
 def cmd_feedback(cfg: dict, args) -> int:
     es = ES()
     es.ensure_index(F.FEEDBACK_INDEX, F.FEEDBACK_MAPPING)
@@ -110,7 +120,8 @@ def cmd_feedback(cfg: dict, args) -> int:
             print(f"  建議 {_id}（漏報）：{A.describe(sug)}")
             n += 1
         # 同一個服務、同一個根因分類被確認 ≥ N 次 → 提「升級成規則」（不用等 baseline，一次就報）
-        for sug in F.suggest_rules(_confirmed_incidents(es, days, now), args.min_recurring):
+        confirmed = _confirmed_incidents(es, days, now)
+        for sug in F.suggest_rules(confirmed, args.min_recurring, _anomalies_of(es, confirmed), cfg.get("series")):
             _id = doc_id("suggest-rule", sug["service"], sug["root_cause_category"])
             got = es.req("GET", f"/{TUNING_INDEX}/_doc/{_id}", ok=(200, 404))
             if got.get("found"):
