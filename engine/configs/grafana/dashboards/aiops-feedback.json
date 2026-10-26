@@ -1,0 +1,512 @@
+{
+  "uid": "aiops-feedback",
+  "title": "AIOps 回饋",
+  "tags": [
+    "aiops"
+  ],
+  "schemaVersion": 41,
+  "editable": true,
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "alert",
+        "label": "告警 id",
+        "type": "textbox",
+        "query": "",
+        "current": {
+          "text": "",
+          "value": ""
+        },
+        "hide": 0
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "volkovlabs-form-panel",
+      "title": "AIOps 回饋：${alert}",
+      "id": 1,
+      "gridPos": {
+        "h": 30,
+        "w": 14,
+        "x": 0,
+        "y": 0
+      },
+      "pluginVersion": "6.3.1",
+      "options": {
+        "sync": true,
+        "initial": {
+          "method": "GET",
+          "url": "http://localhost:18080/api/alert?alert=${alert}",
+          "header": [],
+          "code": "",
+          "contentType": "application/json",
+          "payloadMode": "all",
+          "getPayload": "return {}",
+          "datasource": "",
+          "payload": {},
+          "highlight": false,
+          "highlightColor": "red",
+          "confirm": false
+        },
+        "updateEnabled": "auto",
+        "update": {
+          "method": "POST",
+          "url": "http://localhost:18080/api/feedback",
+          "header": [],
+          "contentType": "application/json",
+          "payloadMode": "all",
+          "getPayload": "return {}",
+          "code": "if (context.panel.response && context.panel.response.ok) {\n  context.grafana.notifySuccess(['回饋', '已記錄，謝謝。這會讓下一次更準。']);\n} else if (context.panel.response) {\n  context.panel.response.json().then((r) => context.grafana.notifyError(['回饋沒有存成功', r.error || String(context.panel.response.status)]))\n    .catch(() => context.grafana.notifyError(['回饋沒有存成功', String(context.panel.response.status)]));\n} else {\n  context.grafana.notifyError(['回饋沒有存成功', '連不到回饋服務（feedback_api 的網址、CORS）']);\n}",
+          "datasource": "",
+          "payload": {},
+          "confirm": false
+        },
+        "resetAction": {
+          "mode": "initial",
+          "code": "",
+          "datasource": "",
+          "getPayload": "return {}",
+          "payload": {},
+          "payloadMode": "all",
+          "confirm": false
+        },
+        "buttonGroup": {
+          "orientation": "left",
+          "size": "md"
+        },
+        "submit": {
+          "variant": "primary",
+          "text": "送出",
+          "icon": "cloud-upload",
+          "foregroundColor": "yellow",
+          "backgroundColor": "purple"
+        },
+        "reset": {
+          "variant": "hidden",
+          "text": "重填",
+          "icon": "process",
+          "foregroundColor": "yellow",
+          "backgroundColor": "purple"
+        },
+        "saveDefault": {
+          "variant": "hidden",
+          "text": "Save Default",
+          "icon": "save"
+        },
+        "layout": {
+          "variant": "single",
+          "orientation": "vertical",
+          "padding": 10,
+          "sections": []
+        },
+        "confirmModal": {
+          "title": "確認送出",
+          "body": "送出這筆回饋？",
+          "confirm": "送出",
+          "cancel": "取消",
+          "columns": {
+            "name": "Label",
+            "oldValue": "Old Value",
+            "newValue": "New Value"
+          },
+          "elementDisplayMode": "modified"
+        },
+        "elementValueChanged": "",
+        "elements": [
+          {
+            "uid": "alert_id",
+            "id": "alert_id",
+            "title": "告警 id",
+            "type": "disabled",
+            "labelWidth": 22,
+            "width": null,
+            "tooltip": "",
+            "section": "",
+            "unit": "",
+            "showIf": "",
+            "disableIf": "",
+            "optionsSource": "Custom",
+            "allowCustomValue": false,
+            "options": [],
+            "value": ""
+          },
+          {
+            "uid": "title",
+            "id": "title",
+            "title": "這件",
+            "type": "disabled",
+            "labelWidth": 22,
+            "width": null,
+            "tooltip": "",
+            "section": "",
+            "unit": "",
+            "showIf": "",
+            "disableIf": "",
+            "optionsSource": "Custom",
+            "allowCustomValue": false,
+            "options": [],
+            "value": ""
+          },
+          {
+            "uid": "summary",
+            "id": "summary",
+            "title": "摘要",
+            "type": "disabledTextarea",
+            "labelWidth": 22,
+            "width": null,
+            "tooltip": "",
+            "section": "",
+            "unit": "",
+            "showIf": "",
+            "disableIf": "",
+            "rows": 4,
+            "value": "",
+            "isEscaping": false
+          },
+          {
+            "uid": "llm",
+            "id": "llm",
+            "title": "AI 摘要（只是參考）",
+            "type": "disabledTextarea",
+            "labelWidth": 22,
+            "width": null,
+            "tooltip": "",
+            "section": "",
+            "unit": "",
+            "showIf": "",
+            "disableIf": "",
+            "rows": 4,
+            "value": "",
+            "isEscaping": false
+          },
+          {
+            "uid": "similar",
+            "id": "similar",
+            "title": "過去相似的事故",
+            "type": "disabledTextarea",
+            "labelWidth": 22,
+            "width": null,
+            "tooltip": "",
+            "section": "",
+            "unit": "",
+            "showIf": "",
+            "disableIf": "",
+            "rows": 3,
+            "value": "",
+            "isEscaping": false
+          },
+          {
+            "uid": "verdict",
+            "id": "verdict",
+            "title": "這件是",
+            "type": "radio",
+            "labelWidth": 22,
+            "width": null,
+            "tooltip": "",
+            "section": "",
+            "unit": "",
+            "showIf": "",
+            "disableIf": "",
+            "optionsSource": "Custom",
+            "allowCustomValue": false,
+            "options": [
+              {
+                "value": "true_positive",
+                "label": "真的"
+              },
+              {
+                "value": "false_positive",
+                "label": "誤報"
+              },
+              {
+                "value": "wrong_root_cause",
+                "label": "真的，但根因報錯了"
+              }
+            ],
+            "value": ""
+          },
+          {
+            "uid": "root_cause_category",
+            "id": "root_cause_category",
+            "title": "根因分類",
+            "type": "select",
+            "labelWidth": 22,
+            "width": null,
+            "tooltip": "",
+            "section": "",
+            "unit": "",
+            "showIf": "const v = context.panel.elements.find((e) => e.id === 'verdict'); return !!v && !!v.value && v.value !== 'false_positive';",
+            "disableIf": "",
+            "optionsSource": "Custom",
+            "allowCustomValue": false,
+            "options": [
+              {
+                "value": "db",
+                "label": "DB（慢查詢、鎖、連線池、統計資訊）"
+              },
+              {
+                "value": "network",
+                "label": "網路（延遲、斷線、DNS）"
+              },
+              {
+                "value": "config_change",
+                "label": "設定變更"
+              },
+              {
+                "value": "deploy",
+                "label": "版本更新"
+              },
+              {
+                "value": "external",
+                "label": "外部系統"
+              },
+              {
+                "value": "resource",
+                "label": "資源不足（CPU、記憶體、磁碟）"
+              },
+              {
+                "value": "bug",
+                "label": "程式錯誤"
+              },
+              {
+                "value": "data",
+                "label": "資料問題"
+              },
+              {
+                "value": "other",
+                "label": "其他"
+              }
+            ],
+            "value": ""
+          },
+          {
+            "uid": "root_cause",
+            "id": "root_cause",
+            "title": "根因（一句話）",
+            "type": "string",
+            "labelWidth": 22,
+            "width": null,
+            "tooltip": "",
+            "section": "",
+            "unit": "",
+            "showIf": "const v = context.panel.elements.find((e) => e.id === 'verdict'); return !!v && !!v.value && v.value !== 'false_positive';",
+            "disableIf": "",
+            "hidden": false,
+            "value": ""
+          },
+          {
+            "uid": "action",
+            "id": "action",
+            "title": "處置（做了什麼讓它恢復）",
+            "type": "string",
+            "labelWidth": 22,
+            "width": null,
+            "tooltip": "",
+            "section": "",
+            "unit": "",
+            "showIf": "const v = context.panel.elements.find((e) => e.id === 'verdict'); return !!v && !!v.value && v.value !== 'false_positive';",
+            "disableIf": "",
+            "hidden": false,
+            "value": ""
+          },
+          {
+            "uid": "how_detected",
+            "id": "how_detected",
+            "title": "怎麼看出來的（最值錢，請寫）",
+            "type": "textarea",
+            "labelWidth": 22,
+            "width": null,
+            "tooltip": "看到什麼現象讓你想到是這個原因",
+            "section": "",
+            "unit": "",
+            "showIf": "const v = context.panel.elements.find((e) => e.id === 'verdict'); return !!v && !!v.value && v.value !== 'false_positive';",
+            "disableIf": "",
+            "rows": 3,
+            "value": "",
+            "isEscaping": false
+          },
+          {
+            "uid": "checked",
+            "id": "checked",
+            "title": "查了哪些地方",
+            "type": "checkboxList",
+            "labelWidth": 22,
+            "width": null,
+            "tooltip": "",
+            "section": "",
+            "unit": "",
+            "showIf": "const v = context.panel.elements.find((e) => e.id === 'verdict'); return !!v && !!v.value && v.value !== 'false_positive';",
+            "disableIf": "",
+            "optionsSource": "Custom",
+            "allowCustomValue": false,
+            "options": [
+              {
+                "value": "Oracle AWR / 慢查詢",
+                "label": "Oracle AWR / 慢查詢"
+              },
+              {
+                "value": "DB 連線池",
+                "label": "DB 連線池"
+              },
+              {
+                "value": "主機 CPU / 記憶體 / 磁碟",
+                "label": "主機 CPU / 記憶體 / 磁碟"
+              },
+              {
+                "value": "網路 / DNS",
+                "label": "網路 / DNS"
+              },
+              {
+                "value": "Kibana log",
+                "label": "Kibana log"
+              },
+              {
+                "value": "trace 瀑布圖",
+                "label": "trace 瀑布圖"
+              },
+              {
+                "value": "Kafka lag",
+                "label": "Kafka lag"
+              },
+              {
+                "value": "近期的版本更新 / 設定變更",
+                "label": "近期的版本更新 / 設定變更"
+              },
+              {
+                "value": "上游 / 下游服務",
+                "label": "上游 / 下游服務"
+              },
+              {
+                "value": "外部系統狀態",
+                "label": "外部系統狀態"
+              }
+            ],
+            "value": []
+          },
+          {
+            "uid": "improve",
+            "id": "improve",
+            "title": "下次怎麼更快",
+            "type": "string",
+            "labelWidth": 22,
+            "width": null,
+            "tooltip": "",
+            "section": "",
+            "unit": "",
+            "showIf": "const v = context.panel.elements.find((e) => e.id === 'verdict'); return !!v && !!v.value && v.value !== 'false_positive';",
+            "disableIf": "",
+            "hidden": false,
+            "value": ""
+          },
+          {
+            "uid": "fp_reason",
+            "id": "fp_reason",
+            "title": "為什麼不是問題",
+            "type": "select",
+            "labelWidth": 22,
+            "width": null,
+            "tooltip": "",
+            "section": "",
+            "unit": "",
+            "showIf": "const v = context.panel.elements.find((e) => e.id === 'verdict'); return !!v && v.value === 'false_positive';",
+            "disableIf": "",
+            "optionsSource": "Custom",
+            "allowCustomValue": false,
+            "options": [
+              {
+                "value": "batch",
+                "label": "月底 / 定時批次本來就這樣"
+              },
+              {
+                "value": "loadtest",
+                "label": "壓測、演練"
+              },
+              {
+                "value": "known_slow",
+                "label": "這支 API 本來就慢"
+              },
+              {
+                "value": "low_volume",
+                "label": "量太少，幾筆就跳"
+              },
+              {
+                "value": "deploy",
+                "label": "換版期間"
+              },
+              {
+                "value": "other",
+                "label": "其他"
+              }
+            ],
+            "value": ""
+          },
+          {
+            "uid": "fp_reason_text",
+            "id": "fp_reason_text",
+            "title": "補充",
+            "type": "string",
+            "labelWidth": 22,
+            "width": null,
+            "tooltip": "",
+            "section": "",
+            "unit": "",
+            "showIf": "const v = context.panel.elements.find((e) => e.id === 'verdict'); return !!v && v.value === 'false_positive';",
+            "disableIf": "",
+            "hidden": false,
+            "value": ""
+          },
+          {
+            "uid": "by",
+            "id": "by",
+            "title": "你是（名字或工號）",
+            "type": "string",
+            "labelWidth": 22,
+            "width": null,
+            "tooltip": "",
+            "section": "",
+            "unit": "",
+            "showIf": "",
+            "disableIf": "",
+            "hidden": false,
+            "value": ""
+          },
+          {
+            "uid": "note",
+            "id": "note",
+            "title": "備註",
+            "type": "string",
+            "labelWidth": 22,
+            "width": null,
+            "tooltip": "",
+            "section": "",
+            "unit": "",
+            "showIf": "",
+            "disableIf": "",
+            "hidden": false,
+            "value": ""
+          }
+        ]
+      },
+      "datasource": {
+        "type": "datasource",
+        "uid": "grafana"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "datasource",
+            "uid": "grafana"
+          },
+          "queryType": "randomWalk"
+        }
+      ]
+    }
+  ],
+  "description": "AIOps 回饋表單（Business Forms 外掛 6.3.1）。回饋服務的網址寫在面板的 initial.url、update.url（http://localhost:18080），部署時改成使用者瀏覽器連得到的網址"
+}

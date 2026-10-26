@@ -1,0 +1,10 @@
+# 儀表板 provisioning：dashboards/ 底下的 json 載進 AIOps 資料夾（回饋表單 aiops-feedback.json，要先裝 Business Forms 外掛）
+apiVersion: 1
+providers:
+  - name: aiops
+    orgId: 1
+    folder: AIOps
+    type: file
+    allowUiUpdates: false
+    options:
+      path: /etc/grafana/provisioning/dashboards/aiops

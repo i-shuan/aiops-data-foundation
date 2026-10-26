@@ -42,6 +42,8 @@ groups:
         annotations:
           summary: "{{ $labels.summary }}"
           report: "{{ $labels.report_url }}"
+          # 回饋：Grafana 裡的回饋表單（dashboards/aiops-feedback.json，要先裝 Business Forms 外掛）；網址換成你們的 Grafana
+          feedback: "https://grafana.example.internal/d/aiops-feedback?var-alert={{ $labels.alert_id }}"
       # AIOps 停了：investigator alert 每次跑都寫一筆心跳（_id heartbeat，status ok）。10 分鐘內 aiops-alerts 沒有任何寫入 → 送平台
       # （labels 沒有 dept，policies.yaml 的預設 receiver 就是 platform）。沒有這條，alert 停了所有件都查不到，Grafana 會當成全部恢復。
       - uid: aiops-heartbeat
