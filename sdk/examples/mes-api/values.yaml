@@ -46,6 +46,10 @@ otel:
   # trace 取樣比例（0～1）。保持預設 1.0 全部送：平台在請求結束後才決定留不留（錯的、慢的全留，正常的留 5%）
   # traces:
   #   sampleRatio: 1.0
+  # log 預設從 stdout 收（要照 sdk/standards/java/logback-spring.xml 印 JSON，trace_id 才會在 log 上）。
+  # 舊專案 log 格式改不了、又要 log 對得到 trace：改成 otlp，agent 直接把 log（帶 trace_id）送給平台
+  # logs:
+  #   exporter: otlp
 
 # log 格式。照 Java 標準（logback JSON）輸出就不用填；其他格式填名稱，例如 logfmt、secs。
 # 沒有對應解析規則的格式，log 仍會完整收進去，只是不拆欄位。

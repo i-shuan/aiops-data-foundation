@@ -177,6 +177,14 @@ processors:
       - delete_key(datapoint.attributes, "group")
       - delete_matching_keys(datapoint.attributes, "^data_stream\\.")
 
+  # 應用用 OTLP 推來的 log：跟 trace 一樣擋冒充
+  transform/logs-otlp-pre:
+    error_mode: ignore
+    log_statements:
+      - delete_matching_keys(resource.attributes, "^(k8s\\.|container\\.|data_stream\\.)")
+      - delete_key(resource.attributes, "dept")
+      - delete_key(resource.attributes, "group")
+
   # ntp 的資料只帶 ntp.host，不知道是哪台節點量的：補上節點名稱
   resource/node:
     attributes:
@@ -226,6 +234,13 @@ service:
     logs/in:
       receivers: [file_log]
       processors: [memory_limiter, k8s_attributes, transform/group, batch]
+      exporters: [otlp_http/es]
+    # 應用用 OTLP 直接送來的 log（app-common chart 的 otel.logs.exporter: otlp）：agent 送的 log record 本身就帶 trace_id、span_id，
+    # 不靠 log 的輸出格式有沒有印 MDC。應用的 log pattern 是自己的純文字、沒印 trace_id 時走這條就綁得起來
+    # （docs/pdca/2026-10-ingest-keys-check.md）。跟 trace 一樣擋冒充：拿掉自帶的 K8s、部門欄位，依連線來源補
+    logs/otlp:
+      receivers: [otlp]
+      processors: [memory_limiter, transform/logs-otlp-pre, k8s_attributes, transform/group, batch]
       exporters: [otlp_http/es]
     traces/in:
       receivers: [otlp]

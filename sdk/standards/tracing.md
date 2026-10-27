@@ -18,7 +18,7 @@ otel:
   #   sampleRatio: 1.0
 ```
 
-打開之後，下面這些**自動**記錄，也會自動把 `trace_id` 傳給下游服務、寫進 log（搭配 [logback-spring.xml](java/logback-spring.xml)）：
+打開之後，下面這些**自動**記錄，也會自動把 `trace_id` 傳給下游服務、寫進 log（搭配 [logback-spring.xml](java/logback-spring.xml)）。log 格式改不了（舊專案自己的純文字 pattern）時，values 設 `otel.logs.exporter: otlp`，agent 會把 log 連同 `trace_id` 直接送給平台，不用改 log 設定：
 
 | 類型 | 例子 |
 |---|---|

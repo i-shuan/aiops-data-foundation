@@ -119,7 +119,18 @@ trace-sampler × 2（StatefulSet，尾端取樣）
 
 ## 跟 log、metrics 串起來
 
-- **log ↔ trace：** Java agent 會把 `trace_id` 寫進 log（logback 的 MDC），中央 pipeline 存成 log 的 `trace.id`；trace 的欄位是 `trace_id`。實測兩邊對得到（見「驗證」）。AIOps 看到一筆錯誤 log，可以直接查那個請求的完整 trace。
+- **log ↔ trace：** 自動埋點（Java agent、.NET 自動埋點）會把 `trace_id`、`span_id` 放進每一行 log 的 context（Java 的 MDC、.NET 的 scope）；中央 pipeline 存成 log 的 `trace.id`、`span.id`，alias `trace_id`、`span_id` 跟 trace 同名。實測兩邊對得到（見「驗證」）。AIOps 看到一筆錯誤 log，可以直接查那個請求的完整 trace。**綁得起來的條件是 log 的輸出格式有把 context 印出來**，不同情況如下（[pdca/2026-10-ingest-keys-check.md](../pdca/2026-10-ingest-keys-check.md) 逐一驗過）：
+
+  | 應用的 log 怎麼輸出 | trace_id 在哪 | 綁得起來？ | 要做什麼 |
+  |---|---|---|---|
+  | Java，照 SDK 的 [logback-spring.xml](../../sdk/standards/java/logback-spring.xml)（LogstashEncoder） | JSON 的 `trace_id`、`span_id`（MDC 自動帶出） | ✅ | 不用 |
+  | Java，自己的 JSON encoder | `traceId`／`trace.id` 等常見寫法 | ✅ | 不用，pipeline 認得幾種寫法 |
+  | .NET，內建 JSON console（chart 預設用環境變數打開 `IncludeScopes`） | `Scopes` 裡的 `TraceId` | ✅ | 不用 |
+  | .NET，Serilog compact JSON | `@tr`、`@sp` | ✅ | 不用 |
+  | **純文字 pattern，沒印 MDC**（舊專案常見） | stdout 上根本沒有 | ❌ | 二選一：(a) 改 log 設定印 MDC（Java 加 `%X{trace_id}`，但 pipeline 要有那種格式的解析規則）；(b) **chart 設 `otel.logs.exporter: otlp`**：agent 把 log record（本身帶 trace_id）直接送給 Collector，不經 stdout，什麼格式都綁得起來 |
+  | 純文字 pattern 有印 MDC，但 pipeline 沒有那種格式的解析規則 | 在原文裡，拆不出來 | ❌ | 同上 (b)，或補一條格式規則 |
+
+  (b) 的代價：stdout 照印，平台會收到兩份（檔案那份沒 trace_id），所以只在需要時開；node Collector 的 `logs/otlp` pipeline 收這條。
 - **trace ↔ metrics：** 都有 `resource.attributes.service.name`、`k8s.namespace.name`、`k8s.pod.name`。
 
 ## 欄位

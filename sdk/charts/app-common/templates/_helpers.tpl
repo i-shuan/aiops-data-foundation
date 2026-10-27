@@ -29,6 +29,15 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- (.Values.ports | default dict).metrics | default 9464 -}}
 {{- end -}}
 
+{{/* log 用哪條路送：none（stdout，預設）或 otlp（agent 直接送 Collector，每筆帶 trace_id） */}}
+{{- define "app-common.logsExporter" -}}
+{{- $otel := .Values.otel | default dict -}}
+{{- $logs := $otel.logs | default dict -}}
+{{- $v := $logs.exporter | default "none" -}}
+{{- if not (has $v (list "none" "otlp")) -}}{{- fail "otel.logs.exporter 只能是 none 或 otlp" -}}{{- end -}}
+{{- $v -}}
+{{- end -}}
+
 {{- define "app-common.traceSampleRatio" -}}
 {{- $otel := .Values.otel | default dict -}}
 {{- $traces := $otel.traces | default dict -}}
