@@ -200,7 +200,7 @@ ES_URL=http://<ip>:9200 e2e/local-k3s/run-metrics-e2e.sh
 | ES 整台停 10 分鐘，**中途重啟兩個 Collector** | 節點上的佇列堆到 4.8M。重啟前在佇列裡的、重啟後收到的，三個 group **全部補進 ES**（各 20 筆）；沒有重複；failure store 0 筆；Collector 丟資料的紀錄 0 筆 |
 | IMC 的 key 作廢 3 分鐘（每個 group 一把 key 時的結果；現在一把共用，作廢就是全部停住，腳本已改成驗這個、還沒在 k3s 重跑） | IT 照常寫入（6 筆），只有 IMC 停住；換新 key、重啟 Collector 後 IMC 恢復。**失效那 3 分鐘的 IMC metrics 遺失（0 筆），補不回來**，見下方「坑」 |
 
-每個 group 的佇列上限是 10,000 批（`queue_size`）。超過時新的資料會被丟掉，所以中央 ES 的停機時間要控制在佇列撐得住的範圍；量大的 cluster 要先估算或調大。
+佇列上限 2,000 萬筆（`common.yaml` 的 `queue_size`，所有 group 共用，log、metrics 各一份）。超過時新的資料會被丟掉，所以中央 ES 的停機時間要控制在佇列撐得住的範圍；量大的 cluster 要先估算或調大。ES 停 10、30 分鐘的 k3s 實測（log、metrics、trace 都掉 0）見 [durability](../pdca/phase1-collect/2026-10-durability.md)。
 
 ## 坑
 
@@ -209,6 +209,6 @@ ES_URL=http://<ip>:9200 e2e/local-k3s/run-metrics-e2e.sh
 ## 還沒做
 
 1. **保留天數**：已套用（[retention.md](../retention.md)），各 group 要不要不同還要確認。
-2. **量大時夠不夠力**：只用測試的量驗過（單節點、十幾個 Pod）。佇列 10,000 批在量大時能撐多久停機也還沒量。
+2. **量大時夠不夠力**：只用測試的量驗過（單節點、十幾個 Pod）。佇列在量大時能撐多久停機也還沒量（測試的量：每秒 200 行 log，30 分鐘佔 285MB）。
 3. **節點本身的系統指標**（磁碟、檔案系統、load）：現在只有 kubelet 給的節點 CPU、記憶體、網路，沒有收 hostmetrics。
 4. **K8s events**：跟 log 那邊一樣還沒做。

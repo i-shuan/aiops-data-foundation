@@ -7,11 +7,14 @@
 | 症狀 | 原因 | 做法 |
 |---|---|---|
 | key 作廢或打錯期間，資料整批不見、補不回來 | OTLP 出口只對連不上、逾時、429、502、503、504 重試；401 當永久錯誤直接丟，沒有設定可改 | 換 key 一律用 `telemetry/scripts/rotate-writer-key.sh`（先發新的、換進 Secret、Collector 換用後才作廢舊的；Collector 從檔案讀 key，不用重啟）。監控 Collector `:8888/metrics` 的 `otelcol_exporter_send_failed_metric_points`、`otelcol_exporter_send_failed_log_records`，大於 0 就是有資料被丟 |
+| ES 限流（429）時資料晚到好幾分鐘 | ES 對整個請求回 429，Collector 退避重試（最多 30 秒一次） | 不會掉（實測每秒 3,000 行、ES 拒絕 902 次，掉 0）；只是晚到 |
 | Collector log 出現 `Partial success ... dropped` | ES 拒收其中幾筆（例如欄位型別衝突，400），那幾筆丟掉 | 監控這行。`CONFLICT`（409）是重送的被 `_id` 擋掉，屬於正常去重複，不算遺失 |
 | 連線逾時時資料不見 | `elasticsearch` 寫入元件逾時直接丟 | 用 OTLP 出口，不要換回 `elasticsearch` 寫入元件（[metrics/README.md](metrics/README.md#為什麼用-otlp-送不用-elasticsearch-寫入元件)） |
 | 兩個 cluster 的資料混在一起 | `CLUSTER_NAME` 沒改（它是每筆的 `k8s.cluster.name`，metrics 的資料流名稱裡沒有它） | 每個 cluster 部署時一定要改 |
 | 改了部門，資料還進舊的 group | dept 清單有兩處：`telemetry/groups.yaml` 和 `common.yaml` 的 `transform/group` | 兩處一起改。改 namespace 的 `dept` label 後 2～17 秒生效，log、metrics 同時切 |
 | 平台元件（kube-system 等）的資料在 unassigned | 這些 namespace 沒有 `dept` | 正常，跟 metrics 的兜底 tenant 同義 |
+| Collector 被 OOM 或 kill -9 之後，少了最後約 1 秒的 log、trace | `batch` processor 在磁碟佇列前面、在記憶體裡；交給它時讀檔位置已經往前 | 不用 `batch` processor，在出口佇列裡湊批（`common.yaml` 的 `sending_queue.batch`，已改）。實測修正後 kill -9 掉 0～40 行（最多 0.2 秒） |
+| node Collector 停的期間 trace 變少，Collector 沒有錯誤 | 應用的 SDK 連不上就重試 5 次（約 8 秒）後自己丟，Collector 收不到 | 換版、維護排離峰；node Collector 停 30 秒、每秒 20 個 trace 時應用端丟約 530 個 |
 | 正式環境 kubelet 連線不驗憑證 | `kubeletstats` 設了 `insecure_skip_verify: true` | kubelet 憑證由內部 CA 簽的話改成驗證 |
 
 ## log
@@ -21,9 +24,10 @@
 | ES 拒收時 log 量暴增 | Collector 收到自己印的錯誤再送一次，形成放大迴圈 | `node.yaml` 的 `file_log` 排除 `otel-collector` namespace，不要拿掉 |
 | log 停在 `logs-generic.otel-*`，沒進 `k8s-*` | 改了 `k8s-logs-otel`、`logs-otel@custom` 之後，舊的 backing index 還在用 | `elasticsearch-setup.sh` 會自動檢查並 rollover；手動改的話要 rollover `logs-*.otel-*` |
 | 目的地的 default pipeline 沒跑 | 改了 `_index` 後 ES 不會自動跑目的地的 default pipeline | `k8s-logs-otel` 最後自己呼叫 `k8s-logs`，不要拿掉 |
-| ES 停很久之後 log 有缺 | 佇列在節點上（`/var/lib/otelcol/node`），每個 group 上限 10,000 批、每批最多 2,000 行 | 量大或可能停很久時先估算 |
-| Pod 重建後 log 重複或中間缺 | 讀檔位置也記在 `/var/lib/otelcol/node`；目錄被刪就從檔案尾巴讀 | 這個目錄要用 hostPath，不要刪 |
+| ES 停很久之後 log 有缺 | 佇列在節點上（`/var/lib/otelcol/node`），log、metrics 各上限 2,000 萬筆（`common.yaml` 的 `queue_size`）；實測佇列檔約 0.8～2.5KB/行 | 量大或可能停很久時先估算磁碟與上限；盯 `:8888` 的 `otelcol_exporter_queue_size` ÷ `otelcol_exporter_queue_capacity` |
+| Pod 重建後 log 重複或中間缺 | 讀檔位置也記在 `/var/lib/otelcol/node`；目錄被刪就從檔案尾巴讀，停機那段全掉（實測停 30 秒掉 6,432 行；保留目錄掉 0） | 這個目錄要用 hostPath，不要刪 |
 | 第一次部署時舊的 log 沒收 | `start_at: end`，已經存在的檔從尾巴讀 | 預期行為，不補收 |
+| node Collector 連續 OOM 之後少了一大段 log | 一直重啟（CrashLoopBackOff）停太久，log 檔被 kubelet 輪替，`file_log` 只讀 `*.log`，舊檔沒讀完的就沒了（推論；實測 3 分鐘掉 33,192 行） | memory limit 不要低於平常用量的 2 倍（`memory_limiter` 在 150Mi 時擋得住，80Mi 擋不住） |
 | 量大的服務掉 log | kubelet 預設 10MB 就輪替壓縮，Collector 沒讀完的那段會掉 | 平台端把 kubelet 的 `container-log-max-size` 調大（例如 50Mi）。Collector `poll_interval` 0.2 秒，每秒 5,000 行不會掉 |
 | Java stack trace 變成很多筆 | 純文字 log 一行一筆 | 標準格式是 JSON（stack trace 在一個欄位）；沒照標準的服務 AIOps 效果較差 |
 | 節點用 Docker 當 runtime 的 cluster 收不到 log | log 檔在 `/var/lib/docker/containers` | 另外掛這個目錄。RKE2、k3s 是 containerd，不需要 |
@@ -43,6 +47,9 @@
 |---|---|---|
 | trace 進 unassigned | 應用連到別的節點的 Collector，那裡認不得這個 Pod | Service 一定要 `internalTrafficPolicy: Local` |
 | 用 hostNetwork 的應用 trace 進 unassigned | 連線來源是節點 IP，對不到 Pod | 應用不能用 hostNetwork |
+| trace 幾乎都沒進 ES；node Collector log 一直 `couldn't find the exporter for the endpoint` | `loadbalancing/traces` 的磁碟佇列設在子 exporter：每台 trace-sampler 的子 exporter 共用同一個佇列檔，只有一個鎖得到，其他的啟動逾時（`failed to start new exporter ... timeout`），那台的 trace 從此全被拒 | 佇列設在外層、子 exporter 的 `sending_queue`、`retry_on_failure` 關掉（`node.yaml` 已改）。只有一台 trace-sampler 時不會出現 |
+| trace-sampler 當掉（OOM、kill -9）後少了一段 trace | 等著決定的 trace 在記憶體 | 掉「每秒 trace 數 ÷ 台數 ×（decision_wait＋1 秒）」，正式值約 31 秒；正常停（rollout）不掉。盯 trace-sampler 記憶體 |
+| ES 停機時 trace 不見，trace-sampler 沒重啟，log 有 `no space left on device`、`Rejecting data` | trace-sampler 的 PVC 滿了，佇列寫不進去就丟 | 約 0.3KB/段，1Gi 約 330 萬段；依「保留下來的段數/秒 × ES 最長停機時間」估 PVC。PVC 的檔只長不縮，`du` 看到的是歷來最大 |
 | ES 空間不夠 | trace 量通常比 log 大；尾端取樣後約剩 15% | 全廠上線前估算；不要在應用調低 `otel.traces.sampleRatio` |
 
 ## .NET
@@ -94,6 +101,7 @@
 | `python` 沒有任何輸出 | 那是 Windows Store 的殼 | 用 `py`，或 `engine/.venv/Scripts/python` |
 | `GrafanaPluginInit` 3 個測試失敗：`NoneType is not a container` | 子程序輸出用 cp950 解碼失敗 | `PYTHONUTF8=1` |
 | 加了 `PYTHONUTF8=1` 中文還是亂碼 | `python -I` 會忽略所有 `PYTHON*` 環境變數 | 用 `-X utf8` |
+| `wsl -d rancher-desktop -- sh -c '...'` 報 `syntax error: unexpected word` | wsl 把參數再交給 shell 解析一次，引號、`$( )` 會壞掉 | 指令從 stdin 給 `wsl -d rancher-desktop -- sh -s`（`run-durability.sh` 的 `on_node`） |
 | busybox Pod 跑不了 `rca-lib.sh` | Windows checkout 成 CRLF | 建 ConfigMap 前 `tr -d '\r'`（`run-rca-demo.sh` 已做） |
 | 容器裡的路徑變成 `C:/Program Files/Git/...` | Git Bash 改寫 `/` 開頭的參數 | 那一行加 `MSYS_NO_PATHCONV=1`；它也會讓 `KUBECONFIG=/c/...` 不轉換，kubectl 讀不到，所以只加在需要的指令 |
 | `localhost:<port>` 連不上，`127.0.0.1` 卻可以 | 停掉的 nerdctl 容器還佔著那個 port 的 `::1` | 用 `127.0.0.1`，或換 port、刪掉舊容器 |
