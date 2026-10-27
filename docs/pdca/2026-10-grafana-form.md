@@ -51,6 +51,7 @@
   | B. initContainer 先放好 | initContainer 把 zip 解到共用 volume，Grafana 掛同一個 volume 當外掛資料夾；zip 放公司 Nexus | 不用 | **正式環境（建議）** |
   | C. k3d 掛本機資料夾 | `k3d cluster create -v <本機路徑>:/plugins@all`，Grafana 用 hostPath 掛 `/plugins` | 不用 | 本機測試 |
   這次只驗過「docker 直接起 Grafana、掛資料夾」，跟 C 同一個原理；A、B 要在 k3d 上跑一次才算數。
+  **2026-10-26 選 B**，腳本與 manifest 做好、用 docker 模擬驗過（[grafana-plugin-init](2026-10-grafana-plugin-init.md)）；K8s 本身還沒跑。
 - **回饋服務的網址寫死在儀表板裡**（`http://localhost:18080`，兩處）：部署時要改成使用者瀏覽器連得到的網址（Ingress），還要開 `FEEDBACK_CORS_ORIGIN`。通知裡 Grafana 的網址也是範例。
 - **身分還是自己填名字**：Grafana 知道是誰登入，但這次沒有把 Grafana 的使用者帶進表單（外掛的程式碼裡拿得到 `context.grafana.user`，下一輪可以預填 `by`、設成唯讀）。
 - **服務掛掉時的訊息是外掛的英文**（Failed to fetch），送出失敗的中文提示有寫，但預填就失敗時看不到。
