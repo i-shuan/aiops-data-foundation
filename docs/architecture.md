@@ -159,9 +159,9 @@ flowchart LR
 |---|---|---|
 | 同一種收集器 | 都是 OpenTelemetry Collector：每個節點一台（node），K8s 物件狀態一台（cluster），trace 多兩台 trace-sampler | `telemetry/collectors/` |
 | 同一份分部門規則 | 擋冒充、讀 namespace 的 `dept`、對應成 group；同一個 Pod 的三種資料一定落在同一個 group | `common.yaml` 的 `transform/group` |
-| 同一把寫入 key | 一把，所有 group、三種資料共用；資料屬於哪個 group 由 Collector 依 Pod 決定，不靠 key 擋（沒有部門間寫入隔離的要求；少了「key 權限漏了 → ES 回 200 默默拒收」的機會）（[pdca/2026-10-ingest-simplify.md](pdca/2026-10-ingest-simplify.md)） | `es-writer-keys`、`telemetry/scripts/elasticsearch-setup.sh` |
+| 同一把寫入 key | 一把，所有 group、三種資料共用；資料屬於哪個 group 由 Collector 依 Pod 決定，不靠 key 擋（沒有部門間寫入隔離的要求；少了「key 權限漏了 → ES 回 200 默默拒收」的機會）（[pdca/phase1-collect/2026-10-ingest-simplify.md](pdca/phase1-collect/2026-10-ingest-simplify.md)） | `es-writer-keys`、`telemetry/scripts/elasticsearch-setup.sh` |
 | 同一套身分欄位 | `service.name`、namespace、Pod、`dept`、`group`，由 Collector 補，三種資料對得上；其中 `dept`、`group` 是**歸屬**（誰的資料），其餘是**共同鑰匙**（接起三種資料），兩者用途不同，見 [rca/README.md](rca/README.md#歸屬-label-和共同鑰匙是兩種東西)。異常總表也帶 `dept`、`group` | Collector、`engine/detector/owner.py` |
-| 串接鑰匙 | trace 的 `trace_id` ↔ log 的 `trace.id`；metrics 沒有 trace_id（ES 不存 exemplar，見 [pdca/2026-10-metrics-to-trace.md](pdca/2026-10-metrics-to-trace.md)），改用服務＋時間 | — |
+| 串接鑰匙 | trace 的 `trace_id` ↔ log 的 `trace.id`；metrics 沒有 trace_id（ES 不存 exemplar，見 [rca/README.md「為什麼不用 exemplar」](rca/README.md#為什麼不用-exemplar用服務路由時間撈一批)），改用服務＋時間 | — |
 | 同一把 AIOps 唯讀 key | 讀三種資料；只寫 `aiops-*` | `elasticsearch-setup.sh` |
 
 **代價**：`dept` 清單目前要手動同步兩處（`telemetry/groups.yaml`、`common.yaml`）；歸屬方式（讀 namespace label 或改成 app → group 清單）一改，三條線要一起改（[README「還沒定案的」](../README.md#還沒定案的)）。

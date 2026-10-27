@@ -1,4 +1,4 @@
-# 每一件 status: open 的事件一則告警（docs/pdca/2026-10-alert-exit.md）
+# 每一件 status: open 的事件一則告警（docs/pdca/phase3-locate/2026-10-alert-exit.md）
 apiVersion: 1
 groups:
   - orgId: 1
@@ -26,6 +26,7 @@ groups:
                 - {id: "4", type: terms, field: dept, settings: {size: "1", min_doc_count: "1", order: desc, orderBy: _count, missing: "none"}}
                 - {id: "5", type: terms, field: group, settings: {size: "1", min_doc_count: "1", order: desc, orderBy: _count, missing: "unassigned"}}
                 - {id: "6", type: terms, field: severity, settings: {size: "1", min_doc_count: "1", order: desc, orderBy: _count, missing: "warning"}}
+                # summary 是 label：內容一變就是另一則（舊的 resolved、新的 firing），所以 investigator/alerts.py 的 summary 不放持續時間、筆數
                 - {id: "7", type: terms, field: summary, settings: {size: "1", min_doc_count: "1", order: desc, orderBy: _count, missing: ""}}
                 - {id: "8", type: terms, field: report_url, settings: {size: "1", min_doc_count: "1", order: desc, orderBy: _count, missing: ""}}
                 - {id: "9", type: date_histogram, field: "@timestamp", settings: {interval: 1m, min_doc_count: "0"}}

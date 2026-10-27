@@ -1,5 +1,5 @@
 #!/bin/sh
-# Grafana 的 initContainer：Grafana 啟動前把外掛裝進外掛資料夾（docs/pdca/2026-10-grafana-plugin-init.md）。
+# Grafana 的 initContainer：Grafana 啟動前把外掛裝進外掛資料夾（docs/pdca/phase5-learning-loop/2026-10-grafana-plugin-init.md）。
 # 用 Grafana 同一個 image 跑（裡面有 curl、unzip、sha256sum），不用另外拉 image。
 #
 # 環境變數：

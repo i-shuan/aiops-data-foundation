@@ -1,6 +1,7 @@
-"""事件整合的兩個防護（docs/pdca/2026-10-fix-critical.md 1、3）：LLM 失敗不擋這一輪；已確認的事故不會被先讀再寫蓋掉。"""
+"""事件整合的兩個防護（docs/pdca/phase5-learning-loop/2026-10-fix-critical.md 1、3）：LLM 失敗不擋這一輪；已確認的事故不會被先讀再寫蓋掉。"""
 import json
 import unittest
+from datetime import datetime, timedelta, timezone
 from unittest import mock
 
 from investigator import cmd_alert as C
@@ -78,3 +79,16 @@ class IncidentsAreNotOverwritten(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class StampIsInThePast(unittest.TestCase):
+    """docs/pdca/phase3-locate/2026-10-alert-flap.md：覆蓋寫入剛好落在 Grafana 排定評估與送出查詢之間時，
+    @timestamp 不能晚於查詢範圍的結束點，不然開著的件會被當成恢復。"""
+
+    def test_open_and_heartbeat_are_written_one_minute_back(self):
+        now = datetime(2026, 10, 27, 13, 55, 21, tzinfo=timezone.utc)
+        self.assertEqual(C.stamp_of(now), datetime(2026, 10, 27, 13, 54, 21, tzinfo=timezone.utc))
+        # Grafana 在 13:55:20 排定、13:55:25 才送查詢：寫入的 @timestamp 要 ≤ 13:55:20、而且還在 5 分鐘窗裡
+        eval_at = datetime(2026, 10, 27, 13, 55, 20, tzinfo=timezone.utc)
+        self.assertLessEqual(C.stamp_of(now), eval_at)
+        self.assertGreater(C.stamp_of(now), eval_at - timedelta(minutes=5))

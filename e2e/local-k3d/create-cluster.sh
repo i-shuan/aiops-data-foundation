@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 本機 k3d cluster（docs/pdca/2026-10-k3d-e2e.md）：單節點、沒有 loadbalancer、traefik、servicelb。
+# 本機 k3d cluster（docs/pdca/phase1-collect/2026-10-k3d-e2e.md）：單節點、沒有 loadbalancer、traefik、servicelb。
 # 這個環境（Firecracker VM、沒有 CAP_SYS_RESOURCE、有 TLS 檢查的 proxy）要兩個特別處理：
 #   1. containerd 設 restrict_oom_score_adj：不然 kubelet 把 Pod 的 oom_score_adj 調成 -998 會被拒（runc: failed to update
 #      /proc/self/oom_score_adj: Permission denied），所有 Pod 都起不來

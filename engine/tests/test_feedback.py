@@ -134,7 +134,7 @@ if __name__ == "__main__":
 
 
 class SuggestFromIncidents(unittest.TestCase):
-    """回饋回到系統（docs/pdca/2026-10-loop-update.md）：漏報 → 降 z；同根因 3 次 → 升級成規則。"""
+    """回饋回到系統（docs/pdca/phase5-learning-loop/2026-10-loop-update.md）：漏報 → 降 z；同根因 3 次 → 升級成規則。"""
 
     def test_missed_lowers_z(self):
         s = F.suggest_missed("log.errors", F.target_of({"service": "pay"}), current_z=5.0)

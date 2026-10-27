@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # log ↔ trace 綁定的案例測試：各種 log 輸出格式丟給 k8s-logs pipeline 的 _simulate，看 trace.id、span.id 拿不拿得到
-#（docs/pdca/2026-10-ingest-keys-check.md）。不需要 K8s，只要連得到裝好 pipeline 的 ES。
+#（docs/pdca/phase1-collect/2026-10-ingest-keys-check.md）。不需要 K8s，只要連得到裝好 pipeline 的 ES。
 # 用法：ES_URL=http://<ip>:9200 ES_AUTH=elastic:<password> e2e/pipeline/run-trace-cases.sh
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"

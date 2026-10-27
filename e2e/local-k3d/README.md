@@ -1,6 +1,6 @@
 # 本機 k3d（K8s 實測）
 
-給沒有現成 K8s 的環境用：單節點 k3d，把 `telemetry/collectors`、`sdk/charts/app-common`、Grafana 的 initContainer 放上去跑一次。驗證紀錄：[docs/pdca/2026-10-k3d-e2e.md](../../docs/pdca/2026-10-k3d-e2e.md)。
+給沒有現成 K8s 的環境用：單節點 k3d，把 `telemetry/collectors`、`sdk/charts/app-common`、Grafana 的 initContainer 放上去跑一次。驗證紀錄：[docs/pdca/phase1-collect/2026-10-k3d-e2e.md](../../docs/pdca/phase1-collect/2026-10-k3d-e2e.md)。
 
 | 腳本 | 做什麼 |
 |---|---|

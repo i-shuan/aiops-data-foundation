@@ -1,6 +1,6 @@
 # Grafana：讀 aiops-alerts 發通知
 
-AIOps 把異常合成「一件事」寫進 `aiops-alerts`（`python3 -m investigator alert`，見 [configs/rca](../rca/README.md)）；**通知交給 Grafana**：送到哪、依 dept 分送、夜間、靜音、恢復通知都在 Grafana 設（[pdca/2026-10-alert-exit.md](../../../docs/pdca/2026-10-alert-exit.md)）。
+AIOps 把異常合成「一件事」寫進 `aiops-alerts`（`python3 -m investigator alert`，見 [configs/rca](../rca/README.md)）；**通知交給 Grafana**：送到哪、依 dept 分送、夜間、靜音、恢復通知都在 Grafana 設（[pdca/phase3-locate/2026-10-alert-exit.md](../../../docs/pdca/phase3-locate/2026-10-alert-exit.md)）。
 
 這個資料夾是 Grafana provisioning 的範例，管 Grafana 的人照著改：
 
@@ -17,7 +17,9 @@ AIOps 把異常合成「一件事」寫進 `aiops-alerts`（`python3 -m investig
 - `aiops-alerts` 一件一筆。`status: open` 的那幾筆，`@timestamp` 是 `investigator alert` 最後一次看到它還開著的時間（每次執行都更新）。
 - 告警規則查「最近 5 分鐘 `@timestamp`、`status: open`」，依 `alert_id`（再帶 `service`、`dept`、`group`、`severity`、`summary`、`report_url`）分組：**每一件一個告警**。
 - 件結束（30 分鐘沒新的異常）→ `status: resolved` → 查不到 → Grafana 發恢復通知。
-- `investigator alert` 停了：所有件都查不到，Grafana 會當成全部恢復。所以它每次跑都寫一筆心跳（`_id: heartbeat`、`status: ok`），第二條規則 `aiops-heartbeat` 查 10 分鐘內有沒有心跳，沒有就送平台（`noDataState: Alerting`）。這條規則寫好了、yaml 能讀，**還沒在 Grafana 上實測**（上一輪實測只有第一條）。
+- `investigator alert` 停了：所有件都查不到，Grafana 會當成全部恢復。所以它每次跑都寫一筆心跳（`_id: heartbeat`、`status: ok`），第二條規則 `aiops-heartbeat` 查 10 分鐘內有沒有心跳，沒有就送平台（`noDataState: Alerting`）。**ES 連不上時**發的是 Grafana 自己的 `DatasourceError`（`execErrState: Error`），不是這條的標題，而且兩條規則各發一則。
+- 開著的件、心跳的 `@timestamp` 是「最後一次看到」往前 1 分鐘：一件只有一筆、每輪覆蓋，往前寫才不會落在 Grafana 排定評估與送出查詢之間、被當成恢復（[troubleshooting](../../../docs/troubleshooting.md#grafana-告警)）。
+- `summary` 是 Grafana 的 label：內容一變就是另一則（舊的 resolved、新的 firing）。所以 `investigator alert` 寫的 summary 不放「持續 N 分鐘」、「等 N 項異常」這種每分鐘會變的字（Grafana 自己會顯示從何時開始；筆數看 `title`、`anomaly_count`）。
 - 通知裡的「回饋」連結：`aiops-alerts.feedback_url`（`rca.yaml` 的 `alerts.feedback_url`，指到 [engine/feedback_web](../../feedback_web/__init__.py)）。要帶進通知，在 annotations 再加一個 `feedback: "{{ $labels.feedback_url }}"`，bucketAggs 多一個 terms `feedback_url`（跟 `report_url` 一樣的寫法）。
 
 ## 為什麼 group_by 用 alert_id
@@ -37,4 +39,4 @@ AIOps 把異常合成「一件事」寫進 `aiops-alerts`（`python3 -m investig
 3. **回饋服務開 CORS**：`FEEDBACK_CORS_ORIGIN=<Grafana 的網址>`（[deploy/feedback-web.yaml](../../deploy/feedback-web.yaml)），只對 `/api/*`。
 4. `alert-rules.yaml` 的 `feedback` annotation 換成你們的 Grafana 網址。
 
-**備案**：外掛還沒裝好、或 Grafana 升級後外掛壞了，用回饋服務自己的小網頁（`rca.yaml` 的 `alerts.feedback_url`），寫進 ES 的東西一樣。實測紀錄：[pdca/2026-10-grafana-form.md](../../../docs/pdca/2026-10-grafana-form.md)。
+**備案**：外掛還沒裝好、或 Grafana 升級後外掛壞了，用回饋服務自己的小網頁（`rca.yaml` 的 `alerts.feedback_url`），寫進 ES 的東西一樣。實測紀錄：[pdca/phase5-learning-loop/2026-10-grafana-form.md](../../../docs/pdca/phase5-learning-loop/2026-10-grafana-form.md)。

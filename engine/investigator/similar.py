@@ -1,4 +1,4 @@
-"""相似事故檢索（RAG 的「檢索」，docs/pdca/2026-10-similar-incidents.md）。
+"""相似事故檢索（RAG 的「檢索」，docs/pdca/phase4-rca-llm/2026-10-similar-incidents.md）。
 
 一件新的告警 → 指紋（服務、API、慢在哪一段、錯從哪開始、異常的指標組合、新 log 樣式）→ 去 aiops-incidents 找最像的幾件
 → 附上當時的根因、處置、怎麼看出來的，以及**為什麼像**（哪幾點相同）。

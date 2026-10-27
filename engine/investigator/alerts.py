@@ -1,4 +1,4 @@
-"""⑥ 事件整合（最小版）：同一個服務、時間接在一起的異常合成一件（docs/pdca/2026-10-alert-exit.md）。
+"""⑥ 事件整合（最小版）：同一個服務、時間接在一起的異常合成一件（docs/pdca/phase3-locate/2026-10-alert-exit.md）。
 
 合成一件看「服務」：同一個 dept 的兩個不相關服務出事是兩件。送給誰看 dept，由 Grafana 依 aiops-alerts 的 dept 分送。
 
@@ -169,9 +169,12 @@ def conclusion(report: str) -> list[str]:
 
 
 def summary(al: dict, report: str | None, tz, similar: list[dict] | None = None) -> str:
+    """通知用的摘要。Grafana 把它當 label（alert-rules.yaml 的 terms summary）：內容一變，Grafana 就當成另一則告警
+    （舊的 resolved、新的 firing），所以不放每分鐘都會變的東西——「持續 N 分鐘」、「等 N 項異常」都不放
+    （Grafana 自己會顯示從什麼時候開始；筆數在 title 和 anomaly_count）。只在根因結論、相似事故加進來時才變。"""
     start = _ts(al["started_at"]).astimezone(tz)
-    mins = int((_ts(al["updated_at"]) - _ts(al["started_at"])).total_seconds() // 60)
-    lines = [headline(al), f"從 {start:%m-%d %H:%M} 開始，持續 {mins} 分鐘；異常：{'、'.join(al['series'][:6])}"]
+    first = re.sub(r" 等 \d+ 項異常$", "", headline(al))
+    lines = [first, f"從 {start:%m-%d %H:%M} 開始；異常：{'、'.join(al['series'][:6])}"]
     concl = conclusion(report or "")
     if concl:
         lines.append("根因分析：" + "；".join(re.sub(r"\*\*", "", c) for c in concl[:3]))

@@ -104,41 +104,9 @@ HTTP、連線池兩版同名；**runtime 的名稱 .NET 8 跟 .NET 9 完全不�
 
 容器層的規則（重啟、記憶體快到上限、CPU 限流…）跟語言無關，照用。
 
-## 踩過的坑（實測時發現的事）
+## 坑
 
-### 收資料
-
-**1. 自動埋點的 Prometheus 端點只聽 localhost。** Collector 抓不到，所以 metrics 改成推（見「為什麼選自動埋點＋推」）。
-
-**2. 自動埋點預設沒有 ASP.NET Core 的 HTTP 指標。** 要加 `OTEL_DOTNET_AUTO_METRICS_ADDITIONAL_SOURCES=Microsoft.AspNetCore.Hosting,…`，不加就沒有 `http.server.request.duration`（chart 已經加）。
-
-**3. ASP.NET Core 預設每個請求印 5 行 Information。** log 量會暴增，chart 設 `Logging__LogLevel__Microsoft.AspNetCore=Warning`。
-
-**4. .NET JSON log 的 trace_id 不在最外層，在 `Scopes` 裡。** 要 `IncludeScopes`；中央 pipeline 改成會從 `Scopes` 拿 `TraceId`、`SpanId`（[pipeline-fields.painless](../../telemetry/storage/pipeline-fields.painless)），也認得 Serilog compact JSON。JSON 格式、scope 都能用環境變數打開（`Logging__Console__*`），舊專案不用改程式。
-
-**5. Npgsql 連線池的名稱是連線字串**（密碼會拿掉），告警會顯示 `Host=…;Username=…;Maximum Pool Size=5`。舊專案不改程式就只能這樣；能改的話用 `NpgsqlDataSourceBuilder` 設 `Name`。
-
-### 規則
-
-**6. 執行緒池飢餓時「佇列」不會排，是「執行緒」暴增。** 第一版規則看佇列長度，結果一直是 0：.NET 6 以後偵測到「同步等 Task」（`.Wait()`、`.Result`）會馬上多開執行緒。症狀是執行緒 6 → 40 幾條（1 核）、每條卡 2 秒、延遲變長，所以看「執行緒 ÷ CPU 核數」（`thread_pool_growth`）；佇列那條留給 .NET 偵測不到的阻塞（lock、`Thread.Sleep`）。
-
-**7. 記憶體洩漏到底有兩種結局，容器記憶體的規則對 .NET 不可靠。** 同一支程式、同樣設定，.NET 9 跑四次各出現兩次：
-
-| | 結局一 | 結局二 |
-|---|---|---|
-| 結局 | 工作集到上限，**被容器的 OOM 砍掉、K8s 重開** | GC heap 到上限（容器的 75%）後**程式不結束**：每個請求丟 OutOfMemoryException、回 500，Gen2 GC 不停跑 |
-| 抓到的 | `container.restarted` | `dotnet.out_of_memory`（.NET 9）／`dotnet8.exceptions_burst`（.NET 8）、Gen2 GC；HTTP 錯誤率 baseline 也會報 |
-
-結局二跟 Java 沒加 `-XX:+ExitOnOutOfMemoryError` 一樣：Pod 看起來正常、K8s 不會重開。.NET 沒有對應的開關，只能靠上面的規則通知人。
-.NET 在容器裡 heap 上限是容器記憶體的 75%，heap 滿了之後工作集停在 90% 上下：四次只有一次超過 `container.memory_near_limit` 的 90%。.NET 的洩漏要看 Gen2 GC 的規則。
-
-**8. 例外的種類：.NET 9 是短名稱，.NET 8 根本沒有。** .NET 9 的 `error.type` 寫 `OutOfMemoryException`，不是 `System.OutOfMemoryException`（第一版規則因此沒觸發）。.NET 8 只有例外總數，所以 .NET 8 的規則看「例外暴增」（5 分鐘 ≥ 500 次）。
-
-**9. 已經刪掉的 Pod 不該一直報。** 計數類的規則（Gen2 次數、例外次數）原本對已刪掉的 Pod 照算，刪掉後 10 分鐘內還會報。改成跟其他規則一樣：最新的資料超過 2 分鐘就不報；只有容器重啟、Job 失敗照報（`report_gone`）。
-
-**10. .NET 8 跟 .NET 9 的 runtime 指標名稱完全不同。** .NET 9 內建 `System.Runtime` meter（`dotnet.*`）；.NET 8 以前是 `process.runtime.dotnet.*`，維度也不一樣（`generation` vs `gc.heap.generation`）。所以 .NET 的規則有兩套（`dotnet8.*`、`dotnet.*`）。HTTP、連線池兩版同名。
-
-**11. 測試環境才有的：** NuGet 經過會重簽憑證的 proxy，編譯時要信任它的 CA（[dotnet-app.yaml](../../e2e/local-k3s/dotnet-app.yaml)）；正式環境 image 先建好，不在 Pod 裡編譯。
+集中在 [troubleshooting.md](../troubleshooting.md#net)。
 
 ## Kafka（Confluent.Kafka）
 

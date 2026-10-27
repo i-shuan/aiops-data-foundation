@@ -1,7 +1,7 @@
 """alert：最近的異常 → 合成一件（investigator/alerts.py）→ 新的那件跑一次根因分析 → 寫 aiops-alerts。
 
 Grafana 讀 aiops-alerts 發通知（engine/configs/grafana/）：status open 的每一件一則，依 dept 分送；
-@timestamp 是「這次執行還看到它開著」的時間（心跳），所以 Grafana 只要查最近幾分鐘有 @timestamp 的 open 件。
+@timestamp 是「這次執行還看到它開著」的時間往前 1 分鐘（心跳；為什麼往前見 STAMP_LAG），所以 Grafana 只要查最近幾分鐘有 @timestamp 的 open 件。
 這支要定期跑（建議每 1～2 分鐘，跟 rules、detect 之後）。
 """
 from __future__ import annotations
@@ -21,6 +21,16 @@ from . import similar as SIM
 INCIDENT_INDEX = "aiops-incidents"
 
 ALERT_INDEX = "aiops-alerts"
+# 開著的件、心跳的 @timestamp 往前寫這麼多（docs/pdca/phase3-locate/2026-10-alert-flap.md）。
+# 一件只有一筆、每輪覆蓋；Grafana 的查詢範圍是「排定的評估時間往前 N 分鐘」，查詢卻晚幾秒才送出。
+# 覆蓋剛好落在這幾秒之間時，@timestamp 比範圍的結束點還晚，Grafana 查到 0 筆、當成恢復（實測）。
+# 往前寫 1 分鐘：主機間時鐘差、Grafana 的延遲都遠小於它；規則的窗是 5 分鐘（心跳 10 分鐘），還剩 4 分鐘的餘裕。
+STAMP_LAG = timedelta(minutes=1)
+
+
+def stamp_of(now: datetime) -> datetime:
+    """開著的件、心跳寫進 aiops-alerts 的 @timestamp（Grafana 用它判斷「最近還有沒有」）。"""
+    return now - STAMP_LAG
 
 
 def _dur(s: str) -> timedelta:
@@ -161,7 +171,7 @@ def run(cfg: dict, args, investigate) -> int:
                     "feedback_url": furl.format(alert_id=al["alert_id"]) if furl else None,
                     "anomaly_count": len(al["anomaly_ids"]), "findings": findings, "similar": similar,
                     "llm_summary": (llm or {}).get("text") or al.get("llm_summary"), "llm_provider": (llm or {}).get("provider") or al.get("llm_provider"),
-                    "@timestamp": (al["resolved_at"] if al["status"] == "resolved" else now)})
+                    "@timestamp": (al["resolved_at"] if al["status"] == "resolved" else stamp_of(now))})
         doc = {k: (v.isoformat() if isinstance(v, datetime) else v) for k, v in doc.items()}
         docs.append((al["alert_id"], doc))
         if al["category"] == "service" and (al.get("_new") or al.get("_anoms") or al["status"] == "resolved"):
@@ -178,7 +188,7 @@ def run(cfg: dict, args, investigate) -> int:
             print(f"  ⬆️ {doc['title']}")
     # 心跳：每次跑都寫一筆（不是一件事，status ok；Grafana 查 status:open 不會抓到）。
     # aiops-alerts 10 分鐘沒有任何寫入 → Grafana 的「AIOps 停了」規則送平台（configs/grafana/alert-rules.yaml）
-    docs.append(("heartbeat", {"@timestamp": now.isoformat(), "alert_id": "heartbeat", "category": "heartbeat", "status": "ok",
+    docs.append(("heartbeat", {"@timestamp": stamp_of(now).isoformat(), "alert_id": "heartbeat", "category": "heartbeat", "status": "ok",
                                "service": "aiops", "title": "investigator alert 心跳", "group": "unassigned", "started_at": now.isoformat(),
                                "updated_at": now.isoformat(), "anomaly_ids": [], "series": [], "routes": [], "anomaly_count": 0}))
     es.bulk_index(ALERT_INDEX, docs)

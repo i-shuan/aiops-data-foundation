@@ -1,4 +1,4 @@
-"""metrics：量化（docs/pdca/2026-10-metrics-kpi.md）。一段時間的數字，兩段並排就是「學之前 vs 學之後」。
+"""metrics：量化（docs/pdca/phase5-learning-loop/2026-10-metrics-kpi.md）。一段時間的數字，兩段並排就是「學之前 vs 學之後」。
 
 讀 aiops-alerts（一件一筆）、aiops-feedback（值班的判斷）、aiops-incidents（老師傅確認的事故）：
   每天幾件（依 dept）、有回饋的比例、誤報率、根因錯的比例、漏報、從告警開始到第一筆回饋的中位時間、

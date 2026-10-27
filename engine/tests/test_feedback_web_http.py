@@ -1,4 +1,4 @@
-"""回饋網頁的 HTTP 層（feedback_web.__main__）：ES 掛了要回 503 和說明，不能斷線（docs/pdca/2026-10-fix-feedback-ux.md 7）。"""
+"""回饋網頁的 HTTP 層（feedback_web.__main__）：ES 掛了要回 503 和說明，不能斷線（docs/pdca/phase5-learning-loop/2026-10-fix-feedback-ux.md 7）。"""
 import json
 import threading
 import unittest

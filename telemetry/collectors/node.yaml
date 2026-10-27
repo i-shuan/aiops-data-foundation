@@ -7,7 +7,7 @@
 receivers:
   # 這台節點的時鐘跟 NTP 伺服器差多少（ntp.offset，奈秒）。最短 30 分鐘一次（receiver 的限制，避免打爆 NTP 伺服器；
   # 時鐘偏移是慢慢漂的，30 分鐘夠）。NTP_SERVER 在 kustomization.yaml 的 otel-collector-env，要用公司的 NTP。
-  # 規則在 engine/configs/baseline/rules.yaml 的 node.clock_offset。docs/pdca/2026-10-time-alignment.md
+  # 規則在 engine/configs/baseline/rules.yaml 的 node.clock_offset。docs/pdca/phase1-collect/2026-10-time-alignment.md
   ntp:
     endpoint: ${env:NTP_SERVER}
     collection_interval: 30m
@@ -111,7 +111,7 @@ processors:
 
   # Java agent 用 Prometheus 格式開給 Collector 抓，名字是 Prometheus 慣例（底線、單位後綴、狀態碼是字串）；
   # .NET 用 OTLP 推來的是 OTel 名字（點號、狀態碼是數字）。進來時就改成 OTel 名字，ES 裡只有一種，
-  # 下游（baseline、quality、RCA）不用再各寫兩套（docs/pdca/2026-10-field-unify.md）。
+  # 下游（baseline、quality、RCA）不用再各寫兩套（docs/pdca/phase1-collect/2026-10-field-unify.md）。
   # 條件只對舊名字生效：Java agent 升版後自己吐 OTel 名字的話直接過，不會改錯。多一種語言就在這裡多一組。
   metricstransform/java-http:
     transforms:
@@ -203,7 +203,7 @@ exporters:
         tls: {insecure: true}
         timeout: 10s
         # 佇列要設在這裡（每台 trace-sampler 一個子 exporter），寫在節點磁碟上：trace-sampler 停很久、node Collector 重啟都不會掉。
-        # 設在外層沒用：資料一進來就移到子 exporter 的記憶體佇列，實測 node 重啟照掉（docs/pdca/2026-10-trace-durability.md）
+        # 設在外層沒用：資料一進來就移到子 exporter 的記憶體佇列，實測 node 重啟照掉（docs/pdca/phase1-collect/2026-10-trace-durability.md）
         sending_queue: {enabled: true, queue_size: 10000, storage: file_storage}
         retry_on_failure: {enabled: true, max_elapsed_time: 0}   # 一直重試到送成功（佇列滿了才會丟）
     resolver:
@@ -237,7 +237,7 @@ service:
       exporters: [otlp_http/es]
     # 應用用 OTLP 直接送來的 log（app-common chart 的 otel.logs.exporter: otlp）：agent 送的 log record 本身就帶 trace_id、span_id，
     # 不靠 log 的輸出格式有沒有印 MDC。應用的 log pattern 是自己的純文字、沒印 trace_id 時走這條就綁得起來
-    # （docs/pdca/2026-10-ingest-keys-check.md）。跟 trace 一樣擋冒充：拿掉自帶的 K8s、部門欄位，依連線來源補
+    # （docs/pdca/phase1-collect/2026-10-ingest-keys-check.md）。跟 trace 一樣擋冒充：拿掉自帶的 K8s、部門欄位，依連線來源補
     logs/otlp:
       receivers: [otlp]
       processors: [memory_limiter, transform/logs-otlp-pre, k8s_attributes, transform/group, batch]

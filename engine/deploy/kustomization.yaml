@@ -1,4 +1,4 @@
-# AIOps engine 的排程（docs/pdca/2026-10-schedule.md）：每個指令一個 CronJob，照它該跑的頻率；回饋網頁一個 Deployment。
+# AIOps engine 的排程（docs/pdca/phase3-locate/2026-10-schedule.md）：每個指令一個 CronJob，照它該跑的頻率；回饋網頁一個 Deployment。
 #
 # 部署前要先有：
 #   1. image：cd engine && docker build -t <nexus>/aiops-engine:<tag> .   （下面 images 換成實際路徑）

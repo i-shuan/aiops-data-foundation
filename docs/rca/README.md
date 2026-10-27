@@ -11,7 +11,7 @@
 | 項目 | 現況 |
 |---|---|
 | 正式環境排程 | ⚠️ 程式好了，還沒部署：train 每天、detect 每 30 秒、rules 每分鐘、peer 每分鐘 |
-| [髒資料排除](#髒資料排除) | ⚠️ 偵測得到，訓練時不會排除 |
+| [髒資料排除](#髒資料排除) | ⚠️ 程式好了（資料品質、排除時段、慢性病、行事曆），沒排程 |
 | [雜訊壓制](#雜訊壓制) | ⚠️ 已有 warning／anomaly 分級，還沒合併成同一件事故 |
 | baseline 補強 | 📝 p99、慢請求比例、往外呼叫耗時；變化點偵測；只有一個 Pod 慢時拿它的 trace 逐段比；趨勢；依公司命名定義 `groups` |
 
@@ -19,7 +19,7 @@
 
 **為什麼**：系統天天噴的錯（被 catch 吞掉、沒人修），會讓 baseline 學成「每天報錯 1,000 次是常態」，真的出事反而抓不到；事故期間的資料學進去，也會把「平常」帶偏。
 
-**現況**：✅ 偵測得到吞掉的例外、N+1、新出現的 log 樣式；✅ 中位數＋MAD，少數幾次事故影響不大。❌ 訓練時不排除事故時段；❌ 沒有「慢性病」清單；❌ 沒有資料品質檢查。
+**現況**：✅ 偵測得到吞掉的例外、N+1、新出現的 log 樣式；✅ 中位數＋MAD，少數幾次事故影響不大；✅ 程式有了、沒排程：排除事故時段（`exclude_window`）、行事曆、慢性病清單、資料品質檢查（步驟 1、2、3、5）。❌ 測試流量沒有自動辨識（步驟 6）。每一層擋什麼、還缺什麼見 [baseline README「餵給 baseline 之前」](../../engine/configs/baseline/README.md#餵給-baseline-之前擋了什麼還缺什麼)。
 
 | 步驟 | 內容 | 驗收 |
 |---|---|---|
@@ -123,7 +123,31 @@
 | **Pod、namespace** | `resource.attributes.k8s.pod.name` 等 | 同左 | 同左（alias → `kubernetes.pod.name`） | 規則、跟兄弟比報的是單一 Pod 時 |
 | **trace_id** | — | `trace_id` | `trace_id`（alias → `trace.id`） | trace ↔ log 精確對到「同一個請求」 |
 
-服務名稱、Pod、namespace 都是 Collector 用同一套規則補上的（不是應用自己填），三種資料一定對得上；trace_id 由自動埋點寫進 log（Java 在 MDC、.NET 在 scope；log 格式沒印出來的，用 `otel.logs.exporter: otlp` 讓 agent 直接送，見 [trace/README.md「跟 log、metrics 串起來」](../trace/README.md#跟-logmetrics-串起來)），中央 pipeline 存成 `trace.id`，alias `trace_id` 跟 trace 同名。**三種資料的鑰匙都是同一條路徑**（log 的是 alias；Java 指標名字由 Collector 改），查哪一種都不用翻譯（[pdca/2026-10-field-unify.md](../pdca/2026-10-field-unify.md)）。
+**兩段的精度不一樣**。metrics 是聚合過的（一個時間窗、一個服務、一條路由一筆直方圖），沒有任何一筆帶 trace_id，所以 **metrics → trace 是「服務＋API＋時間窗」的統計對應**：metrics 說「這支 API 這 5 分鐘錯誤率 10%」，根因分析去 trace 撈同一個服務、同一條路由、同一段時間的 Server span，挑最慢的 200 個加出錯的 100 個當樣本（[engine/investigator/es.py](../../engine/investigator/es.py) 的 `entry_filter`、`sample_trace_ids`）。它不保證挑到的就是讓 metrics 變差的那幾個請求，只是同一群母體裡的樣本；事故影響所有請求時兩邊一致。**trace → log 才是 `trace_id` 的精確對應**（同一個請求）；log 也帶 `span.id`，能再精確到「哪一段印的」，目前撈 log 只用 trace_id。trace 內部用 `span_id`／`parent_span_id` 組出呼叫樹，每一段只算自己的時間。實測：[pdca/phase3-locate/2026-10-rca-demo.md](../pdca/phase3-locate/2026-10-rca-demo.md)。
+
+### 為什麼不用 exemplar：用「服務＋路由＋時間」撈一批
+
+exemplar（直方圖每格附幾個範例請求的 trace_id）是讓 metrics 直接帶 trace_id 的標準做法，但 **ES 9.5.5 不存 exemplar**：四種型別（exponential histogram、histogram、counter、gauge）各夾一個 exemplar，送 ES 的 `/_otlp/v1/metrics`、或經 Collector（contrib 0.162.0）的 `elasticsearch` exporter（otel 模式），數值都存了，`_source`、mapping、全文搜尋都找不到 exemplar 和 trace_id（Collector 的 debug 輸出有，寫進 ES 時沒存）。就算存得下來，exemplar 也只是一個樣本、不保證是造成異常的那個請求；正常的 trace 只留 5%，點過去約 95% 查不到。
+
+| | A：exemplar 抽出來另存成 log 文件 | **B：用服務＋路由＋時間撈一批慢的、錯的 trace（採用）** |
+|---|---|---|
+| 基礎架構 | 要自己寫元件把 metrics 的 exemplar 轉成文件；部署、監控、重送都要顧 | 不用動 |
+| 應用端 | 要開 exemplar 設定；Java 經 Prometheus 抓、換增量那條路帶不帶得過去沒測 | 不用配合 |
+| 結果 | 一個確定存在的請求，但可能是特例（GC 停頓），常常查不到 | 看多數慢、錯請求的共同點；慢、錯的 trace 全留，撈得到 |
+| 代價 | 多一個元件、跨團隊配合 | 是「同時間、同路由」的關聯，不是同一個請求；同時有兩種問題要再分群 |
+
+**現行限制**（`engine/investigator/analyze.py`、`es.py`、`__main__.py`）：
+
+| 限制 | 影響 | 之後 |
+|---|---|---|
+| 每一段用平均（`compare_segments`），一兩筆特別慢的會拉高 | 少數極慢的請求可能讓排名失真 | 加「這批慢請求裡有幾成最卡在這一段」和中位數 |
+| 瀑布圖和用 trace_id 撈 log 只用最慢的 1 筆 | 最慢的那筆可能是特例 | 改成幾筆卡在主要瓶頸段的 |
+| 出事時挑最慢的、平常（一週前同時段）挑那段最近的（`sample_trace_ids`），兩邊樣本性質不同 | 差距被放大：排名可信，絕對值要保守看 | 平常也挑同等級的 |
+| 比 1 秒快的變慢（例如 200ms → 800ms）不會被尾端取樣當成慢的，只剩隨機 5% 的 trace | 這類變慢的結論弱 | 評估降低慢的門檻或提高隨機比例 |
+| 慢、錯的 trace 在 `traces-problem`（留 30 天），RCA 讀 `traces-*.otel-*` 兩種都讀得到，但沒有用它實際跑過 RCA | B 依賴慢、錯的 trace 留得夠久且讀得到 | 用故障案例驗 |
+| Java 那條路帶不帶得了 exemplar 沒測 | ES 之後支援 exemplar 時，Java 要另外驗 | ES 升級時重測 |
+
+服務名稱、Pod、namespace 都是 Collector 用同一套規則補上的（不是應用自己填），三種資料一定對得上；trace_id 由自動埋點寫進 log（Java 在 MDC、.NET 在 scope；log 格式沒印出來的，用 `otel.logs.exporter: otlp` 讓 agent 直接送，見 [trace/README.md「跟 log、metrics 串起來」](../trace/README.md#跟-logmetrics-串起來)），中央 pipeline 存成 `trace.id`，alias `trace_id` 跟 trace 同名。**三種資料的鑰匙都是同一條路徑**（log 的是 alias；Java 指標名字由 Collector 改），查哪一種都不用翻譯（[pdca/phase1-collect/2026-10-field-unify.md](../pdca/phase1-collect/2026-10-field-unify.md)）。
 
 ### 歸屬 label 和共同鑰匙是兩種東西
 

@@ -107,7 +107,7 @@ if __name__ == "__main__":
 
 
 class BadInputs(unittest.TestCase):
-    """docs/pdca/2026-10-fix-critical.md 1：根因分析沒有對照組時 delta_ms 是 NaN、異常的 value 可能是 None，摘要不能因此丟例外。"""
+    """docs/pdca/phase5-learning-loop/2026-10-fix-critical.md 1：根因分析沒有對照組時 delta_ms 是 NaN、異常的 value 可能是 None，摘要不能因此丟例外。"""
 
     def test_nan_segment_and_none_value_do_not_raise(self):
         f = {"anomalies": [{"series": "http.latency_p95_s", "value": None, "median": float("nan"), "z": None}],
@@ -123,7 +123,7 @@ class BadInputs(unittest.TestCase):
 
 
 class SegmentsThatDidNotSlowDown(unittest.TestCase):
-    """docs/pdca/2026-10-fix-feedback-ux.md 8：有段但沒變慢（extra_ms ≤ 0）、沒有錯誤源頭時，摘要不能空、不能叫人去查變快的那段。"""
+    """docs/pdca/phase5-learning-loop/2026-10-fix-feedback-ux.md 8：有段但沒變慢（extra_ms ≤ 0）、沒有錯誤源頭時，摘要不能空、不能叫人去查變快的那段。"""
     f = {"anomalies": [{"series": "http.latency_p95_s", "value": 3.1, "median": 0.2, "z": 20}],
          "segments": [{"segment": "mes-api › redis GET", "now_ms": 10.0, "ref_ms": 22.0, "delta_ms": -12.0}], "error_origins": [], "new_patterns": []}
 

@@ -19,7 +19,7 @@ JOBS = [
     ("trace-train",   "20 2 * * *",   ["detector", "trace-train", "--config", "configs/baseline/trace.yaml"], "每天學 trace 每一段", 3600),
     ("chronic",       "0 8 * * 1",    ["detector", "chronic", "--config", "configs/baseline/chronic.yaml"], "每週一的慢性病清單", 1800),
 ]
-HEAD = ["# 每個指令一個 CronJob（docs/pdca/2026-10-schedule.md 的表）。這個檔是 deploy/gen-cronjobs.py 產生的，改表要改那裡。",
+HEAD = ["# 每個指令一個 CronJob（docs/pdca/phase3-locate/2026-10-schedule.md 的表）。這個檔是 deploy/gen-cronjobs.py 產生的，改表要改那裡。",
         "# 第一階段只開這 4 個（rules、detect、alert、train）；其他 6 個在 cronjobs-stage2.yaml，四個跑穩了再在 kustomization 打開。",
         "# 共同點：concurrencyPolicy Forbid（上一次沒跑完就跳過這次）、startingDeadlineSeconds（錯過就不補跑，下一分鐘再來）、",
         "#         activeDeadlineSeconds（卡住就砍）、只留最近 1 次成功、3 次失敗的 Pod 方便看 log。時區跟著 TZ（CronJob 的 timeZone）。"]

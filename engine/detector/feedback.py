@@ -35,7 +35,7 @@ INCIDENT_MAPPING = {"mappings": {"dynamic": False, "properties": {
     "services": {"type": "keyword"}, "severity": {"type": "keyword"}, "status": {"type": "keyword"},
     "root_cause": {"type": "text"}, "action": {"type": "text"}, "anomaly_ids": {"type": "keyword"},
     "detected_at": {"type": "date"}, "resolved_at": {"type": "date"}, "by": {"type": "keyword"},
-    # 老師傅的經驗（docs/pdca/2026-10-expert-feedback.md）
+    # 老師傅的經驗（docs/pdca/phase5-learning-loop/2026-10-expert-feedback.md）
     "alert_id": {"type": "keyword"}, "dept": {"type": "keyword"}, "group": {"type": "keyword"},
     "root_cause_category": {"type": "keyword"}, "how_detected": {"type": "text"}, "checked": {"type": "keyword"},
     "improve": {"type": "text"}, "confirmed_at": {"type": "date"}, "confirmed_by": {"type": "keyword"},

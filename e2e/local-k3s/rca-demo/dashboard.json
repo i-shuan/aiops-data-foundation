@@ -1,0 +1,475 @@
+{
+  "uid": "aiops-rca-demo",
+  "title": "AIOps RCA demo：metrics → trace → log → AI 根因",
+  "tags": [
+    "aiops",
+    "demo"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 41,
+  "refresh": "30s",
+  "time": {
+    "from": "now-30m",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "① Metrics：rca-mes-api 的 p95 延遲（HTTP 直方圖）",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "elasticsearch",
+        "uid": "demo-metrics"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "elasticsearch",
+            "uid": "demo-metrics"
+          },
+          "query": "resource.attributes.service.name:\"rca-mes-api\" AND _exists_:metrics.http.server.request.duration",
+          "timeField": "@timestamp",
+          "metrics": [
+            {
+              "id": "1",
+              "type": "percentiles",
+              "field": "metrics.http.server.request.duration",
+              "settings": {
+                "percents": [
+                  "95"
+                ]
+              }
+            }
+          ],
+          "bucketAggs": [
+            {
+              "id": "2",
+              "type": "date_histogram",
+              "field": "@timestamp",
+              "settings": {
+                "interval": "30s",
+                "min_doc_count": "0"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "② Trace：GET /lots/{id} 請求數，依結果（Error 是失敗）",
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "elasticsearch",
+        "uid": "demo-traces"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "bars",
+            "stacking": {
+              "mode": "normal"
+            },
+            "fillOpacity": 80
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "elasticsearch",
+            "uid": "demo-traces"
+          },
+          "query": "resource.attributes.service.name:\"rca-mes-api\" AND kind:Server",
+          "timeField": "@timestamp",
+          "metrics": [
+            {
+              "id": "1",
+              "type": "count"
+            }
+          ],
+          "bucketAggs": [
+            {
+              "id": "3",
+              "type": "terms",
+              "field": "status.code",
+              "settings": {
+                "size": "5",
+                "order": "desc",
+                "orderBy": "_count",
+                "min_doc_count": "1",
+                "missing": "OK"
+              }
+            },
+            {
+              "id": "2",
+              "type": "date_histogram",
+              "field": "@timestamp",
+              "settings": {
+                "interval": "30s",
+                "min_doc_count": "0"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "table",
+      "title": "③ Trace：每一段的耗時（哪一段變慢）",
+      "gridPos": {
+        "x": 0,
+        "y": 8,
+        "w": 12,
+        "h": 9
+      },
+      "datasource": {
+        "type": "elasticsearch",
+        "uid": "demo-traces"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ns"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Count"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "none"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "sortBy": [
+          {
+            "displayName": "Max duration",
+            "desc": true
+          }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "elasticsearch",
+            "uid": "demo-traces"
+          },
+          "query": "resource.attributes.service.name:(\"rca-mes-api\" OR \"rca-wip-worker\")",
+          "timeField": "@timestamp",
+          "metrics": [
+            {
+              "id": "1",
+              "type": "avg",
+              "field": "duration"
+            },
+            {
+              "id": "4",
+              "type": "max",
+              "field": "duration"
+            },
+            {
+              "id": "5",
+              "type": "count"
+            }
+          ],
+          "bucketAggs": [
+            {
+              "id": "2",
+              "type": "terms",
+              "field": "resource.attributes.service.name",
+              "settings": {
+                "size": "10",
+                "order": "desc",
+                "orderBy": "_count",
+                "min_doc_count": "1"
+              }
+            },
+            {
+              "id": "3",
+              "type": "terms",
+              "field": "name",
+              "settings": {
+                "size": "20",
+                "order": "desc",
+                "orderBy": "_count",
+                "min_doc_count": "1"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "logs",
+      "title": "④ Log：錯誤 log（每一筆帶 trace.id，跟 trace 對得起來）",
+      "gridPos": {
+        "x": 12,
+        "y": 8,
+        "w": 12,
+        "h": 9
+      },
+      "datasource": {
+        "type": "elasticsearch",
+        "uid": "demo-logs"
+      },
+      "options": {
+        "showTime": true,
+        "wrapLogMessage": true,
+        "sortOrder": "Descending",
+        "enableLogDetails": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "elasticsearch",
+            "uid": "demo-logs"
+          },
+          "query": "service.name:(\"rca-mes-api\" OR \"rca-wip-worker\") AND log.level:error",
+          "timeField": "@timestamp",
+          "metrics": [
+            {
+              "id": "1",
+              "type": "logs",
+              "settings": {
+                "limit": "200"
+              }
+            }
+          ],
+          "bucketAggs": []
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "table",
+      "title": "⑤ AIOps：合成的事件與 AI 摘要（aiops-alerts；點儲存格看全文）",
+      "gridPos": {
+        "x": 0,
+        "y": 17,
+        "w": 24,
+        "h": 7
+      },
+      "datasource": {
+        "type": "elasticsearch",
+        "uid": "demo-alerts"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "started_at"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 170
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "status"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 80
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "severity"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 80
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "service"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 120
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "dept"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 70
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "anomaly_count"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 70
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "title"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 320
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "elasticsearch",
+            "uid": "demo-alerts"
+          },
+          "query": "NOT alert_id:heartbeat",
+          "timeField": "@timestamp",
+          "metrics": [
+            {
+              "id": "1",
+              "type": "raw_data",
+              "settings": {
+                "size": "20"
+              }
+            }
+          ],
+          "bucketAggs": []
+        }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "includeByName": {
+              "started_at": true,
+              "status": true,
+              "severity": true,
+              "service": true,
+              "dept": true,
+              "title": true,
+              "anomaly_count": true,
+              "llm_summary": true
+            },
+            "indexByName": {
+              "started_at": 0,
+              "status": 1,
+              "severity": 2,
+              "service": 3,
+              "dept": 4,
+              "title": 5,
+              "anomaly_count": 6,
+              "llm_summary": 7
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "logs",
+      "title": "⑥ AIOps：根因分析報告全文（metrics 異常 → trace 哪一段 → 那行 log）",
+      "gridPos": {
+        "x": 0,
+        "y": 24,
+        "w": 24,
+        "h": 14
+      },
+      "datasource": {
+        "type": "elasticsearch",
+        "uid": "demo-alerts"
+      },
+      "options": {
+        "showTime": true,
+        "wrapLogMessage": true,
+        "sortOrder": "Descending",
+        "enableLogDetails": false
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "elasticsearch",
+            "uid": "demo-alerts"
+          },
+          "query": "category:service",
+          "timeField": "@timestamp",
+          "metrics": [
+            {
+              "id": "1",
+              "type": "logs",
+              "settings": {
+                "limit": "5"
+              }
+            }
+          ],
+          "bucketAggs": []
+        }
+      ]
+    }
+  ]
+}

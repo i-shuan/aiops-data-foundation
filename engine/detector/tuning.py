@@ -18,7 +18,7 @@ TUNING_MAPPING = {"mappings": {"dynamic": False, "properties": {
     "status": {"type": "keyword"}, "source": {"type": "keyword"}, "expires_at": {"type": "date"},
     "reason": {"type": "text"}, "by": {"type": "keyword"}, "at": {"type": "date"},
     "approved_by": {"type": "keyword"}, "approved_at": {"type": "date"},
-    "backtest": {"type": "object", "enabled": False},     # backtest 指令寫的結果（docs/pdca/2026-10-loop-update.md）
+    "backtest": {"type": "object", "enabled": False},     # backtest 指令寫的結果（docs/pdca/phase5-learning-loop/2026-10-loop-update.md）
     "rule_draft": {"type": "object", "enabled": False}}}}
 
 def load_adjustments(es, cfg: dict) -> list[dict]:

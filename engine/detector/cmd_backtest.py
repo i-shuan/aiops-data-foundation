@@ -1,4 +1,4 @@
-"""backtest：改門檻之前先回測（docs/pdca/2026-10-loop-update.md）。
+"""backtest：改門檻之前先回測（docs/pdca/phase5-learning-loop/2026-10-loop-update.md）。
 
 一筆 aiops-tuning 的建議（status proposed，feedback suggest 提的、或人用 tune／adjust 寫的）：
 用「現行設定」和「現行＋這筆建議」各重跑過去 N 週的 detect（不寫 ES），回答三件事：

@@ -1,4 +1,4 @@
-"""LLM 摘要（RAG 的「生成」，docs/pdca/2026-10-llm-summary.md）：報告最前面三到五句，每一句附依據。
+"""LLM 摘要（RAG 的「生成」，docs/pdca/phase4-rca-llm/2026-10-llm-summary.md）：報告最前面三到五句，每一句附依據。
 
 原則：
   - 只看輸入包（結構化、約 4,000 token）：這件告警、根因分析的前幾名、最像的過去事故。不丟原始 metrics、log。

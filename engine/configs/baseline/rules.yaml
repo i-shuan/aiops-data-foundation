@@ -15,7 +15,7 @@ _node: &node resource.attributes.k8s.node.name
 _svc: &svc resource.attributes.service.name
 
 rules:
-  # ── 保底：一定是壞了的固定門檻（docs/pdca/2026-10-ingest-simplify.md）──
+  # ── 保底：一定是壞了的固定門檻（docs/pdca/phase1-collect/2026-10-ingest-simplify.md）──
   # baseline 要累積資料才準（同星期×同小時要 2 週，退到每天同小時要 3 天）；這兩條不用學，上線第一天就有用。
   # 門檻刻意寬：只抓「不用比歷史也知道是壞了」的；比平常差一點點的交給 baseline。
   - name: http.error_rate_floor
@@ -147,7 +147,7 @@ rules:
     by: [*node]
 
   # 主機時鐘偏移（node Collector 的 ntp receiver，30 分鐘量一次，單位奈秒）：根因分析靠「誰先變壞」排順序，
-  # 時鐘偏了順序就錯。快、慢都算（abs）。docs/pdca/2026-10-time-alignment.md
+  # 時鐘偏了順序就錯。快、慢都算（abs）。docs/pdca/phase1-collect/2026-10-time-alignment.md
   - name: node.clock_offset
     title: 主機時鐘偏移超過 100 毫秒
     severity: warning

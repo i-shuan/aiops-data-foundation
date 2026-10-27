@@ -1,4 +1,4 @@
-"""異常總表的歸屬：dept、group（告警要依部門分送，docs/pdca/2026-10-anomaly-owner.md）。
+"""異常總表的歸屬：dept、group（告警要依部門分送，docs/pdca/phase2-anomaly/2026-10-anomaly-owner.md）。
 
 資料本身早就有（Collector 讀 namespace 的 dept label、算出 group，metrics／trace 在 resource.attributes.dept、.group）；
 異常算出來寫回 aiops-anomalies 時沒帶，這裡補上：

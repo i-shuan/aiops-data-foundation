@@ -104,7 +104,7 @@ def _bucket_events(value, b: dict):
 
 def fetch(es: ES, spec: dict, start: pd.Timestamp, end: pd.Timestamp, interval: str | None) -> pd.DataFrame:
     """有 keys 時（統一的名字，例如 service、method、route），回傳的欄位用 keys 取代 by 的欄位路徑。
-    同一個指標不同語言名字不同的問題在 node Collector 改名解決（docs/pdca/2026-10-field-unify.md），這裡不再分語言各查一次。"""
+    同一個指標不同語言名字不同的問題在 node Collector 改名解決（docs/pdca/phase1-collect/2026-10-field-unify.md），這裡不再分語言各查一次。"""
     df = _fetch_one(es, spec, start, end, interval)
     if spec.get("keys"):
         df = df.rename(columns=dict(zip(spec["by"], spec["keys"])))

@@ -8,4 +8,4 @@
 | [plugin-init-patch.yaml](plugin-init-patch.yaml) | 加進公司現有 Grafana Deployment 的部分 |
 | [grafana-example.yaml](grafana-example.yaml) | 完整範例：Grafana＋外掛＋回饋表單儀表板 |
 
-驗證紀錄：[docs/pdca/2026-10-grafana-plugin-init.md](../../../docs/pdca/2026-10-grafana-plugin-init.md)。
+驗證紀錄：[docs/pdca/phase5-learning-loop/2026-10-grafana-plugin-init.md](../../../docs/pdca/phase5-learning-loop/2026-10-grafana-plugin-init.md)。

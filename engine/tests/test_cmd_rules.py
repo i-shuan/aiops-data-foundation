@@ -1,4 +1,4 @@
-"""detector rules 會把老師傅核准的「升級成規則」（aiops-tuning 的 rule_suggestion）一起跑（docs/pdca/2026-10-rule-threshold.md）。"""
+"""detector rules 會把老師傅核准的「升級成規則」（aiops-tuning 的 rule_suggestion）一起跑（docs/pdca/phase5-learning-loop/2026-10-rule-threshold.md）。"""
 import unittest
 from unittest import mock
 

@@ -130,7 +130,7 @@ MAD（Median Absolute Deviation，中位數絕對偏差）＝「每個值離中�
 
 - **不用另外存狀態**：每次偵測多查前一個時間窗，從資料重算「連續第幾個」（`streak` 欄位），程式重啟也一樣。
 - **不降級**：上一輪已判成 anomaly 的時間窗，這一輪就算查的範圍沒包含它的前一個時間窗，也維持 anomaly。
-- 設定在 `series.yaml` 的 `status: {confirm_points: 2, confirm_span: 30m, instant_z: 15}`。每條序列可以自己設 `confirm_points`、`instant_z`；`tune --confirm-points 1 --instant-z 10` 可以再依對象調（寫進 `aiops-tuning`，之後回饋的建議也能調）。優先順序：對象 > 序列 > 全域（[pdca/2026-10-instant-anomaly.md](../../../docs/pdca/2026-10-instant-anomaly.md)）。
+- 設定在 `series.yaml` 的 `status: {confirm_points: 2, confirm_span: 30m, instant_z: 15}`。每條序列可以自己設 `confirm_points`、`instant_z`；`tune --confirm-points 1 --instant-z 10` 可以再依對象調（寫進 `aiops-tuning`，之後回饋的建議也能調）。優先順序：對象 > 序列 > 全域（[pdca/phase2-anomaly/2026-10-instant-anomaly.md](../../../docs/pdca/phase2-anomaly/2026-10-instant-anomaly.md)）。
 - 規則（`rules.yaml`）另外用 `for`（要持續多久）處理；重啟、Pod Failed 這類 critical 規則一次就算，不等。
 
 **時間上的效果**（預設 30 秒一點，見「自動調整 (1)」）：30 秒一點的序列，偵測每 30 秒跑一次，**跳一次約 30 秒後 warning、連續兩個 30 秒（約 1 分鐘）就是 anomaly**；粒度被調粗的序列（量少、或使用者、feedback 調過的）照它自己的時間窗算。
@@ -150,7 +150,19 @@ MAD（Median Absolute Deviation，中位數絕對偏差）＝「每個值離中�
 每天重新 `train`，用的永遠是最近 4 週：
 
 - **慢慢成長**（例如新產線上線、流量逐月增加）：baseline 跟著慢慢調高，不會一直告警。
-- **突然永久改變**（例如換版後每個請求都變慢）：前一、兩週會持續告警，直到新的狀況佔了歷史的一半以上，中位數才跟上。換版後要不要重新學，規則還沒定（見「還沒做」）。
+- **突然永久改變**（例如換版後每個請求都變慢）：沒處理的話，前一、兩週會持續告警，直到新的狀況佔了歷史的一半以上，中位數才跟上。用 `reset_point` 從換版那刻重新學（見「調整」）。
+
+### 定義的原則與限制
+
+**原則**：統計公式（168 格中位數＋MAD）維持簡單，只抓一般異常。學錯、報錯的情況不改公式，用「調整資料」解：哪些資料不學、從哪裡重新學、哪些時段放寬（見「調整」）。調整由人寫，或由 learning loop（值班回饋、CI/CD）提出、人核准，都寫進同一個 `aiops-tuning`。**不做**：在公式裡加月份、季度的時段；自己訓練模型（[feedback/llm-mlops.md](../../../docs/feedback/llm-mlops.md)）。
+
+| 限制 | 原因 | 影響 | 現況 |
+|---|---|---|---|
+| 訓練資料有壞資料（長期事故、壓測、維護） | 天天發生、或連續一兩週的壞資料會變成中位數本身 | 平常被學歪 | `exclude_window`、行事曆、慢性病清單（見「[餵給 baseline 之前](#餵給-baseline-之前擋了什麼還缺什麼)」） |
+| 換版後一階跳變、停在新位置 | 新值要佔歷史一半（約 2 週）中位數才跟上 | 這段期間一直報 | `reset_point` |
+| 比一週長的週期（月底、季底批次） | 168 格只涵蓋一週 | 月底誤報 | `recurring_override` |
+| 指標不夠：沒有 p99、慢請求比例、往外呼叫耗時 | `series.yaml` 只有 7 條序列 | 只有 p95，看不到尾端 | 待排：加序列（改設定，不改公式） |
+| 借同組實際不會發生 | `series.yaml` 的 `groups` 是註解掉的範例，沒有 `groups` 就不借 | 新 API 沒有 baseline 可比 | 要依公司服務命名定義 `groups`（要別人配合） |
 
 ## 自動調整：粒度、低頻事件、借用 baseline
 
@@ -224,7 +236,7 @@ MAD（Median Absolute Deviation，中位數絕對偏差）＝「每個值離中�
 
 新 API、量太少的 API，借**同一組**其他成員的 baseline：
 
-- **組要事先定義**（系統不會自己知道誰是「Query API」）：`series.yaml` 的 `groups`，依 keys 的正規表示式比對，由細到粗排，例如先 `mes-query`（服務 `mes-*`、路徑查詢類），再 `mes`（服務 `mes-*`）。之後可改從 K8s label 或服務清單讀。
+- **組要事先定義**（系統不會自己知道誰是「Query API」）：`series.yaml` 的 `groups`，依 keys 的正規表示式比對，由細到粗排，例如先 `mes-query`（服務 `mes-*`、路徑查詢類），再 `mes`（服務 `mes-*`）。之後可改從 K8s label 或服務清單讀。⚠️ 目前 `series.yaml` 的 `groups` 只是註解掉的範例，**實際不會借**。
 - **只借比例、延遲類**（序列設 `borrow: true`）：錯誤率在同類 API 間大致可比；p95 勉強可比；**請求數、事件數不借**，新 API 的流量跟別人無關。
 - 組的 baseline：`train` 時從成員自己的 baseline 算（至少 3 個成員），每個時段取成員中位數的中位數、成員 MAD 的中位數，跟成員的 baseline 存在一起（`baseline_source: group:<組名>`）。一個特別慢的成員不會把組拉偏。
 - `detect` 時，`borrow: true` 的序列裡**沒有自己 baseline** 的，依 `groups` 的順序找第一個有組 baseline 的組來比。
@@ -426,9 +438,34 @@ python3 -m detector peer --config configs/baseline/peer.yaml      # 每分鐘
 
 同一段時間整個服務的錯誤率是 **9%**（3 個 Pod 裡 1 個壞）。這次服務平常是 0%，跟平常比（baseline）也會報，但只知道「服務錯誤率高」、不知道是哪個 Pod；Pod 越多稀釋越多：10 個 Pod 壞 1 個大約剩 1%，就低於 baseline 的門檻（多 5 個百分點）了。
 
+## 餵給 baseline 之前：擋了什麼、還缺什麼
+
+baseline 看過去 4 週學「平常」，那 4 週混了壞資料就學錯：天天噴 1,000 個錯沒人修，會學成「噴 1,000 個是正常」；上週的事故把平常拉歪；壓測、維護、批次的數字本來就不同。中位數＋MAD 只擋得住「少數」怪的點，所以統計之外還有幾層。
+
+| 層 | 擋什麼 | 在哪 |
+|---|---|---|
+| 統計本身 | 中位數＋MAD：少數幾次事故拉不歪平常 | `model.py` 的 `train`（「為什麼用中位數和 MAD」） |
+| | 卜瓦松：稀少筆數裡的爆量先壓掉再平均 | 「自動調整」(2) |
+| | `mask_thin`：事件數不夠的時間窗（比例、百分位類）當「不知道」，不學也不判斷 | 「自動調整」(1) |
+| | 歷史不夠往下退層，再不夠就不給 baseline | 「怎麼判斷」 |
+| | 收集系統停機（整個 index 沒資料）的時段當「不知道」，不當成零流量 | 「怎麼判斷」 |
+| | `lag` 30 秒：還沒收齊的時間窗不看 | 「怎麼跑」 |
+| 資料本身壞掉 | 路由沒參數化、身分欄位缺、資料停了、落到 unassigned 變多、被 ES 拒收（`quality.ingest_rejected`）、收資料延遲、時鐘偏差 | 「[資料品質檢查](#資料品質檢查資料本身怪不怪)」 |
+| 已知干擾 | 事故、維護、壓測不學（`exclude_window`；確認過的事故可用 `incident add --exclude-training` 提）；換版重新學（`reset_point`）；月底批次放寬（`recurring_override`） | 「[調整](#調整哪些資料不學從哪裡重新學哪些時段放寬)」 |
+| 歲修、機房維護 | 行事曆一筆變成一個 `exclude_window` | 「[慢性病清單、行事曆](#慢性病清單行事曆)」 |
+| 天天噴錯、沒人修 | 不排除，每週列成慢性病清單讓人修（天天發生的就是中位數本身，排除也學不到平常） | 同上 |
+
+**還缺的**：
+
+- **都沒排程**：`quality`、`chronic` 在 `deploy/cronjobs-stage2.yaml`（第二階段），`adjust`、行事曆在 `train` 時生效但條目要人寫。
+- **測試流量沒有自動辨識**：壓測要人手動寫 `exclude_window`；沒有依 label（loadgen、測試 namespace）自動不學。
+- **默默掉資料看不到**：ES `_otlp` 入口回 200 卻整批拒掉時（權限不夠、資料流名稱錯），Collector 沒 log、沒指標；要有 Collector 送出筆數跟 ES 實際寫入筆數的對照（可放進 `quality` 的 `stopped` 類）。
+- **慢性病清單沒送到負責人手上**；`owners` 目前是假資料（`fake-data/owners.json`）。
+- 資料品質檢查的門檻是估的（見「[門檻怎麼校、誰來調](#門檻怎麼校誰來調)」）。
+
 ## 調整：哪些資料不學、從哪裡重新學、哪些時段放寬
 
-統計公式不動；baseline 學錯、報錯的情況，用「調整資料」修正（[docs/pdca/2026-10-baseline-definition.md](../../../docs/pdca/2026-10-baseline-definition.md)）。程式在 [detector/adjust.py](../../detector/adjust.py)，跟 `tune` 寫同一個 index `aiops-tuning`（`kind` 區分）；長期的規則寫 [adjustments.yaml](adjustments.yaml)。
+統計公式不動；baseline 學錯、報錯的情況，用「調整資料」修正（原則與限制見「[定義的原則與限制](#定義的原則與限制)」）。程式在 [detector/adjust.py](../../detector/adjust.py)，跟 `tune` 寫同一個 index `aiops-tuning`（`kind` 區分）；長期的規則寫 [adjustments.yaml](adjustments.yaml)。
 
 | kind | 用途 | train | detect |
 |---|---|---|---|
@@ -497,7 +534,7 @@ PDCA 的 Check：告警出去之後，人判斷對不對，才知道門檻準不
 | 事故 `--exclude-training` | ✅ proposed 時 `train` 不排除；`approve` 後排除那段（7,200 點）；沒列服務的建議是全部 |
 | 缺參數、不存在的 id、錯的 verdict | ✅ 清楚的錯誤訊息，不寫入 |
 
-**2026-10-25 補的**（docker ES、模擬資料實測，見 [pdca/2026-10-loop-update.md](../../../docs/pdca/2026-10-loop-update.md)、[2026-10-expert-feedback.md](../../../docs/pdca/2026-10-expert-feedback.md)）：回饋網頁；誤報 3 次 → 建議 → `backtest`（告警 3 → 1、已確認事故不受影響）→ `approve` → 同樣的批次不再報；同根因 3 次 → 規則草稿；漏報 → 降 z 的建議；`metrics` 兩段並排。
+**2026-10-25 補的**（docker ES、模擬資料實測，見 [pdca/phase5-learning-loop/2026-10-loop-update.md](../../../docs/pdca/phase5-learning-loop/2026-10-loop-update.md)、[2026-10-expert-feedback.md](../../../docs/pdca/phase5-learning-loop/2026-10-expert-feedback.md)）：回饋網頁；誤報 3 次 → 建議 → `backtest`（告警 3 → 1、已確認事故不受影響）→ `approve` → 同樣的批次不再報；同根因 3 次 → 規則草稿；漏報 → 降 z 的建議；`metrics` 兩段並排。
 
 **還沒做**：每筆異常記是哪一版產生的、評測集（要真實事故）；`suggest` 只調 z，不調 `min_abs`、粒度，也不會提「排除時段」（月底批次更該用 `adjust add --kind recurring_override`，現在要人手動）；規則核准前沒有回測（用 `rules --at <事故時間>` 看會不會觸發）。
 
@@ -547,7 +584,13 @@ baseline 用中位數＋MAD，只擋得住「少數」怪的點。資料本身�
 | `quality.log_ingest_lag` | 收資料延遲：Collector 讀到（`event.created`）→ 寫進 ES（`event.ingested`），依服務、最近 15 分鐘（用寫進 ES 的時間篩） | p95 ≥ 60 秒 |
 | `quality.log_clock_skew` | 應用的時間（`@timestamp`）跟節點（`event.created`）差多少，只看時間是應用自己寫的（用 Collector 讀到的時間篩） | 中位數快或慢 ≥ 5 分鐘（時鐘偏了、時區寫錯） |
 
-門檻是先估的，要等正式環境跑 2～4 週再校。觸發的寫進 `aiops-anomalies`：`level` 是 `quality`、`median` 放昨天的值、`keys` 缺欄位時多一個 `field`。
+觸發的寫進 `aiops-anomalies`：`level` 是 `quality`、`median` 放昨天的值、`keys` 缺欄位時多一個 `field`。
+
+### 門檻怎麼校、誰來調
+
+- 門檻都是先估的。正式環境排程後先只寫入、不通知，跑 2～4 週，看每個檢查觸發幾次、哪些是真的，再由平台的人手動改 [quality.yaml](quality.yaml)。
+- `quality` 不讀 `aiops-tuning`：不能用 `tune`、`adjust` 依對象調，回饋建議（`feedback suggest`）也不會動它。
+- 只跟昨天比的檢查（`log_trace_id_drop`、`*_unassigned_share` 的增量）第一天沒有比較對象，不會報；要第一天就有用的設 `max_share` 這類絕對上限。
 
 ```bash
 python3 -m detector quality --config configs/baseline/quality.yaml   # 每 10 分鐘
@@ -656,7 +699,7 @@ ES_URL=... ES_AUTH=... python3 -m tests.fine_e2e       # 30 秒粒度、連續�
 
 1. **告警**：現在只寫進 `aiops-anomalies`。接 Kibana 的告警規則、或推到通訊軟體，要再決定。
 2. **合併**：同一個服務的流量、錯誤、延遲同時異常時，現在是好幾筆，之後依服務與時間合併成一件事（[docs/rca/README.md](../../../docs/rca/README.md) 的步驟 2）。
-3. **排除已知事件**：保養、事故期間的資料目前會一起學進去（中位數不太受影響，但最好排除）。
-4. **換版**：新版本上線後要不要重新學，規則還沒定。
+3. **排除已知事件、換版**：程式有了（`adjust`、行事曆，見「調整」），但條目要人寫；測試流量沒有自動辨識（見「[餵給 baseline 之前](#餵給-baseline-之前擋了什麼還缺什麼)」）。
+4. **指標、借同組**：p99、慢請求比例、往外呼叫耗時還沒有；`groups` 沒定義（見「[定義的原則與限制](#定義的原則與限制)」）。
 5. **不是 Java、.NET 的服務**：流量、錯誤率、延遲來自 `http.server.request.duration`（Java agent、.NET 自動埋點都有，見 [docs/metrics/dotnet.md](../../../docs/metrics/dotnet.md)）。其他語言要用 OpenTelemetry 開出同名的直方圖，才學得到。
 6. **更準的方法**：用一陣子、收集到誤報和漏報後，再考慮方法 B（拆週期）、C（預測模型）。

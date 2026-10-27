@@ -1,4 +1,4 @@
-"""Grafana 裡的回饋表單（configs/grafana/dashboards/aiops-feedback.json）跟回饋服務對得起來（docs/pdca/2026-10-grafana-form.md）。"""
+"""Grafana 裡的回饋表單（configs/grafana/dashboards/aiops-feedback.json）跟回饋服務對得起來（docs/pdca/phase5-learning-loop/2026-10-grafana-form.md）。"""
 import json
 import os
 import threading

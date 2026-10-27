@@ -1,5 +1,5 @@
 # 兩種 Collector 共用的部分：讀 namespace 的 dept、決定 group、依 group 寫進各自的 data stream（data_stream.namespace = group）。
-# 所有 group 共用一把寫入 key、一個出口：資料屬於哪個 group 由這裡依 Pod 決定，不靠 key 擋（docs/pdca/2026-10-ingest-simplify.md）。
+# 所有 group 共用一把寫入 key、一個出口：資料屬於哪個 group 由這裡依 Pod 決定，不靠 key 擋（docs/pdca/phase1-collect/2026-10-ingest-simplify.md）。
 # 節點那一份（node.yaml）與 cluster 那一份（cluster.yaml）都會一起載入這份，分部門的規則只有這一處，
 # metrics 和 log 共用。
 #

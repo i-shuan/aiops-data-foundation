@@ -270,7 +270,7 @@ flowchart TB
 | 層 | 規則 | 用到什麼 |
 |---|---|---|
 | ① 時間合併 | ✅ 已做「跳一次 warning、連續才 anomaly」（`status`、`streak`）；📝 還沒做：連續的點合成一段（一筆記開始、結束） | `aiops-anomalies` |
-| ② 服務合併 | ✅ 同一個服務、30 分鐘內接著來的異常合成一件（`investigator alert`，[pdca/2026-10-alert-exit.md](pdca/2026-10-alert-exit.md)）；同 dept 的兩個服務是兩件 | `keys` 裡的服務 |
+| ② 服務合併 | ✅ 同一個服務、30 分鐘內接著來的異常合成一件（`investigator alert`，[pdca/phase3-locate/2026-10-alert-exit.md](pdca/phase3-locate/2026-10-alert-exit.md)）；同 dept 的兩個服務是兩件 | `keys` 裡的服務 |
 | ③ 拓撲合併 | 📝 用 trace 算出的呼叫關係（已經有：根因分析的 `topology`），上下游同時異常的合成一件，**最下游、最早開始的**當源頭候選 | 呼叫關係圖 |
 | ④ 排序 | 📝 critical 規則 > 影響多個服務 > 可信度高 > 持續久 | `severity`、`confidence` |
 
@@ -297,7 +297,7 @@ flowchart TB
 | 5. Log | 最慢請求的 log（用 trace_id 串各服務）；新出現或變多的 warn／error 樣式 |
 | 6. 呼叫關係 | 這段時間誰呼叫誰 |
 
-報告最前面已經多兩段：**過去相似的事故**（老師傅確認過的，為什麼像、當時根因、處置、怎麼看出來的；[pdca/2026-10-similar-incidents.md](pdca/2026-10-similar-incidents.md)）和 **LLM 摘要**（三到五句、每句附依據，捏造就整段不顯示；真的模型還沒跑過，[pdca/2026-10-llm-summary.md](pdca/2026-10-llm-summary.md)）。
+報告最前面已經多兩段：**過去相似的事故**（老師傅確認過的，為什麼像、當時根因、處置、怎麼看出來的；[pdca/phase4-rca-llm/2026-10-similar-incidents.md](pdca/phase4-rca-llm/2026-10-similar-incidents.md)）和 **LLM 摘要**（三到五句、每句附依據，捏造就整段不顯示；真的模型還沒跑過，[pdca/phase4-rca-llm/2026-10-llm-summary.md](pdca/phase4-rca-llm/2026-10-llm-summary.md)）。
 
 ---
 
@@ -321,7 +321,7 @@ flowchart TB
 | 出口 | `aiops-alerts` → Grafana 依 dept、恢復、「AIOps 停了」；回饋網頁；Dockerfile、CronJob | ⚠️ K8s 沒跑過；📝 網頁登入 |
 | feedback | 回饋網頁、誤報 3 次 → 建議 → 回測 → 核准、漏報降 z、同根因 3 次規則草稿、`metrics` | 📝 版本、評測集、第二人確認、排除時段的建議 |
 
-**順序都走過一輪（模擬資料）**。下一步：上 K8s、有 trace 的事故驗相似事故與 LLM、試點產線只寫入不通知 2～4 週（[pdca/2026-10-product-loop.md](pdca/2026-10-product-loop.md)）。整條線一次看：[end-to-end-flow.md](end-to-end-flow.md)。
+**順序都走過一輪（模擬資料）**。下一步：上 K8s、有 trace 的事故驗相似事故與 LLM、試點產線只寫入不通知 2～4 週。整條線一次看（含產品主線 8 步、整合驗證）：[end-to-end-flow.md](end-to-end-flow.md#產品主線-8-步)。
 
 ---
 

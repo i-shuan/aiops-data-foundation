@@ -1,4 +1,4 @@
-"""deploy/：CronJob 的檔案跟產生器一致；alert 的時限夠跑真的 LLM（docs/pdca/2026-10-fix-critical.md 4）。"""
+"""deploy/：CronJob 的檔案跟產生器一致；alert 的時限夠跑真的 LLM（docs/pdca/phase5-learning-loop/2026-10-fix-critical.md 4）。"""
 import importlib.util
 import os
 import unittest
@@ -70,7 +70,7 @@ SHA = "1eece14d67b2ffac4bbba18f5c69cde3f0f7aecef2276b0f1b33bc3cfb9998d0"
 
 @unittest.skipUnless(all(shutil.which(t) for t in ("sh", "curl", "unzip", "sha256sum")), "要 sh、curl、unzip、sha256sum")
 class GrafanaPluginInit(unittest.TestCase):
-    """Grafana 的 initContainer（deploy/grafana/install-plugin.sh）：核對 SHA-256、裝進外掛資料夾、已經裝了就跳過（docs/pdca/2026-10-grafana-plugin-init.md）。
+    """Grafana 的 initContainer（deploy/grafana/install-plugin.sh）：核對 SHA-256、裝進外掛資料夾、已經裝了就跳過（docs/pdca/phase5-learning-loop/2026-10-grafana-plugin-init.md）。
     用 file:// 當作 Nexus 的網址，不連網路。"""
 
     def setUp(self):

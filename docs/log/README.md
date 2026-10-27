@@ -24,16 +24,16 @@ log 和 metrics 用同一個 Collector（[metrics/README.md](../metrics/README.m
 
 | 項目 | 要做的 |
 |---|---|
-| ② 欄位路徑跟 metrics、trace 不一致 | ✅ mapping 加 alias：`resource.attributes.service.name`、`resource.attributes.k8s.{namespace,pod,container,node,cluster}.name`、`trace_id`、`span_id` 指到原本的 ECS 欄位。baseline、quality、RCA 一律用 OTel 路徑查 log；原欄位留著，Kibana 現有查詢不受影響。alias 不在 `_source` 裡，程式要用 `fields` 取值。[PDCA](../pdca/2026-10-field-unify.md) |
+| ② 欄位路徑跟 metrics、trace 不一致 | ✅ mapping 加 alias：`resource.attributes.service.name`、`resource.attributes.k8s.{namespace,pod,container,node,cluster}.name`、`trace_id`、`span_id` 指到原本的 ECS 欄位。baseline、quality、RCA 一律用 OTel 路徑查 log；原欄位留著，Kibana 現有查詢不受影響。alias 不在 `_source` 裡，程式要用 `fields` 取值。[PDCA](../pdca/phase1-collect/2026-10-field-unify.md) |
 | ② REST API 的解析規則 | 需要兩三個服務的真實 log 樣本 |
-| ① ES 剛起來回 401、Collector 直接丟 | 修在 ES 入口：健康檢查要用 API key 打 GET /（trace 線實測；log 用同一種 exporter，推論相同）。📝 中央 ES 前面的健康檢查要請管 ES 的人改。[PDCA](../pdca/2026-10-es-startup-401.md) |
+| ① ES 剛起來回 401、Collector 直接丟 | 修在 ES 入口：健康檢查要用 API key 打 GET /（trace 線實測；log 用同一種 exporter，推論相同）。📝 中央 ES 前面的健康檢查要請管 ES 的人改。[PDCA](../pdca/phase1-collect/2026-10-es-startup-401.md) |
 | ③ 保留天數 | ✅ 原文 30 天；另外每 5 分鐘統計各服務 × level × `error.type` 的筆數，留 400 天（[retention.md](../retention.md)） |
 
 **要做的（②清資料）**
 
 | 項目 | 內容 | 驗收 |
 |---|---|---|
-| ② 收資料延遲（時間對齊） | ✅ `event.created`（Collector 讀到）→ `event.ingested`（寫進 ES），p95 > 1 分鐘報（`quality.log_ingest_lag`）；應用的時間跟節點差 > 5 分鐘報（`quality.log_clock_skew`）。[PDCA](../pdca/2026-10-time-alignment.md) | 實測：卡 3 分鐘、20 分鐘的都報；時區錯、時鐘快 10 分鐘的都報 |
+| ② 收資料延遲（時間對齊） | ✅ `event.created`（Collector 讀到）→ `event.ingested`（寫進 ES），p95 > 1 分鐘報（`quality.log_ingest_lag`）；應用的時間跟節點差 > 5 分鐘報（`quality.log_clock_skew`）。[PDCA](../pdca/phase1-collect/2026-10-time-alignment.md) | 實測：卡 3 分鐘、20 分鐘的都報；時區錯、時鐘快 10 分鐘的都報 |
 | ② 時區規範（時間對齊） | ✅ 中央 pipeline：沒帶時區的依 `LOG_DEFAULT_TIMEZONE`（預設 Asia/Taipei）解讀並記 `event.timezone`；多認得空白分隔、逗號毫秒、epoch 秒／毫秒；不認得的記 `log.timestamp_source: collector_unparsed`。📝 規範（寫 UTC 或帶時區）還沒寫進應用標準 | `e2e/pipeline/run-timestamp-cases.sh` |
 | ② 從 log 抽業務 ID | 中央 pipeline 依格式把 `txnId=…`、`orderNo: …` 抽成標準欄位，舊系統不用改（業務 ID 的完整規劃見 [trace/README.md「業務 ID」](../trace/README.md#業務-id服務層)） | 舊服務的 log 查得到交易 ID |
 
@@ -255,7 +255,7 @@ kubectl -n otel-collector create secret generic es-writer-keys \
   --from-literal=ES_WRITER_API_KEY=<encoded>
 ```
 
-log、metrics、trace 用同一份 Secret、同一把 key（setup 輸出的「寫入 key：es-writer」）（[pdca/2026-10-ingest-simplify.md](../pdca/2026-10-ingest-simplify.md)）。
+log、metrics、trace 用同一份 Secret、同一把 key（setup 輸出的「寫入 key：es-writer」）（[pdca/phase1-collect/2026-10-ingest-simplify.md](../pdca/phase1-collect/2026-10-ingest-simplify.md)）。
 
 在 Rancher 上建或改這個 Secret：
 
@@ -317,7 +317,7 @@ e2e/local-k3s/run-e2e.sh
 - **依格式分派**：宣告 `logfmt` 的服務走 logfmt 規則；宣告了還沒有規則的 `secs`，退回 default，原文完整保留。
 - **保底抓 level**：`[WARN] …`、`ERROR - …`、`Warning: …`、時間戳後的 `ERROR` 都抓得到；`0 errors`、`no error found`、`ERROR_CODE` 不會被誤抓；應用自己寫了 level 的不會被覆蓋，`WARNING`、`Err` 這類寫法會統一。
 - **權限**：寫入 key 一把、所有 group 共用，只能寫、不能讀（資料屬於哪個 group 由 Collector 依 Pod 決定）；AIOps key 能讀全部 k8s-*，不能寫；人用各 group 的唯讀角色。
-- **被拒的文件**：pipeline 失敗、型別不合的留在 failure store（`k8s-<group>-<cluster>::failures`），`quality.ingest_rejected` 有一筆就報（[pdca/2026-10-ingest-simplify.md](../pdca/2026-10-ingest-simplify.md)）。
+- **被拒的文件**：pipeline 失敗、型別不合的留在 failure store（`k8s-<group>-<cluster>::failures`），`quality.ingest_rejected` 有一筆就報（[pdca/phase1-collect/2026-10-ingest-simplify.md](../pdca/phase1-collect/2026-10-ingest-simplify.md)）。
 
 可靠度與量（[load/run-load.sh](../../e2e/local-k3s/load/run-load.sh)，產生器每行帶序號，用序號數遺失與重複）：
 
@@ -332,7 +332,7 @@ e2e/local-k3s/run-e2e.sh
 
 記憶體：節點 Collector 只收 metrics 時約 217MB，加上 log 後平常約 290MB（多約 75MB）；拿掉的 Fluent Bit 原本約 25～50MB。
 
-Fluent Bit 時期的測資與結果（分流、欄位、大流量、ES 停機、去重複）見 [log/testing.md](testing.md)；中央 pipeline 跟當時是同一套，欄位的結論不變。
+中央 pipeline 跟 Fluent Bit 時期是同一套，分流、欄位、去重複的結論不變。
 
 正式上線後，用 AIOps key 查一次，確認每個 namespace 只落在一個 group：
 
@@ -344,21 +344,7 @@ GET k8s-*/_search
 
 ## 坑
 
-- **Collector 不能收自己的 log。** ES 拒收時它會印錯誤；如果再收回來送一次，就是放大迴圈（Fluent Bit 時期實測過：一次 key 設錯，十幾分鐘就灌進一萬七千多筆）。`node.yaml` 的 `file_log` 已經排除 `otel-collector` namespace，不要拿掉。
-- **key 失效期間的 log 會遺失。** OTLP 出口只對 429、502、503、504 和連不上重試，401（key 錯、被作廢）當成永久錯誤直接丟掉，沒有設定可以改。換 key 用 `rotate-writer-key.sh`（見「[換 key](#換-key)」），不要手動先作廢再換。
-- **ES 拒收其中幾筆時也會丟。** 例如欄位型別衝突（400）：Collector 只印 `Partial success ... dropped_log_records`。中央 pipeline 有錯誤處理，這種情況很少見，但要監控 Collector 的 log。`CONFLICT`（409）是重送的被 `_id` 擋掉，屬於正常。
-- **中央 ES 改了 `k8s-logs-otel`、`logs-otel@custom` 之後，要讓 `logs-*.otel-*` 換新的 backing index 才生效。** `elasticsearch-setup.sh` 會自動檢查並 rollover。沒生效的話，log 會停在 `logs-generic.otel-*`，不會進 `k8s-*`。
-- **改了 `_index` 之後，ES 不會自動跑目的地的 default pipeline。** 所以 `k8s-logs-otel` 最後自己呼叫 `k8s-logs`，不要拿掉。
-- **ES 停機期間，資料堆在節點上的佇列**（`/var/lib/otelcol/node`），每個 group 上限 10,000 批，每批最多 2,000 行，所以量很大或停很久時要估算。
-- **讀到檔案哪裡也記在 `/var/lib/otelcol/node`。** 這個目錄要在節點上（hostPath），Pod 重建才會接著讀；刪掉這個目錄，下次會從檔案尾巴開始讀，中間的 log 就沒了。
-- **第一次部署時，已經存在的 log 檔從尾巴開始讀**（`start_at: end`），舊的 log 不會補收。
-- **kubelet 預設 log 檔 10MB 就輪替壓縮。** 量大的服務在 Collector 讀完前檔案就被壓縮的話，那段會掉（Fluent Bit 時期實測過）。Collector 每 0.2 秒掃一次（`poll_interval`），每秒 5,000 行實測沒掉；平台端仍建議把 kubelet 的 `container-log-max-size` 調大，例如 50Mi。
-- **平台元件的 log 都進 unassigned**，例如 kube-system 和其他系統元件。這跟 metrics 的兜底 tenant 同一個意思。
-- **純文字的 Java stack trace 會被拆成很多行。** 標準格式是 JSON（stack trace 在一個欄位裡），所以不處理。沒照標準的服務，AIOps 在它身上的效果會比較差。
-- **中央 ES 要撐得住掛一台，至少要三個 master 候選。** 兩個節點時 ES 只讓其中一個投票，那台掛了整個 cluster 就停擺，跟一個節點一樣（實測見 [log/testing.md](testing.md#情境測試es-兩個節點-vs-一個節點)）。三台一樣的節點，或兩台存資料加一台只投票的 `voting_only` 節點。ES 停擺期間資料會在 Collector 排隊，恢復後補齊，不會遺失。
-- **ES 當機（kill -9）不會掉已經回成功的資料。** 實測砍兩次（一次在補送中），log 70,944 筆 0 遺失 0 重複，metrics 沒缺（見 [log/testing.md](testing.md#情境測試es-當機kill--9)）。前提是 `index.translog.durability` 保持預設的 `request`，不要改成 `async`。
-- **一個節點時 metrics 平常是 yellow。** metrics 的資料流預設要一份副本，一個節點放不下；log 的設定是有幾個節點就放幾份（`auto_expand_replicas: 0-1`），所以 log 是 green。不影響寫入。
-- **節點用 Docker 當 runtime 的 cluster 要另外掛 `/var/lib/docker/containers`。** RKE2、k3s 是 containerd，不需要。
+集中在 [troubleshooting.md](../troubleshooting.md#log)。
 
 ## 還沒做
 

@@ -142,8 +142,16 @@ class Text(unittest.TestCase):
         s = AL.summary(al, report, ZoneInfo("Asia/Taipei"))
         lines = s.splitlines()
         self.assertTrue(lines[0].startswith("[warning] mes-api："))
-        self.assertIn("10-25 10:00 開始，持續 10 分鐘", lines[1])
+        self.assertIn("10-25 10:00 開始", lines[1])
         self.assertEqual(lines[2], "根因分析：mes-api 變慢，主要多在 mes-api › SELECT lots：每個請求多花 2.8s。；錯誤最早出在 oracle。")
+
+    def test_summary_stable_while_incident_grows(self):
+        # Grafana 把 summary 當 label：一件事每分鐘多併進一筆異常、持續時間變長，summary 不能變（會被當成新的一則）
+        a = AL.merge([], [anom("mes-api", 0), anom("mes-api", 1)], T0 + timedelta(minutes=2), GAP)[0]
+        b = AL.merge([], [anom("mes-api", 0), anom("mes-api", 1), anom("mes-api", 5), anom("mes-api", 9)], T0 + timedelta(minutes=10), GAP)[0]
+        self.assertNotEqual(AL.headline(a), AL.headline(b))      # 標題照樣帶筆數
+        self.assertEqual(AL.summary(a, None, timezone.utc), AL.summary(b, None, timezone.utc))
+        self.assertNotIn("持續", AL.summary(b, None, timezone.utc))
 
     def test_summary_without_report(self):
         al = AL.merge([], [anom("mes-api", 0)], T0 + timedelta(minutes=1), GAP)[0]

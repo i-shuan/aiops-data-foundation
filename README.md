@@ -28,7 +28,7 @@ docs/
 
 | 資料夾 | 主文件 | 其他 |
 |---|---|---|
-| **log** | [log/README.md](docs/log/README.md)：怎麼收、依格式解析、欄位規範、換 key | [testing.md](docs/log/testing.md)（測試紀錄）、[fluentbit-vs-otel.md](docs/log/fluentbit-vs-otel.md)（改用 OTel 的比較） |
+| **log** | [log/README.md](docs/log/README.md)：怎麼收、依格式解析、欄位規範、換 key | [fluentbit-vs-otel.md](docs/log/fluentbit-vs-otel.md)（改用 OTel 的比較） |
 | **metrics** | [metrics/README.md](docs/metrics/README.md)：怎麼收、直方圖換增量、欄位 | [catalog.md](docs/metrics/catalog.md)（收了哪些、能做到什麼）、[cases.md](docs/metrics/cases.md)（故障案例實測）、[metrics/dotnet.md](docs/metrics/dotnet.md)（.NET 不改程式） |
 | **trace** | [trace/README.md](docs/trace/README.md)：兩層 Collector、尾端取樣、欄位、Kafka、業務 ID | [scenarios.md](docs/trace/scenarios.md)（trace 能做的六個場景）、[sdk/standards/tracing.md](sdk/standards/tracing.md)（給應用團隊的埋點指引） |
 | **rca** | [rca/README.md](docs/rca/README.md)：三種資料各回答什麼、metrics 怎麼串到 trace 和 log、要哪種「平常」、髒資料、雜訊 | [cases.md](docs/rca/cases.md)（15 個故障案例）；程式：[engine/configs/baseline](engine/configs/baseline/README.md)、[engine/configs/rca](engine/configs/rca/README.md)（[報告範例](engine/configs/rca/example-report.md)） |

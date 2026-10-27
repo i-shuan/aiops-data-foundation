@@ -10,7 +10,7 @@
 #      可以重複執行，結果一樣。log 欄位規範見 docs/log/README.md。
 #   1. 寫入用 API key（給 OpenTelemetry Collector）：一把，所有 group 共用，只能寫、不能讀。
 #      資料屬於哪個 group 由 Collector 依 Pod 決定（data_stream.namespace），不靠 key 擋：沒有部門間寫入隔離的要求，
-#      一把 key 少了「key 權限 pattern 漏了 → ES 回 200 但整批拒絕、Collector 看不到」的機會（docs/pdca/2026-10-ingest-simplify.md）。
+#      一把 key 少了「key 權限 pattern 漏了 → ES 回 200 但整批拒絕、Collector 看不到」的機會（docs/pdca/phase1-collect/2026-10-ingest-simplify.md）。
 #      回應裡的 "encoded" 放進每個應用 cluster otel-collector namespace 的 Secret es-writer-keys 的 ES_WRITER_API_KEY。
 #      之後換 key 用 rotate-writer-key.sh（不掉資料）；重跑這支腳本也會發新 key，但舊的不會作廢。
 #   2. AIOps 專用唯讀 API key：可讀所有 k8s-*（log）、metrics-*.otel-*（metrics）、traces-*.otel-*（trace）。
@@ -19,7 +19,7 @@
 #   4. 健康檢查用 key（es-probe，只能 GET /）：給 ES 前面的 LB／Service 的健康檢查用。
 #      ES 剛起來的 1 秒多，API key 會被拒（401）但 elastic 帳號、/_cluster/health 都正常；Collector 收到 401
 #      會當成「key 錯了」直接丟資料。所以健康檢查一定要用 API key 打 GET /、等 200 才把流量導過去
-#      （範例：storage/healthcheck-haproxy.cfg；docs/pdca/2026-10-es-startup-401.md）。
+#      （範例：storage/healthcheck-haproxy.cfg；docs/pdca/phase1-collect/2026-10-es-startup-401.md）。
 set -euo pipefail
 
 cd "$(dirname "$0")/.."   # telemetry/：設定檔在 storage/
@@ -178,7 +178,7 @@ rollover_if_not 'logs-*.otel-*' k8s-logs-otel
 rollover_if_not 'traces-*.otel-*' traces-otel
 
 # failure store：被拒的文件（pipeline 失敗、型別不合）留在 <data stream>::failures。template 只管新建的資料流，
-# 已經存在的要另外打開（docs/pdca/2026-10-ingest-simplify.md）。OTel 的 metrics、traces 資料流 ES 預設就開了
+# 已經存在的要另外打開（docs/pdca/phase1-collect/2026-10-ingest-simplify.md）。OTel 的 metrics、traces 資料流 ES 預設就開了
 if [[ -n "$(es "${ES_URL}/_data_stream/k8s-*" | jq -r '.data_streams[]? | .name' | head -1)" ]]; then
   es -X PUT "${ES_URL}/_data_stream/k8s-*/_options" -d '{"failure_store": {"enabled": true}}' >/dev/null
 fi

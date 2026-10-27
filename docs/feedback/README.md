@@ -8,15 +8,15 @@
 |---|---|---|
 | 異常總表 `aiops-anomalies` | ✅ | 所有判斷結果都寫這裡，帶 `status`（warning／anomaly）、可信度、粒度、方法 |
 | 使用者、指令調整（粒度、z、min_abs） | ✅ | `series.yaml` 的 `overrides`、`tune` 指令寫進 `aiops-tuning`，記原因、誰、何時（[baseline README「使用者、feedback 調整」](../../engine/configs/baseline/README.md#使用者feedback-調整)）；之後 feedback 也寫同一處 |
-| 告警出口 | ✅ | 同服務合成一件寫 `aiops-alerts`，Grafana 依 dept 分送（[pdca/2026-10-alert-exit.md](../pdca/2026-10-alert-exit.md)）；排程與「AIOps 停了」（[pdca/2026-10-schedule.md](../pdca/2026-10-schedule.md)） |
-| 事故紀錄 `aiops-incidents` | ✅ | 告警一開就有一筆（`auto`、帶指紋）；老師傅在回饋網頁確認 → `confirmed`，存根因分類、處置、**怎麼看出來的**、查了哪裡；相似事故檢索只讀確認過的（[pdca/2026-10-expert-feedback.md](../pdca/2026-10-expert-feedback.md)、[2026-10-similar-incidents.md](../pdca/2026-10-similar-incidents.md)） |
+| 告警出口 | ✅ | 同服務合成一件寫 `aiops-alerts`，Grafana 依 dept 分送（[pdca/phase3-locate/2026-10-alert-exit.md](../pdca/phase3-locate/2026-10-alert-exit.md)）；排程與「AIOps 停了」（[pdca/phase3-locate/2026-10-schedule.md](../pdca/phase3-locate/2026-10-schedule.md)） |
+| 事故紀錄 `aiops-incidents` | ✅ | 告警一開就有一筆（`auto`、帶指紋）；老師傅在回饋網頁確認 → `confirmed`，存根因分類、處置、**怎麼看出來的**、查了哪裡；相似事故檢索只讀確認過的（[pdca/phase5-learning-loop/2026-10-expert-feedback.md](../pdca/phase5-learning-loop/2026-10-expert-feedback.md)、[2026-10-similar-incidents.md](../pdca/phase4-rca-llm/2026-10-similar-incidents.md)） |
 | 值班回饋 `aiops-feedback` | ✅ | 回饋網頁 `feedback_web`（通知裡的連結）＋指令；誤報 3 次 → 建議、漏報 → 降 z、同根因 3 次 → 規則草稿（都 proposed）。漏報還只能用指令；沒登入 |
-| 回測 | ✅ | `backtest`：現行 vs 現行＋建議重跑過去 N 週，已確認事故少抓一件就不建議；沒回測不能核准（[pdca/2026-10-loop-update.md](../pdca/2026-10-loop-update.md)） |
+| 回測 | ✅ | `backtest`：現行 vs 現行＋建議重跑過去 N 週，已確認事故少抓一件就不建議；沒回測不能核准（[pdca/phase5-learning-loop/2026-10-loop-update.md](../pdca/phase5-learning-loop/2026-10-loop-update.md)） |
 | 版本、評測集 | ❌ | 每筆異常記下是哪一版產生的；20～30 件真實事故的評測集（相似事故、LLM 共用） |
-| LLM | ⚠️ | 報告最前面三到五句、每句附依據、捏造就整段不顯示、掛了退回固定句型（[pdca/2026-10-llm-summary.md](../pdca/2026-10-llm-summary.md)）；真的模型還沒跑過 |
-| 量化 | ⚠️ | `metrics` 兩段並排（件數、有回饋比例、誤報率、到回饋多久、怎麼看出來的有沒有填）；數字要等試點（[pdca/2026-10-metrics-kpi.md](../pdca/2026-10-metrics-kpi.md)） |
+| LLM | ⚠️ | 報告最前面三到五句、每句附依據、捏造就整段不顯示、掛了退回固定句型（[pdca/phase4-rca-llm/2026-10-llm-summary.md](../pdca/phase4-rca-llm/2026-10-llm-summary.md)）；真的模型還沒跑過 |
+| 量化 | ⚠️ | `metrics` 兩段並排（件數、有回饋比例、誤報率、到回饋多久、怎麼看出來的有沒有填）；數字要等試點（[pdca/phase5-learning-loop/2026-10-metrics-kpi.md](../pdca/phase5-learning-loop/2026-10-metrics-kpi.md)） |
 
-**順序都走過一輪了**（2026-10-25，模擬資料；[pdca/2026-10-product-loop.md](../pdca/2026-10-product-loop.md) 的整合驗證）。下一步：上 K8s、用有 trace 的事故驗、試點產線先只寫入不通知 2～4 週。
+**順序都走過一輪了**（2026-10-25，模擬資料；[end-to-end-flow.md「產品主線 8 步」](../end-to-end-flow.md#產品主線-8-步) 的整合驗證）。下一步：上 K8s、用有 trace 的事故驗、試點產線先只寫入不通知 2～4 週。
 
 上線前先記下現況當基準（每天告警幾筆、多少是誤報、從告警到找到原因平均多久），之後才量得出有沒有改善。
 
@@ -31,7 +31,7 @@
 
 閉環的每一段都有程式、都在模擬資料上跑通；缺的是真實資料和真的 LLM。
 
-完整的一輪紀錄（exemplar 實測、方案比較）見 [pdca/2026-10-metrics-to-trace.md](../pdca/2026-10-metrics-to-trace.md)；紀錄格式見 [pdca/TEMPLATE.md](../pdca/TEMPLATE.md)。
+exemplar 實測與方案比較見 [rca/README.md「為什麼不用 exemplar」](../rca/README.md#為什麼不用-exemplar用服務路由時間撈一批)；紀錄格式見 [pdca/TEMPLATE.md](../pdca/TEMPLATE.md)。
 
 ## 對了怎麼強化、錯了怎麼 feedback
 

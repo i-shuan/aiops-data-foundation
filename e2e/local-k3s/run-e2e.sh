@@ -152,7 +152,7 @@ check "沒有 pipeline 失敗的文件"          "$(count 'k8s-*' '{"exists":{"f
 
 echo "== 6. 權限"
 code() { curl -s -o /dev/null -w '%{http_code}' -H "Authorization: ApiKey $1" -H 'Content-Type: application/json' "${@:2}"; }
-# 寫入 key 只有一把、所有 group 共用（docs/pdca/2026-10-ingest-simplify.md）：資料屬於哪個 group 由 Collector 決定，
+# 寫入 key 只有一把、所有 group 共用（docs/pdca/phase1-collect/2026-10-ingest-simplify.md）：資料屬於哪個 group 由 Collector 決定，
 # 上面「冒充」那幾項驗的就是這個；這裡只驗 key 能寫、不能讀
 check "寫入 key 可以寫 IT 的 index" \
   "$(code "${WRITER_KEY}" -X POST "${ES_URL}/k8s-it-local/_doc?op_type=create" -d '{"@timestamp":"2026-01-01T00:00:00Z","message":"x"}')" 201

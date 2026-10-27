@@ -21,8 +21,8 @@
 
 | 項目 | 要做的 |
 |---|---|
-| ① trace-sampler 斷線 | ✅ 兩段佇列都改寫在磁碟：node 端寫節點磁碟、trace-sampler 端寫 PVC。實測 trace-sampler 停 400 秒、node 重啟、ES 停機中 trace-sampler 重啟都不掉；**trace-sampler 當掉（kill -9）仍掉約 20%**（等 30 秒決定的那段在記憶體）。不用 Kafka（實測沒有多擋住任何情況）。[PDCA](../pdca/2026-10-trace-durability.md) |
-| ① ES 剛起來回 401、Collector 直接丟 | ✅ 修在 ES 入口：健康檢查（LB 或 readinessProbe）要用 API key 打 GET /、等 200；ES 剛起來的 1 秒多 API key 會被拒，但 elastic 帳號、`/_cluster/health` 都正常，用它們檢查會把流量導進去。實測直連掉 420、經健康檢查的 LB 掉 0；兩台 ES 滾動重啟用舊檢查掉 200～280、用新檢查掉 0（兩台的投票名單只有一台，重啟到它就沒 master；三台以上才能真的滾動）。📝 中央 ES 前面的健康檢查要請管 ES 的人改（範例 `telemetry/storage/healthcheck-haproxy.cfg`）。[PDCA](../pdca/2026-10-es-startup-401.md) |
+| ① trace-sampler 斷線 | ✅ 兩段佇列都改寫在磁碟：node 端寫節點磁碟、trace-sampler 端寫 PVC。實測 trace-sampler 停 400 秒、node 重啟、ES 停機中 trace-sampler 重啟都不掉；**trace-sampler 當掉（kill -9）仍掉約 20%**（等 30 秒決定的那段在記憶體）。不用 Kafka（實測沒有多擋住任何情況）。[PDCA](../pdca/phase1-collect/2026-10-trace-durability.md) |
+| ① ES 剛起來回 401、Collector 直接丟 | ✅ 修在 ES 入口：健康檢查（LB 或 readinessProbe）要用 API key 打 GET /、等 200；ES 剛起來的 1 秒多 API key 會被拒，但 elastic 帳號、`/_cluster/health` 都正常，用它們檢查會把流量導進去。實測直連掉 420、經健康檢查的 LB 掉 0；兩台 ES 滾動重啟用舊檢查掉 200～280、用新檢查掉 0（兩台的投票名單只有一台，重啟到它就沒 master；三台以上才能真的滾動）。📝 中央 ES 前面的健康檢查要請管 ES 的人改（範例 `telemetry/storage/healthcheck-haproxy.cfg`）。[PDCA](../pdca/phase1-collect/2026-10-es-startup-401.md) |
 | ③ 保留天數 | ✅ 隨機留下的 7 天；有問題的（錯誤、5xx、例外、慢）由 pipeline 轉到 `traces-problem.otel-<group>`，留 30 天（[retention.md](../retention.md)） |
 
 **要做的（①收值、②清資料、④判斷）**
@@ -119,7 +119,7 @@ trace-sampler × 2（StatefulSet，尾端取樣）
 
 ## 跟 log、metrics 串起來
 
-- **log ↔ trace：** 自動埋點（Java agent、.NET 自動埋點）會把 `trace_id`、`span_id` 放進每一行 log 的 context（Java 的 MDC、.NET 的 scope）；中央 pipeline 存成 log 的 `trace.id`、`span.id`，alias `trace_id`、`span_id` 跟 trace 同名。實測兩邊對得到（見「驗證」）。AIOps 看到一筆錯誤 log，可以直接查那個請求的完整 trace。**綁得起來的條件是 log 的輸出格式有把 context 印出來**，不同情況如下（[pdca/2026-10-ingest-keys-check.md](../pdca/2026-10-ingest-keys-check.md) 逐一驗過）：
+- **log ↔ trace：** 自動埋點（Java agent、.NET 自動埋點）會把 `trace_id`、`span_id` 放進每一行 log 的 context（Java 的 MDC、.NET 的 scope）；中央 pipeline 存成 log 的 `trace.id`、`span.id`，alias `trace_id`、`span_id` 跟 trace 同名。實測兩邊對得到（見「驗證」）。AIOps 看到一筆錯誤 log，可以直接查那個請求的完整 trace。**綁得起來的條件是 log 的輸出格式有把 context 印出來**，不同情況如下（[pdca/phase1-collect/2026-10-ingest-keys-check.md](../pdca/phase1-collect/2026-10-ingest-keys-check.md) 逐一驗過）：
 
   | 應用的 log 怎麼輸出 | trace_id 在哪 | 綁得起來？ | 要做什麼 |
   |---|---|---|---|
@@ -132,7 +132,7 @@ trace-sampler × 2（StatefulSet，尾端取樣）
 
   (b) 的代價：stdout 照印，平台會收到兩份（檔案那份沒 trace_id），所以只在需要時開；node Collector 的 `logs/otlp` pipeline 收這條。**(b) 真的 agent 驗過**（docker，2026-10-27）：Tomcat 10 的 JSP 用 `java.util.logging` 印純文字、ASP.NET Core 8 用 `ILogger` 預設純文字 console，都不改程式，ES 裡的 log 帶 trace_id、對得到 Server span。
 
-  **.NET Framework（4.x）**：trace、metrics 可以（自動埋點支援 4.6.2 以上，Windows 上掛 IIS 或 Windows Service）；(b) 的 `ILogger` 那條**不支援 Framework**（官方文件明寫），log4net、NLog 5 以上有另一條 bytecode 的路（Experimental，沒驗過）。細節在 [pdca/2026-10-ingest-keys-check.md](../pdca/2026-10-ingest-keys-check.md) 的 Act。
+  **.NET Framework（4.x）**：trace、metrics 可以（自動埋點支援 4.6.2 以上，Windows 上掛 IIS 或 Windows Service）；(b) 的 `ILogger` 那條**不支援 Framework**（官方文件明寫），log4net、NLog 5 以上有另一條 bytecode 的路（Experimental，沒驗過）。細節在 [pdca/phase1-collect/2026-10-ingest-keys-check.md](../pdca/phase1-collect/2026-10-ingest-keys-check.md) 的 Act。
 - **trace ↔ metrics：** 都有 `resource.attributes.service.name`、`k8s.namespace.name`、`k8s.pod.name`。
 
 ## 欄位
@@ -187,10 +187,7 @@ ES_URL=http://<ip>:9200 e2e/local-k3s/run-trace-e2e.sh
 
 ## 坑
 
-- **Service 一定要 `internalTrafficPolicy: Local`。** 拿掉的話，應用可能連到別的節點的 Collector，那裡認不得這個 Pod，trace 會進 unassigned。
-- **應用不能用 hostNetwork。** 用節點 IP 送出來的連線對不到 Pod，會進 unassigned。
-- **key 失效期間的 trace 會遺失**，跟 log、metrics 一樣。換 key 用 `rotate-writer-key.sh`。
-- **量**：trace 通常比 log 還大。尾端取樣後約剩 15%（不要在應用調低 `otel.traces.sampleRatio`，見「應用要做什麼」）；全廠量起來前要估算 ES 的空間。
+集中在 [troubleshooting.md](../troubleshooting.md#trace)。
 
 ## 還沒做
 

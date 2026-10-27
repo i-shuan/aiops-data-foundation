@@ -1,6 +1,6 @@
 # 排程上線：K8s CronJob、回饋網頁、「AIOps 停了」
 
-[docs/pdca/2026-10-schedule.md](../../docs/pdca/2026-10-schedule.md)。engine 的每個指令現在都是手動打；這個資料夾讓它在 K8s 上照頻率跑。
+[docs/pdca/phase3-locate/2026-10-schedule.md](../../docs/pdca/phase3-locate/2026-10-schedule.md)。engine 的每個指令現在都是手動打；這個資料夾讓它在 K8s 上照頻率跑。
 
 | 檔案 | 內容 |
 |---|---|

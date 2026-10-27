@@ -4,6 +4,8 @@
 #   rca-wip-worker（imc-wip-prod）收到後查 Oracle「SELECT LOT_HISTORY」（平常 30ms）
 #
 # 兩個服務都把自己的 span 送到 Collector、印一行帶 trace_id 的 JSON log，所以 log 和 trace 對得起來。
+# rca-mes-api 另外在 :9464/metrics 開 http_server_request_duration_seconds（依實際耗時、狀態碼累加），
+# Collector 依 prometheus.io/scrape 抓，所以出事時 metrics 的錯誤率、p95 也是真的（rules.yaml 的保底規則抓得到）。
 # trace_id 用網址參數傳給下游（模擬 traceparent header；busybox httpd 不會把任意 header 交給 CGI）。
 # 時間用節點開機時間（/proc/stat btime）＋ /proc/uptime，兩個 Pod 在同一個節點上，時間一致、精確到 10ms。
 #
@@ -24,6 +26,32 @@ metadata: {name: rca-mes-api, namespace: it-mes-prod}
 data:
   run.sh: |
     . /rca/lib.sh
+    # metrics：每個請求依耗時、狀態碼累加直方圖（Prometheus 格式，跟 http-metrics-app.yaml 一樣），Collector 依 prometheus.io/scrape 抓
+    B="0.005 0.01 0.025 0.05 0.075 0.1 0.25 0.5 0.75 1 2.5 5 7.5 10"
+    BMS="5 10 25 50 75 100 250 500 750 1000 2500 5000 7500 10000"
+    L='http_request_method="GET",http_route="/lots/{id}",url_scheme="http"'
+    for c in 200 500; do j=0; for ms in $BMS; do j=$((j + 1)); eval "b${c}_$j=0"; done; eval "n$c=0; s$c=0"; done
+    observe() {  # observe <狀態碼> <耗時 ms>
+      j=0
+      for ms in $BMS; do j=$((j + 1)); [ "$2" -le "$ms" ] && eval "b$1_$j=\$((b$1_$j + 1))"; done
+      eval "n$1=\$((n$1 + 1)); s$1=\$((s$1 + $2))"
+      write_metrics
+    }
+    write_metrics() {
+      {
+        echo '# TYPE http_server_request_duration_seconds histogram'
+        for c in 200 500; do
+          et=''; [ "$c" = 500 ] && et=',error_type="500"'
+          j=0
+          for le in $B; do j=$((j + 1)); eval "v=\$b${c}_$j"; echo "http_server_request_duration_seconds_bucket{${L},http_response_status_code=\"$c\"$et,le=\"$le\"} $v"; done
+          eval "v=\$n$c; s=\$s$c"
+          echo "http_server_request_duration_seconds_bucket{${L},http_response_status_code=\"$c\"$et,le=\"+Inf\"} $v"
+          echo "http_server_request_duration_seconds_count{${L},http_response_status_code=\"$c\"$et} $v"
+          echo "http_server_request_duration_seconds_sum{${L},http_response_status_code=\"$c\"$et} $((s / 1000)).$(printf %03d $((s % 1000)))"
+        done
+      } > /www/metrics.tmp && mv /www/metrics.tmp /www/metrics
+    }
+    mkdir -p /www; write_metrics; httpd -p 9464 -h /www
     i=0
     while :; do
       i=$((i + 1)); lot="L$((100000 + i))"
@@ -48,6 +76,7 @@ data:
       if [ -n "$err" ]; then log ERROR "lot ${lot} failed: wip-worker returned error" "$tid" "$root"
       else log INFO "lot ${lot} handled in $((t1 - t0))ms" "$tid" "$root"; fi
       send rca-mes-api "$(span "$tid" "$root" "" "GET /lots/{id}" 2 "$t0" "$t1" "$(attr http.request.method GET),$(attr http.route /lots/{id})" "$err")${spans}"
+      if [ -n "$err" ]; then observe 500 $((t1 - t0)); else observe 200 $((t1 - t0)); fi
       sleep 0.5
     done
 ---
@@ -60,6 +89,7 @@ spec:
   template:
     metadata:
       labels: {app.kubernetes.io/name: rca-mes-api, app.kubernetes.io/version: "1.0.0", app.kubernetes.io/part-of: demo}
+      annotations: {prometheus.io/scrape: "true", prometheus.io/port: "9464", prometheus.io/path: /metrics}
     spec:
       containers:
         - name: app

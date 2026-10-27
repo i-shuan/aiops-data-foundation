@@ -1,4 +1,4 @@
-"""回測（detector.cmd_backtest）的結果怎麼呈現；回測本身要 ES 和 baseline，在 e2e 驗（docs/pdca/2026-10-loop-update.md）。"""
+"""回測（detector.cmd_backtest）的結果怎麼呈現；回測本身要 ES 和 baseline，在 e2e 驗（docs/pdca/phase5-learning-loop/2026-10-loop-update.md）。"""
 import unittest
 
 from detector import cmd_backtest as B
@@ -30,7 +30,7 @@ import pandas as pd
 
 
 class Timezones(unittest.TestCase):
-    """docs/pdca/2026-10-fix-critical.md 2：incident add 存的時間沒有時區，跟有時區的異常時間比不能丟 TypeError。"""
+    """docs/pdca/phase5-learning-loop/2026-10-fix-critical.md 2：incident add 存的時間沒有時區，跟有時區的異常時間比不能丟 TypeError。"""
     df = pd.DataFrame({"ts": [pd.Timestamp("2026-10-05T02:05:00Z"), pd.Timestamp("2026-10-05T09:00:00Z")], "_series": ["x", "x"], "_svc": ["mes-api", "pay"]})
 
     def test_naive_incident_time_is_local(self):

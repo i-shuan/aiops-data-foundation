@@ -25,15 +25,43 @@ flowchart LR
 | 步 | 做什麼 | 程式／設定 | 多久跑一次 | 怎麼驗過 |
 |---|---|---|---|---|
 | ① 應用 | 用 [sdk/charts/app-common](../sdk/charts/app-common) 部署：Java 掛 agent、.NET 自動埋點；log 印 stdout、metrics 給 Collector 抓、trace 用 OTLP 送 | `sdk/`、[sdk/standards/tracing.md](../sdk/standards/tracing.md) | 常駐 | k3s：`e2e/local-k3s/run-e2e.sh`、`run-dotnet-e2e.sh`、`run-trace-e2e.sh` |
-| ① 收值 | node Collector 收 log、抓 metrics、收 trace；cluster Collector 收 K8s 狀態；trace-sampler 尾端取樣（錯的慢的全留、正常留 5%） | `telemetry/collectors/*.yaml` | 常駐；metrics 30 秒抓一次 | 同上；斷線、ES 401 的情況（[pdca/trace-durability](pdca/2026-10-trace-durability.md)、[es-startup-401](pdca/2026-10-es-startup-401.md)） |
-| ② 清資料 | Collector：擋應用自帶的 dept/group、讀 namespace label 分部門、Prometheus 累加值換成每 30 秒的增量、Java 指標改名跟 .NET 一樣；ES pipeline：log 依格式解析、時區、去重複 | `telemetry/collectors/common.yaml`、`telemetry/storage/` | 進來就做 | `e2e/pipeline/`（時間、格式案例）；[pdca/field-unify](pdca/2026-10-field-unify.md)、[time-alignment](pdca/2026-10-time-alignment.md) |
+| ① 收值 | node Collector 收 log、抓 metrics、收 trace；cluster Collector 收 K8s 狀態；trace-sampler 尾端取樣（錯的慢的全留、正常留 5%） | `telemetry/collectors/*.yaml` | 常駐；metrics 30 秒抓一次 | 同上；斷線、ES 401 的情況（[pdca/trace-durability](pdca/phase1-collect/2026-10-trace-durability.md)、[es-startup-401](pdca/phase1-collect/2026-10-es-startup-401.md)） |
+| ② 清資料 | Collector：擋應用自帶的 dept/group、讀 namespace label 分部門、Prometheus 累加值換成每 30 秒的增量、Java 指標改名跟 .NET 一樣；ES pipeline：log 依格式解析、時區、去重複 | `telemetry/collectors/common.yaml`、`telemetry/storage/` | 進來就做 | `e2e/pipeline/`（時間、格式案例）；[pdca/field-unify](pdca/phase1-collect/2026-10-field-unify.md)、[time-alignment](pdca/phase1-collect/2026-10-time-alignment.md) |
 | ③ 存 | 一把寫入 key，資料依 group 進 `k8s-<group>-<cluster>`、`metrics-*.otel-<group>`、`traces-*.otel-<group>`；被拒的進 failure store；保留天數 | `telemetry/scripts/elasticsearch-setup.sh`、`retention.conf` | — | `run-key-rotation.sh`、`run-es-2node.sh` |
 | ④ 判斷 | **規則**（容器重啟、錯誤率 ≥ 5%、p95 ≥ 2 秒等，一次就算；老師傅核准的規則也在這）、**baseline**（每條序列 × 星期幾 × 小時的中位數＋MAD，連續 2 點才 anomaly、偏太多一點就算）、**跟兄弟比**（同服務的 Pod）、**trace 每一段**；資料品質（資料停了、欄位缺）；排除時段、歲修 | `engine/detector/`、`engine/configs/baseline/*.yaml` | 第一階段只開 rules／detect 每 1 分鐘、train 每天 02:00；peer／trace／quality／chronic 第二階段（[deploy/](../engine/deploy/README.md)） | 單元測試；`tests/synth_e2e.py`、`adaptive_e2e.py`、`fine_e2e.py`；k3s `run-rules-e2e.sh`、`run-peer-e2e.sh`、`run-trace-baseline-e2e.sh` |
 | ⑤ 異常總表 | 所有判斷結果一個 index：`series`、`keys`（服務、API…）、`value`、`median`、`z`、`status`（warning／anomaly）、`dept`、`group` | `aiops-anomalies` | — | — |
-| ⑥ 收斂 | **同一個服務、30 分鐘內接著來的異常 = 一件**（同 dept 的兩個服務是兩件）；30 分鐘沒新的 → resolved；每次跑寫一筆心跳 | `engine/investigator/alerts.py`、`cmd_alert.py`；`configs/rca/rca.yaml` 的 `alerts:` | 每 1 分鐘 | `tests/test_alerts.py`；[pdca/alert-exit](pdca/2026-10-alert-exit.md)（Grafana 12.2 實測） |
+| ⑥ 收斂 | **同一個服務、30 分鐘內接著來的異常 = 一件**（同 dept 的兩個服務是兩件）；30 分鐘沒新的 → resolved；每次跑寫一筆心跳 | `engine/investigator/alerts.py`、`cmd_alert.py`；`configs/rca/rca.yaml` 的 `alerts:` | 每 1 分鐘 | `tests/test_alerts.py`；[pdca/alert-exit](pdca/phase3-locate/2026-10-alert-exit.md)（Grafana 12.2 實測） |
 | ⑦ 根因分析 | 新的一件：從異常拿服務＋API＋時間 → 出事時最慢 200 個 trace 跟一週前比 → **慢在哪一段**（扣掉下游）、**錯從哪開始** → 用 trace_id 撈 log、**新出現的 log 樣式** → Markdown 報告；再用這件的**指紋**去 `aiops-incidents` 找老師傅確認過的**相似事故**（為什麼像、當時根因、處置、怎麼看出來的）；**LLM 摘要**三到五句、每句附依據 | `engine/investigator/__main__.py`、`similar.py`、`engine/core/llm.py` | 跟 ⑥ 同一次 | k3s `run-rca-e2e.sh`（有 trace）；`tests/loop_e2e.py`（相似事故、LLM template）；`test_similar.py`、`test_llm.py` |
 | ⑧ 出口 | 一件一筆寫 `aiops-alerts`：`status`、`service`、`dept`、`group`、`severity`、`summary`（通知帶這個）、`report`、`feedback_url`。**通知交給 Grafana**：每件一則（`group_by: alert_id`）、依 `dept` 送各部門、沒 dept 送平台、結束發恢復；**心跳 10 分鐘沒寫 → 「AIOps 停了」** | `engine/configs/grafana/*.yaml`（provisioning 範例） | Grafana 每 1 分鐘查 | Grafana 12.2 實測一件一則、依 dept、恢復（心跳規則只到 yaml 能讀） |
 | ⑨ 回饋 | 通知裡的連結 → 回饋表單（Grafana 儀表板裡，或回饋服務自己的小網頁，寫進 ES 的一樣）：一鍵真的／誤報／根因錯，真的時填根因分類、根因、處置、**怎麼看出來的**、查了哪裡；寫 `aiops-feedback`（每筆異常一筆）、`aiops-incidents`（confirmed）。回來：確認的事故 → 下次相似事故查得到；誤報 3 次 → `feedback suggest` 放寬 → `backtest` → `adjust approve`；漏報 → 降 z；同根因 3 次 → 規則（門檻算好，核准後 `rules` 自動載入）；`metrics` 算學之前／之後 | `engine/feedback_web/`、`configs/grafana/dashboards/`、`detector/cmd_feedback.py`、`cmd_backtest.py`、`cmd_metrics.py` | 網頁常駐；suggest／backtest 人跑 | `tests/loop_e2e.py` 整個故事 37 項；`test_feedback_web.py`、`test_feedback.py`、`test_metrics.py` |
+
+## 產品主線 8 步
+
+產品的說法是 8 步（賣點：learning loop、老師傅 feedback、RCA 結合 RAG）；編號仍以 ①～⑨ 為準。
+
+| 步 | 內容 | 模組 | 現況 |
+|---|---|---|---|
+| 1 | 收值，三種資料共用同一套鑰匙 | ①（鑰匙名字統一屬 ②） | ✅ |
+| 2 | 清洗資料：進來時（格式、時區、去重複、改名、failure store）＋餵 baseline 前（`quality`、`adjust`、`chronic`、行事曆） | ② | ✅ 程式；⚠️ 後者沒排程 |
+| 3 | 異常分析：**基本樣式**（baseline、trace 每一段）＋**單次異常**（規則、跟兄弟比） | ④（結果寫 ⑤） | ✅ 程式；門檻是估的 |
+| 4 | 串 metrics → trace → log，抓出問題在哪 | ⑦ | ✅ |
+| 5 | 輔助第 4 步的工具：呼叫關係、瀑布圖、log 樣式、用業務 ID 查一筆交易、給人和 LLM 用的查詢工具 | ⑦ | ⚠️ 前三樣有；業務 ID、LLM 查詢工具沒有 |
+| 6 | 整合事件：很多筆異常合成一件 | ⑥（送出去屬 ⑧） | ⚠️ 只有同服務合成一件 |
+| 7 | 抓出根因＋RAG：附過去相似事故、老師傅當時怎麼判斷、怎麼處置；LLM 摘要 | ⑦＋⑨ | ✅ 模擬資料 |
+| 8 | learning loop：回饋進來 → 知識庫更新、門檻與 baseline 調整（建議 → 回測 → 核准） | ⑨（回饋入口屬 ⑧） | ✅ 模擬資料 |
+
+8 步沒寫到、但一定要的是 **⑧ 出口**：沒有它第 6 步之後沒人看到，第 8 步也沒有回饋可學。**定案**：不再加新的偵測機制，先把這一圈在真實環境跑起來。
+
+**整合驗證**（`tests/loop_e2e.py`，docker 的 ES 9.5.5、模擬資料 `aiops-synth`：3 個服務 4 週歷史＋2 天，37 項全過）：
+
+| 故事 | 結果 |
+|---|---|
+| 第 1 次 mes-api 變慢 → 一件＋報告 → 老師傅回饋 | 一件、`aiops-incidents` 先 `auto` 再 `confirmed`；`aiops-feedback` 每筆異常一筆 |
+| 第 2 次同樣症狀 | 報告最前面附第 1 件（為什麼像、根因、處置）；LLM 摘要（template）每句附依據 |
+| 第 3 次 → 同根因 3 次 | 附 2 件相似；`similar-eval` recall@3 = 3/3；提「升級成規則」草稿 |
+| 月底批次誤報 3 次 | 建議 z 5 → 7；沒回測不能核准；`backtest` 告警 3 → 1、已確認事故不受影響；核准後同一段不再報 |
+| 漏報 | 一筆降 z 的建議 |
+| 量化（`metrics`） | 6 件、有回饋 100%、誤報率 50%、確認的事故 3 |
 
 ## 一件事從頭到尾長什麼樣（loop_e2e 跑出來的）
 
@@ -63,6 +91,7 @@ flowchart LR
 | 程式邏輯對（不連 ES） | `cd engine && python3 -m pytest -q`（276 個） | 無 |
 | 收值線通（Collector → ES → 分部門） | `e2e/local-k3s/run-e2e.sh` | k3s |
 | 根因分析從異常找到那一段、那行 log | `e2e/local-k3s/run-rca-e2e.sh` | k3s，約 14 分鐘 |
+| 整條線在 K8s 上：Pod 連續送三種資料 → 規則從 metrics 真的偵測 → 合成一件 → 根因＋LLM → Grafana 儀表板與通知 | `e2e/local-k3s/rca-demo/run-rca-demo.sh`（up → loop → incident） | k3s、`run-e2e.sh` 跑過；真的 LLM 要 `LLM_ENV_FILE`。約 15 分鐘看到根因，恢復通知再 30 分鐘 |
 | baseline 抓得到造的異常、誤報多少 | `cd engine && python3 -m tests.synth_e2e` | 一個 ES |
 | 整個 learning loop 的故事 | `cd engine && python3 -m tests.loop_e2e` | 一個 ES，約 2 分鐘 |
 | Grafana 一件一則、依 dept | 手動照 [configs/grafana/README.md](../engine/configs/grafana/README.md) | Grafana 12 |
@@ -81,13 +110,13 @@ flowchart LR
 
 ## 哪裡不足（會影響能不能用、能不能賣）
 
-1. **全部是模擬資料**。相似事故在沒有 trace 時只靠「同服務＋同指標」剛好壓在門檻上；K8s 沒跑過。真的 LLM（OpenAI）2026-10-25 跑過 12 次、修了三個只有真跑才看得到的問題（[pdca/2026-10-fix-feedback-ux.md](pdca/2026-10-fix-feedback-ux.md)），但沒有評測集。這些排在所有新功能前面。
-2. **程式有幾個會讓整輪失敗的點**（`/code-review` 2026-10-25 的 10 項，對過程式，前 4 項是真的要修；**前 4 項已修**，[pdca/2026-10-fix-critical.md](pdca/2026-10-fix-critical.md)）：
+1. **全部是模擬資料**。相似事故在沒有 trace 時只靠「同服務＋同指標」剛好壓在門檻上；K8s 沒跑過。真的 LLM（OpenAI）2026-10-25 跑過 12 次、修了三個只有真跑才看得到的問題（[pdca/phase5-learning-loop/2026-10-fix-feedback-ux.md](pdca/phase5-learning-loop/2026-10-fix-feedback-ux.md)），但沒有評測集。這些排在所有新功能前面。
+2. **程式有幾個會讓整輪失敗的點**（`/code-review` 2026-10-25 的 10 項，對過程式，前 4 項是真的要修；**前 4 項已修**，[pdca/phase5-learning-loop/2026-10-fix-critical.md](pdca/phase5-learning-loop/2026-10-fix-critical.md)）：
    - `cmd_alert.py`：LLM 那段沒有 try/except，輸入包裡一個 NaN 就讓整輪 alert 掛掉，連心跳都不寫，Grafana 會誤報「AIOps 停了」（違反自己的「只加註不擋告警」）。
    - `cmd_backtest.py`：`incident add` 存的時間沒有時區，回測比較 tz-aware 的異常時間會丟 TypeError，從此所有建議都要 `--force`。
    - `cmd_alert.py`：事故「已確認不覆蓋」是先讀再寫，老師傅剛好在中間送出就被蓋掉（要用 `_update` 加條件、或 `if_seq_no`）。
    - `deploy/gen-cronjobs.py`：alert 的 `activeDeadlineSeconds: 110`，叫真的 LLM 一件 60 秒逾時，兩件就被砍，下一分鐘重來一樣被砍。
-   - 其餘 6 項裡，漏報建議被擋、網頁 ES 錯誤沒回應、template 空句**已修**（[pdca/2026-10-fix-feedback-ux.md](pdca/2026-10-fix-feedback-ux.md)）；metrics 回饋跨段、回測重複查 ES、相似事故 ES 前 20 截斷還沒動。
+   - 其餘 6 項裡，漏報建議被擋、網頁 ES 錯誤沒回應、template 空句**已修**（[pdca/phase5-learning-loop/2026-10-fix-feedback-ux.md](pdca/phase5-learning-loop/2026-10-fix-feedback-ux.md)）；metrics 回饋跨段、回測重複查 ES、相似事故 ES 前 20 截斷還沒動。
 3. **回饋網頁沒登入（Grafana 表單也還是自己填名字）、漏報沒網頁入口**；月底批次只會提「放寬 z」不會提排除時段。
 4. **門檻全是估的**：z 5、instant_z 15、相似分數 4、誤報 3 次、權重；要 2～4 週真實資料。
 
@@ -96,7 +125,7 @@ flowchart LR
 | 東西 | 為什麼算過度 | 建議 |
 |---|---|---|
 | baseline 的三個自動機制同時存在：自選粒度（6 階）、卜瓦松、借同組 | 沒有真實資料就先做了三種退路；設定、文件、測試都跟著變厚 | 留著但不再擴；真實資料跑過再決定砍哪個 |
-| ~~行事曆自動變成幾十筆 `exclude_window`~~ | 工廠 24×7，國定假日根本不該列；該列的是歲修，一次一筆 | **已改**：拿掉國定假日來源，歲修一筆一筆寫（[pdca/2026-10-rule-threshold.md](pdca/2026-10-rule-threshold.md)） |
+| ~~行事曆自動變成幾十筆 `exclude_window`~~ | 工廠 24×7，國定假日根本不該列；該列的是歲修，一次一筆 | **已改**：拿掉國定假日來源，歲修一筆一筆寫（[pdca/phase5-learning-loop/2026-10-rule-threshold.md](pdca/phase5-learning-loop/2026-10-rule-threshold.md)） |
 | trace 每一段的 baseline（`trace-train`／`trace-detect`）＋ N+1、吞例外規則 | trace 有取樣、只留 7 天，學出來的「平常」本來就偏；根因分析已經會比「慢在哪一段」 | 先只跑根因分析那條；trace baseline 等有真資料 |
 | ~~規則草稿 `rule_suggestion` 的門檻留 `<填：…>`~~ | 做了一半：提了草稿但人還是要自己查數字、改 yaml | **已改**：門檻 = 三件事故延遲峰值的最小值，核准後 `rules` 自動載入（同上） |
 | 回饋表單 10 個「查了哪裡」、6 種誤報原因、9 類根因 | 選項是估的，沒人填過 | 第一週看真的填了什麼再縮 |

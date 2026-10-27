@@ -20,8 +20,8 @@ log 也由同一個 Collector 收（[log/README.md](../log/README.md)）：分�
 
 | 項目 | 要做的 |
 |---|---|
-| ② 指標名稱不一致 | ✅ node Collector 進來時把 Java（Prometheus 格式）的 `http_server_request_duration_seconds`、`http_route`、`http_request_method`、狀態碼字串改成 OTel 的 `http.server.request.duration`、`http.route`、`http.request.method`、狀態碼數字（`node.yaml` 的 `metricstransform/java-http`、`transform/java-http`）。ES 裡只有一種名字，baseline 的 `variants` 拿掉。只對舊名字生效：Java agent 升版自己吐 OTel 名字也不會改錯。`quality.metric_name_legacy` 盯「舊名字又出現」。[PDCA](../pdca/2026-10-field-unify.md) |
-| ① ES 剛起來回 401、Collector 直接丟 | 修在 ES 入口：健康檢查要用 API key 打 GET /（trace 線實測；metrics 用同一種 exporter，推論相同）。📝 中央 ES 前面的健康檢查要請管 ES 的人改。[PDCA](../pdca/2026-10-es-startup-401.md) |
+| ② 指標名稱不一致 | ✅ node Collector 進來時把 Java（Prometheus 格式）的 `http_server_request_duration_seconds`、`http_route`、`http_request_method`、狀態碼字串改成 OTel 的 `http.server.request.duration`、`http.route`、`http.request.method`、狀態碼數字（`node.yaml` 的 `metricstransform/java-http`、`transform/java-http`）。ES 裡只有一種名字，baseline 的 `variants` 拿掉。只對舊名字生效：Java agent 升版自己吐 OTel 名字也不會改錯。`quality.metric_name_legacy` 盯「舊名字又出現」。[PDCA](../pdca/phase1-collect/2026-10-field-unify.md) |
+| ① ES 剛起來回 401、Collector 直接丟 | 修在 ES 入口：健康檢查要用 API key 打 GET /（trace 線實測；metrics 用同一種 exporter，推論相同）。📝 中央 ES 前面的健康檢查要請管 ES 的人改。[PDCA](../pdca/phase1-collect/2026-10-es-startup-401.md) |
 | ① .NET 還沒驗證的 | SQL Server（SqlClient）連線池指標、.NET 6、Alpine（musl）image（[metrics/dotnet.md](dotnet.md)） |
 | ③ 保留天數 | ✅ 原始 14 天 → 5 分鐘一點 → 第 90 天 1 小時一點 → 第 400 天刪；降解析度後直方圖照樣保留（[retention.md](../retention.md)） |
 
@@ -29,7 +29,7 @@ log 也由同一個 Collector 收（[log/README.md](../log/README.md)）：分�
 
 | 項目 | 內容 | 驗收 |
 |---|---|---|
-| ① 主機時鐘監控（時間對齊；規則在 ④判斷） | ✅ K8s 節點：node Collector 的 `ntp` receiver（不用 node_exporter），30 分鐘量一次（receiver 的最短間隔），寫 `metrics-ntpreceiver.otel-*` 的 `metrics.ntp.offset`（奈秒）；規則 `node.clock_offset`：快慢超過 100ms warning、超過 1 秒 critical。📝 DB 主機（不在 K8s 裡）還沒有。`NTP_SERVER` 要填公司的 NTP。[PDCA](../pdca/2026-10-time-alignment.md) | 實測：假 NTP 伺服器快 2.5 秒、慢 0.3 秒、差 0.05 秒，三台分別報 critical、warning、不報 |
+| ① 主機時鐘監控（時間對齊；規則在 ④判斷） | ✅ K8s 節點：node Collector 的 `ntp` receiver（不用 node_exporter），30 分鐘量一次（receiver 的最短間隔），寫 `metrics-ntpreceiver.otel-*` 的 `metrics.ntp.offset`（奈秒）；規則 `node.clock_offset`：快慢超過 100ms warning、超過 1 秒 critical。📝 DB 主機（不在 K8s 裡）還沒有。`NTP_SERVER` 要填公司的 NTP。[PDCA](../pdca/phase1-collect/2026-10-time-alignment.md) | 實測：假 NTP 伺服器快 2.5 秒、慢 0.3 秒、差 0.05 秒，三台分別報 critical、warning、不報 |
 | ② 業務 ID 不放 metrics | 交易 ID、單號只放 log、trace；放進 metrics 每個值一條新序列，序列數會爆炸 | 資料品質檢查會報序列數暴增（[rca/README.md「髒資料排除」](../rca/README.md#髒資料排除)） |
 
 ## 資料怎麼走
@@ -204,23 +204,7 @@ ES_URL=http://<ip>:9200 e2e/local-k3s/run-metrics-e2e.sh
 
 ## 坑
 
-- **key 失效期間的資料會遺失（metrics 和 log 都是）。** OTLP 出口只對 429、502、503、504 重試，401（key 錯、被作廢）當成永久錯誤，整批直接丟掉，也沒有設定可以改。所以：
-  - **換 key 用 `telemetry/scripts/rotate-writer-key.sh`**：先發新的、換進 Secret、等每個 Collector 換用新 key，才作廢舊的；Collector 從檔案讀 key，不用重啟，metrics 也就沒有重啟造成的空檔。實測見 [log/README.md 的「換 key」](../log/README.md#換-key)。
-  - 現在發的 key 沒有到期日，不會自己失效。之後若要加到期日，要排好在到期前換。
-  - 要監控 Collector 的 `otelcol_exporter_send_failed_metric_points`、`otelcol_exporter_send_failed_log_records`（`:8888/metrics`），大於 0 就是有資料送不出去被丟掉。
-  - log 另外要看 Collector 自己的 log 裡的 `Partial success`：ES 拒收其中幾筆時只印這行、那幾筆丟掉。其中 `CONFLICT`（409）是重送的被擋掉，屬於正常的去重複，不算遺失。
-- **ES 重啟後，TSDS 曾經拒收停機期間的資料，而且回成功。** TSDS 每個 backing index 只收一段時間範圍內的資料，往後預設只開 9 分鐘（`index.look_ahead_time`）。ES 停機期間時間範圍沒有往後推，重開時佇列裡的資料加上新資料一起湧入，落在範圍外的被 ES 丟進 failure store（`.fs-metrics-*`），**回給 Collector 的卻是成功**，Collector 不會報錯也不會重送。實測停 3 分鐘時有 4,162 筆進了 failure store。改法：`metrics-otel@custom` 把 `look_ahead_time` 設成 2 小時（`elasticsearch-setup.sh` 會建），之後停 10 分鐘 0 筆。設定只對新的 backing index 生效，既有的資料流要 rollover 一次。要監控 failure store：
-  ```bash
-  curl -s -u elastic:<password> "https://<es>:9200/.fs-metrics-*/_count?expand_wildcards=all&ignore_unavailable=true"
-  ```
-- **重啟 Collector 會少抓 1～2 次。** 舊的停掉到新的開始抓之間（約 30～60 秒）沒有人抓，這段的應用 metrics、kubelet 資料就沒有，事後也補不回來。佇列裡已經抓到、還沒送出的不受影響（實測重啟後全部送出）。換版、改設定盡量排在離峰。
-- **cluster 那一份的 replicas 一定要 1。** 多一個，K8s 物件狀態的每筆資料就多一份。換版時也用 `Recreate`，避免新舊同時跑。
-- **改 namespace 的 dept 幾秒內生效**（實測 2～17 秒），log 和 metrics 同時切換。
-- **dept 清單要手動同步兩處。** `telemetry/groups.yaml` 和 `common.yaml` 的 `transform/group`（log 和 metrics 共用）要一致。
-- **應用的 `service.name` 曾經全部是 `pods`。** Prometheus receiver 會把抓取工作的名稱填進 `service.name`，而讀 Pod label 的那一步不覆蓋已經有的值。`common.yaml` 先清掉再讀，測試裡有一項專門擋這個。
-- **不要換回 `elasticsearch` 寫入元件。** 它在連線逾時時會直接丟資料，見上方「為什麼用 OTLP 送」。
-- **向 kubelet 取資料時沒有驗它的憑證**（`insecure_skip_verify: true`）。正式環境若 kubelet 憑證由內部 CA 簽，改成驗證。
-- **`CLUSTER_NAME` 是每筆資料的 `k8s.cluster.name`**，不在資料流名稱裡（跟 log 不一樣）。每個 cluster 一定要改，不然各廠的資料會混在一起分不出來。
+集中在 [troubleshooting.md](../troubleshooting.md#metrics)。
 
 ## 還沒做
 

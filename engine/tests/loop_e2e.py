@@ -1,4 +1,4 @@
-"""product-loop 的整合驗證（docker 的 es-t）：
+"""產品主線 8 步的整合驗證（docker 的 es-t）：
 第 1 次事故 → 告警 → 老師傅在回饋網頁確認（db）→ 第 2 次同樣症狀的告警附上相似事故＋LLM 摘要；
 月底批次被誤報 3 次 → 都標誤報 → feedback suggest → backtest → adjust approve → 再跑不報；
 同根因 3 次 → 升級成規則的建議；similar-eval、metrics。
@@ -6,7 +6,7 @@
 
 執行（在 engine 底下，對著測試用的 ES；會清掉 aiops-* 的資料）：
   ES_URL=http://<ip>:9200 ES_AUTH=elastic:... LLM_PROVIDER=template python3 -m tests.loop_e2e
-約 2 分鐘。結果記在 docs/pdca/2026-10-product-loop.md 的 Check。
+約 2 分鐘。結果記在 docs/end-to-end-flow.md 的「產品主線 8 步」。
 """
 import json, os, subprocess, sys, tempfile, time, urllib.request
 import numpy as np, pandas as pd
@@ -162,7 +162,7 @@ def main():
         check("一筆放寬 z 的建議（proposed，mes-report synth.requests）", len(ov) == 1 and ov[0]["_source"]["status"] == "proposed" and ov[0]["_source"]["series"] == "synth\\.requests", str([h["_source"].get("series") for h in ov]))
         check("一筆升級成規則的建議（mes-api db ×3），附規則草稿", len(rule) == 1 and rule[0]["_source"]["service"] == "mes-api" and rule[0]["_source"]["rule_draft"]["type"] == "window", str(len(rule)))
         if rule: print("    規則草稿：" + json.dumps(rule[0]["_source"]["rule_draft"], ensure_ascii=False)[:500])
-        # 門檻算出來：三件事故 synth.latency 的峰值取最小值；查法跟 synth.latency 一樣、只看 mes-api（pdca/2026-10-rule-threshold.md）
+        # 門檻算出來：三件事故 synth.latency 的峰值取最小值；查法跟 synth.latency 一樣、只看 mes-api（pdca/phase5-learning-loop/2026-10-rule-threshold.md）
         d = rule[0]["_source"]["rule_draft"] if rule else {}
         floors = (d.get("_source") or {}).get("floors") or []
         check("  門檻 = 三件各自最低異常值的最小值（synth.latency，約 450）", isinstance(d.get("threshold"), (int, float)) and len(floors) == 3 and d["threshold"] == round(min(floors), 3) and 400 < d["threshold"] < 500, str((d.get("threshold"), floors)))
@@ -195,7 +195,7 @@ def main():
         r = run("detector", "feedback", "suggest", "--config", SYNTH, "--days", "60", quiet=True)
         miss = [h for h in es.search("aiops-tuning", {"size": 50, "query": {"match_all": {}}})["hits"]["hits"] if "漏報" in (h["_source"].get("reason") or "")]
         check("漏報 → 一筆降 z 的建議（proposed）", len(miss) == 1 and miss[0]["_source"]["z"] == 4.0, str([h["_source"].get("reason") for h in miss]))
-        # 之前被放寬過的對象（mes-report synth.requests，剛核准 z 7）漏報了：建議不能被吃掉，要從 7 往下降（pdca/2026-10-fix-feedback-ux.md 5）
+        # 之前被放寬過的對象（mes-report synth.requests，剛核准 z 7）漏報了：建議不能被吃掉，要從 7 往下降（pdca/phase5-learning-loop/2026-10-fix-feedback-ux.md 5）
         run("detector", "feedback", "add", "--config", SYNTH, "--verdict", "missed", "--series", "synth.requests", "--match", "service=mes-report", "--at", iso(1, "16:00"), "--by", "amy", "--note", "批次之外真的掉量沒報", quiet=True)
         r = run("detector", "feedback", "suggest", "--config", SYNTH, "--days", "60", quiet=True)
         miss2 = [h for h in es.search("aiops-tuning", {"size": 50, "query": {"match_all": {}}})["hits"]["hits"]
