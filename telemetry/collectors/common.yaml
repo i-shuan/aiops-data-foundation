@@ -142,7 +142,16 @@ exporters:
     sending_queue:
       enabled: true
       storage: file_storage
-      queue_size: 10000
+      # 上限用筆數（log 行數、metrics 點數）算：沒有 batch processor 時，進佇列的是讀檔時的小批（實測每批約 40 行），
+      # 用請求數算的話 10,000 個在每秒 200 行時 33 分鐘就滿
+      sizer: items
+      queue_size: 20000000
+      # 一批一批送（量大時才送得動）在佇列裡湊，不用 batch processor：batch processor 在佇列前面、在記憶體裡，
+      # 資料交給它時讀檔位置已經往前，Collector 當掉（OOM、kill -9）就掉最後約 1 秒（docs/pdca/phase1-collect/2026-10-durability.md）
+      batch:
+        flush_timeout: 1s
+        min_size: 2000
+        max_size: 2000
     # max_elapsed_time 0 = 一直重試到送成功為止。佇列滿了才會丟（見 queue_size）
     retry_on_failure:
       enabled: true
