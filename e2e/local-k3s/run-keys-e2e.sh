@@ -7,6 +7,8 @@
 # 用法：ES_URL=http://127.0.0.1:<port> e2e/local-k3s/run-keys-e2e.sh
 #       KEEP=1：跑完不刪測試 namespace；ONE_SAMPLER=1：trace-sampler 暫時縮成 1 台（繞過 loadbalancing 的佇列檔問題，見步驟 1）
 # 共用 cluster：先 source cluster-lock.sh; cluster_lock <名字>。
+# ⚠ 會把這個 checkout 的 telemetry/storage（pipeline、template）裝進 ES_URL。共用的 es-test 只該裝 master 版：
+#   storage 改過的分支跑完，要在鎖內用 master 版的 elasticsearch-setup.sh（SKIP_KEYS=1）還原。
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 repo="$(cd "${here}/../.." && pwd)"
