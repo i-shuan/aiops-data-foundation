@@ -187,7 +187,7 @@ chart 會自動掛 Java agent 和 .NET 自動埋點（`otel.dotnet.enabled: true
 
 | 環境變數 | 值 |
 |---|---|
-| `OTEL_SERVICE_NAME` | 服務名稱（跟 `app.kubernetes.io/name` 一樣） |
+| `OTEL_SERVICE_NAME` | 服務名稱（跟 `app.kubernetes.io/name` 一樣；不一樣時平台用 label） |
 | `OTEL_TRACES_EXPORTER` | `otlp` |
 | `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | `http://otel-node-collector.otel-collector.svc:4318/v1/traces` |
 | `OTEL_EXPORTER_OTLP_TRACES_PROTOCOL` | `http/protobuf` |

@@ -112,6 +112,12 @@ processors:
       - set(resource.attributes["group"], "imc") where resource.attributes["dept"] != nil and IsMatch(resource.attributes["dept"], "^(D1110|D1120)$")
       - set(resource.attributes["data_stream.namespace"], resource.attributes["group"])
       - set(resource.attributes["k8s.cluster.name"], "${env:CLUSTER_NAME}")
+      # 服務身分以 Pod label 為準：應用自己設的 OTEL_SERVICE_NAME、OTEL_RESOURCE_ATTRIBUTES 跟 label 不同時蓋掉。
+      # k8s_attributes 不覆蓋已經有的值，不這樣做的話同一個請求的 trace、OTLP metrics 用應用自己的名字，
+      # log、Prometheus metrics 用 label，鑰匙圈對不起來（docs/pdca/phase1-collect/2026-10-keys-k8s.md）
+      - set(resource.attributes["service.name"], resource.attributes["k8s.pod.labels.app.kubernetes.io/name"]) where resource.attributes["k8s.pod.labels.app.kubernetes.io/name"] != nil
+      - set(resource.attributes["service.version"], resource.attributes["k8s.pod.labels.app.kubernetes.io/version"]) where resource.attributes["k8s.pod.labels.app.kubernetes.io/version"] != nil
+      - set(resource.attributes["service.namespace"], resource.attributes["k8s.pod.labels.app.kubernetes.io/part-of"]) where resource.attributes["k8s.pod.labels.app.kubernetes.io/part-of"] != nil
       # Pod 沒有 app.kubernetes.io/name（沒套 app-common chart）的，退回用 Deployment 名稱
       - set(resource.attributes["service.name"], resource.attributes["k8s.deployment.name"]) where resource.attributes["service.name"] == nil and resource.attributes["k8s.deployment.name"] != nil
     metric_statements: *group_rules

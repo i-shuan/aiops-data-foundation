@@ -1,0 +1,237 @@
+# 共同鑰匙圈的邊緣情境（run-keys-e2e.sh）。每個 Deployment 跑 keys-app.sh，同一個請求產生 trace、兩種 log、兩種 metrics。
+# 容器名稱一律 app；Pod 的 label case 是情境名稱（腳本用它找 Pod），不是鑰匙。
+#   base      keys-it    一般情況：label 與 OTEL_SERVICE_NAME 一樣
+#   nolabel   keys-it    Pod 沒有 app.kubernetes.io/name、應用也沒設服務名稱（Deployment 名稱 nolabel-b ≠ 容器名稱 app）
+#   conflict  keys-it    label keys-c，應用自己設 OTEL_SERVICE_NAME=keys-c-own
+#   spoof     keys-it    應用自帶 IMC 的 namespace、Pod、dept、group、cluster（OTLP 資源欄位、stdout JSON、Prometheus label）
+#   hostnet   keys-it    hostNetwork
+#   hostnet2  keys-imc   同一個節點上第二個 hostNetwork 的 Pod（節點 IP 一樣）
+#   samename  keys-imc   跟 base 同一個服務名稱（keys-a）、同一個 Deployment 名稱，在另一個部門
+#   nodept    keys-nodept   namespace 沒有 dept
+#   baddept   keys-baddept  dept D9999（不在 groups.yaml）
+#   switch    keys-switch   測試中把 dept 從 D3120 改成 D1110
+apiVersion: v1
+kind: Namespace
+metadata: {name: keys-it, labels: {dept: D3120}}
+---
+apiVersion: v1
+kind: Namespace
+metadata: {name: keys-imc, labels: {dept: D1110}}
+---
+apiVersion: v1
+kind: Namespace
+metadata: {name: keys-nodept}
+---
+apiVersion: v1
+kind: Namespace
+metadata: {name: keys-baddept, labels: {dept: D9999}}
+---
+apiVersion: v1
+kind: Namespace
+metadata: {name: keys-switch, labels: {dept: D3120}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: base, namespace: keys-it}
+spec:
+  replicas: 1
+  selector: {matchLabels: {case: base}}
+  template:
+    metadata:
+      labels: {case: base, app.kubernetes.io/name: keys-a}
+      annotations: {prometheus.io/scrape: "true", prometheus.io/port: "9464", prometheus.io/path: /metrics}
+    spec:
+      terminationGracePeriodSeconds: 1
+      containers:
+        - name: app
+          image: docker.io/library/busybox:1.37
+          command: [sh, /script/run.sh]
+          env: [{name: CASE, value: base}, {name: SVC, value: "keys-a"}, {name: PROM_PORT, value: "9464"}]
+          volumeMounts: [{name: script, mountPath: /script}]
+      volumes: [{name: script, configMap: {name: keys-app}}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: nolabel-b, namespace: keys-it}
+spec:
+  replicas: 1
+  selector: {matchLabels: {case: nolabel}}
+  template:
+    metadata:
+      labels: {case: nolabel}
+      annotations: {prometheus.io/scrape: "true", prometheus.io/port: "9464", prometheus.io/path: /metrics}
+    spec:
+      terminationGracePeriodSeconds: 1
+      containers:
+        - name: app
+          image: docker.io/library/busybox:1.37
+          command: [sh, /script/run.sh]
+          env: [{name: CASE, value: nolabel}, {name: SVC, value: ""}, {name: PROM_PORT, value: "9464"}]
+          volumeMounts: [{name: script, mountPath: /script}]
+      volumes: [{name: script, configMap: {name: keys-app}}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: conflict, namespace: keys-it}
+spec:
+  replicas: 1
+  selector: {matchLabels: {case: conflict}}
+  template:
+    metadata:
+      labels: {case: conflict, app.kubernetes.io/name: keys-c}
+      annotations: {prometheus.io/scrape: "true", prometheus.io/port: "9464", prometheus.io/path: /metrics}
+    spec:
+      terminationGracePeriodSeconds: 1
+      containers:
+        - name: app
+          image: docker.io/library/busybox:1.37
+          command: [sh, /script/run.sh]
+          env: [{name: CASE, value: conflict}, {name: SVC, value: "keys-c-own"}, {name: PROM_PORT, value: "9464"}]
+          volumeMounts: [{name: script, mountPath: /script}]
+      volumes: [{name: script, configMap: {name: keys-app}}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: spoof, namespace: keys-it}
+spec:
+  replicas: 1
+  selector: {matchLabels: {case: spoof}}
+  template:
+    metadata:
+      labels: {case: spoof, app.kubernetes.io/name: keys-d}
+      annotations: {prometheus.io/scrape: "true", prometheus.io/port: "9464", prometheus.io/path: /metrics}
+    spec:
+      terminationGracePeriodSeconds: 1
+      containers:
+        - name: app
+          image: docker.io/library/busybox:1.37
+          command: [sh, /script/run.sh]
+          env: [{name: CASE, value: spoof}, {name: SVC, value: "keys-d"}, {name: PROM_PORT, value: "9464"}, {name: SPOOF, value: ',{"key":"k8s.namespace.name","value":{"stringValue":"keys-imc"}},{"key":"k8s.pod.name","value":{"stringValue":"fake-pod"}},{"key":"k8s.pod.uid","value":{"stringValue":"00000000-0000-0000-0000-000000000000"}},{"key":"k8s.cluster.name","value":{"stringValue":"other"}},{"key":"dept","value":{"stringValue":"D1110"}},{"key":"group","value":{"stringValue":"imc"}},{"key":"data_stream.namespace","value":{"stringValue":"imc"}}'}, {name: LOG_SPOOF, value: ',"service":{"name":"fake-svc"},"kubernetes":{"namespace":"keys-imc","pod":{"name":"fake-pod"}},"labels":{"dept":"D1110","group":"imc"},"orchestrator":{"cluster":{"name":"other"}}'}, {name: PROM_LABELS, value: ',dept="D1110",group="imc",namespace="keys-imc",pod="fake-pod"'}]
+          volumeMounts: [{name: script, mountPath: /script}]
+      volumes: [{name: script, configMap: {name: keys-app}}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: hostnet, namespace: keys-it}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}   # hostNetwork：新舊 Pod 同時在會搶同一個 port
+  selector: {matchLabels: {case: hostnet}}
+  template:
+    metadata:
+      labels: {case: hostnet, app.kubernetes.io/name: keys-i}
+      annotations: {prometheus.io/scrape: "true", prometheus.io/port: "19464", prometheus.io/path: /metrics}
+    spec:
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      terminationGracePeriodSeconds: 1
+      containers:
+        - name: app
+          image: docker.io/library/busybox:1.37
+          command: [sh, /script/run.sh]
+          env: [{name: CASE, value: hostnet}, {name: SVC, value: "keys-i"}, {name: PROM_PORT, value: "19464"}]
+          volumeMounts: [{name: script, mountPath: /script}]
+      volumes: [{name: script, configMap: {name: keys-app}}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: hostnet, namespace: keys-imc}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}   # hostNetwork：新舊 Pod 同時在會搶同一個 port
+  selector: {matchLabels: {case: hostnet2}}
+  template:
+    metadata:
+      labels: {case: hostnet2, app.kubernetes.io/name: keys-i2}
+      annotations: {prometheus.io/scrape: "true", prometheus.io/port: "19465", prometheus.io/path: /metrics}
+    spec:
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      terminationGracePeriodSeconds: 1
+      containers:
+        - name: app
+          image: docker.io/library/busybox:1.37
+          command: [sh, /script/run.sh]
+          env: [{name: CASE, value: hostnet2}, {name: SVC, value: "keys-i2"}, {name: PROM_PORT, value: "19465"}]
+          volumeMounts: [{name: script, mountPath: /script}]
+      volumes: [{name: script, configMap: {name: keys-app}}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: base, namespace: keys-imc}
+spec:
+  replicas: 1
+  selector: {matchLabels: {case: samename}}
+  template:
+    metadata:
+      labels: {case: samename, app.kubernetes.io/name: keys-a}
+      annotations: {prometheus.io/scrape: "true", prometheus.io/port: "9464", prometheus.io/path: /metrics}
+    spec:
+      terminationGracePeriodSeconds: 1
+      containers:
+        - name: app
+          image: docker.io/library/busybox:1.37
+          command: [sh, /script/run.sh]
+          env: [{name: CASE, value: samename}, {name: SVC, value: "keys-a"}, {name: PROM_PORT, value: "9464"}]
+          volumeMounts: [{name: script, mountPath: /script}]
+      volumes: [{name: script, configMap: {name: keys-app}}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: nodept, namespace: keys-nodept}
+spec:
+  replicas: 1
+  selector: {matchLabels: {case: nodept}}
+  template:
+    metadata:
+      labels: {case: nodept, app.kubernetes.io/name: keys-e}
+      annotations: {prometheus.io/scrape: "true", prometheus.io/port: "9464", prometheus.io/path: /metrics}
+    spec:
+      terminationGracePeriodSeconds: 1
+      containers:
+        - name: app
+          image: docker.io/library/busybox:1.37
+          command: [sh, /script/run.sh]
+          env: [{name: CASE, value: nodept}, {name: SVC, value: "keys-e"}, {name: PROM_PORT, value: "9464"}]
+          volumeMounts: [{name: script, mountPath: /script}]
+      volumes: [{name: script, configMap: {name: keys-app}}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: baddept, namespace: keys-baddept}
+spec:
+  replicas: 1
+  selector: {matchLabels: {case: baddept}}
+  template:
+    metadata:
+      labels: {case: baddept, app.kubernetes.io/name: keys-f}
+      annotations: {prometheus.io/scrape: "true", prometheus.io/port: "9464", prometheus.io/path: /metrics}
+    spec:
+      terminationGracePeriodSeconds: 1
+      containers:
+        - name: app
+          image: docker.io/library/busybox:1.37
+          command: [sh, /script/run.sh]
+          env: [{name: CASE, value: baddept}, {name: SVC, value: "keys-f"}, {name: PROM_PORT, value: "9464"}]
+          volumeMounts: [{name: script, mountPath: /script}]
+      volumes: [{name: script, configMap: {name: keys-app}}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: switch, namespace: keys-switch}
+spec:
+  replicas: 1
+  selector: {matchLabels: {case: switch}}
+  template:
+    metadata:
+      labels: {case: switch, app.kubernetes.io/name: keys-g}
+      annotations: {prometheus.io/scrape: "true", prometheus.io/port: "9464", prometheus.io/path: /metrics}
+    spec:
+      terminationGracePeriodSeconds: 1
+      containers:
+        - name: app
+          image: docker.io/library/busybox:1.37
+          command: [sh, /script/run.sh]
+          env: [{name: CASE, value: switch}, {name: SVC, value: "keys-g"}, {name: PROM_PORT, value: "9464"}]
+          volumeMounts: [{name: script, mountPath: /script}]
+      volumes: [{name: script, configMap: {name: keys-app}}]

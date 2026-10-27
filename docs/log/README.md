@@ -83,7 +83,7 @@ AIOps 只認這些欄位。標準概念用 [ECS](https://www.elastic.co/guide/en
 | `error.stack_trace` | 應用 | 人看 |
 | `trace.id`、`span.id` | OpenTelemetry Java agent 寫進 MDC | 串起同一個請求的 log，也對得到 trace 的 `trace_id`（[trace/README.md](../trace/README.md)）。alias `trace_id`、`span_id` 跟 trace 同名 |
 | `resource.attributes.service.name`、`resource.attributes.k8s.*.name`、`trace_id`、`span_id` | alias（`component-mappings.json`），指到上面的 ECS 欄位 | 跟 metrics、trace 同一條路徑查；不佔空間、不在 `_source`（用 `fields` 取） |
-| `service.name` | pod label `app.kubernetes.io/name`；沒有就用 container 名稱 | 分析單位 |
+| `service.name` | pod label `app.kubernetes.io/name`；沒有就用 Collector 給的（Deployment 名稱，跟 metrics、trace 一樣）；Fluent Bit 送的用 container 名稱 | 分析單位 |
 | `service.version` | pod label `app.kubernetes.io/version` | 「換版之後才開始錯」 |
 | `service.namespace` | pod label `app.kubernetes.io/part-of` | 所屬系統 |
 | `labels.group`、`labels.dept` | 分流結果、namespace label | 歸屬 |

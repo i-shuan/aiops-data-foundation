@@ -116,7 +116,7 @@ annotations:
 |---|---|---|
 | `metrics.<名稱>` | 數值，例如 `metrics.k8s.pod.cpu.usage`、`metrics.demo_requests_total` | — |
 | `attributes.*` | 這個數值自己的維度，例如應用的 `path` | — |
-| `resource.attributes.service.name` | Pod label `app.kubernetes.io/name`；沒有就用 Deployment 名稱 | `service.name` |
+| `resource.attributes.service.name` | Pod label `app.kubernetes.io/name`（OTLP 推的，應用自己設的不同時被蓋掉）；沒有就用 Deployment 名稱 | `service.name` |
 | `resource.attributes.service.version` | Pod label `app.kubernetes.io/version` | `service.version` |
 | `resource.attributes.service.namespace` | Pod label `app.kubernetes.io/part-of` | `service.namespace` |
 | `resource.attributes.group`、`.dept` | 分流結果、namespace 的 dept label | `labels.group`、`labels.dept` |
