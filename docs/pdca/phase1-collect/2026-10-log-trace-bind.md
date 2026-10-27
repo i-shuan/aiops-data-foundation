@@ -1,6 +1,6 @@
 # log 的 trace_id／span_id：各種格式、各種值都取對、對得到 trace（2026-10）
 
-**狀態**：進行中（cluster 那段還沒跑）　　**日期**：2026-10-27　　**相關**：分支 `claude/p1-logtrace-59c3aa`；[ingest-keys-check](2026-10-ingest-keys-check.md)（log↔trace 綁定的第一輪）、[docs/log/README「trace_id 怎麼取」](../../log/README.md#trace_id-怎麼取)
+**狀態**：已完成（cluster 那段未驗證，見 Act）　　**日期**：2026-10-27　　**相關**：分支 `claude/p1-logtrace-59c3aa`；[ingest-keys-check](2026-10-ingest-keys-check.md)（log↔trace 綁定的第一輪）、[docs/log/README「trace_id 怎麼取」](../../log/README.md#trace_id-怎麼取)
 **模組**：① 收值、② 清資料、⑦ 根因分析
 
 ## Plan：這一次要達到什麼
@@ -65,7 +65,7 @@
 
 ### 經過真的 Collector（`run-trace-id-e2e.sh`）
 
-未驗證：腳本寫好了（大寫、超過 16KB 的一行、格式錯、背景工作、檔案＋OTLP 兩份、alias 交叉查），等 cluster 排到再跑。腳本會先用 `elasticsearch-setup.sh` 把這個分支的 storage/ 裝進 es-test。
+未驗證。腳本寫好了：大寫、超過 16KB 的一行、格式錯、背景工作、檔案＋OTLP 兩份、alias 交叉查。共用的 es-test 不裝這個分支的 pipeline，要跑見 Act。
 
 ### 沒測到的
 
@@ -79,7 +79,19 @@
 | 開 otlp 的服務 log 量兩倍 | 兩份案例 | 存量兩倍；統計（`aiops-log-stats`）推論也算兩次 | 試點看量；要省就讓 `file_log` 不收設了 otlp 的 Pod |
 | `log.source` 只有新資料有 | mapping 新欄位 | 舊資料查 `log.source` 是空的 | 舊資料保留 30 天，自然換完 |
 | 16 個 hex 補 0 是推論 | B3 規格與 OTel B3 propagator 的做法 | 用 Zipkin／Brave 自己送 trace 的服務，trace 不在 ES，本來就對不到 | 有這種服務再看 |
+| [①] cluster 那段（Collector 接回 16KB 長行、file＋OTLP 兩份）未驗證 | 共用 es-test 不能裝未合的 pipeline | `_simulate` 驗了 pipeline，Collector 那段沒驗 | 合進 phase1 分支後跑（見下一輪） |
 | investigator 撈 log 多放 30 分鐘 | 時間差案例 | 更大的偏差（例如時區錯 8 小時）還是撈不到 | 時區錯由 `quality.log_clock_skew` 報（[time-alignment](2026-10-time-alignment.md)） |
 
 - **決定**：格式錯的 trace_id 不硬塞（寧可綁不到，不要綁錯）；原值留著。
-- **下一輪**：無。
+- **下一輪**：cluster 那段要在合進 phase1 分支後，跟 `run-e2e.sh` 一起跑（先拿 cluster 鎖）：
+
+```bash
+source e2e/local-k3s/cluster-lock.sh; cluster_lock "log-trace-bind"
+e2e/local-k3s/run-e2e.sh
+kubectl -n es-test port-forward --address 127.0.0.1 svc/elasticsearch <port>:9200 &
+ES_URL=http://127.0.0.1:<port> e2e/local-k3s/run-trace-id-e2e.sh
+cluster_unlock
+```
+
+- 預期每項 PASS：大寫轉小寫、16KB 一行接回一筆、格式錯不設、背景不設、`log.source` 是 file、otlp。
+- alias 交叉查：log 用 `trace_id` 查到 4 筆。
