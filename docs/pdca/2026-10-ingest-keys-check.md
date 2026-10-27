@@ -1,6 +1,6 @@
 # 收值、共同鑰匙圈、log↔trace 綁定、metrics 時間窗：這週的驗證（2026-10）
 
-**狀態**：完成（docker：pipeline 案例、Collector → ES 的交叉查詢、metrics 三層窗都驗過；補了 OTLP log 的路和 pipeline 兩個漏洞）　　**日期**：2026-10-27　　**相關**：分支 `claude/ingest-check`；對照簡報「PDCA (Phase 1) 收值端整合、共同鑰匙圈與極限壓測」；[field-unify](2026-10-field-unify.md)、[trace-durability](2026-10-trace-durability.md)、[docs/rca/README「共同鑰匙圈」](../rca/README.md#共同鑰匙圈完整清單)
+**狀態**：完成（docker：pipeline 案例、Collector → ES 的交叉查詢、metrics 三層窗都驗過；補了 OTLP log 的路和 pipeline 兩個漏洞；**真的 Java agent、.NET 自動埋點各跑一次，純文字 log 也綁得起來**）　　**日期**：2026-10-27　　**相關**：分支 `claude/ingest-check`；對照簡報「PDCA (Phase 1) 收值端整合、共同鑰匙圈與極限壓測」；[field-unify](2026-10-field-unify.md)、[trace-durability](2026-10-trace-durability.md)、[docs/rca/README「共同鑰匙圈」](../rca/README.md#共同鑰匙圈完整清單)
 **模組**：① 收值、② 清資料、③ 存
 
 ## Plan：這一次要達到什麼
@@ -32,6 +32,8 @@
 3. **實作：OTLP log 的路**：node Collector 加 `logs/otlp` pipeline（otlp receiver → 同一套 processors → ES）；chart 的 `OTEL_LOGS_EXPORTER` 可以設 `otlp`。這樣應用的 log pattern 不印 MDC 時，agent 仍會把帶 trace context 的 log 直接送出來，綁得起來。驗證 B 的 log 就走這條。
 4. **驗證 C（docker）**：假 Java 的 Prometheus 直方圖（每 5 秒 20 個成功＋3 個 500）→ Collector 每 10 秒抓、換增量 → ES；再用 baseline 的 `fetch` 以 1 分鐘的窗加總，看請求數、錯誤率、p95 對不對（請求數 ≈ 276／分、錯誤率 ≈ 13%、p95 > 2.5 秒）。
 5. 文件：問題 2 的表寫進 `docs/trace/README.md`「跟 log 串起來」；簡報的 Check 對照寫進本 PDCA。
+6. **驗證 D（docker，真的 agent）**：不是自己模擬 OTLP，而是真的掛 agent：Tomcat 10 的 JSP 用 `java.util.logging` 印純文字（掛 Java agent 2.10.0），ASP.NET Core 8 用內建 `ILogger` 的預設純文字 console（掛 .NET 自動埋點 1.12.0），兩個都設 `OTEL_LOGS_EXPORTER=otlp`、程式裡沒有任何 OpenTelemetry 的東西、log 格式沒印 trace 欄位。看 ES 裡的 log 有沒有 trace_id、對不對得到 trace 裡的 Server span。
+7. **.NET Framework 吃不吃得進去**：查官方文件，寫清楚哪些 signal 行、哪些不行。
 
 ## Do：改動哪些 code、改了什麼、為何要改
 
@@ -57,11 +59,20 @@
 | 2 意外發現 | — | 依 trace_id 查 log 回了 2 筆 | 第二筆是 span 的例外事件：ES 的 OTLP trace 入口把它存成一筆 log record（`event.name: exception`，沒有 body）。補 message、level、error.type 後它變成一筆有用的 log（第三段案例） |
 | 3 metrics 時間窗 | 三層的窗對得上 | 假 Java 每 5 秒＋23 個請求；Collector 每 10 秒抓、`cumulativetodelta`；baseline 的 `fetch` 用 1 分鐘的窗加總 | ES 每分鐘 12 筆（200、500 各 6 筆，每筆 `start_timestamp` 到 `@timestamp` 剛好 10 秒、count 6 = 3 × 2 個 5 秒）；`http.requests` **276／分**（= 23 × 12）、`http.error_rate` **13.04%**（= 36/276）、`http.latency_p95_s` **3.75 秒**（500 的都在 2.5～5 秒那格，p95 落在格內插值）；連續兩分鐘一模一樣 |
 | Collector 設定還是合法的 | 加了 pipeline 沒寫壞 | `otelcol validate` common.yaml＋node.yaml（掛假的 serviceaccount token、自簽 CA） | 改前改後都過 |
+| **D 真的 Java agent** | 舊專案的純文字 log，不改程式、不改 log 設定，綁不綁得起來 | `tomcat:10.1-jdk21` ＋ `JAVA_TOOL_OPTIONS=-javaagent:…`（chart 用的 autoinstrumentation-java 2.10.0 的 jar）＋ `OTEL_LOGS_EXPORTER=otlp`；JSP 用 `java.util.logging` 印「order N handled」、錯誤 | stdout 是 Tomcat 的純文字（`27-Oct-2026 07:13:58 INFO [http-nio-8080-exec-2] … order 2 handled`，沒有任何 trace 欄位）；ES 的 `k8s-it-c1` 裡同一行帶 `trace_id: ee5ab1…`、`span_id: bedd5a…`、`log.level`；拿這個 trace_id 去 traces 查到 `GET /index.jsp` 的 Server span，span_id 一樣 |
+| **D 真的 .NET 自動埋點** | 同上，.NET | `mcr.microsoft.com/dotnet/aspnet:8.0` ＋ chart 同一組 `CORECLR_*`、`DOTNET_STARTUP_HOOKS`（autoinstrumentation-dotnet 1.12.0）＋ `OTEL_LOGS_EXPORTER=otlp`、`OTEL_DOTNET_AUTO_LOGS_INCLUDE_FORMATTED_MESSAGE=true`；程式只有 `ILogger.LogInformation`／`LogError`，console 是預設純文字（**沒有** chart 的 `Logging__Console__*` JSON、scope 設定） | stdout 純文字（`info: Program[0]` ＋ 下一行 `order 500 handled`）；ES 裡同一個請求 6 筆 log 都帶 `trace_id: aa67f9…`（應用的 2 筆＋ASP.NET Core 框架的 Executing／Executed／Request finished）；`LogError` 那筆 `log.level: error`，span_id 對到 `GET /orders/{id:int}` 的 Server span |
 
 **對照簡報的 Check**：「關聯機制驗證：可透過共同鑰匙圈及 trace_id 正確串接」這次在 docker 重做一次是成立的，但**只對 log 格式有印 trace_id 的應用成立**；純文字 pattern 的舊專案要開 `otel.logs.exporter: otlp`，而且這條路在這次之前根本不通（pipeline 會丟 trace_id）。「收值效能 5,000 logs/sec、0 遺失」這次沒測（要 k3s）。
 
 ## Act：Check 後沒改善的、還沒解決的
 
+- **.NET Framework（4.x）吃不吃得進去**（在什麼情況下發現：問「大部分是 C#」時）。查 OpenTelemetry .NET 自動埋點的官方文件（opentelemetry.io/docs/zero-code/dotnet、config.md，2026-10-27）：
+  - **trace、metrics：可以**。「The minimal supported version of .NET Framework is 4.6.2」，Windows x64，IIS、Windows Service 都掛得上（CLR profiler）。
+  - **log 直送（做法 2）：ILogger 那條不行**。文件明寫 ILogger 的 log instrumentation「Not supported on .NET Framework」，而且要 `Microsoft.Extensions.Logging` ≥ 8。.NET Framework 的舊專案多半也不是用 ILogger。
+  - **log4net、NLog 有另一條**：文件列了 log4net（≥ 2.0.13）、NLog（≥ 5.0）的 bytecode instrumentation，「trace context injection and a logs bridge」，沒有標 Framework 不支援，但標 Experimental；**沒驗過**。
+  - 所以 .NET Framework 的結論：trace、metrics 照 K8s 上 .NET 的做法（但要在 Windows VM 上跑，Framework 進不了 Linux 容器）；log 要看用什麼套件：log4net／NLog 5 以上可能走得通（要驗），自己寫檔的只能用服務＋時間對。
+- **真的 agent 只在 docker 驗，不是 K8s**：身分（namespace、Pod、部門）是 Collector 設定寫死的；K8s 上由 `k8s_attributes` 依連線來源補，這一段還是要在 k3s 跑（`e2e/local-k3s` 的 java-app、dotnet-app 設 `otel.logs.exporter: otlp`）。
+- **.NET 開 otlp 後框架的 log 也一起來**（一個請求 6 筆，4 筆是 ASP.NET Core 的 Executing／Executed／Request finished）：量會比 stdout 大很多。chart 對 .NET 已經把 `Logging__LogLevel__Microsoft.AspNetCore` 設成 Warning，走 otlp 的 log 一樣受這個設定管（這次測試沒設所以都進來了）；正式環境保持 Warning。
 - **chart 的改動沒有 `helm template` 過**（在什麼情況下發現：要驗 `otel.logs.exporter` 時這台沒有 helm，下載執行被擋）。語法照既有 helper 的寫法，但要在有 helm 的地方跑 `sdk/ci/validate-charts.sh` 一次。
 - **`logs/otlp` 這條路在 K8s 上沒跑過**：agent 真的用 OTLP 送 log、`k8s_attributes` 依連線來源補身分，這次是用 `resource` 寫死代替。要在 k3s 用 java-app 設 `otel.logs.exporter: otlp` 跑一次（`e2e/local-k3s/run-trace-e2e.sh` 可以加）。
 - **開 otlp 會收到兩份 log**（stdout 一份、agent 一份）：沒有去重。要嘛 filelog 那邊對設了 otlp 的 Pod 不收（看 Pod 的 label／annotation），要嘛接受雙份、查的時候用 `agent.type` 分。先接受，試點看量。
