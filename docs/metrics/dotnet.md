@@ -115,6 +115,7 @@ HTTP、連線池兩版同名；**runtime 的名稱 .NET 8 跟 .NET 9 完全不�
 - **生產端**：HTTP 請求 → `orders publish` 在同一個 trace。
 - **消費端**：`orders receive` 是**新的 trace**，只用 link 指回生產端；它的時間是 `Consume()` 等下一筆訊息等了多久，不是處理時間。
 - **消費端處理時查的 DB、呼叫的 API 每一筆都自成一個 trace**，對不回是哪一筆訊息。
+- **消費端處理時印的 log 沒有 trace_id**（[pdca/phase1-collect/2026-10-sdk-inject.md](../pdca/phase1-collect/2026-10-sdk-inject.md)）。Java agent 不一樣：處理的 span 接在 publish 底下，log 帶生產者的 trace_id。
 
 平台的做法：排隊時間從 link 找生產端算；沒有上一層的 DB span 當成自己的入口學 baseline（看得到消費者寫 DB 變慢、出錯）；積壓看 kafka_exporter 的 lag。要整條串起來得在消費端改程式（約 5 行，用 header 的 `traceparent` 開處理的 span），目前不做。
 
