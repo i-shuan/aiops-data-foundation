@@ -57,6 +57,7 @@ PDCA 的意思：**Plan** 定規則與門檻 → **Do** 收值、判斷、報告
 | ② 修慢性病（天天噴錯、沒人修的） | 要別人配合 | [rca/](../rca/README.md#髒資料排除) |
 | ⑨ 同一個根因 ≥ 3 次 → 升級成規則 | ✅ 門檻算好、核准後 `rules` 自動載入；只處理延遲類、沒有過期 | [2026-10-rule-threshold.md](2026-10-rule-threshold.md) |
 | [2026-10-grafana-form.md](2026-10-grafana-form.md) | ⑧⑨ 回饋表單放進 Grafana（Business Forms 外掛） | **定案用這個**（外掛放資料夾、不換 image，小網頁當備案）；Grafana 12.2 實測：預填、送出寫回 ES、誤報路徑都對；12.2 只能用外掛 6.3.1；回饋服務網址寫死、要開 CORS；身分還是自己填 |
+| [2026-10-ingest-keys-check.md](2026-10-ingest-keys-check.md) | ①②③ 收值、共同鑰匙圈、log↔trace 綁定、metrics 時間窗：docker 重驗 | 鑰匙圈交叉查得到；log↔trace 要 log 格式有印 trace_id，純文字的要開 `otel.logs.exporter: otlp`（新加的路，pipeline 原本會丟 trace_id，已修；真的 Java agent、.NET 自動埋點各驗一次）；metrics 三層窗對得上（276／分、13%、p95 3.75 秒）；.NET Framework：trace／metrics 可、ILogger 直送不行 |
 | [2026-10-grafana-plugin-init.md](2026-10-grafana-plugin-init.md) | ⑧⑨ Grafana 在 K8s 上用 initContainer 裝回饋表單外掛 | 從 Nexus 下載、核對 SHA-256、解到 emptyDir；docker 模擬驗過（裝、跳過、SHA 不符不裝、簽章 valid）；K8s 上還沒跑 |
 | ⑨ 回饋累積夠且回測通過 → 調門檻、排除時段 | ⚠️ 誤報 3 次 → 放寬 z → 回測 → 人核准；還不會提排除時段 | 同上 |
 | ② 資料品質檢查的門檻：先估的，正式環境只記錄跑 2～4 週再手動校；`quality` 還不能用 `tune` 調 | 📝 | [2026-10-data-cleaning.md](2026-10-data-cleaning.md#門檻怎麼校之後誰來調) |

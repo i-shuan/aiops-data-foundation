@@ -99,8 +99,17 @@ spec:
               value: parentbased_traceidratio
             - name: OTEL_TRACES_SAMPLER_ARG
               value: {{ include "app-common.traceSampleRatio" . | quote }}
+            # log：預設走 stdout（平台從容器 log 檔收，trace_id 要 log 格式有印 MDC／scope）。
+            # 應用的 log pattern 不印 trace_id、又不能改時，設 otel.logs.exporter: otlp：agent 把 log 直接送給 Collector，
+            # 每筆都帶 trace_id（stdout 照印，平台會收到兩份，所以只在需要時開）
             - name: OTEL_LOGS_EXPORTER
-              value: none
+              value: {{ include "app-common.logsExporter" . | quote }}
+            {{- if eq (include "app-common.logsExporter" .) "otlp" }}
+            - name: OTEL_EXPORTER_OTLP_LOGS_ENDPOINT
+              value: http://otel-node-collector.otel-collector.svc:4318/v1/logs
+            - name: OTEL_EXPORTER_OTLP_LOGS_PROTOCOL
+              value: http/protobuf
+            {{- end }}
             {{- if $javaAgent }}
             - name: JAVA_TOOL_OPTIONS
               value: -javaagent:/otel/opentelemetry-javaagent.jar

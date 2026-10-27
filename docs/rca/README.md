@@ -123,7 +123,7 @@
 | **Pod、namespace** | `resource.attributes.k8s.pod.name` 等 | 同左 | 同左（alias → `kubernetes.pod.name`） | 規則、跟兄弟比報的是單一 Pod 時 |
 | **trace_id** | — | `trace_id` | `trace_id`（alias → `trace.id`） | trace ↔ log 精確對到「同一個請求」 |
 
-服務名稱、Pod、namespace 都是 Collector 用同一套規則補上的（不是應用自己填），三種資料一定對得上；trace_id 由自動埋點寫進 log（Java 在 MDC、.NET 在 scope），中央 pipeline 存成 `trace.id`，alias `trace_id` 跟 trace 同名。**三種資料的鑰匙都是同一條路徑**（log 的是 alias；Java 指標名字由 Collector 改），查哪一種都不用翻譯（[pdca/2026-10-field-unify.md](../pdca/2026-10-field-unify.md)）。
+服務名稱、Pod、namespace 都是 Collector 用同一套規則補上的（不是應用自己填），三種資料一定對得上；trace_id 由自動埋點寫進 log（Java 在 MDC、.NET 在 scope；log 格式沒印出來的，用 `otel.logs.exporter: otlp` 讓 agent 直接送，見 [trace/README.md「跟 log、metrics 串起來」](../trace/README.md#跟-logmetrics-串起來)），中央 pipeline 存成 `trace.id`，alias `trace_id` 跟 trace 同名。**三種資料的鑰匙都是同一條路徑**（log 的是 alias；Java 指標名字由 Collector 改），查哪一種都不用翻譯（[pdca/2026-10-field-unify.md](../pdca/2026-10-field-unify.md)）。
 
 ### 歸屬 label 和共同鑰匙是兩種東西
 

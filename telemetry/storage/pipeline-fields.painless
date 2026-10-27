@@ -123,6 +123,30 @@ if (app != null) {
   if (!prune(app)) ctx.app = app;
 }
 
+// 應用的 agent 用 OTLP 直接送的 log（k8s-logs-otel 放在 _otel）：原文裡沒拆到的，從 log record 本身補。
+// 這條路 log 的輸出格式不用印 MDC，trace_id 也綁得起來（docs/pdca/2026-10-ingest-keys-check.md）。
+Map otel = ctx.remove('_otel');
+if (otel != null) {
+  if (ctx.trace == null && otel.get('trace_id') != null) ctx.trace = ['id': otel.get('trace_id').toString()];
+  if (ctx.span == null && otel.get('span_id') != null) ctx.span = ['id': otel.get('span_id').toString()];
+  if (log.get('level') == null && otel.get('severity_text') != null) log.put('level', normLevel(otel.get('severity_text').toString()));
+  def extra = otel.get('attributes');
+  if (extra instanceof Map && !((Map) extra).isEmpty()) {
+    Map a = ctx.app instanceof Map ? ctx.app : new HashMap();
+    for (def e : ((Map) extra).entrySet()) { if (!a.containsKey(e.getKey())) a.put(e.getKey(), e.getValue()); }
+    ctx.app = a;
+    // ES 的 OTLP trace 入口會把 span 的事件（例外）另外存成一筆 log record（實測 ES 9.5.5）：沒有 body，只有 event.name 和例外的欄位。
+    // 補一句 message、level error，這筆才查得到、看得懂；type 放進 error.type，跟 log 原文的例外一樣
+    if (ctx.message == null && 'exception'.equals(a.get('event.name'))) {
+      String et = a.get('exception.type') == null ? null : a.get('exception.type').toString();
+      String em = a.get('exception.message') == null ? null : a.get('exception.message').toString();
+      ctx.message = et != null ? (em != null ? et + ': ' + em : et) : (em != null ? em : 'exception');
+      if (log.get('level') == null) log.put('level', 'error');
+      if (et != null) ctx.error = ['type': et];
+    }
+  }
+}
+
 // 保底：還是沒有 level 的（純文字 log、或 JSON 沒寫 level），從原文抓 level。兩條規則，依序：
 //   A. 行首前綴，不分大小寫：「Warning: …」「[warn] …」「error: …」
 //      只認一行最開頭的字，後面緊接「:」或「]」才算
