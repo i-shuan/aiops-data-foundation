@@ -38,6 +38,7 @@
 
 ## Act：Check 後沒改善的、還沒解決的
 
+- **（2026-10-27 補：已在 k3d 驗，[k3d-e2e](2026-10-k3d-e2e.md)：Init:Error、Pod 重建重裝、舊 Pod 繼續服務都符合）**
 - **K8s 上的行為沒驗**（在什麼情況下發現：要下載 k3d 時被擋）：initContainer 失敗 Pod 停在 `Init:Error`、emptyDir 在 Pod 重建時清空重裝、ConfigMap 掛腳本、`fsGroup` 讓 uid 472 寫得進 emptyDir，這些是 K8s 的標準行為，但沒有實際看過。要在有 k3d 或測試 cluster 的地方跑 `grafana-example.yaml` 一次。
 - **Helm chart 的寫法沒給**：公司 Grafana 如果用 Helm 裝，直接 patch 會在下次升級被蓋掉，要寫進 values；chart 版本不同欄位名稱不同，等知道他們用哪一版再補。
 - **Nexus 的網址、內部 CA 是假的**：`PLUGIN_URL` 要換；Nexus 用內部憑證的話要給 `CURL_OPTS=--cacert …` 並掛 CA，這段沒測。

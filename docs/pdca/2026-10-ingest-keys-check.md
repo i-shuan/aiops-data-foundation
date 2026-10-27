@@ -73,6 +73,7 @@
   - 所以 .NET Framework 的結論：trace、metrics 照 K8s 上 .NET 的做法（但要在 Windows VM 上跑，Framework 進不了 Linux 容器）；log 要看用什麼套件：log4net／NLog 5 以上可能走得通（要驗），自己寫檔的只能用服務＋時間對。
 - **真的 agent 只在 docker 驗，不是 K8s**：身分（namespace、Pod、部門）是 Collector 設定寫死的；K8s 上由 `k8s_attributes` 依連線來源補，這一段還是要在 k3s 跑（`e2e/local-k3s` 的 java-app、dotnet-app 設 `otel.logs.exporter: otlp`）。
 - **.NET 開 otlp 後框架的 log 也一起來**（一個請求 6 筆，4 筆是 ASP.NET Core 的 Executing／Executed／Request finished）：量會比 stdout 大很多。chart 對 .NET 已經把 `Logging__LogLevel__Microsoft.AspNetCore` 設成 Warning，走 otlp 的 log 一樣受這個設定管（這次測試沒設所以都進來了）；正式環境保持 Warning。
+- **（2026-10-27 補：已在 k3d 驗，[k3d-e2e](2026-10-k3d-e2e.md)；`helm template` 過、`logs/otlp` 在 K8s 上 Java 通了，.NET 在 K8s 上沒跑）**
 - **chart 的改動沒有 `helm template` 過**（在什麼情況下發現：要驗 `otel.logs.exporter` 時這台沒有 helm，下載執行被擋）。語法照既有 helper 的寫法，但要在有 helm 的地方跑 `sdk/ci/validate-charts.sh` 一次。
 - **`logs/otlp` 這條路在 K8s 上沒跑過**：agent 真的用 OTLP 送 log、`k8s_attributes` 依連線來源補身分，這次是用 `resource` 寫死代替。要在 k3s 用 java-app 設 `otel.logs.exporter: otlp` 跑一次（`e2e/local-k3s/run-trace-e2e.sh` 可以加）。
 - **開 otlp 會收到兩份 log**（stdout 一份、agent 一份）：沒有去重。要嘛 filelog 那邊對設了 otlp 的 Pod 不收（看 Pod 的 label／annotation），要嘛接受雙份、查的時候用 `agent.type` 分。先接受，試點看量。
