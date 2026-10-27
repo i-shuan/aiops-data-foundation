@@ -130,7 +130,7 @@ trace-sampler × 2（StatefulSet，尾端取樣）
   | **純文字 pattern，沒印 MDC**（舊專案常見） | stdout 上根本沒有 | ❌ | 二選一：(a) 改 log 設定印 MDC（Java 加 `%X{trace_id}`，但 pipeline 要有那種格式的解析規則）；(b) **chart 設 `otel.logs.exporter: otlp`**：agent 把 log record（本身帶 trace_id）直接送給 Collector，不經 stdout，什麼格式都綁得起來 |
   | 純文字 pattern 有印 MDC，但 pipeline 沒有那種格式的解析規則 | 在原文裡，拆不出來 | ❌ | 同上 (b)，或補一條格式規則 |
 
-  (b) 的代價：stdout 照印，平台會收到兩份（檔案那份沒 trace_id），所以只在需要時開；node Collector 的 `logs/otlp` pipeline 收這條。**(b) 真的 agent 驗過**（docker，2026-10-27）：Tomcat 10 的 JSP 用 `java.util.logging` 印純文字、ASP.NET Core 8 用 `ILogger` 預設純文字 console，都不改程式，ES 裡的 log 帶 trace_id、對得到 Server span。
+  (b) 的代價：stdout 照印，平台會收到兩份（檔案那份沒 trace_id），用 `log.source`（`file`／`otlp`）分，所以只在需要時開；node Collector 的 `logs/otlp` pipeline 收這條。**(b) 真的 agent 驗過**（docker，2026-10-27）：Tomcat 10 的 JSP 用 `java.util.logging` 印純文字、ASP.NET Core 8 用 `ILogger` 預設純文字 console，都不改程式，ES 裡的 log 帶 trace_id、對得到 Server span。
 
   **.NET Framework（4.x）**：trace、metrics 可以（自動埋點支援 4.6.2 以上，Windows 上掛 IIS 或 Windows Service）；(b) 的 `ILogger` 那條**不支援 Framework**（官方文件明寫），log4net、NLog 5 以上有另一條 bytecode 的路（Experimental，沒驗過）。細節在 [pdca/phase1-collect/2026-10-ingest-keys-check.md](../pdca/phase1-collect/2026-10-ingest-keys-check.md) 的 Act。
 - **trace ↔ metrics：** 都有 `resource.attributes.service.name`、`k8s.namespace.name`、`k8s.pod.name`。

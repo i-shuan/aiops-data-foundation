@@ -81,7 +81,9 @@ AIOps 只認這些欄位。標準概念用 [ECS](https://www.elastic.co/guide/en
 | `log.logger`、`process.thread.name` | 應用 | 縮小範圍 |
 | `error.type` | 從 stack trace 第一行拆出的例外類別 | 例外分群，比對全文便宜很多 |
 | `error.stack_trace` | 應用 | 人看 |
-| `trace.id`、`span.id` | OpenTelemetry Java agent 寫進 MDC | 串起同一個請求的 log，也對得到 trace 的 `trace_id`（[trace/README.md](../trace/README.md)）。alias `trace_id`、`span_id` 跟 trace 同名 |
+| `trace.id`、`span.id` | OpenTelemetry agent 寫進 MDC／scope，或 OTLP 直送的 log record；規則見「[trace_id 怎麼取](#trace_id-怎麼取)」 | 串起同一個請求的 log，也對得到 trace 的 `trace_id`（[trace/README.md](../trace/README.md)）。alias `trace_id`、`span_id` 跟 trace 同名 |
+| `app.trace_id_invalid`、`app.span_id_invalid` | 應用寫了、但格式不對的原值 | 找 trace_id 印錯的服務 |
+| `log.source` | 從哪收的：`file`（容器 log 檔）或 `otlp`（應用 agent 直送） | 開了 `otel.logs.exporter: otlp` 的服務同一行有兩份，用它分 |
 | `resource.attributes.service.name`、`resource.attributes.k8s.*.name`、`trace_id`、`span_id` | alias（`component-mappings.json`），指到上面的 ECS 欄位 | 跟 metrics、trace 同一條路徑查；不佔空間、不在 `_source`（用 `fields` 取） |
 | `service.name` | pod label `app.kubernetes.io/name`；沒有就用 container 名稱 | 分析單位 |
 | `service.version` | pod label `app.kubernetes.io/version` | 「換版之後才開始錯」 |
@@ -192,6 +194,23 @@ ES_URL=https://<es>:9200 ES_AUTH=elastic:<password> e2e/pipeline/run-level-cases
 |---|---|---|
 | （不填） | Java 標準（logback JSON）、ECS JSON（Spring Boot 3.4 `logging.structured.format.console=ecs`）、**.NET 內建 JSON console**（`Message`、`LogLevel`、`Category`、`Exception`、`Scopes` 裡的 `TraceId`）、**Serilog compact JSON**（`@m`、`@l`、`@x`、`@tr`）、純文字 | `{"level":"INFO","message":"..."}`、`{"LogLevel":"Information","Message":"...","Scopes":[{"TraceId":"..."}]}` |
 | `logfmt` | Go 等語言常見的 key=value | `level=warn msg="lot hold requested" lot_id=L123` |
+
+### trace_id 怎麼取
+
+| 項目 | 規則 |
+|---|---|
+| 認得的欄位 | `trace_id`、`traceId`、`trace.id`（扁平或巢狀）、`TraceId`、`@tr`、.NET `Scopes` 裡的 `TraceId` |
+| span 的欄位 | `span_id`、`spanId`、`span.id`、`SpanId`、`@sp`、`Scopes` 裡的 `SpanId` |
+| 不認的欄位 | `dd.trace_id`（Datadog，十進位，對不到 OTel 的 trace）：留在 `app` |
+| 大寫、前後空白 | 轉小寫、去空白（trace 的 `trace_id` 是小寫，keyword 分大小寫） |
+| 16 個 hex 的 trace_id | 前面補 16 個 0（B3 短 id；OTel 的 B3 propagator 也這樣補） |
+| 空字串、全 0 | 當作沒有 trace，不設、不算錯 |
+| 長度不對、非 hex | 不設 `trace.id`／`span.id`，原值放 `app.trace_id_invalid`／`app.span_id_invalid` |
+| 只有 trace、或 span 格式錯 | trace 照設，span 各自判斷 |
+| 原文和 OTLP record 都有 | 原文的合法就用原文；原文的不合法才用 record 的 |
+| 純文字、訊息裡的 hex | 不拿：只從欄位取，不從訊息內文猜 |
+
+案例：[e2e/pipeline/run-trace-id-cases.sh](../../e2e/pipeline/run-trace-id-cases.sh)（`_simulate`）、[e2e/local-k3s/run-trace-id-e2e.sh](../../e2e/local-k3s/run-trace-id-e2e.sh)（經過 Collector）。[PDCA](../pdca/phase1-collect/2026-10-log-trace-bind.md)
 
 ### 服務怎麼宣告格式
 

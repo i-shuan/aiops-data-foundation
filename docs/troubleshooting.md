@@ -25,6 +25,9 @@
 | Pod 重建後 log 重複或中間缺 | 讀檔位置也記在 `/var/lib/otelcol/node`；目錄被刪就從檔案尾巴讀 | 這個目錄要用 hostPath，不要刪 |
 | 第一次部署時舊的 log 沒收 | `start_at: end`，已經存在的檔從尾巴讀 | 預期行為，不補收 |
 | 量大的服務掉 log | kubelet 預設 10MB 就輪替壓縮，Collector 沒讀完的那段會掉 | 平台端把 kubelet 的 `container-log-max-size` 調大（例如 50Mi）。Collector `poll_interval` 0.2 秒，每秒 5,000 行不會掉 |
+| log 有 trace_id，用 `trace_id` 卻查不到 trace | 值不是 32 個 hex（印錯、截斷、GUID 帶減號）；pipeline 不設 `trace.id` | 看 `app.trace_id_invalid`，改應用的 log 設定 |
+| 開了 `otel.logs.exporter: otlp`，同一行 log 有兩筆 | stdout 那份（檔案）＋ agent 直送那份；內容指紋不同，不會去重 | 預期行為；查詢時用 `log.source: otlp`（或 `file`）只取一份 |
+| 用 Datadog 的服務 log 綁不到 trace | `dd.trace_id` 是十進位，對不到 OTel 的 trace | 換 OTel agent；`dd.trace_id` 留在 `app` |
 | Java stack trace 變成很多筆 | 純文字 log 一行一筆 | 標準格式是 JSON（stack trace 在一個欄位）；沒照標準的服務 AIOps 效果較差 |
 | 節點用 Docker 當 runtime 的 cluster 收不到 log | log 檔在 `/var/lib/docker/containers` | 另外掛這個目錄。RKE2、k3s 是 containerd，不需要 |
 
@@ -85,6 +88,7 @@
 
 | 症狀 | 原因 | 做法 |
 |---|---|---|
+| 根因報告「最慢那個請求的 log」少了幾行 | log 的 `@timestamp` 是應用時間，時鐘偏或請求結束後才寫，離 span 十幾分鐘 | `logs_of_traces` 已前後多放 30 分鐘；更多的看 `quality.log_clock_skew` |
 | 根因報告的「平常」數字跟出事時差不多（例如平常 p95 也是 1.5 秒） | 一週前沒資料時，「平常」改用出事前一段、中間空 `ref_gap`；偵測比事故晚約 4 分鐘，`ref_gap` 太短就包到事故 | `ref_gap` 要大於偵測延遲；正式設定 10 分鐘（`engine/configs/rca/rca.yaml`） |
 
 ## 本機測試環境（Windows、Rancher Desktop）
@@ -96,6 +100,7 @@
 | 加了 `PYTHONUTF8=1` 中文還是亂碼 | `python -I` 會忽略所有 `PYTHON*` 環境變數 | 用 `-X utf8` |
 | busybox Pod 跑不了 `rca-lib.sh` | Windows checkout 成 CRLF | 建 ConfigMap 前 `tr -d '\r'`（`run-rca-demo.sh` 已做） |
 | 容器裡的路徑變成 `C:/Program Files/Git/...` | Git Bash 改寫 `/` 開頭的參數 | 那一行加 `MSYS_NO_PATHCONV=1`；它也會讓 `KUBECONFIG=/c/...` 不轉換，kubectl 讀不到，所以只加在需要的指令 |
+| `elasticsearch-setup.sh` 裝到別人的 ES | 那個 port 已經是別的任務的 `kubectl port-forward`，自己的容器沒綁上 | 跑之前 `curl <ES_URL>/` 看 `version.number`、`cluster_name` 是不是自己那台 |
 | `localhost:<port>` 連不上，`127.0.0.1` 卻可以 | 停掉的 nerdctl 容器還佔著那個 port 的 `::1` | 用 `127.0.0.1`，或換 port、刪掉舊容器 |
 | Grafana 面板一直 `Loading plugin panel...` | `kubectl port-forward` 在 Windows 上同時開很多連線會逾時 | Service 用 `LoadBalancer`（Rancher Desktop 對應到 `localhost`），例如 rca-demo 的 `localhost:3300` |
 | port-forward 一連就斷：`connection refused` | 連到正在 Terminating 的舊 Pod | 等舊 Pod 刪完，或 `port-forward deploy/<名稱>` |
