@@ -6,7 +6,7 @@ log 和 metrics 用同一個 Collector（[metrics/README.md](../metrics/README.m
 
 > [!IMPORTANT]
 > **重點：log 格式不一致的處理，見下方「[pipeline](#pipeline)」。**
-> 依服務宣告的格式分派解析規則的機制已經完成並測過；**REST API 的規則還沒寫，等真實 log 樣本**（SECS 屬工廠，之後再做，見 [factory-later.md](../factory-later.md)）。
+> 依服務宣告的格式分派解析規則的機制已經完成並測過；**REST API 的規則還沒寫，等真實 log 樣本**（SECS 屬工廠，不在目前範圍）。
 
 ## 現況與待辦（①收值、②清資料、③存）
 

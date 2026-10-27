@@ -168,7 +168,7 @@ MAD（Median Absolute Deviation，中位數絕對偏差）＝「每個值離中�
 
 > 狀態：(1)(2)(3) 都做好了，`adaptive_e2e` 驗證過（見「驗證」）。設定在 `series.yaml` 的 `adaptive`、`groups`、`borrowing`。
 
-所有序列用同一個粒度不合適：很多 API、背景工作、外部呼叫都是低頻，一個時間窗只有幾筆，p95 是雜訊、筆數大多是 0、MAD 變 0；新 API 沒有歷史就完全不判斷。（工廠的設備告警、SECS 事件也一樣，見 [factory-later.md](../../../docs/factory-later.md)。）改成**每條序列自己決定**，分三個方向，彼此獨立：
+所有序列用同一個粒度不合適：很多 API、背景工作、外部呼叫都是低頻，一個時間窗只有幾筆，p95 是雜訊、筆數大多是 0、MAD 變 0；新 API 沒有歷史就完全不判斷。（工廠的設備告警、SECS 事件也一樣；工廠不在目前範圍。）改成**每條序列自己決定**，分三個方向，彼此獨立：
 
 ```
 原始資料（30 秒）
@@ -220,7 +220,7 @@ MAD（Median Absolute Deviation，中位數絕對偏差）＝「每個值離中�
 |---|---|---|
 | 使用者設定 | `series.yaml` 的 `overrides`（`series` 可用正規表示式、`match` 依 keys 比對） | 粒度：下次 train；z、min_abs：下次 detect |
 | 指令 | `python3 -m detector tune --series http.latency_p95_s --match service=^mes-report --resolution 5m --z 7 --reason 誤報多 --by 王小明`，寫進 `aiops-tuning`（`--list` 列出、`--remove` 刪掉） | 同上 |
-| feedback（📝） | 之後的 feedback 流程寫同一個 `aiops-tuning`：同一條序列誤報累積多次 → 建議粒度往粗一級或調高 z，回測通過才寫入（見 [docs/system-stages.md 第 10 節](../../../docs/system-stages.md)） | 同上 |
+| feedback（📝） | 之後的 feedback 流程寫同一個 `aiops-tuning`：同一條序列誤報累積多次 → 建議粒度往粗一級或調高 z，回測通過才寫入（見 [docs/feedback/README.md「對了怎麼強化、錯了怎麼 feedback」](../../../docs/feedback/README.md#對了怎麼強化錯了怎麼-feedback)） | 同上 |
 
 套用順序：自動選 → `series.yaml` 的 `overrides` → `aiops-tuning`，後面的蓋前面的。每筆調整記 `reason`、`by`、`at`，查得到誰、為什麼、什麼時候改的。
 

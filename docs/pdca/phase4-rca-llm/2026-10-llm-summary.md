@@ -1,6 +1,6 @@
 # LLM 摘要：RAG 的「生成」（2026-10）
 
-**狀態**：完成骨架（template 實測；真的模型在 fix-feedback-ux 驗過）　　**日期**：2026-10-25　　**相關**：分支 `claude/loop-plans`；前置 [相似事故檢索](2026-10-similar-incidents.md)；[feedback/llm-mlops.md](../../feedback/llm-mlops.md)（LLMOps 的定案）；主線 [產品主線 8 步](../../end-to-end-flow.md#產品主線-8-步) 第 7 步
+**狀態**：完成骨架（template 實測；真的模型在 fix-feedback-ux 驗過）　　**日期**：2026-10-25　　**相關**：分支 `claude/loop-plans`；前置 [相似事故檢索](2026-10-similar-incidents.md)；[feedback/llm-mlops.md](../../feedback/llm-mlops.md)（LLMOps 的定案）；主線 [產品主線 8 步](../../architecture.md#產品主線-8-步) 第 7 步
 **模組**：⑦ 根因分析、⑨ feedback
 
 ## Plan：這一次要達到什麼
@@ -44,7 +44,7 @@
    - **捏造率**：引用不存在的依據、或數字跟輸入不符的比例（目標 0；程式檢查）。
    - 值班看得懂：找兩三位值班，盲測「有這段 vs 沒這段」誰比較快講出原因。
 2. 改 prompt、換模型之前一定重跑評測集，分數掉了不上（版本記在 `aiops-tuning` 或檔案）。
-3. token：每件約 4,000 輸入；一天 50 件約 20 萬 token（[system-stages 第 8 節](../../system-stages.md)）。
+3. token：每件約 4,000 輸入；一天 50 件約 20 萬 token（[feedback/README.md「什麼時候叫 LLM」](../../feedback/README.md#什麼時候叫-llmtoken-怎麼省)）。
 
 ## Do：改動哪些 code、改了什麼、為何要改
 

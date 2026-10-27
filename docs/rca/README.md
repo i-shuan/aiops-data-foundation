@@ -388,4 +388,4 @@ AIOps 的其他用途要的「平常」長得不一樣，有一部分可以共�
 
 ### 階段 2：EAP 與機台（之後）
 
-集中在 [factory-later.md](../factory-later.md)：SECS 解析、業務 ID 與 MES／MCS／AMHS 斷鏈、EAP 的 trace、機台 baseline 與規則、時間對齊、行事曆、機台模型。
+不在目前範圍：SECS 解析、業務 ID 與 MES／MCS／AMHS 斷鏈、EAP 的 trace、機台 baseline 與規則、時間對齊、行事曆、機台模型。

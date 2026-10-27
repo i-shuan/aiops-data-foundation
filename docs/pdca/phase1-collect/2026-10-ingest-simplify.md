@@ -63,7 +63,7 @@
 | `e2e/local-k3s/*.sh`（11 支） | Secret 改一個欄位；權限檢查改成「能寫 IT、IMC，不能讀、不能寫 aiops-*」 | 跟著改 |
 | 同上 | `run-metrics-scenarios.sh keyfail`、`load/run-load.sh keyfail`：作廢 `es-writer`，預期兩個 group 都停 | 同上 |
 | 同上 | `run-key-rotation.sh` 換 `es-writer` | 同上 |
-| `README.md`、`docs/architecture.md`、`poc-status.md`、`system-stages.md` | 寫入 key、Secret、failure store 的描述 | — |
+| `README.md`、`docs/architecture.md`、`poc-status.md` | 寫入 key、Secret、failure store 的描述 | — |
 | `docs/log/README.md`、`metrics/README.md`、`trace/README.md` | 同上 | — |
 
 - `quality.ingest_rejected` 查 `k8s-*::failures`、`metrics-*.otel-*::failures`、`traces-*.otel-*::failures`。

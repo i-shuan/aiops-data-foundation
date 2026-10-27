@@ -16,7 +16,7 @@
 | LLM | ⚠️ | 報告最前面三到五句、每句附依據、捏造就整段不顯示、掛了退回固定句型（[pdca/phase4-rca-llm/2026-10-llm-summary.md](../pdca/phase4-rca-llm/2026-10-llm-summary.md)）；真的模型還沒跑過 |
 | 量化 | ⚠️ | `metrics` 兩段並排（件數、有回饋比例、誤報率、到回饋多久、怎麼看出來的有沒有填）；數字要等試點（[pdca/phase5-learning-loop/2026-10-metrics-kpi.md](../pdca/phase5-learning-loop/2026-10-metrics-kpi.md)） |
 
-**順序都走過一輪了**（2026-10-25，模擬資料；[end-to-end-flow.md「產品主線 8 步」](../end-to-end-flow.md#產品主線-8-步) 的整合驗證）。下一步：上 K8s、用有 trace 的事故驗、試點產線先只寫入不通知 2～4 週。
+**順序都走過一輪了**（2026-10-25，模擬資料；[architecture.md「產品主線 8 步」](../architecture.md#產品主線-8-步) 的整合驗證）。下一步：上 K8s、用有 trace 的事故驗、試點產線先只寫入不通知 2～4 週。
 
 上線前先記下現況當基準（每天告警幾筆、多少是誤報、從告警到找到原因平均多久），之後才量得出有沒有改善。
 

@@ -61,7 +61,7 @@ PDCA 的意思：**Plan** 定規則與門檻 → **Do** 收值、判斷、報告
 | ⑦⑨ 相似事故檢索（RAG 的檢索，欄位比對） | ✅ 模擬資料驗過；門檻、權重是估的 | [phase4-rca-llm/2026-10-similar-incidents.md](phase4-rca-llm/2026-10-similar-incidents.md) |
 | ⑦⑨ LLM：根因報告摘要（只加註、每句附依據） | ✅ template 與真的模型（OpenAI）都跑過，每句附依據；評測集 ❌ | [phase4-rca-llm/2026-10-llm-summary.md](phase4-rca-llm/2026-10-llm-summary.md)、[phase5-learning-loop/2026-10-fix-feedback-ux.md](phase5-learning-loop/2026-10-fix-feedback-ux.md) |
 
-**之後**：Elastic 付費 AIOps 功能評估（試用只能開一次，等資料累積夠再開）；工廠（[factory-later.md](../factory-later.md)）。
+**之後**：Elastic 付費 AIOps 功能評估（試用只能開一次，等資料累積夠再開）；工廠（EAP、機台、MES…）不在目前範圍。
 
 **建議順序**：正式排程（只寫入不通知）→ 收斂(1)(2)＋告警出口＋事故紀錄、回饋 → 用 2～4 週真實資料校正門檻 → LLM 摘要 → 回測、版本 → 收斂(3)、自動調門檻。
 
@@ -151,5 +151,5 @@ metrics → trace → log 找到哪一段、哪行 log；事件整合、排程�
 
 | 檔案 | 主題 | 結論 |
 |---|---|---|
-| [2026-10-docs-vs-code.md](2026-10-docs-vs-code.md) | ①～⑨ 文件對程式：整條線一份看完（[end-to-end-flow.md](../end-to-end-flow.md)）、總覽狀態對齊 | 只改文件；6 處對不上改掉 5 處；code-review 的 10 項對過程式，4 項要修、記在流程文件的「不足」 |
+| [2026-10-docs-vs-code.md](2026-10-docs-vs-code.md) | ①～⑨ 文件對程式：整條線一份看完（[architecture.md](../architecture.md)）、總覽狀態對齊 | 只改文件；6 處對不上改掉 5 處；code-review 的 10 項對過程式，4 項要修、記在流程文件的「不足」 |
 | [2026-10-restructure.md](2026-10-restructure.md) | 全部 目錄改名：專案名 it-aiops | `platform/`→`telemetry/`、`aiops/`→`engine/`、`apps/`→`sdk/`、`test/`→`e2e/`；Python 套件改名；行為不變，200 個單元測試與連結檢查過 |

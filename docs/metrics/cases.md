@@ -4,7 +4,7 @@
 
 腳本：[e2e/local-k3s/run-metrics-cases-e2e.sh](../../e2e/local-k3s/run-metrics-cases-e2e.sh)。資料都走正式的路線（應用 → OTel Collector → ES），判斷用 [engine/configs/baseline/rules.yaml](../../engine/configs/baseline/rules.yaml)。
 
-> 目前的範圍是一般服務：前三個領域（基礎架構、應用、DB 與佇列）是主線；**機台、產線（案例 4）之後再做**，規則和命名提案先留著，見 [factory-later.md](../factory-later.md)。
+> 目前的範圍是一般服務：前三個領域（基礎架構、應用、DB 與佇列）是主線；**機台、產線（案例 4）不在目前範圍**，規則和命名提案先留著。
 
 ## 四個領域看什麼
 

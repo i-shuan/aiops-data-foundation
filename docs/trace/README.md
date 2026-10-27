@@ -63,7 +63,7 @@
 
 **現況**：
 
-- ✅ 工廠用的欄位已定案：`lot.id`、`equipment.id`、`work_order.id`、`recipe.id`（[sdk/standards/tracing.md](../../sdk/standards/tracing.md)）。工廠的其餘欄位見 [factory-later.md](../factory-later.md)。
+- ✅ 工廠用的欄位已定案：`lot.id`、`equipment.id`、`work_order.id`、`recipe.id`（[sdk/standards/tracing.md](../../sdk/standards/tracing.md)）。工廠的其餘欄位不在目前範圍。
 - ❌ 服務層通用的「交易 ID」（一次操作從頭到尾的 ID，跨同步、非同步）還沒定名稱。
 - ❌ 很多 ID 只寫在 log 訊息裡，沒有獨立欄位。
 

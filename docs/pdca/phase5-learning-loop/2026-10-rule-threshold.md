@@ -1,6 +1,6 @@
 # 規則草稿把門檻算出來、核准就生效；行事曆拿掉國定假日；第一階段只開 4 個 CronJob（2026-10）
 
-**狀態**：完成（docker ES 實測：核准 → rules 自動載入 → 第 2 次事故的時間觸發）　　**日期**：2026-10-25　　**相關**：分支 `claude/rule-threshold`；[end-to-end-flow.md「過度設計」](../../end-to-end-flow.md) 的前兩列；[loop-update](2026-10-loop-update.md) 的 Act「規則草稿的門檻要人填」
+**狀態**：完成（docker ES 實測：核准 → rules 自動載入 → 第 2 次事故的時間觸發）　　**日期**：2026-10-25　　**相關**：分支 `claude/rule-threshold`；過度設計的盤點（[architecture.md「哪裡過度設計」](../../architecture.md#哪裡過度設計)）；[loop-update](2026-10-loop-update.md) 的 Act「規則草稿的門檻要人填」
 **模組**：⑨（建議）、④（規則）、②（行事曆）
 
 ## Plan：這一次要達到什麼
@@ -40,8 +40,8 @@
 | deploy README | 加「階段」欄和開的順序 | — |
 | `engine/configs/baseline/calendar.yaml` | 拿掉 `taiwan` 來源（留註解：週休的辦公室系統才打開）；假資料來源 `enabled: false` | 工廠 24×7 |
 | 同上 | `calendar:` 範例改成兩次歲修各一筆＋ UPS 維護 | 歲修一次一筆、不合併 |
-| 文件 | baseline README、`docs/rca/README.md`、`factory-later.md` | 跟程式一致 |
-| 同上 | `end-to-end-flow.md` 過度設計表：兩列標已改 | 同上 |
+| 文件 | baseline README、`docs/rca/README.md` | 跟程式一致 |
+| 同上 | `architecture.md` 過度設計表 | 同上 |
 
 - 延遲類：series 含 latency／p95／duration。
 - 規則的 `index`／`filter`／`by`／`value` 直接抄那條 baseline 序列的定義。
