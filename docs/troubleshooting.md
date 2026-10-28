@@ -107,6 +107,10 @@
 | 症狀 | 原因 | 做法 |
 |---|---|---|
 | 根因報告「最慢那個請求的 log」少了幾行 | log 的 `@timestamp` 是應用時間，時鐘偏或請求結束後才寫，離 span 十幾分鐘 | `logs_of_traces` 已前後多放 30 分鐘；更多的看 `quality.log_clock_skew` |
+| Kafka 落後在變少（消費者追上來），卻報「落後一直增加」 | `increase` 把數字變小當成計數器歸零重來，把新的值整個算成增加；落後是量測值不是計數器 | 會上下動的量測值用 `type: delta`（最後 − 最前）；`increase` 只用在計數器（`kafka.consumer_lag_growing` 已改） |
+| 新建的 Pod 一直 Pending 才 2 分半就報（`for: 5m`）；新 Deployment 1 分半就報副本不夠 | 舊的 `for` 只要求 for 裡最早的點離現在超過一半；新對象從第一筆就成立時，一半就報 | 已改：對象要在 for 開頭之前就有資料（`detector/rules.py`） |
+| 核准的規則草稿有一條壞掉（缺欄位、查詢錯），`rules` 整輪都沒跑 | 一條規則丟例外就整個指令結束，其他規則也沒寫 | 已改：只跳過那一條、其他照跑照寫，最後 exit 1、印「N 條失敗」 |
+| 規則草稿設了 `expires_at`，過期後還在報 | `approved_rules` 只看 `status`，沒看 `expires_at` | 已改：跟 `--at` 的時間比，到期就不載入 |
 | 根因報告的「平常」數字跟出事時差不多（例如平常 p95 也是 1.5 秒） | 一週前沒資料時，「平常」改用出事前一段、中間空 `ref_gap`；偵測比事故晚約 4 分鐘，`ref_gap` 太短就包到事故 | `ref_gap` 要大於偵測延遲；正式設定 10 分鐘（`engine/configs/rca/rca.yaml`） |
 | `quality` 中斷：`bulk 寫入 aiops-anomalies 失敗 ... Non-standard token 'NaN'` | 缺欄位那組（例如 log 沒有 namespace）的 key 被 pandas 3 變成 NaN | 已修（`quality._frame`）；舊版這一輪的結果全沒寫 |
 | trace 有 N+1，`trace.segment.repeated` 沒報、反而報一個沒有「→」的新段 | DB span 只有新版 `db.system.name`，段名沒有對象 | 已補這個欄位；Client span 什麼對象欄位都沒有的仍看不到 |
@@ -136,6 +140,8 @@
 | Pod 一直 Pending：`Insufficient memory`，節點其實還有空 | initContainer 只寫 limit，request 也算成 limit（例如 2Gi） | 同時寫 request（`sdk-inject/dotnet.yaml` 的編譯寫 512Mi） |
 | `run-e2e.sh` 跑完 ES 就連不上 | 腳本結束時關掉自己開的 port-forward | 自己另開 `kubectl port-forward --address 127.0.0.1 svc/elasticsearch 29200:9200` |
 | Rancher Desktop 設定的 VM 記憶體沒作用 | Windows 上 VM 大小由 WSL 決定（預設主機的一半） | 改 `~/.wslconfig` |
+| 本機 ES 一直 `Connection reset`、逾時，ES log「writing cluster state took 58s」，之後 nerdctl、kubectl 都連不上 | 同時起 5 台 ES 加共用 cluster：WSL 記憶體 7.7GB 用光、swap 滿、load 200 以上 | 同一時間只開 1 台自己的 ES（scratchpad 的 `es-slot.sh` 拿名額），用完 `nerdctl rm -f` |
+| 合成 metrics 灌進 TSDS 前先建欄位，報 `Cannot update parameter [time_series_metric]` | 欄位型別要跟 ES OTLP 入口建的一樣（直方圖帶 `time_series_metric: histogram`） | bulk 用 `dynamic_templates`（`gauge_double`、`exponential_histogram`）；已有的欄位不再送（`tests/rules_edge_e2e.py`） |
 | e2e 腳本 `jq: command not found` | 這台沒有 jq | `winget install jqlang.jq` |
 | `elasticsearch-setup.sh`、e2e 腳本在已有資料的 ES 上 `curl: (3) URL rejected: Malformed input` | Windows 的 `jq.exe` 在 Git Bash 裡把換行輸出成 CRLF，`$(jq ...)` 拿到的名稱帶 `\r` | 用 `jq -b`（`--binary`）：PATH 前面放一個 `exec jq.exe -b "$@"` 的 `jq`。Linux 不會發生 |
 | `KUBECONFIG` 有設，kubectl 卻連 `localhost:8080` | 腳本那行有 `MSYS_NO_PATHCONV=1`，`/c/...` 的路徑沒被轉換 | `KUBECONFIG` 用 `C:/...`（`cygpath -m`） |
