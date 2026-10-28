@@ -1,7 +1,7 @@
 """根因分析從 ES 讀的資料：baseline 找到的異常、某個服務的請求、log。連線見 core.es，span 見 core.traces。"""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from core.es import ES, time_range
 
@@ -72,12 +72,18 @@ def _to_log(hit: dict) -> dict:
             "trace_id": f.get("trace_id"), "message": f.get("message") or ""}
 
 
+# log 的 @timestamp 是應用自己的時間：時鐘偏了、或請求結束後才寫的 log，可能離 span 十幾分鐘。
+# trace_id 本身就夠準，時間只用來少掃幾個 backing index，所以前後多放 30 分鐘（docs/pdca/phase1-collect/2026-10-log-trace-bind.md）
+LOG_TRACE_SKEW = timedelta(minutes=30)
+
+
 def logs_of_traces(es: ES, index: str, trace_ids: list[str], start: datetime, end: datetime, size: int = 2000) -> list[dict]:
     """這些請求在各服務留下的 log（log 的 trace_id 是 alias，指到 trace.id；跟 trace 的 trace_id 同名）。"""
     if not trace_ids:
         return []
     body = {"size": size, "sort": [{"@timestamp": "asc"}], "_source": False, "fields": LOG_FIELDS,
-            "query": {"bool": {"filter": [time_range(start, end), {"terms": {"trace_id": trace_ids[:1000]}}]}}}
+            "query": {"bool": {"filter": [time_range(start - LOG_TRACE_SKEW, end + LOG_TRACE_SKEW),
+                                          {"terms": {"trace_id": trace_ids[:1000]}}]}}}
     return [_to_log(h) for h in es.search(index, body)["hits"]["hits"]]
 
 

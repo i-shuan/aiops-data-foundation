@@ -71,3 +71,6 @@ for (int i = 0; ok && i < format.length(); i++) {
   ok = (c >= (char) 97 && c <= (char) 122) || (c >= (char) 48 && c <= (char) 57) || c == (char) 45;
 }
 ctx.log = ['format': ok ? format : 'default'];
+// 從哪收的：file（容器 log 檔，Fluent Bit 那條也是）或 otlp（應用 agent 直送）。k8s-logs-otel 填 _log_source
+def source = ctx.remove('_log_source');
+ctx.log.put('source', source != null ? source : 'file');
