@@ -80,8 +80,12 @@ def queue_wait(entry: dict, producer: dict) -> tuple[str, float]:
 def request_segments(trace: list[dict], entry: dict, producer: dict | None = None) -> dict[str, dict]:
     """一個請求、每一段：呼叫幾次、花多久、有沒有出錯、有沒有吞掉的例外。
     時間：往外呼叫（Client）算整段（就是在等對方）；其他算自己的時間（扣掉底下的呼叫）。加起來約等於整個請求的時間。
-    吞掉的例外：這一段丟過例外（exception），但 status 不是錯誤（程式 catch 掉了，例如回空值、回 200）。"""
+    吞掉的例外：這一段丟過例外（exception），但請求沒有失敗（程式 catch 掉了，例如回空值、回 200）：
+      - 這一段的 status 不是錯誤；或
+      - 這一段標了錯誤、入口（這個服務收到的請求）卻沒有。Java agent 的 JDBC、HTTP client 丟例外時一定把那一段標成錯誤，
+        程式 catch 掉、回 200 就是這個樣子。錯誤一路傳到入口（回 500）的不算吞掉，算錯誤（error_rate）。"""
     st = self_times(trace)
+    entry_failed = bool(entry["error"])
     out: dict[str, dict] = {}
     if producer is not None:   # 訊息消費者：多一段「在佇列裡等了多久」
         seg, ms = queue_wait(entry, producer)
@@ -95,7 +99,7 @@ def request_segments(trace: list[dict], entry: dict, producer: dict | None = Non
         d["calls"] += 1
         d["time_ms"] += s["dur_ms"] if s["kind"] == "Client" else st[s["span_id"]]
         d["error"] |= bool(s["error"])
-        if s.get("exception") and not s["error"]:
+        if s.get("exception") and (not s["error"] or not entry_failed):
             d["swallowed"] = s["exception"]
     return out
 

@@ -4,7 +4,7 @@ span 的格式（to_span 從 ES 的文件轉成這樣）：
   {"trace_id", "span_id", "parent", "service", "name", "kind", "target", "start_ms", "dur_ms", "error", "exception", "attrs", "resource"}
   exception：這一段丟過的例外種類（Collector 從例外事件抄到 exception.type 屬性），沒有就是 None
   links：這一段連到的其他 span（span_id）。.NET 自動埋點的 Kafka 消費者（receive）是新的 trace，只用 link 指回生產者
-  target：往外呼叫的對象（peer.service、db.system、server.address），沒有就是 None
+  target：往外呼叫的對象（peer.service、db.system、db.system.name、server.address），沒有就是 None
 """
 from __future__ import annotations
 
@@ -19,7 +19,9 @@ _SPAN_FIELDS = ["@timestamp", "trace_id", "span_id", "parent_span_id", "name", "
 
 def to_span(src: dict) -> dict:
     attrs = src.get("attributes") or {}
-    target = get_field(attrs, "peer.service") or get_field(attrs, "db.system") or get_field(attrs, "server.address")
+    # db.system.name：新版 DB 語意（舊的 db.system 改名）；沒有對象的 Client span 段名沒有「→」，N+1 規則看不到
+    target = (get_field(attrs, "peer.service") or get_field(attrs, "db.system") or get_field(attrs, "db.system.name")
+              or get_field(attrs, "server.address"))
     ts = src["@timestamp"]
     # ES 回的 @timestamp 可能是數字、數字的字串（奈秒精度時，例如 "1791687912264.916000"），或 ISO 格式
     if isinstance(ts, str) and ts.replace(".", "", 1).isdigit():
