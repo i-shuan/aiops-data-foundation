@@ -129,6 +129,8 @@
 | `run-e2e.sh` 跑完 ES 就連不上 | 腳本結束時關掉自己開的 port-forward | 自己另開 `kubectl port-forward --address 127.0.0.1 svc/elasticsearch 29200:9200` |
 | Rancher Desktop 設定的 VM 記憶體沒作用 | Windows 上 VM 大小由 WSL 決定（預設主機的一半） | 改 `~/.wslconfig` |
 | e2e 腳本 `jq: command not found` | 這台沒有 jq | `winget install jqlang.jq` |
+| `elasticsearch-setup.sh`、e2e 腳本在已有資料的 ES 上 `curl: (3) URL rejected: Malformed input` | Windows 的 `jq.exe` 在 Git Bash 裡把換行輸出成 CRLF，`$(jq ...)` 拿到的名稱帶 `\r` | 用 `jq -b`（`--binary`）：PATH 前面放一個 `exec jq.exe -b "$@"` 的 `jq`。Linux 不會發生 |
+| `KUBECONFIG` 有設，kubectl 卻連 `localhost:8080` | 腳本那行有 `MSYS_NO_PATHCONV=1`，`/c/...` 的路徑沒被轉換 | `KUBECONFIG` 用 `C:/...`（`cygpath -m`） |
 | curl 報 `URL rejected: Malformed input`，`elasticsearch-setup.sh` 中斷 | winget 的 jq 輸出 CRLF，變數尾巴帶 `\r` | PATH 前面放一個 `jq -b "$@"` 的小腳本（`-b`：不轉 CRLF） |
 | `run-trace-e2e.sh` 的 trace-app 一直 CrashLoopBackOff | `trace-app.sh` 是 CRLF，ConfigMap 原樣建 | 跑之前把 `trace-app.sh` 轉 LF（`tr -d '\r'`），跑完 `git checkout` 還原 |
 | 內建瀏覽器裡 Grafana 面板一直 Loading | 瀏覽器 pane 隱藏時頁面在背景，載不完 | 用 `e2e/local-k3s/rca-demo/shot.py`（headless Edge）截圖 |
