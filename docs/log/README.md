@@ -330,6 +330,8 @@ e2e/local-k3s/run-e2e.sh
 | ES `kill -9` 兩次（第 2 次在補送中） | 0 | 0 | 重送的由 `_id` 擋掉 |
 | key 作廢 3 分鐘 | **失效那段全部遺失** | 0 | 見「坑」，換 key 要照順序 |
 
+更大量與邊緣情況（[load/run-stress.sh](../../e2e/local-k3s/load/run-stress.sh)，[pdca/phase1-collect/2026-10-load-test.md](../pdca/phase1-collect/2026-10-load-test.md)）：每秒 10,000 行掉 0、延遲 p95 0.3 秒；20,000 行掉 0 但晚到約 2 分鐘；64 KB、1 MB 的單行不切、不截斷。**寫入 index 大過 ES 記憶體會停住**（指紋 `_id` 去重每筆要查 `_id`），ILM 要依大小 rollover。
+
 記憶體：節點 Collector 只收 metrics 時約 217MB，加上 log 後平常約 290MB（多約 75MB）；拿掉的 Fluent Bit 原本約 25～50MB。
 
 中央 pipeline 跟 Fluent Bit 時期是同一套，分流、欄位、去重複的結論不變。

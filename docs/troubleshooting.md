@@ -29,6 +29,7 @@
 | 第一次部署時舊的 log 沒收 | `start_at: end`，已經存在的檔從尾巴讀 | 預期行為，不補收 |
 | node Collector 連續 OOM 之後少了一大段 log | 一直重啟（CrashLoopBackOff）停太久，log 檔被 kubelet 輪替，`file_log` 只讀 `*.log`，舊檔沒讀完的就沒了（推論；實測 3 分鐘掉 33,192 行） | memory limit 不要低於平常用量的 2 倍（`memory_limiter` 在 150Mi 時擋得住，80Mi 擋不住） |
 | 量大的服務掉 log | kubelet 預設 10MB 就輪替壓縮，Collector 沒讀完的那段會掉 | 平台端把 kubelet 的 `container-log-max-size` 調大（例如 50Mi）。Collector `poll_interval` 0.2 秒，每秒 5,000 行不會掉 |
+| node Collector 的 log 佇列只增不減、`otelcol_exporter_sent_log_records` 不動；Collector log 一直 `/_otlp/v1/logs ... context deadline exceeded` | log 用指紋 `_id` 去重，每筆寫入都要在寫入 index 查 `_id`。index 大過 ES 的 page cache 後每筆都讀磁碟（實測 7.77M 筆／1.37GB、heap 1g、容器 2Gi：write 執行緒 94% 在等 IO，一批 2,000 行 > 40 秒）；超過 Collector 逾時 30 秒 → 逾時重送，ES 照做一次，佇列永遠追不上（資料有進 ES、不重複） | 立即：對寫入的 `k8s-*` data stream `_rollover`（新 index 小，查 `_id` 回到記憶體）。長期：ILM 依大小 rollover（寫入 index 要放得進 page cache）、ES 記憶體、Collector 逾時要大於 ES 一批的處理時間（[2026-10-load-test.md](pdca/phase1-collect/2026-10-load-test.md)） |
 | Java stack trace 變成很多筆 | 純文字 log 一行一筆 | 標準格式是 JSON（stack trace 在一個欄位）；沒照標準的服務 AIOps 效果較差 |
 | 節點用 Docker 當 runtime 的 cluster 收不到 log | log 檔在 `/var/lib/docker/containers` | 另外掛這個目錄。RKE2、k3s 是 containerd，不需要 |
 
@@ -38,6 +39,7 @@
 |---|---|---|
 | ES 重啟後少了停機期間的 metrics，Collector 卻沒報錯 | TSDS 每個 backing index 只收一段時間範圍（預設往後 9 分鐘），範圍外的進 failure store（`.fs-metrics-*`），回給 Collector 的是成功 | `metrics-otel@custom` 把 `look_ahead_time` 設 2 小時（`elasticsearch-setup.sh` 會建，只對新的 backing index 生效，既有的要 rollover 一次）。監控 failure store：`curl -s -u elastic:<password> "https://<es>:9200/.fs-metrics-*/_count?expand_wildcards=all&ignore_unavailable=true"` |
 | 重啟 Collector 後少 1～2 個點 | 舊的停、新的還沒開始抓之間（約 30～60 秒）沒人抓，事後補不回來；已經抓到的不受影響 | 換版、改設定排在離峰 |
+| `otelcol_exporter_send_failed_metric_points` 暴增、Collector log `Dropping data ... 400 ... number data point without a value`，ES 的點卻沒少 | 序列消失時（Pod 刪掉、label 值換掉）Prometheus receiver 送出沒有值的 staleness marker，ES 回 400 不收。不是真的遺失（實測序列每 30 秒全換：ES 收到 200,000／送出 200,000，失敗計數 +162,000） | 用 `send_failed_metric_points` 判斷遺失時要扣掉這種；看 Collector log 的原因是不是 `without a value` |
 | K8s 物件狀態的資料重複 | cluster 那一份的 Collector 多於 1 個副本 | replicas 一定是 1，換版用 `Recreate` |
 | 應用的 `service.name` 變成 `pods` | Prometheus receiver 把抓取工作的名稱填進 `service.name`，讀 Pod label 的那一步不覆蓋 | `common.yaml` 先清掉再讀，不要改順序（測試有一項擋這個） |
 
