@@ -46,6 +46,36 @@ class Active(unittest.TestCase):
         self.assertEqual([a["id"] for a in A.active(adjs, self.now, kinds=("override",))], ["tune"])
 
 
+class LocalTime(unittest.TestCase):
+    """人寫的時間沒寫時區 → 當地時間（跟行事曆一樣）；以前 CLI、adjustments.yaml 的當成 UTC，差 8 小時。"""
+
+    def test_naive_is_local(self):
+        self.assertEqual(A.local_iso("2026-09-21T02:00", TZ), "2026-09-21T02:00:00+08:00")
+        self.assertEqual(A.local_iso("2026-09-21T02:00:00Z", TZ), "2026-09-21T02:00:00+00:00")
+        self.assertIsNone(A.local_iso(None, TZ))
+
+    def test_naive_window_excludes_local_hours(self):
+        a = A.localize({"kind": "exclude_window", "start": "2026-09-21T02:00", "end": "2026-09-21T05:00"}, TZ)
+        h = series({"service": "a"}, "2026-09-21T00:00", 24)
+        kept, dropped = A.train_filter(h, ["service"], "s", [a], TZ)
+        self.assertEqual(dropped, 3)
+        self.assertEqual(sorted(set(range(24)) - set(kept["ts"].dt.tz_convert(TZ).dt.hour)), [2, 3, 4])
+
+    def test_adjustments_file_naive_times_are_local(self):
+        import os
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "adj.yaml")
+            with open(p, "w", encoding="utf-8") as f:
+                f.write("adjustments:\n  - {id: x, kind: reset_point, reset_at: '2026-09-25T10:00'}\n")
+
+            class NoES:
+                def req(self, *a, **k):
+                    raise RuntimeError("no es")
+            got = A.load(NoES(), "aiops-tuning", {"adjustments_file": p, "calendar_file": None})
+        self.assertEqual(pd.Timestamp(got[0]["reset_at"]), pd.Timestamp("2026-09-25T02:00:00Z"))
+
+
 class Schedule(unittest.TestCase):
     def test_daily_window(self):
         ts = pd.Series(pd.to_datetime(["2026-10-23T19:59", "2026-10-23T20:00", "2026-10-23T23:59",

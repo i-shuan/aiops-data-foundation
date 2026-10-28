@@ -76,6 +76,23 @@ def _ts(x) -> pd.Timestamp | None:
     return t.tz_localize("UTC") if t.tzinfo is None else t
 
 
+TIME_FIELDS = ("start", "end", "reset_at", "expires_at")
+
+
+def local_iso(x, tz: str = "Asia/Taipei") -> str | None:
+    """人寫的時間 → ISO。沒寫時區的（2026-10-20T02:00）當成 tz 的當地時間，跟行事曆一樣；
+    不轉的話 ES 和 pandas 都當成 UTC，台北的值班寫「凌晨 2 點」會差 8 小時。"""
+    if x is None:
+        return None
+    t = pd.Timestamp(str(x))
+    return (t.tz_localize(tz) if t.tzinfo is None else t).isoformat()
+
+
+def localize(a: dict, tz: str = "Asia/Taipei") -> dict:
+    """一筆調整裡沒寫時區的時間欄位補上當地時區（設定檔 adjustments.yaml 用）。"""
+    return {**a, **{f: local_iso(a[f], tz) for f in TIME_FIELDS if a.get(f) is not None}}
+
+
 def _td(s) -> pd.Timedelta:
     s = str(s)
     if s.endswith("m"):
@@ -287,10 +304,11 @@ def load(es, index: str, cfg: dict) -> list[dict]:
 
     import yaml
     out = list(cfg.get("overrides") or [])
+    tz = cfg.get("train", {}).get("timezone", "Asia/Taipei")
     path = cfg.get("adjustments_file", "configs/baseline/adjustments.yaml")
     if path and os.path.exists(path):
         with open(path, encoding="utf-8") as f:
-            out += (yaml.safe_load(f) or {}).get("adjustments") or []
+            out += [localize(a, tz) for a in (yaml.safe_load(f) or {}).get("adjustments") or []]
     cal = cfg.get("calendar_file", "configs/baseline/calendar.yaml")
     if cal and os.path.exists(cal):
         from .sources import load_calendar

@@ -147,9 +147,15 @@ def _http_source(src: dict, fetch) -> object:
                         src.get("timeout", 20), label=src["url"])
 
 
+SCOPE_FIELDS = ("match", "series", "detect")   # 來源層級寫的，套到這個來源的每一筆（那一筆自己有寫的優先）
+
+
 def load_calendar(cfg: dict, *, fetch=_http_json, now: pd.Timestamp | None = None) -> tuple[list[dict], str | None]:
     """cfg：calendar.yaml 的內容 {timezone, sources: [...], calendar: [...]}。回傳（項目、時區）。
-    calendar 直接寫的項目（人工補的維護日、活動）一起算；sources 沒寫也行。"""
+    calendar 直接寫的項目（人工補的維護日、活動）一起算；sources 沒寫也行。
+
+    來源可以寫 match、series、detect，套到它的每一筆：台灣行事曆的每一天沒有 match，不限定的話假日那天
+    所有服務（含 24×7 的工廠）都不學、不判斷，假日當天真的故障也被吞掉；週休的辦公室系統要寫 match 限定。"""
     entries = list(cfg.get("calendar") or [])
     for src in cfg.get("sources") or []:
         if src.get("enabled") is False:
@@ -158,16 +164,18 @@ def load_calendar(cfg: dict, *, fetch=_http_json, now: pd.Timestamp | None = Non
         try:
             if p == "file":
                 data = _file_json(src["path"])
-                entries += data.get("calendar", []) if isinstance(data, dict) else data
+                got = data.get("calendar", []) if isinstance(data, dict) else data
             elif p == "http":
                 data = _http_source(src, fetch)
-                entries += (data or {}).get("calendar", []) if isinstance(data, dict) else (data or [])
+                got = (data or {}).get("calendar", []) if isinstance(data, dict) else (data or [])
             elif p == "taiwan":
-                entries += taiwan_calendar(_years(src, now), url=src.get("url", TAIWAN_URL),
-                                           cache_dir=src.get("cache_dir", ".cache/calendar"),
-                                           ttl=_ttl_seconds(src.get("cache_ttl", "24h")), fetch=fetch)
+                got = taiwan_calendar(_years(src, now), url=src.get("url", TAIWAN_URL),
+                                      cache_dir=src.get("cache_dir", ".cache/calendar"),
+                                      ttl=_ttl_seconds(src.get("cache_ttl", "24h")), fetch=fetch)
             else:
                 raise ValueError(f"不認得的 provider：{p}")
+            scope = {k: src[k] for k in SCOPE_FIELDS if k in src}
+            entries += [{**scope, **e} for e in got]
         except Exception as e:
             _warn(f"行事曆來源 {p} 失敗：{type(e).__name__}: {e}")
     return entries, cfg.get("timezone")
