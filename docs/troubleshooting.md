@@ -44,6 +44,10 @@
 | trace 進 unassigned | 應用連到別的節點的 Collector，那裡認不得這個 Pod | Service 一定要 `internalTrafficPolicy: Local` |
 | 用 hostNetwork 的應用 trace 進 unassigned | 連線來源是節點 IP，對不到 Pod | 應用不能用 hostNetwork |
 | ES 空間不夠 | trace 量通常比 log 大；尾端取樣後約剩 15% | 全廠上線前估算；不要在應用調低 `otel.traces.sampleRatio` |
+| log 有、span 全沒有；node Collector 報 `couldn't find the exporter for the endpoint` | master 版 `node.yaml` 的子 exporter 共用一個佇列檔，重啟後只有一台起得來 | p1-durability 分支在修；暫時等 trace-sampler Ready 後重啟 node Collector |
+| Java 自己 `new Thread` 印的 log 沒有 trace_id | agent 不會把 context 帶到自己開的執行緒 | `Context.current().wrap(...)`（[tracing.md 2-4](../sdk/standards/tracing.md#2-4-自己管理的執行緒)） |
+| 背景排程的 log 沒有 trace_id | 沒有上游請求，log 當下沒有 span | 預期行為；要查就印業務 ID |
+| log 的 trace_id 在 ES 查不到 trace | 上游送的 `traceparent` 結尾 `-00`（未取樣），整條都不送 span | 找送 `-00` 的上游 |
 
 ## .NET
 
@@ -52,6 +56,7 @@
 | Collector 抓不到 .NET 的 metrics | 自動埋點的 Prometheus 端點只聽 localhost | 改成推（OTLP），chart 已經這樣設 |
 | 沒有 `http.server.request.duration` | 自動埋點預設沒開 ASP.NET Core 的 HTTP 指標 | `OTEL_DOTNET_AUTO_METRICS_ADDITIONAL_SOURCES=Microsoft.AspNetCore.Hosting,…`（chart 已加） |
 | log 量暴增 | ASP.NET Core 預設每個請求印 5 行 Information | `Logging__LogLevel__Microsoft.AspNetCore=Warning`（chart 已設） |
+| .NET Kafka 消費端的 log 沒有 trace_id | 自動埋點的 `receive` span 在 `Consume()` 回來時就結束 | 不改程式時印業務 ID；要串起來得在消費端改程式（[metrics/dotnet.md](metrics/dotnet.md#kafkaconfluentkafka)） |
 | .NET 的 log 對不到 trace | trace_id 在 `Scopes` 裡，不在最外層 | 開 `IncludeScopes`；中央 pipeline 會從 `Scopes` 拿 `TraceId`、`SpanId`，也認得 Serilog compact JSON。都能用環境變數開（`Logging__Console__*`），不用改程式 |
 | 告警顯示的連線池名稱是一串連線字串 | Npgsql 用連線字串當名稱（密碼已拿掉） | 能改程式就用 `NpgsqlDataSourceBuilder` 設 `Name` |
 | 執行緒池飢餓時佇列長度一直是 0 | .NET 6 以後偵測到同步等 Task 會馬上多開執行緒，不排佇列 | 看「執行緒 ÷ CPU 核數」（`thread_pool_growth`） |
@@ -99,6 +104,8 @@
 | `localhost:<port>` 連不上，`127.0.0.1` 卻可以 | 停掉的 nerdctl 容器還佔著那個 port 的 `::1` | 用 `127.0.0.1`，或換 port、刪掉舊容器 |
 | Grafana 面板一直 `Loading plugin panel...` | `kubectl port-forward` 在 Windows 上同時開很多連線會逾時 | Service 用 `LoadBalancer`（Rancher Desktop 對應到 `localhost`），例如 rca-demo 的 `localhost:3300` |
 | port-forward 一連就斷：`connection refused` | 連到正在 Terminating 的舊 Pod | 等舊 Pod 刪完，或 `port-forward deploy/<名稱>` |
+| port-forward 一用就 `curl: (52) Empty reply from server` | ES Pod 被重建（別的任務重啟），舊的 port-forward 斷了 | 重開；`sdk-inject` 腳本斷了會自己重連 |
+| Pod 一直 Pending：`Insufficient memory`，節點其實還有空 | initContainer 只寫 limit，request 也算成 limit（例如 2Gi） | 同時寫 request（`sdk-inject/dotnet.yaml` 的編譯寫 512Mi） |
 | `run-e2e.sh` 跑完 ES 就連不上 | 腳本結束時關掉自己開的 port-forward | 自己另開 `kubectl port-forward --address 127.0.0.1 svc/elasticsearch 29200:9200` |
 | Rancher Desktop 設定的 VM 記憶體沒作用 | Windows 上 VM 大小由 WSL 決定（預設主機的一半） | 改 `~/.wslconfig` |
 | e2e 腳本 `jq: command not found` | 這台沒有 jq | `winget install jqlang.jq` |

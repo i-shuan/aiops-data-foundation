@@ -1,0 +1,58 @@
+# 「不改程式」驗證的共用部分（namespace sdk-cases，dept D1110 → group imc）：
+#   kafka：單台 Kafka（KRaft，資料放 emptyDir），兩種語言各一個 topic（sdk-java、sdk-dotnet）
+#   client：發測試請求用（kubectl exec 進去 curl，可以自己帶 traceparent header）
+apiVersion: v1
+kind: Service
+metadata: {name: kafka, namespace: sdk-cases}
+spec:
+  selector: {app.kubernetes.io/name: kafka}
+  ports: [{name: kafka, port: 9092}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: kafka, namespace: sdk-cases}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app.kubernetes.io/name: kafka}}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: kafka}
+    spec:
+      enableServiceLinks: false   # 不然 K8s 塞的 KAFKA_PORT 會被 image 當成設定讀
+      containers:
+        - name: kafka
+          image: docker.io/apache/kafka:3.9.1
+          env:
+            - {name: KAFKA_NODE_ID, value: "1"}
+            - {name: KAFKA_PROCESS_ROLES, value: "broker,controller"}
+            - {name: KAFKA_LISTENERS, value: "PLAINTEXT://:9092,CONTROLLER://:9093"}
+            - {name: KAFKA_ADVERTISED_LISTENERS, value: "PLAINTEXT://kafka.sdk-cases.svc:9092"}
+            - {name: KAFKA_CONTROLLER_LISTENER_NAMES, value: CONTROLLER}
+            - {name: KAFKA_LISTENER_SECURITY_PROTOCOL_MAP, value: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT"}
+            - {name: KAFKA_CONTROLLER_QUORUM_VOTERS, value: "1@localhost:9093"}
+            - {name: KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR, value: "1"}
+            - {name: KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR, value: "1"}
+            - {name: KAFKA_TRANSACTION_STATE_LOG_MIN_ISR, value: "1"}
+            - {name: KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS, value: "0"}
+            - {name: KAFKA_HEAP_OPTS, value: "-Xmx256m -Xms256m"}
+          ports: [{containerPort: 9092}]
+          readinessProbe:
+            tcpSocket: {port: 9092}
+            initialDelaySeconds: 5
+          resources: {requests: {cpu: 100m, memory: 320Mi}, limits: {memory: 768Mi}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: client, namespace: sdk-cases}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app.kubernetes.io/name: client}}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: client}
+    spec:
+      containers:
+        - name: curl
+          image: docker.io/curlimages/curl:8.10.1
+          command: ["sh", "-c", "while true; do sleep 3600; done"]
+          resources: {requests: {cpu: 10m, memory: 16Mi}, limits: {memory: 64Mi}}
