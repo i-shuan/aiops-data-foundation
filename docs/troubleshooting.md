@@ -104,7 +104,7 @@
 | `localhost:<port>` 連不上，`127.0.0.1` 卻可以 | 停掉的 nerdctl 容器還佔著那個 port 的 `::1` | 用 `127.0.0.1`，或換 port、刪掉舊容器 |
 | Grafana 面板一直 `Loading plugin panel...` | `kubectl port-forward` 在 Windows 上同時開很多連線會逾時 | Service 用 `LoadBalancer`（Rancher Desktop 對應到 `localhost`），例如 rca-demo 的 `localhost:3300` |
 | port-forward 一連就斷：`connection refused` | 連到正在 Terminating 的舊 Pod | 等舊 Pod 刪完，或 `port-forward deploy/<名稱>` |
-| port-forward 一用就 `curl: (52) Empty reply from server` | ES Pod 被重建（別的任務重啟），舊的 port-forward 斷了 | 重開；`sdk-inject` 腳本在鎖裡自己開 |
+| port-forward 一用就 `curl: (52) Empty reply from server` | ES Pod 被重建（別的任務重啟），舊的 port-forward 斷了 | 重開；`sdk-inject` 腳本斷了會自己重連 |
 | Pod 一直 Pending：`Insufficient memory`，節點其實還有空 | initContainer 只寫 limit，request 也算成 limit（例如 2Gi） | 同時寫 request（`sdk-inject/dotnet.yaml` 的編譯寫 512Mi） |
 | `run-e2e.sh` 跑完 ES 就連不上 | 腳本結束時關掉自己開的 port-forward | 自己另開 `kubectl port-forward --address 127.0.0.1 svc/elasticsearch 29200:9200` |
 | Rancher Desktop 設定的 VM 記憶體沒作用 | Windows 上 VM 大小由 WSL 決定（預設主機的一半） | 改 `~/.wslconfig` |

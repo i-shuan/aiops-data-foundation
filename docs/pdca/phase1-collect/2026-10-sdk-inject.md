@@ -24,14 +24,21 @@
 | `base.yaml` | Kafka 3.9.1（KRaft）、發請求用的 curl Pod | — |
 | `run-sdk-inject-e2e.sh` | 部署、探測 trace 路徑、發請求、逐項印 PASS／FAIL | 重跑：`SKIP_DEPLOY=1` |
 
-- 腳本在鎖裡才 port-forward ES、先發 6 個探測請求：ES 被別的任務重啟過、node Collector 只通一台 trace-sampler 時，直接停下來說原因，不會印出一堆假 FAIL。
-- `FIX_TRACE_PATH=1`：探測不通時重啟 node Collector（見 Act 第 1 列）。
+- 腳本從部署到檢查完整段拿著 cluster 鎖；在鎖裡才 port-forward ES，斷了（ES Pod 被重建）自動重連，每次查 ES 連不上會等最多 2 分鐘。
+- 量之前先確認最近 1 分鐘有 span 進 ES、再發 6 個探測請求（只通一台 trace-sampler 會缺一半）；不通就停下來說原因，不動 cluster，不會印出一堆假 FAIL。
 
 文件：[sdk/standards/tracing.md](../../../sdk/standards/tracing.md)（log 什麼時候帶 trace_id、2-4）、[troubleshooting.md](../../troubleshooting.md)、[metrics/dotnet.md](../../metrics/dotnet.md) 的 Kafka、[trace/README.md](../../trace/README.md)。
 
 ## Check：測試的目的與結果
 
-rancher-desktop（k3s 單節點），2026-10-28 03:24（UTC+8），`SKIP_DEPLOY=1 KEEP=1 FIX_TRACE_PATH=1`，21 項全部 PASS。「實際」欄的 ID 取前 4 碼，原始值用 rid 後綴 `1793129039` 在 `k8s-*` 查得到。
+rancher-desktop（k3s 單節點），21 項全部 PASS 的兩輪結果一樣（第 11 次是整段拿著 cluster 鎖、重新部署再跑）：
+
+| 輪 | 時間（UTC） | 當時的 cluster | log 進 ES 延遲 |
+|---|---|---|---|
+| 第 8 次 | 2026-10-27 19:24 | master 版 Collector | 約 1 秒 |
+| 第 11 次 | 2026-10-28 00:53～00:56 | `6c59f67` 版 Collector；`k8s-imc-local` 00:50:54 rollover 過 | 約 0 秒；最後一筆 10 秒內到齊 |
+
+「實際」欄的 ID 取前 4 碼，是第 8 次的值（rid 後綴 `1793129039`，在 `k8s-*` 查得到；第 11 次是 `1793148916`）。
 
 **Java（agent 2.20.0）**
 
@@ -72,6 +79,7 @@ Kafka 兩種語言的 span 長得不一樣（同一輪，從 `traces-*` 查）�
 | .NET | Server → `sdk-dotnet publish` | `receive` 自成 trace `1df8…`，link 指回 publish |
 
 - 測的過程發現：master 版 `node.yaml` 部署後 node Collector 對所有 trace 回 `couldn't find the exporter for the endpoint`，探測請求的 log 進了、span 沒進（見 Act）。
+- 第 9 次 log 進 ES 慢到約 58 秒，19 項 FAIL（log 還沒進就查）：當時 p1-load 在同一個 cluster 壓測、Collector 積壓，不是 SDK 的問題。腳本改成輪詢到最後一筆 log、span 進 ES（上限 5 分鐘）並印出延遲。
 - Java 的 `trace_id` 是 agent 在 log 事件上加的：LogstashEncoder 的 JSON 有，程式裡 `MDC.get("trace_id")` 拿不到。
 - **沒測到的**：Spring 的 `@Async`、`@Scheduled`（[tracing.md](../../../sdk/standards/tracing.md) 第 1 節列為自動）；chart 用的 agent 2.10.0（這次是 2.20.0）；.NET 9、Framework；Kafka 一次 poll 多筆、重送；尾端取樣 5% 時的行為。
 
@@ -79,7 +87,7 @@ Kafka 兩種語言的 span 長得不一樣（同一輪，從 `traces-*` 查）�
 
 | 沒改善的 | 在什麼情況下發現的 | 影響 | 後續 |
 |---|---|---|---|
-| [①] master 版 node Collector 重啟後 trace 全被拒 | 跑驗證時 ES 沒有任何新 span，log 有 | 不掉 log，trace 全掉，不會自己好 | p1-durability 的分支在修；修好前重啟 node Collector |
+| [①] master 版 node Collector 重啟後 trace 全被拒 | 跑驗證時 ES 沒有任何新 span，log 有 | 不掉 log，trace 全掉，不會自己好 | p1-durability 的分支在修；腳本偵測到就停、回報平台 |
 | Java 自己 `new Thread` 的 log 沒 trace_id | 本輪 Java `new Thread` 情境 | 那段 log 對不到請求 | 已寫在 tracing.md 2-4：用 `Context.current().wrap` |
 | .NET Kafka 消費端 log 沒 trace_id | 本輪 .NET Kafka 情境 | 消費端的錯誤 log 找不到是哪個請求送來的 | 不改程式時靠業務 ID（[trace/README.md](../../trace/README.md) 做法 C） |
 | 上游送 `-00`：log 有 trace_id，ES 沒那個 trace | 本輪未取樣情境 | 從 log 點 trace_id 查不到 trace | 要不要在入口改掉外部來的 `-00`，未決定 |

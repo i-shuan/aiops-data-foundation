@@ -4,26 +4,35 @@
 #   基本、上游 traceparent（正常／格式錯／未取樣 00）、兩跳 A→B→C（跨語言）、執行緒池等子工作、背景排程、Kafka
 #
 # 前提：run-e2e.sh 跑過（ES、Collector；trace-sampler 是測試用的全部留）。部署約 6 分鐘（第一次要下載 image、NuGet 套件）。
-# 用法：e2e/local-k3s/sdk-inject/run-sdk-inject-e2e.sh（拿到鎖後自己 port-forward es-test 到 127.0.0.1:${ES_PORT:-31877}）
+# 用法：e2e/local-k3s/sdk-inject/run-sdk-inject-e2e.sh（拿到鎖後自己 port-forward es-test 到 127.0.0.1:${ES_PORT:-31877}，斷了自動重連）
 #   已經有通的 ES：ES_URL=http://127.0.0.1:<port>
-#   KEEP=1：跑完不刪；SKIP_DEPLOY=1：用已經部署好的（重跑檢查）；FIX_TRACE_PATH=1：trace 路徑不通時重啟 node Collector
+#   KEEP=1：跑完不刪；SKIP_DEPLOY=1：用已經部署好的（重跑檢查）
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 repo="$(cd "${here}/../../.." && pwd)"
 ES_PASSWORD=changeme-test-only
 ns=sdk-cases
 fail=0
-es() { curl -sS -m 30 -u "elastic:${ES_PASSWORD}" -H 'Content-Type: application/json' "$@"; }
+# es：連不上（port-forward 正在重連、ES 剛重啟）就每 5 秒重試，最多 2 分鐘
+es() {
+  local i
+  for i in $(seq 24); do
+    curl -sf -m 30 -u "elastic:${ES_PASSWORD}" -H 'Content-Type: application/json' "$@" && return 0
+    sleep 5
+  done
+  echo "  FAIL  ES 2 分鐘連不上：$*" >&2; return 1
+}
 check() { if [[ "$3" == "$4" ]]; then echo "  PASS  $1 $2"; else echo "  FAIL  $1 $2：得到 [$3]，預期 [$4]"; fail=1; fi; }
 hex() { od -An -N"$1" -tx1 /dev/urandom | tr -d ' \n'; }
 # shellcheck source=../cluster-lock.sh
 source "${here}/../cluster-lock.sh"
 
+# 部署到檢查完整段拿著鎖：中間放掉的話，別的任務停 ES、重啟 Collector，這段時間的 log、trace 會不見
+cluster_lock "phase1-sdk-inject"
 if [[ -z "${SKIP_DEPLOY:-}" ]]; then
   echo "== 1. 部署（namespace ${ns}）"
   kubectl -n otel-collector get statefulset trace-sampler -o jsonpath='{range .spec.template.spec.containers[0].env[*]}{.name}={.value} {end}' | grep -q 'RANDOM_PCT=100 ' \
     || echo "   注意：trace-sampler 不是全部留（RANDOM_PCT≠100），span 找不到的項目會 FAIL"
-  cluster_lock "phase1-sdk-inject 部署"
   kubectl delete namespace "${ns}" --ignore-not-found --wait=true >/dev/null
   kubectl create namespace "${ns}" >/dev/null
   kubectl label namespace "${ns}" dept=D1110 >/dev/null
@@ -40,24 +49,26 @@ if [[ -z "${SKIP_DEPLOY:-}" ]]; then
   for t in sdk-java sdk-dotnet; do   # 先建好 topic：消費者訂閱不存在的 topic，要等 metadata 更新（最多 5 分鐘）才收得到
     MSYS_NO_PATHCONV=1 kubectl -n "${ns}" exec deploy/kafka -- /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --create --if-not-exists --topic "${t}" --partitions 1 >/dev/null
   done
-  cluster_unlock
   for d in sdk-java-a sdk-java-b sdk-dotnet-a sdk-dotnet-b client; do kubectl -n "${ns}" rollout status "deploy/${d}" --timeout=900s >/dev/null; done
   echo "   起來了，等 40 秒（背景排程第一次在 20 秒後）"
   sleep 40
 fi
 
-# 發請求到檢查完都拿著鎖：別的任務停 ES、重啟 Collector 的話，這段時間的 trace 會不見
-cluster_lock "phase1-sdk-inject 測試"
 kubectl -n otel-collector rollout status daemonset/otel-node-collector --timeout=120s >/dev/null
 kubectl -n otel-collector rollout status statefulset/trace-sampler --timeout=120s >/dev/null
-# ES 在鎖裡才 port-forward：別的任務重啟過 ES，之前開的 port-forward 會斷（curl: (52) Empty reply）
-pf=
+# ES 在鎖裡才 port-forward。ES Pod 重建時 port-forward 會結束（curl: (52) Empty reply），迴圈重開；es() 會等它接上
+pfdir=
+pf_stop() { [[ -n ${pfdir} ]] && { touch "${pfdir}/stop"; kill "$(cat "${pfdir}/pid" 2>/dev/null)" 2>/dev/null; true; }; }
 if [[ -z "${ES_URL:-}" ]]; then
-  kubectl -n es-test port-forward --address 127.0.0.1 svc/elasticsearch "${ES_PORT:-31877}:9200" >/dev/null 2>&1 & pf=$!
-  trap 'kill ${pf} 2>/dev/null; cluster_unlock' EXIT
+  pfdir="$(mktemp -d)"
+  ( while [[ ! -f ${pfdir}/stop ]]; do
+      kubectl -n es-test port-forward --address 127.0.0.1 svc/elasticsearch "${ES_PORT:-31877}:9200" >/dev/null 2>&1 &
+      echo $! > "${pfdir}/pid"; wait $! || true; sleep 2
+    done ) &
+  trap 'pf_stop; cluster_unlock' EXIT
   ES_URL="http://127.0.0.1:${ES_PORT:-31877}"
 fi
-for i in $(seq 40); do es "${ES_URL}/_cluster/health?wait_for_status=yellow&timeout=5s" >/dev/null 2>&1 && break; sleep 3; done
+es "${ES_URL}/_cluster/health?wait_for_status=yellow&timeout=30s" >/dev/null
 R="$(date +%s)"
 req() {  # req <服務> <路徑> [traceparent]
   local h=(); [[ -n "${3:-}" ]] && h=(-H "traceparent: $3")
@@ -82,41 +93,36 @@ root_of() {
     | jq -r '.hits.hits[0]._source // {} | "\(.kind // "-") \(.name // "-" | gsub(" "; "_"))"'
 }
 
-echo "== 2. 先確認平台的 trace 路徑通（6 個探測請求的 span 60 秒內都要進 ES）"
-# 6 個不同 trace：node Collector 用 trace_id 分給 trace-sampler，只通一台的話會缺一半
-probe() {  # probe <輪>：全部到齊回 0，印到了幾個
-  local n=0 i k ps
-  for k in 1 2 3 4 5 6; do req sdk-java-a "/leaf?rid=probe${R}x$1x${k}"; done
-  for i in $(seq 12); do
-    sleep 5
-    es -X POST "${ES_URL}/k8s-*,traces-*/_refresh" >/dev/null
-    n=0
-    for k in 1 2 3 4 5 6; do
-      read -r _ ps _ <<<"$(log "leaf rid probe${R}x$1x${k}")"
-      [[ ${ps} != - && $(span "${ps}" | cut -d' ' -f1) != - ]] && n=$((n + 1))
-    done
-    [[ ${n} -eq 6 ]] && break
-  done
-  echo "   探測 ${n}/6 個 span 進 ES"
-  [[ ${n} -eq 6 ]]
-}
-ok=0
-probe 0 && ok=1
-# FIX_TRACE_PATH=1：探測不通時重啟 node Collector（master 版 node.yaml 的 loadbalancing 佇列檔問題，
-# 重啟後常只恢復一台 trace-sampler，最多試 3 次；docs/troubleshooting.md「trace」）
-if [[ ${ok} -eq 0 && -n "${FIX_TRACE_PATH:-}" ]]; then
-  for t in 1 2 3; do
-    echo "   重啟 node Collector（第 ${t} 次）"
-    kubectl -n otel-collector rollout restart daemonset/otel-node-collector >/dev/null
-    kubectl -n otel-collector rollout status daemonset/otel-node-collector --timeout=120s >/dev/null
-    sleep 10
-    probe "${t}" && { ok=1; break; }
-  done
-fi
-if [[ ${ok} -eq 0 ]]; then
-  echo "  FAIL  探測請求的 span 沒全部進 ES：先看 node Collector 的 log（docs/troubleshooting.md「trace」）；FIX_TRACE_PATH=1 會重啟它再試"
+echo "== 2. 先確認平台的 trace 路徑通"
+# 不動 cluster：不通就停下來回報（master 版 node.yaml 的 loadbalancing 佇列檔問題會讓 trace 全斷，docs/troubleshooting.md「trace」）
+es -X POST "${ES_URL}/traces-*/_refresh" >/dev/null
+recent="$(es "${ES_URL}/traces-*/_count" -d '{"query":{"range":{"@timestamp":{"gte":"now-1m"}}}}' | jq .count)"
+echo "   最近 1 分鐘進 ES 的 span：${recent}"
+if [[ ${recent} -eq 0 ]]; then
+  echo "  FAIL  最近 1 分鐘沒有任何 span 進 ES：trace 路徑斷了，回報平台，不要自己重啟 Collector"
   exit 1
 fi
+# 6 個不同 trace：node Collector 用 trace_id 分給 trace-sampler，只通一台的話會缺一半
+n=0
+for k in 1 2 3 4 5 6; do req sdk-java-a "/leaf?rid=probe${R}x${k}"; done
+for i in $(seq 24); do
+  sleep 5
+  es -X POST "${ES_URL}/k8s-*,traces-*/_refresh" >/dev/null
+  n=0
+  for k in 1 2 3 4 5 6; do
+    read -r _ ps _ <<<"$(log "leaf rid probe${R}x${k}")"
+    [[ ${ps} != - && $(span "${ps}" | cut -d' ' -f1) != - ]] && n=$((n + 1))
+  done
+  [[ ${n} -eq 6 ]] && break
+done
+echo "   探測 ${n}/6 個 span 2 分鐘內進 ES"
+if [[ ${n} -ne 6 ]]; then
+  echo "  FAIL  探測請求的 span 沒全部進 ES：trace 路徑（全部或一台 trace-sampler）斷了，回報平台，不要自己重啟 Collector"
+  exit 1
+fi
+# log 從印出到進 ES 花多久：共用 cluster 有壓測時 Collector 會積壓，延遲大的那輪結果要註明
+delay="$(es "${ES_URL}/k8s-*/_search?size=1" -d "{\"query\":{\"match_phrase\":{\"message\":\"leaf rid probe${R}x6\"}}}"   | jq -r '.hits.hits[0]._source | [."@timestamp", .event.ingested] | map(.[0:19] + "Z" | fromdate) | .[1] - .[0]')"
+echo "   log 進 ES 延遲約 ${delay} 秒$([[ ${delay} -gt 10 ]] && echo "（偏慢：cluster 可能有別的負載）")"
 
 echo "== 3. 發請求（rid 後綴 ${R}）"
 declare -A TP_T TP_P
@@ -132,8 +138,20 @@ for L in java dotnet; do
   for w in $([[ ${L} == java ]] && echo "pool cf thread" || echo "async taskrun pool thread"); do req "${a}" "/${w}?rid=${L}${w}${R}"; done
   req "${a}" "/kafka?rid=${L}kafka${R}"
 done
-echo "   等 40 秒（log 進 ES、trace-sampler 等 trace 到齊）"
-sleep 40
+# 等最後送的（兩種語言 Kafka 消費後的呼叫）log 和 span 都進 ES：log 延遲會變（實測 1～60 秒），不能固定等
+echo "   等 log、span 進 ES（最多 5 分鐘）"
+for i in $(seq 60); do
+  sleep 5
+  es -X POST "${ES_URL}/k8s-*,traces-*/_refresh" >/dev/null
+  n=0
+  for L in java dotnet; do
+    read -r _ ps _ <<<"$(log "leaf rid ${L}kafka${R}")"
+    [[ ${ps} != - && $(span "${ps}" | cut -d' ' -f1) != - ]] && n=$((n + 1))
+  done
+  [[ ${n} -eq 2 ]] && break
+done
+echo "   $((i * 5)) 秒到齊（${n}/2）；再等 10 秒"
+sleep 10
 es -X POST "${ES_URL}/k8s-*,traces-*/_refresh" >/dev/null
 
 for L in java dotnet; do
@@ -204,7 +222,7 @@ for L in java dotnet; do
 done
 
 [[ -z "${KEEP:-}" ]] && kubectl delete namespace "${ns}" --wait=false >/dev/null
-[[ -n ${pf} ]] && kill "${pf}" 2>/dev/null
+pf_stop
 cluster_unlock
 echo
 if [[ ${fail} -eq 0 ]]; then echo "全部通過"; else echo "有項目失敗"; exit 1; fi
