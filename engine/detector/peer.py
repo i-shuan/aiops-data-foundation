@@ -21,11 +21,12 @@ from .model import MAD_TO_SIGMA
 
 def compare(df: pd.DataFrame, group: list[str], member: str, *, direction: str = "up", z: float = 5.0,
             min_abs: float = 0.0, min_ratio: float | None = None, rel_floor: float = 0.1, abs_floor: float = 1e-9,
-            min_peers: int = 3) -> pd.DataFrame:
+            min_peers: int = 3, max_peer_median: float | None = None) -> pd.DataFrame:
     """df：group + [member, "value"]，每個 Pod 一列。
 
     回傳每個 Pod 一列：group、member、value、peers（其他 Pod 幾個）、median（其他 Pod 的中位數）、z、anomaly。
     rel_floor：其他 Pod 幾乎一樣時（MAD≈0），差距至少當成中位數的 rel_floor 倍，避免一點點不同就算。
+    max_peer_median：其他 Pod 的中位數已經到這個值（例如錯誤率 5%）＝整個服務都壞了，不挑出單一個 Pod，交給規則。
     """
     cols = group + [member, "value", "peers", "median", "z", "anomaly"]
     d = df.dropna(subset=["value"])
@@ -41,7 +42,9 @@ def compare(df: pd.DataFrame, group: list[str], member: str, *, direction: str =
             sigma = max(MAD_TO_SIGMA * mad, rel_floor * abs(med), abs_floor)
             diff = r["value"] - med
             zz = diff / sigma
-            if direction == "up":
+            if max_peer_median is not None and direction == "up" and med >= max_peer_median:
+                hit = False
+            elif direction == "up":
                 hit = zz >= z and diff >= min_abs and (min_ratio is None or r["value"] >= min_ratio * med)
             elif direction == "down":
                 hit = zz <= -z and -diff >= min_abs and (min_ratio is None or r["value"] * min_ratio <= med)

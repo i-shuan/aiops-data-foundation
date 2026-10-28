@@ -107,6 +107,10 @@
 | 症狀 | 原因 | 做法 |
 |---|---|---|
 | 根因報告「最慢那個請求的 log」少了幾行 | log 的 `@timestamp` 是應用時間，時鐘偏或請求結束後才寫，離 span 十幾分鐘 | `logs_of_traces` 已前後多放 30 分鐘；更多的看 `quality.log_clock_skew` |
+| Pod 同儕橫向比對報剛起來的新 Pod CPU 高 | 啟動時 JIT、載入類別，前幾分鐘 CPU 高 | `peer.yaml` 的 `warmup`（5m）：起來不到 5 分鐘的 Pod 不比 |
+| 擴容時舊 Pod 被報「記憶體比其他 Pod 高很多」 | 新 Pod 比舊 Pod 多、記憶體還在長，中位數被新 Pod 拉低 | 同上 `warmup`；heap 長得比 5 分鐘久的服務調長 `warmup`（要比 `window` 短） |
+| 全部 Pod 都壞，同儕比對卻只報最嚴重的一個 | 只看「比其他 Pod 高多少」，沒看其他 Pod 本身壞了 | `max_peer_median`：其他 Pod 中位數到規則門檻（5%、2 秒）就不挑，交給規則 |
+| 2 個副本的服務壞了一個，同儕比對不報 | `min_peers: 3`：2 個分不出誰怪 | 正常；看規則 `http.error_rate_floor`、baseline |
 | 根因報告的「平常」數字跟出事時差不多（例如平常 p95 也是 1.5 秒） | 一週前沒資料時，「平常」改用出事前一段、中間空 `ref_gap`；偵測比事故晚約 4 分鐘，`ref_gap` 太短就包到事故 | `ref_gap` 要大於偵測延遲；正式設定 10 分鐘（`engine/configs/rca/rca.yaml`） |
 | 根因報告說「這段時間沒有這個服務的 trace」，Kibana 卻看得到 | 鑰匙對不上：路由沒參數化（`/items/123`）、舊版 Java agent 的 span 名稱沒有 method（`/stock/{id}`）；Pod 沒有 `app.kubernetes.io/name` label 時，trace 的 `service.name` 是應用自設的、可能跟 metrics 不同（推論） | 不給 `--route` 再跑；用 metrics 的 `k8s.pod.name` 查 trace 的 `service.name`；根本做法是應用修路由模板、Pod 加 label（[metrics-trace](pdca/phase1-collect/2026-10-metrics-trace.md)） |
 
@@ -121,6 +125,7 @@
 | busybox Pod 跑不了 `rca-lib.sh` | Windows checkout 成 CRLF | 建 ConfigMap 前 `tr -d '\r'`（`run-rca-demo.sh` 已做） |
 | 容器裡的路徑變成 `C:/Program Files/Git/...` | Git Bash 改寫 `/` 開頭的參數 | 那一行加 `MSYS_NO_PATHCONV=1`；它也會讓 `KUBECONFIG=/c/...` 不轉換，kubectl 讀不到，所以只加在需要的指令 |
 | `elasticsearch-setup.sh` 裝到別人的 ES | 那個 port 已經是別的任務的 `kubectl port-forward`，自己的容器沒綁上 | 跑之前 `curl <ES_URL>/` 看 `version.number`、`cluster_name` 是不是自己那台 |
+| 本機 ES、kubectl 一直 `Connection was reset`、`TLS handshake timeout`，`nerdctl` 沒回應 | Rancher Desktop VM 記憶體與 swap 用滿（多個測試 ES＋共用 cluster） | 同時跑的測試 ES 最多 2 個（各 heap 512m）；用完就 `nerdctl rm -f` |
 | `localhost:<port>` 連不上，`127.0.0.1` 卻可以 | 停掉的 nerdctl 容器還佔著那個 port 的 `::1` | 用 `127.0.0.1`，或換 port、刪掉舊容器 |
 | Grafana 面板一直 `Loading plugin panel...` | `kubectl port-forward` 在 Windows 上同時開很多連線會逾時 | Service 用 `LoadBalancer`（Rancher Desktop 對應到 `localhost`），例如 rca-demo 的 `localhost:3300` |
 | port-forward 一連就斷：`connection refused` | 連到正在 Terminating 的舊 Pod | 等舊 Pod 刪完，或 `port-forward deploy/<名稱>` |

@@ -113,6 +113,7 @@ baseline（中位數＋MAD）、規則、資料品質、餵給 baseline 前的�
 | [phase2-anomaly/2026-10-data-sources.md](phase2-anomaly/2026-10-data-sources.md) | 資料來源接口＋假資料分開；抓台灣行事曆 | 已合；行事曆來源非官方；負責人真來源還沒有 |
 | [phase2-anomaly/2026-10-exclude-adjust.md](phase2-anomaly/2026-10-exclude-adjust.md) | 排除已知干擾（排除時段、重置點、週期放寬） | 已合；重置後暖機 24 小時內不判斷（估的）；只放寬不變嚴 |
 | [phase2-anomaly/2026-10-instant-anomaly.md](phase2-anomaly/2026-10-instant-anomaly.md) | ④ 單次就報：依序列設 `confirm_points`、偏太多（`instant_z`）不用等；`tune` 能調 | `http.error_rate` 一次就算、全域 `instant_z: 15`；模擬資料實測 z 20～49 的單點變 anomaly、z 5.2 的誤報仍是 warning |
+| [phase2-anomaly/2026-10-peer-verify.md](phase2-anomaly/2026-10-peer-verify.md) | ④ Pod 同儕橫向比對：副本數 1～5、Pod 換掉、擴縮容、全壞、同名服務的邊緣情境 | 合成資料 37 項改前 8 項錯：新 Pod 暖機被報、擴容時舊 Pod 被報記憶體、全壞只報一個；加 `warmup`、`max_peer_median` 後全對；真的 .NET 換 Pod、2 副本在 cluster 上照預期；2 個副本不判斷、暖機曲線是假設（Act） |
 | [phase2-anomaly/2026-10-split-detector-cli.md](phase2-anomaly/2026-10-split-detector-cli.md) | ④⑤⑨ detector 的 `__main__.py`（1,100 行）依指令拆檔 | 1,100 行 → `__main__.py` 160 行＋ 10 個檔；只搬不改，200 個測試、ruff、9 個指令實跑都過 |
 
 ### Phase 3 定位問題（`phase3-locate/`）
