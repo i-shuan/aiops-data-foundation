@@ -130,7 +130,7 @@ MAD（Median Absolute Deviation，中位數絕對偏差）＝「每個值離中�
 
 - **不用另外存狀態**：每次偵測多查前一個時間窗，從資料重算「連續第幾個」（`streak` 欄位），程式重啟也一樣。
 - **不降級**：上一輪已判成 anomaly 的時間窗，這一輪就算查的範圍沒包含它的前一個時間窗，也維持 anomaly。
-- 設定在 `series.yaml` 的 `status: {confirm_points: 2, confirm_span: 30m, instant_z: 15}`。每條序列可以自己設 `confirm_points`、`instant_z`；`tune --confirm-points 1 --instant-z 10` 可以再依對象調（寫進 `aiops-tuning`，之後回饋的建議也能調）。優先順序：對象 > 序列 > 全域（[pdca/phase2-anomaly/2026-10-instant-anomaly.md](../../../docs/pdca/phase2-anomaly/2026-10-instant-anomaly.md)）。
+- 設定在 `series.yaml` 的 `status: {confirm_points: 2, confirm_span: 30m, instant_z: 15}`。每條序列可以自己設 `confirm_points`、`instant_z`（`http.latency_p95_s` 設 `null`：不直接 anomaly；寫 0 會讓每個超標點都直接 anomaly）；`tune --confirm-points 1 --instant-z 10` 可以再依對象調（寫進 `aiops-tuning`，之後回饋的建議也能調）。優先順序：對象 > 序列 > 全域（[pdca/phase2-anomaly/2026-10-instant-anomaly.md](../../../docs/pdca/phase2-anomaly/2026-10-instant-anomaly.md)）。
 - 規則（`rules.yaml`）另外用 `for`（要持續多久）處理；重啟、Pod Failed 這類 critical 規則一次就算，不等。
 
 **時間上的效果**（預設 30 秒一點，見「自動調整 (1)」）：30 秒一點的序列，偵測每 30 秒跑一次，**跳一次約 30 秒後 warning、連續兩個 30 秒（約 1 分鐘）就是 anomaly**；粒度被調粗的序列（量少、或使用者、feedback 調過的）照它自己的時間窗算。
@@ -163,8 +163,9 @@ MAD（Median Absolute Deviation，中位數絕對偏差）＝「每個值離中�
 | 比一週長的週期（月底、季底批次） | 168 格只涵蓋一週 | 月底誤報 | `recurring_override` |
 | 指標不夠：沒有 p99、慢請求比例、往外呼叫耗時 | `series.yaml` 只有 7 條序列 | 只有 p95，看不到尾端 | 待排：加序列（改設定，不改公式） |
 | 借同組實際不會發生 | `series.yaml` 的 `groups` 是註解掉的範例，沒有 `groups` 就不借 | 新 API 沒有 baseline 可比 | 要依公司服務命名定義 `groups`（要別人配合） |
-| p95 從直方圖算，值落在桶中點 | MAD＝0，σ 只剩中位數的 5%；多兩個請求跨到下一格 z 約 23 | 合成資料一週 p95 anomaly 3.5% | 待定門檻（σ 至少半個桶寬），[baseline-verify](../../../docs/pdca/phase2-anomaly/2026-10-baseline-verify.md) |
-| 錯誤率一個 5xx 就到門檻 | `min_events` 20、`min_abs` 5%、`confirm_points` 1 | 合成資料一週 0.34% 的點報 anomaly | 待定門檻（至少 N 個 5xx） |
+| p95 從直方圖算，值落在桶中點 | MAD＝0，σ 只剩中位數的 5%；多兩個請求跨到下一格 z 約 23 | 已設 `instant_z: null`、`min_events.rate: 100`：合成資料一週 p95 anomaly 3.52% → 0.016%、warning 0.84% | 跨一格 z 仍大；待改程式（σ 至少半個桶寬），[threshold-tune](../../../docs/pdca/phase2-anomaly/2026-10-baseline-threshold-tune.md) |
+| 錯誤率一個 5xx 就到門檻 | `min_events` 20、`min_abs` 5%、`confirm_points` 1 | 已設 `min_events.rate: 100`：合成資料一週 0.34% → 0% | — |
+| 比例、百分位每窗至少 100 個請求 | 每 30 秒 40 個請求的 API 也湊不到三成時間窗，錯誤率、p95 變 5 分鐘一點 | 持續 5 分鐘的變慢只有 warning；30 秒的錯誤率尖峰被平均掉（33% → 3.3% 不報）；anomaly 最快 10 分鐘 | 待決定：退回 20、只留 `instant_z: null` 再量，[threshold-tune](../../../docs/pdca/phase2-anomaly/2026-10-baseline-threshold-tune.md) |
 | `hour` 層混平日與週末 | 每天同一小時不分星期幾 | 某個週一收集中斷後兩週，週一那幾小時流量掉九成只有 z −4；剛上線 3 天週一會 warning | 待評估：hour 層分平日／週末 |
 | 尖峰不對齊整點 | 168 格以整點切；08:45 起的尖峰只佔 8 點那格的四分之一 | 每個平日 08:45～09:00 報 anomaly | `recurring_override`；或待評估邊界比相鄰時段 |
 
@@ -200,7 +201,7 @@ MAD（Median Absolute Deviation，中位數絕對偏差）＝「每個值離中�
 
   | 指標類型 | 事件數是什麼 | 預設門檻（每窗） |
   |---|---|---|
-  | 比例（錯誤率）、百分位（p95） | 這段時間的請求數 | ≥ 20 |
+  | 比例（錯誤率）、百分位（p95） | 這段時間的請求數 | ≥ 100（1 個 5xx 最多 1%） |
   | 筆數（請求數、log 數、事件數） | 筆數本身 | ≥ 10 |
   | 量測值（CPU、記憶體） | 不檢查，固定最細（30 秒） | — |
 
