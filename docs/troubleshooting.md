@@ -120,6 +120,10 @@
 | trace 基準線的錯誤率、時間偏高很多 | 讀到尾端取樣全留的那份（錯、慢、例外） | `traces_index` 用 `traces-generic.otel-*`、`sample_policy: random`（實測混進來錯誤率 4% → 35%） |
 | Pod 沒有 `app.kubernetes.io/name`，`quality.log_missing_identity` 卻沒報 | log pipeline 退回用 container 名稱（例如 `app`），不算缺 | 已知缺口；看 `service.name` 是不是 container 名稱 |
 | span 某欄位型別錯，failure store 卻沒有 | traces 是 logsdb、ignore_malformed：文件存進去，那個欄位丟掉 | 查 `_ignored`；`quality.ingest_rejected` 看不到這種 |
+| 收集系統停了半小時以上，每個服務都被報成「流量掉到 0」 | 偵測時有 baseline、整段沒資料的服務一律補 0 | 已改成只在 index 有資料的時間窗補 0（`es.alive_times`），[baseline-verify](pdca/phase2-anomaly/2026-10-baseline-verify.md) |
+| 稀少的 error log，baseline 學出來的平常次數偏高 | 用序列自己的 filter（只數 error）判斷收集系統有沒有在跑，沒人出錯的小時被當「不知道」 | 已改成看整個 index；實測 λ 1.68 → 1.21（實際 1.2） |
+| `train`／`detect` 整個失敗：`KeyError: 'end'`、`PatternError` | `aiops-tuning` 裡有缺欄位、正規表示式錯的調整 | 已改成略過那一筆並印「⚠ 略過調整 <id>」；照提示 `adjust remove --id` |
+| p95 一直報 anomaly，值在 0.175、0.375 之間跳 | 直方圖的 p95 落在桶中點，MAD＝0，跨一格 z 約 23 | 門檻還沒改（[baseline-verify](pdca/phase2-anomaly/2026-10-baseline-verify.md) 的 Act）；吵的對象先 `tune --z` |
 | 根因報告說「這段時間沒有這個服務的 trace」，Kibana 卻看得到 | 鑰匙對不上：路由沒參數化（`/items/123`）、舊版 Java agent 的 span 名稱沒有 method（`/stock/{id}`）；Pod 沒有 `app.kubernetes.io/name` label 時，trace 的 `service.name` 是應用自設的、可能跟 metrics 不同（推論） | 不給 `--route` 再跑；用 metrics 的 `k8s.pod.name` 查 trace 的 `service.name`；根本做法是應用修路由模板、Pod 加 label（[metrics-trace](pdca/phase1-collect/2026-10-metrics-trace.md)） |
 
 ## 本機測試環境（Windows、Rancher Desktop）
@@ -139,6 +143,8 @@
 | port-forward 一用就 `curl: (52) Empty reply from server` | ES Pod 被重建（別的任務重啟），舊的 port-forward 斷了 | 重開；`sdk-inject` 腳本斷了會自己重連 |
 | Pod 一直 Pending：`Insufficient memory`，節點其實還有空 | initContainer 只寫 limit，request 也算成 limit（例如 2Gi） | 同時寫 request（`sdk-inject/dotnet.yaml` 的編譯寫 512Mi） |
 | `run-e2e.sh` 跑完 ES 就連不上 | 腳本結束時關掉自己開的 port-forward | 自己另開 `kubectl port-forward --address 127.0.0.1 svc/elasticsearch 29200:9200` |
+| 寫 ES 的 OTLP 入口一直逾時、`_cat` 被重設，最後 WSL 回 `Wsl/Service/0x8007274c` | 好幾個測試 ES（各 512MB heap）加共用 cluster 擠在同一個 VM，記憶體 98%、load 100 以上 | 同一時間只開一個測試 ES（拿名額），用完 `nerdctl rm -f` |
+| 想把 4 週前的合成 metrics 寫進 `metrics-*.otel-*` | TSDS 的 `index.look_back_time` 上限 7 天 | 測試用 data stream 另建 standard mode 的 template（`baseline_edge_e2e.setup`）；欄位型別、聚合結果一樣 |
 | Rancher Desktop 設定的 VM 記憶體沒作用 | Windows 上 VM 大小由 WSL 決定（預設主機的一半） | 改 `~/.wslconfig` |
 | 本機 ES 一直 `Connection reset`、逾時，ES log「writing cluster state took 58s」，之後 nerdctl、kubectl 都連不上 | 同時起 5 台 ES 加共用 cluster：WSL 記憶體 7.7GB 用光、swap 滿、load 200 以上 | 同一時間只開 1 台自己的 ES（scratchpad 的 `es-slot.sh` 拿名額），用完 `nerdctl rm -f` |
 | 合成 metrics 灌進 TSDS 前先建欄位，報 `Cannot update parameter [time_series_metric]` | 欄位型別要跟 ES OTLP 入口建的一樣（直方圖帶 `time_series_metric: histogram`） | bulk 用 `dynamic_templates`（`gauge_double`、`exponential_histogram`）；已有的欄位不再送（`tests/rules_edge_e2e.py`） |

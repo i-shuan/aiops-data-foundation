@@ -6,7 +6,8 @@ import dataclasses
 import numpy as np
 import pandas as pd
 
-from .es import (ANOMALY_INDEX, ANOMALY_MAPPING, BASELINE_INDEX, BASELINE_MAPPING, ES, doc_id, fetch, load_baseline, load_group_baselines, value_kind)
+from .es import (ANOMALY_INDEX, ANOMALY_MAPPING, BASELINE_INDEX, BASELINE_MAPPING, ES, alive_times, doc_id, fetch, load_baseline,
+                 load_group_baselines, value_kind)
 from . import adjust as A
 from .model import (CONFIDENCE, RESOLUTIONS, DetectOptions, TrainOptions, mask_thin, pick_resolution, score, group_of, mark_status, override_for, resolutions_from, score_poisson, train, train_groups)
 from .common import _freq, _now, _v, keys_of
@@ -137,7 +138,7 @@ def cmd_train(cfg: dict, args) -> int:
     fine_start = max(start, end - pd.Timedelta(fh[:-1] + "D" if fh.endswith("d") else fh))
     fine = lambda r: pd.Timedelta(_freq(r)) < pd.Timedelta("5min")
     topts = TrainOptions(**cfg.get("train", {}))
-    overrides = load_overrides(es, cfg)
+    overrides = load_overrides(es, cfg, end)    # 有沒有過期以這次 train 的時間點判斷（跟排除時段、重置點一樣）
     adjs = data_adjustments(es, cfg, end)
     print(f"學習區間 {start.tz_convert(topts.timezone):%Y-%m-%d %H:%M} ～ {end.tz_convert(topts.timezone):%Y-%m-%d %H:%M}"
           f"（{topts.timezone}，{interval} 一點；5 分鐘以下的粒度學最近 {cfg.get('fine_history', '14d')}）")
@@ -195,8 +196,10 @@ def cmd_train(cfg: dict, args) -> int:
                   + "、".join(", ".join(str(r[k]) for k in keys) for r in sparse.head(5).to_dict("records")))
     return 0
 
-def _add_silent(cur: pd.DataFrame, base: pd.DataFrame, by: list[str], start, end, interval) -> pd.DataFrame:
-    """有 baseline、但這段時間完全沒資料的序列補 0：服務整個停掉、不再有請求或 log，也要抓得到。"""
+def _add_silent(cur: pd.DataFrame, base: pd.DataFrame, by: list[str], start, end, interval, alive=None) -> pd.DataFrame:
+    """有 baseline、但這段時間完全沒資料的序列補 0：服務整個停掉、不再有請求或 log，也要抓得到。
+    只補收集系統有在送資料的時間窗（alive：回傳時間窗的函式，見 es.alive_times）：收集系統停了的時段是「不知道」，
+    補 0 的話每個服務都會被報成「停掉」。"""
     if base.empty:
         return cur
     known = base[by].drop_duplicates()
@@ -206,6 +209,10 @@ def _add_silent(cur: pd.DataFrame, base: pd.DataFrame, by: list[str], start, end
     if silent.empty:
         return cur
     grid = pd.date_range(start, end, freq=_freq(interval), inclusive="left")
+    if alive is not None:
+        grid = grid[grid.isin(alive())]
+    if grid.empty:
+        return cur
     zeros = silent.merge(pd.DataFrame({"ts": grid}), how="cross").assign(value=0.0, n=0.0)
     return pd.concat([cur, zeros[by + ["ts", "value", "n"]]], ignore_index=True)
 
@@ -334,7 +341,8 @@ def detect_series(es, cfg: dict, spec: dict, base: pd.DataFrame, now, window: pd
         ks = b[keys].drop_duplicates()
         cur = cur.merge(ks, on=keys) if not cur.empty else cur
         if value_kind(spec) == "count" or spec.get("fill_zero"):
-            cur = _add_silent(cur, b, keys, prev_r, end_r, r)
+            cur = _add_silent(cur, b, keys, prev_r, end_r, r,
+                              alive=lambda: alive_times(es, spec, prev_r, end_r, r))
         if (me := min_events(cfg, spec)) is not None and not cur.empty:
             cur = mask_thin(cur, me)
         if cur.empty:
@@ -365,7 +373,7 @@ def cmd_detect(cfg: dict, args) -> int:
     start = end - pd.Timedelta(args.window)
     tz = cfg.get("train", {}).get("timezone", "Asia/Taipei")
     dopts = DetectOptions(**cfg.get("detect", {}))
-    overrides = load_overrides(es, cfg)
+    overrides = load_overrides(es, cfg, now)   # --at 回放時以 --at 判斷有沒有過期（跟排除時段、重置點、backtest 一樣）
     adjs = data_adjustments(es, cfg, now)
     total = 0
     print(f"偵測區間 {start.tz_convert(tz):%Y-%m-%d %H:%M} ～ {end.tz_convert(tz):%Y-%m-%d %H:%M}（{tz}）")

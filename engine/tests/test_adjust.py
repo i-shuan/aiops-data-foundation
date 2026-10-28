@@ -46,6 +46,40 @@ class Active(unittest.TestCase):
         self.assertEqual([a["id"] for a in A.active(adjs, self.now, kinds=("override",))], ["tune"])
 
 
+class Robust(unittest.TestCase):
+    """aiops-tuning 讀不到、或裡面有壞掉的調整：略過，不讓整個 train／detect 失敗。"""
+
+    def test_problem(self):
+        self.assertIsNone(A.problem({"kind": "exclude_window", "start": "2026-10-01", "end": "2026-10-02"}))
+        self.assertIn("end", A.problem({"kind": "exclude_window", "start": "2026-10-01"}))
+        self.assertIn("早於", A.problem({"kind": "exclude_window", "start": "2026-10-02", "end": "2026-10-01"}))
+        self.assertIn("position", A.problem({"kind": "override", "series": "http.(requests", "z": 7}))
+        self.assertIn("position", A.problem({"kind": "override", "match": {"service": "["}, "z": 7}))
+        self.assertIn("reset_at", A.problem({"kind": "reset_point"}))
+        self.assertIn("cron", A.problem({"kind": "recurring_override", "schedule": {"cron": "0 20 * *"}}))
+        self.assertIn("ValueError", A.problem({"kind": "override", "z": "abc"}))
+        self.assertIn("粒度", A.problem({"kind": "override", "resolution": "2m"}))
+        self.assertIsNone(A.problem({"kind": "rule_suggestion", "rule_draft": {}}))
+
+    def test_load_skips_bad_and_survives_unreadable_index(self):
+        class FakeES:
+            def __init__(self, hits=None, err=None):
+                self.hits, self.err = hits, err
+
+            def req(self, *a, **k):
+                if self.err:
+                    raise self.err
+                return {"hits": {"hits": self.hits}}
+        good = {"_id": "g", "_source": {"kind": "override", "series": "x", "z": 7}}
+        bad = {"_id": "b", "_source": {"kind": "exclude_window", "start": "2026-10-01"}}
+        cfg = {"adjustments_file": "", "calendar_file": "", "overrides": [{"series": "y", "z": 9}]}
+        self.assertEqual([a.get("id") for a in A.load(FakeES([good, bad]), "aiops-tuning", cfg)], [None, "g"])
+        got = A.load(FakeES(err=RuntimeError("400 index_closed_exception")), "aiops-tuning", cfg)
+        self.assertEqual(got, cfg["overrides"])          # 只剩設定檔的
+        import requests
+        self.assertEqual(A.load(FakeES(err=requests.ConnectionError("down")), "aiops-tuning", cfg), cfg["overrides"])
+
+
 class Schedule(unittest.TestCase):
     def test_daily_window(self):
         ts = pd.Series(pd.to_datetime(["2026-10-23T19:59", "2026-10-23T20:00", "2026-10-23T23:59",

@@ -25,9 +25,9 @@ def load_adjustments(es, cfg: dict) -> list[dict]:
     """全部調整（四種 kind）：設定檔（overrides、adjustments_file）＋ aiops-tuning（tune、adjust 指令、之後的 learning loop）。"""
     return A.load(es, TUNING_INDEX, cfg)
 
-def load_overrides(es, cfg: dict) -> list[dict]:
+def load_overrides(es, cfg: dict, now=None) -> list[dict]:
     """粒度、z、min_abs、confirm_points、instant_z 的調整（kind: override；舊資料沒有 kind 也是），生效中的，後面蓋前面。"""
-    return A.active(load_adjustments(es, cfg), pd.Timestamp.now(tz="UTC"), kinds=("override",))
+    return A.active(load_adjustments(es, cfg), now if now is not None else pd.Timestamp.now(tz="UTC"), kinds=("override",))
 
 def data_adjustments(es, cfg: dict, now) -> list[dict]:
     """排除時段、重置點、週期放寬，生效中的。"""
