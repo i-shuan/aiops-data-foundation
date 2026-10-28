@@ -53,13 +53,15 @@ def cmd_adjust(cfg: dict, args) -> int:
         print(f"{args.kind} 要給 {'、'.join(missing)}")
         return 2
     match = dict(m.split("=", 1) for m in (args.match or []))
+    # 沒寫時區的時間當成當地時間（A.local_iso）：值班寫「凌晨 2 點」不會變成 UTC 的 2 點
+    tz = cfg.get("train", {}).get("timezone", "Asia/Taipei")
     doc = {"kind": args.kind, "series": args.series, "match": match, "status": args.status, "source": args.source,
-           "reason": args.reason, "by": args.by, "expires_at": args.expires, "at": pd.Timestamp.now(tz="UTC").isoformat()}
+           "reason": args.reason, "by": args.by, "expires_at": A.local_iso(args.expires, tz),
+           "at": pd.Timestamp.now(tz="UTC").isoformat()}
     if args.kind == "exclude_window":
-        doc.update(start=pd.Timestamp(args.start).isoformat(), end=pd.Timestamp(args.end).isoformat(),
-                   apply_to=args.apply_to.split(","))
+        doc.update(start=A.local_iso(args.start, tz), end=A.local_iso(args.end, tz), apply_to=args.apply_to.split(","))
     elif args.kind == "reset_point":
-        doc["reset_at"] = pd.Timestamp(args.at).isoformat()
+        doc["reset_at"] = A.local_iso(args.at, tz)
         doc["warmup"] = args.warmup
     else:
         sched = {"cron": args.cron, "duration": args.duration}

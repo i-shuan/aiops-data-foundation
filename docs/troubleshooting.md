@@ -125,6 +125,9 @@
 | `train`／`detect` 整個失敗：`KeyError: 'end'`、`PatternError` | `aiops-tuning` 裡有缺欄位、正規表示式錯的調整 | 已改成略過那一筆並印「⚠ 略過調整 <id>」；照提示 `adjust remove --id` |
 | p95 一直報 anomaly，值在 0.175、0.375 之間跳 | 直方圖的 p95 落在桶中點，MAD＝0，跨一格 z 約 23 | 門檻還沒改（[baseline-verify](pdca/phase2-anomaly/2026-10-baseline-verify.md) 的 Act）；吵的對象先 `tune --z` |
 | 根因報告說「這段時間沒有這個服務的 trace」，Kibana 卻看得到 | 鑰匙對不上：路由沒參數化（`/items/123`）、舊版 Java agent 的 span 名稱沒有 method（`/stock/{id}`）；Pod 沒有 `app.kubernetes.io/name` label 時，trace 的 `service.name` 是應用自設的、可能跟 metrics 不同（推論） | 不給 `--route` 再跑；用 metrics 的 `k8s.pod.name` 查 trace 的 `service.name`；根本做法是應用修路由模板、Pod 加 label（[metrics-trace](pdca/phase1-collect/2026-10-metrics-trace.md)） |
+| 開了台灣行事曆，假日那天工廠（24×7）服務的故障也沒報 | 台灣行事曆每一天沒有 `match`，變成所有服務都不學、不判斷 | `calendar.yaml` 的 taiwan 來源寫 `match` 限定週休的系統（來源層級的 `match` 會套到每一天） |
+| `adjust add --start 2026-10-20T02:00` 排除的時段差 8 小時 | 舊版把沒寫時區的時間當 UTC | 現在當台北時間（`train.timezone`）；舊資料用 `adjust list` 看，差 8 小時的重寫一次 |
+| 查 `aiops-chronic` 找不到天天觸發的規則 | 規則那類的 `keys` 是 `series`＋對象（`service`…），不是只有服務 | 用 `keys.series` 找 |
 
 ## 本機測試環境（Windows、Rancher Desktop）
 
@@ -157,3 +160,7 @@
 | 測試 ES 寫 cluster state 要 10～30 秒、連線常被重設（WinError 10054），最後 nerdctl、kubectl 都卡住 | 好幾個代理各起一個 ES 加共用 cluster，WSL 記憶體不夠 | 同時最多 2 個測試 ES：起之前 `es_slot_take`，用完刪容器、`es_slot_release` |
 | 合成 log 寫進 `k8s-*` 後服務、namespace 都是 null | log pipeline 吃的是 Fluent Bit 的樣子 | 原文放 `log`，K8s 放 `kubernetes.namespace_name`、`pod_name`、`labels`（`trace_quality_edge_e2e.py` 的 `log()`） |
 | 平台頻道一直收到「主機時鐘偏移」「容器記憶體快到上限」 | WSL 時鐘偏移約 0.2 秒；測試 ES 的記憶體用到 92～98% | 這台機器的狀況，規則本來就該報；跟測的事故無關 |
+| nerdctl、kubectl 都 timeout，WSL 報 `0x8007274c`，主機只剩幾百 MB | 好幾個測試 ES 容器加上共用 cluster，WSL 的 VM 記憶體不夠 | 同一時間只起 1 個測試 ES（scratchpad 的 `es-slot.sh` 拿名額），用完 `nerdctl rm -f` |
+| Git Bash 裡 `TZ=Asia/Taipei date` 印出 UTC | Git Bash 沒有 zoneinfo，不認得的時區當 UTC，也不報錯 | 用 POSIX 寫法 `TZ=UTC-8`（＝ +08:00） |
+| 腳本結束了，`kubectl port-forward` 還佔著 port | Git Bash 的 `kill` 有時停不掉原生的 `kubectl.exe` | 再用 `/proc/<pid>/winpid` 的 Windows PID `taskkill //F`（`run-schedule-e2e.sh` 的 cleanup）；`tasklist` 確認 |
+| `kubectl create job --from=cronjob/...` 後 CronJob 出現 `UnexpectedJob` 事件 | 手動建的 Job 帶 ownerReference，不是 controller 排的 | 不影響排程，可以不管 |
