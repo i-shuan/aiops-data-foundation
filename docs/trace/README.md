@@ -146,8 +146,11 @@ trace-sampler × 2（StatefulSet，尾端取樣）
 | `trace_id`、`span_id`、`parent_span_id` | 請求與這一段的 ID |
 | `name`、`kind`、`duration`、`status.code` | 這一段做什麼、花多久、成功與否 |
 | `attributes.*` | 這一段的細節，例如 `http.request.method`、`http.response.status_code` |
-| `resource.attributes.service.name` | 應用自己設的（chart 設成 `app.kubernetes.io/name`） |
+| `resource.attributes.service.name` | Pod label `app.kubernetes.io/name`，跟 log、metrics 一樣；應用自己設的不同時被蓋掉 |
 | `resource.attributes.service.version`、`.service.namespace` | Pod label，跟 log、metrics 一樣 |
+
+- `service.name` 的順序：Pod label → 應用自己設的（`OTEL_SERVICE_NAME`）→ Deployment 名稱。
+- 應用自己設的只在 Pod 沒有 label 時用到；chart 會把兩者設成一樣。
 | `resource.attributes.group`、`.dept` | 分流結果、namespace 的 dept |
 | `resource.attributes.k8s.*` | namespace、Pod、節點、Deployment、cluster |
 

@@ -11,10 +11,13 @@
 | Collector log 出現 `Partial success ... dropped` | ES 拒收其中幾筆（例如欄位型別衝突，400），那幾筆丟掉 | 監控這行。`CONFLICT`（409）是重送的被 `_id` 擋掉，屬於正常去重複，不算遺失 |
 | 連線逾時時資料不見 | `elasticsearch` 寫入元件逾時直接丟 | 用 OTLP 出口，不要換回 `elasticsearch` 寫入元件（[metrics/README.md](metrics/README.md#為什麼用-otlp-送不用-elasticsearch-寫入元件)） |
 | 兩個 cluster 的資料混在一起 | `CLUSTER_NAME` 沒改（它是每筆的 `k8s.cluster.name`，metrics 的資料流名稱裡沒有它） | 每個 cluster 部署時一定要改 |
-| 改了部門，資料還進舊的 group | dept 清單有兩處：`telemetry/groups.yaml` 和 `common.yaml` 的 `transform/group` | 兩處一起改。改 namespace 的 `dept` label 後 2～17 秒生效，log、metrics 同時切 |
+| 改了部門，資料還進舊的 group | dept 清單有兩處：`telemetry/groups.yaml` 和 `common.yaml` 的 `transform/group` | 兩處一起改。改 namespace 的 `dept` label 後 0～3 秒生效，五種資料同時切；Prometheus 要等下一次抓（最多 30 秒） |
 | 平台元件（kube-system 等）的資料在 unassigned | 這些 namespace 沒有 `dept` | 正常，跟 metrics 的兜底 tenant 同義 |
 | Collector 被 OOM 或 kill -9 之後，少了最後約 1 秒的 log、trace | `batch` processor 在磁碟佇列前面、在記憶體裡；交給它時讀檔位置已經往前 | 不用 `batch` processor，在出口佇列裡湊批（`common.yaml` 的 `sending_queue.batch`，已改）。實測修正後 kill -9 掉 0～40 行（最多 0.2 秒） |
 | node Collector 停的期間 trace 變少，Collector 沒有錯誤 | 應用的 SDK 連不上就重試 5 次（約 8 秒）後自己丟，Collector 收不到 | 換版、維護排離峰；node Collector 停 30 秒、每秒 20 個 trace 時應用端丟約 530 個 |
+| 新 Pod 剛起來的第一筆 OTLP 資料在 unassigned、沒有 Pod 名字 | Pod 的 IP 還沒進 Collector 的 Pod 清單（實測每個新 Pod 約 1 筆；stdout log、Prometheus 不會） | 預期行為，不補 |
+| `service.name` 不是應用自己設的 `OTEL_SERVICE_NAME` | 有 Pod label `app.kubernetes.io/name` 時以 label 為準，三種資料才對得起來 | 要改名就改 label（chart 的 `name`） |
+| Pod 刪掉後 Collector 印 `Dropping data`，訊息是 `number data point without a value` | Prometheus 收到 Pod 消失的標記（staleness marker），ES 不收這種點 | 不是遺失；看 `send_failed_metric_points` 時扣掉這種 |
 | 正式環境 kubelet 連線不驗憑證 | `kubeletstats` 設了 `insecure_skip_verify: true` | kubelet 憑證由內部 CA 簽的話改成驗證 |
 
 ## log
@@ -48,12 +51,11 @@
 | 症狀 | 原因 | 做法 |
 |---|---|---|
 | trace 進 unassigned | 應用連到別的節點的 Collector，那裡認不得這個 Pod | Service 一定要 `internalTrafficPolicy: Local` |
-| 用 hostNetwork 的應用 trace 進 unassigned | 連線來源是節點 IP，對不到 Pod | 應用不能用 hostNetwork |
 | trace 幾乎都沒進 ES；node Collector log 一直 `couldn't find the exporter for the endpoint` | `loadbalancing/traces` 的磁碟佇列設在子 exporter：每台 trace-sampler 的子 exporter 共用同一個佇列檔，只有一個鎖得到，其他的啟動逾時（`failed to start new exporter ... timeout`），那台的 trace 從此全被拒 | 佇列設在外層、子 exporter 的 `sending_queue`、`retry_on_failure` 關掉（`node.yaml` 已改）。只有一台 trace-sampler 時不會出現 |
 | trace-sampler 當掉（OOM、kill -9）後少了一段 trace | 等著決定的 trace 在記憶體 | 掉「每秒 trace 數 ÷ 台數 ×（decision_wait＋1 秒）」，正式值約 31 秒；正常停（rollout）不掉。盯 trace-sampler 記憶體 |
 | ES 停機時 trace 不見，trace-sampler 沒重啟，log 有 `no space left on device`、`Rejecting data` | trace-sampler 的 PVC 滿了，佇列寫不進去就丟 | 約 0.3KB/段，1Gi 約 330 萬段；依「保留下來的段數/秒 × ES 最長停機時間」估 PVC。PVC 的檔只長不縮，`du` 看到的是歷來最大 |
+| 用 hostNetwork 的應用 trace 進 unassigned | 連線來源是節點 IP，對不到 Pod；OTLP 送的 log、metrics 也一樣（stdout log、Prometheus 認得出） | 應用不能用 hostNetwork |
 | ES 空間不夠 | trace 量通常比 log 大；尾端取樣後約剩 15% | 全廠上線前估算；不要在應用調低 `otel.traces.sampleRatio` |
-| log 有、span 全沒有；node Collector 報 `couldn't find the exporter for the endpoint` | master 版 `node.yaml` 的子 exporter 共用一個佇列檔，重啟後只有一台起得來 | p1-durability 分支在修；暫時等 trace-sampler Ready 後重啟 node Collector |
 | Java 自己 `new Thread` 印的 log 沒有 trace_id | agent 不會把 context 帶到自己開的執行緒 | `Context.current().wrap(...)`（[tracing.md 2-4](../sdk/standards/tracing.md#2-4-自己管理的執行緒)） |
 | 背景排程的 log 沒有 trace_id | 沒有上游請求，log 當下沒有 span | 預期行為；要查就印業務 ID |
 | log 的 trace_id 在 ES 查不到 trace | 上游送的 `traceparent` 結尾 `-00`（未取樣），整條都不送 span | 找送 `-00` 的上游 |
@@ -120,5 +122,7 @@
 | `run-e2e.sh` 跑完 ES 就連不上 | 腳本結束時關掉自己開的 port-forward | 自己另開 `kubectl port-forward --address 127.0.0.1 svc/elasticsearch 29200:9200` |
 | Rancher Desktop 設定的 VM 記憶體沒作用 | Windows 上 VM 大小由 WSL 決定（預設主機的一半） | 改 `~/.wslconfig` |
 | e2e 腳本 `jq: command not found` | 這台沒有 jq | `winget install jqlang.jq` |
+| curl 報 `URL rejected: Malformed input`，`elasticsearch-setup.sh` 中斷 | winget 的 jq 輸出 CRLF，變數尾巴帶 `\r` | PATH 前面放一個 `jq -b "$@"` 的小腳本（`-b`：不轉 CRLF） |
+| `run-trace-e2e.sh` 的 trace-app 一直 CrashLoopBackOff | `trace-app.sh` 是 CRLF，ConfigMap 原樣建 | 跑之前把 `trace-app.sh` 轉 LF（`tr -d '\r'`），跑完 `git checkout` 還原 |
 | 內建瀏覽器裡 Grafana 面板一直 Loading | 瀏覽器 pane 隱藏時頁面在背景，載不完 | 用 `e2e/local-k3s/rca-demo/shot.py`（headless Edge）截圖 |
 | 平台頻道一直收到「主機時鐘偏移」「容器記憶體快到上限」 | WSL 時鐘偏移約 0.2 秒；測試 ES 的記憶體用到 92～98% | 這台機器的狀況，規則本來就該報；跟測的事故無關 |
