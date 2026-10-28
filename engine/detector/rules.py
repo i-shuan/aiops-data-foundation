@@ -6,6 +6,8 @@
   type: compare   欄位 − 另一個欄位 op 門檻         例：要的副本數 − 可用副本數 >= 1（副本不夠）
   type: ratio     欄位 ÷ (分母欄位加總) op 門檻     例：記憶體 working_set ÷ (working_set + available) >= 0.9
   type: increase  累計值這段時間增加了多少 op 門檻   例：重啟次數增加 >= 1、失敗的 Job Pod 增加 >= 1
+                  （數字變小當成歸零重來，只能用在計數器；會上下動的量測值用 delta）
+  type: delta     量測值這段時間淨增加多少（最後 − 最前） 例：Kafka 消費落後 5 分鐘內多了 >= 5,000 筆
   type: increase_ratio  兩個累計值增加量的比例        例：被限流的週期 ÷ 全部週期 >= 25%（CPU throttling）
   type: rate      這段時間的加總 ÷ 秒數 op 門檻       例：GC 花的秒數 ÷ 經過的秒數 >= 10%（直方圖的 sum）
   type: total     這段時間的加總 op 門檻              例：5 分鐘內 major GC 幾次 >= 5（hist_count: true 時數直方圖的次數）
@@ -16,6 +18,7 @@ join：分母在另一種文件時（例如連線池「使用中」和「上限�
   join: {field: metrics.db_client_connections_max}       之後 den 就可以寫這個欄位
 
 for：要「這段時間都成立」才算（例如副本不夠 3 分鐘，避免換版滾動時的短暫不足）。0 表示最新一個點成立就算。
+     對象要在 for 開頭之前就有資料（剛建立的 Pod、Deployment 要等滿 for）。
 fresh：最新的點要在這段時間內，不然當成對象已經不在了（預設 2m）。
 lookback：這條規則讀最近多久的資料（預設用 rules.yaml 的 lookback）。很久才收一次的（主機時鐘 30 分鐘一次）要調長。
 abs: true：type value 取絕對值再比（時鐘偏移：快、慢都不對）。
@@ -103,12 +106,13 @@ def evaluate(rule: dict, series: dict[tuple, list[tuple[pd.Timestamp, dict]]], n
             if v is not None and op(v, th):
                 out.append({"key": key, "value": v, "since": w[0][0], "last": w[-1][1]})
             continue
-        if rule["type"] == "increase":
+        if rule["type"] in ("increase", "delta"):
             # 對象已經不在了（Pod 刪掉）：最後幾分鐘的累計值還在回溯範圍裡，不算（除非 report_gone）
             if not rule.get("report_gone") and pts and pts[-1][0] < now - _dur(rule.get("fresh", "2m")):
                 continue
             vals = [float(v) for _, d in _window(pts, now, hold) if (v := get_field(d, rule["field"])) is not None]
-            if len(vals) >= 2 and op(inc := increase(vals), th):
+            # delta：量測值（gauge）的淨變化，最後 − 最前；變小就是變小，不當成歸零重來
+            if len(vals) >= 2 and op(inc := (vals[-1] - vals[0] if rule["type"] == "delta" else increase(vals)), th):
                 out.append({"key": key, "value": inc, "since": pts[0][0], "last": pts[-1][1]})
             continue
         vals = [(t, v) for t, d in pts if (v := sample_value(rule, d)) is not None]
@@ -121,9 +125,10 @@ def evaluate(rule: dict, series: dict[tuple, list[tuple[pd.Timestamp, dict]]], n
                 out.append({"key": key, "value": v, "since": t, "last": pts[-1][1]})
             continue
         recent = [(t, v) for t, v in vals if t >= now - hold]
-        # 要有兩個以上的點，而且最早的點離現在至少 for 的一半（避免剛好只抓到一個點就判斷「一直都是」）
+        # 要有兩個以上的點，最早的點離現在至少 for 的一半（避免剛好只抓到一個點就判斷「一直都是」），
+        # 而且這個對象在 for 開頭之前就有資料：剛建立的對象（例如新 Pod 從第一筆就 Pending）要等滿 for，不是一半就報
         ok = sum(op(v, th) for _, v in recent)
-        if len(recent) >= 2 and recent[0][0] <= now - hold / 2 and op(recent[-1][1], th) \
+        if len(recent) >= 2 and recent[0][0] <= now - hold / 2 and vals[0][0] <= now - hold and op(recent[-1][1], th) \
                 and ok >= rule.get("min_ratio", 1.0) * len(recent):
             out.append({"key": key, "value": recent[-1][1], "since": recent[0][0], "last": pts[-1][1]})
     return out
