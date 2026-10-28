@@ -1,5 +1,8 @@
 """跟兄弟比（detector/peer.py）的單元測試，不需要 ES。"""
+import contextlib
+import io
 import unittest
+from unittest import mock
 
 import pandas as pd
 import yaml
@@ -52,6 +55,75 @@ class CompareTest(unittest.TestCase):
 
     def test_lower_is_fine_when_direction_up(self):
         self.assertEqual(hits(P.compare(pods([0.5, 0.5, 0.5, 0.0]), ["service"], "pod", min_abs=0.05)), [])
+
+    def test_all_bad_uneven_not_singled_out(self):
+        # 3 個都壞、其中一個更嚴重（40%、45%、100%）：沒有 max_peer_median 時只報最嚴重那個，好像只有它壞
+        vals = [0.40, 0.45, 1.0]
+        self.assertEqual(hits(P.compare(pods(vals), ["service"], "pod", min_abs=0.05)), ["order-api-2"])
+        # 其他 Pod 的中位數已經 ≥ 5%（規則的錯誤率門檻）：整個服務都壞了，不挑單一個
+        self.assertEqual(hits(P.compare(pods(vals), ["service"], "pod", min_abs=0.05, max_peer_median=0.05)), [])
+        # 其他 Pod 正常時照樣抓
+        self.assertEqual(hits(P.compare(pods([0.0, 0.01, 1.0]), ["service"], "pod", min_abs=0.05, max_peer_median=0.05)),
+                         ["order-api-2"])
+
+    def test_majority_bad(self):
+        # 3 個壞 2 個：其他 Pod 的中位數本身就壞了，分不出；5 個壞 2 個：兩個都抓
+        self.assertEqual(hits(P.compare(pods([0.0, 0.3, 0.3]), ["service"], "pod", min_abs=0.05)), [])
+        self.assertEqual(hits(P.compare(pods([0.0, 0.3, 0.0, 0.3, 0.0]), ["service"], "pod", min_abs=0.05)),
+                         ["order-api-1", "order-api-3"])
+
+
+class CmdPeerTest(unittest.TestCase):
+    """cmd_peer 的 fresh（還在的）、warmup（暖機完的）篩選：用假的 fetch，不需要 ES。"""
+
+    END = pd.Timestamp("2026-10-28T12:00:00Z")
+
+    def run_peer(self, life, values, cfg_extra=None):
+        """life：Pod → (起來, 停掉) 相對 END 的分鐘數（停掉 None＝還在）；values：Pod → CPU。回傳被報的 Pod。"""
+        from detector import cmd_peer as C
+
+        def fetch(es, spec, start, end, interval):
+            if spec["value"] == "count":   # 這段時間有資料的 Pod
+                rows = [p for p, (b, d) in life.items()
+                        if self.END + pd.Timedelta(minutes=b) < end and (d is None or self.END + pd.Timedelta(minutes=d) > start)]
+                return pd.DataFrame({"ns": ["n"] * len(rows), "deploy": ["d"] * len(rows), "pod": rows, "value": 1.0})
+            rows = [p for p in values if p in life]
+            return pd.DataFrame({"ns": ["n"] * len(rows), "deploy": ["d"] * len(rows), "pod": rows,
+                                 "value": [values[p] for p in rows]})
+
+        class FakeES:
+            def ensure_index(self, *a): pass
+            def req(self, *a, **k): return {}
+
+        written = []
+        cfg = {"window": "10m", "fresh": "2m", "min_peers": 3, **(cfg_extra or {}), "checks": [
+            {"name": "peer.pod_cpu", "title": "CPU 高", "index": "x", "by": ["ns", "deploy", "pod"],
+             "value": {"avg": "cpu"}, "direction": "up", "min_abs": 0.2, "min_ratio": 3}]}
+        args = type("A", (), {"at": self.END.isoformat(), "only": None})()
+        with mock.patch.object(C, "ES", FakeES), mock.patch.object(C, "fetch", fetch), \
+                mock.patch.object(C, "write_anomalies", lambda es, docs: written.extend(docs)), \
+                contextlib.redirect_stdout(io.StringIO()):
+            C.cmd_peer(cfg, args)
+        return sorted(d["keys"]["pod"] for _, d in written)
+
+    def test_young_pod_not_compared(self):
+        # 3 個舊的＋1 個 1 分鐘前剛起來（CPU 還是 1 核）：沒有 warmup 會報新的；warmup 5m 不報
+        life = {"a": (-60, None), "b": (-60, None), "c": (-60, None), "new": (-1, None)}
+        cpu = {"a": 0.2, "b": 0.2, "c": 0.2, "new": 1.0}
+        self.assertEqual(self.run_peer(life, cpu), ["new"])
+        self.assertEqual(self.run_peer(life, cpu, {"warmup": "5m"}), [])
+        # 6 分鐘後（還是 1 核）：暖機完了，照樣抓
+        life["new"] = (-6, None)
+        self.assertEqual(self.run_peer(life, cpu, {"warmup": "5m"}), ["new"])
+
+    def test_gone_pod_not_compared(self):
+        # b 3 分鐘前就沒資料了（被換掉）：不算兄弟，剩 a、c、d
+        life = {"a": (-60, None), "b": (-60, -3), "c": (-60, None), "d": (-60, None)}
+        self.assertEqual(self.run_peer(life, {"a": 0.2, "b": 1.0, "c": 0.2, "d": 0.2}, {"warmup": "5m"}), [])
+
+    def test_warmup_must_be_shorter_than_window(self):
+        with self.assertRaises(SystemExit):
+            self.run_peer({"a": (-60, None)}, {"a": 0.2}, {"warmup": "10m"})
 
 
 class DescribeTest(unittest.TestCase):

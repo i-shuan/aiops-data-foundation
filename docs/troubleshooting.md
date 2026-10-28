@@ -111,6 +111,10 @@
 | 新建的 Pod 一直 Pending 才 2 分半就報（`for: 5m`）；新 Deployment 1 分半就報副本不夠 | 舊的 `for` 只要求 for 裡最早的點離現在超過一半；新對象從第一筆就成立時，一半就報 | 已改：對象要在 for 開頭之前就有資料（`detector/rules.py`） |
 | 核准的規則草稿有一條壞掉（缺欄位、查詢錯），`rules` 整輪都沒跑 | 一條規則丟例外就整個指令結束，其他規則也沒寫 | 已改：只跳過那一條、其他照跑照寫，最後 exit 1、印「N 條失敗」 |
 | 規則草稿設了 `expires_at`，過期後還在報 | `approved_rules` 只看 `status`，沒看 `expires_at` | 已改：跟 `--at` 的時間比，到期就不載入 |
+| Pod 同儕橫向比對報剛起來的新 Pod CPU 高 | 啟動時 JIT、載入類別，前幾分鐘 CPU 高 | `peer.yaml` 的 `warmup`（5m）：起來不到 5 分鐘的 Pod 不比 |
+| 擴容時舊 Pod 被報「記憶體比其他 Pod 高很多」 | 新 Pod 比舊 Pod 多、記憶體還在長，中位數被新 Pod 拉低 | 同上 `warmup`；heap 長得比 5 分鐘久的服務調長 `warmup`（要比 `window` 短） |
+| 全部 Pod 都壞，同儕比對卻只報最嚴重的一個 | 只看「比其他 Pod 高多少」，沒看其他 Pod 本身壞了 | `max_peer_median`：其他 Pod 中位數到規則門檻（5%、2 秒）就不挑，交給規則 |
+| 2 個副本的服務壞了一個，同儕比對不報 | `min_peers: 3`：2 個分不出誰怪 | 正常；看規則 `http.error_rate_floor`、baseline |
 | 根因報告的「平常」數字跟出事時差不多（例如平常 p95 也是 1.5 秒） | 一週前沒資料時，「平常」改用出事前一段、中間空 `ref_gap`；偵測比事故晚約 4 分鐘，`ref_gap` 太短就包到事故 | `ref_gap` 要大於偵測延遲；正式設定 10 分鐘（`engine/configs/rca/rca.yaml`） |
 | `quality` 中斷：`bulk 寫入 aiops-anomalies 失敗 ... Non-standard token 'NaN'` | 缺欄位那組（例如 log 沒有 namespace）的 key 被 pandas 3 變成 NaN | 已修（`quality._frame`）；舊版這一輪的結果全沒寫 |
 | trace 有 N+1，`trace.segment.repeated` 沒報、反而報一個沒有「→」的新段 | DB span 只有新版 `db.system.name`，段名沒有對象 | 已補這個欄位；Client span 什麼對象欄位都沒有的仍看不到 |
@@ -140,6 +144,7 @@
 | busybox Pod 跑不了 `rca-lib.sh` | Windows checkout 成 CRLF | 建 ConfigMap 前 `tr -d '\r'`（`run-rca-demo.sh` 已做） |
 | 容器裡的路徑變成 `C:/Program Files/Git/...` | Git Bash 改寫 `/` 開頭的參數 | 那一行加 `MSYS_NO_PATHCONV=1`；它也會讓 `KUBECONFIG=/c/...` 不轉換，kubectl 讀不到，所以只加在需要的指令 |
 | `elasticsearch-setup.sh` 裝到別人的 ES | 那個 port 已經是別的任務的 `kubectl port-forward`，自己的容器沒綁上 | 跑之前 `curl <ES_URL>/` 看 `version.number`、`cluster_name` 是不是自己那台 |
+| 本機 ES、kubectl 一直 `Connection was reset`、`TLS handshake timeout`，`nerdctl` 沒回應 | Rancher Desktop VM 記憶體與 swap 用滿（多個測試 ES＋共用 cluster） | 同時跑的測試 ES 最多 2 個（各 heap 512m）；用完就 `nerdctl rm -f` |
 | `localhost:<port>` 連不上，`127.0.0.1` 卻可以 | 停掉的 nerdctl 容器還佔著那個 port 的 `::1` | 用 `127.0.0.1`，或換 port、刪掉舊容器 |
 | Grafana 面板一直 `Loading plugin panel...` | `kubectl port-forward` 在 Windows 上同時開很多連線會逾時 | Service 用 `LoadBalancer`（Rancher Desktop 對應到 `localhost`），例如 rca-demo 的 `localhost:3300` |
 | port-forward 一連就斷：`connection refused` | 連到正在 Terminating 的舊 Pod | 等舊 Pod 刪完，或 `port-forward deploy/<名稱>` |

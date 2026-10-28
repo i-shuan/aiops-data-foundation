@@ -427,8 +427,9 @@ python3 -m detector rules --config configs/baseline/rules.yaml      # 每分鐘
 怎麼比：每個 Pod 跟「**其他** Pod」的中位數、MAD 比（跟 baseline 一樣的穩健統計；比的時候不含自己，壞掉的那個不會把標準拉過去）。另外：
 - **至少 3 個 Pod 才比**：只有 2 個分不出誰才是怪的。
 - **只比現在還在的 Pod**（最近 2 分鐘有資料）：換版、縮容刪掉的不算兄弟。換版途中新舊 Pod 會一起比，新版的 Pod 都比舊的差也會報，這正好是想知道的。
+- **剛起來的 Pod 不比**（`warmup` 5 分鐘：window 開頭到 5 分鐘前之間沒有資料的不比）：啟動時 CPU 高、記憶體還在長，會誤報新 Pod 自己，或在擴容時讓舊 Pod 的記憶體看起來偏高。一起來就壞的 Pod 5 分鐘後照樣抓。
 - **流量太少的 Pod 不比錯誤率、延遲**（10 分鐘不到 20 個請求）：一兩個錯就跳很高。
-- **全部一起壞不報**：例如下游 DB 掛了，每個 Pod 都錯，那不是「某個 Pod」的問題，交給 baseline 和規則。
+- **全部一起壞不報**：例如下游 DB 掛了，每個 Pod 都錯，那不是「某個 Pod」的問題，交給 baseline 和規則。其他 Pod 的中位數已經到規則門檻（錯誤率 5%、p95 2 秒，`max_peer_median`）時，最嚴重的那個也不單獨挑出來。
 - 門檻比 baseline 寬（`rel_floor` 10%，再加上至少差多少、至少幾倍）：同一個服務的 Pod 本來就不會一模一樣。
 
 觸發的寫進 `aiops-anomalies`：`series` 是檢查名稱（`peer.…`）、`level` 是 `peer`、`median` 是其他 Pod 的中位數，`message` 例如「這個 Pod 的錯誤率比同服務其他 Pod 高：metrics-cases、dotnet-app、dotnet-app-…（100%，其他 2 個 Pod 中位數 0%，z=…）」。
@@ -445,6 +446,8 @@ python3 -m detector peer --config configs/baseline/peer.yaml      # 每分鐘
 | 連線池漏光 | 一個 Pod 拿了連線不還，之後的請求等 2 秒後 500 | 4 分鐘：錯誤率 **13%**（其他 0%）、p95 **1,750ms**（其他 2ms） | 不報 |
 | 記憶體洩漏 | 一個 Pod 每個請求 32KB 放進不會清的 list | 第 5 分鐘：**294MB**（其他 163MB） | 不報 |
 | 無窮迴圈 | 一個 Pod 裡有程式佔滿 1 核 | 第 3 分鐘：CPU **0.65 核**（其他 0.21 核，10 分鐘平均） | 不報 |
+
+副本數 1～5、Pod 換掉、擴縮容、全壞、同名服務的邊緣情境：[phase2-anomaly/2026-10-peer-verify.md](../../../docs/pdca/phase2-anomaly/2026-10-peer-verify.md)。
 
 同一段時間整個服務的錯誤率是 **9%**（3 個 Pod 裡 1 個壞）。這次服務平常是 0%，跟平常比（baseline）也會報，但只知道「服務錯誤率高」、不知道是哪個 Pod；Pod 越多稀釋越多：10 個 Pod 壞 1 個大約剩 1%，就低於 baseline 的門檻（多 5 個百分點）了。
 
