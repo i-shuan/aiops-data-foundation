@@ -47,7 +47,7 @@ ES（log、metrics、trace）
   | `all` | 不分時段 | 至少 50 個點 |
   | （沒有） | 不判斷 | 都不夠 |
 
-- **沒資料的時段**：筆數類的序列補 0（沒有請求就是 0），但兩種情況當成「不知道」：服務第一次出現之前，以及整個 index 都沒有資料的時段（收集系統本身停了）。偵測時，有 baseline 但整段都沒資料的服務補 0，這樣「服務整個停掉」也抓得到。
+- **沒資料的時段**：筆數類的序列補 0（沒有請求就是 0），但兩種情況當成「不知道」：服務第一次出現之前，以及整個 index（不加序列的 filter）都沒有資料的時段（收集系統本身停了）。偵測時，有 baseline 但整段都沒資料的服務補 0，這樣「服務整個停掉」也抓得到；只補收集系統有在送資料的時間窗，收集中斷超過偵測的 30 分鐘也不會把每個服務報成停掉。
 
 ## 學出來長什麼樣子
 
@@ -163,6 +163,10 @@ MAD（Median Absolute Deviation，中位數絕對偏差）＝「每個值離中�
 | 比一週長的週期（月底、季底批次） | 168 格只涵蓋一週 | 月底誤報 | `recurring_override` |
 | 指標不夠：沒有 p99、慢請求比例、往外呼叫耗時 | `series.yaml` 只有 7 條序列 | 只有 p95，看不到尾端 | 待排：加序列（改設定，不改公式） |
 | 借同組實際不會發生 | `series.yaml` 的 `groups` 是註解掉的範例，沒有 `groups` 就不借 | 新 API 沒有 baseline 可比 | 要依公司服務命名定義 `groups`（要別人配合） |
+| p95 從直方圖算，值落在桶中點 | MAD＝0，σ 只剩中位數的 5%；多兩個請求跨到下一格 z 約 23 | 合成資料一週 p95 anomaly 3.5% | 待定門檻（σ 至少半個桶寬），[baseline-verify](../../../docs/pdca/phase2-anomaly/2026-10-baseline-verify.md) |
+| 錯誤率一個 5xx 就到門檻 | `min_events` 20、`min_abs` 5%、`confirm_points` 1 | 合成資料一週 0.34% 的點報 anomaly | 待定門檻（至少 N 個 5xx） |
+| `hour` 層混平日與週末 | 每天同一小時不分星期幾 | 某個週一收集中斷後兩週，週一那幾小時流量掉九成只有 z −4；剛上線 3 天週一會 warning | 待評估：hour 層分平日／週末 |
+| 尖峰不對齊整點 | 168 格以整點切；08:45 起的尖峰只佔 8 點那格的四分之一 | 每個平日 08:45～09:00 報 anomaly | `recurring_override`；或待評估邊界比相鄰時段 |
 
 ## 自動調整：粒度、低頻事件、借用 baseline
 
@@ -222,7 +226,7 @@ MAD（Median Absolute Deviation，中位數絕對偏差）＝「每個值離中�
 | 指令 | `python3 -m detector tune --series http.latency_p95_s --match service=^mes-report --resolution 5m --z 7 --reason 誤報多 --by 王小明`，寫進 `aiops-tuning`（`--list` 列出、`--remove` 刪掉） | 同上 |
 | feedback（📝） | 之後的 feedback 流程寫同一個 `aiops-tuning`：同一條序列誤報累積多次 → 建議粒度往粗一級或調高 z，回測通過才寫入（見 [docs/system-stages.md 第 10 節](../../../docs/system-stages.md)） | 同上 |
 
-套用順序：自動選 → `series.yaml` 的 `overrides` → `aiops-tuning`，後面的蓋前面的。每筆調整記 `reason`、`by`、`at`，查得到誰、為什麼、什麼時候改的。
+套用順序：自動選 → `series.yaml` 的 `overrides`（檔案順序）→ `adjustments.yaml` → `aiops-tuning`（依 `at` 由舊到新），同一欄位後面的蓋前面的，不同欄位各自生效；不看 `match` 寫得多細（較晚寫的寬鬆調整會蓋掉較早的精細調整）。每筆調整記 `reason`、`by`、`at`，查得到誰、為什麼、什麼時候改的。
 
 ### (2) 很稀少的事件：卜瓦松
 
@@ -476,7 +480,7 @@ baseline 看過去 4 週學「平常」，那 4 週混了壞資料就學錯：�
 
 - **對象**：`series`（正規表示式）、`match`（正規表示式，欄位可用別名：`service` 同時對到 `service`、`service.name`、`resource.attributes.service.name`、`entry.service`；另有 `namespace`、`pod`、`deployment`、`route`、`method`）。`tune` 的 `match` 也能用別名。
 - **週期**：`schedule: {cron: "0 20 * * *", duration: 4h, days_of_month: [-1]}`：台北時間每天 20:00 起 4 小時，只限每月最後一天（cron 寫不出「最後一天」）。
-- **learning loop 的接口**：`status: proposed` 不生效，`adjust approve` 才生效；`source` 記誰寫的（`manual`／`feedback`／`cicd`）；`expires_at` 到期自動失效。
+- **learning loop 的接口**：`status: proposed` 不生效，`adjust approve` 才生效；`source` 記誰寫的（`manual`／`feedback`／`cicd`）；`expires_at` 到期自動失效（以這輪 `train --end`、`detect --at` 的時間點判斷，回放時看得到當時的設定）。讀不到 `aiops-tuning` 時印警告、只用設定檔的；缺欄位、正規表示式錯的調整略過那一筆並印出，不讓整輪失敗。
 
 ```bash
 python3 -m detector adjust add --kind exclude_window --match service=^mes-api$ \

@@ -147,21 +147,44 @@ def _fetch_one(es: ES, spec: dict, start: pd.Timestamp, end: pd.Timestamp, inter
         if not after:
             break
     df = pd.DataFrame(rows, columns=by + ["ts", "value", "n"])
-    if interval and (spec["value"] == "count" or spec.get("fill_zero")):
-        df = _fill_zero(df, by, start, end, interval)
+    if interval and (spec["value"] == "count" or spec.get("fill_zero")) and not df.empty:
+        # 有 filter 的序列（例如只數 error log）不能拿自己的資料判斷收集系統有沒有在跑：沒有任何服務出錯的時段
+        # 會被當成「不知道」，稀少的錯誤數就只剩有錯的時段可學，平常被學高
+        alive = alive_times(es, spec, start, end, interval) if spec.get("filter") else None
+        df = _fill_zero(df, by, start, end, interval, alive)
     return df
 
 
-def _fill_zero(df: pd.DataFrame, by: list[str], start, end, interval) -> pd.DataFrame:
+def alive_times(es: ES, spec: dict, start: pd.Timestamp, end: pd.Timestamp, interval: str) -> pd.DatetimeIndex:
+    """收集系統有在送資料的時間窗：這條序列的 index、不加序列自己的 filter，任何一筆資料就算。
+    整個 index 都沒有資料的時段＝收集系統停了（「不知道」），不是零流量。"""
+    tf = spec.get("time_field", "@timestamp")
+    body = {"size": 0, "query": {"bool": {"filter": [{"range": {tf: {"gte": start.isoformat(), "lt": end.isoformat()}}}]}},
+            "aggs": {"t": {"composite": {"size": 10000, "sources": [{"ts": {"date_histogram": {"field": tf, "fixed_interval": interval}}}]}}}}
+    out, after = [], None
+    while True:
+        if after:
+            body["aggs"]["t"]["composite"]["after"] = after
+        agg = es.req("POST", f"/{spec['index']}/_search?ignore_unavailable=true&allow_no_indices=true", body
+                     ).get("aggregations", {}).get("t", {})
+        out += [b["key"]["ts"] for b in agg.get("buckets", [])]
+        after = agg.get("after_key")
+        if not after:
+            break
+    return pd.DatetimeIndex(pd.to_datetime(out, unit="ms", utc=True))
+
+
+def _fill_zero(df: pd.DataFrame, by: list[str], start, end, interval, alive=None) -> pd.DataFrame:
     """筆數類的序列：沒資料的時段補 0。但有兩種情況不補，當成「不知道」（NaN）：
     1. 這條序列第一次出現之前：服務還沒上線，不是「平常是 0」。
-    2. 整個查詢範圍裡，所有序列都沒有資料的時段：那是收集系統本身停了（ES、Collector 停機），不是大家都沒流量。
+    2. 收集系統本身停了（ES、Collector 停機）的時段，不是大家都沒流量。alive 是收集系統有在送資料的時段
+       （alive_times：整個 index、不加 filter）；沒給就用這次查到的資料（沒有 filter 的序列兩者一樣）。
     """
     if df.empty:
         return df
     freq = interval[:-1] + "min" if interval.endswith("m") else interval   # ES 的 5m = pandas 的 5min
     grid = pd.date_range(start.floor(freq), end, freq=freq, inclusive="left")
-    alive = pd.Index(df["ts"].unique())          # 至少有一條序列有資料的時段
+    alive = pd.Index(df["ts"].unique()) if alive is None else pd.Index(alive).union(pd.Index(df["ts"].unique()))
     out = []
     for key_vals, g in df.groupby(by, sort=False):
         key_vals = key_vals if isinstance(key_vals, tuple) else (key_vals,)

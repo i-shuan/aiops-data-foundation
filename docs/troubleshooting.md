@@ -108,6 +108,10 @@
 |---|---|---|
 | 根因報告「最慢那個請求的 log」少了幾行 | log 的 `@timestamp` 是應用時間，時鐘偏或請求結束後才寫，離 span 十幾分鐘 | `logs_of_traces` 已前後多放 30 分鐘；更多的看 `quality.log_clock_skew` |
 | 根因報告的「平常」數字跟出事時差不多（例如平常 p95 也是 1.5 秒） | 一週前沒資料時，「平常」改用出事前一段、中間空 `ref_gap`；偵測比事故晚約 4 分鐘，`ref_gap` 太短就包到事故 | `ref_gap` 要大於偵測延遲；正式設定 10 分鐘（`engine/configs/rca/rca.yaml`） |
+| 收集系統停了半小時以上，每個服務都被報成「流量掉到 0」 | 偵測時有 baseline、整段沒資料的服務一律補 0 | 已改成只在 index 有資料的時間窗補 0（`es.alive_times`），[baseline-verify](pdca/phase2-anomaly/2026-10-baseline-verify.md) |
+| 稀少的 error log，baseline 學出來的平常次數偏高 | 用序列自己的 filter（只數 error）判斷收集系統有沒有在跑，沒人出錯的小時被當「不知道」 | 已改成看整個 index；實測 λ 1.68 → 1.21（實際 1.2） |
+| `train`／`detect` 整個失敗：`KeyError: 'end'`、`PatternError` | `aiops-tuning` 裡有缺欄位、正規表示式錯的調整 | 已改成略過那一筆並印「⚠ 略過調整 <id>」；照提示 `adjust remove --id` |
+| p95 一直報 anomaly，值在 0.175、0.375 之間跳 | 直方圖的 p95 落在桶中點，MAD＝0，跨一格 z 約 23 | 門檻還沒改（[baseline-verify](pdca/phase2-anomaly/2026-10-baseline-verify.md) 的 Act）；吵的對象先 `tune --z` |
 | 根因報告說「這段時間沒有這個服務的 trace」，Kibana 卻看得到 | 鑰匙對不上：路由沒參數化（`/items/123`）、舊版 Java agent 的 span 名稱沒有 method（`/stock/{id}`）；Pod 沒有 `app.kubernetes.io/name` label 時，trace 的 `service.name` 是應用自設的、可能跟 metrics 不同（推論） | 不給 `--route` 再跑；用 metrics 的 `k8s.pod.name` 查 trace 的 `service.name`；根本做法是應用修路由模板、Pod 加 label（[metrics-trace](pdca/phase1-collect/2026-10-metrics-trace.md)） |
 
 ## 本機測試環境（Windows、Rancher Desktop）
@@ -127,6 +131,8 @@
 | port-forward 一用就 `curl: (52) Empty reply from server` | ES Pod 被重建（別的任務重啟），舊的 port-forward 斷了 | 重開；`sdk-inject` 腳本斷了會自己重連 |
 | Pod 一直 Pending：`Insufficient memory`，節點其實還有空 | initContainer 只寫 limit，request 也算成 limit（例如 2Gi） | 同時寫 request（`sdk-inject/dotnet.yaml` 的編譯寫 512Mi） |
 | `run-e2e.sh` 跑完 ES 就連不上 | 腳本結束時關掉自己開的 port-forward | 自己另開 `kubectl port-forward --address 127.0.0.1 svc/elasticsearch 29200:9200` |
+| 寫 ES 的 OTLP 入口一直逾時、`_cat` 被重設，最後 WSL 回 `Wsl/Service/0x8007274c` | 好幾個測試 ES（各 512MB heap）加共用 cluster 擠在同一個 VM，記憶體 98%、load 100 以上 | 同一時間只開一個測試 ES（拿名額），用完 `nerdctl rm -f` |
+| 想把 4 週前的合成 metrics 寫進 `metrics-*.otel-*` | TSDS 的 `index.look_back_time` 上限 7 天 | 測試用 data stream 另建 standard mode 的 template（`baseline_edge_e2e.setup`）；欄位型別、聚合結果一樣 |
 | Rancher Desktop 設定的 VM 記憶體沒作用 | Windows 上 VM 大小由 WSL 決定（預設主機的一半） | 改 `~/.wslconfig` |
 | e2e 腳本 `jq: command not found` | 這台沒有 jq | `winget install jqlang.jq` |
 | `elasticsearch-setup.sh`、e2e 腳本在已有資料的 ES 上 `curl: (3) URL rejected: Malformed input` | Windows 的 `jq.exe` 在 Git Bash 裡把換行輸出成 CRLF，`$(jq ...)` 拿到的名稱帶 `\r` | 用 `jq -b`（`--binary`）：PATH 前面放一個 `exec jq.exe -b "$@"` 的 `jq`。Linux 不會發生 |
