@@ -38,6 +38,21 @@ checks:
     min_increase: 50
     id_share: 0.5
 
+  # trace 的 API 名稱（入口 span 的 name）：自己用 SDK 埋點、把真實路徑放進 span 名稱（GET /lots/123）時，
+  # trace 每一段的 baseline 依 API 分，每個名稱只有一兩個請求、永遠不到 min_requests，整個服務默默學不到
+  - name: quality.trace_name_cardinality
+    title: trace 的 API 名稱暴增或像帶了 ID（沒參數化）
+    type: cardinality
+    index: traces-*.otel-*
+    filter: {terms: {kind: [Server, Consumer]}}
+    by: [*svc]
+    keys: [service]
+    field: name
+    max_values: 500
+    ratio: 3
+    min_increase: 50
+    id_share: 0.5
+
   # ── 指標名字沒統一：Prometheus 慣例的舊名字（http_server_request_duration_seconds）進到 ES ──
   # 代表 node Collector 的改名沒生效（設定漏了、新 cluster 沒更新、或 Java agent 吐了對照表沒列的名字）。
   # 這些資料 baseline、RCA 都看不到，會默默少掉一個服務（docs/pdca/phase1-collect/2026-10-field-unify.md）
@@ -69,6 +84,18 @@ checks:
     by: [*svc]
     keys: [service]
     fields: [resource.attributes.k8s.pod.name, resource.attributes.k8s.namespace.name]
+    max_missing: 0.05
+    min_docs: 20
+
+  # 應用 metrics 缺 service.name：上面那個依服務分，沒有服務名的那組看不出是哪裡來的，所以另外依 namespace 看
+  - name: quality.metrics_missing_service
+    title: 應用 metrics 缺服務名
+    type: missing
+    index: metrics-*.otel-*
+    filter: {exists: {field: metrics.http.server.request.duration}}
+    by: [resource.attributes.k8s.namespace.name]
+    keys: [namespace]
+    fields: [resource.attributes.service.name]
     max_missing: 0.05
     min_docs: 20
 
@@ -117,6 +144,19 @@ checks:
     lookback: 1h
     silent: 5m          # 每 30 秒一筆，5 分鐘都沒有就是停了
     min_docs: 20
+
+  # trace 只看入口（Server、Consumer）。尾端取樣後正常的只留 5%：之前 45 分鐘至少 30 個入口，
+  # 最近 15 分鐘平均也有 10 個，一個都沒有才報（流量太小的服務量不到 min_docs，不判斷）
+  - name: quality.trace_stopped
+    title: trace 停了
+    type: stopped
+    index: traces-*.otel-*
+    filter: {terms: {kind: [Server, Consumer]}}
+    by: [*svc]
+    keys: [service]
+    lookback: 1h
+    silent: 15m
+    min_docs: 30
 
   # ── 落到 unassigned 變多：namespace 沒標 dept、或 dept 清單漏同步（telemetry/groups.yaml、common.yaml）──
   - name: quality.log_unassigned_share

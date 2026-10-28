@@ -108,6 +108,14 @@
 |---|---|---|
 | 根因報告「最慢那個請求的 log」少了幾行 | log 的 `@timestamp` 是應用時間，時鐘偏或請求結束後才寫，離 span 十幾分鐘 | `logs_of_traces` 已前後多放 30 分鐘；更多的看 `quality.log_clock_skew` |
 | 根因報告的「平常」數字跟出事時差不多（例如平常 p95 也是 1.5 秒） | 一週前沒資料時，「平常」改用出事前一段、中間空 `ref_gap`；偵測比事故晚約 4 分鐘，`ref_gap` 太短就包到事故 | `ref_gap` 要大於偵測延遲；正式設定 10 分鐘（`engine/configs/rca/rca.yaml`） |
+| `quality` 中斷：`bulk 寫入 aiops-anomalies 失敗 ... Non-standard token 'NaN'` | 缺欄位那組（例如 log 沒有 namespace）的 key 被 pandas 3 變成 NaN | 已修（`quality._frame`）；舊版這一輪的結果全沒寫 |
+| trace 有 N+1，`trace.segment.repeated` 沒報、反而報一個沒有「→」的新段 | DB span 只有新版 `db.system.name`，段名沒有對象 | 已補這個欄位；Client span 什麼對象欄位都沒有的仍看不到 |
+| 程式 catch 掉 DB 例外、回 200，`trace.segment.swallowed` 沒報 | Java agent 會把丟例外的那段標成錯誤，舊定義只算沒標錯誤的 | 已改：入口沒標錯誤就算吞掉（定義待決定；重試後成功也會算） |
+| 某支 API 一直沒有 trace 基準線 | 尾端取樣只留 5%：每點隨機留下的 < `min_requests` 5 | 每個 interval 至少 100 個請求才學得到（5 分鐘 → 每分鐘 20 個） |
+| 只有一部分請求變慢，trace 段的 time_ms 沒報 | 每點約 20 個請求的平均；長尾讓基準線很寬（實測門檻約 430 ms） | 已知限制；要看 p90 或慢請求比例（還沒做） |
+| trace 基準線的錯誤率、時間偏高很多 | 讀到尾端取樣全留的那份（錯、慢、例外） | `traces_index` 用 `traces-generic.otel-*`、`sample_policy: random`（實測混進來錯誤率 4% → 35%） |
+| Pod 沒有 `app.kubernetes.io/name`，`quality.log_missing_identity` 卻沒報 | log pipeline 退回用 container 名稱（例如 `app`），不算缺 | 已知缺口；看 `service.name` 是不是 container 名稱 |
+| span 某欄位型別錯，failure store 卻沒有 | traces 是 logsdb、ignore_malformed：文件存進去，那個欄位丟掉 | 查 `_ignored`；`quality.ingest_rejected` 看不到這種 |
 | 根因報告說「這段時間沒有這個服務的 trace」，Kibana 卻看得到 | 鑰匙對不上：路由沒參數化（`/items/123`）、舊版 Java agent 的 span 名稱沒有 method（`/stock/{id}`）；Pod 沒有 `app.kubernetes.io/name` label 時，trace 的 `service.name` 是應用自設的、可能跟 metrics 不同（推論） | 不給 `--route` 再跑；用 metrics 的 `k8s.pod.name` 查 trace 的 `service.name`；根本做法是應用修路由模板、Pod 加 label（[metrics-trace](pdca/phase1-collect/2026-10-metrics-trace.md)） |
 
 ## 本機測試環境（Windows、Rancher Desktop）
@@ -134,4 +142,6 @@
 | curl 報 `URL rejected: Malformed input`，`elasticsearch-setup.sh` 中斷 | winget 的 jq 輸出 CRLF，變數尾巴帶 `\r` | PATH 前面放一個 `jq -b "$@"` 的小腳本（`-b`：不轉 CRLF） |
 | `run-trace-e2e.sh` 的 trace-app 一直 CrashLoopBackOff | `trace-app.sh` 是 CRLF，ConfigMap 原樣建 | 跑之前把 `trace-app.sh` 轉 LF（`tr -d '\r'`），跑完 `git checkout` 還原 |
 | 內建瀏覽器裡 Grafana 面板一直 Loading | 瀏覽器 pane 隱藏時頁面在背景，載不完 | 用 `e2e/local-k3s/rca-demo/shot.py`（headless Edge）截圖 |
+| 測試 ES 寫 cluster state 要 10～30 秒、連線常被重設（WinError 10054），最後 nerdctl、kubectl 都卡住 | 好幾個代理各起一個 ES 加共用 cluster，WSL 記憶體不夠 | 同時最多 2 個測試 ES：起之前 `es_slot_take`，用完刪容器、`es_slot_release` |
+| 合成 log 寫進 `k8s-*` 後服務、namespace 都是 null | log pipeline 吃的是 Fluent Bit 的樣子 | 原文放 `log`，K8s 放 `kubernetes.namespace_name`、`pod_name`、`labels`（`trace_quality_edge_e2e.py` 的 `log()`） |
 | 平台頻道一直收到「主機時鐘偏移」「容器記憶體快到上限」 | WSL 時鐘偏移約 0.2 秒；測試 ES 的記憶體用到 92～98% | 這台機器的狀況，規則本來就該報；跟測的事故無關 |

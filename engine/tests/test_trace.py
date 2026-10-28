@@ -179,16 +179,39 @@ class HardRuleTest(unittest.TestCase):
         self.assertTrue(T.swallowed(self.summary("normal"), 0.05).empty)
 
     def test_error_is_not_swallowed(self):
-        # 有例外而且標成錯誤：那是錯誤（error_rate），不是吞掉
+        # 有例外、標成錯誤，而且錯誤傳到入口（wip-worker 回 500）：那是錯誤（error_rate），不是吞掉
         ts = pd.Timestamp("2026-10-10T10:00:00Z")
         samples, traces = bucket_samples(ts, 5, "normal", random.Random(3))
         for t in traces.values():
             for s in t:
                 if s["name"] == "SELECT LOT_HISTORY":
                     s["exception"], s["error"] = "System.TimeoutException", True
+                if s["span_id"] in ("w0", "c0", "r"):
+                    s["error"] = True
         df, _ = T.summarize(samples, traces)
         self.assertTrue(T.swallowed(df, 0.05).empty)
         self.assertEqual(df[df["segment"] == "wip-worker › SELECT LOT_HISTORY → oracle"]["error_rate"].iloc[0], 1.0)
+
+    def test_error_caught_by_entry_is_swallowed(self):
+        # Java agent 的樣子：JDBC 丟例外時那一段標成錯誤；程式 catch 掉、wip-worker 回 200 → 吞掉
+        ts = pd.Timestamp("2026-10-10T10:00:00Z")
+        samples, traces = bucket_samples(ts, 5, "normal", random.Random(3))
+        for t in traces.values():
+            for s in t:
+                if s["name"] == "SELECT LOT_HISTORY":
+                    s["exception"], s["error"] = "java.sql.SQLTimeoutException", True
+        df, _ = T.summarize(samples, traces)
+        hits = T.swallowed(df, 0.05)
+        self.assertEqual(list(hits["segment"]), ["wip-worker › SELECT LOT_HISTORY → oracle"])
+        self.assertEqual((hits.iloc[0]["swallowed_rate"], hits.iloc[0]["error_rate"]), (1.0, 1.0))
+
+    def test_target_from_new_db_semconv(self):
+        # 新版 DB 語意只有 db.system.name（沒有 server.address）：也要有「→ 對象」，N+1 規則才看得到
+        from core.traces import to_span
+        s = to_span({"@timestamp": "2026-10-10T10:00:00Z", "trace_id": "t", "span_id": "s", "name": "SELECT X",
+                     "kind": "Client", "duration": 2_000_000, "attributes": {"db.system.name": "oracle"},
+                     "resource": {"attributes": {"service.name": "a"}}})
+        self.assertEqual(s["target"], "oracle")
 
 
 class ConsumerTest(unittest.TestCase):

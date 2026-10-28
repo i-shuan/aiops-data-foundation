@@ -302,14 +302,16 @@ series:
 | `trace.segment.time_ms` | 每個請求在這一段花多久 | 下游拖累（簡訊廠商掛了）、熱點鎖、慢查詢 |
 | `trace.segment.error_rate` | 這一段出錯的請求比例 | 某個呼叫開始失敗 |
 | `trace.segment.new` | 這支 API 從來沒出現過的呼叫 | 換版後開始直連另一個資料庫、多呼叫一個外部系統（規則：這支 API 有 baseline、這一段沒有，每個請求至少 0.5 次） |
-| `trace.segment.swallowed_rate` | 這一段丟了例外、卻沒標成錯誤的請求比例 | 吞掉的例外（catch 掉、回空值或 200）變多 |
+| `trace.segment.swallowed_rate` | 這一段丟了例外、請求卻沒失敗的比例（這一段沒標錯誤；或這一段標了錯誤、入口沒有） | 吞掉的例外（catch 掉、回空值或 200）變多 |
 | `trace.clock_skew_ms` | 被呼叫方比呼叫方早開始（或晚結束）多少 | 時鐘不同步（規則，不用學：超過 500ms 就記） |
 | `trace.segment.repeated` | 同一個請求裡，同一個往外的呼叫平均幾次 | **N+1、迴圈裡打 API**（規則，不用學：≥ 20 次）。從上線第一天就有的 N+1，baseline 會學成平常，所以要有固定門檻 |
 | `trace.segment.swallowed` | 同上的吞掉例外比例 | **吞掉的例外**（規則，不用學：≥ 5% 的請求）。訊息帶例外種類，例如「5% 的請求丟了 System.TimeoutException，但沒標成錯誤」 |
 
 **訊息消費者（Kafka）：** 入口除了 HTTP 請求（Server），也算訊息消費者（Consumer）和「沒有上一層的 span」。消費者多一段「`服務 › 排隊（topic）← 生產者`」＝拿到訊息的時間 − 生產者送出的時間（生產者是上一層，或用 link 找回來）。.NET 自動埋點的消費者處理時查的 DB 自成一個 trace，當成自己的入口算，所以看得到「這個消費者寫 DB 變慢、出錯」。實測見 [docs/trace/scenarios.md 場景四](../../../docs/trace/scenarios.md#四非同步訊息佇列)。
 
-吞掉的例外要靠 Collector：ES 不存 span 的例外事件，node Collector 先把例外的種類、訊息抄到 span 的屬性（`exception.type`、`exception.message`，[node.yaml](../../../telemetry/collectors/node.yaml) 的 `transform/exceptions`）。
+吞掉的例外要靠 Collector：ES 不存 span 的例外事件，node Collector 先把例外的種類、訊息抄到 span 的屬性（`exception.type`、`exception.message`，[node.yaml](../../../telemetry/collectors/node.yaml) 的 `transform/exceptions`）。兩種樣子都算吞掉：這一段有例外、status 沒設；或這一段有例外又標了錯誤，但這個服務的入口沒標錯誤（Java agent 的 JDBC、HTTP client 丟例外一定標錯誤，程式 catch 掉、回 200 就是這樣）。錯誤傳到入口（回 500）的算錯誤，不算吞掉。
+
+往外呼叫的對象依序取 `peer.service`、`db.system`、`db.system.name`（新版 DB 語意）、`server.address`；都沒有的 Client span 段名沒有「→ 對象」，`repeated`（N+1）規則看不到。
 
 **尾端取樣之後只用隨機那份：** trace-sampler 把錯的、慢的全留，正常的只留 5%；直接拿留下來的算平均，錯誤率、時間都會偏高。所以抽樣只抽 `tailsampling.policy = random` 的請求（[trace.yaml](trace.yaml) 的 `sample_policy`）；隨機那 5% 錯的慢的也一樣抽，統計跟「全部都記」一樣。
 
@@ -365,6 +367,10 @@ python3 -m detector trace-detect  --config configs/baseline/trace.yaml   # 每 5
 （2026-10-11 重跑：trace 已經經過兩層 Collector、尾端取樣，全部通過；trace 收集 `run-trace-e2e.sh`、根因分析 `run-rca-e2e.sh` 也全部通過。）
 
 單元測試（`tests/test_trace.py`）在記憶體裡模擬 4 週、每小時 20 個請求，同樣 4 個案例都抓到、正常 5 次 0 誤報。
+
+邊緣情境（`tests/trace_quality_edge_e2e.py`，自己的 ES 灌合成 trace，照正式規則做尾端取樣）見 [trace-quality-verify](../../../docs/pdca/phase2-anomaly/2026-10-trace-quality-verify.md)：
+- 只讀 random：錯誤率 4.3%（真實 4.0%）；混進全留的那份是 34.6%。
+- 抓不到的：只有 10% 請求慢 2 秒；每 5 分鐘不到 100 個請求的 API 學不到。
 
 ## 規則：狀態變化、離極限多遠
 
@@ -575,11 +581,13 @@ baseline 用中位數＋MAD，只擋得住「少數」怪的點。資料本身�
 
 | 檢查 | 看什麼 | 觸發 |
 |---|---|---|
-| `quality.route_cardinality`（Java）、`…_dotnet` | 每個服務有幾條路由；抽 50 個值看像不像帶了 ID（數字、UUID、長 hex） | 超過 500 條；或比昨天多 3 倍且多 50 條以上；或至少 50 條且一半以上像 ID（路由沒參數化：`/orders/123` 沒換成 `/orders/{id}`） |
+| `quality.route_cardinality` | 每個服務有幾條路由（metrics 的 `http.route`）；抽最多 500 個值看像不像帶了 ID（數字、UUID、長 hex） | 超過 500 條；或比昨天多 3 倍且多 50 條以上；或至少 50 條且一半以上像 ID（路由沒參數化：`/orders/123` 沒換成 `/orders/{id}`） |
+| `quality.trace_name_cardinality` | 同上，看 trace 入口 span 的名稱（自己用 SDK 埋點、把真實路徑放進名稱時，trace 每一段的 baseline 每個名稱都不到 `min_requests`，整個服務學不到） | 同上 |
 | `quality.log_missing_identity` | log 缺 `service.name`、`kubernetes.pod.name`（依 namespace） | 缺 5% 以上（至少 100 筆才看） |
 | `quality.metrics_missing_identity` | 應用 metrics 缺 Pod、namespace（依服務） | 缺 5% 以上 |
+| `quality.metrics_missing_service` | 應用 metrics 缺 `service.name`（依 namespace：依服務分的話，缺服務名的那組看不出來源） | 缺 5% 以上（至少 20 筆） |
 | `quality.log_trace_id_drop` | 帶 `trace.id` 的 log（依服務） | 缺的比例比昨天多 30 個百分點以上（本來就不是每行都有，只看變化） |
-| `quality.log_stopped`、`quality.metrics_stopped` | 之前 1 小時有資料、最近 15 分鐘（metrics 5 分鐘）一筆都沒有 | 之前至少 30 筆（metrics 20 筆） |
+| `quality.log_stopped`、`quality.metrics_stopped`、`quality.trace_stopped` | 之前 1 小時有資料、最近 15 分鐘（metrics 5 分鐘）一筆都沒有；trace 只看入口 span | 之前至少 30 筆（metrics 20 筆） |
 | `quality.log_unassigned_share`、`quality.metrics_unassigned_share` | 落到 `unassigned` 的比例（namespace 沒標 dept、`dept` 清單漏同步） | 比昨天多 5 個百分點以上 |
 | `quality.log_ingest_lag` | 收資料延遲：Collector 讀到（`event.created`）→ 寫進 ES（`event.ingested`），依服務、最近 15 分鐘（用寫進 ES 的時間篩） | p95 ≥ 60 秒 |
 | `quality.log_clock_skew` | 應用的時間（`@timestamp`）跟節點（`event.created`）差多少，只看時間是應用自己寫的（用 Collector 讀到的時間篩） | 中位數快或慢 ≥ 5 分鐘（時鐘偏了、時區寫錯） |
@@ -590,7 +598,7 @@ baseline 用中位數＋MAD，只擋得住「少數」怪的點。資料本身�
 
 - 門檻都是先估的。正式環境排程後先只寫入、不通知，跑 2～4 週，看每個檢查觸發幾次、哪些是真的，再由平台的人手動改 [quality.yaml](quality.yaml)。
 - `quality` 不讀 `aiops-tuning`：不能用 `tune`、`adjust` 依對象調，回饋建議（`feedback suggest`）也不會動它。
-- 只跟昨天比的檢查（`log_trace_id_drop`、`*_unassigned_share` 的增量）第一天沒有比較對象，不會報；要第一天就有用的設 `max_share` 這類絕對上限。
+- 只跟昨天比的檢查（`log_trace_id_drop`、`*_unassigned_share` 的增量、`*_cardinality` 的倍數）第一天沒有比較對象，不會報；要第一天就有用的設 `max_share` 這類絕對上限。`*_cardinality` 第一天只看上限 500 條和「一半以上像 ID」；昨天有資料、只是沒有這個服務的（新服務），倍數照樣從 0 算。
 
 ```bash
 python3 -m detector quality --config configs/baseline/quality.yaml   # 每 10 分鐘
@@ -609,6 +617,8 @@ python3 -m detector quality --config configs/baseline/quality.yaml   # 每 10 �
 | 落到 unassigned 的 log 佔 13%（沒有昨天的資料） | 不報（沒有比較對象）；加上 `max_share: 0.1` 會報 |
 
 沒驗證：正式環境的量下查詢要多久（`cardinality` 是近似值，3,000 以下準確）。
+
+邊緣情境（新的三個檢查、第一天、failure store、缺 namespace）見 [trace-quality-verify](../../../docs/pdca/phase2-anomaly/2026-10-trace-quality-verify.md)。抓不到的一種：Pod 沒有 `app.kubernetes.io/name` 時，log pipeline 用 container 名稱當服務名，`log_missing_identity` 不算它缺。
 
 ## 怎麼跑
 
