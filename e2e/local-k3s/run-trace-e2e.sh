@@ -25,7 +25,8 @@ kubectl apply -k "${here}/otel-collector" >/dev/null
 kubectl -n otel-collector rollout restart daemonset/otel-node-collector deployment/otel-cluster-collector >/dev/null
 kubectl -n otel-collector rollout status daemonset/otel-node-collector --timeout=180s >/dev/null
 for ns in it-mes-prod imc-wip-prod legacy; do
-  kubectl -n "${ns}" create configmap trace-app --from-file=run.sh="${here}/trace-app.sh" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+  # Windows checkout 成 CRLF 時 busybox sh 讀不懂：去掉 \r 再建（Linux 上不影響）
+  kubectl -n "${ns}" create configmap trace-app --from-literal=run.sh="$(tr -d '\r' < "${here}/trace-app.sh")" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 done
 kubectl apply -f "${here}/trace-apps.yaml" >/dev/null
 for ns in it-mes-prod imc-wip-prod legacy; do
