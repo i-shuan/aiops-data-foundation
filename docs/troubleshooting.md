@@ -49,7 +49,7 @@
 | K8s 物件狀態的資料重複 | cluster 那一份的 Collector 多於 1 個副本 | replicas 一定是 1，換版用 `Recreate` |
 | 應用的 `service.name` 變成 `pods` | Prometheus receiver 把抓取工作的名稱填進 `service.name`，讀 Pod label 的那一步不覆蓋 | `common.yaml` 先清掉再讀，不要改順序（測試有一項擋這個） |
 | Spring 服務的 HTTP 延遲、錯誤率規則、baseline 都沒有 | Micrometer 的名字是 `http_server_requests_seconds`、label `uri`，不在 node Collector 的改名對照裡，`quality.metric_name_legacy` 也不盯 | 改用 OTel Java agent 的指標，或在 `node.yaml` 加一組對照（[metrics-trace](pdca/phase1-collect/2026-10-metrics-trace.md)） |
-| 容器重啟、Pod 重建後少約 30 秒的請求數 | 直方圖換成增量時，重啟後第一次抓取沒有「上一次」可比，整筆丟掉；不會有負值或尖峰 | 預期行為；算錯誤率、p95 不受影響 |
+| 容器重啟、Pod 重建後少一段請求數（重啟約 1 次抓取、換 Pod 最多約 2 次） | 直方圖換成增量時，第一次抓取沒有「上一次」可比，整筆丟掉；換 Pod 還少舊 Pod 最後一次抓取後那段。不會有負值或尖峰 | 預期行為；算錯誤率、p95 不受影響 |
 
 ## trace
 
@@ -108,7 +108,7 @@
 |---|---|---|
 | 根因報告「最慢那個請求的 log」少了幾行 | log 的 `@timestamp` 是應用時間，時鐘偏或請求結束後才寫，離 span 十幾分鐘 | `logs_of_traces` 已前後多放 30 分鐘；更多的看 `quality.log_clock_skew` |
 | 根因報告的「平常」數字跟出事時差不多（例如平常 p95 也是 1.5 秒） | 一週前沒資料時，「平常」改用出事前一段、中間空 `ref_gap`；偵測比事故晚約 4 分鐘，`ref_gap` 太短就包到事故 | `ref_gap` 要大於偵測延遲；正式設定 10 分鐘（`engine/configs/rca/rca.yaml`） |
-| 根因報告說「這段時間沒有這個服務的 trace」，Kibana 卻看得到 | 鑰匙對不上：路由沒參數化（`/items/123`）、舊版 Java agent 的 span 名稱沒有 method（`/stock/{id}`），或 trace 的 `service.name`（`OTEL_SERVICE_NAME`）跟 Pod label 不同 | 不給 `--route` 再跑；用 metrics 的 `k8s.pod.name` 查 trace 的 `service.name`；根本做法是應用修路由模板、服務名稱（[metrics-trace](pdca/phase1-collect/2026-10-metrics-trace.md)） |
+| 根因報告說「這段時間沒有這個服務的 trace」，Kibana 卻看得到 | 鑰匙對不上：路由沒參數化（`/items/123`）、舊版 Java agent 的 span 名稱沒有 method（`/stock/{id}`）；Pod 沒有 `app.kubernetes.io/name` label 時，trace 的 `service.name` 是應用自設的、可能跟 metrics 不同（推論） | 不給 `--route` 再跑；用 metrics 的 `k8s.pod.name` 查 trace 的 `service.name`；根本做法是應用修路由模板、Pod 加 label（[metrics-trace](pdca/phase1-collect/2026-10-metrics-trace.md)） |
 
 ## 本機測試環境（Windows、Rancher Desktop）
 

@@ -143,10 +143,10 @@ exemplar（直方圖每格附幾個範例請求的 trace_id）是讓 metrics 直
 | 每一段用平均（`compare_segments`），一兩筆特別慢的會拉高 | 少數極慢的請求可能讓排名失真 | 加「這批慢請求裡有幾成最卡在這一段」和中位數 |
 | 瀑布圖和用 trace_id 撈 log 只用最慢的 1 筆 | 最慢的那筆可能是特例 | 改成幾筆卡在主要瓶頸段的 |
 | 出事時挑最慢的、平常（一週前同時段）挑那段最近的（`sample_trace_ids`），兩邊樣本性質不同 | 差距被放大：排名可信，絕對值要保守看 | 平常也挑同等級的 |
-| 比 1 秒快的變慢（例如 200ms → 800ms）不會被尾端取樣當成慢的，只剩隨機 5% 的 trace | 實測 1,599 個請求剩 74 個（4.6%）；流量小的路由只剩個位數 | 評估降低慢的門檻或提高隨機比例 |
+| 比 1 秒快的變慢（例如 200ms → 800ms）不會被尾端取樣當成慢的，只剩隨機 5% 的 trace | 實測 1,586 個請求剩 88 個（5.5%）；流量小的路由只剩個位數 | 評估降低慢的門檻或提高隨機比例 |
 | 路由用 span 名稱比（`entry_filter`）；路由沒參數化、舊 Java agent 的 span 名稱沒有 method 時對不上 | 實測三種都撈到 0 筆 | 改比 `attributes.http.route`＋method |
-| metrics 與 trace 的 `service.name` 不一致（`OTEL_SERVICE_NAME` 跟 Pod label 不同）時撈到 0 筆 | 報告只說「沒有 trace」，不說原因；用 Pod 名反查 trace 找得出 | 0 筆時印出原因 |
-| 樣本固定 200 個，慢的不到 200 個時用正常請求補 | 實測 10% 慢 2 秒：慢的 164 個全挑到，另 36 個正常的 | 同第一列 |
+| `service.name` 只在 Pod 有 `app.kubernetes.io/name` label 時統一（Collector 蓋掉應用自設的） | 有 label：實測撈得到全部 1,571 筆；沒 label 時可能不一致、撈到 0（未測） | 測沒 label 的 Pod |
+| 樣本固定 200 個，慢的不到 200 個時用正常請求補 | 實測 10% 慢 2 秒：慢的 143 個全挑到，另 57 個正常的 | 同第一列 |
 | 慢、錯的 trace 在 `traces-problem`（留 30 天），RCA 讀 `traces-*.otel-*` 兩種都讀得到，但沒有用它實際跑過 RCA | B 依賴慢、錯的 trace 留得夠久且讀得到 | 用故障案例驗 |
 | Java 那條路帶不帶得了 exemplar 沒測 | ES 之後支援 exemplar 時，Java 要另外驗 | ES 升級時重測 |
 

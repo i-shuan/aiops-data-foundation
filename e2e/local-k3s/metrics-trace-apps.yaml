@@ -8,7 +8,7 @@
 # | r3 | /items/123         | GET /items/{id}        | metrics 沒參數化 |
 # | r4 | /orders/{id}       | GET /orders/42         | trace 沒參數化（反過來） |
 # | r5 | /stock/{id}        | /stock/{id}            | 舊版 Java agent：span 名稱只有路由、沒有 method |
-# | r6 | /mismatch/{id}     | GET /mismatch/{id}     | trace 的 service.name 是 mt-edge-otel（OTEL_SERVICE_NAME 跟 Pod label 不同） |
+# | r6 | /mismatch/{id}     | GET /mismatch/{id}     | 應用自設 service.name=mt-edge-otel，Collector 用 Pod label 蓋成 mt-edge |
 # | r7 | （Micrometer）uri=/legacy/{id} | GET /legacy/{id} | Spring Micrometer 的名字 http_server_requests_seconds、label uri |
 #
 # r1～r6 用 Java agent 的 Prometheus 名字（http_server_request_duration_seconds、http_route），由 node Collector 改成 OTel 名字。

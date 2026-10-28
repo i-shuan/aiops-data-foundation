@@ -100,7 +100,8 @@ def traces(es: ES, start: datetime, end: datetime, name: str, svc: str = SVC) ->
         s = h["_source"]
         t0 = s["@timestamp"] if isinstance(s["@timestamp"], (int, float)) else ms(ts(s["@timestamp"]))
         out.append({"id": s["trace_id"], "start": t0, "end": t0 + s["duration"] / 1e6,
-                    "slow": (s.get("attributes") or {}).get("test.slow") == "1"})
+                    "slow": (s.get("attributes") or {}).get("test.slow") == "1",
+                    "pod": ((s.get("resource") or {}).get("attributes") or {}).get("k8s.pod.name")})
     return out
 
 
@@ -163,9 +164,7 @@ def main() -> int:
     check(mm > 0 and mm_uri > 0 and mm_rule == 0, "Micrometer 的 http_server_requests_seconds 不改名（規則、RCA 看不到）",
           f"原名 {mm} 筆、label uri {mm_uri} 筆，在 {HIST} 底下 {mm_rule} 筆")
 
-    print("== 3. 容器重啟、Pod 換掉：直方圖從 0 重新累加，換成增量後有沒有負值、尖峰、掉多少")
-    pre = metric_docs(es, t_crash - timedelta(minutes=3), t_crash, "/edge/partial/{id}")
-    normal_max = max(doc_count(d) for d in pre) if pre else 0
+    print("== 3. 容器重啟、Pod 換掉：直方圖從 0 重新累加，換成增量後有沒有負值、對不上、掉在哪")
     for label, t, nxt in (("容器重啟（同一個 Pod）", t_crash, t_del), ("Pod 刪掉重建（新 Pod 名稱）", t_del, t_end)):
         docs = metric_docs(es, t - timedelta(seconds=90), nxt - timedelta(seconds=30), "/edge/partial/{id}")
         if not docs:
@@ -176,12 +175,35 @@ def main() -> int:
         hi = docs[-1]["@timestamp"]
         tr = [x for x in traces(es, datetime.fromtimestamp(lo / 1000 - 10, timezone.utc), datetime.fromtimestamp(hi / 1000, timezone.utc),
                                 "GET /edge/partial/{id}") if lo < x["end"] <= hi]
-        lost = len(tr) - sum(counts)
-        pods = sorted({d["resource"]["attributes"]["k8s.pod.name"] for d in docs})
-        check(min(counts) >= 0 and max(counts) <= normal_max * 1.5 and 0 <= lost <= normal_max * 1.5,
-              f"{label}：沒有負值、沒有尖峰，最多掉一次抓取",
-              f"{len(docs)} 筆 metrics、每筆 {min(counts)}～{max(counts)}（平常最多 {normal_max}）；"
-              f"trace {len(tr)} 個請求、metrics 加總 {sum(counts)}，少 {lost}；Pod {len(pods)} 個")
+        # 每個 Pod 的抓取（start_timestamp, @timestamp］；每次抓取跟同 Pod、同區間結束的 trace 比
+        by_pod: dict[str, list[tuple[int, int, int]]] = {}
+        for d, c in zip(docs, counts):
+            by_pod.setdefault(d["resource"]["attributes"]["k8s.pod.name"], []).append((d["start_timestamp"], d["@timestamp"], c))
+        diffs = [c - sum(1 for x in tr if x["pod"] == pod and a_ < x["end"] <= b_) for pod, ivs in by_pod.items() for a_, b_, c in ivs]
+        # 允許的缺口（每個 Pod 自己的）：第一次被保留的抓取之前（開頭）、最後一次抓取之後（尾巴）、同一個 Pod 跨過重啟的那一段；其他缺口不該有。
+        # 新 Pod 最前面約 1 秒的 trace 沒有 Pod 名（k8s_attributes 還不認得它的 IP），算進開頭：第一個有 Pod 名的 trace 前 5 秒內
+        allowed, holes, first = [], 0, []
+        for pod, ivs in by_pod.items():
+            ends = [x["end"] for x in tr if x["pod"] == pod]
+            head = min(ends, default=ivs[0][0])
+            allowed += [(pod, head - 1, ivs[0][0]), (None, head - 5000, ivs[0][0]), (pod, ivs[-1][1], max(ends, default=ivs[-1][1]))]
+            if ends and ivs[0][0] - min(ends) > 1000:
+                first.append(f"{pod[-5:]} 開始後 {(ivs[0][0] - min(ends)) / 1000:.0f} 秒")
+            for (_, b1, _), (a2, _, _) in zip(ivs, ivs[1:]):
+                if a2 - b1 > 1000:
+                    if b1 < ms(t) <= a2:
+                        allowed.append((pod, b1, a2))
+                        first.append(f"{pod[-5:]} 重啟後 {(a2 - ms(t)) / 1000:.0f} 秒")
+                    else:
+                        holes += 1
+        gap = [x for x in tr if not any(a_ < x["end"] <= b_ for a_, b_, _ in by_pod.get(x["pod"], []))]
+        bad = [x for x in gap if not any(p_ == x["pod"] and a_ < x["end"] <= b_ for p_, a_, b_ in allowed)]
+        check(min(counts) >= 0 and max(map(abs, diffs)) <= 2 and holes == 0 and not bad,
+              f"{label}：沒有負值；每次抓取跟同 Pod 的 trace 差 ≤ 2；只掉重啟前後那段",
+              f"{len(docs)} 筆 metrics（每筆 {min(counts)}～{max(counts)}）、跟 trace 差 {min(diffs)}～{max(diffs)}；"
+              f"trace {len(tr)} 個、metrics 加總 {sum(counts)}，少 {len(tr) - sum(counts)}；"
+              f"沒被抓到的 {len(gap)} 個裡不在開頭／尾巴的 {len(bad)} 個（沒有 Pod 名 {sum(1 for x in gap if not x['pod'])}）；"
+              f"其他缺口 {holes} 段；Pod {len(by_pod)} 個；第一次被保留的抓取：{'、'.join(first) or '無'}")
 
     print("== 4. 30 秒抓一次 vs trace 的時間窗；主機時鐘差")
     docs = metric_docs(es, t_norm, t_crash, "/edge/partial/{id}")
@@ -230,17 +252,21 @@ def main() -> int:
           f"metrics {m} 個請求（p95 {mp95 * 1000:.0f}ms）；trace 全留 {full['requests']} 個、正式取樣剩 {kept['requests']} 個"
           f"（{kept['requests'] / max(m, 1):.1%}），p95 {kept['p95_ms']:.0f}ms")
 
-    print("== 7. metrics 與 trace 的 service.name 不一致")
+    print("== 7. 應用自設的 service.name（mt-edge-otel）被 Pod label 蓋掉：metrics、trace 同一個名字")
     docs = metric_docs(es, b0, b0 + W, "/mismatch/{id}")
     k = keys_of(docs[0]) if docs else {}
-    got = E.entry_stats(es, TIX, k.get("resource.attributes.service.name", SVC), _route_of(k), b0, b0 + W)["requests"] if docs else -1
-    check(got == 0, "用 metrics 的服務名稱撈 trace", f"metrics service.name={k.get('resource.attributes.service.name')!r}、撈到 {got} 筆")
     pod = docs[0]["resource"]["attributes"]["k8s.pod.name"] if docs else ""
+    got = E.entry_stats(es, TIX, k.get("resource.attributes.service.name", SVC), _route_of(k), b0, b0 + W)["requests"] if docs else -1
+    real = es.search(TIX, {"size": 0, "track_total_hits": True, "query": {"bool": {"filter": [
+        time_range(b0, b0 + W), {"term": {"kind": "Server"}}, {"term": {"name": "GET /mismatch/{id}"}},
+        {"term": {"resource.attributes.k8s.pod.name": pod}}]}}})["hits"]["total"]["value"]
+    check(got > 0 and got == real, "用 metrics 的服務名稱撈得到這個 Pod 這條路由的全部 trace",
+          f"metrics service.name={k.get('resource.attributes.service.name')!r}、撈到 {got} 筆；Pod 的 GET /mismatch/{{id}} 共 {real} 筆")
     r = es.search(TIX, {"size": 0, "query": {"bool": {"filter": [time_range(b0, b0 + W), {"term": {"kind": "Server"}},
                                                                   {"term": {"resource.attributes.k8s.pod.name": pod}}]}},
                         "aggs": {"s": {"terms": {"field": "resource.attributes.service.name"}}}})
     names = {b["key"]: b["doc_count"] for b in r["aggregations"]["s"]["buckets"]}
-    check("mt-edge-otel" in names, "用 metrics 的 Pod 名稱反查 trace 的 service.name，找得出不一致", f"Pod {pod} 的 trace：{names}")
+    check(list(names) == [SVC], "用 metrics 的 Pod 名稱反查 trace 的 service.name：只有一個、跟 metrics 一樣", f"Pod {pod} 的 trace：{names}")
 
     print(f"\n{'全部 PASS' if not fails else f'{fails} 項 FAIL'}")
     return 1 if fails else 0
