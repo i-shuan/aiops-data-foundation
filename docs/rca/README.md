@@ -6,7 +6,7 @@
 
 ## 現況與待辦
 
-判斷（baseline、規則、跟兄弟比、trace 每一段）和根因分析（Metrics → Trace → Log）的程式都做好了，在 k3s 驗過（程式說明：[engine/configs/baseline](../../engine/configs/baseline/README.md)、[engine/configs/rca](../../engine/configs/rca/README.md)）。上線前要補的是下面四項；告警出口、事故紀錄、回饋見 [feedback/](../feedback/README.md)。
+判斷（動態基準線學習 (Dynamic Baseline Learning)、靜態臨界值規則 (Static Threshold Rules)、Pod 同儕橫向比對 (Peer Comparison)、trace 每一段）和根因分析（Metrics → Trace → Log）的程式都做好了，在 k3s 驗過（程式說明：[engine/configs/baseline](../../engine/configs/baseline/README.md)、[engine/configs/rca](../../engine/configs/rca/README.md)）。上線前要補的是下面四項；告警出口、事故紀錄、回饋見 [feedback/](../feedback/README.md)。
 
 | 項目 | 現況 |
 |---|---|
@@ -19,7 +19,7 @@
 
 **為什麼**：系統天天噴的錯（被 catch 吞掉、沒人修），會讓 baseline 學成「每天報錯 1,000 次是常態」，真的出事反而抓不到；事故期間的資料學進去，也會把「平常」帶偏。
 
-**現況**：✅ 偵測得到吞掉的例外、N+1、新出現的 log 樣式；✅ 中位數＋MAD，少數幾次事故影響不大；✅ 程式有了、沒排程：排除事故時段（`exclude_window`）、行事曆、慢性病清單、資料品質檢查（步驟 1、2、3、5）。❌ 測試流量沒有自動辨識（步驟 6）。每一層擋什麼、還缺什麼見 [baseline README「餵給 baseline 之前」](../../engine/configs/baseline/README.md#餵給-baseline-之前擋了什麼還缺什麼)。
+**現況**：✅ 例外吞噬檢測 (Exception Swallowing Detection)、N+1、新出現的 log 樣式都偵測得到；✅ 中位數＋MAD，少數幾次事故影響不大；✅ 程式有了、沒排程：排除事故時段（`exclude_window`）、行事曆、慢性病清單、資料品質檢查（步驟 1、2、3、5）。❌ 測試流量沒有自動辨識（步驟 6）。每一層擋什麼、還缺什麼見 [baseline README「餵給 baseline 之前」](../../engine/configs/baseline/README.md#餵給-baseline-之前擋了什麼還缺什麼)。
 
 | 步驟 | 內容 | 驗收 |
 |---|---|---|
@@ -32,14 +32,14 @@
 
 ### 雜訊壓制
 
-**為什麼**：一次 DB 變慢，同時會有好幾個 API 的延遲、錯誤率、連線池規則、跟兄弟比……30 分鐘上百筆。不收斂，值班的人很快就不看了。
+**為什麼**：一次 DB 變慢，同時會有好幾個 API 的延遲、錯誤率、連線池規則、Pod 同儕橫向比對……30 分鐘上百筆。不收斂，值班的人很快就不看了。
 
-**現況**：✅ 跳一次 warning、連續兩個時間窗才 anomaly；✅ 規則用 `for` 要持續一段時間，critical 一次就算；✅ 依事件數選粒度、`min_abs`；✅ 借來的 baseline 門檻較高。❌ 還沒合併成同一件事故、沒有靜音、沒有發送頻率限制。
+**現況**：✅ 跳一次 warning、連續兩個時間窗才 anomaly；✅ 規則用 `for` 要持續一段時間，critical 立即觸發；✅ 依事件數選粒度、`min_abs`；✅ 借來的 baseline 門檻較高。❌ 還沒合併成同一件事故、沒有靜音、沒有發送頻率限制。
 
 | 步驟 | 內容 | 驗收 |
 |---|---|---|
 | 1. 同一條序列連續的點 → 一段 | 一段異常一筆：記開始、升級、結束；恢復要連續 N 個時間窗正常（避免在門檻邊緣反覆開關） | 一段 10 分鐘的異常只有一筆 |
-| 2. 同一個服務、時間重疊 → 一件 | p95＋錯誤率＋連線池規則＋跟兄弟比 → 一件事故 | 一次 DB 變慢只有一件 |
+| 2. 同一個服務、時間重疊 → 一件 | p95＋錯誤率＋連線池規則＋Pod 同儕橫向比對 → 一件事故 | 一次 DB 變慢只有一件 |
 | 3. 沿呼叫關係 → 找源頭 | 上下游同時異常的合成一件，最下游、最早開始的當源頭候選（需要常駐拓撲：每天從 trace 算一次「誰呼叫誰」存下來） | 上下游一起慢時，源頭指到最下游 |
 | 4. 排優先、靜音、限頻 | critical > 影響多個服務 > 可信度高 > 持續久；行事曆時段靜音；同一件事故通知後 N 分鐘內不重發 | 每天通知數、每件事故的異常數有統計 |
 
@@ -120,7 +120,7 @@
 | **服務名稱** | `resource.attributes.service.name` | `resource.attributes.service.name` | `resource.attributes.service.name`（alias → `service.name`） | metrics 報「哪個服務」→ 去找那個服務的 trace、log |
 | **時間** | 異常的 5 分鐘時段 | span 的 `@timestamp` | log 的 `@timestamp` | 只看出事那段 |
 | **路由** | `attributes.http.route`、`http.request.method`（Java 的由 Collector 改成這個名字） | span 的同名 attribute | —（REST API 解析規則做了才有） | metrics 報「哪支 API」→ 撈那條路由的 trace |
-| **Pod、namespace** | `resource.attributes.k8s.pod.name` 等 | 同左 | 同左（alias → `kubernetes.pod.name`） | 規則、跟兄弟比報的是單一 Pod 時 |
+| **Pod、namespace** | `resource.attributes.k8s.pod.name` 等 | 同左 | 同左（alias → `kubernetes.pod.name`） | 規則、Pod 同儕橫向比對報的是單一 Pod 時 |
 | **trace_id** | — | `trace_id` | `trace_id`（alias → `trace.id`） | trace ↔ log 精確對到「同一個請求」 |
 
 **兩段的精度不一樣**。metrics 是聚合過的（一個時間窗、一個服務、一條路由一筆直方圖），沒有任何一筆帶 trace_id，所以 **metrics → trace 是「服務＋API＋時間窗」的統計對應**：metrics 說「這支 API 這 5 分鐘錯誤率 10%」，根因分析去 trace 撈同一個服務、同一條路由、同一段時間的 Server span，挑最慢的 200 個加出錯的 100 個當樣本（[engine/investigator/es.py](../../engine/investigator/es.py) 的 `entry_filter`、`sample_trace_ids`）。它不保證挑到的就是讓 metrics 變差的那幾個請求，只是同一群母體裡的樣本；事故影響所有請求時兩邊一致。**trace → log 才是 `trace_id` 的精確對應**（同一個請求）；log 也帶 `span.id`，能再精確到「哪一段印的」，目前撈 log 只用 trace_id。trace 內部用 `span_id`／`parent_span_id` 組出呼叫樹，每一段只算自己的時間。實測：[pdca/phase3-locate/2026-10-rca-demo.md](../pdca/phase3-locate/2026-10-rca-demo.md)。
@@ -203,9 +203,9 @@ exemplar（直方圖每格附幾個範例請求的 trace_id）是讓 metrics 直
 | 誰報的 | 帶什麼 | 怎麼接 trace／log |
 |---|---|---|
 | metrics baseline（服務、API） | 服務、API、時間 | 上面的完整流程 |
-| trace 每一段的 baseline、N+1、吞掉的例外 | 服務、API、哪一段、時間 | 已經指出哪一段；再用 trace_id 撈 log |
+| trace 每一段的 baseline、N+1、例外吞噬檢測 | 服務、API、哪一段、時間 | 已經指出哪一段；再用 trace_id 撈 log |
 | 規則（重啟、記憶體、連線池…） | namespace、Pod、服務（`context`）、時間 | 用服務＋時間 |
-| 跟兄弟比（單一 Pod） | 服務、Pod、時間 | 目前只接到服務層級；「只拿這個 Pod 的 trace 跟其他 Pod 逐段比」在待辦 |
+| Pod 同儕橫向比對（單一 Pod） | 服務、Pod、時間 | 目前只接到服務層級；「只拿這個 Pod 的 trace 跟其他 Pod 逐段比」在待辦 |
 
 **目前接不起來、或接得不好的：**
 
@@ -233,7 +233,7 @@ exemplar（直方圖每格附幾個範例請求的 trace_id）是讓 metrics 直
 
 ### 2. 「平常」會隨時間變：週期
 
-同一個服務，白天和半夜、平日和週末、換班前後，正常值本來就不一樣。學「平常」最重要的就是學這個週期：
+同一個服務，白天和半夜、平日和週末、換班前後，正常值本來就不一樣。動態基準線學習最重要的就是學這個週期：
 
 ```
 延遲 p95
@@ -325,7 +325,7 @@ AIOps 的其他用途要的「平常」長得不一樣，有一部分可以共�
 
 | 用途 | 訓練用的資料 | 筆數 | 大小 |
 |---|---|---|---|
-| **發現異常**（學「平常的樣子」） | 每個服務 × API × 指標（流量、錯誤率、p95、p99）＋每個 Pod 的資源，約 **1 萬條時間序列**；每條 8 週、5 分鐘一點（約 1.6 萬點） | 約 1.6 億點 | **約 2～3GB** |
+| **發現異常**（動態基準線學習） | 每個服務 × API × 指標（流量、錯誤率、p95、p99）＋每個 Pod 的資源，約 **1 萬條時間序列**；每條 8 週、5 分鐘一點（約 1.6 萬點） | 約 1.6 億點 | **約 2～3GB** |
 | 同上，看年度週期 | 同樣 1 萬條，13 個月、1 小時一點（約 9,500 點） | 約 1 億點 | 約 1.5GB |
 | **log 樣式** | 學樣式：每個服務抽 1～7 天的 log 原文（幾十萬行就夠）；學「平常幾筆」：每個樣式每 5 分鐘的筆數，8 週 | 樣式數萬種，大多數時段是 0 | 幾 GB |
 | **定位到哪一段**（trace） | 不用訓練：每個 API 的延遲分布，2～4 週（應用的 `http.server.request.duration`） | — | 包含在上面 |

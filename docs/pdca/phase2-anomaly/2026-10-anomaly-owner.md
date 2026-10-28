@@ -43,7 +43,7 @@
 | 依 `group` 聚合 | 同上 | it 2、imc 2、unassigned 4 |
 | 新欄位的 mapping | 刪掉 index 重建；既有 index | `dept`、`group` 都是 keyword |
 
-- docker 測試的兩組身分：mes-api／mes-prod／D3120／it、wip-worker／wip-prod／D1110／imc；Collector 用 `node.yaml` 的 Java 改名＋一把 key。
+- docker 測試的兩組身分：mes-api／mes-prod／D3120／it、wip-worker／wip-prod／D1110／imc；Collector 用 `node.yaml` 的 Java 改名＋集中式資料寫入憑證 (Shared Ingest Token)。
 - **沒測到**：k3s 端對端。
 - **沒測到**：同一個服務跨多個 namespace（兩個部門都有 `order-api`）：服務只對到最常見的那個，namespace 在 keys 裡的異常不受影響。
 

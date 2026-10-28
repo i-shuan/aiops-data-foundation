@@ -11,7 +11,7 @@
 | 項目 | 狀態 |
 |---|---|
 | Java agent、.NET 自動埋點，不改程式；應用全部送到同節點的 Collector | ✅ |
-| 依連線來源的 Pod 分部門、擋冒充 | ✅ |
+| 依連線來源的 Pod 分部門、邊緣身份鑑別與標籤注入 (Edge Identity Sanitization & Injection) | ✅ |
 | 尾端取樣：兩層 Collector，錯的、慢的（> 1 秒）、有例外的全留，正常的隨機留 5%；每一段記著是哪條規則留的 | ✅ |
 | 例外事件抄到 span 屬性（ES 會丟掉事件） | ✅ |
 | 跟 log 串：`trace_id` ↔ log 的 `trace.id` | ✅ |
@@ -83,7 +83,7 @@
 應用（OpenTelemetry Java agent 等）
    ↓ OTLP 送到 Service otel-node-collector（internalTrafficPolicy: Local → 只連同一個節點的 Collector）
 節點的 Collector
-   ↓ 1. 擋冒充：應用自帶的 k8s.*、container.*、dept、group、data_stream.* 一律拿掉
+   ↓ 1. 邊緣身份鑑別：應用自帶的 k8s.*、container.*、dept、group、data_stream.* 一律拿掉
    ↓ 2. 看連線的來源 IP 是哪個 Pod → 補上 namespace、Pod、Deployment、namespace 的 dept、服務版本
    ↓ 3. dept → group（跟 log、metrics 同一份規則）
    ↓ 4. 例外事件的種類、訊息抄到 span 的屬性（exception.type、exception.message）：ES 不存 span 的事件
@@ -91,7 +91,7 @@
 trace-sampler × 2（StatefulSet，尾端取樣）
    ↓ 等 30 秒（整個 trace 到齊）再決定：隨機 5%、錯誤、5xx、例外、超過 1 秒 → 留；其他丟
    ↓ 每一段記下是哪條規則留的（scope.attributes.tailsampling.policy）
-   ↓ 一個出口、一把寫入 key（ES_WRITER_API_KEY）；data_stream.namespace = group → traces-generic.otel-<group>
+   ↓ 一個出口、集中式資料寫入憑證（ES_WRITER_API_KEY）；data_stream.namespace = group → traces-generic.otel-<group>
         ↓ 中央 ES：traces-otel pipeline 用 trace_id-span_id 當 _id（重送不會重複）
    AIOps 用唯讀 key 讀 traces-*.otel-*；人用各 group 的唯讀角色
 ```
@@ -172,7 +172,7 @@ ES_URL=http://<ip>:9200 e2e/local-k3s/run-trace-e2e.sh
 | 類別 | 檢查 |
 |---|---|
 | 分流 | 三個 namespace 的 trace 各進自己的 group，沒有落錯 |
-| 擋冒充 | 自稱 IMC 的那個仍進 IT，namespace、dept、Pod UID 都是真的；IMC 裡沒有它的資料 |
+| 邊緣身份鑑別 | 自稱 IMC 的那個仍進 IT，namespace、dept、Pod UID 都是真的；IMC 裡沒有它的資料 |
 | 欄位 | 服務名稱、版本、cluster、Pod 名稱；沒有夾帶 pod label |
 | 串起來 | 從 trace 的 `trace_id` 找得到那行 log，反過來也找得到 |
 | 去重複 | 同一個 span 送 3 次，ES 只有 1 筆（另外兩次回 409） |

@@ -1,6 +1,6 @@
 # 修四個會讓整輪失敗、或蓋掉資料的程式問題（2026-10）
 
-**狀態**：完成（四個都修了、各有測試；docker ES 實測）　　**日期**：2026-10-25　　**相關**：分支 `claude/fix-critical`；來源 code-review（2026-10-25）的 10 項；還沒動的記在 [architecture.md「還沒做、還不足的」](../../architecture.md#還沒做還不足的)
+**狀態**：完成（四個都修了、各有測試；docker ES 實測）　　**日期**：2026-10-25　　**相關**：分支 `claude/fix-critical`；來源 code-review（2026-10-25）的 10 項；還沒動的記在 [poc-status.md「還沒做、還不足的」](../../poc-status.md#還沒做還不足的)
 **模組**：⑥⑧（alert）、⑨（回測、事故）
 
 ## Plan：這一次要達到什麼

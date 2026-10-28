@@ -18,7 +18,7 @@
 | `engine/detector/chronic.py`（新） | `find_chronic`：7 天裡至少 6 天有、每天至少 N 筆 | 週末量少那天沒出現也算「天天」 |
 | 同上 | `owner_of` | 對負責人 |
 | 同上 | `fetch_log_daily`：錯誤 log 依服務 × error.type 每天幾筆 | 計算與查詢分開 |
-| 同上 | `fetch_anomaly_daily`：規則、跟兄弟比每天觸發幾次 | 同上 |
+| 同上 | `fetch_anomaly_daily`：規則、Pod 同儕橫向比對 (Peer Comparison) 每天觸發幾次 | 同上 |
 | `engine/configs/baseline/chronic.yaml`（新） | 來源（錯誤 log、規則）、天數、門檻、負責人 | 門檻寫設定，調整不用改程式 |
 | `engine/detector/__main__.py` | 新增 `chronic` 指令與 `aiops-chronic` index（每週一份）；報告印成表格 | 結果存起來，才看得出哪些修好了 |
 | `engine/detector/adjust.py` | `calendar_adjustments`：行事曆每一筆變成 `exclude_window`；`load` 讀 `calendar_file` | 沿用排除機制，不另做一套 |
@@ -47,7 +47,7 @@
 | [⑧] 清單只寫 ES、印成報告，沒送到負責人手上 | 實測只看到輸出 | 沒人看就沒人修 | 等告警出口做好 |
 | [⑧] 沒有「修好」的追蹤（連續幾週沒修就升級） | 每週一份各自獨立 | 同一個問題可能一直在榜上 | 比對相鄰兩週，連續上榜的升級 |
 | [④] 假日預設不判斷，假日當天真的出事也不報 | 推論（`exclude_window` 預設含 `detect`），未實測 | 連假期間故障抓不到 | 假日只靠規則（重啟、OOM）把關，或預設 `detect: true` |
-| [④] 慢性病只涵蓋錯誤 log 與規則／跟兄弟比 | 讀設計：來源只有兩種 | 天天偏高的延遲等 baseline 異常看不到 | 視需要加來源 |
+| [④] 慢性病只涵蓋錯誤 log 與規則／Pod 同儕橫向比對 | 讀設計：來源只有兩種 | 天天偏高的延遲等 baseline 異常看不到 | 視需要加來源 |
 | [②] 「7 天裡 6 天、每天 20 筆」是估的 | 沒有真實資料可校 | 可能漏列或太多 | 正式環境跑幾週再校 |
 | 假日要人手動填、每年更新 | 實測時行事曆是空的 | 沒人填就沒有作用 | 改抓台灣行事曆（見 [資料來源接口](2026-10-data-sources.md)） |
 | 沒排程 | — | — | 每週一次，跟其他指令一起部署 |

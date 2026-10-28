@@ -1,4 +1,4 @@
-# 寫入簡化：一把寫入 key、ES failure store、靜態保底規則（2026-10）
+# 寫入簡化：集中式資料寫入憑證 (Shared Ingest Token)、ES failure store、靜態臨界值規則 (Static Threshold Rules)（2026-10）
 
 **狀態**：已完成（k3s e2e 待下次跑）　　**日期**：2026-10-25　　**相關**：分支 `claude/single-writer-key`
 **模組**：① 收值（寫入 key、Collector 出口）、③ 存（failure store）、④ 判斷（靜態保底規則）
@@ -13,13 +13,13 @@
   2. 型別寫錯（mapping 衝突）、pipeline 失敗的文件，ES 直接拒絕，只有 Collector log 看得到。
   3. baseline 要累積資料才判斷得準（退階：同星期×同小時 2 週 → 每天同小時 3 天 → 不分時段 50 點）；上線第一天沒有「一定是壞了」的保底。
 - **目的**：
-  1. 一把寫入 key、一個出口；資料照樣依部門分到各自的 index（`data_stream.namespace` 由 Collector 依 group 設），讀取權限照樣依部門隔離。
+  1. 集中式資料寫入憑證、一個出口；資料照樣依部門分到各自的 index（`data_stream.namespace` 由 Collector 依 group 設），讀取權限照樣依部門隔離。
   2. 被 ES 拒絕的文件留在 failure store，查得到、可以告警。
   3. 錯誤率、p95 有固定門檻的保底規則，第一天就能報。
 - **範圍**：
   - 做：Collector 三份設定（common、node、sampler）、cluster 的出口；`elasticsearch-setup.sh` 發一把 key；`rotate-writer-key.sh` 改成一把；e2e 腳本；文件。
   - 做：failure store 開在 log、metrics、trace 的 index template；rules 加「一段時間內的比例／百分位」類型和兩條規則。
-  - 不做：讀取權限（人看自己部門的角色）、`dept → group` 的分流規則、防冒充（Collector 依 Pod 補身分）都不動。
+  - 不做：讀取權限（人看自己部門的角色）、`dept → group` 的分流規則、邊緣身份鑑別與標籤注入（Edge Identity Sanitization & Injection；Collector 依 Pod 注入身分）都不動。
 
 | 不變的 | 為什麼還需要 |
 |---|---|
@@ -75,11 +75,11 @@
 |---|---|---|
 | Collector 設定結構對不對 | `otelcol validate`（contrib 0.162.0）：common+cluster、sampler | 通過 |
 | 同上 | common+node | 卡在建 pipeline 時讀 K8s 憑證檔；master 版一樣卡在這裡 → 出口和引用都對 |
-| 一把 key 的權限夠不夠、會不會太寬 | es-t 跑改過的 `elasticsearch-setup.sh`，用新 key 查 `_has_privileges` | 五種資料流（見下）：能寫、不能讀 |
+| 集中式資料寫入憑證的權限夠不夠、會不會太寬 | es-t 跑改過的 `elasticsearch-setup.sh`，用新 key 查 `_has_privileges` | 五種資料流（見下）：能寫、不能讀 |
 | 同上 | 同上 | `aiops-anomalies`：不能寫 |
 | trace：一個出口，三個 group 還是分開 | docker：正式 `sampler.yaml`＋node 端 → es-t，三個 group 各送 60 個 trace | it、imc、unassigned 各 120 段，在 `traces-generic.otel-<group>` |
 | 同上 | 同上 | sampler 沒有錯誤，`sent_spans` 360 |
-| metrics：Java 改名＋一把 key | docker：假 Java agent → Collector（`node.yaml`、`common.yaml` 的處理器，見下）→ es-t | `metrics.http.server.request.duration`、`http.response.status_code` 是數字，寫在 `-imc`；舊名字 0 筆 |
+| metrics：Java 改名＋集中式資料寫入憑證 | docker：假 Java agent → Collector（`node.yaml`、`common.yaml` 的處理器，見下）→ es-t | `metrics.http.server.request.duration`、`http.response.status_code` 是數字，寫在 `-imc`；舊名字 0 筆 |
 | metrics：保底規則 | 4 分鐘後跑 `python -m detector rules --only http.error_rate_floor,http.latency_p95_floor` | 錯誤率 13%（3/23，對）critical、p95 3.75 秒 warning，寫進 `aiops-anomalies` |
 | failure store 在我們的權限下接不接得住 | es-t：只有 `create_doc` 的 key 送 `@timestamp` 壞掉的 log（單筆；bulk 混一筆好的） | ES 回 201、`failure_store: used`；好的照寫 |
 | 同上 | 同上 | `k8s-it-c1::failures` 2 筆 `document_parsing_exception`；**寫入 key 不用加權限** |
@@ -110,5 +110,5 @@
 - 一把寬 pattern 的 key 已讓「漏了 pattern」幾乎不會發生；部署檢查清單＝新 cluster 上線後確認 ES 有資料。
 - 保底規則要排除的用 `match` 或改門檻。
 - failure store 天數要改在 template 的 `data_stream_options.failure_store.lifecycle`。
-- **決定**：寫入一把 key；資料依 group 分 data stream、讀取依 group 分權限照舊。
+- **決定**：寫入用集中式資料寫入憑證；資料依 group 分 data stream、讀取依 group 分權限照舊。
 - **下一輪**：k3s e2e 跑一次；告警出口（[⑧]）。

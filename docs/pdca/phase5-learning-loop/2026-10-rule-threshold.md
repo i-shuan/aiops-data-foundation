@@ -1,6 +1,6 @@
 # 規則草稿把門檻算出來、核准就生效；行事曆拿掉國定假日；第一階段只開 4 個 CronJob（2026-10）
 
-**狀態**：完成（docker ES 實測：核准 → rules 自動載入 → 第 2 次事故的時間觸發）　　**日期**：2026-10-25　　**相關**：分支 `claude/rule-threshold`；過度設計的盤點（[architecture.md「哪裡過度設計」](../../architecture.md#哪裡過度設計)）；[loop-update](2026-10-loop-update.md) 的 Act「規則草稿的門檻要人填」
+**狀態**：完成（docker ES 實測：核准 → rules 自動載入 → 第 2 次事故的時間觸發）　　**日期**：2026-10-25　　**相關**：分支 `claude/rule-threshold`；過度設計的盤點（[poc-status.md「哪裡過度設計」](../../poc-status.md#哪裡過度設計)）；[loop-update](2026-10-loop-update.md) 的 Act「規則草稿的門檻要人填」
 **模組**：⑨（建議）、④（規則）、②（行事曆）
 
 ## Plan：這一次要達到什麼
@@ -8,7 +8,7 @@
 - **需求**：
   1. 同根因 3 次的「升級成規則」草稿，門檻是 `<填：那幾次事故時的 p95，秒>`：人要翻三份報告找數字、手抄進 `rules.yaml`；核准了也不生效（規則只從 `rules.yaml` 讀）。
   2. `calendar.yaml` 預設抓台灣國定假日，每個假日一筆「不學、不報」。工廠 24×7，這會把假日資料從 baseline 挖掉，`adjust list` 也被幾十行假日淹掉。真的要列的是歲修，一次一筆、不合併。
-  3. `deploy/` 10 個 CronJob 一起上 K8s：第一個月的誤報很難分是 baseline、兄弟比、trace 段還是規則報的。
+  3. `deploy/` 10 個 CronJob 一起上 K8s：第一個月的誤報很難分是 baseline、Pod 同儕橫向比對 (Peer Comparison)、trace 段還是規則報的。
 - **目的**：
   1. 門檻算出來（取法見 Do）；規則的查法直接用那條 baseline 序列的定義，只多加「只看這個服務」。人只要 `adjust approve`，**核准後 `detector rules` 自動載入**，不用改 yaml。算不出就寫「算不出」，不能核准。
   2. 拿掉國定假日來源；歲修一筆一筆寫在 `calendar:`（`type: maintenance`），格式不變。
