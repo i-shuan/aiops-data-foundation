@@ -86,6 +86,7 @@ metrics、trace、log 怎麼收、怎麼存、三種怎麼關聯（欄位、時�
 
 | 檔案 | 主題 | 結論 |
 |---|---|---|
+| [phase1-collect/2026-10-durability.md](phase1-collect/2026-10-durability.md) | ① 收值線在各種故障下會不會掉、會不會重複（k3s 實測 12 個情境） | 修了兩個：node 端 trace 佇列共用一個檔（多台 trace-sampler 時只有一台收得到）、batch processor 當掉掉 1 秒；修正後 Collector 換版、ES 停 30 分鐘、ES 回 429 都掉 0，kill -9 最多掉 0.2 秒；trace-sampler 當掉掉「decision_wait＋1 秒」那台的、PVC 滿了掉、刪 hostPath 掉停機那段 log |
 | [phase1-collect/2026-10-es-startup-401.md](phase1-collect/2026-10-es-startup-401.md) | ① ES 剛起來回 401，Collector 直接丟 | 401 窗口約 1 秒（.security 還沒恢復）；修在 ES 入口：健康檢查用 API key 打 GET /（實測掉 0）；兩台 ES 滾動重啟也有窗口（投票名單只有一台）、新檢查都掉 0；不加 Kafka、不改 Collector |
 | [phase1-collect/2026-10-field-unify.md](phase1-collect/2026-10-field-unify.md) | ② 欄位統一：log 身分欄位補 OTel 路徑、Java HTTP 指標在 Collector 改名；metrics ↔ trace 怎麼連 | 在 ingestion 處理、不在查詢層：log 加 alias、Java 指標在 Collector 改名；`variants` 拿掉；`quality.metric_name_legacy` 盯舊名字 |
 | [phase1-collect/2026-10-ingest-keys-check.md](phase1-collect/2026-10-ingest-keys-check.md) | ①②③ 收值、共同鑰匙圈、log↔trace 綁定、metrics 時間窗：docker 重驗 | 鑰匙圈交叉查得到；log↔trace 要 log 格式有印 trace_id，純文字的要開 `otel.logs.exporter: otlp`（新加的路，pipeline 原本會丟 trace_id，已修；真的 Java agent、.NET 自動埋點各驗一次）；metrics 三層窗對得上（276／分、13%、p95 3.75 秒）；.NET Framework：trace／metrics 可、ILogger 直送不行 |
@@ -95,7 +96,7 @@ metrics、trace、log 怎麼收、怎麼存、三種怎麼關聯（欄位、時�
 | [phase1-collect/2026-10-metrics-trace.md](phase1-collect/2026-10-metrics-trace.md) | ①②⑦ metrics 異常 → 用服務＋路由＋時間窗撈 trace 的邊緣情況 | 時間對齊（1.9%）、counter 歸零（少一次抓取、沒負值）、部分變慢（慢的 100% 挑到）都可以；路由、服務名對不上就 0 筆且不說原因；Micrometer 名字不改名；不到 1 秒的變慢只剩 4.6% |
 | [phase1-collect/2026-10-retention.md](phase1-collect/2026-10-retention.md) | 保留天數（metrics 降解析度、log 統計、trace 分兩種） | 已合；trace baseline 改成只讀隨機留下的 `traces-generic`（沒用真實資料驗證） |
 | [phase1-collect/2026-10-time-alignment.md](phase1-collect/2026-10-time-alignment.md) | ② 時間對齊：log 沒帶時區、收資料延遲、主機時鐘 | 沒帶時區的原本差 8 小時、空白分隔的默默換時間，已修；延遲與時鐘偏差、主機時鐘都抓得到；`NTP_SERVER` 要填 |
-| [phase1-collect/2026-10-trace-durability.md](phase1-collect/2026-10-trace-durability.md) | ① trace 收值線要不要 message queue | 不用 Kafka；兩段佇列改寫磁碟（node 端要設在 loadbalancing 的子 exporter）；當掉仍掉約 20% |
+| [phase1-collect/2026-10-trace-durability.md](phase1-collect/2026-10-trace-durability.md) | ① trace 收值線要不要 message queue | 不用 Kafka；兩段佇列改寫磁碟；node 端放子 exporter 的做法後來發現有錯、當掉掉多少重新量過（[durability](phase1-collect/2026-10-durability.md)） |
 
 ### Phase 2 異常分析（`phase2-anomaly/`）
 

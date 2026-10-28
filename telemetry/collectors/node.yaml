@@ -141,11 +141,6 @@ processors:
     include:
       metric_types: [histogram]
 
-  # log 與 trace 一批一批送，量大時才送得動
-  batch:
-    send_batch_size: 2000
-    timeout: 1s
-
   # 擋冒充：trace 是應用自己送的，資源欄位應用可以亂填。拿掉所有能決定「屬於哪個 Pod、哪個部門」的欄位，
   # 讓 k8s_attributes 一定依連線的來源 IP 判斷是哪個 Pod
   transform/traces-pre:
@@ -202,16 +197,19 @@ exporters:
       otlp:
         tls: {insecure: true}
         timeout: 10s
-        # 佇列要設在這裡（每台 trace-sampler 一個子 exporter），寫在節點磁碟上：trace-sampler 停很久、node Collector 重啟都不會掉。
-        # 設在外層沒用：資料一進來就移到子 exporter 的記憶體佇列，實測 node 重啟照掉（docs/pdca/phase1-collect/2026-10-trace-durability.md）
-        sending_queue: {enabled: true, queue_size: 10000, storage: file_storage}
-        retry_on_failure: {enabled: true, max_elapsed_time: 0}   # 一直重試到送成功（佇列滿了才會丟）
+        # 子 exporter（每台 trace-sampler 一個）不排隊、不重試：送不出去就把錯誤交回外層，資料留在外層的磁碟佇列。
+        # 不能把磁碟佇列設在這裡：每個子 exporter 用同一個佇列檔，只有一個鎖得到，其他的啟動逾時、那台的 trace 從此全部被拒
+        #（docs/pdca/phase1-collect/2026-10-durability.md）。子 exporter 有記憶體佇列的話，資料一交給它外層就刪掉，node 重啟會掉
+        sending_queue: {enabled: false}
+        retry_on_failure: {enabled: false}
     resolver:
       dns:
         hostname: trace-sampler-headless.otel-collector.svc.cluster.local   # headless Service：解析出每一台的 IP
         port: "4317"
         interval: 5s
-    sending_queue: {enabled: false}   # 外層只是過路，不排隊（排隊在上面的子 exporter）
+    # 佇列寫在節點磁碟上：trace-sampler 停很久、node Collector 重啟都不會掉。重試時依當下的 trace-sampler 名單重新分配
+    sending_queue: {enabled: true, queue_size: 10000, storage: file_storage}
+    retry_on_failure: {enabled: true, max_elapsed_time: 0}   # 一直重試到送成功（佇列滿了才會丟）
 
 service:
   pipelines:
@@ -233,16 +231,16 @@ service:
       exporters: [otlp_http/es]
     logs/in:
       receivers: [file_log]
-      processors: [memory_limiter, k8s_attributes, transform/group, batch]
+      processors: [memory_limiter, k8s_attributes, transform/group]
       exporters: [otlp_http/es]
     # 應用用 OTLP 直接送來的 log（app-common chart 的 otel.logs.exporter: otlp）：agent 送的 log record 本身就帶 trace_id、span_id，
     # 不靠 log 的輸出格式有沒有印 MDC。應用的 log pattern 是自己的純文字、沒印 trace_id 時走這條就綁得起來
     # （docs/pdca/phase1-collect/2026-10-ingest-keys-check.md）。跟 trace 一樣擋冒充：拿掉自帶的 K8s、部門欄位，依連線來源補
     logs/otlp:
       receivers: [otlp]
-      processors: [memory_limiter, transform/logs-otlp-pre, k8s_attributes, transform/group, batch]
+      processors: [memory_limiter, transform/logs-otlp-pre, k8s_attributes, transform/group]
       exporters: [otlp_http/es]
     traces/in:
       receivers: [otlp]
-      processors: [memory_limiter, transform/traces-pre, transform/exceptions, k8s_attributes, transform/group, transform/drop-log-attrs, batch]
+      processors: [memory_limiter, transform/traces-pre, transform/exceptions, k8s_attributes, transform/group, transform/drop-log-attrs]
       exporters: [loadbalancing/traces]
