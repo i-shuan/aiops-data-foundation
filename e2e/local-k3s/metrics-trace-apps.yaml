@@ -1,0 +1,101 @@
+# metrics → trace 關聯的邊緣情況（run-metrics-trace-e2e.sh 用）：一個模擬服務 mt-edge（it-mes-prod），每 0.5 秒每條路由各一個請求。
+# 每個請求：一個 Server span 送 Collector（時間是模擬的：結束 = 現在、開始 = 現在 − 耗時，跟真的應用一樣「結束才記到直方圖」），
+# 同時累加到 :9464/metrics 的直方圖（Prometheus 格式，Collector 依 prometheus.io/scrape 每 30 秒抓）。
+#
+# | 路由 | metrics 的 http_route | trace 的 span 名稱 | 測什麼 |
+# | r1 | /edge/partial/{id} | GET /edge/partial/{id} | /tmp/partial：10% 慢 2 秒（span 帶 test.slow=1 當正解）；對齊、重啟也用這條 |
+# | r2 | /edge/sub1s/{id}   | GET /edge/sub1s/{id}   | /tmp/sub1s：全部 200ms → 800ms（不到尾端取樣「慢」的門檻 1 秒） |
+# | r3 | /items/123         | GET /items/{id}        | metrics 沒參數化 |
+# | r4 | /orders/{id}       | GET /orders/42         | trace 沒參數化（反過來） |
+# | r5 | /stock/{id}        | /stock/{id}            | 舊版 Java agent：span 名稱只有路由、沒有 method |
+# | r6 | /mismatch/{id}     | GET /mismatch/{id}     | trace 的 service.name 是 mt-edge-otel（OTEL_SERVICE_NAME 跟 Pod label 不同） |
+# | r7 | （Micrometer）uri=/legacy/{id} | GET /legacy/{id} | Spring Micrometer 的名字 http_server_requests_seconds、label uri |
+#
+# r1～r6 用 Java agent 的 Prometheus 名字（http_server_request_duration_seconds、http_route），由 node Collector 改成 OTel 名字。
+# /tmp/crash：程式結束（容器重啟、同一個 Pod），直方圖從 0 重新累加。共用的函式在 rca-lib.sh（ConfigMap rca-lib）。
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: mt-edge, namespace: it-mes-prod}
+data:
+  run.sh: |
+    . /rca/lib.sh
+    B="0.005 0.01 0.025 0.05 0.075 0.1 0.25 0.5 0.75 1 2.5 5 7.5 10"
+    BMS="5 10 25 50 75 100 250 500 750 1000 2500 5000 7500 10000"
+    ROUTES="1 2 3 4 5 6 7"
+    for r in $ROUTES; do j=0; for ms in $BMS; do j=$((j + 1)); eval "b${r}_$j=0"; done; eval "n$r=0; s$r=0"; done
+    mroute() { case $1 in 1) echo '/edge/partial/{id}';; 2) echo '/edge/sub1s/{id}';; 3) echo '/items/123';; 4) echo '/orders/{id}';;
+                            5) echo '/stock/{id}';; 6) echo '/mismatch/{id}';; 7) echo '/legacy/{id}';; esac; }
+    observe() {  # observe <路由> <耗時 ms>
+      j=0
+      for ms in $BMS; do j=$((j + 1)); [ "$2" -le "$ms" ] && eval "b$1_$j=\$((b$1_$j + 1))"; done
+      eval "n$1=\$((n$1 + 1)); s$1=\$((s$1 + $2))"
+    }
+    write_metrics() {
+      {
+        echo '# TYPE http_server_request_duration_seconds histogram'
+        for r in 1 2 3 4 5 6; do
+          L="http_request_method=\"GET\",http_route=\"$(mroute $r)\",http_response_status_code=\"200\",url_scheme=\"http\""
+          j=0
+          for le in $B; do j=$((j + 1)); eval "v=\$b${r}_$j"; echo "http_server_request_duration_seconds_bucket{${L},le=\"$le\"} $v"; done
+          eval "v=\$n$r; s=\$s$r"
+          echo "http_server_request_duration_seconds_bucket{${L},le=\"+Inf\"} $v"
+          echo "http_server_request_duration_seconds_count{${L}} $v"
+          echo "http_server_request_duration_seconds_sum{${L}} $((s / 1000)).$(printf %03d $((s % 1000)))"
+        done
+        echo '# TYPE http_server_requests_seconds histogram'
+        L='method="GET",uri="/legacy/{id}",status="200",outcome="SUCCESS"'
+        j=0
+        for le in $B; do j=$((j + 1)); eval "v=\$b7_$j"; echo "http_server_requests_seconds_bucket{${L},le=\"$le\"} $v"; done
+        echo "http_server_requests_seconds_bucket{${L},le=\"+Inf\"} $n7"
+        echo "http_server_requests_seconds_count{${L}} $n7"
+        echo "http_server_requests_seconds_sum{${L}} $((s7 / 1000)).$(printf %03d $((s7 % 1000)))"
+      } > /www/metrics.tmp && mv /www/metrics.tmp /www/metrics
+    }
+    mkdir -p /www; write_metrics; httpd -p 9464 -h /www
+    rnd() { od -An -N1 -tu1 /dev/urandom | tr -d ' '; }
+    while :; do
+      [ -f /tmp/crash ] && { echo "crash: r1 累計 $n1 個請求"; exit 1; }
+      for r in $ROUTES; do
+        x=$(rnd); slow=""
+        case $r in
+          1) d=$((40 + x % 20)); [ -f /tmp/partial ] && [ $((x % 10)) -eq 0 ] && { d=$((d + 2000)); slow=1; } ;;
+          2) d=$((200 + x % 20)); [ -f /tmp/sub1s ] && { d=$((800 + x % 40)); slow=1; } ;;
+          *) d=$((30 + x % 20)) ;;
+        esac
+        t1=$(now); t0=$((t1 - d)); tid=$(hex 16); sid=$(hex 8)
+        a="$(attr http.request.method GET)"; [ -n "$slow" ] && a="$a,$(attr test.slow 1)"
+        svc=mt-edge
+        case $r in
+          3) name='GET /items/{id}'; a="$a,$(attr http.route '/items/{id}')" ;;
+          4) name='GET /orders/42'; a="$a,$(attr url.path /orders/42)" ;;
+          5) name='/stock/{id}'; a="$a,$(attr http.route '/stock/{id}')" ;;
+          6) name='GET /mismatch/{id}'; a="$a,$(attr http.route '/mismatch/{id}')"; svc=mt-edge-otel ;;
+          *) name="GET $(mroute $r)"; a="$a,$(attr http.route "$(mroute $r)")" ;;
+        esac
+        send "$svc" "$(span "$tid" "$sid" "" "$name" 2 "$t0" "$t1" "$a" "")"
+        observe "$r" "$d"
+      done
+      write_metrics
+      sleep 0.1
+    done
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: mt-edge, namespace: it-mes-prod}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app.kubernetes.io/name: mt-edge}}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: mt-edge, app.kubernetes.io/version: "1.0.0", app.kubernetes.io/part-of: demo}
+      annotations: {prometheus.io/scrape: "true", prometheus.io/port: "9464", prometheus.io/path: /metrics}
+    spec:
+      containers:
+        - name: app
+          image: docker.io/library/busybox:1.37
+          command: ["sh", "/script/run.sh"]
+          resources: {requests: {cpu: 50m, memory: 16Mi}, limits: {memory: 64Mi}}
+          volumeMounts: [{name: script, mountPath: /script}, {name: lib, mountPath: /rca}]
+      volumes:
+        - {name: script, configMap: {name: mt-edge}}
+        - {name: lib, configMap: {name: rca-lib}}
