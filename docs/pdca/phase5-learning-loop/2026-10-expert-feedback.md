@@ -1,6 +1,6 @@
 # 老師傅的回饋入口（2026-10）
 
-**狀態**：完成（網頁＋寫入，docker ES 實測）　　**日期**：2026-10-25　　**相關**：分支 `claude/loop-plans`；前置 [告警出口](../phase3-locate/2026-10-alert-exit.md)；[產品主線 8 步](../../poc-status.md#產品主線-8-步) 第 8 步
+**狀態**：完成（網頁＋寫入，docker ES 實測）　　**日期**：2026-10-25　　**相關**：分支 `claude/loop-plans`；前置 [告警出口](../phase3-locate/2026-10-alert-exit.md)；[產品主線 8 步](../../architecture.md#9-產品主線-8-步) 第 8 步
 **模組**：⑧ 出口（回饋從人回來）、⑨ feedback
 
 ## Plan：這一次要達到什麼

@@ -129,6 +129,6 @@ python3 -m unittest discover -s tests -t .                  # 在 aiops 底下�
 ES_URL=http://<ip>:9200 e2e/local-k3s/run-rca-e2e.sh        # k3s 端到端，約 14 分鐘
 ```
 
-`loop_e2e`（2026-10-25，docker 的 ES 9.5.5、模擬資料，見 [poc-status.md「產品主線 8 步」](../../../docs/poc-status.md#產品主線-8-步)）：第 1 次事故 → 回饋網頁確認 → 第 2 次同樣症狀的報告附上第 1 件（為什麼像、當時的根因、處置、怎麼看出來的）、LLM 摘要（template）每句附依據；`similar-eval` 3/3；誤報 3 次 → 建議 → 回測 → 核准 → 不再報。
+`loop_e2e`（2026-10-25，docker 的 ES 9.5.5、模擬資料，見 [architecture.md「產品主線 8 步」](../../../docs/architecture.md#9-產品主線-8-步)）：第 1 次事故 → 回饋網頁確認 → 第 2 次同樣症狀的報告附上第 1 件（為什麼像、當時的根因、處置、怎麼看出來的）、LLM 摘要（template）每句附依據；`similar-eval` 3/3；誤報 3 次 → 建議 → 回測 → 核准 → 不再報。
 
 `run-rca-e2e.sh`：兩個模擬服務走真正的路線（Collector → ES），正常 7 分鐘、事故 5 分鐘，再模擬 baseline 記到一筆延遲異常，**不指定服務**跑 investigate，檢查 11 項：從異常找到服務與 API、瓶頸、錯誤源頭、新的 log 樣式、log 依 trace_id 串到兩個服務、關係圖。

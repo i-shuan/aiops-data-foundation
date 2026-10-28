@@ -6,7 +6,7 @@
 ## Plan：這一次要達到什麼
 
 - **需求**：④ 判斷的結果（baseline、規則、Pod 互比、trace 每一段、資料品質）只寫進 `aiops-anomalies`；值班不會去查 ES，判斷沒有人看得到。
-- 每筆異常直接送出會洗版：一次 DB 變慢，30 分鐘裡可能上百筆（[poc-status.md「收斂」](../../poc-status.md#收斂很多筆怎麼變成一件)），值班會直接關掉通知。
+- 每筆異常直接送出會洗版：一次 DB 變慢，30 分鐘裡可能上百筆（[architecture.md「收斂」](../../architecture.md#8-收斂很多筆怎麼變成一件)），值班會直接關掉通知。
 - **決定（2026-10-25）**：通知不自己做，交給 Grafana（公司有 Grafana 的話）。
 - 送到哪、每個 dept 送給誰、夜間、靜音、重複抑制：用 Grafana Alerting 的 contact point、notification policy、mute timing，由管 Grafana 的人設定。
 - AIOps 只做：把異常整合成「一件事」、附上根因分析，寫成 Grafana 讀得到的格式。
@@ -15,7 +15,7 @@
   2. 摘要欄位是**看得懂的一段話**；Grafana 的通知範本直接帶這個欄位。
   3. **先只寫 `aiops-alerts`、Grafana 不開通知**跑 2～4 週：記下每天幾件、哪些是誤報（[feedback/README.md](../../feedback/README.md) 要的「上線前先記下現況」），門檻調過才打開。
 - **範圍**：
-  - 做：收斂最小版的 ② **同一個服務合成一件**（[poc-status.md「收斂」](../../poc-status.md#收斂很多筆怎麼變成一件) 的 ① 時間合併已有 `status`）。
+  - 做：收斂最小版的 ② **同一個服務合成一件**（[architecture.md「收斂」](../../architecture.md#8-收斂很多筆怎麼變成一件) 的 ① 時間合併已有 `status`）。
   - 做：一件存一筆 `aiops-alerts`；一件跑一次根因分析，報告連結和摘要寫進那一筆。
   - 做：Grafana 的設定範例（ES data source、alert rule、依 `dept` 分送的 notification policy）。
   - 不做：通知管道、分送、夜間、靜音（Grafana 做）。

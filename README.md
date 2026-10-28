@@ -9,19 +9,20 @@
 ```
 docs/
   pdca/              現況與待辦（依 PDCA 分）、每一輪紀錄、TEMPLATE.md
-  architecture.md    架構規格書（從這裡看起）：目標與邊界、架構圖、關鍵決策、①～⑨ 職責、關聯與根因定位
+  architecture.md    架構規格書（從這裡看起）：架構規格＋現況與驗證
+                     第一部分：目標與邊界、架構圖、關鍵決策、①～⑨ 職責、關聯與根因定位
+                     第二部分：各 phase 與各模組現況、程式與驗證、還沒做的、每份 PDCA 紀錄的結論
   log/               log：收值、格式解析、欄位（①②③的現況與待辦）
   metrics/           metrics：收值、欄位、收了哪些、案例、.NET（①②③的現況與待辦）
   trace/             trace：收值、尾端取樣、欄位、Kafka 串接、業務 ID（①②③的現況與待辦）
   rca/               判斷與根因分析：baseline、串接、髒資料排除、雜訊壓制
   feedback/          告警出口、事故紀錄、回饋、調整、LLM
   retention.md       保留天數與容量（log、metrics、trace 共用）
-  poc-status.md      各 phase 與各模組現況、程式與驗證、還沒做的、每份 PDCA 紀錄的結論
 ```
 
 **編號只有一套：①～⑨ 資料模組**（定義在 [docs/architecture.md](docs/architecture.md)）：① 收值、② 清資料、③ 存、④ 判斷、⑤ 異常總表、⑥ 收斂、⑦ 根因分析、⑧ 出口、⑨ feedback。每個資料夾的 `README.md` 開頭都有「現況與待辦」，每一項標它屬於哪個模組。
 
-閱讀順序：[architecture.md](docs/architecture.md) → [poc-status.md](docs/poc-status.md) → 各資料夾。
+閱讀順序：[architecture.md](docs/architecture.md)（先架構規格、再現況與驗證）→ 各資料夾。
 
 | 資料夾 | 主文件 | 其他 |
 |---|---|---|
@@ -54,7 +55,7 @@ docs/
 
 ## 待辦
 
-依 PDCA 分（Plan 定門檻、Do 收值與判斷、Check 看對不對、Act 調整），整份在 [docs/pdca/](docs/pdca/README.md)。閉環的每一段都有程式、模擬資料跑通；**缺的是真實資料、真的 LLM、K8s 上跑**（[docs/poc-status.md「還沒做、還不足的」](docs/poc-status.md#還沒做還不足的)）。範圍是一般服務。
+依 PDCA 分（Plan 定門檻、Do 收值與判斷、Check 看對不對、Act 調整），整份在 [docs/pdca/](docs/pdca/README.md)。閉環的每一段都有程式、模擬資料跑通；**缺的是真實資料、真的 LLM、K8s 上跑**（[docs/architecture.md「還沒做、還不足的」](docs/architecture.md#10-還沒做還不足的)）。範圍是一般服務。
 
 ## 目錄
 
