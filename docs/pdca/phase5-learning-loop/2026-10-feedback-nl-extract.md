@@ -56,4 +56,4 @@
 | [⑧] Grafana 儀表板沒顯示抽取結果與 `tuning_id` | 範圍外 | 審核的人要用 `adjust list` 或 Kibana 看 | `aiops-learning.json` 加一格列 `source: feedback` 的 proposed 與 `reason` |
 
 - **決定**：採用「LLM 抽四欄 → 只寫 proposed、人核准」；退路只做備援、不決定 verdict；缺的時段不猜。
-- **下一輪**：POC 任務 1、3、4（[README.md](README.md)）；試點後用真實留言重量解析率、用 `metrics` 看採納率。
+- **下一輪**：POC 任務 1、3、4（[README.md](../README.md)）；試點後用真實留言重量解析率、用 `metrics` 看採納率。
