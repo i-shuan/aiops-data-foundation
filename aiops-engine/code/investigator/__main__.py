@@ -11,6 +11,8 @@
   python3 -m investigator alert --config configs/rca/rca.yaml [--at …]
   # 相似事故檢索的評測（留一法 recall@3）
   python3 -m investigator similar-eval --config configs/rca/rca.yaml
+  # 歷史事故單匯入（CSV 或 JSON，欄位＝aiops-incidents；--dry-run 只檢查不寫）
+  python3 -m investigator import-incidents configs/rca/incidents-example.csv [--tz Asia/Taipei] [--dry-run]
 
 investigate 照「Metrics 發現異常 → Trace 縮小到哪一段 → Log 找出原因」的順序查，印出一份 Markdown 報告；
 --out 另存成檔案。
@@ -284,9 +286,19 @@ def main(argv=None) -> int:
     al.add_argument("--at", help="回測：拿這個時間當成「現在」")
     se = sub.add_parser("similar-eval", help="相似事故檢索的評測：留一法 recall@3（同一個根因分類有沒有排進前 3）")
     se.add_argument("--config", required=True)
+    im = sub.add_parser("import-incidents", help="歷史事故單匯入 aiops-incidents（status confirmed、source import），相似事故檢索馬上用得到")
+    im.add_argument("file", help="CSV 或 JSON 陣列；欄位見 configs/rca/README.md「匯入歷史事故單」，範例 configs/rca/incidents-example.csv")
+    im.add_argument("--config", help="選填：拿 timezone 當沒寫時區的時間的時區")
+    im.add_argument("--tz", help="沒寫時區的時間當哪裡的時間（預設 Asia/Taipei，或 --config 的 timezone）")
+    im.add_argument("--dry-run", action="store_true", help="只解析、印出哪幾筆會略過，不寫 ES")
     args = p.parse_args(argv)
-    with open(args.config, encoding="utf-8") as f:
-        cfg = yaml.safe_load(f)
+    cfg = {}
+    if args.config:
+        with open(args.config, encoding="utf-8") as f:
+            cfg = yaml.safe_load(f) or {}
+    if args.cmd == "import-incidents":
+        from . import importer as IMP
+        return IMP.run(args.file, tz=args.tz or cfg.get("timezone") or IMP.DEFAULT_TZ, dry_run=args.dry_run)
     if args.cmd == "alert":
         return cmd_alert.run(cfg, args, investigate_full)
     if args.cmd == "similar-eval":
