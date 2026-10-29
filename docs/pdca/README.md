@@ -171,3 +171,4 @@ metrics → trace → log 找到哪一段、哪行 log；事件整合、排程�
 | [meta/2026-10-diataxis-baseline.md](meta/2026-10-diataxis-baseline.md) | ④ baseline 文件依 Diátaxis 拆開（715 行 → 原理／規格／操作／案例四份） | 以段落為單位歸類；內容 585 行全在；46 條連結改指新位置；0 個斷 |
 | [meta/2026-10-product-line-table.md](meta/2026-10-product-line-table.md) | 跨階段 「產品主線 8 步」表改成 Phase × 模組（一列一個模組） | 8 步拆成 13 列；步 1～8 都在；模組對應的 Phase 跟第 7 節一致 |
 | [meta/2026-10-docs-governance.md](meta/2026-10-docs-governance.md) | 跨階段 文件治理：索引＋狀態標籤、設定與原理分離、術語寫進 CLAUDE.md、檢查腳本 | `docs/README.md` 地圖、`CLAUDE.md`、`tools/check-docs.py`；活的文件舊說法 0；pdca 根目錄雜項收進 `meta/` |
+| [meta/2026-10-poc-acceptance.md](meta/2026-10-poc-acceptance.md) | ①～⑨ POC 驗收計畫：6 個 KPI、4 個故障情境、Go/No-Go | 計畫：缺跨服務聚合、回饋的 LLM 抽取、情境 4 注入、事故單匯入，拆 4 個任務；串查、MTTI（3 分 40 秒）、相似事故檢索已有，差資料與量測腳本 |
