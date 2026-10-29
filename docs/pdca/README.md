@@ -153,6 +153,7 @@ metrics → trace → log 找到哪一段、哪行 log；事件整合、排程�
 | [phase5-learning-loop/2026-10-fix-feedback-ux.md](phase5-learning-loop/2026-10-fix-feedback-ux.md) | ⑨⑦ 漏報建議被吃掉、網頁送出失敗沒回應、摘要變空白；**真的 LLM 第一次跑** | 三個修了各有測試；OpenAI 實跑 12 次：預算要 2000、告警本身要有 id 才有依據可引，修後 6/6 通過、5～8 秒一件 |
 | [phase5-learning-loop/2026-10-grafana-form.md](phase5-learning-loop/2026-10-grafana-form.md) | ⑧⑨ 回饋表單放進 Grafana（Business Forms 外掛） | **定案用這個**（外掛放資料夾、不換 image，小網頁當備案）；Grafana 12.2 實測：預填、送出寫回 ES、誤報路徑都對；12.2 只能用外掛 6.3.1；回饋服務網址寫死、要開 CORS；身分還是自己填 |
 | [phase5-learning-loop/2026-10-grafana-plugin-init.md](phase5-learning-loop/2026-10-grafana-plugin-init.md) | ⑧⑨ Grafana 在 K8s 上用 initContainer 裝回饋表單外掛 | 從 Nexus 下載、核對 SHA-256、解到 emptyDir；docker 模擬驗過（裝、跳過、SHA 不符不裝、簽章 valid）；之後在 k3d 上跑過（[k3d-e2e](phase1-collect/2026-10-k3d-e2e.md)） |
+| [phase5-learning-loop/2026-10-grafana-demo.md](phase5-learning-loop/2026-10-grafana-demo.md) | ⑦⑧⑨ Grafana 上看根因報告、填回饋、回饋後門檻變化（截圖） | 兩個唯讀儀表板；metrics→trace→log 報告齊全、表單送出、核准後批次異常 3 → 1 |
 | [phase5-learning-loop/2026-10-loop-update.md](phase5-learning-loop/2026-10-loop-update.md) | ⑨④ 回饋回到系統：更新知識庫、門檻加回測 | `backtest`（現行 vs 建議重跑）、沒回測不能核准、漏報降 z、同根因 3 次規則草稿；誤報 3 次 → 回測 → 核准 → 不再報實測過；月底批次放寬 z 是治標 |
 | [phase5-learning-loop/2026-10-metrics-kpi.md](phase5-learning-loop/2026-10-metrics-kpi.md) | ⑨ 量化：學之前、學之後的數字 | `metrics` 指令兩段並排；模擬資料驗算法，真實數字等試點 |
 | [phase5-learning-loop/2026-10-rule-threshold.md](phase5-learning-loop/2026-10-rule-threshold.md) | ⑨④②⑧ 規則草稿把門檻算出來、核准就自動載入；行事曆拿掉國定假日、歲修一筆一筆；第一階段只開 4 個 CronJob | 門檻 = 各件最低異常值的最小值（峰值實測不觸發）；核准後 `rules` 載入、第 2 次事故時間觸發；沒有過期、只處理延遲類 |
