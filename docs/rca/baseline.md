@@ -1,5 +1,7 @@
 # baseline 原理：中位數與 MAD、抓不到的
 
+> **類型：原理 Explanation**
+
 **狀態**：🟢 已實作　**模組**：④ 判斷　**程式與參數**：[engine/configs/baseline/README.md](../../engine/configs/baseline/README.md)
 
 這份只講方法為什麼這樣設計、哪些情況方法本身抓不到；怎麼跑、參數、輸出在哪、怎麼驗，在上面那份。四種 baseline 各適合什麼用途見 [rca/README.md](README.md)。

@@ -1,5 +1,7 @@
 # Trace 進 Elasticsearch
 
+> **類型：原理 Explanation**　同主題：[規格（欄位）](reference.md)・[操作（部署、驗證）](how-to.md)・[場景（案例）](scenarios.md)
+
 一句話：**應用把 trace 全部送給同一個節點上的 OpenTelemetry Collector，Collector 依「送來的連線是哪個 Pod」讀 namespace 的 dept 分 group；再依 trace_id 送到第二層 trace-sampler，等整個 trace 到齊後決定留不留（錯的、慢的、吞掉例外的全留，正常的隨機留 5%），留下的各 group 用自己的 key 寫進 ES。**
 
 收 log、metrics 的也是同一個 Collector（[log/README.md](../log/README.md)、[metrics/README.md](../metrics/README.md)），分部門的規則和 key 共用。
@@ -102,21 +104,6 @@ trace-sampler × 2（StatefulSet，尾端取樣）
 
 **為什麼要兩層、等多久、留哪些：** 見 [trace/scenarios.md「取樣」](scenarios.md#橫跨所有場景的前提取樣)。k3s 實測每秒 500 個請求：有問題的 100% 留下而且完整、總量剩約 15%、trace-sampler 每台約 150MB（[e2e/local-k3s/tail-sampling](../../e2e/local-k3s/tail-sampling/README.md)）。設定在 [sampler.yaml](../../telemetry/collectors/sampler.yaml)（規則）、[trace-sampler.yaml](../../telemetry/collectors/trace-sampler.yaml)（台數、等多久、隨機幾 %）。
 
-## 應用要做什麼
-
-用 app-common chart 而且開了 Java agent（`otel.javaAgent.enabled: true`）或 .NET 自動埋點（`otel.dotnet.enabled: true`）的服務不用做任何事，chart 會設好：
-
-| 環境變數 | 值 |
-|---|---|
-| `OTEL_TRACES_EXPORTER` | `otlp` |
-| `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | `http://otel-node-collector.otel-collector.svc:4318/v1/traces` |
-| `OTEL_TRACES_SAMPLER` | `parentbased_traceidratio`：上游決定要記的跟著記，自己開始的請求依比例 |
-| `OTEL_TRACES_SAMPLER_ARG` | `otel.traces.sampleRatio`，預設 `1.0`（全部送）。**保持 1.0**：要不要留由 trace-sampler 在請求結束後決定（尾端取樣）；在應用裡調低的話，出事的請求在一開始就被丟了 |
-
-沒用 chart 的服務，自己設上面這幾個環境變數。不是 Java、.NET 的服務，用該語言的 OpenTelemetry SDK，送到同一個位址。
-
-**什麼時候要自己埋點、怎麼埋（業務步驟、批號這類欄位、SECS 等 agent 不認得的元件），見 [sdk/standards/tracing.md](../../sdk/standards/tracing.md)。**
-
 ## 跟 log、metrics 串起來
 
 - **log ↔ trace：** 自動埋點（Java agent、.NET 自動埋點）會把 `trace_id`、`span_id` 放進每一行 log 的 context（Java 的 MDC、.NET 的 scope）；中央 pipeline 存成 log 的 `trace.id`、`span.id`，alias `trace_id`、`span_id` 跟 trace 同名。實測兩邊對得到（見「驗證」）。AIOps 看到一筆錯誤 log，可以直接查那個請求的完整 trace。**綁得起來的條件是 log 的輸出格式有把 context 印出來**，不同情況如下（[pdca/phase1-collect/2026-10-ingest-keys-check.md](../pdca/phase1-collect/2026-10-ingest-keys-check.md) 逐一驗過）：
@@ -136,63 +123,6 @@ trace-sampler × 2（StatefulSet，尾端取樣）
 
   **.NET Framework（4.x）**：trace、metrics 可以（自動埋點支援 4.6.2 以上，Windows 上掛 IIS 或 Windows Service）；(b) 的 `ILogger` 那條**不支援 Framework**（官方文件明寫），log4net、NLog 5 以上有另一條 bytecode 的路（Experimental，沒驗過）。細節在 [pdca/phase1-collect/2026-10-ingest-keys-check.md](../pdca/phase1-collect/2026-10-ingest-keys-check.md) 的 Act。
 - **trace ↔ metrics：** 都有 `resource.attributes.service.name`、`k8s.namespace.name`、`k8s.pod.name`。
-
-## 欄位
-
-用 OTel 原生的格式存（ES 9 內建的 `traces-otel@template`，logsdb 模式）：
-
-| 欄位 | 內容 |
-|---|---|
-| `trace_id`、`span_id`、`parent_span_id` | 請求與這一段的 ID |
-| `name`、`kind`、`duration`、`status.code` | 這一段做什麼、花多久、成功與否 |
-| `attributes.*` | 這一段的細節，例如 `http.request.method`、`http.response.status_code` |
-| `resource.attributes.service.name` | Pod label `app.kubernetes.io/name`，跟 log、metrics 一樣；應用自己設的不同時被蓋掉 |
-| `resource.attributes.service.version`、`.service.namespace` | Pod label，跟 log、metrics 一樣 |
-
-- `service.name` 的順序：Pod label → 應用自己設的（`OTEL_SERVICE_NAME`）→ Deployment 名稱。
-- 應用自己設的只在 Pod 沒有 label 時用到；chart 會把兩者設成一樣。
-| `resource.attributes.group`、`.dept` | 分流結果、namespace 的 dept |
-| `resource.attributes.k8s.*` | namespace、Pod、節點、Deployment、cluster |
-
-pod label、`container.*` 不會帶進 trace（只給 log 用）。
-
-## 部署
-
-中央 ES 和每個 cluster 的步驟跟 log、metrics 一樣（[log/README.md 的「部署」](../log/README.md#部署)）：重跑 `elasticsearch-setup.sh`，新發的 key 才有 `traces-*.otel-*` 的權限（或用 `rotate-writer-key.sh` 一個一個 group 換，不掉資料）；`kubectl apply -k telemetry/collectors` 會多一個 Service `otel-node-collector`、StatefulSet `trace-sampler`（尾端取樣）。
-
-ES 要有 `/_otlp/v1/traces`（測試用 9.5.5）：
-
-```bash
-curl -s -o /dev/null -w "%{http_code}\n" -u elastic:<password> -X POST -H "Content-Type: application/x-protobuf" https://<es>:9200/_otlp/v1/traces
-```
-
-## 驗證
-
-```bash
-ES_URL=http://<ip>:9200 e2e/local-k3s/run-trace-e2e.sh
-```
-
-測試應用（[trace-app.sh](../../e2e/local-k3s/trace-app.sh)）每 5 秒印一行帶 `trace_id` 的 log、送一個同 `trace_id` 的 span。it-mes-prod 那個故意在資源欄位自稱 imc-wip-prod、dept D1110、group imc、假的 Pod UID。**23 項全部通過**：
-
-| 類別 | 檢查 |
-|---|---|
-| 分流 | 三個 namespace 的 trace 各進自己的 group，沒有落錯 |
-| 邊緣身份鑑別 | 自稱 IMC 的那個仍進 IT，namespace、dept、Pod UID 都是真的；IMC 裡沒有它的資料 |
-| 欄位 | 服務名稱、版本、cluster、Pod 名稱；沒有夾帶 pod label |
-| 串起來 | 從 trace 的 `trace_id` 找得到那行 log，反過來也找得到 |
-| 去重複 | 同一個 span 送 3 次，ES 只有 1 筆（另外兩次回 409） |
-| 權限 | 寫入 key 能寫所有 group 的 trace、不能讀（2026-10 起一把共用）；AIOps key 能讀全部；IT 的唯讀角色看得到 IT 的 trace |
-
-另外手動測過（每個測試應用每 5 秒一個 span）：
-
-| 情境 | 結果 |
-|---|---|
-| ES 正常關機 3 分鐘 | 停機期間三個應用各 35～36 個 span 全部補進來，沒有重複 |
-| ES `kill -9` 兩次（第 2 次在補送中） | 各 20 個 span 全部補進來，沒有重複 |
-
-## 坑
-
-集中在 [troubleshooting.md](../troubleshooting.md#trace)。
 
 ## 還沒做
 

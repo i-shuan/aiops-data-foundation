@@ -38,7 +38,7 @@ otel:
   javaAgent:
     enabled: true
     image: nexus.aillm.spil.com.tw/docker/open-telemetry/autoinstrumentation-java:2.10.0
-  # .NET 服務改用這個（javaAgent 關掉）：掛 OpenTelemetry .NET 自動埋點，metrics 用 OTLP 推，見 docs/metrics/dotnet.md
+  # .NET 服務改用這個（javaAgent 關掉）：掛 OpenTelemetry .NET 自動埋點，metrics 用 OTLP 推，見 docs/metrics/dotnet-how-to.md
   # dotnet:
   #   enabled: true
   #   image: nexus.aillm.spil.com.tw/ghcr/open-telemetry/opentelemetry-operator/autoinstrumentation-dotnet:1.12.0

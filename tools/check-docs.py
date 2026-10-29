@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """文件檢查（docs/pdca/meta/2026-10-docs-governance.md）：
 
-  python3 tools/check-docs.py          檢查：連結沒斷、每份 md 都在索引裡、活的文件沒有舊說法；有問題 exit 1
+  python3 tools/check-docs.py          檢查：連結沒斷、每份 md 都在索引裡、活的文件沒有舊說法、共用文件有類型標示；有問題 exit 1
   python3 tools/check-docs.py --toc    重新產生 <!-- toc --> 和 <!-- /toc --> 中間的目錄（手寫的目錄一定會腐化）
 
 只用標準函式庫。在 repo 根目錄跑（或任何地方，會自己找 git 根目錄）。
@@ -127,6 +127,25 @@ def check_terms(files: list[Path]) -> list[str]:
     return bad
 
 
+TYPES = ("原理 Explanation", "操作 How-To", "規格 Reference", "案例 Cases")
+
+
+def check_types(files: list[Path]) -> list[str]:
+    """共用文件（docs/ 底下、不含 PDCA 紀錄與索引）開頭要有 `> **類型：原理 Explanation**` 這一行（Diátaxis：每份只做一種事）。"""
+    bad = []
+    for f in files:
+        rel = f.relative_to(ROOT).as_posix()
+        if not rel.startswith("docs/") or rel.startswith("docs/pdca/") or rel == "docs/README.md":
+            continue
+        head = f.read_text(encoding="utf-8").split("\n")[:8]
+        m = next((re.match(r"^> \*\*類型：([^*]+)\*\*", l) for l in head if l.startswith("> **類型：")), None)
+        if not m:
+            bad.append(f"{rel} 開頭沒有類型標示（> **類型：原理 Explanation**，四種：{'、'.join(TYPES)}）")
+        elif m.group(1) not in TYPES:
+            bad.append(f"{rel} 類型「{m.group(1)}」不是 {'、'.join(TYPES)} 其中一種")
+    return bad
+
+
 def toc_block(text: str) -> list[str]:
     seen: dict[str, int] = {}
     out = []
@@ -162,7 +181,7 @@ def main() -> int:
     if "--toc" in sys.argv:
         update_toc(files)
         return 0
-    problems = {"連結": check_links(files), "索引": check_index(files), "舊說法": check_terms(files)}
+    problems = {"連結": check_links(files), "索引": check_index(files), "舊說法": check_terms(files), "類型": check_types(files)}
     for kind, items in problems.items():
         print(f"{'✗' if items else '✓'} {kind}：{len(items)} 個問題")
         for i in items[:40]:
