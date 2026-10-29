@@ -38,7 +38,7 @@ MAD（Median Absolute Deviation，中位數絕對偏差）＝「每個值離中�
 - **`rel_floor`（5%）**：平常幾乎不動的序列 MAD 接近 0，沒有保底的話一點點變化就報。
 - **同一組資料用平均和標準差**：平均 1531（被 5000 拉高）、標準差約 1193（被撐大），正常範圍變成約 −4400～7500，1900 被當成正常，之後幾乎什麼都抓不到。
 
-程式在 [detector/model.py](../../engine/detector/model.py) 的 `train`（每個時段算中位數、MAD）和 `score`（算 σ、z、判斷）。跟兄弟比（peer）、trace 每一段的 baseline 用的是同一套。
+程式在 [detector/model.py](../../engine/detector/model.py) 的 `train`（每個時段算中位數、MAD）和 `score`（算 σ、z、判斷）。Pod 同儕橫向比對（peer）、trace 每一段的 baseline 用的是同一套。
 
 ## 抓不到的
 

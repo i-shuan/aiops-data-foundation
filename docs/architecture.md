@@ -462,15 +462,4 @@ Trace Sampler 依 `trace_id` 分配，同一 trace 的所有段落到同一台�
 
 ### 術語對照表 (Glossary)
 
-舊紀錄中的口語說法與本專案正式術語對照：
-
-| 正式術語 | 舊說法 |
-|---|---|
-| 動態基準線學習 (Dynamic Baseline Learning) | 學平常的樣子、學「平常」、跟自己的歷史比 |
-| Pod 同儕橫向比對 (Peer Comparison) | 跟兄弟比、兄弟比、Pod 互比、`peer` |
-| 靜態臨界值規則 (Static Threshold Rules) | 規則（一次就算）、保底規則、固定門檻 |
-| 單點即判定 (Instant Anomaly) | 單次就報、一次就算（`confirm_points: 1`、`instant_z`） |
-| 例外吞噬檢測 (Exception Swallowing Detection) | 吞例外、吞掉的例外（規則 `swallowed`） |
-| 邊緣身份鑑別與標籤注入 (Edge Identity Sanitization & Injection) | 擋冒充、補身分 |
-| 集中式資料寫入憑證 (Shared Ingest Token) | 一把寫入 key |
-| 資深維運專家回饋 (Expert Feedback) | 老師傅回饋 |
+正式術語與舊說法的對照表只留一份，放在 [CLAUDE.md](../CLAUDE.md#術語對照表)（每次開工都會被讀到）；`python3 tools/check-docs.py` 會檢查活的文件沒有再用舊說法。

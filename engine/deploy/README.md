@@ -34,7 +34,7 @@ kubectl -n aiops get cronjob
 | `aiops-alert` | 1 | 每 1 分鐘 | `investigator alert` | 合成一件、根因分析、相似事故、LLM 摘要、**心跳** |
 | `aiops-train` | 1 | 每天 02:00 | `detector train` | 學過去 4 週 |
 | `aiops-quality` | 2 | 每 10 分鐘 | `detector quality` | 資料品質（第一個月人天天看，先不用它報） |
-| `aiops-peer` | 2 | 每 5 分鐘 | `detector peer` | 跟兄弟比：多一種告警來源 |
+| `aiops-peer` | 2 | 每 5 分鐘 | `detector peer` | Pod 同儕橫向比對：多一種告警來源 |
 | `aiops-trace-collect`、`aiops-trace-train`、`aiops-trace-detect` | 2 | 每 5 分鐘／每天 02:20／每 5 分鐘 | `detector trace-*` | trace 每一段的 baseline；trace 有取樣、只留 7 天，學出來本來就偏 |
 | `aiops-chronic` | 2 | 每週一 08:00 | `detector chronic` | 慢性病清單，要幾週資料才有意義 |
 

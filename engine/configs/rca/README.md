@@ -46,7 +46,7 @@ FEEDBACK_PORT=8080 python3 -m feedback_web
 ### 事件整合（`alert`）
 
 - **合成一件看服務**：同一個服務、30 分鐘內接著來的異常是同一件（`alerts.close_after`）；同一個 dept 的兩個服務是兩件。30 分鐘沒有新的 → `resolved`。
-- **哪些會開一件**：critical 規則、baseline 連續才算的 `anomaly`、資料品質；warning 規則和跟兄弟比要同一個服務 2 筆以上；只跳一次的 baseline `warning` 只併進已經開著的那件。
+- **哪些會開一件**：critical 規則、baseline 連續才算的 `anomaly`、資料品質；warning 規則和Pod 同儕橫向比對要同一個服務 2 筆以上；只跳一次的 baseline `warning` 只併進已經開著的那件。
 - **送給誰看 dept**：每一件帶 `dept`、`group`（取它的異常的，異常寫入時已補上）；資料品質一律 `group: unassigned`（送平台）。Grafana 依 `dept` 分送，設定範例在 [configs/grafana](../grafana/README.md)。
 - 新的那件跑一次 `investigate`：結論寫進 `summary`（Grafana 通知帶這個）、全文存 `report`；結構化結果存 `findings`（慢在哪一段、錯從哪開始、新 log 樣式），也拿來算這件的**指紋**，寫一筆 `aiops-incidents`（`status: auto`）。
 - **過去相似的事故**（`alerts.similar`，[investigator/similar.py](../../investigator/similar.py)）：用指紋（服務、API、慢的那段、錯的源頭、異常的指標組合、新 log 樣式）去 `aiops-incidents` 找老師傅**確認過的**（`confirmed`、`corrected`）最像的 3 件，附在報告最前面：當時的根因、處置、怎麼看出來的、誰處理的，和**為什麼像**（哪幾點相同）。分數不到 4（至少一個強特徵：同一段變慢、同一個錯誤源頭；或同服務＋同指標）就不附。用 ES 的欄位比對、自己算分，不用向量，看得出為什麼像。通知摘要多一行「過去相似：…」。
