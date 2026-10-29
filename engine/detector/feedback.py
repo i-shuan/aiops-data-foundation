@@ -39,6 +39,8 @@ INCIDENT_MAPPING = {"mappings": {"dynamic": False, "properties": {
     "alert_id": {"type": "keyword"}, "dept": {"type": "keyword"}, "group": {"type": "keyword"},
     "root_cause_category": {"type": "keyword"}, "how_detected": {"type": "text"}, "checked": {"type": "keyword"},
     "improve": {"type": "text"}, "confirmed_at": {"type": "date"}, "confirmed_by": {"type": "keyword"},
+    # 歷史事故單匯入（investigator/importer.py）：source import；note 是匯入檔的備註
+    "source": {"type": "keyword"}, "note": {"type": "text"},
     # 指紋：相似事故檢索用（investigator/similar.py）
     "fingerprint": {"properties": {"services": {"type": "keyword"}, "routes": {"type": "keyword"}, "series": {"type": "keyword"},
                                    "slow_segments": {"type": "keyword"}, "error_origins": {"type": "keyword"},

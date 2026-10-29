@@ -72,7 +72,7 @@
 | [../engine/configs/baseline/reference.md](../engine/configs/baseline/reference.md) | 規格 | baseline 規格：序列、狀態、參數、規則、檢查、欄位、結果在哪 | 🟢 |
 | [../engine/configs/baseline/README.md](../engine/configs/baseline/README.md) | 操作 | baseline：怎麼跑 train／detect／rules／peer／quality／chronic、怎麼調、怎麼驗 | 🟢 |
 | [../engine/configs/baseline/verification.md](../engine/configs/baseline/verification.md) | 案例 | baseline 各功能的實測與驗證結果 | 🟢 |
-| [../engine/configs/rca/README.md](../engine/configs/rca/README.md) | 操作 | 根因分析：預設值、怎麼跑、報告長什麼樣子、限制、怎麼驗 | 🟢 |
+| [../engine/configs/rca/README.md](../engine/configs/rca/README.md) | 操作 | 根因分析：預設值、怎麼跑、匯入歷史事故單、報告長什麼樣子、限制、怎麼驗 | 🟢 |
 | [../engine/configs/rca/example-report.md](../engine/configs/rca/example-report.md) | 案例 | 一份範例報告 | 🟢 |
 | [../engine/interfaces/README.md](../engine/interfaces/README.md) | 規格 | 要別人提供的資料的格式 | 🟢 |
 | [../engine/fake-data/README.md](../engine/fake-data/README.md) | 規格 | 假資料（只為了讓程式現在能跑、能測） | 🟢 |
