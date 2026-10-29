@@ -35,6 +35,7 @@
 |---|---|---|
 | [rca/README.md](rca/README.md) | 根因分析怎麼做、哪裡需要 AI；baseline 的道理；兩階段推進 | 🟢 |
 | [rca/cases.md](rca/cases.md) | 15 個真實故障案例：要哪種「平常」才抓得到 | 🟢 |
+| [rca/baseline.md](rca/baseline.md) | baseline 原理：為什麼用中位數和 MAD、方法本身抓不到什麼 | 🟢 |
 | [rca/graph-rag.md](rca/graph-rag.md) | RCA ＋ LLM 搭配 graph RAG | ⚪ 沒有程式、沒有驗證 |
 | [../engine/configs/baseline/README.md](../engine/configs/baseline/README.md) | baseline：怎麼學、怎麼判斷、怎麼跑、參數 | 🟢 |
 | [../engine/configs/rca/README.md](../engine/configs/rca/README.md) | 根因分析：怎麼跑、報告長什麼樣子、限制 | 🟢 |

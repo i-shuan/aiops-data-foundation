@@ -6,6 +6,38 @@
 
 本部分只放既定設計；狀態、程式路徑與指令放第二部分。
 
+**目錄**
+
+<!-- toc -->
+- [1. 系統目標與邊界 (System Overview & Scope)](#1-系統目標與邊界-system-overview--scope)
+- [2. 全域架構圖 (End-to-End Architecture)](#2-全域架構圖-end-to-end-architecture)
+- [3. 關鍵架構決策 (Key Architectural Decisions)](#3-關鍵架構決策-key-architectural-decisions)
+  - [3.1 統一觀測儲存 (Unified Observability Storage)](#31-統一觀測儲存-unified-observability-storage)
+  - [3.2 零業務侵入埋點 (Zero-code Instrumentation)](#32-零業務侵入埋點-zero-code-instrumentation)
+  - [3.3 多租戶隔離 (Multi-tenancy & Isolation)](#33-多租戶隔離-multi-tenancy--isolation)
+  - [3.4 其他已定案決策](#34-其他已定案決策)
+- [4. 核心處理模組職責 (Core Components ①～⑨)](#4-核心處理模組職責-core-components-①⑨)
+  - [4.1 平台層與 AIOps 層的分界](#41-平台層與-aiops-層的分界)
+- [5. 資料關聯與根因定位機制 (Correlation & RCA)](#5-資料關聯與根因定位機制-correlation--rca)
+- [6. 各 phase 一句話](#6-各-phase-一句話)
+- [7. 各模組：程式、驗證、狀態](#7-各模組程式驗證狀態)
+- [8. 收斂：很多筆怎麼變成一件](#8-收斂很多筆怎麼變成一件)
+- [9. 產品主線 8 步](#9-產品主線-8-步)
+- [10. 還沒做、還不足的](#10-還沒做還不足的)
+- [11. 哪裡過度設計](#11-哪裡過度設計)
+- [12. 想確認什麼、跑哪個](#12-想確認什麼跑哪個)
+- [13. 下一步](#13-下一步)
+- [14. 各 Phase 的 PDCA 紀錄](#14-各-phase-的-pdca-紀錄)
+  - [14.1 Phase 1 收值](#141-phase-1-收值)
+  - [14.2 Phase 2 異常分析](#142-phase-2-異常分析)
+  - [14.3 Phase 3 定位問題](#143-phase-3-定位問題)
+  - [14.4 Phase 4 RCA＋LLM](#144-phase-4-rcallm)
+  - [14.5 Phase 5 learning loop](#145-phase-5-learning-loop)
+  - [14.6 跨階段](#146-跨階段)
+- [附錄 (Appendix)](#附錄-appendix)
+  - [術語對照表 (Glossary)](#術語對照表-glossary)
+<!-- /toc -->
+
 ## 1. 系統目標與邊界 (System Overview & Scope)
 
 **核心目標**
