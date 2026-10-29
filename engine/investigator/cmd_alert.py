@@ -13,9 +13,12 @@ from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from core import llm as LLM
+from core import traces as T
 from core.es import ES
 
 from . import alerts as AL
+from . import analyze as A
+from . import es as E
 from . import similar as SIM
 
 INCIDENT_INDEX = "aiops-incidents"
@@ -44,6 +47,8 @@ ALERT_MAPPING = {"mappings": {"dynamic": False, "properties": {
     "started_at": {"type": "date"}, "updated_at": {"type": "date"}, "resolved_at": {"type": "date"},
     "anomaly_ids": {"type": "keyword"}, "anomaly_count": {"type": "integer"}, "series": {"type": "keyword"},
     "routes": {"type": "keyword"},
+    # 跨服務（一層）：這件連帶了哪些上游服務；上游那件被整件併進下游時，上游那件標 resolved、merged_into 指到下游那件
+    "upstream_services": {"type": "keyword"}, "merged_into": {"type": "keyword"},
     # Grafana 的告警只能帶 labels（terms 分組的值），所以標題、摘要、報告連結都存成 keyword
     "title": {"type": "keyword", "ignore_above": 1024}, "summary": {"type": "keyword", "ignore_above": 4096},
     "report_url": {"type": "keyword"}, "report": {"type": "text", "index": False}, "report_at": {"type": "date"},
@@ -80,10 +85,29 @@ def _done_ids(es: ES, since: datetime) -> set:
     return {i for h in es.search(ALERT_INDEX, body)["hits"]["hits"] for i in h["_source"].get("anomaly_ids") or []}
 
 
+def call_edges(es: ES, cfg: dict, services: set[str], start: datetime, end: datetime, per: int = 100) -> set[tuple[str, str]]:
+    """這段時間 trace 裡這幾個服務之間誰呼叫誰：{(上游, 下游)}。
+    每個服務取最近 per 個收到的請求、整個 trace 讀回來（含其他服務的 span），用根因分析同一套 topology 算邊
+    （父 span 的服務 ≠ 子 span 的服務 → 父呼叫子）；只留兩端都在 services 裡的。少於 2 個服務、沒有 trace 都回空集合。"""
+    if len(services) < 2:
+        return set()
+    ix, pad = cfg["indices"]["traces"], timedelta(minutes=5)
+    ids: list[str] = []
+    for s in sorted(services):
+        ids += E.service_trace_ids(es, ix, s, start, end, per)
+    ids = list(dict.fromkeys(ids))
+    if not ids:
+        return set()
+    edges = A.topology(T.group_traces(T.spans_of(es, ix, ids, start - pad, end + pad)))
+    return {(e.caller, e.callee) for e in edges if e.caller in services and e.callee in services and e.caller != e.callee}
+
+
 def _incident_doc(al: dict, doc: dict, findings: dict | None) -> dict:
-    """事件整合自動開的事故（status auto）：回饋表單確認後變 confirmed，才會被相似事故檢索拿來用。"""
+    """事件整合自動開的事故（status auto）：回饋表單確認後變 confirmed，才會被相似事故檢索拿來用。
+    services 只放這件自己的服務（根因在下游；feedback 的規則建議依 services 寫 match）；連帶的上游另外記 upstream_services。"""
     return {"@timestamp": doc["@timestamp"], "alert_id": al["alert_id"], "title": doc.get("title"), "start": doc["started_at"],
             "end": doc.get("resolved_at") or doc["updated_at"], "services": [al["service"]], "severity": al["severity"],
+            "upstream_services": list(al.get("upstream_services") or []),
             "status": "auto", "dept": doc.get("dept"), "group": doc.get("group"), "anomaly_ids": al["anomaly_ids"][:200],
             "detected_at": doc["started_at"], "fingerprint": SIM.fingerprint(al, findings)}
 
@@ -158,15 +182,25 @@ def run(cfg: dict, args, investigate) -> int:
     open_alerts = _open_alerts(es)
     oldest = min([datetime.fromisoformat(str(a["updated_at"]).replace("Z", "+00:00")) for a in open_alerts], default=now)
     start = min(now - lookback, oldest - close_after)
-    alerts = AL.merge(open_alerts, _anomalies(es, cfg["indices"]["anomalies"], start, now), now, close_after,
-                      _done_ids(es, start - close_after))
+    anoms = _anomalies(es, cfg["indices"]["anomalies"], start, now)
+    calls: set[tuple[str, str]] = set()
+    if acfg.get("chain", True):
+        # 跨服務（一層）：這段時間 trace 裡「誰呼叫誰」，只看有件開著、或這次有異常的服務。查失敗只是這一輪不併跨服務，不擋告警
+        svcs = {al["service"] for al in open_alerts if al.get("category") == "service"}
+        svcs |= {ent[1] for ent in map(AL.entity_of, anoms) if ent[0] == "service"}
+        try:
+            calls = call_edges(es, cfg, svcs, start, now, int(acfg.get("chain_sample", 100)))
+        except Exception as e:
+            print(f"  呼叫關係查不到（{type(e).__name__}: {str(e)[:80]}），這一輪不併跨服務")
+    alerts = AL.merge(open_alerts, anoms, now, close_after, _done_ids(es, start - close_after), calls)
     docs, incidents, tags, new, resolved = [], [], [], 0, 0
     for al in alerts:
         al["dept"], al["group"] = AL.owner(al) if al.get("_anoms") else (al.get("dept"), al.get("group") or "unassigned")
         report, findings, similar, llm = al.get("report"), al.get("findings"), al.get("similar") or [], None
         if (al.get("_new") or not report) and acfg.get("rca", True) and al["category"] == "service" and al["status"] == "open":
             # 新的一件跑一次根因分析：時間是這件的開始到最後一筆異常再往後一個 interval；只有一支 API 時只查那支
-            route = al["routes"][0] if len(al["routes"]) == 1 else None
+            # （連帶進來的上游的 API 不算：根因分析以這件的服務＝下游跑）
+            route = AL.rca_route(al)
             try:
                 report, findings = investigate(cfg, Namespace(service=al["service"], route=route, start=AL._ts(al["started_at"]).isoformat(),
                                                               end=(AL._ts(al["updated_at"]) + interval).isoformat(), at=None, window=None))
@@ -195,6 +229,15 @@ def run(cfg: dict, args, investigate) -> int:
                     "@timestamp": (al["resolved_at"] if al["status"] == "resolved" else stamp_of(now))})
         doc = {k: (v.isoformat() if isinstance(v, datetime) else v) for k, v in doc.items()}
         docs.append((al["alert_id"], doc))
+        if al.get("merged_into"):
+            # 上游那件整件併進下游：它的異常改標下游那件（下游那件這輪有 _anoms，會一起寫）；這筆標 resolved 寫回去，
+            # 它開的事故改成 merged（還是 auto 才會被改；老師傅確認過的不動）
+            print(f"  🔗 併進 {al['merged_into']}：{doc['title']}")
+            if al["category"] == "service":
+                inc = _incident_doc(al, doc, al.get("findings"))
+                inc.update({"status": "merged", "merged_into": al["merged_into"]})
+                incidents.append((al["alert_id"], inc))
+            continue
         if al.get("_anoms") or al["status"] == "resolved":
             # 這輪有異常併進來、或這輪結束的件：把 alert_id 寫回它的每筆異常（連同之前併的：改版前就開著的件，結束時補得到）
             tags += [(i, al["alert_id"]) for i in dict.fromkeys([a["_id"] for a in al.get("_anoms") or []] + al["anomaly_ids"])]

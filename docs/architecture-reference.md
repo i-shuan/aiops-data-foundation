@@ -49,7 +49,7 @@ K8s 排程頻率見 [engine/deploy](../engine/deploy/README.md)。
 | ③ 存 | 平台 | 1 | `telemetry/scripts/elasticsearch-setup.sh`、`retention.conf` | — | `run-key-rotation.sh`、`run-es-2node.sh` | ✅ |
 | ④ 判斷 | AIOps | 2 | `engine/detector/`、`engine/configs/baseline/*.yaml` | 每 1 分鐘（train 每天） | 單元測試；`synth_e2e`、`adaptive_e2e`、`fine_e2e`；k3s `run-rules-e2e.sh`、`run-peer-e2e.sh`、`run-trace-baseline-e2e.sh` | ✅；K8s CronJob 沒跑過 |
 | ⑤ 異常總表 | AIOps | 2 | `aiops-anomalies` | — | — | ✅ |
-| ⑥ 收斂 | AIOps | 3 | `engine/investigator/alerts.py`、`cmd_alert.py`；`rca.yaml` 的 `alerts:` | 每 1 分鐘 | `test_alerts.py`；[alert-exit](pdca/phase3-locate/2026-10-alert-exit.md) | ✅ 同服務合成一件；沿呼叫關係 📝 |
+| ⑥ 收斂 | AIOps | 3 | `engine/investigator/alerts.py`、`cmd_alert.py`；`rca.yaml` 的 `alerts:` | 每 1 分鐘 | `test_alerts.py`、`chain_e2e`；[alert-exit](pdca/phase3-locate/2026-10-alert-exit.md)、[cross-service-aggregation](pdca/phase3-locate/2026-10-cross-service-aggregation.md) | ✅ 同服務合成一件；沿呼叫關係一層（下游連帶上游）✅，多層 📝 |
 | ⑦ 根因分析 | AIOps | 3、4 | `engine/investigator/`（`__main__.py`、`similar.py`）、`engine/core/llm.py` | 跟 ⑥ 同一次 | k3s `run-rca-e2e.sh`；`loop_e2e`；`test_similar.py`、`test_llm.py` | ✅；沒有評測集 |
 | ⑧ 出口 | AIOps | 3 | `engine/configs/grafana/*.yaml` | Grafana 每 1 分鐘查 | Grafana 12.2 實測；[rca-demo](pdca/phase3-locate/2026-10-rca-demo.md) | ✅；K8s CronJob 沒跑過 |
 | ⑨ feedback | AIOps | 5 | `engine/feedback_web/`、`cmd_feedback.py`、`cmd_backtest.py`、`cmd_metrics.py` | 網頁常駐；suggest、backtest 人跑 | `loop_e2e`；`test_feedback_web.py`、`test_feedback.py`、`test_metrics.py` | ✅（模擬資料） |
@@ -67,7 +67,7 @@ K8s 排程頻率見 [engine/deploy](../engine/deploy/README.md)。
 |---|---|
 | ① 同一條序列連續 → 一段 | ✅ `status`、`streak`（升級規則見 [architecture.md 第 4 節 ④](architecture.md#4-核心處理模組職責-core-components-①⑨)）；📝 一段記成一筆 |
 | ② 同一個服務、時間重疊 → 一件 | ✅ `investigator alert`；同 dept 的兩個服務是兩件 |
-| ③ 沿呼叫關係 → 找源頭 | 📝 呼叫關係已有（根因分析的 `topology`） |
+| ③ 沿呼叫關係 → 找源頭 | ✅ 一層：下游有件開著、直接呼叫它的上游同時段異常 → 併進下游那件（`upstream_services`），根因分析以下游跑；📝 多層（A→B→C）、常駐拓撲 |
 | ④ 排優先、靜音、限頻 | 📝 |
 
 ## 9. 產品主線 8 步

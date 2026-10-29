@@ -60,6 +60,13 @@ def recent_trace_ids(es: ES, index: str, start: datetime, end: datetime, n: int)
     return list(dict.fromkeys(h["_source"]["trace_id"] for h in hits))
 
 
+def service_trace_ids(es: ES, index: str, service: str, start: datetime, end: datetime, n: int) -> list[str]:
+    """這個服務最近收到的 n 個請求（Server span）的 trace_id：事件整合算「誰呼叫誰」用（cmd_alert.call_edges）。"""
+    hits = es.search(index, {"size": n, "_source": ["trace_id"], "sort": [{"@timestamp": "desc"}],
+                             "query": {"bool": {"filter": [time_range(start, end), *entry_filter(service, None)]}}})["hits"]["hits"]
+    return list(dict.fromkeys(h["_source"]["trace_id"] for h in hits))
+
+
 # ── 3. log ──
 
 LOG_FIELDS = ["@timestamp", "resource.attributes.service.name", "log.level", "trace_id", "message"]

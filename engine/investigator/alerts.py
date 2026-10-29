@@ -8,6 +8,15 @@
   attach  ：baseline status warning（只跳一次）：只併進已經開著的那件，不會開新的
 同一個服務已經有開著的那件、而且離它最後一筆異常不到 close_after：併進去；超過 close_after 沒有新的異常：resolved。
 
+跨服務（一層父子關係，docs/pdca/phase3-locate/2026-10-cross-service-aggregation.md）：calls 是這段時間 trace 算出來的
+「上游 → 下游」（cmd_alert.call_edges，用根因分析同一套 topology）。下游出事連帶上游異常時只開一件、留下游那件：
+  - 上游服務的異常、自己沒有開著的件、它直接呼叫的下游有開著的件、時間重疊（離下游那件開始不到 close_after）→ 併進下游那件，
+    下游那件的 upstream_services 記這個上游；之後同一個上游的異常照同服務的規則併（離最後一筆不到 close_after）。
+  - 下游開新的一件時，直接呼叫它的上游若已經有一件、開始時間差不到 close_after → 上游那件整件併進下游：這一輪才開的直接消失；
+    上一輪已寫進 ES 的標 resolved、merged_into 指到下游那件（Grafana 看到上游那件恢復、下游那件開）。
+  - 只看直接呼叫（一層）：A→B→C 時 B 併進 C，A 不併進 C；已經帶 upstream_services 的件不會再被併進別件。
+  - 沒有呼叫關係、或時間不重疊：照舊各開一件。
+
 這裡只做計算（單元測試用）；讀寫 ES、跑根因分析在 cmd_alert.py。
 """
 from __future__ import annotations
@@ -68,7 +77,7 @@ def _new(cat: str, name: str, first: dict) -> dict:
     t = _ts(first["@timestamp"])
     return {"alert_id": alert_id(cat, name, t), "category": cat, "service": name, "status": "open",
             "started_at": t, "updated_at": t, "resolved_at": None, "anomaly_ids": [], "series": [], "routes": [],
-            "severity": "warning", "_anoms": [], "_new": True}
+            "upstream_services": [], "severity": "warning", "_anoms": [], "_new": True}
 
 
 def _attach(al: dict, a: dict) -> None:
@@ -88,17 +97,64 @@ def _attach(al: dict, a: dict) -> None:
     al.setdefault("_anoms", []).append(a)
 
 
+def _join(al: dict, upstream: str) -> None:
+    """記下「這件連帶了哪個上游服務」。"""
+    if upstream not in al["upstream_services"]:
+        al["upstream_services"].append(upstream)
+
+
+def _fold(up: dict, down: dict, now: datetime) -> None:
+    """上游那件（up）整件併進下游那件（down）：異常 id、序列、API、嚴重度、這一輪的異常都搬過去。
+    up 是上一輪已寫進 ES 的：標 resolved、merged_into（cmd_alert 照寫回去，但不再把它的異常標成它、不寫事故）。"""
+    for i in up["anomaly_ids"]:
+        if i not in down["anomaly_ids"] and len(down["anomaly_ids"]) < MAX_IDS:
+            down["anomaly_ids"].append(i)
+    down["series"] += [s for s in up["series"] if s not in down["series"]]
+    down["routes"] += [r for r in up["routes"] if r not in down["routes"]]
+    if SEVERITY.get(up["severity"], 1) > SEVERITY.get(down["severity"], 1):
+        down["severity"] = up["severity"]
+    down["started_at"] = min(_ts(down["started_at"]), _ts(up["started_at"]))
+    down["updated_at"] = max(_ts(down["updated_at"]), _ts(up["updated_at"]))
+    down["_anoms"] += up.get("_anoms") or []
+    _join(down, up["service"])
+    if not up.get("_new"):
+        up["status"], up["resolved_at"], up["merged_into"], up["_anoms"] = "resolved", now, down["alert_id"], []
+
+
 def merge(open_alerts: list[dict], anomalies: list[dict], now: datetime, close_after: timedelta,
-          done_ids: set | frozenset = frozenset()) -> list[dict]:
+          done_ids: set | frozenset = frozenset(), calls: set | frozenset = frozenset()) -> list[dict]:
     """open_alerts：aiops-alerts 裡 status open 的；anomalies：最近的異常（含 _id）；
-    done_ids：最近已經結束的件裡的異常 id（不要再被開一次，重跑才不會重複）。
-    回傳這次要寫回的件：新開的（_new）、有更新的、這次結束的（resolved），以及其他還開著的（更新心跳）。"""
+    done_ids：最近已經結束的件裡的異常 id（不要再被開一次，重跑才不會重複）；
+    calls：{(上游服務, 下游服務)}，這段時間 trace 裡誰呼叫誰（沒有就不併跨服務）。
+    回傳這次要寫回的件：新開的（_new）、有更新的、這次結束的（resolved，含被併進下游的 merged_into），以及其他還開著的（更新心跳）。"""
     by_ent = {(al["category"], al["service"]): {**al, "anomaly_ids": list(al.get("anomaly_ids") or []),
-                                                 "series": list(al.get("series") or []), "routes": list(al.get("routes") or [])}
+                                                 "series": list(al.get("series") or []), "routes": list(al.get("routes") or []),
+                                                 "upstream_services": list(al.get("upstream_services") or [])}
               for al in open_alerts}
+    down_of: dict[str, set[str]] = {}
+    up_of: dict[str, set[str]] = {}
+    for u, d in calls:
+        if u != d:
+            down_of.setdefault(u, set()).add(d)
+            up_of.setdefault(d, set()).add(u)
     seen = {i for al in by_ent.values() for i in al["anomaly_ids"]} | set(done_ids)
     pending: dict[tuple, list[dict]] = {}
     out: dict[str, dict] = {al["alert_id"]: al for al in by_ent.values()}
+
+    def downstream_alert(svc: str, t: datetime) -> dict | None:
+        """svc 直接呼叫的下游裡，有開著的件、時間重疊的那件（有好幾件取開始時間最近的）。"""
+        cands = []
+        for d in down_of.get(svc, ()):
+            al = by_ent.get(("service", d))
+            if not al:
+                continue
+            joined = svc in al["upstream_services"]
+            if joined and t - _ts(al["updated_at"]) <= close_after and t >= _ts(al["started_at"]) - close_after:
+                cands.append((timedelta(0), al))                      # 已經連帶過：照同服務的規則
+            elif not joined and abs(t - _ts(al["started_at"])) <= close_after:
+                cands.append((abs(t - _ts(al["started_at"])), al))    # 第一次：離下游那件開始不到 close_after
+        return min(cands, key=lambda c: c[0])[1] if cands else None
+
     for a in sorted(anomalies, key=lambda a: _ts(a["@timestamp"])):
         if a["_id"] in seen:
             continue
@@ -114,6 +170,12 @@ def merge(open_alerts: list[dict], anomalies: list[dict], now: datetime, close_a
         if al:
             _attach(al, a)
             continue
+        if ent[0] == "service":
+            al = downstream_alert(ent[1], t)
+            if al:                                             # 上游的異常：併進下游那件
+                _attach(al, a)
+                _join(al, ent[1])
+                continue
         if k == "attach":
             continue
         if k == "weak":
@@ -128,6 +190,14 @@ def merge(open_alerts: list[dict], anomalies: list[dict], now: datetime, close_a
         for p in sorted(rest, key=lambda p: _ts(p["@timestamp"])):
             _attach(al, p)
         pending.pop(ent, None)
+        if ent[0] == "service":                                # 直接呼叫它的上游已經有一件、同時開始：整件併進來
+            for u in sorted(up_of.get(ent[1], ())):
+                up = by_ent.get(("service", u))
+                if up and not up["upstream_services"] and abs(_ts(up["started_at"]) - _ts(al["started_at"])) <= close_after:
+                    _fold(up, al, now)
+                    del by_ent[("service", u)]
+                    if up.get("_new"):
+                        del out[up["alert_id"]]
         by_ent[ent] = al
         out[al["alert_id"]] = al
     for al in by_ent.values():
@@ -136,20 +206,35 @@ def merge(open_alerts: list[dict], anomalies: list[dict], now: datetime, close_a
     return list(out.values())
 
 
+def _own(al: dict) -> list[dict]:
+    """這一輪的異常裡，屬於這件自己服務的（連帶進來的上游不算）；一筆都沒有就全部。"""
+    anoms = al.get("_anoms") or []
+    own = [a for a in anoms if entity_of(a) == (al["category"], al["service"])]
+    return own or anoms
+
+
+def rca_route(al: dict) -> str | None:
+    """根因分析只查一支 API 的條件：這件自己服務的異常只有一支 API。連帶進來的上游的 API 不算（下游沒有那支，查了會是空的）。"""
+    if not al.get("upstream_services"):
+        return al["routes"][0] if len(al["routes"]) == 1 else None
+    own = {route_of(a.get("keys") or {}) for a in _own(al)} - {None}
+    return next(iter(own)) if len(own) == 1 else None
+
+
 def owner(al: dict) -> tuple[str | None, str]:
-    """這件的 dept、group：取它的異常裡最多的（異常寫入時已補上，detector/owner.py）。資料品質一律送平台。"""
+    """這件的 dept、group：取它的異常裡最多的（異常寫入時已補上，detector/owner.py）；連帶的上游不算（根因在下游，送下游的部門）。
+    資料品質一律送平台。"""
     if al["category"] == "data_quality":
         return None, "unassigned"
-    anoms = al.get("_anoms") or []
+    anoms = _own(al)
     dept = Counter(a["dept"] for a in anoms if a.get("dept")).most_common(1)
     group = Counter(a["group"] for a in anoms if a.get("group")).most_common(1)
     return (dept[0][0] if dept else al.get("dept")), (group[0][0] if group else al.get("group") or "unassigned")
 
 
-def headline(al: dict) -> str:
-    """一行標題：嚴重度、服務、最嚴重的那筆、共幾項。"""
-    anoms = al.get("_anoms") or []
-    top = max(anoms, key=lambda a: (SEVERITY.get(a.get("severity") or "warning", 1), abs(a.get("z") or 0)), default=None)
+def headline(al: dict, count: bool = True) -> str:
+    """一行標題：嚴重度、服務、最嚴重的那筆（自己服務的優先）、共幾項；連帶了上游就加在最後。"""
+    top = max(_own(al), key=lambda a: (SEVERITY.get(a.get("severity") or "warning", 1), abs(a.get("z") or 0)), default=None)
     what = ""
     if top:
         msg = top.get("message")
@@ -159,7 +244,9 @@ def headline(al: dict) -> str:
             med = f"（平常 {top['median']:.4g}）" if top.get("median") is not None else ""
             what = f"{top.get('series')} {top.get('value', 0):.4g}{med}"
     n = len(al["anomaly_ids"])
-    return f"[{al['severity']}] {al['service']}：{what}" + (f" 等 {n} 項異常" if n > 1 else "")
+    up = al.get("upstream_services") or []
+    return (f"[{al['severity']}] {al['service']}：{what}" + (f" 等 {n} 項異常" if count and n > 1 else "")
+            + (f"；連帶上游 {'、'.join(up)}" if up else ""))
 
 
 def conclusion(report: str) -> list[str]:
@@ -171,10 +258,9 @@ def conclusion(report: str) -> list[str]:
 def summary(al: dict, report: str | None, tz, similar: list[dict] | None = None) -> str:
     """通知用的摘要。Grafana 把它當 label（alert-rules.yaml 的 terms summary）：內容一變，Grafana 就當成另一則告警
     （舊的 resolved、新的 firing），所以不放每分鐘都會變的東西——「持續 N 分鐘」、「等 N 項異常」都不放
-    （Grafana 自己會顯示從什麼時候開始；筆數在 title 和 anomaly_count）。只在根因結論、相似事故加進來時才變。"""
+    （Grafana 自己會顯示從什麼時候開始；筆數在 title 和 anomaly_count）。只在根因結論、相似事故、連帶的上游加進來時才變。"""
     start = _ts(al["started_at"]).astimezone(tz)
-    first = re.sub(r" 等 \d+ 項異常$", "", headline(al))
-    lines = [first, f"從 {start:%m-%d %H:%M} 開始；異常：{'、'.join(al['series'][:6])}"]
+    lines = [headline(al, count=False), f"從 {start:%m-%d %H:%M} 開始；異常：{'、'.join(al['series'][:6])}"]
     concl = conclusion(report or "")
     if concl:
         lines.append("根因分析：" + "；".join(re.sub(r"\*\*", "", c) for c in concl[:3]))
