@@ -23,7 +23,7 @@ lag: 30s              # 剛結束的時間窗可能還沒收齊（Collector 批�
 # 序列寫 resolution: 5m 可以固定粒度，不自動選。
 adaptive:
   resolutions: [30s, 1m, 5m, 15m, 30m, 1h]
-  min_events: {rate: 100, count: 10}  # 比例、百分位類每窗至少 100 個請求（1 個 5xx 最多 1%，到不了錯誤率的 min_abs 5%）；筆數類每窗至少 10 筆
+  min_events: {rate: 20, count: 10}   # 比例、百分位類每窗至少 20 個請求；筆數類每窗至少 10 筆
   coverage: 0.3                       # 至少三成的時間窗夠（只有白天有人用的 API 也算）
 
 # 跳一次是 warning；同一條序列連續 confirm_points 個時間窗超標、或連續超標滿 confirm_span，才是 anomaly（README）。

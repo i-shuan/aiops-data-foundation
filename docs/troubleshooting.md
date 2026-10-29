@@ -129,7 +129,7 @@
 | 收集系統停了半小時以上，每個服務都被報成「流量掉到 0」 | 偵測時有 baseline、整段沒資料的服務一律補 0 | 已改成只在 index 有資料的時間窗補 0（`es.alive_times`），[baseline-verify](pdca/phase2-anomaly/2026-10-baseline-verify.md) |
 | 稀少的 error log，baseline 學出來的平常次數偏高 | 用序列自己的 filter（只數 error）判斷收集系統有沒有在跑，沒人出錯的小時被當「不知道」 | 已改成看整個 index；實測 λ 1.68 → 1.21（實際 1.2） |
 | `train`／`detect` 整個失敗：`KeyError: 'end'`、`PatternError` | `aiops-tuning` 裡有缺欄位、正規表示式錯的調整 | 已改成略過那一筆並印「⚠ 略過調整 <id>」；照提示 `adjust remove --id` |
-| p95 一直報 anomaly，值在 0.175、0.375 之間跳 | 直方圖的 p95 落在桶中點，MAD＝0，跨一格 z 約 23 | p95 已設 `instant_z: null`（跨一格只算 warning，連續 2 窗才 anomaly）、比例與百分位每窗至少 100 個請求；仍吵的對象 `tune --z`（[threshold-tune](pdca/phase2-anomaly/2026-10-baseline-threshold-tune.md)） |
+| p95 一直報 anomaly，值在 0.175、0.375 之間跳 | 直方圖的 p95 落在桶中點，MAD＝0，跨一格 z 約 23 | p95 已設 `instant_z: null`（跨一格只算 warning，連續 2 窗才 anomaly；合成資料一週 anomaly 3.52% → 0.93%，warning 變多）；仍吵的對象 `tune --z`；根本修法待改程式（σ 至少半個桶寬，[threshold-tune](pdca/phase2-anomaly/2026-10-baseline-threshold-tune.md)） |
 | 根因報告說「這段時間沒有這個服務的 trace」，Kibana 卻看得到 | 鑰匙對不上：路由沒參數化（`/items/123`）、舊版 Java agent 的 span 名稱沒有 method（`/stock/{id}`）；Pod 沒有 `app.kubernetes.io/name` label 時，trace 的 `service.name` 是應用自設的、可能跟 metrics 不同（推論） | 不給 `--route` 再跑；用 metrics 的 `k8s.pod.name` 查 trace 的 `service.name`；根本做法是應用修路由模板、Pod 加 label（[metrics-trace](pdca/phase1-collect/2026-10-metrics-trace.md)） |
 | 開了台灣行事曆，假日那天工廠（24×7）服務的故障也沒報 | 台灣行事曆每一天沒有 `match`，變成所有服務都不學、不判斷 | `calendar.yaml` 的 taiwan 來源寫 `match` 限定週休的系統（來源層級的 `match` 會套到每一天） |
 | `adjust add --start 2026-10-20T02:00` 排除的時段差 8 小時 | 舊版把沒寫時區的時間當 UTC | 現在當台北時間（`train.timezone`）；舊資料用 `adjust list` 看，差 8 小時的重寫一次 |
