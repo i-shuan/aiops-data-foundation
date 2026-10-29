@@ -109,6 +109,9 @@
 | 症狀 | 原因 | 做法 |
 |---|---|---|
 | 根因報告「最慢那個請求的 log」少了幾行 | log 的 `@timestamp` 是應用時間，時鐘偏或請求結束後才寫，離 span 十幾分鐘 | `logs_of_traces` 已前後多放 30 分鐘；更多的看 `quality.log_clock_skew` |
+| 下游（DB 連線池）跟上游（前端 API）同時出事，`aiops-alerts` 開了兩件 | 這段時間的 trace 算不出「上游呼叫下游」：trace context 沒傳到下游、trace 的 `service.name` 跟異常的服務名不同、`alerts.chain` 關了；或兩件開始時間差超過 `close_after` | `investigator topology --window 2h` 看有沒有那條邊；alert 的輸出有「呼叫關係查不到」就是查 trace 失敗（[rca README](../aiops-engine/code/configs/rca/README.md#事件整合alert)） |
+| 上游那件「恢復」、同時下游開了新的一件（連帶上游） | 上游先被偵測到、下游晚一輪：下游開件時把上游那件整件併進來（`merged_into`） | 正常；看下游那件就好。要避免就縮短偵測延遲（規則窗、排程間隔） |
+| A→B→C 三個一起出事，開成兩件 | 事件整合只併一層（直接呼叫者）：C 連帶 B，A 自己一件 | 已知限制（[cross-service-aggregation](pdca/phase3-locate/2026-10-cross-service-aggregation.md) Act） |
 | Kafka 落後在變少（消費者追上來），卻報「落後一直增加」 | `increase` 把數字變小當成計數器歸零重來，把新的值整個算成增加；落後是量測值不是計數器 | 會上下動的量測值用 `type: delta`（最後 − 最前）；`increase` 只用在計數器（`kafka.consumer_lag_growing` 已改） |
 | 新建的 Pod 一直 Pending 才 2 分半就報（`for: 5m`）；新 Deployment 1 分半就報副本不夠 | 舊的 `for` 只要求 for 裡最早的點離現在超過一半；新對象從第一筆就成立時，一半就報 | 已改：對象要在 for 開頭之前就有資料（`detector/rules.py`） |
 | 核准的規則草稿有一條壞掉（缺欄位、查詢錯），`rules` 整輪都沒跑 | 一條規則丟例外就整個指令結束，其他規則也沒寫 | 已改：只跳過那一條、其他照跑照寫，最後 exit 1、印「N 條失敗」 |

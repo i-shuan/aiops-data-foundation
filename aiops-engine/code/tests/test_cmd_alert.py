@@ -8,6 +8,54 @@ from investigator import cmd_alert as C
 
 AL = {"alert_id": "a-1", "service": "mes-api", "started_at": "2026-10-25T02:00:00+00:00", "updated_at": "2026-10-25T02:12:00+00:00",
       "routes": [], "series": ["x"], "severity": "warning", "dept": "D3120"}
+T0 = datetime(2026, 10, 25, 2, 0, tzinfo=timezone.utc)
+
+
+def span(tid, sid, parent, service, name, kind, target=None, error=False):
+    return {"trace_id": tid, "span_id": sid, "parent": parent, "service": service, "name": name, "kind": kind, "target": target,
+            "start_ms": 0.0, "dur_ms": 10.0, "error": error, "exception": None, "links": [], "attrs": {}, "resource": {}}
+
+
+class CallEdges(unittest.TestCase):
+    """跨服務併件的「誰呼叫誰」（docs/pdca/phase3-locate/2026-10-cross-service-aggregation.md）：
+    從候選服務的 trace 用根因分析同一套 topology 算邊，只留兩端都是候選服務的。"""
+
+    SPANS = [  # mes-api GET /lots → wip-worker GET /wip → oracle；mes-report 自己查 oracle
+        span("t1", "a", None, "mes-api", "GET /lots/{id}", "Server"),
+        span("t1", "b", "a", "mes-api", "GET", "Client", target="wip-worker"),
+        span("t1", "c", "b", "wip-worker", "GET /wip", "Server"),
+        span("t1", "d", "c", "wip-worker", "SELECT LOT_HISTORY", "Client", target="oracle"),
+        span("t2", "e", None, "mes-report", "GET /report", "Server"),
+        span("t2", "f", "e", "mes-report", "SELECT", "Client", target="oracle"),
+    ]
+
+    def test_edges_between_candidate_services_only(self):
+        ids = {"mes-api": ["t1"], "wip-worker": ["t1"], "mes-report": ["t2"]}
+        asked = []
+        with mock.patch.object(C.E, "service_trace_ids", side_effect=lambda es, ix, s, a, b, n: (asked.append(s), ids.get(s, []))[1]), \
+             mock.patch.object(C.T, "spans_of", return_value=self.SPANS) as spans_of:
+            edges = C.call_edges("es", {"indices": {"traces": "traces-*"}}, {"mes-api", "wip-worker", "mes-report"}, T0, T0 + timedelta(hours=1), per=50)
+        self.assertEqual(edges, {("mes-api", "wip-worker")})       # oracle 不是候選服務；mes-report 沒人呼叫、也沒呼叫誰
+        self.assertEqual(sorted(asked), ["mes-api", "mes-report", "wip-worker"])
+        self.assertEqual(spans_of.call_args[0][2], ["t1", "t2"])     # 同一個 trace 只讀一次
+
+    def test_fewer_than_two_services_or_no_traces(self):
+        self.assertEqual(C.call_edges("es", {}, {"mes-api"}, T0, T0), set())
+        with mock.patch.object(C.E, "service_trace_ids", return_value=[]):
+            self.assertEqual(C.call_edges("es", {"indices": {"traces": "traces-*"}}, {"mes-api", "wip-worker"}, T0, T0), set())
+
+
+class IncidentKeepsDownstreamOnly(unittest.TestCase):
+    """連帶的上游不進事故的 services（feedback 的規則建議依 services 寫 match，根因在下游）；另外記 upstream_services。"""
+
+    def test_services_and_upstream(self):
+        al = {"alert_id": "a-1", "service": "wip-worker", "upstream_services": ["mes-api"], "severity": "critical",
+              "anomaly_ids": ["x1", "x2"], "routes": [], "series": []}
+        doc = {"@timestamp": "t", "started_at": "s", "updated_at": "u", "title": "x", "dept": None, "group": "g"}
+        inc = C._incident_doc(al, doc, None)
+        self.assertEqual((inc["services"], inc["upstream_services"]), (["wip-worker"], ["mes-api"]))
+        for f in ("upstream_services", "merged_into"):
+            self.assertEqual(C.ALERT_MAPPING["mappings"]["properties"][f], {"type": "keyword"})
 
 
 class LlmDoesNotBlock(unittest.TestCase):

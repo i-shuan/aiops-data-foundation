@@ -50,6 +50,16 @@ FEEDBACK_PORT=8080 python3 -m feedback_web
 ### 事件整合（`alert`）
 
 - **合成一件看服務**：同一個服務、30 分鐘內接著來的異常是同一件（`alerts.close_after`）；同一個 dept 的兩個服務是兩件。30 分鐘沒有新的 → `resolved`。
+- **跨服務只併一層**（`alerts.chain`，預設開）：下游出事連帶上游異常時只開一件、留下游那件，根因分析以下游跑。呼叫關係從這段時間（`lookback`）的 trace 算：有件開著、或這次有異常的服務，每個取最近 `chain_sample` 個請求，父 span 的服務呼叫子 span 的服務（跟 `topology` 同一套）。併件條件與欄位：
+
+  | 情況 | 做法 | 欄位 |
+  |---|---|---|
+  | 上游 A 的異常、A 沒有開著的件、A 直接呼叫的 B 有開著的件、離 B 那件開始不到 `close_after` | 併進 B 那件 | B 的 `upstream_services` 加 A |
+  | 之後 A 的異常 | 照同服務的規則併（離最後一筆不到 `close_after`） | — |
+  | B 開新的一件時 A 已經有一件、兩件開始時間差不到 `close_after` | A 那件整件併進 B：這一輪才開的直接消失；上一輪已寫進 ES 的標 `resolved` | A 的 `merged_into` = B 的 `alert_id`；A 的事故 `status: merged` |
+  | 沒有呼叫關係、時間不重疊、A→B→C 的 A（不是直接呼叫 C）、A 那件已經帶 `upstream_services` | 不併，照舊各一件 | — |
+
+  標題、摘要加「；連帶上游 A」；`dept`、標題的「最嚴重那筆」只看下游自己的異常；`anomaly_ids`、`series`、`routes` 照舊併進去，上游的異常也寫回下游的 `alert_id`。查不到 trace 就不併跨服務，不擋這一輪。
 - **哪些會開一件**：critical 規則、baseline 連續才算的 `anomaly`、資料品質；warning 規則和Pod 同儕橫向比對要同一個服務 2 筆以上；只跳一次的 baseline `warning` 只併進已經開著的那件。
 - **送給誰看 dept**：每一件帶 `dept`、`group`（取它的異常的，異常寫入時已補上）；資料品質一律 `group: unassigned`（送平台）。Grafana 依 `dept` 分送，設定範例在 [configs/grafana](../../../../grafana/README.md)。
 - 新的那件跑一次 `investigate`：結論寫進 `summary`（Grafana 通知帶這個）、全文存 `report`；結構化結果存 `findings`（慢在哪一段、錯從哪開始、新 log 樣式），也拿來算這件的**指紋**，寫一筆 `aiops-incidents`（`status: auto`）。
@@ -170,6 +180,7 @@ rca-mes-api › GET /lots/{id}                       |████████�
 | 服務有 trace（Java agent 自動，見 [tracing.md](../../../../apps/standards/tracing.md)） | chart 自動 | 第 2～4、6 節是空的，只剩 log |
 | log 帶 `trace_id`（照 [logback-spring.xml](../../../../apps/standards/java/logback-spring.xml)） | chart＋應用 | 撈不到「這個請求在各服務的 log」，但第 5 節依服務、時間找樣式還是有 |
 | 往外呼叫帶 `peer.service`、`db.system` 或 `server.address` | agent 自動 | 關係圖少了資料庫、外部系統那一格 |
+| trace context 有傳到下游（下游的 Server span 的 parent 是上游的 Client span）、trace 的 `service.name` 跟異常的服務名一樣 | agent 自動（跨 HTTP／Kafka 要帶 header） | 算不出「誰呼叫誰」，上下游同時出事各開一件 |
 | log 有 level（`log.level`） | 中央 pipeline 解析 | 第 5 節找不到 warn／error |
 
 ## 限制
@@ -178,7 +189,7 @@ rca-mes-api › GET /lots/{id}                       |████████�
 - **只看最慢的請求**：每次比較 200～300 個請求，夠找出「哪一段變了」，不是統計所有請求。
 - **只比一週前**：一週前也出事，或一週前沒資料又剛好出事前就開始變壞，比較結果會失真。報告第 2 節寫了用哪一段當「平常」。
 - **log 樣式是簡單的規則**：把數字、IP、ID 換成記號。訊息格式差很多的（例如帶整段 SQL），同一種錯誤可能被分成好幾種。之後換成 log 樣式字典（[docs/rca/README.md](../../../../docs/rca/README.md) 的「集合」baseline）。
-- **一次一個服務**：好幾個服務同時異常時，挑偏離最大的那個。合併成同一件事（步驟 2）還沒做。
+- **一次一個服務**：`investigate` 不指定服務時，好幾個服務同時異常挑偏離最大的那個。事件整合只沿呼叫關係併一層（直接呼叫者）：A→B→C 三個一起出事是兩件（C 連帶 B；A 自己一件）。
 
 ## 驗證
 

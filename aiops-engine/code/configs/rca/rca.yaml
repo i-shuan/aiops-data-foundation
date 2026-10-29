@@ -17,5 +17,7 @@ alerts:
   similar: true                   # 附上老師傅確認過的相似事故（investigator/similar.py）
   llm: true                       # LLM 摘要（core/llm.py）：provider 由環境變數 LLM_PROVIDER 決定（template 不叫模型）；下面可以蓋過
   # llm_provider: template
+  chain: true                     # 跨服務（一層）：下游出事連帶上游異常時只開一件、留下游；呼叫關係從這段時間的 trace 算
+  chain_sample: 100               # 算呼叫關係時每個服務取最近幾個請求的 trace
   # feedback_url: http://aiops-feedback.aiops.svc:8080/feedback?alert={alert_id}   # 回饋網頁（aiops-engine/code/feedback_web）；通知裡的連結
   # report_url: http://aiops-feedback.aiops.svc:8080/report?alert={alert_id}       # 報告全文

@@ -172,3 +172,132 @@ class SummaryWithSimilar(unittest.TestCase):
         s = AL.summary(al, None, ZoneInfo("Asia/Taipei"), sim)
         self.assertIn("過去相似：2026-09-12 [db] 統計資訊過期；處置：重跑 analyze（同服務（mes-api）；同一段變慢（Oracle））", s)
         self.assertNotIn("過去相似", AL.summary(al, None, ZoneInfo("Asia/Taipei"), []))
+
+
+def stored(alerts):
+    """模擬寫進 ES 再讀回來的件（去掉 _ 開頭的計算用欄位）。"""
+    return [{k: v for k, v in a.items() if not k.startswith("_")} for a in alerts]
+
+
+class CrossService(unittest.TestCase):
+    """跨服務（一層父子關係，docs/pdca/phase3-locate/2026-10-cross-service-aggregation.md）：
+    下游出事連帶上游 → 一件、留下游；沒有呼叫關係、時間不重疊不併；多層只併一層。"""
+    CALLS = {("mes-api", "wip-worker")}       # mes-api（上游）呼叫 wip-worker（下游）
+
+    def test_upstream_joins_downstream(self):
+        # 下游（wip-worker）先開、上游（mes-api）同時段異常 → 1 件、留下游；上游的異常、序列、API 都併進去
+        down = anom("wip-worker", 0, level="rule", severity="critical", series="rule.db.pool_timeout",
+                    message="連線池逾時：wip-worker（12，門檻 >= 5）", keys={"service": "wip-worker"})
+        up = anom("mes-api", 1)
+        out = AL.merge([], [down, up], T0 + timedelta(minutes=3), GAP, calls=self.CALLS)
+        self.assertEqual(len(out), 1)
+        al = out[0]
+        self.assertEqual((al["service"], al["upstream_services"]), ("wip-worker", ["mes-api"]))
+        self.assertEqual(al["anomaly_ids"], [down["_id"], up["_id"]])
+        self.assertEqual(sorted(al["series"]), ["http.latency_p95_s", "rule.db.pool_timeout"])
+        self.assertEqual(al["routes"], ["GET /lots/{id}"])
+        self.assertEqual(AL.headline(al), "[critical] wip-worker：連線池逾時 等 2 項異常；連帶上游 mes-api")
+        self.assertEqual(AL.summary(al, None, timezone.utc).splitlines()[0], "[critical] wip-worker：連線池逾時；連帶上游 mes-api")
+
+    def test_upstream_first_is_folded_into_downstream(self):
+        # 上游的異常先到、這一輪才開的件：下游開件時整件併進來，上游那件不會出現在輸出
+        out = AL.merge([], [anom("mes-api", 0), anom("wip-worker", 2)], T0 + timedelta(minutes=3), GAP, calls=self.CALLS)
+        self.assertEqual([a["service"] for a in out], ["wip-worker"])
+        self.assertEqual(out[0]["upstream_services"], ["mes-api"])
+        self.assertEqual(len(out[0]["anomaly_ids"]), 2)
+        self.assertEqual(AL._ts(out[0]["started_at"]), T0)
+        self.assertTrue(out[0].get("_new"))
+
+    def test_persisted_upstream_is_merged_into_downstream(self):
+        # 上一輪已寫進 ES 的上游那件：標 resolved、merged_into 指到下游那件；它的異常搬到下游那件
+        first = AL.merge([], [anom("mes-api", 0)], T0 + timedelta(minutes=1), GAP, calls=self.CALLS)
+        out = AL.merge(stored(first), [anom("wip-worker", 5)], T0 + timedelta(minutes=6), GAP, calls=self.CALLS)
+        by = {a["service"]: a for a in out}
+        self.assertEqual(set(by), {"mes-api", "wip-worker"})
+        self.assertEqual((by["mes-api"]["status"], by["mes-api"]["merged_into"], by["mes-api"]["_anoms"]),
+                         ("resolved", by["wip-worker"]["alert_id"], []))
+        self.assertEqual(by["wip-worker"]["upstream_services"], ["mes-api"])
+        self.assertEqual(len(by["wip-worker"]["anomaly_ids"]), 2)
+        self.assertIn(first[0]["anomaly_ids"][0], by["wip-worker"]["anomaly_ids"])
+        self.assertEqual(AL._ts(by["wip-worker"]["started_at"]), T0)
+
+    def test_joined_upstream_keeps_attaching_across_runs(self):
+        # 下游那件已在 ES、連帶過 mes-api：之後 mes-api 的異常離這件開始 40 分（> close_after）、離最後一筆 15 分 → 照同服務的規則併
+        first = AL.merge([], [anom("wip-worker", 0), anom("mes-api", 1)], T0 + timedelta(minutes=2), GAP, calls=self.CALLS)
+        again = AL.merge(stored(first), [anom("wip-worker", 25), anom("mes-api", 40)], T0 + timedelta(minutes=41), GAP, calls=self.CALLS)
+        self.assertEqual(len(again), 1)
+        self.assertEqual((len(again[0]["anomaly_ids"]), again[0]["upstream_services"]), (4, ["mes-api"]))
+
+    def test_late_upstream_is_not_joined(self):
+        # 下游那件開了 40 分鐘還在持續；上游這時才第一次異常：離下游開始超過 close_after → 不併（可能是另一件事）
+        first = AL.merge([], [anom("wip-worker", 0)], T0 + timedelta(minutes=1), GAP, calls=self.CALLS)
+        out = AL.merge(stored(first), [anom("wip-worker", 25), anom("mes-api", 40)], T0 + timedelta(minutes=41), GAP, calls=self.CALLS)
+        by = {a["service"]: a for a in out}
+        self.assertEqual(set(by), {"mes-api", "wip-worker"})
+        self.assertEqual((by["wip-worker"]["upstream_services"], by["mes-api"]["upstream_services"]), ([], []))
+
+    def test_no_call_relation_two_alerts(self):
+        # 沒有呼叫關係（沒有 trace、或 trace 裡兩者沒有邊）：照舊各開一件
+        for calls in (set(), {("mes-api", "mes-report")}):
+            out = AL.merge([], [anom("wip-worker", 0), anom("mes-api", 1)], T0 + timedelta(minutes=2), GAP, calls=calls)
+            self.assertEqual(sorted(a["service"] for a in out), ["mes-api", "wip-worker"])
+            self.assertEqual([a["upstream_services"] for a in out], [[], []])
+
+    def test_direction_decides_which_is_kept(self):
+        # 方向反過來（wip-worker 呼叫 mes-api）：留的是 mes-api 那件
+        out = AL.merge([], [anom("wip-worker", 0), anom("mes-api", 1)], T0 + timedelta(minutes=2), GAP, calls={("wip-worker", "mes-api")})
+        self.assertEqual([(a["service"], a["upstream_services"]) for a in out], [("mes-api", ["wip-worker"])])
+
+    def test_not_overlapping_two_alerts(self):
+        # 下游 0 分開、上游 40 分才異常（close_after 30）：時間不重疊 → 下游那件結束、上游另開一件、沒有連帶
+        out = AL.merge([], [anom("wip-worker", 0), anom("mes-api", 40)], T0 + timedelta(minutes=41), GAP, calls=self.CALLS)
+        by = {a["service"]: a for a in out}
+        self.assertEqual((by["wip-worker"]["status"], by["mes-api"]["status"]), ("resolved", "open"))
+        self.assertEqual((by["wip-worker"]["upstream_services"], by["mes-api"]["upstream_services"]), ([], []))
+
+    def test_only_one_level(self):
+        # portal → mes-api → wip-worker 三個同時出事：只併直接呼叫者
+        calls = {("portal", "mes-api"), ("mes-api", "wip-worker")}
+        # 最下游先到：mes-api 併進 wip-worker；portal 只直接呼叫 mes-api（它沒有自己的件）→ portal 自己一件
+        out = AL.merge([], [anom("wip-worker", 0), anom("mes-api", 1), anom("portal", 2)], T0 + timedelta(minutes=3), GAP, calls=calls)
+        by = {a["service"]: a["upstream_services"] for a in out}
+        self.assertEqual(by, {"wip-worker": ["mes-api"], "portal": []})
+        # 最上游先到：portal 併進 mes-api；wip-worker 開件時 mes-api 那件已經帶著上游 → 不再被併（多層留 Act）
+        out = AL.merge([], [anom("portal", 0), anom("mes-api", 1), anom("wip-worker", 2)], T0 + timedelta(minutes=3), GAP, calls=calls)
+        by = {a["service"]: a["upstream_services"] for a in out}
+        self.assertEqual(by, {"mes-api": ["portal"], "wip-worker": []})
+
+    def test_rca_route_ignores_upstream_api(self):
+        # 下游的異常沒有 API（規則）、上游的有：API 照舊併進 routes，但根因分析不拿上游的 API 去查下游（下游沒有那支）
+        down = anom("wip-worker", 0, level="rule", severity="critical", series="rule.db.pool_timeout", keys={"service": "wip-worker"})
+        al = AL.merge([], [down, anom("mes-api", 1)], T0 + timedelta(minutes=2), GAP, calls=self.CALLS)[0]
+        self.assertEqual(al["routes"], ["GET /lots/{id}"])
+        self.assertIsNone(AL.rca_route(al))
+        own = anom("wip-worker", 0, keys={"entry.service": "wip-worker", "entry.name": "GET /wip"})
+        al = AL.merge([], [own, anom("mes-api", 1)], T0 + timedelta(minutes=2), GAP, calls=self.CALLS)[0]
+        self.assertEqual(sorted(al["routes"]), ["GET /lots/{id}", "GET /wip"])
+        self.assertEqual(AL.rca_route(al), "GET /wip")
+        plain = AL.merge([], [anom("wip-worker", 0)], T0 + timedelta(minutes=1), GAP)[0]
+        self.assertEqual(AL.rca_route(plain), "GET /lots/{id}")        # 沒有連帶：照舊看 routes
+
+    def test_owner_and_headline_prefer_downstream(self):
+        # 上游的異常比較多、dept 不同：件還是送下游的 dept；標題寫下游自己最嚴重的那筆
+        out = AL.merge([], [anom("wip-worker", 0, dept="D-DB", group="db"), anom("mes-api", 0, z=50), anom("mes-api", 1, z=50)],
+                       T0 + timedelta(minutes=2), GAP, calls=self.CALLS)
+        self.assertEqual(len(out), 1)
+        self.assertEqual(AL.owner(out[0]), ("D-DB", "db"))
+        self.assertEqual(AL.headline(out[0]), "[warning] wip-worker：http.latency_p95_s 3（平常 0.1） 等 3 項異常；連帶上游 mes-api")
+
+    def test_rerun_is_idempotent(self):
+        a = [anom("wip-worker", 0), anom("mes-api", 1)]
+        first = AL.merge([], a, T0 + timedelta(minutes=2), GAP, calls=self.CALLS)
+        again = AL.merge(stored(first), a, T0 + timedelta(minutes=3), GAP, calls=self.CALLS)
+        self.assertEqual(len(again), 1)
+        self.assertEqual((again[0]["alert_id"], again[0]["anomaly_ids"], again[0]["upstream_services"]),
+                         (first[0]["alert_id"], first[0]["anomaly_ids"], ["mes-api"]))
+
+    def test_data_quality_not_merged(self):
+        # 資料品質那件照舊另外一件，不跟服務的併
+        q = anom("mes-api", 0, level="quality", series="quality.log_stopped", severity="warning")
+        out = AL.merge([], [anom("wip-worker", 0), q], T0 + timedelta(minutes=1), GAP, calls=self.CALLS)
+        self.assertEqual(sorted(a["category"] for a in out), ["data_quality", "service"])
