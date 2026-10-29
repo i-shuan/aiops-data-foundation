@@ -152,7 +152,7 @@ def eval_lag(df: pd.DataFrame, keys: list[str], *, stat: str = "p95", max_second
     hits = []
     for r in df.to_dict("records"):
         v = r.get(stat)
-        if r["docs"] < min_docs or v is None or v != v:
+        if r["docs"] < min_docs or pd.isna(v):   # None、NaN 都跳過
             continue
         if (abs(v) if absolute else v) >= max_seconds:
             hits.append({"key": {k: r[k] for k in keys}, "value": float(v), "ref": None, "docs": int(r["docs"]),
@@ -162,7 +162,7 @@ def eval_lag(df: pd.DataFrame, keys: list[str], *, stat: str = "p95", max_second
 
 def describe(check: dict, hit: dict) -> str:
     # 缺欄位的那組（missing_bucket）寫「沒有 namespace」，不寫「全部」：全部是沒有分組的檢查（例如 share）
-    who = "、".join(f"{v}" if v is not None and v == v else f"沒有 {k}" for k, v in hit["key"].items()) or "全部"
+    who = "、".join(f"沒有 {k}" if pd.isna(v) else f"{v}" for k, v in hit["key"].items()) or "全部"
     msg = f"{check.get('title', check['name'])}：{who}，{'；'.join(hit['why'])}"
     if hit.get("examples"):
         msg += f"（例如 {', '.join(hit['examples'])}）"

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import ssl
 import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
@@ -102,8 +103,16 @@ class Handler(BaseHTTPRequestHandler):
 def main() -> int:
     Handler.es = ES()
     port = int(os.environ.get("FEEDBACK_PORT", "8080"))
-    print(f"feedback_web 在 :{port}（GET /feedback?alert=<alert_id>）", flush=True)
-    ThreadingHTTPServer(("", port), Handler).serve_forever()
+    srv = ThreadingHTTPServer(("", port), Handler)
+    # 平常放在 Ingress 後面、由 Ingress 做 TLS，這裡走 http 就好。要直接對外（沒有 Ingress）就給憑證，改走 https：
+    #   FEEDBACK_TLS_CERT=<cert.pem> FEEDBACK_TLS_KEY=<key.pem>
+    cert, key = os.environ.get("FEEDBACK_TLS_CERT"), os.environ.get("FEEDBACK_TLS_KEY")
+    if cert and key:
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        ctx.load_cert_chain(cert, key)
+        srv.socket = ctx.wrap_socket(srv.socket, server_side=True)
+    print(f"feedback_web 在 :{port}（{'https' if cert and key else 'http'}；GET /feedback?alert=<alert_id>）", flush=True)
+    srv.serve_forever()
     return 0
 
 

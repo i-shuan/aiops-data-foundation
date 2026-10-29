@@ -50,7 +50,7 @@ def owner_of(key: dict, owners: list[dict]) -> str | None:
 
 
 def describe(source: dict, row: dict, keys: list[str], days: int) -> str:
-    who = "、".join(str(row[k]) if row[k] is not None and row[k] == row[k] else "（無）" for k in keys)
+    who = "、".join("（無）" if pd.isna(row[k]) else str(row[k]) for k in keys)   # None、NaN 都是「無」
     return (f"{source.get('title', source['name'])}：{who}，{days} 天裡 {int(row['days'])} 天有，"
             f"有的那幾天每天約 {row['per_day']:.0f} 筆，共 {int(row['total'])} 筆")
 

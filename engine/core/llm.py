@@ -13,6 +13,7 @@ provider（環境變數 LLM_PROVIDER）：
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 
@@ -32,7 +33,7 @@ def _num(x):
         v = float(x)
     except (TypeError, ValueError):
         return None
-    return None if v != v or v in (float("inf"), float("-inf")) else v
+    return v if math.isfinite(v) else None   # NaN、±inf 都變 None
 
 
 def _r(x):

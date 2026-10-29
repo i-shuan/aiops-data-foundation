@@ -62,7 +62,8 @@ class ES:
 
 
 def doc_id(*parts) -> str:
-    return hashlib.sha1(json.dumps(parts, sort_keys=True, default=str).encode()).hexdigest()
+    """同樣的內容算出同一個 _id（寫入不重複）。只是當識別碼、不是安全用途，所以 sha1 夠用；換演算法會讓既有資料的 _id 全變，不要換。"""
+    return hashlib.sha1(json.dumps(parts, sort_keys=True, default=str).encode(), usedforsecurity=False).hexdigest()
 
 
 def get_field(d, dotted: str):
