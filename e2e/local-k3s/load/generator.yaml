@@ -13,7 +13,7 @@ metadata:
   namespace: load-test
 data:
   gen.py: |
-    import json, os, sys, time
+    import json, os, signal, sys, time
     rate = int(os.environ["RATE"]); duration = int(os.environ["DURATION"]); run = os.environ["RUN"]
     # 約 400 bytes 一行，接近一般 Java 服務的 INFO log
     filler = "x" * 250
@@ -21,7 +21,10 @@ data:
     per_tick = rate * tick
     start = time.time(); seq = 0; owed = 0.0
     out = sys.stdout
-    while True:
+    # Pod 被趕走（drain）時也印出送了幾筆，序號 n 的時間 = start + (n-1)/rate（run-durability.sh 算遺失的時間點）
+    stopped = []
+    signal.signal(signal.SIGTERM, lambda *_: stopped.append(1))
+    while not stopped:
         now = time.time()
         if now - start >= duration:
             break
@@ -36,4 +39,4 @@ data:
         sleep = start + (int((now - start) / tick) + 1) * tick - time.time()
         if sleep > 0:
             time.sleep(sleep)
-    sys.stderr.write(json.dumps({"run": run, "emitted": seq, "seconds": round(time.time() - start, 1)}) + "\n")
+    sys.stderr.write(json.dumps({"run": run, "emitted": seq, "seconds": round(time.time() - start, 1), "start": round(start, 3)}) + "\n")

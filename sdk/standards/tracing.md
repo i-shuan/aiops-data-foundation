@@ -41,6 +41,23 @@ resource.attributes.service.name : "<你的服務名稱>"
 
 或拿一筆 log 的 `trace.id`，查 `trace_id : "<那個值>"`，就能看到那個請求完整的路徑。
 
+### log 什麼時候帶 trace_id
+
+不改程式時（Java agent 2.20.0、.NET 8 自動埋點 1.12.0 實測，[pdca/phase1-collect/2026-10-sdk-inject.md](../../docs/pdca/phase1-collect/2026-10-sdk-inject.md)）：
+
+| 情況 | Java | .NET |
+|---|---|---|
+| 處理 HTTP 請求時印的 log | 有 | 有 |
+| 交給 `ExecutorService`、`CompletableFuture` 的工作 | 有，跟請求同一個 | — |
+| `await` 之後、`Task.Run`、`ThreadPool` | — | 有，跟請求同一個 |
+| 自己 `new Thread` | **沒有**（要包，見 [2-4](#2-4-自己管理的執行緒)） | 有 |
+| 背景排程（沒有上游請求） | 沒有 | 沒有 |
+| Kafka 消費端處理時 | 有，是生產者那個請求的 | **沒有** |
+| 上游送 `traceparent` 未取樣（`-00`） | 有，但 ES 沒有那個 trace | 同左 |
+
+- 沒有 trace_id 的 log 照樣收，只是對不到 trace；背景工作、.NET 消費端要查的話，在 log 印業務 ID（批號、工單）。
+- Java 的 trace_id 是 agent 加在 log 事件上的：照 [logback-spring.xml](java/logback-spring.xml) 輸出就有，但程式裡 `MDC.get("trace_id")` 拿不到；要在程式裡用，呼叫 `Span.current().getSpanContext().getTraceId()`。
+
 ## 2. 什麼時候要自己加
 
 | 情況 | 例子 | 做法 |
@@ -149,7 +166,7 @@ GlobalOpenTelemetry.getPropagators().getTextMapPropagator()
 
 ### 2-4. 自己管理的執行緒
 
-用 Spring 的 `@Async` 或標準 `ExecutorService` 的話，agent 會自動處理。自己 `new Thread` 或丟進自訂佇列時，把 context 包起來：
+用 Spring 的 `@Async` 或標準 `ExecutorService`、`CompletableFuture` 的話，agent 會自動處理。自己 `new Thread` 或丟進自訂佇列時，context 不會跟過去：那條執行緒印的 log 沒有 trace_id，發出的呼叫自成一個新 trace。把 context 包起來：
 
 ```java
 import io.opentelemetry.context.Context;
@@ -187,7 +204,7 @@ chart 會自動掛 Java agent 和 .NET 自動埋點（`otel.dotnet.enabled: true
 
 | 環境變數 | 值 |
 |---|---|
-| `OTEL_SERVICE_NAME` | 服務名稱（跟 `app.kubernetes.io/name` 一樣） |
+| `OTEL_SERVICE_NAME` | 服務名稱（跟 `app.kubernetes.io/name` 一樣；不一樣時平台用 label） |
 | `OTEL_TRACES_EXPORTER` | `otlp` |
 | `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | `http://otel-node-collector.otel-collector.svc:4318/v1/traces` |
 | `OTEL_EXPORTER_OTLP_TRACES_PROTOCOL` | `http/protobuf` |

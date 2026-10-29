@@ -55,7 +55,7 @@ PDCA 的意思：**Plan** 定規則與門檻 → **Do** 收值、判斷、報告
 |---|---|---|
 | ④ 手動調整：`series.yaml` 的 `overrides`、`tune` 指令（記原因、誰、何時） | ✅ | [baseline README「使用者、feedback 調整」](../../engine/configs/baseline/README.md#使用者feedback-調整) |
 | ② 修慢性病（天天噴錯、沒人修的） | 要別人配合 | [rca/](../rca/README.md#髒資料排除) |
-| ⑨ 同一個根因 ≥ 3 次 → 升級成規則 | ✅ 門檻算好、核准後 `rules` 自動載入；只處理延遲類、沒有過期 | [phase5-learning-loop/2026-10-rule-threshold.md](phase5-learning-loop/2026-10-rule-threshold.md) |
+| ⑨ 同一個根因 ≥ 3 次 → 升級成規則 | ✅ 門檻算好、核准後 `rules` 自動載入；只處理延遲類；`expires_at` 到期不載入，但核准時還設不了 | [phase5-learning-loop/2026-10-rule-threshold.md](phase5-learning-loop/2026-10-rule-threshold.md)、[phase2-anomaly/2026-10-rules-verify.md](phase2-anomaly/2026-10-rules-verify.md) |
 | ⑨ 回饋累積夠且回測通過 → 調門檻、排除時段 | ⚠️ 誤報 3 次 → 放寬 z → 回測 → 人核准；還不會提排除時段 | 同上 |
 | ② 資料品質檢查的門檻：先估的，正式環境只記錄跑 2～4 週再手動校；`quality` 還不能用 `tune` 調 | 📝 | [baseline README「門檻怎麼校、誰來調」](../../engine/configs/baseline/README.md#門檻怎麼校誰來調) |
 | ⑦⑨ 相似事故檢索（RAG 的檢索，欄位比對） | ✅ 模擬資料驗過；門檻、權重是估的 | [phase4-rca-llm/2026-10-similar-incidents.md](phase4-rca-llm/2026-10-similar-incidents.md) |
@@ -86,14 +86,20 @@ metrics、trace、log 怎麼收、怎麼存、三種怎麼關聯（欄位、時�
 
 | 檔案 | 主題 | 結論 |
 |---|---|---|
+| [phase1-collect/2026-10-durability.md](phase1-collect/2026-10-durability.md) | ① 收值線在各種故障下會不會掉、會不會重複（k3s 實測 12 個情境） | 修了兩個：node 端 trace 佇列共用一個檔（多台 trace-sampler 時只有一台收得到）、batch processor 當掉掉 1 秒；修正後 Collector 換版、ES 停 30 分鐘、ES 回 429 都掉 0，kill -9 最多掉 0.2 秒；trace-sampler 當掉掉「decision_wait＋1 秒」那台的、PVC 滿了掉、刪 hostPath 掉停機那段 log |
 | [phase1-collect/2026-10-es-startup-401.md](phase1-collect/2026-10-es-startup-401.md) | ① ES 剛起來回 401，Collector 直接丟 | 401 窗口約 1 秒（.security 還沒恢復）；修在 ES 入口：健康檢查用 API key 打 GET /（實測掉 0）；兩台 ES 滾動重啟也有窗口（投票名單只有一台）、新檢查都掉 0；不加 Kafka、不改 Collector |
 | [phase1-collect/2026-10-field-unify.md](phase1-collect/2026-10-field-unify.md) | ② 欄位統一：log 身分欄位補 OTel 路徑、Java HTTP 指標在 Collector 改名；metrics ↔ trace 怎麼連 | 在 ingestion 處理、不在查詢層：log 加 alias、Java 指標在 Collector 改名；`variants` 拿掉；`quality.metric_name_legacy` 盯舊名字 |
 | [phase1-collect/2026-10-ingest-keys-check.md](phase1-collect/2026-10-ingest-keys-check.md) | ①②③ 收值、共同鑰匙圈、log↔trace 綁定、metrics 時間窗：docker 重驗 | 鑰匙圈交叉查得到；log↔trace 要 log 格式有印 trace_id，純文字的要開 `otel.logs.exporter: otlp`（新加的路，pipeline 原本會丟 trace_id，已修；真的 Java agent、.NET 自動埋點各驗一次）；metrics 三層窗對得上（276／分、13%、p95 3.75 秒）；.NET Framework：trace／metrics 可、ILogger 直送不行 |
 | [phase1-collect/2026-10-ingest-simplify.md](phase1-collect/2026-10-ingest-simplify.md) | ①③④ 集中式資料寫入憑證 (Shared Ingest Token)、ES failure store、靜態臨界值規則 | 一把寬 pattern 的 key、一個出口，資料照樣依 group 分；log 的 `k8s-*` 開 failure store（OTel 的預設已開），`quality.ingest_rejected` 有一筆就報；rules 加 `window` 類型，錯誤率 ≥ 5%、p95 ≥ 2 秒保底 |
+| [phase1-collect/2026-10-keys-k8s.md](phase1-collect/2026-10-keys-k8s.md) | ①② 共同鑰匙圈在 K8s 上：五種資料、11 個邊緣情境 | 服務名稱改成一律以 Pod label 為準（原本 trace、OTLP 用應用自設的）；改 dept 後 0～3 秒切（Prometheus 等下一次抓，≤30 秒）；hostNetwork 的 OTLP 進 unassigned；trace-sampler 2 台時 trace 幾乎全丟（未修） |
 | [phase1-collect/2026-10-k3d-e2e.md](phase1-collect/2026-10-k3d-e2e.md) | ①②③⑧ k3d 上的 K8s 實測：Grafana initContainer、Collector 邊緣身份鑑別與標籤注入 (Edge Identity Sanitization & Injection)、OTLP log、chart | 都跑過：initContainer 裝得起來、SHA 錯停 Init:Error 且舊 Pod 繼續服務；K8s 上身分標籤注入正確；OTLP log 帶 trace_id 對得到 trace；確認開 otlp 有兩份 log；k3d 在這個環境要特別處理（腳本在 e2e/local-k3d） |
+| [phase1-collect/2026-10-sdk-inject.md](phase1-collect/2026-10-sdk-inject.md) | ① 不改程式的自動埋點：子執行緒、背景排程、上游 traceparent、兩跳、Kafka 時 log 帶哪個 trace_id | Java agent 2.20.0、.NET 8 共 21 個情境都跟預期一樣；Java 自己 `new Thread`、背景排程、.NET Kafka 消費端的 log 沒有 trace_id；未取樣 `-00` 的 log 有 trace_id 但 ES 沒有 trace |
+| [phase1-collect/2026-10-metrics-trace.md](phase1-collect/2026-10-metrics-trace.md) | ①②⑦ metrics 異常 → 用服務＋路由＋時間窗撈 trace 的邊緣情況 | 時間對齊（1.9%）、counter 歸零（少一次抓取、沒負值）、部分變慢（慢的 100% 挑到）都可以；路由、服務名對不上就 0 筆且不說原因；Micrometer 名字不改名；不到 1 秒的變慢只剩 4.6% |
+| [phase1-collect/2026-10-log-trace-bind.md](phase1-collect/2026-10-log-trace-bind.md) | ①②⑦ log 的 trace_id／span_id：各種格式、值、時間差、檔案＋OTLP 兩份 | 改前大寫、全 0、格式錯原樣寫入（11 種綁錯），已改成正規化、錯的不設；加 `log.source` 分兩份；investigator 撈 log 多放 30 分鐘 |
+| [phase1-collect/2026-10-load-test.md](phase1-collect/2026-10-load-test.md) | ①③ 收值壓測：加量、突發、大行、50 Pod、高基數、千段 trace、ES 慢／拒收 | 正式設定下都掉 0：log 10,000 行、metrics 50,000 點、trace 3,000 span／秒內延遲 < 10 秒，再大只是晚到；佇列縮小時 trace-sampler 丟 45%；log 寫入 index 大過 ES 記憶體會停住（要定 ILM 大小） |
 | [phase1-collect/2026-10-retention.md](phase1-collect/2026-10-retention.md) | 保留天數（metrics 降解析度、log 統計、trace 分兩種） | 已合；trace baseline 改成只讀隨機留下的 `traces-generic`（沒用真實資料驗證） |
 | [phase1-collect/2026-10-time-alignment.md](phase1-collect/2026-10-time-alignment.md) | ② 時間對齊：log 沒帶時區、收資料延遲、主機時鐘 | 沒帶時區的原本差 8 小時、空白分隔的默默換時間，已修；延遲與時鐘偏差、主機時鐘都抓得到；`NTP_SERVER` 要填 |
-| [phase1-collect/2026-10-trace-durability.md](phase1-collect/2026-10-trace-durability.md) | ① trace 收值線要不要 message queue | 不用 Kafka；兩段佇列改寫磁碟（node 端要設在 loadbalancing 的子 exporter）；當掉仍掉約 20% |
+| [phase1-collect/2026-10-trace-durability.md](phase1-collect/2026-10-trace-durability.md) | ① trace 收值線要不要 message queue | 不用 Kafka；兩段佇列改寫磁碟；node 端放子 exporter 的做法後來發現有錯、當掉掉多少重新量過（[durability](phase1-collect/2026-10-durability.md)） |
 
 ### Phase 2 異常分析（`phase2-anomaly/`）
 
@@ -101,13 +107,19 @@ baseline（中位數＋MAD）、規則、資料品質、餵給 baseline 前的�
 
 | 檔案 | 主題 | 結論 |
 |---|---|---|
+| [phase2-anomaly/2026-10-adjust-schedule-verify.md](phase2-anomaly/2026-10-adjust-schedule-verify.md) | ②④⑤ 排除與調整、行事曆、慢性病的邊界；第一階段 4 個 CronJob 在 K8s 跑 30 分鐘 | 邊界 31 項全過；修：台灣假日吞掉 24×7 服務的故障、沒寫時區差 8 小時、每天的 train 失敗不重試；CronJob 每分鐘都跑、Forbid、逾時、重試都實測 |
 | [phase2-anomaly/2026-10-anomaly-owner.md](phase2-anomaly/2026-10-anomaly-owner.md) | ⑤ 異常總表帶 `dept`、`group` | 資料本來就帶，異常寫回時補；namespace 優先、其次服務、對不到 unassigned；告警依 group 分送的前置 |
+| [phase2-anomaly/2026-10-baseline-threshold-tune.md](phase2-anomaly/2026-10-baseline-threshold-tune.md) | ④ 動態基準線的誤報：p95 `instant_z: null`、`min_events.rate` 20 → 100（只改設定） | 一週 anomaly 1.50% → 0.172%（剩下 92 個是尖峰不對齊整點）、warning 1.00% → 0.122%；但錯誤率、p95 變 5 分鐘一點，持續 5 分鐘的變慢只有 warning、30 秒錯誤率 33% 不報；**待決定**是否退回 `min_events` |
+| [phase2-anomaly/2026-10-baseline-verify.md](phase2-anomaly/2026-10-baseline-verify.md) | ④ 動態基準線學習：邊緣情境、誤報率、調整介面（合成資料、Collector 的形狀） | 修 4 個：收集中斷時補 0（30 分鐘窗 91 個誤報）、error log 的 λ 學高 40%、壞調整整輪失敗、override 過期時點；一週 anomaly 1.5%（p95 跳桶 88%、錯誤率 1 個 5xx）；調整介面都下一輪生效 |
 | [phase2-anomaly/2026-10-chronic-calendar.md](phase2-anomaly/2026-10-chronic-calendar.md) | 慢性病清單與行事曆 | 已合；清單沒送到負責人手上；假日預設連當天故障也不報 |
 | [phase2-anomaly/2026-10-data-quality-check.md](phase2-anomaly/2026-10-data-quality-check.md) | 資料品質檢查（路由沒參數化、欄位缺、資料停了、unassigned 變多） | 已合；第一天只靠昨天比的檢查不會報；門檻是估的 |
 | [phase2-anomaly/2026-10-data-sources.md](phase2-anomaly/2026-10-data-sources.md) | 資料來源接口＋假資料分開；抓台灣行事曆 | 已合；行事曆來源非官方；負責人真來源還沒有 |
 | [phase2-anomaly/2026-10-exclude-adjust.md](phase2-anomaly/2026-10-exclude-adjust.md) | 排除已知干擾（排除時段、重置點、週期放寬） | 已合；重置後暖機 24 小時內不判斷（估的）；只放寬不變嚴 |
 | [phase2-anomaly/2026-10-instant-anomaly.md](phase2-anomaly/2026-10-instant-anomaly.md) | ④ 單點即判定 (Instant Anomaly)：依序列設 `confirm_points`、偏太多（`instant_z`）不用等；`tune` 能調 | `http.error_rate` 單點即判定、全域 `instant_z: 15`；模擬資料實測 z 20～49 的單點變 anomaly、z 5.2 的誤報仍是 warning |
+| [phase2-anomaly/2026-10-peer-verify.md](phase2-anomaly/2026-10-peer-verify.md) | ④ Pod 同儕橫向比對：副本數 1～5、Pod 換掉、擴縮容、全壞、同名服務的邊緣情境 | 合成資料 37 項改前 8 項錯：新 Pod 暖機被報、擴容時舊 Pod 被報記憶體、全壞只報一個；加 `warmup`、`max_peer_median` 後全對；真的 .NET 換 Pod、2 副本在 cluster 上照預期；2 個副本不判斷、暖機曲線是假設（Act） |
+| [phase2-anomaly/2026-10-rules-verify.md](phase2-anomaly/2026-10-rules-verify.md) | ④⑨ 靜態臨界值規則 39 條逐條邊緣驗證；規則草稿的動態調整介面 | 151 案例全過；修 4 個：新對象不到 `for` 就報、Kafka 落後變少被當增加（加 `delta`）、草稿過期仍生效、一條草稿壞整輪不寫 |
 | [phase2-anomaly/2026-10-split-detector-cli.md](phase2-anomaly/2026-10-split-detector-cli.md) | ④⑤⑨ detector 的 `__main__.py`（1,100 行）依指令拆檔 | 1,100 行 → `__main__.py` 160 行＋ 10 個檔；只搬不改，200 個測試、ruff、9 個指令實跑都過 |
+| [phase2-anomaly/2026-10-trace-quality-verify.md](phase2-anomaly/2026-10-trace-quality-verify.md) | ②④ trace 段異常、資料品質的邊緣情境（自己的 ES 灌合成資料） | 41 PASS 2 FAIL；修 4 個（`db.system.name`、ID 比例抽樣、缺 namespace 時 `quality` 中斷、3 個新檢查）；例外吞噬定義、第一天路由數**待決定**；部分請求變慢、Pod 沒服務 label 的 log 抓不到 |
 
 ### Phase 3 定位問題（`phase3-locate/`）
 
@@ -141,6 +153,7 @@ metrics → trace → log 找到哪一段、哪行 log；事件整合、排程�
 | [phase5-learning-loop/2026-10-fix-feedback-ux.md](phase5-learning-loop/2026-10-fix-feedback-ux.md) | ⑨⑦ 漏報建議被吃掉、網頁送出失敗沒回應、摘要變空白；**真的 LLM 第一次跑** | 三個修了各有測試；OpenAI 實跑 12 次：預算要 2000、告警本身要有 id 才有依據可引，修後 6/6 通過、5～8 秒一件 |
 | [phase5-learning-loop/2026-10-grafana-form.md](phase5-learning-loop/2026-10-grafana-form.md) | ⑧⑨ 回饋表單放進 Grafana（Business Forms 外掛） | **定案用這個**（外掛放資料夾、不換 image，小網頁當備案）；Grafana 12.2 實測：預填、送出寫回 ES、誤報路徑都對；12.2 只能用外掛 6.3.1；回饋服務網址寫死、要開 CORS；身分還是自己填 |
 | [phase5-learning-loop/2026-10-grafana-plugin-init.md](phase5-learning-loop/2026-10-grafana-plugin-init.md) | ⑧⑨ Grafana 在 K8s 上用 initContainer 裝回饋表單外掛 | 從 Nexus 下載、核對 SHA-256、解到 emptyDir；docker 模擬驗過（裝、跳過、SHA 不符不裝、簽章 valid）；之後在 k3d 上跑過（[k3d-e2e](phase1-collect/2026-10-k3d-e2e.md)） |
+| [phase5-learning-loop/2026-10-grafana-demo.md](phase5-learning-loop/2026-10-grafana-demo.md) | ⑦⑧⑨ Grafana 上看根因報告、填回饋、回饋後門檻變化（截圖） | 兩個唯讀儀表板；metrics→trace→log 報告齊全、表單送出、核准後批次異常 3 → 1 |
 | [phase5-learning-loop/2026-10-loop-update.md](phase5-learning-loop/2026-10-loop-update.md) | ⑨④ 回饋回到系統：更新知識庫、門檻加回測 | `backtest`（現行 vs 建議重跑）、沒回測不能核准、漏報降 z、同根因 3 次規則草稿；誤報 3 次 → 回測 → 核准 → 不再報實測過；月底批次放寬 z 是治標 |
 | [phase5-learning-loop/2026-10-metrics-kpi.md](phase5-learning-loop/2026-10-metrics-kpi.md) | ⑨ 量化：學之前、學之後的數字 | `metrics` 指令兩段並排；模擬資料驗算法，真實數字等試點 |
 | [phase5-learning-loop/2026-10-rule-threshold.md](phase5-learning-loop/2026-10-rule-threshold.md) | ⑨④②⑧ 規則草稿把門檻算出來、核准就自動載入；行事曆拿掉國定假日、歲修一筆一筆；第一階段只開 4 個 CronJob | 門檻 = 各件最低異常值的最小值（峰值實測不觸發）；核准後 `rules` 載入、第 2 次事故時間觸發；沒有過期、只處理延遲類 |

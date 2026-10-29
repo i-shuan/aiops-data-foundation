@@ -30,6 +30,16 @@ class IncreaseTest(unittest.TestCase):
         self.assertEqual(R.evaluate(rule, {("ns", "gone-pod"): old}, NOW), [])            # 5 分鐘前就沒資料了
         self.assertEqual(len(R.evaluate({**rule, "report_gone": True}, {("ns", "gone-pod"): old}, NOW)), 1)
 
+    def test_gauge_delta_not_counter_reset(self):
+        # Kafka 落後是量測值：一直變少（追上來）不能被當成「歸零重來」算成增加
+        catching_up = pts(20000, 19000, 18000, 17000, field="metrics.lag")
+        growing = pts(10000, 12000, 14000, 16000, field="metrics.lag")
+        inc = {"type": "increase", "field": "metrics.lag", "op": ">=", "threshold": 5000, "for": "5m"}
+        self.assertEqual(len(R.evaluate(inc, {("g", "t"): catching_up}, NOW)), 1)       # increase 的誤判（所以要 delta）
+        delta = {**inc, "type": "delta"}
+        self.assertEqual(R.evaluate(delta, {("g", "t"): catching_up}, NOW), [])
+        self.assertEqual([h["value"] for h in R.evaluate(delta, {("g", "t"): growing}, NOW)], [6000.0])
+
     def test_restart_fires(self):
         rule = {"type": "increase", "field": "metrics.x", "op": ">=", "threshold": 1}
         hits = R.evaluate(rule, {("ns", "pod"): pts(5, 5, 6)}, NOW)
@@ -66,6 +76,15 @@ class HoldTest(unittest.TestCase):
 
     def test_not_enough_history_yet(self):
         self.assertEqual(R.evaluate(self.rule, self.series([0]), NOW), [])                 # 只有一個點，還不能說「一直」
+
+    def test_new_object_must_cover_whole_for(self):
+        # 新建立的對象從第一筆就成立（例如新 Pod 一直 Pending）：只有 for 的一半多一點不算，蓋滿 for 才算
+        self.assertEqual(R.evaluate(self.rule, self.series([0] * 4), NOW), [])            # 1.5 分鐘（for 3m）
+        self.assertEqual(R.evaluate(self.rule, self.series([0] * 6), NOW), [])            # 2.5 分鐘：差一個點
+        self.assertEqual(len(R.evaluate(self.rule, self.series([0] * 7), NOW)), 1)        # 3 分鐘
+        # 本來就在的對象（for 開頭之前就有資料，那時還正常）：照舊看 for 裡面的點
+        self.assertEqual(len(R.evaluate(self.rule, self.series([2] * 4 + [0] * 7), NOW)), 1)
+        self.assertEqual(R.evaluate(self.rule, self.series([2] * 4 + [0] * 6), NOW), [])
 
 
 class RatioTest(unittest.TestCase):
@@ -114,7 +133,7 @@ class ConfigTest(unittest.TestCase):
         with open("configs/baseline/rules.yaml", encoding="utf-8") as f:
             cfg = yaml.safe_load(f)
         for r in cfg["rules"]:
-            self.assertIn(r["type"], ("value", "compare", "ratio", "increase", "increase_ratio", "rate", "total", "window"), r["name"])
+            self.assertIn(r["type"], ("value", "compare", "ratio", "increase", "delta", "increase_ratio", "rate", "total", "window"), r["name"])
             self.assertIn(r.get("op", ">="), R.OPS, r["name"])
             # window 用 series.yaml 的 value 寫法（hist_ratio、percentile），其他用 field
             self.assertTrue(r["by"] and r["index"] and (r.get("value") if r["type"] == "window" else r["field"]) and r["title"], r["name"])

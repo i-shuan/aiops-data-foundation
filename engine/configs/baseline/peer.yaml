@@ -7,6 +7,7 @@
 #   min_abs  ：至少比別人多這麼多才算
 #   min_ratio：至少是別人的幾倍才算（CPU、記憶體：各 Pod 本來就有點不一樣，倍數比較直覺）
 #   min_volume：這段時間請求數不到這麼多的 Pod 不比（錯誤率、p95 才有，從同一個直方圖數）
+#   max_peer_median：其他 Pod 的中位數到這個值就不比（整個服務都壞了，不挑單一個 Pod；跟規則的門檻一樣）
 #   show     ：訊息裡怎麼顯示數字（pct、seconds、cores、bytes）
 #
 # 同一個服務的 Pod 本來就不會一模一樣（分到的請求不同、快取冷熱），所以門檻比 baseline 寬：
@@ -17,6 +18,7 @@ z: 5
 rel_floor: 0.1
 min_peers: 3          # 至少 3 個 Pod 才比（2 個的話分不出誰才是怪的）
 fresh: 2m            # 最近 2 分鐘還有資料的 Pod 才算（換版、縮容刪掉的不算）
+warmup: 5m           # 起來不到 5 分鐘的 Pod 不比（啟動時 CPU 高、記憶體還在長，會誤報自己或舊 Pod）；要比 window 短
 
 _ns: &ns resource.attributes.k8s.namespace.name
 _pod: &pod resource.attributes.k8s.pod.name
@@ -37,6 +39,7 @@ checks:
     direction: up
     min_abs: 0.05         # 錯誤率至少多 5 個百分點
     min_volume: 20        # 10 分鐘至少 20 個請求
+    max_peer_median: 0.05 # 其他 Pod 的中位數已經 ≥ 5%＝整個服務都壞了，不挑單一個 Pod（規則 http.error_rate_floor 會報）
 
   - name: peer.http_latency_p95_s
     show: seconds
@@ -51,6 +54,7 @@ checks:
     min_abs: 0.1          # 至少慢 100 毫秒
     min_ratio: 2          # 而且是其他 Pod 的 2 倍以上
     min_volume: 20
+    max_peer_median: 2    # 其他 Pod 的 p95 已經 ≥ 2 秒＝整個服務都慢，不挑單一個 Pod（規則 http.latency_p95_floor 會報）
 
   # ── 資源：同一個 Deployment 的 Pod ──
   - name: peer.pod_cpu

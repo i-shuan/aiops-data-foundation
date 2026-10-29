@@ -57,6 +57,32 @@ String takeStr(Map m, List keys) {
   return null;
 }
 
+// trace_id、span_id 要跟 trace 的 trace_id、span_id 一模一樣才查得到（keyword，分大小寫）：OTel 是 32／16 個小寫 hex。
+// 回傳 null＝沒有 trace（空、全 0：W3C 規定全 0 是「沒有 context」）；回傳 '!'＝格式錯；其餘是正規化後的值。
+// 64 位元的 trace_id（16 個 hex，Zipkin／B3 的短 id）前面補 16 個 0：OTel 的 B3 propagator 收到短 id 也是這樣補
+String normId(def v, int len) {
+  if (v == null) return null;
+  String s = v.toString().trim().toLowerCase();
+  if (s.isEmpty()) return null;
+  if (len == 32 && s.length() == 16) s = '0000000000000000' + s;
+  if (s.length() != len) return '!';
+  boolean zero = true;
+  for (int i = 0; i < s.length(); i++) {
+    char c = s.charAt(i);
+    if (!((c >= (char) 48 && c <= (char) 57) || (c >= (char) 97 && c <= (char) 102))) return '!';
+    if (c != (char) 48) zero = false;
+  }
+  return zero ? null : s;
+}
+
+// 設 trace.id／span.id；格式錯的不設（硬塞會對到錯的 trace），原值放進 bad（之後進 app）：app.trace_id_invalid 查得到
+void putId(Map doc, Map bad, String obj, def v, int len) {
+  String id = normId(v, len);
+  if (id == null) return;
+  if (id.equals('!')) bad.put(obj + '_id_invalid', v.toString());
+  else doc.put(obj, ['id': id]);
+}
+
 String raw = ctx.message;
 Map app = ctx.remove('_app');
 Map log = ctx.log;
@@ -108,10 +134,9 @@ if (app != null) {
     ];
   }
 
-  String traceId = takeStr(app, ['trace_id', 'traceId', 'trace.id', 'TraceId', '@tr']);
-  if (traceId != null) ctx.trace = ['id': traceId];
-  String spanId = takeStr(app, ['span_id', 'spanId', 'span.id', 'SpanId', '@sp']);
-  if (spanId != null) ctx.span = ['id': spanId];
+  // 只認 OTel 的 hex id。Datadog 的 dd.trace_id 是十進位、對不到 OTel 的 trace，不拿（留在 app）
+  putId(ctx, app, 'trace', takeStr(app, ['trace_id', 'traceId', 'trace.id', 'TraceId', '@tr']), 32);
+  putId(ctx, app, 'span', takeStr(app, ['span_id', 'spanId', 'span.id', 'SpanId', '@sp']), 16);
 
   // 應用自己的時間比 Fluent Bit 收到的時間準，交給後面的 date processor
   String ts = takeStr(app, ['timestamp', '@timestamp', 'ts', 'time', 'Timestamp', '@t']);
@@ -127,8 +152,14 @@ if (app != null) {
 // 這條路 log 的輸出格式不用印 MDC，trace_id 也綁得起來（docs/pdca/phase1-collect/2026-10-ingest-keys-check.md）。
 Map otel = ctx.remove('_otel');
 if (otel != null) {
-  if (ctx.trace == null && otel.get('trace_id') != null) ctx.trace = ['id': otel.get('trace_id').toString()];
-  if (ctx.span == null && otel.get('span_id') != null) ctx.span = ['id': otel.get('span_id').toString()];
+  Map bad = new HashMap();
+  if (ctx.trace == null) putId(ctx, bad, 'trace', otel.get('trace_id'), 32);
+  if (ctx.span == null) putId(ctx, bad, 'span', otel.get('span_id'), 16);
+  if (!bad.isEmpty()) {
+    Map a = ctx.app instanceof Map ? ctx.app : new HashMap();
+    for (def e : bad.entrySet()) { if (!a.containsKey(e.getKey())) a.put(e.getKey(), e.getValue()); }
+    ctx.app = a;
+  }
   if (log.get('level') == null && otel.get('severity_text') != null) log.put('level', normLevel(otel.get('severity_text').toString()));
   def extra = otel.get('attributes');
   if (extra instanceof Map && !((Map) extra).isEmpty()) {

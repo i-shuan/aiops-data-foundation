@@ -1,6 +1,6 @@
 # trace 收值線要不要 message queue（2026-10）
 
-**狀態**：已完成（已合進 master，PR #11）　　**日期**：2026-10-24　　**相關**：分支 `claude/collect-time-mq`
+**狀態**：已完成（已合進 master，PR #11）；node 端佇列的位置後來改了、當掉掉多少重新量過，見 [durability](2026-10-durability.md)　　**日期**：2026-10-24　　**相關**：分支 `claude/collect-time-mq`
 **模組**：① 收值（trace 這條線）
 
 ## Plan：這一次要達到什麼

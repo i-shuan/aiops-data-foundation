@@ -83,9 +83,12 @@ check_gt0 "legacy（沒標 dept）進 k8s-unassigned-local" "$(count k8s-unassig
 check "k8s-it-local 裡沒有別的 namespace"  "$(count k8s-it-local '{"bool":{"must_not":{"term":{"kubernetes.namespace":"it-mes-prod"}}}}')" 0
 check "k8s-imc-local 裡沒有別的 namespace" "$(count k8s-imc-local '{"bool":{"must_not":{"term":{"kubernetes.namespace":"imc-wip-prod"}}}}')" 0
 check "it、imc 的資料沒有落到 unassigned"  "$(count k8s-unassigned-local '{"terms":{"kubernetes.namespace":["it-mes-prod","imc-wip-prod"]}}')" 0
+# 兩邊只數同一段時間（到 upto 為止）：資料一直在進，先後數會差幾筆
+upto="$(date -u -d '-30 seconds' +%Y-%m-%dT%H:%M:%SZ)"
+until_q="{\"range\":{\"@timestamp\":{\"lte\":\"${upto}\"}}}"
 check "每筆只送一份（三個 index 合計 = 全部）" \
-  "$(count 'k8s-*' '{"match_all":{}}')" \
-  "$(( $(count k8s-it-local '{"match_all":{}}') + $(count k8s-imc-local '{"match_all":{}}') + $(count k8s-unassigned-local '{"match_all":{}}') ))"
+  "$(count 'k8s-*' "${until_q}")" \
+  "$(( $(count k8s-it-local "${until_q}") + $(count k8s-imc-local "${until_q}") + $(count k8s-unassigned-local "${until_q}") ))"
 
 echo "== 5. 欄位"
 doc="$(es "${ES_URL}/k8s-it-local/_search" -d '{"size":1,"query":{"bool":{"filter":[{"term":{"service.name":"mes-api"}},{"exists":{"field":"error.type"}}]}}}' | jq '.hits.hits[0]._source')"

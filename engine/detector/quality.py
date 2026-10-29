@@ -56,9 +56,12 @@ def eval_cardinality(now: pd.DataFrame, ref: pd.DataFrame | None, keys: list[str
 
     觸發（任一）：
       (1) values ≥ max_values（有設才看）
-      (2) 跟 ref 比 ≥ ratio 倍，而且多了 ≥ min_increase 個（ref 沒有這個對象時，當成從 0 開始）
+      (2) 跟 ref 比 ≥ ratio 倍，而且多了 ≥ min_increase 個（ref 沒有這個對象時，當成從 0 開始：新服務）
       (3) 抽樣的值裡 ≥ id_share_min 像帶了 ID，而且 values ≥ min_increase（少數幾個不算）
+    ref 整段沒有資料（第一天、ref 那段資料已刪）：沒有比較對象，(2) 不看，只看 (1)、(3)。
+    不然第一天每個路由 ≥ min_increase 條的正常服務都會報「從 0 個變 N 個」。
     """
+    first_day = ref is None or ref.empty
     before = _ref_of(ref, keys, "values")
     hits = []
     for r in now.to_dict("records"):
@@ -68,7 +71,7 @@ def eval_cardinality(now: pd.DataFrame, ref: pd.DataFrame | None, keys: list[str
         why = []
         if max_values is not None and n >= max_values:
             why.append(f"{n} 個，超過上限 {max_values}")
-        if n - (b or 0) >= min_increase and (b is None or b == 0 or n >= ratio * b):
+        if not first_day and n - (b or 0) >= min_increase and (b is None or b == 0 or n >= ratio * b):
             why.append(f"從 {b or 0} 個變 {n} 個")
         if share >= id_share_min and n >= min_increase:
             why.append(f"抽樣的值 {share:.0%} 像帶了 ID")
@@ -158,7 +161,8 @@ def eval_lag(df: pd.DataFrame, keys: list[str], *, stat: str = "p95", max_second
 
 
 def describe(check: dict, hit: dict) -> str:
-    who = "、".join(f"{v}" for v in hit["key"].values() if v is not None) or "全部"
+    # 缺欄位的那組（missing_bucket）寫「沒有 namespace」，不寫「全部」：全部是沒有分組的檢查（例如 share）
+    who = "、".join(f"{v}" if v is not None and v == v else f"沒有 {k}" for k, v in hit["key"].items()) or "全部"
     msg = f"{check.get('title', check['name'])}：{who}，{'；'.join(hit['why'])}"
     if hit.get("examples"):
         msg += f"（例如 {', '.join(hit['examples'])}）"
@@ -176,12 +180,13 @@ def _query(check: dict, start, end) -> dict:
     return {"bool": {"filter": f}}
 
 
-def _composite(es: ES, index: str, query: dict, keys: list[str], fields: list[str], aggs: dict) -> list[dict]:
+def _composite(es: ES, index: str, query: dict, keys: list[str], fields: list[str], aggs: dict,
+               size: int = 1000) -> list[dict]:
     """依 fields 分組（composite，自動翻頁），每組一列：keys + 每個子聚合 + docs。"""
     sources = [{k: {"terms": {"field": f, "missing_bucket": True}}} for k, f in zip(keys, fields)]
     rows, after = [], None
     while True:
-        comp = {"size": 1000, "sources": sources, **({"after": after} if after else {})}
+        comp = {"size": size, "sources": sources, **({"after": after} if after else {})}
         body = {"size": 0, "query": query, "aggs": {"g": {"composite": comp, "aggs": aggs}}}
         g = es.search(index, body).get("aggregations", {}).get("g", {})
         for b in g.get("buckets", []):
@@ -191,17 +196,29 @@ def _composite(es: ES, index: str, query: dict, keys: list[str], fields: list[st
             return rows
 
 
+def _frame(rows: list[dict], columns: list[str]) -> pd.DataFrame:
+    """composite 的結果 → DataFrame。dtype=object：缺欄位的那組（missing_bucket）的 key 是 None，
+    pandas 3 的字串欄位會把 None 變成 NaN，寫進 aiops-anomalies 的 keys 變成 JSON 的 NaN，ES 整批拒收、quality 指令中斷
+    （這一輪所有檢查的結果都沒寫進去），訊息裡也印成 nan。"""
+    return pd.DataFrame(rows, columns=columns, dtype=object)
+
+
 def _keys(check: dict) -> list[str]:
     return check.get("keys") or [f.split(".")[-1] for f in check.get("by", [])]
 
 
-def fetch_cardinality(es: ES, check: dict, start, end, examples: int = 50) -> pd.DataFrame:
+def fetch_cardinality(es: ES, check: dict, start, end, examples: int = 500) -> pd.DataFrame:
+    """examples：每組抽幾個值（看像不像帶了 ID）；ref 那段只要個數，給 0。
+    terms 依筆數排前面的，所以要抽到夠多：像 ID 的值每個只有幾筆，抽太少只抽到量大的樣板路由，比例被低估
+    （40 條樣板＋45 條像 ID、只抽 50 個時只看到 20%）。不同值 ≤ examples 時等於全看；更多的話 max_values 會先報。"""
     keys = _keys(check)
     aggs = {"n": {"cardinality": {"field": check["field"], "precision_threshold": 3000}}}
-    if examples:   # 抽樣的值（看像不像帶了 ID）；ref 那段只要個數，不抽
+    if examples:
         aggs["ex"] = {"terms": {"field": check["field"], "size": examples}}
-    rows = _composite(es, check["index"], _query(check, start, end), keys, check.get("by", []), aggs)
-    return pd.DataFrame([{**{k: r[k] for k in keys}, "values": r["n"]["value"],
+    # 一頁的組數 × 每組的值不能超過 ES 的 search.max_buckets（預設 65,536）
+    size = max(10, min(1000, 60000 // (examples + 2)))
+    rows = _composite(es, check["index"], _query(check, start, end), keys, check.get("by", []), aggs, size)
+    return _frame([{**{k: r[k] for k in keys}, "values": r["n"]["value"],
                           "examples": [b["key"] for b in r["ex"]["buckets"]] if examples else []} for r in rows],
                         columns=keys + ["values", "examples"])
 
@@ -210,7 +227,7 @@ def fetch_missing(es: ES, check: dict, start, end) -> pd.DataFrame:
     keys = _keys(check)
     aggs = {f"missing:{f}": {"filter": {"bool": {"must_not": {"exists": {"field": f}}}}} for f in check["fields"]}
     rows = _composite(es, check["index"], _query(check, start, end), keys, check.get("by", []), aggs)
-    return pd.DataFrame([{**{k: r[k] for k in keys}, "docs": r["docs"],
+    return _frame([{**{k: r[k] for k in keys}, "docs": r["docs"],
                           **{a: r[a]["doc_count"] for a in aggs}} for r in rows],
                         columns=keys + ["docs"] + list(aggs))
 
@@ -218,7 +235,7 @@ def fetch_missing(es: ES, check: dict, start, end) -> pd.DataFrame:
 def fetch_counts(es: ES, check: dict, start, end) -> pd.DataFrame:
     keys = _keys(check)
     rows = _composite(es, check["index"], _query(check, start, end), keys, check.get("by", []), {})
-    return pd.DataFrame([{**{k: r[k] for k in keys}, "docs": r["docs"]} for r in rows], columns=keys + ["docs"])
+    return _frame([{**{k: r[k] for k in keys}, "docs": r["docs"]} for r in rows], columns=keys + ["docs"])
 
 
 def count(es: ES, index: str, check: dict, start, end) -> int:
@@ -240,4 +257,4 @@ def fetch_lag(es: ES, check: dict, start, end) -> pd.DataFrame:
         v = r["lag"]["values"]
         ms = lambda k: v.get(k) if v.get(k) is not None else float("nan")
         out.append({**{k: r[k] for k in keys}, "docs": r["docs"], "p50": ms("50.0") / 1000, "p95": ms("95.0") / 1000})
-    return pd.DataFrame(out, columns=keys + ["docs", "p50", "p95"])
+    return _frame(out, columns=keys + ["docs", "p50", "p95"])

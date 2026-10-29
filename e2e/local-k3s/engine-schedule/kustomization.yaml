@@ -1,0 +1,32 @@
+# run-schedule-e2e.sh 用：engine/deploy 原封不動，只換成本機測試的值（namespace、ES、image），拿掉這次不測的回饋網頁。
+# CronJob 的頻率、Forbid、activeDeadlineSeconds、backoffLimit 都是 engine/deploy/cronjobs.yaml 的，這裡不改。
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: aiops-engine-test
+resources:
+  - ../../../engine/deploy
+patches:
+  - patch: |-
+      $patch: delete
+      apiVersion: v1
+      kind: Namespace
+      metadata: {name: aiops}
+  - patch: |-
+      $patch: delete
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata: {name: aiops-feedback}
+  - patch: |-
+      $patch: delete
+      apiVersion: v1
+      kind: Service
+      metadata: {name: aiops-feedback}
+configMapGenerator:
+  - name: aiops-env
+    behavior: merge
+    literals:
+      - ES_URL=http://elasticsearch.es-test.svc:9200
+images:
+  - name: nexus.example.internal/aiops/aiops-engine
+    newName: docker.io/library/aiops-engine
+    newTag: p2-schedule

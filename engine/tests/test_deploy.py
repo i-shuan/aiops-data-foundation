@@ -51,7 +51,15 @@ class CronJobs(unittest.TestCase):
         for name, d in self.docs.items():
             self.assertEqual(d["spec"]["concurrencyPolicy"], "Forbid", name)
             self.assertGreater(d["spec"]["jobTemplate"]["spec"]["activeDeadlineSeconds"], 0, name)
-            self.assertEqual(d["spec"]["jobTemplate"]["spec"]["backoffLimit"], 0, name)
+
+    def test_failed_job_is_retried_within_one_period(self):
+        # 每幾分鐘的：下一輪就是重試，Job 內不重試；每天、每週的：不重試就要等明天（train 失敗 → baseline 舊一天）
+        # docs/pdca/phase2-anomaly/2026-10-adjust-schedule-verify.md
+        for name, d in self.docs.items():
+            frequent = d["spec"]["schedule"].split()[1] == "*"
+            self.assertEqual(d["spec"]["jobTemplate"]["spec"]["backoffLimit"], 0 if frequent else 2, name)
+        self.assertEqual(self.docs["aiops-train"]["spec"]["jobTemplate"]["spec"]["backoffLimit"], 2)
+        self.assertEqual(self.docs["aiops-rules"]["spec"]["jobTemplate"]["spec"]["backoffLimit"], 0)
 
 
 if __name__ == "__main__":

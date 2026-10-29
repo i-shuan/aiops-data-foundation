@@ -47,7 +47,7 @@ ES（log、metrics、trace）
   | `all` | 不分時段 | 至少 50 個點 |
   | （沒有） | 不判斷 | 都不夠 |
 
-- **沒資料的時段**：筆數類的序列補 0（沒有請求就是 0），但兩種情況當成「不知道」：服務第一次出現之前，以及整個 index 都沒有資料的時段（收集系統本身停了）。偵測時，有 baseline 但整段都沒資料的服務補 0，這樣「服務整個停掉」也抓得到。
+- **沒資料的時段**：筆數類的序列補 0（沒有請求就是 0），但兩種情況當成「不知道」：服務第一次出現之前，以及整個 index（不加序列的 filter）都沒有資料的時段（收集系統本身停了）。偵測時，有 baseline 但整段都沒資料的服務補 0，這樣「服務整個停掉」也抓得到；只補收集系統有在送資料的時間窗，收集中斷超過偵測的 30 分鐘也不會把每個服務報成停掉。
 
 ## 學出來長什麼樣子
 
@@ -130,7 +130,7 @@ MAD（Median Absolute Deviation，中位數絕對偏差）＝「每個值離中�
 
 - **不用另外存狀態**：每次偵測多查前一個時間窗，從資料重算「連續第幾個」（`streak` 欄位），程式重啟也一樣。
 - **不降級**：上一輪已判成 anomaly 的時間窗，這一輪就算查的範圍沒包含它的前一個時間窗，也維持 anomaly。
-- 設定在 `series.yaml` 的 `status: {confirm_points: 2, confirm_span: 30m, instant_z: 15}`。每條序列可以自己設 `confirm_points`、`instant_z`；`tune --confirm-points 1 --instant-z 10` 可以再依對象調（寫進 `aiops-tuning`，之後回饋的建議也能調）。優先順序：對象 > 序列 > 全域（[pdca/phase2-anomaly/2026-10-instant-anomaly.md](../../../docs/pdca/phase2-anomaly/2026-10-instant-anomaly.md)）。
+- 設定在 `series.yaml` 的 `status: {confirm_points: 2, confirm_span: 30m, instant_z: 15}`。每條序列可以自己設 `confirm_points`、`instant_z`（`http.latency_p95_s` 設 `null`：不直接 anomaly；寫 0 會讓每個超標點都直接 anomaly）；`tune --confirm-points 1 --instant-z 10` 可以再依對象調（寫進 `aiops-tuning`，之後回饋的建議也能調）。優先順序：對象 > 序列 > 全域（[pdca/phase2-anomaly/2026-10-instant-anomaly.md](../../../docs/pdca/phase2-anomaly/2026-10-instant-anomaly.md)）。
 - 規則（`rules.yaml`）另外用 `for`（要持續多久）處理；重啟、Pod Failed 這類 critical 規則一次就算，不等。
 
 **時間上的效果**（預設 30 秒一點，見「自動調整 (1)」）：30 秒一點的序列，偵測每 30 秒跑一次，**跳一次約 30 秒後 warning、連續兩個 30 秒（約 1 分鐘）就是 anomaly**；粒度被調粗的序列（量少、或使用者、feedback 調過的）照它自己的時間窗算。
@@ -163,6 +163,11 @@ MAD（Median Absolute Deviation，中位數絕對偏差）＝「每個值離中�
 | 比一週長的週期（月底、季底批次） | 168 格只涵蓋一週 | 月底誤報 | `recurring_override` |
 | 指標不夠：沒有 p99、慢請求比例、往外呼叫耗時 | `series.yaml` 只有 7 條序列 | 只有 p95，看不到尾端 | 待排：加序列（改設定，不改公式） |
 | 借同組實際不會發生 | `series.yaml` 的 `groups` 是註解掉的範例，沒有 `groups` 就不借 | 新 API 沒有 baseline 可比 | 要依公司服務命名定義 `groups`（要別人配合） |
+| p95 從直方圖算，值落在桶中點 | MAD＝0，σ 只剩中位數的 5%；多兩個請求跨到下一格 z 約 23 | 已設 `instant_z: null`、`min_events.rate: 100`：合成資料一週 p95 anomaly 3.52% → 0.016%、warning 0.84% | 跨一格 z 仍大；待改程式（σ 至少半個桶寬），[threshold-tune](../../../docs/pdca/phase2-anomaly/2026-10-baseline-threshold-tune.md) |
+| 錯誤率一個 5xx 就到門檻 | `min_events` 20、`min_abs` 5%、`confirm_points` 1 | 已設 `min_events.rate: 100`：合成資料一週 0.34% → 0% | — |
+| 比例、百分位每窗至少 100 個請求 | 每 30 秒 40 個請求的 API 也湊不到三成時間窗，錯誤率、p95 變 5 分鐘一點 | 持續 5 分鐘的變慢只有 warning；30 秒的錯誤率尖峰被平均掉（33% → 3.3% 不報）；anomaly 最快 10 分鐘 | 待決定：退回 20、只留 `instant_z: null` 再量，[threshold-tune](../../../docs/pdca/phase2-anomaly/2026-10-baseline-threshold-tune.md) |
+| `hour` 層混平日與週末 | 每天同一小時不分星期幾 | 某個週一收集中斷後兩週，週一那幾小時流量掉九成只有 z −4；剛上線 3 天週一會 warning | 待評估：hour 層分平日／週末 |
+| 尖峰不對齊整點 | 168 格以整點切；08:45 起的尖峰只佔 8 點那格的四分之一 | 每個平日 08:45～09:00 報 anomaly | `recurring_override`；或待評估邊界比相鄰時段 |
 
 ## 自動調整：粒度、低頻事件、借用 baseline
 
@@ -196,7 +201,7 @@ MAD（Median Absolute Deviation，中位數絕對偏差）＝「每個值離中�
 
   | 指標類型 | 事件數是什麼 | 預設門檻（每窗） |
   |---|---|---|
-  | 比例（錯誤率）、百分位（p95） | 這段時間的請求數 | ≥ 20 |
+  | 比例（錯誤率）、百分位（p95） | 這段時間的請求數 | ≥ 100（1 個 5xx 最多 1%） |
   | 筆數（請求數、log 數、事件數） | 筆數本身 | ≥ 10 |
   | 量測值（CPU、記憶體） | 不檢查，固定最細（30 秒） | — |
 
@@ -222,7 +227,7 @@ MAD（Median Absolute Deviation，中位數絕對偏差）＝「每個值離中�
 | 指令 | `python3 -m detector tune --series http.latency_p95_s --match service=^mes-report --resolution 5m --z 7 --reason 誤報多 --by 王小明`，寫進 `aiops-tuning`（`--list` 列出、`--remove` 刪掉） | 同上 |
 | feedback（📝） | 之後的 feedback 流程寫同一個 `aiops-tuning`：同一條序列誤報累積多次 → 建議粒度往粗一級或調高 z，回測通過才寫入（見 [docs/feedback/README.md「對了怎麼強化、錯了怎麼 feedback」](../../../docs/feedback/README.md#對了怎麼強化錯了怎麼-feedback)） | 同上 |
 
-套用順序：自動選 → `series.yaml` 的 `overrides` → `aiops-tuning`，後面的蓋前面的。每筆調整記 `reason`、`by`、`at`，查得到誰、為什麼、什麼時候改的。
+套用順序：自動選 → `series.yaml` 的 `overrides`（檔案順序）→ `adjustments.yaml` → `aiops-tuning`（依 `at` 由舊到新），同一欄位後面的蓋前面的，不同欄位各自生效；不看 `match` 寫得多細（較晚寫的寬鬆調整會蓋掉較早的精細調整）。每筆調整記 `reason`、`by`、`at`，查得到誰、為什麼、什麼時候改的。
 
 ### (2) 很稀少的事件：卜瓦松
 
@@ -302,14 +307,16 @@ series:
 | `trace.segment.time_ms` | 每個請求在這一段花多久 | 下游拖累（簡訊廠商掛了）、熱點鎖、慢查詢 |
 | `trace.segment.error_rate` | 這一段出錯的請求比例 | 某個呼叫開始失敗 |
 | `trace.segment.new` | 這支 API 從來沒出現過的呼叫 | 換版後開始直連另一個資料庫、多呼叫一個外部系統（規則：這支 API 有 baseline、這一段沒有，每個請求至少 0.5 次） |
-| `trace.segment.swallowed_rate` | 這一段丟了例外、卻沒標成錯誤的請求比例 | 吞掉的例外（catch 掉、回空值或 200）變多 |
+| `trace.segment.swallowed_rate` | 這一段丟了例外、請求卻沒失敗的比例（這一段沒標錯誤；或這一段標了錯誤、入口沒有） | 吞掉的例外（catch 掉、回空值或 200）變多 |
 | `trace.clock_skew_ms` | 被呼叫方比呼叫方早開始（或晚結束）多少 | 時鐘不同步（規則，不用學：超過 500ms 就記） |
 | `trace.segment.repeated` | 同一個請求裡，同一個往外的呼叫平均幾次 | **N+1、迴圈裡打 API**（規則，不用學：≥ 20 次）。從上線第一天就有的 N+1，baseline 會學成平常，所以要有固定門檻 |
 | `trace.segment.swallowed` | 同上的吞掉例外比例 | **吞掉的例外**（規則，不用學：≥ 5% 的請求）。訊息帶例外種類，例如「5% 的請求丟了 System.TimeoutException，但沒標成錯誤」 |
 
 **訊息消費者（Kafka）：** 入口除了 HTTP 請求（Server），也算訊息消費者（Consumer）和「沒有上一層的 span」。消費者多一段「`服務 › 排隊（topic）← 生產者`」＝拿到訊息的時間 − 生產者送出的時間（生產者是上一層，或用 link 找回來）。.NET 自動埋點的消費者處理時查的 DB 自成一個 trace，當成自己的入口算，所以看得到「這個消費者寫 DB 變慢、出錯」。實測見 [docs/trace/scenarios.md 場景四](../../../docs/trace/scenarios.md#四非同步訊息佇列)。
 
-吞掉的例外要靠 Collector：ES 不存 span 的例外事件，node Collector 先把例外的種類、訊息抄到 span 的屬性（`exception.type`、`exception.message`，[node.yaml](../../../telemetry/collectors/node.yaml) 的 `transform/exceptions`）。
+吞掉的例外要靠 Collector：ES 不存 span 的例外事件，node Collector 先把例外的種類、訊息抄到 span 的屬性（`exception.type`、`exception.message`，[node.yaml](../../../telemetry/collectors/node.yaml) 的 `transform/exceptions`）。兩種樣子都算吞掉：這一段有例外、status 沒設；或這一段有例外又標了錯誤，但這個服務的入口沒標錯誤（Java agent 的 JDBC、HTTP client 丟例外一定標錯誤，程式 catch 掉、回 200 就是這樣）。錯誤傳到入口（回 500）的算錯誤，不算吞掉。
+
+往外呼叫的對象依序取 `peer.service`、`db.system`、`db.system.name`（新版 DB 語意）、`server.address`；都沒有的 Client span 段名沒有「→ 對象」，`repeated`（N+1）規則看不到。
 
 **尾端取樣之後只用隨機那份：** trace-sampler 把錯的、慢的全留，正常的只留 5%；直接拿留下來的算平均，錯誤率、時間都會偏高。所以抽樣只抽 `tailsampling.policy = random` 的請求（[trace.yaml](trace.yaml) 的 `sample_policy`）；隨機那 5% 錯的慢的也一樣抽，統計跟「全部都記」一樣。
 
@@ -366,6 +373,10 @@ python3 -m detector trace-detect  --config configs/baseline/trace.yaml   # 每 5
 
 單元測試（`tests/test_trace.py`）在記憶體裡模擬 4 週、每小時 20 個請求，同樣 4 個案例都抓到、正常 5 次 0 誤報。
 
+邊緣情境（`tests/trace_quality_edge_e2e.py`，自己的 ES 灌合成 trace，照正式規則做尾端取樣）見 [trace-quality-verify](../../../docs/pdca/phase2-anomaly/2026-10-trace-quality-verify.md)：
+- 只讀 random：錯誤率 4.3%（真實 4.0%）；混進全留的那份是 34.6%。
+- 抓不到的：只有 10% 請求慢 2 秒；每 5 分鐘不到 100 個請求的 API 學不到。
+
 ## 規則：狀態變化、離極限多遠
 
 有些問題不用學「平常」：發生了就是問題（容器重啟、副本不夠），或有明確的上限（記憶體、磁碟）。這些用規則判斷，**不用歷史，裝上去第一天就有用**。規則在 [rules.yaml](rules.yaml)：
@@ -388,12 +399,12 @@ python3 -m detector trace-detect  --config configs/baseline/trace.yaml   # 每 5
 | `jvm.major_gc_frequent` | major GC 次數 | 5 分鐘內 ≥ 5 次 | warning |
 | `jvm.gc_overhead` | GC 花的時間 ÷ 經過的時間 | ≥ 10%，3 分鐘（heap 大的服務） | warning |
 | `db.pool_exhausted`、`db.pool_waiting` | 連線池使用中 ÷ 上限；排隊中的請求 | ≥ 90%，1 分鐘；≥ 1，1 分鐘 | critical／warning |
-| `kafka.consumer_lag`、`kafka.consumer_lag_growing` | 消費落後筆數；5 分鐘增加多少 | ≥ 10,000，3 分鐘；≥ 5,000 | warning |
+| `kafka.consumer_lag`、`kafka.consumer_lag_growing` | 消費落後筆數；5 分鐘淨增加多少（`delta`） | ≥ 10,000，3 分鐘；≥ 5,000 | warning |
 | `eap.secs_disconnected`、`eap.plc_scan_slow`、`eap.secs_retransmits` | 機台 SECS 通訊、PLC 掃描週期、重傳（依 `equipment_id`） | 斷線 1 分鐘；≥ 規格 50ms，2 分鐘；5 分鐘重傳 ≥ 10 次 | critical／warning |
 
 四個領域的案例與實測見 [docs/metrics/cases.md](../../../docs/metrics/cases.md)。
 
-寫法：`value`（欄位跟門檻比）、`compare`（兩個欄位相減）、`ratio`（欄位 ÷ 分母）、`increase`（累計值增加多少，歸零重來也算得對）、`increase_ratio`（兩個累計值增加量的比例）、`rate`（加總 ÷ 秒數）、`total`（加總；`hist_count` 數直方圖的次數）。分母在另一種文件時用 `join` 補進來。`for` 是「這段時間都成立才算」，`min_ratio` 放寬成「這段時間裡至少多少比例成立」。對象不在了（Pod 刪掉、節點拿掉，最新的資料超過 2 分鐘）就不報；只有容器重啟、Job 失敗設了 `report_gone: true`，刪掉了也照報。要加規則，在 rules.yaml 加一段，不用改程式。
+寫法：`value`（欄位跟門檻比）、`compare`（兩個欄位相減）、`ratio`（欄位 ÷ 分母）、`increase`（累計值增加多少，歸零重來也算得對；只能用在計數器）、`delta`（量測值淨增加多少，最後 − 最前；例如 Kafka 落後）、`increase_ratio`（兩個累計值增加量的比例）、`rate`（加總 ÷ 秒數）、`total`（加總；`hist_count` 數直方圖的次數）。分母在另一種文件時用 `join` 補進來。`for` 是「這段時間都成立才算」（對象要在 for 開頭之前就有資料：新建的 Pod、Deployment 等滿 for 才報），`min_ratio` 放寬成「這段時間裡至少多少比例成立」。對象不在了（Pod 刪掉、節點拿掉，最新的資料超過 2 分鐘）就不報；只有容器重啟、Job 失敗設了 `report_gone: true`，刪掉了也照報。要加規則，在 rules.yaml 加一段，不用改程式。一條規則查詢失敗（或核准的草稿缺欄位）只跳過那一條、其他照跑，指令最後 exit 1。核准的規則草稿（`aiops-tuning` 的 `rule_suggestion`）`expires_at` 到了就不載入。邊緣案例見 `tests/rules_edge_e2e.py`。
 
 觸發的寫進 `aiops-anomalies`：`series` 是 `rule.<名稱>`、`level` 是 `rule`，另外有 `severity`、`message`（例如「容器重啟：rules-test、crash-app-…、app（1，門檻 >= 1）」）、`since`（從什麼時候開始成立）。同一條規則、同一個對象，1 分鐘只記一筆。
 
@@ -417,8 +428,9 @@ python3 -m detector rules --config configs/baseline/rules.yaml      # 每分鐘
 怎麼比：每個 Pod 跟「**其他** Pod」的中位數、MAD 比（跟 baseline 一樣的穩健統計；比的時候不含自己，壞掉的那個不會把標準拉過去）。另外：
 - **至少 3 個 Pod 才比**：只有 2 個分不出誰才是怪的。
 - **只比現在還在的 Pod**（最近 2 分鐘有資料）：換版、縮容刪掉的不算兄弟。換版途中新舊 Pod 會一起比，新版的 Pod 都比舊的差也會報，這正好是想知道的。
+- **剛起來的 Pod 不比**（`warmup` 5 分鐘：window 開頭到 5 分鐘前之間沒有資料的不比）：啟動時 CPU 高、記憶體還在長，會誤報新 Pod 自己，或在擴容時讓舊 Pod 的記憶體看起來偏高。一起來就壞的 Pod 5 分鐘後照樣抓。
 - **流量太少的 Pod 不比錯誤率、延遲**（10 分鐘不到 20 個請求）：一兩個錯就跳很高。
-- **全部一起壞不報**：例如下游 DB 掛了，每個 Pod 都錯，那不是「某個 Pod」的問題，交給 baseline 和規則。
+- **全部一起壞不報**：例如下游 DB 掛了，每個 Pod 都錯，那不是「某個 Pod」的問題，交給 baseline 和規則。其他 Pod 的中位數已經到規則門檻（錯誤率 5%、p95 2 秒，`max_peer_median`）時，最嚴重的那個也不單獨挑出來。
 - 門檻比 baseline 寬（`rel_floor` 10%，再加上至少差多少、至少幾倍）：同一個服務的 Pod 本來就不會一模一樣。
 
 觸發的寫進 `aiops-anomalies`：`series` 是檢查名稱（`peer.…`）、`level` 是 `peer`、`median` 是其他 Pod 的中位數，`message` 例如「這個 Pod 的錯誤率比同服務其他 Pod 高：metrics-cases、dotnet-app、dotnet-app-…（100%，其他 2 個 Pod 中位數 0%，z=…）」。
@@ -435,6 +447,8 @@ python3 -m detector peer --config configs/baseline/peer.yaml      # 每分鐘
 | 連線池漏光 | 一個 Pod 拿了連線不還，之後的請求等 2 秒後 500 | 4 分鐘：錯誤率 **13%**（其他 0%）、p95 **1,750ms**（其他 2ms） | 不報 |
 | 記憶體洩漏 | 一個 Pod 每個請求 32KB 放進不會清的 list | 第 5 分鐘：**294MB**（其他 163MB） | 不報 |
 | 無窮迴圈 | 一個 Pod 裡有程式佔滿 1 核 | 第 3 分鐘：CPU **0.65 核**（其他 0.21 核，10 分鐘平均） | 不報 |
+
+副本數 1～5、Pod 換掉、擴縮容、全壞、同名服務的邊緣情境：[phase2-anomaly/2026-10-peer-verify.md](../../../docs/pdca/phase2-anomaly/2026-10-peer-verify.md)。
 
 同一段時間整個服務的錯誤率是 **9%**（3 個 Pod 裡 1 個壞）。這次服務平常是 0%，跟平常比（baseline）也會報，但只知道「服務錯誤率高」、不知道是哪個 Pod；Pod 越多稀釋越多：10 個 Pod 壞 1 個大約剩 1%，就低於 baseline 的門檻（多 5 個百分點）了。
 
@@ -476,7 +490,8 @@ baseline 看過去 4 週學「平常」，那 4 週混了壞資料就學錯：�
 
 - **對象**：`series`（正規表示式）、`match`（正規表示式，欄位可用別名：`service` 同時對到 `service`、`service.name`、`resource.attributes.service.name`、`entry.service`；另有 `namespace`、`pod`、`deployment`、`route`、`method`）。`tune` 的 `match` 也能用別名。
 - **週期**：`schedule: {cron: "0 20 * * *", duration: 4h, days_of_month: [-1]}`：台北時間每天 20:00 起 4 小時，只限每月最後一天（cron 寫不出「最後一天」）。
-- **learning loop 的接口**：`status: proposed` 不生效，`adjust approve` 才生效；`source` 記誰寫的（`manual`／`feedback`／`cicd`）；`expires_at` 到期自動失效。
+- **時間**：沒寫時區的（`--start 2026-10-20T02:00`、`adjustments.yaml` 的 `start`）是台北時間（`train.timezone`），跟行事曆一樣。
+- **learning loop 的接口**：`status: proposed` 不生效，`adjust approve` 才生效；`source` 記誰寫的（`manual`／`feedback`／`cicd`）；`expires_at` 到期自動失效（以這輪 `train --end`、`detect --at` 的時間點判斷，回放時看得到當時的設定）。讀不到 `aiops-tuning` 時印警告、只用設定檔的；缺欄位、正規表示式錯的調整略過那一筆並印出，不讓整輪失敗。
 
 ```bash
 python3 -m detector adjust add --kind exclude_window --match service=^mes-api$ \
@@ -555,7 +570,7 @@ python3 -m detector chronic --config configs/baseline/chronic.yaml   # 每週一
 
 **資料來源**：負責人（`owners`）和行事曆（`calendar`）是要別人提供的資料，程式只認格式，來源可以換（`file`、`http`，行事曆另有 `taiwan`）。**接口**在 [detector/sources.py](../../detector/sources.py) 和 [interfaces/](../../interfaces/README.md)，**假資料**在 [fake-data/](../../fake-data/README.md)，兩邊分開；換成真的只改設定。
 
-**行事曆**：歲修、機房維護、大型活動，寫在 [calendar.yaml](calendar.yaml)，**一次歲修一筆、不合併**（`match` 限定哪個廠、哪些服務）。工廠 24×7，國定假日跟平日一樣，**不列**（列了會把假日的資料從 baseline 挖掉）；只有週休的辦公室系統才打開 `taiwan` provider（[TaiwanCalendar](https://github.com/ruyut/TaiwanCalendar)，含補班日，抓到的存 `.cache/calendar`，失敗用快取）。每一筆變成 `exclude_window`：預設不學也不報；`detect: true` 時只是不學、照常判斷（例如活動日流量本來就高）。日期是當地的一整天（`date`），或一段（`start`、`end`，可帶時間）。`adjust list` 會一起列出。
+**行事曆**：歲修、機房維護、大型活動，寫在 [calendar.yaml](calendar.yaml)，**一次歲修一筆、不合併**（`match` 限定哪個廠、哪些服務）。工廠 24×7，國定假日跟平日一樣，**不列**（列了會把假日的資料從 baseline 挖掉）；只有週休的辦公室系統才打開 `taiwan` provider（[TaiwanCalendar](https://github.com/ruyut/TaiwanCalendar)，含補班日，抓到的存 `.cache/calendar`，失敗用快取），**而且來源要寫 `match`** 限定那些系統：來源的 `match`、`series`、`detect` 套到它的每一天，不寫就是假日那天所有服務都不學、不判斷，24×7 的服務當天真的故障也被吞掉（靜態臨界值規則不看行事曆，照報）。每一筆變成 `exclude_window`：預設不學也不報；`detect: true` 時只是不學、照常判斷（例如活動日流量本來就高）。日期是當地的一整天（`date`），或一段（`start`、`end`，可帶時間）。`adjust list` 會一起列出。
 
 **實測**（2026-10-24，ES 9.5.5）：
 
@@ -575,11 +590,13 @@ baseline 用中位數＋MAD，只擋得住「少數」怪的點。資料本身�
 
 | 檢查 | 看什麼 | 觸發 |
 |---|---|---|
-| `quality.route_cardinality`（Java）、`…_dotnet` | 每個服務有幾條路由；抽 50 個值看像不像帶了 ID（數字、UUID、長 hex） | 超過 500 條；或比昨天多 3 倍且多 50 條以上；或至少 50 條且一半以上像 ID（路由沒參數化：`/orders/123` 沒換成 `/orders/{id}`） |
+| `quality.route_cardinality` | 每個服務有幾條路由（metrics 的 `http.route`）；抽最多 500 個值看像不像帶了 ID（數字、UUID、長 hex） | 超過 500 條；或比昨天多 3 倍且多 50 條以上；或至少 50 條且一半以上像 ID（路由沒參數化：`/orders/123` 沒換成 `/orders/{id}`） |
+| `quality.trace_name_cardinality` | 同上，看 trace 入口 span 的名稱（自己用 SDK 埋點、把真實路徑放進名稱時，trace 每一段的 baseline 每個名稱都不到 `min_requests`，整個服務學不到） | 同上 |
 | `quality.log_missing_identity` | log 缺 `service.name`、`kubernetes.pod.name`（依 namespace） | 缺 5% 以上（至少 100 筆才看） |
 | `quality.metrics_missing_identity` | 應用 metrics 缺 Pod、namespace（依服務） | 缺 5% 以上 |
+| `quality.metrics_missing_service` | 應用 metrics 缺 `service.name`（依 namespace：依服務分的話，缺服務名的那組看不出來源） | 缺 5% 以上（至少 20 筆） |
 | `quality.log_trace_id_drop` | 帶 `trace.id` 的 log（依服務） | 缺的比例比昨天多 30 個百分點以上（本來就不是每行都有，只看變化） |
-| `quality.log_stopped`、`quality.metrics_stopped` | 之前 1 小時有資料、最近 15 分鐘（metrics 5 分鐘）一筆都沒有 | 之前至少 30 筆（metrics 20 筆） |
+| `quality.log_stopped`、`quality.metrics_stopped`、`quality.trace_stopped` | 之前 1 小時有資料、最近 15 分鐘（metrics 5 分鐘）一筆都沒有；trace 只看入口 span | 之前至少 30 筆（metrics 20 筆） |
 | `quality.log_unassigned_share`、`quality.metrics_unassigned_share` | 落到 `unassigned` 的比例（namespace 沒標 dept、`dept` 清單漏同步） | 比昨天多 5 個百分點以上 |
 | `quality.log_ingest_lag` | 收資料延遲：Collector 讀到（`event.created`）→ 寫進 ES（`event.ingested`），依服務、最近 15 分鐘（用寫進 ES 的時間篩） | p95 ≥ 60 秒 |
 | `quality.log_clock_skew` | 應用的時間（`@timestamp`）跟節點（`event.created`）差多少，只看時間是應用自己寫的（用 Collector 讀到的時間篩） | 中位數快或慢 ≥ 5 分鐘（時鐘偏了、時區寫錯） |
@@ -590,7 +607,7 @@ baseline 用中位數＋MAD，只擋得住「少數」怪的點。資料本身�
 
 - 門檻都是先估的。正式環境排程後先只寫入、不通知，跑 2～4 週，看每個檢查觸發幾次、哪些是真的，再由平台的人手動改 [quality.yaml](quality.yaml)。
 - `quality` 不讀 `aiops-tuning`：不能用 `tune`、`adjust` 依對象調，回饋建議（`feedback suggest`）也不會動它。
-- 只跟昨天比的檢查（`log_trace_id_drop`、`*_unassigned_share` 的增量）第一天沒有比較對象，不會報；要第一天就有用的設 `max_share` 這類絕對上限。
+- 只跟昨天比的檢查（`log_trace_id_drop`、`*_unassigned_share` 的增量、`*_cardinality` 的倍數）第一天沒有比較對象，不會報；要第一天就有用的設 `max_share` 這類絕對上限。`*_cardinality` 第一天只看上限 500 條和「一半以上像 ID」；昨天有資料、只是沒有這個服務的（新服務），倍數照樣從 0 算。
 
 ```bash
 python3 -m detector quality --config configs/baseline/quality.yaml   # 每 10 分鐘
@@ -609,6 +626,8 @@ python3 -m detector quality --config configs/baseline/quality.yaml   # 每 10 �
 | 落到 unassigned 的 log 佔 13%（沒有昨天的資料） | 不報（沒有比較對象）；加上 `max_share: 0.1` 會報 |
 
 沒驗證：正式環境的量下查詢要多久（`cardinality` 是近似值，3,000 以下準確）。
+
+邊緣情境（新的三個檢查、第一天、failure store、缺 namespace）見 [trace-quality-verify](../../../docs/pdca/phase2-anomaly/2026-10-trace-quality-verify.md)。抓不到的一種：Pod 沒有 `app.kubernetes.io/name` 時，log pipeline 用 container 名稱當服務名，`log_missing_identity` 不算它缺。
 
 ## 怎麼跑
 

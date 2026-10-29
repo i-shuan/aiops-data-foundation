@@ -22,7 +22,13 @@ JOBS = [
 HEAD = ["# 每個指令一個 CronJob（docs/pdca/phase3-locate/2026-10-schedule.md 的表）。這個檔是 deploy/gen-cronjobs.py 產生的，改表要改那裡。",
         "# 第一階段只開這 4 個（rules、detect、alert、train）；其他 6 個在 cronjobs-stage2.yaml，四個跑穩了再在 kustomization 打開。",
         "# 共同點：concurrencyPolicy Forbid（上一次沒跑完就跳過這次）、startingDeadlineSeconds（錯過就不補跑，下一分鐘再來）、",
-        "#         activeDeadlineSeconds（卡住就砍）、只留最近 1 次成功、3 次失敗的 Pod 方便看 log。時區跟著 TZ（CronJob 的 timeZone）。"]
+        "#         activeDeadlineSeconds（卡住就砍）、只留最近 1 次成功、3 次失敗的 Pod 方便看 log。時區跟著 TZ（CronJob 的 timeZone）。",
+        "# 失敗重試：每 1～10 分鐘的 backoffLimit 0（下一輪就是重試）；每天、每週的 backoffLimit 2（不然要等明天、下週）。"]
+
+# 每天、每週跑一次的：失敗了不重試就要等一整天（train 失敗 → baseline 舊一天），所以 Job 內重試 2 次；
+# 每幾分鐘跑的不重試：下一輪就是重試，Job 內重試只會跟下一輪擠在一起（Forbid 會讓下一輪被跳過）
+def backoff_limit(cron: str) -> int:
+    return 0 if cron.split()[1] == "*" else 2
 
 
 def render(name, cron, args, why, deadline):
@@ -42,7 +48,7 @@ spec:
   failedJobsHistoryLimit: 3
   jobTemplate:
     spec:
-      backoffLimit: 0
+      backoffLimit: {backoff_limit(cron)}
       activeDeadlineSeconds: {deadline}
       template:
         metadata:

@@ -505,7 +505,8 @@ rules:
     severity: warning
     index: metrics-*.otel-*
     field: metrics.kafka_consumergroup_lag_sum
-    type: increase            # 5 分鐘內落後增加超過 5,000 筆（消費者停了或變慢）
+    type: delta               # 5 分鐘內落後淨增加超過 5,000 筆（消費者停了或變慢）。落後是量測值不是計數器，
+                              # 用 increase 的話落後變少（追上來）會被當成歸零重來，反而報
     op: ">="
     threshold: 5000
     for: 5m

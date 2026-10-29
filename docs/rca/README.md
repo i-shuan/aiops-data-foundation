@@ -119,11 +119,11 @@
 |---|---|---|---|---|
 | **服務名稱** | `resource.attributes.service.name` | `resource.attributes.service.name` | `resource.attributes.service.name`（alias → `service.name`） | metrics 報「哪個服務」→ 去找那個服務的 trace、log |
 | **時間** | 異常的 5 分鐘時段 | span 的 `@timestamp` | log 的 `@timestamp` | 只看出事那段 |
-| **路由** | `attributes.http.route`、`http.request.method`（Java 的由 Collector 改成這個名字） | span 的同名 attribute | —（REST API 解析規則做了才有） | metrics 報「哪支 API」→ 撈那條路由的 trace |
+| **路由** | `attributes.http.route`、`http.request.method`（Java 的由 Collector 改成這個名字） | Server span 的名稱（`GET /lots/{id}`，由 method＋路由組成）；同名 attribute 也有，但 RCA 比的是名稱 | —（REST API 解析規則做了才有） | metrics 報「哪支 API」→ 撈那條路由的 trace |
 | **Pod、namespace** | `resource.attributes.k8s.pod.name` 等 | 同左 | 同左（alias → `kubernetes.pod.name`） | 規則、Pod 同儕橫向比對報的是單一 Pod 時 |
 | **trace_id** | — | `trace_id` | `trace_id`（alias → `trace.id`） | trace ↔ log 精確對到「同一個請求」 |
 
-**兩段的精度不一樣**。metrics 是聚合過的（一個時間窗、一個服務、一條路由一筆直方圖），沒有任何一筆帶 trace_id，所以 **metrics → trace 是「服務＋API＋時間窗」的統計對應**：metrics 說「這支 API 這 5 分鐘錯誤率 10%」，根因分析去 trace 撈同一個服務、同一條路由、同一段時間的 Server span，挑最慢的 200 個加出錯的 100 個當樣本（[engine/investigator/es.py](../../engine/investigator/es.py) 的 `entry_filter`、`sample_trace_ids`）。它不保證挑到的就是讓 metrics 變差的那幾個請求，只是同一群母體裡的樣本；事故影響所有請求時兩邊一致。**trace → log 才是 `trace_id` 的精確對應**（同一個請求）；log 也帶 `span.id`，能再精確到「哪一段印的」，目前撈 log 只用 trace_id。trace 內部用 `span_id`／`parent_span_id` 組出呼叫樹，每一段只算自己的時間。實測：[pdca/phase3-locate/2026-10-rca-demo.md](../pdca/phase3-locate/2026-10-rca-demo.md)。
+**兩段的精度不一樣**。metrics 是聚合過的（一個時間窗、一個服務、一條路由一筆直方圖），沒有任何一筆帶 trace_id，所以 **metrics → trace 是「服務＋API＋時間窗」的統計對應**：metrics 說「這支 API 這 5 分鐘錯誤率 10%」，根因分析去 trace 撈同一個服務、同一條路由、同一段時間的 Server span，挑最慢的 200 個加出錯的 100 個當樣本（[engine/investigator/es.py](../../engine/investigator/es.py) 的 `entry_filter`、`sample_trace_ids`）。它不保證挑到的就是讓 metrics 變差的那幾個請求，只是同一群母體裡的樣本；事故影響所有請求時兩邊一致。時間對齊、counter 歸零、只有一部分變慢都對得上（跨 5 分鐘邊界 1.9%、重啟少一次抓取、慢的 100% 挑到），名稱對不上時整個撈不到（[pdca/phase1-collect/2026-10-metrics-trace.md](../pdca/phase1-collect/2026-10-metrics-trace.md)）。**trace → log 才是 `trace_id` 的精確對應**（同一個請求）；log 也帶 `span.id`，能再精確到「哪一段印的」，目前撈 log 只用 trace_id。trace 內部用 `span_id`／`parent_span_id` 組出呼叫樹，每一段只算自己的時間。實測：[pdca/phase3-locate/2026-10-rca-demo.md](../pdca/phase3-locate/2026-10-rca-demo.md)。
 
 ### 為什麼不用 exemplar：用「服務＋路由＋時間」撈一批
 
@@ -143,7 +143,10 @@ exemplar（直方圖每格附幾個範例請求的 trace_id）是讓 metrics 直
 | 每一段用平均（`compare_segments`），一兩筆特別慢的會拉高 | 少數極慢的請求可能讓排名失真 | 加「這批慢請求裡有幾成最卡在這一段」和中位數 |
 | 瀑布圖和用 trace_id 撈 log 只用最慢的 1 筆 | 最慢的那筆可能是特例 | 改成幾筆卡在主要瓶頸段的 |
 | 出事時挑最慢的、平常（一週前同時段）挑那段最近的（`sample_trace_ids`），兩邊樣本性質不同 | 差距被放大：排名可信，絕對值要保守看 | 平常也挑同等級的 |
-| 比 1 秒快的變慢（例如 200ms → 800ms）不會被尾端取樣當成慢的，只剩隨機 5% 的 trace | 這類變慢的結論弱 | 評估降低慢的門檻或提高隨機比例 |
+| 比 1 秒快的變慢（例如 200ms → 800ms）不會被尾端取樣當成慢的，只剩隨機 5% 的 trace | 實測 1,586 個請求剩 88 個（5.5%）；流量小的路由只剩個位數 | 評估降低慢的門檻或提高隨機比例 |
+| 路由用 span 名稱比（`entry_filter`）；路由沒參數化、舊 Java agent 的 span 名稱沒有 method 時對不上 | 實測三種都撈到 0 筆 | 改比 `attributes.http.route`＋method |
+| `service.name` 只在 Pod 有 `app.kubernetes.io/name` label 時統一（Collector 蓋掉應用自設的） | 有 label：實測撈得到全部 1,571 筆；沒 label 時可能不一致、撈到 0（未測） | 測沒 label 的 Pod |
+| 樣本固定 200 個，慢的不到 200 個時用正常請求補 | 實測 10% 慢 2 秒：慢的 143 個全挑到，另 57 個正常的 | 同第一列 |
 | 慢、錯的 trace 在 `traces-problem`（留 30 天），RCA 讀 `traces-*.otel-*` 兩種都讀得到，但沒有用它實際跑過 RCA | B 依賴慢、錯的 trace 留得夠久且讀得到 | 用故障案例驗 |
 | Java 那條路帶不帶得了 exemplar 沒測 | ES 之後支援 exemplar 時，Java 要另外驗 | ES 升級時重測 |
 

@@ -153,6 +153,28 @@ class LoadCalendar(unittest.TestCase):
             entries, _ = S.load_calendar(cfg)
             self.assertEqual([e["name"] for e in entries], ["假"])
 
+    def test_source_scope_applies_to_each_entry(self):
+        # 台灣行事曆的每一天沒有 match：來源寫 match 才不會把 24×7 的服務一起吞掉（2026-10-adjust-schedule-verify.md）
+        cfg = {"sources": [{"provider": "taiwan", "years": [2026], "cache_dir": None,
+                            "match": {"service": "^office$"}, "series": "http\\..*"}],
+               "calendar": [{"date": "2026-11-01", "name": "UPS", "type": "maintenance"}]}
+        entries, _ = S.load_calendar(cfg, fetch=lambda url, headers=None, timeout=20: YEAR_2026, now=NOW)
+        tw = [e for e in entries if e["name"] != "UPS"]
+        self.assertTrue(tw and all(e["match"] == {"service": "^office$"} and e["series"] == "http\\..*" for e in tw))
+        self.assertNotIn("match", next(e for e in entries if e["name"] == "UPS"))   # 直接寫的不受影響
+        adjs = A.calendar_adjustments(entries, "Asia/Taipei")
+        key = {"service": "fab"}
+        self.assertFalse(any(A.match_keys(key, a["match"]) for a in adjs if a.get("match")))
+        # 那一筆自己寫的優先
+        entries, _ = S.load_calendar({"sources": [{"provider": "file", "path": self.write_tmp(), "detect": True}]})
+        self.assertEqual([e["detect"] for e in entries], [True, False])
+
+    def write_tmp(self):
+        d = tempfile.mkdtemp()
+        self.addCleanup(lambda: __import__("shutil").rmtree(d))
+        return self.write(d, "c.json", {"calendar": [{"date": "2099-01-01", "name": "a"},
+                                                     {"date": "2099-01-02", "name": "b", "detect": False}]})
+
     def test_disabled_source_skipped(self):
         calls = []
         S.load_calendar({"sources": [{"provider": "taiwan", "enabled": False}]}, fetch=fetcher({}, calls), now=NOW)

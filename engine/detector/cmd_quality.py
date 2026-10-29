@@ -14,7 +14,8 @@ def quality_hits(es, c: dict, now, window, ref_offset) -> list[dict]:
     start, rs, re_ = now - window, now - window - ref_offset, now - ref_offset
     keys, t = Q._keys(c), c["type"]
     if t == "cardinality":
-        return Q.eval_cardinality(Q.fetch_cardinality(es, c, start, now), Q.fetch_cardinality(es, c, rs, re_, 0), keys,
+        return Q.eval_cardinality(Q.fetch_cardinality(es, c, start, now, c.get("sample_values", 500)),
+                                  Q.fetch_cardinality(es, c, rs, re_, 0), keys,
                                   max_values=c.get("max_values"), ratio=c.get("ratio", 3.0),
                                   min_increase=c.get("min_increase", 50), id_share_min=c.get("id_share", 0.5))
     if t == "missing":
@@ -55,7 +56,8 @@ def cmd_quality(cfg: dict, args) -> int:
         window = pd.Timedelta(_freq(c.get("window", cfg.get("window", "1h"))))
         hits = quality_hits(es, c, now, window, ref_offset)
         for h in hits:
-            keys = {**{k: v for k, v in h["key"].items() if v is not None}, **({"field": h["field"]} if "field" in h else {})}
+            keys = {**{k: v for k, v in h["key"].items() if _v(v) is not None},   # NaN 寫進 ES 會整批被拒
+                    **({"field": h["field"]} if "field" in h else {})}
             msg = Q.describe(c, h)
             docs.append((doc_id(c["name"], keys, slot), {
                 "@timestamp": slot.isoformat(), "series": c["name"], "rule": c["name"], "keys": keys,

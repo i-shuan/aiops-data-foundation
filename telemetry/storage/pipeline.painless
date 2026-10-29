@@ -46,7 +46,9 @@ if (k != null) {
 
   Map service = new HashMap();
   String name = str(podLabels, 'app.kubernetes.io/name');
-  // 沒套 chart 的服務退回用 container 名稱，至少不會是空的
+  // 沒套 chart 的服務：OpenTelemetry Collector 送的用 Collector 決定的名稱（Deployment 名稱，跟 metrics、trace 一樣），
+  // Fluent Bit 送的退回 container 名稱，至少不會是空的
+  if (name == null && k.get('service_name') != null) name = k.get('service_name').toString();
   service.put('name', name != null ? name : k.get('container_name'));
   String version = str(podLabels, 'app.kubernetes.io/version');
   if (version != null) service.put('version', version);
@@ -69,3 +71,6 @@ for (int i = 0; ok && i < format.length(); i++) {
   ok = (c >= (char) 97 && c <= (char) 122) || (c >= (char) 48 && c <= (char) 57) || c == (char) 45;
 }
 ctx.log = ['format': ok ? format : 'default'];
+// 從哪收的：file（容器 log 檔，Fluent Bit 那條也是）或 otlp（應用 agent 直送）。k8s-logs-otel 填 _log_source
+def source = ctx.remove('_log_source');
+ctx.log.put('source', source != null ? source : 'file');

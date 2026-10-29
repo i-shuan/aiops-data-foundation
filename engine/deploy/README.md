@@ -38,7 +38,7 @@ kubectl -n aiops get cronjob
 | `aiops-trace-collect`、`aiops-trace-train`、`aiops-trace-detect` | 2 | 每 5 分鐘／每天 02:20／每 5 分鐘 | `detector trace-*` | trace 每一段的 baseline；trace 有取樣、只留 7 天，學出來本來就偏 |
 | `aiops-chronic` | 2 | 每週一 08:00 | `detector chronic` | 慢性病清單，要幾週資料才有意義 |
 
-共同點：`concurrencyPolicy: Forbid`（上一次沒跑完就跳過這次，不會兩份同時寫）、`startingDeadlineSeconds`（錯過就不補跑）、`activeDeadlineSeconds`（卡住就砍）、`backoffLimit: 0`（失敗不重試，下一分鐘再來）、留最近 1 次成功、3 次失敗的 Pod 看 log。
+共同點：`concurrencyPolicy: Forbid`（上一次沒跑完就跳過這次，不會兩份同時寫）、`startingDeadlineSeconds`（錯過就不補跑）、`activeDeadlineSeconds`（卡住就砍）、`backoffLimit`（每幾分鐘的 0：下一輪就是重試；每天、每週的 2：不然要等明天）、留最近 1 次成功、3 次失敗的 Pod 看 log。
 
 ## 「AIOps 停了」怎麼知道
 
@@ -48,7 +48,18 @@ kubectl -n aiops get cronjob
 
 上線前 2～4 週 Grafana 先不接 contact point（或全部送到沒人看的 webhook），讓它跑、累積 `aiops-alerts`、`aiops-feedback`。期間用 `python3 -m detector metrics --from … --to …` 記下基準（每天幾件、誤報率），再開通知。
 
-## 驗證過的（2026-10-25）
+## 驗證過的
 
-- image 在本機 docker build 成功（391 MB；pip 要經公司 proxy 時，`--cert` 給 CA）；用它跑 `investigator alert`、`detector metrics`、`feedback_web`（`/health`、`/feedback?alert=…`）對著測試 ES 都正常；容器內是非 root（uid 10001）。
-- 4 個 yaml 都能被 `yaml.safe_load` 讀；**沒有 K8s 可以 `kubectl apply`**，CronJob 真的照頻率跑、`Forbid` 真的擋住重疊，要到有 cluster 才驗得到。
+- 2026-10-25：image 在本機 docker build 成功（pip 要經公司 proxy 時，`--cert` 給 CA）；`investigator alert`、`detector metrics`、`feedback_web` 對著測試 ES 正常；容器內非 root（uid 10001）。
+- 2026-10-28，本機 K8s（k3s v1.30）連測試 ES 跑 30 分鐘（[e2e/local-k3s/run-schedule-e2e.sh](../../e2e/local-k3s/run-schedule-e2e.sh)，結果見 [adjust-schedule-verify](../../docs/pdca/phase2-anomaly/2026-10-adjust-schedule-verify.md)）：
+
+| 項目 | 結果 |
+|---|---|
+| rules、detect、alert 每分鐘 | 各 29 次都成功、沒漏；最久 8、10、7 秒 |
+| train | 手動 21 秒；排程依 `timeZone` 台北時間那一分鐘跑 |
+| `Forbid` | alert 卡 150 秒時後面兩分鐘不開新的；同時最多 1 個 |
+| `activeDeadlineSeconds` | detect 卡住 50 秒被砍（`DeadlineExceeded`） |
+| 失敗 | key 壞掉時 3 個都 Failed、修好下一分鐘成功；train 連不到 ES 跑 3 次 |
+| 心跳 | 每分鐘更新，最長間隔 60 秒 |
+
+本機測試用 overlay [e2e/local-k3s/engine-schedule/](../../e2e/local-k3s/engine-schedule/kustomization.yaml)：只換 namespace、`ES_URL`、image，image 用 `nerdctl -n k8s.io build` 直接進 containerd。

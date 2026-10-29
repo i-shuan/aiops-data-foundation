@@ -160,7 +160,7 @@ spec:
   failedJobsHistoryLimit: 3
   jobTemplate:
     spec:
-      backoffLimit: 0
+      backoffLimit: 2
       activeDeadlineSeconds: 3600
       template:
         metadata:
@@ -196,7 +196,7 @@ spec:
   failedJobsHistoryLimit: 3
   jobTemplate:
     spec:
-      backoffLimit: 0
+      backoffLimit: 2
       activeDeadlineSeconds: 1800
       template:
         metadata:

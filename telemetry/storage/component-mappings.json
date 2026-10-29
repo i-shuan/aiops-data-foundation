@@ -13,6 +13,7 @@
           "logger": {"type": "keyword"},
           "format": {"type": "keyword"},
           "parser": {"type": "keyword"},
+          "source": {"type": "keyword"},
           "level_inferred": {"type": "boolean"},
           "timestamp_source": {"type": "keyword"}
         }},

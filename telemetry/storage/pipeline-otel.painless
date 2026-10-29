@@ -47,6 +47,9 @@ out.put('stream', attrs.get('log.iostream'));
 out.put('group', group);
 out.put('cluster', cluster);
 out.put('agent', ['type': 'otelcol']);
+// 從容器 log 檔讀的（file_log 一定帶 log.iostream、log.file.path）還是應用 agent 用 OTLP 直送的。
+// 應用開了 otel.logs.exporter: otlp，stdout 照印，同一行會進來兩份，用 log.source 分
+out.put('_log_source', attrs.get('log.iostream') != null || attrs.get('log.file.path') != null ? 'file' : 'otlp');
 out.put('kubernetes', [
   'namespace_name': res.get('k8s.namespace.name'),
   'pod_name': res.get('k8s.pod.name'),
@@ -55,7 +58,10 @@ out.put('kubernetes', [
   'host': res.get('k8s.node.name'),
   'docker_id': res.get('container.id'),
   'container_image': image,
-  'labels': podLabels
+  'labels': podLabels,
+  // Collector 決定的服務名稱（Pod label，沒有的話 Deployment 名稱）：Pod 沒有 app.kubernetes.io/name 時 k8s-logs 用它，
+  // 跟 metrics、trace 同一個名字（docs/pdca/phase1-collect/2026-10-keys-k8s.md）
+  'service_name': res.get('service.name')
 ]);
 if (res.get('dept') != null) out.put('kubernetes_namespace', ['labels': ['dept': res.get('dept')]]);
 

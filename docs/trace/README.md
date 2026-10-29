@@ -21,7 +21,7 @@
 
 | 項目 | 要做的 |
 |---|---|
-| ① trace-sampler 斷線 | ✅ 兩段佇列都改寫在磁碟：node 端寫節點磁碟、trace-sampler 端寫 PVC。實測 trace-sampler 停 400 秒、node 重啟、ES 停機中 trace-sampler 重啟都不掉；**trace-sampler 當掉（kill -9）仍掉約 20%**（等 30 秒決定的那段在記憶體）。不用 Kafka（實測沒有多擋住任何情況）。[PDCA](../pdca/phase1-collect/2026-10-trace-durability.md) |
+| ① trace-sampler 斷線、各種故障 | ✅ 兩段佇列都寫磁碟：node 端寫節點磁碟（設在 `loadbalancing` 外層；設在子 exporter 時多台 trace-sampler 共用一個佇列檔，只有一台收得到，已改）、trace-sampler 端寫 PVC。k3s 實測 trace-sampler 兩台換 IP、停著時 node 重啟、ES 停 10／30 分鐘、Collector 換版都不掉。**trace-sampler 當掉（kill -9）掉當掉前「decision_wait＋1 秒」那台的 trace**（每秒 trace 數 ÷ 台數 × 31 秒；正常停不掉）；PVC 滿了也掉（約 0.3KB/段）。不用 Kafka。[PDCA](../pdca/phase1-collect/2026-10-trace-durability.md)、[故障實測](../pdca/phase1-collect/2026-10-durability.md) |
 | ① ES 剛起來回 401、Collector 直接丟 | ✅ 修在 ES 入口：健康檢查（LB 或 readinessProbe）要用 API key 打 GET /、等 200；ES 剛起來的 1 秒多 API key 會被拒，但 elastic 帳號、`/_cluster/health` 都正常，用它們檢查會把流量導進去。實測直連掉 420、經健康檢查的 LB 掉 0；兩台 ES 滾動重啟用舊檢查掉 200～280、用新檢查掉 0（兩台的投票名單只有一台，重啟到它就沒 master；三台以上才能真的滾動）。📝 中央 ES 前面的健康檢查要請管 ES 的人改（範例 `telemetry/storage/healthcheck-haproxy.cfg`）。[PDCA](../pdca/phase1-collect/2026-10-es-startup-401.md) |
 | ③ 保留天數 | ✅ 隨機留下的 7 天；有問題的（錯誤、5xx、例外、慢）由 pipeline 轉到 `traces-problem.otel-<group>`，留 30 天（[retention.md](../retention.md)） |
 
@@ -130,7 +130,9 @@ trace-sampler × 2（StatefulSet，尾端取樣）
   | **純文字 pattern，沒印 MDC**（舊專案常見） | stdout 上根本沒有 | ❌ | 二選一：(a) 改 log 設定印 MDC（Java 加 `%X{trace_id}`，但 pipeline 要有那種格式的解析規則）；(b) **chart 設 `otel.logs.exporter: otlp`**：agent 把 log record（本身帶 trace_id）直接送給 Collector，不經 stdout，什麼格式都綁得起來 |
   | 純文字 pattern 有印 MDC，但 pipeline 沒有那種格式的解析規則 | 在原文裡，拆不出來 | ❌ | 同上 (b)，或補一條格式規則 |
 
-  (b) 的代價：stdout 照印，平台會收到兩份（檔案那份沒 trace_id），所以只在需要時開；node Collector 的 `logs/otlp` pipeline 收這條。**(b) 真的 agent 驗過**（docker，2026-10-27）：Tomcat 10 的 JSP 用 `java.util.logging` 印純文字、ASP.NET Core 8 用 `ILogger` 預設純文字 console，都不改程式，ES 裡的 log 帶 trace_id、對得到 Server span。
+  格式對了，也有幾種情況 log 當下沒有 trace（背景排程、Java 自己 `new Thread`、.NET 的 Kafka 消費端），那些 log 不帶 trace_id：見 [sdk/standards/tracing.md](../../sdk/standards/tracing.md#log-什麼時候帶-trace_id)。
+
+  (b) 的代價：stdout 照印，平台會收到兩份（檔案那份沒 trace_id），用 `log.source`（`file`／`otlp`）分，所以只在需要時開；node Collector 的 `logs/otlp` pipeline 收這條。**(b) 真的 agent 驗過**（docker，2026-10-27）：Tomcat 10 的 JSP 用 `java.util.logging` 印純文字、ASP.NET Core 8 用 `ILogger` 預設純文字 console，都不改程式，ES 裡的 log 帶 trace_id、對得到 Server span。
 
   **.NET Framework（4.x）**：trace、metrics 可以（自動埋點支援 4.6.2 以上，Windows 上掛 IIS 或 Windows Service）；(b) 的 `ILogger` 那條**不支援 Framework**（官方文件明寫），log4net、NLog 5 以上有另一條 bytecode 的路（Experimental，沒驗過）。細節在 [pdca/phase1-collect/2026-10-ingest-keys-check.md](../pdca/phase1-collect/2026-10-ingest-keys-check.md) 的 Act。
 - **trace ↔ metrics：** 都有 `resource.attributes.service.name`、`k8s.namespace.name`、`k8s.pod.name`。
@@ -144,8 +146,11 @@ trace-sampler × 2（StatefulSet，尾端取樣）
 | `trace_id`、`span_id`、`parent_span_id` | 請求與這一段的 ID |
 | `name`、`kind`、`duration`、`status.code` | 這一段做什麼、花多久、成功與否 |
 | `attributes.*` | 這一段的細節，例如 `http.request.method`、`http.response.status_code` |
-| `resource.attributes.service.name` | 應用自己設的（chart 設成 `app.kubernetes.io/name`） |
+| `resource.attributes.service.name` | Pod label `app.kubernetes.io/name`，跟 log、metrics 一樣；應用自己設的不同時被蓋掉 |
 | `resource.attributes.service.version`、`.service.namespace` | Pod label，跟 log、metrics 一樣 |
+
+- `service.name` 的順序：Pod label → 應用自己設的（`OTEL_SERVICE_NAME`）→ Deployment 名稱。
+- 應用自己設的只在 Pod 沒有 label 時用到；chart 會把兩者設成一樣。
 | `resource.attributes.group`、`.dept` | 分流結果、namespace 的 dept |
 | `resource.attributes.k8s.*` | namespace、Pod、節點、Deployment、cluster |
 

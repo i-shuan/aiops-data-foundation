@@ -39,7 +39,17 @@ class Cardinality(unittest.TestCase):
         self.assertEqual(Q.eval_cardinality(self.now(30), self.ref(10), self.keys), [])
 
     def test_new_service_counts_from_zero(self):
-        self.assertEqual(len(Q.eval_cardinality(self.now(80), None, self.keys)), 1)
+        # 昨天有別的服務、沒有這個：新服務，當成從 0 開始
+        other = pd.DataFrame([{"service": "pay", "values": 3}])
+        self.assertEqual(len(Q.eval_cardinality(self.now(80), other, self.keys)), 1)
+
+    def test_first_day_only_absolute(self):
+        # 第一天：昨天整段沒有資料，沒有比較對象 → 不看倍數，只看上限和「像 ID」
+        self.assertEqual(Q.eval_cardinality(self.now(80), None, self.keys), [])
+        self.assertEqual(Q.eval_cardinality(self.now(80), pd.DataFrame(columns=["service", "values"]), self.keys), [])
+        ex = [f"/orders/{i}" for i in range(80)]
+        self.assertEqual(len(Q.eval_cardinality(self.now(80, ex), None, self.keys)), 1)
+        self.assertEqual(len(Q.eval_cardinality(self.now(600), None, self.keys, max_values=500)), 1)
 
     def test_max_values(self):
         h = Q.eval_cardinality(self.now(600), self.ref(590), self.keys, max_values=500)
@@ -169,6 +179,47 @@ class Lag(unittest.TestCase):
 
     def test_missing_percentile(self):
         self.assertEqual(Q.eval_lag(self.df([("a", 500, float("nan"), float("nan"))]), self.keys), [])
+
+
+class MissingBucket(unittest.TestCase):
+    """composite 的 missing_bucket（例如 log 沒有 namespace）：key 要是 None，不能變成 NaN。"""
+
+    def test_none_key_stays_none(self):
+        df = Q._frame([{"namespace": None, "docs": 200}, {"namespace": "mes", "docs": 10}], ["namespace", "docs"])
+        self.assertIsNone(df.to_dict("records")[0]["namespace"])
+
+    def test_message_names_the_missing_key(self):
+        h = {"key": {"namespace": None}, "why": ["100% 缺 service.name"]}
+        self.assertEqual(Q.describe({"name": "x", "title": "log 缺服務或 Pod"}, h),
+                         "log 缺服務或 Pod：沒有 namespace，100% 缺 service.name")
+
+    def test_stopped_with_none_key(self):
+        # 沒有服務名的那組之前、最近都有資料：不是停了
+        before = Q._frame([{"service": None, "docs": 100}, {"service": "a", "docs": 100}], ["service", "docs"])
+        recent = Q._frame([{"service": None, "docs": 5}, {"service": "a", "docs": 5}], ["service", "docs"])
+        self.assertEqual(Q.eval_stopped(before, recent, ["service"]), [])
+
+
+class Config(unittest.TestCase):
+    """quality.yaml 每個檢查都有該有的欄位（打錯 type、少了 field 的話排程跑到才會當掉）。"""
+
+    REQUIRED = {"cardinality": ["index", "field"], "missing": ["index", "fields"], "stopped": ["index", "by"],
+                "share": ["index", "part_index"], "lag": ["index", "from", "to"], "present": ["index"]}
+
+    def test_checks(self):
+        import pathlib
+        import yaml
+        cfg = yaml.safe_load((pathlib.Path(__file__).parents[1] / "configs/baseline/quality.yaml").read_text("utf-8"))
+        names = [c["name"] for c in cfg["checks"]]
+        self.assertEqual(len(names), len(set(names)))
+        for c in cfg["checks"]:
+            self.assertIn(c["type"], self.REQUIRED, c["name"])
+            for f in self.REQUIRED[c["type"]]:
+                self.assertIn(f, c, c["name"])
+            if c.get("by"):
+                self.assertEqual(len(Q._keys(c)), len(c["by"]), c["name"])
+        for n in ["quality.trace_name_cardinality", "quality.trace_stopped", "quality.metrics_missing_service"]:
+            self.assertIn(n, names)
 
 
 if __name__ == "__main__":

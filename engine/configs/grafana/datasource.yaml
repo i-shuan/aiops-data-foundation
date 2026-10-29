@@ -1,4 +1,4 @@
-# Grafana 的 ES data source：只讀 aiops-alerts（AIOps 合併過的事件）
+# Grafana 的 ES data source：只讀 aiops-alerts（AIOps 合併過的事件）、aiops-anomalies、aiops-tuning、aiops-feedback（儀表板用）
 apiVersion: 1
 datasources:
   - name: aiops-alerts
@@ -8,6 +8,39 @@ datasources:
     url: ${ES_URL}
     jsonData:
       index: aiops-alerts
+      timeField: "@timestamp"
+      httpHeaderName1: Authorization
+    secureJsonData:
+      httpHeaderValue1: ApiKey ${GRAFANA_ES_API_KEY}
+  - name: aiops-anomalies
+    uid: aiops-anomalies
+    type: elasticsearch
+    access: proxy
+    url: ${ES_URL}
+    jsonData:
+      index: aiops-anomalies
+      timeField: "@timestamp"
+      httpHeaderName1: Authorization
+    secureJsonData:
+      httpHeaderValue1: ApiKey ${GRAFANA_ES_API_KEY}
+  - name: aiops-tuning
+    uid: aiops-tuning
+    type: elasticsearch
+    access: proxy
+    url: ${ES_URL}
+    jsonData:
+      index: aiops-tuning
+      timeField: "at"
+      httpHeaderName1: Authorization
+    secureJsonData:
+      httpHeaderValue1: ApiKey ${GRAFANA_ES_API_KEY}
+  - name: aiops-feedback
+    uid: aiops-feedback
+    type: elasticsearch
+    access: proxy
+    url: ${ES_URL}
+    jsonData:
+      index: aiops-feedback
       timeField: "@timestamp"
       httpHeaderName1: Authorization
     secureJsonData:

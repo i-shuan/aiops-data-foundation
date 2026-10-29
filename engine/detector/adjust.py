@@ -76,6 +76,23 @@ def _ts(x) -> pd.Timestamp | None:
     return t.tz_localize("UTC") if t.tzinfo is None else t
 
 
+TIME_FIELDS = ("start", "end", "reset_at", "expires_at")
+
+
+def local_iso(x, tz: str = "Asia/Taipei") -> str | None:
+    """人寫的時間 → ISO。沒寫時區的（2026-10-20T02:00）當成 tz 的當地時間，跟行事曆一樣；
+    不轉的話 ES 和 pandas 都當成 UTC，台北的值班寫「凌晨 2 點」會差 8 小時。"""
+    if x is None:
+        return None
+    t = pd.Timestamp(str(x))
+    return (t.tz_localize(tz) if t.tzinfo is None else t).isoformat()
+
+
+def localize(a: dict, tz: str = "Asia/Taipei") -> dict:
+    """一筆調整裡沒寫時區的時間欄位補上當地時區（設定檔 adjustments.yaml 用）。"""
+    return {**a, **{f: local_iso(a[f], tz) for f in TIME_FIELDS if a.get(f) is not None}}
+
+
 def _td(s) -> pd.Timedelta:
     s = str(s)
     if s.endswith("m"):
@@ -287,27 +304,73 @@ def load(es, index: str, cfg: dict) -> list[dict]:
 
     import yaml
     out = list(cfg.get("overrides") or [])
+    tz = cfg.get("train", {}).get("timezone", "Asia/Taipei")
     path = cfg.get("adjustments_file", "configs/baseline/adjustments.yaml")
     if path and os.path.exists(path):
         with open(path, encoding="utf-8") as f:
-            out += (yaml.safe_load(f) or {}).get("adjustments") or []
+            out += [localize(a, tz) for a in (yaml.safe_load(f) or {}).get("adjustments") or []]
     cal = cfg.get("calendar_file", "configs/baseline/calendar.yaml")
     if cal and os.path.exists(cal):
         from .sources import load_calendar
         with open(cal, encoding="utf-8") as f:
             entries, tz = load_calendar(yaml.safe_load(f) or {})
         out += calendar_adjustments(entries, tz or cfg.get("train", {}).get("timezone", "Asia/Taipei"))
+    # 讀不到（index 關閉、沒權限、ES 逾時）不整個失敗：印出來，這一輪只用設定檔的。index 不存在是正常的（還沒人調過）
     try:
-        hits = es.req("POST", f"/{index}/_search?ignore_unavailable=true",
-                      {"size": 10000, "sort": [{"at": {"order": "asc", "unmapped_type": "date"}}]}
-                      ).get("hits", {}).get("hits", [])
-    except RuntimeError:
+        hits = es.req("POST", f"/{index}/_search", {"size": 10000, "sort": [{"at": {"order": "asc", "unmapped_type": "date"}}]},
+                      ok=(200, 404)).get("hits", {}).get("hits", [])
+    except Exception as e:  # noqa: BLE001  RuntimeError（ES 回錯誤）或 requests 的連線、逾時錯誤
+        print(f"  ⚠ 讀不到 {index}（{str(e)[:120]}），這一輪不套用裡面的調整，只用設定檔的")
         hits = []
     out += [{"id": h["_id"], **h["_source"]} for h in hits]
     by_id = {}
     for a in out:
         by_id[a.get("id") or id(a)] = a
-    return list(by_id.values())
+    good = []
+    for a in by_id.values():
+        why = problem(a)
+        if why:
+            print(f"  ⚠ 略過調整 {a.get('id') or '（設定檔）'}：{why}")
+        else:
+            good.append(a)
+    return good
+
+
+def problem(a: dict) -> str | None:
+    """這筆調整能不能用；不能用回傳原因。learning loop、人手寫進 aiops-tuning 的壞資料（缺欄位、正規表示式錯）
+    只略過那一筆，不讓整個 train／detect 失敗。"""
+    try:
+        re.compile(a.get("series") or ".*")
+        for pat in (a.get("match") or {}).values():
+            re.compile(str(pat))
+        if a.get("expires_at") is not None:
+            _ts(a["expires_at"])
+        k = kind_of(a)
+        if k == "exclude_window":
+            if _ts(a.get("start")) is None or _ts(a.get("end")) is None:
+                return "exclude_window 要有 start、end"
+            if _ts(a["start"]) >= _ts(a["end"]):
+                return "exclude_window 的 start 要早於 end"
+        elif k == "reset_point":
+            if _ts(a.get("reset_at")) is None:
+                return "reset_point 要有 reset_at"
+            _td(a.get("warmup") or DEFAULT_WARMUP)
+        elif k == "recurring_override":
+            sched = a.get("schedule") or {}
+            if len(str(sched.get("cron", "")).split()) != 5:
+                return f"cron 要 5 欄：{sched.get('cron')}"
+            _td(sched.get("duration", "1h"))
+        elif k == "override":
+            for f in ("z", "min_abs", "instant_z"):
+                if a.get(f) is not None:
+                    float(a[f])
+            if a.get("confirm_points") is not None and int(a["confirm_points"]) < 1:
+                return "confirm_points 至少 1"
+            if a.get("resolution") is not None and a["resolution"] not in ("30s", "1m", "5m", "15m", "30m", "1h"):
+                return f"不認得的粒度：{a['resolution']}"
+    except (re.error, ValueError, TypeError) as e:
+        return f"{type(e).__name__}：{e}"
+    return None
 
 
 def describe(a: dict) -> str:
