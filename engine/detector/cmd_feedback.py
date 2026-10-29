@@ -5,12 +5,14 @@ import json
 
 import pandas as pd
 
+from core import llm as LLM
+
 from .es import ANOMALY_INDEX, ES, doc_id
 from . import adjust as A
 from . import feedback as F
 from .model import DetectOptions
 from .common import _now
-from .tuning import TUNING_INDEX, TUNING_MAPPING, load_adjustments
+from .tuning import TUNING_INDEX, TUNING_MAPPING, load_adjustments, propose_from_text
 
 
 def _anomaly_rows(es, days: int, now) -> pd.DataFrame:
@@ -135,11 +137,10 @@ def cmd_feedback(cfg: dict, args) -> int:
               f"誤報不到 {args.min_false_positive} 次的不提")
         return 0
     # add
-    if args.verdict not in F.VERDICTS:
-        print(f"--verdict 要是 {'、'.join(F.VERDICTS)}")
+    if not args.verdict and not args.text:
+        print(f"要給 --verdict（{'、'.join(F.VERDICTS)}），或 --text 一句話讓系統抽")
         return 2
-    doc = {"@timestamp": now.isoformat(), "verdict": args.verdict, "note": args.note, "by": args.by,
-           "incident_id": args.incident, "correct_root_cause": args.root_cause}
+    doc = {"@timestamp": now.isoformat(), "note": args.note, "by": args.by, "incident_id": args.incident, "correct_root_cause": args.root_cause}
     if args.anomaly:
         got = es.req("GET", f"/{ANOMALY_INDEX}/_doc/{args.anomaly}", ok=(200, 404))
         if not got.get("found"):
@@ -155,10 +156,40 @@ def cmd_feedback(cfg: dict, args) -> int:
     else:
         print("要給 --anomaly <id>；漏報（missed）給 --series、--match、--at")
         return 2
+    # 一句自然語言（--text）：抽成四欄（core.llm.extract_feedback）；沒給 --verdict 就用抽出來的 feedback_type；
+    # 對得到調整種類就寫一筆 proposed 的 aiops-tuning（人核准才生效）。抽不出來只存原文，回饋照寫
+    alert = None
+    if args.alert:
+        got = es.req("GET", f"/aiops-alerts/_doc/{args.alert}", ok=(200, 404))
+        if not got.get("found"):
+            print(f"找不到告警 {args.alert}")
+            return 2
+        alert = got["_source"]
+        doc["alert_id"] = alert["alert_id"]
+    ext = None
+    if args.text:
+        ctx = alert or {"alert_id": args.incident, "service": A.key_value(doc.get("keys") or {}, "service"), "series": [doc.get("series")]}
+        ext = LLM.extract_feedback(args.text, ctx)
+        doc["feedback_text"] = args.text
+        doc["extract"] = {k: v for k, v in {**(ext["fields"] or {}), "ok": ext["ok"], "provider": ext["provider"], "reason": ext["reason"]}.items() if v not in (None, "")}
+        print(f"抽取（{ext['provider']}）：" + (json.dumps(ext["fields"], ensure_ascii=False) if ext["ok"] else f"沒抽到（{ext['reason']}），只存原文"))
+        if ext["ok"]:
+            doc["tuning_id"] = propose_from_text(es, ext["fields"], ctx, args.text, args.by, now, DetectOptions(**cfg.get("detect", {})).z)
+    # 沒給 --verdict 才用抽出來的，而且只信真的模型：關鍵字退路（template）會把「是供應商的問題、不是我們的程式」判成誤報（eval 實測），
+    # 讓它決定 verdict 會寫錯資料；退路抽的只存在 extract 裡給人看
+    from_model = bool(ext and ext["ok"] and not ext["provider"].startswith("template"))
+    verdict = args.verdict or (ext["fields"]["feedback_type"] if from_model else None)
+    if verdict not in F.VERDICTS:
+        why = ("（一句話是關鍵字退路抽的，不拿來當 verdict）" if ext and ext["ok"] else "（一句話沒抽出 feedback_type）") if args.text and not args.verdict else ""
+        print(f"--verdict 要是 {'、'.join(F.VERDICTS)}{why}")
+        return 2
+    doc["verdict"] = verdict
     doc = {k: v for k, v in doc.items() if v not in (None, "")}
     _id = doc_id("feedback", doc.get("anomaly_id") or [doc["series"], doc.get("keys"), doc.get("anomaly_at")], args.by or "")
     es.req("PUT", f"/{F.FEEDBACK_INDEX}/_doc/{_id}?refresh=true", doc)   # 同一個人對同一筆再標記會覆蓋
-    print(f"已記錄：{args.verdict}  {doc['series']}  {F.target_of(doc.get('keys'))}")
+    print(f"已記錄：{verdict}  {doc['series']}  {F.target_of(doc.get('keys'))}")
+    if doc.get("tuning_id"):
+        print(f"  依這句話提了一筆調整建議 {doc['tuning_id']}（status proposed；adjust list 看得到，adjust approve 才生效）")
     return 0
 
 def cmd_incident(cfg: dict, args) -> int:

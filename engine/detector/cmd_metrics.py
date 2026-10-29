@@ -58,6 +58,16 @@ def compute(p: dict) -> dict:
                 ttf.append((pd.Timestamp(r["@timestamp"]) - started[r["alert_id"]]).total_seconds() / 60)
     confirmed = [i for i in p["incidents"] if i.get("status") in ("confirmed", "corrected")]
     with_how = sum(1 for i in confirmed if (i.get("how_detected") or "").strip())
+    # RCA 建議採納率（POC KPI，docs/pdca/phase5-learning-loop/2026-10-feedback-nl-extract.md）：
+    # 兩題（可能根因、建議的排查動作）正面 ÷ 有回答的（yes、no；not_seen 和沒填不算）。一件多筆回饋只算最後一筆
+    useful = {}
+    for q in ("rca_cause_useful", "rca_action_useful"):
+        v = last[q].dropna() if (not last.empty and q in last) else pd.Series(dtype=object)
+        useful[q] = {"yes": int((v == "yes").sum()), "answered": int(v.isin(["yes", "no"]).sum())}
+    yes_n, ans_n = sum(u["yes"] for u in useful.values()), sum(u["answered"] for u in useful.values())
+    # 回饋文字的抽取成功率（KPI「解析率」在正式環境的量法）：有寫一句話的回饋裡，抽成四欄（extract.ok）的比例
+    with_text = last[last["feedback_text"].notna()] if (not last.empty and "feedback_text" in last) else last.iloc[0:0]
+    extracted = sum(1 for x in (with_text["extract"] if "extract" in with_text else []) if isinstance(x, dict) and x.get("ok"))
     per_dept = pd.Series([a.get("dept") or "—" for a in alerts]).value_counts().to_dict() if alerts else {}
     per_svc = pd.Series([a.get("service") for a in alerts]).value_counts().head(5).to_dict() if alerts else {}
     return {"days": days, "alerts": len(alerts), "alerts_per_day": len(alerts) / days, "per_dept": per_dept, "top_services": per_svc,
@@ -66,7 +76,9 @@ def compute(p: dict) -> dict:
             "wrong_root_cause": wrong, "wrong_rate": (wrong / len(reviewed)) if reviewed else None, "missed": missed,
             "time_to_feedback_min": (float(pd.Series(ttf).median()) if ttf else None),
             "confirmed": len(confirmed), "how_detected_rate": (with_how / len(confirmed)) if confirmed else None,
-            "reviewers": int(by_alert["by"].nunique()) if not by_alert.empty and "by" in by_alert else 0}
+            "reviewers": int(by_alert["by"].nunique()) if not by_alert.empty and "by" in by_alert else 0,
+            "rca_useful": useful, "rca_answered": ans_n, "rca_adoption_rate": (yes_n / ans_n) if ans_n else None,
+            "with_text": int(len(with_text)), "extracted": extracted, "extract_rate": (extracted / len(with_text)) if len(with_text) else None}
 
 
 def _pct(x):
@@ -81,7 +93,9 @@ def format_metrics(m: dict, label: str, m2: dict | None = None, label2: str = ""
             ("漏報", lambda x: str(x["missed"])),
             ("從告警到第一筆回饋（中位）", lambda x: "—" if x["time_to_feedback_min"] is None else f"{x['time_to_feedback_min']:.0f} 分鐘"),
             ("老師傅確認的事故", lambda x: str(x["confirmed"])),
-            ("「怎麼看出來的」有填的比例", lambda x: _pct(x["how_detected_rate"]))]
+            ("「怎麼看出來的」有填的比例", lambda x: _pct(x["how_detected_rate"])),
+            ("RCA 建議採納率（兩題正面 ÷ 有回答的）", lambda x: f"{_pct(x['rca_adoption_rate'])}（{x['rca_answered']} 題有回答）"),
+            ("回饋一句話抽成結構化欄位的比例", lambda x: f"{_pct(x['extract_rate'])}（{x['with_text']} 件有寫）")]
     out = [f"# 量化：{label}" + (f" vs {label2}" if m2 else ""), ""]
     if m2:
         out += [f"| 指標 | {label2} | {label} |", "|---|---|---|"] + [f"| {n} | {f(m2)} | {f(m)} |" for n, f in rows]
