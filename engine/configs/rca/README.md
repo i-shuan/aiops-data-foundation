@@ -39,6 +39,10 @@ python3 -m investigator alert --config configs/rca/rca.yaml
 # 相似事故檢索的評測：留一法 recall@3（每件已確認的事故輪流當新的，同一個根因分類有沒有排進前 3）
 python3 -m investigator similar-eval --config configs/rca/rca.yaml
 
+# 歷史事故單匯入 aiops-incidents（CSV 或 JSON；--dry-run 只檢查哪幾筆會略過、不寫）；格式見下面「匯入歷史事故單」
+python3 -m investigator import-incidents configs/rca/incidents-example.csv --dry-run
+python3 -m investigator import-incidents <你的事故單.csv>
+
 # 老師傅的回饋入口（通知裡的連結點進來填；寫 aiops-feedback、aiops-incidents）
 FEEDBACK_PORT=8080 python3 -m feedback_web
 ```
@@ -53,6 +57,36 @@ FEEDBACK_PORT=8080 python3 -m feedback_web
 - **LLM 摘要**（`alerts.llm`，[core/llm.py](../../core/llm.py)）：報告最前面三到五句（原因、影響、建議先做什麼），每句結尾附依據的 id（`[A1]` 異常、`[S1]` 慢的那段、`[E1]` 錯誤源頭、`[L1]` log 樣式、`[I1]` 過去事故）；引用了不存在的 id、或有一句沒依據，**整段不顯示**（程式檢查）。模型掛了退回固定句型（`template`），報告照出。provider 用環境變數 `LLM_PROVIDER`（`template`／`anthropic`／`openai`）或 `alerts.llm_provider` 蓋過；`template` 不叫模型，沒有模型也能跑。`openai` 實測過（`LLM_API_KEY`、`LLM_CHAT_MODEL`，可選 `OPENAI_BASE_URL`）：一件 5～8 秒；`anthropic` 只寫了沒跑過。
 - **回饋連結**：`alerts.feedback_url`、`report_url`（含 `{alert_id}`）寫進每一件，Grafana 通知帶著；指到 [feedback_web](../../feedback_web/__init__.py)。
 - 重跑不會重複：已經在某一件裡的異常、最近結束的件裡的異常都不會再開一次。停了一陣子才跑時，已經過去的件只記錄（`resolved`），不算新開、不會通知。
+
+### 匯入歷史事故單（`import-incidents`）
+
+相似事故檢索只拿老師傅確認過的事故教人；系統剛上線時知識庫是空的，先把過去的事故單匯進來。範例 [incidents-example.csv](incidents-example.csv)（10 筆製造業 IT 常見的事故，照格式填）。
+
+```bash
+python3 -m investigator import-incidents incidents.csv --dry-run    # 先檢查：印出第幾筆缺什麼，不寫
+python3 -m investigator import-incidents incidents.csv              # 寫進 aiops-incidents；印出匯入幾筆、略過幾筆
+python3 -m investigator similar-eval --config configs/rca/rca.yaml  # 匯完量一次 recall@3
+```
+
+一列（CSV）或一個物件（JSON 陣列，或 `{"incidents": [...]}`）是一件。CSV 用 UTF-8（Excel 另存的 UTF-8 BOM 也行）。
+
+| 欄位 | 必填 | 內容 |
+|---|---|---|
+| `title` | ✓ | 一句話：哪個系統、什麼現象 |
+| `start`、`end` | ✓ | 開始、結束時間。`2026-03-12 02:10`、`2026-03-12T02:10:00+08:00` 都可以；**沒寫時區當台北**（`--tz` 或 `--config` 的 `timezone` 可改） |
+| `services` | ✓ | 牽涉的服務，用 metrics／trace 裡的服務名（多個用逗號分隔；JSON 給陣列） |
+| `root_cause_category` | ✓ | 根因分類，跟回饋表單同一套：`db`、`network`、`config_change`、`deploy`、`external`、`resource`、`bug`、`data`、`other` |
+| `root_cause`、`action` | ✓ | 根因、處置 |
+| `how_detected` | ✓ | 怎麼看出來的（老師傅的經驗，報告會照抄給值班看） |
+| `checked` | ✓ | 查了哪些地方（多個用逗號分隔），例如 `Oracle AWR / 慢查詢,trace 瀑布圖` |
+| `by`、`note` | | 處理的人、備註 |
+| `routes`、`series`、`slow_segments`、`error_origins`、`patterns` | | **指紋欄位**，有就填：入口 API（`GET /lots/{id}`）、異常的指標（`http.latency_p95_s`）、慢的那段（`wip-worker › Oracle SELECT LOT_HISTORY`）、錯的源頭、新 log 樣式。寫法跟報告裡的一樣；數字會自動換成 `#` |
+
+- **多值欄位**的分隔：逗號；值本身有逗號（SQL）就整欄改用 `|` 分隔。
+- **缺必填欄位、時間看不懂、`end` 早於 `start` 的那一筆略過**，印出第幾筆、缺什麼；其他照匯。
+- 寫進去的是 `status: confirmed`、`source: import`，相似事故檢索（`alert`）馬上拿得到。`alert_id` 是 `imp-<事故日期>-<檔案裡第幾筆>`。
+- **重跑不重複**：`_id` 由 `title`＋`start`＋`services` 算出，同一件再匯就覆蓋（改了 `action` 重匯也是覆蓋同一筆）。改了 `title` 或 `start` 會變成另一筆，舊的要自己刪。
+- 比對的分數門檻是 4（見上面「過去相似的事故」）：**只填 `services` 的事故單**自己只有 3 分，要靠同指標（`series`）或同 API（`routes`）才會被附上；填了慢的那段或錯的源頭（各 4 分）最有用。
 
 報告是 Markdown，裡面的關係圖是 mermaid，貼到 GitHub、GitLab 或 Kibana 的 Markdown 都看得到圖。
 
