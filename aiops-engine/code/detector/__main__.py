@@ -136,6 +136,9 @@ def main(argv=None) -> int:
     fb.add_argument("--note")
     fb.add_argument("--by")
     fb.add_argument("--incident", help="add：屬於哪件事故")
+    fb.add_argument("--alert", help="add：屬於哪件告警（aiops-alerts 的 alert_id；--text 抽取時的服務、序列從它帶入）")
+    fb.add_argument("--text", help="add：一句自然語言（例：這是每月初的批次匯出報表，屬於預期內負載）；抽成四欄、對得到的提一筆 proposed 的調整；"
+                                   "沒給 --verdict 就用抽出來的")
     fb.add_argument("--root-cause", dest="root_cause", help="add：正確的根因（wrong_root_cause 時）")
     fb.add_argument("--series", help="add missed：哪條序列；pending：序列名稱包含")
     fb.add_argument("--match", nargs="*", help="add missed：對象，例如 service=mes-api")

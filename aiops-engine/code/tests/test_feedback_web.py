@@ -1,6 +1,8 @@
 """回饋入口（feedback_web.app）：表單預填、送出後寫 aiops-feedback（每筆異常一筆）和 aiops-incidents（狀態、老師傅的經驗）。假的 ES。"""
+import os
 import unittest
 from datetime import datetime, timezone
+from unittest import mock
 
 from core.es import doc_id
 from feedback_web import app as A
@@ -34,6 +36,9 @@ class FakeES:
             return {}
         if method == "PUT" and path.startswith(f"/{A.FEEDBACK_INDEX}/_doc/"):     # 漏報：單筆 PUT，_id 在路徑裡
             self.written.setdefault(A.FEEDBACK_INDEX, {})[path.rsplit("/", 1)[1].split("?")[0]] = body
+            return {}
+        if method == "PUT" and path.startswith("/aiops-tuning/_doc/"):    # 一句話抽出來的建議（proposed）
+            self.written.setdefault("aiops-tuning", {})[path.split("/")[3].split("?")[0]] = body
             return {}
         raise AssertionError(path)
 
@@ -140,6 +145,75 @@ class SubmitMissed(unittest.TestCase):
                 A.submit_missed(self.es, {**self.form, **bad}, NOW)
             self.assertIn(msg, str(cm.exception))
         self.assertEqual(self.es.written, {})
+class FreeTextAndRatings(unittest.TestCase):
+    """一句自然語言＋兩題評分（docs/pdca/phase5-learning-loop/2026-10-feedback-nl-extract.md）：抽成四欄存在回饋上、
+    對得到調整種類就寫一筆 proposed 的 aiops-tuning；抽不到只存原文、建議寫不進去也不影響回饋。"""
+    TEXT = "這是每月初的批次匯出報表，屬於預期內負載。"
+
+    def setUp(self):
+        self.es = FakeES()
+        self.env = mock.patch.dict(os.environ, {"LLM_PROVIDER": "template"})
+        self.env.start()
+
+    def tearDown(self):
+        self.env.stop()
+
+    def submit(self, **extra):
+        return A.submit(self.es, {"alert_id": ALERT["alert_id"], "verdict": "false_positive", "by": "amy", "fp_reason": "batch", **extra}, NOW)
+
+    def test_text_extracted_stored_and_tuning_proposed(self):
+        r = self.submit(feedback_text=self.TEXT, rca_cause_useful="yes", rca_action_useful="no")
+        self.assertEqual(r["extract"]["suggested_action"], "suppress_during_cron")
+        self.assertTrue(r["extract"]["ok"] and r["tuning_id"])
+        for fb in self.es.written[A.FEEDBACK_INDEX].values():        # 一件的每筆異常各一筆，都帶原文、抽取結果、兩題、建議 id
+            self.assertEqual(fb["feedback_text"], self.TEXT)
+            self.assertEqual(fb["extract"]["identified_cause"], "scheduled_batch_job")
+            self.assertEqual((fb["rca_cause_useful"], fb["rca_action_useful"], fb["tuning_id"]), ("yes", "no", r["tuning_id"]))
+        tun = self.es.written["aiops-tuning"][r["tuning_id"]]
+        self.assertEqual((tun["kind"], tun["status"], tun["source"], tun["effect"]), ("recurring_override", "proposed", "feedback", {"mute": True}))
+        self.assertNotIn("schedule", tun)                              # 文字沒寫時段就不猜
+        self.assertIn(self.TEXT, tun["reason"])
+        self.assertIn("缺 schedule", tun["reason"])
+        self.assertEqual(tun["match"], {"service": "^mes\\-api$"})
+        self.assertEqual(tun["by"], "amy")
+
+    def test_action_none_writes_no_tuning(self):
+        r = A.submit(self.es, {"alert_id": ALERT["alert_id"], "verdict": "true_positive", "by": "amy", "feedback_text": "這件是真的，但不用調，處理完了。"}, NOW)
+        self.assertTrue(r["extract"]["ok"])
+        self.assertIsNone(r["tuning_id"])
+        self.assertNotIn("aiops-tuning", self.es.written)
+
+    def test_extraction_failure_keeps_text_only(self):
+        with mock.patch.object(A.LLM, "extract_feedback", return_value={"ok": False, "fields": None, "provider": "openai", "reason": "回的不是 JSON", "raw": "x"}):
+            r = self.submit(feedback_text=self.TEXT)
+        self.assertEqual(r["incident"], "false_positive")                # 回饋照寫
+        self.assertIsNone(r["tuning_id"])
+        fb = next(iter(self.es.written[A.FEEDBACK_INDEX].values()))
+        self.assertEqual((fb["feedback_text"], fb["extract"]["ok"], fb["extract"]["reason"]), (self.TEXT, False, "回的不是 JSON"))
+        self.assertNotIn("feedback_type", fb["extract"])
+        self.assertNotIn("aiops-tuning", self.es.written)
+
+    def test_tuning_write_failure_does_not_fail_feedback(self):
+        with mock.patch.object(A.T, "propose_from_text", side_effect=RuntimeError("PUT /aiops-tuning → 403")):
+            r = self.submit(feedback_text=self.TEXT)
+        self.assertEqual(r["feedback"], 2)
+        self.assertIsNone(r["tuning_id"])
+        self.assertIn("403", r["tuning_error"])
+
+    def test_no_text_response_unchanged_and_bad_rating_ignored(self):
+        r = self.submit(rca_cause_useful="maybe")
+        self.assertEqual(r, {"feedback": 2, "incident": "false_positive", "by": "amy"})
+        fb = next(iter(self.es.written[A.FEEDBACK_INDEX].values()))
+        self.assertNotIn("rca_cause_useful", fb)
+        self.assertNotIn("feedback_text", fb)
+
+    def test_form_has_text_and_ratings(self):
+        html = A.render_form(A.form_data(ALERT))
+        for s in ('name="feedback_text"', 'name="rca_cause_useful"', 'name="rca_action_useful"', 'value="not_seen"', "可能根因有參考價值", "建議的排查動作有參考價值"):
+            self.assertIn(s, html)
+        done = A.render_form(A.form_data(ALERT), done={"feedback": 2, "incident": "false_positive", "by": "amy",
+                                                        "extract": {"ok": True, "suggested_action": "suppress_during_cron"}, "tuning_id": "t1"})
+        self.assertIn("調整建議（待審核，id t1）", done)
 
 
 if __name__ == "__main__":

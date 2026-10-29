@@ -41,7 +41,7 @@ PDCA 的意思：**Plan** 定規則與門檻 → **Do** 收值、判斷、報告
 |---|---|---|
 | ⑧ 告警出口（通知） | ✅ 合成一件寫 `aiops-alerts`，Grafana 分送；排程改成一隻 pod、K8s 上跑過 | [phase3-locate/2026-10-alert-exit.md](phase3-locate/2026-10-alert-exit.md)、[phase3-locate/2026-10-schedule.md](phase3-locate/2026-10-schedule.md) |
 | ⑧ 事故紀錄 `aiops-incidents`（`incident` 指令、alert 自動開 `auto`、回饋網頁確認） | ✅ 接上告警與回饋；存根因分類、怎麼看出來的、指紋 | [phase5-learning-loop/2026-10-expert-feedback.md](phase5-learning-loop/2026-10-expert-feedback.md) |
-| ⑨ 值班回饋 `aiops-feedback`（回饋網頁＋`feedback` 指令） | ✅ 網頁入口（沒登入）；漏報仍靠指令 | 同上 |
+| ⑨ 值班回饋 `aiops-feedback`（回饋網頁＋`feedback` 指令） | ✅ 網頁入口（沒登入）；漏報仍靠指令；一句話 LLM 抽成四欄、提 proposed 調整；採納率兩題 | 同上、[phase5-learning-loop/2026-10-feedback-nl-extract.md](phase5-learning-loop/2026-10-feedback-nl-extract.md) |
 | ② 資料品質檢查：路由沒參數化、必填欄位缺、資料停了、落到 unassigned 變多（`quality`） | ⚠️ 程式好了、實測過，沒排程 | [baseline README](../../aiops-engine/code/configs/baseline/reference.md#資料品質檢查資料本身怪不怪) |
 | ② 排除已知干擾：事故、維護、壓測時段不學（`exclude_window`）；換版重新學（`reset_point`）；月底批次放寬（`recurring_override`） | ⚠️ 程式好了、實測過，沒排程 | [baseline README「調整」](../../aiops-engine/code/configs/baseline/reference.md#調整哪些資料不學從哪裡重新學哪些時段放寬) |
 | ② 慢性病清單（`chronic`，每週）、行事曆（`calendar.yaml`） | ⚠️ 程式好了、實測過，沒排程；假日已改成直接抓台灣行事曆（`taiwan` provider）；`owners` 目前是**假資料**（`fake-data/owners.json`），要換成真的來源 | [baseline README「慢性病清單、行事曆」](../../aiops-engine/code/configs/baseline/reference.md#慢性病清單行事曆) |
@@ -166,6 +166,7 @@ metrics → trace → log 找到哪一段、哪行 log；事件整合、排程�
 | [phase5-learning-loop/2026-10-metrics-kpi.md](phase5-learning-loop/2026-10-metrics-kpi.md) | ⑨ 量化：學之前、學之後的數字 | `metrics` 指令兩段並排；模擬資料驗算法，真實數字等試點 |
 | [phase5-learning-loop/2026-10-rule-threshold.md](phase5-learning-loop/2026-10-rule-threshold.md) | ⑨④②⑧ 規則草稿把門檻算出來、核准就自動載入；行事曆拿掉國定假日、歲修一筆一筆；第一階段只開 4 個 CronJob | 門檻 = 各件最低異常值的最小值（峰值實測不觸發）；核准後 `rules` 載入、第 2 次事故時間觸發；沒有過期、只處理延遲類 |
 | [phase5-learning-loop/2026-11-suggest-and-rule-backtest.md](phase5-learning-loop/2026-11-suggest-and-rule-backtest.md) | ⑨ 誤報建議依時間、偏差選週期放寬／`min_abs`／z；「升級成規則」核准前也要回測 | 已完成 |
+| [phase5-learning-loop/2026-10-feedback-nl-extract.md](phase5-learning-loop/2026-10-feedback-nl-extract.md) | ⑨⑦ POC 任務 2：回饋一句話的 LLM 抽取（四欄 → `aiops-tuning` proposed）＋採納率兩題 | 26 句語料：真的模型（gpt-6-luna）四欄全對 26／26，關鍵字退路 22／26（錯在誤報措辭沒關鍵字）；驗不過只存原文；`suppress_during_cron` 的 `schedule` 不猜、要人補；`metrics` 多採納率與抽取率 |
 
 ### 跨階段（`meta/`）
 
@@ -174,7 +175,7 @@ metrics → trace → log 找到哪一段、哪行 log；事件整合、排程�
 | 檔案 | 主題 | 結論 |
 |---|---|---|
 | [meta/2026-10-docs-vs-code.md](meta/2026-10-docs-vs-code.md) | ①～⑨ 文件對程式：整條線一份看完（[architecture.md](../architecture.md)）、總覽狀態對齊 | 只改文件；6 處對不上改掉 5 處；code-review 的 10 項對過程式，4 項要修、記在流程文件的「不足」 |
-| [meta/2026-10-restructure.md](meta/2026-10-restructure.md) | 全部 目錄改名：專案名 it-aiops | `platform/`→`telemetry/`、`aiops/`→`engine/`、`apps/`→`apps/`、`test/`→`e2e/`；Python 套件改名；行為不變，200 個單元測試與連結檢查過 |
+| [meta/2026-10-restructure.md](meta/2026-10-restructure.md) | 全部 目錄改名：專案名 it-aiops | `platform/`→`telemetry/`、`aiops/`→`engine/`、`apps/`→`sdk/`（2026-11 又改回 `apps/`）、`test/`→`e2e/`；Python 套件改名；行為不變，200 個單元測試與連結檢查過 |
 | [meta/2026-10-restructure-components.md](meta/2026-10-restructure-components.md) | 全部 依部署元件重整：`collector/`、`elasticsearch/`、`grafana/`、`aiops-engine/` 各有 `code/`＋`helmchart/`；部署一律 Helm，kustomize、純 yaml、`e2e/local-k3d/` 刪掉；`e2e/local-k3s` 改名 `e2e/k8s` | chart render 跟舊 manifest 逐資源比對等價；Rancher Desktop 刪光重裝：log 54、metrics 46、trace 24 全過；rca-demo、schedule、es-2node 等五支改了部署指令的腳本沒實跑 |
 | [meta/2026-10-sonar.md](meta/2026-10-sonar.md) | 跨階段 SonarQube 第一次掃：範圍固定、真的問題修掉、剩的寫清楚 | `e2e/` 不掃；bug 5 → 0、vulnerability 121 → 4（剩 4 個都有理由）；`doc_id` 不變、https 選用 |
 | [meta/2026-10-diataxis.md](meta/2026-10-diataxis.md) | 跨階段 共用文件採用 Diátaxis：每份只做一種事（原理／操作／規格／案例） | 7 份混合文件拆成 19 份；檢查腳本擋沒標類型的；連結 0 斷；內容沒掉 |

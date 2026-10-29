@@ -26,7 +26,20 @@ FEEDBACK_MAPPING = {"mappings": {"dynamic": False, "properties": {
     "series": {"type": "keyword"}, "keys": {"type": "flattened"}, "verdict": {"type": "keyword"},
     "incident_id": {"type": "keyword"}, "correct_root_cause": {"type": "text"}, "note": {"type": "text"},
     "by": {"type": "keyword"}, "alert_id": {"type": "keyword"}, "alert_started_at": {"type": "date"},
-    "fp_reason": {"type": "keyword"}}}}
+    "fp_reason": {"type": "keyword"},
+    # 自由文字＋LLM 抽出來的四欄（docs/pdca/phase5-learning-loop/2026-10-feedback-nl-extract.md）；extract.ok false 就只有原文
+    "feedback_text": {"type": "text"},
+    "extract": {"properties": {"ok": {"type": "boolean"}, "provider": {"type": "keyword"}, "reason": {"type": "text"},
+                               "feedback_type": {"type": "keyword"}, "identified_cause": {"type": "keyword"},
+                               "target_service": {"type": "keyword"}, "suggested_action": {"type": "keyword"}}},
+    "tuning_id": {"type": "keyword"},      # 抽取結果寫進 aiops-tuning 的那一筆（proposed）
+    # 採納率的兩題：可能根因／建議的排查動作有沒有參考價值（yes、no、not_seen）
+    "rca_cause_useful": {"type": "keyword"}, "rca_action_useful": {"type": "keyword"}}}}
+RCA_USEFUL = ("yes", "no", "not_seen")
+# identified_cause（core/llm.py 的 CAUSE_CODES）→ 表單的根因分類；規則草稿的 root_cause_category 用。沒列的是 other
+CAUSE_CATEGORY = {"db_slow_query": "db", "db_lock": "db", "db_connection_pool": "db", "network": "network", "dns": "network",
+                  "config_change": "config_change", "deploy": "deploy", "external_api": "external", "resource_cpu": "resource",
+                  "resource_memory": "resource", "disk_full": "resource", "bug": "bug", "data_volume": "data", "dirty_data": "data"}
 # status：open／resolved（人補登的）、auto（事件整合自動開的，還沒人看）、confirmed（老師傅標真的）、corrected（真的但根因改過）
 # 相似事故檢索只用 confirmed、corrected（investigator/similar.py）
 ROOT_CAUSE_CATEGORIES = ("db", "network", "config_change", "deploy", "external", "resource", "bug", "data", "other")
@@ -229,6 +242,40 @@ def suggest_rules(incidents: list[dict], min_recurring: int = 3, anomalies_of: d
                     "reason": f"{svc} 的「{cat}」被確認 {len(incs)} 次：建議升級成規則（一次就報、不用等 baseline）"
                               + (f"，{series} ≥ {threshold:g}；核准後 rules 自動載入" if threshold is not None else "，但算不出門檻（見 rule_draft._note）")})
     return out
+
+
+def suggest_from_text(fields: dict, alert: dict, text: str, current_z: float = 5.0, factor: float = 1.4) -> dict | None:
+    """回饋文字抽出來的四欄（core.llm.extract_feedback）→ aiops-tuning 的一筆（status proposed、source feedback、reason 帶原文），
+    人核准才生效。suggested_action 對到既有的調整種類：
+      suppress_during_cron → recurring_override（mute）：缺 schedule（cron、duration），文字沒寫清楚就不猜，reason 請人補；
+                             adjust list 會標「cron 要 5 欄」、補齊前不會生效
+      widen_threshold      → override：這件的序列、這個服務，z × factor（跟誤報 3 次的建議一樣；先 backtest 再 approve）
+      add_rule             → rule_suggestion：threshold None（算不出門檻，不能核准），序列與門檻要人看報告決定
+      none                 → 不提（回 None）
+    target_service 是抽出來的（文字點名別的服務就是那個），不一定是告警的服務。"""
+    svc, act, cause = fields["target_service"], fields["suggested_action"], fields["identified_cause"]
+    base = {"status": "proposed", "source": "feedback", "alert_id": alert.get("alert_id"), "feedback_type": fields["feedback_type"],
+            "identified_cause": cause, "feedback_text": text}
+    quote = f"值班回饋：「{text}」"
+    if act == "suppress_during_cron":
+        return {**base, "kind": "recurring_override", "match": {"service": f"^{re.escape(svc)}$"}, "effect": {"mute": True},
+                "missing": ["schedule.cron", "schedule.duration"],
+                "reason": f"{quote}→ 那段時間不報（{cause}）。缺 schedule：cron 開始時間、duration（每月幾號用 days_of_month），"
+                          f"回饋文字沒寫清楚、不猜；請補上再回測、核准"}
+    if act == "widen_threshold":
+        series = [s for s in (alert.get("series") or []) if s]
+        z = round(current_z * factor, 1)
+        return {**base, "kind": "override", "series": "|".join(re.escape(s) for s in series) or None,
+                "match": {"service": f"^{re.escape(svc)}$"}, "z": z,
+                "reason": f"{quote}→ 放寬 z {current_z:g} → {z}（{cause}）；先 backtest 再 approve"}
+    if act == "add_rule":
+        return {**base, "kind": "rule_suggestion", "service": svc, "root_cause_category": CAUSE_CATEGORY.get(cause, "other"),
+                "incident_ids": [alert["alert_id"]] if alert.get("alert_id") else [],
+                "rule_draft": {"name": f"{svc}.{cause}.feedback", "severity": "critical", "threshold": None,
+                               "_note": "值班回饋說這種情況以後要直接報；用哪條序列、門檻多少要人看報告決定（threshold 是 None，不能核准），"
+                                        "定好後寫進 rules.yaml 或改這筆"},
+                "reason": f"{quote}→ 建議加規則（{cause}），但算不出門檻：要人定（見 rule_draft._note）"}
+    return None
 
 
 def suggest_exclude(incident: dict) -> list[dict]:

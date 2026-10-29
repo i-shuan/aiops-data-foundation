@@ -99,6 +99,17 @@ helm upgrade --install grafana grafana/helmchart -n grafana \
 
 老師傅從通知點 `feedback` 連結，直接在 Grafana 裡填回饋：預填那件告警（標題、摘要、AI 摘要、相似事故），選真的／誤報／根因錯，填根因、處置、怎麼看出來的，按送出。寫回 ES 的還是回饋服務（[aiops-engine/code/feedback_web](../aiops-engine/code/feedback_web/__init__.py)，Grafana 本身不能寫 ES），所以兩邊都要有。
 
+表單欄位（元素 id ＝ `POST /api/feedback` 的 JSON key；測試 `tests/test_grafana_form.py` 比對兩邊一致）：
+
+| 欄位 | id | 寫到哪 |
+|---|---|---|
+| 可能根因有參考價值？／建議的排查動作有參考價值？（是／否／沒看） | `rca_cause_useful`、`rca_action_useful` | `aiops-feedback`；`detector metrics` 算「RCA 建議採納率」＝兩題正面 ÷ 有回答的（沒看、沒填不算） |
+| 這件是（真的／誤報／根因錯） | `verdict` | `aiops-feedback.verdict`、`aiops-incidents.status` |
+| 一句話說這件怎麼回事（選填） | `feedback_text` | `aiops-feedback.feedback_text`；LLM 抽成 `extract.{feedback_type, identified_cause, target_service, suggested_action}`，對得到調整種類的再寫一筆 `aiops-tuning`（proposed，`tuning_id` 回填）；抽不到只存原文（`extract.ok: false`）。送出後的提示會說有沒有提建議 |
+| 根因分類、根因、處置、怎麼看出來的、查了哪裡、下次怎麼更快（真的時） | `root_cause_category`、`root_cause`、`action`、`how_detected`、`checked`、`improve` | `aiops-incidents` |
+| 為什麼不是問題、補充（誤報時） | `fp_reason`、`fp_reason_text` | `aiops-feedback.fp_reason`、`note` |
+| 你是、備註 | `by`、`note` | 兩邊 |
+
 ![Grafana 裡的回饋表單](../docs/feedback/grafana-form.png)
 
 要做的：

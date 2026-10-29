@@ -61,7 +61,7 @@
           "contentType": "application/json",
           "payloadMode": "all",
           "getPayload": "return {}",
-          "code": "if (context.panel.response && context.panel.response.ok) {\n  context.grafana.notifySuccess(['回饋', '已記錄，謝謝。這會讓下一次更準。']);\n} else if (context.panel.response) {\n  context.panel.response.json().then((r) => context.grafana.notifyError(['回饋沒有存成功', r.error || String(context.panel.response.status)]))\n    .catch(() => context.grafana.notifyError(['回饋沒有存成功', String(context.panel.response.status)]));\n} else {\n  context.grafana.notifyError(['回饋沒有存成功', '連不到回饋服務（feedback_api 的網址、CORS）']);\n}",
+          "code": "if (context.panel.response && context.panel.response.ok) {\n  const base = '已記錄，謝謝。這會讓下一次更準。';\n  context.panel.response.json().then((r) => {\n    const extra = r.tuning_id ? '已依你的一句話提了一筆調整建議（待審核）。' : (r.extract && r.extract.ok === false ? '一句話沒抽成結構化欄位，只存了原文。' : '');\n    context.grafana.notifySuccess(['回饋', base + extra]);\n  }).catch(() => context.grafana.notifySuccess(['回饋', base]));\n} else if (context.panel.response) {\n  context.panel.response.json().then((r) => context.grafana.notifyError(['回饋沒有存成功', r.error || String(context.panel.response.status)]))\n    .catch(() => context.grafana.notifyError(['回饋沒有存成功', String(context.panel.response.status)]));\n} else {\n  context.grafana.notifyError(['回饋沒有存成功', '連不到回饋服務（feedback_api 的網址、CORS）']);\n}",
           "datasource": "",
           "payload": {},
           "confirm": false
@@ -201,6 +201,66 @@
             "isEscaping": false
           },
           {
+            "uid": "rca_cause_useful",
+            "id": "rca_cause_useful",
+            "title": "可能根因有參考價值？",
+            "type": "radio",
+            "labelWidth": 22,
+            "width": null,
+            "tooltip": "報告或 AI 摘要指的可能根因，對你排查有沒有幫助（採納率用）",
+            "section": "",
+            "unit": "",
+            "showIf": "",
+            "disableIf": "",
+            "optionsSource": "Custom",
+            "allowCustomValue": false,
+            "options": [
+              {
+                "value": "yes",
+                "label": "是"
+              },
+              {
+                "value": "no",
+                "label": "否"
+              },
+              {
+                "value": "not_seen",
+                "label": "沒看"
+              }
+            ],
+            "value": ""
+          },
+          {
+            "uid": "rca_action_useful",
+            "id": "rca_action_useful",
+            "title": "建議的排查動作有參考價值？",
+            "type": "radio",
+            "labelWidth": 22,
+            "width": null,
+            "tooltip": "報告的「建議先做什麼」、相似事故的處置，對你有沒有幫助（採納率用）",
+            "section": "",
+            "unit": "",
+            "showIf": "",
+            "disableIf": "",
+            "optionsSource": "Custom",
+            "allowCustomValue": false,
+            "options": [
+              {
+                "value": "yes",
+                "label": "是"
+              },
+              {
+                "value": "no",
+                "label": "否"
+              },
+              {
+                "value": "not_seen",
+                "label": "沒看"
+              }
+            ],
+            "value": ""
+          },
+          {
             "uid": "verdict",
             "id": "verdict",
             "title": "這件是",
@@ -229,6 +289,22 @@
               }
             ],
             "value": ""
+          },
+          {
+            "uid": "feedback_text",
+            "id": "feedback_text",
+            "title": "一句話說這件怎麼回事",
+            "type": "textarea",
+            "labelWidth": 22,
+            "width": null,
+            "tooltip": "選填。系統會抽成結構化欄位（誤報／真的／根因錯、原因、服務、建議動作），對得到的提一筆待審核的調整建議，不會自動生效。例：「這是每月初的批次匯出報表，屬於預期內負載」",
+            "section": "",
+            "unit": "",
+            "showIf": "",
+            "disableIf": "",
+            "rows": 2,
+            "value": "",
+            "isEscaping": false
           },
           {
             "uid": "root_cause_category",
