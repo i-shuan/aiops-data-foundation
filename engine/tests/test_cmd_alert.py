@@ -77,6 +77,35 @@ class IncidentsAreNotOverwritten(unittest.TestCase):
         self.assertEqual(C.write_incidents(FakeES({}), []), 0)
 
 
+class AnomaliesCarryAlertId(unittest.TestCase):
+    """併件時把 alert_id 寫回 aiops-anomalies：儀表板「這件事故的異常」依 alert_id 撈，規則觸發的（沒有 status）也撈得到。"""
+
+    def test_bulk_update_alert_id(self):
+        es = FakeES({"errors": False, "items": [{"update": {"_id": "x1", "result": "updated"}}, {"update": {"_id": "x2", "result": "noop"}}]})
+        n = C.tag_anomalies(es, "aiops-anomalies", [("x1", "a-1"), ("x2", "a-1")])
+        self.assertEqual(n, 2)
+        lines = [json.loads(l) for l in es.s.sent.strip().split("\n")]
+        self.assertEqual(lines[0], {"update": {"_index": "aiops-anomalies", "_id": "x1"}})
+        self.assertEqual(lines[1], {"doc": {"alert_id": "a-1"}})
+        self.assertEqual(es.ensured, ["aiops-anomalies"])   # 舊 index 補 alert_id 欄位（mapping 是 dynamic false）
+
+    def test_missing_anomaly_is_skipped(self):
+        # 保留期過了、異常已刪：那一筆 document_missing，其他照寫，不擋這一輪
+        es = FakeES({"errors": True, "items": [{"update": {"_id": "x1", "error": {"type": "document_missing_exception"}}},
+                                               {"update": {"_id": "x2", "result": "updated"}}]})
+        self.assertEqual(C.tag_anomalies(es, "aiops-anomalies", [("x1", "a-1"), ("x2", "a-1")]), 1)
+
+    def test_other_error_raises(self):
+        es = FakeES({"errors": True, "items": [{"update": {"_id": "x1", "error": {"type": "index_closed_exception"}}}]})
+        with self.assertRaises(RuntimeError):
+            C.tag_anomalies(es, "aiops-anomalies", [("x1", "a-1")])
+
+    def test_empty(self):
+        es = FakeES({})
+        self.assertEqual(C.tag_anomalies(es, "aiops-anomalies", []), 0)
+        self.assertEqual(es.ensured, [])
+
+
 if __name__ == "__main__":
     unittest.main()
 

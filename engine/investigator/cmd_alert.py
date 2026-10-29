@@ -125,6 +125,27 @@ def write_incidents(es: ES, incidents: list[tuple[str, dict]]) -> int:
     return sum(1 for it in body.get("items", []) if it["update"].get("result") in ("created", "updated"))
 
 
+def tag_anomalies(es: ES, index: str, tags: list[tuple[str, str]]) -> int:
+    """把 alert_id 寫回這件併進來的每筆異常（aiops-anomalies）：儀表板用 alert_id:"<這件>" 就撈得到這件的異常，
+    規則觸發的（沒有 status）也撈得到，不用靠時間範圍猜。tags：(異常 _id, alert_id)。
+    異常已被清掉（保留期過了）的那幾筆略過，不擋這一輪。"""
+    if not tags:
+        return 0
+    from detector.es import ANOMALY_MAPPING
+    es.ensure_index(index, ANOMALY_MAPPING)    # mapping 是 dynamic false：舊 index 要補 alert_id 欄位，不然查不到
+    lines = []
+    for _id, aid in tags:
+        lines.append(json.dumps({"update": {"_index": index, "_id": _id}}))
+        lines.append(json.dumps({"doc": {"alert_id": aid}}))
+    r = es.s.post(f"{es.url}/_bulk?refresh=wait_for", data="\n".join(lines) + "\n", headers={"Content-Type": "application/x-ndjson"}, timeout=300)
+    body = r.json()
+    items = body.get("items", [])
+    bad = [it for it in items if it["update"].get("error") and it["update"]["error"].get("type") != "document_missing_exception"]
+    if r.status_code != 200 or bad:
+        raise RuntimeError(f"寫入 {index} 的 alert_id 失敗：{r.status_code} {bad[:3] or r.text[:500]}")
+    return sum(1 for it in items if it["update"].get("result") in ("updated", "noop"))
+
+
 def run(cfg: dict, args, investigate) -> int:
     """investigate：根因分析的函式（investigator.__main__.investigate_full），傳進來避免循環 import。"""
     es = ES()
@@ -139,7 +160,7 @@ def run(cfg: dict, args, investigate) -> int:
     start = min(now - lookback, oldest - close_after)
     alerts = AL.merge(open_alerts, _anomalies(es, cfg["indices"]["anomalies"], start, now), now, close_after,
                       _done_ids(es, start - close_after))
-    docs, incidents, new, resolved = [], [], 0, 0
+    docs, incidents, tags, new, resolved = [], [], [], 0, 0
     for al in alerts:
         al["dept"], al["group"] = AL.owner(al) if al.get("_anoms") else (al.get("dept"), al.get("group") or "unassigned")
         report, findings, similar, llm = al.get("report"), al.get("findings"), al.get("similar") or [], None
@@ -174,6 +195,9 @@ def run(cfg: dict, args, investigate) -> int:
                     "@timestamp": (al["resolved_at"] if al["status"] == "resolved" else stamp_of(now))})
         doc = {k: (v.isoformat() if isinstance(v, datetime) else v) for k, v in doc.items()}
         docs.append((al["alert_id"], doc))
+        if al.get("_anoms") or al["status"] == "resolved":
+            # 這輪有異常併進來、或這輪結束的件：把 alert_id 寫回它的每筆異常（連同之前併的：改版前就開著的件，結束時補得到）
+            tags += [(i, al["alert_id"]) for i in dict.fromkeys([a["_id"] for a in al.get("_anoms") or []] + al["anomaly_ids"])]
         if al["category"] == "service" and (al.get("_new") or al.get("_anoms") or al["status"] == "resolved"):
             incidents.append((al["alert_id"], _incident_doc(al, doc, findings)))
         if al.get("_new") and al["status"] == "resolved":   # 已經過去的（例如這支停了一陣子才跑）：記下來，不算新開、不通知
@@ -191,6 +215,7 @@ def run(cfg: dict, args, investigate) -> int:
     docs.append(("heartbeat", {"@timestamp": stamp_of(now).isoformat(), "alert_id": "heartbeat", "category": "heartbeat", "status": "ok",
                                "service": "aiops", "title": "investigator alert 心跳", "group": "unassigned", "started_at": now.isoformat(),
                                "updated_at": now.isoformat(), "anomaly_ids": [], "series": [], "routes": [], "anomaly_count": 0}))
+    tag_anomalies(es, cfg["indices"]["anomalies"], tags)   # 先寫回異常、再寫件：件寫失敗下一輪會重做；反過來這些異常就永遠沒標到
     es.bulk_index(ALERT_INDEX, docs)
     write_incidents(es, incidents)    # 已被老師傅確認的不覆蓋（原子，不是先讀再寫）
     still = sum(1 for _, d in docs if d["status"] == "open")
