@@ -120,7 +120,7 @@
 | 根因報告的「平常」數字跟出事時差不多（例如平常 p95 也是 1.5 秒） | 一週前沒資料時，「平常」改用出事前一段、中間空 `ref_gap`；偵測比事故晚約 4 分鐘，`ref_gap` 太短就包到事故 | `ref_gap` 要大於偵測延遲；正式設定 10 分鐘（`engine/configs/rca/rca.yaml`） |
 | `quality` 中斷：`bulk 寫入 aiops-anomalies 失敗 ... Non-standard token 'NaN'` | 缺欄位那組（例如 log 沒有 namespace）的 key 被 pandas 3 變成 NaN | 已修（`quality._frame`）；舊版這一輪的結果全沒寫 |
 | trace 有 N+1，`trace.segment.repeated` 沒報、反而報一個沒有「→」的新段 | DB span 只有新版 `db.system.name`，段名沒有對象 | 已補這個欄位；Client span 什麼對象欄位都沒有的仍看不到 |
-| 程式 catch 掉 DB 例外、回 200，`trace.segment.swallowed` 沒報 | Java agent 會把丟例外的那段標成錯誤，舊定義只算沒標錯誤的 | 已改：入口沒標錯誤就算吞掉（定義待決定；重試後成功也會算） |
+| 程式 catch 掉 DB 例外、回 200，`trace.segment.swallowed` 沒報 | Java agent 會把丟例外的那段標成錯誤，舊定義只算沒標錯誤的 | 已改：入口沒標錯誤就算吞掉（已決定維持；重試後成功也會算，另外排除留到下一輪） |
 | 某支 API 一直沒有 trace 基準線 | 尾端取樣只留 5%：每點隨機留下的 < `min_requests` 5 | 每個 interval 至少 100 個請求才學得到（5 分鐘 → 每分鐘 20 個） |
 | 只有一部分請求變慢，trace 段的 time_ms 沒報 | 每點約 20 個請求的平均；長尾讓基準線很寬（實測門檻約 430 ms） | 已知限制；要看 p90 或慢請求比例（還沒做） |
 | trace 基準線的錯誤率、時間偏高很多 | 讀到尾端取樣全留的那份（錯、慢、例外） | `traces_index` 用 `traces-generic.otel-*`、`sample_policy: random`（實測混進來錯誤率 4% → 35%） |

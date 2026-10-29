@@ -1,6 +1,6 @@
 # trace 段異常與資料品質檢查：邊緣情境（2026-10）
 
-**狀態**：已完成；兩個行為變更**待使用者決定**　　**日期**：2026-10-28　　**相關**：分支 `worktree-agent-a5ab9d5cee4d2a7de`（從 `14a12ed`）；[baseline README「trace 每一段」](../../../engine/configs/baseline/reference.md#trace-每一段的-baseline)、[「資料品質檢查」](../../../engine/configs/baseline/reference.md#資料品質檢查資料本身怪不怪)、[data-quality-check](2026-10-data-quality-check.md)
+**狀態**：已完成；兩個行為變更已決定維持（2026-10-29）　　**日期**：2026-10-28　　**相關**：分支 `worktree-agent-a5ab9d5cee4d2a7de`（從 `14a12ed`）；[baseline README「trace 每一段」](../../../engine/configs/baseline/reference.md#trace-每一段的-baseline)、[「資料品質檢查」](../../../engine/configs/baseline/reference.md#資料品質檢查資料本身怪不怪)、[data-quality-check](2026-10-data-quality-check.md)
 **模組**：② 清資料、④ 判斷
 
 ## Plan：這一次要達到什麼
@@ -16,9 +16,9 @@
 
 | 檔案 | 改了什麼 | 為何要改 |
 |---|---|---|
-| `engine/detector/trace.py` | 例外吞噬：入口沒標錯誤時，標了錯誤的例外也算吞掉（**待決定**） | Java agent 的 JDBC 丟例外一定標錯誤，catch 掉、回 200 原本抓不到 |
+| `engine/detector/trace.py` | 例外吞噬：入口沒標錯誤時，標了錯誤的例外也算吞掉（已決定維持） | Java agent 的 JDBC 丟例外一定標錯誤，catch 掉、回 200 原本抓不到 |
 | `engine/core/traces.py` | 呼叫對象多看 `db.system.name` | 新版 DB 語意只有這個欄位時段名沒有「→」，N+1 規則看不到 |
-| `engine/detector/quality.py` | 第一天（昨天整段沒資料）不看倍數（**待決定**） | 第一天每個 ≥50 條樣板路由的正常服務都被報 |
+| `engine/detector/quality.py` | 第一天（昨天整段沒資料）不看倍數（已決定維持） | 第一天每個 ≥50 條樣板路由的正常服務都被報 |
 | 同上 | 「像 ID」的比例改抽最多 500 個值（原 50），限制每頁組數 | 只抽筆數最多的 50 個，量少的 ID 路由抽不到，比例被低估 |
 | 同上 | 查詢結果用 `dtype=object` 建 DataFrame（`_frame`） | pandas 3 把缺欄位那組的 None 變 NaN，寫 ES 整批 400、`quality` 中斷 |
 | 同上 | 訊息裡缺欄位的那組寫「沒有 namespace」 | 原本寫「全部」或「nan」，看不出來是哪一組 |
@@ -28,7 +28,7 @@
 | `engine/tests/trace_quality_edge_e2e.py`、`trace_edge.yaml`（新） | 灌合成 trace／log／metrics，每項印 PASS／FAIL | 可重跑；只刪 `tq-` 開頭的資料；`a`／`b` 只跑一段 |
 | `engine/configs/baseline/README.md` | 吞噬定義、對象欄位、三個新檢查、第一天 | — |
 
-**兩個待使用者決定的行為變更：**
+**兩個行為變更（使用者 2026-10-29 決定：都維持）：**
 
 | 變更 | 改前 | 改後 | 副作用 |
 |---|---|---|---|
@@ -111,11 +111,11 @@
 | 只有一部分請求變慢抓不到 | 10% 請求 +2 秒，3 點都沒報 | 單一參數、單一 Pod 慢會漏 | 段的時間加 p90 或慢請求比例 |
 | 低流量 API 學不到 | 每分鐘 40 個，每點 2 個 | 每 5 分鐘不到 100 個請求的 API 沒有 trace 基準線 | 量少的改用較粗的粒度 |
 | 吞噬規則門檻＝1 個請求 | 每點約 20 個樣本，5% 就是 1 個 | 長期 2% 時推論每點約 33% 會報 | 改成跨多點累計或至少 2 個 |
-| 重試後成功也算吞噬（待決定） | 新定義的副作用（推論） | 有重試的服務可能常報 | 試點時看觸發數 |
+| 重試後成功也算吞噬 | 新定義的副作用（推論） | 有重試的服務可能常報 | 下一輪把「重試後成功」另外排除；試點時看觸發數 |
 | [②] Pod 沒有服務 label 的 log 不算缺 | pipeline 退回 container 名稱 | 這些 log 對不上 metrics、trace | pipeline 記名稱來源，或檢查 container 名 |
 | duration 型別錯的 span 不會被拒 | logsdb ignore_malformed | 欄位默默丟掉，failure store 看不到 | 查 `_ignored` 欄位 |
 | Client span 沒有任何對象欄位 | 段名沒有「→」 | N+1 規則看不到 | 實際埋點遇到再補欄位 |
 | 三個新檢查的門檻是估的 | 沿用同類檢查 | 可能誤報或漏報 | 跟其他 quality 一起試點 2～4 週再校 |
 
-- **決定**：例外吞噬的新定義、第一天不看倍數，兩項都待使用者決定；測試跟著現在的程式。
+- **決定**（使用者 2026-10-29）：例外吞噬的新定義維持，「重試後成功」另外排除留到下一輪；第一天不看倍數維持（第二天起有昨天可比）。
 - **下一輪**：部分變慢的統計值、低流量 API 的粒度、吞噬規則的最少請求數，列入 [README.md](../README.md) 的「④ baseline 補強」。
