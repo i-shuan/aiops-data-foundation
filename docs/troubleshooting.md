@@ -103,6 +103,7 @@
 | 件還開著，Grafana 卻發 resolved，之後又 firing | 一件只有一筆、每輪覆蓋；Grafana 的查詢範圍到「排定的評估時間」為止，查詢晚幾秒才送出。覆蓋剛好落在這幾秒之間時，`@timestamp` 晚於範圍結束點，查到 0 筆 | engine 寫開著的件和心跳時，`@timestamp` 往前 1 分鐘（`cmd_alert.STAMP_LAG`）。驗證：`e2e/pipeline/run-alert-flap.py` |
 | ES 連不上時收到 `DatasourceError`，不是「AIOps 停了」，而且一次兩則 | 規則 `execErrState: Error` 時 Grafana 發自己的 DatasourceError；兩條規則各發一則 | 要它也叫「AIOps 停了」就把心跳規則改 `execErrState: Alerting`；事件規則的 DatasourceError 用 notification policy 靜音（還沒改，要跟管 Grafana 的人定） |
 | 儀表板查 `_exists_:report` 永遠沒資料 | `aiops-alerts` 的 `report` 是 `index: false` | 用 `category:service` 篩 |
+| `aiops-rca` 儀表板「這件事故的異常」No data（規則觸發的事故一定空） | 原本查 `status:(warning OR anomaly)` 又只依時間範圍篩：規則觸發的異常沒有 `status`，而且撈到的不一定是這件的 | 已改：`investigator alert` 併件時把 `alert_id` 寫回 `aiops-anomalies`（`cmd_alert.tag_anomalies`），面板查 `alert_id:"$alert"`；改版前已結束的件撈不到（當時沒寫回） |
 
 ## AIOps engine
 

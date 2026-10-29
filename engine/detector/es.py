@@ -26,6 +26,7 @@ ANOMALY_MAPPING = {"mappings": {"dynamic": False, "properties": {
     "confidence": {"type": "keyword"}, "p": {"type": "double"},
     "status": {"type": "keyword"}, "streak": {"type": "integer"},
     "dept": {"type": "keyword"}, "group": {"type": "keyword"},
+    "alert_id": {"type": "keyword"},   # 併進哪一件（investigator alert 寫回；儀表板依它撈這件的異常）
 }}}
 
 

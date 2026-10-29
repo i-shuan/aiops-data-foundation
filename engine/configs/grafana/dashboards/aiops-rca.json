@@ -444,8 +444,8 @@
     {
       "id": 5,
       "type": "table",
-      "title": "這件事故的異常（Metrics）",
-      "description": "",
+      "title": "這件事故的異常",
+      "description": "aiops-anomalies 裡 alert_id 是這件的：動態基準線的（status、z）和規則觸發的（severity、message）都在。alert_id 是 investigator alert 併件時寫回的。",
       "datasource": {
         "type": "elasticsearch",
         "uid": "aiops-anomalies"
@@ -463,14 +463,14 @@
             "type": "elasticsearch",
             "uid": "aiops-anomalies"
           },
-          "query": "status:(warning OR anomaly)",
+          "query": "alert_id:\"$alert\"",
           "alias": "",
           "metrics": [
             {
               "id": "1",
               "type": "raw_data",
               "settings": {
-                "size": "50"
+                "size": "200"
               }
             }
           ],
@@ -485,24 +485,30 @@
             "includeByName": {
               "@timestamp": true,
               "status": true,
+              "severity": true,
               "series": true,
               "keys.service": true,
               "value": true,
               "median": true,
+              "expected_high": true,
               "z": true,
               "direction": true,
-              "confidence": true
+              "confidence": true,
+              "message": true
             },
             "indexByName": {
               "@timestamp": 0,
               "status": 1,
-              "series": 2,
-              "keys.service": 3,
-              "value": 4,
-              "median": 5,
-              "z": 6,
-              "direction": 7,
-              "confidence": 8
+              "severity": 2,
+              "series": 3,
+              "keys.service": 4,
+              "value": 5,
+              "median": 6,
+              "expected_high": 7,
+              "z": 8,
+              "direction": 9,
+              "confidence": 10,
+              "message": 11
             },
             "renameByName": {}
           }
