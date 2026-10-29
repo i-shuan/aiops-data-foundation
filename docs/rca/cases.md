@@ -32,9 +32,9 @@
 
 | 做法 | 抓什麼 | 對應案例 | 現在 |
 |---|---|---|---|
-| **A. trace 每一段的 baseline** | 每個 API 的每個請求，平常呼叫每一段**幾次**、每段花多久、出錯比例；另外兩條規則：沒見過的呼叫、時鐘不同步 | 1、4、6、7、9、13（3、8） | ✅ [engine/configs/baseline「trace 每一段」](../../engine/configs/baseline/README.md#trace-每一段的-baseline)：k3s 實測 4 個案例都抓到、正常 0 誤報 |
+| **A. trace 每一段的 baseline** | 每個 API 的每個請求，平常呼叫每一段**幾次**、每段花多久、出錯比例；另外兩條規則：沒見過的呼叫、時鐘不同步 | 1、4、6、7、9、13（3、8） | ✅ [engine/configs/baseline「trace 每一段」](../../engine/configs/baseline/reference.md#trace-每一段的-baseline)：k3s 實測 4 個案例都抓到、正常 0 誤報 |
 | **B. 慢的請求有什麼共同點** | 出事的請求跟正常的比：哪個 Pod、哪個版本、哪個 `lot.id`、哪句 SQL 佔比特別高 | 7、9、10、15，還有換版 | ❌ |
-| **C. 同儕比較** | 同一個服務的 Pod 互相比：某個 Pod 的錯誤率、延遲、記憶體跟其他 Pod 差很多 | 15、3、5、12 | ✅ [engine/configs/baseline「Pod 同儕橫向比對」](../../engine/configs/baseline/README.md#pod-同儕橫向比對同一個服務的-pod-互相比)：錯誤率、p95、CPU、記憶體 |
+| **C. 同儕比較** | 同一個服務的 Pod 互相比：某個 Pod 的錯誤率、延遲、記憶體跟其他 Pod 差很多 | 15、3、5、12 | ✅ [engine/configs/baseline「Pod 同儕橫向比對」](../../engine/configs/baseline/reference.md#pod-同儕橫向比對同一個服務的-pod-互相比)：錯誤率、p95、CPU、記憶體 |
 | **D. metrics 補齊** | 延遲 **p99**、慢請求比例；JVM（GC、heap）、連線池；**飽和度**（快滿了，不用學）；**趨勢**（慢慢爬） | 3、5、8、11、12、14 | ⚠️ 有流量、錯誤率、p95、CPU、記憶體 |
 | **E. 規則** | 時鐘不同步（子 span 比父早）等不用學的檢查 | 13 | ✅ 併在 A |
 | （log 樣式字典） | 每種 log 樣式平常幾筆：歸零、新出現 | 2、7、10 | ⚠️ 根因分析有簡單版；不在這個 branch |

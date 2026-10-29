@@ -66,10 +66,12 @@
 | 文件 | 類型 | 內容 | 狀態 |
 |---|---|---|---|
 | [rca/README.md](rca/README.md) | 原理 | 根因分析怎麼做、哪裡需要 AI；四種 baseline 各適合什麼；兩階段推進 | 🟢 |
-| [rca/baseline.md](rca/baseline.md) | 原理 | baseline 原理：為什麼用中位數和 MAD、方法本身抓不到什麼 | 🟢 |
 | [rca/cases.md](rca/cases.md) | 案例 | 15 個真實故障案例：要哪種「平常」才抓得到 | 🟢 |
 | [rca/graph-rag.md](rca/graph-rag.md) | 原理 | RCA ＋ LLM 搭配 graph RAG | ⚪ 沒有程式、沒有驗證 |
-| [../engine/configs/baseline/README.md](../engine/configs/baseline/README.md) | 規格＋操作（混合，未拆） | baseline：怎麼判斷、參數、怎麼跑、結果在哪、怎麼驗 | 🟢 |
+| [rca/baseline.md](rca/baseline.md) | 原理 | baseline 原理與設計：怎麼判斷、為什麼用中位數和 MAD、自動調整、各種偵測的道理、抓不到什麼 | 🟢 |
+| [../engine/configs/baseline/reference.md](../engine/configs/baseline/reference.md) | 規格 | baseline 規格：序列、狀態、參數、規則、檢查、欄位、結果在哪 | 🟢 |
+| [../engine/configs/baseline/README.md](../engine/configs/baseline/README.md) | 操作 | baseline：怎麼跑 train／detect／rules／peer／quality／chronic、怎麼調、怎麼驗 | 🟢 |
+| [../engine/configs/baseline/verification.md](../engine/configs/baseline/verification.md) | 案例 | baseline 各功能的實測與驗證結果 | 🟢 |
 | [../engine/configs/rca/README.md](../engine/configs/rca/README.md) | 操作 | 根因分析：預設值、怎麼跑、報告長什麼樣子、限制、怎麼驗 | 🟢 |
 | [../engine/configs/rca/example-report.md](../engine/configs/rca/example-report.md) | 案例 | 一份範例報告 | 🟢 |
 | [../engine/interfaces/README.md](../engine/interfaces/README.md) | 規格 | 要別人提供的資料的格式 | 🟢 |
@@ -98,9 +100,9 @@
 | 我要… | 看這些 |
 |---|---|
 | **懂為什麼這樣設計**（原理） | [architecture.md](architecture.md)、[rca/README.md](rca/README.md)、[rca/baseline.md](rca/baseline.md)、[log](log/README.md)・[metrics](metrics/README.md)・[trace](trace/README.md) 的 README、[metrics/capabilities.md](metrics/capabilities.md)、[metrics/dotnet.md](metrics/dotnet.md)、[retention.md](retention.md)、[feedback/README.md](feedback/README.md)、[feedback/llm-mlops.md](feedback/llm-mlops.md)、[log/fluentbit-vs-otel.md](log/fluentbit-vs-otel.md) |
-| **做一件事**（操作） | [troubleshooting.md](troubleshooting.md)、[log/how-to.md](log/how-to.md)、[metrics/how-to.md](metrics/how-to.md)、[metrics/dotnet-how-to.md](metrics/dotnet-how-to.md)、[trace/how-to.md](trace/how-to.md)、[retention-how-to.md](retention-how-to.md)、[engine/deploy](../engine/deploy/README.md) |
-| **查欄位、參數、現況**（規格） | [log/reference.md](log/reference.md)、[metrics/reference.md](metrics/reference.md)、[metrics/catalog.md](metrics/catalog.md)、[metrics/dotnet-reference.md](metrics/dotnet-reference.md)、[trace/reference.md](trace/reference.md)、[retention-reference.md](retention-reference.md)、[architecture-reference.md](architecture-reference.md) |
-| **看實例**（案例） | [metrics/cases.md](metrics/cases.md)、[rca/cases.md](rca/cases.md)、[trace/scenarios.md](trace/scenarios.md)、[範例報告](../engine/configs/rca/example-report.md) |
+| **做一件事**（操作） | [troubleshooting.md](troubleshooting.md)、[log/how-to.md](log/how-to.md)、[metrics/how-to.md](metrics/how-to.md)、[metrics/dotnet-how-to.md](metrics/dotnet-how-to.md)、[trace/how-to.md](trace/how-to.md)、[retention-how-to.md](retention-how-to.md)、[engine/deploy](../engine/deploy/README.md)、[baseline 怎麼跑](../engine/configs/baseline/README.md) |
+| **查欄位、參數、現況**（規格） | [log/reference.md](log/reference.md)、[metrics/reference.md](metrics/reference.md)、[metrics/catalog.md](metrics/catalog.md)、[metrics/dotnet-reference.md](metrics/dotnet-reference.md)、[trace/reference.md](trace/reference.md)、[retention-reference.md](retention-reference.md)、[architecture-reference.md](architecture-reference.md)、[baseline 規格](../engine/configs/baseline/reference.md) |
+| **看實例**（案例） | [metrics/cases.md](metrics/cases.md)、[rca/cases.md](rca/cases.md)、[trace/scenarios.md](trace/scenarios.md)、[baseline 實測](../engine/configs/baseline/verification.md)、[範例報告](../engine/configs/rca/example-report.md) |
 
 ## PDCA 紀錄
 

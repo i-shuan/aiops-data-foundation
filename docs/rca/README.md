@@ -54,7 +54,7 @@
 
 **為什麼**：系統天天噴的錯（被 catch 吞掉、沒人修），會讓 baseline 學成「每天報錯 1,000 次是常態」，真的出事反而抓不到；事故期間的資料學進去，也會把「平常」帶偏。
 
-**現況**：✅ 例外吞噬檢測 (Exception Swallowing Detection)、N+1、新出現的 log 樣式都偵測得到；✅ 中位數＋MAD，少數幾次事故影響不大；✅ 程式有了、沒排程：排除事故時段（`exclude_window`）、行事曆、慢性病清單、資料品質檢查（步驟 1、2、3、5）。❌ 測試流量沒有自動辨識（步驟 6）。每一層擋什麼、還缺什麼見 [baseline README「餵給 baseline 之前」](../../engine/configs/baseline/README.md#餵給-baseline-之前擋了什麼還缺什麼)。
+**現況**：✅ 例外吞噬檢測 (Exception Swallowing Detection)、N+1、新出現的 log 樣式都偵測得到；✅ 中位數＋MAD，少數幾次事故影響不大；✅ 程式有了、沒排程：排除事故時段（`exclude_window`）、行事曆、慢性病清單、資料品質檢查（步驟 1、2、3、5）。❌ 測試流量沒有自動辨識（步驟 6）。每一層擋什麼、還缺什麼見 [baseline README「餵給 baseline 之前」](../../engine/configs/baseline/reference.md#餵給-baseline-之前擋了什麼還缺什麼)。
 
 | 步驟 | 內容 | 驗收 |
 |---|---|---|

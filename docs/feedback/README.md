@@ -9,7 +9,7 @@
 | 項目 | 狀態 | 說明 |
 |---|---|---|
 | 異常總表 `aiops-anomalies` | ✅ | 所有判斷結果都寫這裡，帶 `status`（warning／anomaly）、可信度、粒度、方法 |
-| 使用者、指令調整（粒度、z、min_abs） | ✅ | `series.yaml` 的 `overrides`、`tune` 指令寫進 `aiops-tuning`，記原因、誰、何時（[baseline README「使用者、feedback 調整」](../../engine/configs/baseline/README.md#使用者feedback-調整)）；之後 feedback 也寫同一處 |
+| 使用者、指令調整（粒度、z、min_abs） | ✅ | `series.yaml` 的 `overrides`、`tune` 指令寫進 `aiops-tuning`，記原因、誰、何時（[baseline README「使用者、feedback 調整」](../../engine/configs/baseline/reference.md#使用者feedback-調整)）；之後 feedback 也寫同一處 |
 | 告警出口 | ✅ | 同服務合成一件寫 `aiops-alerts`，Grafana 依 dept 分送（[pdca/phase3-locate/2026-10-alert-exit.md](../pdca/phase3-locate/2026-10-alert-exit.md)）；排程與「AIOps 停了」（[pdca/phase3-locate/2026-10-schedule.md](../pdca/phase3-locate/2026-10-schedule.md)） |
 | 事故紀錄 `aiops-incidents` | ✅ | 告警一開就有一筆（`auto`、帶指紋）；老師傅在回饋網頁確認 → `confirmed`，存根因分類、處置、**怎麼看出來的**、查了哪裡；相似事故檢索只讀確認過的（[pdca/phase5-learning-loop/2026-10-expert-feedback.md](../pdca/phase5-learning-loop/2026-10-expert-feedback.md)、[2026-10-similar-incidents.md](../pdca/phase4-rca-llm/2026-10-similar-incidents.md)） |
 | 值班回饋 `aiops-feedback` | ✅ | 回饋網頁 `feedback_web`（通知裡的連結）＋指令；誤報 3 次 → 建議、漏報 → 降 z、同根因 3 次 → 規則草稿（都 proposed）。漏報還只能用指令；沒登入 |

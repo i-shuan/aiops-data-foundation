@@ -1,6 +1,6 @@
 # 慢性病清單與行事曆（2026-10）
 
-**狀態**：已完成（已合進 master）；沒排程　　**日期**：2026-10-24　　**相關**：PR #8、[餵給 baseline 之前](../../../engine/configs/baseline/README.md#餵給-baseline-之前擋了什麼還缺什麼)、[排除已知干擾](2026-10-exclude-adjust.md)、[資料來源接口](2026-10-data-sources.md)
+**狀態**：已完成（已合進 master）；沒排程　　**日期**：2026-10-24　　**相關**：PR #8、[餵給 baseline 之前](../../../engine/configs/baseline/reference.md#餵給-baseline-之前擋了什麼還缺什麼)、[排除已知干擾](2026-10-exclude-adjust.md)、[資料來源接口](2026-10-data-sources.md)
 **模組**：② 清資料（餵給 ④ 判斷之前）
 
 ## Plan：這一次要達到什麼

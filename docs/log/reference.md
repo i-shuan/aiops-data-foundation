@@ -14,9 +14,6 @@
   - [保底：沒有規則的格式也盡量抓 level](#保底沒有規則的格式也盡量抓-level)
   - [level 正規化](#level-正規化)
   - [trace_id 怎麼取](#trace_id-怎麼取)
-  - [服務怎麼宣告格式](how-to.md#服務怎麼宣告格式)
-  - [新增一種格式（例如 SECS）](how-to.md#新增一種格式例如-secs)
-  - [查哪些格式還沒有規則](how-to.md#查哪些格式還沒有規則)
 - [Index](#index)
 <!-- /toc -->
 

@@ -4,7 +4,7 @@
 
 一句話：**六個場景裡，慢在哪、程式壞味道、錯誤源頭這三個已經做了而且實測過（含不用學的 N+1、例外吞噬檢測 (Exception Swallowing Detection) 規則）；取樣改成尾端取樣，出事的請求全部留下。非同步（Kafka）不改程式做到一半（排隊時間、消費者變慢出錯抓得到，但串不回是哪一筆訊息）；架構治理、工廠（SECS、MES→MCS→AMHS）還沒做。**
 
-trace 怎麼收、怎麼分部門見 [trace/README.md](README.md)；baseline、根因分析的實作見 [engine/configs/baseline](../../engine/configs/baseline/README.md#trace-每一段的-baseline)、[engine/configs/rca](../../engine/configs/rca/README.md)。
+trace 怎麼收、怎麼分部門見 [trace/README.md](README.md)；baseline、根因分析的實作見 [engine/configs/baseline](../../engine/configs/baseline/reference.md#trace-每一段的-baseline)、[engine/configs/rca](../../engine/configs/rca/README.md)。
 
 ## 對照表
 
@@ -47,7 +47,7 @@ trace 怎麼收、怎麼分部門見 [trace/README.md](README.md)；baseline、�
 | `receive` 的時間 | 是「`Consume()` 等下一筆訊息等了多久」，不是處理時間 |
 | kafka_exporter 的名稱 | ✅ `kafka_consumergroup_lag_sum{consumergroup, topic}`，跟 [rules.yaml](../../engine/configs/baseline/rules.yaml) 的 Kafka 規則一樣 |
 
-**不改程式時平台怎麼補：**（[engine/configs/baseline](../../engine/configs/baseline/README.md#trace-每一段的-baseline)）
+**不改程式時平台怎麼補：**（[engine/configs/baseline](../../engine/configs/baseline/reference.md#trace-每一段的-baseline)）
 
 - **排隊時間**：消費端拿到訊息的時間（receive 結束）− 生產端送出的時間（publish 結束），生產端用 link 找回來。trace baseline 多一段「`order-consumer › 排隊（orders）← order-producer`」，平常 0.2ms。
 - **處理時的 DB**：沒有上一層的 span 也當成入口，所以「`order-consumer › postgres → postgresql`」自己有 baseline（平常 1.4ms）、錯誤率。看得出「這個消費者寫 DB 變慢、出錯」，只是對不到是哪一筆訊息。
