@@ -1,6 +1,6 @@
 # 回饋回到系統：更新知識庫、門檻調整加回測（2026-10）
 
-**狀態**：完成（docker ES 實測：建議 → 回測 → 核准 → 不再報）　　**日期**：2026-10-25　　**相關**：分支 `claude/loop-plans`；前置 [老師傅回饋入口](2026-10-expert-feedback.md)、[相似事故檢索](../phase4-rca-llm/2026-10-similar-incidents.md)；[產品主線 8 步](../../end-to-end-flow.md#產品主線-8-步) 第 8 步
+**狀態**：完成（docker ES 實測：建議 → 回測 → 核准 → 不再報）　　**日期**：2026-10-25　　**相關**：分支 `claude/loop-plans`；前置 [老師傅回饋入口](2026-10-expert-feedback.md)、[相似事故檢索](../phase4-rca-llm/2026-10-similar-incidents.md)；[產品主線 8 步](../../architecture.md#9-產品主線-8-步) 第 8 步
 **模組**：⑨ feedback、④ 判斷（門檻、baseline）
 
 ## Plan：這一次要達到什麼

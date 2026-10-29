@@ -6,7 +6,7 @@ log 和 metrics 用同一個 Collector（[metrics/README.md](../metrics/README.m
 
 > [!IMPORTANT]
 > **重點：log 格式不一致的處理，見下方「[pipeline](#pipeline)」。**
-> 依服務宣告的格式分派解析規則的機制已經完成並測過；**REST API 的規則還沒寫，等真實 log 樣本**（SECS 屬工廠，之後再做，見 [factory-later.md](../factory-later.md)）。
+> 依服務宣告的格式分派解析規則的機制已經完成並測過；**REST API 的規則還沒寫，等真實 log 樣本**（SECS 屬工廠，不在目前範圍）。
 
 ## 現況與待辦（①收值、②清資料、③存）
 
@@ -14,8 +14,8 @@ log 和 metrics 用同一個 Collector（[metrics/README.md](../metrics/README.m
 
 | 項目 | 狀態 |
 |---|---|
-| Collector 讀節點上的 `/var/log/pods`，依 namespace 的部門分流（寫進各部門的 data stream）、一把寫入 key 所有部門共用、換 key 不掉資料 | ✅ |
-| 擋冒充：拿掉應用自己填的 K8s、部門欄位，由 Collector 依 Pod 補上 | ✅ |
+| Collector 讀節點上的 `/var/log/pods`，依 namespace 的部門分流（寫進各部門的 data stream）、集中式資料寫入憑證 (Shared Ingest Token) 所有部門共用、換 key 不掉資料 | ✅ |
+| 邊緣身份鑑別與標籤注入 (Edge Identity Sanitization & Injection)：拿掉應用自己填的 K8s、部門欄位，由 Collector 依 Pod 補上 | ✅ |
 | 中央 pipeline 依格式解析：logback、ECS、.NET JSON、Serilog、logfmt、純文字（保底抓 level） | ✅ |
 | 統一欄位：`service.name`、`log.level`、`trace.id`、時間（UTC）；跟 metrics、trace 同一條路徑的 alias（`resource.attributes.service.name`、`trace_id` 等） | ✅ |
 | 去重複（內容指紋當 `_id`）、斷線先寫磁碟再補送 | ✅ |
@@ -43,7 +43,7 @@ log 和 metrics 用同一個 Collector（[metrics/README.md](../metrics/README.m
 container stdout（每個節點的 /var/log/pods）
         ↓ 節點的 OpenTelemetry Collector（DaemonSet，跟 metrics 同一個）：補上 pod label、namespace 的 dept、cluster
         ↓ dept → group（跟 metrics 同一份規則）
-        ↓ 一把寫入 key（ES_WRITER_API_KEY）、一個出口；data_stream.namespace = group
+        ↓ 集中式資料寫入憑證（ES_WRITER_API_KEY）、一個出口；data_stream.namespace = group
         ↓ OTLP 送到 ES 的 /_otlp/v1/logs → logs-generic.otel-{group}
         ↓ 中央 ES：k8s-logs-otel 整理形狀、用內容算 _id（擋重送的重複）、轉到 k8s-{group}-{cluster}
         ↓ 中央 ES：k8s-logs pipeline 整理欄位（依 log 格式分派）→ data stream（ILM 管保留天數）

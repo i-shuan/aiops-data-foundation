@@ -1,6 +1,6 @@
 # 排程上線：定期跑、停了要知道、先只寫入不通知（2026-10）
 
-**狀態**：程式與設定完成，K8s 上還沒跑過　　**日期**：2026-10-25　　**相關**：分支 `claude/loop-complete`；主線 [產品主線 8 步](../../end-to-end-flow.md#產品主線-8-步) 之後的「上線」
+**狀態**：程式與設定完成，K8s 上還沒跑過　　**日期**：2026-10-25　　**相關**：分支 `claude/loop-complete`；主線 [產品主線 8 步](../../architecture.md#9-產品主線-8-步) 之後的「上線」
 **模組**：④⑤⑥（排程）、⑧（Grafana 多一條告警）
 
 ## Plan：這一次要達到什麼
@@ -17,7 +17,7 @@
 |---|---|---|
 | `detector rules` | 每 1 分鐘 | 狀態變化要快 |
 | `detector detect` | 每 1 分鐘（`--window 10m`） | 30 秒一點的序列，每分鐘看最近 10 分鐘；同一筆重跑會覆蓋 |
-| `detector peer` | 每 5 分鐘 | 跟兄弟比看最近 10 分鐘 |
+| `detector peer` | 每 5 分鐘 | Pod 同儕橫向比對 (Peer Comparison) 看最近 10 分鐘 |
 | `detector quality` | 每 10 分鐘 | 資料品質 |
 | `investigator alert` | 每 1 分鐘 | 合成一件、心跳 |
 | `detector train`、`trace-train` | 每天 02:00 | 學過去 4 週 |

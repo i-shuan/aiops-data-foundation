@@ -24,7 +24,7 @@
 | 12 | **磁碟滿、log 寫不出去卡死** | metrics：節點磁碟剩餘 0%；log 筆數歸零 | **飽和度**；log 筆數（兩邊都看） | ✅ kubelet 有磁碟、log 有筆數 | ✅ 規則 `node.disk_high`／`node.disk_full`、`log.lines` 抓得到歸零 |
 | 13 | **時鐘不同步**：子 span 比父 span 早開始 | trace：子比父早、比父晚結束超過容許值 | 不用學，是**規則** | ✅ | ✅ 規則已做（單元測試；k3s 兩個 Pod 在同一節點，沒辦法製造） |
 | 14 | **訊息積壓後 OOM** | metrics：Consumer Lag、Pod 記憶體、重啟次數 | **數字 × 時段**＋飽和度 | ⚠️ 記憶體、重啟有；Lag 要 MQ 的 exporter | ⚠️ 記憶體快到上限、重啟、Lag（`kafka.consumer_lag`）的規則有；Lag 要先有 exporter |
-| 15 | **只有一個 Pod 憑證過期**：10% 錯誤，整體被稀釋 | metrics、trace：**依 Pod 分開看**，錯誤全在 pod-7 | **同儕比較**：同一個服務的 Pod 互相比 | ✅ 資料都帶 `k8s.pod.name` | ✅ 跟兄弟比（`peer`）；k3s 實測一個 Pod 壞掉（錯誤率、延遲、記憶體、CPU）都抓到 |
+| 15 | **只有一個 Pod 憑證過期**：10% 錯誤，整體被稀釋 | metrics、trace：**依 Pod 分開看**，錯誤全在 pod-7 | **同儕比較**：同一個服務的 Pod 互相比 | ✅ 資料都帶 `k8s.pod.name` | ✅ Pod 同儕橫向比對 (Peer Comparison)（`peer`）；k3s 實測一個 Pod 壞掉（錯誤率、延遲、記憶體、CPU）都抓到 |
 
 ## 歸納：五種做法
 

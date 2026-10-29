@@ -1,4 +1,4 @@
-# 單次就報：依序列設「連續幾次才算」、偏太多就不用等（2026-10）
+# 單點即判定 (Instant Anomaly)：依序列設「連續幾次才算」、偏太多就不用等（2026-10）
 
 **狀態**：已完成　　**日期**：2026-10-25　　**相關**：分支 `claude/instant-anomaly`（從 `claude/alerts` 開）
 **模組**：④ 判斷（⑨ feedback 多一個可調的旋鈕）
@@ -9,7 +9,7 @@
 - 這擋掉零星跳動的誤報，但有些序列一跳就是出事：錯誤率平常 0.1%、突然 30%，要等下一個窗（30 秒到 5 分鐘，看粒度）才報。
 - 規則（`rules.yaml`）的 critical 本來就一次就報，baseline 沒有辦法。
 - **目的**：
-  1. **指定的序列可以一次就算**：`series.yaml` 每條序列可設 `confirm_points`（蓋過全域的 2），先給 `http.error_rate` 設 1。
+  1. **指定的序列可以單點即判定**：`series.yaml` 每條序列可設 `confirm_points`（蓋過全域的 2），先給 `http.error_rate` 設 1。
   2. **偏太多就不用等**：任何序列一個點偏離 ≥ `instant_z` 就直接算 anomaly，擋住沒想到的暴衝。
   3. 兩個旋鈕都能被 **learning loop 調**：`tune`、之後回饋的建議寫進 `aiops-tuning`，依序列、依對象生效（跟 z、min_abs 一樣）。
 - `instant_z` 先估 15 倍穩健標準差（正常門檻 5 的 3 倍）。
@@ -23,7 +23,7 @@
 
 1. `http.error_rate` 超標一次就是 anomaly；`http.latency_p95_s` 一次還是 warning、兩次才 anomaly。
 2. 任何序列一個點 z ≥ 15 → anomaly（不用等第二個）；z 介於 5～15 照原本規則。
-3. `tune --series http.latency_p95_s --match service=^pay --confirm-points 1` 之後，只有 pay 的 p95 一次就算，其他服務照舊；`--instant-z` 同樣。
+3. `tune --series http.latency_p95_s --match service=^pay --confirm-points 1` 之後，只有 pay 的 p95 單點即判定，其他服務照舊；`--instant-z` 同樣。
 4. 既有的 warning／anomaly 行為（連續、間斷、方向改變、粗粒度一個點就夠）不變。
 
 ## Do：改動哪些 code、改了什麼、為何要改
@@ -79,4 +79,4 @@
 | 改了門檻沒有回測 | 範圍 | 核准的人不知道改了會不會漏 | [loop-update](../phase5-learning-loop/2026-10-loop-update.md) |
 
 - 量少 API 的保護還在：`min_abs: 0.05`（錯誤率至少多 5 個百分點）、「事件數不夠的窗不判斷」。
-- **決定**：兩個旋鈕都做；預設只有 `http.error_rate` 一次就算，其他靠 `instant_z: 15` 兜底。
+- **決定**：兩個旋鈕都做；預設只有 `http.error_rate` 單點即判定，其他靠 `instant_z: 15` 兜底。

@@ -20,7 +20,7 @@
 | `engine/tests/test_alerts.py` | 改 1 個斷言、加 `test_summary_stable_while_incident_grows` | 固定「件變大、變久，summary 不變」 |
 | `engine/configs/grafana/alert-rules.yaml` | 只加註解 | 說明 summary 是 label |
 | `.gitignore` | 加 `.env` | LLM key 放在 `e2e/local-k3d/.env` |
-| 文件 | `docs/rca/README.md`、`engine/configs/grafana/README.md`、`docs/end-to-end-flow.md`、`docs/troubleshooting.md` | 敘述跟程式一致；排錯結論集中 |
+| 文件 | `docs/rca/README.md`、`engine/configs/grafana/README.md`、`docs/architecture.md`、`docs/troubleshooting.md` | 敘述跟程式一致；排錯結論集中 |
 
 ## metrics、trace、log 怎麼串
 

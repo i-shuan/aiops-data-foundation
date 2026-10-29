@@ -11,7 +11,7 @@ log 也由同一個 Collector 收（[log/README.md](../log/README.md)）：分�
 | 項目 | 狀態 |
 |---|---|
 | node Collector：kubelet、cAdvisor（CPU 限流）、應用的指標（Java 照標註來抓、.NET 用 OTLP 推）；cluster Collector：K8s 物件狀態 | ✅ 每 30 秒 |
-| 依每筆資料自己的 namespace 分部門（寫進各部門的 data stream）、一把寫入 key 所有部門共用 | ✅ |
+| 依每筆資料自己的 namespace 分部門（寫進各部門的 data stream）、集中式資料寫入憑證 (Shared Ingest Token) 所有部門共用 | ✅ |
 | 直方圖從累加值換成「每 30 秒多少」，任一段時間直接加總 | ✅ |
 | 外部系統：kafka_exporter | ✅ |
 | 寫進 ES 的時序資料流（TSDS），重送不重複 | ✅ |
@@ -43,10 +43,10 @@ log 也由同一個 Collector 收（[log/README.md](../log/README.md)）：分�
 整個 cluster 一個 Collector（Deployment，replicas 1）
    └─ k8s_cluster：Pod 狀態、容器重啟次數、Deployment/ReplicaSet 副本數、namespace、節點狀態
         ↓ 兩種 Collector 共用同一份規則（common.yaml）
-        ↓ 1. 擋冒充：應用自帶的 dept、group 欄位一律拿掉
+        ↓ 1. 邊緣身份鑑別（Edge Identity Sanitization）：應用自帶的 dept、group 欄位一律拿掉
         ↓ 2. 依這筆資料屬於哪個 Pod／物件，讀它 namespace 的 dept label，補上服務身分
         ↓ 3. dept → group（清單同 telemetry/groups.yaml）；沒有 dept 的（例如節點本身）→ unassigned
-        ↓ 4. data_stream.namespace = group；一個出口、一把寫入 key（ES_WRITER_API_KEY），用 OTLP 送到 ES 的 /_otlp/v1/metrics
+        ↓ 4. data_stream.namespace = group；一個出口、集中式資料寫入憑證（ES_WRITER_API_KEY），用 OTLP 送到 ES 的 /_otlp/v1/metrics
         ↓    → metrics-<來源>.otel-<group>（例如 metrics-prometheusreceiver.otel-it）
         ↓ 中央 ES 9 內建的 metrics-otel@template 把它建成 time series data stream（TSDS）
    AIOps 用唯讀 key 讀 metrics-*.otel-*；人用各 group 的唯讀角色
@@ -69,7 +69,7 @@ log 也由同一個 Collector 收（[log/README.md](../log/README.md)）：分�
 
 | 檔案 | 用途 |
 |---|---|
-| [telemetry/collectors/common.yaml](../../telemetry/collectors/common.yaml) | 兩種 Collector 共用：擋冒充、讀 dept、dept → group、每個 group 的出口 |
+| [telemetry/collectors/common.yaml](../../telemetry/collectors/common.yaml) | 兩種 Collector 共用：邊緣身份鑑別與標籤注入 (Edge Identity Sanitization & Injection)、讀 dept、dept → group、每個 group 的出口 |
 | [telemetry/collectors/node.yaml](../../telemetry/collectors/node.yaml) | 節點那一份收什麼：kubelet、cAdvisor（CPU 限流）、應用的 Prometheus metrics、應用用 OTLP 推的 metrics |
 | [telemetry/collectors/cluster.yaml](../../telemetry/collectors/cluster.yaml) | cluster 那一份收什麼：K8s 物件的狀態 |
 | [telemetry/collectors/](../../telemetry/collectors) 其餘 | 權限、DaemonSet、Deployment、kustomization |

@@ -42,7 +42,7 @@
 | `e2e/pipeline/trace-cases.json`、`run-trace-cases.sh`（新） | 7 種 log 輸出丟 `k8s-logs` 的 `_simulate`，比對 `trace.id`、`span.id`、`log.level` | 問題 2 的答案要能一直重跑 |
 | 同上 | 第二、三段用 `k8s-logs-otel` 模擬 agent 直送的 log record、span 的例外事件 | 同上 |
 | `telemetry/collectors/node.yaml` | 新 pipeline `logs/otlp`（順序見下） | 應用不印 MDC 時，agent 直送的 log record 本身帶 trace_id；之前沒有這條路 |
-| 同上 | `transform/logs-otlp-pre` 跟 trace 一樣拿掉自帶的 K8s、部門欄位 | 擋冒充 |
+| 同上 | `transform/logs-otlp-pre` 跟 trace 一樣拿掉自帶的 K8s、部門欄位 | 邊緣身份鑑別與標籤注入 (Edge Identity Sanitization & Injection) |
 | `sdk/charts/app-common`（`_deployment.tpl`、`_helpers.tpl`）、`sdk/examples/mes-api/values.yaml` | `otel.logs.exporter`：`none`（預設，stdout）或 `otlp` | 應用團隊一個開關就能切 |
 | 同上 | `otlp` 時多設 `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT`、協定；值不對 `helm template` 會失敗 | 同上 |
 | `telemetry/storage/pipeline-otel.painless` | agent 直送的 log record（有 `trace_id` 或 `severity_text`）：相關欄位帶成 `_otel` | 原本只重組 body 和 K8s 身分，trace_id 被丟掉，對不起來 |
@@ -62,14 +62,14 @@
 - ES 9.5.5（`telemetry/scripts/elasticsearch-setup.sh` 裝的 pipeline、template、寫入 key）。
 - otelcol-contrib 0.162.0，照 node.yaml 的處理器；`k8s_attributes` 那段用 `resource` 處理器寫死。
 - 假 Java：busybox 吐 Prometheus 直方圖，每 5 秒 20 個成功＋3 個 500，500 的在 2.5～5 秒那格。
-- 沒有 K8s：filelog 讀容器 log 檔、`k8s_attributes` 依 Pod 補身分、trace-sampler 尾端取樣這三段沒驗（k3s 的 e2e 有）。
+- 沒有 K8s：filelog 讀容器 log 檔、`k8s_attributes` 依 Pod 注入身分標籤、trace-sampler 尾端取樣這三段沒驗（k3s 的 e2e 有）。
 
 ### 問題 1：共同鑰匙圈
 
 | 目的 | 怎麼測 | 結果 |
 |---|---|---|
 | 同一組路徑查得到、值一樣 | Collector 送一個 trace（兩段，帶例外事件）＋同 trace_id 的 log＋metrics；用 `fields` 取鑰匙 | trace、log 都在 `*-it`；值全部一樣（mes-api／mes-prod／mes-api-7d9f-abcde／c1／D3120／it） |
-| 防冒充 | 同上，應用自帶假 namespace、`dept: D9999` | 被拿掉 |
+| 邊緣身份鑑別 | 同上，應用自帶假 namespace、`dept: D9999` | 被拿掉 |
 | trace → log | 拿 SELECT 那段的 `span_id` 查 log | 查到那行「Connection pool timeout」 |
 | log → trace | 拿 log 的 `trace_id` 查 trace | 兩段都在，例外的 type 抄到 span 上 |
 | metrics → trace | 拿 metrics 的服務＋時間查 trace | 同一個 trace |

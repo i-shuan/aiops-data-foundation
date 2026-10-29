@@ -1,30 +1,28 @@
 # it-aiops
 
-替 AIOps 打資料地基，並在上面做出第一版 AIOps：**讓每筆資料一出生就帶身分證、送進對的地方；再學「平常的樣子」、抓異常、從 metrics 串到 trace 和 log 找根因。**
+替 AIOps 打資料地基，並在上面做出第一版 AIOps：**讓每筆資料一出生就帶身分證、送進對的地方；再做動態基準線學習 (Dynamic Baseline Learning)、抓異常、從 metrics 串到 trace 和 log 找根因。**
 
-**目前範圍：一般服務**（Web API、worker、Kafka、DB）。工廠（EAP、機台、MES／MCS／AMHS、批號載具）之後再做，集中在 [docs/factory-later.md](docs/factory-later.md)。
+**目前範圍：一般服務**（Web API、worker、Kafka、DB）。工廠（EAP、機台、MES／MCS／AMHS、批號載具）不在目前範圍。
 
 ## 文件怎麼分
 
 ```
 docs/
   pdca/              現況與待辦（依 PDCA 分）、每一輪紀錄、TEMPLATE.md
-  architecture.md    架構（從這裡看起）：架構圖、三種資料怎麼收、共用什麼
-  end-to-end-flow.md 從一個應用到 AIOps 到 Grafana 告警：每步做什麼、程式在哪、多久跑、怎麼驗；不足、過度設計
-  system-stages.md   整條線一份看完：收值 → 判斷 → 串接 → 收斂 → LLM → 根因 → feedback
+  architecture.md    架構規格書（從這裡看起）：架構規格＋現況與驗證
+                     第一部分：目標與邊界、架構圖、關鍵決策、①～⑨ 職責、關聯與根因定位
+                     第二部分：各 phase 與各模組現況、程式與驗證、還沒做的、每份 PDCA 紀錄的結論
   log/               log：收值、格式解析、欄位（①②③的現況與待辦）
   metrics/           metrics：收值、欄位、收了哪些、案例、.NET（①②③的現況與待辦）
   trace/             trace：收值、尾端取樣、欄位、Kafka 串接、業務 ID（①②③的現況與待辦）
   rca/               判斷與根因分析：baseline、串接、髒資料排除、雜訊壓制
   feedback/          告警出口、事故紀錄、回饋、調整、LLM
   retention.md       保留天數與容量（log、metrics、trace 共用）
-  factory-later.md   工廠部分（之後再做）
-  poc-status.md      PoC 現況（簡報文字）
 ```
 
 **編號只有一套：①～⑨ 資料模組**（定義在 [docs/architecture.md](docs/architecture.md)）：① 收值、② 清資料、③ 存、④ 判斷、⑤ 異常總表、⑥ 收斂、⑦ 根因分析、⑧ 出口、⑨ feedback。每個資料夾的 `README.md` 開頭都有「現況與待辦」，每一項標它屬於哪個模組。
 
-閱讀順序：[architecture.md](docs/architecture.md) → [end-to-end-flow.md](docs/end-to-end-flow.md)（一個應用到 Grafana 告警，每步程式在哪、怎麼驗）→ [system-stages.md](docs/system-stages.md) → 各資料夾。
+閱讀順序：[architecture.md](docs/architecture.md)（先架構規格、再現況與驗證）→ 各資料夾。
 
 | 資料夾 | 主文件 | 其他 |
 |---|---|---|
@@ -38,7 +36,7 @@ docs/
 
 - **log、metrics、trace 都進 Elasticsearch（9.x）**，不用 VictoriaMetrics。
 - **收集器都用 OpenTelemetry Collector**：每個節點一個，分部門的規則和 key 共用。log 原本用 Fluent Bit，比較後改用 OTel（[docs/log/fluentbit-vs-otel.md](docs/log/fluentbit-vs-otel.md)）；中央 pipeline 仍接受 Fluent Bit 的資料，邊緣 VM 可以用。
-- **一把寫入 key**，所有 group、log、metrics、trace 共用；資料屬於哪個 group 由 Collector 依 Pod 決定（讀取權限照樣依 group 分）。**換 key 不掉資料、不重啟**（`telemetry/scripts/rotate-writer-key.sh`）。被 ES 拒絕的文件留在 failure store，`quality.ingest_rejected` 會報。
+- **集中式資料寫入憑證 (Shared Ingest Token)**：一把 key，所有 group、log、metrics、trace 共用；資料屬於哪個 group 由 Collector 依 Pod 決定（讀取權限照樣依 group 分）。**換 key 不掉資料、不重啟**（`telemetry/scripts/rotate-writer-key.sh`）。被 ES 拒絕的文件留在 failure store，`quality.ingest_rejected` 會報。
 - **舊專案不改程式**：Java 用 agent，.NET 用自動埋點＋OTLP 推（[docs/metrics/dotnet.md](docs/metrics/dotnet.md)）。
 - **trace 用尾端取樣**：錯的、慢的、有例外的全留，正常的留 5%。
 - **應用團隊不需要知道 group、key**：規格由共用 chart 產生（[apps/](sdk)）。
@@ -57,14 +55,14 @@ docs/
 
 ## 待辦
 
-依 PDCA 分（Plan 定門檻、Do 收值與判斷、Check 看對不對、Act 調整），整份在 [docs/pdca/](docs/pdca/README.md)。閉環的每一段都有程式、模擬資料跑通；**缺的是真實資料、真的 LLM、K8s 上跑**（[docs/end-to-end-flow.md](docs/end-to-end-flow.md)「哪裡不足」）。範圍是一般服務。
+依 PDCA 分（Plan 定門檻、Do 收值與判斷、Check 看對不對、Act 調整），整份在 [docs/pdca/](docs/pdca/README.md)。閉環的每一段都有程式、模擬資料跑通；**缺的是真實資料、真的 LLM、K8s 上跑**（[docs/architecture.md「還沒做、還不足的」](docs/architecture.md#10-還沒做還不足的)）。範圍是一般服務。
 
 ## 目錄
 
 ```
 telemetry/   收值與存（①②③）：collectors/（各 cluster 的 OpenTelemetry Collector）、storage/（中央 ES：mapping、pipeline、ILM）、
              scripts/（setup、換 key）、groups.yaml（部門 → group）
-engine/      AIOps 分析核心（④～⑨，一個 Python 專案）：core/（共用：ES、trace、LLM）、detector/（學平常的樣子、規則、資料品質、回饋、回測、量化）、
+engine/      AIOps 分析核心（④～⑨，一個 Python 專案）：core/（共用：ES、trace、LLM）、detector/（動態基準線學習、規則、資料品質、回饋、回測、量化）、
              investigator/（根因分析、事件整合、相似事故）、feedback_web/（老師傅的回饋網頁）、configs/（baseline、rca、grafana 的 yaml）、
              deploy/（K8s CronJob）、Dockerfile
 sdk/         給應用團隊：通用 Helm chart、範例、Java log 設定、trace 埋點指引、CI 檢查

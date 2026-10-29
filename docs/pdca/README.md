@@ -24,7 +24,7 @@ PDCA 的意思：**Plan** 定規則與門檻 → **Do** 收值、判斷、報告
 | 項目 | 狀態 | 細節 |
 |---|---|---|
 | ①②③ 收值（log、metrics、trace、尾端取樣）、清資料、存 | ✅ | [log](../log/README.md)、[metrics](../metrics/README.md)、[trace](../trace/README.md) |
-| ④ 判斷：規則、跟歷史比、跟兄弟比、trace 每一段 | ✅ | [engine/configs/baseline](../../engine/configs/baseline/README.md) |
+| ④ 判斷：靜態臨界值規則 (Static Threshold Rules)、動態基準線學習 (Dynamic Baseline Learning)、Pod 同儕橫向比對 (Peer Comparison)、trace 每一段 | ✅ | [engine/configs/baseline](../../engine/configs/baseline/README.md) |
 | ⑦ 根因分析：metrics → trace → log | ✅ | [engine/configs/rca](../../engine/configs/rca/README.md) |
 | ④ **正式環境排程**（train 每天、detect 每 30 秒、rules 與 peer 每分鐘） | ⚠️ 程式好了，沒部署 | [rca/](../rca/README.md) |
 | 已完成部分的小尾巴：② 統一指標名稱（metrics）、② 統一欄位路徑（log）（① trace-sampler 磁碟佇列已做） | ⚠️ | 各資料夾 README 開頭 |
@@ -61,7 +61,7 @@ PDCA 的意思：**Plan** 定規則與門檻 → **Do** 收值、判斷、報告
 | ⑦⑨ 相似事故檢索（RAG 的檢索，欄位比對） | ✅ 模擬資料驗過；門檻、權重是估的 | [phase4-rca-llm/2026-10-similar-incidents.md](phase4-rca-llm/2026-10-similar-incidents.md) |
 | ⑦⑨ LLM：根因報告摘要（只加註、每句附依據） | ✅ template 與真的模型（OpenAI）都跑過，每句附依據；評測集 ❌ | [phase4-rca-llm/2026-10-llm-summary.md](phase4-rca-llm/2026-10-llm-summary.md)、[phase5-learning-loop/2026-10-fix-feedback-ux.md](phase5-learning-loop/2026-10-fix-feedback-ux.md) |
 
-**之後**：Elastic 付費 AIOps 功能評估（試用只能開一次，等資料累積夠再開）；工廠（[factory-later.md](../factory-later.md)）。
+**之後**：Elastic 付費 AIOps 功能評估（試用只能開一次，等資料累積夠再開）；工廠（EAP、機台、MES…）不在目前範圍。
 
 **建議順序**：正式排程（只寫入不通知）→ 收斂(1)(2)＋告警出口＋事故紀錄、回饋 → 用 2～4 週真實資料校正門檻 → LLM 摘要 → 回測、版本 → 收斂(3)、自動調門檻。
 
@@ -90,9 +90,9 @@ metrics、trace、log 怎麼收、怎麼存、三種怎麼關聯（欄位、時�
 | [phase1-collect/2026-10-es-startup-401.md](phase1-collect/2026-10-es-startup-401.md) | ① ES 剛起來回 401，Collector 直接丟 | 401 窗口約 1 秒（.security 還沒恢復）；修在 ES 入口：健康檢查用 API key 打 GET /（實測掉 0）；兩台 ES 滾動重啟也有窗口（投票名單只有一台）、新檢查都掉 0；不加 Kafka、不改 Collector |
 | [phase1-collect/2026-10-field-unify.md](phase1-collect/2026-10-field-unify.md) | ② 欄位統一：log 身分欄位補 OTel 路徑、Java HTTP 指標在 Collector 改名；metrics ↔ trace 怎麼連 | 在 ingestion 處理、不在查詢層：log 加 alias、Java 指標在 Collector 改名；`variants` 拿掉；`quality.metric_name_legacy` 盯舊名字 |
 | [phase1-collect/2026-10-ingest-keys-check.md](phase1-collect/2026-10-ingest-keys-check.md) | ①②③ 收值、共同鑰匙圈、log↔trace 綁定、metrics 時間窗：docker 重驗 | 鑰匙圈交叉查得到；log↔trace 要 log 格式有印 trace_id，純文字的要開 `otel.logs.exporter: otlp`（新加的路，pipeline 原本會丟 trace_id，已修；真的 Java agent、.NET 自動埋點各驗一次）；metrics 三層窗對得上（276／分、13%、p95 3.75 秒）；.NET Framework：trace／metrics 可、ILogger 直送不行 |
-| [phase1-collect/2026-10-ingest-simplify.md](phase1-collect/2026-10-ingest-simplify.md) | ①③④ 一把寫入 key、ES failure store、靜態保底規則 | 一把寬 pattern 的 key、一個出口，資料照樣依 group 分；log 的 `k8s-*` 開 failure store（OTel 的預設已開），`quality.ingest_rejected` 有一筆就報；rules 加 `window` 類型，錯誤率 ≥ 5%、p95 ≥ 2 秒保底 |
+| [phase1-collect/2026-10-ingest-simplify.md](phase1-collect/2026-10-ingest-simplify.md) | ①③④ 集中式資料寫入憑證 (Shared Ingest Token)、ES failure store、靜態臨界值規則 | 一把寬 pattern 的 key、一個出口，資料照樣依 group 分；log 的 `k8s-*` 開 failure store（OTel 的預設已開），`quality.ingest_rejected` 有一筆就報；rules 加 `window` 類型，錯誤率 ≥ 5%、p95 ≥ 2 秒保底 |
 | [phase1-collect/2026-10-keys-k8s.md](phase1-collect/2026-10-keys-k8s.md) | ①② 共同鑰匙圈在 K8s 上：五種資料、11 個邊緣情境 | 服務名稱改成一律以 Pod label 為準（原本 trace、OTLP 用應用自設的）；改 dept 後 0～3 秒切（Prometheus 等下一次抓，≤30 秒）；hostNetwork 的 OTLP 進 unassigned；trace-sampler 2 台時 trace 幾乎全丟（未修） |
-| [phase1-collect/2026-10-k3d-e2e.md](phase1-collect/2026-10-k3d-e2e.md) | ①②③⑧ k3d 上的 K8s 實測：Grafana initContainer、Collector 依 Pod 補身分、OTLP log、chart | 都跑過：initContainer 裝得起來、SHA 錯停 Init:Error 且舊 Pod 繼續服務；K8s 上補身分對；OTLP log 帶 trace_id 對得到 trace；確認開 otlp 有兩份 log；k3d 在這個環境要特別處理（腳本在 e2e/local-k3d） |
+| [phase1-collect/2026-10-k3d-e2e.md](phase1-collect/2026-10-k3d-e2e.md) | ①②③⑧ k3d 上的 K8s 實測：Grafana initContainer、Collector 邊緣身份鑑別與標籤注入 (Edge Identity Sanitization & Injection)、OTLP log、chart | 都跑過：initContainer 裝得起來、SHA 錯停 Init:Error 且舊 Pod 繼續服務；K8s 上身分標籤注入正確；OTLP log 帶 trace_id 對得到 trace；確認開 otlp 有兩份 log；k3d 在這個環境要特別處理（腳本在 e2e/local-k3d） |
 | [phase1-collect/2026-10-sdk-inject.md](phase1-collect/2026-10-sdk-inject.md) | ① 不改程式的自動埋點：子執行緒、背景排程、上游 traceparent、兩跳、Kafka 時 log 帶哪個 trace_id | Java agent 2.20.0、.NET 8 共 21 個情境都跟預期一樣；Java 自己 `new Thread`、背景排程、.NET Kafka 消費端的 log 沒有 trace_id；未取樣 `-00` 的 log 有 trace_id 但 ES 沒有 trace |
 | [phase1-collect/2026-10-metrics-trace.md](phase1-collect/2026-10-metrics-trace.md) | ①②⑦ metrics 異常 → 用服務＋路由＋時間窗撈 trace 的邊緣情況 | 時間對齊（1.9%）、counter 歸零（少一次抓取、沒負值）、部分變慢（慢的 100% 挑到）都可以；路由、服務名對不上就 0 筆且不說原因；Micrometer 名字不改名；不到 1 秒的變慢只剩 4.6% |
 | [phase1-collect/2026-10-log-trace-bind.md](phase1-collect/2026-10-log-trace-bind.md) | ①②⑦ log 的 trace_id／span_id：各種格式、值、時間差、檔案＋OTLP 兩份 | 改前大寫、全 0、格式錯原樣寫入（11 種綁錯），已改成正規化、錯的不設；加 `log.source` 分兩份；investigator 撈 log 多放 30 分鐘 |
@@ -115,7 +115,7 @@ baseline（中位數＋MAD）、規則、資料品質、餵給 baseline 前的�
 | [phase2-anomaly/2026-10-data-quality-check.md](phase2-anomaly/2026-10-data-quality-check.md) | 資料品質檢查（路由沒參數化、欄位缺、資料停了、unassigned 變多） | 已合；第一天只靠昨天比的檢查不會報；門檻是估的 |
 | [phase2-anomaly/2026-10-data-sources.md](phase2-anomaly/2026-10-data-sources.md) | 資料來源接口＋假資料分開；抓台灣行事曆 | 已合；行事曆來源非官方；負責人真來源還沒有 |
 | [phase2-anomaly/2026-10-exclude-adjust.md](phase2-anomaly/2026-10-exclude-adjust.md) | 排除已知干擾（排除時段、重置點、週期放寬） | 已合；重置後暖機 24 小時內不判斷（估的）；只放寬不變嚴 |
-| [phase2-anomaly/2026-10-instant-anomaly.md](phase2-anomaly/2026-10-instant-anomaly.md) | ④ 單次就報：依序列設 `confirm_points`、偏太多（`instant_z`）不用等；`tune` 能調 | `http.error_rate` 一次就算、全域 `instant_z: 15`；模擬資料實測 z 20～49 的單點變 anomaly、z 5.2 的誤報仍是 warning |
+| [phase2-anomaly/2026-10-instant-anomaly.md](phase2-anomaly/2026-10-instant-anomaly.md) | ④ 單點即判定 (Instant Anomaly)：依序列設 `confirm_points`、偏太多（`instant_z`）不用等；`tune` 能調 | `http.error_rate` 單點即判定、全域 `instant_z: 15`；模擬資料實測 z 20～49 的單點變 anomaly、z 5.2 的誤報仍是 warning |
 | [phase2-anomaly/2026-10-peer-verify.md](phase2-anomaly/2026-10-peer-verify.md) | ④ Pod 同儕橫向比對：副本數 1～5、Pod 換掉、擴縮容、全壞、同名服務的邊緣情境 | 合成資料 37 項改前 8 項錯：新 Pod 暖機被報、擴容時舊 Pod 被報記憶體、全壞只報一個；加 `warmup`、`max_peer_median` 後全對；真的 .NET 換 Pod、2 副本在 cluster 上照預期；2 個副本不判斷、暖機曲線是假設（Act） |
 | [phase2-anomaly/2026-10-rules-verify.md](phase2-anomaly/2026-10-rules-verify.md) | ④⑨ 靜態臨界值規則 39 條逐條邊緣驗證；規則草稿的動態調整介面 | 151 案例全過；修 4 個：新對象不到 `for` 就報、Kafka 落後變少被當增加（加 `delta`）、草稿過期仍生效、一條草稿壞整輪不寫 |
 | [phase2-anomaly/2026-10-split-detector-cli.md](phase2-anomaly/2026-10-split-detector-cli.md) | ④⑤⑨ detector 的 `__main__.py`（1,100 行）依指令拆檔 | 1,100 行 → `__main__.py` 160 行＋ 10 個檔；只搬不改，200 個測試、ruff、9 個指令實跑都過 |
@@ -163,5 +163,5 @@ metrics → trace → log 找到哪一段、哪行 log；事件整合、排程�
 
 | 檔案 | 主題 | 結論 |
 |---|---|---|
-| [2026-10-docs-vs-code.md](2026-10-docs-vs-code.md) | ①～⑨ 文件對程式：整條線一份看完（[end-to-end-flow.md](../end-to-end-flow.md)）、總覽狀態對齊 | 只改文件；6 處對不上改掉 5 處；code-review 的 10 項對過程式，4 項要修、記在流程文件的「不足」 |
+| [2026-10-docs-vs-code.md](2026-10-docs-vs-code.md) | ①～⑨ 文件對程式：整條線一份看完（[architecture.md](../architecture.md)）、總覽狀態對齊 | 只改文件；6 處對不上改掉 5 處；code-review 的 10 項對過程式，4 項要修、記在流程文件的「不足」 |
 | [2026-10-restructure.md](2026-10-restructure.md) | 全部 目錄改名：專案名 it-aiops | `platform/`→`telemetry/`、`aiops/`→`engine/`、`apps/`→`sdk/`、`test/`→`e2e/`；Python 套件改名；行為不變，200 個單元測試與連結檢查過 |

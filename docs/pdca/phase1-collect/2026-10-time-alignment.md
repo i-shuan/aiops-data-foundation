@@ -43,7 +43,7 @@
 | 同上 | `show: ns_as_ms` | 奈秒的數字人看不懂 |
 | `engine/configs/baseline/rules.yaml` | `node.clock_offset`（≥ 100ms warning）、`node.clock_offset_critical`（≥ 1 秒） | — |
 | `engine/tests/test_quality.py`、`test_rules.py` | `lag`、`abs`、顯示的單元測試 | — |
-| `docs/log/README.md`、`docs/metrics/README.md`、`docs/system-stages.md` | 欄位、狀態、檢查與規則 | — |
+| `docs/log/README.md`、`docs/metrics/README.md`、`docs/architecture.md` | 欄位、狀態、檢查與規則 | — |
 | `engine/configs/baseline/README.md` | 同上 | — |
 
 ## Check：測試的目的與結果

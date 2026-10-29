@@ -23,7 +23,7 @@
 | `platform/groups.yaml` | `telemetry/groups.yaml` | 部門 → group |
 | `aiops/` | `engine/` | AIOps 分析核心（④～⑨） |
 | `aiops/aiops_common/` | `engine/core/` | 共用（ES 連線、trace 工具；之後 RAG 放這） |
-| `aiops/aiops_baseline/` | `engine/detector/` | 學平常的樣子、規則、資料品質、回饋 |
+| `aiops/aiops_baseline/` | `engine/detector/` | 動態基準線學習 (Dynamic Baseline Learning)、規則、資料品質、回饋 |
 | `aiops/aiops_rca/` | `engine/investigator/` | 根因分析 |
 | `aiops/baseline/` | `engine/configs/baseline/` | yaml 設定 |
 | `aiops/rca/` | `engine/configs/rca/` | yaml 設定 |
