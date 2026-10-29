@@ -109,7 +109,7 @@ baseline（中位數＋MAD）、規則、資料品質、餵給 baseline 前的�
 |---|---|---|
 | [phase2-anomaly/2026-10-adjust-schedule-verify.md](phase2-anomaly/2026-10-adjust-schedule-verify.md) | ②④⑤ 排除與調整、行事曆、慢性病的邊界；第一階段 4 個 CronJob 在 K8s 跑 30 分鐘 | 邊界 31 項全過；修：台灣假日吞掉 24×7 服務的故障、沒寫時區差 8 小時、每天的 train 失敗不重試；CronJob 每分鐘都跑、Forbid、逾時、重試都實測 |
 | [phase2-anomaly/2026-10-anomaly-owner.md](phase2-anomaly/2026-10-anomaly-owner.md) | ⑤ 異常總表帶 `dept`、`group` | 資料本來就帶，異常寫回時補；namespace 優先、其次服務、對不到 unassigned；告警依 group 分送的前置 |
-| [phase2-anomaly/2026-10-baseline-threshold-tune.md](phase2-anomaly/2026-10-baseline-threshold-tune.md) | ④ 動態基準線的誤報：p95 `instant_z: null`、`min_events.rate` 20 → 100（只改設定） | 一週 anomaly 1.50% → 0.172%（剩下 92 個是尖峰不對齊整點）、warning 1.00% → 0.122%；但錯誤率、p95 變 5 分鐘一點，持續 5 分鐘的變慢只有 warning、30 秒錯誤率 33% 不報；**待決定**是否退回 `min_events` |
+| [phase2-anomaly/2026-10-baseline-threshold-tune.md](phase2-anomaly/2026-10-baseline-threshold-tune.md) | ④ 動態基準線的誤報：p95 `instant_z: null`（只改設定；`min_events.rate` 20 → 100 試過，已退回） | 只留 `instant_z: null`：一週 anomaly 1.50% → 0.53%、warning 1.00% → 1.97%，都沒到目標（≤ 0.1%、≤ 1%），p95 超標的點只是從 anomaly 變 warning；真異常都抓到；下一輪改程式：σ 下限＝半個桶寬、錯誤率至少 N 個 5xx |
 | [phase2-anomaly/2026-10-baseline-verify.md](phase2-anomaly/2026-10-baseline-verify.md) | ④ 動態基準線學習：邊緣情境、誤報率、調整介面（合成資料、Collector 的形狀） | 修 4 個：收集中斷時補 0（30 分鐘窗 91 個誤報）、error log 的 λ 學高 40%、壞調整整輪失敗、override 過期時點；一週 anomaly 1.5%（p95 跳桶 88%、錯誤率 1 個 5xx）；調整介面都下一輪生效 |
 | [phase2-anomaly/2026-10-chronic-calendar.md](phase2-anomaly/2026-10-chronic-calendar.md) | 慢性病清單與行事曆 | 已合；清單沒送到負責人手上；假日預設連當天故障也不報 |
 | [phase2-anomaly/2026-10-data-quality-check.md](phase2-anomaly/2026-10-data-quality-check.md) | 資料品質檢查（路由沒參數化、欄位缺、資料停了、unassigned 變多） | 已合；第一天只靠昨天比的檢查不會報；門檻是估的 |
