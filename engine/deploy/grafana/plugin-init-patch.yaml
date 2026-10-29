@@ -23,10 +23,10 @@ spec:
             - {name: grafana-plugins, mountPath: /var/lib/grafana/plugins}
             - {name: plugin-installer, mountPath: /installer, readOnly: true}
           resources:
-            requests: {cpu: 10m, memory: 32Mi}
-            limits: {memory: 128Mi}
+            requests: {cpu: 10m, memory: 32Mi, ephemeral-storage: 64Mi}
+            limits: {memory: 128Mi, ephemeral-storage: 256Mi}
       containers:
-        - name: grafana
+        - name: grafana        # 主容器只加掛載點；resources、service account 都是你們原本的設定，這個 patch 不動
           volumeMounts:
             - {name: grafana-plugins, mountPath: /var/lib/grafana/plugins}
       volumes:

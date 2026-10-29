@@ -9,3 +9,5 @@ engine/.proxy-ca.crt
 
 # 本機的 LLM、資料庫設定（含 key），不進 git
 .env
+coverage.xml
+.coverage

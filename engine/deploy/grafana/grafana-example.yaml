@@ -21,6 +21,7 @@ spec:
       labels: {app.kubernetes.io/name: grafana}
     spec:
       securityContext: {fsGroup: 472}
+      automountServiceAccountToken: false    # Grafana 不用呼叫 K8s API，不掛 service account token
       initContainers:
         - name: install-plugins
           image: grafana/grafana:12.2.0
@@ -34,8 +35,8 @@ spec:
             - {name: grafana-plugins, mountPath: /var/lib/grafana/plugins}
             - {name: plugin-installer, mountPath: /installer, readOnly: true}
           resources:
-            requests: {cpu: 10m, memory: 32Mi}
-            limits: {memory: 128Mi}
+            requests: {cpu: 10m, memory: 32Mi, ephemeral-storage: 64Mi}
+            limits: {memory: 128Mi, ephemeral-storage: 256Mi}    # 外掛 zip 約 10MB，解開不到 50MB
       containers:
         - name: grafana
           image: grafana/grafana:12.2.0
@@ -50,8 +51,8 @@ spec:
           readinessProbe:
             httpGet: {path: /api/health, port: http}
           resources:
-            requests: {cpu: 100m, memory: 256Mi}
-            limits: {memory: 1Gi}
+            requests: {cpu: 100m, memory: 256Mi, ephemeral-storage: 256Mi}
+            limits: {memory: 1Gi, ephemeral-storage: 1Gi}    # 範例沒掛 PVC，Grafana 的 sqlite、log 都在容器裡
       volumes:
         - name: grafana-plugins
           emptyDir: {}
