@@ -1,6 +1,6 @@
 # 文件治理：讓文件不再腐化、跟程式脫節、越寫越難讀（2026-10）
 
-**狀態**：計畫（還沒改任何既有檔案；這份是唯一新增的檔案）　　**日期**：2026-10-29　　**相關**：分支 `claude/docs-governance`；前置 [docs-vs-code](2026-10-docs-vs-code.md)（文件對程式一次）
+**狀態**：完成（`CLAUDE.md` 在新 session 是否生效未驗證，見 Act）　　**日期**：2026-10-29　　**相關**：分支 `claude/docs-governance-run`（計畫先在 `claude/docs-governance`）；前置 [docs-vs-code](2026-10-docs-vs-code.md)（文件對程式一次）
 **模組**：跨階段
 
 ## Plan：這一次要達到什麼
@@ -65,27 +65,35 @@
 - 要同步改的連結：`docs/architecture.md`（397、398 行）、`docs/pdca/README.md`（167～169 行）、`sonar-project.properties` 的註解，以及搬過去的三份自己的相對連結（多一層 `../`，其中一份有）。用 `git mv` 保留歷史。
 - 這份計畫自己（`2026-10-docs-governance.md`）執行完也搬進 `meta/`，並在 `docs/pdca/README.md` 加一列。
 
-## Check：預計怎麼驗證
+## 實際做了什麼、跟計畫不同的地方
 
-| 目的 | 怎麼驗 | 預期 |
+- 順序是 檢查腳本 → ① → ② → ③ → ④，每項一個 commit；腳本先做，才量得到「執行前的基準」。
+- **索引分兩層**：`docs/README.md` 列非 PDCA 的文件（及連到 `docs/pdca/README.md`），54 份 PDCA 紀錄由原本的 `docs/pdca/README.md` 當索引；腳本兩層都檢查。不在 `docs/README.md` 重複列 54 份。
+- **baseline 原理只搬了一小部分**：搬走「為什麼用中位數和 MAD」「MAD 一步一步算」「抓不到的」共約 50 行到 `docs/rca/baseline.md`。其餘章節（trace 每一段、規則、同儕比對、調整、feedback、慢性病、資料品質）原理和參數交錯在同一個段落，硬拆要重寫、會斷 20 幾個章節連結，所以退回計畫裡的備案：加目錄。`engine/configs/baseline/README.md` 724 → 715 行，**≤ 300 行的目標沒達到**。
+- 舊說法只換 md（9 處）；程式裡的註解和 docstring（約 20 處，`peer.py`、`gen-cronjobs.py`、測試等）沒動，因為不是文件，且 `gen-cronjobs.py` 會影響產生的 CronJob。
+
+## Check：測試的目的與結果
+
+| 目的 | 怎麼驗 | 結果 |
 |---|---|---|
-| 沒斷連結 | `tools/check-docs.py` 的連結檢查（搬完前後各跑一次） | 0 個斷的；搬完前先量現況當基準 |
-| 索引完整 | 腳本：全 repo `git ls-files '*.md'` 對索引 | 77 份（＋新增的 `docs/README.md`、`CLAUDE.md`、`baseline.md`）全在 |
-| 術語乾淨 | 腳本：活的文件裡搜「跟兄弟比」「保底規則」「一把寫入」 | 0 個；PDCA 紀錄不算 |
-| 沒誤傷 | 換之前先 `git grep` 列出全部命中，逐筆看上下文；「一件」「老師傅」「值班」「一把」（量詞）不能被動到 | 換完 diff 只有表內詞 |
-| 沒改到程式 | `pytest engine/tests` | 346 passed（跟現在一樣） |
-| 拆原理有沒有拆壞 | `baseline` README 搬完後：configs 那份行數、`docs/rca/baseline.md` 的連結都通 | configs ≤ 300 行；所有 `README#章節` 的連結仍指得到 |
-| `CLAUDE.md` 真的有效 | 新 session 請它寫一份假的 PDCA，看它用不用正式術語、放不放對資料夾 | 用正式術語；放對 |
+| 沒斷連結（含章節錨點） | `tools/check-docs.py`，執行前量基準、每項之後各跑一次 | 前後都是 0 個斷；改標題「跟兄弟比」→「Pod 同儕橫向比對」後 4 個錨點一併更新；搬 3 份（加計畫自己）進 `meta/` 後 6 個連結都修好 |
+| 索引完整 | 腳本：`git ls-files '*.md'` 對兩層索引 | 執行前 `docs/README.md` 不存在；現在 81 份 md 全在索引裡，0 個缺 |
+| 術語乾淨 | 腳本：活的文件搜「跟兄弟比」「保底規則」「一把寫入」 | 執行前 11 處（含 3 處術語表本身）→ 0；PDCA 紀錄不算 |
+| 沒誤傷 | 換之前 `git grep` 列出全部命中；「一件」「老師傅」「值班」「一把」（量詞）不在替換清單 | diff 只有表內詞；老師傅等維持原樣 |
+| 沒改到程式 | `pytest engine/tests`；`git diff --name-only master..HEAD` 看非 md 檔 | 346 passed；非 md 只有新增的 `tools/check-docs.py` 和 `sonar-project.properties` 的一行註解 |
+| 原理搬走沒搬壞 | 搬完腳本檢查；搬過去的連結改成新位置的相對路徑 | `docs/rca/baseline.md` 內的連結都通 |
+| 目錄不會腐化 | `check-docs.py --toc` 重新產生；目錄裡的連結同樣被連結檢查驗過 | 4 份長文都有；改標題後重跑就更新 |
+| `CLAUDE.md` 真的有效 | 派一個子 agent，不給提示、問 PDCA 路徑、用詞、提交前指令 | **沒驗到**：子 agent 回答「不知道」，因為 `CLAUDE.md` 是 session 開始之後才新增的，已經在跑的 agent 不會重讀。要在**新 session** 驗（見 Act） |
 
-## Act：還沒決定、這一輪不做的
+## Act：Check 後沒改善的、還沒解決的
 
-| 項目 | 為什麼不在這一輪 | 要你決定／後續 |
-|---|---|---|
-| **PDCA 紀錄裡的舊說法要不要也改** | 它們是歷史紀錄，glossary 已經在處理；全改會產生大量 diff、蓋掉當時的措辭 | 預設不改。你若要全改，只是把腳本的檢查範圍放大 |
-| **Diátaxis 完整四象限** | 需要整批重分類、搬檔，會斷連結；這個 repo 的文件已經大致分成「原理（docs）」「操作（configs、deploy）」「案例（cases、scenarios）」，缺的是狀態標籤和重複的清理 | 第 1～2 項做完後再看；用索引的分類欄就是它的雛形 |
-| **「從程式註解自動產生參數文件」** | 現在 config 範例是 YAML 加註解，沒有 schema；要先有 schema 才能抽取，是另一個比較大的工作 | 第 2 項把「參數表」從原理分出來，就是它的前置；有需要再開一輪，先挑 `rca.yaml`、`baseline.yaml` 試 |
-| `architecture.md` 要不要拆 | 見上：剛合進來，先加目錄 | 加目錄後再看 |
-| 重複的 `engine/configs/baseline` 原理搬到 `docs/rca/baseline.md` 會動到很多 `README#章節` 連結 | 是計畫裡風險最大的一步 | 先跑連結檢查量基準；搬完逐一修；若斷太多就退回「只加目錄」 |
+| 沒改善的 | 在什麼情況下發現的 | 影響 | 後續 |
+|---|---|---|---|
+| `CLAUDE.md` 是否被自動讀到、是否真的讓新文件用正式術語，沒驗證 | 子 agent 檢查（上面） | 這是第 3 項最核心的承諾，目前只有檢查腳本那一半有驗證 | 合進 master 後開一個新 session，不給提示請它寫一份假的 PDCA，看路徑、用詞、提交前指令 |
+| `engine/configs/baseline/README.md` 仍有 715 行 | 拆分評估 | 原理與參數交錯，難讀的問題只靠目錄緩解 | 若要再拆，要逐章重寫（不是搬）；先看目錄夠不夠用，再決定 |
+| 程式註解、docstring 還有「跟兄弟比」約 20 處 | 全 repo `git grep` | 不影響文件；但新人讀程式會看到舊說法 | 值得的話另開一輪連同 `gen-cronjobs.py` 重新產生 CronJob |
+| 腳本只擋三個片語 | 設計 | 表裡其他舊說法（「學平常的樣子」「吞例外」等）靠人看 | 看哪些真的反覆出現，再逐個加進 `FORBIDDEN` |
+| 腳本沒接 CI | repo 沒有 CI | 不跑就不擋 | 有 CI 時加一行；或加 git pre-commit hook |
 
-- **決定**：不搬散落的 13 份、不動 PDCA 紀錄的措辭、不拆 `architecture.md`；其他四件照上面做。
-- **下一輪**：你確認這份計畫後，依第 1→4 項順序執行，每項一個 commit。
+- **決定**：照計畫做完四項；baseline 長文退回「加目錄」；`CLAUDE.md` 生效與否留給新 session 驗。
+- **下一輪**：合進 master 後驗 `CLAUDE.md`；視需要把腳本接進 CI。

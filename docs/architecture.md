@@ -426,8 +426,8 @@ K8s 排程頻率見 [engine/deploy](../engine/deploy/README.md)。
 
 | 紀錄 | 結論 |
 |---|---|
-| [docs-vs-code](pdca/2026-10-docs-vs-code.md) | 只改文件；6 處對不上改 5 處；code-review 4 項要修 |
-| [restructure](pdca/2026-10-restructure.md) | 目錄改名（telemetry、engine、sdk、e2e），行為不變 |
+| [docs-vs-code](pdca/meta/2026-10-docs-vs-code.md) | 只改文件；6 處對不上改 5 處；code-review 4 項要修 |
+| [restructure](pdca/meta/2026-10-restructure.md) | 目錄改名（telemetry、engine、sdk、e2e），行為不變 |
 
 ## 附錄 (Appendix)
 

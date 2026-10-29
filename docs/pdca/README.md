@@ -158,12 +158,13 @@ metrics → trace → log 找到哪一段、哪行 log；事件整合、排程�
 | [phase5-learning-loop/2026-10-metrics-kpi.md](phase5-learning-loop/2026-10-metrics-kpi.md) | ⑨ 量化：學之前、學之後的數字 | `metrics` 指令兩段並排；模擬資料驗算法，真實數字等試點 |
 | [phase5-learning-loop/2026-10-rule-threshold.md](phase5-learning-loop/2026-10-rule-threshold.md) | ⑨④②⑧ 規則草稿把門檻算出來、核准就自動載入；行事曆拿掉國定假日、歲修一筆一筆；第一階段只開 4 個 CronJob | 門檻 = 各件最低異常值的最小值（峰值實測不觸發）；核准後 `rules` 載入、第 2 次事故時間觸發；沒有過期、只處理延遲類 |
 
-### 跨階段（這個資料夾）
+### 跨階段（`meta/`）
 
 整條線的盤點、文件對程式、目錄改名
 
 | 檔案 | 主題 | 結論 |
 |---|---|---|
-| [2026-10-docs-vs-code.md](2026-10-docs-vs-code.md) | ①～⑨ 文件對程式：整條線一份看完（[architecture.md](../architecture.md)）、總覽狀態對齊 | 只改文件；6 處對不上改掉 5 處；code-review 的 10 項對過程式，4 項要修、記在流程文件的「不足」 |
-| [2026-10-restructure.md](2026-10-restructure.md) | 全部 目錄改名：專案名 it-aiops | `platform/`→`telemetry/`、`aiops/`→`engine/`、`apps/`→`sdk/`、`test/`→`e2e/`；Python 套件改名；行為不變，200 個單元測試與連結檢查過 |
-| [2026-10-sonar.md](2026-10-sonar.md) | 跨階段 SonarQube 第一次掃：範圍固定、真的問題修掉、剩的寫清楚 | `e2e/` 不掃；bug 5 → 0、vulnerability 121 → 4（剩 4 個都有理由）；`doc_id` 不變、https 選用 |
+| [meta/2026-10-docs-vs-code.md](meta/2026-10-docs-vs-code.md) | ①～⑨ 文件對程式：整條線一份看完（[architecture.md](../architecture.md)）、總覽狀態對齊 | 只改文件；6 處對不上改掉 5 處；code-review 的 10 項對過程式，4 項要修、記在流程文件的「不足」 |
+| [meta/2026-10-restructure.md](meta/2026-10-restructure.md) | 全部 目錄改名：專案名 it-aiops | `platform/`→`telemetry/`、`aiops/`→`engine/`、`apps/`→`sdk/`、`test/`→`e2e/`；Python 套件改名；行為不變，200 個單元測試與連結檢查過 |
+| [meta/2026-10-sonar.md](meta/2026-10-sonar.md) | 跨階段 SonarQube 第一次掃：範圍固定、真的問題修掉、剩的寫清楚 | `e2e/` 不掃；bug 5 → 0、vulnerability 121 → 4（剩 4 個都有理由）；`doc_id` 不變、https 選用 |
+| [meta/2026-10-docs-governance.md](meta/2026-10-docs-governance.md) | 跨階段 文件治理：索引＋狀態標籤、設定與原理分離、術語寫進 CLAUDE.md、檢查腳本 | `docs/README.md` 地圖、`CLAUDE.md`、`tools/check-docs.py`；活的文件舊說法 0；pdca 根目錄雜項收進 `meta/` |
