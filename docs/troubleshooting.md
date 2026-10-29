@@ -1,5 +1,7 @@
 # Troubleshooting
 
+> **類型：操作 How-To**
+
 只寫結論：症狀 → 原因 → 做法。依區塊分。
 
 ## 收值（log、metrics、trace 共用）
@@ -72,7 +74,7 @@
 | Collector 抓不到 .NET 的 metrics | 自動埋點的 Prometheus 端點只聽 localhost | 改成推（OTLP），chart 已經這樣設 |
 | 沒有 `http.server.request.duration` | 自動埋點預設沒開 ASP.NET Core 的 HTTP 指標 | `OTEL_DOTNET_AUTO_METRICS_ADDITIONAL_SOURCES=Microsoft.AspNetCore.Hosting,…`（chart 已加） |
 | log 量暴增 | ASP.NET Core 預設每個請求印 5 行 Information | `Logging__LogLevel__Microsoft.AspNetCore=Warning`（chart 已設） |
-| .NET Kafka 消費端的 log 沒有 trace_id | 自動埋點的 `receive` span 在 `Consume()` 回來時就結束 | 不改程式時印業務 ID；要串起來得在消費端改程式（[metrics/dotnet.md](metrics/dotnet.md#kafkaconfluentkafka)） |
+| .NET Kafka 消費端的 log 沒有 trace_id | 自動埋點的 `receive` span 在 `Consume()` 回來時就結束 | 不改程式時印業務 ID；要串起來得在消費端改程式（[metrics/dotnet.md](metrics/dotnet-how-to.md#kafkaconfluentkafka)） |
 | .NET 的 log 對不到 trace | trace_id 在 `Scopes` 裡，不在最外層 | 開 `IncludeScopes`；中央 pipeline 會從 `Scopes` 拿 `TraceId`、`SpanId`，也認得 Serilog compact JSON。都能用環境變數開（`Logging__Console__*`），不用改程式 |
 | 告警顯示的連線池名稱是一串連線字串 | Npgsql 用連線字串當名稱（密碼已拿掉） | 能改程式就用 `NpgsqlDataSourceBuilder` 設 `Name` |
 | 執行緒池飢餓時佇列長度一直是 0 | .NET 6 以後偵測到同步等 Task 會馬上多開執行緒，不排佇列 | 看「執行緒 ÷ CPU 核數」（`thread_pool_growth`） |

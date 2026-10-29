@@ -1,5 +1,7 @@
 # log 收集：Fluent Bit vs OpenTelemetry Collector
 
+> **類型：原理 Explanation**　同主題：[原理](README.md)・[規格（欄位、pipeline）](reference.md)・[操作（部署、驗證）](how-to.md)
+
 > [!NOTE]
 > **結論：已改用 OpenTelemetry Collector 收 log**，併進原本收 metrics 的同一個 Collector（見 [log/README.md](README.md)）。
 > 這份是決定前的比較紀錄：兩個收集器同時跑、讀同一批 log 檔。當時 OTel 是另外開一個 Collector 專收 log，所以記憶體看起來多 200MB；

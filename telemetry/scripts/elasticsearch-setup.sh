@@ -7,7 +7,7 @@
 #
 # 會建立四類東西：
 #   0. index 結構：ILM、mapping、pipeline（含各 log 格式）、index template（./storage/）。
-#      可以重複執行，結果一樣。log 欄位規範見 docs/log/README.md。
+#      可以重複執行，結果一樣。log 欄位規範見 docs/log/reference.md。
 #   1. 寫入用 API key（給 OpenTelemetry Collector）：一把，所有 group 共用，只能寫、不能讀。
 #      資料屬於哪個 group 由 Collector 依 Pod 決定（data_stream.namespace），不靠 key 擋：沒有部門間寫入隔離的要求，
 #      一把 key 少了「key 權限 pattern 漏了 → ES 回 200 但整批拒絕、Collector 看不到」的機會（docs/pdca/phase1-collect/2026-10-ingest-simplify.md）。

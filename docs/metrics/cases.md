@@ -1,5 +1,7 @@
 # 指標的四個領域：典型案例與實測
 
+> **類型：案例 Cases**　同主題：[原理](README.md)・[規格（欄位）](reference.md)・[操作（部署、驗證）](how-to.md)・[指標目錄（規格）](catalog.md)・[metrics 能做什麼（原理）](capabilities.md)・[.NET 原理](dotnet.md)・[.NET 操作](dotnet-how-to.md)・[.NET 規格](dotnet-reference.md)
+
 一句話：**四個領域（基礎架構、應用、DB 與佇列、機台）各拿一個典型故障，在 k3s 上真的做出來，確認現在的資料與規則抓得到；做不到的列在最後。**
 
 腳本：[e2e/local-k3s/run-metrics-cases-e2e.sh](../../e2e/local-k3s/run-metrics-cases-e2e.sh)。資料都走正式的路線（應用 → OTel Collector → ES），判斷用 [engine/configs/baseline/rules.yaml](../../engine/configs/baseline/rules.yaml)。
@@ -160,3 +162,33 @@
 | **OEE** | 是「可用率 × 效能 × 良率」，要機台狀態時間、標準工時、良品數，來自 MES／EAP，不是現在收的 metrics | 由 MES／EAP 算好吐成指標，或從事件計算 |
 | **慢慢爬**（洩漏要好幾天才滿） | 規則只看「現在多滿」；趨勢（幾天後會滿）還沒做 | 趨勢：算斜率、預測到上限的時間 |
 | **自動處置**（重開、heap dump、擴容） | 目前只偵測、寫進 aiops-anomalies | 先做通知；自動處置要另外評估風險 |
+
+## .NET 實測結果
+
+`run-dotnet-e2e.sh`，2026-10-10，k3s 單節點，全部通過。應用：ASP.NET Core 8（**程式沒有任何 OpenTelemetry、log 設定**，1 核、記憶體上限 512Mi）＋ PostgreSQL，Npgsql 連線池上限 5，每秒約 15 個請求。之前 .NET 9 跑的那輪也全部通過（洩漏跑四次，兩種結局各兩次，見坑 7）。
+
+### 資料
+
+| 檢查 | 結果 |
+|---|---|
+| HTTP、GC、執行緒池、連線池的指標用 OTLP 進 `metrics-generic.otel-imc`（.NET 8 的 `process.runtime.dotnet.*`） | ✅ |
+| 部門依連線來源判斷（應用沒填 K8s、部門欄位，仍是 IMC／D1110） | ✅ |
+| baseline 的 `http.requests`、`http.error_rate`、`http.latency_p95_s` 跟 Java 同一條序列，算得出 .NET 的值（每 5 分鐘約 1,250 個請求、p95 2.5ms） | ✅ |
+| log 只靠環境變數就是 JSON：拆得出 level（`Information` → `info`）、logger（`Category`）、訊息 | ✅ |
+| log 的 `trace_id`（在 `Scopes` 裡）對得到 trace（ASP.NET Core 的請求＋Npgsql 的查詢） | ✅ |
+| 正常時 .NET 的規則（.NET 8、9 兩套）都不報 | ✅ |
+
+### 案例
+
+| 案例 | 怎麼做 | 抓到的 | 結果 |
+|---|---|---|---|
+| 連線池用光 | 拿了連線不還 | `db.pool_exhausted_otlp`：使用中 **100%**（池的名稱是連線字串，見坑 5） | ✅ |
+| 執行緒池飢餓 | 每個請求 `Task.Delay(2000).Wait()`，同時請求變 5 倍 | `dotnet8.thread_pool_growth`：執行緒 **44 條／核**；佇列最多 1 個（再次確認佇列不會排，見坑 6） | ✅ |
+| 記憶體洩漏 | 每個請求 64KB 放進不會清的 list | 第 7 分鐘 `dotnet8.gen2_gc_frequent`（5 分鐘 1,399 次 Gen2）＋ `dotnet8.exceptions_burst`（2,098 次）：程式沒結束、一直丟例外（結局二）；`container.memory_near_limit` 沒觸發 | ✅ |
+
+### 還沒驗證
+
+- **SQL Server（Microsoft.Data.SqlClient）的連線池指標**：這次用 PostgreSQL（Npgsql）。SqlClient 的指標名稱、有沒有連線池指標要另外確認。
+- **.NET 6**：自動埋點支援，名稱應該跟 .NET 8 一樣（`process.runtime.dotnet.*`），沒實測。
+- **Serilog、NLog**：中央 pipeline 認得 Serilog compact JSON（`@m`、`@l`、`@x`、`@tr`），但沒用真的 Serilog 程式跑過；NLog 沒看過。
+- **Alpine（musl）image**：chart 有 `arch: linux-musl-x64`，沒實測。

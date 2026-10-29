@@ -1,6 +1,6 @@
 # 規則草稿把門檻算出來、核准就生效；行事曆拿掉國定假日；第一階段只開 4 個 CronJob（2026-10）
 
-**狀態**：完成（docker ES 實測：核准 → rules 自動載入 → 第 2 次事故的時間觸發）　　**日期**：2026-10-25　　**相關**：分支 `claude/rule-threshold`；過度設計的盤點（[architecture.md「哪裡過度設計」](../../architecture.md#11-哪裡過度設計)）；[loop-update](2026-10-loop-update.md) 的 Act「規則草稿的門檻要人填」
+**狀態**：完成（docker ES 實測：核准 → rules 自動載入 → 第 2 次事故的時間觸發）　　**日期**：2026-10-25　　**相關**：分支 `claude/rule-threshold`；過度設計的盤點（[architecture.md「哪裡過度設計」](../../architecture-reference.md#11-哪裡過度設計)）；[loop-update](2026-10-loop-update.md) 的 Act「規則草稿的門檻要人填」
 **模組**：⑨（建議）、④（規則）、②（行事曆）
 
 ## Plan：這一次要達到什麼

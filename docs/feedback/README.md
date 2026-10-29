@@ -1,5 +1,7 @@
 # Feedback：告警出口、事故紀錄、回饋、調整、LLM
 
+> **類型：原理 Explanation**
+
 異常偵測、根因分析之後的事：結果送到人手上 → 人判斷對錯 → 對了強化、錯了修正。**依 [llm-mlops.md](llm-mlops.md) 的定案，以 LLMOps 為主軸、借機器學習的紀律（版本、評測、回測），不自己訓練模型。**
 
 ## 現況與待辦
@@ -7,7 +9,7 @@
 | 項目 | 狀態 | 說明 |
 |---|---|---|
 | 異常總表 `aiops-anomalies` | ✅ | 所有判斷結果都寫這裡，帶 `status`（warning／anomaly）、可信度、粒度、方法 |
-| 使用者、指令調整（粒度、z、min_abs） | ✅ | `series.yaml` 的 `overrides`、`tune` 指令寫進 `aiops-tuning`，記原因、誰、何時（[baseline README「使用者、feedback 調整」](../../engine/configs/baseline/README.md#使用者feedback-調整)）；之後 feedback 也寫同一處 |
+| 使用者、指令調整（粒度、z、min_abs） | ✅ | `series.yaml` 的 `overrides`、`tune` 指令寫進 `aiops-tuning`，記原因、誰、何時（[baseline README「使用者、feedback 調整」](../../engine/configs/baseline/reference.md#使用者feedback-調整)）；之後 feedback 也寫同一處 |
 | 告警出口 | ✅ | 同服務合成一件寫 `aiops-alerts`，Grafana 依 dept 分送（[pdca/phase3-locate/2026-10-alert-exit.md](../pdca/phase3-locate/2026-10-alert-exit.md)）；排程與「AIOps 停了」（[pdca/phase3-locate/2026-10-schedule.md](../pdca/phase3-locate/2026-10-schedule.md)） |
 | 事故紀錄 `aiops-incidents` | ✅ | 告警一開就有一筆（`auto`、帶指紋）；老師傅在回饋網頁確認 → `confirmed`，存根因分類、處置、**怎麼看出來的**、查了哪裡；相似事故檢索只讀確認過的（[pdca/phase5-learning-loop/2026-10-expert-feedback.md](../pdca/phase5-learning-loop/2026-10-expert-feedback.md)、[2026-10-similar-incidents.md](../pdca/phase4-rca-llm/2026-10-similar-incidents.md)） |
 | 值班回饋 `aiops-feedback` | ✅ | 回饋網頁 `feedback_web`（通知裡的連結）＋指令；誤報 3 次 → 建議、漏報 → 降 z、同根因 3 次 → 規則草稿（都 proposed）。漏報還只能用指令；沒登入 |
@@ -16,7 +18,7 @@
 | LLM | ⚠️ | 報告最前面三到五句、每句附依據、捏造就整段不顯示、掛了退回固定句型（[pdca/phase4-rca-llm/2026-10-llm-summary.md](../pdca/phase4-rca-llm/2026-10-llm-summary.md)）；真的模型還沒跑過 |
 | 量化 | ⚠️ | `metrics` 兩段並排（件數、有回饋比例、誤報率、到回饋多久、怎麼看出來的有沒有填）；數字要等試點（[pdca/phase5-learning-loop/2026-10-metrics-kpi.md](../pdca/phase5-learning-loop/2026-10-metrics-kpi.md)） |
 
-**順序都走過一輪了**（2026-10-25，模擬資料；[architecture.md「產品主線 8 步」](../architecture.md#9-產品主線-8-步) 的整合驗證）。下一步：上 K8s、用有 trace 的事故驗、試點產線先只寫入不通知 2～4 週。
+**順序都走過一輪了**（2026-10-25，模擬資料；[architecture-reference.md「產品主線 8 步」](../architecture-reference.md#9-產品主線-8-步) 的整合驗證）。下一步：上 K8s、用有 trace 的事故驗、試點產線先只寫入不通知 2～4 週。
 
 上線前先記下現況當基準（每天告警幾筆、多少是誤報、從告警到找到原因平均多久），之後才量得出有沒有改善。
 

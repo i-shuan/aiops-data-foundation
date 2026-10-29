@@ -1,4 +1,4 @@
-"""規則：狀態變化、離極限多遠。不用學、不用歷史，裝上去第一天就有用（docs/metrics/catalog.md 的做法 2、5）。
+"""規則：狀態變化、離極限多遠。不用學、不用歷史，裝上去第一天就有用（docs/metrics/capabilities.md 的做法 2、5）。
 
 每條規則（configs/baseline/rules.yaml）：從一個資料流讀某個欄位，依 by 切成一條條序列，看最近一段時間的每個點：
 

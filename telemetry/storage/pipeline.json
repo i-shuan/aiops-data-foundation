@@ -1,5 +1,5 @@
 {
-  "description": "k8s-logs 主 pipeline：共通身分 → 依格式分派 → 時間。說明見 docs/log/README.md「pipeline」",
+  "description": "k8s-logs 主 pipeline：共通身分 → 依格式分派 → 時間。說明見 docs/log/reference.md「pipeline」",
   "processors": [
     {
       "script": {
@@ -72,7 +72,7 @@
     },
     {
       "script": {
-        "description": "date processor 依 timezone 輸出成 +08:00 的字串；換回 UTC（docs/log/README.md：時間一律 UTC）",
+        "description": "date processor 依 timezone 輸出成 +08:00 的字串；換回 UTC（docs/log/reference.md：時間一律 UTC）",
         "lang": "painless",
         "if": "ctx.log?.timestamp_source != null && ctx.log.timestamp_source.startsWith('app') && ctx['@timestamp'] != null",
         "source": "ctx['@timestamp'] = ZonedDateTime.parse(ctx['@timestamp'].toString()).withZoneSameInstant(ZoneOffset.UTC).format(DateTimeFormatter.ofPattern(\"yyyy-MM-dd'T'HH:mm:ss.SSS'Z'\"));"

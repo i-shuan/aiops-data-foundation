@@ -4,28 +4,15 @@
 
 這是 [docs/rca/README.md](../../../docs/rca/README.md) 六個步驟裡的 2～4 步（合併、定位、找原因）。不需要 AI 模型：都是查詢加統計。
 
-## 三種資料各做什麼
+原理（三種資料各回答什麼、怎麼判斷慢在哪一段、為什麼用一批慢 trace 找共同瓶頸）見 [docs/rca/README.md](../../../docs/rca/README.md)。這份只寫怎麼跑、預設值、報告長什麼樣子、限制、怎麼驗。
 
-| | 比喻 | 在這裡做什麼 |
+## 預設值
+
+| 項目 | 預設 | 在哪改 |
 |---|---|---|
-| **Metrics** | 體溫計：有沒有異常 | [engine/configs/baseline](../baseline/README.md) 寫進 `aiops-anomalies` 的異常：哪個服務、哪支 API、什麼時候 |
-| **Trace** | X 光：請求走了哪些服務、每段多久 | 1. **慢在哪一段**：出事時最慢的請求跟平常比，每一段多花多少時間<br>2. **錯誤從哪裡開始**：最底下出錯的那段，不是一路往上傳的<br>3. **瀑布圖**：最慢那個請求每一段的時間<br>4. **呼叫關係圖**：從 trace 自動畫出誰呼叫誰 |
-| **Log** | 病歷上的字：到底發生什麼事 | 1. 用 `trace_id` 把最慢那個請求在**各服務**的 log 撈出來<br>2. 可疑服務的 warn／error 歸成樣式，跟平常比：**新出現的**、變多的排前面 |
-
-trace 是中間那座橋：沒有它，只知道「mes-api 變慢」，要在幾十個服務的 log 裡大海撈針；有了它，直接知道是 wip-worker 查 Oracle 那段，只要看 wip-worker 那幾分鐘的 log。
-
-## 怎麼判斷「慢在哪一段」
-
-每一段只算**自己**花的時間：wip-worker 處理 1.5 秒、其中 1.5 秒在等 Oracle，那 wip-worker 自己是 0 秒，等 Oracle 那段是 1.5 秒。這樣慢的那段不會一路算到最上層，排第一的就是真正變慢的地方。
-
-```
-出事時：最慢的 200 個請求＋最多 100 個出錯的
-平常  ：一週前同一段時間的請求（沒有資料就用出事前、同樣長的一段）
-   ↓ 每個請求在每一段自己花了多久，兩邊平均
-   ↓ 多最多的排第一
-```
-
-錯誤也一樣：一個請求裡好幾段都標了錯誤時，只算最底下那段（上面的只是把錯誤往上傳）。
+| 出事時取幾個請求 | 最慢的 200 個，加最多 100 個出錯的 | `rca.yaml` 的 `sample` |
+| 「平常」拿哪一段比 | 一週前同一段時間；沒有資料就用出事前、同樣長的一段 | `rca.yaml` 的 `compare_with`、`ref_gap` |
+| 每一段算什麼 | 只算自己花的時間（扣掉底下的呼叫）；錯誤只算最底下那段 | 固定 |
 
 ## 怎麼跑
 
@@ -59,7 +46,7 @@ FEEDBACK_PORT=8080 python3 -m feedback_web
 ### 事件整合（`alert`）
 
 - **合成一件看服務**：同一個服務、30 分鐘內接著來的異常是同一件（`alerts.close_after`）；同一個 dept 的兩個服務是兩件。30 分鐘沒有新的 → `resolved`。
-- **哪些會開一件**：critical 規則、baseline 連續才算的 `anomaly`、資料品質；warning 規則和跟兄弟比要同一個服務 2 筆以上；只跳一次的 baseline `warning` 只併進已經開著的那件。
+- **哪些會開一件**：critical 規則、baseline 連續才算的 `anomaly`、資料品質；warning 規則和Pod 同儕橫向比對要同一個服務 2 筆以上；只跳一次的 baseline `warning` 只併進已經開著的那件。
 - **送給誰看 dept**：每一件帶 `dept`、`group`（取它的異常的，異常寫入時已補上）；資料品質一律 `group: unassigned`（送平台）。Grafana 依 `dept` 分送，設定範例在 [configs/grafana](../grafana/README.md)。
 - 新的那件跑一次 `investigate`：結論寫進 `summary`（Grafana 通知帶這個）、全文存 `report`；結構化結果存 `findings`（慢在哪一段、錯從哪開始、新 log 樣式），也拿來算這件的**指紋**，寫一筆 `aiops-incidents`（`status: auto`）。
 - **過去相似的事故**（`alerts.similar`，[investigator/similar.py](../../investigator/similar.py)）：用指紋（服務、API、慢的那段、錯的源頭、異常的指標組合、新 log 樣式）去 `aiops-incidents` 找老師傅**確認過的**（`confirmed`、`corrected`）最像的 3 件，附在報告最前面：當時的根因、處置、怎麼看出來的、誰處理的，和**為什麼像**（哪幾點相同）。分數不到 4（至少一個強特徵：同一段變慢、同一個錯誤源頭；或同服務＋同指標）就不附。用 ES 的欄位比對、自己算分，不用向量，看得出為什麼像。通知摘要多一行「過去相似：…」。
@@ -129,6 +116,6 @@ python3 -m unittest discover -s tests -t .                  # 在 aiops 底下�
 ES_URL=http://<ip>:9200 e2e/local-k3s/run-rca-e2e.sh        # k3s 端到端，約 14 分鐘
 ```
 
-`loop_e2e`（2026-10-25，docker 的 ES 9.5.5、模擬資料，見 [architecture.md「產品主線 8 步」](../../../docs/architecture.md#9-產品主線-8-步)）：第 1 次事故 → 回饋網頁確認 → 第 2 次同樣症狀的報告附上第 1 件（為什麼像、當時的根因、處置、怎麼看出來的）、LLM 摘要（template）每句附依據；`similar-eval` 3/3；誤報 3 次 → 建議 → 回測 → 核准 → 不再報。
+`loop_e2e`（2026-10-25，docker 的 ES 9.5.5、模擬資料，見 [architecture-reference.md「產品主線 8 步」](../../../docs/architecture-reference.md#9-產品主線-8-步)）：第 1 次事故 → 回饋網頁確認 → 第 2 次同樣症狀的報告附上第 1 件（為什麼像、當時的根因、處置、怎麼看出來的）、LLM 摘要（template）每句附依據；`similar-eval` 3/3；誤報 3 次 → 建議 → 回測 → 核准 → 不再報。
 
 `run-rca-e2e.sh`：兩個模擬服務走真正的路線（Collector → ES），正常 7 分鐘、事故 5 分鐘，再模擬 baseline 記到一筆延遲異常，**不指定服務**跑 investigate，檢查 11 項：從異常找到服務與 API、瓶頸、錯誤源頭、新的 log 樣式、log 依 trace_id 串到兩個服務、關係圖。

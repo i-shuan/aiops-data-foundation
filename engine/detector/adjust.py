@@ -1,4 +1,4 @@
-"""調整：哪些資料不學、從哪裡重新學、哪些時段放寬（configs/baseline/README.md「定義的原則與限制」「調整」）。
+"""調整：哪些資料不學、從哪裡重新學、哪些時段放寬（configs/baseline/reference.md「定義的原則與限制」「調整」）。
 
 統計公式（168 格中位數＋MAD）不動；baseline 學錯、報錯的情況，用「調整資料」修正。四種 kind：
 

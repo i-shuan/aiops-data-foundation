@@ -1,6 +1,6 @@
 {
   "policy": {
-    "_meta": {"description": "metrics-*.otel-*：原始 30 秒一點 → __METRICS_DOWNSAMPLE_5M_AFTER__ 起降成 5 分鐘 → __METRICS_DOWNSAMPLE_1H_AFTER__ 起降成 1 小時 → __METRICS_DELETE_AFTER__ 刪。降解析度後直方圖（延遲分佈）照樣保留，請求數、p95 不變（docs/retention.md 實測）。天數改 telemetry/scripts/retention.conf"},
+    "_meta": {"description": "metrics-*.otel-*：原始 30 秒一點 → __METRICS_DOWNSAMPLE_5M_AFTER__ 起降成 5 分鐘 → __METRICS_DOWNSAMPLE_1H_AFTER__ 起降成 1 小時 → __METRICS_DELETE_AFTER__ 刪。降解析度後直方圖（延遲分佈）照樣保留，請求數、p95 不變（docs/retention-reference.md 實測）。天數改 telemetry/scripts/retention.conf"},
     "phases": {
       "hot": {
         "actions": {"rollover": {"max_age": "__ROLLOVER_MAX_AGE__", "max_primary_shard_size": "__ROLLOVER_MAX_SIZE__"}}

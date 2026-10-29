@@ -55,7 +55,7 @@ docs/
 
 ## 待辦
 
-依 PDCA 分（Plan 定門檻、Do 收值與判斷、Check 看對不對、Act 調整），整份在 [docs/pdca/](docs/pdca/README.md)。閉環的每一段都有程式、模擬資料跑通；**缺的是真實資料、真的 LLM、K8s 上跑**（[docs/architecture.md「還沒做、還不足的」](docs/architecture.md#10-還沒做還不足的)）。範圍是一般服務。
+依 PDCA 分（Plan 定門檻、Do 收值與判斷、Check 看對不對、Act 調整），整份在 [docs/pdca/](docs/pdca/README.md)。閉環的每一段都有程式、模擬資料跑通；**缺的是真實資料、真的 LLM、K8s 上跑**（[docs/architecture-reference.md「還沒做、還不足的」](docs/architecture-reference.md#10-還沒做還不足的)）。範圍是一般服務。
 
 ## 目錄
 
