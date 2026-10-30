@@ -5,7 +5,7 @@ AIOps 的告警通知裡有一個「回饋」連結，點進來是 Grafana 裡�
 | 項目 | 值 |
 |---|---|
 | 外掛 | Business Forms（`volkovlabs-form-panel`），Volkov Labs 出的，Apache 2.0，有 Grafana 官方簽章 |
-| 版本 | **6.3.1**（Grafana 12.2 只能用這版；6.3.2 以後要 Grafana 12.3） |
+| 版本 | **6.3.1**（Grafana 12.2、13.0.7 都實測過；6.3.2 以後要 Grafana 12.3 以上，本專案只驗過 6.3.1） |
 | 下載 | `https://grafana.com/api/plugins/volkovlabs-form-panel/versions/6.3.1/download`（zip，約 1.4 MB；解開約 4.6 MB） |
 | SHA-256 | `1eece14d67b2ffac4bbba18f5c69cde3f0f7aecef2276b0f1b33bc3cfb9998d0` |
 

@@ -24,7 +24,7 @@ spec:
       automountServiceAccountToken: false    # Grafana 不用呼叫 K8s API，不掛 service account token
       initContainers:
         - name: install-plugins
-          image: grafana/grafana:12.2.0
+          image: grafana/grafana:13.0.7
           command: ["sh", "/installer/install-plugin.sh"]
           env:
             - {name: PLUGIN_ID, value: volkovlabs-form-panel}
@@ -39,7 +39,7 @@ spec:
             limits: {memory: 128Mi, ephemeral-storage: 256Mi}    # 外掛 zip 約 10MB，解開不到 50MB
       containers:
         - name: grafana
-          image: grafana/grafana:12.2.0
+          image: grafana/grafana:13.0.7
           ports:
             - {name: http, containerPort: 3000}
           env:

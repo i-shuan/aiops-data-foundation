@@ -23,10 +23,10 @@
 
 中央 ES 和每個 cluster 的步驟跟 log、metrics 一樣（[log/how-to.md 的「部署」](../log/how-to.md#部署)）：重跑 `elasticsearch-setup.sh`，新發的 key 才有 `traces-*.otel-*` 的權限（或用 `rotate-writer-key.sh` 一個一個 group 換，不掉資料）；`kubectl apply -k telemetry/collectors` 會多一個 Service `otel-node-collector`、StatefulSet `trace-sampler`（尾端取樣）。
 
-ES 要有 `/_otlp/v1/traces`（測試用 9.5.5）：
+ES 要有內建的 `traces-otel@template`（8.19 以上；Collector 用 `elasticsearch` 寫入元件寫入，不需要 `/_otlp` 入口）：
 
 ```bash
-curl -s -o /dev/null -w "%{http_code}\n" -u elastic:<password> -X POST -H "Content-Type: application/x-protobuf" https://<es>:9200/_otlp/v1/traces
+curl -s -o /dev/null -w "%{http_code}\n" -u elastic:<password> https://<es>:9200/_index_template/traces-otel@template
 ```
 
 ## 驗證
