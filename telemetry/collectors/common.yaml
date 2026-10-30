@@ -145,8 +145,10 @@ exporters:
     auth:
       authenticator: bearertokenauth/es
     timeout: 30s
-    # 元件自己對 bulk 裡被 ES 退回的單筆（429、5xx）再試；整個請求失敗交給下面的 retry_on_failure
-    retry: {enabled: true, max_retries: 3}
+    # ⚠ 重試靠元件自己的 retry，不是 retry_on_failure（這個元件沒接 exporterhelper 的 retry，連線被拒、逾時
+    #   會直接「Exporting failed. Dropping data」）。預設 max_retries 2、100ms 起，ES 停機幾秒就丟光；
+    #   調成一直重試，停機期間資料留在佇列（實測見 docs/pdca/meta/2026-10-collector-es-exporter.md）
+    retry: {enabled: true, max_retries: 100000000, initial_interval: 1s, max_interval: 30s}
     sending_queue:
       enabled: true
       storage: file_storage
