@@ -64,10 +64,12 @@ processors:
   batch: {}
 
 exporters:
-  otlp_http/es:
-    traces_endpoint: ${env:ES_ENDPOINT}/_otlp/v1/traces
+  elasticsearch/es:    # 同 common.yaml：ES 8.19 沒有 /_otlp 入口，用 elasticsearch 寫入元件
+    endpoint: ${env:ES_ENDPOINT}
+    mapping: {mode: otel}
     auth: {authenticator: bearertokenauth/es}
     timeout: 30s
+    retry: {enabled: true, max_retries: 3}
     # 佇列寫在磁碟（PVC，trace-sampler.yaml）：ES 停機時 trace-sampler 重啟不會掉。記憶體佇列重啟時整個默默不見
     #（實測 ES 停機中重啟，3,000 個 trace 掉 2,540 個，大部分沒有任何 log；docs/pdca/phase1-collect/2026-10-trace-durability.md）
     sending_queue: {enabled: true, queue_size: 10000, storage: file_storage}
@@ -86,4 +88,4 @@ service:
     traces/in:
       receivers: [otlp]
       processors: [memory_limiter, tail_sampling, batch]
-      exporters: [otlp_http/es]
+      exporters: [elasticsearch/es]

@@ -133,18 +133,20 @@ processors:
 # 一個出口、一把 key；metrics 和 log 各有自己的佇列（同一個出口用在兩種 pipeline 時各一份）。
 # 寫到哪個 data stream 由資料自己的 data_stream.namespace（= group）決定，不用依 group 分出口。
 #
-# ⚠ 用 OTLP 送到 ES 9 自己的 OTLP 入口（/_otlp/v1/metrics），不用 elasticsearch 寫入元件。
-#   elasticsearch 寫入元件把「連線逾時、沒拿到 HTTP 回應」當成永久錯誤，不重試、直接丟掉；
-#   實測 ES 停 3 分鐘，停機期間的 metrics 幾乎全掉（佇列有存，但沒有拿來重送）。
-#   OTLP 寫入元件對任何暫時性錯誤（連不上、逾時、429、502～504）都重試，佇列放在節點上。
+# 用 elasticsearch 寫入元件（mapping otel），寫進 ES 內建的 logs-*／metrics-*／traces-*-otel data stream：
+#   公司的 ES 是 8.19，沒有 ES 9 的 OTLP 入口（/_otlp/v1/*；docs/pdca/meta/2026-10-compat-es8-grafana13.md）。
+#   寫出來的文件形狀跟 OTLP 入口一樣，中央 pipeline（k8s-logs-otel、traces-otel）照用。
+#   ⚠ 早期實測這個元件把「連線逾時、沒拿到 HTTP 回應」當永久錯誤不重試（ES 停 3 分鐘 metrics 幾乎全掉），
+#   所以 retry_on_failure 開、max_elapsed_time 0，並在 docs/pdca/meta/2026-10-collector-es-exporter.md 重測 ES 停機、沒回應的情境。
 exporters:
-  otlp_http/es:
-    metrics_endpoint: ${env:ES_ENDPOINT}/_otlp/v1/metrics
-    logs_endpoint: ${env:ES_ENDPOINT}/_otlp/v1/logs
-    traces_endpoint: ${env:ES_ENDPOINT}/_otlp/v1/traces
+  elasticsearch/es:
+    endpoint: ${env:ES_ENDPOINT}
+    mapping: {mode: otel}
     auth:
       authenticator: bearertokenauth/es
     timeout: 30s
+    # 元件自己對 bulk 裡被 ES 退回的單筆（429、5xx）再試；整個請求失敗交給下面的 retry_on_failure
+    retry: {enabled: true, max_retries: 3}
     sending_queue:
       enabled: true
       storage: file_storage
