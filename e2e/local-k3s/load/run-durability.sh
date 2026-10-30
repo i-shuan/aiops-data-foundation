@@ -20,7 +20,8 @@
 #   es-down          ES 停 DOWN_SECONDS 秒（預設 600）
 #   hostpath-rm      node Collector 停 30 秒兩次：第一次保留 /var/lib/otelcol/node（對照），第二次停的時候刪掉
 #   rolling          三種 Collector 一起換版到 TO_VERSION（預設 0.161.0）、60 秒後換回原版本
-# 環境變數：PF_PORT（自己開 port-forward 到 ES，預設 31920）或 ES_URL（已經連得到就不開）、
+#   node-lost        多節點：沒有產生器的、上面有 trace-sampler-1 的那個節點整台停 NODE_LOST_SECONDS 秒（預設 120），再起來。要設 NODE_OFF／NODE_ON（例如 k3d：docker stop／docker start，節點名就是容器名）
+# 環境變數：GEN_NODE（多節點：產生器釘在這個節點，node Collector、metrics 也看這個節點；NODE_EXEC 要連到同一個節點）、ES_DOCKER（ES 是主機上的 docker 容器時設容器名，例如 k3d 實測用 es8；ES 起停、es-429 改用 docker／elasticsearch.yml）、PF_PORT（自己開 port-forward 到 ES，預設 31920）或 ES_URL（已經連得到就不開）、
 #   NODE_EXEC（在節點上執行指令；Rancher Desktop 預設 wsl -d rancher-desktop --，在節點上跑就設成空字串）、
 #   APPLY_KUSTOMIZE（每個情境開始前 kubectl apply -k 這個目錄，例如 e2e/local-k3s/otel-collector）、
 #   LOG_RATE（200）、TRACE_RATE（20）、RESULTS（結果表另存一份 TSV）。
@@ -82,17 +83,23 @@ on_exit() {
 }
 
 # ---------- cluster 狀態 ----------
-node_pod() { kubectl -n "${OC}" get pod -l app.kubernetes.io/name=otel-node-collector -o jsonpath='{.items[0].metadata.name}' 2>/dev/null; }
+node_pod() { kubectl -n "${OC}" get pod -l app.kubernetes.io/name=otel-node-collector ${GEN_NODE:+--field-selector spec.nodeName=${GEN_NODE}} -o jsonpath='{.items[0].metadata.name}' 2>/dev/null; }
 restarts() { kubectl -n "$1" get pod "$2" -o jsonpath='{.status.containerStatuses[0].restartCount}' 2>/dev/null || echo 0; }
 last_reason() { kubectl -n "$1" get pod "$2" -o jsonpath='{.status.containerStatuses[0].lastState.terminated.reason}' 2>/dev/null; }
+es_wait_green() { until [[ "$(es "${ES_URL}/_cluster/health" | jq -r .status)" =~ green|yellow ]]; do sleep 2; done; }
 es_up() {
+  if [[ -n "${ES_DOCKER:-}" ]]; then
+    docker start "${ES_DOCKER}" >/dev/null 2>&1 || true; docker unpause "${ES_DOCKER}" >/dev/null 2>&1 || true
+    es_wait_green; return
+  fi
   kubectl -n es-test scale statefulset/elasticsearch --replicas=1 >/dev/null
   until kubectl -n es-test get pod elasticsearch-0 >/dev/null 2>&1; do sleep 2; done
   kubectl -n es-test wait --for=condition=Ready pod/elasticsearch-0 --timeout=600s >/dev/null
   pf_up
-  until [[ "$(es "${ES_URL}/_cluster/health" | jq -r .status)" =~ green|yellow ]]; do sleep 2; done
+  es_wait_green
 }
 es_down() {
+  if [[ -n "${ES_DOCKER:-}" ]]; then docker stop "${ES_DOCKER}" >/dev/null; return; fi
   kubectl -n es-test scale statefulset/elasticsearch --replicas=0 >/dev/null
   kubectl -n es-test wait --for=delete pod/elasticsearch-0 --timeout=180s >/dev/null 2>&1 || true
 }
@@ -106,10 +113,13 @@ wait_collectors() {
 ensure_ready() {
   # 別的工作可能在沒鎖的時候部署了別版設定：每個情境拿到鎖後重新部署要測的那份
   if [[ -n "${APPLY_KUSTOMIZE:-}" ]]; then kubectl apply -k "${APPLY_KUSTOMIZE}" >/dev/null; sleep 3; fi
-  [[ "$(kubectl -n es-test get statefulset elasticsearch -o jsonpath='{.spec.replicas}')" == 1 ]] || es_up
-  kubectl -n es-test wait --for=condition=Ready pod/elasticsearch-0 --timeout=600s >/dev/null
-  pf_up
-  until [[ "$(es "${ES_URL}/_cluster/health" | jq -r .status)" =~ green|yellow ]]; do sleep 2; done
+  if [[ -n "${ES_DOCKER:-}" ]]; then es_up
+  else
+    [[ "$(kubectl -n es-test get statefulset elasticsearch -o jsonpath='{.spec.replicas}')" == 1 ]] || es_up
+    kubectl -n es-test wait --for=condition=Ready pod/elasticsearch-0 --timeout=600s >/dev/null
+    pf_up
+    es_wait_green
+  fi
   wait_collectors
   [[ "$(kubectl -n "${OC}" get statefulset trace-sampler -o jsonpath='{.status.readyReplicas}')" == 2 ]] \
     || { echo "trace-sampler 不是兩台 Ready，停止"; exit 1; }
@@ -128,7 +138,7 @@ start_gens() {  # start_gens <run> <log 行/秒> <trace/秒> <秒數>
   kubectl apply -f "${here}/generator.yaml" >/dev/null
   jq -Rs '{apiVersion:"v1",kind:"ConfigMap",metadata:{name:"trace-gen",namespace:"load-test"},data:{"trace-gen.py":.}}' \
     <"${here}/trace-gen.py" | kubectl apply -f - >/dev/null
-  sed -e "s/\${RUN}/$1/g" -e "s/\${RATE}/$2/g" -e "s/\${DURATION}/$4/g" "${here}/job.tpl.yaml" | kubectl apply -f - >/dev/null
+  sed -e "s/\${RUN}/$1/g" -e "s/\${RATE}/$2/g" -e "s/\${DURATION}/$4/g" ${GEN_NODE:+-e "s/^      restartPolicy: Never/      nodeName: ${GEN_NODE}\n      restartPolicy: Never/"} "${here}/job.tpl.yaml" | kubectl apply -f - >/dev/null
   cat <<EOF | kubectl apply -f - >/dev/null
 apiVersion: batch/v1
 kind: Job
@@ -139,6 +149,7 @@ spec:
     metadata:
       labels: {app.kubernetes.io/name: dur-trace, app.kubernetes.io/version: "1.0.0"}
     spec:
+${GEN_NODE:+      nodeName: ${GEN_NODE}}
       restartPolicy: Never
       containers:
         - name: tgen
@@ -254,7 +265,8 @@ begin() {  # begin <名稱> <秒數> [log 行/秒] [trace/秒]
 }
 fault() { T0="$(epoch)"; mark "t=0 $1"; }
 proc_pid() {  # proc_pid <設定檔片段> <Pod 名稱>：節點上這個 Pod 的 Collector 程序
-  on_node "for p in \$(pgrep -f 'otelcol-contrib --config=/conf/$1'); do grep -qa 'HOSTNAME=$2' /proc/\$p/environ 2>/dev/null && echo \$p; done; true" | head -1
+  # 不用 pgrep（k3s 的節點沒有）：掃 /proc，指令列對得上、環境變數 HOSTNAME 是這個 Pod
+  on_node "for d in /proc/[0-9]*; do { tr '\\0' ' ' <\$d/cmdline | grep -q 'otelcol-contrib --config=/conf/$1' && grep -qa 'HOSTNAME=$2' \$d/environ && echo \${d#/proc/}; } 2>/dev/null; done; true" | head -1
 }
 queue_du() {  # 節點上 Collector 佇列目錄、trace-sampler 的 PVC 各用多少（KB）
   local s="node=$(on_node "du -sk /var/lib/otelcol/node | cut -f1")KB"
@@ -413,9 +425,15 @@ collector_429() { kubectl -n "${OC}" logs "$1" --since=10m 2>/dev/null | grep 'W
 sc_es_429() {
   local q="${ES429_QUEUE:-1}" r0 r1
   echo "   ES 寫入 thread pool 改成 1 條、佇列 ${q}（重啟 ES）"
-  kubectl -n es-test set env statefulset/elasticsearch thread_pool.write.size=1 thread_pool.write.queue_size="${q}" >/dev/null
-  on_restore "kubectl -n es-test set env statefulset/elasticsearch thread_pool.write.size- thread_pool.write.queue_size- >/dev/null; kubectl -n es-test rollout status statefulset/elasticsearch --timeout=600s >/dev/null; es_up"
-  kubectl -n es-test rollout status statefulset/elasticsearch --timeout=600s >/dev/null; es_up
+  if [[ -n "${ES_DOCKER:-}" ]]; then   # thread_pool 是啟動時才讀的設定：寫進容器裡的 elasticsearch.yml 再重啟（容器沒有 volume，不能重建）
+    docker exec "${ES_DOCKER}" sh -c "printf 'thread_pool.write.size: 1\nthread_pool.write.queue_size: ${q}\n' >> config/elasticsearch.yml"
+    on_restore "docker exec ${ES_DOCKER} sed -i '/^thread_pool.write/d' config/elasticsearch.yml; docker restart ${ES_DOCKER} >/dev/null; es_wait_green"
+    docker restart "${ES_DOCKER}" >/dev/null; es_wait_green
+  else
+    kubectl -n es-test set env statefulset/elasticsearch thread_pool.write.size=1 thread_pool.write.queue_size="${q}" >/dev/null
+    on_restore "kubectl -n es-test set env statefulset/elasticsearch thread_pool.write.size- thread_pool.write.queue_size- >/dev/null; kubectl -n es-test rollout status statefulset/elasticsearch --timeout=600s >/dev/null; es_up"
+    kubectl -n es-test rollout status statefulset/elasticsearch --timeout=600s >/dev/null; es_up
+  fi
   r0="$(rejected)"
   begin "es-429" 240 "${LOG_RATE_429:-3000}"
   T0="$(epoch)"; T0_LABEL="產生器開始"
@@ -483,6 +501,21 @@ sc_rolling() {
   finish "rolling"
 }
 
+sc_node_lost() {   # 沒有產生器的節點整台當掉：上面的 trace-sampler-1（PVC 在這個節點，搬不走）和 node Collector 都不見
+  local victim secs="${NODE_LOST_SECONDS:-120}"
+  : "${NODE_OFF:?請設定 NODE_OFF（例如 docker stop）}" "${NODE_ON:?請設定 NODE_ON（例如 docker start）}" "${GEN_NODE:?請設定 GEN_NODE（產生器所在的節點）}"
+  victim="$(kubectl -n "${OC}" get pod trace-sampler-1 -o jsonpath='{.spec.nodeName}')"
+  [[ "${victim}" != "${GEN_NODE}" ]] || { echo "trace-sampler-1 跟產生器在同一個節點（${victim}），換 GEN_NODE"; exit 1; }
+  begin "node-lost" $(( 60 + secs + 180 ))
+  sleep 60
+  fault "節點 ${victim} 整台停（上面有 trace-sampler-1 和一個 node Collector）"
+  ${NODE_OFF} "${victim}" >/dev/null; on_restore "${NODE_ON} ${victim} >/dev/null; kubectl wait --for=condition=Ready node/${victim} --timeout=300s >/dev/null; wait_collectors"
+  sleep "${secs}"
+  run_restores; RESTORE=(); mark "節點起來、Collector 都 Ready"
+  NOTE="停 ${secs}s；trace-sampler-1 在 ${victim}"
+  finish "node-lost（${secs}s）"
+}
+
 # ---------- 主程式 ----------
 [[ $# -gt 0 ]] || { sed -n '2,33p' "$0"; exit 2; }
 for s in "$@"; do
@@ -504,4 +537,4 @@ done
 
 echo
 echo "== 結果（遺失/重複；trace 是 遺失/不完整/重複段/應用端丟；metrics 是 最大間隔/重複點）"
-printf '%s\n' "情境	log	trace	metrics	備註" "${SUMMARY[@]}" | column -t -s $'\t'
+printf '%s\n' "情境	log	trace	metrics	備註" "${SUMMARY[@]}" | { column -t -s $'\t' 2>/dev/null || cat; }
