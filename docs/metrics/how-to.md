@@ -29,10 +29,10 @@ annotations:
 ES_URL=https://<es>:9200 ES_AUTH=elastic:<password> telemetry/scripts/elasticsearch-setup.sh
 ```
 
-ES 要 9.x：要有內建的 `metrics-otel@template`，以及 OTLP 入口 `/_otlp/v1/metrics`（測試用 9.5.5）。上線前先確認：
+ES 要 8.19 以上：要有內建的 `metrics-otel@template`（Collector 用 `elasticsearch` 寫入元件的 otel 模式寫入，不需要 ES 9 的 `/_otlp` 入口；原因見 [2026-10 相容性紀錄](../pdca/meta/2026-10-compat-es8-grafana13.md)）。上線前先確認：
 
 ```bash
-curl -s -o /dev/null -w "%{http_code}\n" -u elastic:<password> -X POST -H "Content-Type: application/x-protobuf" https://<es>:9200/_otlp/v1/metrics
+curl -s -o /dev/null -w "%{http_code}\n" -u elastic:<password> https://<es>:9200/_index_template/metrics-otel@template
 ```
 
 回 `200` 才有；`404` 表示這個版本沒有，要先升級。

@@ -48,9 +48,9 @@ log 也由同一個 Collector 收（[log/README.md](../log/README.md)）：分�
         ↓ 1. 邊緣身份鑑別（Edge Identity Sanitization）：應用自帶的 dept、group 欄位一律拿掉
         ↓ 2. 依這筆資料屬於哪個 Pod／物件，讀它 namespace 的 dept label，補上服務身分
         ↓ 3. dept → group（清單同 telemetry/groups.yaml）；沒有 dept 的（例如節點本身）→ unassigned
-        ↓ 4. data_stream.namespace = group；一個出口、集中式資料寫入憑證（ES_WRITER_API_KEY），用 OTLP 送到 ES 的 /_otlp/v1/metrics
+        ↓ 4. data_stream.namespace = group；一個出口、集中式資料寫入憑證（ES_WRITER_API_KEY），用 elasticsearch 寫入元件（otel 模式）寫進 ES
         ↓    → metrics-<來源>.otel-<group>（例如 metrics-prometheusreceiver.otel-it）
-        ↓ 中央 ES 9 內建的 metrics-otel@template 把它建成 time series data stream（TSDS）
+        ↓ 中央 ES（8.19 以上）內建的 metrics-otel@template 把它建成 time series data stream（TSDS）
    AIOps 用唯讀 key 讀 metrics-*.otel-*；人用各 group 的唯讀角色
 ```
 

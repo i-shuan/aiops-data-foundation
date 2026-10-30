@@ -12,7 +12,7 @@ spec:
     spec:
       initContainers:
         - name: install-plugins
-          image: grafana/grafana:12.2.0          # 跟主容器同一個 image（換成你們的 Nexus 路徑）
+          image: grafana/grafana:13.0.7          # 跟主容器同一個 image（換成你們的 Nexus 路徑）
           command: ["sh", "/installer/install-plugin.sh"]
           env:
             - {name: PLUGIN_ID, value: volkovlabs-form-panel}

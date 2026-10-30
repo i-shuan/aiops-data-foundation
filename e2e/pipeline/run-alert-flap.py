@@ -83,7 +83,7 @@ def run(label: str, stampf, n: int):
     hs = [h for h in history(start) if h[0] >= start]
     for t, aid, a, b in hs: print(f"   {t:%H:%M:%S} {aid}: {a} → {b}")
     # 被當成恢復：Alerting → Normal。整個查詢 0 筆是 Normal (NoData)；只有這一件不見是 Normal (MissingSeries)
-    # （Grafana 12 對 MissingSeries 預設連續 2 次評估才轉）
+    # （Grafana 12 以上對 MissingSeries 預設連續 2 次評估才轉）
     dropped = lambda aid: [h for h in hs if h[1] == aid and h[2].startswith("Alerting") and h[3].startswith("Normal")]
     flips, ctrl = dropped("flap-B"), dropped("flap-A")
     print(f"   結果：B 被當成恢復 {len(flips)} 次；A（對照）{len(ctrl)} 次")

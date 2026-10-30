@@ -47,7 +47,7 @@ spec:
     spec:
       containers:
         - name: elasticsearch
-          image: docker.io/library/elasticsearch:9.5.5
+          image: docker.io/library/elasticsearch:8.19.23
           # transport port 依序號：elasticsearch-0 → 9300、elasticsearch-1 → 9301
           command: ["bash", "-c", "p=$((9300 + ${HOSTNAME##*-})); exec /usr/local/bin/docker-entrypoint.sh eswrapper -Etransport.port=$p"]
           env:
