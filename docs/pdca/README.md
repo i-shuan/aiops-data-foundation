@@ -132,6 +132,7 @@ metrics → trace → log 找到哪一段、哪行 log；事件整合、排程�
 | [phase3-locate/2026-10-rca-demo.md](phase3-locate/2026-10-rca-demo.md) | ①④⑥⑦⑧ 整條線在 K8s 上跑：Pod 連續送 metrics、trace、log → 規則真的偵測 → 一件 → 根因＋LLM → Grafana | Rancher Desktop 實測：事故 3 分 40 秒後開成一件、根因指到 Oracle 那段與那行 log、LLM 摘要帶依據、`/it` 收到通知、儀表板六格都有資料；抓到 Grafana 每分鐘重發（summary 是 label）→ summary 不放會變的字；metrics→trace 是「服務＋API＋時間」的統計對應、不是 trace_id |
 | [phase3-locate/2026-10-schedule.md](phase3-locate/2026-10-schedule.md) | ④⑤⑥⑧ 排程上線：CronJob、「AIOps 停了」告警、先只寫入不通知 | Dockerfile、10 個 CronJob、回饋網頁 Deployment、心跳＋Grafana 規則；image 建好跑過，K8s 沒跑過 |
 | [phase3-locate/2026-10-cross-service-aggregation.md](phase3-locate/2026-10-cross-service-aggregation.md) | ⑥⑦ 跨服務事件聚合（一層父子關係）：下游出事連帶上游只開一件、留下游 | 每輪從 trace 算「誰呼叫誰」（重用 `topology`）；上游異常併進下游那件（`upstream_services`），上游先開的件收攏（`merged_into`）；合成資料 e2e 聚合率 5/5、誤併 0/5；多層只併一層，K8s 上待驗 |
+| [phase3-locate/2026-10-scenario4-mtti.md](phase3-locate/2026-10-scenario4-mtti.md) | ④⑥⑦⑧ 情境 4（第三方 API 中斷）注入＋MTTI 量測腳本 | `incident-external`（sms-gateway 10 秒＋504）：報告指到 `POST → sms-gateway`、錯誤源頭同段、log 帶 `sms.example.com` 504、LLM 歸因第三方；`measure-mtti.sh` 各量 3 次：情境 4 中位數 1:32、情境 1 3:15（沒到 3 分鐘，卡在 5 分鐘窗內錯誤率要 2 分多才過 5%）；縮短選項列表，門檻不動；發現開件當下 trace 還沒到、根因分析可能空或指錯段 |
 
 ### Phase 4 RCA＋LLM＋graph RAG（`phase4-rca-llm/`）
 

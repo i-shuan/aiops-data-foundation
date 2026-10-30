@@ -40,7 +40,7 @@
 | 聚合率 | 情境 1 注入 ≥ 5 次；每次看 `aiops-alerts` 開了幾件。併成 1 件算成功。另記**誤併率**：不相關的兩件被併成一件的次數 |
 | 解析率 | ≥ 20 句值班常用的回饋語料，人先標標準答案；LLM 抽取的四個欄位全對才算對 |
 | 串查成功率 | 每次事故的報告要同時有：慢在哪一段、最慢請求的 `trace_id`、依 `trace_id` 撈到的 log 行；缺一項算失敗 |
-| MTTI | 腳本記注入時間；`aiops-alerts` 那件第一次帶 `report` 的 `@timestamp` 減注入時間；4 個情境各量 ≥ 3 次取中位數 |
+| MTTI | 腳本（`e2e/local-k3s/rca-demo/measure-mtti.sh`）記注入時間；`aiops-alerts` 那件第一次帶 `report` 的 `report_at` 減注入時間（`@timestamp` 故意往前 1 分鐘寫，不能用，見 [scenario4-mtti](../phase3-locate/2026-10-scenario4-mtti.md)）；4 個情境各量 ≥ 3 次取中位數 |
 | 召回率 | 匯入事故單後跑 `similar-eval`（留一法 recall@3） |
 | 採納率 | 表單加兩題：「可能根因有參考價值」「建議的排查動作有參考價值」；正面數 ÷ 總回饋數 |
 
