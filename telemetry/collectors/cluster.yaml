@@ -13,4 +13,4 @@ service:
     metrics/in:
       receivers: [k8s_cluster]
       processors: [memory_limiter, transform/pre, k8s_attributes, transform/group, transform/drop-log-attrs]
-      exporters: [otlp_http/es]
+      exporters: [elasticsearch/es]
