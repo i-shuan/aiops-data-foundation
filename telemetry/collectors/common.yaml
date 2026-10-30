@@ -144,11 +144,15 @@ exporters:
     mapping: {mode: otel}
     auth:
       authenticator: bearertokenauth/es
-    timeout: 30s
+    # timeout 0：不給整個請求（含重試）一個總期限。有期限時，ES 停機超過期限、或連線掛住到期限，
+    #   那一批會以「context deadline exceeded」被丟掉（實測丟 1,840 行）；0 就一直等到 ES 回來
+    timeout: 0
     # ⚠ 重試靠元件自己的 retry，不是 retry_on_failure（這個元件沒接 exporterhelper 的 retry，連線被拒、逾時
     #   會直接「Exporting failed. Dropping data」）。預設 max_retries 2、100ms 起，ES 停機幾秒就丟光；
     #   調成一直重試，停機期間資料留在佇列（實測見 docs/pdca/meta/2026-10-collector-es-exporter.md）
-    retry: {enabled: true, max_retries: 100000000, initial_interval: 1s, max_interval: 30s}
+    #   retry_on_status 加 401：ES 剛起來的一秒多 API key 會被拒（docs/pdca/phase1-collect/2026-10-es-startup-401.md），
+    #   預設把 401 當永久錯誤整批丟（實測 ES 重啟時丟 16,640 行）；401、5xx 都是整個請求沒寫入，重送不會重複
+    retry: {enabled: true, max_retries: 100000000, initial_interval: 1s, max_interval: 30s, retry_on_status: [401, 429, 502, 503, 504]}
     sending_queue:
       enabled: true
       storage: file_storage
