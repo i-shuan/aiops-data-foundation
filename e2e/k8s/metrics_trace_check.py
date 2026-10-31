@@ -14,7 +14,7 @@ import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "engine"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "aiops-engine" / "code"))
 
 from core.es import ES, time_range  # noqa: E402
 from investigator import es as E  # noqa: E402

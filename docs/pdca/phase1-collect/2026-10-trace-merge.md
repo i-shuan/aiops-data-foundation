@@ -47,8 +47,10 @@
 | e2e（順手） | `run-metrics-e2e.sh`、`run-es-2node.sh` 的 kube context 預設改成目前的（原本寫死 `default`，Rancher Desktop 叫 `rancher-desktop`，第一個 kubectl 就失敗） | 同上 |
 | e2e（順手） | 10 支腳本的 `${repo}/engine` 改成 `${repo}/aiops-engine/code`；`run-rca-e2e.sh` 建 `rca-lib` configmap 時去掉 `\r` | 元件重整（PR #34）時漏改，這些 e2e 從那之後其實跑不起來；Windows checkout 成 CRLF 時 busybox sh 讀 `lib.sh` 會 syntax error（trace-app 早就這樣處理，rca 漏了） |
 | 文件 | `docs/trace/README.md` 重寫；architecture、retention 三份、rca、troubleshooting、根目錄與 docs README、sdk 埋點指引改成 100% 收／raw／merged | 跟著程式 |
+| `core/traces.py` | `to_span` 的 duration 改用 `_duration_ms`：字串、負數、沒有一律當 0 | 排程器全跑時發現：測試 ES 裡有 duration 是 "not-a-number" 的 span（ES 的 `ignore_malformed` 收下來），`trace-merge` 除錯直接崩潰，狀態推不進去，之後每分鐘都失敗。一個壞 SDK 就能卡死合併 |
+| e2e（順手） | `rca-demo/notify-sink.yaml` 的 Service 補 `ports`；`run-alert-flap.py`、`run-log-trace-skew.py`、`metrics_trace_check.py` 的 `engine` 路徑改 `aiops-engine/code`；`loop_e2e.py` 的 metrics 查詢區間結尾改成明天；`test_deploy.py` 預期多一個 Secret（`aiops-llm`） | 元件重整（PR #34）漏掉的；`loop_e2e` 把回饋時間（寫入當下）算在固定的 10/05～10/28 外，過了 10/28 就一定失敗 |
 
-單元測試 `tests/test_trace_merge.py`：合成的摘要（入口、耗時、錯誤、服務）、group 沒有時退回 dept、`from_merged` 來回一致、讀端的 nested 查詢；全部 376 個測試通過。
+單元測試 `tests/test_trace_merge.py`：合成的摘要（入口、耗時、錯誤、服務）、group 沒有時退回 dept、`from_merged` 來回一致、讀端的 nested 查詢；全部 377 個測試通過。
 
 ## Check：測試的目的與結果
 
@@ -64,6 +66,7 @@
 | 權限 | baseline key 可寫 merged、Collector 的寫入 key 不可、IT 唯讀角色含 `traces-merged-it-*` | 全過 |
 | 根因分析讀 merged | `run-rca-e2e.sh`：正常 7 分鐘 → 事故 5 分鐘 → 手動 `trace-merge`（一輪合了 1,531 個 trace）→ investigate 不指定服務、`tests/rca_k3s.yaml` 讀 `traces-merged-*` | 11 項全過：從異常找到 rca-mes-api、瓶頸與錯誤源頭都是 Oracle 那段、最慢那個請求兩個服務的 log 都撈到、呼叫關係 mes-api → wip-worker → oracle |
 | 單元測試 | `pytest`：合成的摘要、group 退回 dept、`from_merged` 來回、讀端 nested 查詢、排程表多一列 | 376 passed |
+| 排程器每分鐘跑 `trace-merge` | `run-schedule-e2e.sh`（20 分鐘）：第一次 19 次全失敗（壞 duration，見 Do），修好後重跑 | （重跑後補） |
 
 第一輪實測 7b 合了 0 個 trace：raw 的 `event.ingested` 沒被索引（內建 OTel 模板根層 `dynamic: false`），補 mapping 並 rollover 後才過；另外兩項是測試本身的錯（jq regex 多跳脫一層；比數量時沒排除還在 Collector 批次裡的最後幾十秒），都已修。
 
@@ -74,3 +77,4 @@
 - **merged 不省空間**：`nested` 的每一段內部仍是一筆；100% 收之後容量靠保留天數（raw 2 天、merged 7 天）撐，冷儲存（MinIO）另案。
 - `tests/trace_quality_edge_e2e.py`（自己的 ES 灌合成 trace）這次只把尾端取樣模擬改成全留，沒重跑。
 - `aiops-trace-segments`（trace 每一段的 baseline）還是讀 raw、只看最近 10 分鐘；要改讀 merged 得把 composite 聚合改成 nested，這次不碰。
+- **ES 8.19 的 otel 資料流 failure store 預設沒開**：`elasticsearch-setup.sh` 的註解寫「ES 預設就開了」，8.19.23 實測 `traces-*.otel-*`、`metrics-*.otel-*` 都是關的（只有腳本自己打開的 `k8s-*` 是開的）。`trace_quality_edge_e2e.py` 灌壞時間的 span 因此被拒絕、測試中斷；資料品質的 `ingest_rejected` 在 8.19 也不會有值。上線前要確認正式 ES 的版本，或讓 setup 對 otel 資料流也打開。

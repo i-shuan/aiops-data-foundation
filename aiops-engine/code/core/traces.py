@@ -26,6 +26,15 @@ def is_merged(index: str) -> bool:
     return "traces-merged" in index
 
 
+def _duration_ms(v) -> float:
+    """奈秒 → 毫秒。壞 SDK 送來的格式錯誤值（字串、負數）當 0，不能讓一筆壞 span 擋住整批合併或判斷。"""
+    try:
+        d = float(v or 0)
+    except (TypeError, ValueError):
+        return 0.0
+    return d / 1e6 if d > 0 else 0.0
+
+
 def to_span(src: dict) -> dict:
     attrs = src.get("attributes") or {}
     # db.system.name：新版 DB 語意（舊的 db.system 改名）；沒有對象的 Client span 段名沒有「→」，N+1 規則看不到
@@ -39,7 +48,7 @@ def to_span(src: dict) -> dict:
     return {"trace_id": src["trace_id"], "span_id": src["span_id"], "parent": src.get("parent_span_id") or None,
             "service": get_field(src, "resource.attributes.service.name") or "?", "name": src.get("name", "?"),
             "kind": src.get("kind", ""), "target": target, "start_ms": start_ms,
-            "dur_ms": (src.get("duration") or 0) / 1e6, "error": get_field(src, "status.code") == "Error",
+            "dur_ms": _duration_ms(src.get("duration")), "error": get_field(src, "status.code") == "Error",
             "exception": get_field(attrs, "exception.type"),
             "links": [l["span_id"] for l in src.get("links") or [] if l.get("span_id")],
             "attrs": attrs, "resource": get_field(src, "resource.attributes") or {}}

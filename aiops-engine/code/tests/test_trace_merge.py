@@ -102,5 +102,16 @@ class ReadersTest(unittest.TestCase):
         self.assertEqual(body["query"]["bool"]["filter"][1]["nested"]["path"], "spans")
 
 
+class MalformedSpanTest(unittest.TestCase):
+    def test_bad_duration_does_not_block_merge(self):
+        """壞 SDK 送來 duration 是字串、負數：當 0，不讓這一筆擋住整批（ES 允許格式錯誤的值進來）。"""
+        base = {"@timestamp": "2026-10-31T16:13:00.000+00:00", "trace_id": "t", "span_id": "s", "name": "GET /bad"}
+        self.assertEqual(T.to_span({**base, "duration": "not-a-number"})["dur_ms"], 0.0)
+        self.assertEqual(T.to_span({**base, "duration": -5})["dur_ms"], 0.0)
+        self.assertEqual(T.to_span({**base})["dur_ms"], 0.0)
+        self.assertEqual(T.to_span({**base, "duration": 20_000_000})["dur_ms"], 20.0)
+        self.assertEqual(T.to_span({**base, "duration": "20000000"})["dur_ms"], 20.0)
+
+
 if __name__ == "__main__":
     unittest.main()

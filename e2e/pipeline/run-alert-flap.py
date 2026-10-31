@@ -10,7 +10,7 @@ import datetime as dt, functools, os, pathlib, sys, time
 print = functools.partial(print, flush=True)
 import requests
 
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / "engine"))
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / "aiops-engine" / "code"))
 from investigator.cmd_alert import ALERT_INDEX, ALERT_MAPPING, stamp_of  # noqa: E402
 
 ES, GF = os.environ["ES_URL"].rstrip("/"), os.environ["GRAFANA_URL"].rstrip("/")
