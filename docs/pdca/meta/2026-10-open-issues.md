@@ -86,7 +86,17 @@
 
 問題 1 的決定會牽動這一節：根因分析現在讀 span，若合併後取代 span，這裡要一起改。
 
-### 7. 文件
+### 7. 基準線與調整索引掉了
+
+| 問題 | 現況 | 傾向 |
+|---|---|---|
+| `aiops-baseline` 掉了 | `detect` 讀到空的，印一行「沒有 baseline，先跑 train」就跳過那條序列，不報錯。動態基準線這一路靜默停擺；規則、Pod 同儕橫向比對、資料品質不受影響 | 手動跑一次 `train`（[aiops-engine/README.md](../../../aiops-engine/README.md)）；不手動要等隔天 02:00 |
+| 沒有「基準線不見」的告警 | Grafana 的 `aiops-heartbeat` 只看 `investigator alert` 有沒有寫入，這種情況不會響 | 加一條：`detect` 讀到空基準線的序列數大於 0 就送平台 |
+| 沒有 snapshot 備份 | `elasticsearch/code` 找不到 snapshot 或 SLM 設定；索引 `auto_expand_replicas: 0-1`，單節點沒有副本 | `aiops-tuning` 優先加（老師傅的調整，掉了不能重算）；`aiops-baseline` 是每天重寫的衍生資料，重要性較低 |
+| 重建 ES 的流程 | 沒有把 `train` 列為標準步驟 | 列進去 |
+| `aiops-baseline` 實際大小 | 沒查到數字（文件只有訓練時 1 萬條序列、2～3GB 記憶體） | 上線前量 |
+
+### 8. 文件
 
 | 項目 | 現況 |
 |---|---|
