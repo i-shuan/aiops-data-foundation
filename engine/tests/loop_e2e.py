@@ -6,7 +6,7 @@
 
 執行（在 engine 底下，對著測試用的 ES；會清掉 aiops-* 的資料）：
   ES_URL=http://<ip>:9200 ES_AUTH=elastic:... LLM_PROVIDER=template python3 -m tests.loop_e2e
-約 2 分鐘。結果記在 docs/architecture-reference.md 的「產品主線 8 步」。
+約 2 分鐘。結果記在 docs/architecture.md 的「產品主線 8 步」。
 """
 import json, os, subprocess, sys, tempfile, time, urllib.request
 import numpy as np, pandas as pd

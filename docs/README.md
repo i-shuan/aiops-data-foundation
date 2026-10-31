@@ -16,8 +16,7 @@
 | 文件 | 類型 | 內容 | 狀態 |
 |---|---|---|---|
 | [../README.md](../README.md) | 原理 | 專案是什麼、怎麼跑起來 | 🟢 |
-| [architecture.md](architecture.md) | 原理 | 架構與設計決策：目標、全域架構圖、關鍵決策、①～⑨ 模組職責、根因定位機制 | 🟢 |
-| [architecture-reference.md](architecture-reference.md) | 規格 | 現況與驗證對照：各 phase、各模組的程式、驗證、還沒做的、PDCA 索引、術語對照 | 🟢 |
+| [architecture.md](architecture.md) | 原理 | 架構、設計決策與現況：目標、全域架構圖、關鍵決策、①～⑨ 模組職責、根因定位機制（第 1～5 節）；各 phase、各模組的程式、驗證、還沒做的、PDCA 索引（第 6～14 節） | 🟢 |
 | [aiops-data-reference.md](aiops-data-reference.md) | 規格 | AIOps 資料格式：`aiops-anomalies`、`aiops-alerts`、`aiops-incidents`、`aiops-feedback`、`aiops-tuning` 的欄位、誰在什麼時候寫、真實範例、Grafana 面板讀哪些欄位 | 🟢 |
 | [troubleshooting.md](troubleshooting.md) | 操作 | 症狀 → 原因 → 做法 | 🟢 |
 
@@ -102,7 +101,7 @@
 |---|---|
 | **懂為什麼這樣設計**（原理） | [architecture.md](architecture.md)、[rca/README.md](rca/README.md)、[rca/baseline.md](rca/baseline.md)、[log](log/README.md)・[metrics](metrics/README.md)・[trace](trace/README.md) 的 README、[metrics/capabilities.md](metrics/capabilities.md)、[metrics/dotnet.md](metrics/dotnet.md)、[retention.md](retention.md)、[feedback/README.md](feedback/README.md)、[feedback/llm-mlops.md](feedback/llm-mlops.md)、[log/fluentbit-vs-otel.md](log/fluentbit-vs-otel.md) |
 | **做一件事**（操作） | [troubleshooting.md](troubleshooting.md)、[log/how-to.md](log/how-to.md)、[metrics/how-to.md](metrics/how-to.md)、[metrics/dotnet-how-to.md](metrics/dotnet-how-to.md)、[trace/how-to.md](trace/how-to.md)、[retention-how-to.md](retention-how-to.md)、[engine/deploy](../engine/deploy/README.md)、[baseline 怎麼跑](../engine/configs/baseline/README.md) |
-| **查欄位、參數、現況**（規格） | [log/reference.md](log/reference.md)、[metrics/reference.md](metrics/reference.md)、[metrics/catalog.md](metrics/catalog.md)、[metrics/dotnet-reference.md](metrics/dotnet-reference.md)、[trace/reference.md](trace/reference.md)、[retention-reference.md](retention-reference.md)、[architecture-reference.md](architecture-reference.md)、[baseline 規格](../engine/configs/baseline/reference.md) |
+| **查欄位、參數、現況**（規格） | [log/reference.md](log/reference.md)、[metrics/reference.md](metrics/reference.md)、[metrics/catalog.md](metrics/catalog.md)、[metrics/dotnet-reference.md](metrics/dotnet-reference.md)、[trace/reference.md](trace/reference.md)、[retention-reference.md](retention-reference.md)、[baseline 規格](../engine/configs/baseline/reference.md) |
 | **看實例**（案例） | [metrics/cases.md](metrics/cases.md)、[rca/cases.md](rca/cases.md)、[trace/scenarios.md](trace/scenarios.md)、[baseline 實測](../engine/configs/baseline/verification.md)、[範例報告](../engine/configs/rca/example-report.md) |
 
 ## PDCA 紀錄

@@ -2,7 +2,7 @@
 
 > **類型：原理 Explanation**
 
-> 🟡 **定案方向、部分實作。** LLM 摘要（每句附依據、驗不過退回模板）已用真的模型跑過；評測集、prompt 與模型版本管理還沒做。現況見 [architecture-reference.md 第 10 節](../architecture-reference.md#10-還沒做還不足的)。
+> 🟡 **定案方向、部分實作。** LLM 摘要（每句附依據、驗不過退回模板）已用真的模型跑過；評測集、prompt 與模型版本管理還沒做。現況見 [architecture.md 第 10 節](../architecture.md#10-還沒做還不足的)。
 
 **定案：以 LLMOps 為主軸，借機器學習的紀律（版本、評測、回測、feedback 閉環），統計層繼續做偵測，不自己訓練模型、不微調 LLM。**
 

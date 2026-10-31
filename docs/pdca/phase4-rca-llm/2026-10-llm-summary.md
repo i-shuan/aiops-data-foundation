@@ -1,6 +1,6 @@
 # LLM 摘要：RAG 的「生成」（2026-10）
 
-**狀態**：完成骨架（template 實測；真的模型在 fix-feedback-ux 驗過）　　**日期**：2026-10-25　　**相關**：分支 `claude/loop-plans`；前置 [相似事故檢索](2026-10-similar-incidents.md)；[feedback/llm-mlops.md](../../feedback/llm-mlops.md)（LLMOps 的定案）；主線 [產品主線 8 步](../../architecture-reference.md#9-產品主線-8-步) 第 7 步
+**狀態**：完成骨架（template 實測；真的模型在 fix-feedback-ux 驗過）　　**日期**：2026-10-25　　**相關**：分支 `claude/loop-plans`；前置 [相似事故檢索](2026-10-similar-incidents.md)；[feedback/llm-mlops.md](../../feedback/llm-mlops.md)（LLMOps 的定案）；主線 [產品主線 8 步](../../architecture.md#9-產品主線-8-步) 第 7 步
 **模組**：⑦ 根因分析、⑨ feedback
 
 ## Plan：這一次要達到什麼
