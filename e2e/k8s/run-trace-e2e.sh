@@ -82,7 +82,29 @@ kubectl -n legacy run "dup-test-$$" --rm -i --restart=Never --image=docker.io/cu
 sleep 10; es -X POST "${ES_URL}/traces-*.otel-*/_refresh" >/dev/null
 check "同一個 span 送 3 次，ES 只有 1 筆" "$(es "${ES_URL}/traces-*.otel-*/_count" -d "{\"query\":{\"term\":{\"span_id\":\"${sid2}\"}}}" | jq .count)" 1
 
+echo "== 7b. 合成一個請求一筆（detector trace-merge → traces-merged-<group>-<日期>）"
+BASELINE_KEY="$(key_of 'AIOps baseline key')"
+# 排程器正式每分鐘跑一次；這裡手動跑一次，往前合 15 分鐘（含上面送的）
+(cd "${repo}/aiops-engine/code" && ES_URL="${ES_URL}" ES_API_KEY="${BASELINE_KEY}" "${PYTHON:-python3}" -X utf8 -m detector trace-merge \
+   --config configs/baseline/trace.yaml --window 15min) | sed 's/^/   /'
+es -X POST "${ES_URL}/traces-merged-*/_refresh" >/dev/null
+merged="$(es "${ES_URL}/traces-merged-*/_search" -d "{\"size\":1,\"query\":{\"term\":{\"trace_id\":\"${tid}\"}}}")"
+check "那個 trace 在 merged 裡有一筆（_id = trace_id）" "$(jq -r '.hits.total.value' <<<"${merged}")/$(jq -r '.hits.hits[0]._id' <<<"${merged}")" "1/${tid}"
+check "merged 的 index 依 group 與日期：traces-merged-it-<日期>" "$(jq -r '.hits.hits[0]._index | test("^traces-merged-it-[0-9]{4}\\\\.[0-9]{2}\\\\.[0-9]{2}$")' <<<"${merged}")" true
+check "上層摘要：根 span、服務、group" "$(jq -r '.hits.hits[0]._source | "\(.root.service)/\(.root.name)/\(.root.kind)/\(.group)/\(.span_count)/\(.error)"' <<<"${merged}")" "trace-app/GET /orders/Server/it/1/false"
+check "入口（entries）是 trace-app 的 Server span" "$(jq -r '.hits.hits[0]._source.entries | map(.service + ":" + .kind) | join(",")' <<<"${merged}")" "trace-app:Server"
+check "每一段完整在 spans 裡（nested）：attrs 保留" "$(jq -r '.hits.hits[0]._source.spans[0].attrs["http.request.method"]' <<<"${merged}")" GET
+check "送 3 次的 span 合成後也只有 1 段" "$(es "${ES_URL}/traces-merged-*/_search" -d "{\"size\":1,\"query\":{\"term\":{\"trace_id\":\"${tid2}\"}}}" | jq -r '.hits.hits[0]._source.span_count')" 1
+raw_traces="$(es "${ES_URL}/traces-*.otel-*/_search" -d "{\"size\":0,\"query\":{\"bool\":{\"filter\":[${since},${app_f}]}},\"aggs\":{\"t\":{\"cardinality\":{\"field\":\"trace_id\",\"precision_threshold\":40000}}}}" | jq -r .aggregations.t.value)"
+merged_traces="$(es "${ES_URL}/traces-merged-*/_count" -d "{\"query\":{\"bool\":{\"filter\":[${since},{\"term\":{\"root.service\":\"trace-app\"}}]}}}" | jq -r .count)"
+if (( merged_traces >= raw_traces - 3 && merged_traces <= raw_traces )); then echo "  PASS  raw 的每個 trace 都合成一筆（raw ${raw_traces} 個 trace、merged ${merged_traces} 筆；差的是合成那一刻還沒 settle 的）"
+else echo "  FAIL  raw ${raw_traces} 個 trace、merged ${merged_traces} 筆"; fail=1; fi
+check "再跑一次不會多出文件（_id = trace_id，覆蓋）" "$( (cd "${repo}/aiops-engine/code" && ES_URL="${ES_URL}" ES_API_KEY="${BASELINE_KEY}" "${PYTHON:-python3}" -X utf8 -m detector trace-merge --config configs/baseline/trace.yaml --window 15min >/dev/null); es -X POST "${ES_URL}/traces-merged-*/_refresh" >/dev/null; es "${ES_URL}/traces-merged-*/_count" -d "{\"query\":{\"term\":{\"trace_id\":\"${tid}\"}}}" | jq .count)" 1
+
 echo "== 8. 權限"
+check "AIOps baseline key 可以寫 merged"   "$(can "${BASELINE_KEY}" traces-merged-x-2026.01.01 create_doc)" true
+check "寫入 key（Collector）不能寫 merged" "$(can "${WRITER_KEY}" traces-merged-x-2026.01.01 create_doc)" false
+check "IT 的唯讀角色看得到 IT 的 merged"   "$(es "${ES_URL}/_security/role/logs-reader-it" | jq -r '.["logs-reader-it"].indices[0].names | index("traces-merged-it-*") != null')" true
 can() { curl -sS -m 30 -H "Authorization: ApiKey $1" -H 'Content-Type: application/json' "${ES_URL}/_security/user/_has_privileges" \
   -d "{\"index\":[{\"names\":[\"$2\"],\"privileges\":[\"$3\"]}]}" | jq -r ".index[\"$2\"][\"$3\"]"; }
 check "寫入 key 可以寫 IT 的 trace"        "$(can "${WRITER_KEY}" traces-x.otel-it create_doc)" true

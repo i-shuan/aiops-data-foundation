@@ -6,7 +6,7 @@
 
 A. trace 每一段（trace-collect、trace-train、trace-detect 實跑，設定 tests/trace_edge.yaml：1 分鐘一點）
    模擬尾端取樣（collector/code/sampler.yaml）：每分鐘 400 個請求（4% 錯、3% 慢 1.5～3 秒），
-   先隨機留 5%（policy random），其餘有錯（error）、有例外（exception）、超過 1 秒（slow）的全留，其他丟掉；
+   100% 收、不取樣（以前這裡模擬尾端取樣，已拆掉）；
    寫進 traces-generic.otel-<group>，ES 的 traces-otel pipeline 把不是 random 的轉到 traces-problem.otel-*。
    正常 40 分鐘學 baseline，之後每個情境 3 分鐘。
 B. 資料品質（quality.yaml 的檢查原樣用；window 改 30m、ref_offset 改 1h：metrics 是 TSDS，只收最近 2 小時）
@@ -196,16 +196,8 @@ def rare_request(rng: random.Random, t0: float) -> tuple[list[dict], dict]:
 
 
 def tail_sample(rng: random.Random, spans: list[dict], dur: float) -> str | None:
-    """trace-sampler 的決定（sample_on_first_match）：random → error → exception → slow，其他丟掉。"""
-    if rng.random() < RANDOM_PCT:
-        return "random"
-    if any(s.get("error") for s in spans):
-        return "error"
-    if any("exception.type" in (s.get("attrs") or {}) for s in spans):
-        return "exception"
-    if dur > SLOW_MS:
-        return "slow"
-    return None
+    """以前這裡模擬 trace-sampler 的決定；現在 100% 收、不取樣，全部留（policy 一律 random，sample_policy 的過濾照舊通過）。"""
+    return "random"
 
 
 def to_docs(spans: list[dict], policy: str) -> list[tuple[str, dict]]:
@@ -314,15 +306,6 @@ def part_a(es: ES, now0: pd.Timestamp):
     bulk(es, docs)
     refresh(es, "traces-*.otel-*")
 
-    # 尾端取樣：不是 random 的有沒有被轉到 traces-problem
-    cnt = lambda ix, q: es.search(ix, {"size": 0, "track_total_hits": True, "query": q})["hits"]["total"]["value"]
-    tq = {"prefix": {"resource.attributes.service.name": "tq-"}}
-    pol = "scope.attributes.tailsampling.policy"
-    bad = cnt("traces-generic.otel-*", {"bool": {"filter": [tq, {"exists": {"field": pol}}],
-                                                 "must_not": [{"term": {pol: "random"}}]}})
-    prob = cnt("traces-problem.otel-*", {"bool": {"filter": [tq]}})
-    check("A", "尾端取樣：錯、慢、例外的轉到 traces-problem，generic 只剩 random", bad == 0 and prob > 0,
-          f"generic 裡不是 random 的 {bad} 個 span、problem {prob} 個 span")
 
     # 學
     run_cli("trace-collect", "--config", CFG, "--start", t0.isoformat(), "--end", hist_end.isoformat())

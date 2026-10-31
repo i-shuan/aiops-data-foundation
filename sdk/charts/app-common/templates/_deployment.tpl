@@ -94,7 +94,7 @@ spec:
             - name: OTEL_EXPORTER_OTLP_TRACES_PROTOCOL
               value: http/protobuf
             # 取樣：上游已決定要不要記的跟著上游；自己開始的請求依比例（otel.traces.sampleRatio，預設全部送，
-            # 平台的 trace-sampler 在請求結束後才決定留不留，見 docs/trace/README.md）
+            # 平台 100% 收、不取樣，見 docs/trace/README.md）
             - name: OTEL_TRACES_SAMPLER
               value: parentbased_traceidratio
             - name: OTEL_TRACES_SAMPLER_ARG

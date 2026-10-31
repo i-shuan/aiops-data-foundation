@@ -3,7 +3,7 @@
 # 每個情境發一個帶 rid 的請求，進 ES 後確認 log 的 trace_id／span_id 跟 span 對得上（docs/pdca/phase1-collect/2026-10-sdk-inject.md）：
 #   基本、上游 traceparent（正常／格式錯／未取樣 00）、兩跳 A→B→C（跨語言）、執行緒池等子工作、背景排程、Kafka
 #
-# 前提：run-e2e.sh 跑過（ES、Collector；trace-sampler 是測試用的全部留）。部署約 6 分鐘（第一次要下載 image、NuGet 套件）。
+# 前提：run-e2e.sh 跑過（ES、Collector；trace 100% 直接寫 ES）。部署約 6 分鐘（第一次要下載 image、NuGet 套件）。
 # 用法：e2e/k8s/sdk-inject/run-sdk-inject-e2e.sh（拿到鎖後自己 port-forward es-test 到 127.0.0.1:${ES_PORT:-31877}，斷了自動重連）
 #   已經有通的 ES：ES_URL=http://127.0.0.1:<port>
 #   KEEP=1：跑完不刪；SKIP_DEPLOY=1：用已經部署好的（重跑檢查）
@@ -31,8 +31,6 @@ source "${here}/../cluster-lock.sh"
 cluster_lock "phase1-sdk-inject"
 if [[ -z "${SKIP_DEPLOY:-}" ]]; then
   echo "== 1. 部署（namespace ${ns}）"
-  kubectl -n otel-collector get statefulset trace-sampler -o jsonpath='{range .spec.template.spec.containers[0].env[*]}{.name}={.value} {end}' | grep -q 'RANDOM_PCT=100 ' \
-    || echo "   注意：trace-sampler 不是全部留（RANDOM_PCT≠100），span 找不到的項目會 FAIL"
   kubectl delete namespace "${ns}" --ignore-not-found --wait=true >/dev/null
   kubectl create namespace "${ns}" >/dev/null
   kubectl label namespace "${ns}" dept=D1110 >/dev/null
@@ -55,7 +53,6 @@ if [[ -z "${SKIP_DEPLOY:-}" ]]; then
 fi
 
 kubectl -n otel-collector rollout status daemonset/otel-node-collector --timeout=120s >/dev/null
-kubectl -n otel-collector rollout status statefulset/trace-sampler --timeout=120s >/dev/null
 # ES 在鎖裡才 port-forward。ES Pod 重建時 port-forward 會結束（curl: (52) Empty reply），迴圈重開；es() 會等它接上
 pfdir=
 pf_stop() { [[ -n ${pfdir} ]] && { touch "${pfdir}/stop"; kill "$(cat "${pfdir}/pid" 2>/dev/null)" 2>/dev/null; true; }; }
@@ -102,7 +99,7 @@ if [[ ${recent} -eq 0 ]]; then
   echo "  FAIL  最近 1 分鐘沒有任何 span 進 ES：trace 路徑斷了，回報平台，不要自己重啟 Collector"
   exit 1
 fi
-# 6 個不同 trace：node Collector 用 trace_id 分給 trace-sampler，只通一台的話會缺一半
+# 6 個不同 trace
 n=0
 for k in 1 2 3 4 5 6; do req sdk-java-a "/leaf?rid=probe${R}x${k}"; done
 for i in $(seq 24); do
@@ -117,7 +114,7 @@ for i in $(seq 24); do
 done
 echo "   探測 ${n}/6 個 span 2 分鐘內進 ES"
 if [[ ${n} -ne 6 ]]; then
-  echo "  FAIL  探測請求的 span 沒全部進 ES：trace 路徑（全部或一台 trace-sampler）斷了，回報平台，不要自己重啟 Collector"
+  echo "  FAIL  探測請求的 span 沒全部進 ES：trace 路徑斷了，回報平台，不要自己重啟 Collector"
   exit 1
 fi
 # log 從印出到進 ES 花多久：共用 cluster 有壓測時 Collector 會積壓，延遲大的那輪結果要註明

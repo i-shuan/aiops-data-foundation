@@ -12,8 +12,8 @@
 | **metrics：應用的直方圖** | `metrics-generic.otel-*` | `metrics-hist-otel` | **不降解析度**，原始 30 秒一點留 **90 天** |
 | **log 原文** | `k8s-*` | `k8s-logs` | **30 天** |
 | **log 統計** | `aiops-log-stats` | `aiops-log-stats` | **400 天** |
-| **trace：隨機留下的 5%** | `traces-generic.otel-*` | `traces-otel` | **7 天** |
-| **trace：有問題的** | `traces-problem.otel-*` | `traces-problem-otel` | **30 天** |
+| **trace：raw**（每一段一筆，Collector 寫，100% 收） | `traces-generic.otel-*` | `traces-otel` | **2 天**：只是合成前的暫存 |
+| **trace：merged**（一個請求一筆，engine 合成） | `traces-merged-<group>-<日期>` | `traces-merged` | **7 天** |
 | failure store（ES 拒收的資料） | 各資料流的 failure store | ES 預設 | **30 天**（ES 8.19、9 的預設，不用另外設） |
 | AIOps 自己的（baseline、異常、trace 段統計） | `aiops-*` | — | 不會自己長大：baseline 每次訓練覆蓋；異常、段統計量很小，之後再定 |
 

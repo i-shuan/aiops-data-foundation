@@ -43,7 +43,7 @@ kubectl -n aiops logs deploy/aiops-engine -c scheduler -f | grep '\[scheduler\]'
 | `train` | 1 | 每天 02:00 | 3600 秒 | `detector train` | 學過去 4 週（4Gi） |
 | `quality` | 2 | 每 10 分鐘 | 500 秒 | `detector quality` | 資料品質（第一個月人天天看，先不用它報） |
 | `peer` | 2 | 每 5 分鐘 | 240 秒 | `detector peer` | Pod 同儕橫向比對：多一種告警來源 |
-| `trace-collect`、`trace-train`、`trace-detect` | 2 | 每 5 分鐘／每天 02:20／每 5 分鐘 | 240／3600／240 秒 | `detector trace-*` | trace 每一段的 baseline；trace 有取樣、只留 7 天，學出來本來就偏 |
+| `trace-collect`、`trace-train`、`trace-detect` | 2 | 每 5 分鐘／每天 02:20／每 5 分鐘 | 240／3600／240 秒 | `detector trace-*` | trace 每一段的 baseline；從 raw（100% 收、2 天）抽樣 |
 | `chronic` | 2 | 每週一 08:00 | 1800 秒 | `detector chronic` | 慢性病清單，要幾週資料才有意義 |
 
 改頻率、逾時改 `schedule.yaml` 再 build image（或用 `configOverrides.schedule.schedule` 蓋）。

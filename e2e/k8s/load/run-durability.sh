@@ -8,24 +8,19 @@
 # 每個情境自己拿 cluster 鎖、做完還原（ES 起來、Collector 正常、改過的設定改回去）再放鎖；中途失敗也會還原。
 #
 # 用法：e2e/k8s/load/run-durability.sh <情境...>
-#   sampler-kill     kill -9 trace-sampler-0 的程序（像 OOM），原地重啟。SAMPLER_WAIT 設 decision_wait（預設 5s）
-#   sampler-restart  trace-sampler 兩台 rollout restart（換新 Pod、IP 變），node Collector 不動
-#   sampler-down-node-restart  trace-sampler 停 150 秒，中間重啟 node Collector
-#   sampler-pvc-full trace-sampler-1 的 PVC 換成 PVC_MB（預設 4）MB 的 tmpfs，ES 停 PVC_DOWN 秒（預設 300）讓佇列塞滿
 #   node-oom         node Collector 的 memory limit 調成 OOM_LIMIT（預設 150Mi），OOM_BURST 行/秒（預設 5000）衝 OOM_SECONDS 秒
 #   node-kill        kill -9 node Collector 的程序，原地重啟
 #   node-delete      kubectl delete pod --grace-period=0 --force node Collector
-#   drain            單節點模擬 drain：cordon、趕走產生器與 trace-sampler-0、正常停 node Collector（關機）、uncordon
+#   drain            單節點模擬 drain：cordon、趕走產生器、正常停 node Collector（關機）、uncordon
 #   es-429           ES 寫入 thread pool 調成 1 條、佇列 ES429_QUEUE（預設 1），LOG_RATE_429 行/秒（預設 3000）
 #   es-down          ES 停 DOWN_SECONDS 秒（預設 600）
 #   hostpath-rm      node Collector 停 30 秒兩次：第一次保留 /var/lib/otelcol/node（對照），第二次停的時候刪掉
 #   rolling          三種 Collector 一起換版到 TO_VERSION（預設 0.161.0）、60 秒後換回原版本
-#   node-lost        多節點：沒有產生器的、上面有 trace-sampler-1 的那個節點整台停 NODE_LOST_SECONDS 秒（預設 120），再起來。要設 NODE_OFF／NODE_ON（例如 k3d：docker stop／docker start，節點名就是容器名）
 # 環境變數：GEN_NODE（多節點：產生器釘在這個節點，node Collector、metrics 也看這個節點；NODE_EXEC 要連到同一個節點）、ES_DOCKER（ES 是主機上的 docker 容器時設容器名，例如 k3d 實測用 es8；ES 起停、es-429 改用 docker／elasticsearch.yml）、PF_PORT（自己開 port-forward 到 ES，預設 31920）或 ES_URL（已經連得到就不開）、
 #   NODE_EXEC（在節點上執行指令；Rancher Desktop 預設 wsl -d rancher-desktop --，在節點上跑就設成空字串）、
 #   DEPLOY_COLLECTOR=1（每個情境開始前用 e2e/k8s/deploy-collector.sh 重新部署 repo 的 Collector 設定）、
 #   LOG_RATE（200）、TRACE_RATE（20）、RESULTS（結果表另存一份 TSV）。
-# 前提：run-e2e.sh 跑過；trace-sampler 兩台、全部留（RANDOM_PCT=100，測試環境的預設）。
+# 前提：run-e2e.sh 跑過（trace 100% 直接寫 ES，沒有 trace-sampler）。
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=../cluster-lock.sh
@@ -106,9 +101,7 @@ es_down() {
 wait_collectors() {
   kubectl -n "${OC}" rollout status daemonset/otel-node-collector --timeout=300s >/dev/null
   kubectl -n "${OC}" rollout status deployment/otel-cluster-collector --timeout=300s >/dev/null
-  kubectl -n "${OC}" rollout status statefulset/trace-sampler --timeout=300s >/dev/null
   kubectl -n "${OC}" wait --for=condition=Ready pod -l app.kubernetes.io/name=otel-node-collector --timeout=300s >/dev/null
-  kubectl -n "${OC}" wait --for=condition=Ready pod -l app.kubernetes.io/name=trace-sampler --timeout=300s >/dev/null
 }
 ensure_ready() {
   # 別的工作可能在沒鎖的時候部署了別版設定：每個情境拿到鎖後重新部署要測的那份
@@ -121,8 +114,6 @@ ensure_ready() {
     es_wait_green
   fi
   wait_collectors
-  [[ "$(kubectl -n "${OC}" get statefulset trace-sampler -o jsonpath='{.status.readyReplicas}')" == 2 ]] \
-    || { echo "trace-sampler 不是兩台 Ready，停止"; exit 1; }
 }
 # 等某個容器原地重啟完（restartCount 變了、Ready）
 wait_restarted() {  # wait_restarted <ns> <pod> <原本的 restartCount>
@@ -268,88 +259,16 @@ proc_pid() {  # proc_pid <設定檔片段> <Pod 名稱>：節點上這個 Pod �
   # 不用 pgrep（k3s 的節點沒有）：掃 /proc，指令列對得上、環境變數 HOSTNAME 是這個 Pod
   on_node "for d in /proc/[0-9]*; do { tr '\\0' ' ' <\$d/cmdline | grep -q 'otelcol-contrib --config=/conf/$1' && grep -qa 'HOSTNAME=$2' \$d/environ && echo \${d#/proc/}; } 2>/dev/null; done; true" | head -1
 }
-queue_du() {  # 節點上 Collector 佇列目錄、trace-sampler 的 PVC 各用多少（KB）
-  local s="node=$(on_node "du -sk /var/lib/otelcol/node | cut -f1")KB"
-  for p in 0 1; do s+=" sampler-${p}=$(on_node "du -sk $(pvc_path "${p}") | cut -f1")KB"; done
-  echo "${s}"
+queue_du() {  # 節點上 Collector 佇列目錄用多少（KB）
+  echo "node=$(on_node "du -sk /var/lib/otelcol/node | cut -f1")KB"
 }
 # node Collector 自己報的佇列長度（請求數）／上限，每種資料一個
 queue_fill() {
   kubectl get --raw "/api/v1/namespaces/${OC}/pods/$(node_pod):8888/proxy/metrics" 2>/dev/null     | awk '/^otelcol_exporter_queue_(size|capacity)\{/ { match($0, /data_type="[a-z]+"/); t = substr($0, RSTART + 11, RLENGTH - 12)
         if ($0 ~ /queue_size/) sz[t] = $NF; else cap[t] = $NF } END { for (t in sz) printf "%s %d/%d ", t, sz[t], cap[t] }'
 }
-pvc_path() { local pv; pv="$(kubectl -n "${OC}" get pvc "queue-trace-sampler-$1" -o jsonpath='{.spec.volumeName}')"
-  kubectl get pv "${pv}" -o jsonpath='{.spec.hostPath.path}{.spec.local.path}'; }
 
 # ---------- 情境 ----------
-sc_sampler_kill() {
-  local dw="${SAMPLER_WAIT:-5s}" cur r pid
-  cur="$(kubectl -n "${OC}" get statefulset trace-sampler -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="DECISION_WAIT")].value}')"
-  if [[ "${cur}" != "${dw}" ]]; then
-    kubectl -n "${OC}" set env statefulset/trace-sampler DECISION_WAIT="${dw}" >/dev/null
-    on_restore "kubectl -n ${OC} set env statefulset/trace-sampler DECISION_WAIT=${cur} >/dev/null; kubectl -n ${OC} rollout status statefulset/trace-sampler --timeout=300s >/dev/null"
-    kubectl -n "${OC}" rollout status statefulset/trace-sampler --timeout=300s >/dev/null; sleep 20
-  fi
-  begin "sampler-kill-${dw}" 240
-  sleep 90
-  r="$(restarts "${OC}" trace-sampler-0)"; pid="$(proc_pid sampler.yaml trace-sampler-0)"
-  [[ -n "${pid}" ]] || { echo "找不到 trace-sampler-0 的程序"; exit 1; }
-  fault "kill -9 trace-sampler-0（decision_wait ${dw}）"; on_node "kill -9 ${pid}"
-  wait_restarted "${OC}" trace-sampler-0 "${r}"; mark "trace-sampler-0 重啟完成"
-  NOTE="decision_wait ${dw}"
-  finish "sampler-kill（${dw}）"
-}
-
-sc_sampler_restart() {   # trace-sampler 兩台一起換新 Pod（IP 會變），node Collector 不動
-  begin "sampler-restart" 240
-  sleep 90
-  fault "trace-sampler rollout restart（兩台換新 Pod、IP 變）"
-  kubectl -n "${OC}" rollout restart statefulset/trace-sampler >/dev/null
-  kubectl -n "${OC}" rollout status statefulset/trace-sampler --timeout=300s >/dev/null; mark "trace-sampler 換完"
-  finish "sampler-restart"
-}
-
-sc_sampler_down_node_restart() {   # trace-sampler 停著的時候 node Collector 重啟：佇列要在節點磁碟上撐過去
-  begin "sampler-down-node" 300
-  sleep 60
-  fault "trace-sampler 停（scale 0）"
-  kubectl -n "${OC}" scale statefulset/trace-sampler --replicas=0 >/dev/null
-  on_restore "kubectl -n ${OC} scale statefulset/trace-sampler --replicas=2 >/dev/null; kubectl -n ${OC} rollout status statefulset/trace-sampler --timeout=300s >/dev/null"
-  kubectl -n "${OC}" wait --for=delete pod -l app.kubernetes.io/name=trace-sampler --timeout=120s >/dev/null 2>&1 || true
-  sleep 30
-  kubectl -n "${OC}" rollout restart daemonset/otel-node-collector >/dev/null
-  kubectl -n "${OC}" rollout status daemonset/otel-node-collector --timeout=300s >/dev/null; mark "node Collector 重啟完（trace-sampler 還停著）"
-  sleep 60
-  run_restores; mark "trace-sampler 起來"
-  finish "sampler-down-node-restart"
-}
-
-sc_sampler_pvc_full() {
-  local mb="${PVC_MB:-4}" down="${PVC_DOWN:-300}" path pid
-  path="$(pvc_path 1)"
-  # sampler-1 先拿掉（scale 1 只會拿掉最大的編號），在它的 PVC 目錄上蓋一個小 tmpfs，再加回來
-  kubectl -n "${OC}" scale statefulset/trace-sampler --replicas=1 >/dev/null
-  kubectl -n "${OC}" wait --for=delete pod/trace-sampler-1 --timeout=120s >/dev/null 2>&1 || true
-  on_node "mount -t tmpfs -o size=${mb}m,mode=0777 tmpfs ${path}"
-  on_restore "kubectl -n ${OC} scale statefulset/trace-sampler --replicas=1 >/dev/null; kubectl -n ${OC} wait --for=delete pod/trace-sampler-1 --timeout=120s >/dev/null 2>&1; on_node 'umount ${path}'; kubectl -n ${OC} scale statefulset/trace-sampler --replicas=2 >/dev/null; kubectl -n ${OC} rollout status statefulset/trace-sampler --timeout=300s >/dev/null"
-  kubectl -n "${OC}" scale statefulset/trace-sampler --replicas=2 >/dev/null
-  kubectl -n "${OC}" rollout status statefulset/trace-sampler --timeout=300s >/dev/null
-  pid="$(proc_pid sampler.yaml trace-sampler-1)"
-  echo "   trace-sampler-1 看到的 /var/lib/otelcol：$(on_node "grep ' /var/lib/otelcol ' /proc/${pid}/mountinfo | awk '{print \$9, \$10}'")；$(on_node "df -k ${path} | tail -1 | awk '{print \$2\"KB 用了 \"\$3\"KB\"}'")"
-  sleep 20
-  begin "sampler-pvc-full" $(( 60 + down + 60 )) "${LOG_RATE}" "${PVC_TRACE_RATE:-100}"
-  sleep 60
-  fault "ES 停（trace-sampler-1 的 PVC 只有 ${mb}MB）"; es_down; on_restore "es_up"
-  for _ in $(seq 1 $(( down / 30 ))); do
-    sleep 30; echo "   $(ts) PVC：$(on_node "df -k ${path} | tail -1 | awk '{print \$3\"KB/\"\$2\"KB\"}'")，trace-sampler-1 重啟 $(restarts "${OC}" trace-sampler-1) 次"
-  done
-  es_up; RESTORE=("${RESTORE[@]:0:${#RESTORE[@]}-1}"); mark "ES 起來"
-  NOTE="PVC ${mb}MB、ES 停 ${down}s"
-  finish "sampler-pvc-full"
-  echo "   trace-sampler-1 的 log（有關的前 5 行）："
-  kubectl -n "${OC}" logs trace-sampler-1 --tail=-1 2>/dev/null | grep -v 'Will retry' | grep -iE 'no space|enqueue|drop|error' | cut -c1-600 | head -5 || true
-}
-
 sc_node_oom() {
   local lim="${OOM_LIMIT:-150Mi}" cur req pod r0 burst
   req="$(kubectl -n "${OC}" get daemonset otel-node-collector -o jsonpath='{.spec.template.spec.containers[0].resources.requests.memory}')"
@@ -400,12 +319,12 @@ sc_drain() {
   node="$(kubectl -n "${OC}" get pod "$(node_pod)" -o jsonpath='{.spec.nodeName}')"
   begin "drain" 240
   sleep 90
-  fault "drain ${node}：cordon，趕走 log、trace 產生器與 trace-sampler-0"
+  fault "drain ${node}：cordon，趕走 log、trace 產生器"
   on_restore "kubectl uncordon ${node} >/dev/null"
-  for sel in 'app.kubernetes.io/name in (load-gen,dur-trace)' 'statefulset.kubernetes.io/pod-name=trace-sampler-0'; do
+  for sel in 'app.kubernetes.io/name in (load-gen,dur-trace)'; do
     kubectl drain "${node}" --pod-selector="${sel}" --ignore-daemonsets --delete-emptydir-data --timeout=180s >/dev/null 2>&1 || true
   done
-  mark "drain 完（trace-sampler-0：$(kubectl -n "${OC}" get pod trace-sampler-0 -o jsonpath='{.status.phase}' 2>/dev/null || echo 不在)）"
+  mark "drain 完"
   sleep 10
   ds_stop; on_restore "ds_start"; mark "正常停 node Collector（模擬關機），停 30 秒"
   sleep 30
@@ -441,7 +360,7 @@ sc_es_429() {
   r1="$(rejected)"
   NOTE="write rejected $(( r1 - r0 )) 次"
   # 429 時 Collector 回頭重試、退避最多 30 秒，限流期間進度很慢：先把 ES 改回來，再等補完、數
-  mark "${NOTE}；Collector 收到整批 429：$(collector_429 "$(node_pod)") 次（node）、$(collector_429 trace-sampler-0) 次（trace-sampler-0）"
+  mark "${NOTE}；Collector 收到整批 429：$(collector_429 "$(node_pod)") 次（node）"
   run_restores; mark "ES thread pool 改回預設（重啟 ES）"
   finish "es-429（佇列 ${q}）"
 }
@@ -488,7 +407,6 @@ sc_rolling() {
   set_ver() {
     kubectl -n "${OC}" set image daemonset/otel-node-collector otelcol="${IMG}:$1" >/dev/null
     kubectl -n "${OC}" set image deployment/otel-cluster-collector otelcol="${IMG}:$1" >/dev/null
-    kubectl -n "${OC}" set image statefulset/trace-sampler otelcol="${IMG}:$1" >/dev/null
     wait_collectors
   }
   begin "rolling" 300
@@ -499,21 +417,6 @@ sc_rolling() {
   mark "換回 ${from}"; set_ver "${from}"; RESTORE=(); mark "換回完成"
   NOTE="${from} → ${to} → ${from}"
   finish "rolling"
-}
-
-sc_node_lost() {   # 沒有產生器的節點整台當掉：上面的 trace-sampler-1（PVC 在這個節點，搬不走）和 node Collector 都不見
-  local victim secs="${NODE_LOST_SECONDS:-120}"
-  : "${NODE_OFF:?請設定 NODE_OFF（例如 docker stop）}" "${NODE_ON:?請設定 NODE_ON（例如 docker start）}" "${GEN_NODE:?請設定 GEN_NODE（產生器所在的節點）}"
-  victim="$(kubectl -n "${OC}" get pod trace-sampler-1 -o jsonpath='{.spec.nodeName}')"
-  [[ "${victim}" != "${GEN_NODE}" ]] || { echo "trace-sampler-1 跟產生器在同一個節點（${victim}），換 GEN_NODE"; exit 1; }
-  begin "node-lost" $(( 60 + secs + 180 ))
-  sleep 60
-  fault "節點 ${victim} 整台停（上面有 trace-sampler-1 和一個 node Collector）"
-  ${NODE_OFF} "${victim}" >/dev/null; on_restore "${NODE_ON} ${victim} >/dev/null; kubectl wait --for=condition=Ready node/${victim} --timeout=300s >/dev/null; wait_collectors"
-  sleep "${secs}"
-  run_restores; RESTORE=(); mark "節點起來、Collector 都 Ready"
-  NOTE="停 ${secs}s；trace-sampler-1 在 ${victim}"
-  finish "node-lost（${secs}s）"
 }
 
 # ---------- 主程式 ----------

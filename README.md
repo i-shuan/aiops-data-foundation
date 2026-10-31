@@ -14,7 +14,7 @@ docs/
                      第二部分：各 phase 與各模組現況、程式與驗證、還沒做的、每份 PDCA 紀錄的結論
   log/               log：收值、格式解析、欄位（①②③的現況與待辦）
   metrics/           metrics：收值、欄位、收了哪些、案例、.NET（①②③的現況與待辦）
-  trace/             trace：收值、尾端取樣、欄位、Kafka 串接、業務 ID（①②③的現況與待辦）
+  trace/             trace：收值、100% 收與合成一筆、欄位、Kafka 串接、業務 ID（①②③的現況與待辦）
   rca/               判斷與根因分析：baseline、串接、髒資料排除、雜訊壓制
   feedback/          告警出口、事故紀錄、回饋、調整、LLM
   retention.md       保留天數與容量（log、metrics、trace 共用）
@@ -28,7 +28,7 @@ docs/
 |---|---|---|
 | **log** | [log/README.md](docs/log/README.md)：怎麼收、依格式解析、欄位規格、換 key、Fluent Bit 與 OTel 的比較 | |
 | **metrics** | [metrics/README.md](docs/metrics/README.md)：怎麼收、直方圖換增量、欄位、能做到什麼、.NET 不改程式 | |
-| **trace** | [trace/README.md](docs/trace/README.md)：兩層 Collector、尾端取樣、欄位、六個場景 | [sdk/standards/tracing.md](sdk/standards/tracing.md)（給應用團隊的埋點指引） |
+| **trace** | [trace/README.md](docs/trace/README.md)：100% 收、一個請求合成一筆、欄位、六個場景 | [sdk/standards/tracing.md](sdk/standards/tracing.md)（給應用團隊的埋點指引） |
 | **rca** | [rca/README.md](docs/rca/README.md)：根因分析六步、三種資料怎麼串、動態基準線學習、15 個故障案例 | 程式：[aiops-engine/code/configs/baseline](aiops-engine/code/configs/baseline/README.md)、[aiops-engine/code/configs/rca](aiops-engine/code/configs/rca/README.md)（[報告範例](aiops-engine/code/configs/rca/example-report.md)） |
 | **feedback** | [feedback/README.md](docs/feedback/README.md)：閉環、LLMOps 的定案、LLM 與 token | |
 
@@ -38,7 +38,7 @@ docs/
 - **收集器都用 OpenTelemetry Collector**：每個節點一個，分部門的規則和 key 共用。log 原本用 Fluent Bit，比較後改用 OTel（[log/README.md](docs/log/README.md)）；中央 pipeline 仍接受 Fluent Bit 的資料，邊緣 VM 可以用。
 - **集中式資料寫入憑證 (Shared Ingest Token)**：一把 key，所有 group、log、metrics、trace 共用；資料屬於哪個 group 由 Collector 依 Pod 決定（讀取權限照樣依 group 分）。**換 key 不掉資料、不重啟**（`elasticsearch/code/scripts/rotate-writer-key.sh`）。被 ES 拒絕的文件留在 failure store，`quality.ingest_rejected` 會報。
 - **舊專案不改程式**：Java 用 agent，.NET 用自動埋點＋OTLP 推（[metrics/README.md](docs/metrics/README.md)）。
-- **trace 用尾端取樣**：錯的、慢的、有例外的全留，正常的留 5%。
+- **trace 100% 收、不取樣**：Collector 全寫（每一段一筆、2 天），engine 每分鐘把每個請求合成一筆（7 天）；製造業的事故檢討不能少資料。
 - **應用團隊不需要知道 group、key**：規格由共用 chart 產生（[apps/](sdk)）。
 - **namespace 名稱不含組織資訊**（`{cluster}-{app}-{env}` 或 `{app}-{env}`），歸屬另外標。
 - **AIOps 以統計＋LLM 為主，不自己訓練模型**（[feedback/README.md](docs/feedback/README.md)）。
@@ -62,7 +62,7 @@ docs/
 一個部署元件一個資料夾，裡面固定 `README.md`（怎麼部署）、`code/`（程式與設定檔）、`helmchart/`（Helm chart；測試用 `values-test.yaml`）。
 
 ```
-collector/       code/（common、node、cluster、sampler、groups.yaml）  helmchart/（DaemonSet、Deployment、StatefulSet、RBAC）
+collector/       code/（common、node、cluster、groups.yaml）           helmchart/（DaemonSet、Deployment、RBAC）
 elasticsearch/   code/storage/、code/scripts/                           helmchart/（只給測試用的 ES，twoNode 開關）
 grafana/         code/（規則、contact point、policy、儀表板、外掛說明）  helmchart/（Grafana＋initContainer 裝外掛＋provisioning）
 aiops-engine/    code/（Python、configs、Dockerfile）                  helmchart/（排程器＋回饋網頁一隻 pod）

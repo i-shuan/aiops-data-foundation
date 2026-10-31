@@ -45,7 +45,7 @@
 
 | 文件 | 類型 | 內容 | 狀態 |
 |---|---|---|---|
-| [trace/README.md](trace/README.md) | 原理 | 資料怎麼走、尾端取樣、欄位、跟 log、metrics 串、部署與驗證、六個場景、現況 | 🟢 |
+| [trace/README.md](trace/README.md) | 原理 | 資料怎麼走、100% 收與合成一筆（raw／merged）、欄位、跟 log、metrics 串、部署與驗證、六個場景、現況 | 🟢 |
 
 ### ④～⑦ 判斷、收斂、根因分析
 
@@ -75,7 +75,6 @@
 | [../collector/README.md](../collector/README.md) | 操作 | Collector：每個應用 cluster 一套，用 Helm 裝，設定在 code/ | 🟢 |
 | [../elasticsearch/README.md](../elasticsearch/README.md) | 操作 | 中央 ES 套結構設定、發 key；測試用 ES 的 chart | 🟢 |
 | [../aiops-engine/README.md](../aiops-engine/README.md) | 操作 | engine：build image、Helm 裝一隻 pod（排程器＋回饋網頁）、排程表、「AIOps 停了」 | 🟢 |
-| [../e2e/k8s/tail-sampling/README.md](../e2e/k8s/tail-sampling/README.md) | 案例 | 尾端取樣實測 | 🟢 |
 
 ## 依類型找
 
@@ -84,7 +83,7 @@
 | **懂為什麼這樣設計**（原理） | [architecture.md](architecture.md)、[log](log/README.md)・[metrics](metrics/README.md)・[trace](trace/README.md)・[rca](rca/README.md)・[feedback](feedback/README.md) 的 README（各自也含規格、操作、案例章節）、[retention.md](retention.md) |
 | **做一件事**（操作） | [troubleshooting.md](troubleshooting.md)、[retention-how-to.md](retention-how-to.md)、[各元件怎麼部署](../collector/README.md)、[baseline 怎麼跑](../aiops-engine/code/configs/baseline/README.md)；log、metrics、trace 的部署與驗證在各自 README 的「操作」「部署與驗證」章節 |
 | **查欄位、參數、現況**（規格） | [aiops-data-reference.md](aiops-data-reference.md)、[retention-reference.md](retention-reference.md)、[baseline 規格](../aiops-engine/code/configs/baseline/reference.md)；log、metrics、trace 的欄位在各自 README 的「規格」「欄位」章節 |
-| **看實例**（案例） | [baseline 實測](../aiops-engine/code/configs/baseline/verification.md)、[範例報告](../aiops-engine/code/configs/rca/example-report.md)、[tail-sampling 實測](../e2e/k8s/tail-sampling/README.md)；故障案例的歸納在 [rca/README.md](rca/README.md) |
+| **看實例**（案例） | [baseline 實測](../aiops-engine/code/configs/baseline/verification.md)、[範例報告](../aiops-engine/code/configs/rca/example-report.md)；故障案例的歸納在 [rca/README.md](rca/README.md) |
 
 ## PDCA 紀錄
 

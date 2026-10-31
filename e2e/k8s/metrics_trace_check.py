@@ -5,8 +5,7 @@ run-metrics-trace-e2e.sh 跑完各階段後呼叫；也可以對已經在 ES 的
       --normal <ISO> --incident <ISO> --heal <ISO> --crash <ISO> --delete <ISO> --end <ISO>
 
 用的是根因分析自己的查法（investigator.es 的 entry_filter、entry_stats、sample_trace_ids，__main__ 的 _route_of），不另寫一套。
-測試 cluster 的 trace-sampler 留 100%（RANDOM_PCT=100）；「正式只隨機留 5%」用 trace_id 前兩碼 < 0d（13/256 = 5.1%）
-模擬：probabilistic sampler 也是看 trace_id 的雜湊，對隨機的 trace_id 效果相同。慢（≥ 1 秒）、錯的照正式規則全留。
+trace 100% 收（不取樣）。「只隨機留 5%」那一項是對照：用 trace_id 前兩碼 < 0d（13/256 = 5.1%）模擬曾經的尾端取樣，看會少掉多少。
 """
 from __future__ import annotations
 

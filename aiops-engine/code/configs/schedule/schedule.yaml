@@ -29,6 +29,12 @@ jobs:
     timeout: 600
     args: [investigator, alert, --config, configs/rca/rca.yaml]
     why: 合成一件、根因分析、相似事故、LLM 摘要、心跳
+  - name: trace-merge
+    stage: 1
+    cron: "* * * * *"
+    timeout: 50
+    args: [detector, trace-merge, --config, configs/baseline/trace.yaml]
+    why: raw 的每一段 → 一個請求一筆（traces-merged）；根因分析讀合成的那份
   - name: train
     stage: 1
     cron: "0 2 * * *"

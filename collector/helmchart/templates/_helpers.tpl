@@ -1,6 +1,6 @@
-{{/* 四個設定檔都要用 --set-file 帶進來，少一個就不裝 */}}
+{{/* 三個設定檔都要用 --set-file 帶進來，少一個就不裝 */}}
 {{- define "collector.config" -}}
-{{- range $name := list "common" "node" "cluster" "sampler" }}
+{{- range $name := list "common" "node" "cluster" }}
 {{- $_ := required (printf "缺 config.%s：helm 加 --set-file config.%s=collector/code/%s.yaml" $name $name $name) (index $.Values.config $name) }}
 {{- end }}
 {{- end -}}

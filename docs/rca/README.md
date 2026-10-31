@@ -19,7 +19,7 @@ baseline 的操作、規格、實測見 [aiops-engine/code/configs/baseline/](..
 
 ## 三種資料怎麼串
 
-metrics 決定何時告警，trace 指出哪一段，log 給證據。基準線用 metrics 算：每個請求都計入；應用直方圖的原始資料留 90 天（ES 8.19 的 `histogram` 不能降解析度，見 [retention.md](../retention.md)）；trace 有取樣且只留 7 天，log 無法算分布。log 只學 `log.lines`、`log.errors` 筆數，抓 API 正常但背景工作失敗的情況。
+metrics 決定何時告警，trace 指出哪一段，log 給證據。基準線用 metrics 算：每個請求都計入；應用直方圖的原始資料留 90 天（ES 8.19 的 `histogram` 不能降解析度，見 [retention.md](../retention.md)）；trace 的 raw 只留 2 天，log 無法算分布。log 只學 `log.lines`、`log.errors` 筆數，抓 API 正常但背景工作失敗的情況。
 
 | 鑰匙 | 路徑 | 串哪兩種 |
 |---|---|---|
@@ -32,7 +32,7 @@ metrics 決定何時告警，trace 指出哪一段，log 給證據。基準線�
 - **trace → log 是精確對應**，用 `trace_id`。
 - **不用 exemplar**：ES 不存。9.5.5 與 8.19.23（經 `elasticsearch` exporter）實測都查不到 exemplar 與其 `trace_id`。
 - 每段只算自己的時間：wip-worker 處理 1.5 秒、其中 1.4 秒等 Oracle，扣掉下游後只有 Oracle 那段多 1.4 秒。
-- 限制：每段取平均，少數極慢請求會拉高排名；比 1 秒快的變慢不被尾端取樣保留（實測 1,586 個請求剩 88 個）。路由沒參數化時撈到 0 筆。
+- 限制：每段取平均，少數極慢請求會拉高排名；trace 100% 收，沒有取樣的遺漏。路由沒參數化時撈到 0 筆。
 
 ## 動態基準線學習怎麼判斷
 
@@ -57,7 +57,7 @@ metrics 決定何時告警，trace 指出哪一段，log 給證據。基準線�
 
 - **靜態臨界值規則**：重啟、記憶體、磁碟等不需歷史的檢查，`rules.yaml`。
 - **Pod 同儕橫向比對**：同服務 Pod 互比，`z: 5`，`peer.yaml`。10 個 Pod 壞 1 個時，服務平均仍在範圍內。
-- **trace 每一段**：每個 API 學每段的呼叫次數、耗時、錯誤率；只抽尾端取樣的 `random` 那份（5%），避免偏高。`trace.yaml`。
+- **trace 每一段**：每個 API 學每段的呼叫次數、耗時、錯誤率；從 raw（每一段一筆、100% 收）抽樣。`trace.yaml`。
 
 訓練資料是統計值：1 萬條序列、2～3GB，不需 GPU。門檻是歷史長度（4～8 週；年度週期要 13 個月，直方圖現在只留 90 天）與事故紀錄（幾十到幾百件）。
 

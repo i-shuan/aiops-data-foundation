@@ -1,7 +1,7 @@
-# 正式環境的預設值。Collector 的設定檔（common、node、cluster、sampler）在 ../code/，不複製進 chart，
+# 正式環境的預設值。Collector 的設定檔（common、node、cluster）在 ../code/，不複製進 chart，
 # 安裝時用 --set-file 帶進來（見 ../README.md）：
 #   helm upgrade --install collector collector/helmchart -n otel-collector --create-namespace \
-#     --set-file config.common=collector/code/common.yaml,config.node=collector/code/node.yaml,config.cluster=collector/code/cluster.yaml,config.sampler=collector/code/sampler.yaml
+#     --set-file config.common=collector/code/common.yaml,config.node=collector/code/node.yaml,config.cluster=collector/code/cluster.yaml
 #
 # 部署前要先有 Secret es-writer-keys（log、metrics、trace 共用的寫入 key，由 elasticsearch/code/scripts/elasticsearch-setup.sh 產生）。
 
@@ -15,7 +15,7 @@ image:
 
 esWriterSecret: es-writer-keys                            # 掛成 /etc/es-keys；Secret 換了 Collector 自己換 key、不用重啟
 
-config: {}                                                 # common、node、cluster、sampler 四個 key，--set-file 帶進來
+config: {}                                                 # common、node、cluster 三個 key，--set-file 帶進來
 
 node:                                                      # DaemonSet：讀節點上的 log、抓 kubelet、收應用的 OTLP
   queueHostPath: /var/lib/otelcol/node                     # 佇列放節點上：Pod 重建、ES 連不上都不掉資料
@@ -29,16 +29,3 @@ cluster:                                                   # Deployment（一定
     requests: {cpu: 100m, memory: 128Mi}
     limits: {memory: 512Mi}
 
-traceSampler:                                              # StatefulSet：尾端取樣（設定在 sampler.yaml）
-  replicas: 2                                              # 實測每秒 2,000 段時每台約 150MB；一般 2 台（一台重開時另一台接）
-  decisionWait: 30s                                        # 要比最長的請求長
-  numTraces: "100000"                                      # 每台每秒 1,500 個 trace × 30 秒 × 2
-  expectedTps: "1000"
-  randomPct: "5"                                           # 正常的留幾 %
-  slowMs: "1000"                                           # 超過幾毫秒算慢、全留
-  goMemLimit: 1600MiB
-  storage: 1Gi                                             # 送 ES 的佇列；每台一顆
-  storageClassName: ""                                     # 空字串＝cluster 預設的 StorageClass
-  resources:
-    requests: {cpu: 100m, memory: 512Mi}
-    limits: {memory: 2Gi}

@@ -47,9 +47,8 @@ kubectl -n otel-collector create secret generic es-writer-keys \
   --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 BASELINE_KEY="$(key_of 'AIOps baseline key')"
 "${here}/../deploy-collector.sh"
-kubectl -n otel-collector rollout restart daemonset/otel-node-collector statefulset/trace-sampler >/dev/null
+kubectl -n otel-collector rollout restart daemonset/otel-node-collector >/dev/null
 kubectl -n otel-collector rollout status daemonset/otel-node-collector --timeout=180s >/dev/null
-kubectl -n otel-collector rollout status statefulset/trace-sampler --timeout=180s >/dev/null
 
 echo "== 2. Kafka、兩個 .NET 服務（namespace ${ns}，第一次要編譯幾分鐘）"
 kubectl delete namespace "${ns}" --ignore-not-found --wait=true >/dev/null
@@ -66,7 +65,7 @@ sleep 240
 es -X POST "${ES_URL}/traces-*,metrics-*/_refresh" >/dev/null
 
 echo "== 3. 串接"
-# 拿 30 秒以前的：最新的那幾筆，對方那一段可能還在 trace-sampler 裡等著決定、還沒寫進 ES
+# 拿 30 秒以前的：最新的那幾筆，對方那一段可能還在 Collector 的佇列裡、還沒寫進 ES
 q() { es "${ES_URL}/traces-*/_search?size=1&sort=@timestamp:desc" -d "{\"query\":{\"bool\":{\"filter\":[$1,{\"range\":{\"@timestamp\":{\"gte\":\"now-3m\",\"lte\":\"now-30s\"}}}]}}}"; }
 pub="$(q '{"term":{"name":"orders publish"}}' | jq -c '.hits.hits[0]._source')"
 check "生產者：publish 接在 HTTP 請求底下（同一個 trace）" \

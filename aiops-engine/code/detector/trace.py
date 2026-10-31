@@ -213,8 +213,7 @@ def swallowed(cur: pd.DataFrame, min_rate: float) -> pd.DataFrame:
 def sample_entries(es: ES, index: str, start: pd.Timestamp, end: pd.Timestamp, interval: str, per_bucket: int,
                    policy: str | None = None) -> list[Sampled]:
     """每個時段、每個入口（服務的 Server span、訊息消費者的 Consumer span、沒有上一層的 span）抽 per_bucket 個請求。依 trace_id 排序取前幾個：trace_id 是隨機的，等於隨機抽。
-    policy：尾端取樣時只抽這條規則留下的（random：隨機那一份）。錯的、慢的全留，混進來平均會偏高；
-    沒有標記的（還沒經過尾端取樣的舊資料）照樣抽。"""
+    policy：以前尾端取樣時只抽 random 那份；現在 100% 收、不取樣，trace.yaml 不設這個，全部都抽。沒有標記的照樣抽。"""
     sources = [{"svc": {"terms": {"field": "resource.attributes.service.name"}}},
                {"name": {"terms": {"field": "name"}}},
                {"ts": {"date_histogram": {"field": "@timestamp", "fixed_interval": interval}}}]

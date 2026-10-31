@@ -40,7 +40,7 @@ from .cmd_backtest import cmd_backtest
 from .cmd_metrics import cmd_metrics
 from .cmd_feedback import cmd_feedback, cmd_incident
 from .cmd_chronic import cmd_chronic
-from .cmd_trace import cmd_trace_collect, cmd_trace_train, cmd_trace_detect
+from .cmd_trace import cmd_trace_collect, cmd_trace_train, cmd_trace_detect, cmd_trace_merge
 from .cmd_rules import cmd_rules
 from .cmd_peer import cmd_peer
 from .cmd_quality import cmd_quality
@@ -113,6 +113,10 @@ def main(argv=None) -> int:
     td.add_argument("--config", required=True)
     td.add_argument("--window", default="30min")
     td.add_argument("--at")
+    tm = sub.add_parser("trace-merge")
+    tm.add_argument("--config", required=True)
+    tm.add_argument("--window", default="3min", help="第一次（沒有上次合到哪的紀錄）往前合多久")
+    tm.add_argument("--at")
     r = sub.add_parser("rules")
     r.add_argument("--config", required=True)
     r.add_argument("--at", help="回測：拿過去某個時間點當成現在")
@@ -172,7 +176,7 @@ def main(argv=None) -> int:
     with open(args.config, encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
     cmds = {"train": cmd_train, "detect": cmd_detect, "tune": cmd_tune, "trace-collect": cmd_trace_collect,
-            "trace-train": cmd_trace_train, "trace-detect": cmd_trace_detect, "rules": cmd_rules, "peer": cmd_peer,
+            "trace-train": cmd_trace_train, "trace-detect": cmd_trace_detect, "trace-merge": cmd_trace_merge, "rules": cmd_rules, "peer": cmd_peer,
             "quality": cmd_quality, "adjust": cmd_adjust, "backtest": cmd_backtest, "metrics": cmd_metrics,
             "chronic": cmd_chronic, "feedback": cmd_feedback, "incident": cmd_incident}
     return cmds[args.cmd](cfg, args)
