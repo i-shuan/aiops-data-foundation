@@ -41,8 +41,14 @@ class ES:
 
     def ensure_index(self, name: str, body: dict):
         if self.s.head(f"{self.url}/{name}", timeout=30).status_code == 404:
-            self.req("PUT", f"/{name}", body)
-        elif body.get("mappings", {}).get("properties"):
+            r = self.s.put(f"{self.url}/{name}", json=body, timeout=120)
+            if r.status_code in (200, 201):
+                return
+            # 排程器讓 rules、detect、alert 同一秒起跑，第一次都看到 404、搶著建同一個 index：輸的那個收到
+            # resource_already_exists_exception，不算錯，往下補 mapping 就好（實測一隻 pod 的第一分鐘 rules 因此失敗一次）
+            if not (r.status_code == 400 and "resource_already_exists_exception" in r.text):
+                raise RuntimeError(f"PUT /{name} → {r.status_code}: {r.text[:500]}")
+        if body.get("mappings", {}).get("properties"):
             # 已經有的 index 補上新加的欄位（只能加，不能改型別）
             self.req("PUT", f"/{name}/_mapping", {"properties": body["mappings"]["properties"]})
 

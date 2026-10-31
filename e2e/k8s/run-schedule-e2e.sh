@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # engine 在 K8s 上排程跑：aiops-engine/helmchart 的一隻 pod（scheduler container 照 configs/schedule/schedule.yaml 跑第一階段 4 個工作）
-# 用 helm 裝到 namespace aiops-engine-test（values-test.yaml：連 es-test、本機 image、不裝回饋網頁），跑 RUN_MINUTES 分鐘再看。
+# 用 helm 裝到 namespace aiops（values-test.yaml：連 es-test、本機 image、不裝回饋網頁），跑 RUN_MINUTES 分鐘再看。
 #
 # 每一項印 PASS／FAIL（紀錄來源是 pod 的 log：排程器每次執行印一行 [scheduler] <工作> <排定分鐘> <結果>）：
 #   1. rules、detect、alert 每分鐘都跑、都 ok、沒漏掉任何一分鐘、沒有「跳過」；跑最久的那次 ≤ timeout 的 60%
@@ -19,7 +19,7 @@
 set -uo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 repo="$(cd "${here}/../.." && pwd)"
-NS=aiops-engine-test
+NS=aiops                 # 跟正式一樣的 namespace；開頭和結尾都會刪掉重建，只能在測試 cluster 跑
 IMAGE=aiops-engine:p2-schedule
 RUN_MINUTES="${RUN_MINUTES:-20}"
 ES_PORT="${ES_PORT:-31515}"
@@ -105,7 +105,8 @@ echo "== 4. 觀察 ${RUN_MINUTES} 分鐘（放掉鎖；每 15 秒記心跳、ali
 from_iso="$(now_iso)"; t0=$(date +%s); t_end=$(( t0 + RUN_MINUTES * 60 ))
 while (( $(date +%s) < t_end )); do
   es -H "Authorization: ApiKey ${KEY}" "${ES}/aiops-alerts/_doc/heartbeat" 2>/dev/null | jq -r '._source.updated_at // empty' >>"${work}/heartbeat.txt"
-  kn exec deployment/aiops-engine -c scheduler -- cat /tmp/scheduler-alive 2>/dev/null >>"${work}/alive.txt"; echo >>"${work}/alive.txt"
+  # 用 sh -c：Git Bash 會把參數裡的 /tmp/... 換成 Windows 路徑，包在字串裡才不會
+  kn exec deployment/aiops-engine -c scheduler -- sh -c 'cat /tmp/scheduler-alive' 2>/dev/null | tr -d '\r\n' >>"${work}/alive.txt"; echo >>"${work}/alive.txt"
   (( ($(date +%s) - t0) % 300 < 15 )) && echo "   $(ts) 還有 $(( (t_end - $(date +%s)) / 60 )) 分鐘"
   sleep 15
 done
@@ -131,7 +132,7 @@ for j in rules detect alert; do
   done <<<"${rows}"
   missing="$(comm -23 <(seq "${first_min}" "${last_min}") <(sort -n "${work}/${j}.min" | uniq) | wc -l)"
   dup="$(sort -n "${work}/${j}.min" | uniq -d | wc -l)"
-  timeout="$(kn exec deployment/aiops-engine -c scheduler -- python3 -m scheduler --config configs/schedule/schedule.yaml --list | awk -v j="${j}" '$1==j {print $6}' | tr -d s)"
+  timeout="$(kn exec deployment/aiops-engine -c scheduler -- python3 -m scheduler --config configs/schedule/schedule.yaml --list | tr -d '\r' | awk -v j="${j}" '$1==j' | sed -E 's/.*timeout +([0-9]+)s.*/\1/')"
   check "${j}：每分鐘跑一次、都 ok、沒漏、沒跳過、沒重複（ok／失敗／跳過／漏掉／同一分鐘兩次）" "${n_ok}/${n_fail}/${n_skip}/${missing}/${dup}" "${expect}/0/0/0/0"
   if (( dmax * 10 <= timeout * 6 )); then pass "${j}：跑最久 ${dmax} 秒，timeout ${timeout} 的 60% 內"; else bad "${j}：跑最久 ${dmax} 秒，timeout ${timeout}"; fi
 done

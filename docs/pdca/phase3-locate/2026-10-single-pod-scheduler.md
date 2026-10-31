@@ -1,6 +1,6 @@
 # AIOps engine 改成一隻常駐 pod：排程器＋回饋網頁兩個 container（2026-10）
 
-**狀態**：進行中　　**日期**：2026-10-31　　**相關**：分支 `claude/single-pod-scheduler`；前一版 [2026-10-schedule.md](2026-10-schedule.md)（10 個 CronJob）；結構 [restructure-components](../meta/2026-10-restructure-components.md)
+**狀態**：已完成（`aiops` namespace 那輪驗證沒跑完）　　**日期**：2026-10-31　　**相關**：分支 `claude/single-pod-scheduler`；前一版 [2026-10-schedule.md](2026-10-schedule.md)（10 個 CronJob）；結構 [restructure-components](../meta/2026-10-restructure-components.md)
 **模組**：④⑤⑥⑧（排程）
 
 ## Plan：這一次要達到什麼
@@ -44,8 +44,32 @@
 
 ## Check：測試的目的與結果
 
-（實作後補）
+| 測試目的（為了確認什麼） | 怎麼測 | 結果 |
+|---|---|---|
+| 排程器的邏輯對：cron 比對、不重疊、逾時砍、重試、排程表跟原設計一致 | `tests/test_scheduler.py`（13 個），子行程用 `tests._run_code` 跑小段程式，不連 ES | 全過：每分／每 5 分／每天／每週（0 和 7 都是星期日）／清單範圍步進的 cron 比對、壞的表達式報錯；成功與失敗的 log 行；重試第 3 次成功、用盡印「已重試 2 次，放棄」；逾時 1 秒在 10 秒內砍掉；上一次還在跑時印「跳過」且別的工作照跑；排程表 stage 1 只有 4 個、全部 10 個、alert 的 timeout ≥ 360 秒、retries 照頻率、每個工作的 `--config` 檔都存在 |
+| chart render 出一隻 pod 兩個 container | `tests/test_deploy.py`（`helm template`） | 1 個 Deployment（replicas 1、Recreate）、2 個 container；`scheduler.stage` 參數傳到 args；liveness 看 `/tmp/scheduler-alive`；記憶體 6Gi／512Mi；`feedback.enabled=false` 拿掉 container 與 Service；`configOverrides` 兩個 container 都掛在同一個路徑 |
+| 全部單元測試沒被弄壞 | `cd aiops-engine/code && python -m pytest -q` | 369 passed（原 352 ＋ 排程器 13 ＋ `ensure_index` 4） |
+| **在 K8s 上真的一隻 pod 照排程跑** | Rancher Desktop，`run-schedule-e2e.sh`：build image 進 k8s.io、helm 裝、連 es-test，pod 的 log 是紀錄來源 | 見下面三輪 |
+| 第一輪（12 分鐘觀察） | 同上 | detect、alert 每分鐘 11／11 ok、沒漏沒跳過沒重複；心跳每分鐘更新（12 次、最長間隔 60 秒）；rules 的觸發 15 次、ES 裡 15 筆；`train` 手動 `--run` 10 秒成功；**不重疊**（alert 換成睡 150 秒 → 後面兩分鐘「跳過：上一次還在跑」、ok 只有 1 次）、**逾時**（detect 睡 120 秒 timeout 50 → 每分鐘被砍）、**重試**（retries 2 的假工作同一分鐘失敗 3 次、印「已重試 2 次，放棄」）、對照的 rules 照跑；**壞 key**（401）三個工作都失敗、**修好重啟**後下一分鐘 ok。**但發現一個真問題**：rules 第一分鐘失敗 1 次（見 Act 最後一列） |
+| 第二、三輪（修 `ensure_index` 與腳本後） | 同上，6 分鐘、4 分鐘 | 第二輪 rules 5／5 ok、第一分鐘不再失敗；第三輪**全部 22 項 PASS、0 FAIL**，含 liveness（alive 檔每分鐘更新）、不重疊、逾時、重試、壞 key 與修好 |
+| namespace 改成 `aiops`（跟正式一樣）後 | 第四輪 | 腳本改了名字、pod 在 `aiops` 裝起來後就被中止，**沒跑完**；其他沒動 |
+
+- 測試腳本自己的三個錯（都修了，不是產品的）：`--list` 的欄位位置算錯（cron 佔 5 欄）所以 timeout 讀成 `*`；`kubectl exec … cat /tmp/…` 在 Git Bash 被換成 Windows 路徑所以 alive 檔讀不到（改 `sh -c`）；輸出帶 `
+` 數字比對不到。
+- **沒測到的**：`train` 在 02:00 由排程器自己跑（只測了手動 `--run`；cron 比對有單元測試，K8s 上沒等到半夜）；pod 被 OOM 殺掉後 liveness 重啟的行為；`terminationGracePeriodSeconds` 內收到 SIGTERM 時等還在跑的工作收尾（程式有寫，沒在 K8s 上驗）；真的 LLM（`llmProvider` 還是 template）；`feedback` container 在 pod 裡（e2e 的 `values-test.yaml` 把它關掉了）。
+
 
 ## Act：Check 後沒改善的、還沒解決的
 
-（實作後補）
+| 沒改善的 | 在什麼情況下發現的 | 影響 | 後續 |
+|---|---|---|---|
+| 換 ES key 要重啟 pod | 設計時：環境變數是 pod 起來時讀的；CronJob 每分鐘新 pod 會重讀，常駐 pod 不會 | 換 `aiops-secrets` 後要 `kubectl rollout restart`，中間缺幾十秒；忘了重啟會一直 401（心跳停、Grafana 會報「AIOps 停了」） | 寫進 README、troubleshooting。要免重啟得改成每次子行程啟動前重讀 Secret 掛載的檔，這次不做 |
+| 手動 `--run` 跟常駐的排程器互不知道 | 設計時 | 手動跑 `train` 時排程剛好也在跑 `train`，兩份同時寫 baseline（寫入是覆蓋，不會重複，只是浪費） | README 寫「自己確認沒在跑」；`train` 一天一次、手動跑多在剛部署時，實際撞到的機會小 |
+| image 裡多一個測試用模組 `scheduler.sleep` | 寫 e2e 時：要一個「睡 N 秒、指定 exit code」的工作，image 沒有 `tests/` | 多 5 行程式；正式排程表不會用到 | 留著，docstring 註明只給測試 |
+| cron 的「日」和「週」都有限制時是 AND，K8s CronJob 是 OR | 寫 `cron.py` 時 | 排程表沒有同時寫日和週的；要是有人寫了，行為跟 CronJob 不同 | `cron.py` docstring 註明 |
+| 幾個工作同一分鐘跑，子行程的輸出在 pod log 裡會交錯 | 看 e2e 的 pod log | 每次執行結束那一行 `[scheduler] …` 一定完整；中間 detector、investigator 自己印的東西可能跟別的工作交錯 | 要分清就給每個工作加前綴（要攔子行程的 stdout 再轉印），這次不做 |
+| 同一秒起跑的工作搶建同一個 index（`aiops-anomalies`） | 第一輪 e2e：第一分鐘 `rules` 失敗 1 次（`resource_already_exists_exception`）；CronJob 時代 pod 起得有先後、沒撞過 | 新裝的第一分鐘有一個工作失敗一次，之後正常 | **已修**：`core/es.py` 的 `ensure_index` 收到這個錯改成補 mapping；加 4 個單元測試；第二、三輪沒再發生 |
+
+- **決定**：排程器放進 engine 的 image、同一隻 pod 兩個 container；排程表在 `configs/schedule/schedule.yaml`，chart 不再有 `jobs`。
+- **下一輪**：第一階段 4 個工作在真實資料上跑 2～4 週（先只寫入不通知），看每天幾件、誤報率。
+
