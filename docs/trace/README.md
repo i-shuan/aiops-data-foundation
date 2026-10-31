@@ -82,9 +82,45 @@ trace-sampler 依下表決定留不留，第一個符合的就決定，`scope.at
 | 7 天 | `traces-generic.otel-*`（隨機 5%）刪除（`TRACES_DELETE_AFTER`） |
 | 30 天 | `traces-problem.otel-*`（有問題的）刪除（`TRACES_PROBLEM_DELETE_AFTER`），事故檢討常常一兩週後才開 |
 
-trace 原文只留幾天；長期要的資料另存：每支 API 的延遲與錯誤率在 metrics，每一段的平常在 `aiops-trace-segments`（每 5 分鐘從 Server span 抽樣統計）。天數見 [retention.md](../retention.md)。
+trace 原文只留幾天；長期要的資料另存：每支 API 的延遲與錯誤率在 metrics，每一段的平常在 `aiops-trace-segments`（每 5 分鐘從 Server span 抽樣統計）。
 
 兩段佇列都寫磁碟。trace-sampler 被強制終止時，掉終止前 31 秒（等待時間加 1 秒）內該台收到的 trace；PVC 滿也掉。ES 停機 30 分鐘、Collector 換版、trace-sampler 換 IP 都不掉。
+
+### 為什麼 trace 留最短
+
+- 量：一個請求在微服務裡分成 5～8 段，每段一筆文件，每筆有固定開銷。trace 全部記的話，每天的量是 log 的 8 倍（低流量服務，每個請求 5 段）到 13 倍（高流量，8 段）。
+- ES 裡沒有樹狀索引：`trace_id`、`parent_span_id` 是一般欄位，樹是查詢時依 `trace_id` 撈出來接的。貴的原因是筆數多，不是壓縮率。
+- 時間價值遞減快：沒人在乎三天前每一次正常請求花 20ms 還是 22ms，在乎的是最近慢在哪和出事當下的完整呼叫鏈。
+- trace 不能全部長存，空間留給有問題的 100% 與隨機的 5%。實測每秒 500 個請求，留下的量約是全部的 15%。
+
+### 每筆大小
+
+測試環境實測，壓縮後、不含副本；正式環境有一份副本要乘 2。
+
+| 資料 | 實測 | 估算用 | 一筆是什麼 |
+|---|---|---|---|
+| trace | 276 bytes | 400 bytes | 一段（span）。測試的 span 很簡單，真實的帶 HTTP、SQL 等欄位，保守用 400 |
+
+### 怎麼套用
+
+- `traces-otel@custom`（ES 內建模板預留）加 `index.lifecycle.name: traces-otel`；已經存在的 index 也一起換。
+- `traces-problem.otel-*` 的模板每次從內建的 `traces-otel@template` 複製組成，多疊 `traces-problem-otel@custom`（換 ILM），ES 升級改了內建組成也會跟上。
+- Collector 不用改。寫入憑證的權限 `traces-*.otel-{group}` 本來就涵蓋兩個資料流；根因分析與唯讀角色查 `traces-*.otel-*`，兩邊都讀得到。
+
+### 量太大時怎麼降
+
+- 調低 `RANDOM_PCT`。不要在應用裡調 `sampleRatio`：出事的請求會在一開始就被丟掉。
+- 不用 Collector 的 `spanmetrics`：每個 API 的請求數與延遲，應用的 metrics 已經有，每個請求都算，不受 trace 取樣影響。應用端抽樣時 `spanmetrics` 只看得到被抽到的 span，請求數會少算；改成尾端取樣、應用全送後，在取樣之前算就不會少算，但目前不需要。
+
+### 實測（k3s，ES 9.5.5）
+
+| 測什麼 | 結果 |
+|---|---|
+| 有問題的 trace 分流 | ✅ 寫一筆 `tailsampling.policy: error` 的 span，進到 `traces-problem.otel-{group}`，自動套 `traces-problem-otel` 模板與 30 天政策；`random`、沒有 policy 的留在 `traces-generic` |
+| 真的 trace-sampler 取樣後分流 | ✅ 每秒 100 個請求、2 分鐘，正常的隨機留 5%：錯誤、慢、吞掉例外的 1,256 個 trace（5,024 段）全進 `traces-problem.otel-imc`；隨機留下的 615 個 trace（2,460 段）全在 `traces-generic.otel-imc`；兩邊合起來跟壓測統計的「留下」數字一致，沒有漏 |
+| 根因分析、trace baseline 回歸 | ✅ 11 項、9 項全過，讀 `traces-*.otel-*`，兩個資料流都看得到 |
+
+保留天數的共用原則與容量估算見 [retention.md](../retention.md)。
 
 ## 共同鑰匙圈與 trace 自己的欄位
 

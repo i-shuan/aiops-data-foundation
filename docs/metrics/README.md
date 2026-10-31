@@ -87,7 +87,41 @@ flowchart TB
 | 400 天 | 刪除 |
 | `metrics-generic`（應用的直方圖） | ILM `metrics-hist-otel`：不降解析度，原始 30 秒一點，90 天刪 |
 
-直方圖不降解析度，是因為 ES 8.19 的 `histogram` 欄位降解析度時不合併：1 小時 7,911 個請求降完剩 70 個，p95 從 1.75 秒變 1.13 秒。天數與容量見 [retention.md](../retention.md)。
+### 為什麼這樣定
+
+- 降解析度在免費授權可用。每小時一點的量測值只留那一小時的最小、最大、總和、筆數，動態基準線學習夠用。
+- 動態基準線學習：30 秒、1 分鐘粒度只學最近 14 天（`fine_history`），對齊原始資料的 14 天；5 分鐘以上的粒度學 4 週。請求數、錯誤率、p95 來自 `metrics-generic`，90 天內都是原始資料；CPU、記憶體用降解析度後的也夠。
+- 量測值留 400 天（約 13 個月），看得到年度保養、旺季、月底的週期。直方圖只留 90 天，年度週期要另外想辦法。
+- 直方圖不降解析度：ES 8.19 的 `histogram` 降解析度時不合併，請求數、p95 都會錯（ES 9 的 `exponential_histogram` 會合併，公司是 8.19）。
+
+### 每筆大小
+
+測試環境實測，壓縮後、不含副本；正式環境有一份副本要乘 2。
+
+| 資料 | 實測 | 估算用 | 一筆是什麼 |
+|---|---|---|---|
+| Pod 資源（kubelet） | 57 bytes | 60 bytes | 一個 Pod 或容器的一組數值，每個 Pod 每分鐘約 13 筆 |
+| K8s 物件狀態 | 47 bytes | 50 bytes | 每個 Pod 每分鐘約 5 筆 |
+| 應用自己的 metrics | 78 bytes | 80 bytes | 一組維度的一個時間點；每個 Pod 每分鐘約 100～300 筆，要用真的 Java 服務量過 |
+
+### 怎麼套用
+
+- `metrics-otel@custom`（ES 內建模板預留）加 `index.lifecycle.name: metrics-otel`；已經存在的 index 也一起換。
+- `metrics-generic.otel-*` 另有模板 `metrics-hist-otel`：從內建的 `metrics-otel@template` 複製組成，多疊 `metrics-hist-otel@custom`（ILM 只有 rollover 與刪除）；已存在的 index 也換政策，寫入中的 rollover 一次。
+
+### 實測
+
+| 測什麼 | 結果 |
+|---|---|
+| 直方圖降解析度（ES 8.19.23，k3d） | ❌ time series index 放 2 小時、每 30 秒一筆 `histogram`（共 7,911 個請求），`_downsample` 成 1 小時一點後只剩 70 個，p95 從 1.75 秒變 1.13 秒：每小時只留一筆的 `values`、`counts`，沒有合併。`histogram` 不能設 `time_series_metric`，mapping 直接報錯。同一份資料的 `_sum`（gauge）降完是 `aggregate_metric_double`，總和不變 |
+| 套用不降解析度的政策（ES 8.19.23，k3d） | ✅ `elasticsearch-setup.sh` 跑完：`metrics-generic.otel-*` 的模板與每個 index 都是 `metrics-hist-otel`，寫入中的 rollover 一次；`kubeletstatsreceiver` 這類照舊 `metrics-otel` |
+| ILM 照時間降解析度（k3s，ES 9.5.5） | ✅ 時間範圍已過的 index 套「馬上降成 1 小時」的測試政策，約 30 秒換成 `downsample-1h-…` |
+
+### FDC 感測器資料不放這套 ES
+
+每台機台幾百個感測器、每秒一筆，1,000 台就是每秒 30 萬筆，是另一個等級的量，通常已有專門的系統。AIOps 需要的話，只匯入每分鐘的統計值，或 FDC 判定的告警結果。
+
+保留天數的共用原則與容量估算見 [retention.md](../retention.md)。
 
 ## 共同鑰匙圈與 metrics 自己的欄位
 

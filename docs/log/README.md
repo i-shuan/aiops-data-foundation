@@ -155,4 +155,41 @@ alias 不佔空間、不在 `_source` 裡，程式要用 `fields` 取值。
 | 每 5 分鐘 | transform 把 group、cluster、namespace、服務、level、`error.type` 的筆數寫進 `aiops-log-stats` |
 | 400 天 | `aiops-log-stats` 刪除；每 30 天換一個 index |
 
-長期要看的趨勢靠統計，不靠原文。天數與容量見 [retention.md](../retention.md)，排錯見 [troubleshooting.md](../troubleshooting.md)。
+### 為什麼這樣定
+
+- log 原文最佔空間。AIOps 看 log 主要是「哪種錯誤突然變多」，留每 5 分鐘的筆數就夠；原文 30 天用來查細節。
+- 稽核要用的 log（登入、交易）另有稽核紀錄，依法規另定天數，不跟一般應用 log 一起算。
+
+### 每筆大小
+
+測試環境實測，壓縮後、不含副本；正式環境有一份副本要乘 2。
+
+| 資料 | 實測 | 估算用 | 一筆是什麼 |
+|---|---|---|---|
+| log | 135 bytes | 250 bytes | 一行 log。測試資料每行很像，壓縮特別好；真實 log 內容較雜，保守用 250 |
+
+### 量太大時怎麼降（依效果排序）
+
+| 做法 | 效果 |
+|---|---|
+| EAP 不在 INFO 寫完整的 SML 內容，只寫摘要（機台、訊息種類、事件編號、結果），完整內容放 DEBUG 或另外存 | EAP log 可能減到 1/5 以下，最有效 |
+| 吵的服務把不必要的 INFO log 降成 DEBUG | 「每個請求印好幾行」可以省一大半 |
+| 高流量的原始 log 留短一點（例如 14 天），長期改留統計值 | 依 group 設；資料流本來就依 group 分開 |
+
+### EAP（設備通訊）的容量
+
+量取決於機台數，要另外算：
+
+```
+EAP log 每天寫入 = 機台數 × 每台每秒幾則訊息 × 每則 log 壓縮後大小 × 86,400 × 2（副本）
+```
+
+例：1,000 台機台、每台每秒 2 則、每則 log 原文 1.5KB（壓縮後約 300 bytes），每天寫入約 100GB，留 30 天同時存著約 3TB。很多 EAP 會把整段 SML 內容寫進 log：機台數、訊息頻率、log 寫了多少內容三個乘起來，可以差到十倍，要先找一台 EAP 量一天實際的 log 量再算。
+
+### 實測
+
+| 測什麼 | 結果 |
+|---|---|
+| log 統計（transform `aiops-log-stats`） | ✅ 65 萬筆 log 統計成 2,192 筆，約 1/300 |
+
+天數與容量的共用原則見 [retention.md](../retention.md)，排錯見 [troubleshooting.md](../troubleshooting.md)。

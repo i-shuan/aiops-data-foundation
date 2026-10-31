@@ -24,9 +24,9 @@
 
 | 文件 | 類型 | 內容 | 狀態 |
 |---|---|---|---|
-| [retention.md](retention.md) | 原理 | 為什麼這樣定天數與容量 | 🟢 |
-| [retention-reference.md](retention-reference.md) | 規格 | 現在的設定、每筆資料實測佔多少 | 🟢 |
-| [retention-how-to.md](retention-how-to.md) | 操作 | 怎麼套用、怎麼改 | 🟢 |
+| [retention.md](retention.md) | 原理 | 三種資料共用的保留原則、留多久的差別、容量估算、待決定 | 🟢 |
+| [retention-reference.md](retention-reference.md) | 規格 | 三種資料保留一覽、failure store、`aiops-*` | 🟢 |
+| [retention-how-to.md](retention-how-to.md) | 操作 | 天數怎麼套用、舊政策還在跑、怎麼量正式環境的量 | 🟢 |
 
 ### ①②③ 收值、清資料、存：log
 
