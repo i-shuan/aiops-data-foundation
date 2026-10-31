@@ -13,7 +13,7 @@
 
 | 檔案 | 改了什麼 | 為何要改 |
 |---|---|---|
-| `docs/log/README.md` | 開頭是 mermaid 流程圖（應用 → 節點 Collector → 中央 ES 各 pipeline → index → transform）；「log 樣式格式有哪些」（`default`、`logfmt` 已有規則，SECS、REST API 沒有；認得的欄位名稱表）；「什麼時候清洗、怎麼清洗」（階段表加兩個前後對照的例子）；「多久壓縮」（寫入時、rollover、30 天刪、5 分鐘統計、400 天） | 內容對照 `telemetry/collectors/node.yaml`（`file_log`、processors）、`telemetry/storage/` 的 `pipeline*.json`、`pipeline-*.painless`、`formats/*.json`、`ilm-policy.json`、`component-settings.json`、`transform-log-stats.json`、`retention.conf` |
+| `docs/log/README.md` | 開頭是 mermaid 流程圖（應用 → 節點 Collector → 中央 ES 各 pipeline → index → transform）；「log 樣式格式有哪些」（`default`、`logfmt` 已有規則，SECS、REST API 沒有；認得的欄位名稱表）；「什麼時候清洗、怎麼清洗」（階段表加兩個前後對照的例子）；「多久壓縮」（寫入時、rollover、30 天刪、5 分鐘統計、400 天）；「共同鑰匙圈與 log 自己的欄位」（鑰匙在 log 實際存在哪、歸屬 label 與鑰匙的差別、只在 log 有的欄位與 label） | 內容對照 `telemetry/collectors/node.yaml`（`file_log`、processors）、`telemetry/storage/` 的 `pipeline*.json`、`pipeline-*.painless`、`formats/*.json`、`ilm-policy.json`、`component-settings.json`、`component-mappings.json`（alias）、`transform-log-stats.json`、`retention.conf`；鑰匙與歸屬 label 的對照取自合併前 `docs/rca/README.md`、`docs/log/reference.md`（git 歷史），再對 mapping 核對 |
 | `docs/pdca/README.md` | 加一列 | 索引 |
 
 ## Check：測試的目的與結果

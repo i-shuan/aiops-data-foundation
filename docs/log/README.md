@@ -103,6 +103,48 @@ Datadog 的 `dd.trace_id` 是十進位，對不到 OTel 的 trace，不取，留
 
 清洗後：`message` 是原文，`log.level: error` 加 `log.level_inferred: true`（前 80 字元內獨立的全大寫關鍵字）；純文字沒拆時間，`@timestamp` 用 Collector 讀到的時間，`log.timestamp_source: collector`。
 
+## 共同鑰匙圈與 log 自己的欄位
+
+### 共同鑰匙圈
+
+log、metrics、trace 用同一組鑰匙串起來。服務、Pod、namespace、cluster 都是 Collector 依來源 Pod 補的，不是應用自己填，所以三種資料一定對得上。
+
+| 鑰匙 | 三種資料共用的路徑 | log 實際存在哪 | 來源 | 現況 |
+|---|---|---|---|---|
+| 服務 | `resource.attributes.service.name` | `service.name`，alias 指過去 | Pod label `app.kubernetes.io/name`；沒有就用 Deployment 名稱 | ✅ |
+| Pod | `resource.attributes.k8s.pod.name` | `kubernetes.pod.name`，alias | Collector | ✅ |
+| namespace | `resource.attributes.k8s.namespace.name` | `kubernetes.namespace`，alias | Collector | ✅ |
+| cluster | `resource.attributes.k8s.cluster.name` | `orchestrator.cluster.name`，alias | Collector 的 `CLUSTER_NAME` | ✅ |
+| trace_id、span_id | `trace_id`、`span_id` | `trace.id`、`span.id`，alias | 自動埋點寫進 log（Java 在 MDC、.NET 在 scope），或 OTLP 直送 | ✅ |
+| 時間窗 | `@timestamp` | `@timestamp` | 應用的時間，轉 UTC | ✅ |
+| 路由、方法 | `attributes.http.route`、`attributes.http.request.method` | 沒有 | REST API 的解析規則還沒做 | ❌ |
+| 業務 ID（交易 ID） | 名稱未定 | 沒有 | 只放 trace、log，不放 metrics（每個值多一條序列） | ❌ |
+
+alias 不佔空間、不在 `_source` 裡，程式要用 `fields` 取值。
+
+### 歸屬 label 不是鑰匙
+
+| | 歸屬 label | 共同鑰匙 |
+|---|---|---|
+| 用途 | 這筆資料是誰的：寫進哪個 index、誰看得到、保留幾天、告警送給誰 | 把三種資料接起來 |
+| 欄位 | `labels.dept`、`labels.group`（metrics、trace 在 `resource.attributes.dept`、`.group`） | 上表 |
+| 來源 | namespace 的 `dept` label，Collector 依 `telemetry/groups.yaml` 對應成 group；應用自帶的先移除 | 上表 |
+
+### log 自己的欄位與 label
+
+有。下面這些只在 log 有，metrics、trace 沒有：
+
+| 類別 | 欄位 | 說明 |
+|---|---|---|
+| 格式 | `log.format`、`log.parser` | `log.format` 是 pod label `log-format` 宣告的（chart 的 `logFormat`，只能小寫英數與減號），沒宣告是 `default`；`log.parser` 是實際用的規則 |
+| 來源 | `log.source`、`agent.type` | `file` 或 `otlp`；`otelcol` 或 `fluent-bit` |
+| 內容 | `message`、`log.level`、`log.level_inferred`、`log.logger`、`process.thread.name`、`error.type`、`error.stack_trace` | 見上面的清洗 |
+| 時間可信度 | `event.created`、`event.ingested`、`event.timezone`、`log.timestamp_source` | 找出時間不可信、沒帶時區的服務 |
+| 應用自帶 | `app.*`、`app.trace_id_invalid`、`app.span_id_invalid` | MDC 的 `lot_id` 這類業務維度；格式錯的 trace_id 原值 |
+| K8s | `kubernetes.labels` | 全部 Pod label，flattened |
+
+跟 metrics 共用的 Pod label：`app.kubernetes.io/name` → `service.name`、`app.kubernetes.io/version` → `service.version`、`app.kubernetes.io/part-of` → `service.namespace`。`log-format` 只給 log 用。
+
 ## 多久壓縮
 
 | 時間點 | 做什麼 |
