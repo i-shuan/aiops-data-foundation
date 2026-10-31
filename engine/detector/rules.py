@@ -71,11 +71,12 @@ def increase(values: list[float]) -> float:
 
 
 def hist_count(h) -> float | None:
-    """ES 的 exponential_histogram 在 _source 裡的樣子：{"positive": {"counts": [...]}, "zero": {"count": n}, …}，加起來是次數。"""
+    """直方圖在 _source 裡的次數總和。ES 8.19 的 histogram：{"values": [...], "counts": [...]}；
+    ES 9 的 exponential_histogram：{"positive": {"counts": [...]}, "zero": {"count": n}, …}。"""
     if not isinstance(h, dict):
         return None
-    return float(sum((h.get("positive") or {}).get("counts", [])) + sum((h.get("negative") or {}).get("counts", []))
-                 + (h.get("zero") or {}).get("count", 0))
+    return float(sum(h.get("counts", [])) + sum((h.get("positive") or {}).get("counts", []))
+                 + sum((h.get("negative") or {}).get("counts", [])) + (h.get("zero") or {}).get("count", 0))
 
 
 def _window(pts, now, hold):
