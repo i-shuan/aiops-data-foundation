@@ -24,6 +24,7 @@ spec:
           envFrom:
             - configMapRef: {name: aiops-env}
             - secretRef: {name: {{ .Values.secret }}}
+            - secretRef: {name: aiops-llm}
           # 排程器每分鐘醒來更新 /tmp/scheduler-alive；超過 3 分鐘沒更新就是卡死，重啟
           livenessProbe:
             exec:
@@ -49,6 +50,7 @@ spec:
           envFrom:
             - configMapRef: {name: aiops-env}
             - secretRef: {name: {{ .Values.secret }}}
+            - secretRef: {name: aiops-llm}
           ports:
             - {name: http, containerPort: {{ .Values.feedback.port }}}
           livenessProbe:

@@ -87,7 +87,7 @@ echo "== 2. 部署（拿鎖）"
 lock
 k delete namespace "${NS}" --ignore-not-found --wait=true >/dev/null
 k create namespace "${NS}" >/dev/null
-kn create secret generic aiops-secrets --from-literal=ES_API_KEY="${KEY}" --from-literal=LLM_API_KEY= --save-config >/dev/null
+kn create secret generic aiops-secrets --from-literal=ES_API_KEY="${KEY}" --save-config >/dev/null
 deploy
 unlock
 kn get pod -o custom-columns='POD:.metadata.name,CONTAINERS:.spec.containers[*].name,READY:.status.containerStatuses[*].ready' | sed 's/^/   /'
@@ -176,7 +176,7 @@ check "對照：rules 照常每分鐘 ok" "$(grep -c 'rules .* ok' "${work}/sche
 
 echo "== 7. ES key 壞掉 → 失敗；修好 → ok（env 是 pod 起來時讀的，換 key 要重啟）"
 lock
-kn create secret generic aiops-secrets --from-literal=ES_API_KEY=bogus --from-literal=LLM_API_KEY= --dry-run=client -o yaml | kn apply -f - >/dev/null
+kn create secret generic aiops-secrets --from-literal=ES_API_KEY=bogus --dry-run=client -o yaml | kn apply -f - >/dev/null
 deploy      # 排程表換回正式的（沒有 override），同時 pod 重啟讀到壞 key
 unlock
 bad_from="$(now_iso)"; b_min=$(( $(date +%s) / 60 + 1 ))
@@ -187,7 +187,7 @@ for j in rules detect alert; do
 done
 grep -E 'Error|401|RuntimeError' <(kn logs deployment/aiops-engine -c scheduler --since-time="${bad_from}") | tail -1 | cut -c1-160 | sed 's/^/     /'
 lock
-kn create secret generic aiops-secrets --from-literal=ES_API_KEY="${KEY}" --from-literal=LLM_API_KEY= --dry-run=client -o yaml | kn apply -f - >/dev/null
+kn create secret generic aiops-secrets --from-literal=ES_API_KEY="${KEY}" --dry-run=client -o yaml | kn apply -f - >/dev/null
 kn rollout restart deployment/aiops-engine >/dev/null; kn rollout status deployment/aiops-engine --timeout=300s >/dev/null
 unlock
 good_from="$(now_iso)"; g_min=$(( $(date +%s) / 60 + 1 ))

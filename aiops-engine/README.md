@@ -15,15 +15,16 @@
 cd aiops-engine/code && docker build -t <nexus>/aiops-engine:0.1.0 . && docker push <nexus>/aiops-engine:0.1.0   # 內網：Dockerfile 的 pip 改 --index-url 指到 Nexus
 kubectl create namespace aiops
 kubectl -n aiops create secret generic aiops-secrets \
-  --from-literal=ES_API_KEY=<elasticsearch-setup.sh 發的「AIOps baseline key」> \
-  --from-literal=LLM_API_KEY=                          # 沒有模型就空的（llmProvider=template）
-helm upgrade --install aiops aiops-engine/helmchart -n aiops \
+  --from-literal=ES_API_KEY=<elasticsearch-setup.sh 發的「AIOps baseline key」>
+cp aiops-engine/helmchart/values-local.example.yaml aiops-engine/helmchart/values-local.yaml   # 填 LLM 的 provider、model、baseUrl、apiKey；不進 git
+helm upgrade --install aiops aiops-engine/helmchart -n aiops -f aiops-engine/helmchart/values-local.yaml \
   --set image.repository=<nexus>/aiops-engine --set image.tag=0.1.0 --set esUrl=https://<中央 ES>:9200
 kubectl -n aiops get pod                               # 一隻 aiops-engine-…，2/2
 kubectl -n aiops logs deploy/aiops-engine -c scheduler -f | grep '\[scheduler\]'   # 每次執行一行：工作、排定分鐘、結果、秒數
 ```
 
 - `rca.yaml` 的 `alerts.feedback_url`、`report_url` 填回饋網頁的網址（Service `aiops-feedback:8080`；要讓人從公司網路點得到再加 Ingress）。
+- LLM：`values.yaml` 的 `llm.provider`（`template` 不叫模型）、`llm.model`（空的用程式預設 openai `gpt-4o-mini`、anthropic `claude-sonnet-4-5`）、`llm.baseUrl`（內網閘道，不含 `/v1`）放 ConfigMap `aiops-env`；`llm.apiKey` 由 chart 建成 Secret `aiops-llm`。**key 只寫在 `values-local.yaml`**（`.gitignore` 擋掉），`values.yaml` 永遠留空。改了重跑 helm，pod 會自己重啟（`checksum/env`）。
 - 設定檔要跟 image 裡的不一樣：`--set-file configOverrides.baseline.series=aiops-engine/code/configs/baseline/series.yaml`（掛在 `/app/configs/baseline/series.yaml`）；排程表是 `configOverrides.schedule.schedule`。
 - **換 ES key 要重啟 pod**（`kubectl -n aiops rollout restart deploy/aiops-engine`）：環境變數是 pod 起來時讀的，不像以前每個 CronJob 每分鐘重讀。
 - 手動跑一次某個工作（例如剛部署要先有 baseline）：`kubectl -n aiops exec deploy/aiops-engine -c scheduler -- python3 -m scheduler --config configs/schedule/schedule.yaml --run train`。

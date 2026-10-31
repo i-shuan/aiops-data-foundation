@@ -43,6 +43,8 @@
 | `core/traces.py`、`investigator/es.py` | 依 index 名稱分 raw／merged 兩條路：merged 用 `nested` 查 `entries.*`、`spans.span_id`，`from_merged()` 展回原本的 span 列表 | 根因分析其餘程式不用改 |
 | `detector/trace.py` | `policy` 註解更新，功能保留 | 沒有標記的 span 照樣抽 |
 | e2e | `run-trace-e2e.sh` 加「7b. 合成一個請求一筆」（跑 `trace-merge`、檢查 merged 文件／摘要／entries／重跑不重複／權限）；`run-rca-e2e.sh` 在 investigate 前手動跑一次 `trace-merge`（測試 cluster 沒有 engine pod）、`tests/rca_k3s.yaml` 讀 `traces-merged-*`；`deploy-collector.sh`、durability、stress、keys、sdk-inject、kafka 去掉 trace-sampler；刪 `e2e/k8s/tail-sampling/`；`trace_quality_edge_e2e.py` 的尾端取樣模擬改成全留 | 跟著程式 |
+| `aiops-engine/helmchart`（順手，不屬 trace） | `llmProvider` 改成 `llm.{provider,model,baseUrl,apiKey}`：前三個進 ConfigMap `aiops-env`（`LLM_CHAT_MODEL`、依 provider 給 `OPENAI_BASE_URL`／`ANTHROPIC_BASE_URL`），`apiKey` 由 chart 建 Secret `aiops-llm`；key 只寫在 `values-local.yaml`（新加進 `.gitignore`，附 `values-local.example.yaml`） | 原本 chart 沒地方設模型與閘道，只能用程式預設與公網；使用者要 key 跟著 yaml 走、但不能進 git |
+| e2e（順手） | `run-metrics-e2e.sh`、`run-es-2node.sh` 的 kube context 預設改成目前的（原本寫死 `default`，Rancher Desktop 叫 `rancher-desktop`，第一個 kubectl 就失敗） | 同上 |
 | e2e（順手） | 10 支腳本的 `${repo}/engine` 改成 `${repo}/aiops-engine/code`；`run-rca-e2e.sh` 建 `rca-lib` configmap 時去掉 `\r` | 元件重整（PR #34）時漏改，這些 e2e 從那之後其實跑不起來；Windows checkout 成 CRLF 時 busybox sh 讀 `lib.sh` 會 syntax error（trace-app 早就這樣處理，rca 漏了） |
 | 文件 | `docs/trace/README.md` 重寫；architecture、retention 三份、rca、troubleshooting、根目錄與 docs README、sdk 埋點指引改成 100% 收／raw／merged | 跟著程式 |
 

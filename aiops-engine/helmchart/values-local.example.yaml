@@ -1,0 +1,6 @@
+# 複製成 values-local.yaml（.gitignore 擋掉，不進 git），填好後部署時加 -f aiops-engine/helmchart/values-local.yaml
+llm:
+  provider: openai             # template／openai／anthropic
+  model: gpt-4o-mini           # 空的用程式預設
+  baseUrl: ""                  # 內網閘道（不含 /v1）；空的用公網
+  apiKey: "<LLM 的 API key>"
