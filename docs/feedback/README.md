@@ -12,7 +12,7 @@
 | 出口 | ⑥ 同服務合成一件，Grafana 依部門分送 | `aiops-alerts` |
 | 紀錄 | 告警一開就建一筆 `auto`（帶指紋）；老師傅在回饋網頁確認後改 `confirmed`，存根因分類、處置、怎麼看出來的、查了哪裡 | `aiops-incidents` |
 | 回饋 | 回饋網頁 `feedback_web`（通知裡有連結）或指令；記哪一筆、為什麼 | `aiops-feedback` |
-| 調整 | `series.yaml` 的 `overrides` 或 `tune` 指令；記原因、誰、何時 | `aiops-tuning` |
+| 調整 | [`series.yaml`](../../engine/configs/baseline/series.yaml) 的 `overrides`，或 [`tune` 指令](../../engine/configs/baseline/README.md#使用者feedback-調整)（程式 [`cmd_baseline.py`](../../engine/detector/cmd_baseline.py)）；記原因、誰、何時 | `aiops-tuning`（欄位見 [`tuning.py`](../../engine/detector/tuning.py) 的 `TUNING_MAPPING`） |
 
 ### 回饋結果與用法
 
