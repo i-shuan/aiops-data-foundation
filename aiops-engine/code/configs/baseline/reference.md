@@ -261,6 +261,13 @@ series:
 - **全部一起壞不報**：例如下游 DB 掛了，每個 Pod 都錯，那不是「某個 Pod」的問題，交給 baseline 和規則。其他 Pod 的中位數已經到規則門檻（錯誤率 5%、p95 2 秒，`max_peer_median`）時，最嚴重的那個也不單獨挑出來。
 - 門檻比 baseline 寬（`rel_floor` 10%，再加上至少差多少、至少幾倍）：同一個服務的 Pod 本來就不會一模一樣。
 
+**誰跟誰是同儕**：不是 AIOps 判斷，是照資料裡的欄位分組（`namespace`、`service.name`、Deployment、`pod`）。這些欄位是 Collector 依連線來源 IP 對到 Pod 後補上的；服務名的來源順序是 Pod label `app.kubernetes.io/name`、`OTEL_SERVICE_NAME`、Deployment 名稱（見 [metrics 的共同鑰匙圈](../../../../docs/metrics/README.md#共同鑰匙圈)）。
+
+**限制：**
+- 標籤錯了就分錯組：兩個不同的服務用了同一個 `service.name`，會被當成同儕互相比。
+- 同組少於 3 個 Pod（單 Pod 的服務、剛縮容到 1～2 個）完全不比，這類服務沒有這層保護，單一 Pod 的問題只能靠 baseline 和規則抓。
+- 換版途中新舊版本的 Pod 同組：新版整體比舊版差時，會把新版的每個 Pod 都報出來。
+
 觸發的寫進 `aiops-anomalies`：`series` 是檢查名稱（`peer.…`）、`level` 是 `peer`、`median` 是其他 Pod 的中位數，`message` 例如「這個 Pod 的錯誤率比同服務其他 Pod 高：metrics-cases、dotnet-app、dotnet-app-…（100%，其他 2 個 Pod 中位數 0%，z=…）」。
 
 ## 餵給 baseline 之前：擋了什麼、還缺什麼
