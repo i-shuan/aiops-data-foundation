@@ -49,7 +49,8 @@ echo "== 2. 模擬服務"
 kubectl -n otel-collector rollout restart daemonset/otel-node-collector >/dev/null
 kubectl -n otel-collector rollout status daemonset/otel-node-collector --timeout=180s >/dev/null
 for ns in it-mes-prod imc-wip-prod; do
-  kubectl -n "${ns}" create configmap rca-lib --from-file=lib.sh="${here}/rca-lib.sh" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+  # Windows checkout 成 CRLF 時 busybox sh 讀不懂：去掉 \r 再建（Linux 上不影響）
+  kubectl -n "${ns}" create configmap rca-lib --from-literal=lib.sh="$(tr -d '\r' < "${here}/rca-lib.sh")" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 done
 kubectl apply -f "${here}/rca-apps.yaml" >/dev/null
 kubectl -n imc-wip-prod rollout restart deployment/rca-wip-worker >/dev/null

@@ -133,6 +133,7 @@ metrics → trace → log 找到哪一段、哪行 log；事件整合、排程�
 | [phase3-locate/2026-10-rca-demo.md](phase3-locate/2026-10-rca-demo.md) | ①④⑥⑦⑧ 整條線在 K8s 上跑：Pod 連續送 metrics、trace、log → 規則真的偵測 → 一件 → 根因＋LLM → Grafana | Rancher Desktop 實測：事故 3 分 40 秒後開成一件、根因指到 Oracle 那段與那行 log、LLM 摘要帶依據、`/it` 收到通知、儀表板六格都有資料；抓到 Grafana 每分鐘重發（summary 是 label）→ summary 不放會變的字；metrics→trace 是「服務＋API＋時間」的統計對應、不是 trace_id |
 | [phase3-locate/2026-10-schedule.md](phase3-locate/2026-10-schedule.md) | ④⑤⑥⑧ 排程上線：CronJob、「AIOps 停了」告警、先只寫入不通知 | Dockerfile、10 個 CronJob、回饋網頁 Deployment、心跳＋Grafana 規則；image 建好跑過，K8s 沒跑過 |
 | [phase3-locate/2026-10-single-pod-scheduler.md](phase3-locate/2026-10-single-pod-scheduler.md) | ④⑤⑥⑧ 排程改成一隻常駐 pod：內建排程器（cron、不重疊、逾時、重試）＋回饋網頁兩個 container；排程表進 `configs/schedule/schedule.yaml` | 單元測試 369 過；Rancher Desktop 一隻 pod 實跑：每分鐘不漏、不重疊、逾時砍、重試、壞 key 失敗／修好恢復全過（22 項）；發現同秒起跑會搶建 index，已修；`train` 02:00 自己跑、OOM 後重啟沒測 |
+| [phase3-locate/2026-10-detect-latency.md](phase3-locate/2026-10-detect-latency.md) | ④⑥⑧ 偵測的時間：p95 一個點暴衝會不會開事故、事故到通知的延遲 | p95 暴衝（5 分鐘窗 9% 慢）實測第 2 輪（+70 秒）開出事故，只多 1 個慢請求（2.4%）不報；事故到通知的延遲待 ⑧⑨ 實跑 |
 
 ### Phase 4 RCA＋LLM＋graph RAG（`phase4-rca-llm/`）
 
