@@ -80,4 +80,11 @@
 - `tests/trace_quality_edge_e2e.py`（自己的 ES 灌合成 trace）這次只把尾端取樣模擬改成全留，沒重跑。
 - `aiops-trace-segments`（trace 每一段的 baseline）還是讀 raw、只看最近 10 分鐘；要改讀 merged 得把 composite 聚合改成 nested，這次不碰。
 - **ES 8.19 的 otel 資料流 failure store 預設沒開**：`elasticsearch-setup.sh` 的註解寫「ES 預設就開了」，8.19.23 實測 `traces-*.otel-*`、`metrics-*.otel-*` 都是關的（只有腳本自己打開的 `k8s-*` 是開的）。`trace_quality_edge_e2e.py` 灌壞時間的 span 因此被拒絕、測試中斷；資料品質的 `ingest_rejected` 在 8.19 也不會有值。上線前要確認正式 ES 的版本，或讓 setup 對 otel 資料流也打開。
-- **ES 停 180 秒，log 與 trace 都掉**：第 3 串的 durability（測試 ES 記憶體約 97%）es-down 掉 log 6,378／71,998、trace 2,631／7,199，es-429 掉 log 7,955；先前同情境（ES 停 10、30 分鐘、429）都是 0 遺失。還沒查是 trace 直寫 ES 的改動、還是測試 ES 太吃緊；要單獨重跑 es-down 比對。
+- **ES 停 180 秒：log 原本就會掉，trace 這次起也會掉（回歸）**：同一個測試 ES（記憶體約 97%）、同一個情境，master 與本分支對照。
+
+  | 版本 | log 遺失／送出 | trace 遺失／送出 |
+  |---|---|---|
+  | master（有 trace-sampler） | 9,649／71,996 | 0／7,199 |
+  | 本分支（trace 直寫 ES） | 7,715／71,994 | 2,552／7,199 |
+
+  原因：Collector 的 `elasticsearch` 元件遇到連線逾時（`dial tcp … i/o timeout`）直接丟資料，不重試，`retry` 只管 HTTP 狀態碼。log、metrics 本來就走這個元件所以本來就掉；trace 以前走 `loadbalancing` 到 sampler，那一段自己無限重試、佇列在節點磁碟，所以不掉。trace 改直寫後繼承了同一個弱點。要處理得讓 ES 元件對連線錯誤也重試（對 log 一起有效），或讓 trace 回到有重試的出口；還沒做。
