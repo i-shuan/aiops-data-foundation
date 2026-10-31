@@ -1,0 +1,15 @@
+# rca-demo（e2e/k8s/rca-demo/run-rca-demo.sh）：不登入可看、首頁是 demo 儀表板、LoadBalancer 開在本機 3300。
+# 測試機連不到 Nexus，外掛不裝（回饋表單儀表板載入時會顯示找不到面板，不影響告警與 demo 儀表板）
+image: docker.io/grafana/grafana:13.0.7
+service:
+  # k3s 的 servicelb 開在節點上，Rancher Desktop 對應到本機 localhost:3300。
+  # 不用 kubectl port-forward：Windows 上 Grafana 前端同時抓很多檔，port-forward 會逾時、面板卡在 Loading
+  type: LoadBalancer
+  port: 3300
+anonymousViewer: true
+homeDashboard: /etc/grafana/provisioning/dashboards/aiops/rca-demo.json
+plugin:
+  enabled: false
+resources:
+  requests: {cpu: 100m, memory: 256Mi}
+  limits: {memory: 512Mi}

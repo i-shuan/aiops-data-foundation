@@ -1,0 +1,59 @@
+# 部署前要先有：
+#   1. image：cd aiops-engine/code && docker build -t <nexus>/aiops-engine:<tag> .（下面 image 換成實際路徑）
+#   2. Secret（手動建，不進 git）：
+#        kubectl -n aiops create secret generic aiops-secrets \
+#          --from-literal=ES_API_KEY=<elasticsearch-setup.sh 發的「AIOps baseline key」> \
+#          --from-literal=LLM_API_KEY=<沒有就給空字串>
+#   3. esUrl 改成實際值；llmProvider 沒有模型就留 template
+#   4. 設定檔要跟 image 裡的不一樣時用 configOverrides（--set-file configOverrides.baseline.series=aiops-engine/code/configs/baseline/series.yaml）
+#
+# 先只寫入、不通知：Grafana 那邊先不設 contact point（或 policies 全送到一個沒人看的 webhook），跑 2～4 週，
+# 用 python3 -m detector metrics --from … --to … 記下基準，再開通知。
+image:
+  repository: nexus.example.internal/aiops/aiops-engine
+  tag: 0.1.0
+
+esUrl: https://elasticsearch.example.internal:9200
+llmProvider: template          # template（不叫模型）／anthropic／openai；anthropic 要再給 LLM_CHAT_MODEL、ANTHROPIC_BASE_URL
+tz: Asia/Taipei
+secret: aiops-secrets          # ES_API_KEY、LLM_API_KEY
+
+configOverrides: {}            # {baseline: {series: <內容>}} → 掛在 /app/configs/baseline/series.yaml 蓋掉 image 裡的
+
+# 每個指令一個 CronJob。第一階段只開 stage 1 的 4 個（rules、detect、alert、train）：能跑通「告警 → 回饋 → 調門檻」這一圈的
+# 最少集合，偵測來源少，第一個月誤報來了容易知道是哪裡出的；四個在真實資料上跑穩、看過一輪誤報再開 stage 2。
+# 共同點：concurrencyPolicy Forbid（上一次沒跑完就跳過這次）、startingDeadlineSeconds（錯過就不補跑）、
+#         activeDeadlineSeconds（卡住就砍）、只留最近 1 次成功、3 次失敗的 Pod；時區跟著 tz。
+# 失敗重試：每 1～10 分鐘的 backoffLimit 0（下一輪就是重試）；每天、每週的 backoffLimit 2（不然要等明天、下週）。
+stage2: false
+jobs:
+  - {name: rules,  stage: 1, schedule: "* * * * *",    deadline: 50,  args: [detector, rules, --config, configs/baseline/rules.yaml],
+     why: "狀態變化（容器重啟、錯誤率 5%、p95 2 秒保底…）要快"}
+  - {name: detect, stage: 1, schedule: "* * * * *",    deadline: 50,  args: [detector, detect, --config, configs/baseline/series.yaml, --window, 10m],
+     why: "每分鐘看最近 10 分鐘；同一筆重跑會覆蓋"}
+  # alert：一件新的 = 根因分析（幾秒）＋ LLM（真的模型最多 60 秒逾時）；一輪可能好幾件新的，給 10 分鐘。
+  # Forbid 會擋住下一分鐘的，所以跑久一點只是晚一點，被砍才是什麼都沒寫（連心跳都沒有）
+  - {name: alert,  stage: 1, schedule: "* * * * *",    deadline: 600, args: [investigator, alert, --config, configs/rca/rca.yaml],
+     why: "合成一件、根因分析、相似事故、LLM、心跳"}
+  - {name: train,  stage: 1, schedule: "0 2 * * *",    deadline: 3600, memory: 4Gi, args: [detector, train, --config, configs/baseline/series.yaml],
+     why: "每天學過去 4 週"}
+  - {name: peer,          stage: 2, schedule: "*/5 * * * *",  deadline: 240, args: [detector, peer, --config, configs/baseline/peer.yaml], why: "Pod 同儕橫向比對看最近 10 分鐘"}
+  - {name: trace-collect, stage: 2, schedule: "*/5 * * * *",  deadline: 240, args: [detector, trace-collect, --config, configs/baseline/trace.yaml], why: "trace 每一段的量"}
+  - {name: trace-detect,  stage: 2, schedule: "*/5 * * * *",  deadline: 240, args: [detector, trace-detect, --config, configs/baseline/trace.yaml, --window, 10m], why: "trace 每一段跟 baseline 比"}
+  - {name: quality,       stage: 2, schedule: "*/10 * * * *", deadline: 500, args: [detector, quality, --config, configs/baseline/quality.yaml], why: "資料品質"}
+  - {name: trace-train,   stage: 2, schedule: "20 2 * * *",   deadline: 3600, memory: 4Gi, args: [detector, trace-train, --config, configs/baseline/trace.yaml], why: "每天學 trace 每一段"}
+  - {name: chronic,       stage: 2, schedule: "0 8 * * 1",    deadline: 1800, args: [detector, chronic, --config, configs/baseline/chronic.yaml], why: "每週一的慢性病清單"}
+jobResources:
+  requests: {cpu: 100m, memory: 512Mi}
+  memoryLimit: 1Gi               # 單一工作沒寫 memory 時的上限
+
+# 老師傅的回饋入口（feedback_web）：通知裡的連結點進來填。rca.yaml 的 alerts.feedback_url、report_url 填這個 Service 的網址：
+#   feedback_url: http://aiops-feedback.aiops.svc:8080/feedback?alert={alert_id}
+# 要讓人從公司網路點得到：再加 Ingress（或 NodePort）指到這個 Service；表單沒有登入，放內網就好
+feedback:
+  enabled: true
+  port: 8080
+  corsOrigin: https://grafana.example.internal    # Grafana 儀表板的回饋表單從瀏覽器直接打 /api/*：填 Grafana 的網址（逗號分隔；不用就留空）
+  resources:
+    requests: {cpu: 50m, memory: 128Mi}
+    limits: {memory: 512Mi}

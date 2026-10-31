@@ -13,7 +13,7 @@
 5. trace-sampler 等 30 秒再決定，並記下是哪條規則留的。
 6. 用集中式資料寫入憑證 (Shared Ingest Token) 寫入，每個 group 一個資料流。AIOps 用唯讀 key 讀，人用各 group 的唯讀角色。
 
-規則、台數、等待時間、隨機比例都在 `telemetry/collectors/`。log、metrics 走同一個 Collector，部門與 key 的規則共用。
+規則、台數、等待時間、隨機比例都在 `collector/code/`。log、metrics 走同一個 Collector，部門與 key 的規則共用。
 
 ## 關鍵決定與原因
 
@@ -44,7 +44,7 @@
 
 用 app-common chart 並開 Java agent 或 .NET 自動埋點的開關，送出位址與取樣設定由 chart 設好；沒用 chart 的服務自己設這些環境變數。手動埋點的時機與寫法見 [埋點指引](../../sdk/standards/tracing.md)。中央 ES 重跑 `elasticsearch-setup.sh`，新 key 才有 trace 資料流的權限。
 
-驗證指令：`e2e/local-k3s/run-trace-e2e.sh`。23 項檢查涵蓋各 namespace 分流、應用自稱別的部門仍歸真實 namespace、欄位、與 log 互查、同一個 span 送 3 次只存 1 筆、各角色的讀寫權限。問題排除見 [疑難排解](../troubleshooting.md)。
+驗證指令：`e2e/k8s/run-trace-e2e.sh`。23 項檢查涵蓋各 namespace 分流、應用自稱別的部門仍歸真實 namespace、欄位、與 log 互查、同一個 span 送 3 次只存 1 筆、各角色的讀寫權限。問題排除見 [疑難排解](../troubleshooting.md)。
 
 ## 六個場景
 

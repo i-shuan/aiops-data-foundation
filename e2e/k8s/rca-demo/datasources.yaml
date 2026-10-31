@@ -1,0 +1,32 @@
+# 儀表板用的 ES data source（告警用的 aiops-alerts 在 grafana/code/datasource.yaml，跟正式一樣）。
+# key 是 run-rca-demo.sh 發的「儀表板唯讀 key」：cluster monitor，讀 metrics、trace、log、aiops-alerts。
+apiVersion: 1
+datasources:
+  - name: metrics
+    uid: demo-metrics
+    type: elasticsearch
+    access: proxy
+    url: ${ES_URL}
+    jsonData: {index: "metrics-*.otel-*", timeField: "@timestamp", httpHeaderName1: Authorization}
+    secureJsonData: {httpHeaderValue1: "ApiKey ${GRAFANA_DEMO_API_KEY}"}
+  - name: traces
+    uid: demo-traces
+    type: elasticsearch
+    access: proxy
+    url: ${ES_URL}
+    jsonData: {index: "traces-*.otel-*", timeField: "@timestamp", httpHeaderName1: Authorization}
+    secureJsonData: {httpHeaderValue1: "ApiKey ${GRAFANA_DEMO_API_KEY}"}
+  - name: logs
+    uid: demo-logs
+    type: elasticsearch
+    access: proxy
+    url: ${ES_URL}
+    jsonData: {index: "k8s-*", timeField: "@timestamp", httpHeaderName1: Authorization, logMessageField: message, logLevelField: log.level}
+    secureJsonData: {httpHeaderValue1: "ApiKey ${GRAFANA_DEMO_API_KEY}"}
+  - name: aiops-alerts-demo
+    uid: demo-alerts
+    type: elasticsearch
+    access: proxy
+    url: ${ES_URL}
+    jsonData: {index: "aiops-alerts", timeField: "@timestamp", httpHeaderName1: Authorization, logMessageField: report, logLevelField: severity}
+    secureJsonData: {httpHeaderValue1: "ApiKey ${GRAFANA_DEMO_API_KEY}"}

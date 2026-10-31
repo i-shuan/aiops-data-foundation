@@ -1,0 +1,58 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: otel-cluster-collector
+  labels:
+    app.kubernetes.io/name: otel-cluster-collector
+spec:
+  replicas: 1          # 一定要 1，多一個每筆就重複一份
+  strategy:
+    type: Recreate     # 換版時先停舊的，避免新舊同時跑造成重複
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: otel-cluster-collector
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: otel-cluster-collector
+      annotations:
+        {{- include "collector.checksums" . | nindent 8 }}
+    spec:
+      serviceAccountName: otel-collector
+      containers:
+        - name: otelcol
+          image: {{ include "collector.image" . }}
+          args:
+            - --config=/conf/common.yaml
+            - --config=/conf/cluster.yaml
+          envFrom:
+            - configMapRef:
+                name: otel-collector-env
+          env:
+            - name: K8S_NODE_NAME
+              valueFrom: {fieldRef: {fieldPath: spec.nodeName}}
+            - name: K8S_NODE_IP
+              valueFrom: {fieldRef: {fieldPath: status.hostIP}}
+          ports:
+            - {name: health, containerPort: 13133}
+            - {name: metrics, containerPort: 8888}   # Collector 自己的狀態：佇列長度、送出失敗數
+          livenessProbe:
+            httpGet: {path: /, port: health}
+          readinessProbe:
+            httpGet: {path: /, port: health}
+          securityContext:
+            runAsUser: 0          # 要寫節點上的佇列目錄
+          resources:
+            {{- toYaml .Values.cluster.resources | nindent 12 }}
+          volumeMounts:
+            - {name: config, mountPath: /conf}
+            - {name: queue, mountPath: /var/lib/otelcol}
+            - {name: es-keys, mountPath: /etc/es-keys, readOnly: true}
+      volumes:
+        - name: es-keys
+          secret: {secretName: {{ .Values.esWriterSecret }}}
+        - name: config
+          configMap: {name: otel-collector-config}
+        # 佇列放在節點上：Pod 重建、ES 暫時連不上都不會掉資料
+        - name: queue
+          hostPath: {path: {{ .Values.cluster.queueHostPath }}, type: DirectoryOrCreate}

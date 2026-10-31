@@ -1,0 +1,10 @@
+# 本機測試（e2e/k8s）：ES 是同一個 cluster 裡的 es-test；trace 全部留、等 5 秒，其他 e2e 的 trace 數量、時間跟以前一樣。
+# 尾端取樣本身的實測（e2e/k8s/tail-sampling）每一輪自己 --set traceSampler.randomPct、decisionWait。
+clusterName: local
+esEndpoint: http://elasticsearch.es-test.svc:9200
+ntpServer: pool.ntp.org:123                               # 測試機要能連外；不能的話換成區網的 NTP
+image:
+  repository: docker.io/otel/opentelemetry-collector-contrib
+traceSampler:
+  decisionWait: 5s
+  randomPct: "100"

@@ -1,9 +1,9 @@
-# log 的時間比 span 早／晚 10 分鐘時，investigator 依 trace_id 撈 log（engine/investigator/es.py logs_of_traces）撈不撈得到
+# log 的時間比 span 早／晚 10 分鐘時，investigator 依 trace_id 撈 log（aiops-engine/code/investigator/es.py logs_of_traces）撈不撈得到
 # （docs/pdca/phase1-collect/2026-10-log-trace-bind.md）。三筆同 trace_id 的 log 經 k8s-logs-otel 寫進 ES：
 # 跟 span 同時、早 10 分鐘、晚 10 分鐘；用 investigator 的事故窗（± 5 分鐘）撈，三筆都要撈到。
 # 不需要 K8s，只要連得到裝好 pipeline 的 ES（會寫進 k8s-it-c1）。
 #
-# 用法：ES_URL=http://<ip>:9200 ES_AUTH=elastic:<password> engine/.venv/Scripts/python e2e/pipeline/run-log-trace-skew.py
+# 用法：ES_URL=http://<ip>:9200 ES_AUTH=elastic:<password> aiops-engine/code/.venv/Scripts/python e2e/pipeline/run-log-trace-skew.py
 import datetime as dt, json, os, pathlib, sys
 
 import requests

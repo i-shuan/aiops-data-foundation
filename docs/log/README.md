@@ -44,8 +44,8 @@ key 失效時資料留在送出佇列：`retry_on_status` 含 401，重試到 ke
 - 從 Fluent Bit 換過來：先確認新收集器的資料已進來，再移除 Fluent Bit。並行期間每行會有兩筆。
 - 宣告格式：用 app-common chart 的服務填 `logFormat`，其他服務自己加 pod label。可以先宣告，之後再補規則，這段期間 log 照收、原文完整，只是沒拆欄位。
 - 新增一種格式：
-  1. 在 `telemetry/storage/formats/` 加規則檔，第一步設 `log.parser`，解析失敗要保留原文。
-  2. 在 `e2e/local-k3s/` 加輸出該格式的測試服務，並跑 端到端腳本驗證。
+  1. 在 `elasticsearch/code/storage/formats/` 加規則檔，第一步設 `log.parser`，解析失敗要保留原文。
+  2. 在 `e2e/k8s/` 加輸出該格式的測試服務，並跑 端到端腳本驗證。
   3. 重跑中央的安裝腳本，各 cluster 的 Collector 不用動。
   4. 服務填 `logFormat`。
 

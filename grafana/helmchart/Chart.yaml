@@ -1,0 +1,6 @@
+apiVersion: v2
+name: grafana
+description: 中央 Grafana：讀 aiops-alerts 依部門發通知、儀表板、回饋表單外掛（initContainer 從 Nexus 裝）。provisioning 的檔在 ../code/，用 --set-file 帶進來
+type: application
+version: 0.1.0
+appVersion: "13.0.7"

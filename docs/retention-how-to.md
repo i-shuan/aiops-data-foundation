@@ -4,7 +4,7 @@
 
 怎麼套用、怎麼改。
 
-## 怎麼做的（[telemetry/scripts/elasticsearch-setup.sh](../telemetry/scripts/elasticsearch-setup.sh)）
+## 怎麼做的（[elasticsearch/code/scripts/elasticsearch-setup.sh](../elasticsearch/code/scripts/elasticsearch-setup.sh)）
 
 | 項目 | 做法 |
 |---|---|

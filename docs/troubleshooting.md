@@ -8,12 +8,12 @@
 
 | 症狀 | 原因 | 做法 |
 |---|---|---|
-| key 作廢或打錯期間，資料一直送不進去 | 出口（`elasticsearch` 寫入元件）的 `retry_on_status` 含 401（為了 ES 剛起來那一秒多），key 錯也會一直重試，資料留在佇列；佇列滿了才丟 | 換 key 一律用 `telemetry/scripts/rotate-writer-key.sh`（先發新的、換進 Secret、Collector 換用後才作廢舊的；Collector 從檔案讀 key，不用重啟）。監控 Collector `:8888/metrics` 的 `otelcol_exporter_send_failed_metric_points`、`otelcol_exporter_send_failed_log_records`，大於 0 就是有資料被丟 |
+| key 作廢或打錯期間，資料一直送不進去 | 出口（`elasticsearch` 寫入元件）的 `retry_on_status` 含 401（為了 ES 剛起來那一秒多），key 錯也會一直重試，資料留在佇列；佇列滿了才丟 | 換 key 一律用 `elasticsearch/code/scripts/rotate-writer-key.sh`（先發新的、換進 Secret、Collector 換用後才作廢舊的；Collector 從檔案讀 key，不用重啟）。監控 Collector `:8888/metrics` 的 `otelcol_exporter_send_failed_metric_points`、`otelcol_exporter_send_failed_log_records`，大於 0 就是有資料被丟 |
 | ES 限流（429）時資料晚到好幾分鐘 | ES 對整個請求回 429，Collector 退避重試（最多 30 秒一次） | 不會掉（實測每秒 3,000 行、ES 拒絕 902 次，掉 0）；只是晚到 |
 | Collector log 出現 `Partial success ... dropped` | ES 拒收其中幾筆（例如欄位型別衝突，400），那幾筆丟掉 | 監控這行。`CONFLICT`（409）是重送的被 `_id` 擋掉，屬於正常去重複，不算遺失 |
 | ES 停機那一刻前後約 10 秒的資料不見 | ES 的 IP 消失、連線變成送出去沒人理（`dial tcp … i/o timeout`），`elasticsearch` 寫入元件這種逾時不重試 | ES 前面放 LB／VIP＋健康檢查，主機掛掉時回拒絕或 503（[metrics/README.md](metrics/README.md)） |
 | 兩個 cluster 的資料混在一起 | `CLUSTER_NAME` 沒改（它是每筆的 `k8s.cluster.name`，metrics 的資料流名稱裡沒有它） | 每個 cluster 部署時一定要改 |
-| 改了部門，資料還進舊的 group | dept 清單有兩處：`telemetry/groups.yaml` 和 `common.yaml` 的 `transform/group` | 兩處一起改。改 namespace 的 `dept` label 後 0～3 秒生效，五種資料同時切；Prometheus 要等下一次抓（最多 30 秒） |
+| 改了部門，資料還進舊的 group | dept 清單有兩處：`collector/code/groups.yaml` 和 `common.yaml` 的 `transform/group` | 兩處一起改。改 namespace 的 `dept` label 後 0～3 秒生效，五種資料同時切；Prometheus 要等下一次抓（最多 30 秒） |
 | 平台元件（kube-system 等）的資料在 unassigned | 這些 namespace 沒有 `dept` | 正常，跟 metrics 的兜底 tenant 同義 |
 | Collector 被 OOM 或 kill -9 之後，少了最後約 1 秒的 log、trace | `batch` processor 在磁碟佇列前面、在記憶體裡；交給它時讀檔位置已經往前 | 不用 `batch` processor，在出口佇列裡湊批（`common.yaml` 的 `sending_queue.batch`，已改）。實測修正後 kill -9 掉 0～40 行（最多 0.2 秒） |
 | node Collector 停的期間 trace 變少，Collector 沒有錯誤 | 應用的 SDK 連不上就重試 5 次（約 8 秒）後自己丟，Collector 收不到 | 換版、維護排離峰；node Collector 停 30 秒、每秒 20 個 trace 時應用端丟約 530 個 |
@@ -83,7 +83,7 @@
 | .NET 8 沒有例外種類 | .NET 8 只有例外總數 | .NET 8 看「例外暴增」（5 分鐘 ≥ 500 次） |
 | .NET 8 和 9 的規則互不適用 | runtime 指標名稱、維度完全不同（`process.runtime.dotnet.*` vs `dotnet.*`） | 規則分兩套：`dotnet8.*`、`dotnet.*`；HTTP、連線池兩版同名 |
 | 刪掉的 Pod 還一直報 | 計數類規則對已刪的 Pod 照算 | 最新資料超過 2 分鐘就不報；只有容器重啟、Job 失敗照報（`report_gone`） |
-| 測試環境編譯失敗 | NuGet 經過會重簽憑證的 proxy | 測試時信任 proxy 的 CA（`e2e/local-k3s/dotnet-app.yaml`）；正式環境 image 先建好 |
+| 測試環境編譯失敗 | NuGet 經過會重簽憑證的 proxy | 測試時信任 proxy 的 CA（`e2e/k8s/dotnet-app.yaml`）；正式環境 image 先建好 |
 
 ## Elasticsearch
 
@@ -97,9 +97,9 @@
 
 | 症狀 | 原因 | 做法 |
 |---|---|---|
-| 規則狀態 Error，ES 回 400 | Grafana 的 terms 預設用 `_term` 排序，ES 不認得（實測 9.5；8.19 也已不支援 `_term`） | 每個 terms 都寫 `orderBy: _count`（`engine/configs/grafana/alert-rules.yaml` 已寫） |
+| 規則狀態 Error，ES 回 400 | Grafana 的 terms 預設用 `_term` 排序，ES 不認得（實測 9.5；8.19 也已不支援 `_term`） | 每個 terms 都寫 `orderBy: _count`（`grafana/code/alert-rules.yaml` 已寫） |
 | data source 測試回 403 | Grafana 會先打 `GET /` 看版本 | key 要有 cluster `monitor` 權限（`elasticsearch-setup.sh` 的 Grafana 唯讀 key 已給） |
-| 同一件事每分鐘收到「舊的 resolved＋新的 firing」 | `summary` 是告警的 label，內容一變就是另一則 | engine 寫的 summary 不放「持續 N 分鐘」「等 N 項異常」這種每分鐘會變的字（`engine/investigator/alerts.py`） |
+| 同一件事每分鐘收到「舊的 resolved＋新的 firing」 | `summary` 是告警的 label，內容一變就是另一則 | engine 寫的 summary 不放「持續 N 分鐘」「等 N 項異常」這種每分鐘會變的字（`aiops-engine/code/investigator/alerts.py`） |
 | 件還開著，Grafana 卻發 resolved，之後又 firing | 一件只有一筆、每輪覆蓋；Grafana 的查詢範圍到「排定的評估時間」為止，查詢晚幾秒才送出。覆蓋剛好落在這幾秒之間時，`@timestamp` 晚於範圍結束點，查到 0 筆 | engine 寫開著的件和心跳時，`@timestamp` 往前 1 分鐘（`cmd_alert.STAMP_LAG`）。驗證：`e2e/pipeline/run-alert-flap.py` |
 | ES 連不上時收到 `DatasourceError`，不是「AIOps 停了」，而且一次兩則 | 規則 `execErrState: Error` 時 Grafana 發自己的 DatasourceError；兩條規則各發一則 | 要它也叫「AIOps 停了」就把心跳規則改 `execErrState: Alerting`；事件規則的 DatasourceError 用 notification policy 靜音（還沒改，要跟管 Grafana 的人定） |
 | 儀表板查 `_exists_:report` 永遠沒資料 | `aiops-alerts` 的 `report` 是 `index: false` | 用 `category:service` 篩 |
@@ -118,7 +118,7 @@
 | 擴容時舊 Pod 被報「記憶體比其他 Pod 高很多」 | 新 Pod 比舊 Pod 多、記憶體還在長，中位數被新 Pod 拉低 | 同上 `warmup`；heap 長得比 5 分鐘久的服務調長 `warmup`（要比 `window` 短） |
 | 全部 Pod 都壞，同儕比對卻只報最嚴重的一個 | 只看「比其他 Pod 高多少」，沒看其他 Pod 本身壞了 | `max_peer_median`：其他 Pod 中位數到規則門檻（5%、2 秒）就不挑，交給規則 |
 | 2 個副本的服務壞了一個，同儕比對不報 | `min_peers: 3`：2 個分不出誰怪 | 正常；看規則 `http.error_rate_floor`、baseline |
-| 根因報告的「平常」數字跟出事時差不多（例如平常 p95 也是 1.5 秒） | 一週前沒資料時，「平常」改用出事前一段、中間空 `ref_gap`；偵測比事故晚約 4 分鐘，`ref_gap` 太短就包到事故 | `ref_gap` 要大於偵測延遲；正式設定 10 分鐘（`engine/configs/rca/rca.yaml`） |
+| 根因報告的「平常」數字跟出事時差不多（例如平常 p95 也是 1.5 秒） | 一週前沒資料時，「平常」改用出事前一段、中間空 `ref_gap`；偵測比事故晚約 4 分鐘，`ref_gap` 太短就包到事故 | `ref_gap` 要大於偵測延遲；正式設定 10 分鐘（`aiops-engine/code/configs/rca/rca.yaml`） |
 | `quality` 中斷：`bulk 寫入 aiops-anomalies 失敗 ... Non-standard token 'NaN'` | 缺欄位那組（例如 log 沒有 namespace）的 key 被 pandas 3 變成 NaN | 已修（`quality._frame`）；舊版這一輪的結果全沒寫 |
 | trace 有 N+1，`trace.segment.repeated` 沒報、反而報一個沒有「→」的新段 | DB span 只有新版 `db.system.name`，段名沒有對象 | 已補這個欄位；Client span 什麼對象欄位都沒有的仍看不到 |
 | 程式 catch 掉 DB 例外、回 200，`trace.segment.swallowed` 沒報 | Java agent 會把丟例外的那段標成錯誤，舊定義只算沒標錯誤的 | 已改：入口沒標錯誤就算吞掉（已決定維持；重試後成功也會算，另外排除留到下一輪） |
@@ -140,7 +140,7 @@
 
 | 症狀 | 原因 | 做法 |
 |---|---|---|
-| `python` 沒有任何輸出 | 那是 Windows Store 的殼 | 用 `py`，或 `engine/.venv/Scripts/python` |
+| `python` 沒有任何輸出 | 那是 Windows Store 的殼 | 用 `py`，或 `aiops-engine/code/.venv/Scripts/python` |
 | `GrafanaPluginInit` 3 個測試失敗：`NoneType is not a container` | 子程序輸出用 cp950 解碼失敗 | `PYTHONUTF8=1` |
 | 加了 `PYTHONUTF8=1` 中文還是亂碼 | `python -I` 會忽略所有 `PYTHON*` 環境變數 | 用 `-X utf8` |
 | `wsl -d rancher-desktop -- sh -c '...'` 報 `syntax error: unexpected word` | wsl 把參數再交給 shell 解析一次，引號、`$( )` 會壞掉 | 指令從 stdin 給 `wsl -d rancher-desktop -- sh -s`（`run-durability.sh` 的 `on_node`） |
@@ -164,7 +164,7 @@
 | `KUBECONFIG` 有設，kubectl 卻連 `localhost:8080` | 腳本那行有 `MSYS_NO_PATHCONV=1`，`/c/...` 的路徑沒被轉換 | `KUBECONFIG` 用 `C:/...`（`cygpath -m`） |
 | curl 報 `URL rejected: Malformed input`，`elasticsearch-setup.sh` 中斷 | winget 的 jq 輸出 CRLF，變數尾巴帶 `\r` | PATH 前面放一個 `jq -b "$@"` 的小腳本（`-b`：不轉 CRLF） |
 | `run-trace-e2e.sh` 的 trace-app 一直 CrashLoopBackOff | `trace-app.sh` 是 CRLF，ConfigMap 原樣建 | 跑之前把 `trace-app.sh` 轉 LF（`tr -d '\r'`），跑完 `git checkout` 還原 |
-| 內建瀏覽器裡 Grafana 面板一直 Loading | 瀏覽器 pane 隱藏時頁面在背景，載不完 | 用 `e2e/local-k3s/rca-demo/shot.py`（headless Edge）截圖 |
+| 內建瀏覽器裡 Grafana 面板一直 Loading | 瀏覽器 pane 隱藏時頁面在背景，載不完 | 用 `e2e/k8s/rca-demo/shot.py`（headless Edge）截圖 |
 | 測試 ES 寫 cluster state 要 10～30 秒、連線常被重設（WinError 10054），最後 nerdctl、kubectl 都卡住 | 好幾個代理各起一個 ES 加共用 cluster，WSL 記憶體不夠 | 同時最多 2 個測試 ES：起之前 `es_slot_take`，用完刪容器、`es_slot_release` |
 | 合成 log 寫進 `k8s-*` 後服務、namespace 都是 null | log pipeline 吃的是 Fluent Bit 的樣子 | 原文放 `log`，K8s 放 `kubernetes.namespace_name`、`pod_name`、`labels`（`trace_quality_edge_e2e.py` 的 `log()`） |
 | 平台頻道一直收到「主機時鐘偏移」「容器記憶體快到上限」 | WSL 時鐘偏移約 0.2 秒；測試 ES 的記憶體用到 92～98% | 這台機器的狀況，規則本來就該報；跟測的事故無關 |

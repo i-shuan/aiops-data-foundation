@@ -127,17 +127,17 @@ def check_terms(files: list[Path]) -> list[str]:
     return bad
 
 
-# docs/ 以外也要標類型的（已經依 Diátaxis 拆開的）：engine/configs/baseline/ 底下全部
+# docs/ 以外也要標類型的（已經依 Diátaxis 拆開的）：aiops-engine/code/configs/baseline/ 底下全部
 TYPED_EXTRA: tuple[str, ...] = ()
 TYPES = ("原理 Explanation", "操作 How-To", "規格 Reference", "案例 Cases")
 
 
 def check_types(files: list[Path]) -> list[str]:
-    """共用文件（docs/ 底下、不含 PDCA 紀錄與索引；以及 engine/configs/baseline/）開頭要有 `> **類型：原理 Explanation**` 這一行（Diátaxis：每份只做一種事）。"""
+    """共用文件（docs/ 底下、不含 PDCA 紀錄與索引；以及 aiops-engine/code/configs/baseline/）開頭要有 `> **類型：原理 Explanation**` 這一行（Diátaxis：每份只做一種事）。"""
     bad = []
     for f in files:
         rel = f.relative_to(ROOT).as_posix()
-        typed = (rel.startswith("docs/") and not rel.startswith("docs/pdca/") and rel != "docs/README.md") or rel in TYPED_EXTRA or rel.startswith("engine/configs/baseline/")
+        typed = (rel.startswith("docs/") and not rel.startswith("docs/pdca/") and rel != "docs/README.md") or rel in TYPED_EXTRA or rel.startswith("aiops-engine/code/configs/baseline/")
         if not typed:
             continue
         head = f.read_text(encoding="utf-8").split("\n")[:8]

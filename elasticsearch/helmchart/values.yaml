@@ -1,0 +1,21 @@
+# 測試用的 ES。開了 security（API key 要靠它），但 HTTP 不走 TLS，省掉憑證。
+# 裝好之後跑 elasticsearch/code/scripts/elasticsearch-setup.sh 建結構、發 key（見 ../README.md）。
+image: docker.io/library/elasticsearch:8.19.23
+password: changeme-test-only                               # elastic 帳號；Secret es-elastic
+replicas: 1
+javaOpts: "-Xms1g -Xmx1g"
+resources:
+  requests: {cpu: 500m, memory: 2Gi}
+  limits: {memory: 2Gi}
+storage: 10Gi                                              # 掛硬碟：停機測試要 ES 重啟後資料還在
+storageClassName: local-path
+# 健康檢查用 API key 打 GET /（ES 剛起來的 1 秒多 /_cluster/health 已經 200、API key 卻 401，Collector 收到 401 會丟資料；
+# docs/pdca/phase1-collect/2026-10-es-startup-401.md）。setup 之後才有這個 Secret，沒有時退回 /_cluster/health
+probeKeySecret: es-probe-key
+
+# 兩節點（run-es-2node.sh up）：測試機可開檔案數不足，transport 只綁 127.0.0.1、由同一個 Pod 的 socat 轉給另一個 Pod。
+# 正式環境把可開檔案數設到 65535 以上，不需要這段；憑證由腳本產生成 Secret
+twoNode:
+  enabled: false
+  certsSecret: es-transport-certs
+  socatImage: docker.io/alpine/socat:1.8.0.3
