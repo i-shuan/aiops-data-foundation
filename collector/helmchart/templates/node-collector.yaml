@@ -1,0 +1,79 @@
+# 應用送 trace 的入口。internalTrafficPolicy: Local：只連到同一個節點上的 Collector，
+# 這樣 Collector 才能用連線的來源 IP 對到是哪個 Pod（它只認得自己節點上的 Pod），也不用跨節點。
+apiVersion: v1
+kind: Service
+metadata:
+  name: otel-node-collector
+spec:
+  selector:
+    app.kubernetes.io/name: otel-node-collector
+  internalTrafficPolicy: Local
+  ports:
+    - {name: otlp-grpc, port: 4317, targetPort: otlp-grpc}
+    - {name: otlp-http, port: 4318, targetPort: otlp-http}
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: otel-node-collector
+  labels:
+    app.kubernetes.io/name: otel-node-collector
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: otel-node-collector
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: otel-node-collector
+      annotations:
+        {{- include "collector.checksums" . | nindent 8 }}
+    spec:
+      serviceAccountName: otel-collector
+      tolerations:
+        - operator: Exists    # 每個節點都要收，包含 control plane
+      containers:
+        - name: otelcol
+          image: {{ include "collector.image" . }}
+          args:
+            - --config=/conf/common.yaml
+            - --config=/conf/node.yaml
+          envFrom:
+            - configMapRef:
+                name: otel-collector-env
+          env:
+            - name: K8S_NODE_NAME
+              valueFrom: {fieldRef: {fieldPath: spec.nodeName}}
+            - name: K8S_NODE_IP
+              valueFrom: {fieldRef: {fieldPath: status.hostIP}}
+          ports:
+            - {name: health, containerPort: 13133}
+            - {name: otlp-grpc, containerPort: 4317}   # 應用送 trace 進來
+            - {name: otlp-http, containerPort: 4318}
+            - {name: metrics, containerPort: 8888}   # Collector 自己的狀態：佇列長度、送出失敗數
+          livenessProbe:
+            httpGet: {path: /, port: health}
+          readinessProbe:
+            httpGet: {path: /, port: health}
+          securityContext:
+            runAsUser: 0          # 要讀節點上的 log 檔、寫佇列目錄
+          resources:
+            {{- toYaml .Values.node.resources | nindent 12 }}
+          volumeMounts:
+            - {name: config, mountPath: /conf}
+            - {name: queue, mountPath: /var/lib/otelcol}
+            # 寫入 key（ES_WRITER_API_KEY，所有 group 共用一把）。Secret 改了，K8s 約 1 分鐘內更新檔案，
+            # Collector 偵測到就換用新 key，不用重啟（common.yaml 的 bearertokenauth）
+            - {name: es-keys, mountPath: /etc/es-keys, readOnly: true}
+            - {name: pods, mountPath: /var/log/pods, readOnly: true}
+      volumes:
+        - name: es-keys
+          secret: {secretName: {{ .Values.esWriterSecret }}}
+        - name: config
+          configMap: {name: otel-collector-config}
+        # 佇列放在節點上：Pod 重建、ES 暫時連不上都不會掉資料
+        - name: queue
+          hostPath: {path: {{ .Values.node.queueHostPath }}, type: DirectoryOrCreate}
+        # 容器的 log
+        - name: pods
+          hostPath: {path: /var/log/pods}

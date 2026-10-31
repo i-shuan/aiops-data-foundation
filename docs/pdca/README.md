@@ -12,7 +12,7 @@ PDCA 的意思：**Plan** 定規則與門檻 → **Do** 收值、判斷、報告
 
 | 項目 | 狀態 | 細節 |
 |---|---|---|
-| ④ 判斷設定：序列、粒度、z、`min_abs`、規則門檻 | ✅ | [engine/configs/baseline](../../engine/configs/baseline/README.md)（`series.yaml`、`rules.yaml`、`peer.yaml`、`trace.yaml`） |
+| ④ 判斷設定：序列、粒度、z、`min_abs`、規則門檻 | ✅ | [engine/configs/baseline](../../aiops-engine/code/configs/baseline/README.md)（`series.yaml`、`rules.yaml`、`peer.yaml`、`trace.yaml`） |
 | ⑨ 上線前記下基準（每天告警幾筆、誤報多少、從告警到回饋多久） | ⚠️ `metrics` 指令有了，數字要等試點 | [phase5-learning-loop/2026-10-metrics-kpi.md](phase5-learning-loop/2026-10-metrics-kpi.md) |
 | ④ 用真實資料校正門檻 | 📝 要先排程跑 2～4 週 | [rca/](../rca/README.md) |
 | ② 歸屬放哪裡（讀 namespace 的 `dept`，或改成 app → group 中央清單）、app 名稱是否全公司唯一 | 未定案 | [README「還沒定案的」](../../README.md#還沒定案的) |
@@ -24,8 +24,8 @@ PDCA 的意思：**Plan** 定規則與門檻 → **Do** 收值、判斷、報告
 | 項目 | 狀態 | 細節 |
 |---|---|---|
 | ①②③ 收值（log、metrics、trace、尾端取樣）、清資料、存 | ✅ | [log](../log/README.md)、[metrics](../metrics/README.md)、[trace](../trace/README.md) |
-| ④ 判斷：靜態臨界值規則 (Static Threshold Rules)、動態基準線學習 (Dynamic Baseline Learning)、Pod 同儕橫向比對 (Peer Comparison)、trace 每一段 | ✅ | [engine/configs/baseline](../../engine/configs/baseline/README.md) |
-| ⑦ 根因分析：metrics → trace → log | ✅ | [engine/configs/rca](../../engine/configs/rca/README.md) |
+| ④ 判斷：靜態臨界值規則 (Static Threshold Rules)、動態基準線學習 (Dynamic Baseline Learning)、Pod 同儕橫向比對 (Peer Comparison)、trace 每一段 | ✅ | [engine/configs/baseline](../../aiops-engine/code/configs/baseline/README.md) |
+| ⑦ 根因分析：metrics → trace → log | ✅ | [engine/configs/rca](../../aiops-engine/code/configs/rca/README.md) |
 | ④ **正式環境排程**（train 每天、detect 每 30 秒、rules 與 peer 每分鐘） | ⚠️ 程式好了，沒部署 | [rca/](../rca/README.md) |
 | 已完成部分的小尾巴：② 統一指標名稱（metrics）、② 統一欄位路徑（log）（① trace-sampler 磁碟佇列已做） | ⚠️ | 各資料夾 README 開頭 |
 | ①②④ 時間對齊：主機時鐘監控（metrics）、收資料延遲與時區（log）、時鐘差日報（trace） | 📝 | 同上 |
@@ -42,9 +42,9 @@ PDCA 的意思：**Plan** 定規則與門檻 → **Do** 收值、判斷、報告
 | ⑧ 告警出口（通知） | ✅ 合成一件寫 `aiops-alerts`，Grafana 分送；排程 yaml 有了、K8s 沒跑過 | [phase3-locate/2026-10-alert-exit.md](phase3-locate/2026-10-alert-exit.md)、[phase3-locate/2026-10-schedule.md](phase3-locate/2026-10-schedule.md) |
 | ⑧ 事故紀錄 `aiops-incidents`（`incident` 指令、alert 自動開 `auto`、回饋網頁確認） | ✅ 接上告警與回饋；存根因分類、怎麼看出來的、指紋 | [phase5-learning-loop/2026-10-expert-feedback.md](phase5-learning-loop/2026-10-expert-feedback.md) |
 | ⑨ 值班回饋 `aiops-feedback`（回饋網頁＋`feedback` 指令） | ✅ 網頁入口（沒登入）；漏報仍靠指令 | 同上 |
-| ② 資料品質檢查：路由沒參數化、必填欄位缺、資料停了、落到 unassigned 變多（`quality`） | ⚠️ 程式好了、實測過，沒排程 | [baseline README](../../engine/configs/baseline/reference.md#資料品質檢查資料本身怪不怪) |
-| ② 排除已知干擾：事故、維護、壓測時段不學（`exclude_window`）；換版重新學（`reset_point`）；月底批次放寬（`recurring_override`） | ⚠️ 程式好了、實測過，沒排程 | [baseline README「調整」](../../engine/configs/baseline/reference.md#調整哪些資料不學從哪裡重新學哪些時段放寬) |
-| ② 慢性病清單（`chronic`，每週）、行事曆（`calendar.yaml`） | ⚠️ 程式好了、實測過，沒排程；假日已改成直接抓台灣行事曆（`taiwan` provider）；`owners` 目前是**假資料**（`fake-data/owners.json`），要換成真的來源 | [baseline README「慢性病清單、行事曆」](../../engine/configs/baseline/reference.md#慢性病清單行事曆) |
+| ② 資料品質檢查：路由沒參數化、必填欄位缺、資料停了、落到 unassigned 變多（`quality`） | ⚠️ 程式好了、實測過，沒排程 | [baseline README](../../aiops-engine/code/configs/baseline/reference.md#資料品質檢查資料本身怪不怪) |
+| ② 排除已知干擾：事故、維護、壓測時段不學（`exclude_window`）；換版重新學（`reset_point`）；月底批次放寬（`recurring_override`） | ⚠️ 程式好了、實測過，沒排程 | [baseline README「調整」](../../aiops-engine/code/configs/baseline/reference.md#調整哪些資料不學從哪裡重新學哪些時段放寬) |
+| ② 慢性病清單（`chronic`，每週）、行事曆（`calendar.yaml`） | ⚠️ 程式好了、實測過，沒排程；假日已改成直接抓台灣行事曆（`taiwan` provider）；`owners` 目前是**假資料**（`fake-data/owners.json`），要換成真的來源 | [baseline README「慢性病清單、行事曆」](../../aiops-engine/code/configs/baseline/reference.md#慢性病清單行事曆) |
 | ⑨ 回測（`backtest`：改門檻前重跑過去 N 週） | ✅ 沒回測不能核准 | [phase5-learning-loop/2026-10-loop-update.md](phase5-learning-loop/2026-10-loop-update.md) |
 | ⑨ 版本（每筆異常記哪一版產生）、評測集（20～30 件過去事故） | ❌ 要真實事故 | [feedback/](../feedback/README.md) |
 | ①② REST API 的 log 樣本、重要 .NET Kafka 消費者加幾行 | 要別人配合 | 各資料夾 |
@@ -53,11 +53,11 @@ PDCA 的意思：**Plan** 定規則與門檻 → **Do** 收值、判斷、報告
 
 | 項目 | 狀態 | 細節 |
 |---|---|---|
-| ④ 手動調整：`series.yaml` 的 `overrides`、`tune` 指令（記原因、誰、何時） | ✅ | [baseline README「使用者、feedback 調整」](../../engine/configs/baseline/reference.md#使用者feedback-調整) |
+| ④ 手動調整：`series.yaml` 的 `overrides`、`tune` 指令（記原因、誰、何時） | ✅ | [baseline README「使用者、feedback 調整」](../../aiops-engine/code/configs/baseline/reference.md#使用者feedback-調整) |
 | ② 修慢性病（天天噴錯、沒人修的） | 要別人配合 | [rca/](../rca/README.md) |
 | ⑨ 同一個根因 ≥ 3 次 → 升級成規則 | ✅ 門檻算好、核准後 `rules` 自動載入；只處理延遲類；`expires_at` 到期不載入，但核准時還設不了 | [phase5-learning-loop/2026-10-rule-threshold.md](phase5-learning-loop/2026-10-rule-threshold.md)、[phase2-anomaly/2026-10-rules-verify.md](phase2-anomaly/2026-10-rules-verify.md) |
 | ⑨ 回饋累積夠且回測通過 → 調門檻、排除時段 | ⚠️ 誤報 3 次 → 放寬 z → 回測 → 人核准；還不會提排除時段 | 同上 |
-| ② 資料品質檢查的門檻：先估的，正式環境只記錄跑 2～4 週再手動校；`quality` 還不能用 `tune` 調 | 📝 | [baseline README「門檻怎麼校、誰來調」](../../engine/configs/baseline/verification.md#門檻怎麼校誰來調) |
+| ② 資料品質檢查的門檻：先估的，正式環境只記錄跑 2～4 週再手動校；`quality` 還不能用 `tune` 調 | 📝 | [baseline README「門檻怎麼校、誰來調」](../../aiops-engine/code/configs/baseline/verification.md#門檻怎麼校誰來調) |
 | ⑦⑨ 相似事故檢索（RAG 的檢索，欄位比對） | ✅ 模擬資料驗過；門檻、權重是估的 | [phase4-rca-llm/2026-10-similar-incidents.md](phase4-rca-llm/2026-10-similar-incidents.md) |
 | ⑦⑨ LLM：根因報告摘要（只加註、每句附依據） | ✅ template 與真的模型（OpenAI）都跑過，每句附依據；評測集 ❌ | [phase4-rca-llm/2026-10-llm-summary.md](phase4-rca-llm/2026-10-llm-summary.md)、[phase5-learning-loop/2026-10-fix-feedback-ux.md](phase5-learning-loop/2026-10-fix-feedback-ux.md) |
 
@@ -166,6 +166,7 @@ metrics → trace → log 找到哪一段、哪行 log；事件整合、排程�
 |---|---|---|
 | [meta/2026-10-docs-vs-code.md](meta/2026-10-docs-vs-code.md) | ①～⑨ 文件對程式：整條線一份看完（[architecture.md](../architecture.md)）、總覽狀態對齊 | 只改文件；6 處對不上改掉 5 處；code-review 的 10 項對過程式，4 項要修、記在流程文件的「不足」 |
 | [meta/2026-10-restructure.md](meta/2026-10-restructure.md) | 全部 目錄改名：專案名 it-aiops | `platform/`→`telemetry/`、`aiops/`→`engine/`、`apps/`→`sdk/`、`test/`→`e2e/`；Python 套件改名；行為不變，200 個單元測試與連結檢查過 |
+| [meta/2026-10-restructure-components.md](meta/2026-10-restructure-components.md) | 全部 依部署元件重整：`collector/`、`elasticsearch/`、`grafana/`、`aiops-engine/` 各有 `code/`＋`helmchart/`；部署一律 Helm，kustomize、純 yaml、`e2e/local-k3d/` 刪掉；`e2e/local-k3s` 改名 `e2e/k8s` | chart render 跟舊 manifest 逐資源比對等價；（實測補上後更新） |
 | [meta/2026-10-sonar.md](meta/2026-10-sonar.md) | 跨階段 SonarQube 第一次掃：範圍固定、真的問題修掉、剩的寫清楚 | `e2e/` 不掃；bug 5 → 0、vulnerability 121 → 4（剩 4 個都有理由）；`doc_id` 不變、https 選用 |
 | [meta/2026-10-diataxis.md](meta/2026-10-diataxis.md) | 跨階段 共用文件採用 Diátaxis：每份只做一種事（原理／操作／規格／案例） | 7 份混合文件拆成 19 份；檢查腳本擋沒標類型的；連結 0 斷；內容沒掉 |
 | [meta/2026-10-diataxis-baseline.md](meta/2026-10-diataxis-baseline.md) | ④ baseline 文件依 Diátaxis 拆開（715 行 → 原理／規格／操作／案例四份） | 以段落為單位歸類；內容 585 行全在；46 條連結改指新位置；0 個斷 |

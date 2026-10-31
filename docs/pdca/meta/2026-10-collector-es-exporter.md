@@ -20,7 +20,7 @@
 
 ## Check：測試的目的與結果
 
-環境：k3d 單節點＋主機 docker 的 ES 8.19.23；Collector 用正式設定（k3d overlay 只改 ES 位址與取樣）；腳本 [e2e/local-k3d/run-es-outage.sh](../../../e2e/local-k3d/run-es-outage.sh)。產生器：log 每秒 200 行帶序號、trace 每秒 20 個帶序號、metrics 是 kubeletstats 每 30 秒一點。
+環境：k3d 單節點＋主機 docker 的 ES 8.19.23；Collector 用正式設定（k3d overlay 只改 ES 位址與取樣）；腳本 `e2e/local-k3d/run-es-outage.sh`（已隨 `e2e/local-k3d/` 刪除：[restructure-components](2026-10-restructure-components.md)）。產生器：log 每秒 200 行帶序號、trace 每秒 20 個帶序號、metrics 是 kubeletstats 每 30 秒一點。
 
 ### 三輪的結果（同一套情境，設定改兩次）
 
@@ -38,7 +38,7 @@
 |---|---|---|---|
 | 1 | `Exporting failed. Dropping data`，`connection refused`，**沒有任何重試** | 這個元件沒接 exporterhelper 的 `retry_on_failure`（設了也沒作用）；重試只靠自己的 `retry`，預設 `max_retries: 2`、100ms 起，幾百毫秒就放棄 | `retry: {max_retries: 100000000, initial_interval: 1s, max_interval: 30s}`；單一 Collector 驗：ES 停 45 秒再起，那筆有補到 |
 | 2 | `Permanent error: flush failed (401)` 16,640 行、`context deadline exceeded` 1,840 行 | (a) ES 剛起來的一秒多 API key 被拒（[es-startup-401](../phase1-collect/2026-10-es-startup-401.md)），401 被當永久錯誤，**停機期間排隊的整批在 ES 回來那一刻被丟掉**；(b) `timeout: 30s` 是整個請求含重試的總期限，到期那批被丟 | `retry_on_status: [401, 429, 502, 503, 504]`（這些都是整個請求沒寫入，重送不會重複）；`timeout: 0`。單一 Collector 連續送、ES 停 60 秒：改前掉 279（全是 401）、改後 0 |
-| 3 | `dial tcp …:9200: i/o timeout`，只在停機的前 10 秒 | `docker stop` 讓容器的 IP 消失，連線變成「送出去沒人理」（SYN 黑洞），這種 dial 逾時元件不重試。ES 在**主機 port** 上停掉（連線被拒）時同樣的測試是 0 遺失 | 沒改設定。正式環境 ES 前面要有 LB／VIP＋健康檢查（[healthcheck-haproxy.cfg](../../../telemetry/storage/healthcheck-haproxy.cfg)），主機掛掉時 LB 回拒絕或 503，不會是黑洞 |
+| 3 | `dial tcp …:9200: i/o timeout`，只在停機的前 10 秒 | `docker stop` 讓容器的 IP 消失，連線變成「送出去沒人理」（SYN 黑洞），這種 dial 逾時元件不重試。ES 在**主機 port** 上停掉（連線被拒）時同樣的測試是 0 遺失 | 沒改設定。正式環境 ES 前面要有 LB／VIP＋健康檢查（[healthcheck-haproxy.cfg](../../../elasticsearch/code/storage/healthcheck-haproxy.cfg)），主機掛掉時 LB 回拒絕或 503，不會是黑洞 |
 
 ### 中途遇到的測試環境問題（跟 Collector 無關）
 
@@ -51,7 +51,7 @@
 |---|---|---|---|
 | 連線黑洞（主機整台不見）那一刻前後約 10 秒的 in-flight 資料會掉 | `docker stop` 情境，第 3 輪 | 每次 ES 主機硬當掉掉幾秒資料（log 3%、trace 3%）；程序掛掉（連線被拒）不會掉 | ES 前面放 LB＋健康檢查就不是黑洞；若要連這段都不掉，要查 go-docappender 對 dial 逾時的判斷 |
 | `timeout: 0` 沒有總期限 | 設計 | 一條連線掛死時那個 consumer 卡住到 TCP 自己放棄（分鐘級）；10 個 consumer 全卡就停送，但佇列在磁碟不掉 | 真實環境觀察 `otelcol_exporter_queue_size`；要上限的話改大（例如 10m）而不是 30s |
-| `retry_on_status` 含 401 | 設計 | key 真的失效時會一直重試、不丟也不報；靠 [rotate-writer-key.sh](../../../telemetry/scripts/rotate-writer-key.sh) 的流程避免，和佇列監控 | 加一條規則：`otelcol_exporter_queue_size` 持續成長就告警 |
+| `retry_on_status` 含 401 | 設計 | key 真的失效時會一直重試、不丟也不報；靠 [rotate-writer-key.sh](../../../elasticsearch/code/scripts/rotate-writer-key.sh) 的流程避免，和佇列監控 | 加一條規則：`otelcol_exporter_queue_size` 持續成長就告警 |
 | 只測單節點、3 種故障 | 範圍 | ES 限流（429）、Collector 自己重啟、多節點沒跟新元件一起跑 | 在 k3s 上重跑 [durability](../phase1-collect/2026-10-durability.md) 全部情境 |
 | `common.yaml` 舊註解「連線逾時當永久錯誤」 | 第 1 輪重現了它 | 以前的觀察是對的，但原因是預設 `retry` 太短，不是元件不能用 | 已改寫註解 |
 

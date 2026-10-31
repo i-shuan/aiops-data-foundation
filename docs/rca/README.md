@@ -4,7 +4,7 @@
 
 根因分析只有兩步需要統計或模型：找出偏離（動態基準線學習）、從候選裡排出可能原因；串 metrics、trace、log 靠共同欄位與查詢，不靠模型。
 
-baseline 的操作、規格、實測見 [engine/configs/baseline/](../../engine/configs/baseline/README.md)；根因分析見 [engine/configs/rca/](../../engine/configs/rca/README.md)。
+baseline 的操作、規格、實測見 [aiops-engine/code/configs/baseline/](../../aiops-engine/code/configs/baseline/README.md)；根因分析見 [aiops-engine/code/configs/rca/](../../aiops-engine/code/configs/rca/README.md)。
 
 ## 六步與 AI 的位置
 
@@ -102,4 +102,4 @@ metrics 決定何時告警，trace 指出哪一段，log 給證據。基準線�
 
 > ⚪ 構想，尚未實作
 
-把服務、API、依賴、Pod、版本、事故、根因存成圖，事故來時取鄰近子圖與相似事故的根因路徑交給 LLM。要補的是多個服務共用同一依賴（如同一個 Oracle）時，現行每件各算各的、看不出同源。先決條件：在 `e2e/local-k3s/rca-demo/` 加第二個呼叫同一 Oracle 的服務，若現行報告已指出同源，就不做圖。
+把服務、API、依賴、Pod、版本、事故、根因存成圖，事故來時取鄰近子圖與相似事故的根因路徑交給 LLM。要補的是多個服務共用同一依賴（如同一個 Oracle）時，現行每件各算各的、看不出同源。先決條件：在 `e2e/k8s/rca-demo/` 加第二個呼叫同一 Oracle 的服務，若現行報告已指出同源，就不做圖。

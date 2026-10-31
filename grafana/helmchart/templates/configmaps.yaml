@@ -1,0 +1,57 @@
+{{- /* provisioning：key 是檔名（不含副檔名），內容由 --set-file 帶進來 */}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-datasources
+data:
+  {{- range $name, $body := .Values.provisioning.datasources }}
+  {{ $name }}.yaml: |
+{{ $body | indent 4 }}
+  {{- end }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-alerting
+data:
+  {{- range $name, $body := .Values.provisioning.alerting }}
+  {{ $name }}.yaml: |
+{{ $body | indent 4 }}
+  {{- end }}
+---
+# 儀表板：dashboards/ 底下的 json 載進 AIOps 資料夾
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-provider
+data:
+  aiops.yaml: |
+    apiVersion: 1
+    providers:
+      - name: aiops
+        orgId: 1
+        folder: AIOps
+        type: file
+        allowUiUpdates: false
+        options:
+          path: /etc/grafana/provisioning/dashboards/aiops
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboards
+data:
+  {{- range $name, $body := .Values.provisioning.dashboards }}
+  {{ $name }}.json: |
+{{ $body | indent 4 }}
+  {{- end }}
+{{- if .Values.plugin.enabled }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-plugin-installer
+data:
+  install-plugin.sh: |
+{{ .Files.Get "files/install-plugin.sh" | indent 4 }}
+{{- end }}

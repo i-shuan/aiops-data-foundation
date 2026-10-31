@@ -1,0 +1,38 @@
+# 加進「公司現有的 Grafana Deployment」的部分（strategic merge patch）：只加 initContainer、一個 volume、一個掛載點，其他不動。
+# 用法：把 metadata.name、namespace、主容器的 name（這裡假設是 grafana，Grafana 官方 Helm chart 也是）改成你們的，然後
+#   kubectl -n <ns> create configmap grafana-plugin-installer --from-file=grafana/helmchart/files/install-plugin.sh
+#   kubectl -n <ns> patch deployment <grafana> --patch-file plugin-init-patch.yaml
+# 外掛 zip 先放到 Nexus（下載網址、SHA-256 見 INSTALL-form-plugin.md）。沒有現成 Grafana 的話直接用 ../helmchart（values 的 plugin.*）。
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+spec:
+  template:
+    spec:
+      initContainers:
+        - name: install-plugins
+          image: grafana/grafana:13.0.7          # 跟主容器同一個 image（換成你們的 Nexus 路徑）
+          command: ["sh", "/installer/install-plugin.sh"]
+          env:
+            - {name: PLUGIN_ID, value: volkovlabs-form-panel}
+            - {name: PLUGIN_URL, value: "https://nexus.example.internal/repository/raw/grafana-plugins/volkovlabs-form-panel-6.3.1.zip"}
+            - {name: PLUGIN_SHA256, value: 1eece14d67b2ffac4bbba18f5c69cde3f0f7aecef2276b0f1b33bc3cfb9998d0}
+            - {name: PLUGINS_DIR, value: /var/lib/grafana/plugins}
+          volumeMounts:
+            - {name: grafana-plugins, mountPath: /var/lib/grafana/plugins}
+            - {name: plugin-installer, mountPath: /installer, readOnly: true}
+          resources:
+            requests: {cpu: 10m, memory: 32Mi, ephemeral-storage: 64Mi}
+            limits: {memory: 128Mi, ephemeral-storage: 256Mi}
+      containers:
+        - name: grafana        # 主容器只加掛載點；resources、service account 都是你們原本的設定，這個 patch 不動
+          volumeMounts:
+            - {name: grafana-plugins, mountPath: /var/lib/grafana/plugins}
+      volumes:
+        # emptyDir：Pod 每次重建都由 initContainer 重裝，版本永遠是這裡寫的那個。Grafana 的資料（/var/lib/grafana）有掛 PVC 也沒關係，
+        # 外掛資料夾這一層用 emptyDir 蓋上去
+        - name: grafana-plugins
+          emptyDir: {}
+        - name: plugin-installer
+          configMap: {name: grafana-plugin-installer}

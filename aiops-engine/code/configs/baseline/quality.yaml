@@ -1,0 +1,213 @@
+# 資料品質檢查（detector/quality.py）：餵給 baseline 之前，先看資料本身怪不怪。不用學、不用歷史。
+# 每個檢查看最近 window，跟 ref_offset 之前同一個時段比（預設 24 小時前：避開上下班、夜間批次的週期）。
+#
+# type：
+#   cardinality  field 的不同值有幾個（依 by 分組）。max_values 上限；ratio 倍＋min_increase 個是暴增；
+#                抽樣的值 ≥ id_share 像帶了 ID（數字、UUID、長 hex）也算
+#   missing      fields 缺了幾成（依 by 分組）。max_missing 是比例上限；max_increase 是比 ref 多幾成
+#   stopped      lookback 這段時間（不含最近 silent）有 ≥ min_docs 筆、最近 silent 一筆都沒有
+#   share        part_index 佔 index 的比例。max_share 上限；min_increase 是比 ref 多幾成
+#   lag          to 欄位減 from 欄位（秒）的百分位（stat：p50、p95）≥ max_seconds；absolute: true 兩個方向都算
+#   present      最近 window 有 ≥ min_docs 筆符合 filter 的就報（不該出現的資料出現了）
+#   time_field   用哪個時間篩最近這段（預設 @timestamp）
+#   min_docs：量太少的不看（幾筆缺一筆就是好幾成）
+#
+# log 的 resource.attributes.*、trace_id 是 alias（component-mappings.json），跟 metrics、trace 同一條路徑。
+# 門檻都是先估的，要等正式環境排程跑 2～4 週再校（configs/baseline/README.md「門檻怎麼校、誰來調」）。
+# 建議每 10 分鐘跑一次：python3 -m detector quality --config configs/baseline/quality.yaml
+
+interval: 10m       # 同一個檢查、同一個對象，10 分鐘內只記一筆（重跑不會重複）
+window: 1h
+ref_offset: 24h
+
+_svc: &svc resource.attributes.service.name
+
+checks:
+  # ── 路由沒參數化：每個服務有幾條路由（http.requests 等序列依路由切，路由爆炸 = 序列爆炸）──
+  # Java、.NET 進 ES 都是 OTel 名字（Java 的由 node Collector 改名），一個檢查就夠
+  - name: quality.route_cardinality
+    title: 路由數暴增或像帶了 ID（沒參數化）
+    type: cardinality
+    index: metrics-*.otel-*
+    filter: {exists: {field: metrics.http.server.request.duration}}
+    by: [*svc]
+    keys: [service]
+    field: attributes.http.route
+    max_values: 500
+    ratio: 3
+    min_increase: 50
+    id_share: 0.5
+
+  # trace 的 API 名稱（入口 span 的 name）：自己用 SDK 埋點、把真實路徑放進 span 名稱（GET /lots/123）時，
+  # trace 每一段的 baseline 依 API 分，每個名稱只有一兩個請求、永遠不到 min_requests，整個服務默默學不到
+  - name: quality.trace_name_cardinality
+    title: trace 的 API 名稱暴增或像帶了 ID（沒參數化）
+    type: cardinality
+    index: traces-*.otel-*
+    filter: {terms: {kind: [Server, Consumer]}}
+    by: [*svc]
+    keys: [service]
+    field: name
+    max_values: 500
+    ratio: 3
+    min_increase: 50
+    id_share: 0.5
+
+  # ── 指標名字沒統一：Prometheus 慣例的舊名字（http_server_request_duration_seconds）進到 ES ──
+  # 代表 node Collector 的改名沒生效（設定漏了、新 cluster 沒更新、或 Java agent 吐了對照表沒列的名字）。
+  # 這些資料 baseline、RCA 都看不到，會默默少掉一個服務（docs/pdca/phase1-collect/2026-10-field-unify.md）
+  - name: quality.metric_name_legacy
+    title: 有服務的 HTTP 指標還是舊名字（Collector 沒改名）
+    type: present
+    index: metrics-*.otel-*
+    filter: {exists: {field: metrics.http_server_request_duration_seconds}}
+    by: [*svc]
+    keys: [service]
+    min_docs: 1
+
+  # ── 必填欄位缺：對不到服務、Pod 的資料學不進任何序列 ──
+  - name: quality.log_missing_identity
+    title: log 缺服務或 Pod
+    type: missing
+    index: k8s-*
+    by: [resource.attributes.k8s.namespace.name]
+    keys: [namespace]
+    fields: [resource.attributes.service.name, resource.attributes.k8s.pod.name]
+    max_missing: 0.05
+    min_docs: 100
+
+  - name: quality.metrics_missing_identity
+    title: 應用 metrics 缺 Pod 或 namespace
+    type: missing
+    index: metrics-*.otel-*
+    filter: {exists: {field: metrics.http.server.request.duration}}
+    by: [*svc]
+    keys: [service]
+    fields: [resource.attributes.k8s.pod.name, resource.attributes.k8s.namespace.name]
+    max_missing: 0.05
+    min_docs: 20
+
+  # 應用 metrics 缺 service.name：上面那個依服務分，沒有服務名的那組看不出是哪裡來的，所以另外依 namespace 看
+  - name: quality.metrics_missing_service
+    title: 應用 metrics 缺服務名
+    type: missing
+    index: metrics-*.otel-*
+    filter: {exists: {field: metrics.http.server.request.duration}}
+    by: [resource.attributes.k8s.namespace.name]
+    keys: [namespace]
+    fields: [resource.attributes.service.name]
+    max_missing: 0.05
+    min_docs: 20
+
+  # trace_id 本來就不是每行 log 都有（背景工作、啟動訊息），所以只看「比昨天少很多」：
+  # 埋點掉了、換版拿掉 agent，log 就串不到 trace
+  - name: quality.log_trace_id_drop
+    title: 帶 trace_id 的 log 變少
+    type: missing
+    index: k8s-*
+    by: [resource.attributes.service.name]
+    keys: [service]
+    fields: [trace_id]
+    max_missing: null
+    max_increase: 0.3
+    min_docs: 200
+
+  # ── 被 ES 拒絕的資料：pipeline 失敗、型別不合（例如 @timestamp 壞掉）的文件留在 failure store（<data stream>::failures）──
+  # ES 回 201（不是錯誤），Collector 看不到、不會重試；這些資料 baseline、RCA 都讀不到。有一筆就報，看 error.type 修
+  #（docs/pdca/phase1-collect/2026-10-ingest-simplify.md）。權限不夠（403）不會進 failure store，那種靠下面的 *_stopped 抓
+  - name: quality.ingest_rejected
+    title: 有資料被 ES 拒收（在 failure store）
+    type: present
+    index: "k8s-*::failures,metrics-*.otel-*::failures,traces-*.otel-*::failures"
+    by: [document.index, error.type]
+    keys: [index, error_type]
+    min_docs: 1
+
+  # ── 資料停了：收不到，不是 0 流量 ──
+  - name: quality.log_stopped
+    title: log 停了
+    type: stopped
+    index: k8s-*
+    by: [resource.attributes.service.name]
+    keys: [service]
+    lookback: 1h
+    silent: 15m
+    min_docs: 30
+
+  - name: quality.metrics_stopped
+    title: 應用 metrics 停了
+    type: stopped
+    index: metrics-*.otel-*
+    filter: {exists: {field: metrics.http.server.request.duration}}
+    by: [*svc]
+    keys: [service]
+    lookback: 1h
+    silent: 5m          # 每 30 秒一筆，5 分鐘都沒有就是停了
+    min_docs: 20
+
+  # trace 只看入口（Server、Consumer）。尾端取樣後正常的只留 5%：之前 45 分鐘至少 30 個入口，
+  # 最近 15 分鐘平均也有 10 個，一個都沒有才報（流量太小的服務量不到 min_docs，不判斷）
+  - name: quality.trace_stopped
+    title: trace 停了
+    type: stopped
+    index: traces-*.otel-*
+    filter: {terms: {kind: [Server, Consumer]}}
+    by: [*svc]
+    keys: [service]
+    lookback: 1h
+    silent: 15m
+    min_docs: 30
+
+  # ── 落到 unassigned 變多：namespace 沒標 dept、或 dept 清單漏同步（collector/code/groups.yaml、common.yaml）──
+  - name: quality.log_unassigned_share
+    title: 落到 unassigned 的 log 變多
+    type: share
+    index: k8s-*
+    part_index: k8s-unassigned-*
+    min_increase: 0.05
+    min_docs: 1000
+
+  # 節點本身的 metrics 本來就是 unassigned，所以只看應用的 metrics
+  - name: quality.metrics_unassigned_share
+    title: 落到 unassigned 的應用 metrics 變多
+    type: share
+    index: metrics-*.otel-*
+    part_index: metrics-*.otel-unassigned
+    filter: {exists: {field: metrics.http.server.request.duration}}
+    min_increase: 0.05
+    min_docs: 100
+
+  # ── 時間對齊（docs/pdca/phase1-collect/2026-10-time-alignment.md）──
+  # 收資料延遲：Collector 讀到（event.created）→ 寫進 ES（event.ingested）。Collector 卡住、ES 慢時，最新幾分鐘還沒進來，
+  # baseline 看起來像流量掉。p95 超過 1 分鐘就報。只看最近 15 分鐘（要的是「現在」卡不卡）
+  - name: quality.log_ingest_lag
+    title: 收資料延遲
+    type: lag
+    index: k8s-*
+    by: [resource.attributes.service.name]
+    keys: [service]
+    from: event.created
+    to: event.ingested
+    time_field: event.ingested   # 用「寫進 ES 的時間」篩：卡了很久才進來的，@timestamp 早就不在最近 15 分鐘裡
+    stat: p95
+    max_seconds: 60
+    min_docs: 50
+    window: 15m
+
+  # 應用時鐘偏差：應用自己寫的時間（@timestamp）→ Collector 讀到（event.created，節點的時鐘）。
+  # 中位數差超過 5 分鐘（不論快慢）：應用主機時鐘偏了，或時區寫錯（沒帶時區又不是 LOG_DEFAULT_TIMEZONE）。
+  # 只看時間是應用自己寫的（log.timestamp_source = app、app_assumed_tz）
+  - name: quality.log_clock_skew
+    title: 應用的時間跟節點對不上
+    type: lag
+    index: k8s-*
+    filter: {terms: {log.timestamp_source: [app, app_assumed_tz]}}
+    by: [resource.attributes.service.name, log.timestamp_source]
+    keys: [service, timestamp_source]
+    from: "@timestamp"
+    to: event.created
+    time_field: event.created    # 用「Collector 讀到的時間」篩：時鐘偏了的資料，@timestamp 本身就錯（8 小時前、在未來）
+    stat: p50
+    max_seconds: 300
+    absolute: true
+    min_docs: 50

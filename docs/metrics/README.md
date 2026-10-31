@@ -35,7 +35,7 @@
 
 kubelet 提供 CPU、記憶體、磁碟、網路用量。k8s_cluster 提供重啟、Pod 階段、副本、節點狀態。Java agent 提供 HTTP 延遲直方圖、JVM 記憶體與 GC、HikariCP 連線池。.NET 提供 HTTP、runtime、Npgsql 連線池。Kafka 落後筆數由 kafka_exporter 提供。
 
-有 baseline 的 metrics 共 5 條：請求數、錯誤率、p95（依服務、方法、路由切），Pod CPU、Pod 記憶體（依 Deployment 切）。重啟、副本、磁碟、JVM、連線池、p99 沒有 baseline，由靜態臨界值規則判斷（[規格](../../engine/configs/baseline/reference.md)）。
+有 baseline 的 metrics 共 5 條：請求數、錯誤率、p95（依服務、方法、路由切），Pod CPU、Pod 記憶體（依 Deployment 切）。重啟、副本、磁碟、JVM、連線池、p99 沒有 baseline，由靜態臨界值規則判斷（[規格](../../aiops-engine/code/configs/baseline/reference.md)）。
 
 ## metrics 能做到與做不到
 
@@ -60,7 +60,7 @@ kubelet 提供 CPU、記憶體、磁碟、網路用量。k8s_cluster 提供重�
 ## 部署與驗證
 
 1. 中央 ES 跑 `elasticsearch-setup.sh`，與 log 共用，重跑才讓新 key 有 metrics 權限。
-2. 應用 cluster 要有 `es-writer-keys` secret，改 `telemetry/collectors` 底下 kustomization 的 cluster 名稱、ES 位址、image，再套用。
+2. 應用 cluster 要有 `es-writer-keys` secret，用 `collector/helmchart` 裝：`clusterName`、`esEndpoint`、`image` 改成實際值，設定檔用 `--set-file` 從 `collector/code` 帶（[collector/README.md](../../collector/README.md)）。
 3. Java 用 app-common chart 自動加註記；.NET 開啟 chart 的 `otel.dotnet`。
 4. 驗證跑 `run-metrics-e2e.sh`，46 項通過，涵蓋分流、欄位、直方圖、權限。改 namespace 的部門 label 不用重啟 Collector，2 至 17 秒生效。
 

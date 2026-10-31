@@ -1,11 +1,11 @@
 # 重現「件還開著、Grafana 卻發恢復」（docs/pdca/phase3-locate/2026-10-alert-flap.md）：
-# 兩件假的 open 事故寫進 aiops-alerts（mapping 用 engine 的），Grafana 掛 engine/configs/grafana/ 的告警規則。
+# 兩件假的 open 事故寫進 aiops-alerts（mapping 用 engine 的），Grafana 掛 grafana/code/ 的告警規則。
 #   A（對照）：每分鐘在排定評估前 15 秒覆蓋寫入
 #   B（實驗）：每分鐘在「排定評估時間」和「實際送查詢」之間覆蓋寫入
 # 先用舊寫法（@timestamp = 寫入當下）跑幾分鐘，再用 engine 現在的寫法（cmd_alert.stamp_of）跑幾分鐘，看 B 有沒有被當成恢復。
 #
 # 用法：ES_URL=… ES_AUTH=elastic:… GRAFANA_URL=… GRAFANA_AUTH=admin:… python run-alert-flap.py [每段分鐘數，預設 3]
-# 前提：Grafana 已經掛好 engine/configs/grafana/ 的 datasource、alert-rules（規則每 1 分鐘評估）。會刪掉重建 aiops-alerts。
+# 前提：Grafana 已經掛好 grafana/code/ 的 datasource、alert-rules（規則每 1 分鐘評估）。會刪掉重建 aiops-alerts。
 import datetime as dt, functools, os, pathlib, sys, time
 print = functools.partial(print, flush=True)
 import requests

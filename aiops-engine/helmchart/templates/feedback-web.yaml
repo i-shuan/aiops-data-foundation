@@ -1,0 +1,53 @@
+{{- if .Values.feedback.enabled }}
+# 老師傅的回饋入口（feedback_web）：只讀寫 aiops-alerts、aiops-feedback、aiops-incidents、aiops-anomalies
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aiops-feedback
+  labels: {app.kubernetes.io/name: aiops-engine, app.kubernetes.io/component: feedback-web}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: aiops-engine, app.kubernetes.io/component: feedback-web}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: aiops-engine, app.kubernetes.io/component: feedback-web}
+    spec:
+      containers:
+        - name: web
+          image: {{ include "aiops.image" . }}
+          args: ["feedback_web"]
+          env:
+            - {name: FEEDBACK_PORT, value: {{ .Values.feedback.port | quote }}}
+            {{- with .Values.feedback.corsOrigin }}
+            - {name: FEEDBACK_CORS_ORIGIN, value: {{ . | quote }}}
+            {{- end }}
+          envFrom:
+            - configMapRef: {name: aiops-env}
+            - secretRef: {name: {{ .Values.secret }}}
+          ports:
+            - {name: http, containerPort: {{ .Values.feedback.port }}}
+          livenessProbe:
+            httpGet: {path: /health, port: http}
+          readinessProbe:
+            httpGet: {path: /health, port: http}
+          resources:
+            {{- toYaml .Values.feedback.resources | nindent 12 }}
+          {{- with include "aiops.configMounts" . }}
+          volumeMounts:
+            {{- . | nindent 12 }}
+          {{- end }}
+      {{- with include "aiops.configVolumes" . }}
+      volumes:
+        {{- . | nindent 8 }}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: aiops-feedback
+spec:
+  selector: {app.kubernetes.io/name: aiops-engine, app.kubernetes.io/component: feedback-web}
+  ports:
+    - {name: http, port: {{ .Values.feedback.port }}, targetPort: http}
+{{- end }}

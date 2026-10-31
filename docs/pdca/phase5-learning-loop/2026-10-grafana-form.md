@@ -73,7 +73,7 @@ docker 起 Grafana 12.2.0，掛外掛 6.3.1 和這份儀表板；`feedback_web` 
 
 - 回饋入口**用 Grafana 表單**；回饋服務的小網頁留著當備案。
 - 外掛用「資料夾放進現有 Grafana 的外掛資料夾、重啟」的方式裝，不重做 Grafana image。
-- 給管 Grafana 的人的步驟：[INSTALL-form-plugin.md](../../../engine/configs/grafana/INSTALL-form-plugin.md)（下載網址、SHA-256 `1eece14d…98d0`、確認方法）。
+- 給管 Grafana 的人的步驟：[INSTALL-form-plugin.md](../../../grafana/code/INSTALL-form-plugin.md)（下載網址、SHA-256 `1eece14d…98d0`、確認方法）。
 
 ## Act：Check 後沒改善的、還沒解決的
 

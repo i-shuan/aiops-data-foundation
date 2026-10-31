@@ -8,10 +8,10 @@
 
 | 索引 | mapping 在哪 |
 |---|---|
-| `aiops-anomalies` | `engine/detector/es.py` 的 `ANOMALY_MAPPING` |
-| `aiops-alerts` | `engine/investigator/cmd_alert.py` 的 `ALERT_MAPPING` |
-| `aiops-incidents`、`aiops-feedback` | `engine/detector/feedback.py` 的 `INCIDENT_MAPPING`、`FEEDBACK_MAPPING` |
-| `aiops-tuning` | `engine/detector/tuning.py` 的 `TUNING_MAPPING` |
+| `aiops-anomalies` | `aiops-engine/code/detector/es.py` 的 `ANOMALY_MAPPING` |
+| `aiops-alerts` | `aiops-engine/code/investigator/cmd_alert.py` 的 `ALERT_MAPPING` |
+| `aiops-incidents`、`aiops-feedback` | `aiops-engine/code/detector/feedback.py` 的 `INCIDENT_MAPPING`、`FEEDBACK_MAPPING` |
+| `aiops-tuning` | `aiops-engine/code/detector/tuning.py` 的 `TUNING_MAPPING` |
 
 五個索引的 mapping 都是 `dynamic: false`：**沒列在 mapping 的欄位，會留在 `_source`（Grafana 面板讀得到、顯示得出來），但不能拿來篩選或聚合。**
 
@@ -92,7 +92,7 @@ Grafana（⑧）         讀 aiops-alerts 發通知；儀表板讀 alerts、anom
 
 ## aiops-alerts：一件事故（Grafana 通知讀這個）
 
-寫入：`investigator alert`（`engine/investigator/cmd_alert.py`），每 1～2 分鐘跑一次。同一個服務最近的異常合成一件；超過 `close_after`（預設 30 分鐘）沒有新異常就結束（`resolved`）。
+寫入：`investigator alert`（`aiops-engine/code/investigator/cmd_alert.py`），每 1～2 分鐘跑一次。同一個服務最近的異常合成一件；超過 `close_after`（預設 30 分鐘）沒有新異常就結束（`resolved`）。
 
 **`@timestamp` 的意思**：開著的件每輪都改成「這一輪的時間」，結束的件是 `resolved_at`。Grafana 的告警規則只看最近 5 分鐘、`status:open`，所以事件整合停了，所有件都會查不到，要靠心跳規則（見下）。
 
@@ -174,7 +174,7 @@ Grafana（⑧）         讀 aiops-alerts 發通知；儀表板讀 alerts、anom
 
 ## aiops-incidents：事故庫（相似事故檢索的資料池）
 
-三種寫入：事件整合每一輪只要這件有新異常併進來、新開或結束，就寫一次（`status: auto`；用 scripted upsert，**只更新還是 `auto` 的，人處理過的一個欄位都不動**）；資深維運專家在回饋表單送出後，回饋網頁（`engine/feedback_web/app.py`）更新同一筆；也可以人用 `python3 -m detector incident add／resolve` 補登一件（`status: open`，結束時 `resolved`）。
+三種寫入：事件整合每一輪只要這件有新異常併進來、新開或結束，就寫一次（`status: auto`；用 scripted upsert，**只更新還是 `auto` 的，人處理過的一個欄位都不動**）；資深維運專家在回饋表單送出後，回饋網頁（`aiops-engine/code/feedback_web/app.py`）更新同一筆；也可以人用 `python3 -m detector incident add／resolve` 補登一件（`status: open`，結束時 `resolved`）。
 
 | 欄位 | 型別 | 誰寫 | 說明 |
 |---|---|---|---|

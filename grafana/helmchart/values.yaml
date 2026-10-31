@@ -1,0 +1,37 @@
+# 正式環境的預設值。公司已經有 Grafana 的話不用這個 chart：只把 initContainer 那段加進現有的 Deployment（見 ../README.md）。
+#
+# provisioning 的檔在 ../code/，不複製進 chart，安裝時用 --set-file 帶進來；key 是檔名（不含副檔名）：
+#   --set-file provisioning.datasources.aiops=grafana/code/datasource.yaml
+#   --set-file provisioning.alerting.alert-rules=grafana/code/alert-rules.yaml,provisioning.alerting.contact-points=…,provisioning.alerting.policies=…
+#   --set-file provisioning.dashboards.aiops-feedback=grafana/code/dashboards/aiops-feedback.json,…
+# 檔裡的 ${ES_URL}、${GRAFANA_ES_API_KEY}、${NOTIFY_*_URL} 由 Grafana 從環境變數展開（envSecret）。
+image: grafana/grafana:13.0.7                              # 換成 Nexus 的路徑
+
+service:
+  type: ClusterIP
+  port: 3000
+
+# Secret（chart 不建）：ES_URL、GRAFANA_ES_API_KEY（唯讀 key）、NOTIFY_IT_URL／NOTIFY_IMC_URL／NOTIFY_PLATFORM_URL、GF_SECURITY_ADMIN_PASSWORD
+envSecret: grafana-env
+env:
+  GF_PLUGINS_PREINSTALL_DISABLED: "true"                  # 不讓 Grafana 自己連外網裝預設外掛
+anonymousViewer: false                                     # true：不登入也能看（demo 用）
+homeDashboard: ""                                          # 例如 /etc/grafana/provisioning/dashboards/aiops/aiops-rca.json
+
+plugin:                                                    # Business Forms（回饋表單）：initContainer 從 Nexus 下載、核對 SHA-256、解到 emptyDir
+  enabled: true                                            # Pod 每次重建都重裝，版本永遠是這裡寫的
+  id: volkovlabs-form-panel
+  url: https://nexus.example.internal/repository/raw/grafana-plugins/volkovlabs-form-panel-6.3.1.zip
+  sha256: 1eece14d67b2ffac4bbba18f5c69cde3f0f7aecef2276b0f1b33bc3cfb9998d0
+  resources:
+    requests: {cpu: 10m, memory: 32Mi, ephemeral-storage: 64Mi}
+    limits: {memory: 128Mi, ephemeral-storage: 256Mi}    # 外掛 zip 約 10MB，解開不到 50MB
+
+provisioning:
+  datasources: {}
+  alerting: {}
+  dashboards: {}                                           # 全部載進 Grafana 的 AIOps 資料夾
+
+resources:
+  requests: {cpu: 100m, memory: 256Mi, ephemeral-storage: 256Mi}
+  limits: {memory: 1Gi, ephemeral-storage: 1Gi}          # 沒掛 PVC，Grafana 的 sqlite、log 都在容器裡（設定全由 provisioning 來，重建不會丟）

@@ -219,21 +219,21 @@ flowchart TB
 
 ## 7. 各模組：程式、驗證、狀態
 
-K8s 排程頻率見 [engine/deploy](../engine/deploy/README.md)。
+K8s 排程頻率見 [aiops-engine/README.md](../aiops-engine/README.md)。
 
 | # | 層 | Phase | 程式／設定 | 多久跑一次 | 怎麼驗過 | 狀態 |
 |---|---|---|---|---|---|---|
-| ① 收值 | 平台 | 1 | `sdk/`（[app-common chart](../sdk/charts/app-common)、[tracing.md](../sdk/standards/tracing.md)）、`telemetry/collectors/*.yaml` | 常駐；metrics 30 秒 | k3s `run-e2e.sh`、`run-dotnet-e2e.sh`、`run-trace-e2e.sh`；[trace-durability](pdca/phase1-collect/2026-10-trace-durability.md)、[es-startup-401](pdca/phase1-collect/2026-10-es-startup-401.md) | ✅ |
-| ② 清資料 | 平台 | 1 | `telemetry/collectors/common.yaml`、`telemetry/storage/` | 進來就做 | `e2e/pipeline/`；[field-unify](pdca/phase1-collect/2026-10-field-unify.md)、[time-alignment](pdca/phase1-collect/2026-10-time-alignment.md) | ✅ |
-| ③ 存 | 平台 | 1 | `telemetry/scripts/elasticsearch-setup.sh`、`retention.conf` | — | `run-key-rotation.sh`、`run-es-2node.sh` | ✅ |
-| ④ 判斷 | AIOps | 2 | `engine/detector/`、`engine/configs/baseline/*.yaml` | 每 1 分鐘（train 每天） | 單元測試；`synth_e2e`、`adaptive_e2e`、`fine_e2e`；k3s `run-rules-e2e.sh`、`run-peer-e2e.sh`、`run-trace-baseline-e2e.sh` | ✅；K8s CronJob 沒跑過 |
+| ① 收值 | 平台 | 1 | `sdk/`（[app-common chart](../sdk/charts/app-common)、[tracing.md](../sdk/standards/tracing.md)）、`collector/code/*.yaml` | 常駐；metrics 30 秒 | k3s `run-e2e.sh`、`run-dotnet-e2e.sh`、`run-trace-e2e.sh`；[trace-durability](pdca/phase1-collect/2026-10-trace-durability.md)、[es-startup-401](pdca/phase1-collect/2026-10-es-startup-401.md) | ✅ |
+| ② 清資料 | 平台 | 1 | `collector/code/common.yaml`、`elasticsearch/code/storage/` | 進來就做 | `e2e/pipeline/`；[field-unify](pdca/phase1-collect/2026-10-field-unify.md)、[time-alignment](pdca/phase1-collect/2026-10-time-alignment.md) | ✅ |
+| ③ 存 | 平台 | 1 | `elasticsearch/code/scripts/elasticsearch-setup.sh`、`retention.conf` | — | `run-key-rotation.sh`、`run-es-2node.sh` | ✅ |
+| ④ 判斷 | AIOps | 2 | `aiops-engine/code/detector/`、`aiops-engine/code/configs/baseline/*.yaml` | 每 1 分鐘（train 每天） | 單元測試；`synth_e2e`、`adaptive_e2e`、`fine_e2e`；k3s `run-rules-e2e.sh`、`run-peer-e2e.sh`、`run-trace-baseline-e2e.sh` | ✅；K8s CronJob 沒跑過 |
 | ⑤ 異常總表 | AIOps | 2 | `aiops-anomalies` | — | — | ✅ |
-| ⑥ 收斂 | AIOps | 3 | `engine/investigator/alerts.py`、`cmd_alert.py`；`rca.yaml` 的 `alerts:` | 每 1 分鐘 | `test_alerts.py`；[alert-exit](pdca/phase3-locate/2026-10-alert-exit.md) | ✅ 同服務合成一件；沿呼叫關係 📝 |
-| ⑦ 根因分析 | AIOps | 3、4 | `engine/investigator/`（`__main__.py`、`similar.py`）、`engine/core/llm.py` | 跟 ⑥ 同一次 | k3s `run-rca-e2e.sh`；`loop_e2e`；`test_similar.py`、`test_llm.py` | ✅；沒有評測集 |
-| ⑧ 出口 | AIOps | 3 | `engine/configs/grafana/*.yaml` | Grafana 每 1 分鐘查 | Grafana 12.2、13.0.7 實測；[rca-demo](pdca/phase3-locate/2026-10-rca-demo.md) | ✅；K8s CronJob 沒跑過 |
-| ⑨ feedback | AIOps | 5 | `engine/feedback_web/`、`cmd_feedback.py`、`cmd_backtest.py`、`cmd_metrics.py` | 網頁常駐；suggest、backtest 人跑 | `loop_e2e`；`test_feedback_web.py`、`test_feedback.py`、`test_metrics.py` | ✅（模擬資料） |
+| ⑥ 收斂 | AIOps | 3 | `aiops-engine/code/investigator/alerts.py`、`cmd_alert.py`；`rca.yaml` 的 `alerts:` | 每 1 分鐘 | `test_alerts.py`；[alert-exit](pdca/phase3-locate/2026-10-alert-exit.md) | ✅ 同服務合成一件；沿呼叫關係 📝 |
+| ⑦ 根因分析 | AIOps | 3、4 | `aiops-engine/code/investigator/`（`__main__.py`、`similar.py`）、`aiops-engine/code/core/llm.py` | 跟 ⑥ 同一次 | k3s `run-rca-e2e.sh`；`loop_e2e`；`test_similar.py`、`test_llm.py` | ✅；沒有評測集 |
+| ⑧ 出口 | AIOps | 3 | `grafana/code/*.yaml` | Grafana 每 1 分鐘查 | Grafana 12.2、13.0.7 實測；[rca-demo](pdca/phase3-locate/2026-10-rca-demo.md) | ✅；K8s CronJob 沒跑過 |
+| ⑨ feedback | AIOps | 5 | `aiops-engine/code/feedback_web/`、`cmd_feedback.py`、`cmd_backtest.py`、`cmd_metrics.py` | 網頁常駐；suggest、backtest 人跑 | `loop_e2e`；`test_feedback_web.py`、`test_feedback.py`、`test_metrics.py` | ✅（模擬資料） |
 
-- ⑤ 欄位見 [baseline README「異常帶的欄位」](../engine/configs/baseline/reference.md#異常帶的欄位)；⑥ 哪些異常會開一件、怎麼不重複開見 [rca README「事件整合」](../engine/configs/rca/README.md#事件整合alert)。
+- ⑤ 欄位見 [baseline README「異常帶的欄位」](../aiops-engine/code/configs/baseline/reference.md#異常帶的欄位)；⑥ 哪些異常會開一件、怎麼不重複開見 [rca README「事件整合」](../aiops-engine/code/configs/rca/README.md#事件整合alert)。
 - ⑧ `aiops-alerts` 帶 `status`、`service`、`dept`、`group`、`severity`、`summary`、`report`、`feedback_url`；`summary` 是 Grafana 的 label，不放會變的字；心跳「AIOps 停了」docker 實測過。
 - ⑨ 回饋表單定案用 Grafana Business Forms 外掛，回饋服務的小網頁當備案（[grafana-form](pdca/phase5-learning-loop/2026-10-grafana-form.md)）。
 - 第一階段只開 rules、detect、alert、train 四個 CronJob，其他 6 個在第二階段。
@@ -345,15 +345,14 @@ K8s 排程頻率見 [engine/deploy](../engine/deploy/README.md)。
 
 | 想確認什麼 | 跑哪個 | 需要 |
 |---|---|---|
-| 程式邏輯對（不連 ES） | `cd engine && python3 -m pytest -q`（318 個） | 無 |
-| 收值線通（Collector → ES → 分部門） | `e2e/local-k3s/run-e2e.sh` | k3s |
-| K8s 上的標籤注入、OTLP log、Grafana initContainer | [e2e/local-k3d/](../e2e/local-k3d/README.md) | k3d |
-| 根因分析找到那一段、那行 log | `e2e/local-k3s/run-rca-e2e.sh` | k3s，約 14 分鐘 |
-| 整條線在 K8s 上：送資料 → 規則偵測 → 一件 → 根因＋LLM → Grafana | `e2e/local-k3s/rca-demo/run-rca-demo.sh`（up → loop → incident）；約 15 分鐘看到根因，恢復通知再等 30 分鐘 | k3s、`run-e2e.sh` 跑過；真的 LLM 要 `LLM_ENV_FILE` |
-| 動態基準線抓得到造的異常、誤報多少 | `cd engine && python3 -m tests.synth_e2e` | 一個 ES |
-| 整個 learning loop 的故事 | `cd engine && python3 -m tests.loop_e2e` | 一個 ES，約 2 分鐘 |
-| Grafana 一件一則、依 dept | 照 [configs/grafana/README.md](../engine/configs/grafana/README.md) | Grafana 12～13 |
-| 上 K8s 排程 | `kubectl apply -k engine/deploy/` | 還沒跑過 |
+| 程式邏輯對（不連 ES） | `cd aiops-engine/code && python3 -m pytest -q`（318 個） | 無 |
+| 收值線通（Collector → ES → 分部門） | `e2e/k8s/run-e2e.sh` | k3s |
+| 根因分析找到那一段、那行 log | `e2e/k8s/run-rca-e2e.sh` | k3s，約 14 分鐘 |
+| 整條線在 K8s 上：送資料 → 規則偵測 → 一件 → 根因＋LLM → Grafana | `e2e/k8s/rca-demo/run-rca-demo.sh`（up → loop → incident）；約 15 分鐘看到根因，恢復通知再等 30 分鐘 | k3s、`run-e2e.sh` 跑過；真的 LLM 要 `LLM_ENV_FILE` |
+| 動態基準線抓得到造的異常、誤報多少 | `cd aiops-engine/code && python3 -m tests.synth_e2e` | 一個 ES |
+| 整個 learning loop 的故事 | `cd aiops-engine/code && python3 -m tests.loop_e2e` | 一個 ES，約 2 分鐘 |
+| Grafana 一件一則、依 dept | 照 [configs/grafana/README.md](../grafana/README.md) | Grafana 12～13 |
+| 上 K8s 排程 | `helm install aiops aiops-engine/helmchart`（[aiops-engine/README.md](../aiops-engine/README.md)） | `run-schedule-e2e.sh` 跑過 30 分鐘 |
 
 ## 13. 下一步
 
