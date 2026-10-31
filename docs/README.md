@@ -18,6 +18,7 @@
 | [../README.md](../README.md) | 原理 | 專案是什麼、怎麼跑起來 | 🟢 |
 | [architecture.md](architecture.md) | 原理 | 架構與設計決策：目標、全域架構圖、關鍵決策、①～⑨ 模組職責、根因定位機制 | 🟢 |
 | [architecture-reference.md](architecture-reference.md) | 規格 | 現況與驗證對照：各 phase、各模組的程式、驗證、還沒做的、PDCA 索引、術語對照 | 🟢 |
+| [aiops-data-reference.md](aiops-data-reference.md) | 規格 | AIOps 資料格式：`aiops-anomalies`、`aiops-alerts`、`aiops-incidents`、`aiops-feedback`、`aiops-tuning` 的欄位、誰在什麼時候寫、真實範例、Grafana 面板讀哪些欄位 | 🟢 |
 | [troubleshooting.md](troubleshooting.md) | 操作 | 症狀 → 原因 → 做法 | 🟢 |
 
 ### 保留天數
