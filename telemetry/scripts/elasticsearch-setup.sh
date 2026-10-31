@@ -7,7 +7,7 @@
 #
 # 會建立四類東西：
 #   0. index 結構：ILM、mapping、pipeline（含各 log 格式）、index template（./storage/）。
-#      可以重複執行，結果一樣。log 欄位規範見 docs/log/reference.md。
+#      可以重複執行，結果一樣。log 欄位規範見 docs/log/README.md。
 #   1. 寫入用 API key（給 OpenTelemetry Collector）：一把，所有 group 共用，只能寫、不能讀。
 #      資料屬於哪個 group 由 Collector 依 Pod 決定（data_stream.namespace），不靠 key 擋：沒有部門間寫入隔離的要求，
 #      一把 key 少了「key 權限 pattern 漏了 → ES 回 200 但整批拒絕、Collector 看不到」的機會（docs/pdca/phase1-collect/2026-10-ingest-simplify.md）。
@@ -112,7 +112,7 @@ put_json /_component_template/k8s-logs-mappings    storage/component-mappings.js
 put_json /_index_template/k8s-logs                 storage/index-template.json
 # metrics：ES（8.19 以上）內建 metrics-otel@template 預留的自訂設定（metrics-*.otel-* 的 TSDS）
 put_json /_component_template/metrics-otel@custom  storage/metrics-otel-custom.json
-# log 改用 OpenTelemetry Collector 收時（比較中，見 docs/log/fluentbit-vs-otel.md）：
+# log 改用 OpenTelemetry Collector 收時（比較中，見 docs/log/README.md）：
 # logs-*.otel-* 先跑 k8s-logs-otel，我們的 Collector 送的轉到 k8s-<group>-<cluster>
 put_pipeline k8s-logs-otel                         storage/pipeline-otel.json
 put_json /_component_template/logs-otel@custom     storage/logs-otel-custom.json

@@ -8,7 +8,7 @@
 - **需求**：三種資料都已帶 `dept`、`group`（Collector 讀 namespace 的 `dept` label 算出），但寫回 `aiops-anomalies` 的異常只帶服務、namespace，沒有部門。告警要依部門分送（IT 值班只收 IT 的），沒有這個欄位就分不了。
 - **目的**：每筆異常有 `dept`、`group`，可以 `terms group` 直接分；對不到的標 `unassigned`（跟 Collector 處理沒有 dept 的一樣）。
 - **範圍**：只補欄位，不動通知、不動資料流。
-- 不加共同鑰匙：鑰匙是接三種資料用的，歸屬是分給誰用的，見 [rca/README.md](../../rca/README.md#歸屬-label-和共同鑰匙是兩種東西)。
+- 不加共同鑰匙：鑰匙是接三種資料用的，歸屬是分給誰用的，見 [rca/README.md](../../rca/README.md)。
 
 ## Do：改動哪些 code、改了什麼、為何要改
 

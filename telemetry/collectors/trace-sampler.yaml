@@ -1,6 +1,6 @@
 # 第二層 trace-sampler（尾端取樣，設定在 sampler.yaml）：StatefulSet ＋ headless Service，
 # node Collector 的 loadbalancing exporter 用 DNS 解析出每一台的 IP，依 trace_id 分配。
-# 台數：實測每秒 2,000 段時每台約 150MB、0.02 核（docs/trace/scenarios.md），一般 2 台（一台重開時另一台接）。
+# 台數：實測每秒 2,000 段時每台約 150MB、0.02 核（docs/trace/README.md），一般 2 台（一台重開時另一台接）。
 # 擴縮、重開時依 trace_id 的分配會變，那幾十秒內正在等的 trace 可能被拆到兩台、決定不完整。
 apiVersion: v1
 kind: Service

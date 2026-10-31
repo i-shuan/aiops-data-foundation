@@ -1,8 +1,8 @@
 # baseline 實測與驗證結果
 
-> **類型：案例 Cases**　同主題：[原理](../../../docs/rca/baseline.md)・[規格](reference.md)・[操作](README.md)
+> **類型：案例 Cases**　同主題：[原理](../../../docs/rca/README.md)・[規格](reference.md)・[操作](README.md)
 
-各功能實際跑出來的結果：測資、預期、實測。做法見 [README.md](README.md)，規格見 [reference.md](reference.md)，原理見 [docs/rca/baseline.md](../../../docs/rca/baseline.md)。
+各功能實際跑出來的結果：測資、預期、實測。做法見 [README.md](README.md)，規格見 [reference.md](reference.md)，原理見 [rca/README.md](../../../docs/rca/README.md)。
 
 **目錄**
 
@@ -20,7 +20,7 @@
 
 ## trace 每一段的 baseline
 
-> 另見：[原理](../../../docs/rca/baseline.md#trace-每一段的-baseline)・[規格](reference.md#trace-每一段的-baseline)・[操作](reference.md#trace-每一段的-baseline)
+> 另見：[原理](../../../docs/rca/README.md)・[規格](reference.md#trace-每一段的-baseline)・[操作](reference.md#trace-每一段的-baseline)
 
 **實測**（`e2e/local-k3s/run-trace-baseline-e2e.sh`，兩個模擬服務走真正的路線：Collector → ES；測試用 1 分鐘一點、學 20 分鐘）：
 
@@ -44,13 +44,13 @@
 
 ## 規則：狀態變化、離極限多遠
 
-> 另見：[原理](../../../docs/rca/baseline.md#規則狀態變化離極限多遠)・[規格](reference.md#規則狀態變化離極限多遠)・[操作](reference.md#規則狀態變化離極限多遠)
+> 另見：[原理](../../../docs/rca/README.md)・[規格](reference.md#規則狀態變化離極限多遠)・[操作](reference.md#規則狀態變化離極限多遠)
 
-四個領域的案例與實測見 [docs/metrics/cases.md](../../../docs/metrics/cases.md)。
+四個領域的案例與實測見 [metrics/README.md](../../../docs/metrics/README.md)。
 
 ## Pod 同儕橫向比對：同一個服務的 Pod 互相比
 
-> 另見：[原理](../../../docs/rca/baseline.md#pod-同儕橫向比對同一個服務的-pod-互相比)・[規格](reference.md#pod-同儕橫向比對同一個服務的-pod-互相比)・[操作](reference.md#pod-同儕橫向比對同一個服務的-pod-互相比)
+> 另見：[原理](../../../docs/rca/README.md)・[規格](reference.md#pod-同儕橫向比對同一個服務的-pod-互相比)・[操作](reference.md#pod-同儕橫向比對同一個服務的-pod-互相比)
 
 **實測**（[e2e/local-k3s/run-peer-e2e.sh](../../../e2e/local-k3s/run-peer-e2e.sh)，2026-10-10，全部通過）：真的 .NET 應用（自動埋點）開 3 個副本，每次只弄壞一個。
 
@@ -67,7 +67,7 @@
 
 ## 調整：哪些資料不學、從哪裡重新學、哪些時段放寬
 
-> 另見：[原理](../../../docs/rca/baseline.md#調整哪些資料不學從哪裡重新學哪些時段放寬)・[規格](reference.md#調整哪些資料不學從哪裡重新學哪些時段放寬)・[操作](reference.md#調整哪些資料不學從哪裡重新學哪些時段放寬)
+> 另見：[原理](../../../docs/rca/README.md)・[規格](reference.md#調整哪些資料不學從哪裡重新學哪些時段放寬)・[操作](reference.md#調整哪些資料不學從哪裡重新學哪些時段放寬)
 
 **實測**（2026-10-23，ES 9.5.5，log 8 天）：
 
@@ -80,7 +80,7 @@
 
 ## 事故紀錄與值班回饋
 
-> 另見：[原理](../../../docs/rca/baseline.md#事故紀錄與值班回饋)・[規格](reference.md#事故紀錄與值班回饋)
+> 另見：[原理](../../../docs/rca/README.md)・[規格](reference.md#事故紀錄與值班回饋)
 
 **測資與結果**（2026-10-24，ES 9.5.5；14 筆異常：同一個對象 6 次、另一條路由 1 次、錯誤率 4 次＋1 個 warning、log 1 次、規則 1 次）：
 
@@ -102,7 +102,7 @@
 
 ## 慢性病清單、行事曆
 
-> 另見：[原理](../../../docs/rca/baseline.md#慢性病清單行事曆)・[規格](reference.md#慢性病清單行事曆)・[操作](reference.md#慢性病清單行事曆)
+> 另見：[原理](../../../docs/rca/README.md)・[規格](reference.md#慢性病清單行事曆)・[操作](reference.md#慢性病清單行事曆)
 
 **實測**（2026-10-24，ES 9.5.5）：
 
@@ -118,7 +118,7 @@
 
 ## 資料品質檢查：資料本身怪不怪
 
-> 另見：[原理](../../../docs/rca/baseline.md#資料品質檢查資料本身怪不怪)・[規格](reference.md#資料品質檢查資料本身怪不怪)
+> 另見：[原理](../../../docs/rca/README.md)・[規格](reference.md#資料品質檢查資料本身怪不怪)
 
 ### 門檻怎麼校、誰來調
 

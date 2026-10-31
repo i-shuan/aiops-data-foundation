@@ -11,7 +11,7 @@
 | key 作廢或打錯期間，資料一直送不進去 | 出口（`elasticsearch` 寫入元件）的 `retry_on_status` 含 401（為了 ES 剛起來那一秒多），key 錯也會一直重試，資料留在佇列；佇列滿了才丟 | 換 key 一律用 `telemetry/scripts/rotate-writer-key.sh`（先發新的、換進 Secret、Collector 換用後才作廢舊的；Collector 從檔案讀 key，不用重啟）。監控 Collector `:8888/metrics` 的 `otelcol_exporter_send_failed_metric_points`、`otelcol_exporter_send_failed_log_records`，大於 0 就是有資料被丟 |
 | ES 限流（429）時資料晚到好幾分鐘 | ES 對整個請求回 429，Collector 退避重試（最多 30 秒一次） | 不會掉（實測每秒 3,000 行、ES 拒絕 902 次，掉 0）；只是晚到 |
 | Collector log 出現 `Partial success ... dropped` | ES 拒收其中幾筆（例如欄位型別衝突，400），那幾筆丟掉 | 監控這行。`CONFLICT`（409）是重送的被 `_id` 擋掉，屬於正常去重複，不算遺失 |
-| ES 停機那一刻前後約 10 秒的資料不見 | ES 的 IP 消失、連線變成送出去沒人理（`dial tcp … i/o timeout`），`elasticsearch` 寫入元件這種逾時不重試 | ES 前面放 LB／VIP＋健康檢查，主機掛掉時回拒絕或 503（[metrics/README.md](metrics/README.md#為什麼用-elasticsearch-寫入元件不用-otlp-送)） |
+| ES 停機那一刻前後約 10 秒的資料不見 | ES 的 IP 消失、連線變成送出去沒人理（`dial tcp … i/o timeout`），`elasticsearch` 寫入元件這種逾時不重試 | ES 前面放 LB／VIP＋健康檢查，主機掛掉時回拒絕或 503（[metrics/README.md](metrics/README.md)） |
 | 兩個 cluster 的資料混在一起 | `CLUSTER_NAME` 沒改（它是每筆的 `k8s.cluster.name`，metrics 的資料流名稱裡沒有它） | 每個 cluster 部署時一定要改 |
 | 改了部門，資料還進舊的 group | dept 清單有兩處：`telemetry/groups.yaml` 和 `common.yaml` 的 `transform/group` | 兩處一起改。改 namespace 的 `dept` label 後 0～3 秒生效，五種資料同時切；Prometheus 要等下一次抓（最多 30 秒） |
 | 平台元件（kube-system 等）的資料在 unassigned | 這些 namespace 沒有 `dept` | 正常，跟 metrics 的兜底 tenant 同義 |
@@ -74,7 +74,7 @@
 | Collector 抓不到 .NET 的 metrics | 自動埋點的 Prometheus 端點只聽 localhost | 改成推（OTLP），chart 已經這樣設 |
 | 沒有 `http.server.request.duration` | 自動埋點預設沒開 ASP.NET Core 的 HTTP 指標 | `OTEL_DOTNET_AUTO_METRICS_ADDITIONAL_SOURCES=Microsoft.AspNetCore.Hosting,…`（chart 已加） |
 | log 量暴增 | ASP.NET Core 預設每個請求印 5 行 Information | `Logging__LogLevel__Microsoft.AspNetCore=Warning`（chart 已設） |
-| .NET Kafka 消費端的 log 沒有 trace_id | 自動埋點的 `receive` span 在 `Consume()` 回來時就結束 | 不改程式時印業務 ID；要串起來得在消費端改程式（[metrics/dotnet.md](metrics/dotnet-how-to.md#kafkaconfluentkafka)） |
+| .NET Kafka 消費端的 log 沒有 trace_id | 自動埋點的 `receive` span 在 `Consume()` 回來時就結束 | 不改程式時印業務 ID；要串起來得在消費端改程式（[metrics/README.md](metrics/README.md)） |
 | .NET 的 log 對不到 trace | trace_id 在 `Scopes` 裡，不在最外層 | 開 `IncludeScopes`；中央 pipeline 會從 `Scopes` 拿 `TraceId`、`SpanId`，也認得 Serilog compact JSON。都能用環境變數開（`Logging__Console__*`），不用改程式 |
 | 告警顯示的連線池名稱是一串連線字串 | Npgsql 用連線字串當名稱（密碼已拿掉） | 能改程式就用 `NpgsqlDataSourceBuilder` 設 `Name` |
 | 執行緒池飢餓時佇列長度一直是 0 | .NET 6 以後偵測到同步等 Task 會馬上多開執行緒，不排佇列 | 看「執行緒 ÷ CPU 核數」（`thread_pool_growth`） |

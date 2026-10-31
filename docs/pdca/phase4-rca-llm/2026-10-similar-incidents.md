@@ -1,6 +1,6 @@
 # 相似事故檢索：RAG 的「檢索」（2026-10）
 
-**狀態**：完成（欄位比對版，docker ES 實測；舊事故匯入格式見 Act）　　**日期**：2026-10-25　　**相關**：分支 `claude/loop-plans`；前置 [老師傅回饋入口](../phase5-learning-loop/2026-10-expert-feedback.md)；主線 [產品主線 8 步](../../architecture-reference.md#9-產品主線-8-步) 第 7 步
+**狀態**：完成（欄位比對版，docker ES 實測；舊事故匯入格式見 Act）　　**日期**：2026-10-25　　**相關**：分支 `claude/loop-plans`；前置 [老師傅回饋入口](../phase5-learning-loop/2026-10-expert-feedback.md)；主線 [產品主線 8 步](../../architecture.md#9-產品主線-8-步) 第 7 步
 **模組**：⑦ 根因分析、⑨ feedback（知識庫）
 
 ## Plan：這一次要達到什麼

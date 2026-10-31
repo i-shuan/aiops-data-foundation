@@ -162,7 +162,7 @@ processors:
       - delete_matching_keys(span.attributes, "^data_stream\\.")
 
   # 例外事件抄到 span 的屬性上：ES 的 OTLP 入口不存 span 的事件（實測），例外的種類、訊息會不見。
-  # 抄上來之後，「吞掉的例外」（有例外事件、但 status 不是 ERROR、回 200）在 ES 裡才查得到（docs/trace/scenarios.md）。
+  # 抄上來之後，「吞掉的例外」（有例外事件、但 status 不是 ERROR、回 200）在 ES 裡才查得到（docs/trace/README.md）。
   # 堆疊（exception.stacktrace）不抄：很長，要看細節用 trace_id 找 log。
   transform/exceptions:
     error_mode: ignore

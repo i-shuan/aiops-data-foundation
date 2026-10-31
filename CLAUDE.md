@@ -55,7 +55,7 @@
 - 一個主題要寫的東西超過一種，就在**同一個資料夾**拆成不同檔案（不另開 `explanation/`、`how-to/` 資料夾），並在 `docs/README.md` 標類型。
 - 「現況與待辦」「還沒做」留在該主題的原理文件（Diátaxis 沒有「狀態」這一類，放在原理最接近）。
 - 步驟（部署、驗證、遇到問題怎麼辦）不要寫進原理或規格；原理（為什麼）不要寫進操作，用連結指過去。
-- `engine/`、`sdk/`、`e2e/` 旁邊的 README 本來就貼著程式（操作、規格），多半不拆，只在 `docs/README.md` 標類型。**例外：`engine/configs/baseline/` 已依類型拆開**——`README.md` 操作、`reference.md` 規格、`verification.md` 案例（實測），原理在 [docs/rca/baseline.md](docs/rca/baseline.md)；這個資料夾的 md 同樣要標類型。
+- `engine/`、`sdk/`、`e2e/` 旁邊的 README 本來就貼著程式（操作、規格），多半不拆，只在 `docs/README.md` 標類型。**例外：`engine/configs/baseline/` 已依類型拆開**——`README.md` 操作、`reference.md` 規格、`verification.md` 案例（實測），原理在 [rca/README.md](docs/rca/README.md)；這個資料夾的 md 同樣要標類型。
 
 - 新增、刪除、改名 md：同一個 commit 更新 `docs/README.md`（PDCA 紀錄更新 `docs/pdca/README.md`）。
 - 長文（超過約 300 行）在第一個 `##` 前放 `<!-- toc -->` 和 `<!-- /toc -->`，用 `python3 tools/check-docs.py --toc` 產生，不要手寫目錄。

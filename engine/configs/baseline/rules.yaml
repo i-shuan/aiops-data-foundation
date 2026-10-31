@@ -274,7 +274,7 @@ rules:
     by: [*ns, *pod, *ctr]
     context: [*svc, *node]
 
-  # ── Java 應用（OpenTelemetry Java agent 2.x 實測的名稱，見 docs/metrics/cases.md）──
+  # ── Java 應用（OpenTelemetry Java agent 2.x 實測的名稱，見 docs/metrics/README.md）──
   # heap 的老年代「GC 之後」還很滿：GC 清不掉，是真的不夠或洩漏（只看 used 會被還沒回收的垃圾騙）
   - name: jvm.old_gen_after_gc_high
     title: JVM 老年代 GC 後還很滿（記憶體洩漏或 heap 不夠）
@@ -511,7 +511,7 @@ rules:
     for: 5m
     by: [attributes.consumergroup, attributes.topic]
 
-  # ── 機台與 EAP（名稱是平台提案，EAP 的 exporter 要照這個開，見 docs/metrics/cases.md）──
+  # ── 機台與 EAP（名稱是平台提案，EAP 的 exporter 要照這個開，見 docs/metrics/README.md）──
   - name: eap.secs_disconnected
     title: 機台 SECS 通訊斷線
     severity: critical

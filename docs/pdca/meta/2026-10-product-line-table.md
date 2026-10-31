@@ -1,6 +1,6 @@
 # 「產品主線 8 步」表改成 Phase × 模組（2026-10）
 
-**狀態**：完成　　**日期**：2026-10-29　　**相關**：分支 `claude/arch-phase-module`（從 `claude/diataxis-baseline` 開出）；表在 [architecture-reference.md 第 9 節](../../architecture-reference.md#9-產品主線-8-步)
+**狀態**：完成　　**日期**：2026-10-29　　**相關**：分支 `claude/arch-phase-module`（從 `claude/diataxis-baseline` 開出）；表在 [architecture-reference.md 第 9 節](../../architecture.md#9-產品主線-8-步)
 **模組**：跨階段
 
 ## Plan：這一次要達到什麼

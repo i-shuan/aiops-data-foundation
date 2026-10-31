@@ -1,89 +1,77 @@
 # Metrics 進 Elasticsearch
 
-> **類型：原理 Explanation**　同主題：[規格（欄位）](reference.md)・[操作（部署、驗證）](how-to.md)・[指標目錄（規格）](catalog.md)・[metrics 能做什麼（原理）](capabilities.md)・[案例與實測](cases.md)・[.NET 原理](dotnet.md)・[.NET 操作](dotnet-how-to.md)・[.NET 規格](dotnet-reference.md)
+> **類型：原理 Explanation**
 
-一句話：**每個 cluster 一套 OpenTelemetry Collector 收 metrics，依「每筆資料自己的 namespace」讀 dept 分 group，各 group 用自己的 key 寫進 ES 的 time series data stream。**
-
-log 也由同一個 Collector 收（[log/README.md](../log/README.md)）：分部門的規則只有一份（`common.yaml` 的 `transform/group`，log 和 metrics 共用）、key 也共用，同一個 Pod 的 log 和 metrics 一定落在同一個 group。
-
-## 現況與待辦（①收值、②清資料、③存）
-
-**已完成 ✅**
-
-| 項目 | 狀態 |
-|---|---|
-| node Collector：kubelet、cAdvisor（CPU 限流）、應用的指標（Java 照標註來抓、.NET 用 OTLP 推）；cluster Collector：K8s 物件狀態 | ✅ 每 30 秒 |
-| 依每筆資料自己的 namespace 分部門（寫進各部門的 data stream）、集中式資料寫入憑證 (Shared Ingest Token) 所有部門共用 | ✅ |
-| 直方圖從累加值換成「每 30 秒多少」，任一段時間直接加總 | ✅ |
-| 外部系統：kafka_exporter | ✅ |
-| 寫進 ES 的時序資料流（TSDS），重送不重複 | ✅ |
-
-**已完成的部分，還差一點**
-
-| 項目 | 要做的 |
-|---|---|
-| ② 指標名稱不一致 | ✅ node Collector 進來時把 Java（Prometheus 格式）的 `http_server_request_duration_seconds`、`http_route`、`http_request_method`、狀態碼字串改成 OTel 的 `http.server.request.duration`、`http.route`、`http.request.method`、狀態碼數字（`node.yaml` 的 `metricstransform/java-http`、`transform/java-http`）。ES 裡只有一種名字，baseline 的 `variants` 拿掉。只對舊名字生效：Java agent 升版自己吐 OTel 名字也不會改錯。`quality.metric_name_legacy` 盯「舊名字又出現」。[PDCA](../pdca/phase1-collect/2026-10-field-unify.md) |
-| ① ES 剛起來回 401、Collector 直接丟 | 修在 ES 入口：健康檢查要用 API key 打 GET /（trace 線實測；metrics 用同一種 exporter，推論相同）。📝 中央 ES 前面的健康檢查要請管 ES 的人改。[PDCA](../pdca/phase1-collect/2026-10-es-startup-401.md) |
-| ① .NET 還沒驗證的 | SQL Server（SqlClient）連線池指標、.NET 6、Alpine（musl）image（[metrics/dotnet.md](dotnet.md)） |
-| ③ 保留天數 | ✅ 原始 14 天 → 5 分鐘一點 → 第 90 天 1 小時一點 → 第 400 天刪；降解析度後直方圖照樣保留（[retention.md](../retention.md)） |
-
-**要做的（①收值、②清資料）**
-
-| 項目 | 內容 | 驗收 |
-|---|---|---|
-| ① 主機時鐘監控（時間對齊；規則在 ④判斷） | ✅ K8s 節點：node Collector 的 `ntp` receiver（不用 node_exporter），30 分鐘量一次（receiver 的最短間隔），寫 `metrics-ntpreceiver.otel-*` 的 `metrics.ntp.offset`（奈秒）；規則 `node.clock_offset`：快慢超過 100ms warning、超過 1 秒 critical。📝 DB 主機（不在 K8s 裡）還沒有。`NTP_SERVER` 要填公司的 NTP。[PDCA](../pdca/phase1-collect/2026-10-time-alignment.md) | 實測：假 NTP 伺服器快 2.5 秒、慢 0.3 秒、差 0.05 秒，三台分別報 critical、warning、不報 |
-| ② 業務 ID 不放 metrics | 交易 ID、單號只放 log、trace；放進 metrics 每個值一條新序列，序列數會爆炸 | 資料品質檢查會報序列數暴增（[rca/README.md「髒資料排除」](../rca/README.md#髒資料排除)） |
+每個 cluster 一套 OpenTelemetry Collector 收 metrics，依每筆資料自己的 namespace 讀 dept 分 group，用集中式資料寫入憑證 (Shared Ingest Token) 寫進 Elasticsearch 8.19 的時序資料流。分組規則與 log 相同，同一個 Pod 的資料落在同一個 group。
 
 ## 資料怎麼走
 
-```
-每個節點一個 Collector（DaemonSet）
-   ├─ kubelet：節點、Pod、容器的 CPU、記憶體、網路、磁碟
-   ├─ kubelet 的 cAdvisor：只收 CPU 被限流的兩個數字（週期數、被限流的週期數）
-   ├─ 應用的 Prometheus metrics：這個節點上、Pod 標註 prometheus.io/scrape: "true" 的（Java）
-   └─ 應用用 OTLP 推來的 metrics（.NET，見 dotnet.md）
-整個 cluster 一個 Collector（Deployment，replicas 1）
-   └─ k8s_cluster：Pod 狀態、容器重啟次數、Deployment/ReplicaSet 副本數、namespace、節點狀態
-        ↓ 兩種 Collector 共用同一份規則（common.yaml）
-        ↓ 1. 邊緣身份鑑別（Edge Identity Sanitization）：應用自帶的 dept、group 欄位一律拿掉
-        ↓ 2. 依這筆資料屬於哪個 Pod／物件，讀它 namespace 的 dept label，補上服務身分
-        ↓ 3. dept → group（清單同 telemetry/groups.yaml）；沒有 dept 的（例如節點本身）→ unassigned
-        ↓ 4. data_stream.namespace = group；一個出口、集中式資料寫入憑證（ES_WRITER_API_KEY），用 elasticsearch 寫入元件（otel 模式）寫進 ES
-        ↓    → metrics-<來源>.otel-<group>（例如 metrics-prometheusreceiver.otel-it）
-        ↓ 中央 ES（8.19 以上）內建的 metrics-otel@template 把它建成 time series data stream（TSDS）
-   AIOps 用唯讀 key 讀 metrics-*.otel-*；人用各 group 的唯讀角色
-```
+- 節點 Collector 每 30 秒收 kubelet 的節點、Pod、容器指標，cAdvisor 的 CPU 限流兩個數字，Java 的 Prometheus 端點，.NET 推來的指標，以及時鐘偏移。
+- cluster Collector 收 Pod 階段、重啟次數、副本數、節點狀態。
+- 兩種 Collector 共用同一份設定：先做邊緣身份鑑別與標籤注入，拿掉應用自帶的部門與 group 欄位；再依資料所屬的 Pod 或物件讀 namespace 的 dept label，對應到 group；沒有部門的資料（節點本身）進 unassigned。
+- 出口是 Collector 的 elasticsearch exporter，寫入 `metrics-<來源>.otel-<group>`，來源有四種，每個 group 四條資料流。AIOps 用唯讀 key 讀取。
 
-`<來源>` 是 `kubeletstatsreceiver`、`k8sclusterreceiver`、`prometheusreceiver`，加上 `generic`（資料帶著應用自己的 scope 名稱的：Java agent 的指標、.NET 用 OTLP 推的），所以每個 group 有四條資料流。
+## 關鍵決定與原因
 
-## 為什麼依「每筆資料自己的 namespace」分
+**依資料自己的 namespace 分 group，不依抓取對象。** 原設計依抓取對象所在的 namespace 分。Pod CPU 從節點 kubelet 抓、Pod 狀態從 kube-system 抓，結果 IT 的 Pod CPU 與重啟次數全進 platform，IT 看不到。該做法另要求 operator 與 vmagent 升到指定版本以上，舊版 vmagent 起不來。
 
-原本的設計（VictoriaMetrics 的 vmagent 加 `scrapeClasses`）是依「被抓取的對象在哪個 namespace」分。實測後發現兩個問題，所以改掉：
+**用 exporter，不用 OTLP。** ES 8.19 沒有 ES 9 的 OTLP 入口，exporter 寫出的資料流名稱與欄位和 OTLP 入口相同。exporter 預設會丟資料，所以改三處：重試從 2 次改成一直重試；401 加入可重試的狀態，因為 ES 剛起來約 1 秒內 key 會被拒，整個請求沒有寫入，重送不會重複；逾時期限設為不限。ES 無回應 90 秒掉 0 筆。ES 的 IP 消失時 exporter 不重試，180 秒停機掉約 3%，所以 ES 前要有 LB 加健康檢查，檢查要帶 API key，需管 ES 的人修改。
 
-| 問題 | 實測結果 |
-|---|---|
-| Pod 的 CPU、記憶體是從節點的 kubelet 抓的，Pod 狀態是從 kube-system 的 kube-state-metrics 抓的 | 抓取對象不在應用的 namespace，**IT 的 Pod CPU、重啟次數全部被分到 platform**，IT 在自己的 tenant 看不到 |
-| `scrapeClasses` 要讀 namespace 的 label，版本要求高 | operator 要 v0.67.0 以上、vmagent 要 v1.130.0 以上，兩個都要。舊版的 vmagent 直接起不來 |
+**直方圖換增量，sum 另存。** Prometheus 直方圖從啟動累加，ES 無法頭尾相減。Collector 換成每 30 秒的差值，可直接加總任一區間。ES 8.19 的直方圖欄位只存各區間的值與次數，沒有 temporality，也不存總和，所以把總和另存為 `<名稱>_sum`。累計值不換。代價是 Collector 重啟後，每條序列首次抓取沒有前值，該 30 秒遺失；應用重啟歸零視為重新開始。
 
-現在的做法看的是每筆資料標的 Pod 或物件，所以 kubelet、k8s_cluster 的資料也會分到那個 Pod 的 group，而且不吃任何特定版本的功能。
+**Java 指標名稱在進 ES 前統一。** node Collector 把 HTTP 請求耗時改成 OTel 名稱，狀態碼改數字，只改舊名，所以 Java agent 之後自己改用新名稱也不會改錯。baseline 因此不需要兩套寫法。
 
-## 為什麼用 elasticsearch 寫入元件，不用 OTLP 送
+## 欄位與資料結構
 
-公司的 ES 是 8.19，沒有 ES 9 自己的 OTLP 入口（`/_otlp/v1/*`），所以 Collector 用 `elasticsearch` 寫入元件（`mapping: otel`）寫進 ES 內建的 `*-otel` data stream；寫出來的資料流名稱、欄位、分流跟 OTLP 入口一樣，中央 pipeline 照用（[2026-10 相容性紀錄](../pdca/meta/2026-10-compat-es8-grafana13.md)）。
+一筆文件是「時間點加一條序列身分」，含身分與單位相同的所有指標，一個 Pod 每 30 秒約十餘筆。`_id` 由序列身分加時間決定，重送不重複。可寫入時間往後放寬 2 小時，ES 停機後補送的資料才收得進。
 
-這個元件預設的重試會掉資料，所以設定（`telemetry/collectors/common.yaml`）改成這樣（[實測](../pdca/meta/2026-10-collector-es-exporter.md)）：
+- 數值放 `metrics.<名稱>`，維度放 `attributes.*`。
+- 服務身分在 `resource.attributes` 的服務名稱欄位，分流結果在 group 與 dept 欄位。
+- 維度每組不同的值就是一條序列，所以交易 ID、批號不可放進 metrics，序列數會爆。
+- 量測值（gauge）可直接平均；累計值（CPU 累計時間、網路流量、重啟次數）要先算差值。
+- 查指標要先過濾 `exists`，因為同一資料流混有多種文件。
 
-| 預設的行為 | 改成 | 為什麼 |
-|---|---|---|
-| 重試只靠元件自己的 `retry`（`max_retries: 2`，幾百毫秒就放棄）；`retry_on_failure` 對它沒作用 | `retry` 一直重試（1 秒起、最多 30 秒一次） | ES 停機期間資料留在佇列，回來再送 |
-| 401 當永久錯誤，整批丟 | `retry_on_status` 加 401（另有 429、502、503、504） | ES 剛起來的一秒多 API key 會被拒；這些狀態整個請求都沒寫入，重送不會重複 |
-| `timeout` 是含重試的總期限，到期那批丟 | `timeout: 0` | 停機或連線掛住超過期限也不丟 |
+## 收了什麼、哪些有 baseline
 
-結果：ES 沒回應 90 秒 0 遺失；ES 停機 180 秒只掉停機那一刻前後約 10 秒（3%）——ES 的 IP 消失、連線變成送出去沒人理時，這個元件不重試。正式環境 ES 前面要有 LB／VIP＋健康檢查，主機掛掉時回拒絕或 503，就不是這種情況。
+kubelet 提供 CPU、記憶體、磁碟、網路用量。k8s_cluster 提供重啟、Pod 階段、副本、節點狀態。Java agent 提供 HTTP 延遲直方圖、JVM 記憶體與 GC、HikariCP 連線池。.NET 提供 HTTP、runtime、Npgsql 連線池。Kafka 落後筆數由 kafka_exporter 提供。
 
-## 還沒做
+有 baseline 的 metrics 共 5 條：請求數、錯誤率、p95（依服務、方法、路由切），Pod CPU、Pod 記憶體（依 Deployment 切）。重啟、副本、磁碟、JVM、連線池、p99 沒有 baseline，由靜態臨界值規則判斷（[規格](../../engine/configs/baseline/reference.md)）。
 
-1. **保留天數**：已套用（[retention.md](../retention.md)），各 group 要不要不同還要確認。
-2. **量大時夠不夠力**：只用測試的量驗過（單節點、十幾個 Pod）。佇列在量大時能撐多久停機也還沒量（測試的量：每秒 200 行 log，30 分鐘佔 285MB）。
-3. **節點本身的系統指標**（磁碟、檔案系統、load）：現在只有 kubelet 給的節點 CPU、記憶體、網路，沒有收 hostmetrics。
-4. **K8s events**：跟 log 那邊一樣還沒做。
+## metrics 能做到與做不到
+
+五種做法中，四種已做：動態基準線學習處理有週期的請求數、延遲、CPU（5 條）；靜態臨界值規則處理有上限的記憶體、磁碟、連線池；Pod 同儕橫向比對處理一個 Pod 壞而被平均稀釋的錯誤率、p95、CPU、記憶體；狀態變化處理重啟、副本不足、節點 NotReady，k3s 的 5 種壞法都抓到、正常時不誤報。第五種是趨勢，預測緩慢上升的指標幾天後到上限，需要數天資料，尚未做。
+
+請求、錯誤、延遲只說明何時出事；把連線池、GC、磁碟、重啟、版本更換對時間，才指得出原因種類。做不到的有四項：
+
+- 慢在請求哪一段、呼叫幾次：metrics 只有整體數字，靠 trace。
+- 錯誤被吞、狀態碼 200：靠 log 與例外吞噬檢測。
+- 哪批貨、哪台機台：批號不能當維度，靠 trace 屬性。
+- 從資料點跳到 trace：exemplar 寫入 ES 時被丟（ES 9.5.5、8.19.23 實測），改以服務加時間範圍查。
+
+## .NET 與 Java
+
+.NET 服務多為舊專案、分屬不同部門，無法要求改程式，所以 chart 開 `otel.dotnet`，掛自動埋點。自動埋點的 Prometheus 端點只聽 localhost，Collector 抓不到，只能推。.NET Framework 4.x 只跑 Windows，需先移植到 .NET 6 以上。
+
+- 收法：Java agent 在 9464 開端點由 Collector 拉；.NET 每 30 秒推到節點 Collector。
+- 部門判斷：Java 看 Pod 的 namespace；.NET 看連線來源 IP 對應的 Pod。
+- HTTP 指標：Java 進 ES 前改名，與 .NET 同名；.NET 預設沒開，chart 要加環境變數。
+- runtime 指標：名稱依版本不同，.NET 8 與 9 各有一組規則，一個服務只命中其一。heap 上限與連線池排隊數沒有指標。
+
+## 部署與驗證
+
+1. 中央 ES 跑 `elasticsearch-setup.sh`，與 log 共用，重跑才讓新 key 有 metrics 權限。
+2. 應用 cluster 要有 `es-writer-keys` secret，改 `telemetry/collectors` 底下 kustomization 的 cluster 名稱、ES 位址、image，再套用。
+3. Java 用 app-common chart 自動加註記；.NET 開啟 chart 的 `otel.dotnet`。
+4. 驗證跑 `run-metrics-e2e.sh`，46 項通過，涵蓋分流、欄位、直方圖、權限。改 namespace 的部門 label 不用重啟 Collector，2 至 17 秒生效。
+
+案例結論（k3s 實測）：CPU 平均只有 limit 的 35%，卻有 50% 的週期被限流；Java 洩漏看 GC 之後的老年代用量，比 OOM 早約 4 分鐘發現，因為只看用量會被尚未回收的垃圾誤導。JVM 要加 `-XX:+ExitOnOutOfMemoryError`，否則 OOM 後程式不結束，K8s 不重開。排錯見 [troubleshooting](../troubleshooting.md)，保留見 [retention](../retention.md)。
+
+## 現況與未做
+
+- ✅ 收值、分 group、直方圖增量：錯誤率與 p95 算得出來。
+- ✅ 保留：`metrics-generic`（應用直方圖）原始資料 90 天，不降解析度，因為 ES 8.19 的 `histogram` 降解析度時不合併；其他 metrics 原始 14 天，之後 5 分鐘一點，第 90 天起 1 小時一點，第 400 天刪（[retention](../retention-reference.md)）。
+- ✅ 節點時鐘：偏移超過 100ms 警告、超過 1 秒嚴重。
+- ⚠️ 往外 HTTP 呼叫耗時：測試程式沒有往外呼叫，未驗證。
+- ❌ 趨勢、p99 baseline、節點系統指標。
+- ❌ 真實 Kafka、機台指標、OEE、DB 慢查詢。
+- ❌ .NET 的 SQL Server 連線池、.NET 6、Alpine。
