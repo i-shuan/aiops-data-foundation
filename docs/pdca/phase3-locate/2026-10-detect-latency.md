@@ -1,6 +1,6 @@
 # 偵測的時間：事故到通知的延遲、p95 一個點暴衝會不會開事故（2026-10）
 
-**狀態**：進行中（p95 已測；延遲要等 ⑧⑨ 實跑）　　**日期**：2026-10-31　　**相關**：分支 `claude/trace-merge`、PR #36
+**狀態**：已完成（p95 與事故到通知的延遲都已實測）　　**日期**：2026-10-31　　**相關**：分支 `claude/trace-merge`、PR #36
 **模組**：④ 判斷、⑥ 收斂、⑧ 出口
 
 ## Plan：這一次要達到什麼
@@ -22,7 +22,7 @@
 |---|---|---|
 | p95 一個點暴衝（5 分鐘窗 9% 的請求 3 秒）會不會開事故 | `tests/p95_spike_e2e.py` 的 A | 暴衝點寫進 ES 後第一輪（+10 秒）規則命中；之後連續 5 輪都命中（窗口 5 分鐘）；**第 2 輪（+70 秒）開出事故**。warning 規則單獨一筆不開，但同一個暴衝會被連續看到，所以第 2 輪就湊到 2 筆 |
 | 只有少數請求慢（5 分鐘窗 2.4%）會不會誤報 | 同上的 B | p95 不到 2 秒，規則 9 輪都不命中，沒開件 |
-| 事故開始 → 偵測 → 開件 → Grafana 通知的延遲 | ⑧⑨ 實跑（rca-demo：Collector → trace-merge → rules → alert → Grafana → notify-sink） | （實跑後補） |
+| 事故開始 → 偵測 → 開件 → Grafana 通知的延遲 | ⑧⑨ 實跑（rca-demo：Collector → trace-merge → rules → alert → Grafana → notify-sink） | 事故開始（wip-worker 查 Oracle 變 1.5 秒）後 159 秒有第一筆異常、162 秒開件、**186 秒 Grafana 通知到 notify-sink**（≤ 10 分鐘 PASS）。每分鐘一輪 tick 模擬排程器，開件以 tick 後第一次看到為準，誤差約 ±1 分鐘；同一輪還跑了 ⑨ 回饋、⑦ 報告指到 Oracle，共 11 項 PASS |
 
 **沒測到的**：baseline 的 p95 單點暴衝（status warning、只併進已開著的件，不單獨開）與規則同時發生時的組合，只有單元測試（`test_status_params`、`test_alerts.test_warning_alone_does_not_open`）；peer、trace 每 5 分鐘一輪的延遲（正式的 5 分鐘一點）。
 
