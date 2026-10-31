@@ -125,6 +125,22 @@
 
 套用順序：自動選 → `series.yaml` 的 `overrides`（檔案順序）→ `adjustments.yaml` → `aiops-tuning`（依 `at` 由舊到新），同一欄位後面的蓋前面的，不同欄位各自生效；不看 `match` 寫得多細（較晚寫的寬鬆調整會蓋掉較早的精細調整）。每筆調整記 `reason`、`by`、`at`，查得到誰、為什麼、什麼時候改的。
 
+#### 調整和原始資料分開存
+
+調整只在 `train`、`detect` 執行當下疊上去，不改原始資料，也不改學出來的基準線。
+
+| 東西 | 放哪 | 誰寫 |
+|---|---|---|
+| 原始資料（每個時間點的值） | `metrics-*.otel-*`、`k8s-*`、`traces-*.otel-*` | Collector |
+| 基準線（學出來的中位數與 MAD） | `aiops-baseline` | `train`；寫完會刪掉這條序列上一次留下、這次沒有的 |
+| 預設參數（`z`、`confirm_points`…） | `series.yaml` | 改檔 |
+| 調整 | `aiops-tuning`；另有 `series.yaml` 的 `overrides`、`adjustments.yaml` | `tune`、`adjust`、回饋網頁 |
+
+- `override`（`z`、`min_abs`、`confirm_points`、`instant_z`）只改判斷用的門檻，下次 `detect` 就用，不動基準線。
+- `exclude_window`、`reset_point` 作用在 `train`：先把那段歷史拿掉再算中位數與 MAD，所以要等下次 `train` 基準線才變；要馬上生效手動跑一次 `train`。被排除的原始資料還在 ES。
+- 同一條序列加同一組 `match` 用 `tune` 再寫一次是覆蓋，不是新增一筆。
+- `aiops-tuning` 裡的調整不會自動刪：`expires_at` 過了只是不再生效，文件還在；`adjust remove --id` 才刪。
+
 ### (3) 自己沒有 baseline：借同類的
 
 - **組要事先定義**（系統不會自己知道誰是「Query API」）：`series.yaml` 的 `groups`，依 keys 的正規表示式比對，由細到粗排，例如先 `mes-query`（服務 `mes-*`、路徑查詢類），再 `mes`（服務 `mes-*`）。之後可改從 K8s label 或服務清單讀。⚠️ 目前 `series.yaml` 的 `groups` 只是註解掉的範例，**實際不會借**。
