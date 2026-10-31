@@ -19,25 +19,40 @@
 
 ## Act：沒解決的，在什麼情況下發現的
 
-### 1. trace 合併（討論 trace 量大時）
+### 1. trace 合併
 
-目的：一個請求產生 5～8 筆 span，筆數多、固定開銷大，想把同一個 `trace_id` 的 span 合成一筆摘要。
+**狀態：測試中**（分支 `claude/trace-merge`，尚未合入 master；設計與實測見該分支的 [PDCA](https://github.com/i-shuan/aiops-data-foundation/blob/claude/trace-merge/docs/pdca/phase1-collect/2026-10-trace-merge.md)）。master 上的 [trace/README.md](../../trace/README.md)、[retention.md](../../retention.md) 在合入前仍是尾端取樣的說法。
 
-| 問題 | 選項 | 傾向 |
-|---|---|---|
-| 在哪裡合 | trace-sampler：取樣後立刻寫摘要，不增加延遲，要自己寫元件。ES transform：不用寫程式，但完整 span 要先寫進 ES，省的只有保存容量 | transform，先不動 Collector |
-| 合併後取代 span 還是多存一份 | 取代：容量省最多，但根因分析現在讀 span。多存：查詢方便，容量反而多一點 | 有問題的 trace 保留完整 span，正常的只存摘要 |
-| 隨機 5% 要不要取消 | 摘要很小，全部正常請求都存一筆比抽 5% 準 | 未決定 |
-| 工廠端是什麼意思 | 工廠現場另一套小 ES／機台或 EAP 另一種來源／同一套設計搬到工廠環境 | 未回答，決定寫入量與保存容量哪個是瓶頸 |
-| 晚到的 span | 超過取樣等待的 30 秒才到，摘要可能少一段；transform 會不會補進去 | 未驗證 |
-| 摘要延遲 | transform 約 5 分鐘（`aiops-log-stats` 現況，推算）；出問題的 trace 不受影響，仍是完整 span | 可接受 |
+目的：製造業事故檢討不能少資料，不在收值端取樣；一個請求原本是 5～8 筆 span，希望查一個請求只讀一筆。
+
+討論時的選項與分支的決定：
+
+| 問題 | 分支的決定 |
+|---|---|
+| 在哪裡合 | 不在收值端、不用 ES transform（`scripted_metric` 組 `nested` 難寫難測；continuous transform 寫不進 data stream）；由 engine 的排程器每分鐘跑 `detector trace-merge`，以 `event.ingested` 找這一分鐘有新 span 的 trace，讀回全部的段，合成一筆 upsert（`_id` = `trace_id`） |
+| 取代 span 還是多存一份 | 都留：raw（OTel 原生、100% 收）只留 2 天，merged（`traces-merged-*`，一請求一筆、每段放 `nested`）留 7 天；根因分析讀 merged，trace 每一段的 baseline 仍讀 raw |
+| 隨機 5% 要不要取消 | 取消尾端取樣，100% 收；拆掉 trace-sampler 與 `traces-problem` |
+| 晚到的 span | 每分鐘重讀有新 span 的 trace 全部的段，晚到的會補進去；停很久會分段補（最多 2 天） |
+| 摘要延遲 | 晚 1～2 分鐘：排程器每分鐘跑，根因分析看到的 merged 是 1～2 分鐘前的；事故當下要看即時的查 raw（2 天內） |
+| 工廠端是什麼意思 | 未回答 |
+
+測試中還沒解決的（來源：該分支 PDCA 的 Act）：
+
+| 項目 | 現況 |
+|---|---|
+| 容量 | 100% 收；文件的估算：低流量服務 7 天 1.2GB 變 12GB、高流量 39GB 變 387GB。`nested` 不會省空間，省的只有文件固定開銷；raw 多留 2 天，這 2 天是雙份。收值不省是使用者的決定，之後靠保留天數與冷儲存（MinIO，另案）處理 |
+| 升級那一刻漏合 | setup 把舊 raw 資料流 rollover 之前寫的 span 沒有索引的 `event.ingested`，`trace-merge` 看不到；實測約 9 個 trace，只影響第一次升級 |
+| merged 不是 OTel 原生格式 | 自訂格式；Kibana 只有 raw 那 2 天看得到原生 |
+| 讀端兩套 | 根因分析讀 merged，trace baseline、資料品質讀 raw（只看最近 10 分鐘）；`aiops-trace-segments` 要改讀 merged 得把 composite 聚合改成 nested，這次不碰 |
+| `tests/trace_quality_edge_e2e.py` | 只把尾端取樣模擬改成全留，沒重跑 |
+| 實測環境 | Rancher Desktop 單節點、ES 8.19.23：`run-trace-e2e.sh` 7b 的 raw 21 個 trace 對 merged 21 筆、重跑不重複、權限正確；`run-rca-e2e.sh` 11 項過；單元測試 376 個過。正式環境沒跑過 |
 
 ### 2. 偵測的時間
 
 | 問題 | 現況 | 傾向 |
 |---|---|---|
 | `detect` 每分鐘跑、窗口 10 分鐘 | 停機超過 10 分鐘的那段不補判，Collector 補送的舊資料也不判，只進 `train` | 頻率與窗口不改；把這個限制寫進文件 |
-| peer、trace 每 5 分鐘 | trace 異常約 5～10 分鐘才出現（推算），metrics 約 1～3 分鐘（推算）。trace 的統計本來就以 5 分鐘為單位 | 可接受；只有 trace 看得到的緩慢變差會晚發現 |
+| peer、trace 每 5 分鐘 | trace 異常約 5～10 分鐘才出現（推算），metrics 約 1～3 分鐘（推算）。trace 的統計本來就以 5 分鐘為單位。`claude/trace-merge` 拆掉尾端取樣的 30 秒等待、加每分鐘的 `trace-merge`，這個推算合入後要重估 | 可接受；只有 trace 看得到的緩慢變差會晚發現 |
 | 實際延遲沒量過 | 上面的時間都是推算 | 上線前量一次 |
 | Grafana 評估間隔 | `alert-rules.yaml` 的 `interval: 1m`，再加進 1～3 分鐘（推算）；已寫進 [grafana/README.md](../../../grafana/README.md) | 已確認 |
 | 30 秒收一點 | 10 秒的短暫尖峰會被平均掉 | 目前不處理 |
@@ -79,12 +94,12 @@
 | 多個服務共用同一個資料庫 | 每件事故各算各的，看不出同源；跨服務合併未做 |
 | metrics → trace 是統計對應 | metrics 沒有 `trace_id`，樣本不保證是造成異常的那個請求 |
 | 每段取平均 | 少數極慢請求會拉高排名 |
-| 比 1 秒快的變慢 | 200ms 變 800ms 只剩隨機 5%；實測 1,586 個請求剩 88 個 |
+| 比 1 秒快的變慢 | 200ms 變 800ms 只剩隨機 5%；實測 1,586 個請求剩 88 個。`claude/trace-merge` 改成 100% 收後不再受取樣影響（測試中，合入 master 前仍適用） |
 | 路由沒參數化 | 撈到 0 筆 |
 | 沒做 | 趨勢（慢慢惡化）、指標之間的關係、慢請求的共同點（Pod、版本、批號、SQL）、事故紀錄格式、log 樣式字典、處理手冊 |
 | 沒在正式環境跑過 | 驗證都在測試環境 |
 
-問題 1 的決定會牽動這一節：根因分析現在讀 span，若合併後取代 span，這裡要一起改。
+問題 1 的分支（`claude/trace-merge`）已讓根因分析改讀 merged；合入後這一節的「取樣」「每段取平均」等限制要對照重寫。
 
 ### 7. 基準線與調整索引掉了
 
