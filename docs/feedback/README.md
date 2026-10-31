@@ -23,6 +23,18 @@
 | 誤報 | 同一條序列累積 3 次，產生調整建議，經人核准才生效；單次回饋不生效 |
 | 漏報 | 降 z，補序列或規則；目前只能用指令回報 |
 
+### 怎麼判斷是同一個根因
+
+同一個根因 = 同一個服務加同一個根因分類。程式不比對 `root_cause` 的文字，也不比對指紋。
+
+- 分類是老師傅在表單選的 `root_cause_category`，九選一：`db`、`network`、`config_change`、`deploy`、`external`、`resource`、`bug`、`data`、`other`。
+- 計入的事故：`aiops-incidents` 裡 `status` 是 `confirmed` 或 `corrected`、填了 `root_cause_category`、開始時間在最近 28 天內（`feedback suggest --days`，預設 28）。`auto`（沒人看過）和 `false_positive` 不計。
+- 次數是事故件數，不是回饋筆數。一件事故涉及多個服務時，每個服務各算一次。
+- 同一個服務與分類累積 3 件（`--min-recurring`，預設 3）就寫一筆 `rule_suggestion`（`aiops-tuning`，`status: proposed`）。同一組已經有建議就不重寫。
+- 要看哪幾件被算在一起：建議裡的 `incident_ids`；理由欄寫「<服務> 的「<分類>」被確認 N 次」。
+- 分類選得不同就分開算；選 `other` 的會把不同原因混在一起。核准前要看這幾件的 `root_cause` 文字，確認是同一個原因。
+- 規則草稿的門檻是這幾件事故各自最低的延遲異常值取最小值；沒有延遲類異常就算不出門檻，不能核准。
+
 建議核准前必須跑 `backtest`：現行設定與「現行＋建議」各重跑過去 N 週，已確認事故少抓一件就不建議；沒回測的建議不能核准。
 
 ## feedback 有哪些介面
