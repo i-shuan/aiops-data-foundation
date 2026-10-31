@@ -2,76 +2,118 @@
 
 > **類型：原理 Explanation**
 
-應用把全部 trace 送給同節點的 Collector，Collector 依連線來源 Pod 讀 dept 分 group，再依 trace_id 交給 trace-sampler，等整個 trace 到齊才決定留不留：有問題的全留，正常的隨機留 5%，留下的用集中式資料寫入憑證寫進 ES 8.19。
-
 ## 資料怎麼走
 
-1. 應用的 Java agent 或 .NET 自動埋點，以 OTLP 送到節點 Collector 的 Service，該 Service 限定只連同節點的 Collector。
-2. 節點 Collector 做邊緣身份鑑別與標籤注入 (Edge Identity Sanitization & Injection)：移除應用自帶的 k8s、container、dept、group、data_stream 欄位，依連線來源 IP 對到 Pod，補上 namespace、Pod、Deployment、dept、版本，再把 dept 轉成 group，規則與 log、metrics 共用。
-3. 例外事件的種類與訊息抄到 span 屬性。
-4. 依 trace_id 分配到第二層 trace-sampler，共 2 台。
-5. trace-sampler 等 30 秒再決定，並記下是哪條規則留的。
-6. 用集中式資料寫入憑證 (Shared Ingest Token) 寫入，每個 group 一個資料流。AIOps 用唯讀 key 讀，人用各 group 的唯讀角色。
+```mermaid
+flowchart TB
+  subgraph APP["應用 Pod"]
+    A["Java agent、.NET 自動埋點<br/>OTLP 送出，取樣比例 1.0 全送"]
+  end
+  subgraph NODE["節點 Collector：收進來時清洗"]
+    N0["Service：internalTrafficPolicy Local<br/>只連同節點的 Collector"]
+    N1["拿掉應用自填的 K8s、container、dept、group 欄位"]
+    N2["例外事件的種類、訊息抄到 span 屬性"]
+    N3["依連線來源 IP 對到 Pod<br/>補 namespace、Pod、Deployment、版本、dept"]
+    N4["dept 對應 group"]
+    N5["loadbalancing：依 trace_id 分配"]
+  end
+  subgraph SAMP["trace-sampler × 2：尾端取樣"]
+    T1["等 30 秒，等整個 trace 到齊"]
+    T2["依序比對：random 5%、error、http-5xx、exception、slow 超過 1 秒"]
+    T3["磁碟佇列<br/>elasticsearch exporter"]
+  end
+  subgraph ES["中央 ES：寫入時清洗"]
+    E1["pipeline traces-otel<br/>_id = trace_id-span_id<br/>policy 不是 random 的轉走"]
+    E2["traces-generic.otel-{group}<br/>7 天刪"]
+    E3["traces-problem.otel-{group}<br/>30 天刪"]
+  end
+  A --> N0 --> N1 --> N2 --> N3 --> N4 --> N5
+  N5 --> T1 --> T2 --> T3 --> E1
+  E1 --> E2
+  E1 --> E3
+```
 
-規則、台數、等待時間、隨機比例都在 `telemetry/collectors/`。log、metrics 走同一個 Collector，部門與 key 的規則共用。
+沒有符合任何規則的 trace 不寫入。寫入用集中式資料寫入憑證，重試設定與 metrics、log 相同。
 
-## 關鍵決定與原因
+## trace 的種類與取樣類別
 
-- 應用只連同節點的 Collector：Collector 只記得本節點的 Pod，要靠連線來源 IP 對到 Pod。
-- 移除應用自帶的資源欄位：應用可以自稱別的 namespace 或部門，移除後歸屬只看連線來源，無法冒充。
-- 應用全送，`otel.traces.sampleRatio` 保持 `1.0`：在應用端一開始就抽樣，出事的請求也只剩抽樣比例，而場景一、三最需要的正是這些請求。
-- 兩層，依 trace_id 分配：同一個 trace 的每一段要到同一台，才能判斷整個 trace。
-- 等待 30 秒：必須比最長的請求長。等 10 秒時，下游很快、自己之後又做 12 秒的請求只留下 5%，因為決定時還看不到最上面那段；等 30 秒則全留。
-- 例外抄到 span 屬性：ES 8.19 的 span 文件不存事件，事件另存成一筆 log。
-- 以 trace ID 加 span ID 當文件 ID：重送不重複。
+OTel 原生格式，用 ES 內建的 `traces-otel@template`，索引模式 `logsdb`。
 
-保留條件：錯誤、5xx、例外、超過 1 秒的全留，其餘隨機 5%。k3s 壓測每秒 500 個請求，其中 11% 有問題，有問題的 100% 留下且完整，總量剩約 15%，每台 trace-sampler 記憶體約 150MB。有問題的轉到另一個 problem 資料流，留 30 天，隨機的留 7 天（[保留天數](../retention.md)）。兩種分開存，baseline 只用隨機那份，所以不偏。測試環境隨機比例預設 100%。
+| 種類 | 說明 |
+|---|---|
+| Server span | 請求入口。根因分析與 baseline 以它當 API 的單位 |
+| Client span | 往外呼叫（HTTP、DB、訊息） |
+| Producer／Consumer span | 訊息佇列。消費端的 receive 另起一個 trace，只以 `links` 指回 publish；處理時的 DB 呼叫又自成 trace |
+| 業務 span | 應用自己加的（`@WithSpan`），例如派工、批號驗證 |
 
-## 欄位
+trace-sampler 依下表決定留不留，第一個符合的就決定，`scope.attributes.tailsampling.policy` 記是哪一條：
 
-存成 OTel 原生格式，用 ES 內建的 trace 模板。span 欄位是 ID、名稱、種類、耗時、狀態碼與屬性；資源欄位在 `resource.attributes` 底下，有服務名稱、版本、group、dept 與 Kubernetes 的 namespace、Pod、節點、Deployment、cluster。
+| policy | 條件 | 存在哪 | 保留 |
+|---|---|---|---|
+| `random` | 先隨機抽 5%，不管快慢對錯 | `traces-generic.otel-{group}` | 7 天 |
+| `error` | 任一段 `status = ERROR` | `traces-problem.otel-{group}` | 30 天 |
+| `http-5xx` | 任一段 HTTP 狀態碼 5xx（status 沒標成 ERROR 的也抓） | 同上 | 30 天 |
+| `exception` | 任一段帶例外事件（吞掉例外、回 200 的也抓） | 同上 | 30 天 |
+| `slow` | 整個 trace 超過 1 秒 | 同上 | 30 天 |
 
-服務名稱的決定順序：Pod 的 `app.kubernetes.io/name` label，其次應用自己設的 `OTEL_SERVICE_NAME`，最後 Deployment 名稱。Pod label 與 container 欄位只給 log 用，不帶進 trace。
+- baseline 只讀 `random` 那份，統計才不會被「錯的、慢的全留」拉偏。
+- 比 1 秒快的變慢（例如 200ms 變 800ms）只剩隨機 5%；實測 1,586 個請求剩 88 個。
+- 正常流量留約 5%；k3s 壓測每秒 500 個請求、其中 11% 有問題，有問題的 100% 留下，總量約 15%，每台 trace-sampler 記憶體約 150MB。
 
-## 跟 log、metrics 串
+## 什麼時候清洗、怎麼清洗
 
-- log 與 trace：自動埋點把 trace 與 span 的 ID 放進 log 的 context，pipeline 存成 log 的 trace 欄位，兩邊互查。Java 照 SDK 的 logback 設定、.NET 輸出 JSON 的，都綁得起來。
-- 純文字 log 沒印 MDC 的綁不起來。解法是 chart 設 `otel.logs.exporter: otlp`，log record 直接送 Collector，以來源欄位區分。代價是 stdout 與 OTLP 各存一份，所以只在需要時開。.NET Framework 不支援這條。
-- 背景排程、Java 自建 Thread、.NET Kafka 消費端的 log 沒有 trace_id。
-- trace 與 metrics 共用服務名稱、namespace、Pod 名稱。業務 ID 只放 log 與 trace，不放 metrics，因為每個值都會多一條序列。
+| 階段 | 做什麼 | 為什麼 |
+|---|---|---|
+| 節點 Collector：拿掉自填欄位 | 刪應用自帶的 `k8s.*`、`container.*`、`dept`、`group`、`data_stream.*` | 應用可以自稱別的 namespace 或部門；刪掉後歸屬只看連線來源，無法冒充 |
+| 節點 Collector：補身分 | 依連線來源 IP 對到 Pod，補 namespace、Pod、Deployment、版本、dept，再對應 group | 與 log、metrics 同一套規則；Service 限定只連同節點的 Collector，因為 Collector 只認得本節點的 Pod |
+| 節點 Collector：例外抄到屬性 | `exception.type`、`exception.message` 抄到 span 屬性；堆疊不抄 | ES 的 span 文件不存事件，事件另存成一筆 log；抄上來，吞掉的例外才查得到。要看堆疊用 trace_id 找 log |
+| 節點 Collector：依 trace_id 分配 | loadbalancing exporter 把同一個 trace 的每一段送到同一台 trace-sampler | 才能判斷整個 trace |
+| trace-sampler：等到齊再決定 | 等 30 秒，依上表規則比對；決定過的 trace_id 記住，晚到的段照同一個決定 | 要比最長的請求長；等 10 秒時，比 10 秒長的請求會漏 |
+| ES pipeline `traces-otel` | `_id` 設成 `{trace_id}-{span_id}`；`policy` 不是 `random` 的轉到 `traces-problem.otel-{group}` | 重送同一個 span 時 ES 回 409，不會多一份；有問題的 trace 保留較久 |
 
-## 部署與驗證
+應用端不抽樣，`otel.traces.sampleRatio` 保持 `1.0`：在應用端一開始就抽樣，出事的請求也只剩抽樣比例。
 
-用 app-common chart 並開 Java agent 或 .NET 自動埋點的開關，送出位址與取樣設定由 chart 設好；沒用 chart 的服務自己設這些環境變數。手動埋點的時機與寫法見 [埋點指引](../../sdk/standards/tracing.md)。中央 ES 重跑 `elasticsearch-setup.sh`，新 key 才有 trace 資料流的權限。
+## 多久壓縮
 
-驗證指令：`e2e/local-k3s/run-trace-e2e.sh`。23 項檢查涵蓋各 namespace 分流、應用自稱別的部門仍歸真實 namespace、欄位、與 log 互查、同一個 span 送 3 次只存 1 筆、各角色的讀寫權限。問題排除見 [疑難排解](../troubleshooting.md)。
+| 時間點 | 做什麼 |
+|---|---|
+| 寫入時 | 索引模式 `logsdb`；沒有降解析度 |
+| 每天，或主分片到 50GB | ILM rollover |
+| 7 天 | `traces-generic.otel-*`（隨機 5%）刪除（`TRACES_DELETE_AFTER`） |
+| 30 天 | `traces-problem.otel-*`（有問題的）刪除（`TRACES_PROBLEM_DELETE_AFTER`），事故檢討常常一兩週後才開 |
 
-## 六個場景
+trace 原文只留幾天；長期要的資料另存：每支 API 的延遲與錯誤率在 metrics，每一段的平常在 `aiops-trace-segments`（每 5 分鐘從 Server span 抽樣統計）。天數見 [retention.md](../retention.md)。
 
-- ✅ 一、慢在哪：⑦ 每一段只算自己的時間，出事時與平常比，多最多的排第一；baseline 記每段的耗時。
-- ✅ 二、程式壞味道：baseline 記每段每個請求呼叫幾次，k3s 抓到 N+1、重試風暴、快取穿透；單一呼叫平均 20 次以上的規則，連上線就有的 N+1 也抓得到。
-- ✅ 三、錯誤源頭：標了錯誤、子呼叫都沒錯的那段是源頭。例外吞噬檢測 (Exception Swallowing Detection) 針對回 200 卻丟過例外的請求，5% 以上就報，baseline 也記這個比例。
-- ⚠️ 四、非同步：排隊時間、消費端寫 DB 變慢、lag 抓得到，串不回是哪一筆訊息。
-- ⚠️ 五、架構治理：有呼叫關係圖，出現沒看過的呼叫會報；缺循環呼叫與越權直連 DB。
-- ❌ 六、工廠：不在目前範圍。SECS／GEM 需 EAP 手動開 span；MES、MCS、AMHS 之間傳不了 traceparent，改用工單號、載具 ID 串。
+兩段佇列都寫磁碟。trace-sampler 被強制終止時，掉終止前 31 秒（等待時間加 1 秒）內該台收到的 trace；PVC 滿也掉。ES 停機 30 分鐘、Collector 換版、trace-sampler 換 IP 都不掉。
 
-場景四用真 Kafka 加兩個 .NET 8 服務、不改程式測過。生產端的 HTTP 與 publish 在同一個 trace；消費端的 receive 另起 trace，只以 link 指回 publish；處理時的 DB 自成 trace（實測 961 筆全部沒有上層）。補法是排隊時間等於 receive 結束減 publish 結束，積壓看消費落後。限制：
+## 共同鑰匙圈與 trace 自己的欄位
 
-1. 正常 trace 只留 5%，生產、消費兩邊都留下的很少，正式環境多半算不出排隊時間。
-2. 查哪一筆訊息要靠 log 裡的訂單編號。
-3. 要串起來，消費端得改約 5 行，用 header 的 traceparent 開處理 span；決定先不改。
-4. Java agent、其他佇列、排程批次沒驗證。
+### 共同鑰匙圈
 
-場景一還沒做循序呼叫偵測，因為有些呼叫本來就有順序，誤報要先確認。
+| 鑰匙 | trace 的路徑 | 來源 | 現況 |
+|---|---|---|---|
+| 服務 | `resource.attributes.service.name` | Pod label `app.kubernetes.io/name`，其次 `OTEL_SERVICE_NAME`，最後 Deployment 名稱 | ✅ |
+| Pod | `resource.attributes.k8s.pod.name` | Collector | ✅ |
+| namespace | `resource.attributes.k8s.namespace.name` | Collector | ✅ |
+| cluster | `resource.attributes.k8s.cluster.name` | Collector 的 `CLUSTER_NAME` | ✅ |
+| trace_id、span_id | `trace_id`、`span_id` | agent 產生並自動傳遞 | ✅ 與 log 互查 |
+| 路由 | Server span 的名稱（`GET /lots/{id}`）；`attributes.http.route` 也有，根因分析比的是名稱 | agent | ⚠️ 路由沒參數化、舊 Java agent 的名稱沒有 method 時對不上 metrics |
+| 時間窗 | `@timestamp` | span 的開始時間 | ✅ |
+| 業務 ID | 名稱未定（暫稱 `txn.id`） | 只放 trace、log | ❌ |
 
-## 現況與沒做的
+歸屬 label 是 `resource.attributes.dept`、`.group`：決定寫進哪個資料流、誰看得到、保留幾天，不是串接用的鑰匙。
 
-- ✅ 呼叫方與被呼叫方的時間差超過 500ms，記進 trace 的時鐘差欄位。
-- ✅ 兩段佇列都寫磁碟。trace-sampler 被強制終止時，掉終止前 31 秒（等待時間加 1 秒）內該台收到的 trace；PVC 滿也掉。不用 Kafka 當緩衝，因為兩段磁碟佇列已讓 trace-sampler 換 IP、ES 停 30 分鐘、Collector 換版都不掉資料。
-- ✅ ES 剛起來約 1 秒多，API key 被拒回 401。健康檢查要用 API key 打根路徑等 200，健康檢查不用 API key 時，流量會被導進還在拒絕的 ES，Collector 直接丟資料；中央 ES 前的檢查需管 ES 的人改。
-- ✅ 工廠的批號、機台、工單、配方四個欄位名稱已定案，寫在埋點指引。
-- ❌ 每天列出時鐘差最大的前 10 對服務，尚未做。
-- ❌ 服務層的交易 ID（一次操作從頭到尾的編號，暫名 txn.id）還沒定名，許多 ID 只寫在 log 訊息裡，沒有獨立欄位；Kafka 不改程式、批次、排程斷掉的地方只能靠它接起來。
-- ❌ .NET 不改程式時，消費端的 DB 呼叫接不回訊息。
-- ❓ Java agent 的 Kafka header 自動串接未驗證。
-- ❓ 資料是 OTel 原生格式，Kibana 的 Observability 畫面理論上能直接看，尚未確認。
+log 用 `trace_id` 對到同一個請求；metrics 沒有 `trace_id`，只能以「服務、路由、時間窗」對到一批 trace。
+
+### trace 自己的欄位與 label
+
+有，只在 trace：
+
+| 類別 | 欄位 | 說明 |
+|---|---|---|
+| 結構 | `parent_span_id`、`name`、`kind`、`duration`、`status.code`、`links` | 呼叫關係、種類、耗時、狀態、跨 trace 的關聯 |
+| 取樣 | `scope.attributes.tailsampling.policy` | 哪條規則留下的；不是 `random` 就轉到 `traces-problem` |
+| 例外 | `attributes.exception.type`、`attributes.exception.message` | Collector 從事件抄上來的 |
+| 業務 | `attributes.lot.id`、`attributes.equipment.id` | 應用加的批號、機台；工單、配方欄位名稱見 [埋點指引](../../sdk/standards/tracing.md) |
+
+排錯見 [troubleshooting.md](../troubleshooting.md)。
