@@ -59,7 +59,7 @@ has "mem-hog：記憶體快到上限"          "容器記憶體快到上限"    
 has "no-metrics：抓不到 metrics"      "抓不到應用的 metrics"        "no-metrics"
 has "fail-job：Job 失敗"              "Job 有 Pod 失敗"            "fail-job"
 has "fail-job：Pod 失敗"              "Pod 失敗"                  "fail-job"
-has "節點磁碟（門檻 1%）：比例算得出來"   "節點磁碟快滿"               "vm"
+has "節點磁碟（門檻 1%）：比例算得出來"   "節點磁碟快滿"               "$(kubectl get nodes -o jsonpath='{.items[0].metadata.name}')"   # Rancher Desktop 是 vm、k3d 是 k3d-<名稱>-server-0
 others="$(grep -vF 'rules-test' <<<"${fired}" | grep -vF '節點磁碟快滿' || true)"
 check "rules-test 以外沒有被抓（正常的應用不誤報）" "${others}" ""
 check "mem-hog 以外的容器沒有記憶體告警" "$(grep -F '容器記憶體快到上限' <<<"${fired}" | grep -vcF mem-hog || true)" 0

@@ -43,6 +43,16 @@ def ms(t: datetime) -> int:
     return int(t.timestamp() * 1000)
 
 
+def to_ms(v) -> float:
+    """_source 裡的時間 → 毫秒。ES 9 的 OTLP 入口存數字；ES 8.19 的 elasticsearch 寫入元件 metrics 存 ISO 字串、trace 存數字字串。"""
+    if isinstance(v, (int, float)):
+        return v
+    try:
+        return float(v)
+    except ValueError:
+        return ms(ts(v))
+
+
 def bucket(t_ms: float) -> int:
     return int(t_ms // 300_000)
 
@@ -67,7 +77,13 @@ def metric_docs(es: ES, start: datetime, end: datetime, route: str | None = None
     if pod:
         f.append({"term": {"resource.attributes.k8s.pod.name": pod}})
     hits = es.search(MIX, {"size": 5000, "sort": [{"@timestamp": "asc"}], "query": {"bool": {"filter": f}}})["hits"]["hits"]
-    return [h["_source"] for h in hits]
+    # 時間一律換成毫秒：Collector 的 elasticsearch 寫入元件（ES 8.19）存 ISO 字串，ES 9 的 OTLP 入口存毫秒
+    docs = [h["_source"] for h in hits]
+    for d in docs:
+        for k in ("@timestamp", "start_timestamp"):
+            if d.get(k) is not None:
+                d[k] = to_ms(d[k])
+    return docs
 
 
 def doc_count(d: dict) -> int:
@@ -97,7 +113,7 @@ def traces(es: ES, start: datetime, end: datetime, name: str, svc: str = SVC) ->
     out = []
     for h in hits:
         s = h["_source"]
-        t0 = s["@timestamp"] if isinstance(s["@timestamp"], (int, float)) else ms(ts(s["@timestamp"]))
+        t0 = to_ms(s["@timestamp"])
         out.append({"id": s["trace_id"], "start": t0, "end": t0 + s["duration"] / 1e6,
                     "slow": (s.get("attributes") or {}).get("test.slow") == "1",
                     "pod": ((s.get("resource") or {}).get("attributes") or {}).get("k8s.pod.name")})
