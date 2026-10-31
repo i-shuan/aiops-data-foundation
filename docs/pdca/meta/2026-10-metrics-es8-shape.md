@@ -36,6 +36,9 @@ ES 8.19.23 上實際存的直方圖（`metrics-generic.otel-imc`，Collector `el
 | Collector 抽出來的 `_sum` 真的寫進 8.19、跟直方圖同一份文件、是差值 | k3d 上 `kubectl apply -k e2e/local-k3s/otel-collector`、重啟 node Collector 後查 `metrics-generic.otel-imc` 最新文件與 mapping；e2e 加一項「`_sum` 跟直方圖同一份文件」 | 同一份 `_source` 裡 `http.server.request.duration_sum: 12.0`（120 個請求）、下一筆 9.0（6 個 1.75 秒的）；mapping `double`、`time_series_metric: gauge`；Collector 沒有錯誤 log；e2e 45 項全過 |
 | 39 條靜態臨界值規則（含 GC 次數、GC 時間比例）在 8.19 的形狀上判斷正確 | `python -m tests.rules_edge_e2e` 對 k3d 的 ES 8.19.23（docker `python:3.12-slim`，`ES_URL=http://host.docker.internal:9210`） | 規則 156／156、interval 4／4、動態調整 10／10 全過；`jvm.gc_overhead` 「每 30 秒 GC 3 秒＝10%」觸發、9.7% 不觸發 |
 | 沒弄壞別的 | `pytest`；`ruff check` 三個改過的測試檔跟 HEAD 比 | 346 passed、5 skipped；ruff 錯誤數 HEAD 4／12／15 → 3／12／15（沒新增） |
+| 主線 8 步（回饋 → 建議 → 回測 → 核准 → 再跑不報）在 8.19 能走完（2026-10-31 重跑） | `loop_e2e`（`LLM_PROVIDER=template`，對 k3d 旁的 ES 8.19.23） | 42 項過、1 項沒過：「metrics 印出件數、誤報率」，是寫死日期範圍的檢查，之前就是這一項，跟 8.19 無關 |
+| 合成資料改成 `_bulk` 後 `baseline_edge_e2e` 在 8.19 跑得完（Act 第一項） | `python -m tests.baseline_edge_e2e`（metrics 47.6 萬點、log 4.2 萬筆，log 走 `logs-generic.otel-it` → `k8s-logs-otel` → `k8s-it-bedge`） | 先後遇到兩個問題：測試引用的元件模板 `otel@settings` 8.19 沒有（400）；`(ni + k)` 是 numpy 整數，轉 JSON 失敗。兩處修好後跑完：67 過、12 沒過，沒過的都是偵測品質（一週 anomaly 率 0.594%＞0.1%、warning 2.151%＞1%、流量掉到一成沒抓到、緩慢漂移報太多等），跟當初 ES 9.5.3 上「誤報率都沒過」同一類，沒有放寬預期 |
+| Collector 的 `_sum` 抽取在這個分支的設定下仍正常，且新的 ILM `metrics-hist-otel` 套得進 8.19 | `SKIP_KEYS=1 elasticsearch-setup.sh` 後，`OTEL_KUSTOMIZE=e2e/local-k3d/.run run-metrics-e2e.sh`（k3d） | setup 成功，rollover 換到 `metrics-hist-otel`；metrics e2e 46 項全過 |
 
 - **沒測到的**：沒用累加值（關掉 `cumulativetodelta`）確認 ≤ 140 那項會失敗；GC 規則沒在 cluster 上用真的 JVM 指標跑過（k3d 上沒有 Java 應用，`_sum` 是用模擬 Java agent 的 `http.server.request.duration` 驗的）；`baseline_edge_e2e.py` 沒跑（見 Act）。
 
@@ -43,8 +46,11 @@ ES 8.19.23 上實際存的直方圖（`metrics-generic.otel-imc`，Collector `el
 
 | 沒改善的 | 在什麼情況下發現的 | 影響 | 後續 |
 |---|---|---|---|
-| [④] `engine/tests/baseline_edge_e2e.py` 的 log 合成資料走 `/_otlp/v1/logs`，8.19 沒有這個入口 | 改 `otlp_synth.py` 時看到 `write_logs` | 這份測試的 metrics 段能在 8.19 寫，log 段不能；整份在 8.19 上跑不完 | log 改成 `_bulk` 寫到 `k8s-it-bedge`（要照 `k8s-logs-otel` pipeline 的輸出形狀） |
+| [④] `baseline_edge_e2e.py` 在 8.19 上的 12 項沒過（偵測品質：誤報率、流量掉一成沒抓到、緩慢漂移等） | 2026-10-31 在 8.19 重跑（log 已改 `_bulk`，能跑完） | 這是動態基準線學習本身的限制，與 8.19 無關，但還沒逐項比對和 ES 9.5.3 時的清單是否完全一樣 | 逐項對照 baseline-verify 的結果，確認 12 項都在已知清單內 |
 | `docs/retention-how-to.md`、`docs/troubleshooting.md` 還有 `exponential_histogram` 的實測紀錄 | grep `exponential_histogram` 時看到 | 那是 ES 9.5 上量的；降解析度在 8.19 上沒重測 | 8.19 上重跑降解析度再改 |
 | 每個直方圖多一個 `_sum` 欄位（`http.server.request.duration_sum` 也會有） | 設計時決定對所有直方圖抽，不只 GC | 多一個 double 欄位；平均延遲可以直接算（sum ÷ counts） | 觀察 TSDS 大小，沒問題就留著 |
 
 - **決定**：sum 由 Collector 抽成另一個欄位，不在規則端用 values×counts 估（中點估的誤差不可控，而且 Collector 本來就有 sum）。
+
+- **這次順手改的**：`engine/tests/baseline_edge_e2e.py`（拿掉 8.19 沒有的 `otel@settings`、numpy 整數轉一般整數）；`e2e/local-k3s/run-metrics-e2e.sh` 加環境變數 `OTEL_KUSTOMIZE`，k3d 上 ES 在主機 docker 時可以指到 `e2e/local-k3d/.run`。
+- **還沒做**：盤點第 6 項其餘的 e2e（keys、dotnet、schedule、trace-baseline、es-2node、kafka、tail-sampling）沒有在 8.19 重跑；降解析度的新設定只確認套得進 8.19，沒有拿真資料跑到降解析度那一步。

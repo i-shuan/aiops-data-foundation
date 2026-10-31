@@ -37,7 +37,7 @@ k -n otel-collector create secret generic es-writer-keys \
   --dry-run=client -o yaml | k apply -f - >/dev/null
 
 echo "== 2. Collector 與測試應用"
-k apply -k "${here}/otel-collector" >/dev/null
+k apply -k "${OTEL_KUSTOMIZE:-${here}/otel-collector}" >/dev/null   # k3d：ES 在主機 docker，要用 e2e/local-k3d/.run（deploy-collectors.sh 產生）
 k apply -f "${here}/metrics-apps.yaml" >/dev/null
 k apply -f "${here}/http-metrics-app.yaml" >/dev/null
 k -n otel-collector rollout restart daemonset/otel-node-collector deployment/otel-cluster-collector >/dev/null

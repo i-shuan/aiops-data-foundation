@@ -274,7 +274,7 @@ def write_logs(es: ES, seed: int) -> int:
            "k8s.deployment.name": "svc-logs", "dept": "D3120", "group": "it", "k8s.cluster.name": BY,
            "data_stream.namespace": "it", "k8s.pod.labels.app.kubernetes.io/name": "svc-logs"}
     recs = []
-    for t, ni, ne in zip(ts, info, err):
+    for t, ni, ne in zip(ts, info.tolist(), err.tolist()):   # 轉成一般整數：numpy 整數不能直接進 json
         base = t.value
         recs += [(None, O.log_doc(res, base + k * 1_000_000, "INFO", f"handled request {k}")) for k in range(ni)]
         recs += [(None, O.log_doc(res, base + (ni + k) * 1_000_000, "ERROR", f"db timeout {k}")) for k in range(ne)]
@@ -289,8 +289,8 @@ def setup(es: ES, fresh: bool):
     """metrics 的 data stream 用 standard mode（同一組 component template，TSDS 寫不進 7 天前的資料）。fresh：清掉上一次的資料。"""
     es.req("PUT", "/_index_template/bedge-metrics", {
         "index_patterns": [f"metrics-{EDGE_DS}*.otel-*", f"metrics-{TUNE_DS}*.otel-*"], "priority": 300, "data_stream": {},
-        "composed_of": ["otel@mappings", "otel@settings", "metrics-otel@mappings", "semconv-resource-to-ecs@mappings",
-                        "ecs-tsdb@mappings"],
+        "composed_of": ["otel@mappings", "metrics-otel@mappings", "semconv-resource-to-ecs@mappings",
+                        "ecs-tsdb@mappings"],   # ES 9 還有 otel@settings，8.19 沒有這個元件模板
         "template": {"settings": {"index": {"mode": "standard", "number_of_replicas": 0}},
                      "mappings": {"properties": {"data_stream.type": {"type": "constant_keyword", "value": "metrics"}}}},
         "_meta": {"description": "baseline_edge_e2e：寫得進 4 週前的資料"}})
