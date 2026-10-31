@@ -89,7 +89,7 @@ def submit(es, form: dict, now: datetime | None = None) -> dict:
             "end": alert.get("resolved_at") or alert.get("updated_at"), "services": [alert.get("service")], "severity": alert.get("severity"),
             "dept": alert.get("dept"), "group": alert.get("group"), "anomaly_ids": ids[:200], **inc}
     es.req("POST", f"/{INCIDENT_INDEX}/_update/{alert['alert_id']}?refresh=true", {"doc": inc, "upsert": seed})
-    es.req("POST", f"/{FEEDBACK_INDEX}/_refresh", ok=(200,))
+    # 不再另外 _refresh：bulk_index 已經 refresh=wait_for；最小權限的 key 沒有 maintenance，多打這一下會 403，資料存好了卻回「沒有存成功」
     return {"feedback": len(docs), "incident": status, "by": by}
 
 
