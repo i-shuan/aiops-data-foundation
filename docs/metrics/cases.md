@@ -40,7 +40,7 @@
 |---|---|
 | 現象 | API 延遲逐小時變長，流量沒變 |
 | 原因 | 全域快取一直放、從來不清。老年代越來越滿，Full GC 越來越頻繁、越來越久，GC 時整個程式停住 |
-| 看的指標 | **老年代「GC 之後」用量 ÷ 上限**（`jvm_memory_used_after_last_gc_bytes` ÷ `jvm_memory_limit_bytes`，只看 Old／Tenured）；**GC 佔掉的時間**（`jvm_gc_duration_seconds` 的 sum ÷ 經過的秒數） |
+| 看的指標 | **老年代「GC 之後」用量 ÷ 上限**（`jvm_memory_used_after_last_gc_bytes` ÷ `jvm_memory_limit_bytes`，只看 Old／Tenured）；**GC 佔掉的時間**（`jvm_gc_duration_seconds_sum`，Collector 從直方圖抽出來的總和 ÷ 經過的秒數） |
 | 為什麼看「GC 之後」 | 只看 used 會被還沒回收的垃圾騙（GC 前本來就高）；GC 之後還很滿，才是真的清不掉 |
 | 規則 | `jvm.old_gen_after_gc_high`：≥ 80%，連續 2 分鐘；`jvm.major_gc_frequent`：5 分鐘內 major GC ≥ 5 次；`jvm.gc_overhead`：3 分鐘內 ≥ 10% 的時間在 GC（heap 大的服務才有用） |
 | 處置 | 先重開止血；之後抓 heap dump 給開發找誰一直放東西。**JVM 要加 `-XX:+ExitOnOutOfMemoryError`**（見下面「實測時發現的事」） |

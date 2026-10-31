@@ -1,8 +1,11 @@
-"""合成資料用：把 metrics、log 編成 OTLP protobuf，送到 ES 9 自己的 OTLP 入口（/_otlp/v1/metrics、/_otlp/v1/logs）。
+"""合成資料用。兩條路：
 
-走的是跟 Collector 一樣的入口（telemetry/collectors/common.yaml 的 otlp_http/es），所以 ES 裡的形狀跟正式資料一樣：
-直方圖由 ES 轉成 exponential_histogram、resource.attributes.service.name、attributes.http.*；log 經 k8s-logs-otel
-轉到 k8s-<group>-<cluster>。ES 只收 protobuf（JSON 回 406），venv 沒有 protobuf 套件，這裡手寫最小的編碼器。
+1. metric_doc＋bulk：直接用 _bulk 寫出跟 Collector 的 elasticsearch 寫入元件在 ES 8.19 寫出來一樣的 metrics 文件
+   （k3d 實測的 _source：直方圖是 histogram {"values": […], "counts": […]}、沒有 temporality、sum 另存成 <名稱>_sum、
+   _metric_names_hash、start_timestamp；docs/pdca/meta/2026-10-metrics-es8-shape.md）。ES 8、9 都能寫。
+2. metrics_request、logs_request＋post：編成 OTLP protobuf 送 ES 9 自己的 OTLP 入口（/_otlp/v1/metrics、/_otlp/v1/logs）。
+   **ES 8.19 沒有這個入口**，只有 ES 9 能用；log 的合成資料目前只有這條路。
+   ES 只收 protobuf（JSON 回 406），venv 沒有 protobuf 套件，這裡手寫最小的編碼器。
 
 只編得出這幾種訊息（欄位編號照 opentelemetry-proto v1）：
   metrics：ResourceMetrics → ScopeMetrics → Metric(histogram, delta) → HistogramDataPoint
@@ -11,7 +14,6 @@
 from __future__ import annotations
 
 import json
-import math
 import struct
 import time
 
@@ -115,32 +117,18 @@ def logs_request(groups: list[tuple[dict, list[bytes]]]) -> bytes:
     return out
 
 
-def exp_histogram(counts: list[int], bounds, vmin: float, vmax: float, total: float, scale: int = 38) -> dict:
-    """ES 的 /_otlp/v1/metrics 把 explicit bucket 直方圖轉成 exponential_histogram 的樣子（從實際寫出來的文件反推、
-    check_bulk_matches_otlp 逐欄比對過）：每個有值的 bucket 變成一個點，位置是 bucket 中點、夾在 [min, max] 之間
-    （最小那一筆放 min、最大那一筆放 max，超過最大邊界那格放在最大邊界；第一格的下界是 0），scale 38，index ＝ ceil(log2(值) × 2^scale) − 1。"""
-    nz = [i for i, c in enumerate(counts) if c]
-    pts: dict[int, int] = {}
-
-    def put(v: float, c: int):
-        if c:
-            k = int(math.ceil(math.log2(v) * 2 ** scale)) - 1
-            pts[k] = pts.get(k, 0) + int(c)
-    left = {i: int(counts[i]) for i in nz}
-    if nz:
-        put(vmin, 1)                     # 最小值那一筆放在 min
-        left[nz[0]] -= 1
-        if sum(left.values()):
-            put(vmax, 1)                 # 最大值那一筆放在 max
-            left[nz[-1]] -= 1
-    for i in nz:
+def es_histogram(counts: list[int], bounds) -> dict:
+    """Collector 的 elasticsearch 寫入元件把 explicit bucket 直方圖寫成 ES histogram 的樣子（k3d 上 ES 8.19 實際寫出來的文件：
+    邊界 0.025／0.05／0.075 之間的格變成 values 0.0375、0.0625）：每個有值的 bucket 一個點，位置是 bucket 中點
+    （第一格的下界是 0；超過最大邊界那格放在最大邊界），0 的格不寫。min、max、sum 都不在直方圖裡。"""
+    vals, cnts = [], []
+    for i, c in enumerate(counts):
+        if not c:
+            continue
         lo = 0.0 if i == 0 else bounds[i - 1]
-        mid = bounds[-1] if i == len(bounds) else (lo + bounds[i]) / 2   # 超過最大邊界那格：放在最大邊界
-        rep = min(max(mid, vmin), vmax)
-        put(rep, left[i])
-    keys = sorted(pts)
-    return {"min": float(vmin), "max": float(vmax), "scale": scale, "sum": float(total),
-            "positive": {"indices": keys, "counts": [pts[k] for k in keys]}}
+        vals.append(bounds[-1] if i == len(bounds) else (lo + bounds[i]) / 2)
+        cnts.append(int(c))
+    return {"values": vals, "counts": cnts}
 
 
 def bucketize(latencies: np.ndarray, bounds=HTTP_BOUNDS) -> list[int]:
@@ -161,17 +149,19 @@ def post(es, path: str, payload: bytes) -> None:
 # ── 同樣的文件改用 _bulk 寫（可以帶 _id，逾時重送不會重複）──
 
 METRIC = "metrics.http.server.request.duration"
+NAMES_HASH = "30292700b84da900"   # _metric_names_hash：Collector 依文件裡的指標名稱算的；合成資料全部一樣，照 k3d 上實際那筆
 
 
 def metric_doc(res: dict, attrs: dict, start_ns: int, t_ns: int, counts: list[int], total: float, vmin: float, vmax: float,
-               names_hash: str) -> dict:
-    """跟 /_otlp/v1/metrics 寫出來的 _source 一樣的文件（data_stream.* 從 resource 拿出來放上層）。"""
+               names_hash: str = NAMES_HASH) -> dict:
+    """跟 Collector 寫進 ES 8.19 的 _source 一樣的文件（data_stream.* 從 resource 拿出來放上層）。
+    直方圖不帶 min、max、sum；sum 另放 http.server.request.duration_sum（node.yaml transform/hist-sum）。vmin、vmax 留著給舊的呼叫端，不用。"""
     r = {k: v for k, v in res.items() if not k.startswith("data_stream.")}
-    return {"@timestamp": t_ns // 1_000_000, "start_timestamp": start_ns // 1_000_000, "unit": "s",
+    return {"@timestamp": t_ns // 1_000_000, "start_timestamp": start_ns // 1_000_000,
             "resource": {"attributes": r},
             "data_stream": {"type": "metrics", "dataset": res["data_stream.dataset"] + ".otel", "namespace": res["data_stream.namespace"]},
-            "scope": {"name": "bedge-synth", "attributes": {}}, "_metric_names_hash": names_hash, "attributes": attrs,
-            "temporality": "delta", "metrics": {"http.server.request.duration": exp_histogram(counts, HTTP_BOUNDS, vmin, vmax, total)}}
+            "scope": {"name": "bedge-synth"}, "_metric_names_hash": names_hash, "attributes": attrs,
+            "metrics": {"http.server.request.duration": es_histogram(counts, HTTP_BOUNDS), "http.server.request.duration_sum": float(total)}}
 
 
 def _retry(fn, what: str, tries: int = 8):
@@ -190,7 +180,8 @@ def bulk(es, index: str, docs: list[tuple[str, dict]], chunk: int = 2000) -> Non
     for i in range(0, len(docs), chunk):
         lines = []
         for _id, d in docs[i:i + chunk]:
-            lines.append(json.dumps({"create": {"_index": index, "_id": _id, "dynamic_templates": {METRIC: "exponential_histogram"}}}))
+            lines.append(json.dumps({"create": {"_index": index, "_id": _id,
+                                                "dynamic_templates": {METRIC: "histogram", METRIC + "_sum": "gauge_double"}}}))
             lines.append(json.dumps(d))
         payload = "\n".join(lines) + "\n"
 
@@ -210,46 +201,3 @@ def post_retry(es, path: str, payload: bytes) -> None:
         if r.status_code != 200:
             raise RuntimeError(f"{path} → {r.status_code}: {r.text[:300]}")
     _retry(send, path)
-
-
-def check_bulk_matches_otlp(es, res: dict, rng) -> tuple[bool, str, str]:
-    """同一批直方圖點，一份走 /_otlp/v1/metrics、一份走 metric_doc＋_bulk，逐欄比對 _source，並比 p50/p95/p99、次數的聚合。
-    回傳（一樣嗎、說明、_metric_names_hash）。"""
-    ds, ns = res["data_stream.dataset"], res["data_stream.namespace"]
-    t0 = 1_790_000_000_000_000_000
-    attrs = {"http.request.method": "GET", "http.route": "/chk", "http.response.status_code": 200}
-    pts, raw = [], []
-    for k, scale in enumerate((0.003, 0.03, 0.08, 0.3, 2.0, 12.0)):     # 含第一格、最後一格（> 10 秒）
-        lat = rng.gamma(2.0, scale / 2.0, 50)
-        c = bucketize(lat)
-        t = t0 + k * 30_000_000_000
-        pts.append(histogram_point(attrs, t - 30_000_000_000, t, c, float(lat.sum()), vmin=float(lat.min()), vmax=float(lat.max())))
-        raw.append((t, c, float(lat.sum()), float(lat.min()), float(lat.max())))
-    oidx, bidx = f"metrics-{ds}chk.otel-{ns}", f"metrics-{ds}blk.otel-{ns}"
-    for idx in (oidx, bidx):
-        es.req("DELETE", f"/_data_stream/{idx}", ok=(200, 404))
-    post_retry(es, "/_otlp/v1/metrics", metrics_request([({**res, "data_stream.dataset": ds + "chk"}, pts)]))
-    es.req("POST", f"/{oidx}/_refresh")
-    got = es.req("POST", f"/{oidx}/_search", {"size": 10, "sort": [{"@timestamp": "asc"}]})["hits"]["hits"]
-    names_hash = got[0]["_source"]["_metric_names_hash"]
-    bulk(es, bidx, [(f"chk{i}", metric_doc({**res, "data_stream.dataset": ds + "blk"}, attrs, t - 30_000_000_000, t, c, s, mn, mx, names_hash))
-                    for i, (t, c, s, mn, mx) in enumerate(raw)])
-    es.req("POST", f"/{bidx}/_refresh")
-    mine = es.req("POST", f"/{bidx}/_search", {"size": 10, "sort": [{"@timestamp": "asc"}]})["hits"]["hits"]
-    diffs = []
-    for o, m in zip(got, mine):
-        a, b = dict(o["_source"]), dict(m["_source"])
-        a.pop("data_stream", None), b.pop("data_stream", None)
-        if json.dumps(a, sort_keys=True) != json.dumps(b, sort_keys=True):
-            diffs.append(({k: v for k, v in a.items() if a.get(k) != b.get(k)}, {k: v for k, v in b.items() if a.get(k) != b.get(k)}))
-    agg = {"p": {"percentiles": {"field": METRIC, "percents": [50, 95, 99]}}, "n": {"value_count": {"field": METRIC}}}
-    ao = es.req("POST", f"/{oidx}/_search", {"size": 0, "aggs": agg})["aggregations"]
-    ab = es.req("POST", f"/{bidx}/_search", {"size": 0, "aggs": agg})["aggregations"]
-    mapping = es.req("GET", f"/{bidx}/_mapping/field/{METRIC}")
-    mtype = [v["mappings"][METRIC]["mapping"]["http.server.request.duration"]["type"] for v in mapping.values()]
-    for idx in (oidx, bidx):
-        es.req("DELETE", f"/_data_stream/{idx}", ok=(200, 404))
-    ok = len(got) == len(mine) == len(raw) and not diffs and ao == ab and mtype == ["exponential_histogram"]
-    return ok, (f"{len(got)} 筆 _source {'逐欄一樣' if not diffs else f'{len(diffs)} 筆不同：{str(diffs[0])[:300]}'}；"
-                f"p50/p95/p99 一樣={ao['p'] == ab['p']}（{list(ab['p']['values'].values())}）；次數 {ao['n']['value']}／{ab['n']['value']}；"
-                f"型別 {mtype}"), names_hash

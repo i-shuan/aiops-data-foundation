@@ -1,7 +1,8 @@
 """靜態臨界值規則（configs/baseline/rules.yaml 每一條）的邊緣案例＋ learning loop 規則草稿的動態調整介面，對著一台自己的 ES 跑。
 
-做法：照 ES 9 OTLP 存 metrics 的樣子（TSDS 資料流 metrics-<receiver>.otel-p2rules，_source 是
-{"resource": {"attributes": …}, "attributes": …, "metrics": {"<名稱>": 值}}，直方圖是 exponential_histogram）
+做法：照 Collector 的 elasticsearch 寫入元件在 ES 8.19 存 metrics 的樣子（TSDS 資料流 metrics-<receiver>.otel-p2rules，_source 是
+{"resource": {"attributes": …}, "attributes": …, "metrics": {"<名稱>": 值}}，直方圖是 histogram：{"values": […], "counts": […]}，
+sum 另存成 <名稱>_sum）
 灌合成資料，每個案例一個獨立的對象（Pod、節點、consumer group…），再用真的指令跑：
   python -m detector rules --config configs/baseline/rules.yaml --at <NOW>
 從 aiops-anomalies 看每個案例有沒有被對的規則記下來。
@@ -30,7 +31,7 @@ DS = "p2rules"                                      # 資料流的 namespace
 NS = "p2r"                                          # K8s namespace（資料裡的）
 KC, KL, PR, NTP, APP = (f"metrics-{r}.otel-{DS}" for r in
                         ("k8sclusterreceiver", "kubeletstatsreceiver", "prometheusreceiver", "ntpreceiver", "generic"))
-HIST = "exponential_histogram"
+HIST = "histogram"
 
 NOW = pd.Timestamp.now(tz="UTC").floor("1min") + pd.Timedelta(seconds=45)   # 這一輪的時間（--at），slot 是整分
 s = requests.Session()
@@ -53,7 +54,7 @@ DOCS: list[tuple[str, dict, dict]] = []             # (index, 文件, dynamic_te
 
 def put(index: str, ago: float, res: dict, metrics: dict, attrs: dict | None = None, dyn: dict | None = None):
     # 跟 ES 的 OTLP 入口一樣用 dynamic_templates 指定型別：數值是 double（TSDS 的 _source 是從 doc values 重建的，
-    # 不指定會變成 float、49.9 讀回來是 49.900001…），直方圖是 exponential_histogram
+    # 不指定會變成 float、49.9 讀回來是 49.900001…），直方圖是 histogram
     dyn = {**{f"metrics.{k}": "gauge_double" for k in metrics}, **(dyn or {})}
     DOCS.append((index, {"@timestamp": ts(ago), "resource": {"attributes": res}, "attributes": attrs or {},
                          "metrics": metrics}, dyn))
@@ -79,17 +80,13 @@ def node(name):
     return {"k8s.node.name": name}
 
 
-def exp_hist(values: list[float], scale: int = 3) -> dict:
-    """幾個值 → ES exponential_histogram（base 2^(2^-scale)，bucket i 是 (base^i, base^(i+1)]）。"""
-    import math
-    buckets: dict[int, int] = defaultdict(int)
+def exp_hist(values: list[float]) -> dict:
+    """幾個值 → ES 8.19 的 histogram（{"values": 由小到大, "counts": 各值的次數}；沒有值就是兩個空陣列，ES 收）。"""
+    buckets: dict[float, int] = defaultdict(int)
     for v in values:
-        buckets[math.ceil(math.log2(v) * 2 ** scale) - 1] += 1
-    idx = sorted(buckets)
-    h = {"scale": scale, "sum": float(sum(values)), "zero": {"count": 0, "threshold": 0.0}}
-    if idx:
-        h.update(min=float(min(values)), max=float(max(values)), positive={"indices": idx, "counts": [buckets[i] for i in idx]})
-    return h
+        buckets[float(v)] += 1
+    vals = sorted(buckets)
+    return {"values": vals, "counts": [buckets[v] for v in vals]}
 
 
 # ── 案例：(規則, 說明, 預期觸發?, by 欄位的值) ──
@@ -372,11 +369,11 @@ def build():
     jvm("p2-jvm-gone", "G1 Old Gen", 0.95, n=10, last_ago=GONE)
     case("jvm.old_gen_after_gc_high", "Pod 已刪除", False, K(ns=NS, pod="p2-jvm-gone", pool="G1 Old Gen"))
 
-    # 22、23. GC 次數、GC 時間比例（直方圖，每 30 秒一份差值）
+    # 22、23. GC 次數、GC 時間比例（直方圖，每 30 秒一份差值；sum 由 Collector 另存成 jvm_gc_duration_seconds_sum）
     def gc(name, action, per_point: list, sec_each=0.07, last_ago=5):
         for ago, n in zip(seq(len(per_point), last_ago), per_point):
             put(APP, ago, pod(name, svc="p2-java"),
-                {"jvm_gc_duration_seconds": exp_hist([sec_each] * n) if n else {"scale": 3, "sum": 0.0, "zero": {"count": 0, "threshold": 0.0}}},
+                {"jvm_gc_duration_seconds": exp_hist([sec_each] * n), "jvm_gc_duration_seconds_sum": sec_each * n},
                 {"jvm_gc_action": action, "jvm_gc_name": "G1 Old Generation" if "major" in action else "G1 Young Generation"},
                 {"metrics.jvm_gc_duration_seconds": HIST})
     gc("p2-gc-5", "end of major GC", [0] * 11 + [1, 0, 1, 0, 1, 0, 1, 0, 1, 0])
@@ -566,9 +563,9 @@ def load():
             {"query": {"match_all": {}}}, ok=(200, 404))
     req("GET", "/_cluster/health?wait_for_no_initializing_shards=true&timeout=5m")
     # 欄位一次建好（每個資料流一次 put-mapping）：讓 bulk 邊寫邊加欄位的話，每個新欄位都要排一次 master 的工作
-    # 型別跟 ES 的 OTLP 入口自己建的一樣（看過已建好的 mapping）；已經有的欄位不再送
+    # 型別跟 Collector 寫進 ES 8.19 時自動建的一樣（看過已建好的 mapping：histogram 沒有 time_series_metric）；已經有的欄位不再送
     TYPES = {"gauge_double": {"type": "double", "meta": {"unit": ""}, "time_series_metric": "gauge"},
-             HIST: {"type": HIST, "meta": {"unit": ""}, "time_series_metric": "histogram"}}
+             HIST: {"type": HIST, "meta": {"unit": ""}}}
     props: dict[str, dict] = defaultdict(lambda: {"metrics": {}, "attributes": {}, "resource": {}})
     have = {}
     for index in (KC, KL, PR, NTP, APP):

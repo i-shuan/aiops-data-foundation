@@ -141,6 +141,16 @@ processors:
     include:
       metric_types: [histogram]
 
+  # ES 8.19 的 histogram 欄位只存 values、counts，直方圖的 sum（例如 GC 總共花了幾秒）寫進去就沒了。
+  # 在換成差值之後，把每個直方圖的 sum 另外抽成一個 <名稱>_sum 的數值（這 30 秒的總和），跟直方圖寫在同一份文件；
+  # 規則 jvm.gc_overhead 讀 metrics.jvm_gc_duration_seconds_sum。放在 cumulativetodelta 之後，抽出來的才是差值
+  transform/hist-sum:
+    error_mode: ignore
+    metric_statements:
+      - context: metric
+        statements:
+          - extract_sum_metric(true) where metric.type == METRIC_DATA_TYPE_HISTOGRAM
+
   # 擋冒充：trace 是應用自己送的，資源欄位應用可以亂填。拿掉所有能決定「屬於哪個 Pod、哪個部門」的欄位，
   # 讓 k8s_attributes 一定依連線的來源 IP 判斷是哪個 Pod
   transform/traces-pre:
@@ -215,11 +225,11 @@ service:
   pipelines:
     metrics/in:
       receivers: [kubeletstats, prometheus]
-      processors: [memory_limiter, transform/pre, metricstransform/java-http, transform/java-http, cumulativetodelta, k8s_attributes, transform/group, transform/drop-log-attrs]
+      processors: [memory_limiter, transform/pre, metricstransform/java-http, transform/java-http, cumulativetodelta, transform/hist-sum, k8s_attributes, transform/group, transform/drop-log-attrs]
       exporters: [elasticsearch/es]
     metrics/otlp:
       receivers: [otlp]
-      processors: [memory_limiter, transform/metrics-otlp-pre, k8s_attributes, transform/group, transform/drop-log-attrs, cumulativetodelta]
+      processors: [memory_limiter, transform/metrics-otlp-pre, k8s_attributes, transform/group, transform/drop-log-attrs, cumulativetodelta, transform/hist-sum]
       exporters: [elasticsearch/es]
     metrics/cadvisor:
       receivers: [prometheus/cadvisor]

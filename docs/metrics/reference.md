@@ -45,7 +45,7 @@ Java agent 會開出 `http.server.request.duration`（每個 HTTP 請求的耗�
 
 | | |
 |---|---|
-| ES 欄位 | `metrics.http.server.request.duration`，型別 `histogram`（ES 8.19；`_source` 是 `values`＋`counts`，counts 加起來是請求數，不存 sum）。Java 經 Prometheus 進來的 `http_server_request_duration_seconds` 由 node Collector 改成這個名字，跟 .NET 一樣 |
+| ES 欄位 | `metrics.http.server.request.duration`，型別 `histogram`（ES 8.19；`_source` 是 `values`＋`counts`，counts 加起來是請求數）。直方圖欄位不存 sum，Collector 把每個直方圖的總和另存成同一份文件的 `metrics.<名稱>_sum`（`node.yaml` 的 `transform/hist-sum`）。Java 經 Prometheus 進來的 `http_server_request_duration_seconds` 由 node Collector 改成這個名字，跟 .NET 一樣 |
 | 維度 | `attributes.http.request.method`、`attributes.http.route`、`attributes.http.response.status_code`（數字） |
 | 資料流 | `metrics-generic.otel-<group>`：資料帶著應用自己的 scope 名稱（例如 `io.opentelemetry.tomcat-10.0`），不是 `prometheusreceiver` |
 | 每一筆是什麼 | **這 30 秒內**的請求：Collector 用 `cumulativetodelta` 把 Prometheus 的累加值換成差值。ES 8.19 不存 `temporality` 欄位，是不是差值要看每筆的次數（測試應用每筆約 120 個，不會一直變大） |

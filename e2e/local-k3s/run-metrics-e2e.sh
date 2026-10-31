@@ -104,6 +104,9 @@ check "存成直方圖（histogram）" \
 ok_n="$(jq '[.[] | select(.attributes["http.response.status_code"] == 200) | .metrics["http.server.request.duration"].counts | add // 0]' <<<"${hdocs}")"
 check_gt0 "讀得到每筆的請求數（counts 加總）" "$(jq 'max // 0' <<<"${ok_n}")"
 check "每筆只有那 30 秒的量（成功的請求 ≤ 140 個）" "$(jq 'max <= 140' <<<"${ok_n}")" true
+# histogram 不存 sum；Collector（transform/hist-sum）把每個直方圖的總和另存成 <名稱>_sum，GC 時間比例的規則靠這個
+check_gt0 "直方圖的總和另存成 _sum（跟直方圖同一份文件）" \
+  "$(jq '[.[] | select(.metrics["http.server.request.duration_sum"] != null)] | length' <<<"${hdocs}")"
 agg="$(es "${ES_URL}/metrics-*.otel-imc/_search" -d "{\"size\":0,\"query\":${hq},\"aggs\":{
   \"n\":{\"value_count\":{\"field\":\"${H}\"}},\"p\":{\"percentiles\":{\"field\":\"${H}\",\"percents\":[95]}},
   \"e\":{\"filter\":{\"range\":{\"attributes.http.response.status_code\":{\"gte\":500}}},\"aggs\":{\"n\":{\"value_count\":{\"field\":\"${H}\"}}}}}}")"
