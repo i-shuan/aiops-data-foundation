@@ -54,6 +54,43 @@ FEEDBACK_PORT=8080 python3 -m feedback_web
 - **回饋連結**：`alerts.feedback_url`、`report_url`（含 `{alert_id}`）寫進每一件，Grafana 通知帶著；指到 [feedback_web](../../feedback_web/__init__.py)。
 - 重跑不會重複：已經在某一件裡的異常、最近結束的件裡的異常都不會再開一次。停了一陣子才跑時，已經過去的件只記錄（`resolved`），不算新開、不會通知。
 
+#### 過去相似怎麼算分（例）
+
+指紋六組的權重見 [aiops-data-reference.md](../../../../docs/aiops-data-reference.md#aiops-incidents事故庫相似事故檢索的資料池)：慢的那段 4、錯誤源頭 4、服務 3、API 2、新 log 樣式 2、指標 1（每個相同的指標加 1，最多算 3 個）。有交集就加一次權重，總分 ≥ 4 才算像，取最高的 3 件。
+
+新的一件：`mes-api` 的 `GET /lots/{id}` 變慢又出錯，慢的那段和錯誤源頭都是 `wip-worker › SELECT LOT_HISTORY → oracle`，新出現 `Connection pool timeout…` 的 log，指標是 `http.latency_p95_s`、`http.error_rate`。
+
+| 舊事故（老師傅確認過的） | 相同的欄位 | 分數 | 結果 |
+|---|---|---|---|
+| A：同一段變慢、同一段出錯、同樣兩個服務、同一支 API、同樣的 log 樣式、`http.latency_p95_s` | 4 + 4 + 3 + 2 + 2 + 1 | 16 | 排第一，報告寫出六點為什麼像 |
+| B：只有服務 `wip-worker` 相同，兩個指標都相同 | 3 + 1 + 1 | 5 | 排第二（過門檻） |
+| C：只有 API 和 `http.error_rate` 相同 | 2 + 1 | 3 | 不附（低於 4） |
+
+分數用 `similar-eval` 的同一個 `explain` 算（`investigator/similar.py`）；權重與門檻是估的，沒有用真實事故調過。
+
+#### LLM 怎麼設定
+
+| 設定 | 放哪 | 預設 |
+|---|---|---|
+| provider：`template`／`anthropic`／`openai` | 環境變數 `LLM_PROVIDER`；Helm 是 `values.yaml` 的 `llmProvider`（轉進 ConfigMap `aiops-env`）；`rca.yaml` 的 `alerts.llm_provider` 可蓋過（只能指定 provider） | `template`：不叫模型 |
+| API key | 環境變數 `LLM_API_KEY`，放 Secret `aiops-secrets` | — |
+| 模型 | 環境變數 `LLM_CHAT_MODEL` | `openai`：`gpt-4o-mini`；`anthropic`：`claude-sonnet-4-5` |
+| 服務網址 | `OPENAI_BASE_URL`（相容 `/v1/chat/completions`）、`ANTHROPIC_BASE_URL` | `https://api.openai.com`、`https://api.anthropic.com` |
+| 開關 | `rca.yaml` 的 `alerts.llm: true` | 開 |
+
+Helm chart 只把 `ES_URL`、`LLM_PROVIDER`、`TZ` 放進 ConfigMap，Secret 整個以 `envFrom` 掛進去。所以 `LLM_CHAT_MODEL`、`OPENAI_BASE_URL`、`ANTHROPIC_BASE_URL` 沒有對應的 chart 參數，要加成 Secret `aiops-secrets` 的額外 key。
+
+例：用 OpenAI 相容的內部服務。
+
+```bash
+kubectl -n aiops create secret generic aiops-secrets \
+  --from-literal=ES_API_KEY=<…> --from-literal=LLM_API_KEY=<…> \
+  --from-literal=LLM_CHAT_MODEL=<模型名> --from-literal=OPENAI_BASE_URL=https://<內部服務>
+helm upgrade --install aiops aiops-engine/helmchart -n aiops --set llmProvider=openai …
+```
+
+換 key 或模型要重啟 pod（環境變數是 pod 起來時讀的）。
+
 報告是 Markdown，裡面的關係圖是 mermaid，貼到 GitHub、GitLab 或 Kibana 的 Markdown 都看得到圖。
 
 ## 報告長什麼樣子
