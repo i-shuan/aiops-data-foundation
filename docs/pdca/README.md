@@ -179,5 +179,6 @@ metrics → trace → log 找到哪一段、哪行 log；事件整合、排程�
 | [meta/2026-10-merge-topic-docs.md](meta/2026-10-merge-topic-docs.md) | 跨階段 `metrics`、`log`、`rca`、`trace`、`feedback` 共 23 份合成各一份 README，每份 1500～2000 字 | 刪 18 份、改寫 5 份；全 repo 連結改指新位置；對程式修正 8 處與現況不符的敘述；欄位表、指令、逐案例數字刪掉（在 git 歷史） |
 | [meta/2026-10-feedback-readme.md](meta/2026-10-feedback-readme.md) | ⑨ `docs/feedback/README.md` 縮成閉環步驟與介面 | 留兩張閉環表、三種介面（Grafana 表單附圖、回饋網頁、指令）與表單選項對應 `verdict`／`incidents.status`；LLMOps、紀律、LLM、現況全刪（在 git 歷史） |
 | [meta/2026-10-metrics-trace-readme.md](meta/2026-10-metrics-trace-readme.md) | ①②③ `docs/metrics/README.md`、`docs/trace/README.md` 改成流程圖加四個重點 | 各一張圖、種類與來源、清洗步驟、壓縮與保留、共同鑰匙圈與自己的欄位；能做到與做不到、.NET 比較、案例、六個場景全刪（在 git 歷史） |
+| [meta/2026-10-log-readme.md](meta/2026-10-log-readme.md) | ①②③ `docs/log/README.md` 改成流程圖加四個重點（樣式格式、什麼時候與怎麼清洗、多久壓縮） | 圖＋格式表＋欄位名稱表＋兩個前後對照例子＋壓縮與保留時間表；Fluent Bit 比較、部署與換 key、現況全刪（在 git 歷史）；例子沒實際送一行驗證 |
 | [meta/2026-10-data-reference.md](meta/2026-10-data-reference.md) | ④～⑨ 新增 AIOps 資料格式規格（aiops-alerts／anomalies／incidents／feedback／tuning 的欄位、誰寫、範例） | 欄位對 mapping 無漏；兩輪對程式與實際 ES mapping 共修正 14 處不精確；欄位、型別、列舉、範例、儀表板腳本比對全部一致；欄位與 mapping 仍沒有自動比對 |
 | [meta/2026-10-docs-governance.md](meta/2026-10-docs-governance.md) | 跨階段 文件治理：索引＋狀態標籤、設定與原理分離、術語寫進 CLAUDE.md、檢查腳本 | `docs/README.md` 地圖、`CLAUDE.md`、`tools/check-docs.py`；活的文件舊說法 0；pdca 根目錄雜項收進 `meta/` |

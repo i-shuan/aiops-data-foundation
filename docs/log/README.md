@@ -2,68 +2,157 @@
 
 > **類型：原理 Explanation**
 
-節點 Collector 只負責收 log 並依部門分流，欄位整理全部在中央 ES 的 pipeline 做；改解析規則只動中央，不動各 cluster。
-
 ## 資料怎麼走
 
-節點 Collector 與 metrics 共用，讀 `/var/log/pods`，補上 pod label、dept、cluster，再把 dept 對應成 group。elasticsearch exporter 把資料寫進 `logs-generic.otel-<group>`。中央 pipeline `k8s-logs-otel` 整理形狀、算 `_id`、轉到 `k8s-<group>-<cluster>`，接著 `k8s-logs` 做共通身分，依 `log-format` 分派解析，再統一欄位。
+```mermaid
+flowchart TB
+  subgraph APP["應用 Pod"]
+    A1["stdout<br/>/var/log/pods"]
+    A2["Java agent、.NET 自動埋點<br/>OTLP 直送 log"]
+  end
+  subgraph NODE["節點 Collector：讀進來時清洗"]
+    N1["file_log + container parser<br/>接回被切開的長行"]
+    N2["拿掉應用自填的 K8s、部門欄位<br/>依來源 Pod 補 namespace、label、dept"]
+    N3["dept 對應 group"]
+  end
+  subgraph ES["中央 ES：寫入時清洗"]
+    P0["logs-generic.otel-{group}"]
+    P1["k8s-logs-otel<br/>整理形狀、算 _id、轉 index"]
+    P2["k8s-logs 共通身分<br/>服務、版本、group、dept、log.format"]
+    P3["k8s-logs-format-{格式}<br/>原文拆成 _app"]
+    P4["k8s-logs-fields<br/>level、trace_id、error.type"]
+    P5["時間<br/>補時區、轉 UTC"]
+    S[("k8s-{group}-{cluster}<br/>best_compression<br/>每天 rollover、30 天刪")]
+    T["transform 每 5 分鐘"]
+    ST[("aiops-log-stats<br/>留 400 天")]
+  end
+  A1 --> N1 --> N2
+  A2 --> N2
+  N2 --> N3
+  N3 -->|"elasticsearch exporter<br/>集中式資料寫入憑證"| P0
+  P0 --> P1 --> P2 --> P3 --> P4 --> P5 --> S
+  S --> T --> ST
+  S -.->|唯讀| AIOps["AIOps、Grafana"]
+```
 
-- 應用自己填的 K8s 與部門欄位會被移除，由 Collector 依 Pod 補上（邊緣身份鑑別與標籤注入），避免應用冒充別的服務或部門。
-- `_id` 由 Pod、容器、stream、時間與內容算出，重送的資料 ES 回 409 擋掉，所以不會重複。
-- 轉進 `k8s-<group>-*` 時，ES 再驗一次 key 權限，IT 的 key 轉到 IMC 得到 403。
-- 任何一步出錯，原文照樣入庫，錯誤另記在欄位裡。
-- 中央 pipeline 也接受 Fluent Bit 的資料，邊緣 VM 可以用 Fluent Bit，欄位 `agent.type` 記錄是誰送的。
+解析規則放在中央 ES 的 pipeline：改規則跑一次 `elasticsearch-setup.sh`，各 cluster 的 Collector 不動。任何一步出錯，原文照樣入庫，原因寫在 `error.message`；被拒收的文件進 failure store，出現一筆就告警。
 
-## 關鍵決定與原因
+## log 樣式格式有哪些
 
-1. 解析規則放中央。收集器每個 cluster 一套，改規則要每廠重新部署；放中央只要跑一次 `elasticsearch-setup.sh`，全廠同時生效。
-2. 依服務宣告的格式分派。Java 的 JSON、Go 的鍵值對、設備通訊的 SECS、各家 REST API 各寫各的，無法統一，所以服務在 pod 加 label `log-format`，沒宣告就走 `default`。宣告了但中央還沒有規則時，退回 `default` 並保留原文，此時實際解析規則與宣告的格式兩個欄位不同，可以據此找出缺規則的格式。
-3. 應用自帶的欄位收進 `app`。數百個服務共用同一個 index，攤平在最上層會撞到欄位數上限，整個 index 拒收；改用 flattened 型別只佔一個欄位，仍然能查。
-4. 以 OTel Collector 取代 Fluent Bit。比較環境是單節點 k3s、ES 9.5.5，兩者讀同一批檔案；同一行 log 兩邊各一筆，比對 444 對，欄位全部一致；每秒 2,000、5,000 行都沒有遺失與重複；ES 停機或當機後補送，都沒有遺失與重複；收集器重啟兩次，Fluent Bit 遺失 342 筆，OTel 遺失 0；每節點記憶體 Fluent Bit 約 40MB，OTel 單獨跑約 250MB，併入 metrics 的 Collector 後只多約 75MB。
+服務用 pod label `log-format` 宣告格式（app-common chart 的 `logFormat`），沒宣告走 `default`。規則檔在 [telemetry/storage/formats/](../../telemetry/storage/formats/)。
 
-選 OTel 的原因有二：log、metrics、trace 共用一種收集器和同一份分部門規則，部門清單少一處要同步；重啟不掉 log。Fluent Bit 的重啟遺失出在它自己的關機流程，加長等待時間之後仍會掉 5～8 筆，設定改不掉。
+| 格式 | 長怎樣 | 怎麼拆 | 狀態 |
+|---|---|---|---|
+| `default` | JSON（logback、ECS、.NET JSON console、Serilog compact JSON）或純文字 | 開頭是 `{` 就用 JSON processor 拆；純文字保留原文 | ✅ |
+| `logfmt` | `level=info msg="order failed" lot_id=L123`，Go 常見 | kv processor 依空白與 `=` 拆 | ✅ |
+| SECS（設備通訊） | 一則訊息跨多行 | 要先在 Collector 多行合併，送到中央就拼不回來 | ❌ 缺一般事件、告警、逾時、多行的真實樣本 |
+| REST API（各家） | 各家不同 | 還沒有規則 | ❌ 缺兩三個服務的樣本 |
 
-key 失效時資料留在送出佇列：`retry_on_status` 含 401，重試到 key 換好；佇列滿（2,000 萬筆）才丟。換 key 仍先發新的，確認每個 Collector 換上之後才作廢舊的。409 是去重造成的，屬正常，丟棄數要看錯誤類型，不能直接當遺失告警。
+- 宣告的格式沒有規則時，退回 `default`，原文保留；`log.parser` 與宣告的格式不同，可以據此找缺規則的格式。
+- 來源分兩種，`log.source` 記錄：`file`（容器 log 檔）與 `otlp`（應用直送）。服務兩種都開時，同一行有兩份，靠這個欄位分開。
+- 純文字 log 沒印 trace_id 時，開 chart 的 `otel.logs.exporter: otlp`，log record 本身帶 trace_id。
 
-## 規格
+### 認得的欄位名稱
 
-- 時間：`@timestamp` 存 UTC。沒帶時區的依環境變數 `LOG_DEFAULT_TIMEZONE`（預設 Asia/Taipei）解讀，並把用過的時區記下來，方便找出沒帶時區的服務。
-- level 統一成 trace 到 fatal 六級，不認得的值轉小寫保留，不硬塞進六級。
-- level 推斷：沒有 level 時，取行首前綴，或前 80 字元內獨立的全大寫關鍵字，並標 `log.level_inferred: true`。推斷可能誤判，所以 AIOps 對這類資料降低權重。
-- `error.type` 取自 stack trace 第一行，讓例外可以分群，不必比對全文。
-- alias 讓 baseline、quality、RCA 與 metrics、trace 用同一條路徑查；alias 不存在 `_source` 裡，程式要用 `fields` 取值。
-- `log.source` 區分來源是容器 log 檔或應用直送的 OTLP；服務兩種都開時，同一行有兩份，靠這個欄位分開。
-- trace_id 轉小寫、去空白，短的 16 位 id 前面補零。空字串與全 0 視為沒有；長度不對或非 hex，不設 `trace.id`，原值另存，方便找出印錯 trace_id 的服務。只取欄位，不從訊息內文猜，因為內文裡的 hex 不一定是 trace。
-- Index 名稱帶 group，因為權限依 group 切；帶 cluster，因為某一廠要整批清掉或調保留天數時不影響別廠。cluster 名稱要小寫。原文保留 30 天；每 5 分鐘各服務與 level 的筆數另存 400 天，見 [retention.md](../retention.md)。
+`default` 與 `logfmt` 拆出 `_app` 後，`k8s-logs-fields` 依下表取值。各語言的 logger 套件寫法不同，所以每個欄位接受多種名稱。
 
-## 操作
+| 標準欄位 | 認得的名稱 |
+|---|---|
+| `message` | `message`、`msg`、`Message`、`@m`、`@mt` |
+| `log.level` | `level`、`lvl`、`severity`、`log.level`、`LogLevel`、`@l`（Serilog 沒寫 `@l` 是 info） |
+| `log.logger` | `logger`、`logger_name`、`log.logger`、`Category`、`SourceContext` |
+| `error.stack_trace`、`error.type` | `stack_trace`、`exception`、`error.stack_trace`、`Exception`、`@x` |
+| `trace.id`、`span.id` | `trace_id`、`traceId`、`trace.id`、`TraceId`、`@tr`；span 對應 `span_id`、`spanId`、`span.id`、`SpanId`、`@sp`；.NET JSON console 的在 `Scopes` 裡 |
+| `@timestamp` | `timestamp`、`@timestamp`、`ts`、`time`、`Timestamp`、`@t`；認得的格式：ISO 8601、`yyyy-MM-dd HH:mm:ss.SSS`、`yyyy-MM-dd HH:mm:ss,SSS`、`yyyy-MM-dd HH:mm:ss`、epoch 毫秒 |
 
-- 部署：先在中央跑 `elasticsearch-setup.sh`，再到每個應用 cluster 建 Secret `es-writer-keys` 並部署 Collector，最後替 namespace 標上 `dept`。標之前的資料不歸任何部門。
-- Secret：encoded key 是 60 個字元，多 1 個就是結尾多了換行，之後一直 401。編輯時用 key/value 模式，用 YAML 編輯會整份取代，沒貼到的 key 會消失。存檔後約 1 分鐘，Collector 自動換用新 key，不必重啟。
-- 換 key：用 telemetry 的換 key 腳本，把該 key 用到的所有 cluster 全部列上；任何一個 5 分鐘內沒換到，腳本就停下來，不作廢舊 key。直接作廢再換 Secret，401 期間的資料留在佇列，換好後補送。
-- 從 Fluent Bit 換過來：先確認新收集器的資料已進來，再移除 Fluent Bit。並行期間每行會有兩筆。
-- 宣告格式：用 app-common chart 的服務填 `logFormat`，其他服務自己加 pod label。可以先宣告，之後再補規則，這段期間 log 照收、原文完整，只是沒拆欄位。
-- 新增一種格式：
-  1. 在 `telemetry/storage/formats/` 加規則檔，第一步設 `log.parser`，解析失敗要保留原文。
-  2. 在 `e2e/local-k3s/` 加輸出該格式的測試服務，並跑 端到端腳本驗證。
-  3. 重跑中央的安裝腳本，各 cluster 的 Collector 不用動。
-  4. 服務填 `logFormat`。
+Datadog 的 `dd.trace_id` 是十進位，對不到 OTel 的 trace，不取，留在 `app`。
 
-  一則訊息跨多行的格式（SECS）要另在 Collector 加多行合併，因為送到中央就拼不回來。
-- 驗證：`run-e2e.sh` 在 ES 8.19.23 上 54 項通過。每秒 10,000 行沒有遺失；20,000 行沒有遺失，但晚到約 2 分鐘。寫入 index 大過 ES 記憶體時，查重會停住，所以 ILM 要依大小 rollover。
-- 被 pipeline 拒收的文件進 failure store，只要出現一筆就告警。排錯見 [troubleshooting.md](../troubleshooting.md)。
+## 什麼時候清洗、怎麼清洗
 
-## 現況與沒做的
+| 階段 | 做什麼 |
+|---|---|
+| 節點 Collector（讀進來） | 接回被切開的長行；移除應用自填的 K8s、部門欄位（邊緣身份鑑別與標籤注入），依來源 Pod 補回；dept 對應 group，決定寫進哪個 index |
+| `k8s-logs-otel`（寫入 `logs-generic.otel-{group}`） | 整理成 Fluent Bit 的形狀；`_id` 用 Pod、容器、stream、時間、內容的 SHA-256 算出，重送回 409，不重複；轉到 `k8s-{group}-{cluster}`，ES 再驗一次 key 權限 |
+| `k8s-logs` 共通身分 | 每筆都有服務、版本、group、dept、cluster、`log.format`；原文先放 `message` |
+| `k8s-logs-format-{格式}` | 原文拆成暫存欄位 `_app` |
+| `k8s-logs-fields` | 見下 |
+| 時間 | `event.created` 留 Collector 讀到的時間；應用自己的時間沒帶時區，依 `LOG_DEFAULT_TIMEZONE`（預設 Asia/Taipei）解讀並記在 `event.timezone`；`@timestamp` 一律存 UTC；格式都不認得就保留 Collector 的時間，`log.timestamp_source` 記來源 |
 
-- ✅ 依 dept 分流與換 key：實測換 key 期間 59,714 筆沒有遺失，也沒有重複。
-- ✅ 格式解析與 level 推斷：24 個案例通過。
-- ✅ 收資料延遲（p95 逾 1 分鐘）與時鐘偏差（逾 5 分鐘）告警：延遲 3、20 分鐘與時區錯誤的案例都報。
-- ⚠️ 時區規範（寫 UTC 或帶時區）還沒寫進應用標準。
-- ✅ ES 剛起來約 1 秒回 401：`retry_on_status` 含 401，資料留在佇列；入口健康檢查建議用 API key，需 ES 管理者處理。
-- ⚠️ 部門清單在 `groups.yaml` 與 `common.yaml` 手動同步兩處，group 變多之前要改成由 `groups.yaml` 產生。
-- ❌ SECS 的解析規則與多行合併：缺一般事件、告警、逾時、多行 body 的真實樣本。
-- ❌ REST API 的解析規則：缺兩三個服務的真實 log 樣本。
-- ❌ 從 log 抽業務 ID：規劃見 [trace/README.md](../trace/README.md)。
-- ❌ K8s events：event 不帶 dept，歸屬未定。
+`k8s-logs-fields` 對應成標準欄位：
+- **level**：統一成 trace、debug、info、warn、error、fatal；不認得的值轉小寫保留。沒有 level 時推斷：取行首前綴（`Warning:`、`[warn]`），或前 80 字元內獨立的全大寫關鍵字，並標 `log.level_inferred: true`，AIOps 對這類資料降低權重。
+- **trace_id、span_id**：轉小寫；16 位的短 id 前面補零；空字串與全 0 視為沒有；長度不對或非 hex 的不設，原值存在 `app.trace_id_invalid`。只取欄位，不從訊息內文猜。
+- **error.type**：取 stack trace 第一行的例外類別，讓例外可以分群。
+- 其餘自訂欄位（MDC 等）收進 `app`，型別 flattened，數百個服務共用一個 index 也不會撞到欄位數上限。
+- 欄位 alias 讓 baseline、quality、RCA 與 metrics、trace 用同一條路徑查；alias 不在 `_source` 裡，程式要用 `fields` 取值。
 
-整體架構與各模組現況見 [architecture.md](../architecture.md)。
+### 例
+
+一行 JSON（`default`，Asia/Taipei 的 Pod）：
+
+```
+{"timestamp":"2026-10-31 10:00:00.123","level":"ERROR","logger":"OrderService","message":"db timeout","trace_id":"4BF92F3577B34DA6A3CE929D0E0E4736","lot_id":"L123"}
+```
+
+清洗後：`message: db timeout`、`log.level: error`、`log.logger: OrderService`、`trace.id: 4bf92f3577b34da6a3ce929d0e0e4736`（轉小寫）、`@timestamp: 2026-10-31T02:00:00.123Z`（沒帶時區，依 Asia/Taipei 解讀再轉 UTC）、`app.lot_id: L123`、`log.parser: default`。
+
+一行純文字：
+
+```
+2026-10-08 12:00:00 ERROR [main] connection refused
+```
+
+清洗後：`message` 是原文，`log.level: error` 加 `log.level_inferred: true`（前 80 字元內獨立的全大寫關鍵字）；純文字沒拆時間，`@timestamp` 用 Collector 讀到的時間，`log.timestamp_source: collector`。
+
+## 共同鑰匙圈與 log 自己的欄位
+
+### 共同鑰匙圈
+
+log、metrics、trace 用同一組鑰匙串起來。服務、Pod、namespace、cluster 都是 Collector 依來源 Pod 補的，不是應用自己填，所以三種資料一定對得上。
+
+| 鑰匙 | 三種資料共用的路徑 | log 實際存在哪 | 來源 | 現況 |
+|---|---|---|---|---|
+| 服務 | `resource.attributes.service.name` | `service.name`，alias 指過去 | Pod label `app.kubernetes.io/name`；沒有就用 Deployment 名稱 | ✅ |
+| Pod | `resource.attributes.k8s.pod.name` | `kubernetes.pod.name`，alias | Collector | ✅ |
+| namespace | `resource.attributes.k8s.namespace.name` | `kubernetes.namespace`，alias | Collector | ✅ |
+| cluster | `resource.attributes.k8s.cluster.name` | `orchestrator.cluster.name`，alias | Collector 的 `CLUSTER_NAME` | ✅ |
+| trace_id、span_id | `trace_id`、`span_id` | `trace.id`、`span.id`，alias | 自動埋點寫進 log（Java 在 MDC、.NET 在 scope），或 OTLP 直送 | ✅ |
+| 時間窗 | `@timestamp` | `@timestamp` | 應用的時間，轉 UTC | ✅ |
+| 路由、方法 | `attributes.http.route`、`attributes.http.request.method` | 沒有 | REST API 的解析規則還沒做 | ❌ |
+| 業務 ID（交易 ID） | 名稱未定 | 沒有 | 只放 trace、log，不放 metrics（每個值多一條序列） | ❌ |
+
+alias 不佔空間、不在 `_source` 裡，程式要用 `fields` 取值。
+
+### 歸屬 label 不是鑰匙
+
+| | 歸屬 label | 共同鑰匙 |
+|---|---|---|
+| 用途 | 這筆資料是誰的：寫進哪個 index、誰看得到、保留幾天、告警送給誰 | 把三種資料接起來 |
+| 欄位 | `labels.dept`、`labels.group`（metrics、trace 在 `resource.attributes.dept`、`.group`） | 上表 |
+| 來源 | namespace 的 `dept` label，Collector 依 `telemetry/groups.yaml` 對應成 group；應用自帶的先移除 | 上表 |
+
+### log 自己的欄位與 label
+
+有。下面這些只在 log 有，metrics、trace 沒有：
+
+| 類別 | 欄位 | 說明 |
+|---|---|---|
+| 格式 | `log.format`、`log.parser` | `log.format` 是 pod label `log-format` 宣告的（chart 的 `logFormat`，只能小寫英數與減號），沒宣告是 `default`；`log.parser` 是實際用的規則 |
+| 來源 | `log.source`、`agent.type` | `file` 或 `otlp`；`otelcol` 或 `fluent-bit` |
+| 內容 | `message`、`log.level`、`log.level_inferred`、`log.logger`、`process.thread.name`、`error.type`、`error.stack_trace` | 見上面的清洗 |
+| 時間可信度 | `event.created`、`event.ingested`、`event.timezone`、`log.timestamp_source` | 找出時間不可信、沒帶時區的服務 |
+| 應用自帶 | `app.*`、`app.trace_id_invalid`、`app.span_id_invalid` | MDC 的 `lot_id` 這類業務維度；格式錯的 trace_id 原值 |
+| K8s | `kubernetes.labels` | 全部 Pod label，flattened |
+
+跟 metrics 共用的 Pod label：`app.kubernetes.io/name` → `service.name`、`app.kubernetes.io/version` → `service.version`、`app.kubernetes.io/part-of` → `service.namespace`。`log-format` 只給 log 用。
+
+## 多久壓縮
+
+| 時間點 | 做什麼 |
+|---|---|
+| 寫入時 | index 設定 `best_compression`，沒有延後壓縮的階段 |
+| 每天，或主分片到 30GB | ILM `k8s-logs` rollover，換一個新 index |
+| 30 天 | 原文刪除（`retention.conf` 的 `LOGS_DELETE_AFTER`），沒有降解析度 |
+| 每 5 分鐘 | transform 把 group、cluster、namespace、服務、level、`error.type` 的筆數寫進 `aiops-log-stats` |
+| 400 天 | `aiops-log-stats` 刪除；每 30 天換一個 index |
+
+長期要看的趨勢靠統計，不靠原文。天數與容量見 [retention.md](../retention.md)，排錯見 [troubleshooting.md](../troubleshooting.md)。
