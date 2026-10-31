@@ -767,7 +767,7 @@ def check_tuning():
     yaml_ok = any(a["rule"] == "kafka.consumer_lag" for a in anomalies(NOW.floor("1min")))
     check("動態調整", "核准的草稿壞掉（缺 index）：只跳過那一條，rules.yaml 的照跑照寫",
           "p2.tuned_lag 失敗" in r.stdout and yaml_ok, (r.stdout[-300:] + r.stderr[-500:]))
-    check("動態調整", "草稿壞掉時 exit 非 0（CronJob 看得到失敗）", r.returncode != 0, f"exit {r.returncode}")
+    check("動態調整", "草稿壞掉時 exit 非 0（排程器看得到失敗）", r.returncode != 0, f"exit {r.returncode}")
     tune_doc("p2-rule", "active")
     req("POST", "/aiops-tuning/_close")
     wipe_tuned()

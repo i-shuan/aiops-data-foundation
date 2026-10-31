@@ -1,0 +1,81 @@
+# 一隻 pod：scheduler（定期工作）＋ feedback（回饋網頁）。兩個 container 各有自己的記憶體上限，train 撐爆 scheduler 時網頁不受影響
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aiops-engine
+  labels: {app.kubernetes.io/name: aiops-engine}
+spec:
+  replicas: 1          # 一定要 1，多一個每個工作就跑兩份
+  strategy:
+    type: Recreate     # 換版先停舊的，新舊不會同時排
+  selector:
+    matchLabels: {app.kubernetes.io/name: aiops-engine}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: aiops-engine}
+      annotations:
+        checksum/env: {{ include (print .Template.BasePath "/env.yaml") . | sha256sum }}
+    spec:
+      terminationGracePeriodSeconds: {{ .Values.scheduler.terminationGracePeriodSeconds }}
+      containers:
+        - name: scheduler
+          image: {{ include "aiops.image" . }}
+          args: ["scheduler", "--config", "configs/schedule/schedule.yaml", "--stage", {{ .Values.scheduler.stage | quote }}, "--alive-file", "/tmp/scheduler-alive"]
+          envFrom:
+            - configMapRef: {name: aiops-env}
+            - secretRef: {name: {{ .Values.secret }}}
+          # 排程器每分鐘醒來更新 /tmp/scheduler-alive；超過 3 分鐘沒更新就是卡死，重啟
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", "test $(( $(date +%s) - $(stat -c %Y /tmp/scheduler-alive) )) -lt 180"]
+            initialDelaySeconds: 30
+            periodSeconds: 60
+          resources:
+            {{- toYaml .Values.scheduler.resources | nindent 12 }}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+            {{- with include "aiops.configMounts" . }}
+            {{- . | nindent 12 }}
+            {{- end }}
+        {{- if .Values.feedback.enabled }}
+        - name: feedback
+          image: {{ include "aiops.image" . }}
+          args: ["feedback_web"]
+          env:
+            - {name: FEEDBACK_PORT, value: {{ .Values.feedback.port | quote }}}
+            {{- with .Values.feedback.corsOrigin }}
+            - {name: FEEDBACK_CORS_ORIGIN, value: {{ . | quote }}}
+            {{- end }}
+          envFrom:
+            - configMapRef: {name: aiops-env}
+            - secretRef: {name: {{ .Values.secret }}}
+          ports:
+            - {name: http, containerPort: {{ .Values.feedback.port }}}
+          livenessProbe:
+            httpGet: {path: /health, port: http}
+          readinessProbe:
+            httpGet: {path: /health, port: http}
+          resources:
+            {{- toYaml .Values.feedback.resources | nindent 12 }}
+          {{- with include "aiops.configMounts" . }}
+          volumeMounts:
+            {{- . | nindent 12 }}
+          {{- end }}
+        {{- end }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        {{- with include "aiops.configVolumes" . }}
+        {{- . | nindent 8 }}
+        {{- end }}
+{{- if .Values.feedback.enabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: aiops-feedback
+spec:
+  selector: {app.kubernetes.io/name: aiops-engine}
+  ports:
+    - {name: http, port: {{ .Values.feedback.port }}, targetPort: http}
+{{- end }}

@@ -1,6 +1,6 @@
 apiVersion: v2
 name: aiops-engine
-description: AIOps engine：detector、investigator 的定期工作（CronJob）＋回饋網頁（Deployment）。一個 image，args 選指令
+description: AIOps engine：一隻 pod 兩個 container（scheduler 照 configs/schedule/schedule.yaml 跑 detector、investigator 的定期工作；feedback 回饋網頁）。一個 image，args 選指令
 type: application
 version: 0.1.0
 appVersion: "0.1.0"

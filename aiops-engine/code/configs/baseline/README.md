@@ -117,13 +117,13 @@ python3 -m detector quality --config configs/baseline/quality.yaml  # 每 10 分
 python3 -m detector chronic --config configs/baseline/chronic.yaml  # 每週一次，慢性病清單
 ```
 
-正式環境用 K8s CronJob：[aiops-engine/README.md](../../../README.md)（rules／detect／alert 每 1 分鐘、train 每天）。單機的 crontab 例子：
+正式環境用 K8s 上一隻 pod 的排程器：[aiops-engine/README.md](../../../README.md)（rules／detect／alert 每 1 分鐘、train 每天；排程表 `configs/schedule/schedule.yaml`）。單機的 crontab 例子：
 
 ```
 15 3 * * *  cd /opt/aiops && python3 -m detector train  --config configs/baseline/series.yaml >> train.log 2>&1
 * * * * *   cd /opt/aiops && python3 -m detector detect --config configs/baseline/series.yaml >> detect.log 2>&1
 * * * * *   sleep 30; cd /opt/aiops && python3 -m detector detect --config configs/baseline/series.yaml >> detect.log 2>&1
-# crontab 最細 1 分鐘：要每 30 秒就用兩行（一行延後 30 秒）；deploy/ 的 CronJob 是每 1 分鐘 --window 10m
+# crontab 最細 1 分鐘：要每 30 秒就用兩行（一行延後 30 秒）；正式的排程表是每 1 分鐘 --window 10m
 ```
 
 回測（拿過去某個時間點當「現在」）：`train --end 2026-10-01T00:00:00Z`、`detect --at 2026-10-01T10:00:00Z --window 1D`。

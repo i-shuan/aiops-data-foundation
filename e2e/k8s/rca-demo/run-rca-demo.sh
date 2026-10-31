@@ -9,7 +9,7 @@
 #   run-rca-demo.sh up          發 key、部署模擬服務與 Grafana（aiops-demo）
 #   run-rca-demo.sh incident    製造事故：wip-worker 查 Oracle 變 1.5 秒、connection pool timeout
 #   run-rca-demo.sh heal        事故結束
-#   run-rca-demo.sh tick        跑一輪：detector rules → investigator alert（正式是 CronJob 每分鐘）
+#   run-rca-demo.sh tick        跑一輪：detector rules → investigator alert（正式是排程器每分鐘）
 #   run-rca-demo.sh loop <分鐘>  每分鐘 tick 一次
 # LLM：LLM_ENV_FILE=<.env 路徑> 只載入 LLM_PROVIDER、LLM_API_KEY、LLM_CHAT_MODEL、OPENAI_BASE_URL；沒給就用 template。
 # 發的 key 存在 RCA_DEMO_STATE（預設 ~/.rca-demo），不進 repo。

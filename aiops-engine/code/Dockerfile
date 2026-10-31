@@ -1,5 +1,5 @@
-# AIOps engine：detector（④⑤⑨）、investigator（⑥⑦⑧）、feedback_web（⑧）都在同一個 image，
-# 用 python3 -m <套件> <指令> 跑；設定檔（configs/）一起放進去，要改就改 ConfigMap 蓋在 /app/configs 上（deploy/ 的 kustomization）。
+# AIOps engine：detector（④⑤⑨）、investigator（⑥⑦⑧）、feedback_web（⑧）、scheduler（定期工作的排程器）都在同一個 image，
+# 用 python3 -m <套件> <指令> 跑；設定檔（configs/）一起放進去，要改就用 chart 的 configOverrides 蓋在 /app/configs 上。
 FROM python:3.13-slim
 WORKDIR /app
 ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 TZ=Asia/Taipei
@@ -9,6 +9,7 @@ COPY core/ core/
 COPY detector/ detector/
 COPY investigator/ investigator/
 COPY feedback_web/ feedback_web/
+COPY scheduler/ scheduler/
 COPY configs/ configs/
 COPY interfaces/ interfaces/
 COPY fake-data/ fake-data/

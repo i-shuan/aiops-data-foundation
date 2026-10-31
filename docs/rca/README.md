@@ -91,7 +91,7 @@ metrics 決定何時告警，trace 指出哪一段，log 給證據。基準線�
 - ✅ 根因分析 Metrics → Trace → Log：`investigator` 產生報告。
 - ✅ 事件整合：同服務、時間相連的異常合成一件（`investigator alert`）；跨服務依呼叫關係合併 ⚠️ 未做（`topology` 只算出呼叫關係）。
 - ✅ 相似事故檢索（欄位比對）與 LLM 摘要。
-- ⚠️ 正式環境排程未部署：train 每天 02:00，detect、rules 每分鐘（CronJob 最小單位是分鐘）。
+- 排程：train 每天 02:00，detect、rules 每分鐘（排程器以分鐘為單位；[aiops-engine/README.md](../../aiops-engine/README.md)）。正式環境、真實資料上還沒跑。
 - ⚠️ 髒資料排除（資料品質、排除時段、行事曆、慢性病）有程式、沒排程；測試流量 ❌ 無自動辨識。
 - ⚠️ 真實資料的尖峰、離峰範圍需累積 2～4 週後確認。
 - ❌ 事故紀錄的格式與寫入、log 樣式字典、處理手冊、p99、趨勢、單一 Pod 逐段比對。
