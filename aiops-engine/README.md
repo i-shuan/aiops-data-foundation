@@ -1,11 +1,11 @@
 # aiops-engine：AIOps 分析核心（④～⑨）
 
-> **類型：操作 How-To**　原理見 [docs/rca](../docs/rca/README.md)、[docs/feedback](../docs/feedback/README.md)；排程的設計紀錄 [pdca/phase3-locate/2026-10-schedule.md](../docs/pdca/phase3-locate/2026-10-schedule.md)
+> **類型：操作 How-To**　原理見 [docs/rca](../docs/rca/README.md)、[docs/feedback](../docs/feedback/README.md)；排程的設計紀錄 [pdca/phase3-locate/2026-10-single-pod-scheduler.md](../docs/pdca/phase3-locate/2026-10-single-pod-scheduler.md)
 
 | 資料夾 | 內容 |
 |---|---|
-| `code/` | 一個 Python 專案：`core/`（共用：ES、trace、LLM）、`detector/`（動態基準線學習、規則、Pod 同儕比對、資料品質、回饋、回測、量化）、`investigator/`（事件整合、根因分析、相似事故、告警）、`feedback_web/`（老師傅的回饋網頁）、`configs/`（[baseline](code/configs/baseline/README.md)、[rca](code/configs/rca/README.md)）、`interfaces/`、`fake-data/`、`tests/`、`Dockerfile`（一個 image 裝全部，`ENTRYPOINT python3 -m`，`args` 給套件名和指令） |
-| `helmchart/` | 每個指令一個 CronJob＋回饋網頁的 Deployment／Service。`values.yaml` 的 `jobs` 就是排程表（頻率、逾時、記憶體） |
+| `code/` | 一個 Python 專案：`core/`（共用：ES、trace、LLM）、`detector/`（動態基準線學習、規則、Pod 同儕比對、資料品質、回饋、回測、量化）、`investigator/`（事件整合、根因分析、相似事故、告警）、`feedback_web/`（老師傅的回饋網頁）、`scheduler/`（定期工作的排程器）、`configs/`（[baseline](code/configs/baseline/README.md)、[rca](code/configs/rca/README.md)、[schedule](code/configs/schedule/schedule.yaml)）、`interfaces/`、`fake-data/`、`tests/`、`Dockerfile`（一個 image 裝全部，`ENTRYPOINT python3 -m`，`args` 給套件名和指令） |
+| `helmchart/` | **一隻 pod、兩個 container**（同一個 image）：`scheduler`（照 `configs/schedule/schedule.yaml` 跑定期工作）、`feedback`（回饋網頁）＋Service `aiops-feedback:8080` |
 
 本機跑：`cd aiops-engine/code && python3 -m detector <指令>`、`python3 -m investigator investigate`；單元測試 `python3 -m pytest -q`。
 
@@ -19,29 +19,36 @@ kubectl -n aiops create secret generic aiops-secrets \
   --from-literal=LLM_API_KEY=                          # 沒有模型就空的（llmProvider=template）
 helm upgrade --install aiops aiops-engine/helmchart -n aiops \
   --set image.repository=<nexus>/aiops-engine --set image.tag=0.1.0 --set esUrl=https://<中央 ES>:9200
-kubectl -n aiops get cronjob
+kubectl -n aiops get pod                               # 一隻 aiops-engine-…，2/2
+kubectl -n aiops logs deploy/aiops-engine -c scheduler -f | grep '\[scheduler\]'   # 每次執行一行：工作、排定分鐘、結果、秒數
 ```
 
 - `rca.yaml` 的 `alerts.feedback_url`、`report_url` 填回饋網頁的網址（Service `aiops-feedback:8080`；要讓人從公司網路點得到再加 Ingress）。
-- 設定檔要跟 image 裡的不一樣：`--set-file configOverrides.baseline.series=aiops-engine/code/configs/baseline/series.yaml`（掛在 `/app/configs/baseline/series.yaml`）。
+- 設定檔要跟 image 裡的不一樣：`--set-file configOverrides.baseline.series=aiops-engine/code/configs/baseline/series.yaml`（掛在 `/app/configs/baseline/series.yaml`）；排程表是 `configOverrides.schedule.schedule`。
+- **換 ES key 要重啟 pod**（`kubectl -n aiops rollout restart deploy/aiops-engine`）：環境變數是 pod 起來時讀的，不像以前每個 CronJob 每分鐘重讀。
+- 手動跑一次某個工作（例如剛部署要先有 baseline）：`kubectl -n aiops exec deploy/aiops-engine -c scheduler -- python3 -m scheduler --config configs/schedule/schedule.yaml --run train`。
 - 本機測試：`e2e/k8s/run-schedule-e2e.sh`（`values-test.yaml`：連 es-test、image 用 nerdctl 建進 containerd、不裝回饋網頁）。
 
-## 排程：第一階段只開 4 個
+## 排程：一隻 pod，第一階段只開 4 個
 
-能跑通「告警 → 回饋 → 調門檻」這一圈的最少集合。偵測來源少，第一個月誤報來了容易知道是哪裡出的；四個在真實資料上跑穩、看過一輪誤報，再 `--set stage2=true` 開其他 6 個（建議順序：quality → peer → trace 三個 → chronic）。
+排程器（`python3 -m scheduler`）每分鐘醒來一次，照 [`configs/schedule/schedule.yaml`](code/configs/schedule/schedule.yaml) 把該跑的工作各開一個子行程（`python3 -m <args>`）。行為跟原本的 K8s CronJob 一樣：同一個工作上一次沒跑完就跳過這次、超過 `timeout` 砍掉、錯過的分鐘不補跑、時區 Asia/Taipei、每天／每週的失敗在同一次內重試 2 次（每幾分鐘的不重試，下一輪就是重試）。一個工作卡住不影響別的（各自一條執行緒）。
 
-| CronJob | 階段 | 頻率 | 指令 | 為什麼 |
-|---|---|---|---|---|
-| `aiops-rules` | 1 | 每 1 分鐘 | `detector rules` | 狀態變化（容器重啟、錯誤率 5%、p95 2 秒保底）要快；老師傅核准的規則也在這裡跑 |
-| `aiops-detect` | 1 | 每 1 分鐘 | `detector detect --window 10m` | 每分鐘看最近 10 分鐘；同一筆重跑會覆蓋 |
-| `aiops-alert` | 1 | 每 1 分鐘 | `investigator alert` | 合成一件、根因分析、相似事故、LLM 摘要、**心跳** |
-| `aiops-train` | 1 | 每天 02:00 | `detector train` | 學過去 4 週（4Gi） |
-| `aiops-quality` | 2 | 每 10 分鐘 | `detector quality` | 資料品質（第一個月人天天看，先不用它報） |
-| `aiops-peer` | 2 | 每 5 分鐘 | `detector peer` | Pod 同儕橫向比對：多一種告警來源 |
-| `aiops-trace-collect`、`aiops-trace-train`、`aiops-trace-detect` | 2 | 每 5 分鐘／每天 02:20／每 5 分鐘 | `detector trace-*` | trace 每一段的 baseline；trace 有取樣、只留 7 天，學出來本來就偏 |
-| `aiops-chronic` | 2 | 每週一 08:00 | `detector chronic` | 慢性病清單，要幾週資料才有意義 |
+能跑通「告警 → 回饋 → 調門檻」這一圈的最少集合是 4 個；偵測來源少，第一個月誤報來了容易知道是哪裡出的。四個在真實資料上跑穩、看過一輪誤報，再 `--set scheduler.stage=2` 開其他 6 個（建議順序：quality → peer → trace 三個 → chronic）。
 
-共同點：`concurrencyPolicy: Forbid`（上一次沒跑完就跳過這次）、`startingDeadlineSeconds`（錯過不補跑）、`activeDeadlineSeconds`（卡住就砍）、每幾分鐘的 `backoffLimit 0`（下一輪就是重試）、每天／每週的 2（不然要等明天）。改頻率改 `helmchart/values.yaml` 的 `jobs`。
+| 工作 | 階段 | 頻率 | timeout | 指令 | 為什麼 |
+|---|---|---|---|---|---|
+| `rules` | 1 | 每 1 分鐘 | 50 秒 | `detector rules` | 狀態變化（容器重啟、錯誤率 5%、p95 2 秒保底）要快；老師傅核准的規則也在這裡跑 |
+| `detect` | 1 | 每 1 分鐘 | 50 秒 | `detector detect --window 10m` | 每分鐘看最近 10 分鐘；同一筆重跑會覆蓋 |
+| `alert` | 1 | 每 1 分鐘 | 600 秒 | `investigator alert` | 合成一件、根因分析、相似事故、LLM 摘要、**心跳**。一件新的含 LLM 最多 60 秒，一輪可能好幾件 |
+| `train` | 1 | 每天 02:00 | 3600 秒 | `detector train` | 學過去 4 週（4Gi） |
+| `quality` | 2 | 每 10 分鐘 | 500 秒 | `detector quality` | 資料品質（第一個月人天天看，先不用它報） |
+| `peer` | 2 | 每 5 分鐘 | 240 秒 | `detector peer` | Pod 同儕橫向比對：多一種告警來源 |
+| `trace-collect`、`trace-train`、`trace-detect` | 2 | 每 5 分鐘／每天 02:20／每 5 分鐘 | 240／3600／240 秒 | `detector trace-*` | trace 每一段的 baseline；trace 有取樣、只留 7 天，學出來本來就偏 |
+| `chronic` | 2 | 每週一 08:00 | 1800 秒 | `detector chronic` | 慢性病清單，要幾週資料才有意義 |
+
+改頻率、逾時改 `schedule.yaml` 再 build image（或用 `configOverrides.schedule.schedule` 蓋）。
+
+**資源與故障範圍**：`scheduler` container limit 6Gi（`train` 要 4Gi，同時每分鐘的三個還在跑；平時用不到），`feedback` 512Mi，各自獨立。pod 只能 1 個副本（多一個每個工作就跑兩份）；換 image 先停舊的（`Recreate`），中間缺幾十秒、錯過的分鐘不補。pod 被 OOM／驅逐時所有排程一起停，心跳也停——下面那條告警就是抓這個。排程器每分鐘更新 `/tmp/scheduler-alive`，超過 3 分鐘沒更新 liveness probe 會重啟 container。
 
 ## 「AIOps 停了」怎麼知道
 
@@ -54,4 +61,5 @@ kubectl -n aiops get cronjob
 ## 驗證過的
 
 - image 本機 docker build 成功；`investigator alert`、`detector metrics`、`feedback_web` 對著測試 ES 正常；容器內非 root（uid 10001）。
-- 本機 K8s 連測試 ES 跑 30 分鐘（`e2e/k8s/run-schedule-e2e.sh`，[adjust-schedule-verify](../docs/pdca/phase2-anomaly/2026-10-adjust-schedule-verify.md)）：rules、detect、alert 每分鐘各 29 次都成功沒漏；train 依 `timeZone` 台北時間那一分鐘跑；Forbid、activeDeadlineSeconds、失敗重試、心跳每分鐘更新都如預期。
+- 排程器的單元測試（`tests/test_scheduler.py`）：cron 比對、不重疊、逾時砍掉、重試、排程表跟設計一致。
+- 本機 K8s 連測試 ES 的實跑見 [pdca/phase3-locate/2026-10-single-pod-scheduler.md](../docs/pdca/phase3-locate/2026-10-single-pod-scheduler.md)（CronJob 版本的 30 分鐘實跑在 [adjust-schedule-verify](../docs/pdca/phase2-anomaly/2026-10-adjust-schedule-verify.md)）。

@@ -1,5 +1,5 @@
-"""helmchart/：render 出來的 CronJob 要有 Forbid、逾時、對的重試；alert 的時限夠跑真的 LLM（docs/pdca/phase5-learning-loop/2026-10-fix-critical.md 4）。
-要有 helm；沒有就跳過。"""
+"""helmchart/：render 出來是一隻 pod 兩個 container（scheduler＋feedback），資源、探測、設定檔覆蓋掛對位置。要有 helm；沒有就跳過。
+排程本身（Forbid、逾時、重試）在 configs/schedule/schedule.yaml，由 test_scheduler 驗。"""
 import os
 import shutil
 import subprocess
@@ -17,57 +17,53 @@ def render(*args) -> dict[str, dict]:
     return {f"{d['kind']}/{d['metadata']['name']}": d for d in yaml.safe_load_all(out) if d}
 
 
+def containers(docs) -> dict[str, dict]:
+    return {c["name"]: c for c in docs["Deployment/aiops-engine"]["spec"]["template"]["spec"]["containers"]}
+
+
 @unittest.skipUnless(shutil.which("helm"), "要 helm")
 class EngineChart(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.stage1 = render()
-        cls.all = render("--set", "stage2=true")
-        cls.jobs = {k: v for k, v in cls.all.items() if k.startswith("CronJob/")}
+        cls.docs = render()
 
-    def test_stage1_is_the_minimal_loop(self):
-        self.assertEqual(sorted(k for k in self.stage1 if k.startswith("CronJob/")),
-                         ["CronJob/aiops-alert", "CronJob/aiops-detect", "CronJob/aiops-rules", "CronJob/aiops-train"])
-        self.assertEqual(len(self.jobs), 10)
-        self.assertIn("Deployment/aiops-feedback", self.stage1)
+    def test_one_pod_two_containers_no_cronjob(self):
+        self.assertEqual(sorted(k.split("/")[0] for k in self.docs), ["ConfigMap", "Deployment", "Service"])
+        dep = self.docs["Deployment/aiops-engine"]["spec"]
+        self.assertEqual((dep["replicas"], dep["strategy"]["type"]), (1, "Recreate"))
+        self.assertEqual(sorted(containers(self.docs)), ["feedback", "scheduler"])
 
-    def test_alert_deadline_covers_llm_calls(self):
-        # 一件新的：LLM 最多 60 秒逾時（core/llm.py）；一輪至少要能處理好幾件，不然被砍什麼都沒寫
-        import inspect
-        from core import llm as LLM
-        self.assertIn("timeout=60", inspect.getsource(LLM._call_openai))
-        spec = self.jobs["CronJob/aiops-alert"]["spec"]
-        self.assertGreaterEqual(spec["jobTemplate"]["spec"]["activeDeadlineSeconds"], 5 * 60 + 60)
-        self.assertEqual(spec["concurrencyPolicy"], "Forbid")
+    def test_scheduler_runs_stage1_by_default_and_stage2_on_demand(self):
+        args = containers(self.docs)["scheduler"]["args"]
+        self.assertEqual(args[:3], ["scheduler", "--config", "configs/schedule/schedule.yaml"])
+        self.assertEqual(args[args.index("--stage") + 1], "1")
+        self.assertEqual(containers(render("--set", "scheduler.stage=2"))["scheduler"]["args"][4], "2")
 
-    def test_every_job_forbids_overlap_and_has_deadline(self):
-        for name, d in self.jobs.items():
-            self.assertEqual(d["spec"]["concurrencyPolicy"], "Forbid", name)
-            self.assertGreater(d["spec"]["jobTemplate"]["spec"]["activeDeadlineSeconds"], 0, name)
-            self.assertLessEqual(d["spec"]["startingDeadlineSeconds"], 300, name)
-            self.assertEqual(d["spec"]["timeZone"], "Asia/Taipei", name)
+    def test_scheduler_liveness_watches_alive_file(self):
+        c = containers(self.docs)["scheduler"]
+        self.assertIn("/tmp/scheduler-alive", c["args"])
+        self.assertIn("/tmp/scheduler-alive", " ".join(c["livenessProbe"]["exec"]["command"]))
+        self.assertIn({"name": "tmp", "mountPath": "/tmp"}, c["volumeMounts"])
 
-    def test_failed_job_is_retried_within_one_period(self):
-        # 每幾分鐘的：下一輪就是重試，Job 內不重試；每天、每週的：不重試就要等明天（train 失敗 → baseline 舊一天）
-        # docs/pdca/phase2-anomaly/2026-10-adjust-schedule-verify.md
-        for name, d in self.jobs.items():
-            frequent = d["spec"]["schedule"].split()[1] == "*"
-            self.assertEqual(d["spec"]["jobTemplate"]["spec"]["backoffLimit"], 0 if frequent else 2, name)
-        self.assertEqual(self.jobs["CronJob/aiops-train"]["spec"]["jobTemplate"]["spec"]["backoffLimit"], 2)
-        self.assertEqual(self.jobs["CronJob/aiops-rules"]["spec"]["jobTemplate"]["spec"]["backoffLimit"], 0)
+    def test_memory_covers_train_and_feedback_is_separate(self):
+        c = containers(self.docs)
+        self.assertEqual(c["scheduler"]["resources"]["limits"]["memory"], "6Gi")
+        self.assertEqual(c["feedback"]["resources"]["limits"]["memory"], "512Mi")
+        self.assertEqual(c["feedback"]["livenessProbe"]["httpGet"]["path"], "/health")
+        self.assertEqual(self.docs["Service/aiops-feedback"]["spec"]["ports"][0]["port"], 8080)
 
-    def test_train_gets_more_memory(self):
-        lim = lambda n: self.jobs[f"CronJob/aiops-{n}"]["spec"]["jobTemplate"]["spec"]["template"]["spec"]["containers"][0]["resources"]["limits"]["memory"]
-        self.assertEqual(lim("train"), "4Gi")
-        self.assertEqual(lim("rules"), "1Gi")
+    def test_feedback_can_be_turned_off(self):
+        docs = render("--set", "feedback.enabled=false")
+        self.assertEqual(list(containers(docs)), ["scheduler"])
+        self.assertNotIn("Service/aiops-feedback", docs)
 
-    def test_config_override_mounts_in_place(self):
-        docs = render("--set", "configOverrides.baseline.series=a: 1")
-        cm = docs["ConfigMap/aiops-configs"]["data"]
-        self.assertEqual(list(cm), ["baseline__series.yaml"])
-        mount = docs["CronJob/aiops-detect"]["spec"]["jobTemplate"]["spec"]["template"]["spec"]["containers"][0]["volumeMounts"][0]
-        self.assertEqual((mount["mountPath"], mount["subPath"]), ("/app/configs/baseline/series.yaml", "baseline__series.yaml"))
-        self.assertNotIn("volumeMounts", self.stage1["CronJob/aiops-detect"]["spec"]["jobTemplate"]["spec"]["template"]["spec"]["containers"][0])
+    def test_config_override_mounts_in_place_for_both_containers(self):
+        docs = render("--set", "configOverrides.schedule.schedule=timezone: UTC")
+        self.assertEqual(list(docs["ConfigMap/aiops-configs"]["data"]), ["schedule__schedule.yaml"])
+        for name, c in containers(docs).items():
+            mount = next(m for m in c["volumeMounts"] if m["name"] == "configs")
+            self.assertEqual((mount["mountPath"], mount["subPath"]), ("/app/configs/schedule/schedule.yaml", "schedule__schedule.yaml"), name)
+        self.assertEqual([m["name"] for m in containers(self.docs)["scheduler"]["volumeMounts"]], ["tmp"])
 
 
 if __name__ == "__main__":

@@ -213,7 +213,7 @@ flowchart TB
 |---|---|---|
 | 1 收值 | 平台 | ✅ 三種資料收進 ES、分部門、鑰匙對得上；k3s、k3d 跑過 |
 | 2 異常分析 | AIOps | ✅ 靜態臨界值規則、動態基準線、Pod 同儕橫向比對、trace 段都有；門檻是估的 |
-| 3 定位問題 | AIOps | ✅ K8s 上整條線跑通；engine 的 CronJob 還沒跑過 |
+| 3 定位問題 | AIOps | ✅ K8s 上整條線跑通；engine 的排程（一隻 pod）在 K8s 上跑過 |
 | 4 RCA＋LLM | AIOps | ✅ 相似事故、LLM 摘要（真的模型跑過）；沒有評測集 |
 | 5 learning loop | AIOps | ✅ 回饋 → 回測 → 核准用模擬資料跑通；真實數字等試點 |
 
@@ -236,7 +236,7 @@ K8s 排程頻率見 [aiops-engine/README.md](../aiops-engine/README.md)。
 - ⑤ 欄位見 [baseline README「異常帶的欄位」](../aiops-engine/code/configs/baseline/reference.md#異常帶的欄位)；⑥ 哪些異常會開一件、怎麼不重複開見 [rca README「事件整合」](../aiops-engine/code/configs/rca/README.md#事件整合alert)。
 - ⑧ `aiops-alerts` 帶 `status`、`service`、`dept`、`group`、`severity`、`summary`、`report`、`feedback_url`；`summary` 是 Grafana 的 label，不放會變的字；心跳「AIOps 停了」docker 實測過。
 - ⑨ 回饋表單定案用 Grafana Business Forms 外掛，回饋服務的小網頁當備案（[grafana-form](pdca/phase5-learning-loop/2026-10-grafana-form.md)）。
-- 第一階段只開 rules、detect、alert、train 四個 CronJob，其他 6 個在第二階段。
+- 排程是一隻常駐 pod 裡的排程器（`aiops-engine/code/scheduler`，照 `configs/schedule/schedule.yaml`）；第一階段只開 rules、detect、alert、train 四個工作，其他 6 個在第二階段。
 
 ## 8. 收斂：很多筆怎麼變成一件
 
@@ -264,7 +264,7 @@ K8s 排程頻率見 [aiops-engine/README.md](../aiops-engine/README.md)。
 | 3 定位問題 | ⑥ 收斂 | 6 | 整合事件：很多筆異常合成一件 | ⚠️ 只有同服務合成一件 |
 | 3 定位問題 | ⑦ 根因分析 | 4 | 串 metrics → trace → log，抓出問題在哪 | ✅ |
 | 3 定位問題 | ⑦ 根因分析 | 5 | 輔助工具：呼叫關係、瀑布圖、log 樣式、業務 ID 查交易、LLM 查詢工具 | ⚠️ 前三樣有 |
-| 3 定位問題 | ⑧ 出口 | 6、8 | 把一件事送出去（Grafana 通知）；回饋入口 | ✅；K8s CronJob 沒跑過 |
+| 3 定位問題 | ⑧ 出口 | 6、8 | 把一件事送出去（Grafana 通知）；回饋入口 | ✅ |
 | 4 RCA＋LLM | ⑦ 根因分析 | 7 | 根因＋RAG：附相似事故；LLM 摘要 | ✅ 模擬資料 |
 | 5 learning loop | ⑨ feedback | 7 | 相似事故裡老師傅當時怎麼判斷與處置（知識庫來自回饋） | ✅ 模擬資料 |
 | 5 learning loop | ⑨ feedback | 8 | learning loop：知識庫更新、門檻調整（建議 → 回測 → 核准） | ✅ 模擬資料 |
@@ -309,7 +309,7 @@ K8s 排程頻率見 [aiops-engine/README.md](../aiops-engine/README.md)。
 會影響能不能用、能不能賣的：
 
 1. **全部是模擬資料**：門檻（z 5、`instant_z` 15、相似分數 4、誤報 3 次、權重）全是估的，要 2～4 週真實資料。
-2. **K8s 排程沒跑過**：rca-demo 在 K8s 上用 `loop` 跑整條線，engine 的 CronJob 還沒跑過。
+2. **真實資料上還沒跑過**：排程在測試 cluster 連測試 ES 跑過（[single-pod-scheduler](pdca/phase3-locate/2026-10-single-pod-scheduler.md)），真實資料、真的 LLM 要等試點。
 3. **沒有評測集**：真的 LLM 跑過（OpenAI 12 次、rca-demo 一次），相似事故在沒有 trace 時只靠「同服務＋同指標」剛好壓在門檻上。
 4. **回饋沒有身分**：回饋表單、小網頁都沒登入；回饋 3 次可以是同一個人（沒有第二人確認）。
 5. **漏報沒有網頁入口**，仍靠 `feedback` 指令。
@@ -397,7 +397,7 @@ K8s 排程頻率見 [aiops-engine/README.md](../aiops-engine/README.md)。
 | [alert-exit](pdca/phase3-locate/2026-10-alert-exit.md) | 同服務合成一件寫 `aiops-alerts`；Grafana 12.2 依 dept 一件一則 |
 | [alert-flap](pdca/phase3-locate/2026-10-alert-flap.md) | 假恢復來自每輪覆蓋；engine 寫 `@timestamp` 往前 1 分鐘 |
 | [rca-demo](pdca/phase3-locate/2026-10-rca-demo.md) | K8s 上整條線跑通：3 分半開件、根因指到 Oracle、通知送到 |
-| [schedule](pdca/phase3-locate/2026-10-schedule.md) | Dockerfile、CronJob、心跳規則完成；K8s 上還沒跑過 |
+| [schedule](pdca/phase3-locate/2026-10-schedule.md) | Dockerfile、CronJob、心跳規則完成（CronJob 之後改成一隻 pod：[single-pod-scheduler](pdca/phase3-locate/2026-10-single-pod-scheduler.md)） |
 
 ### 14.4 Phase 4 RCA＋LLM
 
@@ -418,7 +418,7 @@ K8s 排程頻率見 [aiops-engine/README.md](../aiops-engine/README.md)。
 | [grafana-plugin-init](pdca/phase5-learning-loop/2026-10-grafana-plugin-init.md) | initContainer 從 Nexus 裝外掛、核對 SHA-256；k3d 跑過 |
 | [loop-update](pdca/phase5-learning-loop/2026-10-loop-update.md) | 誤報 3 次 → 回測 → 核准 → 不再報實測過；放寬 z 是治標 |
 | [metrics-kpi](pdca/phase5-learning-loop/2026-10-metrics-kpi.md) | `metrics` 指令學之前、學之後並排；真實數字等試點 |
-| [rule-threshold](pdca/phase5-learning-loop/2026-10-rule-threshold.md) | 規則門檻自動算、核准即載入；4 個 CronJob 見第 7 節 |
+| [rule-threshold](pdca/phase5-learning-loop/2026-10-rule-threshold.md) | 規則門檻自動算、核准即載入；4 個定期工作見第 7 節 |
 
 ### 14.6 跨階段
 

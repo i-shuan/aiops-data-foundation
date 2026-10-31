@@ -74,7 +74,7 @@
 |---|---|---|---|
 | [../collector/README.md](../collector/README.md) | 操作 | Collector：每個應用 cluster 一套，用 Helm 裝，設定在 code/ | 🟢 |
 | [../elasticsearch/README.md](../elasticsearch/README.md) | 操作 | 中央 ES 套結構設定、發 key；測試用 ES 的 chart | 🟢 |
-| [../aiops-engine/README.md](../aiops-engine/README.md) | 操作 | engine：build image、Helm 裝 CronJob 與回饋網頁、「AIOps 停了」 | 🟢 |
+| [../aiops-engine/README.md](../aiops-engine/README.md) | 操作 | engine：build image、Helm 裝一隻 pod（排程器＋回饋網頁）、排程表、「AIOps 停了」 | 🟢 |
 | [../e2e/k8s/tail-sampling/README.md](../e2e/k8s/tail-sampling/README.md) | 案例 | 尾端取樣實測 | 🟢 |
 
 ## 依類型找

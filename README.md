@@ -59,17 +59,24 @@ docs/
 
 ## 目錄
 
-```
-一個部署元件一個資料夾，裡面固定 README.md（怎麼部署）、code/（程式與設定檔）、helmchart/（Helm chart；測試用 values-test.yaml）：
+一個部署元件一個資料夾，裡面固定 `README.md`（怎麼部署）、`code/`（程式與設定檔）、`helmchart/`（Helm chart；測試用 `values-test.yaml`）。
 
-collector/      ①② 每個應用 cluster 一套 OpenTelemetry Collector：code/（common、node、cluster、sampler 的設定、groups.yaml 部門 → group）
-elasticsearch/  ③ 中央 ES：code/storage/（mapping、pipeline、ILM）、code/scripts/（setup、換 key）；helmchart/ 只部署測試用 ES
-grafana/        ⑧ 通知與儀表板：code/（告警規則、contact point、policy、data source、儀表板 json、外掛安裝說明）
-aiops-engine/   ④～⑨ AIOps 分析核心（一個 Python 專案）：code/core/（共用：ES、trace、LLM）、code/detector/（動態基準線學習、規則、資料品質、回饋、回測、量化）、
-                code/investigator/（根因分析、事件整合、相似事故）、code/feedback_web/（老師傅的回饋網頁）、code/configs/（baseline、rca）、code/Dockerfile
-sdk/            給應用團隊：通用 Helm chart、範例、Java log 設定、trace 埋點指引、CI 檢查
-e2e/            測試：pipeline/（ES pipeline 案例，只要 ES）、k8s/（端到端：模擬服務與腳本，要 K8s）
-docs/        設計文件、規劃、測試紀錄（docs/pdca/ 每一輪的紀錄）
 ```
+collector/       code/（common、node、cluster、sampler、groups.yaml）  helmchart/（DaemonSet、Deployment、StatefulSet、RBAC）
+elasticsearch/   code/storage/、code/scripts/                           helmchart/（只給測試用的 ES，twoNode 開關）
+grafana/         code/（規則、contact point、policy、儀表板、外掛說明）  helmchart/（Grafana＋initContainer 裝外掛＋provisioning）
+aiops-engine/    code/（Python、configs、Dockerfile）                  helmchart/（排程器＋回饋網頁一隻 pod）
+sdk/  e2e/（pipeline/、k8s/）  docs/  tools/
+```
+
+| 資料夾 | 模組 | 內容 |
+|---|---|---|
+| `collector/` | ①② | 每個應用 cluster 一套 OpenTelemetry Collector：收 log、metrics、trace，邊緣身份鑑別與標籤注入、依 namespace 的 dept 分 group |
+| `elasticsearch/` | ③ | 中央 ES 的結構設定（mapping、pipeline、ILM）與 setup／換 key 腳本；正式 ES 是公司的，chart 只部署測試用 ES |
+| `grafana/` | ⑧ | 讀 `aiops-alerts` 依部門發通知、儀表板、回饋表單外掛 |
+| `aiops-engine/` | ④～⑨ | AIOps 分析核心：`core/`（ES、trace、LLM）、`detector/`（動態基準線學習、規則、資料品質、回饋、回測、量化）、`investigator/`（根因分析、事件整合、相似事故）、`feedback_web/`（老師傅的回饋網頁）、`scheduler/`（定期工作的排程器）、`configs/`（baseline、rca、schedule） |
+| `sdk/` | ① | 給應用團隊：通用 Helm chart、範例、Java log 設定、trace 埋點指引、CI 檢查 |
+| `e2e/` | 測試 | `pipeline/`（ES pipeline 案例，只要 ES）、`k8s/`（端到端：模擬服務與腳本，要 K8s）；不是正式程式 |
+| `docs/` | — | 設計文件、規劃、`docs/pdca/` 每一輪的紀錄 |
 
 Python 的執行位置在 `aiops-engine/code/`：`cd aiops-engine/code && python3 -m detector <指令>`、`python3 -m investigator investigate`。

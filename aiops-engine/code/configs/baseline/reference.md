@@ -266,7 +266,7 @@ series:
 
 **還缺的**：
 
-- **都沒排程**：`quality`、`chronic` 在 `deploy/cronjobs-stage2.yaml`（第二階段），`adjust`、行事曆在 `train` 時生效但條目要人寫。
+- **都沒排程**：`quality`、`chronic` 是排程表的第二階段（`configs/schedule/schedule.yaml` 的 `stage: 2`，預設不開），`adjust`、行事曆在 `train` 時生效但條目要人寫。
 - **測試流量沒有自動辨識**：壓測要人手動寫 `exclude_window`；沒有依 label（loadgen、測試 namespace）自動不學。
 - **默默掉資料看不到**：ES `_otlp` 入口回 200 卻整批拒掉時（權限不夠、資料流名稱錯），Collector 沒 log、沒指標；要有 Collector 送出筆數跟 ES 實際寫入筆數的對照（可放進 `quality` 的 `stopped` 類）。
 - **慢性病清單沒送到負責人手上**；`owners` 目前是假資料（`fake-data/owners.json`）。

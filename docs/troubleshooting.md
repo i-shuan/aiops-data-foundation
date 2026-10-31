@@ -171,4 +171,6 @@
 | nerdctl、kubectl 都 timeout，WSL 報 `0x8007274c`，主機只剩幾百 MB | 好幾個測試 ES 容器加上共用 cluster，WSL 的 VM 記憶體不夠 | 同一時間只起 1 個測試 ES（scratchpad 的 `es-slot.sh` 拿名額），用完 `nerdctl rm -f` |
 | Git Bash 裡 `TZ=Asia/Taipei date` 印出 UTC | Git Bash 沒有 zoneinfo，不認得的時區當 UTC，也不報錯 | 用 POSIX 寫法 `TZ=UTC-8`（＝ +08:00） |
 | 腳本結束了，`kubectl port-forward` 還佔著 port | Git Bash 的 `kill` 有時停不掉原生的 `kubectl.exe` | 再用 `/proc/<pid>/winpid` 的 Windows PID `taskkill //F`（`run-schedule-e2e.sh` 的 cleanup）；`tasklist` 確認 |
-| `kubectl create job --from=cronjob/...` 後 CronJob 出現 `UnexpectedJob` 事件 | 手動建的 Job 帶 ownerReference，不是 controller 排的 | 不影響排程，可以不管 |
+| 換了 `aiops-secrets` 的 ES key，engine 還在用舊的（一直 401） | 環境變數是 pod 起來時讀的；排程器是常駐 pod，不像 CronJob 每分鐘重讀 | `kubectl -n aiops rollout restart deploy/aiops-engine` |
+| 想立刻跑一次 `train`（剛部署沒 baseline） | 排程器每天 02:00 才跑 | `kubectl -n aiops exec deploy/aiops-engine -c scheduler -- python3 -m scheduler --config configs/schedule/schedule.yaml --run train`（常駐的那個不知道這次，自己確認沒在跑） |
+| pod 的 log 看到 `[scheduler] alert … 跳過：上一次還在跑` | 上一分鐘的 alert 還沒結束（一輪好幾件新的、LLM 慢） | 偶爾一次正常；一直跳過就查 `alert` 為什麼慢（LLM 逾時？ES 慢？） |
