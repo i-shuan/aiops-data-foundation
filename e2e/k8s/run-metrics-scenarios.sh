@@ -13,7 +13,7 @@ set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 : "${ES_URL:?請設定 ES_URL}"
 ES_PASSWORD=changeme-test-only
-KCTX="${KCTX:-default}"
+KCTX="${KCTX:-$(kubectl config current-context)}"
 k() { kubectl --context "${KCTX}" "$@"; }
 es() { curl -sS -m 30 -u "elastic:${ES_PASSWORD}" -H 'Content-Type: application/json' "$@"; }
 now() { date -u +%Y-%m-%dT%H:%M:%SZ; }

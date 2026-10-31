@@ -14,7 +14,7 @@ from detector.es import ES
 TZ = "Asia/Taipei"; INDEX = "aiops-synth"; SYNTH = "tests/synth.yaml"; RCA = "tests/rca_loop.yaml"
 D0 = pd.Timestamp("2026-10-05", tz=TZ)            # 週一；前面 4 週是歷史
 # 網頁寫的回饋，時間是寫入當下；metrics 的查詢區間要含「現在」，不然測試日期過了 10/28 就算不到回饋
-METRICS_TO = max("2026-10-28", (pd.Timestamp.now(tz="UTC") + pd.Timedelta(days=1)).strftime("%Y-%m-%d"))
+METRICS_TO = max("2026-10-28", (pd.Timestamp.now(tz="UTC") + pd.Timedelta(days=2)).strftime("%Y-%m-%d"))   # 區間用台北時區算，加 2 天才一定比現在晚
 H0 = D0 - pd.Timedelta(weeks=4)
 SERVICES = {"mes-api": 100.0, "mes-report": 100.0, "eap-gw": 300.0}
 PY = sys.executable
