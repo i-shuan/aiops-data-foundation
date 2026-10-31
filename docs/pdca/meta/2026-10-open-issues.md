@@ -44,27 +44,26 @@
 | 升級那一刻漏合 | setup 把舊 raw 資料流 rollover 之前寫的 span 沒有索引的 `event.ingested`，`trace-merge` 看不到；實測約 9 個 trace，只影響第一次升級 |
 | merged 不是 OTel 原生格式 | 自訂格式；Kibana 只有 raw 那 2 天看得到原生 |
 | 讀端兩套 | 根因分析讀 merged，trace baseline、資料品質讀 raw（只看最近 10 分鐘）；`aiops-trace-segments` 要改讀 merged 得把 composite 聚合改成 nested，這次不碰 |
-| `tests/trace_quality_edge_e2e.py` | 只把尾端取樣模擬改成全留，沒重跑 |
-| 實測環境 | Rancher Desktop 單節點、ES 8.19.23：`run-trace-e2e.sh` 7b 的 raw 21 個 trace 對 merged 21 筆、重跑不重複、權限正確；`run-rca-e2e.sh` 11 項過；單元測試 376 個過。正式環境沒跑過 |
-| ES 停 180 秒，trace 遺失（本分支造成的回歸） | 遺失 2,552／7,199（約 35%），master 是 0。Collector 的 ES 元件遇到連線逾時不重試，trace 改 100% 直寫後繼承這個弱點；log 遺失 master 也有（9,649 對 7,715），是原本就有的。待決定：合併前先修（Collector 的 ES exporter 開 retry 與 sending queue，同時改善 log），或記為已知風險。傾向先修，還沒動 |
+| 實測環境 | Rancher Desktop 單節點、ES 8.19.23：`run-trace-e2e.sh` 7b 的 raw 21 個 trace 對 merged 21 筆、重跑不重複、權限正確；`run-rca-e2e.sh` 11 項過；單元測試 377 個過。排程器（含 `trace-merge` 每分鐘）24 項、`loop_e2e` 43 項、⑧⑨ 實跑 11 項、metrics-trace 15 項、keys 84 項、trace-id 15 項、kafka 9 項、peer-edge 6 項都過。正式環境沒跑過 |
+| ES 停 180 秒，trace 遺失（本分支造成的回歸） | 遺失 2,552／7,199（約 35%），master 是 0。Collector 的 ES 元件遇到連線逾時（`dial tcp … i/o timeout`，連線黑洞）不重試；一直重試的 `retry`、`timeout: 0`、磁碟佇列早就開了，缺的只有這一種錯誤。trace 改 100% 直寫後繼承這個弱點；log 遺失 master 也有（9,649 對 7,715），是原本就有的。前案 [collector-es-exporter](2026-10-collector-es-exporter.md) 已記這個限制，決定是 ES 前面放 LB 加健康檢查，當時只掉停機前後約 10 秒（log、trace 約 3%）；這次損失大很多（trace 35%、log 11%），原因還沒查清（測試 ES 記憶體約 97%、恢復慢，或黑洞期間每批都被丟）。待決定：A. ES 前面放 LB／VIP 加健康檢查（傾向，並用它重跑同一個對照）、B. 升 Collector 版本（上游有沒有修還沒查）、C. trace 回到有重試的中間層、D. 每個 Collector 旁放本機 proxy。先確認正式環境 ES 前面有沒有 LB。分支 `claude/es-retry`，還沒動 |
 | `trace_quality` 測試 6 項失敗 | 3 項在測已廢止的隨機取 5%，已刪；另 3 項原因見 9.2 兩列（抽樣太少、B6a），偵測行為沒改 |
 | B8（unassigned 的 log 比例）單獨跑沒過 | 整串完整跑時過；推測是 durability 之後測試 ES 有大量其他 log 把分母墊大，沒查證。合併前至少清掉測試資料單獨再跑一次 |
 
 ### 2. 偵測的時間
 
-**狀態：已安排測試**（測試內容與結果另記）。
+**狀態：已測**（事故到 Grafana 通知的延遲、p95 暴衝都已量，見下表與第 3 節）。
 
 | 問題 | 現況 | 傾向 |
 |---|---|---|
 | `detect` 每分鐘跑、窗口 10 分鐘 | 停機超過 10 分鐘的那段不補判，Collector 補送的舊資料也不判，只進 `train` | 頻率與窗口不改；把這個限制寫進文件 |
 | peer、trace 每 5 分鐘 | trace 異常約 5～10 分鐘才出現（推算），metrics 約 1～3 分鐘（推算）。trace 的統計本來就以 5 分鐘為單位。`claude/trace-merge` 拆掉尾端取樣的 30 秒等待、加每分鐘的 `trace-merge`，這個推算合入後要重估 | 可接受；只有 trace 看得到的緩慢變差會晚發現 |
-| 實際延遲沒量過 | 上面的時間大多是推算；p95 暴衝到開事故已實測約 70 秒（見第 3 節），到 Grafana 通知的計時腳本已加、還沒跑 | 上線前量一次（已安排測試） |
+| 實際延遲沒量過 | 上面的時間大多是推算；p95 暴衝到開事故已實測約 70 秒（見第 3 節）。⑧⑨ 實跑（Collector → trace-merge → rules → alert → Grafana → notify-sink，每分鐘一輪 tick 模擬排程器，誤差約 ±1 分鐘）：事故開始後 159 秒有第一筆異常、162 秒開件、**186 秒 Grafana 通知到**。測試環境，不是正式環境 | 上線前在正式環境量一次 |
 | Grafana 評估間隔 | `alert-rules.yaml` 的 `interval: 1m`，再加進 1～3 分鐘（推算）；已寫進 [grafana/README.md](../../../grafana/README.md) | 已確認 |
 | 30 秒收一點 | 10 秒的短暫尖峰會被平均掉 | 目前不處理 |
 
 ### 3. 一次就很嚴重的
 
-**狀態：測試中**。p95 暴衝的實測已做（commit `7345608`，在分支 `claude/trace-merge`，尚未合入 master，PDCA 見 [detect-latency](https://github.com/i-shuan/aiops-data-foundation/blob/claude/trace-merge/docs/pdca/phase3-locate/2026-10-detect-latency.md)）；事故到 Grafana 通知的計時已加進 ⑧⑨ 實跑腳本，還沒跑，沒有數字。
+**狀態：已測**。p95 暴衝的實測已做（commit `7345608`，在分支 `claude/trace-merge`，尚未合入 master，PDCA 見 [detect-latency](https://github.com/i-shuan/aiops-data-foundation/blob/claude/trace-merge/docs/pdca/phase3-locate/2026-10-detect-latency.md)）；事故到 Grafana 通知的延遲已用 ⑧⑨ 實跑腳本量過：事故開始後 162 秒開件、186 秒通知到（測試環境）。
 
 | 問題 | 現況 |
 |---|---|
