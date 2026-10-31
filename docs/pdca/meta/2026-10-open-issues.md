@@ -92,7 +92,9 @@
 |---|---|---|
 | `aiops-baseline` 掉了 | `detect` 讀到空的，印一行「沒有 baseline，先跑 train」就跳過那條序列，不報錯。動態基準線這一路靜默停擺；規則、Pod 同儕橫向比對、資料品質不受影響 | 手動跑一次 `train`（[aiops-engine/README.md](../../../aiops-engine/README.md)）；不手動要等隔天 02:00 |
 | 沒有「基準線不見」的告警 | Grafana 的 `aiops-heartbeat` 只看 `investigator alert` 有沒有寫入，這種情況不會響 | 加一條：`detect` 讀到空基準線的序列數大於 0 就送平台 |
-| 沒有 snapshot 備份 | `elasticsearch/code` 找不到 snapshot 或 SLM 設定；索引 `auto_expand_replicas: 0-1`，單節點沒有副本 | `aiops-tuning` 優先加（老師傅的調整，掉了不能重算）；`aiops-baseline` 是每天重寫的衍生資料，重要性較低 |
+| 沒有 snapshot 備份 | `elasticsearch/code` 找不到 snapshot 或 SLM 設定；索引 `auto_expand_replicas: 0-1`，單節點沒有副本 | 人工判斷的三個索引優先加：`aiops-incidents`、`aiops-feedback`、`aiops-tuning`，掉了不能重算；`aiops-baseline` 是每天重寫的衍生資料，重要性較低 |
+| 回饋存在哪 | 和 log、metrics、trace 在同一個中央 ES，是 `aiops-*` 一般索引；AIOps 的 key 只能寫 `aiops-*`；回饋網頁本身不存資料。正式環境的磁碟大小由管 ES 的人決定，repo 內附的 chart 是測試用（`storage: 10Gi`） | 待和管 ES 的人確認 |
+| 測試與正式環境的回饋不互通 | 兩邊是不同叢集，測試時累積的回饋、事故紀錄不會自動帶到正式環境 | 上線前決定要不要匯入 |
 | 重建 ES 的流程 | 沒有把 `train` 列為標準步驟 | 列進去 |
 | `aiops-baseline` 實際大小 | 沒查到數字（文件只有訓練時 1 萬條序列、2～3GB 記憶體） | 上線前量 |
 
