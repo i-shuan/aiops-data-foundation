@@ -69,10 +69,13 @@ up() {
   local g="${repo}/grafana/code"
   cm notify-sink --from-file=webhook.py="${here}/webhook.py"
   # Grafana：正式的 chart＋demo 的 values；告警設定從 grafana/code 帶，demo 的 data source 與儀表板從這個資料夾帶
-  helm upgrade --install grafana "${repo}/grafana/helmchart" -n aiops-demo -f "${repo}/grafana/helmchart/values-test.yaml" \
-    --set-file "provisioning.datasources.aiops-alerts=${g}/datasource.yaml,provisioning.datasources.demo=${here}/datasources.yaml" \
-    --set-file "provisioning.alerting.alert-rules=${g}/alert-rules.yaml,provisioning.alerting.contact-points=${g}/contact-points.yaml,provisioning.alerting.policies=${g}/policies.yaml" \
-    --set-file "provisioning.dashboards.rca-demo=${here}/dashboard.json" >/dev/null
+  # Windows 的 helm 看不懂 Git Bash 的 /c/... 路徑，先轉成 C:/...
+  local gw hw; gw="$(cygpath -m "${g}" 2>/dev/null || echo "${g}")"; hw="$(cygpath -m "${here}" 2>/dev/null || echo "${here}")"
+  helm upgrade --install grafana "$(cygpath -m "${repo}/grafana/helmchart" 2>/dev/null || echo "${repo}/grafana/helmchart")" -n aiops-demo \
+    -f "$(cygpath -m "${repo}/grafana/helmchart/values-test.yaml" 2>/dev/null || echo "${repo}/grafana/helmchart/values-test.yaml")" \
+    --set-file "provisioning.datasources.aiops-alerts=${gw}/datasource.yaml,provisioning.datasources.demo=${hw}/datasources.yaml" \
+    --set-file "provisioning.alerting.alert-rules=${gw}/alert-rules.yaml,provisioning.alerting.contact-points=${gw}/contact-points.yaml,provisioning.alerting.policies=${gw}/policies.yaml" \
+    --set-file "provisioning.dashboards.rca-demo=${hw}/dashboard.json" >/dev/null
   kubectl -n aiops-demo rollout restart deployment/notify-sink >/dev/null
   kubectl -n aiops-demo rollout status deployment/grafana --timeout=180s >/dev/null
   kubectl -n aiops-demo rollout status deployment/notify-sink --timeout=180s >/dev/null

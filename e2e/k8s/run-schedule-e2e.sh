@@ -86,7 +86,8 @@ lock
 k delete namespace "${NS}" --ignore-not-found --wait=true >/dev/null
 k create namespace "${NS}" >/dev/null
 kn create secret generic aiops-secrets --from-literal=ES_API_KEY="${KEY}" --from-literal=LLM_API_KEY= --save-config >/dev/null
-helm upgrade --install aiops "${repo}/aiops-engine/helmchart" -n "${NS}" --kube-context rancher-desktop -f "${repo}/aiops-engine/helmchart/values-test.yaml" | sed 's/^/   /'
+chart="$(cygpath -m "${repo}/aiops-engine/helmchart" 2>/dev/null || echo "${repo}/aiops-engine/helmchart")"   # Windows 的 helm 要 C:/... 路徑
+helm upgrade --install aiops "${chart}" -n "${NS}" --kube-context rancher-desktop -f "${chart}/values-test.yaml" | sed 's/^/   /'
 unlock
 kn get cronjob -o custom-columns='NAME:.metadata.name,SCHEDULE:.spec.schedule,TZ:.spec.timeZone,POLICY:.spec.concurrencyPolicy,DEADLINE:.spec.jobTemplate.spec.activeDeadlineSeconds,BACKOFF:.spec.jobTemplate.spec.backoffLimit' | sed 's/^/   /'
 

@@ -6,9 +6,11 @@
 #   KCTX=<kube context>（預設目前的）
 set -euo pipefail
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
-cfg="${CONFIG_DIR:-${repo}/collector/code}"
-helm upgrade --install collector "${repo}/collector/helmchart" -n otel-collector --create-namespace \
+# Windows 的 helm 看不懂 Git Bash 的 /c/... 路徑，檔案路徑都先轉成 C:/...
+p() { cygpath -m "$1" 2>/dev/null || echo "$1"; }
+cfg="$(p "${CONFIG_DIR:-${repo}/collector/code}")"
+helm upgrade --install collector "$(p "${repo}/collector/helmchart")" -n otel-collector --create-namespace \
   ${KCTX:+--kube-context "${KCTX}"} \
-  -f "${repo}/collector/helmchart/values-test.yaml" \
+  -f "$(p "${repo}/collector/helmchart/values-test.yaml")" \
   --set-file "config.common=${cfg}/common.yaml,config.node=${cfg}/node.yaml,config.cluster=${cfg}/cluster.yaml,config.sampler=${cfg}/sampler.yaml" \
   "$@" >/dev/null

@@ -4,5 +4,7 @@
 #   KCTX=<kube context>（預設目前的）
 set -euo pipefail
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
-helm upgrade --install elasticsearch "${repo}/elasticsearch/helmchart" -n es-test --create-namespace \
+# Windows 的 helm 看不懂 Git Bash 的 /c/... 路徑，先轉成 C:/...
+p() { cygpath -m "$1" 2>/dev/null || echo "$1"; }
+helm upgrade --install elasticsearch "$(p "${repo}/elasticsearch/helmchart")" -n es-test --create-namespace \
   ${KCTX:+--kube-context "${KCTX}"} "$@" >/dev/null
