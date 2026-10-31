@@ -120,6 +120,10 @@ class NewTypesTest(unittest.TestCase):
                                   for i, n in zip((5, 4, 3, 2, 1, 0), (0, 1, 1, 2, 2, 4))]}
         self.assertEqual(R.evaluate(rule, series, NOW)[0]["value"], 10)
 
+    def test_hist_count_es8_histogram(self):
+        # ES 8.19 的 histogram 在 _source 裡是 values／counts（實測 Collector elasticsearch 寫入元件寫出來的）
+        self.assertEqual(R.hist_count({"values": [0.0375, 0.0625, 0.375], "counts": [48, 60, 12]}), 120)
+
     def test_join_fills_denominator(self):
         d = {"metrics": {"usage": 5.0}}
         R._put(d, "metrics.db_client_connections_max", 5.0)

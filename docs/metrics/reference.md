@@ -37,7 +37,7 @@
 
 AIOps 要把 log 和 metrics 串起來，用 `service.name` 加 `k8s.namespace.name`（log 那邊是 `kubernetes.namespace`）加時間。
 
-**metrics 帶不了 trace_id。** OTLP metrics 的 exemplar（帶 trace_id）寫進 ES 時會被丟掉：送到 `/_otlp/v1/metrics`、或用 Collector 的 `elasticsearch` 寫入元件（otel mode）都一樣，`_source`、mapping、全文搜尋都找不到 trace_id（實測 ES 9.5.5、Collector contrib 0.162.0）。要從 metrics 找 trace，用服務、時間範圍去查。
+**metrics 帶不了 trace_id。** OTLP metrics 的 exemplar（帶 trace_id）寫進 ES 時會被丟掉：送到 `/_otlp/v1/metrics`、或用 Collector 的 `elasticsearch` 寫入元件（otel mode）都一樣，`_source`、mapping、全文搜尋都找不到 trace_id（實測 ES 9.5.5、8.19.23，Collector contrib 0.162.0）。要從 metrics 找 trace，用服務、時間範圍去查。
 
 ### 應用的請求數、錯誤、延遲（AIOps baseline 用）
 
@@ -45,12 +45,12 @@ Java agent 會開出 `http.server.request.duration`（每個 HTTP 請求的耗�
 
 | | |
 |---|---|
-| ES 欄位 | `metrics.http.server.request.duration`，型別 `exponential_histogram`（ES 9.5 自動轉）。Java 經 Prometheus 進來的 `http_server_request_duration_seconds` 由 node Collector 改成這個名字，跟 .NET 一樣 |
+| ES 欄位 | `metrics.http.server.request.duration`，型別 `histogram`（ES 8.19；`_source` 是 `values`＋`counts`，counts 加起來是請求數）。直方圖欄位不存 sum，Collector 把每個直方圖的總和另存成同一份文件的 `metrics.<名稱>_sum`（`node.yaml` 的 `transform/hist-sum`）。Java 經 Prometheus 進來的 `http_server_request_duration_seconds` 由 node Collector 改成這個名字，跟 .NET 一樣 |
 | 維度 | `attributes.http.request.method`、`attributes.http.route`、`attributes.http.response.status_code`（數字） |
 | 資料流 | `metrics-generic.otel-<group>`：資料帶著應用自己的 scope 名稱（例如 `io.opentelemetry.tomcat-10.0`），不是 `prometheusreceiver` |
-| 每一筆是什麼 | **這 30 秒內**的請求：Collector 用 `cumulativetodelta` 把 Prometheus 的累加值換成差值（`temporality: delta`） |
+| 每一筆是什麼 | **這 30 秒內**的請求：Collector 用 `cumulativetodelta` 把 Prometheus 的累加值換成差值。ES 8.19 不存 `temporality` 欄位，是不是差值要看每筆的次數（測試應用每筆約 120 個，不會一直變大） |
 
-**為什麼要換成差值：** Prometheus 的數字從應用啟動一直累加。直接存的話，「10:00～10:05 有幾個請求、p95 多少」要拿頭尾相減，直方圖在 ES 裡做不到；存差值就能直接加總任一段時間。實測：沒換之前 ES 也收（`temporality: cumulative`），但一加總就是錯的。
+**為什麼要換成差值：** Prometheus 的數字從應用啟動一直累加。直接存的話，「10:00～10:05 有幾個請求、p95 多少」要拿頭尾相減，直方圖在 ES 裡做不到；存差值就能直接加總任一段時間。沒換的話 ES 也收，但一加總就是錯的。
 
 只換直方圖；計數器（counter）維持累加值，原本的資料和查法不變。
 

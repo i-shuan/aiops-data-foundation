@@ -77,7 +77,7 @@ Collector 會即時看到 namespace label 的變化，**標了之後幾秒內就
 e2e/local-k3s/run-e2e.sh
 ```
 
-在單節點 k3s 上跑過（ES 9.5.5、OpenTelemetry Collector contrib 0.162.0），**54 項全部通過**；另有 24 個 level 萃取案例全部通過。
+在 k3d 單節點上跑過（ES 8.19.23、OpenTelemetry Collector contrib 0.162.0），**54 項全部通過**；另有 24 個 level 萃取案例全部通過。
 
 - **分流**：三個 namespace 各自只進自己的 index，沒有重複送。
 - **欄位**：logback 格式、ECS 巢狀格式、ECS 點號格式（ES 自己的 log）、純文字，四種都正確轉換；`agent.type` 是 `otelcol`。

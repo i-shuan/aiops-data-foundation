@@ -97,6 +97,7 @@ put_ilm() {  # put_ilm <policy 名稱> <JSON 檔>
 }
 put_ilm k8s-logs                                   storage/ilm-policy.json
 put_ilm metrics-otel                               storage/ilm-metrics-otel.json
+put_ilm metrics-hist-otel                          storage/ilm-metrics-hist-otel.json
 put_ilm traces-otel                                storage/ilm-traces-otel.json
 put_ilm traces-problem-otel                        storage/ilm-traces-problem-otel.json
 put_ilm aiops-log-stats                            storage/ilm-aiops-log-stats.json
@@ -109,7 +110,7 @@ put_pipeline k8s-logs                              storage/pipeline.json
 put_json /_component_template/k8s-logs-settings    storage/component-settings.json
 put_json /_component_template/k8s-logs-mappings    storage/component-mappings.json
 put_json /_index_template/k8s-logs                 storage/index-template.json
-# metrics：ES 9 內建 metrics-otel@template 預留的自訂設定（metrics-*.otel-* 的 TSDS）
+# metrics：ES（8.19 以上）內建 metrics-otel@template 預留的自訂設定（metrics-*.otel-* 的 TSDS）
 put_json /_component_template/metrics-otel@custom  storage/metrics-otel-custom.json
 # log 改用 OpenTelemetry Collector 收時（比較中，見 docs/log/fluentbit-vs-otel.md）：
 # logs-*.otel-* 先跑 k8s-logs-otel，我們的 Collector 送的轉到 k8s-<group>-<cluster>
@@ -127,9 +128,19 @@ es "${ES_URL}/_index_template/traces-otel@template" | jq '.index_templates[0].in
   | ._meta = {"description": "有問題的 trace：traces-otel@template 加上 traces-problem-otel@custom（保留天數較長）。由 elasticsearch-setup.sh 產生"}' \
   > "${tmp_dir}/traces-problem-template.json"
 put_json /_index_template/traces-problem-otel      "${tmp_dir}/traces-problem-template.json"
+# 應用的直方圖（metrics-generic.otel-*）：同樣照內建 metrics-otel@template 的組成，多疊 metrics-hist-otel@custom 換成不降解析度的 ILM
+#   （ES 8.19 的 histogram 欄位降解析度時不合併、只留一筆的值；docs/retention-reference.md）
+put_json /_component_template/metrics-hist-otel@custom storage/metrics-hist-otel-custom.json
+es "${ES_URL}/_index_template/metrics-otel@template" | jq '.index_templates[0].index_template
+  | .index_patterns = ["metrics-generic.otel-*"] | .priority = (.priority + 10)
+  | .composed_of += ["metrics-hist-otel@custom"] | del(.version, .created_date, .created_date_millis, .modified_date, .modified_date_millis, .deprecated)
+  | ._meta = {"description": "應用的直方圖：metrics-otel@template 加上 metrics-hist-otel@custom（不降解析度）。由 elasticsearch-setup.sh 產生"}' \
+  > "${tmp_dir}/metrics-hist-template.json"
+put_json /_index_template/metrics-hist-otel        "${tmp_dir}/metrics-hist-template.json"
 # 已經存在的資料也換成新的保留天數（新的 backing index 由上面的 template 帶）
 echo "=== 已存在的 metrics、trace 套用新的保留天數 ==="
 es -X PUT "${ES_URL}/metrics-*.otel-*/_settings?expand_wildcards=all" -d '{"index.lifecycle.name": "metrics-otel"}' >/dev/null
+es -X PUT "${ES_URL}/metrics-generic.otel-*/_settings?expand_wildcards=all&allow_no_indices=true" -d '{"index.lifecycle.name": "metrics-hist-otel"}' >/dev/null
 es -X PUT "${ES_URL}/traces-generic.otel-*/_settings?expand_wildcards=all" -d '{"index.lifecycle.name": "traces-otel"}' >/dev/null
 es -X PUT "${ES_URL}/traces-problem.otel-*/_settings?expand_wildcards=all&allow_no_indices=true" -d '{"index.lifecycle.name": "traces-problem-otel"}' >/dev/null
 # ILM 會把「正在進行的階段」的設定暫存起來：寫入中的 index 還在用舊政策（例如 ES 內建、30 天才 rollover、永遠不刪）

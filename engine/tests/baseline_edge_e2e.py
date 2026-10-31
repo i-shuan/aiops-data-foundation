@@ -1,11 +1,11 @@
 """動態基準線學習的邊緣情境、誤報率、learning loop 調整介面：端到端測試（docs/pdca/phase2-anomaly/2026-10-baseline-verify.md）。
 
 資料的形狀跟 Collector 寫出來的一樣（tests/otlp_synth.py）：
-  metrics → metrics-bedge.otel-it、metrics-btune.otel-it：http.server.request.duration 直方圖（ES 的 OTLP 入口轉成
-            exponential_histogram）、resource.attributes.service.name 是 Pod label 的值、30 秒一筆、delta。
-            用 _bulk 寫 OTLP 入口寫出來的同一份 _source（帶 _id，ES 慢、逾時重送不會重複）；開頭先各寫一份比對，
-            _source 逐欄一樣、p50/p95/p99 一樣才繼續（check_bulk_matches_otlp）。
-  log     → 走 /_otlp/v1/logs → logs-generic.otel-it → k8s-logs-otel pipeline → k8s-it-bedge（_id 是內容指紋，重送不重複）
+  metrics → metrics-bedge.otel-it、metrics-btune.otel-it：http.server.request.duration 直方圖（ES 8.19 的 histogram：
+            values＋counts，sum 另存 _sum）、resource.attributes.service.name 是 Pod label 的值、30 秒一筆、差值。
+            用 _bulk 寫跟 Collector 在 k3d 上寫出來一樣的 _source（帶 _id，ES 慢、逾時重送不會重複）。
+  log     → _bulk 寫 logs-generic.otel-it（Collector 寫出來的形狀）→ k8s-logs-otel pipeline → k8s-it-bedge
+            （_id 是內容指紋，重送不重複）
 metrics 的 data stream 用 standard mode（同一組 component template）：TSDS 的 look_back_time 上限 7 天，寫不進 4 週前的資料；
 欄位型別、聚合結果一樣（baseline 只用聚合）。
 
@@ -274,14 +274,13 @@ def write_logs(es: ES, seed: int) -> int:
            "k8s.deployment.name": "svc-logs", "dept": "D3120", "group": "it", "k8s.cluster.name": BY,
            "data_stream.namespace": "it", "k8s.pod.labels.app.kubernetes.io/name": "svc-logs"}
     recs = []
-    for t, ni, ne in zip(ts, info, err):
+    for t, ni, ne in zip(ts, info.tolist(), err.tolist()):   # 轉成一般整數：numpy 整數不能直接進 json
         base = t.value
-        recs += [O.log_record(base + k * 1_000_000, "INFO", f"handled request {k}") for k in range(ni)]
-        recs += [O.log_record(base + (ni + k) * 1_000_000, "ERROR", f"db timeout {k}") for k in range(ne)]
+        recs += [(None, O.log_doc(res, base + k * 1_000_000, "INFO", f"handled request {k}")) for k in range(ni)]
+        recs += [(None, O.log_doc(res, base + (ni + k) * 1_000_000, "ERROR", f"db timeout {k}")) for k in range(ne)]
     have = count_docs(es, LOG_INDEX, "resource.attributes.service.name", "svc-logs")
     if have != len(recs):
-        for i in range(0, len(recs), 2000):
-            O.post_retry(es, "/_otlp/v1/logs", O.logs_request([(res, recs[i:i + 2000])]))
+        O.bulk(es, "logs-generic.otel-it", recs, templates=None)   # k8s-logs-otel 轉到 k8s-it-bedge
     print(f"  svc-logs：{len(recs)} 筆 log（error {int(err.sum())} 筆）{'，已經寫過' if have == len(recs) else ''}", flush=True)
     return len(recs)
 
@@ -290,8 +289,8 @@ def setup(es: ES, fresh: bool):
     """metrics 的 data stream 用 standard mode（同一組 component template，TSDS 寫不進 7 天前的資料）。fresh：清掉上一次的資料。"""
     es.req("PUT", "/_index_template/bedge-metrics", {
         "index_patterns": [f"metrics-{EDGE_DS}*.otel-*", f"metrics-{TUNE_DS}*.otel-*"], "priority": 300, "data_stream": {},
-        "composed_of": ["otel@mappings", "otel@settings", "metrics-otel@mappings", "semconv-resource-to-ecs@mappings",
-                        "ecs-tsdb@mappings"],
+        "composed_of": ["otel@mappings", "metrics-otel@mappings", "semconv-resource-to-ecs@mappings",
+                        "ecs-tsdb@mappings"],   # ES 9 還有 otel@settings，8.19 沒有這個元件模板
         "template": {"settings": {"index": {"mode": "standard", "number_of_replicas": 0}},
                      "mappings": {"properties": {"data_stream.type": {"type": "constant_keyword", "value": "metrics"}}}},
         "_meta": {"description": "baseline_edge_e2e：寫得進 4 週前的資料"}})
@@ -884,10 +883,7 @@ def main() -> int:
     if not args.skip_write:
         t = pd.Timestamp.now()
         setup(es, args.fresh)
-        ok, detail, names_hash = O.check_bulk_matches_otlp(es, resource("svc-chk", EDGE_DS), np.random.default_rng(3))
-        check("寫入", "_bulk 寫的跟 OTLP 入口寫的一樣", "_source 逐欄一樣、p50/p95/p99 一樣", detail, ok)
-        if not ok:
-            return 1
+        names_hash = O.NAMES_HASH
         print("== 寫入合成資料", flush=True)
         n = write_metrics(es, SERVICES, INJECT, EDGE_DS, 7, names_hash) + write_metrics(es, TUNE_SERVICES, TUNE_INJECT, TUNE_DS, 11, names_hash)
         nl = write_logs(es, 13)

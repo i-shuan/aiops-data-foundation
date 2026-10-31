@@ -122,7 +122,7 @@
 
 ### 門檻怎麼校、誰來調
 
-**實測**（2026-10-23，ES 9.5.5 跑過 `elasticsearch-setup.sh`；metrics 走 `/_otlp/v1/metrics`，log 直接寫 `k8s-*`）：
+**實測**（2026-10-23，ES 9.5.5 跑過 `elasticsearch-setup.sh`；當時 metrics 走 ES 9 的 `/_otlp/v1/metrics`，log 直接寫 `k8s-*`；8.19 改成 Collector 的 `elasticsearch` 寫入元件，文件形狀一樣，沒重測）：
 
 | 放進去的壞資料 | 結果 |
 |---|---|

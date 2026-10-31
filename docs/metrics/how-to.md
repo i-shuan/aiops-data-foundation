@@ -53,7 +53,7 @@ kubectl apply -k telemetry/collectors
 ES_URL=http://<ip>:9200 e2e/local-k3s/run-metrics-e2e.sh
 ```
 
-在單節點 k3s 上跑過（ES 9.5.5、OpenTelemetry Collector contrib 0.162.0），**37 項全部通過**：
+在 k3d 單節點上跑過（ES 8.19.23、OpenTelemetry Collector contrib 0.162.0），**46 項全部通過**：
 
 | 類別 | 檢查 |
 |---|---|
@@ -61,6 +61,7 @@ ES_URL=http://<ip>:9200 e2e/local-k3s/run-metrics-e2e.sh
 | 分流的重點 | IT 的 Pod CPU（kubelet 抓的）進 IT；Deployment 副本數（沒有 Pod 的物件）進 IT；節點本身的資料進 unassigned |
 | 欄位 | 服務名稱、版本、part-of、group、dept、cluster 都對；應用自稱的 `dept`、`group` 被拿掉；應用自己的維度（`path`）保留 |
 | 存法 | 資料流是 `time_series`（TSDS）；可寫入時間往後 2 小時 |
+| 應用的直方圖 | 存成 `histogram`、每筆 30 秒的差值（成功請求每筆約 120 個）、總和另存 `_sum`；資料流不降解析度；錯誤率、p95 算得出來 |
 | 權限 | 寫入 key 能寫所有 group 的 metrics、不能讀（2026-10 起一把共用，之前每個 group 一把）；AIOps key 能讀全部、不能寫；IT 的唯讀角色看得到 IT 的 metrics |
 
 情境測試（`ES_URL=... e2e/local-k3s/run-metrics-scenarios.sh label|outage|keyfail`）：

@@ -87,7 +87,7 @@
 | `resource.attributes.*`、`attributes.*` | `keyword`，**維度**（`time_series_dimension`） | 一組不同的值就是一條不同的序列。**不能放 `lot.id` 這種值很多的東西**，序列數會爆 |
 | `metrics.*` 量測值（例如 `k8s.pod.cpu.usage`、`memory.working_set`、`deployment.available`） | `double`／`long`，**gauge** | 抓的那一刻的值，直接平均、取最大就好 |
 | `metrics.*` 累計值（例如 `cpu.time`、`network.io`、`container.restarts`） | `double`／`long`，**counter** | 從開始一直累加；要「這 5 分鐘多少」得頭尾相減（或 ES|QL 的 `rate()`） |
-| `metrics.http.server.request.duration` | `exponential_histogram` | 每筆是**這 30 秒內**的請求耗時分布（Collector 換成差值，`temporality: delta`）。可以直接加總次數、算 p95／p99 |
+| `metrics.http.server.request.duration` | `histogram`（`values`＋`counts`） | 每筆是**這 30 秒內**的請求耗時分布（Collector 換成差值）。可以直接加總次數、算 p95／p99；不存 `temporality`。總和另存在同一份文件的 `metrics.<名稱>_sum`（Collector 抽出來的，例如 `jvm_gc_duration_seconds_sum`） |
 | `metrics.*` 的 `meta.unit` | — | 單位：`{cpu}` 核、`By` bytes、`s` 秒、`1` 個數 |
 
 **其他設定：**

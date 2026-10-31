@@ -42,7 +42,7 @@
 
 | 文件 | 類型 | 內容 | 狀態 |
 |---|---|---|---|
-| [metrics/README.md](metrics/README.md) | 原理 | 資料怎麼走、為什麼依 namespace 分、為什麼用 OTLP | 🟢 |
+| [metrics/README.md](metrics/README.md) | 原理 | 資料怎麼走、為什麼依 namespace 分、為什麼用 elasticsearch 寫入元件 | 🟢 |
 | [metrics/reference.md](metrics/reference.md) | 規格 | 檔案位置、ES 欄位 | 🟢 |
 | [metrics/how-to.md](metrics/how-to.md) | 操作 | 應用要做什麼、部署、驗證、坑 | 🟢 |
 | [metrics/catalog.md](metrics/catalog.md) | 規格 | 收了哪些指標、資料結構、哪些有 baseline | 🟢 |

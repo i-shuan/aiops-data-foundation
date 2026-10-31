@@ -88,7 +88,7 @@
    ↓ 1. 邊緣身份鑑別：應用自帶的 k8s.*、container.*、dept、group、data_stream.* 一律拿掉
    ↓ 2. 看連線的來源 IP 是哪個 Pod → 補上 namespace、Pod、Deployment、namespace 的 dept、服務版本
    ↓ 3. dept → group（跟 log、metrics 同一份規則）
-   ↓ 4. 例外事件的種類、訊息抄到 span 的屬性（exception.type、exception.message）：ES 不存 span 的事件
+   ↓ 4. 例外事件的種類、訊息抄到 span 的屬性（exception.type、exception.message）：ES 的 span 文件不存事件（事件另存成一筆 log）
    ↓ 5. 依 trace_id 送到第二層（loadbalancing exporter）：同一個 trace 的每一段一定到同一台
 trace-sampler × 2（StatefulSet，尾端取樣）
    ↓ 等 30 秒（整個 trace 到齊）再決定：隨機 5%、錯誤、5xx、例外、超過 1 秒 → 留；其他丟

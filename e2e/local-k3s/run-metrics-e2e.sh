@@ -37,7 +37,7 @@ k -n otel-collector create secret generic es-writer-keys \
   --dry-run=client -o yaml | k apply -f - >/dev/null
 
 echo "== 2. Collector 與測試應用"
-k apply -k "${here}/otel-collector" >/dev/null
+k apply -k "${OTEL_KUSTOMIZE:-${here}/otel-collector}" >/dev/null   # k3d：ES 在主機 docker，要用 e2e/local-k3d/.run（deploy-collectors.sh 產生）
 k apply -f "${here}/metrics-apps.yaml" >/dev/null
 k apply -f "${here}/http-metrics-app.yaml" >/dev/null
 k -n otel-collector rollout restart daemonset/otel-node-collector deployment/otel-cluster-collector >/dev/null
@@ -97,12 +97,18 @@ H=metrics.http.server.request.duration   # Java 的 Prometheus 名字由 node Co
 hq="{\"bool\":{\"filter\":[${since},{\"exists\":{\"field\":\"${H}\"}},$(ns_f imc-wip-prod)]}}"
 hdocs="$(es "${ES_URL}/metrics-*.otel-imc/_search" -d "{\"size\":100,\"query\":${hq}}" | jq '[.hits.hits[]._source]')"
 check_gt0 "進 IMC（metrics-generic.otel-imc）" "$(jq length <<<"${hdocs}")"
-check "存成直方圖（exponential_histogram）" \
-  "$(es "${ES_URL}/metrics-generic.otel-imc/_mapping/field/${H}" | jq -r '[.[].mappings[].mapping[].type] | unique | join(",")')" exponential_histogram
-check "Collector 換成差值（temporality: delta）" "$(jq -r '[.[].temporality] | unique | join(",")' <<<"${hdocs}")" delta
-# 測試應用每 5 秒 20 個成功的請求；Collector 30 秒抓一次 → 每筆約 120 個。累加值的話會一直變大
-check "每筆只有那 30 秒的量（成功的請求 ≤ 140 個）" \
-  "$(jq '[.[] | select(.attributes.http.response.status_code == 200) | .metrics["http.server.request.duration"] | ((.positive.counts // []) | add) + (.zero.count // 0)] | max <= 140' <<<"${hdocs}")" true
+check "直方圖的資料流不降解析度（ILM metrics-hist-otel；ES 8.19 的 histogram 降了會錯）" \
+  "$(es "${ES_URL}/metrics-generic.otel-imc/_ilm/explain" | jq -r '[.indices[].policy] | unique | join(",")')" metrics-hist-otel
+check "存成直方圖（histogram）" \
+  "$(es "${ES_URL}/metrics-generic.otel-imc/_mapping/field/${H}" | jq -r '[.[].mappings[].mapping[].type] | unique | join(",")')" histogram
+# ES 8.19 的 histogram 不存 temporality，差值只能從數量看：測試應用每 5 秒 20 個成功的請求，Collector 30 秒抓一次 → 每筆約 120 個。
+# 累加值的話會一直變大。_source 是 {"values": [...], "counts": [...]}，counts 加起來是請求數
+ok_n="$(jq '[.[] | select(.attributes["http.response.status_code"] == 200) | .metrics["http.server.request.duration"].counts | add // 0]' <<<"${hdocs}")"
+check_gt0 "讀得到每筆的請求數（counts 加總）" "$(jq 'max // 0' <<<"${ok_n}")"
+check "每筆只有那 30 秒的量（成功的請求 ≤ 140 個）" "$(jq 'max <= 140' <<<"${ok_n}")" true
+# histogram 不存 sum；Collector（transform/hist-sum）把每個直方圖的總和另存成 <名稱>_sum，GC 時間比例的規則靠這個
+check_gt0 "直方圖的總和另存成 _sum（跟直方圖同一份文件）" \
+  "$(jq '[.[] | select(.metrics["http.server.request.duration_sum"] != null)] | length' <<<"${hdocs}")"
 agg="$(es "${ES_URL}/metrics-*.otel-imc/_search" -d "{\"size\":0,\"query\":${hq},\"aggs\":{
   \"n\":{\"value_count\":{\"field\":\"${H}\"}},\"p\":{\"percentiles\":{\"field\":\"${H}\",\"percents\":[95]}},
   \"e\":{\"filter\":{\"range\":{\"attributes.http.response.status_code\":{\"gte\":500}}},\"aggs\":{\"n\":{\"value_count\":{\"field\":\"${H}\"}}}}}}")"

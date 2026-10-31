@@ -166,7 +166,7 @@ if (otel != null) {
     Map a = ctx.app instanceof Map ? ctx.app : new HashMap();
     for (def e : ((Map) extra).entrySet()) { if (!a.containsKey(e.getKey())) a.put(e.getKey(), e.getValue()); }
     ctx.app = a;
-    // ES 的 OTLP trace 入口會把 span 的事件（例外）另外存成一筆 log record（實測 ES 9.5.5）：沒有 body，只有 event.name 和例外的欄位。
+    // span 的事件（例外）會另外存成一筆 log record（ES 9 的 OTLP 入口、Collector 的 elasticsearch 寫入元件都是；實測 9.5.5、8.19.23）：沒有 body，只有 event.name 和例外的欄位。
     // 補一句 message、level error，這筆才查得到、看得懂；type 放進 error.type，跟 log 原文的例外一樣
     if (ctx.message == null && 'exception'.equals(a.get('event.name'))) {
       String et = a.get('exception.type') == null ? null : a.get('exception.type').toString();

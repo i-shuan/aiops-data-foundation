@@ -4,10 +4,10 @@
 # metrics 和 log 共用。
 #
 # metrics：metrics-<來源>.otel-<group>，例如 metrics-kubeletstatsreceiver.otel-it。
-#   ES 9 內建的 metrics-otel@template（metrics-*.otel-*）會把它建成 time series data stream。
+#   ES（8.19 以上）內建的 metrics-otel@template（metrics-*.otel-*）會把它建成 time series data stream。
 # log（只有節點那一份收）：先進 logs-generic.otel-<group>，中央 ES 的 k8s-logs-otel pipeline
 #   整理形狀後轉到 k8s-<group>-<cluster>，跟其他來源的 log 同一條 k8s-logs pipeline。
-# trace（只有節點那一份收，應用用 OTLP 送來）：traces-generic.otel-<group>（ES 9 內建的 traces-otel@template）。
+# trace（只有節點那一份收，應用用 OTLP 送來）：traces-generic.otel-<group>（ES 8.19 以上內建的 traces-otel@template）。
 
 extensions:
   health_check:
