@@ -125,6 +125,22 @@
 
 套用順序：自動選 → `series.yaml` 的 `overrides`（檔案順序）→ `adjustments.yaml` → `aiops-tuning`（依 `at` 由舊到新），同一欄位後面的蓋前面的，不同欄位各自生效；不看 `match` 寫得多細（較晚寫的寬鬆調整會蓋掉較早的精細調整）。每筆調整記 `reason`、`by`、`at`，查得到誰、為什麼、什麼時候改的。
 
+#### 調整和原始資料分開存
+
+調整只在 `train`、`detect` 執行當下疊上去，不改原始資料，也不改學出來的基準線。
+
+| 東西 | 放哪 | 誰寫 |
+|---|---|---|
+| 原始資料（每個時間點的值） | `metrics-*.otel-*`、`k8s-*`、`traces-*.otel-*` | Collector |
+| 基準線（學出來的中位數與 MAD） | `aiops-baseline` | `train`；寫完會刪掉這條序列上一次留下、這次沒有的 |
+| 預設參數（`z`、`confirm_points`…） | `series.yaml` | 改檔 |
+| 調整 | `aiops-tuning`；另有 `series.yaml` 的 `overrides`、`adjustments.yaml` | `tune`、`adjust`、回饋網頁 |
+
+- `override`（`z`、`min_abs`、`confirm_points`、`instant_z`）只改判斷用的門檻，下次 `detect` 就用，不動基準線。
+- `exclude_window`、`reset_point` 作用在 `train`：先把那段歷史拿掉再算中位數與 MAD，所以要等下次 `train` 基準線才變；要馬上生效手動跑一次 `train`。被排除的原始資料還在 ES。
+- 同一條序列加同一組 `match` 用 `tune` 再寫一次是覆蓋，不是新增一筆。
+- `aiops-tuning` 裡的調整不會自動刪：`expires_at` 過了只是不再生效，文件還在；`adjust remove --id` 才刪。
+
 ### (3) 自己沒有 baseline：借同類的
 
 - **組要事先定義**（系統不會自己知道誰是「Query API」）：`series.yaml` 的 `groups`，依 keys 的正規表示式比對，由細到粗排，例如先 `mes-query`（服務 `mes-*`、路徑查詢類），再 `mes`（服務 `mes-*`）。之後可改從 K8s label 或服務清單讀。⚠️ 目前 `series.yaml` 的 `groups` 只是註解掉的範例，**實際不會借**。
@@ -244,6 +260,13 @@ series:
 - **流量太少的 Pod 不比錯誤率、延遲**（10 分鐘不到 20 個請求）：一兩個錯就跳很高。
 - **全部一起壞不報**：例如下游 DB 掛了，每個 Pod 都錯，那不是「某個 Pod」的問題，交給 baseline 和規則。其他 Pod 的中位數已經到規則門檻（錯誤率 5%、p95 2 秒，`max_peer_median`）時，最嚴重的那個也不單獨挑出來。
 - 門檻比 baseline 寬（`rel_floor` 10%，再加上至少差多少、至少幾倍）：同一個服務的 Pod 本來就不會一模一樣。
+
+**誰跟誰是同儕**：不是 AIOps 判斷，是照資料裡的欄位分組（`namespace`、`service.name`、Deployment、`pod`）。這些欄位是 Collector 依連線來源 IP 對到 Pod 後補上的；服務名的來源順序是 Pod label `app.kubernetes.io/name`、`OTEL_SERVICE_NAME`、Deployment 名稱（見 [metrics 的共同鑰匙圈](../../../../docs/metrics/README.md#共同鑰匙圈)）。
+
+**限制：**
+- 標籤錯了就分錯組：兩個不同的服務用了同一個 `service.name`，會被當成同儕互相比。
+- 同組少於 3 個 Pod（單 Pod 的服務、剛縮容到 1～2 個）完全不比，這類服務沒有這層保護，單一 Pod 的問題只能靠 baseline 和規則抓。
+- 換版途中新舊版本的 Pod 同組：新版整體比舊版差時，會把新版的每個 Pod 都報出來。
 
 觸發的寫進 `aiops-anomalies`：`series` 是檢查名稱（`peer.…`）、`level` 是 `peer`、`median` 是其他 Pod 的中位數，`message` 例如「這個 Pod 的錯誤率比同服務其他 Pod 高：metrics-cases、dotnet-app、dotnet-app-…（100%，其他 2 個 Pod 中位數 0%，z=…）」。
 

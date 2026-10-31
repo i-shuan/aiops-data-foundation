@@ -174,6 +174,7 @@ metrics → trace → log 找到哪一段、哪行 log；事件整合、排程�
 | [meta/2026-10-diataxis.md](meta/2026-10-diataxis.md) | 跨階段 共用文件採用 Diátaxis：每份只做一種事（原理／操作／規格／案例） | 7 份混合文件拆成 19 份；檢查腳本擋沒標類型的；連結 0 斷；內容沒掉 |
 | [meta/2026-10-diataxis-baseline.md](meta/2026-10-diataxis-baseline.md) | ④ baseline 文件依 Diátaxis 拆開（715 行 → 原理／規格／操作／案例四份） | 以段落為單位歸類；內容 585 行全在；46 條連結改指新位置；0 個斷 |
 | [meta/2026-10-product-line-table.md](meta/2026-10-product-line-table.md) | 跨階段 「產品主線 8 步」表改成 Phase × 模組（一列一個模組） | 8 步拆成 13 列；步 1～8 都在；模組對應的 Phase 跟第 7 節一致 |
+| [meta/2026-10-open-issues.md](meta/2026-10-open-issues.md) | 跨階段 討論累積的未決問題：trace 合併、偵測時間、快速通道、一直壞著的異常、回饋調整、根因分析限制、基準線與調整索引的備份、相似事故檢索往哪裡走 | 未立案；只整理現況與傾向；延遲數字是推算，沒有量測 |
 | [meta/2026-10-compat-es8-grafana13.md](meta/2026-10-compat-es8-grafana13.md) | ③⑧ 公司版本 ES 8.19.23、Grafana 13.0.7 相容性實測 | 8.19 沒有 `_otlp` 入口，Collector 出口要改 `elasticsearch` exporter（實測寫入後 pipeline、形狀都一樣）；其餘原樣可用；Grafana 13 外掛 6.3.1／6.3.5 都能裝、表單送出 OK |
 | [meta/2026-10-collector-es-exporter.md](meta/2026-10-collector-es-exporter.md) | ①③ Collector 出口改 elasticsearch 寫入元件（ES 8.19 沒有 `_otlp`），重測 ES 停機、沒回應 | 三輪實測：預設設定 ES 停 180 秒掉 58%；改 `retry` 一直重試、`timeout: 0`、`retry_on_status` 含 401 後掉 3%（只剩連線黑洞那 10 秒）、沒回應 90 秒 0 遺失 |
 | [meta/2026-10-pin-es8-grafana13.md](meta/2026-10-pin-es8-grafana13.md) | ①③⑧ manifest 與文件釘選成 ES 8.19.23、Grafana 13.0.7；補測 ES 429、Collector 重啟、多節點、完整故障測試、Grafana 13 通知 | Grafana 13 通知全過；Collector 當掉／換版／sampler 重啟 0 遺失；ES 429、多節點、PVC 塞滿、ES 停機 600 秒、真正 OOM 沒測到 |

@@ -44,6 +44,28 @@ helm upgrade --install grafana grafana/helmchart -n grafana \
 - `summary` 是 Grafana 的 label：內容一變就是另一則（舊的 resolved、新的 firing）。所以 `investigator alert` 寫的 summary 不放「持續 N 分鐘」、「等 N 項異常」這種每分鐘會變的字（Grafana 自己會顯示從何時開始；筆數看 `title`、`anomaly_count`）。
 - 通知裡的「回饋」連結：`aiops-alerts.feedback_url`（`rca.yaml` 的 `alerts.feedback_url`，指到 [aiops-engine/code/feedback_web](../aiops-engine/code/feedback_web/__init__.py)）。要帶進通知，在 annotations 再加一個 `feedback: "{{ $labels.feedback_url }}"`，bucketAggs 多一個 terms `feedback_url`（跟 `report_url` 一樣的寫法）。
 
+## 一次就嚴重的異常怎麼到 Grafana
+
+「連續才算」在 AIOps 做完，Grafana 不再等：`aiops-incident` 設 `for: 0s`，每 1 分鐘評估一次，查最近 5 分鐘 `status: open` 的件。件一寫進 `aiops-alerts`，下一次評估就發通知。
+
+```
+異常 → aiops-anomalies → investigator alert 合成一件 → aiops-alerts → Grafana 規則 aiops-incident
+```
+
+下列異常不用等第二筆就會開一件，到 Grafana 與其他件沒有差別：
+
+| 異常 | 為什麼不用等 |
+|---|---|
+| `http.error_rate` | `confirm_points: 1`，一跳就是 anomaly |
+| 偏離 ≥ 15 倍穩健標準差 | `instant_z: 15`，單點即判定 |
+| 靜態規則 `severity: critical` | 直接開一件；規則有 `for:` 的先等那段時間（例如副本不足 3 分鐘） |
+
+- p95 不適用單點即判定（`instant_z: null`），延遲暴衝靠規則「p95 超過 2 秒」。
+- 只跳一次的 baseline `warning` 不開件，只併進已經開著的那件。
+- 上線前 2～4 週 Grafana 不接 contact point，這些件只出現在儀表板，不通知人（[aiops-engine/README.md](../aiops-engine/README.md#先只寫入不通知)）。
+
+各種異常的判定與哪些會開一件：[rca/README.md](../docs/rca/README.md)、[rca 設定](../aiops-engine/code/configs/rca/README.md)。
+
 ## 為什麼 group_by 用 alert_id
 
 一件事已經是 AIOps 合併過的結果（同一個服務的多筆異常）。Grafana 這邊**不要再依 dept 或 service 合併**，不然同一個 dept 的兩件不相關的事會被併成一則通知。

@@ -82,6 +82,18 @@ python3 -m detector adjust approve --id mes-api-v2 --by bob
 python3 -m detector adjust remove  --id mes-api-v2
 ```
 
+例：mes 的錯誤率常誤報，只放寬 mes：
+
+```bash
+python3 -m detector tune --series http.error_rate --match service=^mes- --z 7 --reason "誤報多" --by 王小明
+python3 -m detector tune --list                                 # 看現在生效的 override
+python3 -m detector tune --series http.error_rate --match service=^mes- --remove   # 還原
+```
+
+- 寫進 `aiops-tuning`，下一次 `detect` 起 mes 用 `z: 7`，其他服務不變；`series.yaml` 的預設不動。
+- 之後發現是某段事故污染了歷史，再用上面的 `adjust add --kind exclude_window`，隔天 02:00 的 `train` 重學。
+- 套用順序與覆蓋規則見 [reference.md](reference.md#使用者feedback-調整)：較晚寫的寬鬆調整會蓋掉較早的精細調整，所以寫 `--match` 時範圍要準，改完用 `--list` 確認。
+
 ## 慢性病清單、行事曆
 
 > 另見：[原理](../../../../docs/rca/README.md)・[規格](reference.md#慢性病清單行事曆)・[實測](verification.md#慢性病清單行事曆)
