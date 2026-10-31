@@ -18,9 +18,9 @@
 ## 資料怎麼流動
 
 ```
-偵測（④）            寫 aiops-anomalies   一筆異常一份文件
+偵測（④）            寫 aiops-anomalies（⑤ 異常總表）  一筆異常一份文件
    ↓
-事件整合（⑤⑥）       讀 anomalies → 同一個服務合成一件 → 寫 aiops-alerts（每 1～2 分鐘更新）
+事件整合（⑥ 收斂）     讀 anomalies → 同一個服務合成一件 → 寫 aiops-alerts（每 1～2 分鐘更新）
    │                  同時把 alert_id 寫回它併進來的每筆 anomalies
    │                  同時開一筆 aiops-incidents（status: auto，還沒人看）
    ↓
@@ -36,13 +36,13 @@ Grafana（⑧）         讀 aiops-alerts 發通知；儀表板讀 alerts、anom
 |---|---|---|---|
 | `aiops-anomalies` | `detector`（detect、rules） | 事件整合、Grafana、回饋 | 內容的 sha1（`doc_id`），同一點重跑不重複 |
 | `aiops-alerts` | `investigator alert` | Grafana（告警規則、儀表板）、回饋網頁 | `alert_id`；心跳固定 `heartbeat` |
-| `aiops-incidents` | `investigator alert`（開）、回饋網頁（確認） | 相似事故檢索 | 等於 `alert_id` |
+| `aiops-incidents` | `investigator alert`（開）、回饋網頁（確認）、`detector incident`（人工補登） | 相似事故檢索 | 等於 `alert_id`；人工補登的是 `--id`，沒給就是（標題、開始時間）的 sha1 |
 | `aiops-feedback` | 回饋網頁、`detector feedback` | `feedback suggest`、儀表板 | 內容的 sha1（一筆異常、一個人一筆） |
-| `aiops-tuning` | `detector tune／adjust／feedback suggest` | `detect`、`train`、儀表板 | 建議的 id（人填或程式算） |
+| `aiops-tuning` | `detector tune／adjust／feedback suggest` | `detect`、`train`、儀表板 | `--id` 指定的；沒給就是內容的 sha1（`suggest` 的是序列與對象、或服務與根因分類的 sha1） |
 
 ## aiops-anomalies：一筆異常
 
-寫入：`detector/cmd_baseline.py`（動態基準線學習，每次 detect）、`detector/cmd_rules.py`（靜態臨界值規則，每次跑規則）。事件整合另外用部分更新補上 `alert_id`。
+寫入：`detector/cmd_baseline.py`（動態基準線學習，每次 detect）、`cmd_rules.py`（靜態臨界值規則）、`cmd_peer.py`（Pod 同儕橫向比對）、`cmd_trace.py`（trace 的基準線與規則）、`cmd_quality.py`（資料品質）。事件整合另外用部分更新補上 `alert_id`。
 
 | 欄位 | 型別 | 說明 |
 |---|---|---|
@@ -52,17 +52,20 @@ Grafana（⑧）         讀 aiops-alerts 發通知；儀表板讀 alerts、anom
 | `value` | double | 當時的值 |
 | `median`、`expected_low`、`expected_high` | double | 平常的中位數與範圍；規則觸發的沒有中位數 |
 | `z` | double | 偏離程度；規則觸發的是 null，卜瓦松的序列另有 `p` |
-| `level` | keyword | 用哪一層基準線：`dow_hour`（星期×小時）、`hour`、`all`、`group`（用同群當基準）、`rule`（靜態規則） |
+| `level` | keyword | 基準線那一層：`dow_hour`（星期×小時）、`hour`、`all`、`group`（用同群當基準）；不是基準線算出來的：`rule`（靜態規則、trace 規則）、`peer`（Pod 同儕橫向比對）、`quality`（資料品質） |
 | `direction` | keyword | `both`、`up`、`down`；規則是比較符號（`>=`） |
 | `resolution`、`method` | keyword | 粒度（`30s`、`5m`、`1h`）與方法（`mad`、`poisson`） |
 | `baseline_source` | keyword | `self`，或 `group:<名稱>` |
 | `confidence` | keyword | 由 `level` 決定：`dow_hour` 高、`hour` 中、`all` 與 `group` 低 |
-| `status` | keyword | `anomaly`（可以單獨開一件）或 `warning`（不單獨開，只併進同服務已經開著的件；同服務在 `close_after` 內有 2 筆以上才算數） |
+| `status` | keyword | 只有動態基準線學習的有：`anomaly`（可以單獨開一件）或 `warning`（只跳一次，不開新的，只併進同服務已經開著的件）。`rule`、`peer`、`quality` 沒有這個欄位，看 `severity`（見下） |
 | `streak` | integer | 連續幾點 |
 | `p` | double | 卜瓦松的機率 |
 | `dept`、`group` | keyword | 寫入時由 `detector/owner.py` 補：依 `keys` 裡的 namespace（優先，dept 是 namespace 的 label）或服務，對回 metrics 裡的部門與 group；找不到就是 null、`unassigned` |
 | `alert_id` | keyword | 併進哪一件；事件整合寫回，沒併進去的沒有 |
-| `rule`、`severity`、`message`、`since` | 不索引 | 只有規則觸發的有：規則名、嚴重度、給人看的一句話、條件開始成立的時間 |
+| `rule`、`severity`、`message` | keyword、keyword、text | 動態基準線學習的沒有，`rule`、`peer`、`quality` 的有：規則名、嚴重度、給人看的一句話。**這三個欄位不在 `ANOMALY_MAPPING`**，由 `rules`、`peer`、`trace`、`quality` 第一次跑時用 `PUT _mapping` 補進索引（`detector/common.py` 的 `RULE_FIELDS`），所以只跑過 detect 的新索引沒有它們 |
+| `since` | 不索引 | 只有靜態規則有：條件開始成立的時間 |
+
+**哪些異常會自己開一件**（`investigator/alerts.py`）：`severity: critical` 的規則、`status: anomaly` 的基準線、資料品質會直接開；`severity: warning` 的規則、同儕橫向比對是弱的，同一個服務在 `close_after` 內有 2 筆以上才開；基準線的 `status: warning` 只併進已開著的件。
 | `detected_at` | date | 偵測程式跑的時間 |
 
 範例（動態基準線學習，小時粒度、卜瓦松）：
@@ -96,20 +99,20 @@ Grafana（⑧）         讀 aiops-alerts 發通知；儀表板讀 alerts、anom
 | 欄位 | 型別 | 說明 |
 |---|---|---|
 | `alert_id` | keyword | 同時是 `_id`；格式 `a-<開始日期>-<開始時分>-<服務>`（服務名的特殊字元換成 `_`） |
-| `category` | keyword | `service`（一般）、`data_quality`（資料品質，`alert_id` 結尾多 `-dq`）、`heartbeat`（心跳） |
-| `service`、`status` | keyword | 服務；`open`、`resolved` |
+| `category` | keyword | 這件歸在誰身上：`service`（服務，優先）、`namespace`、`node`（異常的 `keys` 裡沒有服務時依序退到這兩個）、`other`（都沒有，名稱用序列名）、`data_quality`（資料品質，`alert_id` 結尾多 `-dq`）、`heartbeat`（心跳）。**只有 `service` 會跑根因分析、寫進 `aiops-incidents`、顯示在事故清單面板** |
+| `service`、`status` | keyword | `service` 欄位放的是上一列那個類別的名稱（服務名、namespace、節點名…）；`status` 是 `open`、`resolved` |
 | `severity` | keyword | `warning`、`critical` |
 | `dept`、`group` | keyword | 通知依 `dept` 分送；沒有 dept 的送平台 |
 | `started_at`、`updated_at`、`resolved_at` | date | 事故起訖 |
-| `anomaly_ids`、`anomaly_count` | keyword、integer | 併進來的異常（指到 `aiops-anomalies` 的 `_id`） |
+| `anomaly_ids`、`anomaly_count` | keyword、integer | 併進來的異常（指到 `aiops-anomalies` 的 `_id`），一件最多記 500 筆 |
 | `series`、`routes` | keyword | 涉及的指標、路由 |
 | `title`、`summary` | keyword | 通知用的標題與摘要。**存成 keyword**：Grafana 告警只能把「分組欄位的值」帶成 label，內容一變就是另一則（舊的 resolved、新的 firing），所以摘要不放持續時間、筆數 |
 | `report` | text（不索引） | 根因報告全文（Markdown）；有相似事故與 LLM 摘要時放在最前面 |
-| `report_at` | date | 跑根因分析的時間（每件只在新開時跑一次） |
+| `report_at` | date | 跑根因分析的時間（新開的一件跑一次；之後只有還沒有報告時才補跑） |
 | `report_url`、`feedback_url` | keyword | 由 `rca.yaml` 的 `alerts.report_url`、`alerts.feedback_url` 帶入 `{alert_id}` |
 | `findings` | object（不索引） | 結構化的根因分析結果，見下 |
 | `similar` | object（不索引） | 相似事故，見下 |
-| `llm_summary`、`llm_provider` | text、keyword | LLM 摘要與誰產的（`template` 表示沒用 LLM，或驗證沒過退回模板） |
+| `llm_summary`、`llm_provider` | text、keyword | LLM 摘要與誰產的：`template`（固定句型，沒設 LLM）、`anthropic`、`openai`；模型回空的或失敗時寫成 `template（<原本的 provider> 回空的）`、`template（<provider> 失敗：…）`。每一句要附依據編號，驗證沒過就沒有摘要（`llm_summary` 空） |
 
 **`findings`**（`investigator/__main__.py` 的 `investigate_full`）：
 
@@ -117,9 +120,9 @@ Grafana（⑧）         讀 aiops-alerts 發通知；儀表板讀 alerts、anom
 |---|---|
 | `service`、`route`、`start`、`end`、`ref_label` | 查哪個服務、哪段時間、跟哪段比 |
 | `anomalies[]` | `id`、`series`、`value`、`median`、`z`、`status`、`severity`、`at` |
-| `segments[]` | 變慢的那一段：`segment`、`now_ms`、`ref_ms`、`delta_ms` |
+| `segments[]` | 變慢的那一段（最多 6 筆）：`segment`、`now_ms`、`ref_ms`、`delta_ms`、`now_calls`、`ref_calls` |
 | `error_origins[]` | 錯誤源頭：`segment`、`now_errors`、`ref_errors` |
-| `new_patterns[]` | 新出現的 log 樣式：`service`、`pattern`、`now`、`ref`、`is_new` |
+| `new_patterns[]` | 新出現的 log 樣式（最多 8 筆）：`service`、`pattern`、`now`、`ref`、`is_new`、`example`（一行範例） |
 | `topology[]` | 呼叫關係：`caller`、`callee`、`calls`、`errors` |
 | `requests` | 這段時間的請求：`requests`、`errors`、`p50_ms`、`p95_ms` |
 
@@ -171,17 +174,17 @@ Grafana（⑧）         讀 aiops-alerts 發通知；儀表板讀 alerts、anom
 
 ## aiops-incidents：事故庫（相似事故檢索的資料池）
 
-三種寫入：事件整合開一件時先寫（`status: auto`）；資深維運專家在回饋表單送出後，回饋網頁（`engine/feedback_web/app.py`）更新同一筆；也可以人用 `python3 -m detector incident add／resolve` 補登一件（`status: open`，結束時 `resolved`）。
+三種寫入：事件整合每一輪只要這件有新異常併進來、新開或結束，就寫一次（`status: auto`；用 scripted upsert，**只更新還是 `auto` 的，人處理過的一個欄位都不動**）；資深維運專家在回饋表單送出後，回饋網頁（`engine/feedback_web/app.py`）更新同一筆；也可以人用 `python3 -m detector incident add／resolve` 補登一件（`status: open`，結束時 `resolved`）。
 
 | 欄位 | 型別 | 誰寫 | 說明 |
 |---|---|---|---|
 | `alert_id` | keyword | 事件整合 | 同時是 `_id` |
 | `@timestamp` | date | 事件整合 | 這件事故的時間（結束的件是 `resolved_at`，開著的是這一輪的時間） |
-| `title`、`start`、`end`、`services`、`severity` | text、date、keyword | 事件整合 | 從 `aiops-alerts` 複製 |
+| `title`（text）、`start`、`end`（date）、`services`、`severity`（keyword） | | 事件整合 | 從 `aiops-alerts` 複製 |
 | `dept`、`group`、`detected_at`、`anomaly_ids` | | 事件整合 | `anomaly_ids` 最多 200 個 |
 | `fingerprint` | object | 事件整合 | 指紋，六組陣列，見下 |
 | `status` | keyword | 兩者 | `auto`（還沒人看）、`confirmed`（標真的）、`corrected`（真的但根因報錯了）、`false_positive`（誤報） |
-| `root_cause_category`、`root_cause`、`action`、`how_detected`、`checked`、`improve` | keyword／text | 回饋網頁 | 老師傅填的；誤報不填 |
+| `root_cause_category`、`checked`（keyword）、`root_cause`、`action`、`how_detected`、`improve`（text） | | 回饋網頁 | 老師傅填的；誤報不填 |
 | `by`、`confirmed_by`、`confirmed_at` | keyword、date | 回饋網頁 | 誰、何時 |
 | `resolved_at` | date | `incident resolve` | 只有人工補登的事故會寫；事件整合開的不寫（結束時間看 `end`） |
 
@@ -189,7 +192,7 @@ Grafana（⑧）         讀 aiops-alerts 發通知；儀表板讀 alerts、anom
 
 **相似事故檢索只用 `confirmed`、`corrected`**：沒人確認過的、被標誤報的，都不會被當成「過去相似」，也不會被 LLM 引用。
 
-**`fingerprint`** 六組陣列，比對時每組加權（`investigator/similar.py` 的 `WEIGHTS`；低於 4 分不算像，最多取前 3 件，自己排除）：
+**`fingerprint`** 六組陣列，比對時每組加權（`investigator/similar.py` 的 `WEIGHTS`；低於 4 分不算像，最多取前 3 件；檢索可以排除指定的一件，但事件整合沒有傳：新的一件剛開時它在事故庫裡還是 `auto`，本來就查不到自己）：
 
 | 欄位 | 內容 | 權重 |
 |---|---|---|
@@ -215,7 +218,7 @@ Grafana（⑧）         讀 aiops-alerts 發通知；儀表板讀 alerts、anom
 
 ## aiops-feedback：回饋
 
-寫入：回饋網頁（`feedback_web/app.py`）；漏報另可用命令列 `python3 -m detector feedback` 寫。**一件事故的每筆異常各寫一筆**（現有的 `feedback summary`、`suggest` 是依「序列＋對象」算的，才對得起來）。
+寫入：回饋網頁（`feedback_web/app.py`）；命令列 `python3 -m detector feedback add` 也能寫（四種判定值都可以，漏報只能用命令列）。**一件事故的每筆異常各寫一筆**（現有的 `feedback summary`、`suggest` 是依「序列＋對象」算的，才對得起來）。
 
 | 欄位 | 型別 | 說明 |
 |---|---|---|
