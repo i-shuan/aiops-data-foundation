@@ -50,6 +50,7 @@
 | `core/traces.py` | `to_span` 的 duration 改用 `_duration_ms`：字串、負數、沒有一律當 0 | 排程器全跑時發現：測試 ES 裡有 duration 是 "not-a-number" 的 span（ES 的 `ignore_malformed` 收下來），`trace-merge` 除錯直接崩潰，狀態推不進去，之後每分鐘都失敗。一個壞 SDK 就能卡死合併 |
 | e2e（順手） | `rca-demo/notify-sink.yaml` 的 Service 補 `ports`；`run-alert-flap.py`、`run-log-trace-skew.py`、`metrics_trace_check.py` 的 `engine` 路徑改 `aiops-engine/code`；`loop_e2e.py` 的 metrics 查詢區間結尾改成明天；`test_deploy.py` 預期多一個 Secret（`aiops-llm`） | 元件重整（PR #34）漏掉的；`loop_e2e` 把回饋時間（寫入當下）算在固定的 10/05～10/28 外，過了 10/28 就一定失敗 |
 | e2e（順手） | `metrics_trace_check.py`：entry_* 查詢改讀 `traces-merged-*`、檢查前先跑一次 `trace-merge`，取 raw span 的 `traces()` 改用欄位條件；`run-metrics-scenarios.sh` 的 kube context 預設改成目前的 | 這支腳本用的 `entry_filter` 是 merged 的 nested 查法，對 raw 查全是 0 筆（第 3 串 11 項 FAIL，改後 15 項全過） |
+| e2e（順手） | `run-dotnet-e2e.sh` 的 baseline 查詢窗口從「對齊 5 分鐘、往前 10 分鐘」改成「現在往前 1 分鐘、往前 15 分鐘」 | 第 3 串 dotnet 1 項 FAIL（`http.* 0 None`）：應用只跑約 4 分鐘，窗口對齊 5 分鐘時資料可能全落在最後一個還沒結束的窗口外，查到 0 列。不是 baseline 算出 0，也和 trace 無關；拿 ES 裡留著的 dotnet-app 資料，用同一段 `fetch` 重現：窗內有資料時三條序列都有值，窗內沒資料時印出一模一樣的 `0 None`。**只重現了原因，沒有整支重跑**（約 20 分鐘） |
 | `feedback_web/app.py` | 拿掉送出回饋後多打的 `POST aiops-feedback/_refresh` | ⑧⑨ 實跑發現：用最小權限的 key（沒有 `maintenance`）時這一下回 403，資料其實已寫入，使用者卻看到「沒有存成功」。`bulk_index` 本來就 `refresh=wait_for`，這一下是多餘的 |
 
 單元測試 `tests/test_trace_merge.py`：合成的摘要（入口、耗時、錯誤、服務）、group 沒有時退回 dept、`from_merged` 來回一致、讀端的 nested 查詢；全部 377 個測試通過。

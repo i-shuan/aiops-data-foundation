@@ -58,7 +58,8 @@ series="$(cd "${repo}/aiops-engine/code" && ES_URL="${ES_URL}" ES_API_KEY="${BAS
 import yaml, pandas as pd
 from detector.es import ES, fetch
 cfg = yaml.safe_load(open("configs/baseline/series.yaml"))
-end = pd.Timestamp.now(tz="UTC").floor("5min"); start = end - pd.Timedelta("10min")
+# 應用只跑了約 4 分鐘：窗口對齊 5 分鐘的話，資料可能全落在最後一個還沒結束的窗口外（會印 0 列）
+end = pd.Timestamp.now(tz="UTC").floor("1min") - pd.Timedelta("1min"); start = end - pd.Timedelta("15min")
 for s in cfg["series"][:3]:
     df = fetch(ES(), s, start, end, "5m").dropna()
     df = df[df["service"] == "dotnet-app"]
