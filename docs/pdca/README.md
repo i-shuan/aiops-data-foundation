@@ -2,7 +2,7 @@
 
 整個專案的「做到哪、還要做什麼」放這一份。各資料夾 README 開頭有自己那一塊的細節，這裡只列項目和去哪看。
 
-PDCA 的意思：**Plan** 定規則與門檻 → **Do** 收值、判斷、報告 → **Check** 值班判斷對錯、量測 → **Act** 依結果調整。目前 Do 最完整，**Check 是最大缺口**，沒補上就形成不了閉環（[feedback/README.md](../feedback/README.md#用-pdca-看整條線)）。
+PDCA 的意思：**Plan** 定規則與門檻 → **Do** 收值、判斷、報告 → **Check** 值班判斷對錯、量測 → **Act** 依結果調整。目前 Do 最完整，**Check 是最大缺口**，沒補上就形成不了閉環（[feedback/README.md](../feedback/README.md)）。
 
 **編號只有一套：①～⑨ 資料模組**（① 收值、② 清資料、③ 存、④ 判斷、⑤ 異常總表、⑥ 收斂、⑦ 根因分析、⑧ 出口、⑨ feedback；定義見 [architecture.md](../architecture.md)）。每一項前面的數字是它屬於哪個模組；每一份紀錄開頭的「模組」也是。
 
@@ -29,10 +29,10 @@ PDCA 的意思：**Plan** 定規則與門檻 → **Do** 收值、判斷、報告
 | ④ **正式環境排程**（train 每天、detect 每 30 秒、rules 與 peer 每分鐘） | ⚠️ 程式好了，沒部署 | [rca/](../rca/README.md) |
 | 已完成部分的小尾巴：② 統一指標名稱（metrics）、② 統一欄位路徑（log）（① trace-sampler 磁碟佇列已做） | ⚠️ | 各資料夾 README 開頭 |
 | ①②④ 時間對齊：主機時鐘監控（metrics）、收資料延遲與時區（log）、時鐘差日報（trace） | 📝 | 同上 |
-| ①② 業務 ID：交易 ID 命名、從 log 抽出；Kafka 驗證 Java | 📝 | [trace/](../trace/README.md#業務-id服務層) |
-| ⑦ 根因分析改看一批慢 trace 找共同瓶頸（不用 exemplar，ES 不存） | 📝 | [rca/「為什麼不用 exemplar」](../rca/README.md#為什麼不用-exemplar用服務路由時間撈一批) |
+| ①② 業務 ID：交易 ID 命名、從 log 抽出；Kafka 驗證 Java | 📝 | [trace/](../trace/README.md) |
+| ⑦ 根因分析改看一批慢 trace 找共同瓶頸（不用 exemplar，ES 不存） | 📝 | [rca/「為什麼不用 exemplar」](../rca/README.md) |
 | ④ baseline 補強：p99、慢請求比例、往外呼叫耗時、變化點、Pod → trace 逐段比、趨勢 | 📝 | [rca/](../rca/README.md) |
-| ⑥ 收斂：(1) 連續的點合成一段、(2) 同服務合成一件、(3) 沿呼叫關係找源頭 | 📝 | [rca/「雜訊壓制」](../rca/README.md#雜訊壓制) |
+| ⑥ 收斂：(1) 連續的點合成一段、(2) 同服務合成一件、(3) 沿呼叫關係找源頭 | 📝 | [rca/「雜訊壓制」](../rca/README.md) |
 | ⑦ 常駐拓撲、交易時間線工具、根因報告帶業務 ID | 📝 | [rca/](../rca/README.md) |
 
 ## Check：看對不對
@@ -54,7 +54,7 @@ PDCA 的意思：**Plan** 定規則與門檻 → **Do** 收值、判斷、報告
 | 項目 | 狀態 | 細節 |
 |---|---|---|
 | ④ 手動調整：`series.yaml` 的 `overrides`、`tune` 指令（記原因、誰、何時） | ✅ | [baseline README「使用者、feedback 調整」](../../engine/configs/baseline/reference.md#使用者feedback-調整) |
-| ② 修慢性病（天天噴錯、沒人修的） | 要別人配合 | [rca/](../rca/README.md#髒資料排除) |
+| ② 修慢性病（天天噴錯、沒人修的） | 要別人配合 | [rca/](../rca/README.md) |
 | ⑨ 同一個根因 ≥ 3 次 → 升級成規則 | ✅ 門檻算好、核准後 `rules` 自動載入；只處理延遲類；`expires_at` 到期不載入，但核准時還設不了 | [phase5-learning-loop/2026-10-rule-threshold.md](phase5-learning-loop/2026-10-rule-threshold.md)、[phase2-anomaly/2026-10-rules-verify.md](phase2-anomaly/2026-10-rules-verify.md) |
 | ⑨ 回饋累積夠且回測通過 → 調門檻、排除時段 | ⚠️ 誤報 3 次 → 放寬 z → 回測 → 人核准；還不會提排除時段 | 同上 |
 | ② 資料品質檢查的門檻：先估的，正式環境只記錄跑 2～4 週再手動校；`quality` 還不能用 `tune` 調 | 📝 | [baseline README「門檻怎麼校、誰來調」](../../engine/configs/baseline/verification.md#門檻怎麼校誰來調) |
@@ -134,7 +134,7 @@ metrics → trace → log 找到哪一段、哪行 log；事件整合、排程�
 
 ### Phase 4 RCA＋LLM＋graph RAG（`phase4-rca-llm/`）
 
-相似事故檢索、LLM 摘要；graph RAG 構想在 [rca/graph-rag.md](../rca/graph-rag.md)
+相似事故檢索、LLM 摘要；graph RAG 構想在 [rca/graph-rag.md](../rca/README.md)
 
 | 檔案 | 主題 | 結論 |
 |---|---|---|
@@ -175,5 +175,6 @@ metrics → trace → log 找到哪一段、哪行 log；事件整合、排程�
 | [meta/2026-10-pin-es8-grafana13.md](meta/2026-10-pin-es8-grafana13.md) | ①③⑧ manifest 與文件釘選成 ES 8.19.23、Grafana 13.0.7；補測 ES 429、Collector 重啟、多節點、完整故障測試、Grafana 13 通知 | Grafana 13 通知全過；Collector 當掉／換版／sampler 重啟 0 遺失；ES 429、多節點、PVC 塞滿、ES 停機 600 秒、真正 OOM 沒測到 |
 | [meta/2026-10-metrics-es8-shape.md](meta/2026-10-metrics-es8-shape.md) | ①③④ metrics 測試、文件、`hist_count`、合成資料測試對齊 ES 8.19 的直方圖存法（`histogram`、`values`＋`counts`）；Collector 把直方圖的 sum 另抽成 `_sum` | k3d 上 metrics e2e 45 項、規則邊緣 156 項全過；原本「每筆 ≤ 140」是空跑（讀錯欄位）已修；`jvm.gc_overhead` 改讀 `_sum`；`baseline_edge_e2e` 的 log 段仍走 `/_otlp`（8.19 跑不了） |
 | [meta/2026-10-merge-architecture.md](meta/2026-10-merge-architecture.md) | 跨階段 `architecture.md` 與 `architecture-reference.md` 合成一份 | 章節編號本來就接續，全部原樣併入；連結改指新位置（含 PDCA 紀錄的 12 個，只改目標）；`check-docs.py` 0 個問題；`architecture.md` 變 460 多行 |
+| [meta/2026-10-merge-topic-docs.md](meta/2026-10-merge-topic-docs.md) | 跨階段 `metrics`、`log`、`rca`、`trace`、`feedback` 共 23 份合成各一份 README，每份 1500～2000 字 | 刪 18 份、改寫 5 份；全 repo 連結改指新位置；對程式修正 8 處與現況不符的敘述；欄位表、指令、逐案例數字刪掉（在 git 歷史） |
 | [meta/2026-10-data-reference.md](meta/2026-10-data-reference.md) | ④～⑨ 新增 AIOps 資料格式規格（aiops-alerts／anomalies／incidents／feedback／tuning 的欄位、誰寫、範例） | 欄位對 mapping 無漏；兩輪對程式與實際 ES mapping 共修正 14 處不精確；欄位、型別、列舉、範例、儀表板腳本比對全部一致；欄位與 mapping 仍沒有自動比對 |
 | [meta/2026-10-docs-governance.md](meta/2026-10-docs-governance.md) | 跨階段 文件治理：索引＋狀態標籤、設定與原理分離、術語寫進 CLAUDE.md、檢查腳本 | `docs/README.md` 地圖、`CLAUDE.md`、`tools/check-docs.py`；活的文件舊說法 0；pdca 根目錄雜項收進 `meta/` |

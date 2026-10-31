@@ -50,7 +50,7 @@
 | log | 警告、錯誤常駐；正常的可以壓縮放冷儲存 | 中到長：30～180 天 | 原文 30 天＋每 5 分鐘的統計 400 天（沒有冷儲存） |
 | trace | 正常的抽 5%、有問題的 100%（尾端取樣） | 最短：3～7 天，過期直接刪 | 隨機的 7 天、有問題的 30 天 |
 
-這也是為什麼要做尾端取樣（[docs/trace/scenarios.md](trace/scenarios.md#橫跨所有場景的前提取樣)、[實測](../e2e/local-k3s/tail-sampling/README.md)）：trace 不能全部長存，有限的空間要留給「出問題的 100%」和「隨機抽的 5%」。實測每秒 500 個請求時，留下的量約是全部的 15%。
+這也是為什麼要做尾端取樣（[trace/README.md](trace/README.md)、[實測](../e2e/local-k3s/tail-sampling/README.md)）：trace 不能全部長存，有限的空間要留給「出問題的 100%」和「隨機抽的 5%」。實測每秒 500 個請求時，留下的量約是全部的 15%。
 
 > 改成尾端取樣後，上面「不用 `spanmetrics`」的理由要重看：應用改成全部送，node Collector 看得到每一段，在**取樣之前**算的 spanmetrics 就不會少算。不過每個 API 的請求數、延遲應用的 metrics 已經有，目前不需要。
 

@@ -144,7 +144,7 @@ scenario_keyfail() {
   check_ge "換 key 後，IMC 恢復寫入" "$(app_count imc imc-wip-prod "${good}" "$(now)")" 1
   # 已知限制：OTLP 出口只重試 429/502/503/504，401 當成永久錯誤直接丟，key 失效那段的資料補不回來
   #（log 也一樣）。這裡只記錄筆數，不判失敗。
-  echo "   key 失效那段的 IMC 資料：$(app_count imc imc-wip-prod "${bad}" "${good}") 筆（已知會遺失，見 docs/metrics/how-to.md）"
+  echo "   key 失效那段的 IMC 資料：$(app_count imc imc-wip-prod "${bad}" "${good}") 筆（已知會遺失，見 docs/metrics/README.md）"
 }
 
 case "${1:-}" in

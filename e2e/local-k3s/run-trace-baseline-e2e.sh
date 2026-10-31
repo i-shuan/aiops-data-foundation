@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# trace 每一段的 baseline 端到端驗證（detector trace-*；案例見 docs/rca/cases.md）。
+# trace 每一段的 baseline 端到端驗證（detector trace-*；案例見 docs/rca/README.md）。
 #
 # 兩個模擬服務（rca-apps.yaml）走真正的路線（Collector → ES）：
 #   1. 正常跑 20 分鐘，學出「平常」（測試用 1 分鐘一點；正式是 5 分鐘、4 週）

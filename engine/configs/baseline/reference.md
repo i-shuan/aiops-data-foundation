@@ -1,8 +1,8 @@
 # baseline 規格：序列、狀態、參數、規則、欄位
 
-> **類型：規格 Reference**　同主題：[原理](../../../docs/rca/baseline.md)・[操作](README.md)・[實測](verification.md)
+> **類型：規格 Reference**　同主題：[原理](../../../docs/rca/README.md)・[操作](README.md)・[實測](verification.md)
 
-要查「這個參數是什麼、這條規則看什麼、欄位長怎樣」看這份。為什麼這樣設計見 [docs/rca/baseline.md](../../../docs/rca/baseline.md)，怎麼跑、怎麼調見 [README.md](README.md)，實測結果見 [verification.md](verification.md)。
+要查「這個參數是什麼、這條規則看什麼、欄位長怎樣」看這份。為什麼這樣設計見 [rca/README.md](../../../docs/rca/README.md)，怎麼跑、怎麼調見 [README.md](README.md)，實測結果見 [verification.md](verification.md)。
 
 **目錄**
 
@@ -30,7 +30,7 @@
 
 ## 做什麼
 
-> 另見：[原理](../../../docs/rca/baseline.md#做什麼)・[操作](reference.md#做什麼)
+> 另見：[原理](../../../docs/rca/README.md)・[操作](reference.md#做什麼)
 
 學哪些序列寫在 [series.yaml](series.yaml)，目前是每個服務的核心指標：
 
@@ -45,7 +45,7 @@
 
 ## 學出來長什麼樣子
 
-> 另見：[原理](../../../docs/rca/baseline.md#學出來長什麼樣子)
+> 另見：[原理](../../../docs/rca/README.md)
 
 ### 什麼時候開始、多久訓練一次
 
@@ -89,7 +89,7 @@
 
 ## 自動調整：粒度、低頻事件、借用 baseline
 
-> 另見：[原理](../../../docs/rca/baseline.md#自動調整粒度低頻事件借用-baseline)
+> 另見：[原理](../../../docs/rca/README.md)
 
 > 狀態：(1)(2)(3) 都做好了，`adaptive_e2e` 驗證過（見「驗證」）。設定在 `series.yaml` 的 `adaptive`、`groups`、`borrowing`。
 
@@ -121,7 +121,7 @@
 |---|---|---|
 | 使用者設定 | `series.yaml` 的 `overrides`（`series` 可用正規表示式、`match` 依 keys 比對） | 粒度：下次 train；z、min_abs：下次 detect |
 | 指令 | `python3 -m detector tune --series http.latency_p95_s --match service=^mes-report --resolution 5m --z 7 --reason 誤報多 --by 王小明`，寫進 `aiops-tuning`（`--list` 列出、`--remove` 刪掉） | 同上 |
-| feedback（📝） | 之後的 feedback 流程寫同一個 `aiops-tuning`：同一條序列誤報累積多次 → 建議粒度往粗一級或調高 z，回測通過才寫入（見 [docs/feedback/README.md「對了怎麼強化、錯了怎麼 feedback」](../../../docs/feedback/README.md#對了怎麼強化錯了怎麼-feedback)） | 同上 |
+| feedback（📝） | 之後的 feedback 流程寫同一個 `aiops-tuning`：同一條序列誤報累積多次 → 建議粒度往粗一級或調高 z，回測通過才寫入（見 [docs/feedback/README.md「對了怎麼強化、錯了怎麼 feedback」](../../../docs/feedback/README.md)） | 同上 |
 
 套用順序：自動選 → `series.yaml` 的 `overrides`（檔案順序）→ `adjustments.yaml` → `aiops-tuning`（依 `at` 由舊到新），同一欄位後面的蓋前面的，不同欄位各自生效；不看 `match` 寫得多細（較晚寫的寬鬆調整會蓋掉較早的精細調整）。每筆調整記 `reason`、`by`、`at`，查得到誰、為什麼、什麼時候改的。
 
@@ -172,7 +172,7 @@ series:
 
 ## trace 每一段的 baseline
 
-> 另見：[原理](../../../docs/rca/baseline.md#trace-每一段的-baseline)・[操作](reference.md#trace-每一段的-baseline)・[實測](verification.md#trace-每一段的-baseline)
+> 另見：[原理](../../../docs/rca/README.md)・[操作](reference.md#trace-每一段的-baseline)・[實測](verification.md#trace-每一段的-baseline)
 
 | 數字 | 意思 | 抓什麼 |
 |---|---|---|
@@ -185,7 +185,7 @@ series:
 | `trace.segment.repeated` | 同一個請求裡，同一個往外的呼叫平均幾次 | **N+1、迴圈裡打 API**（規則，不用學：≥ 20 次）。從上線第一天就有的 N+1，baseline 會學成平常，所以要有固定門檻 |
 | `trace.segment.swallowed` | 同上的吞掉例外比例 | **吞掉的例外**（規則，不用學：≥ 5% 的請求）。訊息帶例外種類，例如「5% 的請求丟了 System.TimeoutException，但沒標成錯誤」 |
 
-**訊息消費者（Kafka）：** 入口除了 HTTP 請求（Server），也算訊息消費者（Consumer）和「沒有上一層的 span」。消費者多一段「`服務 › 排隊（topic）← 生產者`」＝拿到訊息的時間 − 生產者送出的時間（生產者是上一層，或用 link 找回來）。.NET 自動埋點的消費者處理時查的 DB 自成一個 trace，當成自己的入口算，所以看得到「這個消費者寫 DB 變慢、出錯」。實測見 [docs/trace/scenarios.md 場景四](../../../docs/trace/scenarios.md#四非同步訊息佇列)。
+**訊息消費者（Kafka）：** 入口除了 HTTP 請求（Server），也算訊息消費者（Consumer）和「沒有上一層的 span」。消費者多一段「`服務 › 排隊（topic）← 生產者`」＝拿到訊息的時間 − 生產者送出的時間（生產者是上一層，或用 link 找回來）。.NET 自動埋點的消費者處理時查的 DB 自成一個 trace，當成自己的入口算，所以看得到「這個消費者寫 DB 變慢、出錯」。實測見 [trace/README.md 場景四](../../../docs/trace/README.md)。
 
 吞掉的例外要靠 Collector：ES 不存 span 的例外事件，node Collector 先把例外的種類、訊息抄到 span 的屬性（`exception.type`、`exception.message`，[node.yaml](../../../telemetry/collectors/node.yaml) 的 `transform/exceptions`）。兩種樣子都算吞掉：這一段有例外、status 沒設；或這一段有例外又標了錯誤，但這個服務的入口沒標錯誤（Java agent 的 JDBC、HTTP client 丟例外一定標錯誤，程式 catch 掉、回 200 就是這樣）。錯誤傳到入口（回 500）的算錯誤，不算吞掉。
 
@@ -197,7 +197,7 @@ series:
 
 ## 規則：狀態變化、離極限多遠
 
-> 另見：[原理](../../../docs/rca/baseline.md#規則狀態變化離極限多遠)・[操作](reference.md#規則狀態變化離極限多遠)・[實測](verification.md#規則狀態變化離極限多遠)
+> 另見：[原理](../../../docs/rca/README.md)・[操作](reference.md#規則狀態變化離極限多遠)・[實測](verification.md#規則狀態變化離極限多遠)
 
 | 規則 | 看什麼 | 觸發 | 嚴重度 |
 |---|---|---|---|
@@ -228,7 +228,7 @@ series:
 
 ## Pod 同儕橫向比對：同一個服務的 Pod 互相比
 
-> 另見：[原理](../../../docs/rca/baseline.md#pod-同儕橫向比對同一個服務的-pod-互相比)・[操作](reference.md#pod-同儕橫向比對同一個服務的-pod-互相比)・[實測](verification.md#pod-同儕橫向比對同一個服務的-pod-互相比)
+> 另見：[原理](../../../docs/rca/README.md)・[操作](reference.md#pod-同儕橫向比對同一個服務的-pod-互相比)・[實測](verification.md#pod-同儕橫向比對同一個服務的-pod-互相比)
 
 | 檢查 | 每個 Pod 算什麼（最近 10 分鐘） | 分組 | 觸發（跟其他 Pod 的中位數比） |
 |---|---|---|---|
@@ -249,7 +249,7 @@ series:
 
 ## 餵給 baseline 之前：擋了什麼、還缺什麼
 
-> 另見：[原理](../../../docs/rca/baseline.md#餵給-baseline-之前擋了什麼還缺什麼)
+> 另見：[原理](../../../docs/rca/README.md)
 
 | 層 | 擋什麼 | 在哪 |
 |---|---|---|
@@ -274,7 +274,7 @@ series:
 
 ## 調整：哪些資料不學、從哪裡重新學、哪些時段放寬
 
-> 另見：[原理](../../../docs/rca/baseline.md#調整哪些資料不學從哪裡重新學哪些時段放寬)・[操作](reference.md#調整哪些資料不學從哪裡重新學哪些時段放寬)・[實測](verification.md#調整哪些資料不學從哪裡重新學哪些時段放寬)
+> 另見：[原理](../../../docs/rca/README.md)・[操作](reference.md#調整哪些資料不學從哪裡重新學哪些時段放寬)・[實測](verification.md#調整哪些資料不學從哪裡重新學哪些時段放寬)
 
 | kind | 用途 | train | detect |
 |---|---|---|---|
@@ -290,7 +290,7 @@ series:
 
 ## 事故紀錄與值班回饋
 
-> 另見：[原理](../../../docs/rca/baseline.md#事故紀錄與值班回饋)・[實測](verification.md#事故紀錄與值班回饋)
+> 另見：[原理](../../../docs/rca/README.md)・[實測](verification.md#事故紀錄與值班回饋)
 
 | 指令 | 做什麼 |
 |---|---|
@@ -311,7 +311,7 @@ series:
 
 ## 慢性病清單、行事曆
 
-> 另見：[原理](../../../docs/rca/baseline.md#慢性病清單行事曆)・[操作](reference.md#慢性病清單行事曆)・[實測](verification.md#慢性病清單行事曆)
+> 另見：[原理](../../../docs/rca/README.md)・[操作](reference.md#慢性病清單行事曆)・[實測](verification.md#慢性病清單行事曆)
 
 | 來源 | 看什麼 | 算慢性病 |
 |---|---|---|
@@ -326,7 +326,7 @@ series:
 
 ## 資料品質檢查：資料本身怪不怪
 
-> 另見：[原理](../../../docs/rca/baseline.md#資料品質檢查資料本身怪不怪)
+> 另見：[原理](../../../docs/rca/README.md)
 
 | 檢查 | 看什麼 | 觸發 |
 |---|---|---|

@@ -26,22 +26,22 @@ docs/
 
 | 資料夾 | 主文件 | 其他 |
 |---|---|---|
-| **log** | [log/README.md](docs/log/README.md)：怎麼收、依格式解析、欄位規範、換 key | [fluentbit-vs-otel.md](docs/log/fluentbit-vs-otel.md)（改用 OTel 的比較） |
-| **metrics** | [metrics/README.md](docs/metrics/README.md)：怎麼收、直方圖換增量、欄位 | [catalog.md](docs/metrics/catalog.md)（收了哪些、能做到什麼）、[cases.md](docs/metrics/cases.md)（故障案例實測）、[metrics/dotnet.md](docs/metrics/dotnet.md)（.NET 不改程式） |
-| **trace** | [trace/README.md](docs/trace/README.md)：兩層 Collector、尾端取樣、欄位、Kafka、業務 ID | [scenarios.md](docs/trace/scenarios.md)（trace 能做的六個場景）、[sdk/standards/tracing.md](sdk/standards/tracing.md)（給應用團隊的埋點指引） |
-| **rca** | [rca/README.md](docs/rca/README.md)：三種資料各回答什麼、metrics 怎麼串到 trace 和 log、要哪種「平常」、髒資料、雜訊 | [cases.md](docs/rca/cases.md)（15 個故障案例）；程式：[engine/configs/baseline](engine/configs/baseline/README.md)、[engine/configs/rca](engine/configs/rca/README.md)（[報告範例](engine/configs/rca/example-report.md)） |
-| **feedback** | [feedback/README.md](docs/feedback/README.md)：告警出口、事故紀錄、回饋、調整、LLM 與 token | [llm-mlops.md](docs/feedback/llm-mlops.md)（LLM 還是 MLOps 的定案） |
+| **log** | [log/README.md](docs/log/README.md)：怎麼收、依格式解析、欄位規格、換 key、Fluent Bit 與 OTel 的比較 | |
+| **metrics** | [metrics/README.md](docs/metrics/README.md)：怎麼收、直方圖換增量、欄位、能做到什麼、.NET 不改程式 | |
+| **trace** | [trace/README.md](docs/trace/README.md)：兩層 Collector、尾端取樣、欄位、六個場景 | [sdk/standards/tracing.md](sdk/standards/tracing.md)（給應用團隊的埋點指引） |
+| **rca** | [rca/README.md](docs/rca/README.md)：根因分析六步、三種資料怎麼串、動態基準線學習、15 個故障案例 | 程式：[engine/configs/baseline](engine/configs/baseline/README.md)、[engine/configs/rca](engine/configs/rca/README.md)（[報告範例](engine/configs/rca/example-report.md)） |
+| **feedback** | [feedback/README.md](docs/feedback/README.md)：閉環、LLMOps 的定案、LLM 與 token | |
 
 ## 已經定案的
 
 - **log、metrics、trace 都進 Elasticsearch（9.x）**，不用 VictoriaMetrics。
-- **收集器都用 OpenTelemetry Collector**：每個節點一個，分部門的規則和 key 共用。log 原本用 Fluent Bit，比較後改用 OTel（[docs/log/fluentbit-vs-otel.md](docs/log/fluentbit-vs-otel.md)）；中央 pipeline 仍接受 Fluent Bit 的資料，邊緣 VM 可以用。
+- **收集器都用 OpenTelemetry Collector**：每個節點一個，分部門的規則和 key 共用。log 原本用 Fluent Bit，比較後改用 OTel（[log/README.md](docs/log/README.md)）；中央 pipeline 仍接受 Fluent Bit 的資料，邊緣 VM 可以用。
 - **集中式資料寫入憑證 (Shared Ingest Token)**：一把 key，所有 group、log、metrics、trace 共用；資料屬於哪個 group 由 Collector 依 Pod 決定（讀取權限照樣依 group 分）。**換 key 不掉資料、不重啟**（`telemetry/scripts/rotate-writer-key.sh`）。被 ES 拒絕的文件留在 failure store，`quality.ingest_rejected` 會報。
-- **舊專案不改程式**：Java 用 agent，.NET 用自動埋點＋OTLP 推（[docs/metrics/dotnet.md](docs/metrics/dotnet.md)）。
+- **舊專案不改程式**：Java 用 agent，.NET 用自動埋點＋OTLP 推（[metrics/README.md](docs/metrics/README.md)）。
 - **trace 用尾端取樣**：錯的、慢的、有例外的全留，正常的留 5%。
 - **應用團隊不需要知道 group、key**：規格由共用 chart 產生（[apps/](sdk)）。
 - **namespace 名稱不含組織資訊**（`{cluster}-{app}-{env}` 或 `{app}-{env}`），歸屬另外標。
-- **AIOps 以統計＋LLM 為主，不自己訓練模型**（[docs/feedback/llm-mlops.md](docs/feedback/llm-mlops.md)）。
+- **AIOps 以統計＋LLM 為主，不自己訓練模型**（[feedback/README.md](docs/feedback/README.md)）。
 - **業務欄位名稱**：`lot.id`、`equipment.id`、`work_order.id`、`recipe.id`（[sdk/standards/tracing.md](sdk/standards/tracing.md)）。工廠用，之後再接。
 
 ## 還沒定案的

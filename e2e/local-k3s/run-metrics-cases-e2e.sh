@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 指標案例端到端驗證（docs/metrics/cases.md）：四個領域各一個案例，資料走真正的路線（Collector → ES），
+# 指標案例端到端驗證（docs/metrics/README.md）：四個領域各一個案例，資料走真正的路線（Collector → ES），
 # 用規則（engine/configs/baseline/rules.yaml）判斷，檢查「該報的報、不該報的不報」。
 #
 #   1 基礎架構：CPU 被限流     cpu-burst（limit 200m、突波）                     → container.cpu_throttled

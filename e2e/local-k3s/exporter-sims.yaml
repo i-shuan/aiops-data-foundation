@@ -4,7 +4,7 @@
 # kafka-exporter-sim：照 kafka_exporter（danielqsj）的 kafka_consumergroup_lag_sum{consumergroup, topic}
 #   order-push／orders：平常落後 0～50 筆；/tmp/lag_up：下游卡住，每 5 秒多 1,500 筆
 #   report／orders    ：一直正常（不能誤報）
-# eap-exporter-sim：平台提案的 EAP 指標名稱（docs/metrics/cases.md），8 台機台 EQP-01～08
+# eap-exporter-sim：平台提案的 EAP 指標名稱（docs/metrics/README.md），8 台機台 EQP-01～08
 #   eap_secs_communicating      1 通訊中、0 斷線          /tmp/eqp07_down：EQP-07 斷線
 #   plc_scan_cycle_time_ms      平常 7～9ms               /tmp/eqp03_slow：EQP-03 跳到 120ms，而且每 5 秒重傳 5 次
 #   eap_secs_retransmits_total  累計重傳次數，平常幾乎不動

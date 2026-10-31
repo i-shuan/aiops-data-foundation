@@ -1,8 +1,8 @@
 # AIOps 資料格式：aiops-* 索引的欄位
 
-> **類型：規格 Reference**　同主題：[原理（為什麼這樣設計）](architecture.md)・[回饋與學習](feedback/README.md)・[相似事故檢索](rca/graph-rag.md)
+> **類型：規格 Reference**　同主題：[原理（為什麼這樣設計）](architecture.md)・[回饋與學習](feedback/README.md)・[相似事故檢索](rca/README.md)
 
-查 AIOps（④～⑨）寫進 ES 的五個索引：每個欄位是什麼型別、誰在什麼時候寫、長怎樣。範例是 2026-10-31 在 ES 8.19.23 上跑 `loop_e2e`、`baseline_edge_e2e` 後取出的真實文件，長文字截短（標「…共 N 字」），內容沒改。log、metrics、trace 本身的欄位看 [log/reference.md](log/reference.md)、[metrics/reference.md](metrics/reference.md)、[trace/reference.md](trace/reference.md)。
+查 AIOps（④～⑨）寫進 ES 的五個索引：每個欄位是什麼型別、誰在什麼時候寫、長怎樣。範例是 2026-10-31 在 ES 8.19.23 上跑 `loop_e2e`、`baseline_edge_e2e` 後取出的真實文件，長文字截短（標「…共 N 字」），內容沒改。log、metrics、trace 本身的欄位看 [log/README.md](log/README.md)、[metrics/README.md](metrics/README.md)、[trace/README.md](trace/README.md)。
 
 **真正的定義在程式**（改欄位時以程式為準，並同步改這份）：
 

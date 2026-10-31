@@ -1,6 +1,6 @@
 # metrics 異常 → 用服務＋路由＋時間窗撈 trace：邊緣情況（2026-10）
 
-**狀態**：已完成（只驗證，沒改 RCA）　　**日期**：2026-10-28　　**相關**：分支 `claude/p1-metrics-trace-6f8a23`；[rca/README「metrics 異常怎麼串到 trace、log」](../../rca/README.md#metrics-異常怎麼串到-tracelog)、[field-unify](2026-10-field-unify.md)、[rca-demo](../phase3-locate/2026-10-rca-demo.md)
+**狀態**：已完成（只驗證，沒改 RCA）　　**日期**：2026-10-28　　**相關**：分支 `claude/p1-metrics-trace-6f8a23`；[rca/README「metrics 異常怎麼串到 trace、log」](../../rca/README.md)、[field-unify](2026-10-field-unify.md)、[rca-demo](../phase3-locate/2026-10-rca-demo.md)
 **模組**：① 收值、② 清資料、⑦ 根因分析
 
 ## Plan：這一次要達到什麼

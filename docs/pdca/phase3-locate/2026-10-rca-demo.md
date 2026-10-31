@@ -58,6 +58,6 @@
 | metrics → trace 是統計對應 | 整理串接方式時 | 事故只影響一部分請求時，樣本可能不是讓 metrics 變差的那些 | 要精確就做 exemplar（應用附 trace_id、Collector 保留、ES 收、RCA 優先用）。等有真實案例顯示不夠再做 |
 | 撈 log 沒用 `span.id` | 同上 | 報告標不出 log 是哪一段印的 | `investigator/es.py` 撈 log 帶 `span.id` |
 | ES 連不上時是 `DatasourceError`，一次兩則 | 心跳規則實測 | 值班看到的不是「AIOps 停了」 | 心跳規則改 `execErrState: Alerting`；事件規則的 DatasourceError 靜音。要跟管 Grafana 的人定 |
-| RCA＋LLM 搭配 graph RAG | 討論串接方式時 | 每件各算各的，沒有跨事故的依賴關係 | 只記錄：[rca/graph-rag.md](../../rca/graph-rag.md) |
+| RCA＋LLM 搭配 graph RAG | 討論串接方式時 | 每件各算各的，沒有跨事故的依賴關係 | 只記錄：[rca/graph-rag.md](../../rca/README.md) |
 | engine 不是 K8s CronJob | demo 範圍 | 正式排程沒在 K8s 上跑過 | `kubectl apply -k engine/deploy/` |
 | 模擬服務的 metrics 是腳本累加的 | 為了讓 demo 有 metrics | 沒有 JVM、連線池指標 | 測那些規則用 `java-app.yaml` |

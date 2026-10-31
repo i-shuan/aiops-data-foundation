@@ -1,6 +1,6 @@
 # 收值、共同鑰匙圈、log↔trace 綁定、metrics 時間窗：這週的驗證（2026-10）
 
-**狀態**：完成（docker；補了 OTLP log 的路和 pipeline 兩個漏洞；真的 Java agent、.NET 自動埋點各跑一次）　　**日期**：2026-10-27　　**相關**：分支 `claude/ingest-check`；對照簡報「PDCA (Phase 1) 收值端整合、共同鑰匙圈與極限壓測」；[field-unify](2026-10-field-unify.md)、[trace-durability](2026-10-trace-durability.md)、[docs/rca/README「共同鑰匙圈」](../../rca/README.md#共同鑰匙圈完整清單)
+**狀態**：完成（docker；補了 OTLP log 的路和 pipeline 兩個漏洞；真的 Java agent、.NET 自動埋點各跑一次）　　**日期**：2026-10-27　　**相關**：分支 `claude/ingest-check`；對照簡報「PDCA (Phase 1) 收值端整合、共同鑰匙圈與極限壓測」；[field-unify](2026-10-field-unify.md)、[trace-durability](2026-10-trace-durability.md)、[docs/rca/README「共同鑰匙圈」](../../rca/README.md)
 **模組**：① 收值、② 清資料、③ 存
 
 ## Plan：這一次要達到什麼
@@ -22,7 +22,7 @@
 | 共同鑰匙圈 | 三種資料同一條路徑（見下）；log 是 alias 指到 ECS 欄位 | `component-mappings.json`；k3s trace e2e 23 項 |
 | log↔trace（Java agent） | agent 把 `trace_id`、`span_id` 放進 MDC；log 格式有印 MDC 才會在 stdout 上 | `sdk/standards/java/logback-spring.xml` |
 | 同上 | SDK 的 `logback-spring.xml`（LogstashEncoder）會印；pipeline 認 `trace_id`／`traceId`／`trace.id` | `pipeline-fields.painless` |
-| log↔trace（.NET 自動埋點） | chart 開 JSON console＋`IncludeScopes`，`TraceId` 在 `Scopes`，pipeline 會拿 | `_deployment.tpl`、[dotnet.md](../../metrics/dotnet.md) |
+| log↔trace（.NET 自動埋點） | chart 開 JSON console＋`IncludeScopes`，`TraceId` 在 `Scopes`，pipeline 會拿 | `_deployment.tpl`、[dotnet.md](../../metrics/README.md) |
 | 同上 | Serilog compact 的 `@tr` 也認 | `pipeline-fields.painless` |
 | 綁不起來的情況 | 應用用自己的純文字 pattern（沒印 MDC），stdout 沒有 trace_id | — |
 | 同上 | chart 設 `OTEL_LOGS_EXPORTER=none`；node Collector 只收 filelog，**沒有 OTLP log 的 pipeline** | `_deployment.tpl` 第 102 行、`node.yaml` pipelines |
@@ -149,5 +149,5 @@
 - k3d 的結果：`helm template` 過，`logs/otlp` 在 K8s 上 Java 通了（[k3d-e2e](2026-10-k3d-e2e.md)）；.NET 要用 `e2e/local-k3s` 的 dotnet-app 設 `otel.logs.exporter: otlp` 跑。
 - chart 對 .NET 已把 `Logging__LogLevel__Microsoft.AspNetCore` 設成 Warning，走 otlp 的 log 一樣受管；D 的測試沒設，所以都進來了。
 - 兩份 log 的做法：filelog 對設了 otlp 的 Pod 不收（看 Pod 的 label／annotation），或接受雙份、查的時候用 `agent.type` 分。
-- .NET 的 metrics 走 `metrics/otlp` pipeline（`OTEL_METRIC_EXPORT_INTERVAL` 30 秒），`cumulativetodelta` 在 pipeline 最後；[dotnet.md](../../metrics/dotnet.md) 在 k3s 驗過。
+- .NET 的 metrics 走 `metrics/otlp` pipeline（`OTEL_METRIC_EXPORT_INTERVAL` 30 秒），`cumulativetodelta` 在 pipeline 最後；[dotnet.md](../../metrics/README.md) 在 k3s 驗過。
 - 效能、容錯（Collector 重啟、ES 停機）、分流與 key 輪替的紀錄：[trace-durability](2026-10-trace-durability.md)、[es-startup-401](2026-10-es-startup-401.md)、[ingest-simplify](2026-10-ingest-simplify.md)。

@@ -157,10 +157,10 @@ flowchart TB
 
 | 決策 | 理由 | 取捨 |
 |---|---|---|
-| log 收集用 OTel Collector，取代 Fluent Bit | 三種訊號同一種收集器、同一份分部門規則；重啟不掉 log | 中央 pipeline 仍接受 Fluent Bit 資料，供邊緣 VM 使用（[比較](log/fluentbit-vs-otel.md)） |
+| log 收集用 OTel Collector，取代 Fluent Bit | 三種訊號同一種收集器、同一份分部門規則；重啟不掉 log | 中央 pipeline 仍接受 Fluent Bit 資料，供邊緣 VM 使用（[比較](log/README.md)） |
 | trace 尾端取樣 (Tail-based Sampling) | 錯誤、5xx、例外、超過 1 秒的請求完整保留，正常的隨機留 5% | 等待整個 trace 到齊期間資料在記憶體；比 1 秒快的變慢只剩隨機樣本（附錄 A.4） |
 | 季節性時間序列基準線為主力 | 星期幾 × 小時的週期（上下班、夜間批次）只有分時段的歷史看得出來 | 需累積 2～4 週；超過一週的週期（月底批次）要另設週期放寬 |
-| 統計＋LLM，不自訓模型 | 可解釋、可重現，不需大量標註與 MLOps（[llm-mlops.md](feedback/llm-mlops.md)） | 多指標複雜關聯的能力有限；準確度靠回饋與評測集校正 |
+| 統計＋LLM，不自訓模型 | 可解釋、可重現，不需大量標註與 MLOps（[feedback/README.md](feedback/README.md)） | 多指標複雜關聯的能力有限；準確度靠回饋與評測集校正 |
 | metrics → trace 用「服務＋路由＋時間窗」，不用 exemplar | ES 不存 exemplar；exemplar 只是單一樣本，正常 trace 只留 5% 時多半查不到 | 是同時間、同路由的統計關聯，不是同一個請求 |
 
 ## 4. 核心處理模組職責 (Core Components ①～⑨)
@@ -205,7 +205,7 @@ flowchart TB
 3. **Log 擷取關鍵錯誤**：以樣本請求的 `trace_id` 撈同一請求在各服務的 log；可疑服務該時段的 warn／error 歸納成樣式與平常比較，找出**新出現的 log 樣式**。
 4. **LLM 生成摘要**：程式把事故整理成結構化輸入（異常、主要 trace 段、log 樣式、相似的已確認事故），LLM 只寫報告開頭三到五句。**每句須附依據 id**，由程式檢查引用，引用不存在的 id 整段不顯示；模型不可用時退回固定句型。LLM 只加註，不決定是否告警。
 
-**精度差異**：Metrics → Trace 是同服務、同路由、同時間窗的統計對應，不保證是造成指標變差的同一批請求；Trace → Log 以 `trace_id` 對應，是同一個請求。完整鑰匙清單、限制與實例見 [rca/README.md「metrics 異常怎麼串到 trace、log」](rca/README.md#metrics-異常怎麼串到-tracelog)。
+**精度差異**：Metrics → Trace 是同服務、同路由、同時間窗的統計對應，不保證是造成指標變差的同一批請求；Trace → Log 以 `trace_id` 對應，是同一個請求。完整鑰匙清單、限制與實例見 [rca/README.md「metrics 異常怎麼串到 trace、log」](rca/README.md)。
 
 ## 6. 各 phase 一句話
 
@@ -240,7 +240,7 @@ K8s 排程頻率見 [engine/deploy](../engine/deploy/README.md)。
 
 ## 8. 收斂：很多筆怎麼變成一件
 
-設計見 [rca/README.md「雜訊壓制」](rca/README.md#雜訊壓制)。
+設計見 [rca/README.md「雜訊壓制」](rca/README.md)。
 
 | 層 | 狀態 |
 |---|---|
@@ -433,13 +433,13 @@ K8s 排程頻率見 [engine/deploy](../engine/deploy/README.md)。
 <details>
 <summary>A.1 直方圖累計值轉增量 (Cumulative → Delta)</summary>
 
-Prometheus 直方圖從應用啟動一直累加，直接存入時任一段時間的請求數、p95 要頭尾相減，在 ES 中無法聚合。Node Collector 把直方圖換成每 30 秒的增量，任一段時間可直接加總；計數器維持累加值。詳見 [metrics/reference.md](metrics/reference.md#應用的請求數錯誤延遲aiops-baseline-用)。
+Prometheus 直方圖從應用啟動一直累加，直接存入時任一段時間的請求數、p95 要頭尾相減，在 ES 中無法聚合。Node Collector 把直方圖換成每 30 秒的增量，任一段時間可直接加總；計數器維持累加值。詳見 [metrics/README.md](metrics/README.md)。
 </details>
 
 <details>
 <summary>A.2 Java OOM 後 Pod 不重啟</summary>
 
-JVM 發生 OutOfMemoryError 後不會自行結束：Pod 顯示正常、K8s 不重開、metrics 也抓不到，只剩「抓不到 metrics」看得出來。加上 `-XX:+ExitOnOutOfMemoryError` 可讓 JVM 結束、由 K8s 重開，重啟規則即可偵測；代價是原本勉強撐著的服務會直接重開。詳見 [metrics/cases.md](metrics/cases.md#實測時發現的事)。
+JVM 發生 OutOfMemoryError 後不會自行結束：Pod 顯示正常、K8s 不重開、metrics 也抓不到，只剩「抓不到 metrics」看得出來。加上 `-XX:+ExitOnOutOfMemoryError` 可讓 JVM 結束、由 K8s 重開，重啟規則即可偵測；代價是原本勉強撐著的服務會直接重開。詳見 [metrics/README.md](metrics/README.md)。
 </details>
 
 <details>
@@ -456,7 +456,7 @@ JVM 發生 OutOfMemoryError 後不會自行結束：Pod 顯示正常、K8s 不�
 <details>
 <summary>A.4 尾端取樣的取捨</summary>
 
-Trace Sampler 依 `trace_id` 分配，同一 trace 的所有段落到同一台；等 30 秒讓 trace 到齊後依序比對：隨機 5% → 有錯誤 → HTTP 5xx → 有例外 → 超過 1 秒，符合即保留，總量約剩 15%。代價：等待期間的 trace 在記憶體，Sampler 異常終止時會遺失；比 1 秒快的變慢（例如 200ms → 800ms）只剩隨機樣本；有問題的 trace 與隨機 trace 分開保留。詳見 [trace/scenarios.md](trace/scenarios.md#橫跨所有場景的前提取樣)、[retention.md](retention.md)。
+Trace Sampler 依 `trace_id` 分配，同一 trace 的所有段落到同一台；等 30 秒讓 trace 到齊後依序比對：隨機 5% → 有錯誤 → HTTP 5xx → 有例外 → 超過 1 秒，符合即保留，總量約剩 15%。代價：等待期間的 trace 在記憶體，Sampler 異常終止時會遺失；比 1 秒快的變慢（例如 200ms → 800ms）只剩隨機樣本；有問題的 trace 與隨機 trace 分開保留。詳見 [trace/README.md](trace/README.md)、[retention.md](retention.md)。
 </details>
 
 ### 術語對照表 (Glossary)

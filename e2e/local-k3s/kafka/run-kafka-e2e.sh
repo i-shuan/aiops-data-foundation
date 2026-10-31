@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Kafka 的 trace 端到端驗證（docs/trace/scenarios.md 場景四）：真的 Kafka ＋ 兩個 .NET 8 服務，只掛自動埋點、不改程式（apps.yaml）。
+# Kafka 的 trace 端到端驗證（docs/trace/README.md 場景四）：真的 Kafka ＋ 兩個 .NET 8 服務，只掛自動埋點、不改程式（apps.yaml）。
 #
 #   串接：生產者 HTTP 請求 → publish 同一個 trace；
 #         消費者：receive 是新的 trace、只用 link 指回 publish；處理時寫 DB 的 span 自成一個 trace（串不回訊息）
