@@ -35,7 +35,30 @@
 - 分類選得不同就分開算；選 `other` 的會把不同原因混在一起。核准前要看這幾件的 `root_cause` 文字，確認是同一個原因。
 - 規則草稿的門檻是這幾件事故各自最低的延遲異常值取最小值；沒有延遲類異常就算不出門檻，不能核准。
 
-建議核准前必須跑 `backtest`：現行設定與「現行＋建議」各重跑過去 N 週，已確認事故少抓一件就不建議；沒回測的建議不能核准。
+`override`、`recurring_override` 的建議核准前必須跑 `backtest`：現行設定與「現行＋建議」各重跑過去 N 週，已確認事故少抓一件就不建議；沒回測的不能核准。
+
+### 調整：調什麼、怎麼調、哪些能調
+
+調整不改統計公式（168 個時段的中位數與 MAD），只改輸入與參數。調整寫進 `aiops-tuning`（也能寫在設定檔），`train`、`detect` 下一輪讀到就生效。`kind` 與來源的定義在 [adjust.py](../../engine/detector/adjust.py)，指令選項在 [__main__.py](../../engine/detector/__main__.py)，範例在 [baseline README](../../engine/configs/baseline/README.md#調整哪些資料不學從哪裡重新學哪些時段放寬)。
+
+| 要調什麼 | 什麼情況 | 怎麼調 | `kind` |
+|---|---|---|---|
+| 某條序列、某些對象的 `z`、`min_abs`、粒度 `resolution`、`confirm_points`、`instant_z` | 誤報多就放寬，漏報就調低；API 本來就跳動大 | `python3 -m detector tune --series … --match service=^mes- --z 7 --reason …`，或 [series.yaml](../../engine/configs/baseline/series.yaml) 的 `overrides` | `override` |
+| 某段時間的資料不學 | 事故、維護、壓測 | `adjust add --kind exclude_window --start … --end …`；加 `--apply-to train,detect` 連這段也不報 | `exclude_window` |
+| 某個時間點以前的歷史不學 | 換版、架構調整 | `adjust add --kind reset_point --at …`；之後 24 小時（`--warmup`）不判斷 | `reset_point` |
+| 週期性時段放寬 | 月底報表批次 | `adjust add --kind recurring_override --cron "0 20 * * *" --duration 4h --days-of-month -1 --z 8`；`--mute` 這段不報 | `recurring_override` |
+| 新增一條規則 | 同根因累積 3 次 | `feedback suggest` 產生草稿，核准後 `rules` 自動載入 | `rule_suggestion` |
+
+- `--match` 的對象用正規表示式，欄位可用別名（`service`、`namespace`、`pod`）。
+- 同一個對象有多處設定時，對象 > 序列 > `series.yaml`；來源有設定檔與 ES，同 `id` 後寫的蓋前面。
+- 人用 `tune`、`adjust` 寫的預設直接生效。`feedback suggest` 寫的是 `status: proposed`，不生效：誤報累積 3 次，`z` 乘 1.4（例如 5 → 7）；漏報，`z` 乘 0.8（[feedback.py](../../engine/detector/feedback.py)）。
+- 生效流程：`backtest --id <id>`（預設過去 4 週）→ `adjust approve --id <id> --by <誰>`。`override`、`recurring_override` 沒回測或回測不建議時，要加 `--force` 才能核准；其他 `kind` 不用回測。`rule_suggestion` 算不出門檻不能核准。
+- `--expires` 到期自動失效；`adjust remove --id <id>` 刪除。
+
+不能用這些指令調的：
+- 統計公式本身。
+- [rules.yaml](../../engine/configs/baseline/rules.yaml) 現有規則的門檻：改 yaml；回饋只能新增 `rule_suggestion`。
+- `quality`：不讀 `aiops-tuning`，改 [quality.yaml](../../engine/configs/baseline/quality.yaml)。
 
 ## feedback 有哪些介面
 
