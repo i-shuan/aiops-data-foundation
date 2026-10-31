@@ -1,6 +1,6 @@
 # 尚未決定的設計問題（2026-10）
 
-**狀態**：未立案，討論中　　**日期**：2026-10-31　　**相關**：分支 `claude/open-issues`
+**狀態**：未立案，討論中　　**日期**：2026-10-31　　**相關**：已合入 master（分支已刪）
 **模組**：③ 存、④ 判斷、⑥ 收斂、⑦ 根因分析、⑨ feedback
 
 ## Plan：這一次要達到什麼
@@ -110,7 +110,65 @@
 - 觸發的觀察指標（真實資料跑 2～4 週才看得到）：`similar-eval` 的 recall@3；老師傅回報「附的相似事故不像」的比例。模擬資料現在是 3/3，真實資料沒測過。
 - 「什麼時候會用到向量 RAG」沒有數據能算機率，這裡只記觸發條件，不預設要做。
 
-### 9. 文件
+### 9. 散在其他文件的未解項目
+
+上面 1～8 是討論中累積的；這一節是其他文件已經記了、沒有收進來的。來源是關鍵字掃出來的，不保證完整，也沒逐項核對現況（有些可能已被後來的改動解決）。
+
+#### 9.1 會影響上線
+
+| 項目 | 現況 | 來源 |
+|---|---|---|
+| ES 停 180 秒、中途重啟兩個 Collector，metrics 整段 0 筆 | 佇列裡的資料在 Collector 重啟時遺失；根因沒查 | [e2e-es8-rerun](2026-10-e2e-es8-rerun.md) |
+| 部署重整後五支 e2e 腳本沒在 cluster 上跑 | 它們的 helm 指令沒驗過 | [restructure-components](2026-10-restructure-components.md) |
+| `run-metrics-scenarios.sh label` 修好後沒重跑；測試之間互相干擾（`rules` 抓到 rca 留下的服務） | 單獨跑會過，連著跑會誤判 | [e2e-es8-rerun](2026-10-e2e-es8-rerun.md) |
+| ES chart 沒帶 setup Job；設定靠 `--set-file`，用 CD 工具要另外處理 | setup 要讀 `code/storage/` 四十幾個檔，Helm 讀不到 chart 目錄外的檔 | [restructure-components](2026-10-restructure-components.md) |
+| 服務重名跨部門 | 只靠服務名的異常歸給其中一個部門，告警可能送錯 | [anomaly-owner](../phase2-anomaly/2026-10-anomaly-owner.md) |
+| LLM 逾時 60 秒、alert 時限 600 秒是估的 | 一輪超過 10 件新的、模型又慢，仍會被砍 | [fix-critical](../phase5-learning-loop/2026-10-fix-critical.md) |
+
+#### 9.2 偵測品質
+
+| 項目 | 現況 | 來源 |
+|---|---|---|
+| p95 誤報超過目標 | anomaly 0.53%（目標 0.1%）、warning 1.97%（目標 1%） | [baseline-threshold-tune](../phase2-anomaly/2026-10-baseline-threshold-tune.md) |
+| 錯誤率 1 個 5xx 就到門檻 | 一週 205 個誤報（0.34%）；後續是「至少 N 個 5xx 才判斷」 | 同上 |
+| 只有一部分請求變慢時 trace 段沒報 | 每點約 20 個請求的平均，長尾讓基準線很寬（門檻約 430ms）；看 p90 或慢請求比例還沒做 | [troubleshooting.md](../../troubleshooting.md) |
+| 每筆異常沒記是哪一版產生的 | 沒有版本，之後比較兩版結果要靠時間推 | [baseline/reference.md](../../../aiops-engine/code/configs/baseline/reference.md) |
+| `suggest` 只調 `z` | 不調 `min_abs`、粒度，也不會提排除時段（月底批次更該用 `recurring_override`） | 同上 |
+| 規則核准前沒有回測 | 用 `rules --at <事故時間>` 看會不會觸發，要人手動 | 同上 |
+
+#### 9.3 回饋與相似事故
+
+| 項目 | 現況 | 來源 |
+|---|---|---|
+| 回饋沒有身分 | 表單、網頁沒登入；回饋 3 次可以是同一個人 | [architecture.md 第 10 節](../../architecture.md#10-還沒做還不足的) |
+| 漏報沒有網頁入口 | 只能用 `feedback` 指令 | 同上 |
+| 沒有評測集 | 相似事故在沒有 trace 時，只靠「同服務＋同指標」剛好壓在門檻上 | 同上 |
+| 舊事故單匯入 `aiops-incidents` 的格式沒寫 | | 同上 |
+| code-review 剩三項沒動 | metrics 回饋跨段、回測重複查 ES、相似事故 ES 前 20 筆截斷 | 同上 |
+
+#### 9.4 資料與 log
+
+| 項目 | 現況 | 來源 |
+|---|---|---|
+| 設備通訊（SECS）、REST API 的 log 還沒有規則 | 缺一般事件、告警、逾時、多行的真實樣本 | [log/README.md](../../log/README.md) |
+| 業務 ID（交易 ID）名稱未定 | log、metrics、trace 三份鑰匙圈都是 ❌ | [log](../../log/README.md)、[metrics](../../metrics/README.md)、[trace](../../trace/README.md) |
+| metrics 沒有 `trace_id` | exemplar 寫進 ES 時被丟（ES 9.5.5、8.19.23 實測） | [metrics/README.md](../../metrics/README.md) |
+| 開 otlp 的服務 log 量兩倍 | 存量兩倍，統計推論也算兩次 | [log-trace-bind](../phase1-collect/2026-10-log-trace-bind.md) |
+| Collector 接回 16KB 長行、file＋OTLP 兩份未驗證 | 只用 `_simulate` 驗了 pipeline | 同上 |
+
+#### 9.5 模組缺口與過度設計
+
+| 項目 | 現況 | 來源 |
+|---|---|---|
+| ① .NET SQL Server、Serilog／NLog 驗證 | 沒做 | [architecture.md 第 10 節](../../architecture.md#10-還沒做還不足的) |
+| ③ 副本、正式環境容量 | 沒做 | 同上 |
+| ④ p99、慢請求比例、往外呼叫耗時、`groups` 依公司命名、變化點偵測 | 沒做 | 同上 |
+| ⑥ 沿呼叫關係合併、排優先、一段記成一筆、靜音、限頻 | 📝 設計 | 同上 |
+| ⑦ 單一 Pod 異常拿它的 trace 逐段比；撈 log 帶 `span.id` | 沒做 | 同上 |
+| ⑨ 版本、評測集、第二人確認、排除時段的建議 | 沒做 | 同上 |
+| 過度設計：三個自動機制（自選粒度、卜瓦松、借同組）、trace 每一段 baseline、回饋表單選項是估的 | 建議留著不再擴，等真實資料再決定砍哪個 | [architecture.md 第 11 節](../../architecture.md#11-哪裡過度設計) |
+
+### 10. 文件
 
 | 項目 | 現況 |
 |---|---|
