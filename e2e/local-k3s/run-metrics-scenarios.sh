@@ -64,12 +64,13 @@ scenario_label() {
     refresh
     first="$(es "${ES_URL}/metrics-*.otel-it/_search" -d "{\"size\":1,\"sort\":[{\"@timestamp\":\"asc\"}],\"query\":{\"bool\":{\"filter\":[
       {\"term\":{\"resource.attributes.k8s.namespace.name\":\"legacy\"}},{\"range\":{\"@timestamp\":{\"gte\":\"${t0}\"}}}]}}}" \
-      | jq -r '.hits.hits[0]._source["@timestamp"] // empty')"
+      | jq -r '.hits.hits[0]._source["@timestamp"] // empty | if type == "number" then . else (sub("\\.[0-9]+Z$"; "Z") | fromdate * 1000) end')"   # ES 9 的 OTLP 入口存毫秒，8.19 的 elasticsearch 寫入元件存 ISO 字串
     [[ -z "${first}" ]] && sleep 5
   done
   k label namespace legacy dept- >/dev/null
   echo "   已改回原狀"
   [[ -n "${first}" ]] || { echo "  FAIL  5 分鐘內沒有生效"; fail=1; return; }
+  [[ "${first}" =~ ^[0-9]+$ ]] || { echo "  FAIL  讀不懂第一筆資料的時間：[${first}]"; fail=1; return; }
   local lag=$(( first / 1000 - $(date -u -d "${t0}" +%s) ))
   echo "   第一筆進 IT 的資料時間：$(date -u -d "@$(( first / 1000 ))" +%H:%M:%S)，改 label 後 ${lag} 秒"
   if (( lag <= 60 )); then echo "  PASS  1 分鐘內生效（${lag} 秒）"; else echo "  FAIL  超過 1 分鐘（${lag} 秒）"; fail=1; fi

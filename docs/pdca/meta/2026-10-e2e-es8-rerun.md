@@ -15,6 +15,7 @@
 |---|---|---|
 | `e2e/local-k3s/metrics_trace_check.py` | 新增 `to_ms()`，`metric_docs()` 與 trace 時間一律轉成毫秒 | 8.19 的 `elasticsearch` 寫入元件存的時間格式跟 ES 9 的 OTLP 入口不同：metrics 是 ISO 字串、trace 是數字字串（例如 `"1793413555561.0"`）。原本假設是數字，`/` 運算直接 `TypeError` |
 | `e2e/local-k3s/run-rules-e2e.sh` | 節點磁碟那項預期的節點名稱改成從 cluster 讀 | 原本寫死 Rancher Desktop 的 `vm`，k3d 的節點叫 `k3d-aiops-server-0` |
+| `e2e/local-k3s/run-metrics-scenarios.sh` | 「改 dept label」情境：第一筆資料的時間用 jq 統一成毫秒（ISO 字串轉 `fromdate`，數字照用）；轉出來不是數字就印 FAIL 並結束這個情境 | 8.19 的 `@timestamp` 是 ISO 字串，原本拿去做算術，bash 報 `value too great for base`，腳本卻印「全部通過」 |
 
 ## Check：測試的目的與結果
 
@@ -30,7 +31,7 @@
 | `run-metrics-trace-e2e.sh` | 16／16 | 第一次 `TypeError`（見 Do），修完用 `CHECK_ONLY` 重跑檢查，資料沿用同一輪 |
 | `run-trace-baseline-e2e.sh` | 9／9 | — |
 | `run-metrics-scenarios.sh keyfail` | 4／4 | — |
-| `run-metrics-scenarios.sh label` | **無效** | 腳本第 73 行 `value too great for base`（`date` 字串被當成 8 進位數字），印出「全部通過」但實際沒驗到東西 |
+| `run-metrics-scenarios.sh label` | **原本無效，已修，未重跑** | 腳本第 73 行 `value too great for base`（ISO 時間字串拿去做算術），印出「全部通過」但實際沒驗到東西。修好的 jq 運算式用 ISO 字串、數字、空結果三種輸入單獨驗過，整個情境還沒在 cluster 上重跑 |
 | `run-metrics-scenarios.sh outage` | **1 過 3 失敗** | 見 Act |
 
 - **沒跑到**：`run-dotnet-e2e.sh`、`run-metrics-cases-e2e.sh`、`sdk-inject`、`run-peer-e2e.sh`、`run-peer-edge-e2e.sh`、`kafka`、`tail-sampling`、`run-schedule-e2e.sh`、`run-es-2node.sh`。跑到 `dotnet` 時 Docker Desktop 停了（17:23 已不在跑），整批中斷。
@@ -40,6 +41,6 @@
 | 沒改善的 | 在什麼情況下發現的 | 影響 | 後續 |
 |---|---|---|---|
 | [①] ES 停 180 秒、**中途重啟兩個 Collector**，IT 的 metrics 整段 0 筆、IMC 缺 1 筆 | `run-metrics-scenarios.sh outage`（k3d、8.19.23） | 停機期間的資料沒補進來：Collector 重啟時佇列裡的資料遺失。需要確認是 `elasticsearch` 寫入元件的佇列沒持久化，還是這輪 ES 在 k3d 上的特殊情況（ES 記憶體曾被 OOMKill） | 單獨重跑一次、看 Collector 重啟後佇列檔（`file_storage`）還在不在、log 有沒有 `Dropping data` |
-| `run-metrics-scenarios.sh label` 檢查 `value too great for base` 卻回報通過 | 讀 log 發現 | 這支測試沒在驗證，不能信它的「全部通過」 | 修第 73 行的時間算術，並讓腳本遇到這種錯誤時失敗 |
+| `run-metrics-scenarios.sh label` 檢查 `value too great for base` 卻回報通過 | 讀 log 發現 | 修好之前這支測試沒在驗證；修好之後沒重跑 | 在 cluster 上重跑 `label`；腳本其他算術遇到非數字時不會自己停（只修了這一處） |
 | 測試之間互相干擾（`rules` 抓到 rca 留下的服務） | `run-rules-e2e.sh` | 單獨跑會過；連著跑會誤判 | 跑完每支清掉自己的 namespace，或 `rules` 的「其他沒被抓」排除 `it-mes-prod` 的 `rca-*` |
 | Docker Desktop 在跑到一半時停掉 | 17:23 檢查時 `dockerDesktopLinuxEngine` 管道不存在 | 後面 9 支沒跑；k3d 一起消失，需要重建 | 重啟 Docker Desktop、`create-cluster.sh` 重建後從 `dotnet` 接著跑 |
