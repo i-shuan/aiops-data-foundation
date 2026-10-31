@@ -55,7 +55,7 @@ fi
 kubectl -n otel-collector rollout status daemonset/otel-node-collector --timeout=120s >/dev/null
 # ES 在鎖裡才 port-forward。ES Pod 重建時 port-forward 會結束（curl: (52) Empty reply），迴圈重開；es() 會等它接上
 pfdir=
-pf_stop() { [[ -n ${pfdir} ]] && { touch "${pfdir}/stop"; kill "$(cat "${pfdir}/pid" 2>/dev/null)" 2>/dev/null; true; }; }
+pf_stop() { if [[ -n ${pfdir} ]]; then touch "${pfdir}/stop"; kill "$(cat "${pfdir}/pid" 2>/dev/null)" 2>/dev/null || true; fi; }   # 自己帶 ES_URL 時沒有 port-forward，也要回 0（set -e）
 if [[ -z "${ES_URL:-}" ]]; then
   pfdir="$(mktemp -d)"
   ( while [[ ! -f ${pfdir}/stop ]]; do
