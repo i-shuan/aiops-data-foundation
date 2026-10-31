@@ -42,7 +42,7 @@
 | `configs/rca/rca.yaml` | `indices.traces: traces-merged-*` | 根因分析讀 merged |
 | `core/traces.py`、`investigator/es.py` | 依 index 名稱分 raw／merged 兩條路：merged 用 `nested` 查 `entries.*`、`spans.span_id`，`from_merged()` 展回原本的 span 列表 | 根因分析其餘程式不用改 |
 | `detector/trace.py` | `policy` 註解更新，功能保留 | 沒有標記的 span 照樣抽 |
-| e2e | `run-trace-e2e.sh` 加「7b. 合成一個請求一筆」（跑 `trace-merge`、檢查 merged 文件／摘要／entries／重跑不重複／權限）；`run-rca-e2e.sh` 在 investigate 前手動跑一次 `trace-merge`（測試 cluster 沒有 engine pod）、`tests/rca_k3s.yaml` 讀 `traces-merged-*`；`deploy-collector.sh`、durability、stress、keys、sdk-inject、kafka 去掉 trace-sampler；刪 `e2e/k8s/tail-sampling/`；`trace_quality_edge_e2e.py` 的尾端取樣模擬改成全留 | 跟著程式 |
+| e2e | `run-trace-e2e.sh` 加「7b. 合成一個請求一筆」（跑 `trace-merge`、檢查 merged 文件／摘要／entries／重跑不重複／權限）；`run-rca-e2e.sh` 在 investigate 前手動跑一次 `trace-merge`（測試 cluster 沒有 engine pod）、`tests/rca_k3s.yaml` 讀 `traces-merged-*`；`deploy-collector.sh`、durability、stress、keys、sdk-inject、kafka 去掉 trace-sampler；刪 `e2e/k8s/tail-sampling/`；`trace_quality_edge_e2e.py` 的尾端取樣模擬改成全留，並刪掉三項測隨機取 5% 的檢查（基準線只用 random 兩項、錯的慢的全留的對照、低流量 API 不學）與只給它們用的函式 | 跟著程式；這三項測的行為已不存在 |
 | `aiops-engine/helmchart`（順手，不屬 trace） | `llmProvider` 改成 `llm.{provider,model,baseUrl,apiKey}`：前三個進 ConfigMap `aiops-env`（`LLM_CHAT_MODEL`、依 provider 給 `OPENAI_BASE_URL`／`ANTHROPIC_BASE_URL`），`apiKey` 由 chart 建 Secret `aiops-llm`；key 只寫在 `values-local.yaml`（新加進 `.gitignore`，附 `values-local.example.yaml`） | 原本 chart 沒地方設模型與閘道，只能用程式預設與公網；使用者要 key 跟著 yaml 走、但不能進 git |
 | e2e（順手） | `run-metrics-e2e.sh`、`run-es-2node.sh` 的 kube context 預設改成目前的（原本寫死 `default`，Rancher Desktop 叫 `rancher-desktop`，第一個 kubectl 就失敗） | 同上 |
 | e2e（順手） | 10 支腳本的 `${repo}/engine` 改成 `${repo}/aiops-engine/code`；`run-rca-e2e.sh` 建 `rca-lib` configmap 時去掉 `\r` | 元件重整（PR #34）時漏改，這些 e2e 從那之後其實跑不起來；Windows checkout 成 CRLF 時 busybox sh 讀 `lib.sh` 會 syntax error（trace-app 早就這樣處理，rca 漏了） |
@@ -77,7 +77,15 @@
 - **升級那一刻會漏合**：setup 把舊 raw 資料流 rollover 之前寫進舊 index 的 span 沒有索引的 `event.ingested`，`trace-merge` 看不到；實測從 setup 到 rollover 之間約 9 個 trace 沒合成。只影響第一次升級，之後不會；要補可以對舊 index 跑一次 `update_by_query`（這次不做）。
 - **根因分析慢 1～2 分鐘**：alert 每分鐘跑，看到的 merged 是上一分鐘合好的。事故當下要看即時的查 raw（2 天內）。
 - **merged 不省空間**：`nested` 的每一段內部仍是一筆；100% 收之後容量靠保留天數（raw 2 天、merged 7 天）撐，冷儲存（MinIO）另案。
-- `tests/trace_quality_edge_e2e.py`（自己的 ES 灌合成 trace）這次只把尾端取樣模擬改成全留，沒重跑。
+- **trace-quality 的 6 項失敗**（`tests/trace_quality_edge_e2e.py`，自己的 ES 灌合成 trace）：3 項在測已廢止的「隨機取 5%」，已從測試刪掉；其餘查出的原因如下，**都還沒改**。
+
+  | 失敗項 | 原因 | 改的話 |
+  |---|---|---|
+  | 只有 10% 的請求簡訊多 2 秒，沒報 | 以前尾端取樣把「慢的」分到別的 policy，baseline 只學 random，很乾淨；現在 100% 收，平常 3% 的長尾（1.5～3 秒）進了 baseline，每個點只抽 20 個請求，平均值的標準差約 86 ms，+200 ms 只有約 2 個標準差，過不了 z=5 | 每點抽 100 個：標準差約 38 ms，報得出來。要不要調 `trace.yaml` 的 `sample_per_bucket`（正式是每 5 分鐘 20 個）看讀取成本 |
+  | 長期 2% 吞例外，`swallowed` 規則與 `swallowed_rate` 都報了 | 規則是每個點各自算：20 個裡只要 1 個吞例外就是 5%，剛好等於門檻 5%。2% 的真實比例，每個點有 33% 機率抽到 1 個，3 個點湊起來多半會報 | 每點抽 100 個後兩項都不報。或規則要求吞例外至少 2 個才算 |
+  | B6a：三成的 Pod 沒有服務 label，`quality.log_missing_identity` 沒報 | Pipeline 沒 label 時 `service.name` 退回 container 名稱（`app`），所以欄位不是「缺」，檢查看不到（120 筆 `service.name=app`）。`pipeline.painless` 與 `quality.yaml` 本分支沒動，master 上一樣 | 要偵測得另外寫（例如 `service.name` 等於 container 名稱算缺），不是 trace 的問題 |
+
+  實驗：只把測試用的 `sample_per_bucket` 暫時改成 100，A 段 17 項全過，改回後沒留在 repo。目前單獨跑 A 段 14 過 3 失敗（上面前兩列）。單獨跑 B 段 19 過 2 失敗：B6a，以及 B8（unassigned 的 log 比例沒報）；B8 在整串完整跑時是過的，單跑時失敗，推測是測試 ES 裡剛跑完 durability 留下大量其他 log、把分母墊大，沒查證。
 - `aiops-trace-segments`（trace 每一段的 baseline）還是讀 raw、只看最近 10 分鐘；要改讀 merged 得把 composite 聚合改成 nested，這次不碰。
 - **ES 8.19 的 otel 資料流 failure store 預設沒開**：`elasticsearch-setup.sh` 的註解寫「ES 預設就開了」，8.19.23 實測 `traces-*.otel-*`、`metrics-*.otel-*` 都是關的（只有腳本自己打開的 `k8s-*` 是開的）。`trace_quality_edge_e2e.py` 灌壞時間的 span 因此被拒絕、測試中斷；資料品質的 `ingest_rejected` 在 8.19 也不會有值。上線前要確認正式 ES 的版本，或讓 setup 對 otel 資料流也打開。
 - **ES 停 180 秒：log 原本就會掉，trace 這次起也會掉（回歸）**：同一個測試 ES（記憶體約 97%）、同一個情境，master 與本分支對照。

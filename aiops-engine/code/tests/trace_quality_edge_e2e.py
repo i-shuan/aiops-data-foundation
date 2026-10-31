@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import copy
 import io
-import math
 import os
 import random
 import sys
@@ -25,8 +24,6 @@ from contextlib import redirect_stdout
 import pandas as pd
 import yaml
 
-from core.traces import group_traces, spans_of
-from detector import trace as T
 from detector.__main__ import main as cli
 from detector.cmd_quality import quality_hits
 from detector.es import ES
@@ -40,8 +37,6 @@ SEG_SMS = f"{MES} › POST → sms-gateway"
 SEG_REDIS = f"{MES} › HGET → redis"
 PER_MIN = 400          # 每分鐘的請求（尾端取樣前）
 RARE_PER_MIN = 40      # 少人用的 API（GET /rare）
-RANDOM_PCT = 0.05
-SLOW_MS = 1000
 
 results: list[tuple[str, str, bool, str]] = []
 
@@ -275,28 +270,12 @@ def fmt(found: set) -> str:
     return "；".join(f"{m}|{s}|{g}|{st}" for m, s, g, st in sorted(found)) or "（無）"
 
 
-def pooled(df: pd.DataFrame, svc: str, name: str, seg: str, col: str) -> tuple[float, int]:
-    d = df[(df["entry.service"] == svc) & (df["entry.name"] == name) & (df["segment"] == seg)]
-    n = int(d["requests"].sum())
-    return (float((d[col] * d["requests"]).sum() / n) if n else float("nan")), n
-
-
-def stats(es: ES, index: str, policy: str | None, start, end) -> pd.DataFrame:
-    """跟 collect 一樣抽樣、算，但不寫進 aiops-trace-segments（比較不同讀法用）。"""
-    samples = T.sample_entries(es, index, start, end, "1m", 20, policy)
-    pad = pd.Timedelta(minutes=5)
-    traces = group_traces(spans_of(es, index, sorted({s.trace_id for s in samples}), start - pad, end + pad))
-    df, _ = T.summarize(samples, traces)
-    return T.fill_missing_segments(df)
-
-
 def part_a(es: ES, now0: pd.Timestamp):
     print("\n== A. trace 每一段")
     rng = random.Random(20261028)
     t0 = now0 - pd.Timedelta(minutes=100)
     hist_end = t0 + pd.Timedelta(minutes=40)
-    truth: list[dict] = []
-    docs = gen_traffic(rng, t0, 40, "normal", truth)
+    docs = gen_traffic(rng, t0, 40, "normal")
     windows = []
     for i, (mode, desc) in enumerate(SCENARIOS):
         a = hist_end + pd.Timedelta(minutes=1 + i * 5)
@@ -311,39 +290,6 @@ def part_a(es: ES, now0: pd.Timestamp):
     run_cli("trace-collect", "--config", CFG, "--start", t0.isoformat(), "--end", hist_end.isoformat())
     out = run_cli("trace-train", "--config", CFG, "--history", "40min", "--end", hist_end.isoformat())
     print("  " + out.strip().replace("\n", "\n  "))
-
-    # 尾端取樣的偏差：同一段歷史，只讀 random（設定）vs 讀全部留下的（traces-*，不分 policy）vs 真實（取樣前全部）
-    n_true = len(truth)
-    p_err = sum(t["db_error"] for t in truth) / n_true
-    sms = [t["sms_ms"] for t in truth]
-    mu = sum(sms) / n_true
-    sd = math.sqrt(sum((x - mu) ** 2 for x in sms) / n_true)
-    r = stats(es, "traces-generic.otel-*", "random", t0, hist_end)
-    al = stats(es, "traces-*.otel-*", None, t0, hist_end)
-    r_err, n_r = pooled(r, WIP, "GET /wip", SEG_DB, "error_rate")
-    a_err, n_a = pooled(al, WIP, "GET /wip", SEG_DB, "error_rate")
-    r_sms, n_rs = pooled(r, MES, API, SEG_SMS, "time_ms")
-    a_sms, _ = pooled(al, MES, API, SEG_SMS, "time_ms")
-    se_err, se_sms = math.sqrt(p_err * (1 - p_err) / n_r), sd / math.sqrt(n_rs)
-    print(f"  真實（取樣前 {n_true} 個請求）：wip DB 錯誤率 {p_err:.3f}、簡訊平均 {mu:.0f} ms")
-    print(f"  只讀 random（{n_r} 個請求）：錯誤率 {r_err:.3f}、簡訊 {r_sms:.0f} ms")
-    print(f"  讀全部留下的（{n_a} 個請求）：錯誤率 {a_err:.3f}、簡訊 {a_sms:.0f} ms")
-    check("A", "基準線只用 random：錯誤率與真實差 ≤ 3 個標準誤", abs(r_err - p_err) <= 3 * se_err,
-          f"{r_err:.3f} vs 真實 {p_err:.3f}（標準誤 {se_err:.3f}）")
-    check("A", "基準線只用 random：簡訊平均時間與真實差 ≤ 3 個標準誤", abs(r_sms - mu) <= 3 * se_sms,
-          f"{r_sms:.0f} vs 真實 {mu:.0f} ms（標準誤 {se_sms:.0f}）")
-    check("A", "對照：錯的、慢的全留的那份混進來會偏高（> 真實＋3 個標準誤）",
-          a_err > p_err + 3 * se_err and a_sms > mu + 3 * se_sms,
-          f"錯誤率 {a_err:.3f}、簡訊 {a_sms:.0f} ms")
-
-    # 少人用的 API：每分鐘 40 個請求 × 5% ≈ 2 個 < min_requests 5，學不到
-    nb = es.search("aiops-baseline", {"size": 0, "track_total_hits": True, "query": {"bool": {"filter": [
-        {"term": {"keys.entry.service": MES}}, {"term": {"keys.entry.name": "GET /rare"}}]}}})["hits"]["total"]["value"]
-    seg = T.load_segments(es, t0, hist_end)
-    rare = seg[(seg["entry.service"] == MES) & (seg["entry.name"] == "GET /rare")]
-    main = seg[(seg["entry.service"] == MES) & (seg["entry.name"] == API)]
-    check("A", "低流量 API（40 個／分）：隨機 5% 每點不到 5 個請求，不學、不判斷", nb == 0,
-          f"每點請求數中位數 {rare['requests'].median():.0f}（主 API {main['requests'].median():.0f}），baseline {nb} 筆")
 
     # 每個情境
     want = {   # 模式：(要抓到的 [(數字, 服務, 段)], 不該出現的 [(數字, 服務, 段)])
