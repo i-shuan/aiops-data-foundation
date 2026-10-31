@@ -46,7 +46,7 @@ container stdout（每個節點的 /var/log/pods）
         ↓ 節點的 OpenTelemetry Collector（DaemonSet，跟 metrics 同一個）：補上 pod label、namespace 的 dept、cluster
         ↓ dept → group（跟 metrics 同一份規則）
         ↓ 集中式資料寫入憑證（ES_WRITER_API_KEY）、一個出口；data_stream.namespace = group
-        ↓ OTLP 送到 ES 的 /_otlp/v1/logs → logs-generic.otel-{group}
+        ↓ elasticsearch 寫入元件（otel mode）寫進 logs-generic.otel-{group}
         ↓ 中央 ES：k8s-logs-otel 整理形狀、用內容算 _id（擋重送的重複）、轉到 k8s-{group}-{cluster}
         ↓ 中央 ES：k8s-logs pipeline 整理欄位（依 log 格式分派）→ data stream（ILM 管保留天數）
         ↓

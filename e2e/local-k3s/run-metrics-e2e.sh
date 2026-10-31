@@ -97,6 +97,8 @@ H=metrics.http.server.request.duration   # Java 的 Prometheus 名字由 node Co
 hq="{\"bool\":{\"filter\":[${since},{\"exists\":{\"field\":\"${H}\"}},$(ns_f imc-wip-prod)]}}"
 hdocs="$(es "${ES_URL}/metrics-*.otel-imc/_search" -d "{\"size\":100,\"query\":${hq}}" | jq '[.hits.hits[]._source]')"
 check_gt0 "進 IMC（metrics-generic.otel-imc）" "$(jq length <<<"${hdocs}")"
+check "直方圖的資料流不降解析度（ILM metrics-hist-otel；ES 8.19 的 histogram 降了會錯）" \
+  "$(es "${ES_URL}/metrics-generic.otel-imc/_ilm/explain" | jq -r '[.indices[].policy] | unique | join(",")')" metrics-hist-otel
 check "存成直方圖（histogram）" \
   "$(es "${ES_URL}/metrics-generic.otel-imc/_mapping/field/${H}" | jq -r '[.[].mappings[].mapping[].type] | unique | join(",")')" histogram
 # ES 8.19 的 histogram 不存 temporality，差值只能從數量看：測試應用每 5 秒 20 個成功的請求，Collector 30 秒抓一次 → 每筆約 120 個。

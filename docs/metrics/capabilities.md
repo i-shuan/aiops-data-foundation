@@ -75,7 +75,7 @@ metrics 回答「有沒有出事、什麼時候開始、離極限多遠」；這
 | 慢在請求裡的哪一段、呼叫了幾次 | metrics 只有整體的數字 | trace（[trace 每一段的 baseline](../../engine/configs/baseline/reference.md#trace-每一段的-baseline)） |
 | 錯誤被吞掉、回 200 | 狀態碼是 200，metrics 全綠 | log 樣式、業務量指標 |
 | 哪一批貨、哪一台機台 | 不能用 `lot.id` 這種值當維度（每個值一條序列，ES 會爆） | trace 的屬性 |
-| 從某個慢的資料點直接跳到那一筆 trace | exemplar（帶 trace_id）寫進 ES 時被丟掉（實測 ES 9.5.5：`/_otlp/v1/metrics`、Collector `elasticsearch` 寫入元件都一樣），metrics 帶不了 trace_id | 用服務、時間範圍查 trace |
+| 從某個慢的資料點直接跳到那一筆 trace | exemplar（帶 trace_id）寫進 ES 時被丟掉（實測 ES 9.5.5 的 `/_otlp/v1/metrics`、ES 8.19.23 的 Collector `elasticsearch` 寫入元件都一樣），metrics 帶不了 trace_id | 用服務、時間範圍查 trace |
 | 30 秒內的短暫尖峰 | 30 秒才抓一次；直方圖記得住每個請求的耗時，但 CPU、記憶體這種只看得到抓的那一刻 | 直方圖、trace |
 
 ## 四、建議順序（待討論）

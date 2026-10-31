@@ -31,7 +31,7 @@ trace 怎麼收、怎麼分部門見 [trace/README.md](README.md)；baseline、�
 
 ### 三、錯誤源頭
 
-- ✅ **吞掉的例外（假性健康）**：程式 catch 掉例外、回傳空值和 200，span 帶例外事件但 status 不是 error。實測發現 **ES 的 OTLP 入口不存 span 的事件**，所以 node Collector 先把例外的種類、訊息抄到 span 屬性（`exception.type`、`exception.message`）。然後每一段算「丟了例外但沒標成錯誤」的請求比例：學 baseline（`swallowed_rate`，平常就有一點的看變多沒有），另外不用學的規則 `swallowed` ≥ 5% 就報。k3s 實測：「吞掉的例外：rca-wip-worker GET /wip → … SELECT LOT_HISTORY → oracle（100% 的請求丟了 System.TimeoutException，但沒標成錯誤）」。尾端取樣也會把這種 trace 全部留下（規則 `exception`）。
+- ✅ **吞掉的例外（假性健康）**：程式 catch 掉例外、回傳空值和 200，span 帶例外事件但 status 不是 error。實測發現 **ES 的 span 文件不存事件**（ES 9 的 OTLP 入口、8.19 用的 `elasticsearch` 寫入元件都一樣，事件另存成一筆 log），所以 node Collector 先把例外的種類、訊息抄到 span 屬性（`exception.type`、`exception.message`）。然後每一段算「丟了例外但沒標成錯誤」的請求比例：學 baseline（`swallowed_rate`，平常就有一點的看變多沒有），另外不用學的規則 `swallowed` ≥ 5% 就報。k3s 實測：「吞掉的例外：rca-wip-worker GET /wip → … SELECT LOT_HISTORY → oracle（100% 的請求丟了 System.TimeoutException，但沒標成錯誤）」。尾端取樣也會把這種 trace 全部留下（規則 `exception`）。
 
 ### 四、非同步、訊息佇列
 

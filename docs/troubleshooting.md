@@ -8,10 +8,10 @@
 
 | 症狀 | 原因 | 做法 |
 |---|---|---|
-| key 作廢或打錯期間，資料整批不見、補不回來 | OTLP 出口只對連不上、逾時、429、502、503、504 重試；401 當永久錯誤直接丟，沒有設定可改 | 換 key 一律用 `telemetry/scripts/rotate-writer-key.sh`（先發新的、換進 Secret、Collector 換用後才作廢舊的；Collector 從檔案讀 key，不用重啟）。監控 Collector `:8888/metrics` 的 `otelcol_exporter_send_failed_metric_points`、`otelcol_exporter_send_failed_log_records`，大於 0 就是有資料被丟 |
+| key 作廢或打錯期間，資料一直送不進去 | 出口（`elasticsearch` 寫入元件）的 `retry_on_status` 含 401（為了 ES 剛起來那一秒多），key 錯也會一直重試，資料留在佇列；佇列滿了才丟 | 換 key 一律用 `telemetry/scripts/rotate-writer-key.sh`（先發新的、換進 Secret、Collector 換用後才作廢舊的；Collector 從檔案讀 key，不用重啟）。監控 Collector `:8888/metrics` 的 `otelcol_exporter_send_failed_metric_points`、`otelcol_exporter_send_failed_log_records`，大於 0 就是有資料被丟 |
 | ES 限流（429）時資料晚到好幾分鐘 | ES 對整個請求回 429，Collector 退避重試（最多 30 秒一次） | 不會掉（實測每秒 3,000 行、ES 拒絕 902 次，掉 0）；只是晚到 |
 | Collector log 出現 `Partial success ... dropped` | ES 拒收其中幾筆（例如欄位型別衝突，400），那幾筆丟掉 | 監控這行。`CONFLICT`（409）是重送的被 `_id` 擋掉，屬於正常去重複，不算遺失 |
-| 連線逾時時資料不見 | `elasticsearch` 寫入元件逾時直接丟 | 用 OTLP 出口，不要換回 `elasticsearch` 寫入元件（[metrics/README.md](metrics/README.md#為什麼用-otlp-送不用-elasticsearch-寫入元件)） |
+| ES 停機那一刻前後約 10 秒的資料不見 | ES 的 IP 消失、連線變成送出去沒人理（`dial tcp … i/o timeout`），`elasticsearch` 寫入元件這種逾時不重試 | ES 前面放 LB／VIP＋健康檢查，主機掛掉時回拒絕或 503（[metrics/README.md](metrics/README.md#為什麼用-elasticsearch-寫入元件不用-otlp-送)） |
 | 兩個 cluster 的資料混在一起 | `CLUSTER_NAME` 沒改（它是每筆的 `k8s.cluster.name`，metrics 的資料流名稱裡沒有它） | 每個 cluster 部署時一定要改 |
 | 改了部門，資料還進舊的 group | dept 清單有兩處：`telemetry/groups.yaml` 和 `common.yaml` 的 `transform/group` | 兩處一起改。改 namespace 的 `dept` label 後 0～3 秒生效，五種資料同時切；Prometheus 要等下一次抓（最多 30 秒） |
 | 平台元件（kube-system 等）的資料在 unassigned | 這些 namespace 沒有 `dept` | 正常，跟 metrics 的兜底 tenant 同義 |
@@ -37,7 +37,7 @@
 | log 有 trace_id，用 `trace_id` 卻查不到 trace | 值不是 32 個 hex（印錯、截斷、GUID 帶減號）；pipeline 不設 `trace.id` | 看 `app.trace_id_invalid`，改應用的 log 設定 |
 | 開了 `otel.logs.exporter: otlp`，同一行 log 有兩筆 | stdout 那份（檔案）＋ agent 直送那份；內容指紋不同，不會去重 | 預期行為；查詢時用 `log.source: otlp`（或 `file`）只取一份 |
 | 用 Datadog 的服務 log 綁不到 trace | `dd.trace_id` 是十進位，對不到 OTel 的 trace | 換 OTel agent；`dd.trace_id` 留在 `app` |
-| node Collector 的 log 佇列只增不減、`otelcol_exporter_sent_log_records` 不動；Collector log 一直 `/_otlp/v1/logs ... context deadline exceeded` | log 用指紋 `_id` 去重，每筆寫入都要在寫入 index 查 `_id`。index 大過 ES 的 page cache 後每筆都讀磁碟（實測 7.77M 筆／1.37GB、heap 1g、容器 2Gi：write 執行緒 94% 在等 IO，一批 2,000 行 > 40 秒）；超過 Collector 逾時 30 秒 → 逾時重送，ES 照做一次，佇列永遠追不上（資料有進 ES、不重複） | 立即：對寫入的 `k8s-*` data stream `_rollover`（新 index 小，查 `_id` 回到記憶體）。長期：ILM 依大小 rollover（寫入 index 要放得進 page cache）、ES 記憶體、Collector 逾時要大於 ES 一批的處理時間（[2026-10-load-test.md](pdca/phase1-collect/2026-10-load-test.md)） |
+| node Collector 的 log 佇列只增不減、`otelcol_exporter_sent_log_records` 不動；Collector log 一直 `context deadline exceeded` | log 用指紋 `_id` 去重，每筆寫入都要在寫入 index 查 `_id`。index 大過 ES 的 page cache 後每筆都讀磁碟（實測 7.77M 筆／1.37GB、heap 1g、容器 2Gi：write 執行緒 94% 在等 IO，一批 2,000 行 > 40 秒）；超過 Collector 逾時 30 秒 → 逾時重送，ES 照做一次，佇列永遠追不上（資料有進 ES、不重複） | 立即：對寫入的 `k8s-*` data stream `_rollover`（新 index 小，查 `_id` 回到記憶體）。長期：ILM 依大小 rollover（寫入 index 要放得進 page cache）、ES 記憶體、Collector 逾時要大於 ES 一批的處理時間（[2026-10-load-test.md](pdca/phase1-collect/2026-10-load-test.md)） |
 | Java stack trace 變成很多筆 | 純文字 log 一行一筆 | 標準格式是 JSON（stack trace 在一個欄位）；沒照標準的服務 AIOps 效果較差 |
 | 節點用 Docker 當 runtime 的 cluster 收不到 log | log 檔在 `/var/lib/docker/containers` | 另外掛這個目錄。RKE2、k3s 是 containerd，不需要 |
 
@@ -97,7 +97,7 @@
 
 | 症狀 | 原因 | 做法 |
 |---|---|---|
-| 規則狀態 Error，ES 回 400 | Grafana 的 terms 預設用 `_term` 排序，ES 9 不認得 | 每個 terms 都寫 `orderBy: _count`（`engine/configs/grafana/alert-rules.yaml` 已寫） |
+| 規則狀態 Error，ES 回 400 | Grafana 的 terms 預設用 `_term` 排序，ES 不認得（實測 9.5；8.19 也已不支援 `_term`） | 每個 terms 都寫 `orderBy: _count`（`engine/configs/grafana/alert-rules.yaml` 已寫） |
 | data source 測試回 403 | Grafana 會先打 `GET /` 看版本 | key 要有 cluster `monitor` 權限（`elasticsearch-setup.sh` 的 Grafana 唯讀 key 已給） |
 | 同一件事每分鐘收到「舊的 resolved＋新的 firing」 | `summary` 是告警的 label，內容一變就是另一則 | engine 寫的 summary 不放「持續 N 分鐘」「等 N 項異常」這種每分鐘會變的字（`engine/investigator/alerts.py`） |
 | 件還開著，Grafana 卻發 resolved，之後又 firing | 一件只有一筆、每輪覆蓋；Grafana 的查詢範圍到「排定的評估時間」為止，查詢晚幾秒才送出。覆蓋剛好落在這幾秒之間時，`@timestamp` 晚於範圍結束點，查到 0 筆 | engine 寫開著的件和心跳時，`@timestamp` 往前 1 分鐘（`cmd_alert.STAMP_LAG`）。驗證：`e2e/pipeline/run-alert-flap.py` |
@@ -154,11 +154,11 @@
 | port-forward 一用就 `curl: (52) Empty reply from server` | ES Pod 被重建（別的任務重啟），舊的 port-forward 斷了 | 重開；`sdk-inject` 腳本斷了會自己重連 |
 | Pod 一直 Pending：`Insufficient memory`，節點其實還有空 | initContainer 只寫 limit，request 也算成 limit（例如 2Gi） | 同時寫 request（`sdk-inject/dotnet.yaml` 的編譯寫 512Mi） |
 | `run-e2e.sh` 跑完 ES 就連不上 | 腳本結束時關掉自己開的 port-forward | 自己另開 `kubectl port-forward --address 127.0.0.1 svc/elasticsearch 29200:9200` |
-| 寫 ES 的 OTLP 入口一直逾時、`_cat` 被重設，最後 WSL 回 `Wsl/Service/0x8007274c` | 好幾個測試 ES（各 512MB heap）加共用 cluster 擠在同一個 VM，記憶體 98%、load 100 以上 | 同一時間只開一個測試 ES（拿名額），用完 `nerdctl rm -f` |
+| 寫測試 ES 一直逾時、`_cat` 被重設，最後 WSL 回 `Wsl/Service/0x8007274c` | 好幾個測試 ES（各 512MB heap）加共用 cluster 擠在同一個 VM，記憶體 98%、load 100 以上 | 同一時間只開一個測試 ES（拿名額），用完 `nerdctl rm -f` |
 | 想把 4 週前的合成 metrics 寫進 `metrics-*.otel-*` | TSDS 的 `index.look_back_time` 上限 7 天 | 測試用 data stream 另建 standard mode 的 template（`baseline_edge_e2e.setup`）；欄位型別、聚合結果一樣 |
 | Rancher Desktop 設定的 VM 記憶體沒作用 | Windows 上 VM 大小由 WSL 決定（預設主機的一半） | 改 `~/.wslconfig` |
 | 本機 ES 一直 `Connection reset`、逾時，ES log「writing cluster state took 58s」，之後 nerdctl、kubectl 都連不上 | 同時起 5 台 ES 加共用 cluster：WSL 記憶體 7.7GB 用光、swap 滿、load 200 以上 | 同一時間只開 1 台自己的 ES（scratchpad 的 `es-slot.sh` 拿名額），用完 `nerdctl rm -f` |
-| 合成 metrics 灌進 TSDS 前先建欄位，報 `Cannot update parameter [time_series_metric]` | 欄位型別要跟 ES OTLP 入口建的一樣（直方圖帶 `time_series_metric: histogram`） | bulk 用 `dynamic_templates`（`gauge_double`、`exponential_histogram`）；已有的欄位不再送（`tests/rules_edge_e2e.py`） |
+| 合成 metrics 灌進 TSDS 前先建欄位，報 `Cannot update parameter [time_series_metric]` | 欄位型別要跟 Collector 寫進去時 ES 自動建的一樣（ES 8.19 的 `histogram` 沒有 `time_series_metric`） | bulk 用 `dynamic_templates`（`gauge_double`、`histogram`）；已有的欄位不再送（`tests/rules_edge_e2e.py`） |
 | e2e 腳本 `jq: command not found` | 這台沒有 jq | `winget install jqlang.jq` |
 | `elasticsearch-setup.sh`、e2e 腳本在已有資料的 ES 上 `curl: (3) URL rejected: Malformed input` | Windows 的 `jq.exe` 在 Git Bash 裡把換行輸出成 CRLF，`$(jq ...)` 拿到的名稱帶 `\r` | 用 `jq -b`（`--binary`）：PATH 前面放一個 `exec jq.exe -b "$@"` 的 `jq`。Linux 不會發生 |
 | `KUBECONFIG` 有設，kubectl 卻連 `localhost:8080` | 腳本那行有 `MSYS_NO_PATHCONV=1`，`/c/...` 的路徑沒被轉換 | `KUBECONFIG` 用 `C:/...`（`cygpath -m`） |

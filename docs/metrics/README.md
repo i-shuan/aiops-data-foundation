@@ -67,18 +67,19 @@ log 也由同一個 Collector 收（[log/README.md](../log/README.md)）：分�
 
 現在的做法看的是每筆資料標的 Pod 或物件，所以 kubelet、k8s_cluster 的資料也會分到那個 Pod 的 group，而且不吃任何特定版本的功能。
 
-## 為什麼用 OTLP 送，不用 elasticsearch 寫入元件
+## 為什麼用 elasticsearch 寫入元件，不用 OTLP 送
 
-OpenTelemetry Collector 有專門寫 ES 的 `elasticsearch` 寫入元件，一開始用的是它。ES 停機測試發現它會掉資料，所以改成用 OTLP 送到 ES 9 自己的 OTLP 入口（`/_otlp/v1/metrics`）：
+公司的 ES 是 8.19，沒有 ES 9 自己的 OTLP 入口（`/_otlp/v1/*`），所以 Collector 用 `elasticsearch` 寫入元件（`mapping: otel`）寫進 ES 內建的 `*-otel` data stream；寫出來的資料流名稱、欄位、分流跟 OTLP 入口一樣，中央 pipeline 照用（[2026-10 相容性紀錄](../pdca/meta/2026-10-compat-es8-grafana13.md)）。
 
-| | `elasticsearch` 寫入元件 | OTLP 送到 ES 的 OTLP 入口（現在用的） |
+這個元件預設的重試會掉資料，所以設定（`telemetry/collectors/common.yaml`）改成這樣（[實測](../pdca/meta/2026-10-collector-es-exporter.md)）：
+
+| 預設的行為 | 改成 | 為什麼 |
 |---|---|---|
-| 連線逾時、沒拿到 HTTP 回應 | **當成永久錯誤，整批丟掉**，log 只有一行 `Exporting failed. Dropping data.` | 重試，直到送成功 |
-| 重試設定 | 只能指定哪些 HTTP 狀態碼要重試，管不到連線錯誤 | `retry_on_failure`，`max_elapsed_time: 0` 表示一直重試 |
-| ES 停 3 分鐘 | 停機期間 18 筆應用 metrics 只剩 1 筆、Pod CPU 0 筆 | 全部補齊，ES 恢復後 5 秒內補完 |
-| 資料流名稱、欄位、分流 | 一樣 | 一樣 |
+| 重試只靠元件自己的 `retry`（`max_retries: 2`，幾百毫秒就放棄）；`retry_on_failure` 對它沒作用 | `retry` 一直重試（1 秒起、最多 30 秒一次） | ES 停機期間資料留在佇列，回來再送 |
+| 401 當永久錯誤，整批丟 | `retry_on_status` 加 401（另有 429、502、503、504） | ES 剛起來的一秒多 API key 會被拒；這些狀態整個請求都沒寫入，重送不會重複 |
+| `timeout` 是含重試的總期限，到期那批丟 | `timeout: 0` | 停機或連線掛住超過期限也不丟 |
 
-⚠️ 連線逾時在正式環境很常見：網路中斷、防火牆擋掉、ES 整台當機都是。測試裡把 ES 停掉時，連線也是逾時，不是被拒絕。
+結果：ES 沒回應 90 秒 0 遺失；ES 停機 180 秒只掉停機那一刻前後約 10 秒（3%）——ES 的 IP 消失、連線變成送出去沒人理時，這個元件不重試。正式環境 ES 前面要有 LB／VIP＋健康檢查，主機掛掉時回拒絕或 503，就不是這種情況。
 
 ## 還沒做
 

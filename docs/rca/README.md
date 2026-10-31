@@ -162,7 +162,7 @@
 
 ### 為什麼不用 exemplar：用「服務＋路由＋時間」撈一批
 
-exemplar（直方圖每格附幾個範例請求的 trace_id）是讓 metrics 直接帶 trace_id 的標準做法，但 **ES 9.5.5 不存 exemplar**：四種型別（exponential histogram、histogram、counter、gauge）各夾一個 exemplar，送 ES 的 `/_otlp/v1/metrics`、或經 Collector（contrib 0.162.0）的 `elasticsearch` exporter（otel 模式），數值都存了，`_source`、mapping、全文搜尋都找不到 exemplar 和 trace_id（Collector 的 debug 輸出有，寫進 ES 時沒存）。就算存得下來，exemplar 也只是一個樣本、不保證是造成異常的那個請求；正常的 trace 只留 5%，點過去約 95% 查不到。
+exemplar（直方圖每格附幾個範例請求的 trace_id）是讓 metrics 直接帶 trace_id 的標準做法，但 **ES 不存 exemplar**（實測 9.5.5；8.19.23 經 `elasticsearch` exporter 也一樣）：四種型別（exponential histogram、histogram、counter、gauge）各夾一個 exemplar，送 ES 的 `/_otlp/v1/metrics`、或經 Collector（contrib 0.162.0）的 `elasticsearch` exporter（otel 模式），數值都存了，`_source`、mapping、全文搜尋都找不到 exemplar 和 trace_id（Collector 的 debug 輸出有，寫進 ES 時沒存）。就算存得下來，exemplar 也只是一個樣本、不保證是造成異常的那個請求；正常的 trace 只留 5%，點過去約 95% 查不到。
 
 | | A：exemplar 抽出來另存成 log 文件 | **B：用服務＋路由＋時間撈一批慢的、錯的 trace（採用）** |
 |---|---|---|
@@ -247,7 +247,7 @@ exemplar（直方圖每格附幾個範例請求的 trace_id）是讓 metrics 直
 
 **目前接不起來、或接得不好的：**
 
-1. **metrics 沒帶 trace_id**：exemplar（metrics 裡夾帶當時某個請求的 trace_id）在這個架構用不了：實測（ES 9.5.5、otelcol-contrib 0.162.0）帶 exemplar 的 OTLP metrics，直接送 ES 的 `/_otlp/v1/metrics`（正式的路線）或經 Collector 的 elasticsearch exporter（otel mode），存進去都沒有 exemplar（`_source`、mapping、全文搜尋都找不到 trace_id）。所以用「服務＋時間」代替：異常那段時間這個服務（有 API 就限定 API）的 Server span，取最慢的 200 個＋最慢的出錯的最多 100 個（`rca.yaml` 的 `sample`），瀑布圖和依 trace_id 撈 log 只用其中最慢的一個。效果接近，但不是「那一個點」的請求。
+1. **metrics 沒帶 trace_id**：exemplar（metrics 裡夾帶當時某個請求的 trace_id）在這個架構用不了：實測（ES 9.5.5、8.19.23，otelcol-contrib 0.162.0）帶 exemplar 的 OTLP metrics，直接送 ES 9 的 `/_otlp/v1/metrics` 或經 Collector 的 elasticsearch exporter（otel mode，正式的路線），存進去都沒有 exemplar（`_source`、mapping、全文搜尋都找不到 trace_id）。所以用「服務＋時間」代替：異常那段時間這個服務（有 API 就限定 API）的 Server span，取最慢的 200 個＋最慢的出錯的最多 100 個（`rca.yaml` 的 `sample`），瀑布圖和依 trace_id 撈 log 只用其中最慢的一個。效果接近，但不是「那一個點」的請求。
 2. **.NET 的 Kafka 消費者（不改程式）**：處理訊息時的 DB、呼叫自成一個 trace，對不回訊息，只能用服務＋時間接 log（[trace/scenarios.md 場景四](../trace/scenarios.md#四非同步訊息佇列)）。
 3. **單一 Pod 的異常**：上表最後一列，待辦。
 4. **多個異常還不會合併成一件事**：同一個服務的錯誤率、p95、連線池同時報，現在是三筆、各跑一次根因分析。

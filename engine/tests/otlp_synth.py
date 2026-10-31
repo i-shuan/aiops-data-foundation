@@ -1,120 +1,22 @@
-"""合成資料用。兩條路：
+"""合成資料用：直接用 _bulk 寫出跟 Collector 的 elasticsearch 寫入元件（otel mode）寫進 ES 8.19 一樣的文件。
 
-1. metric_doc＋bulk：直接用 _bulk 寫出跟 Collector 的 elasticsearch 寫入元件在 ES 8.19 寫出來一樣的 metrics 文件
-   （k3d 實測的 _source：直方圖是 histogram {"values": […], "counts": […]}、沒有 temporality、sum 另存成 <名稱>_sum、
-   _metric_names_hash、start_timestamp；docs/pdca/meta/2026-10-metrics-es8-shape.md）。ES 8、9 都能寫。
-2. metrics_request、logs_request＋post：編成 OTLP protobuf 送 ES 9 自己的 OTLP 入口（/_otlp/v1/metrics、/_otlp/v1/logs）。
-   **ES 8.19 沒有這個入口**，只有 ES 9 能用；log 的合成資料目前只有這條路。
-   ES 只收 protobuf（JSON 回 406），venv 沒有 protobuf 套件，這裡手寫最小的編碼器。
+  metrics：metric_doc → metrics-<dataset>.otel-<namespace>（k3d 實測的 _source：直方圖是 histogram
+           {"values": […], "counts": […]}、沒有 temporality、sum 另存成 <名稱>_sum、_metric_names_hash、start_timestamp；
+           docs/pdca/meta/2026-10-metrics-es8-shape.md）
+  log    ：log_doc → logs-generic.otel-<namespace>，由 default pipeline k8s-logs-otel 轉到 k8s-<group>-<cluster>，
+           跟 Collector 送來的走同一條（_id 是 pipeline 算的內容指紋，重送不重複）
 
-只編得出這幾種訊息（欄位編號照 opentelemetry-proto v1）：
-  metrics：ResourceMetrics → ScopeMetrics → Metric(histogram, delta) → HistogramDataPoint
-  logs   ：ResourceLogs → ScopeLogs → LogRecord（severity_text、body 字串）
+ES 8.19 沒有 ES 9 的 OTLP 入口（/_otlp/v1/*），所以不編 OTLP protobuf。
 """
 from __future__ import annotations
 
 import json
-import struct
 import time
 
 import numpy as np
 
 # Java agent、.NET 自動埋點 http.server.request.duration 的預設邊界（秒）：docs/pdca/phase1-collect/2026-10-field-unify.md
 HTTP_BOUNDS = [0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5, 0.75, 1.0, 2.5, 5.0, 7.5, 10.0]
-DELTA = 1
-
-
-def _varint(n: int) -> bytes:
-    n &= (1 << 64) - 1
-    out = bytearray()
-    while True:
-        b = n & 0x7F
-        n >>= 7
-        if n:
-            out.append(b | 0x80)
-        else:
-            out.append(b)
-            return bytes(out)
-
-
-def _key(field: int, wire: int) -> bytes:
-    return _varint((field << 3) | wire)
-
-
-def _len(field: int, payload: bytes) -> bytes:
-    return _key(field, 2) + _varint(len(payload)) + payload
-
-
-def _str(field: int, s: str) -> bytes:
-    return _len(field, s.encode("utf-8"))
-
-
-def _fixed64(field: int, n: int) -> bytes:
-    return _key(field, 1) + struct.pack("<Q", n)
-
-
-def _double(field: int, x: float) -> bytes:
-    return _key(field, 1) + struct.pack("<d", x)
-
-
-def _uint(field: int, n: int) -> bytes:
-    return _key(field, 0) + _varint(n)
-
-
-def _kv(k: str, v) -> bytes:
-    if isinstance(v, bool):
-        any_ = _uint(2, int(v))
-    elif isinstance(v, int):
-        any_ = _uint(3, v)
-    elif isinstance(v, float):
-        any_ = _double(4, v)
-    else:
-        any_ = _str(1, str(v))
-    return _str(1, k) + _len(2, any_)
-
-
-def _attrs(field: int, attrs: dict) -> bytes:
-    return b"".join(_len(field, _kv(k, v)) for k, v in attrs.items())
-
-
-def histogram_point(attrs: dict, start_ns: int, t_ns: int, counts: list[int], total: float,
-                    bounds=HTTP_BOUNDS, vmin: float | None = None, vmax: float | None = None) -> bytes:
-    """HistogramDataPoint：attributes=9、start=2、time=3、count=4、sum=5、bucket_counts=6（packed fixed64）、
-    explicit_bounds=7（packed double）、min=11、max=12。"""
-    n = int(sum(counts))
-    out = _attrs(9, attrs) + _fixed64(2, start_ns) + _fixed64(3, t_ns) + _fixed64(4, n) + _double(5, float(total))
-    out += _len(6, b"".join(struct.pack("<Q", int(c)) for c in counts))
-    out += _len(7, b"".join(struct.pack("<d", b) for b in bounds))
-    if n and vmin is not None:
-        out += _double(11, float(vmin)) + _double(12, float(vmax))
-    return out
-
-
-def metrics_request(groups: list[tuple[dict, list[bytes]]], name: str = "http.server.request.duration",
-                    unit: str = "s") -> bytes:
-    """groups：[(resource attributes, [HistogramDataPoint, …])]。每個 resource 一個 ResourceMetrics。"""
-    rms = b""
-    for res, points in groups:
-        hist = b"".join(_len(1, p) for p in points) + _uint(2, DELTA)
-        metric = _str(1, name) + _str(3, unit) + _len(9, hist)
-        scope = _len(1, _str(1, "bedge-synth")) + _len(2, metric)
-        rms += _len(1, _len(1, _attrs(1, res)) + _len(2, scope))
-    return rms
-
-
-def log_record(t_ns: int, severity: str, body: str, attrs: dict | None = None) -> bytes:
-    """LogRecord：time=1、severity_text=3、body=5（AnyValue string）、attributes=6、observed_time=11。"""
-    sev_num = {"TRACE": 1, "DEBUG": 5, "INFO": 9, "WARN": 13, "ERROR": 17, "FATAL": 21}.get(severity.upper(), 9)
-    out = _fixed64(1, t_ns) + _uint(2, sev_num) + _str(3, severity) + _len(5, _str(1, body)) + _fixed64(11, t_ns)
-    return out + _attrs(6, attrs or {})
-
-
-def logs_request(groups: list[tuple[dict, list[bytes]]]) -> bytes:
-    out = b""
-    for res, records in groups:
-        scope = _len(1, _str(1, "bedge-synth")) + b"".join(_len(2, r) for r in records)
-        out += _len(1, _len(1, _attrs(1, res)) + _len(2, scope))
-    return out
 
 
 def es_histogram(counts: list[int], bounds) -> dict:
@@ -137,18 +39,8 @@ def bucketize(latencies: np.ndarray, bounds=HTTP_BOUNDS) -> list[int]:
     return np.bincount(idx, minlength=len(bounds) + 1).tolist()
 
 
-def post(es, path: str, payload: bytes) -> None:
-    r = es.s.post(f"{es.url}{path}", data=payload, headers={"Content-Type": "application/x-protobuf"}, timeout=300)
-    if r.status_code != 200:
-        raise RuntimeError(f"{path} → {r.status_code}: {r.text[:300]}")
-    # 部分拒收時 ES 回 200 但帶 partial_success（protobuf）；有內容就當失敗，免得默默少資料
-    if r.content and len(r.content) > 2:
-        raise RuntimeError(f"{path} 部分拒收：{r.content[:300]!r}")
-
-
-# ── 同樣的文件改用 _bulk 寫（可以帶 _id，逾時重送不會重複）──
-
 METRIC = "metrics.http.server.request.duration"
+METRIC_TEMPLATES = {METRIC: "histogram", METRIC + "_sum": "gauge_double"}
 NAMES_HASH = "30292700b84da900"   # _metric_names_hash：Collector 依文件裡的指標名稱算的；合成資料全部一樣，照 k3d 上實際那筆
 
 
@@ -164,6 +56,16 @@ def metric_doc(res: dict, attrs: dict, start_ns: int, t_ns: int, counts: list[in
             "metrics": {"http.server.request.duration": es_histogram(counts, HTTP_BOUNDS), "http.server.request.duration_sum": float(total)}}
 
 
+def log_doc(res: dict, t_ns: int, severity: str, body: str, attrs: dict | None = None) -> dict:
+    """應用用 OTLP 直送的一筆 log（沒有 log.iostream，pipeline 記成 log.source: otlp），寫進 logs-generic.otel-<namespace>。
+    形狀照 elasticsearch 寫入元件 otel mode：@timestamp 毫秒、body.text、severity_text、resource.attributes、attributes。"""
+    r = {k: v for k, v in res.items() if not k.startswith("data_stream.")}
+    return {"@timestamp": t_ns // 1_000_000, "observed_timestamp": t_ns // 1_000_000,
+            "data_stream": {"type": "logs", "dataset": "generic.otel", "namespace": res["data_stream.namespace"]},
+            "resource": {"attributes": r}, "scope": {"name": "bedge-synth"}, "attributes": attrs or {},
+            "severity_text": severity, "body": {"text": body}}
+
+
 def _retry(fn, what: str, tries: int = 8):
     for i in range(tries):
         try:
@@ -175,13 +77,13 @@ def _retry(fn, what: str, tries: int = 8):
             time.sleep(30 * (i + 1))
 
 
-def bulk(es, index: str, docs: list[tuple[str, dict]], chunk: int = 2000) -> None:
-    """op_type create＋固定 _id：已經有的（409）算成功，所以逾時重送是安全的。"""
+def bulk(es, index: str, docs: list[tuple[str | None, dict]], chunk: int = 2000, templates: dict | None = METRIC_TEMPLATES) -> None:
+    """op_type create＋固定 _id（_id 是 None 時由 pipeline 算）：已經有的（409）算成功，所以逾時重送是安全的。"""
     for i in range(0, len(docs), chunk):
         lines = []
         for _id, d in docs[i:i + chunk]:
-            lines.append(json.dumps({"create": {"_index": index, "_id": _id,
-                                                "dynamic_templates": {METRIC: "histogram", METRIC + "_sum": "gauge_double"}}}))
+            meta = {"_index": index, **({"_id": _id} if _id is not None else {}), **({"dynamic_templates": templates} if templates else {})}
+            lines.append(json.dumps({"create": meta}))
             lines.append(json.dumps(d))
         payload = "\n".join(lines) + "\n"
 
@@ -192,12 +94,3 @@ def bulk(es, index: str, docs: list[tuple[str, dict]], chunk: int = 2000) -> Non
             if r.status_code != 200 or bad:
                 raise RuntimeError(f"bulk {r.status_code}：{bad[:2] or r.text[:300]}")
         _retry(send, f"bulk {index} 第 {i} 筆起")
-
-
-def post_retry(es, path: str, payload: bytes) -> None:
-    """OTLP 重送：log 的 _id 是內容指紋（k8s-logs-otel），重送的那幾筆 ES 回 409、不會重複，所以部分拒收不算錯。"""
-    def send():
-        r = es.s.post(f"{es.url}{path}", data=payload, headers={"Content-Type": "application/x-protobuf"}, timeout=900)
-        if r.status_code != 200:
-            raise RuntimeError(f"{path} → {r.status_code}: {r.text[:300]}")
-    _retry(send, path)

@@ -71,15 +71,14 @@ def metric_docs(es: ES, start: datetime, end: datetime, route: str | None = None
 
 
 def doc_count(d: dict) -> int:
-    h = d["metrics"]["http.server.request.duration"]
-    return sum(h.get("positive", {}).get("counts", [])) + sum(h.get("negative", {}).get("counts", [])) + h.get("zero", {}).get("count", 0)
+    """ES 8.19 的 histogram：{"values": [...], "counts": [...]}，counts 加起來是請求數。"""
+    return sum(d["metrics"]["http.server.request.duration"].get("counts", []))
 
 
 def max_s(d: dict) -> float:
-    """這筆直方圖最慢那格的值（秒）。ES 存成指數直方圖：第 i 格約 2^(i / 2^scale)。"""
+    """這筆直方圖最慢那格的值（秒）。values 是每格的中點（Collector 的 elasticsearch 寫入元件換算的）。"""
     h = d["metrics"]["http.server.request.duration"]
-    pos = h.get("positive", {})
-    return max((2 ** (i / 2 ** h["scale"]) for i, c in zip(pos.get("indices", []), pos.get("counts", [])) if c), default=0.0)
+    return max((v for v, c in zip(h.get("values", []), h.get("counts", [])) if c), default=0.0)
 
 
 def metric_count(es: ES, start: datetime, end: datetime, route: str) -> tuple[int, float]:

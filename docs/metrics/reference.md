@@ -37,7 +37,7 @@
 
 AIOps 要把 log 和 metrics 串起來，用 `service.name` 加 `k8s.namespace.name`（log 那邊是 `kubernetes.namespace`）加時間。
 
-**metrics 帶不了 trace_id。** OTLP metrics 的 exemplar（帶 trace_id）寫進 ES 時會被丟掉：送到 `/_otlp/v1/metrics`、或用 Collector 的 `elasticsearch` 寫入元件（otel mode）都一樣，`_source`、mapping、全文搜尋都找不到 trace_id（實測 ES 9.5.5、Collector contrib 0.162.0）。要從 metrics 找 trace，用服務、時間範圍去查。
+**metrics 帶不了 trace_id。** OTLP metrics 的 exemplar（帶 trace_id）寫進 ES 時會被丟掉：送到 `/_otlp/v1/metrics`、或用 Collector 的 `elasticsearch` 寫入元件（otel mode）都一樣，`_source`、mapping、全文搜尋都找不到 trace_id（實測 ES 9.5.5、8.19.23，Collector contrib 0.162.0）。要從 metrics 找 trace，用服務、時間範圍去查。
 
 ### 應用的請求數、錯誤、延遲（AIOps baseline 用）
 

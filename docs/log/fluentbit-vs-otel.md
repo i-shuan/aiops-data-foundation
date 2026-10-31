@@ -14,7 +14,7 @@
 ```
 OTel Collector（比較時另開一個 DaemonSet；現在是 telemetry/collectors 的節點 Collector）
    file_log 讀 /var/log/pods → 補 K8s 資訊與 namespace 的 dept → dept → group（跟 metrics 同一套規則）
-   → 依 group 用各自的 key，OTLP 送到 ES 的 /_otlp/v1/logs → logs-generic.otel-<group>
+   → elasticsearch 寫入元件（otel mode）寫進 logs-generic.otel-<group>（比較當時是 OTLP 送 ES 9 的 /_otlp/v1/logs，形狀一樣）
         ↓ 中央 ES：logs-otel@custom 讓這些資料先跑 k8s-logs-otel
         ↓ k8s-logs-otel：整理成 Fluent Bit 的形狀、算 _id、轉到 k8s-<group>-<cluster>、呼叫 k8s-logs
    k8s-<group>-<cluster>（跟 Fluent Bit 同一個資料流、同一條 pipeline）

@@ -4,8 +4,8 @@
   metrics → metrics-bedge.otel-it、metrics-btune.otel-it：http.server.request.duration 直方圖（ES 8.19 的 histogram：
             values＋counts，sum 另存 _sum）、resource.attributes.service.name 是 Pod label 的值、30 秒一筆、差值。
             用 _bulk 寫跟 Collector 在 k3d 上寫出來一樣的 _source（帶 _id，ES 慢、逾時重送不會重複）。
-  log     → 走 /_otlp/v1/logs → logs-generic.otel-it → k8s-logs-otel pipeline → k8s-it-bedge（_id 是內容指紋，重送不重複）。
-            **ES 8.19 沒有 /_otlp 入口**：log 這段只有 ES 9 能跑，8.19 上要先改成 _bulk 寫（未做）
+  log     → _bulk 寫 logs-generic.otel-it（Collector 寫出來的形狀）→ k8s-logs-otel pipeline → k8s-it-bedge
+            （_id 是內容指紋，重送不重複）
 metrics 的 data stream 用 standard mode（同一組 component template）：TSDS 的 look_back_time 上限 7 天，寫不進 4 週前的資料；
 欄位型別、聚合結果一樣（baseline 只用聚合）。
 
@@ -276,12 +276,11 @@ def write_logs(es: ES, seed: int) -> int:
     recs = []
     for t, ni, ne in zip(ts, info, err):
         base = t.value
-        recs += [O.log_record(base + k * 1_000_000, "INFO", f"handled request {k}") for k in range(ni)]
-        recs += [O.log_record(base + (ni + k) * 1_000_000, "ERROR", f"db timeout {k}") for k in range(ne)]
+        recs += [(None, O.log_doc(res, base + k * 1_000_000, "INFO", f"handled request {k}")) for k in range(ni)]
+        recs += [(None, O.log_doc(res, base + (ni + k) * 1_000_000, "ERROR", f"db timeout {k}")) for k in range(ne)]
     have = count_docs(es, LOG_INDEX, "resource.attributes.service.name", "svc-logs")
     if have != len(recs):
-        for i in range(0, len(recs), 2000):
-            O.post_retry(es, "/_otlp/v1/logs", O.logs_request([(res, recs[i:i + 2000])]))
+        O.bulk(es, "logs-generic.otel-it", recs, templates=None)   # k8s-logs-otel 轉到 k8s-it-bedge
     print(f"  svc-logs：{len(recs)} 筆 log（error {int(err.sum())} 筆）{'，已經寫過' if have == len(recs) else ''}", flush=True)
     return len(recs)
 

@@ -6,7 +6,7 @@ ES 裡的欄位。為什麼這樣設計見 [README.md](README.md)，怎麼做見
 
 ## 欄位
 
-用 OTel 原生的格式存（ES 9 內建的 `traces-otel@template`，logsdb 模式）：
+用 OTel 原生的格式存（ES 8.19 以上內建的 `traces-otel@template`，logsdb 模式）：
 
 | 欄位 | 內容 |
 |---|---|
