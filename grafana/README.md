@@ -1,6 +1,6 @@
 # Grafana：讀 aiops-alerts 發通知
 
-AIOps 把異常合成「一件事」寫進 `aiops-alerts`（`python3 -m investigator alert`，見 [configs/rca](../aiops-engine/code/configs/rca/README.md)）；**通知交給 Grafana**：送到哪、依 dept 分送、夜間、靜音、恢復通知都在 Grafana 設（[pdca/phase3-locate/2026-10-alert-exit.md](../../../../docs/pdca/phase3-locate/2026-10-alert-exit.md)）。
+AIOps 把異常合成「一件事」寫進 `aiops-alerts`（`python3 -m investigator alert`，見 [configs/rca](../aiops-engine/code/configs/rca/README.md)）；**通知交給 Grafana**：送到哪、依 dept 分送、夜間、靜音、恢復通知都在 Grafana 設（[pdca/phase3-locate/2026-10-alert-exit.md](../docs/pdca/phase3-locate/2026-10-alert-exit.md)）。
 
 `code/` 是 Grafana provisioning 的檔，管 Grafana 的人照著改；`helmchart/` 是沒有現成 Grafana 時裝一台的 chart（見下面「部署」）：
 
@@ -40,7 +40,7 @@ helm upgrade --install grafana grafana/helmchart -n grafana \
 - 告警規則查「最近 5 分鐘 `@timestamp`、`status: open`」，依 `alert_id`（再帶 `service`、`dept`、`group`、`severity`、`summary`、`report_url`）分組：**每一件一個告警**。
 - 件結束（30 分鐘沒新的異常）→ `status: resolved` → 查不到 → Grafana 發恢復通知。
 - `investigator alert` 停了：所有件都查不到，Grafana 會當成全部恢復。所以它每次跑都寫一筆心跳（`_id: heartbeat`、`status: ok`），第二條規則 `aiops-heartbeat` 查 10 分鐘內有沒有心跳，沒有就送平台（`noDataState: Alerting`）。**ES 連不上時**發的是 Grafana 自己的 `DatasourceError`（`execErrState: Error`），不是這條的標題，而且兩條規則各發一則。
-- 開著的件、心跳的 `@timestamp` 是「最後一次看到」往前 1 分鐘：一件只有一筆、每輪覆蓋，往前寫才不會落在 Grafana 排定評估與送出查詢之間、被當成恢復（[troubleshooting](../../../../docs/troubleshooting.md#grafana-告警)）。
+- 開著的件、心跳的 `@timestamp` 是「最後一次看到」往前 1 分鐘：一件只有一筆、每輪覆蓋，往前寫才不會落在 Grafana 排定評估與送出查詢之間、被當成恢復（[troubleshooting](../docs/troubleshooting.md#grafana-告警)）。
 - `summary` 是 Grafana 的 label：內容一變就是另一則（舊的 resolved、新的 firing）。所以 `investigator alert` 寫的 summary 不放「持續 N 分鐘」、「等 N 項異常」這種每分鐘會變的字（Grafana 自己會顯示從何時開始；筆數看 `title`、`anomaly_count`）。
 - 通知裡的「回饋」連結：`aiops-alerts.feedback_url`（`rca.yaml` 的 `alerts.feedback_url`，指到 [aiops-engine/code/feedback_web](../aiops-engine/code/feedback_web/__init__.py)）。要帶進通知，在 annotations 再加一個 `feedback: "{{ $labels.feedback_url }}"`，bucketAggs 多一個 terms `feedback_url`（跟 `report_url` 一樣的寫法）。
 

@@ -95,7 +95,7 @@ Collector 的佇列寫節點磁碟：ES 停機 30 分鐘、Collector 換版都�
 
 ### 怎麼套用
 
-- raw：`traces-otel@custom`（ES 內建模板預留）加 `index.lifecycle.name: traces-otel`、`default_pipeline: traces-otel`。
+- raw：`traces-otel@custom`（ES 內建模板預留）加 `index.lifecycle.name: traces-otel`、`default_pipeline: traces-otel`，以及 `event.ingested` 的 mapping（內建模板根層 `dynamic: false`，不補的話這個欄位只在 `_source`、查不到）。已存在的資料流 `elasticsearch-setup.sh` 會 rollover 一次，換到有這個欄位的新 index；rollover 前寫進舊 index 的 span 不會被合成（只影響升級那一刻）。
 - merged：`template-traces-merged.json`（index template，pattern `traces-merged-*`）＋ ILM `traces-merged`；`elasticsearch-setup.sh` 一起裝。
 - 權限：Collector 的寫入 key 只寫 `traces-*.otel-*`；AIOps baseline key 讀 raw、寫 `traces-merged-*`；各部門唯讀角色多 `traces-merged-{group}-*`。
 - 排程表（`aiops-engine/code/configs/schedule/schedule.yaml`）有 `trace-merge` 這一列（stage 1、每分鐘）。

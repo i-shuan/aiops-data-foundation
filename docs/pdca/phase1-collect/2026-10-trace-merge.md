@@ -31,6 +31,8 @@
 | `collector/code/node.yaml`、`helmchart/` | 刪 `loadbalancing/traces` exporter，trace pipeline 直接送 `elasticsearch/es`；刪 `sampler.yaml`、`trace-sampler.yaml`（StatefulSet）、values 的 `traceSampler`、configmap／helpers 的 sampler 項 | 100% 收，不再有取樣那一跳 |
 | `elasticsearch/code/storage/pipeline-traces-otel.json` | 去掉 `reroute` 到 traces-problem；加 `event.ingested` | 沒有分流了；`trace-merge` 靠 `event.ingested` 找「這一分鐘有新 span 的 trace」（`@timestamp` 是 span 開始時間，晚到的找不到） |
 | `elasticsearch/code/storage/template-traces-merged.json`、`ilm-traces-merged.json`（新） | index template `traces-merged-*`：上層摘要欄位、`entries`／`spans` 用 `nested`、`attrs`／`resource` 用 `flattened`；ILM 7 天刪 | 一個請求一筆；屬性欄位名稱不固定，用 `flattened` 不會把 mapping 撐爆 |
+| `elasticsearch/code/storage/traces-otel-custom.json` | mapping 加 `event.ingested: date` | ES 內建 OTel 模板根層 `dynamic: false`：pipeline 寫進去的 `event.ingested` 只在 `_source`、沒被索引，`trace-merge` 查到 0 筆（Rancher Desktop 實測第一輪發現） |
+| `elasticsearch/code/scripts/elasticsearch-setup.sh` | 加 `rollover_if_no_field 'traces-*.otel-*' event.ingested` | mapping 只對新的 backing index 生效，已存在的資料流要換一個 index |
 | `elasticsearch/code/storage/ilm-traces-otel.json`、`scripts/retention.conf` | raw 改 `TRACES_RAW_DELETE_AFTER=2d`；刪 `ilm-traces-problem-otel.json`、`traces-problem-otel-custom.json`、`PROBLEM` 參數 | raw 只是合成前的暫存 |
 | `elasticsearch/code/scripts/elasticsearch-setup.sh` | 裝 merged 的 template／ILM；各部門唯讀角色加 `traces-merged-<group>-*`；aiops-reader 讀 `traces-merged-*`；baseline key 可寫 `traces-merged-*`；刪 traces-problem 區塊 | 根因分析、Grafana 讀 merged；只有 engine 能寫 merged |
 | `aiops-engine/code/detector/trace_merge.py`（新） | `updated_trace_ids`（composite 聚合 `event.ingested` 範圍）→ 讀回全部 span → `build()` 合成一筆（入口、總耗時、錯誤、服務、段數、`entries`、`spans`）→ bulk upsert `_id`=trace_id；進度存 `aiops-state/trace-merge`；`run()` 從上次合到的時間接著合、最多回補 2 天、10 分鐘一段 | 晚到的 span 讓整個 trace 重合一次（覆蓋），合得完整、重跑不重複；pod 停很久能補 |
@@ -40,15 +42,33 @@
 | `configs/rca/rca.yaml` | `indices.traces: traces-merged-*` | 根因分析讀 merged |
 | `core/traces.py`、`investigator/es.py` | 依 index 名稱分 raw／merged 兩條路：merged 用 `nested` 查 `entries.*`、`spans.span_id`，`from_merged()` 展回原本的 span 列表 | 根因分析其餘程式不用改 |
 | `detector/trace.py` | `policy` 註解更新，功能保留 | 沒有標記的 span 照樣抽 |
-| e2e | `run-trace-e2e.sh` 加「7b. 合成一個請求一筆」（跑 `trace-merge`、檢查 merged 文件／摘要／entries／重跑不重複／權限）；`deploy-collector.sh`、durability、stress、keys、sdk-inject、kafka 去掉 trace-sampler；刪 `e2e/k8s/tail-sampling/`；`trace_quality_edge_e2e.py` 的尾端取樣模擬改成全留 | 跟著程式 |
+| e2e | `run-trace-e2e.sh` 加「7b. 合成一個請求一筆」（跑 `trace-merge`、檢查 merged 文件／摘要／entries／重跑不重複／權限）；`run-rca-e2e.sh` 在 investigate 前手動跑一次 `trace-merge`（測試 cluster 沒有 engine pod）、`tests/rca_k3s.yaml` 讀 `traces-merged-*`；`deploy-collector.sh`、durability、stress、keys、sdk-inject、kafka 去掉 trace-sampler；刪 `e2e/k8s/tail-sampling/`；`trace_quality_edge_e2e.py` 的尾端取樣模擬改成全留 | 跟著程式 |
+| e2e（順手） | 10 支腳本的 `${repo}/engine` 改成 `${repo}/aiops-engine/code`；`run-rca-e2e.sh` 建 `rca-lib` configmap 時去掉 `\r` | 元件重整（PR #34）時漏改，這些 e2e 從那之後其實跑不起來；Windows checkout 成 CRLF 時 busybox sh 讀 `lib.sh` 會 syntax error（trace-app 早就這樣處理，rca 漏了） |
 | 文件 | `docs/trace/README.md` 重寫；architecture、retention 三份、rca、troubleshooting、根目錄與 docs README、sdk 埋點指引改成 100% 收／raw／merged | 跟著程式 |
 
 單元測試 `tests/test_trace_merge.py`：合成的摘要（入口、耗時、錯誤、服務）、group 沒有時退回 dept、`from_merged` 來回一致、讀端的 nested 查詢；全部 376 個測試通過。
 
 ## Check：測試的目的與結果
 
-（實作後補）
+環境：Rancher Desktop（單節點）、ES 8.19.23、Collector chart 從 `collector/code` 帶設定。2026-10-31。
+
+| 測什麼 | 怎麼測 | 結果 |
+|---|---|---|
+| 拆掉 trace-sampler 後 Collector 還正常 | `run-e2e.sh`（log 路線 54 項）；新 chart 裝上去 StatefulSet 消失，兩顆 `queue-trace-sampler-*` PVC 手動刪 | 全過 |
+| trace 100% 直接進 raw | `run-trace-e2e.sh` 1～7：三個 namespace 的 trace-app 各送、依 group 分到 `traces-generic.otel-<group>`、冒充擋掉、log 用 trace_id 串得起來、重送同一個 span 只有一筆 | 全過 |
+| 合成一個請求一筆 | `run-trace-e2e.sh` 7b：手動跑 `detector trace-merge --window 15min`，查那個 trace 在 merged 裡 `_id` = trace_id、index 是 `traces-merged-it-2026.10.31`、上層摘要（root service／name／kind、group、span_count、error）、`entries` 是 Server span、`spans[].attrs` 保留、送 3 次的 span 合成後 `span_count` 仍是 1 | 全過；一輪合了 161 個 trace |
+| raw 的每個 trace 都合成一筆 | 同一段時間（測試開始～60 秒前）raw 的 trace_id 數 vs merged 筆數 | 21 = 21 |
+| 重跑不重複 | 再跑一次 `trace-merge`，同一個 trace_id 仍只有 1 筆 | 過 |
+| 權限 | baseline key 可寫 merged、Collector 的寫入 key 不可、IT 唯讀角色含 `traces-merged-it-*` | 全過 |
+| 根因分析讀 merged | `run-rca-e2e.sh`：正常 7 分鐘 → 事故 5 分鐘 → 手動 `trace-merge`（一輪合了 1,531 個 trace）→ investigate 不指定服務、`tests/rca_k3s.yaml` 讀 `traces-merged-*` | 11 項全過：從異常找到 rca-mes-api、瓶頸與錯誤源頭都是 Oracle 那段、最慢那個請求兩個服務的 log 都撈到、呼叫關係 mes-api → wip-worker → oracle |
+| 單元測試 | `pytest`：合成的摘要、group 退回 dept、`from_merged` 來回、讀端 nested 查詢、排程表多一列 | 376 passed |
+
+第一輪實測 7b 合了 0 個 trace：raw 的 `event.ingested` 沒被索引（內建 OTel 模板根層 `dynamic: false`），補 mapping 並 rollover 後才過；另外兩項是測試本身的錯（jq regex 多跳脫一層；比數量時沒排除還在 Collector 批次裡的最後幾十秒），都已修。
 
 ## Act：Check 後沒改善的、還沒解決的
 
-（實作後補）
+- **升級那一刻會漏合**：setup 把舊 raw 資料流 rollover 之前寫進舊 index 的 span 沒有索引的 `event.ingested`，`trace-merge` 看不到；實測從 setup 到 rollover 之間約 9 個 trace 沒合成。只影響第一次升級，之後不會；要補可以對舊 index 跑一次 `update_by_query`（這次不做）。
+- **根因分析慢 1～2 分鐘**：alert 每分鐘跑，看到的 merged 是上一分鐘合好的。事故當下要看即時的查 raw（2 天內）。
+- **merged 不省空間**：`nested` 的每一段內部仍是一筆；100% 收之後容量靠保留天數（raw 2 天、merged 7 天）撐，冷儲存（MinIO）另案。
+- `tests/trace_quality_edge_e2e.py`（自己的 ES 灌合成 trace）這次只把尾端取樣模擬改成全留，沒重跑。
+- `aiops-trace-segments`（trace 每一段的 baseline）還是讀 raw、只看最近 10 分鐘；要改讀 merged 得把 composite 聚合改成 nested，這次不碰。

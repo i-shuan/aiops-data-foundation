@@ -26,7 +26,7 @@ iso() { date -u -d "@$1" +%Y-%m-%dT%H:%M:%SZ; }
 api() { kubectl -n it-mes-prod exec deploy/rca-mes-api -- sh -c "$1"; }
 wip() { kubectl -n imc-wip-prod exec deploy/rca-wip-worker -- sh -c "$1"; }
 cfg=tests/trace_k3s.yaml
-aiops() { (cd "${repo}/engine" && ES_URL="${ES_URL}" ES_API_KEY="${BASELINE_KEY}" python3 -m detector "$@"); }
+aiops() { (cd "${repo}/aiops-engine/code" && ES_URL="${ES_URL}" ES_API_KEY="${BASELINE_KEY}" python3 -m detector "$@"); }
 # anomalies <開始秒> <結束秒>：這段時間 rca 兩個服務的異常，一行一個「數字|服務|段」
 anomalies() {
   es -X POST "${ES_URL}/aiops-anomalies/_refresh" >/dev/null

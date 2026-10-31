@@ -180,6 +180,18 @@ rollover_if_not() {  # rollover_if_not <資料流樣式> <default pipeline>
 }
 rollover_if_not 'logs-*.otel-*' k8s-logs-otel
 rollover_if_not 'traces-*.otel-*' traces-otel
+# mapping 也只對新的 backing index 生效：trace 的寫入中 index 還沒有 event.ingested（trace-merge 靠它找新 span）的換一個
+rollover_if_no_field() {  # rollover_if_no_field <資料流樣式> <欄位>
+  local ds wi
+  for ds in $(es "${ES_URL}/_data_stream/$1" | jq -r '.data_streams[]? | .name'); do
+    wi="$(es "${ES_URL}/_data_stream/${ds}" | jq -r '.data_streams[0].indices[-1].index_name')"
+    if [[ "$(es "${ES_URL}/${wi}/_mapping/field/$2" | jq -r --arg f "$2" '.[].mappings[$f].mapping | length')" == "0" ]]; then
+      echo "=== rollover ${ds}（寫入中的 index 沒有 $2）==="
+      es -X POST "${ES_URL}/${ds}/_rollover" >/dev/null
+    fi
+  done
+}
+rollover_if_no_field 'traces-*.otel-*' event.ingested
 
 # failure store：被拒的文件（pipeline 失敗、型別不合）留在 <data stream>::failures。template 只管新建的資料流，
 # 已經存在的要另外打開（docs/pdca/phase1-collect/2026-10-ingest-simplify.md）。OTel 的 metrics、traces 資料流 ES 預設就開了

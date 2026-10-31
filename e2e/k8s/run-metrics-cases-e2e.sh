@@ -44,7 +44,7 @@ sleep 360
 
 # rules <規則,…>：跑這幾條，印出觸發的（一行一個）
 rules() {
-  (cd "${repo}/engine" && ES_URL="${ES_URL}" ES_API_KEY="${BASELINE_KEY}" python3 -m detector rules \
+  (cd "${repo}/aiops-engine/code" && ES_URL="${ES_URL}" ES_API_KEY="${BASELINE_KEY}" python3 -m detector rules \
     --config configs/baseline/rules.yaml --only "$1") | grep -E '^  \[' || true
 }
 expect() {  # expect <說明> <輸出> <規則標題> <對象>

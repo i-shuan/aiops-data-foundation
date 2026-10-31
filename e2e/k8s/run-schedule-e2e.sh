@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# engine 在 K8s 上排程跑：aiops-engine/helmchart 的一隻 pod（scheduler container 照 configs/schedule/schedule.yaml 跑第一階段 4 個工作）
+# engine 在 K8s 上排程跑：aiops-engine/helmchart 的一隻 pod（scheduler container 照 configs/schedule/schedule.yaml 跑第一階段 5 個工作）
 # 用 helm 裝到 namespace aiops（values-test.yaml：連 es-test、本機 image、不裝回饋網頁），跑 RUN_MINUTES 分鐘再看。
 #
 # 每一項印 PASS／FAIL（紀錄來源是 pod 的 log：排程器每次執行印一行 [scheduler] <工作> <排定分鐘> <結果>）：
-#   1. rules、detect、alert 每分鐘都跑、都 ok、沒漏掉任何一分鐘、沒有「跳過」；跑最久的那次 ≤ timeout 的 60%
+#   1. rules、detect、alert、trace-merge 每分鐘都跑、都 ok、沒漏掉任何一分鐘、沒有「跳過」；跑最久的那次 ≤ timeout 的 60%
 #   2. 心跳（aiops-alerts/_doc/heartbeat）每分鐘都有更新；rules 的觸發寫進 aiops-anomalies
 #   3. train：手動跑（python3 -m scheduler --run train）成功
 #   4. 不重疊：alert 換成睡 150 秒 → 後面兩分鐘印「跳過：上一次還在跑」、同一分鐘只有一次
@@ -79,7 +79,7 @@ key_json="$(es -X POST "${ES}/_security/api_key" -d '{
   "name": "aiops-engine-test", "expiration": "1d",
   "role_descriptors": {"aiops-baseline": {"index": [
     {"names": ["k8s-*", "metrics-*.otel-*", "traces-*.otel-*"], "privileges": ["read", "view_index_metadata", "read_failure_store"]},
-    {"names": ["aiops-*"], "privileges": ["read", "write", "create_index", "view_index_metadata"]}]}}}')"
+    {"names": ["aiops-*", "traces-merged-*"], "privileges": ["read", "write", "create_index", "view_index_metadata"]}]}}}')"
 KEY="$(jq -r .encoded <<<"${key_json}")"; KEY_ID="$(jq -r .id <<<"${key_json}")"
 [[ -n "${KEY}" && "${KEY}" != null ]] || { echo "發 key 失敗：${key_json}"; exit 1; }
 
@@ -117,7 +117,7 @@ echo "== 5. 結果（${RUN_MINUTES} 分鐘，$(date -d "@${t0}" +%H:%M)～$(date
 # [scheduler] <工作> <YYYY-MM-DDTHH:MM+0800> <結果…>；只算完整落在觀察期間的分鐘
 first_min=$(( t0 / 60 + 1 )); last_min=$(( t1 / 60 - 1 )); expect=$(( last_min - first_min + 1 ))
 minute_of() { date -u -d "${1:0:16}:00${1:16:3}:${1:19:2}" +%s 2>/dev/null | awk '{print int($1/60)}'; }
-for j in rules detect alert; do
+for j in rules detect alert trace-merge; do
   rows="$(awk -v j="${j}" '$1=="[scheduler]" && $2==j {print}' "${work}/sched.log")"
   n_ok=0; n_fail=0; n_skip=0; dmax=0; : >"${work}/${j}.min"
   while read -r _ _ when rest; do

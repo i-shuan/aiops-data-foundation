@@ -1,7 +1,7 @@
 # e2e/k8s/run-rca-e2e.sh 用：異常讀測試用的 index，出事前只空 1 分鐘（測試只跑十幾分鐘）
 indices:
   anomalies: aiops-anomalies-rcatest
-  traces: traces-*.otel-*
+  traces: traces-merged-*   # 根因分析讀合成的那份；e2e 腳本在 investigate 前手動跑一次 detector trace-merge
   logs: k8s-*
 timezone: Asia/Taipei
 compare_with: 7d

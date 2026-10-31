@@ -54,7 +54,7 @@ ok "HTTP 指標用 OTLP 進 IMC（http.server.request.duration）" "$( [[ $(q '{
 ok "GC、執行緒池（.NET 8：process.runtime.dotnet.*）"     "$( [[ $(q '{"exists":{"field":"metrics.process.runtime.dotnet.thread_pool.threads.count"}}') -gt 0 ]] && echo true)"
 ok "連線池（Npgsql）"                                     "$( [[ $(q '{"exists":{"field":"metrics.db.client.connections.usage"}}') -gt 0 ]] && echo true)"
 ok "部門是依連線來源判斷的（應用沒填，仍是 IMC／D1110）" "$(es "${ES_URL}/metrics-*.otel-imc/_search?size=1" -d '{"query":{"bool":{"filter":[{"term":{"resource.attributes.service.name":"dotnet-app"}},{"exists":{"field":"metrics.http.server.request.duration"}}]}}}' | jq '.hits.hits[0]._source.resource.attributes.dept == "D1110"')"
-series="$(cd "${repo}/engine" && ES_URL="${ES_URL}" ES_API_KEY="${BASELINE_KEY}" python3 - <<'PY'
+series="$(cd "${repo}/aiops-engine/code" && ES_URL="${ES_URL}" ES_API_KEY="${BASELINE_KEY}" python3 - <<'PY'
 import yaml, pandas as pd
 from detector.es import ES, fetch
 cfg = yaml.safe_load(open("configs/baseline/series.yaml"))
@@ -72,7 +72,7 @@ check ".NET log 拆得出 level、logger、訊息" "$(jq -r '.hits.hits[0]._sour
 tid="$(jq -r '.hits.hits[0]._source.trace.id' <<<"${log}")"
 ok ".NET log 的 trace_id 對得到 trace" "$( [[ $(es "${ES_URL}/traces-*/_count" -d "{\"query\":{\"term\":{\"trace_id\":\"${tid}\"}}}" | jq .count) -ge 2 ]] && echo true)" "${tid}"
 
-rules() { (cd "${repo}/engine" && ES_URL="${ES_URL}" ES_API_KEY="${BASELINE_KEY}" python3 -m detector rules --config configs/baseline/rules.yaml --only "$1") | grep -E '^  \[' || true; }
+rules() { (cd "${repo}/aiops-engine/code" && ES_URL="${ES_URL}" ES_API_KEY="${BASELINE_KEY}" python3 -m detector rules --config configs/baseline/rules.yaml --only "$1") | grep -E '^  \[' || true; }
 DOTNET=dotnet.gen2_gc_frequent,dotnet.out_of_memory,dotnet.thread_pool_starvation,dotnet.thread_pool_growth,dotnet8.gen2_gc_frequent,dotnet8.exceptions_burst,dotnet8.thread_pool_starvation,dotnet8.thread_pool_growth,db.pool_exhausted_otlp
 expect() { if grep -F -- "$3" <<<"$2" | grep -qF dotnet-app; then echo "  PASS  $1"; echo "        $(grep -F -- "$3" <<<"$2" | head -1 | sed 's/^ *//')"; else echo "  FAIL  $1：沒有「$3」"; fail=1; fi; }
 
