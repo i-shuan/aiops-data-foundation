@@ -172,8 +172,17 @@ class Titled(unittest.TestCase):
     def test_first_line_is_title_then_report(self):
         t = C.titled("[critical] mes-api：錯誤率", "# 根因分析\n- x")
         self.assertEqual(t.split("\n", 1)[0], "[critical] mes-api：錯誤率")
-        self.assertTrue(t.endswith("# 根因分析\n- x"))
+        self.assertTrue(t.endswith("【根因分析】\n# 根因分析\n- x"))
         self.assertEqual(C.titled("只有標題", None), "只有標題")
+
+    def test_llm_section_then_report_without_duplicate_quote_feedback_last(self):
+        llm = "Oracle 那段變慢 [S1]。\n先看連線池 [E1]。"
+        report = C.with_feedback_footer("> Oracle 那段變慢 [S1]。\n> 先看連線池 [E1]。\n\n# 根因分析\n- x\n", "http://fb/feedback?alert=a-1")
+        t = C.titled("[critical] mes-api", report, llm)
+        self.assertLess(t.index("【AI 摘要"), t.index("【根因分析】"))
+        self.assertIn("【AI 摘要（LLM，只是參考）】\nOracle 那段變慢 [S1]。\n先看連線池 [E1]。", t)
+        self.assertNotIn("> Oracle", t)                                   # 全文最前面的引用拿掉，不重複
+        self.assertTrue(t.rstrip().endswith("資深維運專家（老師傅）回饋：http://fb/feedback?alert=a-1"))
 
 
 class StampIsInThePast(unittest.TestCase):

@@ -127,9 +127,20 @@ def with_feedback_footer(report: str | None, feedback_url: str | None) -> str | 
     return report if line in report else f"{report.rstrip()}\n\n---\n{line}\n"
 
 
-def titled(title: str | None, report: str | None) -> str:
-    """第一行標題、空一行、報告全文（沒有報告就只有標題）。Grafana 表格顯示第一行，點眼睛看整份。"""
-    return f"{title or ''}\n\n{report}" if report else (title or "")
+def titled(title: str | None, report: str | None, llm: str | None = None) -> str:
+    """Grafana 表格的 title 格用：第一行標題（表格只顯示這行），點眼睛看整份——
+    【AI 摘要】、【根因分析】（報告全文，最下面是老師傅回饋的網址）。
+    報告最前面本來就引用了 AI 摘要（「> …」），已經放在【AI 摘要】就從全文拿掉，不重複。"""
+    parts = [title or ""]
+    body = report or ""
+    if llm:
+        quoted = "\n".join(f"> {l}" for l in llm.splitlines())
+        if body.startswith(quoted):
+            body = body[len(quoted):].lstrip("\n")
+        parts.append(f"【AI 摘要（LLM，只是參考）】\n{llm}")
+    if body:
+        parts.append(f"【根因分析】\n{body}")
+    return "\n\n".join(parts)
 
 
 def llm_summary(al: dict, findings: dict | None, similar: list[dict], acfg: dict) -> dict | None:
@@ -253,7 +264,7 @@ def run(cfg: dict, args, investigate) -> int:
                     "anomaly_count": len(al["anomaly_ids"]), "findings": findings, "similar": similar,
                     "llm_summary": (llm or {}).get("text") or al.get("llm_summary"), "llm_provider": (llm or {}).get("provider") or al.get("llm_provider"),
                     "@timestamp": (al["resolved_at"] if al["status"] == "resolved" else stamp_of(now))})
-        doc["report_titled"] = titled(doc.get("title"), doc.get("report"))
+        doc["report_titled"] = titled(doc.get("title"), doc.get("report"), doc.get("llm_summary"))
         doc = {k: (v.isoformat() if isinstance(v, datetime) else v) for k, v in doc.items()}
         docs.append((al["alert_id"], doc))
         if al.get("merged_into"):

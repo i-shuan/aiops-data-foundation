@@ -12,6 +12,8 @@
   - 第二輪（看過第一版後）：要的是 Grafana 表格格子上的眼睛（Inspect value）——點了畫面變暗、右邊滑出抽屜，裡面是根因全文，最下面是老師傅回饋。
   - 第三輪：不要另外一欄，直接點 **title** 那格的眼睛就是根因全文。
   - 第四輪：⑥（報告全文面板）拿掉，眼睛裡已經有全文和回饋網址。
+  - 第五輪：老師傅回饋要能點（超連結）。
+  - 第六輪：眼睛裡除了根因分析，LLM 摘要也要寫進去，最下面是老師傅回饋網址。
 - **目的**：
   - ⑤ 每列一件（`aiops-alerts` 本來就一件一筆，`_id` = `alert_id`）；點標題跳出選單：「在下面看這件的根因全文」（設儀表板變數 `alert_id`）、「新分頁開報告全文」、「老師傅回饋」。
   - ⑥ 只顯示變數 `alert_id` 選的那一件；儀表板上方也有下拉選單可以選。
@@ -27,6 +29,8 @@
 | `e2e/k8s/rca-demo/dashboard.json` | 變數 `alert_id`（「看哪一件」，`aiops-alerts` 裡 `category:service` 的 `alert_id`，字串倒序＝最新的在前）；⑤ 只列服務的件（不含心跳、資料品質）、`title` 欄加三個連結：`var-alert_id=${__data.fields.alert_id}`（同一張儀表板、時間範圍不變）、`${__data.fields.report_url}`、`${__data.fields.feedback_url}`（新分頁）；`alert_id`、`report_url`、`feedback_url` 三欄帶進來但隱藏；⑥ 篩 `alert_id:"$alert_id"`、只取 1 筆 | ⑥ 原本是「時間窗內所有件的報告」各取最新 5 筆疊在一起；`aiops-alerts` 一件一筆，用 `alert_id` 篩就是那一件。連結用每件自己的欄位，跟正式通知帶的網址同一個 |
 | `e2e/k8s/rca-demo/dashboard.json`（第二輪） | ⑤ 多一欄 `report`（顯示名「根因分析全文（點格子的眼睛）」、`custom.inspect`）：點那格的眼睛，Grafana 內建的 Inspect value 抽屜（暗幕＋右側滑出）顯示全文 | 使用者指定要這個抽屜；Grafana 內建、不用改安全設定也不用外掛 |
 | `investigator/cmd_alert.py`、`dashboard.json`（第三輪） | 每件多存 `report_titled`（第一行標題、空一行、報告全文；mapping `text`、不建索引）；⑤ 的 title 欄改用它：值對應（regex `^([^\n]*)[\s\S]*$` → `$1`）只顯示第一行、點眼睛是整份；原本的 `title`、`report` 兩欄拿掉，連結搬到這欄 | Inspect value 只顯示那一格自己的值，title 格要點出全文，那格的值就得是全文；Grafana 的轉換不能把兩個字串欄接起來，所以在寫件時接好 |
+| `cmd_alert.py`、`dashboard.json`（第六輪） | `titled(title, report, llm)` 分段：標題、【AI 摘要（LLM，只是參考）】、【根因分析】（全文最前面原本引用的「> 摘要」拿掉不重複；全文最後一行是回饋網址）；表格的 `llm_summary` 欄拿掉（在眼睛裡） | 眼睛裡一次看完；分段標題讓人分得出哪段是 AI 寫的 |
+| `dashboard.json`（第五輪） | ⑤ 在 title 後面多一欄「老師傅回饋」（`feedback_url`，值對應顯示「✍ 填回饋」，連結開 `feedback_url&full=1`：全文在上、表單在下）；title 選單的回饋也改 `full=1` | 眼睛的 Inspect value 抽屜只顯示純文字，網址在裡面不能點（Grafana 限制）；可點的入口放在同一列 |
 | `dashboard.json`（第四輪） | 拿掉 ⑥、變數「看哪一件」、title 的「在下面（⑥）看」連結；⑤ 加高（h 14）。title 點下去剩「新分頁開報告全文」「老師傅回饋」 | 跟眼睛重複 |
 | `investigator/cmd_alert.py` | `with_feedback_footer(report, feedback_url)`：有設 `feedback_url` 時報告全文最後加「---／資深維運專家（老師傅）回饋：<網址>」；已經有這行就不再加（件會一輪一輪寫回去） | 抽屜只能顯示純文字、放不了表單，看完全文最下面就是回饋入口（網址可複製）；正式環境 `report` 欄位同樣帶著 |
 | `feedback_web`（`app.py`、`__main__.py`） | `/feedback?alert=…&full=1`：根因分析全文放在表單上面、最下面是回饋表單；送出後還是 full（hidden 欄位） | 從抽屜的網址點進去，一頁看全文＋填回饋 |
@@ -43,7 +47,8 @@
 
 | 第二輪：點眼睛看全文 | Grafana 實開，點 `a-20261101-0736-rca-mes-api` 那列「根因分析全文」的眼睛 | 畫面變暗、右側 Inspect value 抽屜：AI 摘要、`# 根因分析…`、Metrics、Trace 各節，最下面「資深維運專家（老師傅）回饋：http://localhost:18080/feedback?alert=…」 |
 | 第三輪：點 title 的眼睛 | Grafana 實開，`a-20261101-0821-rca-mes-api` 那列 title 格點眼睛 | 格子顯示「[critical] rca-mes-api：API 錯誤率超過 5%」；抽屜第一行是標題、接著 AI 摘要與根因全文、最下面回饋網址 |
-| 回饋網址只加一次、沒設就不加 | `tests/test_cmd_alert.py`、`tests/test_feedback_web.py`（`full=1` 全文在表單上面）；全部單元測試 | 530 過 |
+| 第五、六輪：眼睛分段、回饋可點 | Grafana 實開 `a-20261101-0821-rca-mes-api` | 抽屜：標題 →【AI 摘要（LLM，只是參考）】→【根因分析】→ 最下面回饋網址；「老師傅回饋」欄顯示「✍ 填回饋」，連到 `…/feedback?alert=a-20261101-0821-rca-mes-api&full=1`、新分頁。第一次用 `${__data.fields.feedback_url}` 拿到的是值對應後的文字（連結壞掉），改用 `${__value.raw}` |
+| 回饋網址只加一次、沒設就不加；分段不重複摘要 | `tests/test_cmd_alert.py`、`tests/test_feedback_web.py`（`full=1` 全文在表單上面）；全部單元測試 | 532 過 |
 
 **試過不行的**：先用 HTML 文字面板自己畫暗幕抽屜（裡面嵌回饋網頁）。Grafana 預設會過濾 HTML：`<style>` 被當成文字、inline style 的 `position`／`top`／`z-index` 被拿掉，蓋不住畫面；要關 `disable_sanitize_html` 才做得到，那是削弱安全設定，沒做，改用內建的 Inspect value。
 
