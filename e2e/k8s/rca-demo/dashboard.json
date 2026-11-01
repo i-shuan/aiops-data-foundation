@@ -272,7 +272,11 @@
         "showTime": true,
         "wrapLogMessage": true,
         "sortOrder": "Descending",
-        "enableLogDetails": true
+        "enableLogDetails": true,
+        "displayedFields": [
+          "trace.id",
+          "___LOG_LINE_BODY___"
+        ]
       },
       "targets": [
         {

@@ -5,7 +5,7 @@
 
 ## Plan：這一次要達到什麼
 
-- **需求**：示範儀表板的 ③ Trace 是每一段的統計，看不出數字是哪一個 trace_id 量到的。④ Log 維持原本的樣子。
+- **需求**：示範儀表板的 ③ Trace 是每一段的統計，看不出數字是哪一個 trace_id 量到的。④ Log 維持原本的樣式，但要搜得到 trace_id。
 - **目的**：③ 每一列都能對到一個請求，跟報告第 4 節的 trace_id 對得起來。
 - **範圍**：做：改 ③。不做：`grafana/code/` 的正式儀表板。
 
@@ -14,6 +14,7 @@
 | 檔案 | 改了什麼 | 為何要改 |
 |---|---|---|
 | `e2e/k8s/rca-demo/dashboard.json` | ③ 從聚合改成原始 span（最近 200 筆），欄位 trace_id、服務、哪一段、耗時，依 trace_id 排，同一請求連在一起 | 聚合把多個請求併成一列，放不了 trace_id |
+| 同上 | ④ 加 `displayedFields: [trace.id, ___LOG_LINE_BODY___]`，每行顯示 trace_id＋訊息 | 面板的搜尋框只比對畫面上的文字，trace.id 只在展開的欄位裡時搜不到 |
 
 ## Check：測試的目的與結果
 
@@ -21,9 +22,9 @@
 |---|---|---|
 | 依 trace_id 聚合可不可行 | 先做 terms trace_id（依最大耗時排序）→ 服務 → 段，用 `/api/ds/query` 看回傳 | 不可行：最慢的 `c53f0c30…` 只回 `rca-mes-api` 的段，報告裡同一個請求有 `rca-wip-worker`。依指標排序的 terms 是各 shard 各取前幾名，不同服務在不同 shard 就缺段 |
 | 原始 span 每個請求的段是齊的 | 重新部署示範 Grafana，瀏覽器開儀表板讀 ③ | 同一 trace_id 連續 5 段：`GET /lots/{id}`、`GET`、`GET /wip`、`SELECT LOT_HISTORY`、`POST` |
-| ④ 回到原本 | 瀏覽器看 ④ | 跟 master 相同：logs 面板，`dashboard.json` 只有 ③ 有差異 |
+| ④ 搜得到 trace_id | 瀏覽器在 ④ 按 ctrl+F，貼 ③ 也看得到的 trace_id | 比對 1/1；改之前 0/0。`displayedFields` 只寫 `message` 時訊息會不見，要用 `___LOG_LINE_BODY___` |
 
-**沒測到的**：拿掉時間欄後 ③ 的耗時欄有沒有完整顯示，以提交後的瀏覽器畫面為準；③ 只有最近 200 筆 span，不保證含最慢的請求，查報告裡較早的 trace_id 要用面板的 Inspect 或縮短時間範圍。
+**沒測到的**：拿掉時間欄後 ③ 的耗時欄顯示。③ 只有最近 200 筆 span、④ 只載入 200 行（這段時間共 345 筆），超出範圍的 trace_id 搜不到，要縮短時間範圍。
 
 ## Act：Check 後沒改善的、還沒解決的
 
