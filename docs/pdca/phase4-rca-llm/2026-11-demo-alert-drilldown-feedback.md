@@ -11,6 +11,7 @@
   - 示範裡找不到資深維運專家（老師傅）回饋的入口。
   - 第二輪（看過第一版後）：要的是 Grafana 表格格子上的眼睛（Inspect value）——點了畫面變暗、右邊滑出抽屜，裡面是根因全文，最下面是老師傅回饋。
   - 第三輪：不要另外一欄，直接點 **title** 那格的眼睛就是根因全文。
+  - 第四輪：⑥（報告全文面板）拿掉，眼睛裡已經有全文和回饋網址。
 - **目的**：
   - ⑤ 每列一件（`aiops-alerts` 本來就一件一筆，`_id` = `alert_id`）；點標題跳出選單：「在下面看這件的根因全文」（設儀表板變數 `alert_id`）、「新分頁開報告全文」、「老師傅回饋」。
   - ⑥ 只顯示變數 `alert_id` 選的那一件；儀表板上方也有下拉選單可以選。
@@ -26,6 +27,7 @@
 | `e2e/k8s/rca-demo/dashboard.json` | 變數 `alert_id`（「看哪一件」，`aiops-alerts` 裡 `category:service` 的 `alert_id`，字串倒序＝最新的在前）；⑤ 只列服務的件（不含心跳、資料品質）、`title` 欄加三個連結：`var-alert_id=${__data.fields.alert_id}`（同一張儀表板、時間範圍不變）、`${__data.fields.report_url}`、`${__data.fields.feedback_url}`（新分頁）；`alert_id`、`report_url`、`feedback_url` 三欄帶進來但隱藏；⑥ 篩 `alert_id:"$alert_id"`、只取 1 筆 | ⑥ 原本是「時間窗內所有件的報告」各取最新 5 筆疊在一起；`aiops-alerts` 一件一筆，用 `alert_id` 篩就是那一件。連結用每件自己的欄位，跟正式通知帶的網址同一個 |
 | `e2e/k8s/rca-demo/dashboard.json`（第二輪） | ⑤ 多一欄 `report`（顯示名「根因分析全文（點格子的眼睛）」、`custom.inspect`）：點那格的眼睛，Grafana 內建的 Inspect value 抽屜（暗幕＋右側滑出）顯示全文 | 使用者指定要這個抽屜；Grafana 內建、不用改安全設定也不用外掛 |
 | `investigator/cmd_alert.py`、`dashboard.json`（第三輪） | 每件多存 `report_titled`（第一行標題、空一行、報告全文；mapping `text`、不建索引）；⑤ 的 title 欄改用它：值對應（regex `^([^\n]*)[\s\S]*$` → `$1`）只顯示第一行、點眼睛是整份；原本的 `title`、`report` 兩欄拿掉，連結搬到這欄 | Inspect value 只顯示那一格自己的值，title 格要點出全文，那格的值就得是全文；Grafana 的轉換不能把兩個字串欄接起來，所以在寫件時接好 |
+| `dashboard.json`（第四輪） | 拿掉 ⑥、變數「看哪一件」、title 的「在下面（⑥）看」連結；⑤ 加高（h 14）。title 點下去剩「新分頁開報告全文」「老師傅回饋」 | 跟眼睛重複 |
 | `investigator/cmd_alert.py` | `with_feedback_footer(report, feedback_url)`：有設 `feedback_url` 時報告全文最後加「---／資深維運專家（老師傅）回饋：<網址>」；已經有這行就不再加（件會一輪一輪寫回去） | 抽屜只能顯示純文字、放不了表單，看完全文最下面就是回饋入口（網址可複製）；正式環境 `report` 欄位同樣帶著 |
 | `feedback_web`（`app.py`、`__main__.py`） | `/feedback?alert=…&full=1`：根因分析全文放在表單上面、最下面是回饋表單；送出後還是 full（hidden 欄位） | 從抽屜的網址點進去，一頁看全文＋填回饋 |
 | `e2e/k8s/rca-demo/run-rca-demo.sh` | `feedback` 子指令：本機 `FEEDBACK_PORT`（從 `FEEDBACK_BASE` 取，預設 18080）起 `feedback_web`，用 engine 的 key；`tick` 改用 `rca_cfg` 產生的 `RCA_DEMO_STATE/rca-demo.yaml`（`rca.yaml`＋`alerts.report_url`、`feedback_url`） | 示範的 engine 本來就在本機跑，回饋網頁也在本機，值班的瀏覽器連得到；不改 repo 的 `rca.yaml` 預設值 |

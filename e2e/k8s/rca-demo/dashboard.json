@@ -273,12 +273,12 @@
     {
       "id": 5,
       "type": "table",
-      "title": "⑤ AIOps：合成的事件（一列一件；title 那格點眼睛看根因全文，最下面是老師傅回饋；點標題換 ⑥ 或開回饋）",
+      "title": "⑤ AIOps：合成的事件（一列一件；title 那格點眼睛看根因全文，最下面是老師傅回饋網址）",
       "gridPos": {
         "x": 0,
         "y": 17,
         "w": 24,
-        "h": 7
+        "h": 14
       },
       "datasource": {
         "type": "elasticsearch",
@@ -379,10 +379,6 @@
               {
                 "id": "links",
                 "value": [
-                  {
-                    "title": "在下面（⑥）看這件的根因全文",
-                    "url": "/d/aiops-rca-demo/0cb079a?${__url_time_range}&var-alert_id=${__data.fields.alert_id}"
-                  },
                   {
                     "title": "新分頁開這件的報告全文",
                     "url": "${__data.fields.report_url}",
@@ -511,66 +507,6 @@
           }
         }
       ]
-    },
-    {
-      "id": 6,
-      "type": "logs",
-      "title": "⑥ AIOps：$alert_id 的根因分析報告全文（點 ⑤ 的標題或上方「看哪一件」換一件）",
-      "gridPos": {
-        "x": 0,
-        "y": 24,
-        "w": 24,
-        "h": 14
-      },
-      "datasource": {
-        "type": "elasticsearch",
-        "uid": "demo-alerts"
-      },
-      "options": {
-        "showTime": true,
-        "wrapLogMessage": true,
-        "sortOrder": "Descending",
-        "enableLogDetails": false
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "elasticsearch",
-            "uid": "demo-alerts"
-          },
-          "query": "category:service AND alert_id:\"$alert_id\"",
-          "timeField": "@timestamp",
-          "metrics": [
-            {
-              "id": "1",
-              "type": "logs",
-              "settings": {
-                "limit": "1"
-              }
-            }
-          ],
-          "bucketAggs": []
-        }
-      ]
     }
-  ],
-  "templating": {
-    "list": [
-      {
-        "name": "alert_id",
-        "label": "看哪一件",
-        "type": "query",
-        "datasource": {
-          "type": "elasticsearch",
-          "uid": "demo-alerts"
-        },
-        "query": "{\"find\": \"terms\", \"field\": \"alert_id\", \"query\": \"category:service\", \"orderBy\": \"term\", \"order\": \"desc\", \"size\": 50}",
-        "refresh": 2,
-        "includeAll": false,
-        "multi": false,
-        "sort": 0
-      }
-    ]
-  }
+  ]
 }
