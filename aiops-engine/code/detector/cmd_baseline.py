@@ -302,6 +302,16 @@ def cmd_tune(cfg: dict, args) -> int:
           + "（粒度下次 train 生效；z、min_abs、confirm_points、instant_z 下次 detect 生效）")
     return 0
 
+def apply_min_count(s: pd.DataFrame, spec: dict) -> pd.DataFrame:
+    """比例類（錯誤率）：這個時間窗符合的事件數（值 × 底下的事件數，例如 5xx 個數）不到 min_count，不算異常。
+    20 個請求錯 1 個就是 5%，已經等於 min_abs；一週合成資料這樣報了 205 次（docs/pdca/phase2-anomaly/2026-11-baseline-false-alarm.md）。"""
+    mc = spec.get("min_count")
+    if mc is None or s.empty or "n" not in s.columns:
+        return s
+    hits = np.round(pd.to_numeric(s["value"], errors="coerce").fillna(0).to_numpy(dtype=float)
+                    * pd.to_numeric(s["n"], errors="coerce").fillna(0).to_numpy(dtype=float))
+    return s.assign(anomaly=s["anomaly"].to_numpy(dtype=bool) & (hits >= mc))
+
 def score_tuned(fn, cur: pd.DataFrame, base: pd.DataFrame, keys: list[str], spec: dict, dopts, tz, overrides) -> pd.DataFrame:
     """依每個對象的調整（z、min_abs）分組打分；沒有調整的用預設。"""
     if cur.empty:
@@ -312,8 +322,9 @@ def score_tuned(fn, cur: pd.DataFrame, base: pd.DataFrame, keys: list[str], spec
     parts = []
     for (z, min_abs), g in ks.groupby(["_z", "_min_abs"]):
         c = cur.merge(g[keys], on=keys)
+        extra = {"buckets": spec["buckets"]} if fn is score and spec.get("buckets") else {}
         parts.append(fn(c, base, keys, direction=spec.get("direction", "both"), min_abs=min_abs,
-                        opts=dataclasses.replace(dopts, z=z), tz=tz))
+                        opts=dataclasses.replace(dopts, z=z), tz=tz, **extra))
     return pd.concat(parts, ignore_index=True)
 
 def borrow_resolution(cfg: dict) -> str:
@@ -349,7 +360,8 @@ def detect_borrowed(es, cfg: dict, spec: dict, own: pd.DataFrame, now, window, d
     base = pick.merge(gb.drop(columns="resolution"), on="group")
     bz = dataclasses.replace(dopts, z=cfg.get("borrowing", {}).get("z", 7.0))
     s = score(cur.merge(pick[keys], on=keys), base, keys, direction=spec.get("direction", "both"),
-              min_abs=spec.get("min_abs", 0.0), opts=bz, tz=tz)
+              min_abs=spec.get("min_abs", 0.0), opts=bz, tz=tz, buckets=spec.get("buckets"))
+    s = apply_min_count(s, spec)
     s, _ = A.detect_filter(s, keys, spec["name"], list(adjs), tz)
     s = with_status(cfg, s.merge(pick, on=keys, how="left"), keys, r, start_r, spec)
     s["baseline_source"] = "group:" + s["group"].astype(str)
@@ -390,7 +402,7 @@ def detect_series(es, cfg: dict, spec: dict, base: pd.DataFrame, now, window: pd
             cm = cur.merge(bm[keys].drop_duplicates(), on=keys)
             if cm.empty:
                 continue
-            s = score_tuned(fn, cm, bm, keys, spec, dopts, tz, overrides).assign(baseline_method=method)
+            s = apply_min_count(score_tuned(fn, cm, bm, keys, spec, dopts, tz, overrides).assign(baseline_method=method), spec)
             s, muted = A.detect_filter(s, keys, spec["name"], adjs, tz, baseline=bm)
             if muted and not quiet:
                 print(f"  {spec['name']}（{r} 一點）：{muted} 個點在排除時段、週期放寬、重置點之後，不算")
