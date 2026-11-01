@@ -46,8 +46,8 @@
 | 讀端兩套 | 根因分析讀 merged，trace baseline、資料品質讀 raw（只看最近 10 分鐘）；`aiops-trace-segments` 要改讀 merged 得把 composite 聚合改成 nested，這次不碰 |
 | 實測環境 | Rancher Desktop 單節點、ES 8.19.23：`run-trace-e2e.sh` 7b 的 raw 21 個 trace 對 merged 21 筆、重跑不重複、權限正確；`run-rca-e2e.sh` 11 項過；單元測試 377 個過。排程器（含 `trace-merge` 每分鐘）24 項、`loop_e2e` 43 項、⑧⑨ 實跑 11 項、metrics-trace 15 項、keys 84 項、trace-id 15 項、kafka 9 項、peer-edge 6 項都過。正式環境沒跑過 |
 | ES 全部資料節點停機會掉資料（**已知風險，決定不處理**） | 測試 ES 改成兩個資料節點加一個只投票節點後（[PDCA](../phase1-collect/2026-11-es-two-pods.md)）：卡住任何一個資料節點，log、trace 都 0 遺失；兩個資料節點都停 180 秒仍掉（log 7,580／71,988 = 10.5%、trace 993／7,199 = 13.8%、metrics 空 209 秒），遺失集中在停機後 0～30 秒與 50～92 秒，其餘時間沒掉。單 Pod 時 trace 掉 35%（master 是 0，因為 trace 以前經 sampler 無限重試）。原因：Collector 的 ES 元件遇到連線逾時不重試；一直重試的 `retry`、`timeout: 0`、磁碟佇列早就開了，缺的只有這一種錯誤。log 遺失 master 也有（9,649 對 7,715）。**決定：不處理，記成已知風險——掛任何一個資料節點都安全，全停才會掉。**沒查全停時掉資料的具體錯誤種類；正式環境若 ES 前面有 LB 加健康檢查，連線黑洞會變成 503、Collector 會重試，風險可能更小（沒實測）；前案 [collector-es-exporter](2026-10-collector-es-exporter.md) 記過同一個限制 |
-| `trace_quality` 測試 6 項失敗 | 3 項在測已廢止的隨機取 5%，已刪；另 3 項原因見 9.2 兩列（抽樣太少、B6a），偵測行為沒改 |
-| B8（unassigned 的 log 比例）單獨跑沒過 | 整串完整跑時過；推測是 durability 之後測試 ES 有大量其他 log 把分母墊大，沒查證。合併前至少清掉測試資料單獨再跑一次 |
+| `trace_quality` 測試 6 項失敗 | 已解決：3 項在測已廢止的隨機取 5%，已刪；抽樣太少的 2 項在每點抽 100 個後都過，B6a 由 `missing_if_equals` 解掉。整支 38 項全過（[PDCA](../phase2-anomaly/2026-11-trace-sample-100.md)） |
+| B8（unassigned 的 log 比例）單獨跑沒過 | 已重跑：資料品質那段單獨跑 21 項全過，B8 兩項都報了。之前失敗時測試 ES 剛跑完 durability、留著大量其他 log；現在過了，與「分母被墊大」的推測一致，但沒有直接證明（[PDCA](../phase2-anomaly/2026-11-trace-sample-100.md)） |
 
 ### 2. 偵測的時間
 
@@ -100,7 +100,7 @@
 | 多個服務共用同一個資料庫 | 每件事故各算各的，看不出同源；跨服務合併未做 |
 | metrics → trace 是統計對應 | metrics 沒有 `trace_id`，樣本不保證是造成異常的那個請求 |
 | 每段取平均 | 少數極慢請求會拉高排名 |
-| 比 1 秒快的變慢 | 以前 200ms 變 800ms 只剩隨機 5%（實測 1,586 個請求剩 88 個）。2026-11-01 起 100% 收、不取樣，根因分析讀 `traces-merged-*`，不再有這個限制；但 trace 每一段的偵測仍是每點抽 20 個請求（`sample_per_bucket`），這個案例沒重測，見 9.2 的抽樣一列 |
+| 比 1 秒快的變慢 | 以前 200ms 變 800ms 只剩隨機 5%（實測 1,586 個請求剩 88 個）。2026-11-01 起 100% 收、不取樣，根因分析讀 `traces-merged-*`，不再有這個限制；trace 每一段的偵測已改成每點抽 100 個請求（`sample_per_bucket`），這個案例沒重測，見 9.2 的抽樣一列 |
 | 路由沒參數化 | 撈到 0 筆 |
 | 沒做 | 趨勢（慢慢惡化）、指標之間的關係、慢請求的共同點（Pod、版本、批號、SQL）、事故紀錄格式、log 樣式字典、處理手冊 |
 | 沒在正式環境跑過 | 驗證都在測試環境 |
@@ -153,8 +153,8 @@
 | Pod 同儕比對在 3 個 Pod、年紀不同時抓不到記憶體洩漏（2026-10-31 測試觀察，還沒有 PDCA） | `run-peer-e2e` 第 5 項失敗：洩漏的 `pk7zn` 10 分鐘內最高 420 MB，另外兩隻 251 MB、163 MB（中位數 207 MB）。多 213 MB（門檻 ≥ 100 MB）、2.03 倍（門檻 ≥ 1.5 倍）兩道都過，但 z = (420 − 207) ÷ 65 = 3.3，沒到門檻 5；手動重播三次都是「3 個 Pod 比過，觸發 0 個」。原因：z 的分母是其他 Pod 之間本來的差距，3 個 Pod 只剩 2 個值，而案例之間刪掉壞 Pod 補上的新 Pod 記憶體本來就比老 Pod 低約 90 MB，把離散度撐大。之前驗過是過的，那時 3 隻年紀一樣。正式環境副本只有 3 個、滾動更新後年紀不同時也會遇到。待決定：A. 記憶體、CPU 兩項的 `z` 調低（例如 3），靠 `min_abs`、`min_ratio` 擋誤報（要確認其他案例不會多出誤報）；B. 只改測試，等新 Pod 長到跟舊的差不多再比（正式環境的弱點還在）。傾向 A，還沒動。<br>討論後的判斷（讀 [peer.py](../../../aiops-engine/code/detector/peer.py) 的推論，沒跑過）：A 改成 A2，`z` 依「其他 Pod 數」（程式已有 `peers` 欄位）分級，例如其他 2 個用 3、3～4 個用 4、5 個以上維持 5，記憶體與 CPU 都套用；只降到 3 仍脆弱（新 Pod 若是 130 MB，z 約 2.6 一樣抓不到），其他只剩 2 個值時 z 沒有統計意義，主要靠 `min_abs`、`min_ratio`；A2 要改 `compare()`（目前只吃固定的 `z`）。<br>新舊 Pod 的問題兩個方向都有：HPA 擴容後老 Pod 400 MB、兩個新 Pod 約 150 MB 時，`rel_floor` 讓分母只有約 15，老 Pod 的 z 約 16、兩道硬門檻也過，現在 z = 5 就會把正常的老 Pod 誤報成洩漏（推論，待用 `run-peer-edge-e2e.sh` 驗證，未確認它有沒有涵蓋擴容情境）；`warmup` 只有 5 分鐘，蓋不住 JVM heap 慢慢長大的時間。<br>斜率（趨勢）方向對但要另做成新規則，不放進同儕比對：不受新舊 Pod 高低差影響、單 Pod 或 2 個 Pod 的服務也能用，規格本來就列為「還沒加」的趨勢；要處理 GC 鋸齒（用回歸或看 GC 後低點是否墊高）與新 Pod 啟動期暖機，實用形式是「照這個速度幾小時後撞到 limit」，可和 `container.memory_near_limit` 接在一起；要有自己的 PDCA 與 e2e 案例（洩漏、GC 鋸齒、新 Pod 暖機） | [run-peer-e2e.sh](../../../e2e/k8s/run-peer-e2e.sh)、[peer.yaml](../../../aiops-engine/code/configs/baseline/peer.yaml) |
 | p95 誤報超過目標 | anomaly 0.53%（目標 0.1%）、warning 1.97%（目標 1%） | [baseline-threshold-tune](../phase2-anomaly/2026-10-baseline-threshold-tune.md) |
 | 錯誤率 1 個 5xx 就到門檻 | 一週 205 個誤報（0.34%）；後續是「至少 N 個 5xx 才判斷」 | 同上 |
-| 只有一部分請求變慢時 trace 段沒報 | 每點約 20 個請求的平均，長尾讓基準線很寬（門檻約 430ms）；看 p90 或慢請求比例還沒做 | [troubleshooting.md](../../troubleshooting.md) |
-| `trace.yaml` 的 `sample_per_bucket` 20 要不要調到 100 | trace 改 100% 收後，平常 3% 的長尾進了基準線；每點只抽 20 個請求，平均值標準差約 86 ms，加 200 ms 只有約 2 個標準差，過不了 z = 5（10% 請求多 2 秒沒報）；長期 2% 吞例外時規則每點各自算，20 個裡 1 個就是 5% 剛好等於門檻，常報。暫時改成 100 後 trace 那段 17 項全過（未留在 repo）。決定：調，但先量 `trace-detect` 一輪的實際耗時（報告只說讀的 trace 變 5 倍，沒量時間）再合進去 | [PDCA](../phase1-collect/2026-10-trace-merge.md) |
+| 只有一部分請求變慢時 trace 段沒報 | 每點改抽 100 個後，合成資料上 10% 請求多 2 秒報得出來；慢的比例更低時仍報不出來，看 p90 或慢請求比例還沒做（[PDCA](../phase2-anomaly/2026-11-trace-sample-100.md)） | [troubleshooting.md](../../troubleshooting.md) |
+| `trace.yaml` 的 `sample_per_bucket` 20 要不要調到 100 | 已改成 100。耗時：測試資料上一輪 0.3～0.5 秒（20 時 0.1 秒，排程時限 240 秒）；偵測：20 時 trace 那段 14 過 3 失敗，50 與 100 都 17 項全過，選 100 餘裕較大。100 是 ES `top_hits` 的預設上限。正式環境 API 多時的耗時沒量（[PDCA](../phase2-anomaly/2026-11-trace-sample-100.md)） | 同上 |
 | 三成 Pod 沒有服務 label 沒報（B6a） | pipeline 沒 label 時 `service.name` 退回 container 名稱 `app`，欄位不算缺，檢查看不到；master 也一樣，與 trace 合併無關。已做：`missing` 檢查加 `missing_if_equals`（等於 `k8s.container.name` 也算缺），只有單元測試、Painless 沒對真 ES 跑、e2e B6a 等叢集空了再跑（已合入 master；[PDCA](../phase5-learning-loop/2026-11-open-issues-batch.md)） | 同上 |
 | 每筆異常沒記是哪一版產生的 | 已做：每筆異常帶 `engine_version`（chart 的 `image.tag`，本機是 `dev`）（已合入 master；[PDCA](../phase5-learning-loop/2026-11-open-issues-batch.md)） | [baseline/reference.md](../../../aiops-engine/code/configs/baseline/reference.md) |
 | `suggest` 只調 `z` | 不調 `min_abs`、粒度，也不會提排除時段（月底批次更該用 `recurring_override`） | 同上 |

@@ -122,7 +122,7 @@
 | trace 有 N+1，`trace.segment.repeated` 沒報、反而報一個沒有「→」的新段 | DB span 只有新版 `db.system.name`，段名沒有對象 | 已補這個欄位；Client span 什麼對象欄位都沒有的仍看不到 |
 | 程式 catch 掉 DB 例外、回 200，`trace.segment.swallowed` 沒報 | Java agent 會把丟例外的那段標成錯誤，舊定義只算沒標錯誤的 | 已改：入口沒標錯誤就算吞掉（已決定維持；重試後成功也會算，另外排除留到下一輪） |
 | 某支 API 一直沒有 trace 基準線 | 每點抽到的請求 < `min_requests` 5 | 流量太少的 API 學不到（5 分鐘至少 5 個請求） |
-| 只有一部分請求變慢，trace 段的 time_ms 沒報 | 每點約 20 個請求的平均；長尾讓基準線很寬（實測門檻約 430 ms） | 已知限制；要看 p90 或慢請求比例（還沒做） |
+| 只有一部分請求變慢，trace 段的 time_ms 沒報 | 每點抽的請求太少時，平常的慢請求長尾讓平均值飄，基準線很寬（每點 20 個時實測門檻約 430 ms） | `trace.yaml` 的 `sample_per_bucket` 已改成 100（合成資料上 10% 請求多 2 秒報得出來）；慢的比例更低時仍報不出來，看 p90 或慢請求比例還沒做 |
 | Pod 沒有 `app.kubernetes.io/name`，`quality.log_missing_identity` 卻沒報 | log pipeline 退回用 container 名稱（例如 `app`），不算缺 | 已知缺口；看 `service.name` 是不是 container 名稱 |
 | span 某欄位型別錯，failure store 卻沒有 | traces 是 logsdb、ignore_malformed：文件存進去，那個欄位丟掉 | 查 `_ignored`；`quality.ingest_rejected` 看不到這種 |
 | 收集系統停了半小時以上，每個服務都被報成「流量掉到 0」 | 偵測時有 baseline、整段沒資料的服務一律補 0 | 已改成只在 index 有資料的時間窗補 0（`es.alive_times`），[baseline-verify](pdca/phase2-anomaly/2026-10-baseline-verify.md) |
