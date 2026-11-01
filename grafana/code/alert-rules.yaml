@@ -73,3 +73,34 @@ groups:
         labels: {source: aiops, severity: critical}
         annotations:
           summary: "AIOps 的 investigator alert 已經 10 分鐘沒有寫入 aiops-alerts：排程停了、或連不到 ES。停著的期間所有件都看不到，不是真的恢復。"
+      # 基準線不見了：detector detect 每輪寫一筆 detect-status（_id detect-status，status ok，detector/cmd_baseline.py），
+      # missing_baseline 是這輪沒有 baseline 的序列數。aiops-baseline 掉了（ES 重建、index 被刪）detect 只印一行就跳過，
+      # 動態基準線這一路靜默停擺；上面兩條都不會響（docs/pdca/meta/2026-10-open-issues.md 第 7 節）。送平台（labels 沒有 dept）。
+      - uid: aiops-baseline-missing
+        title: AIOps 基準線不見（detect 讀到空的 aiops-baseline）
+        condition: C
+        data:
+          - refId: A
+            datasourceUid: aiops-alerts
+            relativeTimeRange: {from: 600, to: 0}
+            model:
+              refId: A
+              query: "alert_id:detect-status AND missing_baseline:>0"
+              timeField: "@timestamp"
+              metrics: [{id: "1", type: count}]
+              bucketAggs:
+                - {id: "2", type: date_histogram, field: "@timestamp", settings: {interval: 10m, min_doc_count: "0"}}
+          - refId: B
+            datasourceUid: __expr__
+            model: {refId: B, type: reduce, expression: A, reducer: sum, settings: {mode: replaceNN, replaceWithValue: 0}}
+          - refId: C
+            datasourceUid: __expr__
+            model: {refId: C, type: threshold, expression: B, conditions: [{evaluator: {type: gt, params: [0]}}]}   # 有一筆就算
+        noDataState: OK           # 沒有 detect-status = detect 沒在跑，那是 aiops-heartbeat 的事（排程器停了兩個一起停）
+        execErrState: Error
+        # 剛換版、ES 剛重建、第一次部署還沒跑 train 時，前幾輪 detect 也是 missing > 0：等 5 分鐘，部署流程有時間先跑 train。
+        # 真的掉了不會自己好（train 一天一次），5 分鐘後一定響
+        for: 5m
+        labels: {source: aiops, severity: critical}
+        annotations:
+          summary: "AIOps 的 detect 讀到空的基準線（aiops-baseline 掉了、或還沒 train）：這些序列的動態基準線學習靜默停了，不會報異常；靜態規則、Pod 同儕橫向比對不受影響。手動跑一次 train：kubectl -n aiops exec deploy/aiops-engine -c scheduler -- python3 -m scheduler --config configs/schedule/schedule.yaml --run train"

@@ -10,6 +10,7 @@
 """
 from __future__ import annotations
 
+import json
 import re
 
 import pandas as pd
@@ -53,6 +54,38 @@ def caught(df: pd.DataFrame, services, start, end, tz: str = "UTC") -> bool:
     return bool(m.any())
 
 
+class _CachedES:
+    """回測期間包住 ES：before／after 讀的是同一批原始資料（detect_series 裡的 fetch、alive_times），只有門檻不同，
+    同一個查詢只打 ES 一次（GET／POST 的 _search 照 method、path、body 記住）。寫入（PUT、DELETE、_update、bulk_index）不快取、直接送。"""
+    def __init__(self, es):
+        self._es, self._cache = es, {}
+
+    @staticmethod
+    def _key(method, path, body):
+        return (method, path, json.dumps(body, sort_keys=True, default=str))
+
+    @staticmethod
+    def _cacheable(method, path) -> bool:
+        return method in ("GET", "POST") and "/_search" in path and "/_update" not in path
+
+    def search(self, index, body):
+        k = self._key("POST", f"/{index}/_search", body)
+        if k not in self._cache:
+            self._cache[k] = self._es.search(index, body)
+        return self._cache[k]
+
+    def req(self, method, path, body=None, **kw):
+        if not self._cacheable(method, path):
+            return self._es.req(method, path, body, **kw)
+        k = self._key(method, path, body)
+        if k not in self._cache:
+            self._cache[k] = self._es.req(method, path, body, **kw)
+        return self._cache[k]
+
+    def __getattr__(self, name):    # bulk_index、url… 其他都交給真的 ES
+        return getattr(self._es, name)
+
+
 def _service_of(row: dict, keys: list[str]):
     for f in ("service", "resource.attributes.service.name", "entry.service"):
         if f in keys and row.get(f) is not None:
@@ -63,6 +96,7 @@ def _service_of(row: dict, keys: list[str]):
 def run_backtest(es, cfg: dict, proposal: dict, weeks: int, now=None, quiet: bool = True) -> dict:
     """回傳 {"anomalies_before", "anomalies_after", "incidents": [...], "incidents_caught_before/after", "missed_caught_after",
     "recommended", "reason"}。每天一段（window 1D）跑 detect_series，兩套設定各一次。"""
+    es = _CachedES(es)   # 兩套設定讀同一批資料，只查一次；呼叫端（cmd_backtest）寫回時用的還是真的 es
     now = now or _now(None)
     tz = cfg.get("train", {}).get("timezone", "Asia/Taipei")
     dopts = DetectOptions(**cfg.get("detect", {}))

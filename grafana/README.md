@@ -8,7 +8,7 @@ AIOps 把異常合成「一件事」寫進 `aiops-alerts`（`python3 -m investig
 |---|---|---|
 | `datasource.yaml` | ES data source，只讀 `aiops-alerts`、`aiops-anomalies`、`aiops-tuning`、`aiops-feedback` | `ES_URL`、`GRAFANA_ES_API_KEY`（`elasticsearch/code/scripts/elasticsearch-setup.sh` 發的「Grafana 唯讀 key」） |
 | `dashboards/aiops-rca.json`、`aiops-learning.json` | 事故與根因（選一件：LLM 摘要、相似事故、報告全文、這件的異常）；學習迴圈（回饋 → 建議 → 回測 → 核准後的筆數） | 一般不用改 |
-| `alert-rules.yaml` | (1) 每一件 `status: open` 的事件一則告警；labels 帶 `alert_id`、`service`、`dept`、`group`、`severity`，annotation 帶摘要與報告連結；(2) `aiops-heartbeat`：10 分鐘沒有心跳 → 「AIOps 停了」送平台 | 一般不用改 |
+| `alert-rules.yaml` | (1) 每一件 `status: open` 的事件一則告警；labels 帶 `alert_id`、`service`、`dept`、`group`、`severity`，annotation 帶摘要與報告連結；(2) `aiops-heartbeat`：10 分鐘沒有心跳 → 「AIOps 停了」送平台；(3) `aiops-baseline-missing`：`detect` 寫的 `detect-status` 的 `missing_baseline > 0` 持續 5 分鐘 → 「基準線不見」送平台 | 一般不用改 |
 | `contact-points.yaml` | 各部門的通知管道（範例用 webhook） | 換成你們的 Teams、Email、LINE… |
 | `policies.yaml` | 依 `dept` 送到哪個 contact point；沒有 dept（資料品質、節點）送平台 | dept 清單（跟 `collector/code/groups.yaml` 一致） |
 | `dashboards.yaml`、`dashboards/aiops-feedback.json` | 回饋表單（Grafana 裡填）：通知的 `feedback` 連結點進來 | 兩個回饋服務網址、要先裝外掛（下面） |
@@ -40,6 +40,7 @@ helm upgrade --install grafana grafana/helmchart -n grafana \
 - 告警規則查「最近 5 分鐘 `@timestamp`、`status: open`」，依 `alert_id`（再帶 `service`、`dept`、`group`、`severity`、`summary`、`report_url`）分組：**每一件一個告警**。
 - 件結束（30 分鐘沒新的異常）→ `status: resolved` → 查不到 → Grafana 發恢復通知。
 - `investigator alert` 停了：所有件都查不到，Grafana 會當成全部恢復。所以它每次跑都寫一筆心跳（`_id: heartbeat`、`status: ok`），第二條規則 `aiops-heartbeat` 查 10 分鐘內有沒有心跳，沒有就送平台（`noDataState: Alerting`）。**ES 連不上時**發的是 Grafana 自己的 `DatasourceError`（`execErrState: Error`），不是這條的標題，而且兩條規則各發一則。
+- 基準線不見（`aiops-baseline` 掉了、還沒 `train`）：`detect` 照常跑、心跳照常寫，上面兩條都不響。`detector detect` 每輪另寫一筆 `detect-status`（`status: ok`，`missing_baseline` 是沒有 baseline 的序列數），第三條規則 `aiops-baseline-missing` 查它 > 0 持續 5 分鐘才送（剛部署、ES 剛重建還沒 `train` 的前幾輪不響）；沒有這筆是 `detect` 沒跑，交給心跳那條（`noDataState: OK`）。
 - 開著的件、心跳的 `@timestamp` 是「最後一次看到」往前 1 分鐘：一件只有一筆、每輪覆蓋，往前寫才不會落在 Grafana 排定評估與送出查詢之間、被當成恢復（[troubleshooting](../docs/troubleshooting.md#grafana-告警)）。
 - `summary` 是 Grafana 的 label：內容一變就是另一則（舊的 resolved、新的 firing）。所以 `investigator alert` 寫的 summary 不放「持續 N 分鐘」、「等 N 項異常」這種每分鐘會變的字（Grafana 自己會顯示從何時開始；筆數看 `title`、`anomaly_count`）。
 - 通知裡的「回饋」連結：`aiops-alerts.feedback_url`（`rca.yaml` 的 `alerts.feedback_url`，指到 [aiops-engine/code/feedback_web](../aiops-engine/code/feedback_web/__init__.py)）。要帶進通知，在 annotations 再加一個 `feedback: "{{ $labels.feedback_url }}"`，bucketAggs 多一個 terms `feedback_url`（跟 `report_url` 一樣的寫法）。

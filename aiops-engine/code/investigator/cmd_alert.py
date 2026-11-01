@@ -51,6 +51,8 @@ ALERT_MAPPING = {"mappings": {"dynamic": False, "properties": {
     # 結構化的根因分析結果（相似事故檢索、LLM 用；不索引）、相似事故、LLM 摘要
     "findings": {"type": "object", "enabled": False}, "similar": {"type": "object", "enabled": False},
     "llm_summary": {"type": "text", "index": False}, "llm_provider": {"type": "keyword"},
+    # detector detect 每輪寫的 detect-status（detector/cmd_baseline.py）：這輪沒有 baseline 的序列數；Grafana 的 aiops-baseline-missing 查它
+    "missing_baseline": {"type": "integer"},
 }}}
 
 

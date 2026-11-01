@@ -60,6 +60,27 @@ class Http(unittest.TestCase):
         with urllib.request.urlopen(f"http://127.0.0.1:{self.port}/health", timeout=10) as r:
             self.assertEqual(r.read(), b"ok")
 
+    def test_missed_form_is_flat_empty_json(self):
+        with urllib.request.urlopen(f"http://127.0.0.1:{self.port}/api/missed-form", timeout=10) as r:
+            self.assertEqual(r.status, 200)
+            self.assertEqual(json.loads(r.read()), {k: "" for k in A.MISSED_FIELDS})
+
+    def test_missed_bad_series_is_400_good_is_200(self):
+        st, body = self.post("/api/missed", json.dumps({"series": "nope", "service": "mes-api", "at": "2026-10-25 10:00"}).encode(), "application/json")
+        self.assertEqual(st, 400)
+        self.assertIn("series 要是", json.loads(body)["error"])
+        with mock.patch.object(A, "_ready", set()):     # BrokenES 只壞 bulk_index；漏報走單筆 PUT，寫得進去
+            st, body = self.post("/api/missed", json.dumps({"series": "http.latency_p95_s", "service": "mes-api", "at": "2026-10-25 10:00", "by": "amy"}).encode(), "application/json")
+        self.assertEqual(st, 200)
+        self.assertEqual(json.loads(body)["verdict"], "missed")
+        self.assertTrue(any(d.get("verdict") == "missed" for d in W.Handler.es.written[A.FEEDBACK_INDEX].values()))
+
+    def test_missed_es_down_is_503_with_message(self):
+        with mock.patch.object(W.Handler.es, "req", side_effect=RuntimeError("PUT → 503")), mock.patch.object(A, "_ready", {id(W.Handler.es)}):
+            st, body = self.post("/api/missed", json.dumps({"series": "http.latency_p95_s", "service": "mes-api", "at": "2026-10-25 10:00"}).encode(), "application/json")
+        self.assertEqual(st, 503)
+        self.assertIn("沒有存成功", json.loads(body)["error"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -8,6 +8,7 @@
 """
 from __future__ import annotations
 
+from core.version import ENGINE_VERSION
 from .es import ANOMALY_INDEX
 
 OWNER_DAYS = 2
@@ -56,10 +57,12 @@ def owner_of(keys: dict, owners: dict) -> tuple[str | None, str]:
 
 
 def write_anomalies(es, docs: list) -> None:
-    """寫進異常總表，每筆帶上 dept、group。docs：(_id, 文件)。"""
+    """寫進異常總表，每筆帶上 dept、group、engine_version。docs：(_id, 文件)。
+    baseline、規則、peer、quality、trace 都從這裡寫，所以「每筆異常都要有」的欄位只補在這一處。"""
     if not docs:
         return
     owners = load_owners(es)
     for _, d in docs:
         d["dept"], d["group"] = owner_of(d.get("keys"), owners)
+        d["engine_version"] = ENGINE_VERSION
     es.bulk_index(ANOMALY_INDEX, docs)

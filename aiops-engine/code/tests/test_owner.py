@@ -63,6 +63,19 @@ class WriteAnomalies(unittest.TestCase):
         self.assertEqual(es.written[0], "aiops-anomalies")
         self.assertEqual([(d["dept"], d["group"]) for _, d in es.written[1]], [("D3120", "it"), (None, "unassigned")])
 
+    def test_every_doc_carries_engine_version(self):
+        # 五種寫入（baseline、規則、peer、quality、trace）都走這裡，所以在這裡補就等於每筆都有；欄位也要在 mapping（dynamic false）
+        from core.version import ENGINE_VERSION
+        from detector.es import ANOMALY_MAPPING
+        class Fake:
+            def __init__(self): self.written = None
+            def req(self, *a, **k): return {}
+            def bulk_index(self, index, docs): self.written = docs
+        es = Fake()
+        O.write_anomalies(es, [("a", {"keys": {"service": "x"}}), ("b", {"keys": {}})])
+        self.assertEqual([d["engine_version"] for _, d in es.written], [ENGINE_VERSION, ENGINE_VERSION])
+        self.assertEqual(ANOMALY_MAPPING["mappings"]["properties"]["engine_version"], {"type": "keyword"})
+
     def test_empty_does_not_query(self):
         class Boom:
             def req(self, *a, **k): raise AssertionError("不該查")

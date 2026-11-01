@@ -17,6 +17,7 @@ detect：讀最近一段時間的資料，跟 baseline 比，超出範圍的寫�
         跳一次是 warning，同一條序列連續兩個時間窗超標（或連續超標滿 30 分鐘）才是 anomaly。
         預設 30 秒一點（跟收值一樣），每 30 秒跑一次：連續兩個 30 秒（約 1 分鐘）就是 anomaly。
 tune  ：調整某條序列、某些對象的粒度、z、min_abs（寫進 aiops-tuning；之後 feedback 也寫這裡），下次 train／detect 生效。
+        --show 看某條序列、某個對象現在生效的值是多少、來自哪一筆（多筆都符合時後面蓋前面）。
 adjust：排除時段（事故、維護、壓測不學）、重置點（換版後只學新的）、週期放寬（月底批次放寬或不報），
         也寫 aiops-tuning（detector/adjust.py）。status: proposed 的要 approve 才生效。
 rules ：狀態變化、離極限多遠（不用學）。
@@ -70,6 +71,8 @@ def main(argv=None) -> int:
     tu.add_argument("--by", help="誰調的（使用者、feedback）")
     tu.add_argument("--remove", action="store_true")
     tu.add_argument("--list", action="store_true")
+    tu.add_argument("--show", action="store_true",
+                    help="看最終生效的值與來源：--series 給 series.yaml 的名稱、--match 給對象的實際值（例如 service=mes-api），不寫入")
     bt = sub.add_parser("backtest", help="改門檻前先回測：一筆建議用過去 N 週重跑，看告警少幾個、已確認事故還抓不抓得到")
     bt.add_argument("--config", default="configs/baseline/series.yaml")
     bt.add_argument("--id", required=True, help="aiops-tuning 的建議 id（adjust list 看得到）")
