@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # 把 repo 裡的外掛 zip（git lfs）帶進 cluster：切成每段不到 1MB 的 ConfigMap，chart 的 initContainer 接回、核對 SHA-256、解開。
-# ConfigMap、Secret、Helm release 單一物件都有 1MB 上限，10MB 的 zip 只能分段；Pod 不用連 Nexus（docs/pdca/phase5-learning-loop/2026-11-grafana-plugin-lfs.md）。
+# ConfigMap、Secret、Helm release 單一物件都有 1MB 上限，約 1.4MB 的 zip 只能分段；Pod 不用連 Nexus（docs/pdca/phase5-learning-loop/2026-11-grafana-plugin-lfs.md）。
 #
 # 用法：grafana/helmchart/load-plugin.sh [-n <namespace>] [zip 路徑]
 #   zip 路徑預設是這支腳本旁邊的 ../plugins/volkovlabs-form-panel-6.3.1.zip（相對路徑，從哪裡執行都一樣）
