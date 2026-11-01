@@ -74,7 +74,7 @@ flowchart TB
 | 2 天 | raw（`traces-generic.otel-*`）刪除（`TRACES_RAW_DELETE_AFTER`） |
 | 7 天 | merged（`traces-merged-*`）刪除（`TRACES_DELETE_AFTER`） |
 
-長期要的資料另存：每支 API 的延遲與錯誤率在 metrics，每一段的平常在 `aiops-trace-segments`（每 5 分鐘從 raw 的 Server span 抽樣統計）。幾天後壓縮移到物件儲存（MinIO）另案。
+長期要的資料另存：每支 API 的延遲與錯誤率在 metrics，每一段的平常在 `aiops-trace-segments`（每 5 分鐘從 merged 的入口抽樣統計）。幾天後壓縮移到物件儲存（MinIO）另案。
 
 Collector 的佇列寫節點磁碟：ES 停機 30 分鐘、Collector 換版都不掉（[durability](../pdca/phase1-collect/2026-10-durability.md)）。
 
