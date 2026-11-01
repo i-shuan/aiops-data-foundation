@@ -24,6 +24,7 @@
 | `setup-helmchart/files/run.sh`（新） | 解開 bundle、把 `.sh`、`.conf` 的 CR 去掉、跑 setup（`KEYS_OUT_DIR`）；5 把 key 寫進 `es-setup-keys`，`targets` 各寫一個欄位；都用 server-side apply（field manager `es-setup`） | 只管 key 那個欄位，`grafana-env` 其他欄位不被蓋掉；不存 annotation |
 | `elasticsearch/code/scripts/elasticsearch-setup.sh` | `jq()` 把輸出的 CR 去掉（`tr -d '\015'`） | Windows 的 jq 每行多一個 CR，資料流名稱帶著它拼進網址，`curl` 報 URL rejected；前案記成「測試 ES 本來就失敗」，其實是這個 |
 | 四份 `.gitlab-ci.yml` | `es-setup`：建 `es-setup-admin`、打包、`helm upgrade --set esSetup.enabled=true`（`ES_SETUP_SKIP_KEYS`）、印 Job log，不再有 artifact；`deploy-collector`：用 `KUBE_CONFIG_AIOPS` 讀 `es-setup-keys` 的寫入 key，寫進應用 cluster 的 `es-writer-keys`；`deploy-aiops-engine`、`deploy-grafana`：不碰 key（Grafana 只寫自己的欄位） | Runner 不用連 ES；key 不經過 CI |
+| `elasticsearch-setup.sh` 的 Grafana key | 可讀的索引從 `aiops-alerts` 一個，加上 `aiops-anomalies`、`aiops-tuning`、`aiops-feedback` | `grafana/code/datasource.yaml` 有四個 data source；用新版 Grafana 實裝才發現後三個讀取 403、儀表板讀不到資料（原本就有的缺口） |
 | `elasticsearch/README.md` | 「用 GitLab CI 跑」改寫：什麼時候按哪個、發生什麼 | 操作文件 |
 
 前案的 `KEYS_OUT_DIR`、三個 chart 從 values 建 Secret（`esWriterApiKey`、`esApiKey`、`secretData`）都留著（手動用），CI 不再用。
@@ -39,6 +40,7 @@
 | `skipKeys` 不發 key | `enabled=true skipKeys=true` | log「只更新結構」；`es-setup-keys` 的 writer 沒變；ES 上 `es-writer` key 數 25 → 25（這台測試 ES 歷次跑累積了 25 把） |
 | Collector job 的 key 複製 | 測試 cluster 另開 namespace，照 job 的指令讀 `es-setup-keys` 寫 `es-writer-keys` | 複製過去跟原本一樣；用它寫入 ES 回 201 |
 | `jq` 去 CR | 單獨跑函式 | 輸出沒有 CR；修之前對測試 ES `SKIP_KEYS=1` 失敗、修之後成功 |
+| Grafana key 權限、換 key 的連帶動作 | 重跑 Job（新腳本），拿新的 `grafana` key 讀四個索引；Grafana 不重啟與重啟後各看一次 data source；Collector 的寫入 key 換成 `es-setup-keys` 的新 key | 新 key 讀 `aiops-alerts`、`aiops-anomalies`、`aiops-tuning`、`aiops-feedback` 都是 200（舊的只有第一個 200，其餘 403）；`grafana-env` 其他欄位沒被蓋掉；**Grafana 不重啟還是舊 key**（警告還在）、重啟後四個都乾淨（Grafana job 因此加了 `rollout restart`）；Collector 換 key 後 1 分鐘內資料繼續進 ES（metrics 1,376、log 576、trace 560）、log 沒有 401 |
 | CI yaml | `yaml.safe_load`；檢查沒有殘留的 artifact／key 檔引用 | 都能解析、沒有殘留；文件檢查過、單元測試 532 過 |
 
 **沒測到的**：GitLab 上實跑（`dtzar/helm-kubectl` 的 `base64`、`tar` 行為、Runner 用兩個 kubeconfig）；公司 Nexus 上的工具 image；`snapshot.settings` 用 `--set-file` 帶 JSON 沒實跑。測試用的 namespace（`es-setup`、`aiops`、`grafana`）與 release `es-setup` 還留在測試 cluster（刪除被權限擋下，等使用者決定）。
