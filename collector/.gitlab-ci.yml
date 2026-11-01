@@ -7,8 +7,12 @@
 #   ES_URL                     公司 ES 的網址
 #   NTP_SERVER                 公司的 NTP，例如 ntp.example.internal:123
 #
-# 有 es-setup 的 key 檔（同一條 pipeline）：chart 建 Secret es-writer-keys；沒有就沿用現有的（Collector 自己換 key，不用重啟）。
-# 一個 job 部署一個 cluster。有好幾個 cluster：複製這個 job（job 名、KUBE_CONFIG_*、COLLECTOR_CLUSTER_NAME 換掉），
+#   KUBE_CONFIG_AIOPS          （Type: File）ES、AIOps 那個 cluster 的 kubeconfig：從那裡的 es-setup/es-setup-keys 讀寫入 key
+#
+# 寫入 key：Collector 跟應用在同一個 cluster，跟 ES／AIOps 不同 cluster，es-setup 的 Job 寫不到這裡。每次部署從
+# es-setup-keys 讀出寫入 key，寫進這個 cluster 的 otel-collector/es-writer-keys（server-side apply；換 key 後重跑這個 job 就同步，
+# Collector 自己換 key、不用重啟）。es-setup-keys 還沒有（還沒跑過 es-setup）就不動、沿用現有的。
+# 一個 job 部署一個 cluster。有好幾個 cluster：複製這個 job（job 名、KUBE_CONFIG_COLLECTOR、COLLECTOR_CLUSTER_NAME 換掉），
 # 或在 GitLab 畫面用不同的變數值各跑一次。
 
 deploy-collector:
@@ -16,18 +20,21 @@ deploy-collector:
   image:
     name: dtzar/helm-kubectl:3.15
     entrypoint: [""]
-  needs:
-    - job: es-setup
-      artifacts: true
-      optional: true
-  variables:
-    KUBECONFIG: ${KUBE_CONFIG_COLLECTOR}
   script:
-    - kubectl get namespace otel-collector >/dev/null 2>&1 || kubectl create namespace otel-collector
     - |
-      key_args=""
-      [ -f keys/collector-values.yaml ] && key_args="-f keys/collector-values.yaml"
-      helm upgrade --install collector collector/helmchart -n otel-collector ${key_args} \
+      writer="$(KUBECONFIG="${KUBE_CONFIG_AIOPS}" kubectl -n es-setup get secret es-setup-keys -o jsonpath='{.data.writer}' 2>/dev/null || true)"
+      export KUBECONFIG="${KUBE_CONFIG_COLLECTOR}"
+      kubectl get namespace otel-collector >/dev/null 2>&1 || kubectl create namespace otel-collector
+      if [ -n "${writer}" ]; then
+        printf '%s' "${writer}" | base64 -d > writer.key
+        kubectl -n otel-collector create secret generic es-writer-keys --from-file=ES_WRITER_API_KEY=writer.key --dry-run=client -o yaml \
+          | kubectl apply --server-side --force-conflicts --field-manager=ci -f - >/dev/null
+        rm -f writer.key
+        echo "寫入 key 從 es-setup-keys 同步到 otel-collector/es-writer-keys（不印出）"
+      else
+        echo "讀不到 es-setup/es-setup-keys（還沒跑 es-setup？）：不動 es-writer-keys"
+      fi
+      helm upgrade --install collector collector/helmchart -n otel-collector \
         --set clusterName="${COLLECTOR_CLUSTER_NAME}" --set esEndpoint="${ES_URL}" --set ntpServer="${NTP_SERVER}" \
         --set image.repository="${COLLECTOR_IMAGE}" \
         --set-file config.common=collector/code/common.yaml,config.node=collector/code/node.yaml,config.cluster=collector/code/cluster.yaml

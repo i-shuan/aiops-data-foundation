@@ -103,6 +103,7 @@ metrics、trace、log 怎麼收、怎麼存、三種怎麼關聯（欄位、時�
 | [phase1-collect/2026-10-trace-durability.md](phase1-collect/2026-10-trace-durability.md) | ① trace 收值線要不要 message queue | 不用 Kafka；兩段佇列改寫磁碟；node 端放子 exporter 的做法後來發現有錯、當掉掉多少重新量過（[durability](phase1-collect/2026-10-durability.md)） |
 | [phase1-collect/2026-10-trace-merge.md](phase1-collect/2026-10-trace-merge.md) | ①②③⑦ trace 不取樣（100% 收）、每個請求合成一筆：拆 trace-sampler、Collector 直接寫 raw（2 天），engine 每分鐘 `trace-merge` 合成 `traces-merged-*`（7 天），根因分析改讀 merged | 已完成，2026-11-01 合入 master（PR #36） |
 | [phase1-collect/2026-11-gitlab-ci.md](phase1-collect/2026-11-gitlab-ci.md) | ①③⑧ 各元件（elasticsearch、collector、aiops-engine、grafana）各自一份 GitLab CI；setup 在 CI 跑時 key 不印進 log、寫成 values 檔；三個 chart 能從 values 建 Secret | setup 的 CI 模式對測試 ES 驗過（log 無 key、writer 403、grafana／probe 200）、chart 渲染驗過；GitLab 上沒跑過；master 原版 setup 對這個測試 ES 本來就失敗（rollover 迴圈） |
+| [phase1-collect/2026-11-es-setup-helm-job.md](phase1-collect/2026-11-es-setup-helm-job.md) | ③① ES 結構設定改在 K8s 裡用 Job 跑（`elasticsearch/setup-helmchart`，`esSetup.enabled` 開關、`skipKeys`）：key 直接寫進同 cluster 的 Secret，Collector 的由 CI 從 `es-setup-keys` 複製；setup 腳本 Windows `jq` 的 CR 修正 | 測試 cluster 實跑 Job：key 寫對、權限對、`grafana-env` 其他欄位沒被蓋掉、日常 upgrade 不跑、`skipKeys` 不發 key；GitLab 上沒跑過 |
 | [phase1-collect/2026-11-es-two-pods.md](phase1-collect/2026-11-es-two-pods.md) | ③① 測試用 ES 改成兩個資料節點＋一個只投票節點：掛一個資料節點 log、trace 都 0 遺失；兩個都停仍掉（log 10.5%、trace 13.8%） | 已完成；全停的遺失記為已知風險 |
 
 ### Phase 2 異常分析（`phase2-anomaly/`）
