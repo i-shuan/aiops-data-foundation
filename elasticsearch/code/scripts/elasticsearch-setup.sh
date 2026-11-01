@@ -3,6 +3,9 @@
 #
 # 用法：ES_URL=https://<elasticsearch-host>:9200 ES_AUTH=elastic:<password> ./elasticsearch-setup.sh
 #       只更新 index 結構、不發新 key：SKIP_KEYS=1 ./elasticsearch-setup.sh
+#       CI 用：KEYS_OUT_DIR=<資料夾>：4 把 key 不印出來，寫成檔（writer、engine、grafana、probe 是 key 本身；
+#       collector-values.yaml、engine-values.yaml、grafana-values.yaml 是 chart 的 values，權限 600）；
+#       key 在 log 裡看不到，由 CI 的 artifact 交給後面的部署（.gitlab-ci.yml）。
 #       需要 curl、jq。
 #
 # 會建立四類東西：
@@ -32,10 +35,26 @@ es() {
   echo
 }
 
+# 發一把 API key：沒設 KEYS_OUT_DIR 就印出來（人手動跑）；有設就只寫檔、不印（CI 的 log 不能有 key）。
+# issue_key <名稱> <curl 的參數…>
+issue_key() {
+  local label="$1"; shift
+  if [[ -z "${KEYS_OUT_DIR:-}" ]]; then
+    es -X POST "${ES_URL}/_security/api_key" "$@"
+    return
+  fi
+  local out enc
+  out="$(es -X POST "${ES_URL}/_security/api_key" "$@")"
+  enc="$(printf '%s' "${out}" | jq -r '.encoded // empty')"
+  [[ -n "${enc}" ]] || { echo "發 ${label} key 失敗：$(printf '%s' "${out}" | jq -r '.error.reason // "沒有 encoded"')" >&2; exit 1; }
+  ( umask 077; printf '%s' "${enc}" > "${KEYS_OUT_DIR}/${label}" )
+  echo "  已寫入 ${KEYS_OUT_DIR}/${label}（不印出）"
+}
+
 writer_key() {
   local name="$1" indices="$2"
   echo "=== 寫入 key：${name} ==="
-  es -X POST "${ES_URL}/_security/api_key" -d "{
+  issue_key writer -d "{
     \"name\": \"${name}\",
     \"role_descriptors\": {
       \"${name}\": {
@@ -228,7 +247,7 @@ writer_key "es-writer" '["k8s-*", "metrics-*.otel-*", "logs-*.otel-*", "traces-*
 
 # 2. AIOps 唯讀
 echo "=== AIOps 唯讀 key ==="
-es -X POST "${ES_URL}/_security/api_key" -d '{
+issue_key reader -d '{
   "name": "aiops-reader",
   "role_descriptors": {
     "aiops-reader": {
@@ -242,7 +261,7 @@ es -X POST "${ES_URL}/_security/api_key" -d '{
 #     和 traces-merged-*（trace-merge 把每個請求合成一筆）。
 #     read_failure_store：quality.ingest_rejected 要數被 ES 拒絕、留在 failure store 的文件
 echo "=== AIOps baseline key ==="
-es -X POST "${ES_URL}/_security/api_key" -d '{
+issue_key engine -d '{
   "name": "aiops-baseline",
   "role_descriptors": {
     "aiops-baseline": {
@@ -258,7 +277,7 @@ echo
 # 5. Grafana 唯讀 key：只讀 aiops-alerts（AIOps 合併過的事件），Grafana 依它發通知（grafana/code/）。
 #    cluster monitor：Grafana 的 ES data source 會先打 GET / 看版本（實測沒有這個權限 data source 測試回 403）
 echo "=== Grafana 唯讀 key ==="
-es -X POST "${ES_URL}/_security/api_key" -d '{
+issue_key grafana -d '{
   "name": "grafana-aiops-alerts",
   "role_descriptors": {"grafana-aiops-alerts": {"cluster": ["monitor"], "index": [{"names": ["aiops-alerts"], "privileges": ["read", "view_index_metadata"]}]}}
 }'
@@ -267,7 +286,7 @@ echo
 # 4. 健康檢查 key：只能 GET /（cluster:monitor/main）。放進 ES 前面 LB 的健康檢查、或 ES Pod 的 readinessProbe
 #    （e2e/k8s/elasticsearch.yaml 的 Secret es-probe-key）
 echo "=== 健康檢查 key ==="
-es -X POST "${ES_URL}/_security/api_key" -d '{
+issue_key probe -d '{
   "name": "es-probe",
   "role_descriptors": {"es-probe": {"cluster": ["monitor"]}}
 }'
@@ -275,3 +294,13 @@ echo
 
 reader_role it
 reader_role imc
+
+# CI：把 key 組成各 chart 的 values（chart 用它建 Secret）。collector 是每個應用 cluster 各部署一次，同一個 values 檔給每個 cluster 用
+if [[ -n "${KEYS_OUT_DIR:-}" ]]; then
+  ( umask 077
+    printf 'esWriterApiKey: "%s"\n' "$(cat "${KEYS_OUT_DIR}/writer")" > "${KEYS_OUT_DIR}/collector-values.yaml"
+    printf 'esApiKey: "%s"\n' "$(cat "${KEYS_OUT_DIR}/engine")" > "${KEYS_OUT_DIR}/engine-values.yaml"
+    # 第一行 secretData: 由部署 job 補上其他欄位（ES_URL、webhook、admin 密碼）；這裡只放 key
+    printf 'secretData:\n  GRAFANA_ES_API_KEY: "%s"\n' "$(cat "${KEYS_OUT_DIR}/grafana")" > "${KEYS_OUT_DIR}/grafana-values.yaml" )
+  echo "=== key 與 values 檔寫在 ${KEYS_OUT_DIR}/（不印出）==="
+fi

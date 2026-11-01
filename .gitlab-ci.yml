@@ -1,0 +1,22 @@
+# GitLab CI：各元件分開部署，每個資料夾自己一份 .gitlab-ci.yml，這裡只負責串起來
+# （docs/pdca/phase1-collect/2026-11-gitlab-ci.md）。
+#
+# 每個 job 都是手動觸發（when: manual），而且只有該資料夾有改動才會出現在 pipeline 裡，互不影響。
+# 在 GitLab 的 Settings → CI/CD → Variables 設各元件要的變數（機密的勾 Masked、Protected；檔案勾 Type: File），
+# 每個資料夾的 .gitlab-ci.yml 開頭列了它要哪些。
+#
+# 流程：elasticsearch 的 es-setup 把結構套上 ES、發 4 把 API key，寫成 values 檔放在 artifact（不印進 log，1 小時後刪）；
+#       collector、aiops-engine、grafana 的部署 job 用 needs 接這個 artifact，chart 用它建 Secret。
+#       key 只在 es-setup 那一次產生：之後沒重跑 setup 的部署不帶 key 檔，chart 不動既有的 Secret（helm.sh/resource-policy: keep）。
+
+stages:
+  - test
+  - es-setup
+  - build
+  - deploy
+
+include:
+  - local: elasticsearch/.gitlab-ci.yml
+  - local: collector/.gitlab-ci.yml
+  - local: aiops-engine/.gitlab-ci.yml
+  - local: grafana/.gitlab-ci.yml
