@@ -3,7 +3,8 @@
 traces_index: traces-generic.otel-*   # raw：Collector 寫的每一段一筆（只留 2 天；baseline 只看最近 10 分鐘，夠）。100% 收、不取樣
 interval: 5m              # 每 5 分鐘一個點
 history_weeks: 4
-sample_per_bucket: 20     # 每 5 分鐘、每個 API 抽幾個請求來算（平均每個請求呼叫幾次，20 個就很穩）
+sample_per_bucket: 100    # 每 5 分鐘、每個 API 抽幾個請求來算。100 是 ES top_hits 的預設上限（index.max_inner_result_window），再大要改索引設定。
+                          # 20 個時，平常 3% 的慢請求讓平均值飄太大，10% 請求變慢報不出來、2% 吞例外在單一點就到 5% 門檻（docs/pdca/phase2-anomaly/2026-11-trace-sample-100.md）
 min_requests: 5           # 這 5 分鐘抽到的請求少於這個數，不判斷（太少，平均不準）
 clock_skew_ms: 500        # 呼叫方與被呼叫方的時間差超過這個就算時鐘不同步（規則，不用學）
 

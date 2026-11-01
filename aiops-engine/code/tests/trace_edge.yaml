@@ -1,7 +1,7 @@
 # tests/trace_quality_edge_e2e.py 用：跟 configs/baseline/trace.yaml 一樣，只有點的粒度改 1 分鐘、學 40 分鐘就用
 traces_index: traces-generic.otel-*
 interval: 1m
-sample_per_bucket: 20
+sample_per_bucket: 100
 min_requests: 5
 clock_skew_ms: 500
 sample_policy: random

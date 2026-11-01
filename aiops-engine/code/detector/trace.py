@@ -247,7 +247,7 @@ def sample_entries(es: ES, index: str, start: pd.Timestamp, end: pd.Timestamp, i
 def collect(es: ES, cfg: dict, start: pd.Timestamp, end: pd.Timestamp) -> tuple[pd.DataFrame, list[dict]]:
     """[start, end) 每個時段抽樣、算好，寫進 aiops-trace-segments（同一個時段重算會覆蓋，不會重複）。"""
     interval = cfg.get("interval", "5m")
-    samples = sample_entries(es, cfg["traces_index"], start, end, interval, cfg.get("sample_per_bucket", 20),
+    samples = sample_entries(es, cfg["traces_index"], start, end, interval, cfg.get("sample_per_bucket", 100),
                              cfg.get("sample_policy"))
     if not samples:
         return pd.DataFrame(columns=COLUMNS), []
