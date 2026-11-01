@@ -51,8 +51,8 @@
 
 - `--match` 的對象用正規表示式，欄位可用別名（`service`、`namespace`、`pod`）。
 - 同一個對象有多處設定時，對象 > 序列 > `series.yaml`；來源有設定檔與 ES，同 `id` 後寫的蓋前面。
-- 人用 `tune`、`adjust` 寫的預設直接生效。`feedback suggest` 寫的是 `status: proposed`，不生效：誤報累積 3 次，`z` 乘 1.4（例如 5 → 7）；漏報，`z` 乘 0.8（[feedback.py](../../aiops-engine/code/detector/feedback.py)）。
-- 生效流程：`backtest --id <id>`（預設過去 4 週）→ `adjust approve --id <id> --by <誰>`。`override`、`recurring_override` 沒回測或回測不建議時，要加 `--force` 才能核准；其他 `kind` 不用回測。`rule_suggestion` 算不出門檻不能核准。
+- 人用 `tune`、`adjust` 寫的預設直接生效。`feedback suggest` 寫的是 `status: proposed`，不生效。誤報累積 3 次時依誤報選一種放寬：集中在同一個時段 → 週期放寬（只有那 1 小時 `z` 乘 1.4）；`z` 都高到放寬也壓不掉 → 調 `min_abs`；其他 → `z` 乘 1.4（例如 5 → 7）。漏報，`z` 乘 0.8（[feedback.py](../../aiops-engine/code/detector/feedback.py)）。
+- 生效流程：`backtest --id <id>`（預設過去 4 週）→ `adjust approve --id <id> --by <誰>`。`override`、`recurring_override`、`rule_suggestion` 沒回測或回測不建議時，要加 `--force` 才能核准；其他 `kind` 不用回測。`rule_suggestion` 算不出門檻不能核准；它的回測看提這條規則的事故抓不抓得到、事故以外多報幾次。
 - `--expires` 到期自動失效；`adjust remove --id <id>` 刪除。
 
 不能用這些指令調的：
