@@ -38,6 +38,7 @@ spec:
           args:
             - --config=/conf/common.yaml
             - --config=/conf/node.yaml
+            - --config=/conf/aiops.yaml
           envFrom:
             - configMapRef:
                 name: otel-collector-env

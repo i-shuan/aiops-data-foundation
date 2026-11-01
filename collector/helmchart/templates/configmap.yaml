@@ -8,6 +8,8 @@ data:
 {{ .Values.config.common | indent 4 }}
   node.yaml: |
 {{ .Values.config.node | indent 4 }}
+  aiops.yaml: |
+{{ .Values.config.aiops | indent 4 }}
   cluster.yaml: |
 {{ .Values.config.cluster | indent 4 }}
 ---

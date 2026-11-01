@@ -7,7 +7,7 @@
 #   ES_URL                     公司 ES 的網址
 #   LLM_PROVIDER、LLM_CHAT_MODEL、LLM_BASE_URL、LLM_API_KEY    LLM 設定（key Masked、Protected）；不給 LLM_PROVIDER 就用 template（不叫模型）
 #
-# image tag 用 commit 的短碼。有 es-setup 的 key 檔（同一條 pipeline）：chart 建 Secret aiops-secrets；沒有就沿用現有的。
+# image tag 用 commit 的短碼。ES 的 key（Secret aiops-secrets）由 es-setup 的 Job 直接寫進來，這裡不碰。
 # Dockerfile 的 pip 要走公司的 Nexus（aiops-engine/README.md）。
 
 build-aiops-engine:
@@ -33,9 +33,6 @@ deploy-aiops-engine:
     name: dtzar/helm-kubectl:3.15
     entrypoint: [""]
   needs:
-    - job: es-setup
-      artifacts: true
-      optional: true
     - job: build-aiops-engine
       optional: true            # 只改 chart／設定、沒重 build：用現有的 image（IMAGE_TAG 變數指定，沒給就用 values.yaml 的）
   variables:
@@ -52,7 +49,6 @@ deploy-aiops-engine:
         echo "  apiKey: \"${LLM_API_KEY:-}\""
       } > llm-values.yaml
       args="-f llm-values.yaml"
-      [ -f keys/engine-values.yaml ] && args="${args} -f keys/engine-values.yaml"
       tag="${IMAGE_TAG:-${CI_COMMIT_SHORT_SHA}}"
       helm upgrade --install aiops aiops-engine/helmchart -n aiops ${args} \
         --set image.repository="${ENGINE_IMAGE}" --set image.tag="${tag}" --set esUrl="${ES_URL}"

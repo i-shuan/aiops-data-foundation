@@ -5,9 +5,13 @@
 # 在 GitLab 的 Settings → CI/CD → Variables 設各元件要的變數（機密的勾 Masked、Protected；檔案勾 Type: File），
 # 每個資料夾的 .gitlab-ci.yml 開頭列了它要哪些。
 #
-# 流程：elasticsearch 的 es-setup 把結構套上 ES、發 4 把 API key，寫成 values 檔放在 artifact（不印進 log，1 小時後刪）；
-#       collector、aiops-engine、grafana 的部署 job 用 needs 接這個 artifact，chart 用它建 Secret。
-#       key 只在 es-setup 那一次產生：之後沒重跑 setup 的部署不帶 key 檔，chart 不動既有的 Secret（helm.sh/resource-policy: keep）。
+# 流程（ES、AIOps、Grafana 在同一個 cluster；Collector 在各應用 cluster）：
+#   es-setup：在 ES／AIOps cluster 裡用 Job（elasticsearch/setup-helmchart）跑 elasticsearch-setup.sh，Runner 不用連 ES。
+#             key 不經過 CI：Job 直接寫進 aiops/aiops-secrets、grafana/grafana-env，5 把都存一份在 es-setup/es-setup-keys。
+#             只在第一次部署、改了 elasticsearch/code/、要換 key 時跑（每次發 key 都是新的、舊的不作廢）。
+#   deploy-collector：從 es-setup-keys 讀寫入 key，寫進應用 cluster 的 es-writer-keys，再部署。
+#   deploy-aiops-engine、deploy-grafana：不碰 key（Job 已經寫好）。
+# 詳細：docs/pdca/phase1-collect/2026-11-es-setup-helm-job.md
 
 stages:
   - test

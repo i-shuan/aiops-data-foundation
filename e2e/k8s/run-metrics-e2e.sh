@@ -93,7 +93,7 @@ check "TSDS 可寫入時間往後 2 小時（ES 停機重啟後才不會拒收�
   "$(es "${ES_URL}/metrics-prometheusreceiver.otel-it/_settings?include_defaults=true" | jq -r '[.[] | (.settings.index.look_ahead_time // .defaults.index.look_ahead_time)] | last')" 2h
 
 echo "== 5. 應用的請求直方圖（AIOps baseline 算流量、錯誤率、延遲用）"
-H=metrics.http.server.request.duration   # Java 的 Prometheus 名字由 node Collector 改成 OTel 名字（node.yaml metricstransform/java-http）
+H=metrics.http.server.request.duration   # Java 的 Prometheus 名字由 node Collector 改成 OTel 名字（aiops.yaml metricstransform/java-http）
 hq="{\"bool\":{\"filter\":[${since},{\"exists\":{\"field\":\"${H}\"}},$(ns_f imc-wip-prod)]}}"
 hdocs="$(es "${ES_URL}/metrics-*.otel-imc/_search" -d "{\"size\":100,\"query\":${hq}}" | jq '[.hits.hits[]._source]')"
 check_gt0 "進 IMC（metrics-generic.otel-imc）" "$(jq length <<<"${hdocs}")"

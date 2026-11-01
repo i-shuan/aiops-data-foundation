@@ -9,6 +9,7 @@
 | `code/storage/` | mapping、ingest pipeline（log 解析、OTel log 轉形、trace 的 `_id`）、ILM、index／component template、transform（log 統計）、HAProxy 健康檢查範例 |
 | `code/scripts/` | `elasticsearch-setup.sh`（把 `storage/` 全部套上去、建角色、發 key）、`retention.conf`（保留天數）、`rotate-writer-key.sh`（換寫入 key 不掉資料） |
 | `helmchart/` | **只給測試用**：兩個資料節點＋一個只投票節點的 ES（可改回單節點）。正式環境不要拿這份去部署 |
+| `setup-helmchart/` | 在 K8s 裡用 Job 跑 `elasticsearch-setup.sh`（`esSetup.enabled` 開關，預設不跑）；Runner 連不到內網 ES 時用，GitLab CI 的 `es-setup` 就是部署它 |
 
 ## 套結構設定、發 key
 
@@ -18,14 +19,23 @@ ES_URL=https://<中央 ES>:9200 ES_AUTH=elastic:<password> elasticsearch/code/sc
 
 重跑是安全的（已存在的只更新）。印出四把 key：寫入 key（給 Collector 的 Secret `es-writer-keys`）、AIOps baseline key（給 engine 的 Secret `aiops-secrets`）、Grafana 唯讀 key、健康檢查 key。保留天數改 `retention.conf` 再重跑；細節見 [docs/retention-how-to.md](../docs/retention-how-to.md)。
 
-## 用 GitLab CI 跑
+## 用 GitLab CI 跑（在 K8s 裡用 Job 跑 setup）
 
-各元件分開部署，每個資料夾一份 `.gitlab-ci.yml`（`elasticsearch/`、`collector/`、`aiops-engine/`、`grafana/`），根目錄的串起來；job 都是手動觸發，只有該資料夾有改動才出現。變數在 GitLab 的 Settings → CI/CD → Variables 設（每份檔開頭列了它要哪些；機密的勾 Masked、Protected）。
+ES、AIOps、Grafana 在同一個 cluster；Collector 在各應用 cluster。GitLab Runner **不用連到 ES**，只要能 `kubectl` 到 ES／AIOps 那個 cluster：`es-setup` job 部署 [`setup-helmchart/`](setup-helmchart/values.yaml)，chart 用 Job 在 cluster 裡跑 `elasticsearch-setup.sh`。每個元件一份 `.gitlab-ci.yml`（`elasticsearch/`、`collector/`、`aiops-engine/`、`grafana/`），job 都是手動觸發，變數清單在每份檔開頭。
 
-- **`es-setup`**（這個資料夾）：跑 `elasticsearch-setup.sh`，帶 `KEYS_OUT_DIR=keys`——4 把 key **不印進 log**，寫成 `keys/` 底下的檔：`writer`、`reader`、`engine`、`grafana`、`probe` 是 key 本身；`collector-values.yaml`、`engine-values.yaml`、`grafana-values.yaml` 是各 chart 的 values。`keys/` 當 artifact，只留 1 小時、只有 Developer 以上能下載。
-- **各元件的部署 job** 用 `needs` 接這個 artifact：有 key 檔就 `-f` 帶進 chart，chart 用它建 Secret（collector 的 `es-writer-keys`、aiops-engine 的 `aiops-secrets`、grafana 的 `grafana-env`）；沒跑 `es-setup` 就不帶，既有的 Secret 不動（`helm.sh/resource-policy: keep`）。
-- key 只在 `es-setup` 那次產生；**重跑會發新 key、舊的不會作廢**，所以只在要換 key 時跑。健康檢查 key（`keys/probe`）要放進 ES 前面的 LB，從 artifact 手動取。
-- key 會出現在 artifact 和各 cluster 的 Helm release（跟 K8s Secret 同一個讀取權限範圍）。設計與限制：[pdca/phase1-collect/2026-11-gitlab-ci.md](../docs/pdca/phase1-collect/2026-11-gitlab-ci.md)；GitLab 上還沒實跑過。
+| 什麼時候 | 按哪個 | 發生什麼 |
+|---|---|---|
+| 第一次部署（Collector 送資料之前） | `es-setup` | Job 套結構、權限，發 4 把 key：直接寫進 `aiops/aiops-secrets`、`grafana/grafana-env` 的 `GRAFANA_ES_API_KEY`，5 把都存一份在 `es-setup/es-setup-keys`；key 不經過 CI、不印進 log |
+| 改了 `retention.conf`、`storage/` | `es-setup`，變數 `ES_SETUP_SKIP_KEYS=true` | 只更新結構，不發新 key、不碰 Secret |
+| 要換 key | `es-setup`，再重跑 `deploy-collector` | 發新 key、寫進 Secret；Collector job 把新的寫入 key 同步到應用 cluster。**舊 key 不會作廢**，要到 ES 手動作廢 |
+| 日常部署 | `deploy-collector`、`deploy-aiops-engine`、`deploy-grafana` | 不跑 setup；Collector job 每次從 `es-setup-keys` 讀寫入 key 寫進應用 cluster 的 `es-writer-keys`，其他兩個不碰 key |
+
+- 腳本與設定檔：chart 讀不到 chart 外面的檔，`es-setup` job 把 `elasticsearch/code/` 打包（約 32KB）用 `--set-file bundle=` 帶進 ConfigMap，Job 解開執行。
+- ES 管理員帳號（`ES_AUTH`）由 job 建成 Secret `es-setup-admin`，不進 helm 的 values。
+- Job 只給 Secret 的 get、create、patch 權限，範圍是自己的 namespace 和 `values.yaml` 的 `targets`（namespace 要先存在）。
+- `grafana-env` 兩邊各寫各的欄位（server-side apply）：Job 寫 key，Grafana job 寫 `ES_URL`、webhook、admin 密碼，互不蓋掉。
+- 健康檢查 key 在 `es-setup-keys` 的 `probe`，放進 ES 前面的 LB。
+- 設計與實測：[pdca/phase1-collect/2026-11-es-setup-helm-job.md](../docs/pdca/phase1-collect/2026-11-es-setup-helm-job.md)；GitLab 上還沒實跑過。
 
 ## 備份與還原（aiops-* 的人工判斷）
 
