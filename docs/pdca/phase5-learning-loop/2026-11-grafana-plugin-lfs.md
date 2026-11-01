@@ -1,6 +1,6 @@
 # Grafana 回饋表單外掛 zip 放進 repo（git lfs），部署時從 repo 帶進 cluster（2026-11）
 
-**狀態**：進行中　　**日期**：2026-11-01　　**相關**：分支 `claude/grafana-plugin-lfs`；前案 [grafana-plugin-init](2026-10-grafana-plugin-init.md)
+**狀態**：已完成　　**日期**：2026-11-01　　**相關**：分支 `claude/grafana-plugin-lfs`；前案 [grafana-plugin-init](2026-10-grafana-plugin-init.md)
 **模組**：⑧ 出口、⑨ feedback
 
 ## Plan：這一次要達到什麼
@@ -30,6 +30,8 @@
 |---|---|---|
 | chart 兩種模式渲染對、沒給段數會擋 | `helm template`：預設、`source=configmap parts=3`、`source=configmap` 不給 parts | 預設照舊帶 `PLUGIN_URL`；configmap 帶 `PLUGIN_PARTS_DIR`、projected volume 三段 `part-000…002`；不給 parts 失敗並印「要給 plugin.parts」 |
 | 切段、帶進 cluster、接回、核對、解開 | 測試 cluster 另開 namespace `plugin-test`：2.5MB 假外掛 zip（`volkovlabs-form-panel/plugin.json`＋亂數）跑 `load-plugin.sh`，`helm upgrade --install` 帶它印的參數與假 zip 的 SHA-256 | 第一次 `kubectl apply` 被擋（annotation 超過 256KB），改 server-side apply 後：建 3 個 ConfigMap；initContainer「從 /plugin-zip 的 3 段接回 zip」「已裝 volkovlabs-form-panel」，Grafana 起來；測完刪掉 namespace |
+
+**真 zip 實測**：`volkovlabs-form-panel-6.3.1.zip` 切成 2 段 ConfigMap 裝進測試 Grafana（SHA-256 核對通過）；表單預填成功，瀏覽器送出後 `aiops-feedback` 寫入 11 筆（這件 11 項異常各一筆）、`aiops-incidents` 1 筆。回饋服務要設 `FEEDBACK_CORS_ORIGIN`，沒設時表單顯示 `Failed to fetch`。
 
 ## Act：Check 後沒改善的、還沒解決的
 
