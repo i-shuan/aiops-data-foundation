@@ -257,7 +257,7 @@
     {
       "id": 4,
       "type": "logs",
-      "title": "④ Log：錯誤 log（每一筆帶 trace.id，跟 trace 對得起來）",
+      "title": "④ Log：每一筆帶 trace_id，貼 ③ 的 trace_id 用 ctrl+F 找（ERROR 標紅）",
       "gridPos": {
         "x": 12,
         "y": 8,
@@ -285,14 +285,14 @@
             "type": "elasticsearch",
             "uid": "demo-logs"
           },
-          "query": "service.name:(\"rca-mes-api\" OR \"rca-wip-worker\") AND log.level:error",
+          "query": "service.name:(\"rca-mes-api\" OR \"rca-wip-worker\")",
           "timeField": "@timestamp",
           "metrics": [
             {
               "id": "1",
               "type": "logs",
               "settings": {
-                "limit": "200"
+                "limit": "500"
               }
             }
           ],
