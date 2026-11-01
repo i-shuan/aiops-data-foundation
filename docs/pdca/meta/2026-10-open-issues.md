@@ -56,7 +56,7 @@
 
 | 問題 | 現況 | 傾向 |
 |---|---|---|
-| `detect` 每分鐘跑、窗口 10 分鐘 | 停機超過 10 分鐘的那段不補判，Collector 補送的舊資料也不判，只進 `train` | 頻率與窗口不改；限制已寫進 [aiops-engine/README.md](../../../aiops-engine/README.md) 排程表（分支 `claude/parallel-items`，尚未合入 master；[PDCA](../phase5-learning-loop/2026-11-open-issues-batch.md)） |
+| `detect` 每分鐘跑、窗口 10 分鐘 | 停機超過 10 分鐘的那段不補判，Collector 補送的舊資料也不判，只進 `train` | 頻率與窗口不改；限制已寫進 [aiops-engine/README.md](../../../aiops-engine/README.md) 排程表（已合入 master；[PDCA](../phase5-learning-loop/2026-11-open-issues-batch.md)） |
 | peer、trace 每 5 分鐘 | trace 異常約 5～10 分鐘才出現（推算），metrics 約 1～3 分鐘（推算）。trace 的統計本來就以 5 分鐘為單位。`claude/trace-merge` 拆掉尾端取樣的 30 秒等待、加每分鐘的 `trace-merge`，這個推算合入後要重估 | 可接受；只有 trace 看得到的緩慢變差會晚發現 |
 | 實際延遲沒量過 | 上面的時間大多是推算；p95 暴衝到開事故已實測約 70 秒（見第 3 節），到 Grafana 通知的計時腳本已加、還沒跑 | 上線前量一次（已安排測試） |
 | Grafana 評估間隔 | `alert-rules.yaml` 的 `interval: 1m`，再加進 1～3 分鐘（推算）；已寫進 [grafana/README.md](../../../grafana/README.md) | 已確認 |
@@ -91,7 +91,7 @@
 | override 存放 | `tune` 或回饋網頁寫進 `aiops-tuning`（有原因、誰、何時）；改 `series.yaml` 只存檔案。`series` 本身不搬進 DB（失去 git 審查與回滾） | 結構放檔案，調整放 DB |
 | 長期有效的 override 沒有「畢業」 | 不會升級成 `series.yaml` 的預設值；`aiops-tuning` 沒有備份機制，ES 重建就消失 | 半自動：生效超過 N 天，產生 PR 草稿，人審後合併再刪 DB 那筆 |
 | 過期的調整不會清 | `expires_at` 過期後不再生效，但文件留著 | 未決定 |
-| 看不到最終生效值 | 同時有多筆符合時（後面蓋前面），沒有指令查「這個服務現在用的 z 是多少、來自哪一筆」 | 已做：`tune --show --series … --match service=…` 印每個參數的生效值與來源（分支 `claude/parallel-items`，尚未合入 master；[PDCA](../phase5-learning-loop/2026-11-open-issues-batch.md)） |
+| 看不到最終生效值 | 同時有多筆符合時（後面蓋前面），沒有指令查「這個服務現在用的 z 是多少、來自哪一筆」 | 已做：`tune --show --series … --match service=…` 印每個參數的生效值與來源（已合入 master；[PDCA](../phase5-learning-loop/2026-11-open-issues-batch.md)） |
 | `match` 是正規表示式 | 寫太寬會誤傷其他服務；套用順序是自動選 → `overrides` → `adjustments.yaml` → `aiops-tuning`（依 `at` 由舊到新），不看 `match` 多細，較晚寫的寬鬆調整會蓋掉較早的精細調整（[reference.md](../../../aiops-engine/code/configs/baseline/reference.md#使用者feedback-調整)） | 調整前用 `--list`、`backtest`；是否改成「精細的優先」未決定 |
 
 ### 6. 根因分析的限制
@@ -113,11 +113,11 @@
 | 問題 | 現況 | 傾向 |
 |---|---|---|
 | `aiops-baseline` 掉了 | `detect` 讀到空的，印一行「沒有 baseline，先跑 train」就跳過那條序列，不報錯。動態基準線這一路靜默停擺；規則、Pod 同儕橫向比對、資料品質不受影響 | 手動跑一次 `train`（[aiops-engine/README.md](../../../aiops-engine/README.md)）；不手動要等隔天 02:00 |
-| 沒有「基準線不見」的告警 | Grafana 的 `aiops-heartbeat` 只看 `investigator alert` 有沒有寫入，這種情況不會響 | 已做：`detect` 每輪寫 `detect-status`（`missing_baseline: N`）進 `aiops-alerts`，Grafana 規則 `aiops-baseline-missing` N > 0 持續 5 分鐘送平台；Grafana 上沒實跑（分支 `claude/parallel-items`，尚未合入 master；[PDCA](../phase5-learning-loop/2026-11-open-issues-batch.md)） |
+| 沒有「基準線不見」的告警 | Grafana 的 `aiops-heartbeat` 只看 `investigator alert` 有沒有寫入，這種情況不會響 | 已做：`detect` 每輪寫 `detect-status`（`missing_baseline: N`）進 `aiops-alerts`，Grafana 規則 `aiops-baseline-missing` N > 0 持續 5 分鐘送平台；Grafana 上沒實跑（已合入 master；[PDCA](../phase5-learning-loop/2026-11-open-issues-batch.md)） |
 | 沒有 snapshot 備份 | `elasticsearch/code` 找不到 snapshot 或 SLM 設定；索引 `auto_expand_replicas: 0-1`，單節點沒有副本 | 人工判斷的三個索引優先加：`aiops-incidents`、`aiops-feedback`、`aiops-tuning`，掉了不能重算；`aiops-baseline` 是每天重寫的衍生資料，重要性較低 |
 | 回饋存在哪 | 和 log、metrics、trace 在同一個中央 ES，是 `aiops-*` 一般索引；AIOps 的 key 只能寫 `aiops-*`；回饋網頁本身不存資料。正式環境的磁碟大小由管 ES 的人決定，repo 內附的 chart 是測試用（`storage: 10Gi`） | 待和管 ES 的人確認 |
 | 測試與正式環境的回饋不互通 | 兩邊是不同叢集，測試時累積的回饋、事故紀錄不會自動帶到正式環境 | 上線前決定要不要匯入 |
-| 重建 ES 的流程 | 沒有把 `train` 列為標準步驟 | 已寫進 [aiops-engine/README.md](../../../aiops-engine/README.md)「重建 ES、換 ES 之後」（分支 `claude/parallel-items`，尚未合入 master；[PDCA](../phase5-learning-loop/2026-11-open-issues-batch.md)） |
+| 重建 ES 的流程 | 沒有把 `train` 列為標準步驟 | 已寫進 [aiops-engine/README.md](../../../aiops-engine/README.md)「重建 ES、換 ES 之後」（已合入 master；[PDCA](../phase5-learning-loop/2026-11-open-issues-batch.md)） |
 | `aiops-baseline` 實際大小 | 沒查到數字（文件只有訓練時 1 萬條序列、2～3GB 記憶體） | 上線前量 |
 
 ### 8. 相似事故檢索往哪裡走（指紋、向量、graph RAG）
@@ -156,8 +156,8 @@
 | 錯誤率 1 個 5xx 就到門檻 | 一週 205 個誤報（0.34%）；後續是「至少 N 個 5xx 才判斷」 | 同上 |
 | 只有一部分請求變慢時 trace 段沒報 | 每點約 20 個請求的平均，長尾讓基準線很寬（門檻約 430ms）；看 p90 或慢請求比例還沒做 | [troubleshooting.md](../../troubleshooting.md) |
 | `trace.yaml` 的 `sample_per_bucket` 20 要不要調到 100 | trace 改 100% 收後，平常 3% 的長尾進了基準線；每點只抽 20 個請求，平均值標準差約 86 ms，加 200 ms 只有約 2 個標準差，過不了 z = 5（10% 請求多 2 秒沒報）；長期 2% 吞例外時規則每點各自算，20 個裡 1 個就是 5% 剛好等於門檻，常報。暫時改成 100 後 trace 那段 17 項全過（未留在 repo）。決定：調，但先量 `trace-detect` 一輪的實際耗時（報告只說讀的 trace 變 5 倍，沒量時間）再合進去 | [PDCA](https://github.com/i-shuan/aiops-data-foundation/blob/claude/trace-merge/docs/pdca/phase1-collect/2026-10-trace-merge.md) |
-| 三成 Pod 沒有服務 label 沒報（B6a） | pipeline 沒 label 時 `service.name` 退回 container 名稱 `app`，欄位不算缺，檢查看不到；master 也一樣，與 trace 合併無關。已做：`missing` 檢查加 `missing_if_equals`（等於 `k8s.container.name` 也算缺），只有單元測試、Painless 沒對真 ES 跑、e2e B6a 等叢集空了再跑（分支 `claude/parallel-items`，尚未合入 master；[PDCA](../phase5-learning-loop/2026-11-open-issues-batch.md)） | 同上 |
-| 每筆異常沒記是哪一版產生的 | 已做：每筆異常帶 `engine_version`（chart 的 `image.tag`，本機是 `dev`）（分支 `claude/parallel-items`，尚未合入 master；[PDCA](../phase5-learning-loop/2026-11-open-issues-batch.md)） | [baseline/reference.md](../../../aiops-engine/code/configs/baseline/reference.md) |
+| 三成 Pod 沒有服務 label 沒報（B6a） | pipeline 沒 label 時 `service.name` 退回 container 名稱 `app`，欄位不算缺，檢查看不到；master 也一樣，與 trace 合併無關。已做：`missing` 檢查加 `missing_if_equals`（等於 `k8s.container.name` 也算缺），只有單元測試、Painless 沒對真 ES 跑、e2e B6a 等叢集空了再跑（已合入 master；[PDCA](../phase5-learning-loop/2026-11-open-issues-batch.md)） | 同上 |
+| 每筆異常沒記是哪一版產生的 | 已做：每筆異常帶 `engine_version`（chart 的 `image.tag`，本機是 `dev`）（已合入 master；[PDCA](../phase5-learning-loop/2026-11-open-issues-batch.md)） | [baseline/reference.md](../../../aiops-engine/code/configs/baseline/reference.md) |
 | `suggest` 只調 `z` | 不調 `min_abs`、粒度，也不會提排除時段（月底批次更該用 `recurring_override`） | 同上 |
 | 規則核准前沒有回測 | 用 `rules --at <事故時間>` 看會不會觸發，要人手動 | 同上 |
 
@@ -166,10 +166,10 @@
 | 項目 | 現況 | 來源 |
 |---|---|---|
 | 回饋沒有身分 | 表單、網頁沒登入；回饋 3 次可以是同一個人 | [architecture.md 第 10 節](../../architecture.md#10-還沒做還不足的) |
-| 漏報沒有網頁入口 | 已做：Grafana 回饋儀表板加第二個表單面板，送 `feedback_web` 的 `/api/missed`，文件格式同指令；不另做網頁（使用者決定）；Grafana 上沒實載（分支 `claude/parallel-items`，尚未合入 master；[PDCA](../phase5-learning-loop/2026-11-open-issues-batch.md)） | 同上 |
+| 漏報沒有網頁入口 | 已做：Grafana 回饋儀表板加第二個表單面板，送 `feedback_web` 的 `/api/missed`，文件格式同指令；不另做網頁（使用者決定）；Grafana 上沒實載（已合入 master；[PDCA](../phase5-learning-loop/2026-11-open-issues-batch.md)） | 同上 |
 | 沒有評測集 | 相似事故在沒有 trace 時，只靠「同服務＋同指標」剛好壓在門檻上 | 同上 |
 | 舊事故單匯入 `aiops-incidents` 的格式沒寫 | | 同上 |
-| code-review 剩三項沒動 | 已做：metrics 的回饋改依這段告警的 `alert_id` 載入（漏報仍依時間）、回測用快取代理只讀一次 ES、相似事故候選 20 → 200（分支 `claude/parallel-items`，尚未合入 master；[PDCA](../phase5-learning-loop/2026-11-open-issues-batch.md)） | 同上 |
+| code-review 剩三項沒動 | 已做：metrics 的回饋改依這段告警的 `alert_id` 載入（漏報仍依時間）、回測用快取代理只讀一次 ES、相似事故候選 20 → 200（已合入 master；[PDCA](../phase5-learning-loop/2026-11-open-issues-batch.md)） | 同上 |
 
 #### 9.4 資料與 log
 

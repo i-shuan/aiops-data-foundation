@@ -13,6 +13,30 @@ AIOps 把異常合成「一件事」寫進 `aiops-alerts`（`python3 -m investig
 | `policies.yaml` | 依 `dept` 送到哪個 contact point；沒有 dept（資料品質、節點）送平台 | dept 清單（跟 `collector/code/groups.yaml` 一致） |
 | `dashboards.yaml`、`dashboards/aiops-feedback.json` | 回饋表單（Grafana 裡填）：通知的 `feedback` 連結點進來 | 兩個回饋服務網址、要先裝外掛（下面） |
 
+## 誰負責什麼
+
+原則：**判斷與存放在 AIOps，通知與畫面在 Grafana**。換掉 Grafana，AIOps 的偵測與回饋邏輯不用動，只重做下面「Grafana」那欄的規則與表單。
+
+| 條線 | AIOps（`aiops-engine/`）做 | Grafana（`grafana/`）做 | 管 Grafana 的人做 |
+|---|---|---|---|
+| 事故通知 | 異常合成一件，寫 `aiops-alerts`（`investigator alert`） | 規則 `aiops-incident` 每件一則；依 `dept` 分送、靜音、結束發恢復 | contact point、哪個 dept 送哪裡、夜間規則 |
+| AIOps 停了 | `investigator alert` 每輪寫心跳（`_id: heartbeat`） | 規則 `aiops-heartbeat`：10 分鐘沒心跳送平台 | 平台的 contact point |
+| 基準線不見 | `detector detect` 每輪寫 `detect-status`（`missing_baseline`） | 規則 `aiops-baseline-missing`：> 0 持續 5 分鐘送平台 | 同上；處置是手動 `train`（[aiops-engine/README.md](../aiops-engine/README.md)） |
+| 事故回饋 | `feedback_web` 驗資料、寫 `aiops-feedback`、`aiops-incidents`（`/api/alert`、`/api/feedback`） | 儀表板 `aiops-feedback` 第一個面板：預填與送出的表單 | 裝 Business Forms 外掛（[INSTALL-form-plugin.md](code/INSTALL-form-plugin.md)）、設回饋服務網址 |
+| 漏報回報 | `feedback_web` 驗序列名與時間、寫 `aiops-feedback`（`/api/missed-form`、`/api/missed`） | 同一個儀表板第二個面板 | 同上 |
+| 唯讀儀表板 | 寫 `aiops-alerts`、`aiops-anomalies`、`aiops-tuning`、`aiops-feedback` | `aiops-rca`、`aiops-learning`：只讀這幾個索引畫圖 | 給 Grafana 唯讀 key |
+
+兩邊只用下面三個接口接起來，改任何一個，另一邊要一起改：
+
+| 接口 | AIOps 這邊 | Grafana 這邊 | 要一起改的情況 |
+|---|---|---|---|
+| ES 索引欄位 | 寫 `aiops-alerts` 等索引（欄位見 [aiops-data-reference.md](../docs/aiops-data-reference.md)） | `datasource.yaml` 的唯讀 key；規則與儀表板的查詢直接寫欄位名（`status`、`alert_id`、`dept`、`missing_baseline`…） | 改欄位名或型別 |
+| 回饋 HTTP API | `feedback_web`：`GET /api/alert`、`/api/missed-form`；`POST /api/feedback`、`/api/missed` | 表單面板的 `initial.url`、`update.url`；**瀏覽器直接打**，不經 Grafana 後端 | 改路徑或欄位；部署時 URL 要改成使用者瀏覽器連得到的位置、`FEEDBACK_CORS_ORIGIN` 設成 Grafana 的網址 |
+| 告警標籤 | `aiops-alerts` 的 `service`、`dept`、`group`、`severity`、`summary`、`report_url` | 規則把它們帶成 labels；`policies.yaml` 依 `dept` 路由 | 改 `dept` 清單（要跟 `collector/code/groups.yaml` 一致） |
+
+- 表單的欄位 id 必須等於後端回傳 JSON 的 key（`/api/alert`、`/api/missed-form`）；漏報面板的 series 下拉是靜態列表，要跟 `series.yaml` 的名字一致。這兩點由 `tests/test_grafana_form.py` 擋。
+- 更細的通知分工（含管 Grafana 的人要設什麼）的設計紀錄：[alert-exit.md](../docs/pdca/phase3-locate/2026-10-alert-exit.md)。
+
 ## 部署
 
 公司已經有 Grafana：只套 `code/` 的 provisioning（data source、告警規則、contact point、policy、儀表板）和回饋表單外掛（[INSTALL-form-plugin.md](code/INSTALL-form-plugin.md)：initContainer 的 patch 在 `code/plugin-init-patch.yaml`）。

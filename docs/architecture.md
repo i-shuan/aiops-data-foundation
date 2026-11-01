@@ -312,10 +312,10 @@ K8s 排程頻率見 [aiops-engine/README.md](../aiops-engine/README.md)。
 2. **真實資料上還沒跑過**：排程在測試 cluster 連測試 ES 跑過（[single-pod-scheduler](pdca/phase3-locate/2026-10-single-pod-scheduler.md)），真實資料、真的 LLM 要等試點。
 3. **沒有評測集**：真的 LLM 跑過（OpenAI 12 次、rca-demo 一次），相似事故在沒有 trace 時只靠「同服務＋同指標」剛好壓在門檻上。
 4. **回饋沒有身分**：回饋表單、小網頁都沒登入；回饋 3 次可以是同一個人（沒有第二人確認）。
-5. 漏報的回報：Grafana 回饋儀表板的第二個表單面板（`/api/missed`），或 `feedback` 指令（分支 `claude/parallel-items`，尚未合入 master）。
+5. 漏報的回報：Grafana 回饋儀表板的第二個表單面板（`/api/missed`），或 `feedback` 指令（已合入 master，[PDCA](pdca/phase5-learning-loop/2026-11-open-issues-batch.md)）。
 6. 月底批次只會提「放寬 z」，不會提排除時段。
 7. 舊事故單匯入 `aiops-incidents` 的格式沒寫。
-8. code-review 的 10 項都已處理（最後三項：metrics 回饋跨段、回測重複查 ES、相似事故候選 20 → 200，在分支 `claude/parallel-items`，尚未合入 master）。
+8. code-review 的 10 項都已處理（最後三項：metrics 回饋跨段、回測重複查 ES、相似事故候選 20 → 200，已合入 master，[PDCA](pdca/phase5-learning-loop/2026-11-open-issues-batch.md)）。
 
 各模組還沒做的：
 
