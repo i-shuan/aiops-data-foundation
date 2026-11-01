@@ -223,6 +223,25 @@ rules:
     by: [*ns, *pod, *ctr]
     context: [*svc, *node]
 
+  # 趨勢：最近 30 分鐘一路往上（Theil–Sen 斜率；三段的低點一段比一段高，GC 鋸齒回得到原來低點的不算），
+  # 照這個速度 6 小時內會到上限（working_set + available）。memory_near_limit 要到 90% 才報，這條在還沒到之前先講；
+  # 不用跟其他 Pod 比，單 Pod 的服務、新舊 Pod 記憶體本來就不同的也能用。新容器要有滿 30 分鐘的資料才判斷（啟動期 heap 長大不算）
+  - name: container.memory_leak
+    title: 容器記憶體一直漲，照這個速度幾小時內會到上限（像洩漏）
+    severity: warning
+    index: metrics-kubeletstatsreceiver.otel-*
+    field: metrics.container.memory.working_set
+    den: [metrics.container.memory.working_set, metrics.container.memory.available]
+    type: slope
+    for: 30m
+    lookback: 35m
+    min_points: 40          # 30 秒一點，30 分鐘 61 點；缺一些也行
+    op: "<="
+    threshold: 6            # 小時
+    show: hours
+    by: [*ns, *pod, *ctr]
+    context: [*svc, *node]
+
   - name: node.memory_high
     title: 節點記憶體快滿
     severity: warning

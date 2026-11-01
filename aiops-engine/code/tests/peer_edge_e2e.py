@@ -112,6 +112,11 @@ def scenarios():
         return [pod(f"{prefix}-a", err=bad_err, mem=600 * MB), pod(f"{prefix}-b", mem=600 * MB),
                 pod(f"{prefix}-c", **new), pod(f"{prefix}-d", **new), pod(f"{prefix}-e", **new)]
     s["pe-scale"] = ("擴縮容 2→5→2，都正常", scale("scale", 0.0))
+    # 2026-10-31 真的 cluster 上的案例：3 個 Pod，c 是 30 分鐘前滾動更新換上的（記憶體 163MB，比舊的 251MB 低），
+    # a 洩漏：最近 10 分鐘從 250MB 漲到 420MB。其他 2 個之間差 88MB 把 z 的分母撐大（z 3.3），要靠 z_by_peers 才抓到
+    s["pe-ages3"] = ("3 個 Pod 年紀不同（新的記憶體低），一個洩漏", [
+        pod("ages3-a", mem=lambda t, age: (250 + 170 * max(0.0, (t + 10) / 10)) * MB),
+        pod("ages3-b", mem=251 * MB), pod("ages3-c", born=-30, mem=163 * MB)])
     s["pe-scalebad"] = ("擴縮容 2→5→2，a 一直錯誤 30%", scale("scalebad", 0.3))
     return s
 
@@ -158,6 +163,8 @@ EXPECT = [
     ("pe-replace", -11, {}, "換掉 3 分鐘：b 已不在、d 暖機中，都不報"),
     ("pe-replace", -6, {}, "換掉 8 分鐘：d 正常，不報"),
     # 擴縮容：T-40 擴到 5、T-20 縮回 2
+    ("pe-ages3", 0, {MEM: {"ages3-a"}}, "3 個 Pod、年紀不同：洩漏的 a（420 vs 251、163MB，z 3.3）要抓到（其他 2 個時 z 門檻 3）；錯誤率、延遲、CPU 都正常不報"),
+    ("pe-ages3", -12, {}, "洩漏開始前：a 250、b 251、c 163MB，都不報"),
     ("pe-scale", -41, {}, "2 個：不比"),
     ("pe-scale", -39, {}, "剛擴 1 分鐘：新 Pod CPU 高、記憶體低，都不能報（舊的也不能因為記憶體比新的高被報）"),
     ("pe-scale", -37, {}, "擴 3 分鐘"),

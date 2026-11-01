@@ -128,6 +128,7 @@ baseline（中位數＋MAD）、規則、資料品質、餵給 baseline 前的�
 | [phase2-anomaly/2026-10-trace-quality-verify.md](phase2-anomaly/2026-10-trace-quality-verify.md) | ②④ trace 段異常、資料品質的邊緣情境（自己的 ES 灌合成資料） | 41 PASS 2 FAIL；修 4 個（`db.system.name`、ID 比例抽樣、缺 namespace 時 `quality` 中斷、3 個新檢查）；例外吞噬定義、第一天路由數維持新做法（已決定）；部分請求變慢、Pod 沒服務 label 的 log 抓不到 |
 | [phase2-anomaly/2026-11-aiops-retention-backup.md](phase2-anomaly/2026-11-aiops-retention-backup.md) | ③⑤⑧⑨ aiops-* 的保留天數與備份：`detector prune` 每天刪超過天數的異常、trace 段統計、已結案告警；setup 註冊 snapshot 儲存庫與每天的 SLM 政策（人工判斷的三個索引不設天數、只備份） | 臨時索引實測刪對、不重算；測試 chart 三節點掛 `/snapshots`，備份 5 個索引 1.2 秒、刪 `aiops-tuning` 再還原 4 筆對 4 筆；正式儲存庫由管 ES 的人決定 |
 | [phase2-anomaly/2026-11-baseline-more-series.md](phase2-anomaly/2026-11-baseline-more-series.md) | ④ 動態基準線補三條序列：p99、慢請求比例（超過 2 秒）、往外呼叫 p95；`detector shift` 每天看哪條序列一階跳變、提 `reset_point`（proposed） | 新 value 寫法 `hist_ratio_above`（`percentile_ranks`）；真資料 p99、慢請求比例各 298 條序列學得出來，往外呼叫沒活資料；`shift` 合成資料對、真 ES 跑完 0 筆（沒換版）；ES `change_point` 聚合要授權，不做 |
+| [phase2-anomaly/2026-11-peer-z-and-slope.md](phase2-anomaly/2026-11-peer-z-and-slope.md) | ④ Pod 同儕橫向比對的 z 依其他 Pod 數分級（其他 2 個用 3）；趨勢規則 `container.memory_leak`：30 分鐘 Theil–Sen 斜率、三段低點墊高、照這個速度 ≤ 6 小時到上限 | 合成 e2e：同儕 38／38（10/31 的洩漏案例 z 3.1 抓到）、規則 164／164（8 個新案例）；真 cluster 沒重跑；HPA 擴容後老 Pod 誤報的推論未驗 |
 
 ### Phase 3 定位問題（`phase3-locate/`）
 

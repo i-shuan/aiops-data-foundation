@@ -9,6 +9,9 @@
   2. 依 group（例如服務）分組，至少 min_peers 個 Pod 才比。
   3. 每個 Pod 跟「其他 Pod」比：其他 Pod 的中位數、MAD（跟 baseline 一樣的穩健統計，少數怪的不會把標準拉偏），
      離中位數 z 倍穩健標準差以上、而且差距 ≥ min_abs（以及 ≥ min_ratio 倍，若有設）才算。
+     其他 Pod 只有 2～4 個時，它們之間的差距沒什麼統計意義（滾動更新後新舊 Pod 的記憶體本來就差幾十 MB，會把分母撐大），
+     z 的門檻依其他 Pod 數分級（z_by_peers，例如其他 2 個用 3），主要靠 min_abs、min_ratio 擋誤報
+     （docs/pdca/phase2-anomaly/2026-11-peer-z-and-slope.md）。
   流量太少的 Pod（min_volume，例如 10 分鐘不到 20 個請求）不比：錯誤率一兩個錯就跳很高。
 """
 from __future__ import annotations
@@ -21,11 +24,12 @@ from .model import MAD_TO_SIGMA
 
 def compare(df: pd.DataFrame, group: list[str], member: str, *, direction: str = "up", z: float = 5.0,
             min_abs: float = 0.0, min_ratio: float | None = None, rel_floor: float = 0.1, abs_floor: float = 1e-9,
-            min_peers: int = 3, max_peer_median: float | None = None) -> pd.DataFrame:
+            min_peers: int = 3, max_peer_median: float | None = None, z_by_peers: dict | None = None) -> pd.DataFrame:
     """df：group + [member, "value"]，每個 Pod 一列。
 
     回傳每個 Pod 一列：group、member、value、peers（其他 Pod 幾個）、median（其他 Pod 的中位數）、z、anomaly。
     rel_floor：其他 Pod 幾乎一樣時（MAD≈0），差距至少當成中位數的 rel_floor 倍，避免一點點不同就算。
+    z_by_peers：{其他 Pod 數: z 門檻}，沒列的用 z（例如 {2: 3, 3: 4, 4: 4}：其他只有 2 個時 3 倍就算）。
     max_peer_median：其他 Pod 的中位數已經到這個值（例如錯誤率 5%）＝整個服務都壞了，不挑出單一個 Pod，交給規則。
     """
     cols = group + [member, "value", "peers", "median", "z", "anomaly"]
@@ -35,6 +39,7 @@ def compare(df: pd.DataFrame, group: list[str], member: str, *, direction: str =
         if len(g) < max(min_peers, 2):
             continue
         vals = g["value"].to_numpy(dtype=float)
+        zt = float((z_by_peers or {}).get(len(vals) - 1, z))   # 其他 Pod 數 = 這組減自己
         for i, r in enumerate(g.to_dict("records")):
             others = np.delete(vals, i)
             med = float(np.median(others))
@@ -45,11 +50,11 @@ def compare(df: pd.DataFrame, group: list[str], member: str, *, direction: str =
             if max_peer_median is not None and direction == "up" and med >= max_peer_median:
                 hit = False
             elif direction == "up":
-                hit = zz >= z and diff >= min_abs and (min_ratio is None or r["value"] >= min_ratio * med)
+                hit = zz >= zt and diff >= min_abs and (min_ratio is None or r["value"] >= min_ratio * med)
             elif direction == "down":
-                hit = zz <= -z and -diff >= min_abs and (min_ratio is None or r["value"] * min_ratio <= med)
+                hit = zz <= -zt and -diff >= min_abs and (min_ratio is None or r["value"] * min_ratio <= med)
             else:
-                hit = abs(zz) >= z and abs(diff) >= min_abs
+                hit = abs(zz) >= zt and abs(diff) >= min_abs
             rows.append({**{k: r[k] for k in group}, member: r[member], "value": r["value"],
                          "peers": len(others), "median": med, "z": zz, "anomaly": bool(hit)})
     return pd.DataFrame(rows, columns=cols)

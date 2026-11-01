@@ -48,7 +48,8 @@ def cmd_peer(cfg: dict, args) -> int:
         res = P.compare(cur, group, member, direction=c.get("direction", "up"), z=cfg.get("z", 5.0),
                         min_abs=c.get("min_abs", 0.0), min_ratio=c.get("min_ratio"),
                         rel_floor=cfg.get("rel_floor", 0.1), min_peers=cfg.get("min_peers", 3),
-                        max_peer_median=c.get("max_peer_median"))
+                        max_peer_median=c.get("max_peer_median"),
+                        z_by_peers={int(k): float(v) for k, v in (cfg.get("z_by_peers") or {}).items()})
         fmt = SHOW.get(c.get("show"), lambda x: f"{x:g}")
         n_groups = res.groupby(group).ngroups if not res.empty else 0
         for r in res[res["anomaly"]].to_dict("records"):

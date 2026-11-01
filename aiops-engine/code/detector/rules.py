@@ -13,6 +13,10 @@
   type: total     這段時間的加總 op 門檻              例：5 分鐘內 major GC 幾次 >= 5（hist_count: true 時數直方圖的次數）
   type: window    整段 lookback 算一個值 op 門檻      例：5 分鐘內的錯誤率 >= 5%、p95 >= 2 秒（直方圖的比例、百分位）
                   value、filter 的寫法跟 series.yaml 一樣（hist_ratio、percentile…）；min_events：請求數不到的不判斷
+  type: slope     最近 for 這段的趨勢（Theil–Sen 斜率）  例：記憶體照這個速度 <= 6 小時後到上限（像洩漏）
+                  有 den（上限 = den 加總）就算「幾小時後到上限」，沒有就是每小時漲多少（欄位的單位）。
+                  只算一路往上的：三段的低點要一路墊高（GC 鋸齒回得到原來的低點就不算）；對象要有滿 for 的資料、
+                  至少 min_points 個點（新容器啟動期的暖機不算）。
 
 join：分母在另一種文件時（例如連線池「使用中」和「上限」分開存），用同一個對象、同一個時間點的值補進來：
   join: {field: metrics.db_client_connections_max}       之後 den 就可以寫這個欄位
@@ -31,6 +35,7 @@ from __future__ import annotations
 import operator
 from collections import defaultdict
 
+import numpy as np
 import pandas as pd
 
 from core.es import ES, get_field, time_range
@@ -83,12 +88,60 @@ def _window(pts, now, hold):
     return [(t, d) for t, d in pts if t >= now - hold] if hold > pd.Timedelta(0) else pts
 
 
+def slope_per_s(ts: list[pd.Timestamp], vals: list[float]) -> float:
+    """Theil–Sen：所有兩點斜率的中位數，GC 鋸齒、單點跳動不會把它拉偏（最小平方會）。每秒漲多少。"""
+    t = np.array([(x - ts[0]).total_seconds() for x in ts], dtype=float)
+    v = np.array(vals, dtype=float)
+    i, j = np.triu_indices(len(t), 1)
+    dt = t[j] - t[i]
+    ok = dt > 0
+    return float(np.median((v[j] - v[i])[ok] / dt[ok])) if ok.any() else 0.0
+
+
+def lows_rising(vals: list[float], parts: int = 3) -> bool:
+    """切成幾段，每段的最低點要一段比一段高：洩漏是 GC 之後回不到原來的低點；純鋸齒（每次 GC 都回到同一個低點）不算。"""
+    n = len(vals)
+    lows = [min(vals[k * n // parts:(k + 1) * n // parts]) for k in range(parts)]
+    return all(b > a for a, b in zip(lows, lows[1:]))
+
+
+def _slope(rule: dict, key, pts, now: pd.Timestamp, op, th) -> dict | None:
+    hold = _dur(rule.get("for", "30m"))
+    step = pd.Timedelta(seconds=float(rule.get("step_s", 30)))
+    w = [(t, d, float(v)) for t, d in _window(pts, now, hold) if (v := get_field(d, rule["field"])) is not None]
+    # 點不夠、最新的太舊（對象不在了）、for 開頭沒資料（新容器還在暖機）：不判斷
+    if len(w) < int(rule.get("min_points", 10)) or w[-1][0] < now - _dur(rule.get("fresh", "2m")) or w[0][0] > now - hold + 2 * step:
+        return None
+    vals = [v for _, _, v in w]
+    per_h = slope_per_s([t for t, _, _ in w], vals) * 3600
+    if per_h <= 0 or not lows_rising(vals):
+        return None
+    if rule.get("den"):
+        # 上限 = den 加總（例如 working_set + available）；用最後一個兩者都有的點
+        limit = None
+        for _, d, _ in reversed(w):
+            parts = [get_field(d, f) for f in rule["den"]]
+            if all(p is not None for p in parts):
+                limit = sum(float(p) for p in parts)
+                break
+        if limit is None:
+            return None
+        v = max(limit - vals[-1], 0.0) / per_h          # 幾小時後到上限
+    else:
+        v = per_h
+    return {"key": key, "value": v, "since": w[0][0], "last": pts[-1][1], "per_hour": per_h} if op(v, th) else None
+
+
 def evaluate(rule: dict, series: dict[tuple, list[tuple[pd.Timestamp, dict]]], now: pd.Timestamp) -> list[dict]:
     """series：{序列的 key: [(時間, 文件), …]}（時間由舊到新）。回傳觸發的：{"key", "value", "since", "last"（最新的文件）}。"""
     op, th = OPS[rule.get("op", ">=")], rule["threshold"]
     hold = _dur(rule.get("for", 0))
     out = []
     for key, pts in series.items():
+        if rule["type"] == "slope":
+            if (h := _slope(rule, key, pts, now, op, th)) is not None:
+                out.append(h)
+            continue
         if rule["type"] in ("increase_ratio", "rate", "total"):
             w = _window(pts, now, hold)
             if len(w) < 2 or w[-1][0] < now - _dur(rule.get("fresh", "2m")):
@@ -195,6 +248,8 @@ def describe(rule: dict, hit: dict) -> str:
     fmt = (lambda x: f"{x:.0%}") if pct else (lambda x: f"{x:g}")
     if rule.get("show") == "seconds":
         fmt = lambda x: f"{x:.2f} 秒"
+    if rule.get("show") == "hours":
+        fmt = lambda x: f"{x:.1f} 小時"
     if rule.get("show") == "ns_as_ms":   # 奈秒的數字（主機時鐘偏移）顯示成毫秒
         fmt = lambda x: f"{x / 1e6:,.0f} 毫秒"
     who = "、".join(str(k) for k in hit["key"] if k is not None)
