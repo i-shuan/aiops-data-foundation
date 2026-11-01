@@ -2,7 +2,7 @@
 
 AIOps 把異常合成「一件事」寫進 `aiops-alerts`（`python3 -m investigator alert`，見 [configs/rca](../aiops-engine/code/configs/rca/README.md)）；**通知交給 Grafana**：送到哪、依 dept 分送、夜間、靜音、恢復通知都在 Grafana 設（[pdca/phase3-locate/2026-10-alert-exit.md](../docs/pdca/phase3-locate/2026-10-alert-exit.md)）。
 
-`code/` 是 Grafana provisioning 的檔，管 Grafana 的人照著改；`helmchart/` 是沒有現成 Grafana 時裝一台的 chart（見下面「部署」）：
+`code/` 是 Grafana provisioning 的檔，管 Grafana 的人照著改；`helmchart/` 是沒有現成 Grafana 時裝一台的 chart（見下面「部署」）；`plugins/` 放回饋表單外掛的 zip（git lfs，連不到 Nexus 時從這裡裝）：
 
 | 檔案 | 內容 | 要改的 |
 |---|---|---|
@@ -57,6 +57,15 @@ helm upgrade --install grafana grafana/helmchart -n grafana \
   --set-file provisioning.alerting.alert-rules=grafana/code/alert-rules.yaml,provisioning.alerting.contact-points=grafana/code/contact-points.yaml,provisioning.alerting.policies=grafana/code/policies.yaml \
   --set-file provisioning.dashboards.aiops-feedback=grafana/code/dashboards/aiops-feedback.json,provisioning.dashboards.aiops-rca=grafana/code/dashboards/aiops-rca.json,provisioning.dashboards.aiops-learning=grafana/code/dashboards/aiops-learning.json
 ```
+
+**連不到 Nexus**：外掛 zip 用 repo 裡的 `plugins/volkovlabs-form-panel-6.3.1.zip`（git lfs；clone 後先 `git lfs install && git lfs pull`）。ConfigMap、Secret、Helm release 都有 1MB 上限，zip 放不進 chart，先用腳本切成 ConfigMap，它印出要加的參數，把上面指令的 `--set plugin.url=…` 換成這串：
+
+```bash
+args="$(grafana/helmchart/load-plugin.sh -n grafana)"     # 預設讀腳本旁邊的 ../plugins/volkovlabs-form-panel-6.3.1.zip
+helm upgrade --install grafana grafana/helmchart -n grafana --set image=… ${args} --set-file …（同上）
+```
+
+zip 換版：新的 zip 放 `plugins/`、改 `values.yaml` 的 `plugin.sha256`，重跑這兩行。initContainer 接回各段後照樣核對 SHA-256，不符 Grafana 不啟動。
 
 檔裡的 `${ES_URL}`、`${GRAFANA_ES_API_KEY}`、`${NOTIFY_*_URL}` 由 Grafana 從 Secret 的環境變數展開。provisioning 改了再跑同一個指令，Pod 會自己重啟（`checksum/provisioning`）。本機 demo 用 `values-test.yaml`（不登入可看、LoadBalancer 3300、不裝外掛），見 `e2e/k8s/rca-demo/run-rca-demo.sh`。
 
