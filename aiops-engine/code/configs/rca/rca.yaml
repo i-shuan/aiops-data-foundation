@@ -9,6 +9,15 @@ ref_gap: 10m                      # 一週前沒有資料時：改用出事前�
 sample: 200                       # 出事時挑最慢的 200 個（再加最多 100 個出錯的）請求來比
 interval: 5m                      # 跟 baseline 一樣：異常的時間是那 5 分鐘的開始
 
+# 報告第 2 節：出事前的趨勢（前 6 段、每段 10 分鐘的 p95：一路往上＝慢慢惡化、平的然後跳＝突然）
+trend: {windows: 6, window: 10m}
+# 報告第 3 節之後：慢的請求有什麼共同點（出事時那批最慢的 vs 平常那批）
+commonality:
+  resource: [k8s.pod.name, service.version, k8s.node.name]   # 從 span 的 resource 看（值前面帶服務名）
+  attrs: [lot.id, db.statement]                              # 從 span 的 attributes 看（業務 ID、SQL）
+  min_share: 0.6                                             # 慢的請求裡至少六成有同一個值
+  min_lift: 2                                                # 而且是平常比例的 2 倍以上（只有 1 個 Pod 時兩邊都 100%，不會列）
+
 # 事件整合（python3 -m investigator alert）：同一個服務、時間接在一起的異常合成一件，寫 aiops-alerts；Grafana 讀它發通知
 alerts:
   close_after: 30m                # 這個服務 30 分鐘沒有新的異常 → 這件結束（resolved）；30 分鐘內的都併進同一件

@@ -49,6 +49,8 @@ ALERT_MAPPING = {"mappings": {"dynamic": False, "properties": {
     "routes": {"type": "keyword"},
     # 跨服務（一層）：這件連帶了哪些上游服務；上游那件被整件併進下游時，上游那件標 resolved、merged_into 指到下游那件
     "upstream_services": {"type": "keyword"}, "merged_into": {"type": "keyword"},
+    # 同源（不合併）：這件卡在哪些外部依賴；跟它卡同一個依賴的其他開著的件
+    "dependencies": {"type": "keyword"}, "related_alerts": {"type": "keyword"}, "shared_dependency": {"type": "keyword"},
     # Grafana 的告警只能帶 labels（terms 分組的值），所以標題、摘要、報告連結都存成 keyword
     "title": {"type": "keyword", "ignore_above": 1024}, "summary": {"type": "keyword", "ignore_above": 4096},
     "report_url": {"type": "keyword"}, "report": {"type": "text", "index": False}, "report_at": {"type": "date"},
@@ -220,7 +222,12 @@ def run(cfg: dict, args, investigate) -> int:
             if head and report:
                 report = "\n".join(head) + "\n" + report
             al["findings"], al["similar"] = findings, similar
-        if al.get("_anoms") or al.get("_new") or not al.get("summary"):
+        al["_report"], al["_llm"] = report, llm
+    # 開著的件之間：卡同一個外部依賴（同一個 Oracle）的互相標同源（不合併）；有變的件摘要重寫
+    relinked = AL.link_shared(alerts)
+    for al in alerts:
+        report, findings, similar, llm = al["_report"], al.get("findings"), al.get("similar") or [], al.get("_llm")
+        if al.get("_anoms") or al.get("_new") or not al.get("summary") or al["alert_id"] in relinked:
             al["title"], al["summary"] = AL.headline(al), AL.summary(al, report, tz, similar)
         url, furl = acfg.get("report_url"), acfg.get("feedback_url")
         doc = {k: v for k, v in al.items() if not k.startswith("_")}

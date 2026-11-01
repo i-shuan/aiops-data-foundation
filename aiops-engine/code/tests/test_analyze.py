@@ -4,9 +4,10 @@ import unittest
 from investigator import analyze as A
 
 
-def span(sid, parent, service, name, start, dur, kind="Server", target=None, error=False, trace="t1"):
+def span(sid, parent, service, name, start, dur, kind="Server", target=None, error=False, trace="t1", resource=None, attrs=None):
     return {"trace_id": trace, "span_id": sid, "parent": parent, "service": service, "name": name, "kind": kind,
-            "target": target, "start_ms": float(start), "dur_ms": float(dur), "error": error}
+            "target": target, "start_ms": float(start), "dur_ms": float(dur), "error": error,
+            "resource": resource or {}, "attrs": attrs or {}}
 
 
 def request(trace, db_ms, error=False):
@@ -57,6 +58,67 @@ class TopologyTest(unittest.TestCase):
         self.assertEqual(len(lines), 4)
         self.assertIn("SELECT LOT_HISTORY", lines[3])
         self.assertTrue(lines[3].startswith("      "))              # 第 4 層，縮排 3 次
+
+
+class CommonalityTest(unittest.TestCase):
+    """慢請求的共同點：出事時那批最慢的 vs 平常那批。"""
+
+    def req(self, trace, pod, lot="L1", sql="SELECT 1"):
+        res = {"k8s.pod.name": pod, "service.version": "1.0.0"}
+        return [span("a", None, "mes-api", "GET /lots/{id}", 0, 50, trace=trace, resource={"k8s.pod.name": "mes-1"}, attrs={"lot.id": lot}),
+                span("d", "a", "wip-worker", "SELECT", 5, 40, kind="Client", target="oracle", trace=trace, resource=res, attrs={"db.statement": sql})]
+
+    def test_slow_requests_all_on_one_pod(self):
+        # 慢的 10 個都落在 wip-worker 的 w-bad；平常 3 個 Pod 輪流（各 1/3）
+        now = A.group_traces([s for i in range(10) for s in self.req(f"n{i}", "w-bad")])
+        ref = A.group_traces([s for i in range(12) for s in self.req(f"r{i}", ["w-1", "w-2", "w-bad"][i % 3])])
+        c = A.commonality(now, ref)
+        self.assertEqual((c[0].dim, c[0].value, c[0].now, c[0].now_share), ("k8s.pod.name", "wip-worker/w-bad", 10, 1.0))
+        self.assertAlmostEqual(c[0].ref_share, 1 / 3)
+        self.assertFalse(c[0].is_new)
+        # 版本、mes-api 的 Pod、lot、SQL 兩邊都一樣集中：不列
+        self.assertEqual([x.dim for x in c], ["k8s.pod.name"])
+
+    def test_pod_unseen_before_is_flagged_new(self):
+        # 換版：慢的請求全在新 Pod，平常那批是舊 Pod（0%）→ 列出來但標「平常沒見過」，不是「這個 Pod 比別的慢」
+        now = A.group_traces([s for i in range(10) for s in self.req(f"n{i}", "w-new")])
+        ref = A.group_traces([s for i in range(10) for s in self.req(f"r{i}", "w-old")])
+        c = A.commonality(now, ref)
+        self.assertEqual((c[0].value, c[0].ref_share, c[0].is_new), ("wip-worker/w-new", 0.0, True))
+
+    def test_single_pod_is_not_a_finding(self):
+        now = A.group_traces([s for i in range(10) for s in self.req(f"n{i}", "w-1")])
+        ref = A.group_traces([s for i in range(10) for s in self.req(f"r{i}", "w-1")])
+        self.assertEqual(A.commonality(now, ref), [])
+
+    def test_sql_in_common(self):
+        now = A.group_traces([s for i in range(10) for s in self.req(f"n{i}", ["w-1", "w-2"][i % 2], sql="SELECT * FROM LOT_HISTORY")])
+        ref = A.group_traces([s for i in range(10) for s in self.req(f"r{i}", ["w-1", "w-2"][i % 2], sql=["SELECT 1", "SELECT * FROM LOT_HISTORY"][i % 5 == 0])])
+        c = A.commonality(now, ref)
+        self.assertEqual((c[0].dim, c[0].value), ("db.statement", "SELECT * FROM LOT_HISTORY"))
+        self.assertEqual((c[0].now_share, c[0].ref_share), (1.0, 0.2))
+
+    def test_too_few_or_no_reference(self):
+        now = A.group_traces([s for i in range(3) for s in self.req(f"n{i}", "w-bad")])
+        self.assertEqual(A.commonality(now, {}), [])
+        self.assertEqual(A.commonality(now, A.group_traces(self.req("r", "w-1"))), [])
+
+
+class TrendTest(unittest.TestCase):
+    def test_gradual(self):
+        t = A.classify_trend([40, 45, 60, 90, 150, 300], 1200)
+        self.assertEqual(t["kind"], "gradual")
+        self.assertIn("慢慢惡化", A.describe_trend(t, "1 小時", lambda v: f"{v:.0f} ms"))
+
+    def test_sudden(self):
+        t = A.classify_trend([40, 42, 38, 41, 45, 40], 1200)
+        self.assertEqual(t["kind"], "sudden")
+        self.assertIn("突然", A.describe_trend(t, "1 小時", lambda v: f"{v:.0f} ms"))
+
+    def test_mixed_and_unknown(self):
+        self.assertEqual(A.classify_trend([40, 200, 40, 300, 50, 60], 1200)["kind"], "mixed")
+        self.assertEqual(A.classify_trend([0, 0, 40, 0, 0, 0], 1200)["kind"], "unknown")   # 0 = 那段沒 trace
+        self.assertEqual(A.classify_trend([40, 42, 38, 41, 45, 40], 50)["kind"], "mixed")   # 出事時也沒比平常高：不是突然
 
 
 class PatternTest(unittest.TestCase):
