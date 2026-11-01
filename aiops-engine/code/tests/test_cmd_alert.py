@@ -168,6 +168,14 @@ class FeedbackFooter(unittest.TestCase):
         self.assertIsNone(C.with_feedback_footer(None, url))
 
 
+class Titled(unittest.TestCase):
+    def test_first_line_is_title_then_report(self):
+        t = C.titled("[critical] mes-api：錯誤率", "# 根因分析\n- x")
+        self.assertEqual(t.split("\n", 1)[0], "[critical] mes-api：錯誤率")
+        self.assertTrue(t.endswith("# 根因分析\n- x"))
+        self.assertEqual(C.titled("只有標題", None), "只有標題")
+
+
 class StampIsInThePast(unittest.TestCase):
     """docs/pdca/phase3-locate/2026-10-alert-flap.md：覆蓋寫入剛好落在 Grafana 排定評估與送出查詢之間時，
     @timestamp 不能晚於查詢範圍的結束點，不然開著的件會被當成恢復。"""
