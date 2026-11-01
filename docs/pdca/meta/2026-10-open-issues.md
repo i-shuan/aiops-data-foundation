@@ -144,15 +144,15 @@
 | `run-metrics-scenarios.sh label` 修好後沒重跑；測試之間互相干擾（`rules` 抓到 rca 留下的服務） | 單獨跑會過，連著跑會誤判 | [e2e-es8-rerun](2026-10-e2e-es8-rerun.md) |
 | ES chart 沒帶 setup Job；設定靠 `--set-file`，用 CD 工具要另外處理 | setup 要讀 `code/storage/` 四十幾個檔，Helm 讀不到 chart 目錄外的檔 | [restructure-components](2026-10-restructure-components.md) |
 | 服務重名跨部門 | 只靠服務名的異常歸給其中一個部門，告警可能送錯 | [anomaly-owner](../phase2-anomaly/2026-10-anomaly-owner.md) |
-| LLM 逾時 60 秒、alert 時限 600 秒是估的 | 一輪超過 10 件新的、模型又慢，仍會被砍 | [fix-critical](../phase5-learning-loop/2026-10-fix-critical.md) |
+| LLM 逾時 60 秒、alert 時限 600 秒是估的 | 已量：用真的模型（OpenAI `gpt-6-luna`，公網）同一份報告輸入包打 5 次，每次 4.5～6.3 秒、中位數 5.1 秒，5 次都通過驗證；60 秒逾時約 10 倍餘裕，一輪 10 件新事故也只用 1 分鐘。只是單次實測，換模型或閘道要再量 | [fix-critical](../phase5-learning-loop/2026-10-fix-critical.md) |
 
 #### 9.2 偵測品質
 
 | 項目 | 現況 | 來源 |
 |---|---|---|
 | Pod 同儕比對在 3 個 Pod、年紀不同時抓不到記憶體洩漏（2026-10-31 測試觀察，還沒有 PDCA） | `run-peer-e2e` 第 5 項失敗：洩漏的 `pk7zn` 10 分鐘內最高 420 MB，另外兩隻 251 MB、163 MB（中位數 207 MB）。多 213 MB（門檻 ≥ 100 MB）、2.03 倍（門檻 ≥ 1.5 倍）兩道都過，但 z = (420 − 207) ÷ 65 = 3.3，沒到門檻 5；手動重播三次都是「3 個 Pod 比過，觸發 0 個」。原因：z 的分母是其他 Pod 之間本來的差距，3 個 Pod 只剩 2 個值，而案例之間刪掉壞 Pod 補上的新 Pod 記憶體本來就比老 Pod 低約 90 MB，把離散度撐大。之前驗過是過的，那時 3 隻年紀一樣。正式環境副本只有 3 個、滾動更新後年紀不同時也會遇到。待決定：A. 記憶體、CPU 兩項的 `z` 調低（例如 3），靠 `min_abs`、`min_ratio` 擋誤報（要確認其他案例不會多出誤報）；B. 只改測試，等新 Pod 長到跟舊的差不多再比（正式環境的弱點還在）。傾向 A，還沒動。<br>討論後的判斷（讀 [peer.py](../../../aiops-engine/code/detector/peer.py) 的推論，沒跑過）：A 改成 A2，`z` 依「其他 Pod 數」（程式已有 `peers` 欄位）分級，例如其他 2 個用 3、3～4 個用 4、5 個以上維持 5，記憶體與 CPU 都套用；只降到 3 仍脆弱（新 Pod 若是 130 MB，z 約 2.6 一樣抓不到），其他只剩 2 個值時 z 沒有統計意義，主要靠 `min_abs`、`min_ratio`；A2 要改 `compare()`（目前只吃固定的 `z`）。<br>新舊 Pod 的問題兩個方向都有：HPA 擴容後老 Pod 400 MB、兩個新 Pod 約 150 MB 時，`rel_floor` 讓分母只有約 15，老 Pod 的 z 約 16、兩道硬門檻也過，現在 z = 5 就會把正常的老 Pod 誤報成洩漏（推論，待用 `run-peer-edge-e2e.sh` 驗證，未確認它有沒有涵蓋擴容情境）；`warmup` 只有 5 分鐘，蓋不住 JVM heap 慢慢長大的時間。<br>斜率（趨勢）方向對但要另做成新規則，不放進同儕比對：不受新舊 Pod 高低差影響、單 Pod 或 2 個 Pod 的服務也能用，規格本來就列為「還沒加」的趨勢；要處理 GC 鋸齒（用回歸或看 GC 後低點是否墊高）與新 Pod 啟動期暖機，實用形式是「照這個速度幾小時後撞到 limit」，可和 `container.memory_near_limit` 接在一起；要有自己的 PDCA 與 e2e 案例（洩漏、GC 鋸齒、新 Pod 暖機） | [run-peer-e2e.sh](../../../e2e/k8s/run-peer-e2e.sh)、[peer.yaml](../../../aiops-engine/code/configs/baseline/peer.yaml) |
-| p95 誤報超過目標 | anomaly 0.53%（目標 0.1%）、warning 1.97%（目標 1%） | [baseline-threshold-tune](../phase2-anomaly/2026-10-baseline-threshold-tune.md) |
-| 錯誤率 1 個 5xx 就到門檻 | 一週 205 個誤報（0.34%）；後續是「至少 N 個 5xx 才判斷」 | 同上 |
+| p95 誤報超過目標 | 已做：p95 的 σ 下限加半個桶寬（`series.yaml` 的 `buckets`，OTel 預設邊界）。一週合成資料 anomaly 0.530% → 0.068%、warning 1.97% → 0.008%，兩項都達標；p95 在 svc-peak、svc-season、svc-spike 都降到 0。**代價**：p95 只跨一格的變慢（175ms → 375ms）不再是 anomaly，最多 warning，只靠靜態規則抓，漏報沒量（[PDCA](../phase2-anomaly/2026-11-baseline-false-alarm.md)） | [baseline-threshold-tune](../phase2-anomaly/2026-10-baseline-threshold-tune.md) |
+| 錯誤率 1 個 5xx 就到門檻 | 已做：`min_count: 3`，這個時間窗至少 3 個 5xx 才算異常（3 是估的）。錯誤率 anomaly 205 → 18（[PDCA](../phase2-anomaly/2026-11-baseline-false-alarm.md)） | 同上 |
 | 只有一部分請求變慢時 trace 段沒報 | 每點改抽 100 個後，合成資料上 10% 請求多 2 秒報得出來；慢的比例更低時仍報不出來，看 p90 或慢請求比例還沒做（[PDCA](../phase2-anomaly/2026-11-trace-sample-100.md)） | [troubleshooting.md](../../troubleshooting.md) |
 | `trace.yaml` 的 `sample_per_bucket` 20 要不要調到 100 | 已改成 100。耗時：測試資料上一輪 0.3～0.5 秒（20 時 0.1 秒，排程時限 240 秒）；偵測：20 時 trace 那段 14 過 3 失敗，50 與 100 都 17 項全過，選 100 餘裕較大。100 是 ES `top_hits` 的預設上限。正式環境 API 多時的耗時沒量（[PDCA](../phase2-anomaly/2026-11-trace-sample-100.md)） | 同上 |
 | 三成 Pod 沒有服務 label 沒報（B6a） | pipeline 沒 label 時 `service.name` 退回 container 名稱 `app`，欄位不算缺，檢查看不到；master 也一樣，與 trace 合併無關。已做：`missing` 檢查加 `missing_if_equals`（等於 `k8s.container.name` 也算缺），只有單元測試、Painless 沒對真 ES 跑、e2e B6a 等叢集空了再跑（已合入 master；[PDCA](../phase5-learning-loop/2026-11-open-issues-batch.md)） | 同上 |
