@@ -92,6 +92,7 @@ series:
                          query: {range: {attributes.http.response.status_code: {gte: 500}}}}}
     direction: up
     min_abs: 0.05          # 錯誤率至少多 5 個百分點
+    min_count: 3           # 這個時間窗至少 3 個 5xx 才算：20 個請求錯 1 個就是 5%（估的；docs/pdca/phase2-anomaly/2026-11-baseline-false-alarm.md）
 
   - name: http.latency_p95_s
     keys: [service, method, route]
@@ -103,6 +104,9 @@ series:
     direction: up
     min_abs: 0.05          # 至少慢 50 毫秒（單位是秒）
     instant_z: null        # 不直接 anomaly、要連續 2 窗：p95 是直方圖桶的中點，平常不動時跨一格 z 就約 23（寫 0 會讓每個超標點都直接 anomaly）
+    # p95 是從直方圖算的：σ 至少半個桶寬（中位數所在那一格），跨一格 z 約 2～3，要跨好幾格才報。
+    # 邊界是 OTel 語意慣例的 http.server.request.duration 預設值（秒）；應用改過 bucket 邊界的，這裡要跟著改
+    buckets: [0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5, 0.75, 1.0, 2.5, 5.0, 7.5, 10.0]
 
   # ── log：每個服務 ──（log 的 resource.attributes.service.name 是 alias，指到 service.name，跟 metrics、trace 同一條路徑）
   - name: log.lines

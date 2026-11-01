@@ -166,12 +166,25 @@ def mask_thin(df: pd.DataFrame, min_events: float) -> pd.DataFrame:
     return out
 
 
+def bucket_floor(median: np.ndarray, buckets) -> np.ndarray:
+    """值是從直方圖算出來的（p95）：σ 至少是中位數所在那一格寬度的一半。buckets 是直方圖的邊界（OTel 的 explicit bucket
+    boundaries）。p95 平常落在同一格、MAD 是 0，σ 只剩中位數的 5%，跨一格 z 約 23；用半個桶寬，跨一格 z 約 2～3。
+    超過最後一個邊界（沒有上限的那一格）用最後一格的寬度。"""
+    b = np.asarray(sorted(float(x) for x in buckets), dtype=float)
+    edges = np.concatenate([[0.0], b])
+    med = np.nan_to_num(np.asarray(median, dtype=float), nan=0.0)
+    i = np.clip(np.searchsorted(edges, med, side="right") - 1, 0, len(edges) - 2)
+    return np.where(med > b[-1], (b[-1] - b[-2]) / 2 if len(b) > 1 else b[-1] / 2, (edges[i + 1] - edges[i]) / 2)
+
+
 def score(current: pd.DataFrame, baseline: pd.DataFrame, keys: list[str], direction: str = "both",
-          min_abs: float = 0.0, opts: DetectOptions = DetectOptions(), tz: str = "Asia/Taipei") -> pd.DataFrame:
+          min_abs: float = 0.0, opts: DetectOptions = DetectOptions(), tz: str = "Asia/Taipei",
+          buckets=None) -> pd.DataFrame:
     """current：keys + ["ts", "value"]。對每個點找它那個時段的 baseline，算 z 值。
 
     direction：up（只有變高算異常，例如延遲、錯誤數）、down（只有變低）、both。
     min_abs：跟中位數至少要差這麼多才算（避免量很小的序列，從 1 變 3 就告警）。
+    buckets：值是從直方圖算出來的（p95）時給直方圖的邊界，σ 至少半個桶寬（bucket_floor）。
     回傳 current 加上 level、median、mad、expected_low、expected_high、z、anomaly；沒有 baseline 的點 anomaly 為 False。
     """
     c = current.dropna(subset=["value"]).copy().reset_index(drop=True)
@@ -183,11 +196,14 @@ def score(current: pd.DataFrame, baseline: pd.DataFrame, keys: list[str], direct
     b = baseline[keys + ["dow", "hour", "level", "median", "mad"]]
     m = c.merge(b, on=keys + ["dow", "hour"], how="left")
 
-    sigma = np.maximum.reduce([
+    floors = [
         MAD_TO_SIGMA * m["mad"].to_numpy(dtype=float),
         opts.rel_floor * np.abs(m["median"].to_numpy(dtype=float)),
         np.full(len(m), opts.abs_floor),
-    ])
+    ]
+    if buckets:
+        floors.append(bucket_floor(m["median"].to_numpy(dtype=float), buckets))
+    sigma = np.maximum.reduce(floors)
     diff = m["value"].to_numpy(dtype=float) - m["median"].to_numpy(dtype=float)
     m["z"] = diff / sigma
     m["expected_low"] = m["median"] - opts.z * sigma
