@@ -19,7 +19,8 @@
 |---|---|---|
 | `.gitlab-ci.yml`（根） | `stages`（es-setup、build、deploy）＋ `include` 四個資料夾的檔 | 各元件分開，這裡只串起來 |
 | `elasticsearch/.gitlab-ci.yml` | `es-setup`：alpine 裝 bash、curl、jq，跑 setup（`KEYS_OUT_DIR=keys`），`keys/` 當 artifact（`expire_in: 1 hour`、`access: developer`） | key 不進 log；artifact 短命、限權限 |
-| `collector/`、`aiops-engine/`、`grafana/` 的 `.gitlab-ci.yml` | 各自的部署 job：`needs` 接 `es-setup` 的 artifact（`optional: true`，沒跑 setup 也能部署）；有 key 檔才 `-f`；`rules` 是預設分支、該資料夾有改、手動，或在畫面 Run pipeline。aiops-engine 另有 `build-aiops-engine`（kaniko 推 Nexus，tag 用 commit 短碼）與 LLM 設定（變數寫成暫時的 values 檔）。Grafana 的 job 把 ES 網址、webhook、admin 密碼加上 key 組成 `secretData` | 分開部署；變數放 GitLab、不進 git |
+| `grafana/.gitlab-ci.yml`（改版） | 改用 Grafana **官方 chart**（`grafana/grafana`＋[`values-official.yaml`](../../../grafana/values-official.yaml)）：job 用 `kubectl` 建 Secret `grafana-env`（有 `es-setup` 的 `keys/grafana` 才建，server-side apply、不存 annotation），再 `helm upgrade`；新增 `check-grafana-values`（`test` stage，`build-official-values.py --check`，`code/` 改了沒重新產生就擋） | 公司用官方 chart；官方 chart 不建 Secret，key 不進 helm 的 values（我們自己的 chart 的 `secretData` 仍在，CI 的 Grafana job 不再用它） |
+| `collector/`、`aiops-engine/` 的 `.gitlab-ci.yml` | 各自的部署 job：`needs` 接 `es-setup` 的 artifact（`optional: true`，沒跑 setup 也能部署）；有 key 檔才 `-f`；`rules` 是預設分支、該資料夾有改、手動，或在畫面 Run pipeline。aiops-engine 另有 `build-aiops-engine`（kaniko 推 Nexus，tag 用 commit 短碼）與 LLM 設定（變數寫成暫時的 values 檔）。Grafana 的 job 把 ES 網址、webhook、admin 密碼加上 key 組成 `secretData` | 分開部署；變數放 GitLab、不進 git |
 | `elasticsearch/code/scripts/elasticsearch-setup.sh` | `issue_key`：沒設 `KEYS_OUT_DIR` 照舊印出來；有設就只寫 `writer`、`reader`、`engine`、`grafana`、`probe` 五個檔（失敗時說原因並停），結尾組 `collector-values.yaml`、`engine-values.yaml`、`grafana-values.yaml`（`umask 077`） | 人手動跑的行為不變 |
 | 三個 chart 的 `templates/secret.yaml`、`values.yaml` | `esWriterApiKey`（collector）、`esApiKey`（aiops-engine）、`secretData`（grafana）有給才建 Secret（名字用原本的 `esWriterSecret`、`secret`、`envSecret`），加 `helm.sh/resource-policy: keep` | 空的就不建，沿用手動建的；`keep` 是之後沒帶 key 的部署不會被 helm 當成「不要了」把 Secret 刪掉 |
 
@@ -27,11 +28,12 @@
 
 | 為了確認什麼 | 怎麼測 | 結果 |
 |---|---|---|
+| Grafana job 建 Secret 的方式 | 測試 cluster 另開 namespace：`kubectl create secret … --dry-run=client -o yaml \| kubectl apply --server-side`，再更新一次 | 建出 `ES_URL`、`GRAFANA_ES_API_KEY` 兩個欄位；annotation 是空的（沒把內容存進去）；第二次更新成功；測完刪 namespace |
 | 五份 CI yaml 能解析、各 job 的資源名對得上 chart | `yaml.safe_load`；`helm template` 看 DaemonSet／Deployment 名 | 都能解析；collector 的是 `otel-node-collector`、`otel-cluster-collector`（第一版寫成 `collector-node`，改正）；aiops-engine、grafana 是 `aiops-engine`、`grafana` |
 | 三個 chart 沒給 key 時不建 Secret、給了才建 | `helm template` 有無 `--set`／`-f` | collector、grafana 沒給 0 個 Secret，給了建對的名字與欄位（`ES_WRITER_API_KEY`、`GRAFANA_ES_API_KEY`）；aiops-engine 本來就有 `aiops-llm`，給 `esApiKey` 多一個 `aiops-secrets`（`ES_API_KEY`） |
 | setup 的 CI 模式 key 不進 log、檔案內容對 | 對測試 ES 用 `KEYS_OUT_DIR` 跑 | log 裡沒有 `encoded`、沒有那把 key（0 次）；5 個 key 檔、3 個 values 檔格式對；實測 writer key 打 `GET /` 是 403（只能寫）、grafana 與 probe 是 200 |
 
-**沒測到的**：GitLab 上實跑（`rules: changes`、`needs: optional`、`artifacts:access`、kaniko、`dtzar/helm-kubectl` image 的版本都沒驗）；檔案權限 600 只在 Linux 的 CI 有效，在 Windows 上驗時是 644；Grafana 帶 `secretData` 真的 `helm upgrade` 到 cluster 沒做。
+**沒測到的**：官方 chart 沒下載實裝（`helm repo add` 能不能連到公司的 helm proxy、欄位名對不對實際版本）；GitLab 上實跑（`rules: changes`、`needs: optional`、`artifacts:access`、kaniko、`dtzar/helm-kubectl` image 的版本都沒驗）；檔案權限 600 只在 Linux 的 CI 有效，在 Windows 上驗時是 644；Grafana 帶 `secretData` 真的 `helm upgrade` 到 cluster 沒做。
 
 ## Act：Check 後沒改善的、還沒解決的
 

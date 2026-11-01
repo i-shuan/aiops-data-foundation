@@ -1,16 +1,32 @@
-# grafana：沒有現成 Grafana 時，用 grafana/helmchart 部署一台（公司已經有 Grafana 就不用這份，見 grafana/README.md）。
+# grafana：用 Grafana 官方 chart（grafana/grafana）部署，設定在 grafana/values-official.yaml
+# （由 grafana/code/ 產生；公司已經有 Grafana、不歸我們部署就不用這份，見 grafana/README.md）。
 #
 # 變數：
 #   KUBE_CONFIG_GRAFANA        （Type: File）部署 Grafana 的 cluster 的 kubeconfig
 #   GRAFANA_NAMESPACE          選填，預設 grafana
-#   GRAFANA_IMAGE              Nexus 的 Grafana image，例如 nexus.example.internal/grafana/grafana:13.0.7
-#   GRAFANA_PLUGIN_URL         Business Forms 外掛 zip 的網址（Nexus）；連不到 Nexus 改用 repo 裡的 zip，見 grafana/README.md
-#   ES_URL                     公司 ES 的網址（寫進 Secret）
+#   GRAFANA_HELM_REPO          官方 chart 的位置：公司 Nexus 的 helm proxy，沒有就用預設 https://grafana.github.io/helm-charts
+#   GRAFANA_REGISTRY           image 的 registry，例如 nexus.example.internal（repository 是 values 裡的 grafana/grafana）
+#   GRAFANA_TAG                選填，預設 13.0.7
+#   ES_URL                     公司 ES 的網址（寫進 Secret grafana-env）
 #   GRAFANA_ADMIN_PASSWORD     Grafana admin 密碼
 #   NOTIFY_IT_URL、NOTIFY_IMC_URL、NOTIFY_PLATFORM_URL    各部門的通知 webhook
 #
-# 有跑 es-setup（同一條 pipeline）：用它的 grafana-values.yaml 加上上面的變數，由 chart 建 Secret grafana-env。
-# 沒跑 es-setup：只更新儀表板、告警規則，不碰 Secret（沿用現有的）。
+# Secret grafana-env 由這個 job 用 kubectl 建（官方 chart 不建 Secret；key 不進 helm 的 values）：
+#   有跑 es-setup（同一條 pipeline）：用它發的 Grafana 唯讀 key（keys/grafana）加上上面的變數，建好或更新；
+#   沒跑 es-setup：不碰 Secret（沿用現有的），只更新儀表板、告警規則。
+
+# code/ 改了要重新產生 values-official.yaml：沒重新產生就擋下來
+check-grafana-values:
+  stage: test
+  image: python:3.12-slim
+  before_script:
+    - pip install --quiet pyyaml
+  script:
+    - python3 grafana/code/build-official-values.py --check
+  rules:
+    - changes:
+        - grafana/code/**/*
+        - grafana/values-official.yaml
 
 deploy-grafana:
   stage: deploy
@@ -26,33 +42,29 @@ deploy-grafana:
   script:
     - ns="${GRAFANA_NAMESPACE:-grafana}"
     - kubectl get namespace "${ns}" >/dev/null 2>&1 || kubectl create namespace "${ns}"
+    # 有 es-setup 的 key 才建 Secret（server-side apply：不把內容存進 annotation）
     - |
-      secret_args=""
-      if [ -f keys/grafana-values.yaml ]; then
-        umask 077
-        {
-          echo "secretData:"
-          echo "  ES_URL: \"${ES_URL}\""
-          echo "  NOTIFY_IT_URL: \"${NOTIFY_IT_URL}\""
-          echo "  NOTIFY_IMC_URL: \"${NOTIFY_IMC_URL}\""
-          echo "  NOTIFY_PLATFORM_URL: \"${NOTIFY_PLATFORM_URL}\""
-          echo "  GF_SECURITY_ADMIN_PASSWORD: \"${GRAFANA_ADMIN_PASSWORD}\""
-          sed -n '2,$p' keys/grafana-values.yaml      # 第一行是 "secretData:"，已經在上面了
-        } > grafana-secret-values.yaml
-        secret_args="-f grafana-secret-values.yaml"
+      if [ -f keys/grafana ]; then
+        kubectl -n "${ns}" create secret generic grafana-env \
+          --from-literal=ES_URL="${ES_URL}" \
+          --from-literal=GRAFANA_ES_API_KEY="$(cat keys/grafana)" \
+          --from-literal=NOTIFY_IT_URL="${NOTIFY_IT_URL}" \
+          --from-literal=NOTIFY_IMC_URL="${NOTIFY_IMC_URL}" \
+          --from-literal=NOTIFY_PLATFORM_URL="${NOTIFY_PLATFORM_URL}" \
+          --from-literal=GF_SECURITY_ADMIN_PASSWORD="${GRAFANA_ADMIN_PASSWORD}" \
+          --dry-run=client -o yaml | kubectl apply --server-side --force-conflicts --field-manager=ci -f -
       else
-        echo "沒有 es-setup 的 key 檔：不更新 Secret grafana-env，沿用現有的"
+        echo "沒有 es-setup 的 key：不更新 Secret grafana-env，沿用現有的"
       fi
-      helm upgrade --install grafana grafana/helmchart -n "${ns}" ${secret_args} \
-        --set image="${GRAFANA_IMAGE}" --set plugin.url="${GRAFANA_PLUGIN_URL}" \
-        --set-file provisioning.datasources.aiops=grafana/code/datasource.yaml \
-        --set-file provisioning.alerting.alert-rules=grafana/code/alert-rules.yaml,provisioning.alerting.contact-points=grafana/code/contact-points.yaml,provisioning.alerting.policies=grafana/code/policies.yaml \
-        --set-file provisioning.dashboards.aiops-feedback=grafana/code/dashboards/aiops-feedback.json,provisioning.dashboards.aiops-rca=grafana/code/dashboards/aiops-rca.json,provisioning.dashboards.aiops-learning=grafana/code/dashboards/aiops-learning.json
+    - helm repo add grafana "${GRAFANA_HELM_REPO:-https://grafana.github.io/helm-charts}" && helm repo update
+    - helm upgrade --install grafana grafana/grafana -n "${ns}" -f grafana/values-official.yaml
+        --set image.registry="${GRAFANA_REGISTRY}" --set image.tag="${GRAFANA_TAG:-13.0.7}"
     - kubectl -n "${ns}" rollout status deployment/grafana --timeout=300s
   rules:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
       changes:
-        - grafana/**/*
+        - grafana/code/**/*
+        - grafana/values-official.yaml
       when: manual
     - if: $CI_PIPELINE_SOURCE == "web"
       when: manual

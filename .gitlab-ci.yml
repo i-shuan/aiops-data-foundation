@@ -10,6 +10,7 @@
 #       key 只在 es-setup 那一次產生：之後沒重跑 setup 的部署不帶 key 檔，chart 不動既有的 Secret（helm.sh/resource-policy: keep）。
 
 stages:
+  - test
   - es-setup
   - build
   - deploy
