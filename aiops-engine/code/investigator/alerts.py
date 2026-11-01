@@ -232,6 +232,45 @@ def owner(al: dict) -> tuple[str | None, str]:
     return (dept[0][0] if dept else al.get("dept")), (group[0][0] if group else al.get("group") or "unassigned")
 
 
+def dependencies(findings: dict | None) -> list[str]:
+    """這件卡在哪些外部依賴：根因結果裡慢的那幾段、錯誤源頭那幾段「→」後面的對象（oracle、sms.example.com…）。"""
+    f = findings or {}
+    segs = [d["segment"] for d in f.get("segments") or [] if (d.get("delta_ms") or 0) > 0][:3]
+    segs += [d["segment"] for d in f.get("error_origins") or []][:3]
+    out: list[str] = []
+    for s in segs:
+        if " → " in s:
+            t = s.rsplit(" → ", 1)[1].strip()
+            if t and t not in out:
+                out.append(t)
+    return out
+
+
+def link_shared(alerts: list[dict]) -> set[str]:
+    """開著的、不同服務的件卡在同一個外部依賴（同一個 Oracle）→ 互相記 related_alerts、shared_dependency。
+    不合併：是不同服務各自的件（部門、處置不同），只提示很可能同源。對象是開著的件的服務時不算（那是上下游，chain 處理）。
+    回傳 related_alerts 有變的 alert_id（摘要要重寫）。"""
+    opens = [al for al in alerts if al.get("status") == "open" and al.get("category") == "service" and not al.get("merged_into")]
+    svcs = {al["service"] for al in opens}
+    for al in opens:
+        al["dependencies"] = [d for d in dependencies(al.get("findings")) if d not in svcs]
+    changed = set()
+    for al in opens:
+        rel, shared = [], []
+        for other in opens:
+            if other is al or other["service"] == al["service"]:
+                continue
+            common = [d for d in al["dependencies"] if d in other["dependencies"]]
+            if common:
+                rel.append(other["alert_id"])
+                shared += [c for c in common if c not in shared]
+        rel = sorted(rel)
+        if rel != sorted(al.get("related_alerts") or []):
+            changed.add(al["alert_id"])
+        al["related_alerts"], al["shared_dependency"] = rel, shared
+    return changed
+
+
 def headline(al: dict, count: bool = True) -> str:
     """一行標題：嚴重度、服務、最嚴重的那筆（自己服務的優先）、共幾項；連帶了上游就加在最後。"""
     top = max(_own(al), key=lambda a: (SEVERITY.get(a.get("severity") or "warning", 1), abs(a.get("z") or 0)), default=None)
@@ -264,6 +303,8 @@ def summary(al: dict, report: str | None, tz, similar: list[dict] | None = None)
     concl = conclusion(report or "")
     if concl:
         lines.append("根因分析：" + "；".join(re.sub(r"\*\*", "", c) for c in concl[:3]))
+    if al.get("shared_dependency") and al.get("related_alerts"):
+        lines.append(f"可能同源：{'、'.join(al['related_alerts'][:3])} 也卡在 {'、'.join(al['shared_dependency'][:3])}")
     if similar:
         s = similar[0]
         cat = f"[{s['root_cause_category']}] " if s.get("root_cause_category") else ""

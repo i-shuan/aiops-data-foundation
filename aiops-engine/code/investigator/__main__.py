@@ -109,7 +109,7 @@ def investigate_full(cfg: dict, args) -> tuple[str, dict]:
     給事件整合存進 aiops-alerts、相似事故檢索（investigator/similar.py）和 LLM 摘要（core/llm.py）用。"""
     es = E.ES()
     findings: dict = {"service": None, "route": None, "anomalies": [], "segments": [], "error_origins": [], "new_patterns": [],
-                      "topology": [], "requests": None, "ref_label": None}
+                      "topology": [], "requests": None, "ref_label": None, "trend": None, "commonality": []}
     ix = cfg["indices"]
     tz = cfg.get("timezone", "Asia/Taipei")
     n = cfg.get("sample", 200)
@@ -175,6 +175,15 @@ def investigate_full(cfg: dict, args) -> tuple[str, dict]:
         f = _ms if k.endswith("_ms") else str
         out.append(f"| {label} | {f(now[k])} | {f(ref[k]) if ref else '—'} |")
     out.append("")
+    # 出事前的趨勢：前面幾段（預設 6 段、每段 10 分鐘）的 p95，一路往上＝慢慢惡化、平的然後跳＝突然
+    tcfg = cfg.get("trend") or {}
+    tw, tn = _dur(str(tcfg.get("window", "10m"))), int(tcfg.get("windows", 6))
+    p95s = [E.entry_stats(es, ix["traces"], service, route, start - tw * (k + 1), start - tw * k)["p95_ms"] for k in reversed(range(tn))]
+    trend = A.classify_trend(p95s, now["p95_ms"])
+    trend["window"], trend["windows"] = str(tcfg.get("window", "10m")), tn
+    findings["trend"] = trend
+    span_label = f"{int(tw.total_seconds() * tn // 60)} 分鐘"
+    out += [A.describe_trend(trend, span_label, _ms), ""]
 
     pad = timedelta(minutes=5)
     now_ids = E.sample_trace_ids(es, ix["traces"], service, route, start, end, n, slowest=True)
@@ -201,6 +210,19 @@ def investigate_full(cfg: dict, args) -> tuple[str, dict]:
         out += ["", "錯誤最早出在哪一段（上層只是把錯誤往上傳）：", "", "| 段 | 現在 | 平常 |", "|---|---|---|"]
         out += [f"| {d.segment} | {d.now_errors} 個請求 | {d.ref_errors} |" for d in errs[:5]]
     out.append("")
+
+    # ── 3b. 慢請求的共同點 ──
+    ccfg = cfg.get("commonality") or {}
+    commons = A.commonality(now_tr, ref_tr, res_keys=tuple(ccfg.get("resource") or ("k8s.pod.name", "service.version", "k8s.node.name")),
+                            attr_keys=tuple(ccfg.get("attrs") or ("lot.id", "db.statement")),
+                            min_share=float(ccfg.get("min_share", 0.6)), min_lift=float(ccfg.get("min_lift", 2)))
+    findings["commonality"] = [{"dim": c.dim, "value": c.value, "now": c.now, "now_share": c.now_share, "ref_share": c.ref_share}
+                               for c in commons[:5]]
+    if commons:
+        out += ["這批慢的請求有什麼共同點（平常沒這麼集中）：", "", "| 看什麼 | 值 | 慢的請求裡 | 平常 |", "|---|---|---|---|"]
+        out += [f"| {c.dim} | `{c.value}` | {c.now_share:.0%}（{c.now} 個） | {'平常沒見過（換版、新 Pod？）' if c.is_new else f'{c.ref_share:.0%}'} |"
+                for c in commons[:5]]
+        out.append("")
 
     # ── 4. 瀑布圖 ──
     slowest = max(now_tr.values(), key=lambda t: A.root_of(t)["dur_ms"])
@@ -243,6 +265,14 @@ def investigate_full(cfg: dict, args) -> tuple[str, dict]:
     new = [p for p in pats if p.is_new][:2]
     for p in new:
         out.append(f"- 同時間 {p.service} 新出現 log「{p.example.splitlines()[0][:100]}」，{p.now} 次。")
+    if commons:
+        c = commons[0]
+        if c.is_new:
+            out.append(f"- 慢的請求 {c.now_share:.0%} 都在平常沒見過的 {c.dim} `{c.value}`：像是換版後的新 Pod／新版本，先確認那時有沒有部署。")
+        else:
+            out.append(f"- 慢的請求 {c.now_share:.0%} 都是 {c.dim} = `{c.value}`（平常 {c.ref_share:.0%}）：問題可能只在它身上。")
+    if trend.get("kind") in ("gradual", "sudden"):
+        out.append("- " + A.describe_trend(trend, span_label, _ms).split("→ ", 1)[1].replace("**", ""))
     if not (top or errs or new):
         out.append("- 跟平常比看不出哪一段變化特別大，可能是整體量變大，或問題不在有 trace 的地方。")
     return "\n".join(out), findings

@@ -162,6 +162,54 @@ if __name__ == "__main__":
     unittest.main()
 
 
+class SharedDependency(unittest.TestCase):
+    """開著的、不同服務的件卡在同一個外部依賴 → 互相標同源（不合併）。"""
+
+    def al(self, svc, _id, segs, status="open"):
+        return {"alert_id": _id, "category": "service", "service": svc, "status": status, "started_at": T0.isoformat(),
+                "updated_at": T0.isoformat(), "anomaly_ids": [], "series": ["http.latency_p95_s"], "routes": [], "severity": "warning",
+                "findings": {"segments": [{"segment": s, "delta_ms": 100.0} for s in segs], "error_origins": []}}
+
+    def test_dependencies_from_segments(self):
+        f = {"segments": [{"segment": "wip › SELECT → oracle", "delta_ms": 900}, {"segment": "wip › GET /wip", "delta_ms": 2},
+                          {"segment": "mes › GET → wip", "delta_ms": -1}],
+             "error_origins": [{"segment": "mes › POST → sms.example.com"}]}
+        self.assertEqual(AL.dependencies(f), ["oracle", "sms.example.com"])
+        self.assertEqual(AL.dependencies(None), [])
+
+    def test_two_services_same_oracle_are_linked_not_merged(self):
+        a = self.al("mes-api", "a-1", ["mes-api › SELECT LOT → oracle"])
+        b = self.al("report-api", "a-2", ["report-api › SELECT REPORT → oracle"])
+        c = self.al("sms-api", "a-3", ["sms-api › POST → sms.example.com"])
+        changed = AL.link_shared([a, b, c])
+        self.assertEqual(changed, {"a-1", "a-2"})
+        self.assertEqual((a["related_alerts"], a["shared_dependency"]), (["a-2"], ["oracle"]))
+        self.assertEqual((b["related_alerts"], b["shared_dependency"]), (["a-1"], ["oracle"]))
+        self.assertEqual((c["related_alerts"], c["shared_dependency"]), ([], []))
+        self.assertEqual(len([a, b, c]), 3)                                  # 還是三件
+        self.assertIn("可能同源：a-2 也卡在 oracle", AL.summary(a, None, timezone.utc))
+        self.assertNotIn("可能同源", AL.summary(c, None, timezone.utc))
+        # 再跑一次沒有變：不用重寫摘要
+        self.assertEqual(AL.link_shared([a, b, c]), set())
+
+    def test_upstream_service_is_not_a_shared_dependency(self):
+        # 兩個服務都呼叫 wip-worker、而 wip-worker 自己有一件：那是上下游（chain 處理），不算同源
+        a = self.al("mes-api", "a-1", ["mes-api › GET → wip-worker"])
+        b = self.al("report-api", "a-2", ["report-api › GET → wip-worker"])
+        w = self.al("wip-worker", "a-3", ["wip-worker › SELECT → oracle"])
+        AL.link_shared([a, b, w])
+        self.assertEqual((a["dependencies"], a["related_alerts"]), ([], []))
+        # 沒有 wip-worker 那件時，兩件都卡在 wip-worker 就算同源
+        AL.link_shared([a, b])
+        self.assertEqual(a["related_alerts"], ["a-2"])
+
+    def test_resolved_and_same_service_ignored(self):
+        a = self.al("mes-api", "a-1", ["mes-api › SELECT → oracle"])
+        b = self.al("report-api", "a-2", ["report-api › SELECT → oracle"], status="resolved")
+        AL.link_shared([a, b])
+        self.assertEqual(a["related_alerts"], [])
+
+
 class SummaryWithSimilar(unittest.TestCase):
     def test_similar_line(self):
         al = {"alert_id": "a-1", "category": "service", "service": "mes-api", "status": "open", "severity": "critical", "dept": "D3120", "group": "it",

@@ -13,6 +13,8 @@
 | 出事時取幾個請求 | 最慢的 200 個，加最多 100 個出錯的 | `rca.yaml` 的 `sample` |
 | 「平常」拿哪一段比 | 一週前同一段時間；沒有資料就用出事前、同樣長的一段 | `rca.yaml` 的 `compare_with`、`ref_gap` |
 | 每一段算什麼 | 只算自己花的時間（扣掉底下的呼叫）；錯誤只算最底下那段 | 固定 |
+| 出事前的趨勢看多久 | 前 6 段、每段 10 分鐘的 p95：一路往上且最後 ≥ 1.5 倍＝慢慢惡化；前面平（±30%）、出事時 ≥ 1.5 倍＝突然 | `rca.yaml` 的 `trend` |
+| 慢請求的共同點看什麼 | span 的 resource：Pod、版本、節點；attributes：`lot.id`、`db.statement`。慢的請求裡 ≥ 60% 同一個值、而且是平常比例的 ≥ 2 倍才列 | `rca.yaml` 的 `commonality` |
 
 ## 怎麼跑
 
@@ -60,6 +62,7 @@ FEEDBACK_PORT=8080 python3 -m feedback_web
   | 沒有呼叫關係、時間不重疊、A→B→C 的 A（不是直接呼叫 C）、A 那件已經帶 `upstream_services` | 不併，照舊各一件 | — |
 
   標題、摘要加「；連帶上游 A」；`dept`、標題的「最嚴重那筆」只看下游自己的異常；`anomaly_ids`、`series`、`routes` 照舊併進去，上游的異常也寫回下游的 `alert_id`。查不到 trace 就不併跨服務，不擋這一輪。
+- **同源標記（不合併）**：每件從根因結果取「卡在哪個外部依賴」（慢的那幾段、錯誤源頭那幾段 `→` 後面的對象，例如 `oracle`，存 `dependencies`）；開著的、不同服務的件卡在同一個依賴，互相記 `related_alerts`、`shared_dependency`，摘要多一行「可能同源：a-… 也卡在 oracle」。對象是另一件開著的件的服務時不算（那是上下游，上面的跨服務處理）。不合併成一件：是不同服務各自的件（部門、處置不同），只提示很可能同一個源頭。
 - **哪些會開一件**：critical 規則、baseline 連續才算的 `anomaly`、資料品質；warning 規則和Pod 同儕橫向比對要同一個服務 2 筆以上；只跳一次的 baseline `warning` 只併進已經開著的那件。
 - **送給誰看 dept**：每一件帶 `dept`、`group`（取它的異常的，異常寫入時已補上）；資料品質一律 `group: unassigned`（送平台）。Grafana 依 `dept` 分送，設定範例在 [configs/grafana](../../../../grafana/README.md)。
 - 新的那件跑一次 `investigate`：結論寫進 `summary`（Grafana 通知帶這個）、全文存 `report`；結構化結果存 `findings`（慢在哪一段、錯從哪開始、新 log 樣式），也拿來算這件的**指紋**，寫一筆 `aiops-incidents`（`status: auto`）。
