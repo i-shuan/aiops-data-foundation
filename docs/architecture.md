@@ -68,7 +68,6 @@ flowchart TB
     direction LR
     NODE["OTel Collector (Node)<br/>身份鑑別與標籤注入<br/>部門分流／累計值轉增量"]
     CLU["OTel Collector (Cluster)"]
-    TS["Trace Sampler (Tail-based)"]
   end
   subgraph S3["集中存儲（③）"]
     direction LR
@@ -100,10 +99,8 @@ flowchart TB
   APP -- "log／metrics／trace" --> NODE
   INF --> NODE
   INF --> CLU
-  NODE -- "trace 依 trace_id 分配" --> TS
   NODE -- "log／metrics" --> PIPE
   CLU -- "metrics" --> PIPE
-  TS -- "保留的 trace" --> PIPE
   PIPE --> ES
   ES -- "唯讀查詢" --> DET
   DET --> AN --> CORR --> RCA
@@ -115,7 +112,7 @@ flowchart TB
   TUNE -. "門檻、排除時段、新規則" .-> DET
 ```
 
-- **部署拓撲**：每個應用 cluster 一套 Collector（每節點一台 Node Collector、整個 cluster 一台 Cluster Collector、兩台 Trace Sampler）；中央一套 Elasticsearch 9；AIOps engine 以唯讀憑證讀取三種訊號，只寫 `aiops-*` 索引。
+- **部署拓撲**：每個應用 cluster 一套 Collector（每節點一台 Node Collector、整個 cluster 一台 Cluster Collector）；中央一套 Elasticsearch 9；AIOps engine 以唯讀憑證讀取三種訊號，只寫 `aiops-*` 索引。
 - **模組交接**：模組之間只透過 ES 索引交接（`aiops-anomalies`、`aiops-alerts`、`aiops-incidents`、`aiops-feedback`、`aiops-tuning`），任一模組可獨立重跑或替換。
 
 ## 3. 關鍵架構決策 (Key Architectural Decisions)
@@ -158,10 +155,10 @@ flowchart TB
 | 決策 | 理由 | 取捨 |
 |---|---|---|
 | log 收集用 OTel Collector，取代 Fluent Bit | 三種訊號同一種收集器、同一份分部門規則；重啟不掉 log | 中央 pipeline 仍接受 Fluent Bit 資料，供邊緣 VM 使用（[比較](log/README.md)） |
-| trace 尾端取樣 (Tail-based Sampling) | 錯誤、5xx、例外、超過 1 秒的請求完整保留，正常的隨機留 5% | 等待整個 trace 到齊期間資料在記憶體；比 1 秒快的變慢只剩隨機樣本（附錄 A.4） |
+| trace 100% 收、一個請求合成一筆 | 製造業的事故檢討不能少資料：應用全送、Collector 全寫（raw 每一段一筆、2 天），engine 每分鐘把每個 trace 合成一筆（`traces-merged-*`，7 天；根因分析讀這份） | 量是取樣時的約 7 倍；合成的 `nested` 不省空間；根因分析看到的是 1～2 分鐘前合好的（[trace-merge](pdca/phase1-collect/2026-10-trace-merge.md)；之前的尾端取樣見附錄 A.4） |
 | 季節性時間序列基準線為主力 | 星期幾 × 小時的週期（上下班、夜間批次）只有分時段的歷史看得出來 | 需累積 2～4 週；超過一週的週期（月底批次）要另設週期放寬 |
 | 統計＋LLM，不自訓模型 | 可解釋、可重現，不需大量標註與 MLOps（[feedback/README.md](feedback/README.md)） | 多指標複雜關聯的能力有限；準確度靠回饋與評測集校正 |
-| metrics → trace 用「服務＋路由＋時間窗」，不用 exemplar | ES 不存 exemplar；exemplar 只是單一樣本，正常 trace 只留 5% 時多半查不到 | 是同時間、同路由的統計關聯，不是同一個請求 |
+| metrics → trace 用「服務＋路由＋時間窗」，不用 exemplar | ES 不存 exemplar；exemplar 只是單一樣本、不保證是造成異常的那個請求 | 是同時間、同路由的統計關聯，不是同一個請求 |
 
 ## 4. 核心處理模組職責 (Core Components ①～⑨)
 
@@ -169,7 +166,7 @@ flowchart TB
 
 | 編號 | 層 | 模組 | 職責定義 | 核心技術或演算法 |
 |---|---|---|---|---|
-| ① | 可觀測性平台 | 收值 | 不改程式收集 log、metrics、trace 與 K8s 資源、物件狀態 | 自動埋點；Node／Cluster Collector；Prometheus 拉取、OTLP 推送（30 秒）；trace 尾端取樣；磁碟佇列斷線補送 |
+| ① | 可觀測性平台 | 收值 | 不改程式收集 log、metrics、trace 與 K8s 資源、物件狀態 | 自動埋點；Node／Cluster Collector；Prometheus 拉取、OTLP 推送（30 秒）；trace 100% 收、合成一個請求一筆；磁碟佇列斷線補送 |
 | ② | 可觀測性平台 | 清資料 | 保證每筆資料身分正確、欄位一致、不重複 | 邊緣身份鑑別與標籤注入、dept → group；累計值轉增量；例外事件轉 span 屬性；Java 指標名稱對齊 .NET；中央 pipeline 依 log 格式解析、時區正規化、去重 |
 | ③ | 可觀測性平台 | 存 | 依部門 group 分流儲存、控管權限與保留天數 | Elasticsearch 9 data stream、TSDS、降解析度與 ILM；集中式資料寫入憑證；failure store |
 | ④ | AIOps | 判斷 | 判斷每條序列是否異常，分 `warning`、`anomaly` 兩級 | 靜態臨界值規則 (Static Threshold Rules)；動態基準線學習（168 時段中位數＋MAD、卜瓦松、借同組）；Pod 同儕橫向比對 (Peer Comparison)；Trace 分段基準、N+1、例外吞噬檢測 (Exception Swallowing Detection)；學習前排除事故時段、行事曆、慢性問題 |
@@ -335,7 +332,7 @@ K8s 排程頻率見 [aiops-engine/README.md](../aiops-engine/README.md)。
 | 東西 | 為什麼算過度 | 建議 |
 |---|---|---|
 | 動態基準線三個自動機制同時存在：自選粒度、卜瓦松、借同組 | 沒有真實資料就先做三種退路，設定、文件、測試都變厚 | 留著但不再擴；真實資料跑過再決定砍哪個 |
-| trace 每一段的 baseline＋N+1、例外吞噬檢測規則 | trace 有取樣、只留 7 天，學出來的「平常」本來就偏 | 先只跑根因分析那條；trace baseline 等真資料 |
+| trace 每一段的 baseline＋N+1、例外吞噬檢測規則 | raw 只留 2 天，學長期要靠 `aiops-trace-segments` 的統計 | 先只跑根因分析那條；trace baseline 等真資料 |
 | 回饋表單 10 個「查了哪裡」、6 種誤報原因、9 類根因 | 選項是估的，沒人填過 | 第一週看真的填了什麼再縮 |
 | `metrics` 的「最吵的服務」、依 dept | Grafana 讀 `aiops-alerts` 畫更合適 | 留表格，不再加欄 |
 
@@ -374,7 +371,7 @@ K8s 排程頻率見 [aiops-engine/README.md](../aiops-engine/README.md)。
 | [ingest-keys-check](pdca/phase1-collect/2026-10-ingest-keys-check.md) | 鑰匙圈交叉查得到；純文字 log 要開 OTLP 才帶 trace_id |
 | [ingest-simplify](pdca/phase1-collect/2026-10-ingest-simplify.md) | 集中式資料寫入憑證 (Shared Ingest Token)；`k8s-*` 開 failure store；錯誤率、p95 靜態臨界值規則 |
 | [k3d-e2e](pdca/phase1-collect/2026-10-k3d-e2e.md) | k3d 上 initContainer、邊緣身份鑑別與標籤注入 (Edge Identity Sanitization & Injection)、OTLP log 帶 trace_id 都跑過 |
-| [retention](pdca/phase1-collect/2026-10-retention.md) | 保留天數已套用；trace baseline 只讀隨機留下的 trace |
+| [retention](pdca/phase1-collect/2026-10-retention.md) | 保留天數已套用（trace 的保留在 2026-10-31 改成 raw 2 天、merged 7 天） |
 | [time-alignment](pdca/phase1-collect/2026-10-time-alignment.md) | 沒帶時區差 8 小時已修；時鐘偏差抓得到；`NTP_SERVER` 要填 |
 | [trace-durability](pdca/phase1-collect/2026-10-trace-durability.md) | 不用 Kafka；兩段佇列改寫磁碟；當掉仍掉約 20% |
 
@@ -453,9 +450,9 @@ JVM 發生 OutOfMemoryError 後不會自行結束：Pod 顯示正常、K8s 不�
 </details>
 
 <details>
-<summary>A.4 尾端取樣的取捨</summary>
+<summary>A.4 尾端取樣的取捨（已拆掉，留作紀錄）</summary>
 
-Trace Sampler 依 `trace_id` 分配，同一 trace 的所有段落到同一台；等 30 秒讓 trace 到齊後依序比對：隨機 5% → 有錯誤 → HTTP 5xx → 有例外 → 超過 1 秒，符合即保留，總量約剩 15%。代價：等待期間的 trace 在記憶體，Sampler 異常終止時會遺失；比 1 秒快的變慢（例如 200ms → 800ms）只剩隨機樣本；有問題的 trace 與隨機 trace 分開保留。詳見 [trace/README.md](trace/README.md)、[retention.md](retention.md)。
+2026-10-31 起不取樣、100% 收，每個請求由 engine 合成一筆（[trace-merge](pdca/phase1-collect/2026-10-trace-merge.md)）。當時的設計：Trace Sampler 依 `trace_id` 分配，同一 trace 的所有段落到同一台；等 30 秒讓 trace 到齊後依序比對：隨機 5% → 有錯誤 → HTTP 5xx → 有例外 → 超過 1 秒，符合即保留，總量約剩 15%。代價：等待期間的 trace 在記憶體，Sampler 異常終止時會遺失；比 1 秒快的變慢（例如 200ms → 800ms）只剩隨機樣本；有問題的 trace 與隨機 trace 分開保留。詳見 [trace/README.md](trace/README.md)、[retention.md](retention.md)。
 </details>
 
 ### 術語對照表 (Glossary)

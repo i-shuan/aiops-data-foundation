@@ -27,7 +27,7 @@ pods() {  # 現在在跑、沒有正在刪的 Pod，依名稱排序
 in_pod() { kubectl -n "${ns}" exec "$1" -c "$2" -- sh -c "$3"; }
 # peer <檢查,…>：跑這幾個，印出觸發的（只看 dotnet-app）
 peer() {
-  (cd "${repo}/engine" && ES_URL="${ES_URL}" ES_API_KEY="${BASELINE_KEY}" python3 -m detector peer \
+  (cd "${repo}/aiops-engine/code" && ES_URL="${ES_URL}" ES_API_KEY="${BASELINE_KEY}" python3 -m detector peer \
     --config configs/baseline/peer.yaml --only "$1") | grep -E '^  \[' | grep dotnet-app || true
 }
 expect() {  # expect <說明> <輸出> <檢查標題> <Pod>

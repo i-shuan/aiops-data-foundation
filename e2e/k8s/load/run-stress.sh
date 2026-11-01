@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # phase1 收值壓測：log、metrics、trace 經 OpenTelemetry Collector 寫進 ES，壓到開始掉、加上邊緣測資。
 # 每個情境印兩張表：每一條資料（送出、Collector 拒收、ES 收到、遺失、重複、延遲 p50／p95／最大），
-# 以及 Collector（節點、trace-sampler）與 ES 的 CPU、記憶體、佇列、失敗計數；最後是 Collector log 的 error／warn。
+# 以及 Collector（節點）與 ES 的 CPU、記憶體、佇列、失敗計數；最後是 Collector log 的 error／warn。
 #
 # 用法：e2e/k8s/load/run-stress.sh <情境> [參數]
 #   log    [每秒行數...]     log 加量（預設 5000 10000 20000，各 60 秒）
@@ -45,7 +45,7 @@ config_body() { tr -d '\r' | grep -vE '^\s*(#|$)'; }
 ensure_baseline() {
   local cm f diff=0
   cm="$(kubectl -n "${OC}" get ds otel-node-collector -o jsonpath='{.spec.template.spec.volumes[?(@.name=="config")].configMap.name}')"
-  for f in common node cluster sampler; do
+  for f in common node cluster; do
     if ! diff -q <(kubectl -n "${OC}" get cm "${cm}" -o go-template="{{index .data \"${f}.yaml\"}}" | config_body) \
                  <(config_body < "${repo}/collector/code/${f}.yaml") >/dev/null; then diff=1; fi
   done
@@ -59,7 +59,6 @@ ensure_baseline() {
 }
 wait_collectors() {
   kubectl -n "${OC}" rollout status daemonset/otel-node-collector --timeout=300s >/dev/null
-  kubectl -n "${OC}" rollout status statefulset/trace-sampler --timeout=300s >/dev/null
   kubectl -n "${OC}" rollout status deployment/otel-cluster-collector --timeout=300s >/dev/null
 }
 # log 用指紋 _id 去重，每筆寫入都在寫入 index 查 _id：寫入 index 大過 ES 的 page cache 後每筆讀磁碟、bulk 超過 Collector 逾時，
@@ -112,7 +111,7 @@ EOF
 # Collector 的 Pod IP（量 :8888）
 collectors_json() {
   kubectl -n "${OC}" get pods -o go-template='{{range .items}}{{if .status.podIP}}{{.metadata.name}} {{.status.podIP}}{{"\n"}}{{end}}{{end}}' \
-    | awk 'BEGIN{printf "["} /^(otel-node|trace-sampler)/{printf "%s{\"name\":\"%s\",\"ip\":\"%s\"}", (n++?",":""), $1, $2} END{printf "]"}'
+    | awk 'BEGIN{printf "["} /^otel-node/{printf "%s{\"name\":\"%s\",\"ip\":\"%s\"}", (n++?",":""), $1, $2} END{printf "]"}'
 }
 
 # ---------------------------------------------------------------- 產生器
@@ -174,7 +173,7 @@ finish() {  # finish <情境> <最多等幾秒> <job...>
 }
 collector_log() {  # 這段時間 Collector 印了哪些 error／warn（前 6 種）
   local p out
-  out="$(for p in $(kubectl -n "${OC}" get pods -o name | grep -E 'otel-node|trace-sampler|otel-cluster'); do
+  out="$(for p in $(kubectl -n "${OC}" get pods -o name | grep -E 'otel-node|otel-cluster'); do
     kubectl -n "${OC}" logs "${p}" --since-time="$1" 2>/dev/null | tr -d '\r' \
       | awk -F'\t' -v p="${p#pod/}" '$2=="error"||$2=="warn"{m=$4; gsub(/[0-9]+/,"N",m); print p" "$2" "substr(m,1,110)}'
   done | sort | uniq -c | sort -rn)"
@@ -182,7 +181,7 @@ collector_log() {  # 這段時間 Collector 印了哪些 error／warn（前 6 �
   echo "== Collector log 的 error／warn（$1 之後）：$(awk '{s+=$1} END{print s+0}' <<<"${out}") 行"
   [[ -n "${out}" ]] && head -6 <<<"${out}" | sed 's/^/   /'
   # error 每種印一個例子（帶 error 欄位），看得出原因
-  for p in $(kubectl -n "${OC}" get pods -o name | grep -E 'otel-node|trace-sampler|otel-cluster'); do
+  for p in $(kubectl -n "${OC}" get pods -o name | grep -E 'otel-node|otel-cluster'); do
     kubectl -n "${OC}" logs "${p}" --since-time="$1" 2>/dev/null | tr -d '
 '       | awk -F'	' '$2=="error"{m=$4; gsub(/[0-9]+/,"N",m); if (!(m in seen)) {seen[m]=1; e=$5; sub(/.*"error": "/, "", e); print "   例：" m "：" substr(e,1,300)}}'
   done | sort -u | head -4
@@ -307,11 +306,11 @@ do_reject() {
   finish "${p}" 600 "${RUNS[@]}"
 }
 
-# 佇列縮小：common.yaml（log、metrics 送 ES，算筆數）留 20,000 筆；node.yaml（trace 送 trace-sampler）、sampler.yaml（trace 送 ES）算批數，留 20 批
+# 佇列縮小：common.yaml（log、metrics、trace 送 ES，算筆數）留 20,000 筆
 with_config() {  # with_config <sed 運算式> <ES_ENDPOINT>：只在這個情境改 Collector 設定，結束後換回 repo 的
   local tmp; tmp="$(mktemp -d)"
   cp "${repo}"/collector/code/*.yaml "${tmp}/"
-  sed -i -E "$1" "${tmp}/common.yaml" "${tmp}/node.yaml" "${tmp}/sampler.yaml"
+  sed -i -E "$1" "${tmp}/common.yaml" "${tmp}/node.yaml"
   CONFIG_DIR="${tmp}" "${repo}/e2e/k8s/deploy-collector.sh" --set "esEndpoint=$2"
   wait_collectors
   rm -rf "${tmp}"

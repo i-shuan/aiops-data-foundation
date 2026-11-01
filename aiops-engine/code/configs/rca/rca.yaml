@@ -1,7 +1,7 @@
 # 根因分析讀哪裡
 indices:
   anomalies: aiops-anomalies      # aiops-engine/code/configs/baseline 的 detect 寫的
-  traces: traces-*.otel-*
+  traces: traces-merged-*      # 一個請求一筆（detector trace-merge 合成）；raw 的每一段一筆只留 2 天
   logs: k8s-*
 timezone: Asia/Taipei             # 報告裡的時間
 compare_with: 7d                  # 「平常」= 一週前同一段時間

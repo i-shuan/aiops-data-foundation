@@ -9,7 +9,7 @@
 #   run-rca-demo.sh up          發 key、部署模擬服務與 Grafana（aiops-demo）
 #   run-rca-demo.sh incident    製造事故：wip-worker 查 Oracle 變 1.5 秒、connection pool timeout
 #   run-rca-demo.sh heal        事故結束
-#   run-rca-demo.sh tick        跑一輪：detector rules → investigator alert（正式是排程器每分鐘）
+#   run-rca-demo.sh tick        跑一輪：detector trace-merge → rules → investigator alert（正式是排程器每分鐘）
 #   run-rca-demo.sh loop <分鐘>  每分鐘 tick 一次
 # LLM：LLM_ENV_FILE=<.env 路徑> 只載入 LLM_PROVIDER、LLM_API_KEY、LLM_CHAT_MODEL、OPENAI_BASE_URL；沒給就用 template。
 # 發的 key 存在 RCA_DEMO_STATE（預設 ~/.rca-demo），不進 repo。
@@ -40,7 +40,7 @@ up() {
   mkdir -p "${STATE}"
   echo "== 1. key（權限跟 elasticsearch/code/scripts/elasticsearch-setup.sh 一樣）"
   # engine：AIOps baseline key（讀三種資料、寫 aiops-*）
-  key aiops-baseline '{"index":[{"names":["k8s-*","metrics-*.otel-*","traces-*.otel-*"],"privileges":["read","view_index_metadata","read_failure_store"]},{"names":["aiops-*"],"privileges":["read","write","create_index","view_index_metadata"]}]}' > "${STATE}/engine-key"
+  key aiops-baseline '{"index":[{"names":["k8s-*","metrics-*.otel-*","traces-*.otel-*"],"privileges":["read","view_index_metadata","read_failure_store"]},{"names":["aiops-*","traces-merged-*"],"privileges":["read","write","create_index","view_index_metadata"]}]}' > "${STATE}/engine-key"
   # Grafana 告警：只讀 aiops-alerts（正式的權限）
   alerts_key="$(key grafana-aiops-alerts '{"cluster":["monitor"],"index":[{"names":["aiops-alerts"],"privileges":["read","view_index_metadata"]}]}')"
   # Grafana 儀表板（demo 才有）：多讀 metrics、trace、log
@@ -86,7 +86,8 @@ up() {
 tick() {
   load_llm
   export ES_URL ES_API_KEY; ES_API_KEY="$(cat "${STATE}/engine-key")"
-  (cd "${repo}/engine"
+  (cd "${repo}/aiops-engine/code"
+   python3 -m detector trace-merge --config configs/baseline/trace.yaml | sed 's/^/   [trace-merge] /'
    python3 -m detector rules --config configs/baseline/rules.yaml | sed 's/^/   [rules] /'
    python3 -m investigator alert --config configs/rca/rca.yaml | sed 's/^/   [alert] /')
 }

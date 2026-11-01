@@ -50,7 +50,7 @@ reader_role() {
   echo "=== 唯讀角色：logs-reader-${group} ==="
   es -X PUT "${ES_URL}/_security/role/logs-reader-${group}" -d "{
     \"indices\": [{
-      \"names\": [\"k8s-${group}-*\", \"k8s-events-${group}-*\", \"metrics-*-${group}\", \"traces-*.otel-${group}\"],
+      \"names\": [\"k8s-${group}-*\", \"k8s-events-${group}-*\", \"metrics-*-${group}\", \"traces-*.otel-${group}\", \"traces-merged-${group}-*\"],
       \"privileges\": [\"read\", \"view_index_metadata\"]
     }]
   }"
@@ -99,7 +99,7 @@ put_ilm k8s-logs                                   storage/ilm-policy.json
 put_ilm metrics-otel                               storage/ilm-metrics-otel.json
 put_ilm metrics-hist-otel                          storage/ilm-metrics-hist-otel.json
 put_ilm traces-otel                                storage/ilm-traces-otel.json
-put_ilm traces-problem-otel                        storage/ilm-traces-problem-otel.json
+put_ilm traces-merged                              storage/ilm-traces-merged.json
 put_ilm aiops-log-stats                            storage/ilm-aiops-log-stats.json
 put_pipeline k8s-logs-fields                       storage/pipeline-fields.json
 # 每種 log 格式一個 pipeline：storage/formats/<格式>.json → k8s-logs-format-<格式>
@@ -116,18 +116,11 @@ put_json /_component_template/metrics-otel@custom  storage/metrics-otel-custom.j
 # logs-*.otel-* 先跑 k8s-logs-otel，我們的 Collector 送的轉到 k8s-<group>-<cluster>
 put_pipeline k8s-logs-otel                         storage/pipeline-otel.json
 put_json /_component_template/logs-otel@custom     storage/logs-otel-custom.json
-# trace：traces-*.otel-* 用 trace_id + span_id 當 _id，重送不會重複
+# trace（raw，每一段一筆、只留 2 天）：traces-*.otel-* 用 trace_id + span_id 當 _id，重送不會重複；記 event.ingested 給合成用
 put_pipeline traces-otel                           storage/pipeline-traces-otel.json
 put_json /_component_template/traces-otel@custom   storage/traces-otel-custom.json
-# 有問題的 trace（traces-otel pipeline 轉到 traces-problem.otel-<group>）：照內建 traces-otel@template 的組成，
-# 多疊一個 traces-problem-otel@custom 換保留天數。每次從內建的重新組，ES 升級改了內建組成也會跟上
-put_json /_component_template/traces-problem-otel@custom storage/traces-problem-otel-custom.json
-es "${ES_URL}/_index_template/traces-otel@template" | jq '.index_templates[0].index_template
-  | .index_patterns = ["traces-problem.otel-*"] | .priority = (.priority + 10)
-  | .composed_of += ["traces-problem-otel@custom"] | del(.version, .created_date, .created_date_millis, .modified_date, .modified_date_millis, .deprecated)
-  | ._meta = {"description": "有問題的 trace：traces-otel@template 加上 traces-problem-otel@custom（保留天數較長）。由 elasticsearch-setup.sh 產生"}' \
-  > "${tmp_dir}/traces-problem-template.json"
-put_json /_index_template/traces-problem-otel      "${tmp_dir}/traces-problem-template.json"
+# trace（merged，一個請求一筆）：detector trace-merge 寫的 traces-merged-<group>-<日期>；自己的 template 與 ILM，不用 ES 內建的
+put_json /_index_template/traces-merged            storage/template-traces-merged.json
 # 應用的直方圖（metrics-generic.otel-*）：同樣照內建 metrics-otel@template 的組成，多疊 metrics-hist-otel@custom 換成不降解析度的 ILM
 #   （ES 8.19 的 histogram 欄位降解析度時不合併、只留一筆的值；docs/retention-reference.md）
 put_json /_component_template/metrics-hist-otel@custom storage/metrics-hist-otel-custom.json
@@ -142,7 +135,7 @@ echo "=== 已存在的 metrics、trace 套用新的保留天數 ==="
 es -X PUT "${ES_URL}/metrics-*.otel-*/_settings?expand_wildcards=all" -d '{"index.lifecycle.name": "metrics-otel"}' >/dev/null
 es -X PUT "${ES_URL}/metrics-generic.otel-*/_settings?expand_wildcards=all&allow_no_indices=true" -d '{"index.lifecycle.name": "metrics-hist-otel"}' >/dev/null
 es -X PUT "${ES_URL}/traces-generic.otel-*/_settings?expand_wildcards=all" -d '{"index.lifecycle.name": "traces-otel"}' >/dev/null
-es -X PUT "${ES_URL}/traces-problem.otel-*/_settings?expand_wildcards=all&allow_no_indices=true" -d '{"index.lifecycle.name": "traces-problem-otel"}' >/dev/null
+es -X PUT "${ES_URL}/traces-merged-*/_settings?expand_wildcards=all&allow_no_indices=true" -d '{"index.lifecycle.name": "traces-merged"}' >/dev/null
 # ILM 會把「正在進行的階段」的設定暫存起來：寫入中的 index 還在用舊政策（例如 ES 內建、30 天才 rollover、永遠不刪）
 # 的 hot 階段，換政策後要等舊的 hot 階段走完才生效。這種資料流先 rollover 一次，新的 index 從頭就用新政策
 rollover_if_policy_stale() {  # rollover_if_policy_stale <資料流樣式>
@@ -187,6 +180,18 @@ rollover_if_not() {  # rollover_if_not <資料流樣式> <default pipeline>
 }
 rollover_if_not 'logs-*.otel-*' k8s-logs-otel
 rollover_if_not 'traces-*.otel-*' traces-otel
+# mapping 也只對新的 backing index 生效：trace 的寫入中 index 還沒有 event.ingested（trace-merge 靠它找新 span）的換一個
+rollover_if_no_field() {  # rollover_if_no_field <資料流樣式> <欄位>
+  local ds wi
+  for ds in $(es "${ES_URL}/_data_stream/$1" | jq -r '.data_streams[]? | .name'); do
+    wi="$(es "${ES_URL}/_data_stream/${ds}" | jq -r '.data_streams[0].indices[-1].index_name')"
+    if [[ "$(es "${ES_URL}/${wi}/_mapping/field/$2" | jq -r --arg f "$2" '.[].mappings[$f].mapping | length')" == "0" ]]; then
+      echo "=== rollover ${ds}（寫入中的 index 沒有 $2）==="
+      es -X POST "${ES_URL}/${ds}/_rollover" >/dev/null
+    fi
+  done
+}
+rollover_if_no_field 'traces-*.otel-*' event.ingested
 
 # failure store：被拒的文件（pipeline 失敗、型別不合）留在 <data stream>::failures。template 只管新建的資料流，
 # 已經存在的要另外打開（docs/pdca/phase1-collect/2026-10-ingest-simplify.md）。OTel 的 metrics、traces 資料流 ES 預設就開了
@@ -199,7 +204,7 @@ fi
 # 1. 寫入用：一把，log、metrics、trace、所有 group 共用（都由 OpenTelemetry Collector 送）。
 #   metrics-*.otel-*：metrics 的資料流是 metrics-<來源>.otel-<group>
 #   logs-*.otel-*：log 的入口，ES 會再轉到 k8s-<group>-*（轉過去時 ES 會再檢查一次權限，所以 k8s-* 也要）
-#   traces-*.otel-*：trace（有問題的轉到 traces-problem.otel-<group>）
+#   traces-*.otel-*：trace（raw，每一段一筆；合成一筆的 traces-merged-* 由 engine 寫，不是這把 key）
 writer_key "es-writer" '["k8s-*", "metrics-*.otel-*", "logs-*.otel-*", "traces-*.otel-*"]'
 
 # 2. AIOps 唯讀
@@ -208,13 +213,14 @@ es -X POST "${ES_URL}/_security/api_key" -d '{
   "name": "aiops-reader",
   "role_descriptors": {
     "aiops-reader": {
-      "index": [{"names": ["k8s-*", "metrics-*.otel-*", "traces-*.otel-*"], "privileges": ["read", "view_index_metadata"]}]
+      "index": [{"names": ["k8s-*", "metrics-*.otel-*", "traces-*.otel-*", "traces-merged-*"], "privileges": ["read", "view_index_metadata"]}]
     }
   }
 }'
 
 # 3. 給人用的唯讀角色
-# 2b. AIOps baseline 工具（aiops-engine/code/configs/baseline）：讀 log、metrics、trace，只能寫自己的 aiops-*（baseline、異常）。
+# 2b. AIOps baseline 工具（aiops-engine/code/configs/baseline）：讀 log、metrics、trace，只能寫自己的 aiops-*（baseline、異常）
+#     和 traces-merged-*（trace-merge 把每個請求合成一筆）。
 #     read_failure_store：quality.ingest_rejected 要數被 ES 拒絕、留在 failure store 的文件
 echo "=== AIOps baseline key ==="
 es -X POST "${ES_URL}/_security/api_key" -d '{
@@ -223,7 +229,7 @@ es -X POST "${ES_URL}/_security/api_key" -d '{
     "aiops-baseline": {
       "index": [
         {"names": ["k8s-*", "metrics-*.otel-*", "traces-*.otel-*"], "privileges": ["read", "view_index_metadata", "read_failure_store"]},
-        {"names": ["aiops-*"], "privileges": ["read", "write", "create_index", "view_index_metadata"]}
+        {"names": ["aiops-*", "traces-merged-*"], "privileges": ["read", "write", "create_index", "view_index_metadata"]}
       ]
     }
   }

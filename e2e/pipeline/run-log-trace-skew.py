@@ -8,7 +8,7 @@ import datetime as dt, json, os, pathlib, sys
 
 import requests
 
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / "engine"))
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / "aiops-engine" / "code"))
 from core.es import ES  # noqa: E402
 from investigator import es as E  # noqa: E402
 

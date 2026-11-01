@@ -1,6 +1,6 @@
 #!/bin/sh
 # log ↔ trace 綁定的測試應用（run-trace-id-e2e.sh）：每 5 秒「處理一個請求」——
-# 用 OTLP 送一段 span（狀態 ERROR，trace-sampler 一定留），再用同一個 trace_id 印幾種 log。
+# 用 OTLP 送一段 span（狀態 ERROR），再用同一個 trace_id 印幾種 log。
 # 每筆 log 帶 case、tid（進 ES 後是 app.case、app.tid），檢查時用它找。
 #   upper：trace_id、span_id 印成大寫
 #   long ：一行超過 16KB（containerd 會切成好幾段，Collector 要接回來）

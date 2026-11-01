@@ -1,4 +1,8 @@
-"""根因分析從 ES 讀的資料：baseline 找到的異常、某個服務的請求、log。連線見 core.es，span 見 core.traces。"""
+"""根因分析從 ES 讀的資料：baseline 找到的異常、某個服務的請求、log。連線見 core.es，span 見 core.traces。
+
+trace 讀合成一筆的 traces-merged-*（detector trace-merge 寫的；事故可能幾天後才查，raw 只留 2 天）：
+「某個服務收到的請求」用 nested 的 entries（入口 span：服務、API、耗時、有沒有錯）挑，不用展開 spans。
+"""
 from __future__ import annotations
 
 from datetime import datetime, timedelta
@@ -18,45 +22,62 @@ def anomalies(es: ES, index: str, start: datetime, end: datetime, service: str |
     return [{**h["_source"], "_id": h["_id"]} for h in hits]
 
 
-# ── 2. trace ──
+# ── 2. trace（merged）──
+
+def entry_query(service: str, route: str | None, error: bool | None = None) -> dict:
+    """「這個服務收到的請求」：entries 裡有一個是這個服務的 Server span（可以再限定 API、只要出錯的）。"""
+    f = [{"term": {"entries.service": service}}, {"term": {"entries.kind": "Server"}}]
+    if route:
+        f.append({"term": {"entries.name": route}})
+    if error is not None:
+        f.append({"term": {"entries.error": error}})
+    return {"bool": {"filter": f}}
+
 
 def entry_filter(service: str, route: str | None) -> list[dict]:
-    """「這個服務收到的請求」：服務的 Server span，可以再限定 API。"""
-    f = [{"term": {"resource.attributes.service.name": service}}, {"term": {"kind": "Server"}}]
-    if route:
-        f.append({"term": {"name": route}})
-    return f
+    return [{"nested": {"path": "entries", "query": entry_query(service, route)}}]
 
 
 def entry_stats(es: ES, index: str, service: str, route: str | None, start: datetime, end: datetime) -> dict:
-    body = {"size": 0, "track_total_hits": True, "query": {"bool": {"filter": [time_range(start, end), *entry_filter(service, route)]}},
-            "aggs": {"p": {"percentiles": {"field": "duration", "percents": [50, 95]}},
-                     "e": {"filter": {"term": {"status.code": "Error"}}}}}
+    """這個服務（這條 API）這段時間幾個請求、幾個出錯、p50／p95：都算在入口那一段上。"""
+    q = entry_query(service, route)
+    body = {"size": 0, "track_total_hits": True,
+            "query": {"bool": {"filter": [time_range(start, end), {"nested": {"path": "entries", "query": q}}]}},
+            "aggs": {"n": {"nested": {"path": "entries"},
+                           "aggs": {"m": {"filter": q,
+                                          "aggs": {"p": {"percentiles": {"field": "entries.duration_ms", "percents": [50, 95]}},
+                                                   "e": {"filter": {"term": {"entries.error": True}}}}}}}}}
     r = es.search(index, body)
-    p = r["aggregations"]["p"]["values"]
-    n = r["hits"]["total"]["value"]
-    return {"requests": n, "errors": r["aggregations"]["e"]["doc_count"],
-            "p50_ms": (p.get("50.0") or 0) / 1e6, "p95_ms": (p.get("95.0") or 0) / 1e6}
+    m = r["aggregations"]["n"]["m"]
+    p = m["p"]["values"]
+    return {"requests": m["doc_count"], "errors": m["e"]["doc_count"],
+            "p50_ms": p.get("50.0") or 0, "p95_ms": p.get("95.0") or 0}
+
+
+def _entry_sort(service: str, route: str | None, slowest: bool) -> list:
+    if not slowest:
+        return [{"@timestamp": "desc"}]
+    return [{"entries.duration_ms": {"order": "desc", "nested": {"path": "entries", "filter": entry_query(service, route)}}}]
 
 
 def sample_trace_ids(es: ES, index: str, service: str, route: str | None, start: datetime, end: datetime,
                      n: int, slowest: bool) -> list[str]:
     """出事時：挑最慢的、和出錯的請求；平常：挑最近的請求（當作「正常的樣子」）。"""
-    q = {"bool": {"filter": [time_range(start, end), *entry_filter(service, route)]}}
-    sort = [{"duration": "desc"}] if slowest else [{"@timestamp": "desc"}]
-    ids = [h["_source"]["trace_id"] for h in
-           es.search(index, {"size": n, "query": q, "sort": sort, "_source": ["trace_id"]})["hits"]["hits"]]
+    def ids(error):
+        q = {"bool": {"filter": [time_range(start, end), {"nested": {"path": "entries", "query": entry_query(service, route, error)}}]}}
+        hits = es.search(index, {"size": n if error is None else n // 2, "query": q, "sort": _entry_sort(service, route, slowest),
+                                 "_source": ["trace_id"]})["hits"]["hits"]
+        return [h["_source"]["trace_id"] for h in hits]
+    out = ids(None)
     if slowest:
-        q["bool"]["filter"].append({"term": {"status.code": "Error"}})
-        ids += [h["_source"]["trace_id"] for h in
-                es.search(index, {"size": n // 2, "query": q, "sort": sort, "_source": ["trace_id"]})["hits"]["hits"]]
-    return list(dict.fromkeys(ids))
+        out += ids(True)
+    return list(dict.fromkeys(out))
 
 
 def recent_trace_ids(es: ES, index: str, start: datetime, end: datetime, n: int) -> list[str]:
+    """最近的請求（整個 trace 的根是 Server span 的）。"""
     hits = es.search(index, {"size": n, "_source": ["trace_id"], "sort": [{"@timestamp": "desc"}],
-                             "query": {"bool": {"filter": [time_range(start, end), {"term": {"kind": "Server"}}],
-                                                "must_not": [{"exists": {"field": "parent_span_id"}}]}}})["hits"]["hits"]
+                             "query": {"bool": {"filter": [time_range(start, end), {"term": {"root.kind": "Server"}}]}}})["hits"]["hits"]
     return list(dict.fromkeys(h["_source"]["trace_id"] for h in hits))
 
 

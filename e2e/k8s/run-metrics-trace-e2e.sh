@@ -65,7 +65,7 @@ sleep 180
 end="$(now)"
 sleep 30
 
-# 別的任務在中途重啟 Collector、trace-sampler 的話，那段 trace、metrics 會掉，數字不可信
+# 別的任務在中途重啟 Collector 的話，那段 trace、metrics 會掉，數字不可信
 if [[ "$(collectors)" != "${before}" ]]; then echo "   ⚠ 測試期間 Collector 重啟過（${before} → $(collectors)），結果不可信，請重跑"; fi
 args="--normal ${normal} --incident ${incident} --heal ${heal} --crash ${crash} --delete ${delete} --end ${end}"
 echo "== 4. 檢查（重跑：CHECK_ONLY=\"${args}\"）"

@@ -5,7 +5,7 @@
 #
 # 前提：run-e2e.sh 跑過（測試 ES、Collector 都在）。會用這個 checkout 的 Collector 設定與 ES pipeline 重新部署。約 10 分鐘。
 # 用法：ES_URL=http://127.0.0.1:<port> e2e/k8s/run-keys-e2e.sh
-#       KEEP=1：跑完不刪測試 namespace；ONE_SAMPLER=1：trace-sampler 暫時縮成 1 台（繞過 loadbalancing 的佇列檔問題，見步驟 1）
+#       KEEP=1：跑完不刪測試 namespace
 # 共用 cluster：先 source cluster-lock.sh; cluster_lock <名字>。
 # ⚠ 會把這個 checkout 的 elasticsearch/code/storage（pipeline、template）裝進 ES_URL。共用的 es-test 只該裝 master 版：
 #   storage 改過的分支跑完，要在鎖內用 master 版的 elasticsearch-setup.sh（SKIP_KEYS=1）還原。
@@ -73,21 +73,9 @@ key="$(echo "${setup_out}" | grep -A1 '=== 寫入 key：es-writer ===' | tail -1
 kubectl -n otel-collector create secret generic es-writer-keys --from-literal=ES_WRITER_API_KEY="${key}" \
   --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 "${here}/deploy-collector.sh"
-kubectl -n otel-collector rollout status statefulset/trace-sampler --timeout=180s >/dev/null
 kubectl -n otel-collector rollout status deployment/otel-cluster-collector --timeout=180s >/dev/null
-# trace-sampler 有 2 台時，node Collector 的 loadbalancing 只建得起一台的子 exporter（兩個子 exporter 共用一個磁碟佇列檔，
-# 第二個等檔案鎖逾時），trace 整批被丟（見 troubleshooting）。ONE_SAMPLER=1：測試期間縮成 1 台，結束時恢復
-if [[ -n "${ONE_SAMPLER:-}" ]]; then
-  kubectl -n otel-collector scale statefulset/trace-sampler --replicas=1 >/dev/null
-  kubectl -n otel-collector wait --for=delete pod/trace-sampler-1 --timeout=120s >/dev/null 2>&1 || true
-  trap 'kubectl -n otel-collector scale statefulset/trace-sampler --replicas=2 >/dev/null; kubectl -n otel-collector rollout restart daemonset/otel-node-collector >/dev/null' EXIT
-fi
 kubectl -n otel-collector rollout restart daemonset/otel-node-collector >/dev/null
 kubectl -n otel-collector rollout status daemonset/otel-node-collector --timeout=180s >/dev/null
-sleep 5
-if kubectl -n otel-collector logs ds/otel-node-collector | grep -q 'failed to start new exporter'; then
-  echo "   注意：node Collector 的 loadbalancing 有子 exporter 建不起來，trace 會被丟，trace 那幾項會 FAIL（ONE_SAMPLER=1 可繞過）"
-fi
 
 echo "== 2. 測試應用"
 t_apps=$(date +%s)

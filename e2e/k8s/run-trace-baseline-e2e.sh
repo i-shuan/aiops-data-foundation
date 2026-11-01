@@ -26,7 +26,7 @@ iso() { date -u -d "@$1" +%Y-%m-%dT%H:%M:%SZ; }
 api() { kubectl -n it-mes-prod exec deploy/rca-mes-api -- sh -c "$1"; }
 wip() { kubectl -n imc-wip-prod exec deploy/rca-wip-worker -- sh -c "$1"; }
 cfg=tests/trace_k3s.yaml
-aiops() { (cd "${repo}/engine" && ES_URL="${ES_URL}" ES_API_KEY="${BASELINE_KEY}" python3 -m detector "$@"); }
+aiops() { (cd "${repo}/aiops-engine/code" && ES_URL="${ES_URL}" ES_API_KEY="${BASELINE_KEY}" python3 -m detector "$@"); }
 # anomalies <開始秒> <結束秒>：這段時間 rca 兩個服務的異常，一行一個「數字|服務|段」
 anomalies() {
   es -X POST "${ES_URL}/aiops-anomalies/_refresh" >/dev/null
@@ -49,7 +49,8 @@ echo "== 2. 模擬服務"
 kubectl -n otel-collector rollout restart daemonset/otel-node-collector >/dev/null
 kubectl -n otel-collector rollout status daemonset/otel-node-collector --timeout=180s >/dev/null
 for ns in it-mes-prod imc-wip-prod; do
-  kubectl -n "${ns}" create configmap rca-lib --from-file=lib.sh="${here}/rca-lib.sh" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+  # Windows checkout 成 CRLF 時 busybox sh 讀不懂：去掉 \r 再建（Linux 上不影響）
+  kubectl -n "${ns}" create configmap rca-lib --from-literal=lib.sh="$(tr -d '\r' < "${here}/rca-lib.sh")" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 done
 kubectl apply -f "${here}/rca-apps.yaml" >/dev/null
 kubectl -n imc-wip-prod rollout restart deployment/rca-wip-worker >/dev/null

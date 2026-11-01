@@ -28,7 +28,7 @@ class EngineChart(unittest.TestCase):
         cls.docs = render()
 
     def test_one_pod_two_containers_no_cronjob(self):
-        self.assertEqual(sorted(k.split("/")[0] for k in self.docs), ["ConfigMap", "Deployment", "Service"])
+        self.assertEqual(sorted(k.split("/")[0] for k in self.docs), ["ConfigMap", "Deployment", "Secret", "Service"])   # Secret：aiops-llm（LLM key，沒填就是空的）
         dep = self.docs["Deployment/aiops-engine"]["spec"]
         self.assertEqual((dep["replicas"], dep["strategy"]["type"]), (1, "Recreate"))
         self.assertEqual(sorted(containers(self.docs)), ["feedback", "scheduler"])

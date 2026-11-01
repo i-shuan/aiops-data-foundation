@@ -198,29 +198,8 @@ processors:
     filter:
       node_from_env_var: K8S_NODE_NAME   # 只看自己節點上的 Pod，省記憶體
 
-exporters:
-  # trace 不直接寫 ES：依 trace_id 送到第二層 trace-sampler（尾端取樣，sampler.yaml）。同一個 trace 的每一段
-  # （不同服務、不同節點送來的）都會到同一台，它等整個 trace 到齊再決定留不留，再依 group 寫進 ES。
-  loadbalancing/traces:
-    routing_key: traceID
-    protocol:
-      otlp:
-        tls: {insecure: true}
-        timeout: 10s
-        # 子 exporter（每台 trace-sampler 一個）不排隊、不重試：送不出去就把錯誤交回外層，資料留在外層的磁碟佇列。
-        # 不能把磁碟佇列設在這裡：每個子 exporter 用同一個佇列檔，只有一個鎖得到，其他的啟動逾時、那台的 trace 從此全部被拒
-        #（docs/pdca/phase1-collect/2026-10-durability.md）。子 exporter 有記憶體佇列的話，資料一交給它外層就刪掉，node 重啟會掉
-        sending_queue: {enabled: false}
-        retry_on_failure: {enabled: false}
-    resolver:
-      dns:
-        hostname: trace-sampler-headless.otel-collector.svc.cluster.local   # headless Service：解析出每一台的 IP
-        port: "4317"
-        interval: 5s
-    # 佇列寫在節點磁碟上：trace-sampler 停很久、node Collector 重啟都不會掉。重試時依當下的 trace-sampler 名單重新分配
-    sending_queue: {enabled: true, queue_size: 10000, storage: file_storage}
-    retry_on_failure: {enabled: true, max_elapsed_time: 0}   # 一直重試到送成功（佇列滿了才會丟）
-
+# trace 跟 log、metrics 一樣直接寫 ES（common.yaml 的 elasticsearch/es）：每一段一筆、100% 收、不取樣。
+# 合成一個請求一筆由 engine 的 detector trace-merge 在 ES 端做（docs/pdca/phase1-collect/2026-10-trace-merge.md）
 service:
   pipelines:
     metrics/in:
@@ -253,4 +232,4 @@ service:
     traces/in:
       receivers: [otlp]
       processors: [memory_limiter, transform/traces-pre, transform/exceptions, k8s_attributes, transform/group, transform/drop-log-attrs]
-      exporters: [loadbalancing/traces]
+      exporters: [elasticsearch/es]

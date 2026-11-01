@@ -10,7 +10,7 @@ here="$(cd "$(dirname "$0")" && pwd)"
 repo="$(cd "${here}/../.." && pwd)"
 : "${ES_URL:?請設定 ES_URL}"
 ES_PASSWORD=changeme-test-only
-KCTX="${KCTX:-default}"
+KCTX="${KCTX:-$(kubectl config current-context)}"   # 預設用目前的 context（k3d 是 default、Rancher Desktop 是 rancher-desktop）
 k() { kubectl --context "${KCTX}" "$@"; }
 
 fail=0

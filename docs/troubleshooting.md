@@ -58,11 +58,10 @@
 | 症狀 | 原因 | 做法 |
 |---|---|---|
 | trace 進 unassigned | 應用連到別的節點的 Collector，那裡認不得這個 Pod | Service 一定要 `internalTrafficPolicy: Local` |
-| trace 幾乎都沒進 ES；node Collector log 一直 `couldn't find the exporter for the endpoint` | `loadbalancing/traces` 的磁碟佇列設在子 exporter：每台 trace-sampler 的子 exporter 共用同一個佇列檔，只有一個鎖得到，其他的啟動逾時（`failed to start new exporter ... timeout`），那台的 trace 從此全被拒 | 佇列設在外層、子 exporter 的 `sending_queue`、`retry_on_failure` 關掉（`node.yaml` 已改）。只有一台 trace-sampler 時不會出現 |
-| trace-sampler 當掉（OOM、kill -9）後少了一段 trace | 等著決定的 trace 在記憶體 | 掉「每秒 trace 數 ÷ 台數 ×（decision_wait＋1 秒）」，正式值約 31 秒；正常停（rollout）不掉。盯 trace-sampler 記憶體 |
-| ES 停機時 trace 不見，trace-sampler 沒重啟，log 有 `no space left on device`、`Rejecting data` | trace-sampler 的 PVC 滿了，佇列寫不進去就丟 | 約 0.3KB/段，1Gi 約 330 萬段；依「保留下來的段數/秒 × ES 最長停機時間」估 PVC。PVC 的檔只長不縮，`du` 看到的是歷來最大 |
 | 用 hostNetwork 的應用 trace 進 unassigned | 連線來源是節點 IP，對不到 Pod；OTLP 送的 log、metrics 也一樣（stdout log、Prometheus 認得出） | 應用不能用 hostNetwork |
-| ES 空間不夠 | trace 量通常比 log 大；尾端取樣後約剩 15% | 全廠上線前估算；不要在應用調低 `otel.traces.sampleRatio` |
+| ES 空間不夠 | trace 100% 收，量比 log 大；merged 的 `nested` 不省空間 | 縮保留天數（merged 7 天；raw 2 天不能再短）、舊的快照到物件儲存（另案）；不要在應用調低 `otel.traces.sampleRatio` |
+| 根因分析找不到剛發生的請求 | 根因分析讀 merged，`trace-merge` 每分鐘合、合到「現在 − 10 秒」 | 等 1～2 分鐘；要看即時的查 raw（`traces-*.otel-*`，2 天內） |
+| merged 裡少了幾個 trace | `trace-merge` 從上次合到的時間接著合（`aiops-state/trace-merge`），pod 停很久會分段補、最多補 2 天（raw 的保留） | 看排程器 log 的 `trace-merge … 合了 N 個`；停超過 2 天那段補不回來 |
 | Java 自己 `new Thread` 印的 log 沒有 trace_id | agent 不會把 context 帶到自己開的執行緒 | `Context.current().wrap(...)`（[tracing.md 2-4](../sdk/standards/tracing.md#2-4-自己管理的執行緒)） |
 | 背景排程的 log 沒有 trace_id | 沒有上游請求，log 當下沒有 span | 預期行為；要查就印業務 ID |
 | log 的 trace_id 在 ES 查不到 trace | 上游送的 `traceparent` 結尾 `-00`（未取樣），整條都不送 span | 找送 `-00` 的上游 |
@@ -122,9 +121,8 @@
 | `quality` 中斷：`bulk 寫入 aiops-anomalies 失敗 ... Non-standard token 'NaN'` | 缺欄位那組（例如 log 沒有 namespace）的 key 被 pandas 3 變成 NaN | 已修（`quality._frame`）；舊版這一輪的結果全沒寫 |
 | trace 有 N+1，`trace.segment.repeated` 沒報、反而報一個沒有「→」的新段 | DB span 只有新版 `db.system.name`，段名沒有對象 | 已補這個欄位；Client span 什麼對象欄位都沒有的仍看不到 |
 | 程式 catch 掉 DB 例外、回 200，`trace.segment.swallowed` 沒報 | Java agent 會把丟例外的那段標成錯誤，舊定義只算沒標錯誤的 | 已改：入口沒標錯誤就算吞掉（已決定維持；重試後成功也會算，另外排除留到下一輪） |
-| 某支 API 一直沒有 trace 基準線 | 尾端取樣只留 5%：每點隨機留下的 < `min_requests` 5 | 每個 interval 至少 100 個請求才學得到（5 分鐘 → 每分鐘 20 個） |
+| 某支 API 一直沒有 trace 基準線 | 每點抽到的請求 < `min_requests` 5 | 流量太少的 API 學不到（5 分鐘至少 5 個請求） |
 | 只有一部分請求變慢，trace 段的 time_ms 沒報 | 每點約 20 個請求的平均；長尾讓基準線很寬（實測門檻約 430 ms） | 已知限制；要看 p90 或慢請求比例（還沒做） |
-| trace 基準線的錯誤率、時間偏高很多 | 讀到尾端取樣全留的那份（錯、慢、例外） | `traces_index` 用 `traces-generic.otel-*`、`sample_policy: random`（實測混進來錯誤率 4% → 35%） |
 | Pod 沒有 `app.kubernetes.io/name`，`quality.log_missing_identity` 卻沒報 | log pipeline 退回用 container 名稱（例如 `app`），不算缺 | 已知缺口；看 `service.name` 是不是 container 名稱 |
 | span 某欄位型別錯，failure store 卻沒有 | traces 是 logsdb、ignore_malformed：文件存進去，那個欄位丟掉 | 查 `_ignored`；`quality.ingest_rejected` 看不到這種 |
 | 收集系統停了半小時以上，每個服務都被報成「流量掉到 0」 | 偵測時有 baseline、整段沒資料的服務一律補 0 | 已改成只在 index 有資料的時間窗補 0（`es.alive_times`），[baseline-verify](pdca/phase2-anomaly/2026-10-baseline-verify.md) |

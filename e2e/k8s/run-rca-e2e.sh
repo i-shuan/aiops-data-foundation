@@ -36,7 +36,8 @@ echo "== 2. 模擬服務"
 kubectl -n otel-collector rollout restart daemonset/otel-node-collector >/dev/null
 kubectl -n otel-collector rollout status daemonset/otel-node-collector --timeout=180s >/dev/null
 for ns in it-mes-prod imc-wip-prod; do
-  kubectl -n "${ns}" create configmap rca-lib --from-file=lib.sh="${here}/rca-lib.sh" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+  # Windows checkout 成 CRLF 時 busybox sh 讀不懂：去掉 \r 再建（Linux 上不影響）
+  kubectl -n "${ns}" create configmap rca-lib --from-literal=lib.sh="$(tr -d '\r' < "${here}/rca-lib.sh")" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 done
 kubectl apply -f "${here}/rca-apps.yaml" >/dev/null
 # 重新開，確保沒有上次留下的事故開關
@@ -66,10 +67,14 @@ es -X POST "${ES_URL}/aiops-anomalies-rcatest/_doc?refresh=true" -d "{\"@timesta
   \"attributes.http.request.method\":\"GET\",\"attributes.http.route\":\"/lots/{id}\"}}" >/dev/null
 sleep 20   # 等最後的 span、log 寫進 ES
 es -X POST "${ES_URL}/traces-*.otel-*,k8s-*/_refresh" >/dev/null
+# 根因分析讀合成的 traces-merged-*；正式由排程器每分鐘合，測試 cluster 沒有 engine pod，這裡手動合這十幾分鐘的
+(cd "${repo}/aiops-engine/code" && ES_URL="${ES_URL}" ES_API_KEY="${BASELINE_KEY}" "${PYTHON:-python3}" -X utf8 -m detector trace-merge \
+   --config configs/baseline/trace.yaml --window 20min) | sed 's/^/   /'
+es -X POST "${ES_URL}/traces-merged-*/_refresh" >/dev/null
 
 echo "== 6. investigate（不指定服務，從異常開始）"
 report="$(mktemp)"
-(cd "${repo}/engine" && ES_URL="${ES_URL}" ES_API_KEY="${BASELINE_KEY}" \
+(cd "${repo}/aiops-engine/code" && ES_URL="${ES_URL}" ES_API_KEY="${BASELINE_KEY}" \
   python3 -m investigator investigate --config tests/rca_k3s.yaml --at "$(iso "${t2}")" --window 15m --out "${report}" >/dev/null)
 echo "   報告：${report}"
 has "從異常找到服務與 API"                 "rca-mes-api（GET /lots/{id}）"
@@ -85,7 +90,7 @@ has "呼叫關係：mes-api → wip-worker"         'rca_mes_api["rca-mes-api"] 
 has "呼叫關係：wip-worker → oracle"          'oracle["oracle"]'
 
 echo "== 7. topology"
-topo="$(cd "${repo}/engine" && ES_URL="${ES_URL}" ES_API_KEY="${BASELINE_KEY}" \
+topo="$(cd "${repo}/aiops-engine/code" && ES_URL="${ES_URL}" ES_API_KEY="${BASELINE_KEY}" \
   python3 -m investigator topology --config tests/rca_k3s.yaml --at "$(iso "${t2}")" --window 15m)"
 check "rca-mes-api → rca-wip-worker"  "$(grep -c '^| rca-mes-api | rca-wip-worker |' <<<"${topo}")" 1
 check "rca-wip-worker → oracle"       "$(grep -c '^| rca-wip-worker | oracle |' <<<"${topo}")" 1

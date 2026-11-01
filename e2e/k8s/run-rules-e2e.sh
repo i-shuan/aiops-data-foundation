@@ -44,7 +44,7 @@ for r in cfg["rules"]:
         r["threshold"], r["for"] = 0.01, "1m"
 yaml.safe_dump(cfg, open(sys.argv[2], "w", encoding="utf-8"), allow_unicode=True)
 PY
-out="$(cd "${repo}/engine" && ES_URL="${ES_URL}" ES_API_KEY="${BASELINE_KEY}" python3 -m detector rules --config "${cfg}")"
+out="$(cd "${repo}/aiops-engine/code" && ES_URL="${ES_URL}" ES_API_KEY="${BASELINE_KEY}" python3 -m detector rules --config "${cfg}")"
 echo "${out}" | sed 's/^/   /'
 # 觸發的整理成「規則 對象」一行一個（對象用 namespace 後面那一段：Pod 名稱去掉亂碼、Deployment 名稱、Job 名稱）
 fired="$(grep -oE '^  \[[a-z]+\] .*' <<<"${out}" || true)"

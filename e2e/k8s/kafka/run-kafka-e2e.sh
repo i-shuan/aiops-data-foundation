@@ -23,7 +23,7 @@ check() { if [[ "$2" == "$3" ]]; then echo "  PASS  $1"; else echo "  FAIL  $1�
 iso() { date -u -d "@$1" +%Y-%m-%dT%H:%M:%SZ; }
 ctl() { kubectl -n "${ns}" exec "deploy/$1" -c app -- sh -c "$2"; }
 cfg=tests/trace_k3s.yaml
-aiops() { (cd "${repo}/engine" && ES_URL="${ES_URL}" ES_API_KEY="${BASELINE_KEY}" python3 -m detector "$@"); }
+aiops() { (cd "${repo}/aiops-engine/code" && ES_URL="${ES_URL}" ES_API_KEY="${BASELINE_KEY}" python3 -m detector "$@"); }
 SVCS='["order-producer","order-consumer"]'
 # anomalies <開始秒> <結束秒>：這段時間兩個服務 trace 每一段的異常，一行一個「數字|服務|段」
 anomalies() {
@@ -47,9 +47,8 @@ kubectl -n otel-collector create secret generic es-writer-keys \
   --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 BASELINE_KEY="$(key_of 'AIOps baseline key')"
 "${here}/../deploy-collector.sh"
-kubectl -n otel-collector rollout restart daemonset/otel-node-collector statefulset/trace-sampler >/dev/null
+kubectl -n otel-collector rollout restart daemonset/otel-node-collector >/dev/null
 kubectl -n otel-collector rollout status daemonset/otel-node-collector --timeout=180s >/dev/null
-kubectl -n otel-collector rollout status statefulset/trace-sampler --timeout=180s >/dev/null
 
 echo "== 2. Kafka、兩個 .NET 服務（namespace ${ns}，第一次要編譯幾分鐘）"
 kubectl delete namespace "${ns}" --ignore-not-found --wait=true >/dev/null
@@ -66,7 +65,7 @@ sleep 240
 es -X POST "${ES_URL}/traces-*,metrics-*/_refresh" >/dev/null
 
 echo "== 3. 串接"
-# 拿 30 秒以前的：最新的那幾筆，對方那一段可能還在 trace-sampler 裡等著決定、還沒寫進 ES
+# 拿 30 秒以前的：最新的那幾筆，對方那一段可能還在 Collector 的佇列裡、還沒寫進 ES
 q() { es "${ES_URL}/traces-*/_search?size=1&sort=@timestamp:desc" -d "{\"query\":{\"bool\":{\"filter\":[$1,{\"range\":{\"@timestamp\":{\"gte\":\"now-3m\",\"lte\":\"now-30s\"}}}]}}}"; }
 pub="$(q '{"term":{"name":"orders publish"}}' | jq -c '.hits.hits[0]._source')"
 check "生產者：publish 接在 HTTP 請求底下（同一個 trace）" \

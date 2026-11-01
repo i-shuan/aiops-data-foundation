@@ -11,3 +11,6 @@ aiops-engine/code/.proxy-ca.crt
 .env
 coverage.xml
 .coverage
+
+# helm 的本機設定（LLM key 等）：aiops-engine/helmchart/values-local.yaml，部署時 -f 帶進去
+values-local.yaml

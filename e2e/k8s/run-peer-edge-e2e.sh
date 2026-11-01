@@ -36,7 +36,7 @@ trap cleanup EXIT
 sed '/^warmup:/d; /max_peer_median:/d' "${repo}/aiops-engine/code/configs/baseline/peer.yaml" > "${tmp}/peer-nowarmup.yaml"
 # peer <設定檔>：跑全部檢查，印出觸發的（只看這個 namespace）
 peer() {
-  (cd "${repo}/engine" && ES_URL="${ES_URL}" ES_AUTH="${ES_AUTH}" python3 -m detector peer --config "$1") \
+  (cd "${repo}/aiops-engine/code" && ES_URL="${ES_URL}" ES_AUTH="${ES_AUTH}" python3 -m detector peer --config "$1") \
     | grep -E '^  \[' | grep -F "${ns}、" || true
 }
 cpu_of() {  # cpu_of <Pod>：最近 10 分鐘 k8s.pod.cpu.usage 平均（核）、第一筆資料時間
@@ -125,7 +125,7 @@ kubectl -n "${ns}" exec "${b2}" -c app -- sh -c "touch /ctl/leakconn"
 sleep 240
 out="$(peer configs/baseline/peer.yaml)"
 if [[ -z "${out}" ]]; then pass "2 個 Pod（${b2} 壞）：peer 不判斷"; else bad "2 個 Pod 卻報了：${out}"; fi
-(cd "${repo}/engine" && ES_URL="${ES_URL}" ES_AUTH="${ES_AUTH}" python3 -m detector peer --config configs/baseline/peer.yaml) \
+(cd "${repo}/aiops-engine/code" && ES_URL="${ES_URL}" ES_AUTH="${ES_AUTH}" python3 -m detector peer --config configs/baseline/peer.yaml) \
   | grep -E 'peer\.http_error_rate：' | sed 's/^ */        （參考）/'
 svc="$(es "${ES_URL}/metrics-*.otel-*/_search?size=0" -d "{\"query\":{\"bool\":{\"filter\":[{\"term\":{\"resource.attributes.k8s.namespace.name\":\"${ns}\"}},
   {\"exists\":{\"field\":\"metrics.http.server.request.duration\"}},{\"range\":{\"@timestamp\":{\"gte\":\"now-3m\"}}}]}},

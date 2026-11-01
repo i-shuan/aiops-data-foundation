@@ -13,6 +13,8 @@ import numpy as np, pandas as pd
 from detector.es import ES
 TZ = "Asia/Taipei"; INDEX = "aiops-synth"; SYNTH = "tests/synth.yaml"; RCA = "tests/rca_loop.yaml"
 D0 = pd.Timestamp("2026-10-05", tz=TZ)            # 週一；前面 4 週是歷史
+# 網頁寫的回饋，時間是寫入當下；metrics 的查詢區間要含「現在」，不然測試日期過了 10/28 就算不到回饋
+METRICS_TO = max("2026-10-28", (pd.Timestamp.now(tz="UTC") + pd.Timedelta(days=2)).strftime("%Y-%m-%d"))   # 區間用台北時區算，加 2 天才一定比現在晚
 H0 = D0 - pd.Timedelta(weeks=4)
 SERVICES = {"mes-api": 100.0, "mes-report": 100.0, "eap-gw": 300.0}
 PY = sys.executable
@@ -204,7 +206,7 @@ def main():
         r = run("detector", "feedback", "suggest", "--config", SYNTH, "--days", "60", quiet=True)
         check("再跑一次不重複、有說已經有了", "漏報的建議已經有了" in r.stdout, r.stdout[-200:])
         print("== 12. metrics：兩段並排")
-        r = run("detector", "metrics", "--config", SYNTH, "--from", "2026-10-05", "--to", "2026-10-28", "--compare-from", "2026-09-07", "--compare-to", "2026-10-05", "--out", os.path.join(tempfile.gettempdir(), "aiops-loop-metrics.md"))
+        r = run("detector", "metrics", "--config", SYNTH, "--from", "2026-10-05", "--to", METRICS_TO, "--compare-from", "2026-09-07", "--compare-to", "2026-10-05", "--out", os.path.join(tempfile.gettempdir(), "aiops-loop-metrics.md"))
         check("metrics 印出件數、誤報率、怎麼看出來的比例", "| 件數 | 0（每天 0.0） | 6（每天" in r.stdout and "誤報率（回饋裡標誤報的） | — | 50%" in r.stdout and "「怎麼看出來的」有填的比例 | — | 67%" in r.stdout, r.stdout)
     finally:
         web.terminate()

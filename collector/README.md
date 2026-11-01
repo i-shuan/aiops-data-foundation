@@ -6,8 +6,8 @@
 
 | 資料夾 | 內容 |
 |---|---|
-| `code/` | Collector 設定：`common.yaml`（出口、分 group，三種資料共用）、`node.yaml`（DaemonSet：log 檔、kubelet、應用的 OTLP、Prometheus 抓取）、`cluster.yaml`（Deployment：K8s 物件狀態）、`sampler.yaml`（trace-sampler：尾端取樣）；`groups.yaml`（部門 → group 對照，要跟 `common.yaml` 的 `transform/group`、ES setup 的角色一致） |
-| `helmchart/` | 部署：node DaemonSet、cluster Deployment（1 份）、trace-sampler StatefulSet（2 台）、RBAC、Service。`values.yaml` 正式預設值、`values-test.yaml` 本機測試 |
+| `code/` | Collector 設定：`common.yaml`（出口、分 group，三種資料共用）、`node.yaml`（DaemonSet：log 檔、kubelet、應用的 OTLP、Prometheus 抓取）、`cluster.yaml`（Deployment：K8s 物件狀態）；`groups.yaml`（部門 → group 對照，要跟 `common.yaml` 的 `transform/group`、ES setup 的角色一致） |
+| `helmchart/` | 部署：node DaemonSet、cluster Deployment（1 份）、RBAC、Service。trace 100% 直接寫 ES、不取樣（合成一個請求一筆在 engine 做）。`values.yaml` 正式預設值、`values-test.yaml` 本機測試 |
 
 ## 部署
 
@@ -19,7 +19,7 @@ kubectl -n otel-collector create secret generic es-writer-keys --from-literal=ES
 helm upgrade --install collector collector/helmchart -n otel-collector \
   --set clusterName=<這個 cluster 的名字> --set esEndpoint=https://<中央 ES>:9200 --set ntpServer=<公司 NTP>:123 \
   --set image.repository=<nexus>/otel/opentelemetry-collector-contrib \
-  --set-file config.common=collector/code/common.yaml,config.node=collector/code/node.yaml,config.cluster=collector/code/cluster.yaml,config.sampler=collector/code/sampler.yaml
+  --set-file config.common=collector/code/common.yaml,config.node=collector/code/node.yaml,config.cluster=collector/code/cluster.yaml
 ```
 
 - 設定檔不複製進 chart，`--set-file` 從 `code/` 帶，`code/` 永遠是唯一的來源；改了設定再跑同一個指令，Pod 有 `checksum/config` 註記會自己滾動重啟。

@@ -5,24 +5,25 @@ run-metrics-trace-e2e.sh 跑完各階段後呼叫；也可以對已經在 ES 的
       --normal <ISO> --incident <ISO> --heal <ISO> --crash <ISO> --delete <ISO> --end <ISO>
 
 用的是根因分析自己的查法（investigator.es 的 entry_filter、entry_stats、sample_trace_ids，__main__ 的 _route_of），不另寫一套。
-測試 cluster 的 trace-sampler 留 100%（RANDOM_PCT=100）；「正式只隨機留 5%」用 trace_id 前兩碼 < 0d（13/256 = 5.1%）
-模擬：probabilistic sampler 也是看 trace_id 的雜湊，對隨機的 trace_id 效果相同。慢（≥ 1 秒）、錯的照正式規則全留。
+trace 100% 收（不取樣）。「只隨機留 5%」那一項是對照：用 trace_id 前兩碼 < 0d（13/256 = 5.1%）模擬曾經的尾端取樣，看會少掉多少。
 """
 from __future__ import annotations
 
 import argparse
+import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "engine"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "aiops-engine" / "code"))
 
 from core.es import ES, time_range  # noqa: E402
 from investigator import es as E  # noqa: E402
 from investigator.__main__ import _route_of  # noqa: E402
 
 MIX = "metrics-*.otel-*"
-TIX = "traces-*.otel-*"
+TIX = "traces-*.otel-*"            # raw：每一段一筆（查 span）
+TMX = "traces-merged-*"            # 合成一個請求一筆（investigator.es 的 entry_* 讀這份）
 SVC = "mt-edge"
 HIST = "metrics.http.server.request.duration"
 W = timedelta(minutes=5)
@@ -59,7 +60,7 @@ def bucket(t_ms: float) -> int:
 
 class Sampled:
     """正式的尾端取樣：慢（≥ 1 秒）、錯的全留，其他隨機 5%。把條件加進每個 trace 查詢。"""
-    KEEP = {"bool": {"should": [{"range": {"duration": {"gte": 1_000_000_000}}}, {"term": {"status.code": "Error"}},
+    KEEP = {"bool": {"should": [{"range": {"duration_ms": {"gte": 1000}}}, {"term": {"error": True}},       # merged 一個請求一筆：總耗時、有一段錯
                                 {"regexp": {"trace_id": "0[0-9a-c].*"}}], "minimum_should_match": 1}}
 
     def __init__(self, es: ES):
@@ -68,6 +69,14 @@ class Sampled:
     def search(self, index: str, body: dict) -> dict:
         body = {**body, "query": {"bool": {"filter": [body["query"], self.KEEP]}}}
         return self.es.search(index, body)
+
+
+def merge_traces() -> None:
+    """entry_* 讀的是合成一個請求一筆的 traces-merged-*：檢查前先跑一次 trace-merge（排程器平常每分鐘跑）。"""
+    engine = Path(__file__).resolve().parents[2] / "aiops-engine" / "code"
+    r = subprocess.run([sys.executable, "-X", "utf8", "-m", "detector", "trace-merge", "--config", "configs/baseline/trace.yaml"],
+                       cwd=engine, capture_output=True, text=True, encoding="utf-8")
+    print("   " + (r.stdout.strip().splitlines() or ["trace-merge 沒有輸出"])[-1] + ("" if r.returncode == 0 else f"（rc={r.returncode}：{r.stderr[-300:]}）"))
 
 
 def metric_docs(es: ES, start: datetime, end: datetime, route: str | None = None, pod: str | None = None) -> list[dict]:
@@ -107,7 +116,9 @@ def metric_count(es: ES, start: datetime, end: datetime, route: str) -> tuple[in
 
 def traces(es: ES, start: datetime, end: datetime, name: str, svc: str = SVC) -> list[dict]:
     """這段時間（依 span 開始時間）這個名稱的 Server span：開始、結束（ms）、是不是故意弄慢的（test.slow）。"""
-    q = {"bool": {"filter": [time_range(start, end), *E.entry_filter(svc, name)]}}
+    # 讀 raw（要 test.slow、pod 這些每一段自己的屬性）：entry_filter 是 merged 的 nested 查法，這裡直接用欄位
+    q = {"bool": {"filter": [time_range(start, end), {"term": {"resource.attributes.service.name": svc}},
+                             {"term": {"kind": "Server"}}, {"term": {"name": name}}]}}
     hits = es.search(TIX, {"size": 10000, "query": q, "_source": ["@timestamp", "duration", "trace_id", "attributes.test.slow",
                                                                     "resource.attributes.k8s.pod.name"]})["hits"]["hits"]
     out = []
@@ -134,6 +145,7 @@ def main() -> int:
     a = p.parse_args()
     t_norm, t_inc, t_heal, t_crash, t_del, t_end = (ts(getattr(a, k)) for k in ("normal", "incident", "heal", "crash", "delete", "end"))
     es = ES()
+    merge_traces()
     sampled = Sampled(es)
     # 事故中第一個完整的 5 分鐘（baseline 的時間窗）
     b0 = datetime.fromtimestamp((bucket(ms(t_inc)) + 1) * 300, timezone.utc)
@@ -157,11 +169,11 @@ def main() -> int:
                                     ("/stock/{id}", "/stock/{id}", "舊版 agent：span 名稱沒有 method（/stock/{id}）")):
         docs = metric_docs(es, b0, b0 + W, mroute)
         route = _route_of(keys_of(docs[0])) if docs else None
-        got = E.entry_stats(es, TIX, SVC, route, b0, b0 + W)["requests"]
-        real = E.entry_stats(es, TIX, SVC, real_name, b0, b0 + W)["requests"]
+        got = E.entry_stats(es, TMX, SVC, route, b0, b0 + W)["requests"]
+        real = E.entry_stats(es, TMX, SVC, real_name, b0, b0 + W)["requests"]
         check(bool(docs) and got == 0 and real > 0, what,
               f"_route_of → {route!r} 撈到 {got} 筆；trace 實際名稱 {real_name!r} 有 {real} 筆")
-    allsvc = E.entry_stats(es, TIX, SVC, None, b0, b0 + W)["requests"]
+    allsvc = E.entry_stats(es, TMX, SVC, None, b0, b0 + W)["requests"]
     print(f"        退回只用服務（不限路由）撈到 {allsvc} 筆：7 條路由混在一起")
 
     print("== 2. Java Prometheus 名字 → OTel 名字（node Collector 改名）")
@@ -252,7 +264,7 @@ def main() -> int:
     print(f"== 5. 只有 10% 的請求慢 2 秒：挑出來的 trace 是不是那些慢的（時間窗 {b0:%H:%M}～{b0 + W:%H:%M}Z）")
     truth = {x["id"] for x in traces(es, b0, b0 + W, "GET /edge/partial/{id}") if x["slow"]}
     for label, src in (("測試環境（trace 全留）", es), ("正式（慢的全留、其他隨機 5%）", sampled)):
-        ids = E.sample_trace_ids(src, TIX, SVC, "GET /edge/partial/{id}", b0, b0 + W, 200, slowest=True)
+        ids = E.sample_trace_ids(src, TMX, SVC, "GET /edge/partial/{id}", b0, b0 + W, 200, slowest=True)
         hit = len(truth & set(ids))
         print(f"        {label}：樣本 {len(ids)} 個，其中慢的 {hit}（{hit / max(len(ids), 1):.0%}）；慢的共 {len(truth)} 個，撈到 {hit / max(len(truth), 1):.0%}")
         if src is sampled:
@@ -261,8 +273,8 @@ def main() -> int:
 
     print("== 6. 不到 1 秒的變慢（200ms → 800ms）：只剩隨機 5% 的 trace")
     m, mp95 = metric_count(es, b0, b0 + W, "/edge/sub1s/{id}")
-    full = E.entry_stats(es, TIX, SVC, "GET /edge/sub1s/{id}", b0, b0 + W)
-    kept = E.entry_stats(sampled, TIX, SVC, "GET /edge/sub1s/{id}", b0, b0 + W)
+    full = E.entry_stats(es, TMX, SVC, "GET /edge/sub1s/{id}", b0, b0 + W)
+    kept = E.entry_stats(sampled, TMX, SVC, "GET /edge/sub1s/{id}", b0, b0 + W)
     check(m > 0 and 0.02 <= kept["requests"] / m <= 0.09, "正式取樣下撈得到約 5%",
           f"metrics {m} 個請求（p95 {mp95 * 1000:.0f}ms）；trace 全留 {full['requests']} 個、正式取樣剩 {kept['requests']} 個"
           f"（{kept['requests'] / max(m, 1):.1%}），p95 {kept['p95_ms']:.0f}ms")
@@ -271,7 +283,7 @@ def main() -> int:
     docs = metric_docs(es, b0, b0 + W, "/mismatch/{id}")
     k = keys_of(docs[0]) if docs else {}
     pod = docs[0]["resource"]["attributes"]["k8s.pod.name"] if docs else ""
-    got = E.entry_stats(es, TIX, k.get("resource.attributes.service.name", SVC), _route_of(k), b0, b0 + W)["requests"] if docs else -1
+    got = E.entry_stats(es, TMX, k.get("resource.attributes.service.name", SVC), _route_of(k), b0, b0 + W)["requests"] if docs else -1
     real = es.search(TIX, {"size": 0, "track_total_hits": True, "query": {"bool": {"filter": [
         time_range(b0, b0 + W), {"term": {"kind": "Server"}}, {"term": {"name": "GET /mismatch/{id}"}},
         {"term": {"resource.attributes.k8s.pod.name": pod}}]}}})["hits"]["total"]["value"]

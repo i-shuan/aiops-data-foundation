@@ -13,7 +13,7 @@ otel:
   javaAgent:
     enabled: true
     image: nexus.aillm.spil.com.tw/docker/open-telemetry/autoinstrumentation-java:2.10.0
-  # 不用調：預設全部送，平台的 trace-sampler 在請求結束後決定留不留（錯的、慢的全留）
+  # 不用調：預設全部送，平台 100% 收、不取樣
   # traces:
   #   sampleRatio: 1.0
 ```
@@ -194,7 +194,7 @@ new Thread(Context.current().wrap(() -> process(lot))).start();
 
 ## 4. 取樣
 
-**應用不用取樣，保持 `otel.traces.sampleRatio: 1.0`（預設）全部送。** 平台的 trace-sampler 等整個請求結束後才決定留不留：錯誤、5xx、丟過例外、超過 1 秒的全留，正常的隨機留 5%（[docs/trace/README.md](../../docs/trace/README.md)、[trace/README.md](../../docs/trace/README.md)）。
+**應用不用取樣，保持 `otel.traces.sampleRatio: 1.0`（預設）全部送。** 平台 100% 收、不取樣，每個請求由 engine 合成一筆（[docs/trace/README.md](../../docs/trace/README.md)）。
 
 在應用裡調低（例如 `0.1`）的話，請求一開始就決定丟掉，那時還不知道它會不會出事：**出事的請求也只剩一成**，根因分析就是碰運氣。只有量大到 node Collector 收不動時才考慮，先跟平台確認。
 

@@ -101,6 +101,7 @@ metrics、trace、log 怎麼收、怎麼存、三種怎麼關聯（欄位、時�
 | [phase1-collect/2026-10-retention.md](phase1-collect/2026-10-retention.md) | 保留天數（metrics 降解析度、log 統計、trace 分兩種） | 已合；trace baseline 改成只讀隨機留下的 `traces-generic`（沒用真實資料驗證） |
 | [phase1-collect/2026-10-time-alignment.md](phase1-collect/2026-10-time-alignment.md) | ② 時間對齊：log 沒帶時區、收資料延遲、主機時鐘 | 沒帶時區的原本差 8 小時、空白分隔的默默換時間，已修；延遲與時鐘偏差、主機時鐘都抓得到；`NTP_SERVER` 要填 |
 | [phase1-collect/2026-10-trace-durability.md](phase1-collect/2026-10-trace-durability.md) | ① trace 收值線要不要 message queue | 不用 Kafka；兩段佇列改寫磁碟；node 端放子 exporter 的做法後來發現有錯、當掉掉多少重新量過（[durability](phase1-collect/2026-10-durability.md)） |
+| [phase1-collect/2026-10-trace-merge.md](phase1-collect/2026-10-trace-merge.md) | ①②③⑦ trace 不取樣（100% 收）、每個請求合成一筆：拆 trace-sampler、Collector 直接寫 raw（2 天），engine 每分鐘 `trace-merge` 合成 `traces-merged-*`（7 天），根因分析改讀 merged | （實測後更新） |
 
 ### Phase 2 異常分析（`phase2-anomaly/`）
 
@@ -133,6 +134,7 @@ metrics → trace → log 找到哪一段、哪行 log；事件整合、排程�
 | [phase3-locate/2026-10-rca-demo.md](phase3-locate/2026-10-rca-demo.md) | ①④⑥⑦⑧ 整條線在 K8s 上跑：Pod 連續送 metrics、trace、log → 規則真的偵測 → 一件 → 根因＋LLM → Grafana | Rancher Desktop 實測：事故 3 分 40 秒後開成一件、根因指到 Oracle 那段與那行 log、LLM 摘要帶依據、`/it` 收到通知、儀表板六格都有資料；抓到 Grafana 每分鐘重發（summary 是 label）→ summary 不放會變的字；metrics→trace 是「服務＋API＋時間」的統計對應、不是 trace_id |
 | [phase3-locate/2026-10-schedule.md](phase3-locate/2026-10-schedule.md) | ④⑤⑥⑧ 排程上線：CronJob、「AIOps 停了」告警、先只寫入不通知 | Dockerfile、10 個 CronJob、回饋網頁 Deployment、心跳＋Grafana 規則；image 建好跑過，K8s 沒跑過 |
 | [phase3-locate/2026-10-single-pod-scheduler.md](phase3-locate/2026-10-single-pod-scheduler.md) | ④⑤⑥⑧ 排程改成一隻常駐 pod：內建排程器（cron、不重疊、逾時、重試）＋回饋網頁兩個 container；排程表進 `configs/schedule/schedule.yaml` | 單元測試 369 過；Rancher Desktop 一隻 pod 實跑：每分鐘不漏、不重疊、逾時砍、重試、壞 key 失敗／修好恢復全過（22 項）；發現同秒起跑會搶建 index，已修；`train` 02:00 自己跑、OOM 後重啟沒測 |
+| [phase3-locate/2026-10-detect-latency.md](phase3-locate/2026-10-detect-latency.md) | ④⑥⑧ 偵測的時間：p95 一個點暴衝會不會開事故、事故到通知的延遲 | p95 暴衝（5 分鐘窗 9% 慢）實測第 2 輪（+70 秒）開出事故，只多 1 個慢請求（2.4%）不報；事故到通知的延遲待 ⑧⑨ 實跑 |
 
 ### Phase 4 RCA＋LLM＋graph RAG（`phase4-rca-llm/`）
 

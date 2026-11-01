@@ -2,9 +2,8 @@
 #   1. image：cd aiops-engine/code && docker build -t <nexus>/aiops-engine:<tag> .（下面 image 換成實際路徑）
 #   2. Secret（手動建，不進 git）：
 #        kubectl -n aiops create secret generic aiops-secrets \
-#          --from-literal=ES_API_KEY=<elasticsearch-setup.sh 發的「AIOps baseline key」> \
-#          --from-literal=LLM_API_KEY=<沒有就給空字串>
-#   3. esUrl 改成實際值；llmProvider 沒有模型就留 template
+#          --from-literal=ES_API_KEY=<elasticsearch-setup.sh 發的「AIOps baseline key」>
+#   3. esUrl 改成實際值；LLM 的設定在下面 llm（key 寫在不進 git 的 values-local.yaml，部署時 -f 帶進來）
 #   4. 設定檔要跟 image 裡的不一樣時用 configOverrides（--set-file configOverrides.baseline.series=aiops-engine/code/configs/baseline/series.yaml；
 #      排程表是 configOverrides.schedule.schedule）
 #
@@ -18,9 +17,16 @@ image:
   tag: 0.1.0
 
 esUrl: https://elasticsearch.example.internal:9200
-llmProvider: template          # template（不叫模型）／anthropic／openai；anthropic 要再給 LLM_CHAT_MODEL、ANTHROPIC_BASE_URL
 tz: Asia/Taipei
-secret: aiops-secrets          # ES_API_KEY、LLM_API_KEY
+secret: aiops-secrets          # ES_API_KEY
+
+# LLM 摘要（core/llm.py）。provider、model、baseUrl 放 ConfigMap aiops-env；apiKey 由 chart 建成 Secret aiops-llm。
+# apiKey 這裡永遠留空：真的 key 寫在 values-local.yaml（.gitignore 擋掉），helm 加 -f values-local.yaml
+llm:
+  provider: template           # template（不叫模型）／openai／anthropic
+  model: ""                    # 空的用程式預設：openai gpt-4o-mini、anthropic claude-sonnet-4-5
+  baseUrl: ""                  # 空的用公網 api.openai.com／api.anthropic.com；內網走閘道時填閘道網址（不含 /v1）
+  apiKey: ""
 
 configOverrides: {}            # {baseline: {series: <內容>}} → 掛在 /app/configs/baseline/series.yaml 蓋掉 image 裡的
 

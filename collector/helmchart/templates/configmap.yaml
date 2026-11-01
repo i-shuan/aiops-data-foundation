@@ -10,8 +10,6 @@ data:
 {{ .Values.config.node | indent 4 }}
   cluster.yaml: |
 {{ .Values.config.cluster | indent 4 }}
-  sampler.yaml: |
-{{ .Values.config.sampler | indent 4 }}
 ---
 apiVersion: v1
 kind: ConfigMap

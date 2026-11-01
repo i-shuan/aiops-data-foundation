@@ -24,7 +24,7 @@ while true; do
   n=$((n+1)); tid=$(hex 16); sid=$(hex 8); t="$(date +%s)000000000"
   # 訊息帶情境名稱：對不到 Pod 的 OTLP log（hostNetwork）內容、時間一樣時，ES 去重複會把兩個 Pod 的當成同一筆（keys-k8s 的 Act）
   echo "{\"timestamp\":\"$(date -u +%Y-%m-%dT%H:%M:%S.000Z)\",\"level\":\"INFO\",\"message\":\"request $n ($CASE)\",\"trace_id\":\"$tid\",\"span_id\":\"$sid\",\"case\":\"$CASE\",\"src\":\"stdout\"${LOG_SPOOF}}"
-  # 狀態碼 500：讓 trace-sampler 一定留（http-5xx 規則），不受隨機取樣比例影響
+  # 狀態碼 500：模擬出錯的請求
   post traces "{\"resourceSpans\":[{\"resource\":$res,\"scopeSpans\":[{\"scope\":{\"name\":\"keys-app\"},\"spans\":[{\"traceId\":\"$tid\",\"spanId\":\"$sid\",\"name\":\"GET /keys\",\"kind\":2,\"startTimeUnixNano\":\"$t\",\"endTimeUnixNano\":\"$t\",\"attributes\":[$(s case "$CASE"),{\"key\":\"http.response.status_code\",\"value\":{\"intValue\":\"500\"}}]}]}]}]}"
   post logs "{\"resourceLogs\":[{\"resource\":$res,\"scopeLogs\":[{\"scope\":{\"name\":\"keys-app\"},\"logRecords\":[{\"timeUnixNano\":\"$t\",\"severityText\":\"INFO\",\"body\":{\"stringValue\":\"request $n ($CASE)\"},\"traceId\":\"$tid\",\"spanId\":\"$sid\",\"attributes\":[$(s case "$CASE"),$(s src otlp)${SPOOF}]}]}]}]}"
   post metrics "{\"resourceMetrics\":[{\"resource\":$res,\"scopeMetrics\":[{\"scope\":{\"name\":\"keys-app\"},\"metrics\":[{\"name\":\"keys.otlp.requests\",\"sum\":{\"aggregationTemporality\":2,\"isMonotonic\":true,\"dataPoints\":[{\"asInt\":\"$n\",\"startTimeUnixNano\":\"$start\",\"timeUnixNano\":\"$t\",\"attributes\":[$(s case "$CASE")]}]}}]}]}]}"
