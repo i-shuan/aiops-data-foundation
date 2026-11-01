@@ -12,5 +12,5 @@ cfg="$(p "${CONFIG_DIR:-${repo}/collector/code}")"
 helm upgrade --install collector "$(p "${repo}/collector/helmchart")" -n otel-collector --create-namespace \
   ${KCTX:+--kube-context "${KCTX}"} \
   -f "$(p "${repo}/collector/helmchart/values-test.yaml")" \
-  --set-file "config.common=${cfg}/common.yaml,config.node=${cfg}/node.yaml,config.cluster=${cfg}/cluster.yaml" \
+  --set-file "config.common=${cfg}/common.yaml,config.node=${cfg}/node.yaml,config.aiops=${cfg}/aiops.yaml,config.cluster=${cfg}/cluster.yaml" \
   "$@" >/dev/null

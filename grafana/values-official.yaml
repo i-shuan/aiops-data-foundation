@@ -1,22 +1,27 @@
-# Grafana 官方 chart（helm repo grafana/grafana）的 values：data source、告警、儀表板都在這一份。
+# Grafana chart（helm repo grafana-community/grafana；原 grafana/grafana 已棄用、搬到 grafana-community）的 values：data source、告警、儀表板都在這一份。
 # 由 grafana/code/build-official-values.py 從 grafana/code/ 產生，**不要手改**：改 code/ 的檔，再跑
 #   python3 grafana/code/build-official-values.py
 #
-# 部署（Secret grafana-env 要先有：ES_URL、GRAFANA_ES_API_KEY、NOTIFY_IT_URL、NOTIFY_IMC_URL、NOTIFY_PLATFORM_URL、GF_SECURITY_ADMIN_PASSWORD；
+# 部署（Secret grafana-env 要先有：ES_URL、GRAFANA_ES_API_KEY、NOTIFY_IT_URL、NOTIFY_IMC_URL、NOTIFY_PLATFORM_URL、GF_SECURITY_ADMIN_USER、GF_SECURITY_ADMIN_PASSWORD；
 # 或用 .gitlab-ci.yml 的 grafana job 建）：
-#   helm upgrade --install grafana grafana/grafana -n grafana -f grafana/values-official.yaml \
+#   helm repo add grafana-community https://grafana-community.github.io/helm-charts
+#   helm upgrade --install grafana grafana-community/grafana -n grafana -f grafana/values-official.yaml \
 #     --set image.registry=<nexus> --set image.tag=13.0.7
 #
 # 要先改的：image（換成 Nexus）、contactpoints 的通知管道、policies 的 dept 清單、
 #   儀表板 aiops-feedback 裡的兩個 http://localhost:18080（換成使用者瀏覽器連得到的回饋服務網址）。
 # 回饋表單外掛（Business Forms）：公司的 Grafana 已經有裝就不用管；沒有的話在 plugins 加上（見下面），
-#   官方 chart 的 plugins 不核對 SHA-256，要核對請用 grafana/helmchart（我們自己的 chart）。
+#   chart 的 plugins 不核對 SHA-256，要核對請用 grafana/helmchart（我們自己的 chart）。
 image:
   registry: nexus.example.internal
   repository: grafana/grafana
   tag: 13.0.7
 testFramework:
   enabled: false
+admin:
+  existingSecret: grafana-env
+  userKey: GF_SECURITY_ADMIN_USER
+  passwordKey: GF_SECURITY_ADMIN_PASSWORD
 envFromSecret: grafana-env
 datasources:
   datasources.yaml:
@@ -67,142 +72,286 @@ datasources:
       secureJsonData:
         httpHeaderValue1: ApiKey ${GRAFANA_ES_API_KEY}
 alerting:
-  rules.yaml: |
-    # 每一件 status: open 的事件一則告警（docs/pdca/phase3-locate/2026-10-alert-exit.md）
+  rules.yaml:
     apiVersion: 1
     groups:
-      - orgId: 1
-        name: aiops
-        folder: AIOps
-        interval: 1m
-        rules:
-          - uid: aiops-incident
-            title: AIOps 事件
-            condition: C
-            data:
-              - refId: A
-                datasourceUid: aiops-alerts
-                relativeTimeRange: {from: 300, to: 0}      # investigator alert 每 1～2 分鐘更新一次 @timestamp
-                model:
-                  refId: A
-                  query: "status:open"
-                  timeField: "@timestamp"
-                  metrics: [{id: "1", type: count}]
-                  bucketAggs:
-                    # 每一件一組；其他欄位跟著帶成 labels（同一件只有一個值）。missing：沒有 dept 的（資料品質、節點）也要算
-                    # orderBy 一定要寫：Grafana 預設用 _term 排序，ES 不認得（實測 9.5 回 400；8.19 同樣不支援，整條規則 Error）
-                    - {id: "2", type: terms, field: alert_id, settings: {size: "500", min_doc_count: "1", order: desc, orderBy: _count{{ "}}" }}
-                    - {id: "3", type: terms, field: service, settings: {size: "1", min_doc_count: "1", order: desc, orderBy: _count, missing: "—"{{ "}}" }}
-                    - {id: "4", type: terms, field: dept, settings: {size: "1", min_doc_count: "1", order: desc, orderBy: _count, missing: "none"{{ "}}" }}
-                    - {id: "5", type: terms, field: group, settings: {size: "1", min_doc_count: "1", order: desc, orderBy: _count, missing: "unassigned"{{ "}}" }}
-                    - {id: "6", type: terms, field: severity, settings: {size: "1", min_doc_count: "1", order: desc, orderBy: _count, missing: "warning"{{ "}}" }}
-                    # summary 是 label：內容一變就是另一則（舊的 resolved、新的 firing），所以 investigator/alerts.py 的 summary 不放持續時間、筆數
-                    - {id: "7", type: terms, field: summary, settings: {size: "1", min_doc_count: "1", order: desc, orderBy: _count, missing: ""{{ "}}" }}
-                    - {id: "8", type: terms, field: report_url, settings: {size: "1", min_doc_count: "1", order: desc, orderBy: _count, missing: ""{{ "}}" }}
-                    - {id: "9", type: date_histogram, field: "@timestamp", settings: {interval: 1m, min_doc_count: "0"{{ "}}" }}
-              - refId: B
-                datasourceUid: __expr__
-                model: {refId: B, type: reduce, expression: A, reducer: max, settings: {mode: dropNN{{ "}}" }}
-              - refId: C
-                datasourceUid: __expr__
-                model: {refId: C, type: threshold, expression: B, conditions: [{evaluator: {type: gt, params: [0]{{ "}}" }}]}
-            noDataState: OK          # 沒有開著的件 = 正常
-            execErrState: Error
-            for: 0s                  # AIOps 已經做過「連續才算」，這裡不再等
-            labels: {source: aiops}
-            annotations:
-              summary: "{{ "{{" }} $labels.summary {{ "}}" }}"
-              report: "{{ "{{" }} $labels.report_url {{ "}}" }}"
-              # 回饋：Grafana 裡的回饋表單（dashboards/aiops-feedback.json，要先裝 Business Forms 外掛）；網址換成你們的 Grafana
-              feedback: "https://grafana.example.internal/d/aiops-feedback?var-alert={{ "{{" }} $labels.alert_id {{ "}}" }}"
-          # AIOps 停了：investigator alert 每次跑都寫一筆心跳（_id heartbeat，status ok）。10 分鐘內 aiops-alerts 沒有任何寫入 → 送平台
-          # （labels 沒有 dept，policies.yaml 的預設 receiver 就是 platform）。沒有這條，alert 停了所有件都查不到，Grafana 會當成全部恢復。
-          - uid: aiops-heartbeat
-            title: AIOps 停了（investigator alert 10 分鐘沒寫入）
-            condition: C
-            data:
-              - refId: A
-                datasourceUid: aiops-alerts
-                relativeTimeRange: {from: 600, to: 0}
-                model:
-                  refId: A
-                  query: "alert_id:heartbeat"
-                  timeField: "@timestamp"
-                  metrics: [{id: "1", type: count}]
-                  bucketAggs:
-                    - {id: "2", type: date_histogram, field: "@timestamp", settings: {interval: 10m, min_doc_count: "0"{{ "}}" }}
-              - refId: B
-                datasourceUid: __expr__
-                model: {refId: B, type: reduce, expression: A, reducer: sum, settings: {mode: replaceNN, replaceWithValue: 0{{ "}}" }}
-              - refId: C
-                datasourceUid: __expr__
-                model: {refId: C, type: threshold, expression: B, conditions: [{evaluator: {type: lt, params: [1]{{ "}}" }}]}
-            noDataState: Alerting     # 查不到心跳就是停了（跟上面那條相反）
-            execErrState: Error
-            for: 2m
-            labels: {source: aiops, severity: critical}
-            annotations:
-              summary: "AIOps 的 investigator alert 已經 10 分鐘沒有寫入 aiops-alerts：排程停了、或連不到 ES。停著的期間所有件都看不到，不是真的恢復。"
-          # 基準線不見了：detector detect 每輪寫一筆 detect-status（_id detect-status，status ok，detector/cmd_baseline.py），
-          # missing_baseline 是這輪沒有 baseline 的序列數。aiops-baseline 掉了（ES 重建、index 被刪）detect 只印一行就跳過，
-          # 動態基準線這一路靜默停擺；上面兩條都不會響（docs/pdca/meta/2026-10-open-issues.md 第 7 節）。送平台（labels 沒有 dept）。
-          - uid: aiops-baseline-missing
-            title: AIOps 基準線不見（detect 讀到空的 aiops-baseline）
-            condition: C
-            data:
-              - refId: A
-                datasourceUid: aiops-alerts
-                relativeTimeRange: {from: 600, to: 0}
-                model:
-                  refId: A
-                  query: "alert_id:detect-status AND missing_baseline:>0"
-                  timeField: "@timestamp"
-                  metrics: [{id: "1", type: count}]
-                  bucketAggs:
-                    - {id: "2", type: date_histogram, field: "@timestamp", settings: {interval: 10m, min_doc_count: "0"{{ "}}" }}
-              - refId: B
-                datasourceUid: __expr__
-                model: {refId: B, type: reduce, expression: A, reducer: sum, settings: {mode: replaceNN, replaceWithValue: 0{{ "}}" }}
-              - refId: C
-                datasourceUid: __expr__
-                model: {refId: C, type: threshold, expression: B, conditions: [{evaluator: {type: gt, params: [0]{{ "}}" }}]}   # 有一筆就算
-            noDataState: OK           # 沒有 detect-status = detect 沒在跑，那是 aiops-heartbeat 的事（排程器停了兩個一起停）
-            execErrState: Error
-            # 剛換版、ES 剛重建、第一次部署還沒跑 train 時，前幾輪 detect 也是 missing > 0：等 5 分鐘，部署流程有時間先跑 train。
-            # 真的掉了不會自己好（train 一天一次），5 分鐘後一定響
-            for: 5m
-            labels: {source: aiops, severity: critical}
-            annotations:
-              summary: "AIOps 的 detect 讀到空的基準線（aiops-baseline 掉了、或還沒 train）：這些序列的動態基準線學習靜默停了，不會報異常；靜態規則、Pod 同儕橫向比對不受影響。手動跑一次 train：kubectl -n aiops exec deploy/aiops-engine -c scheduler -- python3 -m scheduler --config configs/schedule/schedule.yaml --run train"
-  contactpoints.yaml: |
-    # 各部門的通知管道。範例用 webhook；正式換成 Teams、Email、LINE…（Grafana 的 contact point 類型）
+    - orgId: 1
+      name: aiops
+      folder: AIOps
+      interval: 1m
+      rules:
+      - uid: aiops-incident
+        title: AIOps 事件
+        condition: C
+        data:
+        - refId: A
+          datasourceUid: aiops-alerts
+          relativeTimeRange:
+            from: 300
+            to: 0
+          model:
+            refId: A
+            query: status:open
+            timeField: '@timestamp'
+            metrics:
+            - id: '1'
+              type: count
+            bucketAggs:
+            - id: '2'
+              type: terms
+              field: alert_id
+              settings:
+                size: '500'
+                min_doc_count: '1'
+                order: desc
+                orderBy: _count
+            - id: '3'
+              type: terms
+              field: service
+              settings:
+                size: '1'
+                min_doc_count: '1'
+                order: desc
+                orderBy: _count
+                missing: —
+            - id: '4'
+              type: terms
+              field: dept
+              settings:
+                size: '1'
+                min_doc_count: '1'
+                order: desc
+                orderBy: _count
+                missing: none
+            - id: '5'
+              type: terms
+              field: group
+              settings:
+                size: '1'
+                min_doc_count: '1'
+                order: desc
+                orderBy: _count
+                missing: unassigned
+            - id: '6'
+              type: terms
+              field: severity
+              settings:
+                size: '1'
+                min_doc_count: '1'
+                order: desc
+                orderBy: _count
+                missing: warning
+            - id: '7'
+              type: terms
+              field: summary
+              settings:
+                size: '1'
+                min_doc_count: '1'
+                order: desc
+                orderBy: _count
+                missing: ''
+            - id: '8'
+              type: terms
+              field: report_url
+              settings:
+                size: '1'
+                min_doc_count: '1'
+                order: desc
+                orderBy: _count
+                missing: ''
+            - id: '9'
+              type: date_histogram
+              field: '@timestamp'
+              settings:
+                interval: 1m
+                min_doc_count: '0'
+        - refId: B
+          datasourceUid: __expr__
+          model:
+            refId: B
+            type: reduce
+            expression: A
+            reducer: max
+            settings:
+              mode: dropNN
+        - refId: C
+          datasourceUid: __expr__
+          model:
+            refId: C
+            type: threshold
+            expression: B
+            conditions:
+            - evaluator:
+                type: gt
+                params:
+                - 0
+        noDataState: OK
+        execErrState: Error
+        for: 0s
+        labels:
+          source: aiops
+        annotations:
+          summary: '{{ `{{ $labels.summary }}` }}'
+          report: '{{ `{{ $labels.report_url }}` }}'
+          feedback: https://grafana.example.internal/d/aiops-feedback?var-alert={{ `{{ $labels.alert_id }}` }}
+      - uid: aiops-heartbeat
+        title: AIOps 停了（investigator alert 10 分鐘沒寫入）
+        condition: C
+        data:
+        - refId: A
+          datasourceUid: aiops-alerts
+          relativeTimeRange:
+            from: 600
+            to: 0
+          model:
+            refId: A
+            query: alert_id:heartbeat
+            timeField: '@timestamp'
+            metrics:
+            - id: '1'
+              type: count
+            bucketAggs:
+            - id: '2'
+              type: date_histogram
+              field: '@timestamp'
+              settings:
+                interval: 10m
+                min_doc_count: '0'
+        - refId: B
+          datasourceUid: __expr__
+          model:
+            refId: B
+            type: reduce
+            expression: A
+            reducer: sum
+            settings:
+              mode: replaceNN
+              replaceWithValue: 0
+        - refId: C
+          datasourceUid: __expr__
+          model:
+            refId: C
+            type: threshold
+            expression: B
+            conditions:
+            - evaluator:
+                type: lt
+                params:
+                - 1
+        noDataState: Alerting
+        execErrState: Error
+        for: 2m
+        labels:
+          source: aiops
+          severity: critical
+        annotations:
+          summary: AIOps 的 investigator alert 已經 10 分鐘沒有寫入 aiops-alerts：排程停了、或連不到 ES。停著的期間所有件都看不到，不是真的恢復。
+      - uid: aiops-baseline-missing
+        title: AIOps 基準線不見（detect 讀到空的 aiops-baseline）
+        condition: C
+        data:
+        - refId: A
+          datasourceUid: aiops-alerts
+          relativeTimeRange:
+            from: 600
+            to: 0
+          model:
+            refId: A
+            query: alert_id:detect-status AND missing_baseline:>0
+            timeField: '@timestamp'
+            metrics:
+            - id: '1'
+              type: count
+            bucketAggs:
+            - id: '2'
+              type: date_histogram
+              field: '@timestamp'
+              settings:
+                interval: 10m
+                min_doc_count: '0'
+        - refId: B
+          datasourceUid: __expr__
+          model:
+            refId: B
+            type: reduce
+            expression: A
+            reducer: sum
+            settings:
+              mode: replaceNN
+              replaceWithValue: 0
+        - refId: C
+          datasourceUid: __expr__
+          model:
+            refId: C
+            type: threshold
+            expression: B
+            conditions:
+            - evaluator:
+                type: gt
+                params:
+                - 0
+        noDataState: OK
+        execErrState: Error
+        for: 5m
+        labels:
+          source: aiops
+          severity: critical
+        annotations:
+          summary: AIOps 的 detect 讀到空的基準線（aiops-baseline 掉了、或還沒 train）：這些序列的動態基準線學習靜默停了，不會報異常；靜態規則、Pod 同儕橫向比對不受影響。手動跑一次 train：kubectl -n aiops exec deploy/aiops-engine -c scheduler -- python3 -m scheduler --config configs/schedule/schedule.yaml --run train
+  contactpoints.yaml:
     apiVersion: 1
     contactPoints:
-      - orgId: 1
-        name: it-oncall
-        receivers: [{uid: it-oncall, type: webhook, settings: {url: "${NOTIFY_IT_URL}", httpMethod: POST{{ "}}" }}]
-      - orgId: 1
-        name: imc-oncall
-        receivers: [{uid: imc-oncall, type: webhook, settings: {url: "${NOTIFY_IMC_URL}", httpMethod: POST{{ "}}" }}]
-      - orgId: 1
-        name: platform
-        receivers: [{uid: platform, type: webhook, settings: {url: "${NOTIFY_PLATFORM_URL}", httpMethod: POST{{ "}}" }}]
-  policies.yaml: |
-    # 依 dept 送到哪個 contact point（dept 清單跟 collector/code/groups.yaml 一致）；沒有 dept 的（資料品質、節點）送平台
+    - orgId: 1
+      name: it-oncall
+      receivers:
+      - uid: it-oncall
+        type: webhook
+        settings:
+          url: ${NOTIFY_IT_URL}
+          httpMethod: POST
+    - orgId: 1
+      name: imc-oncall
+      receivers:
+      - uid: imc-oncall
+        type: webhook
+        settings:
+          url: ${NOTIFY_IMC_URL}
+          httpMethod: POST
+    - orgId: 1
+      name: platform
+      receivers:
+      - uid: platform
+        type: webhook
+        settings:
+          url: ${NOTIFY_PLATFORM_URL}
+          httpMethod: POST
+  policies.yaml:
     apiVersion: 1
     policies:
-      - orgId: 1
-        receiver: platform
-        group_by: [alert_id]        # 一件一則：AIOps 已經依服務合併過，這裡不要再依 dept、service 合併
-        group_wait: 10s
-        group_interval: 1m
-        repeat_interval: 4h
-        routes:
-          - receiver: it-oncall
-            object_matchers: [[source, "=", aiops], [dept, "=~", "D3120|D3130"]]
-          - receiver: imc-oncall
-            object_matchers: [[source, "=", aiops], [dept, "=~", "D1110|D1120"]]
-          # 夜間只發 critical：加一條 mute_time_intervals，掛在 severity="warning" 的子路由上（例子見 Grafana 文件 mute timings）
+    - orgId: 1
+      receiver: platform
+      group_by:
+      - alert_id
+      group_wait: 10s
+      group_interval: 1m
+      repeat_interval: 4h
+      routes:
+      - receiver: it-oncall
+        object_matchers:
+        - - source
+          - '='
+          - aiops
+        - - dept
+          - =~
+          - D3120|D3130
+      - receiver: imc-oncall
+        object_matchers:
+        - - source
+          - '='
+          - aiops
+        - - dept
+          - =~
+          - D1110|D1120
 dashboardProviders:
   dashboardproviders.yaml:
     apiVersion: 1
