@@ -21,7 +21,7 @@ from dataclasses import dataclass
 import pandas as pd
 
 from core.es import ES, doc_id, time_range
-from core.traces import group_traces, segment, self_times, spans_by_id, spans_of
+from core.traces import group_traces, is_merged, segment, self_times, spans_by_id, spans_of
 
 SEGMENT_INDEX = "aiops-trace-segments"
 SEGMENT_MAPPING = {"mappings": {"dynamic": False, "properties": {
@@ -212,8 +212,12 @@ def swallowed(cur: pd.DataFrame, min_rate: float) -> pd.DataFrame:
 
 def sample_entries(es: ES, index: str, start: pd.Timestamp, end: pd.Timestamp, interval: str, per_bucket: int,
                    policy: str | None = None) -> list[Sampled]:
-    """每個時段、每個入口（服務的 Server span、訊息消費者的 Consumer span、沒有上一層的 span）抽 per_bucket 個請求。依 trace_id 排序取前幾個：trace_id 是隨機的，等於隨機抽。
+    """每個時段、每個入口（服務的 Server span、訊息消費者的 Consumer span、沒有上一層的 span）抽 per_bucket 個請求。
+    依隨機的 id 排序取前幾個，等於隨機抽。index 是合成一個請求一筆的 traces-merged-* 時走 _sample_entries_merged（入口用合成時算好的 entries）；
+    raw（traces-*.otel-*，每一段一筆）照舊，給寫 raw 的測試用。
     policy：以前尾端取樣時只抽 random 那份；現在 100% 收、不取樣，trace.yaml 不設這個，全部都抽。沒有標記的照樣抽。"""
+    if is_merged(index):
+        return _sample_entries_merged(es, index, start, end, interval, per_bucket)
     sources = [{"svc": {"terms": {"field": "resource.attributes.service.name"}}},
                {"name": {"terms": {"field": "name"}}},
                {"ts": {"date_histogram": {"field": "@timestamp", "fixed_interval": interval}}}]
@@ -238,6 +242,38 @@ def sample_entries(es: ES, index: str, start: pd.Timestamp, end: pd.Timestamp, i
         for b in agg.get("buckets", []):
             ts = pd.Timestamp(b["key"]["ts"], unit="ms", tz="UTC")
             out += [Sampled(ts, h["_source"]["trace_id"], h["_source"]["span_id"]) for h in b["t"]["hits"]["hits"]]
+        after = agg.get("after_key")
+        if not after:
+            break
+    return out
+
+
+def _sample_entries_merged(es: ES, index: str, start: pd.Timestamp, end: pd.Timestamp, interval: str, per_bucket: int) -> list[Sampled]:
+    """merged：一筆是一個請求，entries 是合成時算好的入口（nested）。nested → composite（服務 × API × 時段）→ top_hits：
+    hit 的 _id 是整筆的 _id（= trace_id）、_source 是那個入口的 span_id；依 span_id 排序（隨機的 16 進位）等於隨機抽。
+    時段用入口自己的 start_ms 切（nested 裡拿不到整筆的 @timestamp）；查詢的時間範圍兩邊各放寬 5 分鐘，再只留 [start, end) 的時段。"""
+    step_ms = int(pd.Timedelta(interval if interval.endswith("in") else interval.replace("m", "min")).total_seconds() * 1000)
+    pad = pd.Timedelta(minutes=5)
+    sources = [{"svc": {"terms": {"field": "entries.service"}}},
+               {"name": {"terms": {"field": "entries.name"}}},
+               {"ts": {"histogram": {"field": "entries.start_ms", "interval": step_ms}}}]
+    body = {"size": 0, "query": {"bool": {"filter": [time_range(start - pad, end + pad)]}},
+            "aggs": {"n": {"nested": {"path": "entries"},
+                           "aggs": {"e": {"composite": {"size": 1000, "sources": sources},
+                                          "aggs": {"t": {"top_hits": {"size": per_bucket, "sort": [{"entries.span_id": "asc"}],
+                                                                      "_source": ["entries.span_id"]}}}}}}}}
+    lo, hi = start.value // 10**6, end.value // 10**6
+    out, after = [], None
+    while True:
+        if after:
+            body["aggs"]["n"]["aggs"]["e"]["composite"]["after"] = after
+        agg = es.search(index, body).get("aggregations", {}).get("n", {}).get("e", {})
+        for b in agg.get("buckets", []):
+            ms = int(b["key"]["ts"])
+            if not (lo <= ms < hi):
+                continue
+            ts = pd.Timestamp(ms, unit="ms", tz="UTC")
+            out += [Sampled(ts, h["_id"], h["_source"]["span_id"]) for h in b["t"]["hits"]["hits"]]
         after = agg.get("after_key")
         if not after:
             break
