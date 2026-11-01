@@ -28,7 +28,7 @@ plugin:                                                    # Business Forms（�
   sha256: 1eece14d67b2ffac4bbba18f5c69cde3f0f7aecef2276b0f1b33bc3cfb9998d0
   resources:
     requests: {cpu: 10m, memory: 32Mi, ephemeral-storage: 64Mi}
-    limits: {memory: 128Mi, ephemeral-storage: 256Mi}    # 外掛 zip 約 10MB，解開不到 50MB
+    limits: {memory: 128Mi, ephemeral-storage: 256Mi}    # 外掛 zip 約 1.4MB，解開約 4.6MB
 
 provisioning:
   datasources: {}

@@ -11,7 +11,7 @@ AIOps 把異常合成「一件事」寫進 `aiops-alerts`（`python3 -m investig
 | `alert-rules.yaml` | (1) 每一件 `status: open` 的事件一則告警；labels 帶 `alert_id`、`service`、`dept`、`group`、`severity`，annotation 帶摘要與報告連結；(2) `aiops-heartbeat`：10 分鐘沒有心跳 → 「AIOps 停了」送平台；(3) `aiops-baseline-missing`：`detect` 寫的 `detect-status` 的 `missing_baseline > 0` 持續 5 分鐘 → 「基準線不見」送平台 | 一般不用改 |
 | `contact-points.yaml` | 各部門的通知管道（範例用 webhook） | 換成你們的 Teams、Email、LINE… |
 | `policies.yaml` | 依 `dept` 送到哪個 contact point；沒有 dept（資料品質、節點）送平台 | dept 清單（跟 `collector/code/groups.yaml` 一致） |
-| `dashboards.yaml`、`dashboards/aiops-feedback.json` | 回饋表單（Grafana 裡填）：通知的 `feedback` 連結點進來 | 兩個回饋服務網址、要先裝外掛（下面） |
+| `dashboards/aiops-feedback.json` | 回饋表單（Grafana 裡填）：通知的 `feedback` 連結點進來 | 兩個回饋服務網址、要先裝外掛（下面） |
 
 > Grafana 讀哪些 ES 索引、自己存什麼（設定在 repo 檔案、內部 sqlite 在容器裡，Pod 重建會清掉告警歷史）：[docs/data-storage-reference.md](../docs/data-storage-reference.md)。
 
@@ -41,7 +41,41 @@ AIOps 把異常合成「一件事」寫進 `aiops-alerts`（`python3 -m investig
 
 ## 部署
 
-公司已經有 Grafana：只套 `code/` 的 provisioning（data source、告警規則、contact point、policy、儀表板）和回饋表單外掛（[INSTALL-form-plugin.md](code/INSTALL-form-plugin.md)：initContainer 的 patch 在 `code/plugin-init-patch.yaml`）。
+### 公司已經有 Grafana：把 `code/` 的檔交給管 Grafana 的人
+
+不用我們的 image 或 chart，只要把 `code/` 的檔放進公司 Grafana 的 provisioning 資料夾。`code/` 是**內容**；image、chart、手動放檔只是「怎麼送進 Grafana」的方式，選哪個看公司的 Grafana 是誰管、怎麼部署。
+
+| `code/` 的檔 | 放到 Grafana 的 | 要改的 |
+|---|---|---|
+| `datasource.yaml` | `/etc/grafana/provisioning/datasources/` | ES 網址、唯讀 key（環境變數 `ES_URL`、`GRAFANA_ES_API_KEY`） |
+| `alert-rules.yaml`、`contact-points.yaml`、`policies.yaml` | `/etc/grafana/provisioning/alerting/` | 通知管道換成公司的、dept 清單（環境變數 `NOTIFY_IT_URL`、`NOTIFY_IMC_URL`、`NOTIFY_PLATFORM_URL`） |
+| `dashboards/*.json` | 任一資料夾，例如 `/var/lib/grafana/dashboards/aiops/` | `aiops-feedback.json` 裡兩個 `http://localhost:18080` 換成使用者瀏覽器連得到的回饋服務網址 |
+| （`code/` 裡沒有，要自己寫）dashboards provider | `/etc/grafana/provisioning/dashboards/aiops.yaml` | 見下面 |
+
+dashboards provider（告訴 Grafana 去哪個資料夾讀儀表板；我們的 chart 會自動產生這個，公司自己的 Grafana 要自己放）：
+
+```yaml
+apiVersion: 1
+providers:
+  - name: aiops
+    folder: AIOps                       # 載進 Grafana 的 AIOps 資料夾
+    type: file
+    options:
+      path: /var/lib/grafana/dashboards/aiops
+```
+
+- 檔裡的 `${ES_URL}`、`${GRAFANA_ES_API_KEY}`、`${NOTIFY_*_URL}` 由 Grafana 從**環境變數**展開，所以公司的 Grafana 要有這幾個環境變數（K8s 用 Secret 的 `envFrom`）。
+- 檔放好之後重啟 Grafana（或呼叫 provisioning reload 的 API）才會生效。不想動檔案系統，也可以用 Grafana 的 HTTP API 或畫面匯入儀表板、告警，內容一樣。
+- 回饋表單外掛：先看公司的 Grafana 有沒有裝（Administration → Plugins 搜 `Business Forms`），裝了、版本是 6.3.1 就什麼都不用做；沒裝照 [INSTALL-form-plugin.md](code/INSTALL-form-plugin.md)。
+
+| 送進 Grafana 的方式 | 怎麼進去 | 改設定時 | 適合 |
+|---|---|---|---|
+| 公司現有 Grafana，放 provisioning 檔 | 管 Grafana 的人把檔放進上面的資料夾（掛 ConfigMap 或放磁碟） | 改檔、重啟或 reload | 公司已經有 Grafana |
+| 自建 image | 把檔 `COPY` 進 image 的 `/etc/grafana/provisioning/`（外掛放 `/var/lib/grafana/plugins/`） | 改檔要重新 build、推 image、重佈 | 要整包固定版本、不能掛外部檔 |
+| 我們的 helm chart（下面） | `--set-file` 從 `code/` 讀，chart 做成 ConfigMap 掛進 Pod 並產生 provider；外掛用 initContainer | 改檔重跑同一個 helm 指令，Pod 自動重啟 | 公司沒有 Grafana、要自己裝一台 |
+| Grafana 官方 chart | 同樣內容寫進它的 `values`：已經合好一份 [`values-official.yaml`](values-official.yaml)（`code/` 的檔由 `code/build-official-values.py` 產生，不手改；改 `code/` 後重跑，`--check` 檢查有沒有忘記） | 改 `code/`、重跑腳本、重跑 helm | 公司已經用官方 chart 管 Grafana |
+
+### 沒有現成 Grafana：用 `helmchart/` 裝一台
 
 沒有現成 Grafana、或要一台專用的：用 `helmchart/`。provisioning 的檔不複製進 chart，`--set-file` 從 `code/` 帶（key 是檔名、不含副檔名）：
 

@@ -9,6 +9,14 @@ AIOps 的告警通知裡有一個「回饋」連結，點進來是 Grafana 裡�
 | 下載 | `https://grafana.com/api/plugins/volkovlabs-form-panel/versions/6.3.1/download`（zip，約 1.4 MB；解開約 4.6 MB） |
 | SHA-256 | `1eece14d67b2ffac4bbba18f5c69cde3f0f7aecef2276b0f1b33bc3cfb9998d0` |
 
+## 公司的 Grafana 已經有裝這個外掛
+
+Administration → Plugins 搜 `Business Forms`（id `volkovlabs-form-panel`），或 `curl -u admin:<密碼> http://<grafana>/api/plugins/volkovlabs-form-panel/settings` 看 `info.version`。
+
+- 版本是 **6.3.1**：不用裝、不用加 initContainer，跳過下面所有步驟；只要把 `code/` 的 provisioning 檔放進去（[grafana/README.md](../README.md#公司已經有-grafana把-code-的檔交給管-grafana-的人)）。
+- 版本不同：Grafana 12.3 以上新版應該也能用，但本專案沒驗過，先在測試環境試表單；版本太舊或不確定就換成 6.3.1。
+- 用我們的 chart 又不想讓它裝外掛：`--set plugin.enabled=false`。
+
 ## 做法：Grafana 跑在 K8s 上（用 initContainer）
 
 Grafana 的 Pod 多一個 initContainer：Grafana 啟動前，從公司的 Nexus 下載外掛 zip、**核對 SHA-256**、解開到外掛資料夾。外掛資料夾用 emptyDir，Pod 每次重建都重裝一次，版本永遠是設定裡寫的那個。initContainer 用跟 Grafana **同一個 image**（裡面有 curl、unzip、sha256sum），不用多拉 image；Pod 不用連外網。
@@ -32,7 +40,7 @@ Grafana 的 Pod 多一個 initContainer：Grafana 啟動前，從公司的 Nexus
    # 上傳到 Nexus 的 raw repository，例如 .../repository/raw/grafana-plugins/volkovlabs-form-panel-6.3.1.zip
    ```
 
-   連不到 Nexus 的環境：zip 也放在 repo 的 [`grafana/plugins/`](../plugins/)（git lfs）。Grafana 用本 repo 的 chart 裝時，`load-plugin.sh` 把它切成 ConfigMap 帶進 cluster，initContainer 從那裡接回，不用下載（步驟見 [grafana/README.md](../README.md#部署)）。
+   連不到 Nexus 的環境：zip 也放在 repo 的 `grafana/plugins/`（git lfs）。Grafana 用本 repo 的 chart 裝時，`load-plugin.sh` 把它切成 ConfigMap 帶進 cluster，initContainer 從那裡接回，不用下載（步驟見 [grafana/README.md](../README.md#部署)）。
 
 2. **改 `plugin-init-patch.yaml`**：`metadata.name` 改成你們的 Grafana Deployment 名字、主容器的 `name`（這裡假設 `grafana`）、`image` 跟你們主容器一樣、`PLUGIN_URL` 改成 Nexus 的網址。Nexus 用內部 CA 的話，`CURL_OPTS` 給 `--cacert <CA 檔>` 並把 CA 掛進來。
 
