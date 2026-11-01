@@ -13,6 +13,10 @@
 #   run-rca-demo.sh heal-external      情境 4 結束
 #   run-rca-demo.sh tick               跑一輪：detector trace-merge → rules → investigator alert（正式是排程器每分鐘）
 #   run-rca-demo.sh loop <分鐘> [秒]    跑幾分鐘，每隔幾秒 tick 一次（預設 60，跟正式排程一樣）
+#   run-rca-demo.sh feedback           在本機起回饋網頁（feedback_web，http://localhost:18080，前景執行、Ctrl+C 停）：
+#                                      儀表板 ⑤ 點標題的「新分頁開報告全文」「老師傅回饋」連到這裡
+# tick 寫進每件的 report_url、feedback_url 指到 FEEDBACK_BASE（預設 http://localhost:18080）；
+# 設定是 rca.yaml 加上這兩個網址，寫在 RCA_DEMO_STATE/rca-demo.yaml（不改 repo 的 rca.yaml）。
 # MTTI（注入到報告產出多久）：measure-mtti.sh <incident|incident-external>。
 # LLM：LLM_ENV_FILE=<.env 路徑> 只載入 LLM_PROVIDER、LLM_API_KEY、LLM_CHAT_MODEL、OPENAI_BASE_URL；沒給就用 template。
 # 發的 key 存在 RCA_DEMO_STATE（預設 ~/.rca-demo），不進 repo。
@@ -96,13 +100,35 @@ up() {
   echo "   通知：kubectl -n aiops-demo logs -f deploy/notify-sink"
 }
 
+FEEDBACK_BASE="${FEEDBACK_BASE:-http://localhost:18080}"
+
+rca_cfg() {  # rca.yaml＋回饋網頁的網址 → RCA_DEMO_STATE/rca-demo.yaml，印出路徑（給 python 用：Windows 轉成 C:/…）
+  local out="${STATE}/rca-demo.yaml"
+  FEEDBACK_BASE="${FEEDBACK_BASE}" python3 - "${repo}/aiops-engine/code/configs/rca/rca.yaml" "${out}" <<'PY'
+import os, sys, yaml
+cfg = yaml.safe_load(open(sys.argv[1], encoding="utf-8"))
+base = os.environ["FEEDBACK_BASE"].rstrip("/")
+cfg.setdefault("alerts", {}).update({"report_url": base + "/report?alert={alert_id}", "feedback_url": base + "/feedback?alert={alert_id}"})
+yaml.safe_dump(cfg, open(sys.argv[2], "w", encoding="utf-8"), allow_unicode=True, sort_keys=False)
+PY
+  cygpath -m "${out}" 2>/dev/null || echo "${out}"
+}
+
 tick() {
   load_llm
   export ES_URL ES_API_KEY; ES_API_KEY="$(cat "${STATE}/engine-key")"
+  local cfg; cfg="$(rca_cfg)"
   (cd "${repo}/aiops-engine/code"
    python3 -m detector trace-merge --config configs/baseline/trace.yaml | sed 's/^/   [trace-merge] /'
    python3 -m detector rules --config configs/baseline/rules.yaml | sed 's/^/   [rules] /'
-   python3 -m investigator alert --config configs/rca/rca.yaml | sed 's/^/   [alert] /')
+   python3 -m investigator alert --config "${cfg}" | sed 's/^/   [alert] /')
+}
+
+feedback() {  # 回饋網頁：讀 aiops-alerts、寫 aiops-feedback／incidents／tuning（用 engine 的 key，只能寫 aiops-*）
+  export ES_URL ES_API_KEY; ES_API_KEY="$(cat "${STATE}/engine-key")"
+  export FEEDBACK_PORT="${FEEDBACK_BASE##*:}"
+  echo "   回饋網頁：${FEEDBACK_BASE}/feedback?alert=<alert_id>、/report?alert=<alert_id>"
+  cd "${repo}/aiops-engine/code" && exec python3 -m feedback_web
 }
 
 case "${1:-}" in
@@ -112,6 +138,7 @@ case "${1:-}" in
   incident-external) mes 'touch /tmp/sms_down'; echo "$(date -u +%H:%M:%SZ) 事故開始（情境 4：第三方 API 中斷，sms-gateway 10 秒＋504）" ;;
   heal-external) mes 'rm -f /tmp/sms_down'; echo "$(date -u +%H:%M:%SZ) 事故結束（情境 4）" ;;
   tick) echo "== $(date -u +%H:%M:%SZ) tick"; tick ;;
+  feedback) feedback ;;
   loop) end=$(( $(date +%s) + ${2:?分鐘} * 60 )); every="${3:-60}"
         while (( $(date +%s) < end )); do echo "== $(date -u +%H:%M:%SZ) tick"; tick; sleep "${every}"; done ;;
   *) sed -n '2,18p' "$0"; exit 1 ;;

@@ -273,7 +273,7 @@
     {
       "id": 5,
       "type": "table",
-      "title": "⑤ AIOps：合成的事件與 AI 摘要（aiops-alerts；點儲存格看全文）",
+      "title": "⑤ AIOps：合成的事件（一列一件；點標題：看這件的根因全文、老師傅回饋）",
       "gridPos": {
         "x": 0,
         "y": 17,
@@ -375,6 +375,61 @@
               {
                 "id": "custom.width",
                 "value": 320
+              },
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "在下面（⑥）看這件的根因全文",
+                    "url": "/d/aiops-rca-demo/0cb079a?${__url_time_range}&var-alert_id=${__data.fields.alert_id}"
+                  },
+                  {
+                    "title": "新分頁開這件的報告全文",
+                    "url": "${__data.fields.report_url}",
+                    "targetBlank": true
+                  },
+                  {
+                    "title": "老師傅回饋（這件是不是真的、根因對不對）",
+                    "url": "${__data.fields.feedback_url}",
+                    "targetBlank": true
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "alert_id"
+            },
+            "properties": [
+              {
+                "id": "custom.hidden",
+                "value": true
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "report_url"
+            },
+            "properties": [
+              {
+                "id": "custom.hidden",
+                "value": true
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "feedback_url"
+            },
+            "properties": [
+              {
+                "id": "custom.hidden",
+                "value": true
               }
             ]
           }
@@ -387,7 +442,7 @@
             "type": "elasticsearch",
             "uid": "demo-alerts"
           },
-          "query": "NOT alert_id:heartbeat",
+          "query": "category:service",
           "timeField": "@timestamp",
           "metrics": [
             {
@@ -413,7 +468,10 @@
               "dept": true,
               "title": true,
               "anomaly_count": true,
-              "llm_summary": true
+              "llm_summary": true,
+              "alert_id": true,
+              "report_url": true,
+              "feedback_url": true
             },
             "indexByName": {
               "started_at": 0,
@@ -423,7 +481,10 @@
               "dept": 4,
               "title": 5,
               "anomaly_count": 6,
-              "llm_summary": 7
+              "llm_summary": 7,
+              "alert_id": 8,
+              "report_url": 9,
+              "feedback_url": 10
             }
           }
         }
@@ -432,7 +493,7 @@
     {
       "id": 6,
       "type": "logs",
-      "title": "⑥ AIOps：根因分析報告全文（metrics 異常 → trace 哪一段 → 那行 log）",
+      "title": "⑥ AIOps：$alert_id 的根因分析報告全文（點 ⑤ 的標題或上方「看哪一件」換一件）",
       "gridPos": {
         "x": 0,
         "y": 24,
@@ -456,14 +517,14 @@
             "type": "elasticsearch",
             "uid": "demo-alerts"
           },
-          "query": "category:service",
+          "query": "category:service AND alert_id:\"$alert_id\"",
           "timeField": "@timestamp",
           "metrics": [
             {
               "id": "1",
               "type": "logs",
               "settings": {
-                "limit": "5"
+                "limit": "1"
               }
             }
           ],
@@ -471,5 +532,23 @@
         }
       ]
     }
-  ]
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "alert_id",
+        "label": "看哪一件",
+        "type": "query",
+        "datasource": {
+          "type": "elasticsearch",
+          "uid": "demo-alerts"
+        },
+        "query": "{\"find\": \"terms\", \"field\": \"alert_id\", \"query\": \"category:service\", \"orderBy\": \"term\", \"order\": \"desc\", \"size\": 50}",
+        "refresh": 2,
+        "includeAll": false,
+        "multi": false,
+        "sort": 0
+      }
+    ]
+  }
 }
