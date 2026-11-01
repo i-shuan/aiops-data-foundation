@@ -73,7 +73,7 @@ providers:
 | 公司現有 Grafana，放 provisioning 檔 | 管 Grafana 的人把檔放進上面的資料夾（掛 ConfigMap 或放磁碟） | 改檔、重啟或 reload | 公司已經有 Grafana |
 | 自建 image | 把檔 `COPY` 進 image 的 `/etc/grafana/provisioning/`（外掛放 `/var/lib/grafana/plugins/`） | 改檔要重新 build、推 image、重佈 | 要整包固定版本、不能掛外部檔 |
 | 我們的 helm chart（下面） | `--set-file` 從 `code/` 讀，chart 做成 ConfigMap 掛進 Pod 並產生 provider；外掛用 initContainer | 改檔重跑同一個 helm 指令，Pod 自動重啟 | 公司沒有 Grafana、要自己裝一台 |
-| Grafana 官方 chart | 同樣內容寫進它的 `values`（`datasources`、`alerting`、`dashboardProviders`、`dashboards`） | 改 values 重跑 helm | 公司已經用官方 chart 管 Grafana |
+| Grafana 官方 chart | 同樣內容寫進它的 `values`：已經合好一份 [`values-official.yaml`](values-official.yaml)（`code/` 的檔由 `code/build-official-values.py` 產生，不手改；改 `code/` 後重跑，`--check` 檢查有沒有忘記） | 改 `code/`、重跑腳本、重跑 helm | 公司已經用官方 chart 管 Grafana |
 
 ### 沒有現成 Grafana：用 `helmchart/` 裝一台
 

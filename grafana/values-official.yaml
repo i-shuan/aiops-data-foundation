@@ -1,0 +1,2120 @@
+# Grafana 官方 chart（helm repo grafana/grafana）的 values：data source、告警、儀表板都在這一份。
+# 由 grafana/code/build-official-values.py 從 grafana/code/ 產生，**不要手改**：改 code/ 的檔，再跑
+#   python3 grafana/code/build-official-values.py
+#
+# 部署（Secret grafana-env 要先有：ES_URL、GRAFANA_ES_API_KEY、NOTIFY_IT_URL、NOTIFY_IMC_URL、NOTIFY_PLATFORM_URL、GF_SECURITY_ADMIN_PASSWORD；
+# 或用 .gitlab-ci.yml 的 grafana job 建）：
+#   helm upgrade --install grafana grafana/grafana -n grafana -f grafana/values-official.yaml \
+#     --set image.registry=<nexus> --set image.tag=13.0.7
+#
+# 要先改的：image（換成 Nexus）、contactpoints 的通知管道、policies 的 dept 清單、
+#   儀表板 aiops-feedback 裡的兩個 http://localhost:18080（換成使用者瀏覽器連得到的回饋服務網址）。
+# 回饋表單外掛（Business Forms）：公司的 Grafana 已經有裝就不用管；沒有的話在 plugins 加上（見下面），
+#   官方 chart 的 plugins 不核對 SHA-256，要核對請用 grafana/helmchart（我們自己的 chart）。
+image:
+  registry: nexus.example.internal
+  repository: grafana/grafana
+  tag: 13.0.7
+testFramework:
+  enabled: false
+envFromSecret: grafana-env
+datasources:
+  datasources.yaml:
+    apiVersion: 1
+    datasources:
+    - name: aiops-alerts
+      uid: aiops-alerts
+      type: elasticsearch
+      access: proxy
+      url: ${ES_URL}
+      jsonData:
+        index: aiops-alerts
+        timeField: '@timestamp'
+        httpHeaderName1: Authorization
+      secureJsonData:
+        httpHeaderValue1: ApiKey ${GRAFANA_ES_API_KEY}
+    - name: aiops-anomalies
+      uid: aiops-anomalies
+      type: elasticsearch
+      access: proxy
+      url: ${ES_URL}
+      jsonData:
+        index: aiops-anomalies
+        timeField: '@timestamp'
+        httpHeaderName1: Authorization
+      secureJsonData:
+        httpHeaderValue1: ApiKey ${GRAFANA_ES_API_KEY}
+    - name: aiops-tuning
+      uid: aiops-tuning
+      type: elasticsearch
+      access: proxy
+      url: ${ES_URL}
+      jsonData:
+        index: aiops-tuning
+        timeField: at
+        httpHeaderName1: Authorization
+      secureJsonData:
+        httpHeaderValue1: ApiKey ${GRAFANA_ES_API_KEY}
+    - name: aiops-feedback
+      uid: aiops-feedback
+      type: elasticsearch
+      access: proxy
+      url: ${ES_URL}
+      jsonData:
+        index: aiops-feedback
+        timeField: '@timestamp'
+        httpHeaderName1: Authorization
+      secureJsonData:
+        httpHeaderValue1: ApiKey ${GRAFANA_ES_API_KEY}
+alerting:
+  rules.yaml: |
+    # 每一件 status: open 的事件一則告警（docs/pdca/phase3-locate/2026-10-alert-exit.md）
+    apiVersion: 1
+    groups:
+      - orgId: 1
+        name: aiops
+        folder: AIOps
+        interval: 1m
+        rules:
+          - uid: aiops-incident
+            title: AIOps 事件
+            condition: C
+            data:
+              - refId: A
+                datasourceUid: aiops-alerts
+                relativeTimeRange: {from: 300, to: 0}      # investigator alert 每 1～2 分鐘更新一次 @timestamp
+                model:
+                  refId: A
+                  query: "status:open"
+                  timeField: "@timestamp"
+                  metrics: [{id: "1", type: count}]
+                  bucketAggs:
+                    # 每一件一組；其他欄位跟著帶成 labels（同一件只有一個值）。missing：沒有 dept 的（資料品質、節點）也要算
+                    # orderBy 一定要寫：Grafana 預設用 _term 排序，ES 不認得（實測 9.5 回 400；8.19 同樣不支援，整條規則 Error）
+                    - {id: "2", type: terms, field: alert_id, settings: {size: "500", min_doc_count: "1", order: desc, orderBy: _count{{ "}}" }}
+                    - {id: "3", type: terms, field: service, settings: {size: "1", min_doc_count: "1", order: desc, orderBy: _count, missing: "—"{{ "}}" }}
+                    - {id: "4", type: terms, field: dept, settings: {size: "1", min_doc_count: "1", order: desc, orderBy: _count, missing: "none"{{ "}}" }}
+                    - {id: "5", type: terms, field: group, settings: {size: "1", min_doc_count: "1", order: desc, orderBy: _count, missing: "unassigned"{{ "}}" }}
+                    - {id: "6", type: terms, field: severity, settings: {size: "1", min_doc_count: "1", order: desc, orderBy: _count, missing: "warning"{{ "}}" }}
+                    # summary 是 label：內容一變就是另一則（舊的 resolved、新的 firing），所以 investigator/alerts.py 的 summary 不放持續時間、筆數
+                    - {id: "7", type: terms, field: summary, settings: {size: "1", min_doc_count: "1", order: desc, orderBy: _count, missing: ""{{ "}}" }}
+                    - {id: "8", type: terms, field: report_url, settings: {size: "1", min_doc_count: "1", order: desc, orderBy: _count, missing: ""{{ "}}" }}
+                    - {id: "9", type: date_histogram, field: "@timestamp", settings: {interval: 1m, min_doc_count: "0"{{ "}}" }}
+              - refId: B
+                datasourceUid: __expr__
+                model: {refId: B, type: reduce, expression: A, reducer: max, settings: {mode: dropNN{{ "}}" }}
+              - refId: C
+                datasourceUid: __expr__
+                model: {refId: C, type: threshold, expression: B, conditions: [{evaluator: {type: gt, params: [0]{{ "}}" }}]}
+            noDataState: OK          # 沒有開著的件 = 正常
+            execErrState: Error
+            for: 0s                  # AIOps 已經做過「連續才算」，這裡不再等
+            labels: {source: aiops}
+            annotations:
+              summary: "{{ "{{" }} $labels.summary {{ "}}" }}"
+              report: "{{ "{{" }} $labels.report_url {{ "}}" }}"
+              # 回饋：Grafana 裡的回饋表單（dashboards/aiops-feedback.json，要先裝 Business Forms 外掛）；網址換成你們的 Grafana
+              feedback: "https://grafana.example.internal/d/aiops-feedback?var-alert={{ "{{" }} $labels.alert_id {{ "}}" }}"
+          # AIOps 停了：investigator alert 每次跑都寫一筆心跳（_id heartbeat，status ok）。10 分鐘內 aiops-alerts 沒有任何寫入 → 送平台
+          # （labels 沒有 dept，policies.yaml 的預設 receiver 就是 platform）。沒有這條，alert 停了所有件都查不到，Grafana 會當成全部恢復。
+          - uid: aiops-heartbeat
+            title: AIOps 停了（investigator alert 10 分鐘沒寫入）
+            condition: C
+            data:
+              - refId: A
+                datasourceUid: aiops-alerts
+                relativeTimeRange: {from: 600, to: 0}
+                model:
+                  refId: A
+                  query: "alert_id:heartbeat"
+                  timeField: "@timestamp"
+                  metrics: [{id: "1", type: count}]
+                  bucketAggs:
+                    - {id: "2", type: date_histogram, field: "@timestamp", settings: {interval: 10m, min_doc_count: "0"{{ "}}" }}
+              - refId: B
+                datasourceUid: __expr__
+                model: {refId: B, type: reduce, expression: A, reducer: sum, settings: {mode: replaceNN, replaceWithValue: 0{{ "}}" }}
+              - refId: C
+                datasourceUid: __expr__
+                model: {refId: C, type: threshold, expression: B, conditions: [{evaluator: {type: lt, params: [1]{{ "}}" }}]}
+            noDataState: Alerting     # 查不到心跳就是停了（跟上面那條相反）
+            execErrState: Error
+            for: 2m
+            labels: {source: aiops, severity: critical}
+            annotations:
+              summary: "AIOps 的 investigator alert 已經 10 分鐘沒有寫入 aiops-alerts：排程停了、或連不到 ES。停著的期間所有件都看不到，不是真的恢復。"
+          # 基準線不見了：detector detect 每輪寫一筆 detect-status（_id detect-status，status ok，detector/cmd_baseline.py），
+          # missing_baseline 是這輪沒有 baseline 的序列數。aiops-baseline 掉了（ES 重建、index 被刪）detect 只印一行就跳過，
+          # 動態基準線這一路靜默停擺；上面兩條都不會響（docs/pdca/meta/2026-10-open-issues.md 第 7 節）。送平台（labels 沒有 dept）。
+          - uid: aiops-baseline-missing
+            title: AIOps 基準線不見（detect 讀到空的 aiops-baseline）
+            condition: C
+            data:
+              - refId: A
+                datasourceUid: aiops-alerts
+                relativeTimeRange: {from: 600, to: 0}
+                model:
+                  refId: A
+                  query: "alert_id:detect-status AND missing_baseline:>0"
+                  timeField: "@timestamp"
+                  metrics: [{id: "1", type: count}]
+                  bucketAggs:
+                    - {id: "2", type: date_histogram, field: "@timestamp", settings: {interval: 10m, min_doc_count: "0"{{ "}}" }}
+              - refId: B
+                datasourceUid: __expr__
+                model: {refId: B, type: reduce, expression: A, reducer: sum, settings: {mode: replaceNN, replaceWithValue: 0{{ "}}" }}
+              - refId: C
+                datasourceUid: __expr__
+                model: {refId: C, type: threshold, expression: B, conditions: [{evaluator: {type: gt, params: [0]{{ "}}" }}]}   # 有一筆就算
+            noDataState: OK           # 沒有 detect-status = detect 沒在跑，那是 aiops-heartbeat 的事（排程器停了兩個一起停）
+            execErrState: Error
+            # 剛換版、ES 剛重建、第一次部署還沒跑 train 時，前幾輪 detect 也是 missing > 0：等 5 分鐘，部署流程有時間先跑 train。
+            # 真的掉了不會自己好（train 一天一次），5 分鐘後一定響
+            for: 5m
+            labels: {source: aiops, severity: critical}
+            annotations:
+              summary: "AIOps 的 detect 讀到空的基準線（aiops-baseline 掉了、或還沒 train）：這些序列的動態基準線學習靜默停了，不會報異常；靜態規則、Pod 同儕橫向比對不受影響。手動跑一次 train：kubectl -n aiops exec deploy/aiops-engine -c scheduler -- python3 -m scheduler --config configs/schedule/schedule.yaml --run train"
+  contactpoints.yaml: |
+    # 各部門的通知管道。範例用 webhook；正式換成 Teams、Email、LINE…（Grafana 的 contact point 類型）
+    apiVersion: 1
+    contactPoints:
+      - orgId: 1
+        name: it-oncall
+        receivers: [{uid: it-oncall, type: webhook, settings: {url: "${NOTIFY_IT_URL}", httpMethod: POST{{ "}}" }}]
+      - orgId: 1
+        name: imc-oncall
+        receivers: [{uid: imc-oncall, type: webhook, settings: {url: "${NOTIFY_IMC_URL}", httpMethod: POST{{ "}}" }}]
+      - orgId: 1
+        name: platform
+        receivers: [{uid: platform, type: webhook, settings: {url: "${NOTIFY_PLATFORM_URL}", httpMethod: POST{{ "}}" }}]
+  policies.yaml: |
+    # 依 dept 送到哪個 contact point（dept 清單跟 collector/code/groups.yaml 一致）；沒有 dept 的（資料品質、節點）送平台
+    apiVersion: 1
+    policies:
+      - orgId: 1
+        receiver: platform
+        group_by: [alert_id]        # 一件一則：AIOps 已經依服務合併過，這裡不要再依 dept、service 合併
+        group_wait: 10s
+        group_interval: 1m
+        repeat_interval: 4h
+        routes:
+          - receiver: it-oncall
+            object_matchers: [[source, "=", aiops], [dept, "=~", "D3120|D3130"]]
+          - receiver: imc-oncall
+            object_matchers: [[source, "=", aiops], [dept, "=~", "D1110|D1120"]]
+          # 夜間只發 critical：加一條 mute_time_intervals，掛在 severity="warning" 的子路由上（例子見 Grafana 文件 mute timings）
+dashboardProviders:
+  dashboardproviders.yaml:
+    apiVersion: 1
+    providers:
+    - name: aiops
+      orgId: 1
+      folder: AIOps
+      type: file
+      disableDeletion: false
+      editable: true
+      options:
+        path: /var/lib/grafana/dashboards/aiops
+dashboards:
+  aiops:
+    aiops-feedback:
+      json: |-
+        {
+          "uid": "aiops-feedback",
+          "title": "AIOps 回饋",
+          "tags": [
+            "aiops"
+          ],
+          "schemaVersion": 41,
+          "editable": true,
+          "time": {
+            "from": "now-6h",
+            "to": "now"
+          },
+          "templating": {
+            "list": [
+              {
+                "name": "alert",
+                "label": "告警 id",
+                "type": "textbox",
+                "query": "",
+                "current": {
+                  "text": "",
+                  "value": ""
+                },
+                "hide": 0
+              }
+            ]
+          },
+          "panels": [
+            {
+              "type": "volkovlabs-form-panel",
+              "title": "AIOps 回饋：${alert}",
+              "id": 1,
+              "gridPos": {
+                "h": 30,
+                "w": 14,
+                "x": 0,
+                "y": 0
+              },
+              "pluginVersion": "6.3.1",
+              "options": {
+                "sync": true,
+                "initial": {
+                  "method": "GET",
+                  "url": "http://localhost:18080/api/alert?alert=${alert}",
+                  "header": [],
+                  "code": "",
+                  "contentType": "application/json",
+                  "payloadMode": "all",
+                  "getPayload": "return {}",
+                  "datasource": "",
+                  "payload": {},
+                  "highlight": false,
+                  "highlightColor": "red",
+                  "confirm": false
+                },
+                "updateEnabled": "auto",
+                "update": {
+                  "method": "POST",
+                  "url": "http://localhost:18080/api/feedback",
+                  "header": [],
+                  "contentType": "application/json",
+                  "payloadMode": "all",
+                  "getPayload": "return {}",
+                  "code": "if (context.panel.response && context.panel.response.ok) {\n  const base = '已記錄，謝謝。這會讓下一次更準。';\n  context.panel.response.json().then((r) => {\n    const extra = r.tuning_id ? '已依你的一句話提了一筆調整建議（待審核）。' : (r.extract && r.extract.ok === false ? '一句話沒抽成結構化欄位，只存了原文。' : '');\n    context.grafana.notifySuccess(['回饋', base + extra]);\n  }).catch(() => context.grafana.notifySuccess(['回饋', base]));\n} else if (context.panel.response) {\n  context.panel.response.json().then((r) => context.grafana.notifyError(['回饋沒有存成功', r.error || String(context.panel.response.status)]))\n    .catch(() => context.grafana.notifyError(['回饋沒有存成功', String(context.panel.response.status)]));\n} else {\n  context.grafana.notifyError(['回饋沒有存成功', '連不到回饋服務（feedback_api 的網址、CORS）']);\n}",
+                  "datasource": "",
+                  "payload": {},
+                  "confirm": false
+                },
+                "resetAction": {
+                  "mode": "initial",
+                  "code": "",
+                  "datasource": "",
+                  "getPayload": "return {}",
+                  "payload": {},
+                  "payloadMode": "all",
+                  "confirm": false
+                },
+                "buttonGroup": {
+                  "orientation": "left",
+                  "size": "md"
+                },
+                "submit": {
+                  "variant": "primary",
+                  "text": "送出",
+                  "icon": "cloud-upload",
+                  "foregroundColor": "yellow",
+                  "backgroundColor": "purple"
+                },
+                "reset": {
+                  "variant": "hidden",
+                  "text": "重填",
+                  "icon": "process",
+                  "foregroundColor": "yellow",
+                  "backgroundColor": "purple"
+                },
+                "saveDefault": {
+                  "variant": "hidden",
+                  "text": "Save Default",
+                  "icon": "save"
+                },
+                "layout": {
+                  "variant": "single",
+                  "orientation": "vertical",
+                  "padding": 10,
+                  "sections": []
+                },
+                "confirmModal": {
+                  "title": "確認送出",
+                  "body": "送出這筆回饋？",
+                  "confirm": "送出",
+                  "cancel": "取消",
+                  "columns": {
+                    "name": "Label",
+                    "oldValue": "Old Value",
+                    "newValue": "New Value"
+                  },
+                  "elementDisplayMode": "modified"
+                },
+                "elementValueChanged": "",
+                "elements": [
+                  {
+                    "uid": "alert_id",
+                    "id": "alert_id",
+                    "title": "告警 id",
+                    "type": "disabled",
+                    "labelWidth": 22,
+                    "width": null,
+                    "tooltip": "",
+                    "section": "",
+                    "unit": "",
+                    "showIf": "",
+                    "disableIf": "",
+                    "optionsSource": "Custom",
+                    "allowCustomValue": false,
+                    "options": [],
+                    "value": ""
+                  },
+                  {
+                    "uid": "title",
+                    "id": "title",
+                    "title": "這件",
+                    "type": "disabled",
+                    "labelWidth": 22,
+                    "width": null,
+                    "tooltip": "",
+                    "section": "",
+                    "unit": "",
+                    "showIf": "",
+                    "disableIf": "",
+                    "optionsSource": "Custom",
+                    "allowCustomValue": false,
+                    "options": [],
+                    "value": ""
+                  },
+                  {
+                    "uid": "summary",
+                    "id": "summary",
+                    "title": "摘要",
+                    "type": "disabledTextarea",
+                    "labelWidth": 22,
+                    "width": null,
+                    "tooltip": "",
+                    "section": "",
+                    "unit": "",
+                    "showIf": "",
+                    "disableIf": "",
+                    "rows": 4,
+                    "value": "",
+                    "isEscaping": false
+                  },
+                  {
+                    "uid": "llm",
+                    "id": "llm",
+                    "title": "AI 摘要（只是參考）",
+                    "type": "disabledTextarea",
+                    "labelWidth": 22,
+                    "width": null,
+                    "tooltip": "",
+                    "section": "",
+                    "unit": "",
+                    "showIf": "",
+                    "disableIf": "",
+                    "rows": 4,
+                    "value": "",
+                    "isEscaping": false
+                  },
+                  {
+                    "uid": "similar",
+                    "id": "similar",
+                    "title": "過去相似的事故",
+                    "type": "disabledTextarea",
+                    "labelWidth": 22,
+                    "width": null,
+                    "tooltip": "",
+                    "section": "",
+                    "unit": "",
+                    "showIf": "",
+                    "disableIf": "",
+                    "rows": 3,
+                    "value": "",
+                    "isEscaping": false
+                  },
+                  {
+                    "uid": "rca_cause_useful",
+                    "id": "rca_cause_useful",
+                    "title": "可能根因有參考價值？",
+                    "type": "radio",
+                    "labelWidth": 22,
+                    "width": null,
+                    "tooltip": "報告或 AI 摘要指的可能根因，對你排查有沒有幫助（採納率用）",
+                    "section": "",
+                    "unit": "",
+                    "showIf": "",
+                    "disableIf": "",
+                    "optionsSource": "Custom",
+                    "allowCustomValue": false,
+                    "options": [
+                      {
+                        "value": "yes",
+                        "label": "是"
+                      },
+                      {
+                        "value": "no",
+                        "label": "否"
+                      },
+                      {
+                        "value": "not_seen",
+                        "label": "沒看"
+                      }
+                    ],
+                    "value": ""
+                  },
+                  {
+                    "uid": "rca_action_useful",
+                    "id": "rca_action_useful",
+                    "title": "建議的排查動作有參考價值？",
+                    "type": "radio",
+                    "labelWidth": 22,
+                    "width": null,
+                    "tooltip": "報告的「建議先做什麼」、相似事故的處置，對你有沒有幫助（採納率用）",
+                    "section": "",
+                    "unit": "",
+                    "showIf": "",
+                    "disableIf": "",
+                    "optionsSource": "Custom",
+                    "allowCustomValue": false,
+                    "options": [
+                      {
+                        "value": "yes",
+                        "label": "是"
+                      },
+                      {
+                        "value": "no",
+                        "label": "否"
+                      },
+                      {
+                        "value": "not_seen",
+                        "label": "沒看"
+                      }
+                    ],
+                    "value": ""
+                  },
+                  {
+                    "uid": "verdict",
+                    "id": "verdict",
+                    "title": "這件是",
+                    "type": "radio",
+                    "labelWidth": 22,
+                    "width": null,
+                    "tooltip": "",
+                    "section": "",
+                    "unit": "",
+                    "showIf": "",
+                    "disableIf": "",
+                    "optionsSource": "Custom",
+                    "allowCustomValue": false,
+                    "options": [
+                      {
+                        "value": "true_positive",
+                        "label": "真的"
+                      },
+                      {
+                        "value": "false_positive",
+                        "label": "誤報"
+                      },
+                      {
+                        "value": "wrong_root_cause",
+                        "label": "真的，但根因報錯了"
+                      }
+                    ],
+                    "value": ""
+                  },
+                  {
+                    "uid": "feedback_text",
+                    "id": "feedback_text",
+                    "title": "一句話說這件怎麼回事",
+                    "type": "textarea",
+                    "labelWidth": 22,
+                    "width": null,
+                    "tooltip": "選填。系統會抽成結構化欄位（誤報／真的／根因錯、原因、服務、建議動作），對得到的提一筆待審核的調整建議，不會自動生效。例：「這是每月初的批次匯出報表，屬於預期內負載」",
+                    "section": "",
+                    "unit": "",
+                    "showIf": "",
+                    "disableIf": "",
+                    "rows": 2,
+                    "value": "",
+                    "isEscaping": false
+                  },
+                  {
+                    "uid": "root_cause_category",
+                    "id": "root_cause_category",
+                    "title": "根因分類",
+                    "type": "select",
+                    "labelWidth": 22,
+                    "width": null,
+                    "tooltip": "",
+                    "section": "",
+                    "unit": "",
+                    "showIf": "const v = context.panel.elements.find((e) => e.id === 'verdict'); return !!v && !!v.value && v.value !== 'false_positive';",
+                    "disableIf": "",
+                    "optionsSource": "Custom",
+                    "allowCustomValue": false,
+                    "options": [
+                      {
+                        "value": "db",
+                        "label": "DB（慢查詢、鎖、連線池、統計資訊）"
+                      },
+                      {
+                        "value": "network",
+                        "label": "網路（延遲、斷線、DNS）"
+                      },
+                      {
+                        "value": "config_change",
+                        "label": "設定變更"
+                      },
+                      {
+                        "value": "deploy",
+                        "label": "版本更新"
+                      },
+                      {
+                        "value": "external",
+                        "label": "外部系統"
+                      },
+                      {
+                        "value": "resource",
+                        "label": "資源不足（CPU、記憶體、磁碟）"
+                      },
+                      {
+                        "value": "bug",
+                        "label": "程式錯誤"
+                      },
+                      {
+                        "value": "data",
+                        "label": "資料問題"
+                      },
+                      {
+                        "value": "other",
+                        "label": "其他"
+                      }
+                    ],
+                    "value": ""
+                  },
+                  {
+                    "uid": "root_cause",
+                    "id": "root_cause",
+                    "title": "根因（一句話）",
+                    "type": "string",
+                    "labelWidth": 22,
+                    "width": null,
+                    "tooltip": "",
+                    "section": "",
+                    "unit": "",
+                    "showIf": "const v = context.panel.elements.find((e) => e.id === 'verdict'); return !!v && !!v.value && v.value !== 'false_positive';",
+                    "disableIf": "",
+                    "hidden": false,
+                    "value": ""
+                  },
+                  {
+                    "uid": "action",
+                    "id": "action",
+                    "title": "處置（做了什麼讓它恢復）",
+                    "type": "string",
+                    "labelWidth": 22,
+                    "width": null,
+                    "tooltip": "",
+                    "section": "",
+                    "unit": "",
+                    "showIf": "const v = context.panel.elements.find((e) => e.id === 'verdict'); return !!v && !!v.value && v.value !== 'false_positive';",
+                    "disableIf": "",
+                    "hidden": false,
+                    "value": ""
+                  },
+                  {
+                    "uid": "how_detected",
+                    "id": "how_detected",
+                    "title": "怎麼看出來的（最值錢，請寫）",
+                    "type": "textarea",
+                    "labelWidth": 22,
+                    "width": null,
+                    "tooltip": "看到什麼現象讓你想到是這個原因",
+                    "section": "",
+                    "unit": "",
+                    "showIf": "const v = context.panel.elements.find((e) => e.id === 'verdict'); return !!v && !!v.value && v.value !== 'false_positive';",
+                    "disableIf": "",
+                    "rows": 3,
+                    "value": "",
+                    "isEscaping": false
+                  },
+                  {
+                    "uid": "checked",
+                    "id": "checked",
+                    "title": "查了哪些地方",
+                    "type": "checkboxList",
+                    "labelWidth": 22,
+                    "width": null,
+                    "tooltip": "",
+                    "section": "",
+                    "unit": "",
+                    "showIf": "const v = context.panel.elements.find((e) => e.id === 'verdict'); return !!v && !!v.value && v.value !== 'false_positive';",
+                    "disableIf": "",
+                    "optionsSource": "Custom",
+                    "allowCustomValue": false,
+                    "options": [
+                      {
+                        "value": "Oracle AWR / 慢查詢",
+                        "label": "Oracle AWR / 慢查詢"
+                      },
+                      {
+                        "value": "DB 連線池",
+                        "label": "DB 連線池"
+                      },
+                      {
+                        "value": "主機 CPU / 記憶體 / 磁碟",
+                        "label": "主機 CPU / 記憶體 / 磁碟"
+                      },
+                      {
+                        "value": "網路 / DNS",
+                        "label": "網路 / DNS"
+                      },
+                      {
+                        "value": "Kibana log",
+                        "label": "Kibana log"
+                      },
+                      {
+                        "value": "trace 瀑布圖",
+                        "label": "trace 瀑布圖"
+                      },
+                      {
+                        "value": "Kafka lag",
+                        "label": "Kafka lag"
+                      },
+                      {
+                        "value": "近期的版本更新 / 設定變更",
+                        "label": "近期的版本更新 / 設定變更"
+                      },
+                      {
+                        "value": "上游 / 下游服務",
+                        "label": "上游 / 下游服務"
+                      },
+                      {
+                        "value": "外部系統狀態",
+                        "label": "外部系統狀態"
+                      }
+                    ],
+                    "value": []
+                  },
+                  {
+                    "uid": "improve",
+                    "id": "improve",
+                    "title": "下次怎麼更快",
+                    "type": "string",
+                    "labelWidth": 22,
+                    "width": null,
+                    "tooltip": "",
+                    "section": "",
+                    "unit": "",
+                    "showIf": "const v = context.panel.elements.find((e) => e.id === 'verdict'); return !!v && !!v.value && v.value !== 'false_positive';",
+                    "disableIf": "",
+                    "hidden": false,
+                    "value": ""
+                  },
+                  {
+                    "uid": "fp_reason",
+                    "id": "fp_reason",
+                    "title": "為什麼不是問題",
+                    "type": "select",
+                    "labelWidth": 22,
+                    "width": null,
+                    "tooltip": "",
+                    "section": "",
+                    "unit": "",
+                    "showIf": "const v = context.panel.elements.find((e) => e.id === 'verdict'); return !!v && v.value === 'false_positive';",
+                    "disableIf": "",
+                    "optionsSource": "Custom",
+                    "allowCustomValue": false,
+                    "options": [
+                      {
+                        "value": "batch",
+                        "label": "月底 / 定時批次本來就這樣"
+                      },
+                      {
+                        "value": "loadtest",
+                        "label": "壓測、演練"
+                      },
+                      {
+                        "value": "known_slow",
+                        "label": "這支 API 本來就慢"
+                      },
+                      {
+                        "value": "low_volume",
+                        "label": "量太少，幾筆就跳"
+                      },
+                      {
+                        "value": "deploy",
+                        "label": "換版期間"
+                      },
+                      {
+                        "value": "other",
+                        "label": "其他"
+                      }
+                    ],
+                    "value": ""
+                  },
+                  {
+                    "uid": "fp_reason_text",
+                    "id": "fp_reason_text",
+                    "title": "補充",
+                    "type": "string",
+                    "labelWidth": 22,
+                    "width": null,
+                    "tooltip": "",
+                    "section": "",
+                    "unit": "",
+                    "showIf": "const v = context.panel.elements.find((e) => e.id === 'verdict'); return !!v && v.value === 'false_positive';",
+                    "disableIf": "",
+                    "hidden": false,
+                    "value": ""
+                  },
+                  {
+                    "uid": "by",
+                    "id": "by",
+                    "title": "你是（名字或工號）",
+                    "type": "string",
+                    "labelWidth": 22,
+                    "width": null,
+                    "tooltip": "",
+                    "section": "",
+                    "unit": "",
+                    "showIf": "",
+                    "disableIf": "",
+                    "hidden": false,
+                    "value": ""
+                  },
+                  {
+                    "uid": "note",
+                    "id": "note",
+                    "title": "備註",
+                    "type": "string",
+                    "labelWidth": 22,
+                    "width": null,
+                    "tooltip": "",
+                    "section": "",
+                    "unit": "",
+                    "showIf": "",
+                    "disableIf": "",
+                    "hidden": false,
+                    "value": ""
+                  }
+                ]
+              },
+              "datasource": {
+                "type": "datasource",
+                "uid": "grafana"
+              },
+              "targets": [
+                {
+                  "refId": "A",
+                  "datasource": {
+                    "type": "datasource",
+                    "uid": "grafana"
+                  },
+                  "queryType": "randomWalk"
+                }
+              ]
+            },
+            {
+              "type": "volkovlabs-form-panel",
+              "title": "回報漏報（該報卻沒報）",
+              "id": 2,
+              "gridPos": {
+                "h": 16,
+                "w": 10,
+                "x": 14,
+                "y": 0
+              },
+              "pluginVersion": "6.3.1",
+              "options": {
+                "sync": true,
+                "initial": {
+                  "method": "GET",
+                  "url": "http://localhost:18080/api/missed-form",
+                  "header": [],
+                  "code": "",
+                  "contentType": "application/json",
+                  "payloadMode": "all",
+                  "getPayload": "return {}",
+                  "datasource": "",
+                  "payload": {},
+                  "highlight": false,
+                  "highlightColor": "red",
+                  "confirm": false
+                },
+                "updateEnabled": "auto",
+                "update": {
+                  "method": "POST",
+                  "url": "http://localhost:18080/api/missed",
+                  "header": [],
+                  "contentType": "application/json",
+                  "payloadMode": "all",
+                  "getPayload": "return {}",
+                  "code": "if (context.panel.response && context.panel.response.ok) {\n  context.grafana.notifySuccess(['漏報', '已記錄，謝謝。累積後會建議降門檻或補規則。']);\n} else if (context.panel.response) {\n  context.panel.response.json().then((r) => context.grafana.notifyError(['漏報沒有存成功', r.error || String(context.panel.response.status)]))\n    .catch(() => context.grafana.notifyError(['漏報沒有存成功', String(context.panel.response.status)]));\n} else {\n  context.grafana.notifyError(['漏報沒有存成功', '連不到回饋服務（feedback_api 的網址、CORS）']);\n}",
+                  "datasource": "",
+                  "payload": {},
+                  "confirm": false
+                },
+                "resetAction": {
+                  "mode": "initial",
+                  "code": "",
+                  "datasource": "",
+                  "getPayload": "return {}",
+                  "payload": {},
+                  "payloadMode": "all",
+                  "confirm": false
+                },
+                "buttonGroup": {
+                  "orientation": "left",
+                  "size": "md"
+                },
+                "submit": {
+                  "variant": "primary",
+                  "text": "送出漏報",
+                  "icon": "cloud-upload",
+                  "foregroundColor": "yellow",
+                  "backgroundColor": "purple"
+                },
+                "reset": {
+                  "variant": "hidden",
+                  "text": "重填",
+                  "icon": "process",
+                  "foregroundColor": "yellow",
+                  "backgroundColor": "purple"
+                },
+                "saveDefault": {
+                  "variant": "hidden",
+                  "text": "Save Default",
+                  "icon": "save"
+                },
+                "layout": {
+                  "variant": "single",
+                  "orientation": "vertical",
+                  "padding": 10,
+                  "sections": []
+                },
+                "confirmModal": {
+                  "title": "確認送出",
+                  "body": "送出這筆漏報？",
+                  "confirm": "送出",
+                  "cancel": "取消",
+                  "columns": {
+                    "name": "Label",
+                    "oldValue": "Old Value",
+                    "newValue": "New Value"
+                  },
+                  "elementDisplayMode": "modified"
+                },
+                "elementValueChanged": "",
+                "elements": [
+                  {
+                    "uid": "series",
+                    "id": "series",
+                    "title": "哪條序列該報",
+                    "type": "select",
+                    "labelWidth": 16,
+                    "width": null,
+                    "tooltip": "series.yaml 裡的序列名",
+                    "section": "",
+                    "unit": "",
+                    "showIf": "",
+                    "disableIf": "",
+                    "optionsSource": "Custom",
+                    "allowCustomValue": false,
+                    "options": [
+                      {
+                        "value": "http.requests",
+                        "label": "http.requests（請求數）"
+                      },
+                      {
+                        "value": "http.error_rate",
+                        "label": "http.error_rate（錯誤率）"
+                      },
+                      {
+                        "value": "http.latency_p95_s",
+                        "label": "http.latency_p95_s（延遲 p95）"
+                      },
+                      {
+                        "value": "http.latency_p99_s",
+                        "label": "http.latency_p99_s（延遲 p99）"
+                      },
+                      {
+                        "value": "http.slow_ratio",
+                        "label": "http.slow_ratio（超過 2 秒的請求比例）"
+                      },
+                      {
+                        "value": "http.client_p95_s",
+                        "label": "http.client_p95_s（往外呼叫 p95）"
+                      },
+                      {
+                        "value": "log.lines",
+                        "label": "log.lines（log 筆數）"
+                      },
+                      {
+                        "value": "log.errors",
+                        "label": "log.errors（error／fatal log）"
+                      },
+                      {
+                        "value": "pod.cpu",
+                        "label": "pod.cpu（Pod CPU）"
+                      },
+                      {
+                        "value": "pod.memory_bytes",
+                        "label": "pod.memory_bytes（Pod 記憶體）"
+                      }
+                    ],
+                    "value": ""
+                  },
+                  {
+                    "uid": "service",
+                    "id": "service",
+                    "title": "服務",
+                    "type": "string",
+                    "labelWidth": 16,
+                    "width": null,
+                    "tooltip": "service.name，例：mes-api",
+                    "section": "",
+                    "unit": "",
+                    "showIf": "",
+                    "disableIf": "",
+                    "hidden": false,
+                    "value": ""
+                  },
+                  {
+                    "uid": "at",
+                    "id": "at",
+                    "title": "什麼時候該報",
+                    "type": "datetime",
+                    "labelWidth": 16,
+                    "width": null,
+                    "tooltip": "出事的時間（大概就好）",
+                    "section": "",
+                    "unit": "",
+                    "showIf": "",
+                    "disableIf": "",
+                    "isUseLocalTime": true,
+                    "value": ""
+                  },
+                  {
+                    "uid": "route",
+                    "id": "route",
+                    "title": "API 路徑",
+                    "type": "string",
+                    "labelWidth": 16,
+                    "width": null,
+                    "tooltip": "選填；http.* 序列可以縮到一支 API，例：/api/lots",
+                    "section": "",
+                    "unit": "",
+                    "showIf": "",
+                    "disableIf": "",
+                    "hidden": false,
+                    "value": ""
+                  },
+                  {
+                    "uid": "pod",
+                    "id": "pod",
+                    "title": "Pod",
+                    "type": "string",
+                    "labelWidth": 16,
+                    "width": null,
+                    "tooltip": "選填",
+                    "section": "",
+                    "unit": "",
+                    "showIf": "",
+                    "disableIf": "",
+                    "hidden": false,
+                    "value": ""
+                  },
+                  {
+                    "uid": "by",
+                    "id": "by",
+                    "title": "你是（名字或工號）",
+                    "type": "string",
+                    "labelWidth": 16,
+                    "width": null,
+                    "tooltip": "",
+                    "section": "",
+                    "unit": "",
+                    "showIf": "",
+                    "disableIf": "",
+                    "hidden": false,
+                    "value": ""
+                  },
+                  {
+                    "uid": "note",
+                    "id": "note",
+                    "title": "發生了什麼",
+                    "type": "textarea",
+                    "labelWidth": 16,
+                    "width": null,
+                    "tooltip": "選填；例：10:05 起 lots 查詢全部逾時，告警沒出來",
+                    "section": "",
+                    "unit": "",
+                    "showIf": "",
+                    "disableIf": "",
+                    "rows": 2,
+                    "value": "",
+                    "isEscaping": false
+                  }
+                ]
+              },
+              "datasource": {
+                "type": "datasource",
+                "uid": "grafana"
+              },
+              "targets": [
+                {
+                  "refId": "A",
+                  "datasource": {
+                    "type": "datasource",
+                    "uid": "grafana"
+                  },
+                  "queryType": "randomWalk"
+                }
+              ]
+            }
+          ],
+          "description": "AIOps 回饋表單（Business Forms 外掛 6.3.1）。左：對一件告警的回饋（真的／誤報／根因錯，GET /api/alert 預填、POST /api/feedback）；右：回報漏報（該報卻沒報，GET /api/missed-form、POST /api/missed）。回饋服務的網址寫在面板的 initial.url、update.url（http://localhost:18080），部署時改成使用者瀏覽器連得到的網址"
+        }
+    aiops-learning:
+      json: |-
+        {
+          "uid": "aiops-learning",
+          "title": "AIOps 學習迴圈：回饋調門檻",
+          "schemaVersion": 39,
+          "version": 1,
+          "editable": false,
+          "timezone": "Asia/Taipei",
+          "refresh": "",
+          "time": {
+            "from": "now-7d",
+            "to": "now"
+          },
+          "tags": [
+            "aiops"
+          ],
+          "panels": [
+            {
+              "id": 1,
+              "type": "stat",
+              "title": "mes-report 月底批次：目前被判為異常的筆數",
+              "datasource": {
+                "type": "elasticsearch",
+                "uid": "aiops-anomalies"
+              },
+              "gridPos": {
+                "x": 0,
+                "y": 0,
+                "w": 8,
+                "h": 5
+              },
+              "targets": [
+                {
+                  "refId": "A",
+                  "datasource": {
+                    "type": "elasticsearch",
+                    "uid": "aiops-anomalies"
+                  },
+                  "query": "keys.service:mes-report AND series:synth.requests AND status:anomaly",
+                  "alias": "",
+                  "metrics": [
+                    {
+                      "id": "1",
+                      "type": "count"
+                    }
+                  ],
+                  "bucketAggs": [
+                    {
+                      "id": "2",
+                      "type": "date_histogram",
+                      "field": "@timestamp",
+                      "settings": {
+                        "interval": "auto",
+                        "min_doc_count": "0"
+                      }
+                    }
+                  ],
+                  "timeField": "@timestamp"
+                }
+              ],
+              "fieldConfig": {
+                "defaults": {
+                  "color": {
+                    "mode": "fixed",
+                    "fixedColor": "red"
+                  },
+                  "noValue": "0",
+                  "unit": "none",
+                  "displayName": "mes-report 月底批次：目前被判為異常的筆數"
+                },
+                "overrides": []
+              },
+              "options": {
+                "reduceOptions": {
+                  "calcs": [
+                    "sum"
+                  ],
+                  "values": false
+                },
+                "colorMode": "background",
+                "graphMode": "none",
+                "textMode": "value"
+              }
+            },
+            {
+              "id": 2,
+              "type": "stat",
+              "title": "老師傅回饋筆數",
+              "datasource": {
+                "type": "elasticsearch",
+                "uid": "aiops-feedback"
+              },
+              "gridPos": {
+                "x": 8,
+                "y": 0,
+                "w": 8,
+                "h": 5
+              },
+              "targets": [
+                {
+                  "refId": "A",
+                  "datasource": {
+                    "type": "elasticsearch",
+                    "uid": "aiops-feedback"
+                  },
+                  "query": "*",
+                  "alias": "",
+                  "metrics": [
+                    {
+                      "id": "1",
+                      "type": "count"
+                    }
+                  ],
+                  "bucketAggs": [
+                    {
+                      "id": "2",
+                      "type": "date_histogram",
+                      "field": "@timestamp",
+                      "settings": {
+                        "interval": "auto",
+                        "min_doc_count": "0"
+                      }
+                    }
+                  ],
+                  "timeField": "@timestamp"
+                }
+              ],
+              "fieldConfig": {
+                "defaults": {
+                  "color": {
+                    "mode": "fixed",
+                    "fixedColor": "blue"
+                  },
+                  "noValue": "0",
+                  "unit": "none",
+                  "displayName": "老師傅回饋筆數"
+                },
+                "overrides": []
+              },
+              "options": {
+                "reduceOptions": {
+                  "calcs": [
+                    "sum"
+                  ],
+                  "values": false
+                },
+                "colorMode": "background",
+                "graphMode": "none",
+                "textMode": "value"
+              }
+            },
+            {
+              "id": 3,
+              "type": "stat",
+              "title": "已生效的調整（核准後）",
+              "datasource": {
+                "type": "elasticsearch",
+                "uid": "aiops-tuning"
+              },
+              "gridPos": {
+                "x": 16,
+                "y": 0,
+                "w": 8,
+                "h": 5
+              },
+              "targets": [
+                {
+                  "refId": "A",
+                  "datasource": {
+                    "type": "elasticsearch",
+                    "uid": "aiops-tuning"
+                  },
+                  "query": "status:active",
+                  "alias": "",
+                  "metrics": [
+                    {
+                      "id": "1",
+                      "type": "count"
+                    }
+                  ],
+                  "bucketAggs": [
+                    {
+                      "id": "2",
+                      "type": "date_histogram",
+                      "field": "at",
+                      "settings": {
+                        "interval": "auto",
+                        "min_doc_count": "0"
+                      }
+                    }
+                  ],
+                  "timeField": "at"
+                }
+              ],
+              "fieldConfig": {
+                "defaults": {
+                  "color": {
+                    "mode": "fixed",
+                    "fixedColor": "green"
+                  },
+                  "noValue": "0",
+                  "unit": "none",
+                  "displayName": "已生效的調整（核准後）"
+                },
+                "overrides": []
+              },
+              "options": {
+                "reduceOptions": {
+                  "calcs": [
+                    "sum"
+                  ],
+                  "values": false
+                },
+                "colorMode": "background",
+                "graphMode": "none",
+                "textMode": "value"
+              }
+            },
+            {
+              "id": 4,
+              "type": "table",
+              "title": "調整建議（回饋 → 建議 → 回測 → 人核准 → 偵測下一輪直接吃）",
+              "description": "",
+              "datasource": {
+                "type": "elasticsearch",
+                "uid": "aiops-tuning"
+              },
+              "gridPos": {
+                "x": 0,
+                "y": 5,
+                "w": 24,
+                "h": 9
+              },
+              "targets": [
+                {
+                  "refId": "A",
+                  "datasource": {
+                    "type": "elasticsearch",
+                    "uid": "aiops-tuning"
+                  },
+                  "query": "*",
+                  "alias": "",
+                  "metrics": [
+                    {
+                      "id": "1",
+                      "type": "raw_data",
+                      "settings": {
+                        "size": "50"
+                      }
+                    }
+                  ],
+                  "bucketAggs": [],
+                  "timeField": "at"
+                }
+              ],
+              "transformations": [
+                {
+                  "id": "organize",
+                  "options": {
+                    "includeByName": {
+                      "at": true,
+                      "kind": true,
+                      "status": true,
+                      "series": true,
+                      "service": true,
+                      "z": true,
+                      "reason": true,
+                      "backtest.anomalies_before": true,
+                      "backtest.anomalies_after": true,
+                      "backtest.recommended": true,
+                      "approved_by": true
+                    },
+                    "indexByName": {
+                      "at": 0,
+                      "kind": 1,
+                      "status": 2,
+                      "series": 3,
+                      "service": 4,
+                      "z": 5,
+                      "reason": 6,
+                      "backtest.anomalies_before": 7,
+                      "backtest.anomalies_after": 8,
+                      "backtest.recommended": 9,
+                      "approved_by": 10
+                    },
+                    "renameByName": {}
+                  }
+                }
+              ],
+              "fieldConfig": {
+                "defaults": {
+                  "custom": {
+                    "cellOptions": {
+                      "type": "auto"
+                    },
+                    "inspect": true
+                  }
+                },
+                "overrides": [
+                  {
+                    "matcher": {
+                      "id": "byName",
+                      "options": "reason"
+                    },
+                    "properties": [
+                      {
+                        "id": "custom.cellOptions",
+                        "value": {
+                          "type": "auto",
+                          "wrapText": true
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "matcher": {
+                      "id": "byName",
+                      "options": "kind"
+                    },
+                    "properties": [
+                      {
+                        "id": "custom.width",
+                        "value": 120
+                      }
+                    ]
+                  },
+                  {
+                    "matcher": {
+                      "id": "byName",
+                      "options": "status"
+                    },
+                    "properties": [
+                      {
+                        "id": "custom.width",
+                        "value": 90
+                      }
+                    ]
+                  },
+                  {
+                    "matcher": {
+                      "id": "byName",
+                      "options": "z"
+                    },
+                    "properties": [
+                      {
+                        "id": "custom.width",
+                        "value": 60
+                      }
+                    ]
+                  }
+                ]
+              },
+              "options": {
+                "showHeader": true,
+                "cellHeight": "lg"
+              }
+            },
+            {
+              "id": 5,
+              "type": "table",
+              "title": "老師傅回饋",
+              "description": "",
+              "datasource": {
+                "type": "elasticsearch",
+                "uid": "aiops-feedback"
+              },
+              "gridPos": {
+                "x": 0,
+                "y": 14,
+                "w": 24,
+                "h": 8
+              },
+              "targets": [
+                {
+                  "refId": "A",
+                  "datasource": {
+                    "type": "elasticsearch",
+                    "uid": "aiops-feedback"
+                  },
+                  "query": "*",
+                  "alias": "",
+                  "metrics": [
+                    {
+                      "id": "1",
+                      "type": "raw_data",
+                      "settings": {
+                        "size": "50"
+                      }
+                    }
+                  ],
+                  "bucketAggs": [],
+                  "timeField": "@timestamp"
+                }
+              ],
+              "transformations": [
+                {
+                  "id": "organize",
+                  "options": {
+                    "includeByName": {
+                      "@timestamp": true,
+                      "by": true,
+                      "verdict": true,
+                      "series": true,
+                      "alert_id": true,
+                      "note": true
+                    },
+                    "indexByName": {
+                      "@timestamp": 0,
+                      "by": 1,
+                      "verdict": 2,
+                      "series": 3,
+                      "alert_id": 4,
+                      "note": 5
+                    },
+                    "renameByName": {}
+                  }
+                },
+                {
+                  "id": "sortBy",
+                  "options": {
+                    "fields": {},
+                    "sort": [
+                      {
+                        "field": "@timestamp",
+                        "desc": true
+                      }
+                    ]
+                  }
+                }
+              ],
+              "fieldConfig": {
+                "defaults": {
+                  "custom": {
+                    "cellOptions": {
+                      "type": "auto"
+                    },
+                    "inspect": true
+                  }
+                },
+                "overrides": [
+                  {
+                    "matcher": {
+                      "id": "byName",
+                      "options": "@timestamp"
+                    },
+                    "properties": [
+                      {
+                        "id": "custom.width",
+                        "value": 170
+                      }
+                    ]
+                  }
+                ]
+              },
+              "options": {
+                "showHeader": true,
+                "cellHeight": "lg"
+              }
+            }
+          ],
+          "templating": {
+            "list": []
+          }
+        }
+    aiops-rca:
+      json: |-
+        {
+          "uid": "aiops-rca",
+          "title": "AIOps 事故與根因",
+          "schemaVersion": 39,
+          "version": 1,
+          "editable": false,
+          "timezone": "Asia/Taipei",
+          "refresh": "",
+          "time": {
+            "from": "now-7d",
+            "to": "now"
+          },
+          "tags": [
+            "aiops"
+          ],
+          "panels": [
+            {
+              "id": 1,
+              "type": "table",
+              "title": "事故清單（AIOps 把很多筆異常合成一件）",
+              "description": "",
+              "datasource": {
+                "type": "elasticsearch",
+                "uid": "aiops-alerts"
+              },
+              "gridPos": {
+                "x": 0,
+                "y": 0,
+                "w": 24,
+                "h": 7
+              },
+              "targets": [
+                {
+                  "refId": "A",
+                  "datasource": {
+                    "type": "elasticsearch",
+                    "uid": "aiops-alerts"
+                  },
+                  "query": "category:service",
+                  "alias": "",
+                  "metrics": [
+                    {
+                      "id": "1",
+                      "type": "raw_data",
+                      "settings": {
+                        "size": "50"
+                      }
+                    }
+                  ],
+                  "bucketAggs": [],
+                  "timeField": "@timestamp"
+                }
+              ],
+              "transformations": [
+                {
+                  "id": "organize",
+                  "options": {
+                    "includeByName": {
+                      "started_at": true,
+                      "status": true,
+                      "severity": true,
+                      "service": true,
+                      "dept": true,
+                      "anomaly_count": true,
+                      "title": true
+                    },
+                    "indexByName": {
+                      "started_at": 0,
+                      "status": 1,
+                      "severity": 2,
+                      "service": 3,
+                      "dept": 4,
+                      "anomaly_count": 5,
+                      "title": 6
+                    },
+                    "renameByName": {}
+                  }
+                },
+                {
+                  "id": "sortBy",
+                  "options": {
+                    "fields": {},
+                    "sort": [
+                      {
+                        "field": "started_at",
+                        "desc": true
+                      }
+                    ]
+                  }
+                }
+              ],
+              "fieldConfig": {
+                "defaults": {
+                  "custom": {
+                    "cellOptions": {
+                      "type": "auto"
+                    },
+                    "inspect": true
+                  }
+                },
+                "overrides": [
+                  {
+                    "matcher": {
+                      "id": "byName",
+                      "options": "started_at"
+                    },
+                    "properties": [
+                      {
+                        "id": "custom.width",
+                        "value": 170
+                      }
+                    ]
+                  },
+                  {
+                    "matcher": {
+                      "id": "byName",
+                      "options": "status"
+                    },
+                    "properties": [
+                      {
+                        "id": "custom.width",
+                        "value": 80
+                      }
+                    ]
+                  },
+                  {
+                    "matcher": {
+                      "id": "byName",
+                      "options": "severity"
+                    },
+                    "properties": [
+                      {
+                        "id": "custom.width",
+                        "value": 90
+                      }
+                    ]
+                  },
+                  {
+                    "matcher": {
+                      "id": "byName",
+                      "options": "service"
+                    },
+                    "properties": [
+                      {
+                        "id": "custom.width",
+                        "value": 110
+                      }
+                    ]
+                  },
+                  {
+                    "matcher": {
+                      "id": "byName",
+                      "options": "dept"
+                    },
+                    "properties": [
+                      {
+                        "id": "custom.width",
+                        "value": 80
+                      }
+                    ]
+                  },
+                  {
+                    "matcher": {
+                      "id": "byName",
+                      "options": "anomaly_count"
+                    },
+                    "properties": [
+                      {
+                        "id": "custom.width",
+                        "value": 90
+                      }
+                    ]
+                  }
+                ]
+              },
+              "options": {
+                "showHeader": true,
+                "cellHeight": "lg"
+              }
+            },
+            {
+              "id": 2,
+              "type": "table",
+              "title": "LLM 摘要（每句附依據；驗不過退回模板）",
+              "description": "依據 id：T=trace 段、A=異常、S=統計、E=例外、L=log 樣式、I=過去相似事故",
+              "datasource": {
+                "type": "elasticsearch",
+                "uid": "aiops-alerts"
+              },
+              "gridPos": {
+                "x": 0,
+                "y": 7,
+                "w": 24,
+                "h": 6
+              },
+              "targets": [
+                {
+                  "refId": "A",
+                  "datasource": {
+                    "type": "elasticsearch",
+                    "uid": "aiops-alerts"
+                  },
+                  "query": "alert_id:\"$alert\"",
+                  "alias": "",
+                  "metrics": [
+                    {
+                      "id": "1",
+                      "type": "raw_data",
+                      "settings": {
+                        "size": "1"
+                      }
+                    }
+                  ],
+                  "bucketAggs": [],
+                  "timeField": "@timestamp"
+                }
+              ],
+              "transformations": [
+                {
+                  "id": "organize",
+                  "options": {
+                    "includeByName": {
+                      "llm_provider": true,
+                      "llm_summary": true
+                    },
+                    "indexByName": {
+                      "llm_provider": 0,
+                      "llm_summary": 1
+                    },
+                    "renameByName": {}
+                  }
+                }
+              ],
+              "fieldConfig": {
+                "defaults": {
+                  "custom": {
+                    "cellOptions": {
+                      "type": "auto"
+                    },
+                    "inspect": true
+                  }
+                },
+                "overrides": [
+                  {
+                    "matcher": {
+                      "id": "byName",
+                      "options": "llm_summary"
+                    },
+                    "properties": [
+                      {
+                        "id": "custom.cellOptions",
+                        "value": {
+                          "type": "auto",
+                          "wrapText": true
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "matcher": {
+                      "id": "byName",
+                      "options": "llm_provider"
+                    },
+                    "properties": [
+                      {
+                        "id": "custom.width",
+                        "value": 90
+                      }
+                    ]
+                  }
+                ]
+              },
+              "options": {
+                "showHeader": true,
+                "cellHeight": "lg"
+              }
+            },
+            {
+              "id": 3,
+              "type": "table",
+              "title": "過去相似事故（RAG：只檢索老師傅確認過的）與通知摘要",
+              "description": "",
+              "datasource": {
+                "type": "elasticsearch",
+                "uid": "aiops-alerts"
+              },
+              "gridPos": {
+                "x": 0,
+                "y": 13,
+                "w": 24,
+                "h": 6
+              },
+              "targets": [
+                {
+                  "refId": "A",
+                  "datasource": {
+                    "type": "elasticsearch",
+                    "uid": "aiops-alerts"
+                  },
+                  "query": "alert_id:\"$alert\"",
+                  "alias": "",
+                  "metrics": [
+                    {
+                      "id": "1",
+                      "type": "raw_data",
+                      "settings": {
+                        "size": "1"
+                      }
+                    }
+                  ],
+                  "bucketAggs": [],
+                  "timeField": "@timestamp"
+                }
+              ],
+              "transformations": [
+                {
+                  "id": "organize",
+                  "options": {
+                    "includeByName": {
+                      "summary": true
+                    },
+                    "indexByName": {
+                      "summary": 0
+                    },
+                    "renameByName": {}
+                  }
+                }
+              ],
+              "fieldConfig": {
+                "defaults": {
+                  "custom": {
+                    "cellOptions": {
+                      "type": "auto"
+                    },
+                    "inspect": true
+                  }
+                },
+                "overrides": [
+                  {
+                    "matcher": {
+                      "id": "byName",
+                      "options": "summary"
+                    },
+                    "properties": [
+                      {
+                        "id": "custom.cellOptions",
+                        "value": {
+                          "type": "auto",
+                          "wrapText": true
+                        }
+                      }
+                    ]
+                  }
+                ]
+              },
+              "options": {
+                "showHeader": true,
+                "cellHeight": "lg"
+              }
+            },
+            {
+              "id": 4,
+              "type": "table",
+              "title": "根因報告全文",
+              "description": "",
+              "datasource": {
+                "type": "elasticsearch",
+                "uid": "aiops-alerts"
+              },
+              "gridPos": {
+                "x": 0,
+                "y": 19,
+                "w": 24,
+                "h": 34
+              },
+              "targets": [
+                {
+                  "refId": "A",
+                  "datasource": {
+                    "type": "elasticsearch",
+                    "uid": "aiops-alerts"
+                  },
+                  "query": "alert_id:\"$alert\"",
+                  "alias": "",
+                  "metrics": [
+                    {
+                      "id": "1",
+                      "type": "raw_data",
+                      "settings": {
+                        "size": "1"
+                      }
+                    }
+                  ],
+                  "bucketAggs": [],
+                  "timeField": "@timestamp"
+                }
+              ],
+              "transformations": [
+                {
+                  "id": "organize",
+                  "options": {
+                    "includeByName": {
+                      "report": true
+                    },
+                    "indexByName": {
+                      "report": 0
+                    },
+                    "renameByName": {}
+                  }
+                }
+              ],
+              "fieldConfig": {
+                "defaults": {
+                  "custom": {
+                    "cellOptions": {
+                      "type": "auto"
+                    },
+                    "inspect": true
+                  }
+                },
+                "overrides": [
+                  {
+                    "matcher": {
+                      "id": "byName",
+                      "options": "report"
+                    },
+                    "properties": [
+                      {
+                        "id": "custom.cellOptions",
+                        "value": {
+                          "type": "auto",
+                          "wrapText": true
+                        }
+                      }
+                    ]
+                  }
+                ]
+              },
+              "options": {
+                "showHeader": true,
+                "cellHeight": "lg"
+              }
+            },
+            {
+              "id": 5,
+              "type": "table",
+              "title": "這件事故的異常",
+              "description": "aiops-anomalies 裡 alert_id 是這件的：動態基準線的（status、z）和規則觸發的（severity、message）都在。alert_id 是 investigator alert 併件時寫回的。",
+              "datasource": {
+                "type": "elasticsearch",
+                "uid": "aiops-anomalies"
+              },
+              "gridPos": {
+                "x": 0,
+                "y": 53,
+                "w": 24,
+                "h": 7
+              },
+              "targets": [
+                {
+                  "refId": "A",
+                  "datasource": {
+                    "type": "elasticsearch",
+                    "uid": "aiops-anomalies"
+                  },
+                  "query": "alert_id:\"$alert\"",
+                  "alias": "",
+                  "metrics": [
+                    {
+                      "id": "1",
+                      "type": "raw_data",
+                      "settings": {
+                        "size": "200"
+                      }
+                    }
+                  ],
+                  "bucketAggs": [],
+                  "timeField": "@timestamp"
+                }
+              ],
+              "transformations": [
+                {
+                  "id": "organize",
+                  "options": {
+                    "includeByName": {
+                      "@timestamp": true,
+                      "status": true,
+                      "severity": true,
+                      "series": true,
+                      "keys.service": true,
+                      "value": true,
+                      "median": true,
+                      "expected_high": true,
+                      "z": true,
+                      "direction": true,
+                      "confidence": true,
+                      "message": true
+                    },
+                    "indexByName": {
+                      "@timestamp": 0,
+                      "status": 1,
+                      "severity": 2,
+                      "series": 3,
+                      "keys.service": 4,
+                      "value": 5,
+                      "median": 6,
+                      "expected_high": 7,
+                      "z": 8,
+                      "direction": 9,
+                      "confidence": 10,
+                      "message": 11
+                    },
+                    "renameByName": {}
+                  }
+                },
+                {
+                  "id": "sortBy",
+                  "options": {
+                    "fields": {},
+                    "sort": [
+                      {
+                        "field": "@timestamp",
+                        "desc": true
+                      }
+                    ]
+                  }
+                }
+              ],
+              "fieldConfig": {
+                "defaults": {
+                  "custom": {
+                    "cellOptions": {
+                      "type": "auto"
+                    },
+                    "inspect": true
+                  }
+                },
+                "overrides": [
+                  {
+                    "matcher": {
+                      "id": "byName",
+                      "options": "@timestamp"
+                    },
+                    "properties": [
+                      {
+                        "id": "custom.width",
+                        "value": 170
+                      }
+                    ]
+                  }
+                ]
+              },
+              "options": {
+                "showHeader": true,
+                "cellHeight": "lg"
+              }
+            }
+          ],
+          "templating": {
+            "list": [
+              {
+                "name": "alert",
+                "label": "事故",
+                "type": "query",
+                "datasource": {
+                  "type": "elasticsearch",
+                  "uid": "aiops-alerts"
+                },
+                "refresh": 2,
+                "sort": 2,
+                "includeAll": false,
+                "query": {
+                  "find": "terms",
+                  "field": "alert_id",
+                  "query": "category:service",
+                  "size": 100
+                },
+                "current": {}
+              }
+            ]
+          }
+        }
+
+# 回饋表單外掛（Business Forms 6.3.1）：公司的 Grafana 沒裝再打開，官方 chart 用 grafana-cli 下載
+# plugins:
+#   - volkovlabs-form-panel 6.3.1 https://nexus.example.internal/repository/raw/grafana-plugins/volkovlabs-form-panel-6.3.1.zip
