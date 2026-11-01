@@ -23,3 +23,19 @@ class HistogramValueTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class HistRatioAbove(unittest.TestCase):
+    """超過門檻的請求比例：percentile_ranks 給「≤ 門檻」的百分比，1 − 它；沒有請求是 None（不學、不判斷）。"""
+    def test_aggs_and_value(self):
+        v = {"hist_ratio_above": {"field": F, "gt": 2.0}}
+        self.assertEqual(_value_aggs(v), {"v": {"percentile_ranks": {"field": F, "values": [2.0]}}, "n": {"value_count": {"field": F}}})
+        self.assertAlmostEqual(_bucket_value(v, {"v": {"values": {"2.0": 97.5}}, "n": {"value_count": None, "value": 400}}), 0.025)
+        self.assertEqual(_bucket_value(v, {"v": {"values": {"2.0": 100.0}}, "n": {"value": 400}}), 0.0)
+        self.assertIsNone(_bucket_value(v, {"v": {"values": {"2.0": None}}, "n": {"value": 0}}))
+
+    def test_is_a_rate_with_request_count_as_events(self):
+        from detector.es import _bucket_events, value_kind
+        spec = {"value": {"hist_ratio_above": {"field": F, "gt": 2.0}}}
+        self.assertEqual(value_kind(spec), "rate")
+        self.assertEqual(_bucket_events(spec["value"], {"n": {"value": 400}}), 400)

@@ -43,6 +43,9 @@ def _value_aggs(value) -> dict:
       {hist_count: <欄位>}                   直方圖裡的次數總和（例如請求數）
       {hist_ratio: {field: <欄位>, query: <query>}}
                                             符合 query 的次數 ÷ 總次數（例如狀態碼 5xx 的比例）
+      {hist_ratio_above: {field: <欄位>, gt: <值>}}
+                                            直方圖裡超過 gt 的次數比例（例如超過 2 秒的請求比例）：ES 的 percentile_ranks
+                                            給「≤ gt 的百分比」，1 − 它就是；值在桶之間時 ES 會內插
       {percentile: ...} 也可以用在直方圖欄位（例如延遲 p95）
     """
     if value == "count":
@@ -57,6 +60,9 @@ def _value_aggs(value) -> dict:
         return {"v": n, "num": {"filter": arg["query"], "aggs": {"v": n}}}
     if kind == "percentile":
         return {"v": {"percentiles": {"field": arg["field"], "percents": [arg["percent"]]}},
+                "n": {"value_count": {"field": arg["field"]}}}
+    if kind == "hist_ratio_above":
+        return {"v": {"percentile_ranks": {"field": arg["field"], "values": [arg["gt"]]}},
                 "n": {"value_count": {"field": arg["field"]}}}
     if kind == "ratio":
         return {"num": {"filter": arg}}
@@ -75,6 +81,11 @@ def _bucket_value(value, b: dict):
     if kind == "percentile":
         vals = b["v"]["values"]
         return next(iter(vals.values()))
+    if kind == "hist_ratio_above":
+        if not b["n"]["value"]:
+            return None
+        rank = next(iter(b["v"]["values"].values()))      # ≤ gt 的百分比（0～100）
+        return None if rank is None else max(0.0, 1.0 - rank / 100.0)
     return b["v"]["value"]
 
 
@@ -89,7 +100,7 @@ def value_kind(spec: dict) -> str:
     if value == "count":
         return "count"
     (kind, _), = value.items()
-    return {"hist_count": "count", "ratio": "rate", "hist_ratio": "rate", "percentile": "rate"}.get(kind, "gauge")
+    return {"hist_count": "count", "ratio": "rate", "hist_ratio": "rate", "hist_ratio_above": "rate", "percentile": "rate"}.get(kind, "gauge")
 
 
 def _bucket_events(value, b: dict):
@@ -101,7 +112,7 @@ def _bucket_events(value, b: dict):
         return b["v"]["value"]
     if kind == "ratio":
         return float(b["doc_count"])
-    if kind == "percentile":
+    if kind in ("percentile", "hist_ratio_above"):
         return b["n"]["value"]
     return None
 
