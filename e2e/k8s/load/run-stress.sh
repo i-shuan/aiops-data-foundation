@@ -310,7 +310,7 @@ do_reject() {
 with_config() {  # with_config <sed 運算式> <ES_ENDPOINT>：只在這個情境改 Collector 設定，結束後換回 repo 的
   local tmp; tmp="$(mktemp -d)"
   cp "${repo}"/collector/code/*.yaml "${tmp}/"
-  sed -i -E "$1" "${tmp}/common.yaml" "${tmp}/node.yaml"
+  sed -i -E "$1" "${tmp}/common.yaml" "${tmp}/node.yaml" "${tmp}/aiops.yaml"
   CONFIG_DIR="${tmp}" "${repo}/e2e/k8s/deploy-collector.sh" --set "esEndpoint=$2"
   wait_collectors
   rm -rf "${tmp}"

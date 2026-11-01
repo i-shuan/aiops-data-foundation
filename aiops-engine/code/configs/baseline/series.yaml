@@ -68,7 +68,7 @@ series:
   # ── 每個服務 × API 的流量、錯誤率、延遲：從應用的 metrics 算 ──
   # 來源是 http.server.request.duration（直方圖）：Java agent、ASP.NET Core 8 以上都有，每個請求都算到，不受 trace 取樣影響。
   # Java 經 Prometheus 格式進來的名字（http_server_request_duration_seconds、http_route）由 node Collector 改成 OTel 名字
-  # （node.yaml 的 metricstransform/java-http），ES 裡只有一種，這裡不用分語言（docs/pdca/phase1-collect/2026-10-field-unify.md）。
+  # （aiops.yaml 的 metricstransform/java-http），ES 裡只有一種，這裡不用分語言（docs/pdca/phase1-collect/2026-10-field-unify.md）。
   # 不用 trace 算：trace 有取樣（調到一成就只看到一成的請求），而且只留 7 天。
   - name: http.requests
     keys: [service, method, route]
