@@ -138,7 +138,7 @@
     {
       "id": 3,
       "type": "table",
-      "title": "③ Trace：每一段的耗時（哪一段變慢）",
+      "title": "③ Trace：最近的 span，每一段屬於哪個 trace_id、花多久（同一個 trace_id 連在一起看）",
       "gridPos": {
         "x": 0,
         "y": 8,
@@ -151,27 +151,59 @@
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "ns"
+          "custom": {
+            "inspect": true
+          }
         },
         "overrides": [
           {
             "matcher": {
               "id": "byName",
-              "options": "Count"
+              "options": "trace_id"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 290
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "服務"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 120
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "耗時"
             },
             "properties": [
               {
                 "id": "unit",
-                "value": "none"
+                "value": "ns"
+              },
+              {
+                "id": "custom.width",
+                "value": 90
               }
             ]
           }
         ]
       },
       "options": {
+        "cellHeight": "sm",
+        "showHeader": true,
         "sortBy": [
           {
-            "displayName": "Max duration",
+            "displayName": "trace_id",
             "desc": true
           }
         ]
@@ -188,50 +220,44 @@
           "metrics": [
             {
               "id": "1",
-              "type": "avg",
-              "field": "duration"
-            },
-            {
-              "id": "4",
-              "type": "max",
-              "field": "duration"
-            },
-            {
-              "id": "5",
-              "type": "count"
+              "type": "raw_data",
+              "settings": {
+                "size": "200"
+              }
             }
           ],
-          "bucketAggs": [
-            {
-              "id": "2",
-              "type": "terms",
-              "field": "resource.attributes.service.name",
-              "settings": {
-                "size": "10",
-                "order": "desc",
-                "orderBy": "_count",
-                "min_doc_count": "1"
-              }
+          "bucketAggs": []
+        }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "includeByName": {
+              "trace_id": true,
+              "resource.attributes.service.name": true,
+              "name": true,
+              "duration": true
             },
-            {
-              "id": "3",
-              "type": "terms",
-              "field": "name",
-              "settings": {
-                "size": "20",
-                "order": "desc",
-                "orderBy": "_count",
-                "min_doc_count": "1"
-              }
+            "indexByName": {
+              "trace_id": 0,
+              "resource.attributes.service.name": 1,
+              "name": 2,
+              "duration": 3
+            },
+            "renameByName": {
+              "resource.attributes.service.name": "服務",
+              "name": "哪一段",
+              "duration": "耗時"
             }
-          ]
+          }
         }
       ]
     },
     {
       "id": 4,
       "type": "logs",
-      "title": "④ Log：錯誤 log（每一筆帶 trace.id，跟 trace 對得起來）",
+      "title": "④ Log：每一筆帶 trace_id，貼 ③ 的 trace_id 用 ctrl+F 找（ERROR 標紅）",
       "gridPos": {
         "x": 12,
         "y": 8,
@@ -246,7 +272,11 @@
         "showTime": true,
         "wrapLogMessage": true,
         "sortOrder": "Descending",
-        "enableLogDetails": true
+        "enableLogDetails": true,
+        "displayedFields": [
+          "trace.id",
+          "___LOG_LINE_BODY___"
+        ]
       },
       "targets": [
         {
@@ -255,14 +285,14 @@
             "type": "elasticsearch",
             "uid": "demo-logs"
           },
-          "query": "service.name:(\"rca-mes-api\" OR \"rca-wip-worker\") AND log.level:error",
+          "query": "service.name:(\"rca-mes-api\" OR \"rca-wip-worker\")",
           "timeField": "@timestamp",
           "metrics": [
             {
               "id": "1",
               "type": "logs",
               "settings": {
-                "limit": "200"
+                "limit": "500"
               }
             }
           ],

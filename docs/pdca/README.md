@@ -159,6 +159,7 @@ metrics → trace → log 找到哪一段、哪行 log；事件整合、排程�
 | [phase4-rca-llm/2026-10-incident-import.md](phase4-rca-llm/2026-10-incident-import.md) | ⑦⑨ 歷史事故單匯入＋Top-3 召回率（POC 任務 4） | `investigator import-incidents` 吃 CSV／JSON、缺欄位略過、重跑不重複、沒時區當台北，範例檔 10 筆；20 筆**合成**事故留一法 recall@3 = 10/20（50%）：指紋找的是「同一個地方又出事」，同根因在不同服務的找不到；真實事故單匯入後要重量 |
 | [phase4-rca-llm/2026-11-rca-shared-dep-trend-commonality.md](phase4-rca-llm/2026-11-rca-shared-dep-trend-commonality.md) | ⑥⑦ 不同服務卡同一個外部依賴的件互相標同源（不合併）；報告多「出事前的趨勢（突然／慢慢惡化）」與「慢請求的共同點（Pod、版本、業務 ID、SQL）」 | 單元測試 12 個；測試 ES 今天的 MTTI 事故實跑：趨勢判「突然」對、共同點抓到換版後的新 Pod（標「平常沒見過」）；同源沒在真環境看過 |
 | [phase4-rca-llm/2026-11-demo-alert-drilldown-feedback.md](phase4-rca-llm/2026-11-demo-alert-drilldown-feedback.md) | ⑧⑨ 示範儀表板：⑤ 一列一件，title 格點眼睛跳出 Grafana 抽屜看根因全文（件多存 `report_titled`）、最下面是老師傅回饋網址；點標題開報告或回饋；⑥ 拿掉；報告全文尾端帶回饋網址；回饋頁 `full=1` 全文＋表單 | Grafana 實開：抽屜顯示全文與回饋網址；HTML 自畫抽屜被 Grafana 過濾、不關安全設定做不到；沒在回饋頁送出 |
+| [phase4-rca-llm/2026-11-demo-trace-id.md](phase4-rca-llm/2026-11-demo-trace-id.md) | ⑧ 示範儀表板 ③ 改成原始 span，每一列有 trace_id；④ 每行顯示 trace_id，搜尋框搜得到 | 瀏覽器確認同一 trace_id 的 5 段都在；terms 依耗時排序會缺段（shard 各取前幾名），不用 |
 | [phase4-rca-llm/2026-11-rca-retry-no-trace.md](phase4-rca-llm/2026-11-rca-retry-no-trace.md) | ⑥⑦ 沒有 trace 的件每 2 分鐘重跑根因分析（最多 5 次）；還沒就緒時不說「沒變慢」 | 真實的件重跑成功；基準乾淨時根因指到注入的 `SELECT LOT_HISTORY`；同一件內第二次事故不重跑 |
 
 ### Phase 5 learning loop＋動態門檻（`phase5-learning-loop/`）
