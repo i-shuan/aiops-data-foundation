@@ -30,7 +30,7 @@ deploy-collector:
       helm upgrade --install collector collector/helmchart -n otel-collector ${key_args} \
         --set clusterName="${COLLECTOR_CLUSTER_NAME}" --set esEndpoint="${ES_URL}" --set ntpServer="${NTP_SERVER}" \
         --set image.repository="${COLLECTOR_IMAGE}" \
-        --set-file config.common=collector/code/common.yaml,config.node=collector/code/node.yaml,config.cluster=collector/code/cluster.yaml
+        --set-file config.common=collector/code/common.yaml,config.node=collector/code/node.yaml,config.aiops=collector/code/aiops.yaml,config.cluster=collector/code/cluster.yaml
     - kubectl -n otel-collector rollout status daemonset/otel-node-collector --timeout=300s
     - kubectl -n otel-collector rollout status deployment/otel-cluster-collector --timeout=300s
   rules:
