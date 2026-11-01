@@ -158,6 +158,45 @@ if __name__ == "__main__":
     unittest.main()
 
 
+class RerunWithoutTrace(unittest.TestCase):
+    """開件太快、trace 還沒合成完時第一份報告是空的：沒有 trace 的件隔一陣子重跑，最多幾次。"""
+    NOW = datetime(2026, 11, 1, 12, 50, tzinfo=timezone.utc)
+    ACFG = {"rca_retry_after": "2m", "rca_retry_max": 5}
+
+    def al(self, **kw):
+        base = {"report": "# 報告", "findings": {"requests": {"requests": 0}}, "report_at": (self.NOW - timedelta(minutes=3)).isoformat(),
+                "rca_attempts": 1}
+        return {**base, **kw}
+
+    def test_no_trace_and_old_enough_reruns(self):
+        self.assertTrue(C.needs_rerun(self.al(), self.NOW, self.ACFG))
+
+    def test_too_soon_after_last_try(self):
+        self.assertFalse(C.needs_rerun(self.al(report_at=(self.NOW - timedelta(seconds=60)).isoformat()), self.NOW, self.ACFG))
+
+    def test_has_trace_no_rerun(self):
+        self.assertFalse(C.needs_rerun(self.al(findings={"requests": {"requests": 120}}), self.NOW, self.ACFG))
+
+    def test_stops_after_max_attempts(self):
+        self.assertFalse(C.needs_rerun(self.al(rca_attempts=5), self.NOW, self.ACFG))
+        self.assertTrue(C.needs_rerun(self.al(rca_attempts=4), self.NOW, self.ACFG))
+
+    def test_new_alert_or_no_report_is_not_a_rerun(self):
+        self.assertFalse(C.needs_rerun(self.al(_new=True), self.NOW, self.ACFG))      # 新的一件走原本的第一次分析
+        self.assertFalse(C.needs_rerun(self.al(report=None), self.NOW, self.ACFG))
+
+    def test_failed_analysis_counts_as_no_trace(self):
+        self.assertTrue(C.needs_rerun(self.al(findings=None), self.NOW, self.ACFG))   # 分析失敗（沒有 findings）也重試
+
+    def test_old_alert_without_counter_counts_as_one_attempt(self):
+        a = self.al(); del a["rca_attempts"]
+        self.assertEqual(C.attempts(a), 1)
+        self.assertEqual(C.attempts({}), 0)
+
+    def test_can_be_turned_off(self):
+        self.assertFalse(C.needs_rerun(self.al(), self.NOW, {**self.ACFG, "rca_retry": False}))
+
+
 class FeedbackFooter(unittest.TestCase):
     def test_footer_added_once(self):
         url = "http://fb/feedback?alert=a-1"

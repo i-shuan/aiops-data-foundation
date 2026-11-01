@@ -23,6 +23,8 @@ CITE = re.compile(r"\[([A-Z]\d+)\]")
 PROMPT = """你是工廠 IT 維運的值班助理。根據下面的輸入包，用繁體中文寫 3～5 句話：最可能的原因、影響（哪些服務、API、多久）、建議先做什麼（有過去事故就引用它的處置）。
 規則：每一句結尾一定要放依據的 id，格式像 [S1] 或 [A1][I1]（講這件告警本身：服務、持續多久、嚴重度，引用 [T1]）；只能引用輸入包裡有的 id；不能自己編服務名、數字；不確定就說「不確定」。只輸出那幾句，一句一行，不要標題。
 
+trace_ready 是 false：這個服務這段時間的 trace 還沒就緒（trace 合成晚 1～2 分鐘，剛開件時常見），不能寫「trace 沒看到變慢」；要寫「trace 還沒就緒，先不下結論」，建議看 log、稍後報告會重跑。
+
 輸入包（JSON）：
 """
 
@@ -70,6 +72,9 @@ def build_pack(alert: dict, findings: dict | None, similar: list[dict]) -> dict:
         pack["similar"].append({"id": k, "when": (s.get("start") or "")[:16], "root_cause_category": s.get("root_cause_category"),
                                 "root_cause": s.get("root_cause"), "action": s.get("action"), "how_detected": s.get("how_detected"),
                                 "why_similar": s.get("why")})
+    # trace 還沒就緒：根因分析查過、但這個服務這段時間沒有任何 trace（trace 合成晚 1～2 分鐘）。沒查過（findings 是 None）不算
+    req = f.get("requests")
+    pack["trace_ready"] = not (isinstance(req, dict) and not req.get("requests"))
     pack["_ids"] = sorted(items)
     return pack
 
@@ -120,6 +125,9 @@ def template(pack: dict) -> str:
         where = (slow["segment"] if slow else err[0]["segment"]).split(" › ")[-1]
         ref = slow["id"] if slow else err[0]["id"]
         out.append(f"沒有相似的過去事故；建議先查 {where} 這一段的下游（DB、外部系統）[{ref}]。")
+    elif anoms and not pack.get("trace_ready", True):
+        # 沒有 trace 資料不等於「沒變慢」：講清楚是還沒就緒，不下結論
+        out.append(f"{a['service']} 這段時間還沒有 trace 可以看（trace 合成晚 1～2 分鐘），先不下結論；先看它本身的資源和 log，報告稍後會重跑 [{anoms[0]['id']}]。")
     elif anoms:
         out.append(f"沒有相似的過去事故，trace 也沒看到哪一段變慢或出錯；先看 {a['service']} 本身的資源和 log [{anoms[0]['id']}]。")
     return "\n".join(out[:5])

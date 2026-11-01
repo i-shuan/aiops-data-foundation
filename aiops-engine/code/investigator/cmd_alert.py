@@ -49,6 +49,8 @@ ALERT_MAPPING = {"mappings": {"dynamic": False, "properties": {
     "routes": {"type": "keyword"},
     # 跨服務（一層）：這件連帶了哪些上游服務；上游那件被整件併進下游時，上游那件標 resolved、merged_into 指到下游那件
     "upstream_services": {"type": "keyword"}, "merged_into": {"type": "keyword"},
+    # 根因分析重跑：沒有 trace 的件（開件太快、trace 還沒合成完）每隔一陣子重跑，這是跑了幾次
+    "rca_attempts": {"type": "integer"},
     # 同源（不合併）：這件卡在哪些外部依賴；跟它卡同一個依賴的其他開著的件
     "dependencies": {"type": "keyword"}, "related_alerts": {"type": "keyword"}, "shared_dependency": {"type": "keyword"},
     # Grafana 的告警只能帶 labels（terms 分組的值），所以標題、摘要、報告連結都存成 keyword
@@ -201,6 +203,27 @@ def tag_anomalies(es: ES, index: str, tags: list[tuple[str, str]]) -> int:
     return sum(1 for it in items if it["update"].get("result") in ("updated", "noop"))
 
 
+def has_trace(findings: dict | None) -> bool:
+    """根因分析有沒有看到這個服務的 trace：findings.requests.requests > 0。沒有 findings（分析失敗）算沒有。"""
+    return bool(((findings or {}).get("requests") or {}).get("requests"))
+
+
+def attempts(al: dict) -> int:
+    """這件的根因分析跑過幾次。舊的件沒有這個欄位：已經有報告就當作跑過 1 次。"""
+    return int(al.get("rca_attempts") or (1 if al.get("report") else 0))
+
+
+def needs_rerun(al: dict, now: datetime, acfg: dict) -> bool:
+    """開件太快、trace 還沒合成完（合成晚 1～2 分鐘）時第一份報告是空的：沒有 trace 的件隔 rca_retry_after 重跑一次，
+    最多 rca_retry_max 次（服務本來就沒埋點的，不會永遠重跑）。報告已經有 trace、或重跑次數用完就不再跑。"""
+    if not acfg.get("rca_retry", True) or al.get("_new") or not al.get("report"):
+        return False
+    if has_trace(al.get("findings")) or attempts(al) >= int(acfg.get("rca_retry_max", 5)):
+        return False
+    at = al.get("report_at")
+    return at is None or now - AL._ts(at) >= _dur(acfg.get("rca_retry_after", "2m"))
+
+
 def run(cfg: dict, args, investigate) -> int:
     """investigate：根因分析的函式（investigator.__main__.investigate_full），傳進來避免循環 import。"""
     es = ES()
@@ -228,7 +251,8 @@ def run(cfg: dict, args, investigate) -> int:
     for al in alerts:
         al["dept"], al["group"] = AL.owner(al) if al.get("_anoms") else (al.get("dept"), al.get("group") or "unassigned")
         report, findings, similar, llm = al.get("report"), al.get("findings"), al.get("similar") or [], None
-        if (al.get("_new") or not report) and acfg.get("rca", True) and al["category"] == "service" and al["status"] == "open":
+        rerun = acfg.get("rca", True) and al["category"] == "service" and al["status"] == "open" and needs_rerun(al, now, acfg)
+        if ((al.get("_new") or not report) and acfg.get("rca", True) and al["category"] == "service" and al["status"] == "open") or rerun:
             # 新的一件跑一次根因分析：時間是這件的開始到最後一筆異常再往後一個 interval；只有一支 API 時只查那支
             # （連帶進來的上游的 API 不算：根因分析以這件的服務＝下游跑）
             route = AL.rca_route(al)
@@ -238,6 +262,16 @@ def run(cfg: dict, args, investigate) -> int:
             except Exception as e:   # 根因分析失敗不擋這一件
                 report, findings = f"根因分析失敗：{e}", None
             al["report_at"] = now
+            al["rca_attempts"] = attempts(al) + 1
+            if rerun and not has_trace(findings):
+                # 重跑了還是沒有 trace：不覆蓋舊的報告、不再叫模型，只記下又試了一次（下一輪再看）
+                print(f"  ⏳ {al['alert_id']}：trace 還沒就緒（第 {al['rca_attempts']} 次），先不換報告")
+                al["_report"], al["_llm"] = al.get("report"), None
+                continue
+            if rerun:
+                al["_rerun"] = True
+                al["llm_summary"] = None      # 舊的摘要是「沒有 trace」時寫的（可能說 trace 沒變慢），換掉
+                print(f"  🔁 {al['alert_id']}：trace 到了，重跑根因分析（第 {al['rca_attempts']} 次）")
             # 相似事故（老師傅確認過的）→ 附在報告最前面；LLM 摘要（只加註）
             try:
                 similar = SIM.search(es, SIM.fingerprint(al, findings)) if acfg.get("similar", True) else []
@@ -254,7 +288,7 @@ def run(cfg: dict, args, investigate) -> int:
     relinked = AL.link_shared(alerts)
     for al in alerts:
         report, findings, similar, llm = al["_report"], al.get("findings"), al.get("similar") or [], al.get("_llm")
-        if al.get("_anoms") or al.get("_new") or not al.get("summary") or al["alert_id"] in relinked:
+        if al.get("_anoms") or al.get("_new") or al.get("_rerun") or not al.get("summary") or al["alert_id"] in relinked:
             al["title"], al["summary"] = AL.headline(al), AL.summary(al, report, tz, similar)
         url, furl = acfg.get("report_url"), acfg.get("feedback_url")
         doc = {k: v for k, v in al.items() if not k.startswith("_")}
@@ -279,7 +313,7 @@ def run(cfg: dict, args, investigate) -> int:
         if al.get("_anoms") or al["status"] == "resolved":
             # 這輪有異常併進來、或這輪結束的件：把 alert_id 寫回它的每筆異常（連同之前併的：改版前就開著的件，結束時補得到）
             tags += [(i, al["alert_id"]) for i in dict.fromkeys([a["_id"] for a in al.get("_anoms") or []] + al["anomaly_ids"])]
-        if al["category"] == "service" and (al.get("_new") or al.get("_anoms") or al["status"] == "resolved"):
+        if al["category"] == "service" and (al.get("_new") or al.get("_anoms") or al.get("_rerun") or al["status"] == "resolved"):
             incidents.append((al["alert_id"], _incident_doc(al, doc, findings)))
         if al.get("_new") and al["status"] == "resolved":   # 已經過去的（例如這支停了一陣子才跑）：記下來，不算新開、不通知
             print(f"  ⏺ 已經過去的：{doc['title']}")
