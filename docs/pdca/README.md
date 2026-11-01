@@ -114,6 +114,7 @@ baseline（中位數＋MAD）、規則、資料品質、餵給 baseline 前的�
 | [phase2-anomaly/2026-10-anomaly-owner.md](phase2-anomaly/2026-10-anomaly-owner.md) | ⑤ 異常總表帶 `dept`、`group` | 資料本來就帶，異常寫回時補；namespace 優先、其次服務、對不到 unassigned；告警依 group 分送的前置 |
 | [phase2-anomaly/2026-10-baseline-threshold-tune.md](phase2-anomaly/2026-10-baseline-threshold-tune.md) | ④ 動態基準線的誤報：p95 `instant_z: null`（只改設定；`min_events.rate` 20 → 100 試過，已退回） | 只留 `instant_z: null`：一週 anomaly 1.50% → 0.53%、warning 1.00% → 1.97%，都沒到目標（≤ 0.1%、≤ 1%），p95 超標的點只是從 anomaly 變 warning；真異常都抓到；下一輪改程式：σ 下限＝半個桶寬、錯誤率至少 N 個 5xx |
 | [phase2-anomaly/2026-11-baseline-false-alarm.md](phase2-anomaly/2026-11-baseline-false-alarm.md) | ④ 動態基準線誤報第三輪：p95 σ 至少半個桶寬（OTel 邊界）、錯誤率至少 3 個 5xx：一週 anomaly 0.530% → 0.068%、warning 1.97% → 0.008% | 已完成 |
+| [phase2-anomaly/2026-11-trace-segments-merged.md](phase2-anomaly/2026-11-trace-segments-merged.md) | ④ trace 每一段的統計改讀合成後的 `traces-merged-*`（nested → composite）：同一窗口與讀 raw 的結果一致 | 已完成 |
 | [phase2-anomaly/2026-11-trace-sample-100.md](phase2-anomaly/2026-11-trace-sample-100.md) | ④ trace 每一段每點抽 20 → 100 個請求：耗時 0.1 → 0.3～0.5 秒；10% 請求變慢報得出來、2% 例外吞噬不再誤報 | 已完成 |
 | [phase2-anomaly/2026-10-baseline-verify.md](phase2-anomaly/2026-10-baseline-verify.md) | ④ 動態基準線學習：邊緣情境、誤報率、調整介面（合成資料、Collector 的形狀） | 修 4 個：收集中斷時補 0（30 分鐘窗 91 個誤報）、error log 的 λ 學高 40%、壞調整整輪失敗、override 過期時點；一週 anomaly 1.5%（p95 跳桶 88%、錯誤率 1 個 5xx）；調整介面都下一輪生效 |
 | [phase2-anomaly/2026-10-chronic-calendar.md](phase2-anomaly/2026-10-chronic-calendar.md) | 慢性病清單與行事曆 | 已合；清單沒送到負責人手上；假日預設連當天故障也不報 |
@@ -126,6 +127,7 @@ baseline（中位數＋MAD）、規則、資料品質、餵給 baseline 前的�
 | [phase2-anomaly/2026-10-split-detector-cli.md](phase2-anomaly/2026-10-split-detector-cli.md) | ④⑤⑨ detector 的 `__main__.py`（1,100 行）依指令拆檔 | 1,100 行 → `__main__.py` 160 行＋ 10 個檔；只搬不改，200 個測試、ruff、9 個指令實跑都過 |
 | [phase2-anomaly/2026-10-trace-quality-verify.md](phase2-anomaly/2026-10-trace-quality-verify.md) | ②④ trace 段異常、資料品質的邊緣情境（自己的 ES 灌合成資料） | 41 PASS 2 FAIL；修 4 個（`db.system.name`、ID 比例抽樣、缺 namespace 時 `quality` 中斷、3 個新檢查）；例外吞噬定義、第一天路由數維持新做法（已決定）；部分請求變慢、Pod 沒服務 label 的 log 抓不到 |
 | [phase2-anomaly/2026-11-aiops-retention-backup.md](phase2-anomaly/2026-11-aiops-retention-backup.md) | ③⑤⑧⑨ aiops-* 的保留天數與備份：`detector prune` 每天刪超過天數的異常、trace 段統計、已結案告警；setup 註冊 snapshot 儲存庫與每天的 SLM 政策（人工判斷的三個索引不設天數、只備份） | 臨時索引實測刪對、不重算；測試 chart 三節點掛 `/snapshots`，備份 5 個索引 1.2 秒、刪 `aiops-tuning` 再還原 4 筆對 4 筆；正式儲存庫由管 ES 的人決定 |
+| [phase2-anomaly/2026-11-baseline-more-series.md](phase2-anomaly/2026-11-baseline-more-series.md) | ④ 動態基準線補三條序列：p99、慢請求比例（超過 2 秒）、往外呼叫 p95；`detector shift` 每天看哪條序列一階跳變、提 `reset_point`（proposed） | 新 value 寫法 `hist_ratio_above`（`percentile_ranks`）；真資料 p99、慢請求比例各 298 條序列學得出來，往外呼叫沒活資料；`shift` 合成資料對、真 ES 跑完 0 筆（沒換版）；ES `change_point` 聚合要授權，不做 |
 
 ### Phase 3 定位問題（`phase3-locate/`）
 

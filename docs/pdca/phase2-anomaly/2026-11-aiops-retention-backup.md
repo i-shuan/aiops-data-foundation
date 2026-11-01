@@ -21,7 +21,7 @@
 | `detector/cmd_prune.py`（新）、`detector/__main__.py` | `detector prune --config … [--dry-run] [--at]`：每個索引 `time_field < now − keep_days`（加上設定的 filter）先 `_count`，有才 `_delete_by_query`（`conflicts=proceed`、`refresh=true`、`slices=auto`），印每個索引刪了幾筆 | 一般索引不能用 ILM；`refresh` 是為了刪完馬上查得到、下一輪不重算 |
 | `configs/baseline/prune.yaml`（新） | `aiops-anomalies` 90 天、`aiops-trace-segments` 90 天、`aiops-alerts` 結案（`status: resolved`、看 `resolved_at`）180 天 | 開著的件、心跳、`detect-status` 沒有 `resolved_at`，不會被刪；人工判斷的索引不列。天數是估的 |
 | `configs/schedule/schedule.yaml` | 加 `prune`（stage 2、每天 03:30、600 秒） | 跟 `train`（02:00）錯開 |
-| `tests/test_prune.py`（新）、`tests/test_scheduler.py` | 單元測試（cutoff、filter、dry-run、沒東西不打 delete、出貨設定只碰衍生索引）；排程表 11 → 12 個工作 | |
+| `tests/test_prune.py`（新）、`tests/test_scheduler.py` | 單元測試（cutoff、filter、dry-run、沒東西不打 delete、出貨設定只碰衍生索引）；排程表多一個工作（合進 master 後共 13 個） | |
 | `elasticsearch/code/scripts/retention.conf` | `SNAPSHOT_INDICES`、`SNAPSHOT_KEEP=30d`、`SNAPSHOT_SCHEDULE` | 天數跟其他保留天數放一起 |
 | `elasticsearch/code/scripts/elasticsearch-setup.sh` | 給了 `SNAPSHOT_REPO_TYPE`＋`SNAPSHOT_REPO_SETTINGS` 才：註冊儲存庫、`_verify`、SLM 政策 `aiops-daily`（`<aiops-{now/d}>`，`retention` 30 天、最少 7 最多 60 份）、`_slm/start`；沒給就印一行提醒跳過 | 儲存庫類型與位置由管 ES 的人決定；腳本不能替他們猜 |
 | `elasticsearch/helmchart`（測試用） | `snapshots.enabled`（預設開）：節點目錄 hostPath 掛進每個 Pod 的 `/snapshots`、`path.repo`、initContainer 一起 chown | fs 儲存庫要所有 master、data 節點看得到同一個目錄；單節點的 Rancher Desktop 用 hostPath 就是同一個 |

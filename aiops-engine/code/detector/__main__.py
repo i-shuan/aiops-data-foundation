@@ -42,6 +42,7 @@ from .cmd_metrics import cmd_metrics
 from .cmd_feedback import cmd_feedback, cmd_incident
 from .cmd_chronic import cmd_chronic
 from .cmd_prune import cmd_prune
+from .cmd_shift import cmd_shift
 from .cmd_trace import cmd_trace_collect, cmd_trace_train, cmd_trace_detect, cmd_trace_merge
 from .cmd_rules import cmd_rules
 from .cmd_peer import cmd_peer
@@ -183,13 +184,16 @@ def main(argv=None) -> int:
     pr.add_argument("--config", required=True)
     pr.add_argument("--at", help="拿某個時間點當成現在")
     pr.add_argument("--dry-run", dest="dry_run", action="store_true", help="只印會刪幾筆，不刪")
+    sh = sub.add_parser("shift", help="一階跳變：最近一天幾乎每點都往同一邊超標、新水準很穩的序列，提 reset_point（proposed）")
+    sh.add_argument("--config", required=True, help="series.yaml（可加 shift: {window, min_points, min_share, max_spread}）")
+    sh.add_argument("--at", help="拿某個時間點當成現在")
     args = p.parse_args(argv)
     with open(args.config, encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
     cmds = {"train": cmd_train, "detect": cmd_detect, "tune": cmd_tune, "trace-collect": cmd_trace_collect,
             "trace-train": cmd_trace_train, "trace-detect": cmd_trace_detect, "trace-merge": cmd_trace_merge, "rules": cmd_rules, "peer": cmd_peer,
             "quality": cmd_quality, "adjust": cmd_adjust, "backtest": cmd_backtest, "metrics": cmd_metrics,
-            "chronic": cmd_chronic, "feedback": cmd_feedback, "incident": cmd_incident, "prune": cmd_prune}
+            "chronic": cmd_chronic, "feedback": cmd_feedback, "incident": cmd_incident, "prune": cmd_prune, "shift": cmd_shift}
     return cmds[args.cmd](cfg, args)
 
 

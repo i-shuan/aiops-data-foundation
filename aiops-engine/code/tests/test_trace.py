@@ -245,3 +245,51 @@ class ConsumerTest(unittest.TestCase):
         recv = dict(span("c", "recv", None, "order-consumer", "orders receive", 0, 900, "Consumer"), links=["gone"])
         self.assertIsNone(T.producer_of(recv, [recv], {}))
         self.assertEqual(T.request_segments([recv], recv, None), {})
+
+
+class SampleEntriesMergedTest(unittest.TestCase):
+    """index 是 traces-merged-* 時：nested → composite → top_hits；hit 的 _id 是 trace_id、_source 是入口的 span_id；只留 [start, end) 的時段。"""
+    class FakeES:
+        def __init__(self):
+            self.bodies = []
+
+        def search(self, index, body):
+            self.bodies.append((index, body))
+            if body["aggs"]["n"]["aggs"]["e"]["composite"].get("after"):
+                return {"aggregations": {"n": {"e": {"buckets": []}}}}
+            t0 = int(pd.Timestamp("2026-11-01T10:00:00Z").value // 10**6)
+            mk = lambda svc, name, ms, ids: {"key": {"svc": svc, "name": name, "ts": float(ms)},
+                                             "t": {"hits": {"hits": [{"_id": f"trace-{i}", "_source": {"span_id": f"span-{i}"}} for i in ids]}}}
+            return {"aggregations": {"n": {"e": {"buckets": [
+                mk("mes-api", "GET /lots/{id}", t0, ["a", "b"]),
+                mk("wip-worker", "GET /wip", t0 + 300_000, ["c"]),
+                mk("mes-api", "GET /lots/{id}", t0 - 300_000, ["old"]),      # 放寬查詢帶進來的、窗口外的時段：不要
+                mk("mes-api", "GET /lots/{id}", t0 + 600_000, ["late"]),     # 窗口結束那一格：不要（[start, end)）
+            ], "after_key": {"svc": "x"}}}}}
+
+    def test_merged_sampling(self):
+        es = self.FakeES()
+        start, end = pd.Timestamp("2026-11-01T10:00:00Z"), pd.Timestamp("2026-11-01T10:10:00Z")
+        got = T.sample_entries(es, "traces-merged-*", start, end, "5m", 20)
+        self.assertEqual([(s.bucket.isoformat(), s.trace_id, s.span_id) for s in got],
+                         [("2026-11-01T10:00:00+00:00", "trace-a", "span-a"), ("2026-11-01T10:00:00+00:00", "trace-b", "span-b"),
+                          ("2026-11-01T10:05:00+00:00", "trace-c", "span-c")])
+        index, body = es.bodies[0]
+        self.assertEqual(index, "traces-merged-*")
+        e = body["aggs"]["n"]["aggs"]["e"]
+        self.assertEqual(body["aggs"]["n"]["nested"], {"path": "entries"})
+        self.assertEqual(e["composite"]["sources"][2], {"ts": {"histogram": {"field": "entries.start_ms", "interval": 300000}}})
+        self.assertEqual(e["aggs"]["t"]["top_hits"]["size"], 20)
+        rng = body["query"]["bool"]["filter"][0]["range"]["@timestamp"]
+        self.assertEqual((rng["gte"], rng["lt"]), ("2026-11-01T09:55:00+00:00", "2026-11-01T10:15:00+00:00"))   # 兩邊各放寬 5 分鐘
+        self.assertEqual(len(es.bodies), 2)     # after_key 有值就翻下一頁，空的就停
+
+    def test_raw_path_unchanged(self):
+        class RawES:
+            def search(self, index, body):
+                self.body = body
+                return {"aggregations": {"e": {"buckets": []}}}
+        es = RawES()
+        T.sample_entries(es, "traces-generic.otel-*", pd.Timestamp("2026-11-01T10:00:00Z"), pd.Timestamp("2026-11-01T10:10:00Z"), "5m", 20)
+        self.assertIn("composite", es.body["aggs"]["e"])
+        self.assertNotIn("n", es.body["aggs"])

@@ -39,6 +39,9 @@
 | `http.requests` | 應用的 metrics | 服務 × method × API | 請求數變多或變少 |
 | `http.error_rate` | 應用的 metrics | 服務 × method × API | 5xx 的比例變高（至少多 5 個百分點） |
 | `http.latency_p95_s` | 應用的 metrics | 服務 × method × API | 延遲 p95 變高（至少慢 50 毫秒） |
+| `http.latency_p99_s` | 應用的 metrics | 服務 × method × API | 尾端：p99 變高（至少慢 100 毫秒）；p95 看不到的少數很慢的請求 |
+| `http.slow_ratio` | 應用的 metrics | 服務 × method × API | 超過 2 秒的請求佔幾成變高（至少多 2 個百分點、至少 3 個）；只有一部分請求變慢時 p95 不動、這條會動 |
+| `http.client_p95_s` | 應用的 metrics（`http.client.request.duration`） | 服務 × 對方位址（`server.address`） | 往外呼叫（下游 API、外部系統）的 p95 變高 |
 | `log.lines` | log | 服務 | log 筆數變多或變少 |
 | `log.errors` | log | 服務 | error／fatal 的 log 變多 |
 | `pod.cpu`、`pod.memory_bytes` | K8s metrics | namespace × Deployment | 用量變高 |
