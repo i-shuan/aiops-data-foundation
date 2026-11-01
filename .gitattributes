@@ -1,0 +1,2 @@
+# 大的二進位檔走 git lfs（docs/pdca/phase5-learning-loop/2026-11-grafana-plugin-lfs.md）
+grafana/plugins/*.zip filter=lfs diff=lfs merge=lfs -text

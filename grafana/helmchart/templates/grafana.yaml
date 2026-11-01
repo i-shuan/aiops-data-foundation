@@ -22,12 +22,19 @@ spec:
           command: ["sh", "/installer/install-plugin.sh"]
           env:
             - {name: PLUGIN_ID, value: {{ .Values.plugin.id | quote }}}
+            {{- if eq .Values.plugin.source "configmap" }}
+            - {name: PLUGIN_PARTS_DIR, value: /plugin-zip}
+            {{- else }}
             - {name: PLUGIN_URL, value: {{ .Values.plugin.url | quote }}}
+            {{- end }}
             - {name: PLUGIN_SHA256, value: {{ .Values.plugin.sha256 | quote }}}
             - {name: PLUGINS_DIR, value: /var/lib/grafana/plugins}
           volumeMounts:
             - {name: grafana-plugins, mountPath: /var/lib/grafana/plugins}
             - {name: plugin-installer, mountPath: /installer, readOnly: true}
+            {{- if eq .Values.plugin.source "configmap" }}
+            - {name: plugin-zip, mountPath: /plugin-zip, readOnly: true}
+            {{- end }}
           resources:
             {{- toYaml .Values.plugin.resources | nindent 12 }}
       {{- end }}
@@ -71,6 +78,15 @@ spec:
           emptyDir: {}        # Pod 每次重建都由 initContainer 重裝，版本永遠是 values 寫的那個
         - name: plugin-installer
           configMap: {name: grafana-plugin-installer}
+        {{- if eq .Values.plugin.source "configmap" }}
+        {{- if lt (int .Values.plugin.parts) 1 }}{{ fail "plugin.source=configmap 要給 plugin.parts（load-plugin.sh 印出來的段數）" }}{{ end }}
+        - name: plugin-zip      # load-plugin.sh 把 repo 裡的 zip 切成 grafana-plugin-zip-0…N-1（每個不到 1MB），這裡依序接到 part-000…
+          projected:
+            sources:
+              {{- range $i := until (int .Values.plugin.parts) }}
+              - configMap: {name: grafana-plugin-zip-{{ $i }}, items: [{key: part, path: {{ printf "part-%03d" $i }}}]}
+              {{- end }}
+        {{- end }}
         {{- end }}
 ---
 apiVersion: v1

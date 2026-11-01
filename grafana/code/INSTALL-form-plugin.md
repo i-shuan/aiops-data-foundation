@@ -32,6 +32,8 @@ Grafana 的 Pod 多一個 initContainer：Grafana 啟動前，從公司的 Nexus
    # 上傳到 Nexus 的 raw repository，例如 .../repository/raw/grafana-plugins/volkovlabs-form-panel-6.3.1.zip
    ```
 
+   連不到 Nexus 的環境：zip 也放在 repo 的 [`grafana/plugins/`](../plugins/)（git lfs）。Grafana 用本 repo 的 chart 裝時，`load-plugin.sh` 把它切成 ConfigMap 帶進 cluster，initContainer 從那裡接回，不用下載（步驟見 [grafana/README.md](../README.md#部署)）。
+
 2. **改 `plugin-init-patch.yaml`**：`metadata.name` 改成你們的 Grafana Deployment 名字、主容器的 `name`（這裡假設 `grafana`）、`image` 跟你們主容器一樣、`PLUGIN_URL` 改成 Nexus 的網址。Nexus 用內部 CA 的話，`CURL_OPTS` 給 `--cacert <CA 檔>` 並把 CA 掛進來。
 
 3. **套用**：
