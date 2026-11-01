@@ -77,3 +77,9 @@ jobs:
     timeout: 1800
     args: [detector, chronic, --config, configs/baseline/chronic.yaml]
     why: 每週一的慢性病清單，要幾週資料才有意義
+  - name: shift
+    stage: 2
+    cron: "0 4 * * *"
+    timeout: 300
+    args: [detector, shift, --config, configs/baseline/series.yaml]
+    why: 一階跳變（換版後停在新水準、一直報）提 reset_point 的建議（proposed，人核准才生效）；每天看一次最近 24 小時

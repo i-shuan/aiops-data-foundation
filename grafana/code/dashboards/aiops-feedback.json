@@ -703,6 +703,18 @@
                 "label": "http.latency_p95_s（延遲 p95）"
               },
               {
+                "value": "http.latency_p99_s",
+                "label": "http.latency_p99_s（延遲 p99）"
+              },
+              {
+                "value": "http.slow_ratio",
+                "label": "http.slow_ratio（超過 2 秒的請求比例）"
+              },
+              {
+                "value": "http.client_p95_s",
+                "label": "http.client_p95_s（往外呼叫 p95）"
+              },
+              {
                 "value": "log.lines",
                 "label": "log.lines（log 筆數）"
               },
