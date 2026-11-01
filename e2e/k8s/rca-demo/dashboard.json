@@ -230,8 +230,8 @@
     },
     {
       "id": 4,
-      "type": "logs",
-      "title": "④ Log：錯誤 log（每一筆帶 trace.id，跟 trace 對得起來）",
+      "type": "table",
+      "title": "④ Log：錯誤 log（trace_id 那欄跟 ③-2、報告對得起來；上方填 trace_id 只看那個請求）",
       "gridPos": {
         "x": 12,
         "y": 8,
@@ -242,12 +242,6 @@
         "type": "elasticsearch",
         "uid": "demo-logs"
       },
-      "options": {
-        "showTime": true,
-        "wrapLogMessage": true,
-        "sortOrder": "Descending",
-        "enableLogDetails": true
-      },
       "targets": [
         {
           "refId": "A",
@@ -255,18 +249,209 @@
             "type": "elasticsearch",
             "uid": "demo-logs"
           },
-          "query": "service.name:(\"rca-mes-api\" OR \"rca-wip-worker\") AND log.level:error",
+          "query": "service.name:(\"rca-mes-api\" OR \"rca-wip-worker\") AND log.level:error AND trace.id:${trace_id:raw}",
           "timeField": "@timestamp",
           "metrics": [
             {
               "id": "1",
-              "type": "logs",
+              "type": "raw_data",
               "settings": {
-                "limit": "200"
+                "size": "100"
               }
             }
           ],
           "bucketAggs": []
+        }
+      ],
+      "options": {
+        "sortBy": [
+          {
+            "displayName": "@timestamp",
+            "desc": true
+          }
+        ]
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "@timestamp"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 170
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "service.name"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 120
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "trace.id"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "trace_id"
+              },
+              {
+                "id": "custom.width",
+                "value": 290
+              },
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "只看這個請求",
+                    "url": "/d/aiops-rca-demo/0cb079a?${__url_time_range}&var-trace_id=${__value.raw}"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "includeByName": {
+              "@timestamp": true,
+              "service.name": true,
+              "trace.id": true,
+              "message": true
+            },
+            "indexByName": {
+              "@timestamp": 0,
+              "service.name": 1,
+              "trace.id": 2,
+              "message": 3
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "table",
+      "title": "③-2 Trace：最慢的請求（點 trace_id，④ 只留這個請求的 log；報告第 4 節的 trace_id 在這裡對得到）",
+      "gridPos": {
+        "x": 0,
+        "y": 17,
+        "w": 24,
+        "h": 7
+      },
+      "datasource": {
+        "type": "elasticsearch",
+        "uid": "demo-traces"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Max"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "請求耗時"
+              },
+              {
+                "id": "unit",
+                "value": "ns"
+              },
+              {
+                "id": "custom.width",
+                "value": 130
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "trace_id"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "只看這個請求的 log",
+                    "url": "/d/aiops-rca-demo/0cb079a?${__url_time_range}&var-trace_id=${__value.raw}"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "sortBy": [
+          {
+            "displayName": "請求耗時",
+            "desc": true
+          }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "elasticsearch",
+            "uid": "demo-traces"
+          },
+          "timeField": "@timestamp",
+          "query": "resource.attributes.service.name:\"rca-mes-api\" AND name:\"GET /lots/{id}\" AND trace_id:${trace_id:raw}",
+          "metrics": [
+            {
+              "id": "1",
+              "type": "max",
+              "field": "duration"
+            }
+          ],
+          "bucketAggs": [
+            {
+              "id": "2",
+              "type": "terms",
+              "field": "trace_id",
+              "settings": {
+                "size": "15",
+                "order": "desc",
+                "orderBy": "1",
+                "min_doc_count": "1"
+              }
+            }
+          ]
         }
       ]
     },
@@ -276,7 +461,7 @@
       "title": "⑤ AIOps：合成的事件（一列一件；title 那格點眼睛：AI 摘要、根因分析、最下面老師傅回饋網址；「老師傅回饋」點一下開表單）",
       "gridPos": {
         "x": 0,
-        "y": 17,
+        "y": 24,
         "w": 24,
         "h": 14
       },
@@ -529,5 +714,26 @@
         }
       ]
     }
-  ]
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "trace_id",
+        "label": "trace_id（貼報告裡的，或點下面最慢的請求）",
+        "type": "textbox",
+        "query": "*",
+        "current": {
+          "text": "*",
+          "value": "*"
+        },
+        "options": [
+          {
+            "text": "*",
+            "value": "*",
+            "selected": true
+          }
+        ]
+      }
+    ]
+  }
 }
