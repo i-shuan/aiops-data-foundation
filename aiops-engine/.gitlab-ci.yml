@@ -1,0 +1,66 @@
+# aiops-engine：build image 推到 Nexus，再用 aiops-engine/helmchart 部署（排程器＋回饋網頁一隻 Pod）。
+#
+# 變數：
+#   ENGINE_IMAGE               Nexus 的 image 路徑，例如 nexus.example.internal/aiops/aiops-engine
+#   NEXUS_REGISTRY_USER、NEXUS_REGISTRY_PASSWORD    推 image 的帳密（Masked、Protected）
+#   KUBE_CONFIG_AIOPS          （Type: File）部署 AIOps 的 cluster 的 kubeconfig
+#   ES_URL                     公司 ES 的網址
+#   LLM_PROVIDER、LLM_CHAT_MODEL、LLM_BASE_URL、LLM_API_KEY    LLM 設定（key Masked、Protected）；不給 LLM_PROVIDER 就用 template（不叫模型）
+#
+# image tag 用 commit 的短碼。有 es-setup 的 key 檔（同一條 pipeline）：chart 建 Secret aiops-secrets；沒有就沿用現有的。
+# Dockerfile 的 pip 要走公司的 Nexus（aiops-engine/README.md）。
+
+build-aiops-engine:
+  stage: build
+  image:
+    name: gcr.io/kaniko-project/executor:v1.23.2-debug
+    entrypoint: [""]
+  script:
+    - mkdir -p /kaniko/.docker
+    - printf '{"auths":{"%s":{"auth":"%s"}}}' "${ENGINE_IMAGE%%/*}" "$(printf '%s:%s' "${NEXUS_REGISTRY_USER}" "${NEXUS_REGISTRY_PASSWORD}" | base64 | tr -d '\n')" > /kaniko/.docker/config.json
+    - /kaniko/executor --context aiops-engine/code --dockerfile aiops-engine/code/Dockerfile --destination "${ENGINE_IMAGE}:${CI_COMMIT_SHORT_SHA}"
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes:
+        - aiops-engine/code/**/*
+      when: manual
+    - if: $CI_PIPELINE_SOURCE == "web"
+      when: manual
+
+deploy-aiops-engine:
+  stage: deploy
+  image:
+    name: dtzar/helm-kubectl:3.15
+    entrypoint: [""]
+  needs:
+    - job: es-setup
+      artifacts: true
+      optional: true
+    - job: build-aiops-engine
+      optional: true            # 只改 chart／設定、沒重 build：用現有的 image（IMAGE_TAG 變數指定，沒給就用 values.yaml 的）
+  variables:
+    KUBECONFIG: ${KUBE_CONFIG_AIOPS}
+  script:
+    - kubectl get namespace aiops >/dev/null 2>&1 || kubectl create namespace aiops
+    - |
+      umask 077
+      {
+        echo "llm:"
+        echo "  provider: \"${LLM_PROVIDER:-template}\""
+        echo "  model: \"${LLM_CHAT_MODEL:-}\""
+        echo "  baseUrl: \"${LLM_BASE_URL:-}\""
+        echo "  apiKey: \"${LLM_API_KEY:-}\""
+      } > llm-values.yaml
+      args="-f llm-values.yaml"
+      [ -f keys/engine-values.yaml ] && args="${args} -f keys/engine-values.yaml"
+      tag="${IMAGE_TAG:-${CI_COMMIT_SHORT_SHA}}"
+      helm upgrade --install aiops aiops-engine/helmchart -n aiops ${args} \
+        --set image.repository="${ENGINE_IMAGE}" --set image.tag="${tag}" --set esUrl="${ES_URL}"
+    - kubectl -n aiops rollout status deployment/aiops-engine --timeout=300s
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes:
+        - aiops-engine/**/*
+      when: manual
+    - if: $CI_PIPELINE_SOURCE == "web"
+      when: manual

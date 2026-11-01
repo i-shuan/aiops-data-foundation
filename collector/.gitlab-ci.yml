@@ -1,0 +1,42 @@
+# collector：每個應用 cluster 部署一套 OTel Collector（collector/helmchart、設定檔在 collector/code/）。
+#
+# 變數：
+#   KUBE_CONFIG_COLLECTOR      （Type: File）這個 cluster 的 kubeconfig
+#   COLLECTOR_CLUSTER_NAME     這個 cluster 的名字（每筆資料的 k8s.cluster.name，每個 cluster 不一樣）
+#   COLLECTOR_IMAGE            Nexus 的 image 路徑，例如 nexus.example.internal/otel/opentelemetry-collector-contrib
+#   ES_URL                     公司 ES 的網址
+#   NTP_SERVER                 公司的 NTP，例如 ntp.example.internal:123
+#
+# 有 es-setup 的 key 檔（同一條 pipeline）：chart 建 Secret es-writer-keys；沒有就沿用現有的（Collector 自己換 key，不用重啟）。
+# 一個 job 部署一個 cluster。有好幾個 cluster：複製這個 job（job 名、KUBE_CONFIG_*、COLLECTOR_CLUSTER_NAME 換掉），
+# 或在 GitLab 畫面用不同的變數值各跑一次。
+
+deploy-collector:
+  stage: deploy
+  image:
+    name: dtzar/helm-kubectl:3.15
+    entrypoint: [""]
+  needs:
+    - job: es-setup
+      artifacts: true
+      optional: true
+  variables:
+    KUBECONFIG: ${KUBE_CONFIG_COLLECTOR}
+  script:
+    - kubectl get namespace otel-collector >/dev/null 2>&1 || kubectl create namespace otel-collector
+    - |
+      key_args=""
+      [ -f keys/collector-values.yaml ] && key_args="-f keys/collector-values.yaml"
+      helm upgrade --install collector collector/helmchart -n otel-collector ${key_args} \
+        --set clusterName="${COLLECTOR_CLUSTER_NAME}" --set esEndpoint="${ES_URL}" --set ntpServer="${NTP_SERVER}" \
+        --set image.repository="${COLLECTOR_IMAGE}" \
+        --set-file config.common=collector/code/common.yaml,config.node=collector/code/node.yaml,config.cluster=collector/code/cluster.yaml
+    - kubectl -n otel-collector rollout status daemonset/otel-node-collector --timeout=300s
+    - kubectl -n otel-collector rollout status deployment/otel-cluster-collector --timeout=300s
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes:
+        - collector/**/*
+      when: manual
+    - if: $CI_PIPELINE_SOURCE == "web"
+      when: manual

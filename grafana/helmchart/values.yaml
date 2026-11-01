@@ -13,6 +13,7 @@ service:
 
 # Secret（chart 不建）：ES_URL、GRAFANA_ES_API_KEY（唯讀 key）、NOTIFY_IT_URL／NOTIFY_IMC_URL／NOTIFY_PLATFORM_URL、GF_SECURITY_ADMIN_PASSWORD
 envSecret: grafana-env
+secretData: {}                                             # CI 部署時從 values 建 Secret（ES_URL、GRAFANA_ES_API_KEY、NOTIFY_*、GF_SECURITY_ADMIN_PASSWORD）；空的就不建、沿用手動建的
 env:
   GF_PLUGINS_PREINSTALL_DISABLED: "true"                  # 不讓 Grafana 自己連外網裝預設外掛
 anonymousViewer: false                                     # true：不登入也能看（demo 用）

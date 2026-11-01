@@ -19,6 +19,7 @@ image:
 esUrl: https://elasticsearch.example.internal:9200
 tz: Asia/Taipei
 secret: aiops-secrets          # ES_API_KEY
+esApiKey: ""                   # CI 部署時給（setup 的 engine-values.yaml）：chart 建上面這個 Secret；空的就不建、沿用手動建的
 
 # LLM 摘要（core/llm.py）。provider、model、baseUrl 放 ConfigMap aiops-env；apiKey 由 chart 建成 Secret aiops-llm。
 # apiKey 這裡永遠留空：真的 key 寫在 values-local.yaml（.gitignore 擋掉），helm 加 -f values-local.yaml
