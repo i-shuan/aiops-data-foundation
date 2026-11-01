@@ -322,9 +322,9 @@ series:
 | `feedback pending` | 最近還沒人標記的告警（只列 `anomaly`；`warning` 還沒通知任何人）和它們的 id |
 | `feedback add --anomaly <id> --verdict …` | `true_positive` 真的、`false_positive` 誤報、`wrong_root_cause` 真的但根因錯（`--root-cause` 寫正確的）、`missed` 漏報（沒有 id，給 `--series --match --at`）。同一個人對同一筆再標會覆蓋 |
 | `feedback summary` | 每條序列的告警數、已標記比例、誤報率；誤報累積多次的對象；漏報 |
-| `feedback suggest` | (1) 同一個對象誤報 ≥ 3 次 → 提一筆放寬 z（× 1.4）的建議；(2) 漏報 → 那條序列、那個對象降 z（× 0.8）；(3) 同一個服務、同一個根因分類被老師傅確認 ≥ 3 次（`--min-recurring`）→ 提「升級成規則」：**門檻算好**（那幾件事故的延遲峰值取最小值，三件都抓得到）、查法跟那條 baseline 序列一樣、只看這個服務（三件同一支 API 就只看它）；`adjust approve` 後 **`rules` 自動載入**，不用改 `rules.yaml`；算不出門檻的不能核准。都是 `status: proposed`；override 要先 `backtest` 再 `adjust approve` |
-| `backtest --id <建議> --weeks 4` | 改門檻前先回測：用「現行」和「現行＋這筆建議」各重跑過去 N 週的 detect（不寫 ES），比告警少幾個、已確認的事故（`aiops-incidents` confirmed／corrected／resolved）還抓不抓得到、漏報抓到沒；少抓一件已確認的事故就「不建議」。結果寫回建議的 `backtest` 欄位，`adjust list` 看得到 |
-| `adjust approve --id … --by …` | override 類的建議**沒回測、或回測不建議的不能核准**（要跳過用 `--force`）；記 `approved_by`、`approved_at` |
+| `feedback suggest` | (1) 同一個對象誤報 ≥ 3 次 → 依這些誤報選一種放寬：八成以上在同一個時段（每月最後一天的同一小時、或同一個星期幾的同一小時）→ 週期放寬（`recurring_override`，只有那 1 小時 z × 1.4）；每一筆的 z 都超過 z × 1.4（放寬 z 也壓不掉）→ `min_abs` 調到最大偏差的 1.2 倍；其他 → z × 1.4；(2) 漏報 → 那條序列、那個對象降 z（× 0.8）；(3) 同一個服務、同一個根因分類被老師傅確認 ≥ 3 次（`--min-recurring`）→ 提「升級成規則」：**門檻算好**（那幾件事故的延遲峰值取最小值，三件都抓得到）、查法跟那條 baseline 序列一樣、只看這個服務（三件同一支 API 就只看它）；`adjust approve` 後 **`rules` 自動載入**，不用改 `rules.yaml`；算不出門檻的不能核准。都是 `status: proposed`；要先 `backtest` 再 `adjust approve` |
+| `backtest --id <建議> --weeks 4` | 改門檻前先回測：用「現行」和「現行＋這筆建議」各重跑過去 N 週的 detect（不寫 ES），比告警少幾個、已確認的事故（`aiops-incidents` confirmed／corrected／resolved）還抓不抓得到、漏報抓到沒；少抓一件已確認的事故就「不建議」。`rule_suggestion` 另算：過去 N 週每 5 分鐘（規則的 `lookback`）一點算規則的值，提這條規則的事故都要抓到、事故以外平均每週多報不超過 1 次（估的）才「建議」。結果寫回建議的 `backtest` 欄位，`adjust list` 看得到 |
+| `adjust approve --id … --by …` | override、`recurring_override`、`rule_suggestion` **沒回測、或回測不建議的不能核准**（要跳過用 `--force`）；記 `approved_by`、`approved_at` |
 | `metrics --from … --to … [--compare-from … --compare-to …]` | 量化：件數（每天、依 dept）、有回饋的比例、誤報率、根因錯的比例、漏報、從告警到第一筆回饋的中位時間、老師傅確認的事故數、「怎麼看出來的」有填的比例；兩段並排就是「學之前 vs 學之後」。只印 Markdown（`--out` 存檔），畫圖交給 Grafana |
 | `python3 -m feedback_web` | 老師傅的回饋網頁（通知裡的連結）：一鍵真的／誤報／根因錯，多填根因分類、根因、處置、**怎麼看出來的**、查了哪裡、下次怎麼更快；寫 `aiops-feedback`（一件的每筆異常各一筆）和 `aiops-incidents`（`confirmed`／`corrected`／`false_positive`） |
 | `incident add --title --start --end --service …` | 事故紀錄：時間、影響的服務、根因、處置、相關異常。`--exclude-training` 同時提「這段不學」（`exclude_window`，proposed，只排除列出的服務；沒列就全部） |
@@ -332,7 +332,7 @@ series:
 
 寫進 `aiops-feedback`、`aiops-incidents`；建議寫進 `aiops-tuning`（跟 `tune`、`adjust` 同一處）。
 
-**還沒做**：每筆異常記是哪一版產生的、評測集（要真實事故）；`suggest` 只調 z，不調 `min_abs`、粒度，也不會提「排除時段」（月底批次更該用 `adjust add --kind recurring_override`，現在要人手動）；規則核准前沒有回測（用 `rules --at <事故時間>` 看會不會觸發）。
+**還沒做**：評測集（要真實事故）；`suggest` 不提粒度（改粒度要重新 train，回測比不了）；選放寬方式的比例（八成）、倍數（1.2）是估的。
 
 ## 慢性病清單、行事曆
 

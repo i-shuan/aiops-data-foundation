@@ -99,6 +99,62 @@ def suggest_override(series: str, target: str, n_false_positive: int, current_z:
             "reason": f"誤報 {n_false_positive} 次（值班回饋），z {current_z:g} → {round(current_z * factor, 1)}"}
 
 
+def _match_of(target: str) -> dict:
+    return {k: f"^{re.escape(str(v))}$" for k, v in json.loads(target).items()}
+
+
+def _slot(fps: list[dict], tz: str, min_share: float):
+    """誤報是不是集中在同一個時段：先看「每月最後一天的同一個小時」，再看「同一個星期幾的同一個小時」。
+    回傳 (schedule, 說明) 或 None。schedule 是 recurring_override 的格式（cron 當地時間、duration、days_of_month）。"""
+    import calendar
+    from collections import Counter
+    local = [pd.Timestamp(f["at"]).tz_convert(tz) for f in fps if f.get("at")]
+    if len(local) < 3:
+        return None
+    last = Counter(t.hour for t in local if t.day == calendar.monthrange(t.year, t.month)[1])
+    if last:
+        h, n = last.most_common(1)[0]
+        if n / len(local) >= min_share:
+            return {"cron": f"0 {h} * * *", "duration": "1h", "days_of_month": [-1]}, f"{n}/{len(local)} 次在每月最後一天 {h} 點"
+    (dow, h), n = Counter((t.day_of_week, t.hour) for t in local).most_common(1)[0]
+    if n / len(local) >= min_share:
+        names = "一二三四五六日"
+        return {"cron": f"0 {h} * * {(dow + 1) % 7}", "duration": "1h"}, f"{n}/{len(local)} 次在星期{names[dow]} {h} 點"
+    return None
+
+
+def suggest_for_false_positives(series: str, target: str, fps: list[dict], current_z: float = 5.0,
+                                current_min_abs: float = 0.0, tz: str = "Asia/Taipei", factor: float = 1.4,
+                                min_share: float = 0.8) -> dict:
+    """誤報累積多次：依這些誤報的時間與偏差，選一種放寬的方式（都是 proposed，要 backtest、人 approve 才生效）。
+    fps：這個對象被標成誤報的異常，每筆 {at, value, median, z}（缺的欄位就跳過那個判斷）。
+      1. 八成以上集中在同一個時段（每月最後一天的同一小時、或同一個星期幾的同一小時）→ 週期放寬（recurring_override），
+         只有那 1 小時 z 乘 factor：月底批次這種「固定時段才高」的，整天放寬會漏掉其他時候的真異常
+      2. 每一筆的 z 都超過 z × factor（z 放寬也壓不掉）→ min_abs 調到最大偏差的 1.2 倍：
+         平常幾乎不動的序列 MAD 是 0，一點點變化 z 就很高
+      3. 其他 → z 乘 factor（suggest_override）
+    比例（min_share）、倍數（1.2）是估的。"""
+    n = len(fps)
+    slot = _slot(fps, tz, min_share)
+    if slot:
+        sched, why = slot
+        z = round(current_z * factor, 1)
+        return {"kind": "recurring_override", "series": re.escape(series), "match": _match_of(target),
+                "schedule": sched, "effect": {"z": z}, "status": "proposed", "source": "feedback",
+                "reason": f"誤報 {n} 次（值班回饋），{why}：只在那 1 小時 z {current_z:g} → {z}"}
+    zs = [abs(float(f["z"])) for f in fps if f.get("z") is not None]
+    devs = [abs(float(f["value"]) - float(f["median"])) for f in fps
+            if f.get("value") is not None and f.get("median") is not None]
+    if zs and devs and len(zs) == n and min(zs) >= current_z * factor:
+        new = float(f"{max(devs) * 1.2:.2g}")
+        if new > current_min_abs:
+            return {"kind": "override", "series": re.escape(series), "match": _match_of(target), "min_abs": new,
+                    "status": "proposed", "source": "feedback",
+                    "reason": f"誤報 {n} 次（值班回饋），z 都 ≥ {min(zs):.0f}（z 放寬到 {current_z * factor:g} 也壓不掉）、"
+                              f"偏差最多 {max(devs):.3g}：min_abs {current_min_abs:g} → {new:g}"}
+    return suggest_override(series, target, n, current_z, factor)
+
+
 def suggest_missed(series: str, target: str, current_z: float = 5.0, factor: float = 0.8) -> dict:
     """漏報 → 那條序列、那個對象的 z 降一點（proposed；backtest 看抓不抓得到、誤報會不會變多）。"""
     keys = json.loads(target)

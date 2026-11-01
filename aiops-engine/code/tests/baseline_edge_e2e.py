@@ -633,8 +633,10 @@ def phase_edge(es: ES, config: str):
     # 階梯式永久改變（換版後延遲 2 倍），沒有 reset_point
     step = df[(df["svc"] == "svc-step") & (df["series"] == "http.latency_p95_s")]
     n_an = int((step["status"] == "anomaly").sum())
-    check(G, "階梯式改變（4 天前延遲 2 倍）、沒有 reset_point", "整天報（README 的已知限制）",
-          f"anomaly {n_an} 個 30 秒點", n_an >= 2000)
+    # 2 倍 = p95 往上跨一格（0.175 → 0.375）：σ 至少半個桶寬後 z 約 2.7，不再整天是 anomaly（以前 z 約 23、整天報，
+    # 是 p95 跳桶誤報的一種；docs/pdca/phase2-anomaly/2026-11-baseline-false-alarm.md）。跨好幾格的變慢仍報（svc-spike、MAD＝0 的案例）
+    check(G, "階梯式改變（4 天前延遲 2 倍，只跨一格）、沒有 reset_point", "不再整天報 anomaly（< 100 個 30 秒點）",
+          f"anomaly {n_an} 個 30 秒點", n_an < 100)
     return df
 
 
@@ -648,7 +650,7 @@ def phase_reset(es: ES, config: str):
     clean_results(es, "edge.", anomalies_only=True)
     detect(config, DATA_END)
     a = count()
-    check(G, "reset_point status=proposed", "不生效（照樣整天報）", fmt_counts(a), (a["status"] == "anomaly").sum() >= 2000)
+    check(G, "reset_point status=proposed", "不生效（跟沒加一樣：不整天報 anomaly，< 100 個 30 秒點）", fmt_counts(a), (a["status"] == "anomaly").sum() < 100)
     run(["adjust", "approve", "--config", config, "--id", "bedge-step-v2", "--by", BY])
     clean_results(es, "edge.", anomalies_only=True)
     detect(config, DATA_END)

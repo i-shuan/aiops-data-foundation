@@ -33,7 +33,8 @@ def cmd_adjust(cfg: dict, args) -> int:
             if src.get("kind") == "rule_suggestion" and not isinstance((src.get("rule_draft") or {}).get("threshold"), (int, float)):
                 print(f"這條規則算不出門檻（{(src.get('rule_draft') or {}).get('_note')}），不能核准；要的話自己寫進 rules.yaml")
                 return 2
-            if src.get("kind", "override") in ("override", "recurring_override") and not getattr(args, "force", False):
+            # 規則一核准就每次直接報（不等 baseline），誤報的代價更高：一樣要回測過
+            if src.get("kind", "override") in ("override", "recurring_override", "rule_suggestion") and not getattr(args, "force", False):
                 if not bt:
                     print(f"這筆還沒回測：先跑 backtest --id {args.id}（要跳過用 --force）")
                     return 2
