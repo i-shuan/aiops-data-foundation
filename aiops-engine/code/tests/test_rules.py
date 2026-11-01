@@ -99,6 +99,64 @@ class RatioTest(unittest.TestCase):
         self.assertEqual(R.evaluate(self.rule, d, NOW), [])
 
 
+class SlopeTest(unittest.TestCase):
+    """container.memory_leak：最近 30 分鐘 working set 的 Theil–Sen 斜率，照這個速度 <= 6 小時到上限（ws + available）才報。"""
+    rule = {"type": "slope", "field": "metrics.ws", "den": ["metrics.ws", "metrics.avail"], "for": "30m", "min_points": 40,
+            "op": "<=", "threshold": 6}
+
+    def mem(self, ws, limit=1000):
+        return {("ns", "pod", "app"): pts(*ws, field="metrics.ws", extra=[{"avail": limit - w} if limit else {} for w in ws])}
+
+    def test_linear_leak_fires_with_hours_to_limit(self):
+        # 30 分鐘從 500 漲到 800（每小時 600），上限 1000：剩 200 → 0.33 小時
+        ws = [500 + 5 * i for i in range(61)]
+        h, = R.evaluate(self.rule, self.mem(ws), NOW)
+        self.assertAlmostEqual(h["value"], 200 / 600, places=2)
+        self.assertAlmostEqual(h["per_hour"], 600, places=0)
+
+    def test_gc_sawtooth_without_trend_not_fired(self):
+        # 每 5 分鐘 GC 一次：500 → 700 再掉回 500，低點不變，不是洩漏
+        ws = [500 + 20 * (i % 10) for i in range(61)]
+        self.assertEqual(R.evaluate(self.rule, self.mem(ws), NOW), [])
+
+    def test_gc_sawtooth_with_rising_lows_fires(self):
+        # 鋸齒但每次 GC 後的低點都比上次高 → 洩漏
+        ws = [500 + 5 * i + 20 * (i % 10) for i in range(61)]
+        self.assertEqual(len(R.evaluate(self.rule, self.mem(ws), NOW)), 1)
+
+    def test_far_from_limit_not_fired(self):
+        # 同樣每小時 600，但上限 100,000：要 165 小時才到
+        ws = [500 + 5 * i for i in range(61)]
+        self.assertEqual(R.evaluate(self.rule, self.mem(ws, limit=100_000), NOW), [])
+
+    def test_new_container_not_judged(self):
+        # 只有 10 分鐘的資料（啟動期 heap 在長）：for 30m 沒蓋滿，不判斷
+        ws = [500 + 5 * i for i in range(21)]
+        self.assertEqual(R.evaluate(self.rule, self.mem(ws), NOW), [])
+
+    def test_no_limit_no_judgement(self):
+        ws = [500 + 5 * i for i in range(61)]
+        self.assertEqual(R.evaluate(self.rule, self.mem(ws, limit=None), NOW), [])
+
+    def test_flat_or_decreasing_not_fired(self):
+        self.assertEqual(R.evaluate(self.rule, self.mem([700] * 61), NOW), [])
+        self.assertEqual(R.evaluate(self.rule, self.mem([800 - 5 * i for i in range(61)]), NOW), [])
+
+    def test_single_spike_does_not_make_a_trend(self):
+        # 中間一個點飆到 950 又回來：Theil–Sen 不受單點影響、低點也沒墊高
+        ws = [500] * 30 + [950] + [500] * 30
+        self.assertEqual(R.evaluate(self.rule, self.mem(ws), NOW), [])
+
+    def test_without_den_value_is_rise_per_hour(self):
+        rule = {"type": "slope", "field": "metrics.ws", "for": "30m", "min_points": 40, "op": ">=", "threshold": 500}
+        h, = R.evaluate(rule, self.mem([500 + 5 * i for i in range(61)], limit=None), NOW)
+        self.assertAlmostEqual(h["value"], 600, places=0)
+
+    def test_describe_hours(self):
+        rule = {"title": "像洩漏", "type": "slope", "threshold": 6, "op": "<=", "show": "hours"}
+        self.assertEqual(R.describe(rule, {"key": ("ns", "pod", "app"), "value": 1.25}), "像洩漏：ns、pod、app（1.2 小時，門檻 <= 6.0 小時）")
+
+
 class NewTypesTest(unittest.TestCase):
     def test_throttle_ratio(self):
         rule = {"type": "increase_ratio", "field": "metrics.thr", "den": ["metrics.per"], "op": ">=", "threshold": 0.25, "for": "5m"}
@@ -137,7 +195,7 @@ class ConfigTest(unittest.TestCase):
         with open("configs/baseline/rules.yaml", encoding="utf-8") as f:
             cfg = yaml.safe_load(f)
         for r in cfg["rules"]:
-            self.assertIn(r["type"], ("value", "compare", "ratio", "increase", "delta", "increase_ratio", "rate", "total", "window"), r["name"])
+            self.assertIn(r["type"], ("value", "compare", "ratio", "increase", "delta", "increase_ratio", "rate", "total", "window", "slope"), r["name"])
             self.assertIn(r.get("op", ">="), R.OPS, r["name"])
             # window 用 series.yaml 的 value 寫法（hist_ratio、percentile），其他用 field
             self.assertTrue(r["by"] and r["index"] and (r.get("value") if r["type"] == "window" else r["field"]) and r["title"], r["name"])
@@ -145,7 +203,7 @@ class ConfigTest(unittest.TestCase):
                 self.assertIn("other", r, r["name"])
             if r["type"] in ("ratio", "increase_ratio"):
                 self.assertIn("den", r, r["name"])
-            self.assertLess(R._dur(r.get("for", 0)), R._dur(cfg["lookback"]), r["name"])
+            self.assertLess(R._dur(r.get("for", 0)), R._dur(r.get("lookback", cfg["lookback"])), r["name"])
 
     def test_describe_number_ratio(self):
         rule = {"title": "執行緒暴增", "type": "ratio", "threshold": 16, "show": "number"}

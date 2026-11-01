@@ -231,6 +231,7 @@ series:
 | `node.not_ready`、`node.memory_pressure`、`node.disk_pressure` | 節點狀態 | 成立 | critical |
 | `scrape.down` | 應用的 metrics 抓不抓得到（`up`） | 0，連續 1 分鐘 | warning |
 | `container.memory_near_limit` | 記憶體 ÷ 上限 | ≥ 90%，連續 2 分鐘（再上去會被 OOM kill） | warning |
+| `container.memory_leak` | 最近 30 分鐘記憶體的趨勢（`slope`） | 一路往上（三段低點一段比一段高）、照這個速度 ≤ 6 小時到上限；要有滿 30 分鐘的資料 | warning |
 | `node.memory_high` | 節點記憶體 ÷ 總量 | ≥ 90%，連續 5 分鐘 | warning |
 | `node.disk_high`、`node.disk_full` | 節點磁碟用量 ÷ 容量 | ≥ 85%（5 分鐘）／≥ 95%（1 分鐘） | warning／critical |
 | `container.cpu_throttled` | 被限流的 CPU 週期 ÷ 全部週期（cAdvisor） | ≥ 25%，5 分鐘 | warning |
@@ -241,11 +242,11 @@ series:
 | `kafka.consumer_lag`、`kafka.consumer_lag_growing` | 消費落後筆數；5 分鐘淨增加多少（`delta`） | ≥ 10,000，3 分鐘；≥ 5,000 | warning |
 | `eap.secs_disconnected`、`eap.plc_scan_slow`、`eap.secs_retransmits` | 機台 SECS 通訊、PLC 掃描週期、重傳（依 `equipment_id`） | 斷線 1 分鐘；≥ 規格 50ms，2 分鐘；5 分鐘重傳 ≥ 10 次 | critical／warning |
 
-寫法：`value`（欄位跟門檻比）、`compare`（兩個欄位相減）、`ratio`（欄位 ÷ 分母）、`increase`（累計值增加多少，歸零重來也算得對；只能用在計數器）、`delta`（量測值淨增加多少，最後 − 最前；例如 Kafka 落後）、`increase_ratio`（兩個累計值增加量的比例）、`rate`（加總 ÷ 秒數）、`total`（加總；`hist_count` 數直方圖的次數）。分母在另一種文件時用 `join` 補進來。`for` 是「這段時間都成立才算」（對象要在 for 開頭之前就有資料：新建的 Pod、Deployment 等滿 for 才報），`min_ratio` 放寬成「這段時間裡至少多少比例成立」。對象不在了（Pod 刪掉、節點拿掉，最新的資料超過 2 分鐘）就不報；只有容器重啟、Job 失敗設了 `report_gone: true`，刪掉了也照報。要加規則，在 rules.yaml 加一段，不用改程式。一條規則查詢失敗（或核准的草稿缺欄位）只跳過那一條、其他照跑，指令最後 exit 1。核准的規則草稿（`aiops-tuning` 的 `rule_suggestion`）`expires_at` 到了就不載入。邊緣案例見 `tests/rules_edge_e2e.py`。
+寫法：`value`（欄位跟門檻比）、`compare`（兩個欄位相減）、`ratio`（欄位 ÷ 分母）、`increase`（累計值增加多少，歸零重來也算得對；只能用在計數器）、`delta`（量測值淨增加多少，最後 − 最前；例如 Kafka 落後）、`increase_ratio`（兩個累計值增加量的比例）、`rate`（加總 ÷ 秒數）、`total`（加總；`hist_count` 數直方圖的次數）、`slope`（最近 `for` 這段的 Theil–Sen 斜率；有 `den` 就換成「幾小時後到上限」，沒有就是每小時漲多少；三段的低點要一路墊高，GC 鋸齒不算）。分母在另一種文件時用 `join` 補進來。`for` 是「這段時間都成立才算」（對象要在 for 開頭之前就有資料：新建的 Pod、Deployment 等滿 for 才報），`min_ratio` 放寬成「這段時間裡至少多少比例成立」。對象不在了（Pod 刪掉、節點拿掉，最新的資料超過 2 分鐘）就不報；只有容器重啟、Job 失敗設了 `report_gone: true`，刪掉了也照報。要加規則，在 rules.yaml 加一段，不用改程式。一條規則查詢失敗（或核准的草稿缺欄位）只跳過那一條、其他照跑，指令最後 exit 1。核准的規則草稿（`aiops-tuning` 的 `rule_suggestion`）`expires_at` 到了就不載入。邊緣案例見 `tests/rules_edge_e2e.py`。
 
 觸發的寫進 `aiops-anomalies`：`series` 是 `rule.<名稱>`、`level` 是 `rule`，另外有 `severity`、`message`（例如「容器重啟：rules-test、crash-app-…、app（1，門檻 >= 1）」）、`since`（從什麼時候開始成立）。同一條規則、同一個對象，1 分鐘只記一筆。
 
-**還沒加：** 趨勢（例如老年代照這個速度幾小時後會滿）、網卡丟包（要 node_exporter）、資料庫自己的指標（長交易、慢查詢，要 DB 的 exporter）。
+**還沒加：** JVM 老年代的趨勢（容器 working set 的有了；老年代要 prometheus 的 JVM 指標，欄位名依 agent 版本不同）、網卡丟包（要 node_exporter）、資料庫自己的指標（長交易、慢查詢，要 DB 的 exporter）。
 
 ## Pod 同儕橫向比對：同一個服務的 Pod 互相比
 
@@ -258,7 +259,7 @@ series:
 | `peer.pod_cpu` | CPU 平均 | namespace × Deployment | 同上，而且多 0.2 核以上、是別人的 3 倍以上 |
 | `peer.pod_memory_bytes` | 記憶體（working set）最高 | namespace × Deployment | 同上，而且多 100MB 以上、是別人的 1.5 倍以上 |
 
-怎麼比：每個 Pod 跟「**其他** Pod」的中位數、MAD 比（跟 baseline 一樣的穩健統計；比的時候不含自己，壞掉的那個不會把標準拉過去）。另外：
+怎麼比：每個 Pod 跟「**其他** Pod」的中位數、MAD 比（跟 baseline 一樣的穩健統計；比的時候不含自己，壞掉的那個不會把標準拉過去）。z 的門檻依其他 Pod 數分級（`z_by_peers`）：其他 2 個用 3、3～4 個用 4、5 個以上 5——其他只有兩三個時它們之間的差距沒統計意義（滾動更新後新舊 Pod 的記憶體本來就差幾十 MB），主要靠 `min_abs`、`min_ratio` 擋。另外：
 - **至少 3 個 Pod 才比**：只有 2 個分不出誰才是怪的。
 - **只比現在還在的 Pod**（最近 2 分鐘有資料）：換版、縮容刪掉的不算兄弟。換版途中新舊 Pod 會一起比，新版的 Pod 都比舊的差也會報，這正好是想知道的。
 - **剛起來的 Pod 不比**（`warmup` 5 分鐘：window 開頭到 5 分鐘前之間沒有資料的不比）：啟動時 CPU 高、記憶體還在長，會誤報新 Pod 自己，或在擴容時讓舊 Pod 的記憶體看起來偏高。一起來就壞的 Pod 5 分鐘後照樣抓。

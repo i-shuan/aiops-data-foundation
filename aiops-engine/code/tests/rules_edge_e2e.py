@@ -305,6 +305,26 @@ def build():
     mem("p2-mem-new", [(950, 50)] * 4)
     case("container.memory_near_limit", "新容器 1 分 35 秒、一直 95%（for 2m 還沒到）", False, K(ns=NS, pod="p2-mem-new", ctr="app"))
 
+    # 16b. container.memory_leak：最近 30 分鐘的 Theil–Sen 斜率、三段低點墊高、<= 6 小時到上限（ws + available）；61 點
+    N30 = 61
+    leak = lambda ws, limit=1000: [(w, limit - w) for w in ws]
+    mem("p2-leak-linear", leak([500 + 5 * i for i in range(N30)]))
+    case("container.memory_leak", "30 分鐘 500 → 800（每小時 600）、上限 1000：0.33 小時後到", True, K(ns=NS, pod="p2-leak-linear", ctr="app"))
+    mem("p2-leak-saw", leak([500 + 5 * i + 20 * (i % 10) for i in range(N30)]))
+    case("container.memory_leak", "GC 鋸齒但每次 GC 後的低點都更高", True, K(ns=NS, pod="p2-leak-saw", ctr="app"))
+    mem("p2-leak-gc", leak([500 + 20 * (i % 10) for i in range(N30)]))
+    case("container.memory_leak", "純 GC 鋸齒（低點不變）", False, K(ns=NS, pod="p2-leak-gc", ctr="app"))
+    mem("p2-leak-far", leak([500 + 5 * i for i in range(N30)], limit=100_000))
+    case("container.memory_leak", "一樣的速度但上限很遠（165 小時）", False, K(ns=NS, pod="p2-leak-far", ctr="app"))
+    mem("p2-leak-new", leak([500 + 5 * i for i in range(N10)]))
+    case("container.memory_leak", "新容器只有 10 分鐘資料（啟動期 heap 在長）", False, K(ns=NS, pod="p2-leak-new", ctr="app"))
+    mem("p2-leak-nolimit", [(500 + 5 * i, None) for i in range(N30)])
+    case("container.memory_leak", "沒設上限（沒有 available）", False, K(ns=NS, pod="p2-leak-nolimit", ctr="app"))
+    mem("p2-leak-spike", leak([500] * 30 + [950] + [500] * 30))
+    case("container.memory_leak", "中間一點飆高又回來", False, K(ns=NS, pod="p2-leak-spike", ctr="app"))
+    mem("p2-leak-gone", leak([500 + 5 * i for i in range(N30)]), last_ago=GONE)
+    case("container.memory_leak", "Pod 已刪除", False, K(ns=NS, pod="p2-leak-gone", ctr="app"))
+
     # 17～19. 節點記憶體、磁碟（ratio、for 5m／5m／1m）
     series(KL, node("p2-nmem-a"), [(90, 10)] * N10,
            lambda p: {"k8s.node.memory.working_set": p[0], "k8s.node.memory.available": p[1]})

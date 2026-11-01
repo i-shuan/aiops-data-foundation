@@ -48,6 +48,8 @@
 
 四個領域的案例與實測見 [metrics/README.md](../../../../docs/metrics/README.md)。
 
+`container.memory_leak`（趨勢）：合成資料 8 個案例（30 分鐘 500 → 800、上限 1000 → 0.33 小時後到：報；GC 鋸齒但低點墊高：報；純鋸齒、上限很遠、新容器只有 10 分鐘、沒設上限、單點飆高、Pod 已刪除：不報），`tests/rules_edge_e2e.py` 對測試 ES 全過；真的洩漏程式沒跑過（[phase2-anomaly/2026-11-peer-z-and-slope.md](../../../../docs/pdca/phase2-anomaly/2026-11-peer-z-and-slope.md)）。
+
 ## Pod 同儕橫向比對：同一個服務的 Pod 互相比
 
 > 另見：[原理](../../../../docs/rca/README.md)・[規格](reference.md#pod-同儕橫向比對同一個服務的-pod-互相比)・[操作](reference.md#pod-同儕橫向比對同一個服務的-pod-互相比)
@@ -61,7 +63,7 @@
 | 記憶體洩漏 | 一個 Pod 每個請求 32KB 放進不會清的 list | 第 5 分鐘：**294MB**（其他 163MB） | 不報 |
 | 無窮迴圈 | 一個 Pod 裡有程式佔滿 1 核 | 第 3 分鐘：CPU **0.65 核**（其他 0.21 核，10 分鐘平均） | 不報 |
 
-副本數 1～5、Pod 換掉、擴縮容、全壞、同名服務的邊緣情境：[phase2-anomaly/2026-10-peer-verify.md](../../../../docs/pdca/phase2-anomaly/2026-10-peer-verify.md)。
+副本數 1～5、Pod 換掉、擴縮容、全壞、同名服務的邊緣情境：[phase2-anomaly/2026-10-peer-verify.md](../../../../docs/pdca/phase2-anomaly/2026-10-peer-verify.md)。2026-10-31 真 cluster 上 3 個 Pod 年紀不同（新的 163 MB、舊的 251 MB）、一個洩漏到 420 MB 時 z 只有 3.3 沒報；改成其他 2 個 Pod 時 z 門檻 3（`z_by_peers`）後，合成資料 `pe-ages3` 抓到（412 MB，z 3.1），其餘 19 個情境不變（[phase2-anomaly/2026-11-peer-z-and-slope.md](../../../../docs/pdca/phase2-anomaly/2026-11-peer-z-and-slope.md)）。
 
 同一段時間整個服務的錯誤率是 **9%**（3 個 Pod 裡 1 個壞）。這次服務平常是 0%，跟平常比（baseline）也會報，但只知道「服務錯誤率高」、不知道是哪個 Pod；Pod 越多稀釋越多：10 個 Pod 壞 1 個大約剩 1%，就低於 baseline 的門檻（多 5 個百分點）了。
 

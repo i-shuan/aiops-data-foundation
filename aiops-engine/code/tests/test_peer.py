@@ -66,6 +66,22 @@ class CompareTest(unittest.TestCase):
         self.assertEqual(hits(P.compare(pods([0.0, 0.01, 1.0]), ["service"], "pod", min_abs=0.05, max_peer_median=0.05)),
                          ["order-api-2"])
 
+    def test_three_pods_different_ages_leak(self):
+        # 2026-10-31 真的 cluster 上：3 個 Pod 一個洩漏到 420MB，另兩個 251MB（舊）、163MB（滾動更新後的新 Pod）。
+        # 多 213MB、2.03 倍兩道都過，但其他 2 個之間差 88MB 把分母撐大，z 只有 3.3：用 5 抓不到，其他 2 個時門檻 3 才抓到
+        MB = 1048576
+        vals = [420 * MB, 251 * MB, 163 * MB]
+        kw = dict(min_abs=100 * MB, min_ratio=1.5)
+        self.assertEqual(hits(P.compare(pods(vals), ["service"], "pod", **kw)), [])
+        res = P.compare(pods(vals), ["service"], "pod", z_by_peers={2: 3, 3: 4, 4: 4}, **kw)
+        self.assertEqual(hits(res), ["order-api-0"])
+        self.assertAlmostEqual(float(res[res["pod"] == "order-api-0"]["z"].iloc[0]), 3.3, places=1)
+        # 門檻放低但兩道硬門檻還在：差 90MB（<100MB）、1.4 倍（<1.5）的不報
+        self.assertEqual(hits(P.compare(pods([297 * MB, 251 * MB, 163 * MB]), ["service"], "pod", z_by_peers={2: 3}, **kw)), [])
+        # 其他 Pod 有 4 個：沒列在 z_by_peers 就用 z=5，同樣的差距（z 3.3）不報
+        self.assertEqual(hits(P.compare(pods([420 * MB, 251 * MB, 163 * MB, 251 * MB, 163 * MB]), ["service"], "pod",
+                                        z_by_peers={2: 3}, **kw)), [])
+
     def test_majority_bad(self):
         # 3 個壞 2 個：其他 Pod 的中位數本身就壞了，分不出；5 個壞 2 個：兩個都抓
         self.assertEqual(hits(P.compare(pods([0.0, 0.3, 0.3]), ["service"], "pod", min_abs=0.05)), [])
