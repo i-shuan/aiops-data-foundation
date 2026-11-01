@@ -1,10 +1,10 @@
-# grafana：用 Grafana 官方 chart（grafana/grafana）部署，設定在 grafana/values-official.yaml
+# grafana：用 Grafana 社群維護的 chart（grafana-community/grafana；原 grafana/grafana 已棄用）部署，設定在 grafana/values-official.yaml
 # （由 grafana/code/ 產生；公司已經有 Grafana、不歸我們部署就不用這份，見 grafana/README.md）。
 #
 # 變數：
 #   KUBE_CONFIG_GRAFANA        （Type: File）部署 Grafana 的 cluster 的 kubeconfig
 #   GRAFANA_NAMESPACE          選填，預設 grafana
-#   GRAFANA_HELM_REPO          官方 chart 的位置：公司 Nexus 的 helm proxy，沒有就用預設 https://grafana.github.io/helm-charts
+#   GRAFANA_HELM_REPO          chart 的位置：公司 Nexus 的 helm proxy，沒有就用預設 https://grafana-community.github.io/helm-charts
 #   GRAFANA_REGISTRY           image 的 registry，例如 nexus.example.internal（repository 是 values 裡的 grafana/grafana）
 #   GRAFANA_TAG                選填，預設 13.0.7
 #   ES_URL                     公司 ES 的網址（寫進 Secret grafana-env）
@@ -51,14 +51,17 @@ deploy-grafana:
           --from-literal=NOTIFY_IT_URL="${NOTIFY_IT_URL}" \
           --from-literal=NOTIFY_IMC_URL="${NOTIFY_IMC_URL}" \
           --from-literal=NOTIFY_PLATFORM_URL="${NOTIFY_PLATFORM_URL}" \
-          --from-literal=GF_SECURITY_ADMIN_PASSWORD="${GRAFANA_ADMIN_PASSWORD}" \
+          --from-literal=GF_SECURITY_ADMIN_USER=admin
+        --from-literal=GF_SECURITY_ADMIN_PASSWORD="${GRAFANA_ADMIN_PASSWORD}" \
           --dry-run=client -o yaml | kubectl apply --server-side --force-conflicts --field-manager=ci -f -
       else
         echo "沒有 es-setup 的 key：不更新 Secret grafana-env，沿用現有的"
       fi
-    - helm repo add grafana "${GRAFANA_HELM_REPO:-https://grafana.github.io/helm-charts}" && helm repo update
-    - helm upgrade --install grafana grafana/grafana -n "${ns}" -f grafana/values-official.yaml
+    - helm repo add grafana-community "${GRAFANA_HELM_REPO:-https://grafana-community.github.io/helm-charts}" && helm repo update
+    - helm upgrade --install grafana grafana-community/grafana -n "${ns}" -f grafana/values-official.yaml
         --set image.registry="${GRAFANA_REGISTRY}" --set image.tag="${GRAFANA_TAG:-13.0.7}"
+    # Secret（key、密碼）是環境變數，不會熱更新：es-setup 換了 key 之後要重啟才吃到新的（實測不重啟還是舊 key）
+    - kubectl -n "${ns}" rollout restart deployment/grafana
     - kubectl -n "${ns}" rollout status deployment/grafana --timeout=300s
   rules:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
