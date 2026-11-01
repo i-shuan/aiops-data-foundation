@@ -3,14 +3,17 @@ from __future__ import annotations
 
 import html
 import json
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
 import pandas as pd
 import yaml
 
+from core import llm as LLM
 from core.es import doc_id
-from detector.feedback import FEEDBACK_MAPPING, INCIDENT_MAPPING
+from detector import tuning as T
+from detector.feedback import FEEDBACK_MAPPING, INCIDENT_MAPPING, RCA_USEFUL as _RCA_USEFUL
 
 ALERT_INDEX, FEEDBACK_INDEX, INCIDENT_INDEX = "aiops-alerts", "aiops-feedback", "aiops-incidents"
 _ready = set()
@@ -20,6 +23,10 @@ SERIES_NAMES = [s["name"] for s in _SERIES_CFG["series"]]
 TIMEZONE = _SERIES_CFG.get("train", {}).get("timezone", "Asia/Taipei")
 MISSED_FIELDS = ("series", "service", "at", "by", "note", "route", "pod")    # 漏報表單的元素 id（Grafana 預填的 key 要對到這些）
 VERDICTS = {"true_positive": "真的", "false_positive": "誤報", "wrong_root_cause": "真的，但根因報錯了"}
+# 採納率的兩題（docs/pdca/phase5-learning-loop/2026-10-feedback-nl-extract.md）：是／否／沒看；沒填不算
+RCA_USEFUL = [(v, t) for v, t in zip(_RCA_USEFUL, ("是", "否", "沒看"))]
+RCA_QUESTIONS = [("rca_cause_useful", "可能根因有參考價值？"), ("rca_action_useful", "建議的排查動作有參考價值？")]
+TEXT_HINT = "選填。一句話說這件怎麼回事，系統會抽成結構化欄位、提一筆待審核的調整建議；例：「這是每月初的批次匯出報表，屬於預期內負載」"
 CATEGORIES = [("db", "DB（慢查詢、鎖、連線池、統計資訊）"), ("network", "網路（延遲、斷線、DNS）"), ("config_change", "設定變更"),
               ("deploy", "版本更新"), ("external", "外部系統（供應商、其他部門的服務）"), ("resource", "資源不足（CPU、記憶體、磁碟）"),
               ("bug", "程式錯誤"), ("data", "資料問題（髒資料、量暴增）"), ("other", "其他")]
@@ -52,8 +59,11 @@ def form_json(d: dict) -> dict:
 
 
 def submit(es, form: dict, now: datetime | None = None) -> dict:
-    """form：verdict、by、root_cause_category、root_cause、action、how_detected、checked（list）、improve、fp_reason、note。
-    回傳 {"feedback": 寫了幾筆, "incident": 狀態}。"""
+    """form：verdict、by、root_cause_category、root_cause、action、how_detected、checked（list）、improve、fp_reason、note、
+    feedback_text（一句自然語言，選填）、rca_cause_useful、rca_action_useful（yes／no／not_seen，選填）。
+    回傳 {"feedback": 寫了幾筆, "incident": 狀態, "by"}；有給 feedback_text 時多 "extract"（抽出來的四欄＋ok、provider、reason）
+    和 "tuning_id"（寫進 aiops-tuning 的建議 id；suggested_action 是 none、或沒抽到就是 None）。
+    抽取失敗不影響寫入：只存原文（extract.ok false）；寫建議失敗也不影響回饋本身（tuning_error）。"""
     now = now or datetime.now(timezone.utc)
     alert = load_alert(es, form["alert_id"])
     if not alert:
@@ -71,6 +81,22 @@ def submit(es, form: dict, now: datetime | None = None) -> dict:
             "note": (form.get("note") or form.get("fp_reason_text") or "").strip() or None,
             "fp_reason": form.get("fp_reason") if verdict == "false_positive" else None,
             "correct_root_cause": form.get("root_cause") if verdict == "wrong_root_cause" else None}
+    for q, _ in RCA_QUESTIONS:
+        if form.get(q) in _RCA_USEFUL:
+            base[q] = form[q]
+    # 一句自然語言 → LLM 抽成四欄（core.llm.extract_feedback）；驗不過就只存原文。對得到調整種類就先寫一筆 proposed 的 aiops-tuning
+    text, ext, tuning_id, tuning_error = (form.get("feedback_text") or "").strip(), None, None, None
+    if text:
+        ext = LLM.extract_feedback(text, alert)
+        base["feedback_text"] = text
+        base["extract"] = {k: v for k, v in {**(ext["fields"] or {}), "ok": ext["ok"], "provider": ext["provider"], "reason": ext["reason"]}.items() if v not in (None, "")}
+        if ext["ok"]:
+            try:
+                tuning_id = T.propose_from_text(es, ext["fields"], alert, text, by, now)
+            except Exception as e:    # noqa: BLE001  建議寫不進去（ES 權限、mapping）不能讓回饋本身失敗
+                tuning_error = f"{type(e).__name__}：{str(e)[:120]}"
+                sys.stderr.write(f"feedback tuning proposal failed: {e!r}\n")
+            base["tuning_id"] = tuning_id
     base = {k: v for k, v in base.items() if v not in (None, "")}
     # 一件的每筆異常各一筆回饋：現有的 feedback summary／suggest 是依異常（series＋對象）算的，才對得起來
     ids = alert.get("anomaly_ids") or []
@@ -99,7 +125,10 @@ def submit(es, form: dict, now: datetime | None = None) -> dict:
             "dept": alert.get("dept"), "group": alert.get("group"), "anomaly_ids": ids[:200], **inc}
     es.req("POST", f"/{INCIDENT_INDEX}/_update/{alert['alert_id']}?refresh=true", {"doc": inc, "upsert": seed})
     # 不再另外 _refresh：bulk_index 已經 refresh=wait_for；最小權限的 key 沒有 maintenance，多打這一下會 403，資料存好了卻回「沒有存成功」
-    return {"feedback": len(docs), "incident": status, "by": by}
+    out = {"feedback": len(docs), "incident": status, "by": by}
+    if text:
+        out.update({"extract": base.get("extract"), "tuning_id": tuning_id, **({"tuning_error": tuning_error} if tuning_error else {})})
+    return out
 
 
 def missed_form_json() -> dict:
@@ -151,9 +180,17 @@ def render_form(d: dict, done: dict | None = None, error: str | None = None) -> 
     sim = "".join(f"<li><b>{e((s.get('start') or '')[:16])}</b> [{e(s.get('root_cause_category') or '—')}] {e(s.get('root_cause') or '')}"
                   f"<br><small>處置：{e(s.get('action') or '—')}｜怎麼看出來的：{e(s.get('how_detected') or '—')}｜為什麼像：{e('；'.join(s.get('why') or []))}</small></li>"
                   for s in d["similar"]) or "<li>沒有相似的過去事故</li>"
-    msg = (f'<p class="ok">已記錄：{e(VERDICTS.get(done["incident"], done["incident"]))}（{done["feedback"]} 筆回饋，{e(done["by"])}）。謝謝，這會讓下一次更準。</p>' if done
+    extra = ""
+    if done and done.get("extract"):
+        x = done["extract"]
+        extra = (f"已依你的一句話提了一筆調整建議（待審核，id {e(done['tuning_id'])}）。" if done.get("tuning_id")
+                 else f"一句話抽成：{e(x.get('feedback_type', ''))}／{e(x.get('identified_cause', ''))}／{e(x.get('target_service', ''))}／{e(x.get('suggested_action', ''))}。" if x.get("ok")
+                 else "一句話沒抽成結構化欄位（只存了原文）。")
+    msg = (f'<p class="ok">已記錄：{e(VERDICTS.get(done["incident"], done["incident"]))}（{done["feedback"]} 筆回饋，{e(done["by"])}）。謝謝，這會讓下一次更準。{extra}</p>' if done
            else f'<p class="err">{e(error)}</p>' if error else "")
     checked = "".join(f'<label class="chk"><input type="checkbox" name="checked" value="{e(c)}"> {e(c)}</label>' for c in CHECKED)
+    rca = "".join(f'<div class="v"><label>{e(q)}</label><br>' + "".join(f'<label><input type="radio" name="{k}" value="{v}"> {t}</label>' for v, t in RCA_USEFUL) + "</div>"
+                  for k, q in RCA_QUESTIONS)
     return f"""<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><title>回饋：{e(d['service'] or '')}</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>body{{font-family:system-ui,sans-serif;max-width:760px;margin:24px auto;padding:0 16px;line-height:1.5}}
@@ -170,9 +207,11 @@ input[type=text],textarea,select{{width:100%;padding:6px;font-size:15px}}textare
 {msg}
 <form method="post" action="/feedback">
 <input type="hidden" name="alert_id" value="{e(d['alert_id'])}">
+{rca}
 <div class="v"><label>這件是：</label><br>
 {"".join(f'<label><input type="radio" name="verdict" value="{v}" required onclick="document.getElementById(\'detail\').style.display=(this.value==\'false_positive\')?\'none\':\'block\';document.getElementById(\'fp\').style.display=(this.value==\'false_positive\')?\'block\':\'none\'"> {t}</label>' for v, t in VERDICTS.items())}
 </div>
+<label>一句話說這件怎麼回事 <span class="hint">（{e(TEXT_HINT)}）</span><textarea name="feedback_text"></textarea></label>
 <div id="fp" style="display:none"><label>為什麼不是問題 <select name="fp_reason">{_opt(FP_REASONS)}</select></label>
 <label>補充 <span class="hint">（選填）</span><input type="text" name="fp_reason_text"></label></div>
 <div id="detail">

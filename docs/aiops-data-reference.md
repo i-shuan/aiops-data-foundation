@@ -4,6 +4,8 @@
 
 查 AIOps（④～⑨）寫進 ES 的五個索引：每個欄位是什麼型別、誰在什麼時候寫、長怎樣。範例是 2026-10-31 在 ES 8.19.23 上跑 `loop_e2e`、`baseline_edge_e2e` 後取出的真實文件，長文字截短（標「…共 N 字」），內容沒改。log、metrics、trace 本身的欄位看 [log/README.md](log/README.md)、[metrics/README.md](metrics/README.md)、[trace/README.md](trace/README.md)。
 
+各索引存什麼、誰寫、多久一次、會不會自己消失，以及 Grafana 自己存什麼：[data-storage-reference.md](data-storage-reference.md)。
+
 **真正的定義在程式**（改欄位時以程式為準，並同步改這份）：
 
 | 索引 | mapping 在哪 |

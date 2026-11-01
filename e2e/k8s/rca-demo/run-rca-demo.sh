@@ -6,11 +6,14 @@
 #
 # 前提：run-e2e.sh 跑過（測試 ES、Collector、測試 namespace 都在），ES 連得到（例如 kubectl port-forward）。
 # 用法（ES_URL 預設 http://127.0.0.1:29200）：
-#   run-rca-demo.sh up          發 key、部署模擬服務與 Grafana（aiops-demo）
-#   run-rca-demo.sh incident    製造事故：wip-worker 查 Oracle 變 1.5 秒、connection pool timeout
-#   run-rca-demo.sh heal        事故結束
-#   run-rca-demo.sh tick        跑一輪：detector trace-merge → rules → investigator alert（正式是排程器每分鐘）
-#   run-rca-demo.sh loop <分鐘>  每分鐘 tick 一次
+#   run-rca-demo.sh up                 發 key、部署模擬服務與 Grafana（aiops-demo）；模擬服務的腳本有改會重啟那個 Pod
+#   run-rca-demo.sh incident           情境 1：wip-worker 查 Oracle 變 1.5 秒、connection pool timeout（約 1/4 的請求失敗）
+#   run-rca-demo.sh heal               情境 1 結束
+#   run-rca-demo.sh incident-external  情境 4：第三方 API 中斷，rca-mes-api 呼叫 sms-gateway 等 10 秒收到 504，每個請求都失敗
+#   run-rca-demo.sh heal-external      情境 4 結束
+#   run-rca-demo.sh tick               跑一輪：detector trace-merge → rules → investigator alert（正式是排程器每分鐘）
+#   run-rca-demo.sh loop <分鐘> [秒]    跑幾分鐘，每隔幾秒 tick 一次（預設 60，跟正式排程一樣）
+# MTTI（注入到報告產出多久）：measure-mtti.sh <incident|incident-external>。
 # LLM：LLM_ENV_FILE=<.env 路徑> 只載入 LLM_PROVIDER、LLM_API_KEY、LLM_CHAT_MODEL、OPENAI_BASE_URL；沒給就用 template。
 # 發的 key 存在 RCA_DEMO_STATE（預設 ~/.rca-demo），不進 repo。
 set -euo pipefail
@@ -24,6 +27,7 @@ key() {  # key <名稱> <role_descriptors JSON>：發一把 API key，印出 enc
   es -X POST "${ES_URL}/_security/api_key" -d "{\"name\":\"$1\",\"role_descriptors\":{\"$1\":$2}}" | jq -r .encoded
 }
 wip() { kubectl -n imc-wip-prod exec deploy/rca-wip-worker -- sh -c "$1"; }
+mes() { kubectl -n it-mes-prod exec deploy/rca-mes-api -- sh -c "$1"; }
 
 load_llm() {
   [[ -n "${LLM_ENV_FILE:-}" ]] || { export LLM_PROVIDER="${LLM_PROVIDER:-template}"; return; }
@@ -49,10 +53,19 @@ up() {
   echo "== 2. 模擬服務（rca-apps.yaml）"
   # Windows 上 checkout 成 CRLF 的話 busybox sh 跑不了：轉成 LF 再建 ConfigMap
   tr -d '\r' < "${repo}/e2e/k8s/rca-lib.sh" > "${STATE}/rca-lib.sh"
+  local out changed=""
   for ns in it-mes-prod imc-wip-prod; do
-    kubectl -n "${ns}" create configmap rca-lib --from-file=lib.sh="${STATE}/rca-lib.sh" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+    out="$(kubectl -n "${ns}" create configmap rca-lib --from-file=lib.sh="${STATE}/rca-lib.sh" --dry-run=client -o yaml | kubectl apply -f -)"
+    [[ "${out}" == *configured* ]] && changed=1
   done
-  kubectl apply -f "${repo}/e2e/k8s/rca-apps.yaml" >/dev/null
+  out="$(kubectl apply -f "${repo}/e2e/k8s/rca-apps.yaml")"
+  [[ "${out}" == *configured* ]] && changed=1
+  # 模擬服務的腳本放 ConfigMap、Pod 起來時才讀進 sh：ConfigMap 有改要重啟 Pod 才生效（第一次部署、沒改就不重啟）
+  if [[ -n "${changed}" ]]; then
+    echo "   模擬服務的腳本有改，重啟 Pod"
+    kubectl -n imc-wip-prod rollout restart deployment/rca-wip-worker >/dev/null
+    kubectl -n it-mes-prod rollout restart deployment/rca-mes-api >/dev/null
+  fi
   kubectl -n imc-wip-prod rollout status deployment/rca-wip-worker --timeout=180s >/dev/null
   kubectl -n it-mes-prod rollout status deployment/rca-mes-api --timeout=180s >/dev/null
 
@@ -94,9 +107,12 @@ tick() {
 
 case "${1:-}" in
   up) up ;;
-  incident) wip 'echo 1.5 > /tmp/db_delay; touch /tmp/slow'; echo "$(date -u +%H:%M:%SZ) 事故開始" ;;
-  heal) wip 'rm -f /tmp/db_delay /tmp/slow'; echo "$(date -u +%H:%M:%SZ) 事故結束" ;;
+  incident) wip 'echo 1.5 > /tmp/db_delay; touch /tmp/slow'; echo "$(date -u +%H:%M:%SZ) 事故開始（情境 1：DB 連線池）" ;;
+  heal) wip 'rm -f /tmp/db_delay /tmp/slow'; echo "$(date -u +%H:%M:%SZ) 事故結束（情境 1）" ;;
+  incident-external) mes 'touch /tmp/sms_down'; echo "$(date -u +%H:%M:%SZ) 事故開始（情境 4：第三方 API 中斷，sms-gateway 10 秒＋504）" ;;
+  heal-external) mes 'rm -f /tmp/sms_down'; echo "$(date -u +%H:%M:%SZ) 事故結束（情境 4）" ;;
   tick) echo "== $(date -u +%H:%M:%SZ) tick"; tick ;;
-  loop) for ((m = 0; m < ${2:?分鐘}; m++)); do echo "== $(date -u +%H:%M:%SZ) tick"; tick; sleep 60; done ;;
-  *) sed -n '2,16p' "$0"; exit 1 ;;
+  loop) end=$(( $(date +%s) + ${2:?分鐘} * 60 )); every="${3:-60}"
+        while (( $(date +%s) < end )); do echo "== $(date -u +%H:%M:%SZ) tick"; tick; sleep "${every}"; done ;;
+  *) sed -n '2,18p' "$0"; exit 1 ;;
 esac

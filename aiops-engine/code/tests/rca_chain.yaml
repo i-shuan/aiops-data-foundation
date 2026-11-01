@@ -1,0 +1,19 @@
+# 跨服務事件聚合的 e2e（tests/chain_e2e.py）用：index 跟 rca_loop.yaml 一樣，close_after 15m，LLM 用 template（不叫模型）
+indices:
+  anomalies: aiops-anomalies
+  traces: traces-merged-*        # 根因分析與「誰呼叫誰」都讀合成一個請求一筆的 merged（e2e 寫完 raw 先跑一次 trace-merge）
+  logs: k8s-*
+timezone: Asia/Taipei
+compare_with: 7d
+ref_gap: 10m
+sample: 200
+interval: 5m
+alerts:
+  close_after: 15m
+  lookback: 2h
+  rca: true
+  similar: true
+  llm: true
+  llm_provider: template
+  chain: true
+  chain_sample: 100

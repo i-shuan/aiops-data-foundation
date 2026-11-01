@@ -133,6 +133,34 @@ class Compute(unittest.TestCase):
         m = self.period([], [])
         self.assertEqual((m["alerts"], m["reviewed"], m["missed"]), (0, 0, 0))
         self.assertIsNone(m["time_to_feedback_min"])
+        self.assertIsNone(m["rca_adoption_rate"])
+        self.assertIsNone(m["extract_rate"])
+
+    def test_rca_adoption_rate_counts_answered_only_last_per_alert(self):
+        # 兩題正面 ÷ 有回答的：not_seen、沒填不算；一件多筆（多人、多異常）只算最後一筆
+        alerts = [alert(i) for i in range(4)]
+        feedback = [{**fb("a0", "true_positive", i=0), "rca_cause_useful": "yes", "rca_action_useful": "no"},
+                    {**fb("a1", "true_positive", i=1), "rca_cause_useful": "yes", "rca_action_useful": "not_seen"},
+                    {**fb("a2", "false_positive", i=2)},                                                         # 沒填
+                    {**fb("a3", "true_positive", by="amy", minutes_after=5, i=3), "rca_cause_useful": "no", "rca_action_useful": "no"},
+                    {**fb("a3", "true_positive", by="bob", minutes_after=50, i=3), "rca_cause_useful": "yes", "rca_action_useful": "yes"}]
+        m = self.period(alerts, feedback)
+        # a0：yes、no；a1：yes、—；a3（最後一筆 bob）：yes、yes → 正面 4、有回答 5
+        self.assertEqual(m["rca_useful"], {"rca_cause_useful": {"yes": 3, "answered": 3}, "rca_action_useful": {"yes": 1, "answered": 2}})
+        self.assertEqual(m["rca_answered"], 5)
+        self.assertAlmostEqual(m["rca_adoption_rate"], 0.8)
+
+    def test_extract_rate_over_feedback_with_text(self):
+        alerts = [alert(i) for i in range(3)]
+        feedback = [{**fb("a0", "false_positive", i=0), "feedback_text": "月底批次", "extract": {"ok": True, "suggested_action": "suppress_during_cron"}},
+                    {**fb("a1", "true_positive", i=1), "feedback_text": "亂寫", "extract": {"ok": False, "reason": "回的不是 JSON"}},
+                    {**fb("a2", "true_positive", i=2)}]
+        m = self.period(alerts, feedback)
+        self.assertEqual((m["with_text"], m["extracted"]), (2, 1))
+        self.assertAlmostEqual(m["extract_rate"], 0.5)
+        text = "\n".join(M.format_metrics(m, "x"))
+        self.assertIn("| RCA 建議採納率（兩題正面 ÷ 有回答的） | —（0 題有回答） |", text)
+        self.assertIn("| 回饋一句話抽成結構化欄位的比例 | 50%（2 件有寫） |", text)
 
 
 class Format(unittest.TestCase):

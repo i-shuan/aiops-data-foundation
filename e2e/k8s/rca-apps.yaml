@@ -20,6 +20,7 @@
 #   touch /tmp/retry           重試風暴：每個請求呼叫 wip-worker 4 次
 #   touch /tmp/cold            快取穿透：每個請求都查 Oracle「SELECT LOT」（平常 5%）
 #   touch /tmp/sms_hang        簡訊廠商掛了：通知簡訊那段從 20ms 變 3 秒
+#   touch /tmp/sms_down        第三方 API 中斷（run-rca-demo.sh incident-external）：通知簡訊那段等 10 秒收到 504，這個請求失敗（回 500）
 apiVersion: v1
 kind: ConfigMap
 metadata: {name: rca-mes-api, namespace: it-mes-prod}
@@ -69,11 +70,15 @@ data:
         if wget -q -O /dev/null -T 10 "http://rca-wip-worker.imc-wip-prod.svc/cgi-bin/wip?tid=${tid}&psid=${cli}&lot=${lot}" 2>/dev/null; then e=""; else e=1; err=1; fi
         spans="${spans},$(span "$tid" "$cli" "$root" "GET" 3 "$ca" "$(now)" "$(attr peer.service rca-wip-worker)" "$e")"
       done
-      # 通知簡訊廠商（平常 20ms；/tmp/sms_hang：廠商掛了、沒設逾時，等 3 秒。時間是模擬的，不真的等）
-      s0=$(now); sms=20; [ -f /tmp/sms_hang ] && sms=3000
-      spans="${spans},$(span "$tid" "$(hex 8)" "$root" "POST" 3 "$s0" $((s0 + sms)) "$(attr peer.service sms-gateway)" "")"
+      # 通知簡訊廠商（平常 20ms；/tmp/sms_hang：廠商掛了、沒設逾時，等 3 秒；/tmp/sms_down：第三方 API 中斷，等 10 秒收到 504、
+      # 這個請求失敗。時間是模擬的，不真的等）。span 跟真的 HTTP client 埋點一樣帶 server.address（外部端點）、http.response.status_code
+      s0=$(now); sms=20; sms_code=202; sms_err=""
+      [ -f /tmp/sms_hang ] && sms=3000
+      [ -f /tmp/sms_down ] && { sms=10000; sms_code=504; sms_err=1; err=1; }
+      spans="${spans},$(span "$tid" "$(hex 8)" "$root" "POST" 3 "$s0" $((s0 + sms)) "$(attr peer.service sms-gateway),$(attr server.address sms.example.com),$(attr http.request.method POST),{\"key\":\"http.response.status_code\",\"value\":{\"intValue\":\"$sms_code\"}}" "$sms_err")"
       t1=$((s0 + sms + 1))
-      if [ -n "$err" ]; then log ERROR "lot ${lot} failed: wip-worker returned error" "$tid" "$root"
+      if [ -n "$sms_err" ]; then log ERROR "lot ${lot} failed: POST https://sms.example.com/v1/send returned 504 after ${sms}ms" "$tid" "$root"
+      elif [ -n "$err" ]; then log ERROR "lot ${lot} failed: wip-worker returned error" "$tid" "$root"
       else log INFO "lot ${lot} handled in $((t1 - t0))ms" "$tid" "$root"; fi
       send rca-mes-api "$(span "$tid" "$root" "" "GET /lots/{id}" 2 "$t0" "$t1" "$(attr http.request.method GET),$(attr http.route /lots/{id})" "$err")${spans}"
       if [ -n "$err" ]; then observe 500 $((t1 - t0)); else observe 200 $((t1 - t0)); fi

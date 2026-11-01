@@ -164,3 +164,171 @@ def summarize(pack: dict, provider: str | None = None) -> dict:
         text, provider = template(pack), f"template（{provider} 失敗：{str(e)[:80]}）"
     ok, reason = validate(text, pack)
     return {"text": text if ok else "", "provider": provider, "ok": ok, "reason": reason}
+
+
+# ── 回饋的自然語言抽取（docs/pdca/phase5-learning-loop/2026-10-feedback-nl-extract.md）──
+# 值班寫一句話（「這是每月初的批次匯出報表，屬於預期內負載」），抽成四個欄位；抽出來的只寫進回饋和「待審核」的調整表，不自動生效。
+# 跟摘要一樣的原則：模型回的要過程式檢查（validate_extraction），過不了就當沒抽到（只存原文），不讓回饋寫入失敗。
+
+FEEDBACK_TYPES = ("false_positive", "true_positive", "wrong_root_cause")
+SUGGESTED_ACTIONS = ("suppress_during_cron", "widen_threshold", "add_rule", "none")
+# identified_cause 的代號（短、snake_case）。清單跟回饋表單的根因分類、誤報原因對得起來；都不像就 unknown
+CAUSE_CODES = ("scheduled_batch_job", "load_test", "deploy", "config_change", "db_slow_query", "db_lock", "db_connection_pool",
+               "network", "dns", "external_api", "downstream_dependency", "resource_cpu", "resource_memory", "disk_full", "bug",
+               "data_volume", "dirty_data", "low_traffic", "known_slow", "traffic_spike", "cache_miss", "kafka_lag",
+               "certificate_expired", "unknown")
+CAUSE_RE = re.compile(r"^[a-z][a-z0-9_]{1,39}$")
+SERVICE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$")
+EXTRACT_FIELDS = ("feedback_type", "identified_cause", "target_service", "suggested_action")
+
+EXTRACT_PROMPT = """你是工廠 IT 維運的值班助理。值班對一件告警寫了一句回饋（繁體中文或英文），請抽成 JSON，只輸出一個 JSON 物件、不要別的字。
+
+欄位（四個都要有）：
+- feedback_type：false_positive（誤報、不是問題、預期內、壓測、演練、本來就這樣）、true_positive（真的事故）、wrong_root_cause（真的，但報告指的根因或對象錯了、「其實是…」）
+- identified_cause：原因的代號，只能從這份清單挑一個：%s。
+  scheduled_batch_job＝定時批次、排程、月初月底結帳、報表匯出；load_test＝壓測、演練、故意弄的；deploy＝換版、上線；config_change＝設定改錯；
+  db_slow_query＝慢查詢、執行計畫、統計資訊、索引；db_lock＝鎖表；db_connection_pool＝連線池滿、逾時；network＝網路、掉封包、switch；dns＝DNS；
+  external_api＝外部系統、供應商、第三方 API；downstream_dependency＝下游服務拖累（沒說是什麼問題）；resource_cpu／resource_memory／disk_full＝資源；
+  bug＝程式錯誤、例外、重試迴圈；data_volume＝資料量暴增；dirty_data＝髒資料；low_traffic＝量太少幾筆就跳；known_slow＝這支本來就慢；
+  traffic_spike＝活動、促銷流量；cache_miss＝快取失效；kafka_lag＝Kafka 落後；certificate_expired＝憑證過期；都不像＝unknown
+- target_service：這句話在講哪個服務。預設是告警的服務（%s）；只有文字明確點名另一個服務（「其實是 wip-worker 的問題」「慢的是下游 oracle-proxy」）才換成那個，不要自己編。
+- suggested_action：系統該做什麼，四選一：
+  suppress_during_cron＝預期內的週期性負載（定時批次、排程、每天／每月固定時段），那段時間不該報；
+  widen_threshold＝門檻太敏感、這支本來就慢、量太少幾筆就跳，要放寬；
+  add_rule＝真的事故，而且值班說下次要直接報、要更早抓到、以後要能抓到；
+  none＝其他（真的事故處理完、根因更正、一次性事件、沒提到要調整、明說不用調）。
+
+告警：%s
+回饋：%s
+"""
+
+
+def parse_json_object(text: str) -> dict | None:
+    """模型回的字串裡撈出第一個 JSON 物件（容許 ```json 圍欄、前後多話）；撈不到回 None。"""
+    s = (text or "").strip()
+    s = re.sub(r"^```(?:json)?\s*|\s*```$", "", s, flags=re.I)
+    for cand in (s, s[s.find("{"): s.rfind("}") + 1] if "{" in s and "}" in s else ""):
+        if not cand:
+            continue
+        try:
+            obj = json.loads(cand)
+        except ValueError:
+            continue
+        if isinstance(obj, dict):
+            return obj
+    return None
+
+
+def validate_extraction(obj, alert: dict | None = None) -> tuple[dict | None, str]:
+    """四個欄位都要有、值要在允許的範圍。回傳 (乾淨的四欄, 原因)；不合格回 (None, 原因)。
+    target_service 空的補告警的服務（「從告警帶入、文字有提到就覆蓋」）；identified_cause 大小寫、空白、減號正規化成 snake_case。"""
+    if not isinstance(obj, dict):
+        return None, "不是 JSON 物件"
+    missing = [f for f in EXTRACT_FIELDS if f not in obj]
+    if missing:
+        return None, f"缺欄位 {missing}"
+    ft, act = str(obj["feedback_type"] or "").strip().lower(), str(obj["suggested_action"] or "").strip().lower()
+    if ft not in FEEDBACK_TYPES:
+        return None, f"feedback_type 不認得：{ft[:40]}"
+    if act not in SUGGESTED_ACTIONS:
+        return None, f"suggested_action 不認得：{act[:40]}"
+    cause = re.sub(r"[\s\-]+", "_", str(obj["identified_cause"] or "").strip().lower())
+    if not CAUSE_RE.match(cause):
+        return None, f"identified_cause 不是短代號：{str(obj['identified_cause'])[:40]}"
+    svc = str(obj["target_service"] or "").strip() or str((alert or {}).get("service") or "").strip()
+    if not svc or not SERVICE_RE.match(svc):
+        return None, f"target_service 不像服務名：{svc[:40]}"
+    return {"feedback_type": ft, "identified_cause": cause, "target_service": svc, "suggested_action": act}, ""
+
+
+# 不叫模型的退路：關鍵字表（繁體中文為主、夾英文）。順序有意義：前面的先命中
+_FP = ("誤報", "不是問題", "不算", "預期內", "預期中", "正常的", "本來就", "壓測", "演練", "不用報", "不該報", "不是我們", "false positive",
+       "not an issue", "not a problem", "expected", "always slow", "load test", "drill")
+_WRONG = ("根因報錯", "根因錯", "根因不對", "報錯對象", "報錯了", "其實是", "其實不是", "root cause was wrong", "wrong root cause")
+_CAUSES = [("scheduled_batch_job", ("批次", "排程", "月底", "月初", "結帳", "匯出報表", "每天凌晨", "batch", "etl", "nightly", "cron", "scheduled")),
+           ("load_test", ("壓測", "壓力測試", "演練", "故意", "load test", "stress test", "drill")),
+           ("deploy", ("換版", "上線", "部署", "deploy", "release", "rollout")),
+           ("config_change", ("設定改", "設定錯", "改設定", "參數調", "config", "misconfig")),
+           ("db_connection_pool", ("連線池", "connection pool", "pool exhausted", "pool size")),
+           ("db_lock", ("鎖表", "死鎖", "lock")),
+           ("db_slow_query", ("統計資訊", "執行計畫", "慢查詢", "索引", "analyze", "slow query", "execution plan", "full scan")),
+           ("dns", ("dns",)),
+           ("certificate_expired", ("憑證", "certificate", "tls", "ssl")),
+           ("kafka_lag", ("kafka", "consumer", "落後", "lag")),
+           ("network", ("網路", "掉封包", "switch", "斷線", "network", "packet loss")),
+           ("external_api", ("供應商", "外部系統", "第三方", "外部中斷", "external", "vendor", "third-party", "third party")),
+           ("resource_memory", ("記憶體", "oom", "memory", "heap")),
+           ("resource_cpu", ("cpu",)),
+           ("disk_full", ("磁碟滿", "磁碟", "disk full", "disk")),
+           ("bug", ("bug", "例外", "exception", "null", "重試", "程式錯")),
+           ("data_volume", ("量暴增", "資料量", "萬筆", "大量資料", "data volume", "backfill")),
+           ("dirty_data", ("髒資料", "壞資料", "dirty data", "bad data")),
+           ("low_traffic", ("量太少", "幾筆", "只有幾", "low traffic", "few requests")),
+           ("known_slow", ("本來就慢", "本來就這樣", "一直都慢", "always slow", "known slow")),
+           ("traffic_spike", ("促銷", "活動", "流量翻倍", "流量暴增", "promotion", "campaign", "traffic spike")),
+           ("cache_miss", ("快取", "cache")),
+           ("downstream_dependency", ("下游", "拖累", "被拖", "downstream"))]
+_CRON = ("批次", "排程", "月底", "月初", "每天", "每月", "每週", "固定時段", "那個時段", "batch", "etl", "nightly", "cron", "scheduled", "every night", "window")
+_WIDEN = ("放寬", "門檻", "太敏感", "本來就慢", "本來就這樣", "量太少", "幾筆", "threshold", "too tight", "too sensitive", "always slow")
+_RULE = ("直接告警", "直接報", "以後要", "之後要", "下次要", "要能抓", "更早", "加規則", "加一條", "alert directly", "add a rule", "catch it next time",
+         "should alert", "earlier")
+_NO_TUNE = ("不用調", "不需要調", "處理完", "已處理", "已恢復", "no change needed", "no tuning")
+_SVC_CUE = ("其實是", "根因在", "問題在", "慢的是", "是下游", "下游", "造成", "來自", "的連線池", "的問題", "on ", "downstream", "actually", "caused by",
+            "root cause is", "it was")
+_SVC_TOKEN = re.compile(r"(?<![A-Za-z0-9._-])([a-z][a-z0-9]*(?:-[a-z0-9]+)+)(?![A-Za-z0-9._-])")
+
+
+def template_extract(text: str, alert: dict | None = None) -> dict:
+    """關鍵字版的抽取（LLM_PROVIDER=template，或沒有模型時）。只是退路，準不準在 tests/feedback_extract_eval.py 量。"""
+    t, low = text or "", (text or "").lower()
+    svc0 = str((alert or {}).get("service") or "")
+    ft = ("wrong_root_cause" if any(k in low for k in _WRONG) else "false_positive" if any(k in low for k in _FP) else "true_positive")
+    cause = next((c for c, keys in _CAUSES if any(k in low for k in keys)), "unknown")
+    if any(k in low for k in _NO_TUNE) and not any(k in low for k in _RULE):
+        act = "none"
+    elif cause == "scheduled_batch_job" or (ft == "false_positive" and any(k in low for k in _CRON)):
+        act = "suppress_during_cron"
+    elif ft == "false_positive" and any(k in low for k in _WIDEN):
+        act = "widen_threshold"
+    elif ft != "false_positive" and any(k in low for k in _RULE):
+        act = "add_rule"
+    else:
+        act = "none"
+    svc = svc0
+    if any(k in low for k in _SVC_CUE):
+        other = [m for m in _SVC_TOKEN.findall(t) if m != svc0]
+        if other:
+            svc = other[0]
+    return {"feedback_type": ft, "identified_cause": cause, "target_service": svc, "suggested_action": act}
+
+
+def extract_feedback(text: str, alert: dict | None = None, provider: str | None = None) -> dict:
+    """回傳 {"ok", "fields", "provider", "reason", "raw"}。ok 才有 fields（四欄）；不 ok 就只存原文、不抽取。
+    模型掛了（連不上、回空的）退回關鍵字版（provider 會寫明）；模型回了但格式不對（驗不過）就不抽，不猜。永不丟例外。"""
+    alert = alert or {}
+    provider = provider or os.environ.get("LLM_PROVIDER") or "template"
+    text = (text or "").strip()
+    if not text:
+        return {"ok": False, "fields": None, "provider": provider, "reason": "沒有文字", "raw": ""}
+    raw = ""
+    try:
+        if provider == "template":
+            obj = template_extract(text, alert)
+        else:
+            ctx = {"service": alert.get("service"), "series": alert.get("series") or [], "title": alert.get("title")}
+            prompt = EXTRACT_PROMPT % ("、".join(CAUSE_CODES), alert.get("service") or "（不明）", json.dumps(ctx, ensure_ascii=False), text)
+            try:
+                raw = {"anthropic": _call_anthropic, "openai": _call_openai}[provider](prompt)
+            except Exception as e:    # 模型掛了：跟摘要一樣退回不叫模型的版本
+                raw, obj, provider = "", template_extract(text, alert), f"template（{provider} 失敗：{str(e)[:80]}）"
+            else:
+                if not raw.strip():
+                    obj, provider = template_extract(text, alert), f"template（{provider} 回空的）"
+                else:
+                    obj = parse_json_object(raw)
+                    if obj is None:
+                        return {"ok": False, "fields": None, "provider": provider, "reason": f"回的不是 JSON：{raw[:60]}", "raw": raw[:500]}
+        fields, why = validate_extraction(obj, alert)
+    except Exception as e:    # noqa: BLE001  抽取只是加值，任何意外都不能讓回饋寫入失敗
+        return {"ok": False, "fields": None, "provider": provider, "reason": f"{type(e).__name__}：{str(e)[:80]}", "raw": raw[:500]}
+    return {"ok": fields is not None, "fields": fields, "provider": provider, "reason": why, "raw": raw[:500]}

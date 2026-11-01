@@ -1,0 +1,112 @@
+# 回饋自然語言抽取的評測語料（docs/pdca/phase5-learning-loop/2026-10-feedback-nl-extract.md）。
+# 值班常用的句子（繁體中文為主、夾幾句英文），每句附人工標的標準答案（expect）。跑法：tests/feedback_extract_eval.py。
+# 規矩：標準答案在跑模型之前定好；看到結果不改答案。覺得某句答案有爭議，在 note 寫理由，不改 expect。
+# alert：這句回饋對的那件告警（service 是 target_service 的預設；文字點名別的服務才覆蓋）。
+items:
+  - id: 1
+    text: 這是每月初的批次匯出報表，屬於預期內負載。
+    alert: {service: mes-report, series: [http.latency_p95_s]}
+    expect: {feedback_type: false_positive, identified_cause: scheduled_batch_job, target_service: mes-report, suggested_action: suppress_during_cron}
+  - id: 2
+    text: 月底結帳批次每次都會這樣，不用報。
+    alert: {service: erp-api, series: [http.request_rate]}
+    expect: {feedback_type: false_positive, identified_cause: scheduled_batch_job, target_service: erp-api, suggested_action: suppress_during_cron}
+  - id: 3
+    text: 真的有問題，Oracle 統計資訊過期，SELECT lots 走錯執行計畫，重跑 analyze 後恢復。
+    alert: {service: mes-api, series: [http.latency_p95_s]}
+    expect: {feedback_type: true_positive, identified_cause: db_slow_query, target_service: mes-api, suggested_action: none}
+  - id: 4
+    text: 根因報錯了，不是 mes-api 自己慢，是 wip-worker 的連線池被打滿。
+    alert: {service: mes-api, series: [http.latency_p95_s]}
+    expect: {feedback_type: wrong_root_cause, identified_cause: db_connection_pool, target_service: wip-worker, suggested_action: none}
+  - id: 5
+    text: 這段時間在做壓測，不是問題。
+    alert: {service: eap-gw, series: [http.request_rate]}
+    expect: {feedback_type: false_positive, identified_cause: load_test, target_service: eap-gw, suggested_action: none}
+    note: 一次性的，不是週期、也不是門檻問題，所以 none（排除時段不在四個動作裡）
+  - id: 6
+    text: 這支 API 本來就慢，每次都跳，門檻放寬一點。
+    alert: {service: mes-report, series: [http.latency_p95_s]}
+    expect: {feedback_type: false_positive, identified_cause: known_slow, target_service: mes-report, suggested_action: widen_threshold}
+  - id: 7
+    text: 夜班只有幾筆請求，兩筆失敗就報錯誤率，量太少不該算。
+    alert: {service: mes-api, series: [http.error_rate]}
+    expect: {feedback_type: false_positive, identified_cause: low_traffic, target_service: mes-api, suggested_action: widen_threshold}
+  - id: 8
+    text: 換版期間的抖動，上線完就正常了。
+    alert: {service: pay-api, series: [http.error_rate]}
+    expect: {feedback_type: false_positive, identified_cause: deploy, target_service: pay-api, suggested_action: none}
+  - id: 9
+    text: 確認是網路問題，機房 switch 有掉封包，網管已處理。
+    alert: {service: eap-gw, series: [http.latency_p95_s]}
+    expect: {feedback_type: true_positive, identified_cause: network, target_service: eap-gw, suggested_action: none}
+  - id: 10
+    text: 是簡訊供應商的 API 超時，不是我們的程式；這種外部中斷以後要直接告警。
+    alert: {service: notify-svc, series: [http.latency_p95_s]}
+    expect: {feedback_type: true_positive, identified_cause: external_api, target_service: notify-svc, suggested_action: add_rule}
+  - id: 11
+    text: 真的，磁碟滿了 log 寫不進去，清掉舊檔後恢復。
+    alert: {service: mes-api, series: [log.errors]}
+    expect: {feedback_type: true_positive, identified_cause: disk_full, target_service: mes-api, suggested_action: none}
+  - id: 12
+    text: 根因不對，報告說是 DB，其實是程式有 bug 把例外吞掉一直重試。
+    alert: {service: wip-worker, series: [log.errors]}
+    expect: {feedback_type: wrong_root_cause, identified_cause: bug, target_service: wip-worker, suggested_action: none}
+  - id: 13
+    text: 每天凌晨兩點的資料同步排程跑的時候都會這樣，排除那個時段。
+    alert: {service: sync-job, series: [http.latency_p95_s]}
+    expect: {feedback_type: false_positive, identified_cause: scheduled_batch_job, target_service: sync-job, suggested_action: suppress_during_cron}
+  - id: 14
+    text: 真的事故，Kafka 消費者落後，重啟 consumer 後追上。
+    alert: {service: order-consumer, series: [kafka.lag]}
+    expect: {feedback_type: true_positive, identified_cause: kafka_lag, target_service: order-consumer, suggested_action: none}
+  - id: 15
+    text: 這是演練，故意把服務關掉測告警，不算。
+    alert: {service: mes-api, series: [http.error_rate]}
+    expect: {feedback_type: false_positive, identified_cause: load_test, target_service: mes-api, suggested_action: none}
+    note: 演練歸在 load_test（跟表單的誤報原因「壓測、演練」同一格）
+  - id: 16
+    text: 真的，記憶體洩漏，Pod 每隔幾天就 OOM 重啟；這個之後要在 OOM 前就報。
+    alert: {service: mes-api, series: [k8s.container.restarts]}
+    expect: {feedback_type: true_positive, identified_cause: resource_memory, target_service: mes-api, suggested_action: add_rule}
+  - id: 17
+    text: 誤報，這週有促銷活動流量翻倍，活動結束就會恢復，不用調。
+    alert: {service: shop-api, series: [http.request_rate]}
+    expect: {feedback_type: false_positive, identified_cause: traffic_spike, target_service: shop-api, suggested_action: none}
+  - id: 18
+    text: 真的，設定改錯把連線數上限調成 10，改回來就好。
+    alert: {service: mes-api, series: [http.error_rate]}
+    expect: {feedback_type: true_positive, identified_cause: config_change, target_service: mes-api, suggested_action: none}
+  - id: 19
+    text: 報錯對象了，慢的是下游 oracle-proxy，mes-api 只是被拖累。
+    alert: {service: mes-api, series: [http.latency_p95_s]}
+    expect: {feedback_type: wrong_root_cause, identified_cause: downstream_dependency, target_service: oracle-proxy, suggested_action: none}
+  - id: 20
+    text: "It's a false positive - the nightly ETL job runs at 01:00 and always spikes latency; please suppress it during that window."
+    alert: {service: etl-api, series: [http.latency_p95_s]}
+    expect: {feedback_type: false_positive, identified_cause: scheduled_batch_job, target_service: etl-api, suggested_action: suppress_during_cron}
+  - id: 21
+    text: "Real incident. DB connection pool exhausted on wip-worker after a traffic burst; raised the pool size."
+    alert: {service: mes-api, series: [http.latency_p95_s]}
+    expect: {feedback_type: true_positive, identified_cause: db_connection_pool, target_service: wip-worker, suggested_action: none}
+    note: 文字點名 wip-worker，target_service 要覆蓋；沒說報告錯，所以是 true_positive
+  - id: 22
+    text: "Not an issue, this endpoint is always slow (report export), the threshold is too tight."
+    alert: {service: mes-report, series: [http.latency_p95_s]}
+    expect: {feedback_type: false_positive, identified_cause: known_slow, target_service: mes-report, suggested_action: widen_threshold}
+  - id: 23
+    text: "Root cause was wrong: not the network, it was an expired TLS certificate on the gateway."
+    alert: {service: eap-gw, series: [http.error_rate]}
+    expect: {feedback_type: wrong_root_cause, identified_cause: certificate_expired, target_service: eap-gw, suggested_action: none}
+  - id: 24
+    text: DNS 解析間歇失敗造成的，已請網管修 DNS；這種錯以後要能直接抓到。
+    alert: {service: mes-api, series: [http.error_rate]}
+    expect: {feedback_type: true_positive, identified_cause: dns, target_service: mes-api, suggested_action: add_rule}
+  - id: 25
+    text: 真的，上游一次丟了 50 萬筆資料進來，量暴增把 worker 塞爆，已請他們分批送。
+    alert: {service: wip-worker, series: [kafka.lag]}
+    expect: {feedback_type: true_positive, identified_cause: data_volume, target_service: wip-worker, suggested_action: none}
+  - id: 26
+    text: 這件是真的，但不用調，處理完了。
+    alert: {service: mes-api, series: [http.latency_p95_s]}
+    expect: {feedback_type: true_positive, identified_cause: unknown, target_service: mes-api, suggested_action: none}

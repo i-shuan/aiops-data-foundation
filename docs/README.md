@@ -26,6 +26,7 @@
 |---|---|---|---|
 | [retention.md](retention.md) | 原理 | 三種資料共用的保留原則、留多久的差別、容量估算、待決定 | 🟢 |
 | [retention-reference.md](retention-reference.md) | 規格 | 三種資料保留一覽、failure store、`aiops-*` | 🟢 |
+| [data-storage-reference.md](data-storage-reference.md) | 規格 | 資料存哪裡：ES 的 `aiops-*`（訓練、RCA 報告、回饋）誰寫、多久一次、會不會自己消失；Grafana 自己存什麼 | 🟢 |
 | [retention-how-to.md](retention-how-to.md) | 操作 | 天數怎麼套用、舊政策還在跑、怎麼量正式環境的量 | 🟢 |
 
 ### ①②③ 收值、清資料、存：log
@@ -55,7 +56,7 @@
 | [../aiops-engine/code/configs/baseline/reference.md](../aiops-engine/code/configs/baseline/reference.md) | 規格 | baseline 規格：序列、狀態、參數、規則、檢查、欄位、結果在哪 | 🟢 |
 | [../aiops-engine/code/configs/baseline/README.md](../aiops-engine/code/configs/baseline/README.md) | 操作 | baseline：怎麼跑 train／detect／rules／peer／quality／chronic、怎麼調、怎麼驗 | 🟢 |
 | [../aiops-engine/code/configs/baseline/verification.md](../aiops-engine/code/configs/baseline/verification.md) | 案例 | baseline 各功能的實測與驗證結果 | 🟢 |
-| [../aiops-engine/code/configs/rca/README.md](../aiops-engine/code/configs/rca/README.md) | 操作 | 根因分析：預設值、怎麼跑、報告長什麼樣子、限制、怎麼驗 | 🟢 |
+| [../aiops-engine/code/configs/rca/README.md](../aiops-engine/code/configs/rca/README.md) | 操作 | 根因分析：預設值、怎麼跑、匯入歷史事故單、報告長什麼樣子、限制、怎麼驗 | 🟢 |
 | [../aiops-engine/code/configs/rca/example-report.md](../aiops-engine/code/configs/rca/example-report.md) | 案例 | 一份範例報告 | 🟢 |
 | [../aiops-engine/code/interfaces/README.md](../aiops-engine/code/interfaces/README.md) | 規格 | 要別人提供的資料的格式 | 🟢 |
 | [../aiops-engine/code/fake-data/README.md](../aiops-engine/code/fake-data/README.md) | 規格 | 假資料（只為了讓程式現在能跑、能測） | 🟢 |
