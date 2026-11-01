@@ -125,6 +125,7 @@ baseline（中位數＋MAD）、規則、資料品質、餵給 baseline 前的�
 | [phase2-anomaly/2026-10-rules-verify.md](phase2-anomaly/2026-10-rules-verify.md) | ④⑨ 靜態臨界值規則 39 條逐條邊緣驗證；規則草稿的動態調整介面 | 151 案例全過；修 4 個：新對象不到 `for` 就報、Kafka 落後變少被當增加（加 `delta`）、草稿過期仍生效、一條草稿壞整輪不寫 |
 | [phase2-anomaly/2026-10-split-detector-cli.md](phase2-anomaly/2026-10-split-detector-cli.md) | ④⑤⑨ detector 的 `__main__.py`（1,100 行）依指令拆檔 | 1,100 行 → `__main__.py` 160 行＋ 10 個檔；只搬不改，200 個測試、ruff、9 個指令實跑都過 |
 | [phase2-anomaly/2026-10-trace-quality-verify.md](phase2-anomaly/2026-10-trace-quality-verify.md) | ②④ trace 段異常、資料品質的邊緣情境（自己的 ES 灌合成資料） | 41 PASS 2 FAIL；修 4 個（`db.system.name`、ID 比例抽樣、缺 namespace 時 `quality` 中斷、3 個新檢查）；例外吞噬定義、第一天路由數維持新做法（已決定）；部分請求變慢、Pod 沒服務 label 的 log 抓不到 |
+| [phase2-anomaly/2026-11-aiops-retention-backup.md](phase2-anomaly/2026-11-aiops-retention-backup.md) | ③⑤⑧⑨ aiops-* 的保留天數與備份：`detector prune` 每天刪超過天數的異常、trace 段統計、已結案告警；setup 註冊 snapshot 儲存庫與每天的 SLM 政策（人工判斷的三個索引不設天數、只備份） | 臨時索引實測刪對、不重算；測試 chart 三節點掛 `/snapshots`，備份 5 個索引 1.2 秒、刪 `aiops-tuning` 再還原 4 筆對 4 筆；正式儲存庫由管 ES 的人決定 |
 
 ### Phase 3 定位問題（`phase3-locate/`）
 

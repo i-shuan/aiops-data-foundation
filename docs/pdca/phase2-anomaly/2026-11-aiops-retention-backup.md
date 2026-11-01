@@ -1,6 +1,6 @@
 # aiops-* 的保留天數與備份（2026-11）
 
-**狀態**：進行中　　**日期**：2026-11-01　　**相關**：分支 `claude/aiops-retention-backup`；來源 [open-issues 第 7 節](../meta/2026-10-open-issues.md)、[data-storage-reference.md](../../data-storage-reference.md)
+**狀態**：已完成　　**日期**：2026-11-01　　**相關**：分支 `claude/aiops-retention-backup`；來源 [open-issues 第 7 節](../meta/2026-10-open-issues.md)、[data-storage-reference.md](../../data-storage-reference.md)
 **模組**：③ 存、⑤ 異常總表、⑧ 出口、⑨ feedback
 
 ## Plan：這一次要達到什麼
@@ -30,8 +30,22 @@
 
 ## Check：測試的目的與結果
 
-（進行中）
+| 為了確認什麼 | 怎麼測 | 結果 |
+|---|---|---|
+| `prune` 算對 cutoff、帶 filter、dry-run 不刪、沒東西不打 delete、出貨設定只碰衍生索引 | `tests/test_prune.py` | 通過 |
+| 真的刪得掉、不該刪的留著、重跑不重算 | 測試 ES 上另建三個臨時索引灌新舊文件：舊異常、舊 trace 段、已結案的舊告警、**開著的**舊告警、新文件；跑 `prune` 兩次 | 第一次：舊的三種刪掉、開著的舊告警與新文件留著；第二次：每個索引「0 筆要刪」，沒再打 delete |
+| 排程表多了 `prune` | `tests/test_scheduler.py` | 通過；全部單元測試通過 |
+| 測試 chart 的三個節點都看得到儲存庫目錄 | 重佈 chart，`GET _nodes/settings` | `elasticsearch-0`、`-1`、`voter-0` 的 `path.repo` 都是 `/snapshots` |
+| setup 註冊儲存庫與 SLM 政策 | `SKIP_KEYS=1 SNAPSHOT_REPO_TYPE=fs SNAPSHOT_REPO_SETTINGS='{"location":"/snapshots"}'` 跑 setup | 儲存庫 `aiops`（fs）、`_verify` 過；政策 `aiops-daily`：每天 03:30、五個索引、留 30 天／最少 7／最多 60 份 |
+| 備份 → 刪 → 還原，筆數對得上 | `POST _slm/policy/aiops-daily/_execute` → `DELETE aiops-tuning` → `_restore` 只還 `aiops-tuning` | 快照 5 個索引、5 個 shard 全成功、1.2 秒；刪後 404；還原後 4 筆 = 備份前 4 筆（其餘四個索引 59／14／26,040／43 筆沒動） |
+
+**沒測到的**：排程器上 `prune`（03:30）、SLM（03:30）沒等到隔天實跑；snapshot 的 `retention`（30 天後刪舊快照）要等 30 天；正式環境的儲存庫類型（S3、NFS）沒碰；大索引（`aiops-baseline` 2.6 萬筆是 MB 等級）以外的量沒量。
 
 ## Act：Check 後沒改善的、還沒解決的
 
-（進行中）
+| 沒改善的 | 在什麼情況下發現的 | 影響 | 後續 |
+|---|---|---|---|
+| 保留天數 90／90／180 天是估的 | 設計時 | 太短會砍掉還想回看的異常；太長只是多佔空間 | 試點後看查詢習慣再調 `prune.yaml` |
+| 正式環境的儲存庫沒決定 | 設計時 | setup 沒給設定就沒有備份，只印一行提醒 | 管 ES 的人決定類型與位置，寫進部署步驟 |
+| snapshot 與 `prune` 都排在 03:30 | 設計時 | `prune` 刪 `aiops-alerts` 的同一刻 SLM 可能在拍它 | 影響只是那天的快照多幾筆或少幾筆已結案告警，不處理 |
+| 測試 chart 用 hostPath，只在單節點的 Rancher Desktop 成立 | 設計時 | 多節點的測試叢集要換共享儲存 | 不處理（chart 只給測試用） |
