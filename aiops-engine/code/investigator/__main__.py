@@ -167,7 +167,7 @@ def investigate_full(cfg: dict, args) -> tuple[str, dict]:
     out += ["## 2. Trace：這個服務收到的請求", ""]
     findings["requests"] = now
     if not now["requests"]:
-        out.append("這段時間沒有這個服務的 trace（服務沒埋點、取樣太低、或名稱不對）。只能從 log 找。")
+        out.append("這段時間沒有這個服務的 trace（服務沒埋點、或名稱不對；剛開件時 trace 還沒合成完也會這樣，合成晚 1～2 分鐘）。只能先從 log 找；沒有 trace 的件系統會自動重跑報告（每 2 分鐘、最多 5 次）。")
         return "\n".join(out), findings
     ref = E.entry_stats(es, ix["traces"], service, route, ref_start, ref_end) if ref_start else None
     out += [f"| | 現在 | 平常（{ref_label or '沒有資料'}） |", "|---|---|---|"]

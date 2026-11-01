@@ -58,6 +58,24 @@ class Template(unittest.TestCase):
         self.assertIn("當時的根因是 [db] 統計資訊過期，當時的處置：重跑 analyze [I1]", text)
         self.assertIn("建議先照上次的方式確認：只有 lots 的查詢慢 [I1]", text)
 
+    def test_no_trace_is_not_reported_as_no_slowdown(self):
+        # trace 還沒合成完（根因分析查過、這個服務沒有任何 trace）：不能說「trace 沒看到變慢」
+        f = {"anomalies": [{"series": "rule.http.error_rate_floor", "value": 0.087, "median": None, "z": None}],
+             "segments": [], "error_origins": [], "new_patterns": [], "requests": {"requests": 0}}
+        pack = LLM.build_pack(ALERT, f, [])
+        self.assertFalse(pack["trace_ready"])
+        text = LLM.template(pack)
+        self.assertNotIn("沒看到哪一段變慢", text)
+        self.assertIn("還沒有 trace", text)
+        self.assertTrue(LLM.validate(text, pack)[0])
+        # 有 trace、真的沒看到變慢：照舊
+        f["requests"] = {"requests": 300}
+        pack = LLM.build_pack(ALERT, f, [])
+        self.assertTrue(pack["trace_ready"])
+        self.assertIn("沒看到哪一段變慢", LLM.template(pack))
+        # 沒跑過根因分析（findings 是 None）不算「trace 還沒就緒」
+        self.assertTrue(LLM.build_pack(ALERT, None, [])["trace_ready"])
+
     def test_template_without_similar_says_so(self):
         pack = LLM.build_pack(ALERT, FINDINGS, [])
         text = LLM.template(pack)

@@ -23,6 +23,9 @@ alerts:
   close_after: 30m                # 這個服務 30 分鐘沒有新的異常 → 這件結束（resolved）；30 分鐘內的都併進同一件
   lookback: 2h                    # 每次讀最近多久的異常
   rca: true                       # 新的一件跑一次根因分析，結論寫進摘要、全文存 report（失敗不擋這一件；相似事故、LLM 也一樣）
+  rca_retry: true                 # 開件太快、trace 還沒合成完（晚 1～2 分鐘）時第一份報告是空的：沒有 trace 的件隔一陣子重跑
+  rca_retry_after: 2m             #   隔多久重跑一次
+  rca_retry_max: 5                #   最多跑幾次（含第一次）；服務本來就沒埋點的，不會永遠重跑
   similar: true                   # 附上老師傅確認過的相似事故（investigator/similar.py）
   llm: true                       # LLM 摘要（core/llm.py）：provider 由環境變數 LLM_PROVIDER 決定（template 不叫模型）；下面可以蓋過
   # llm_provider: template
