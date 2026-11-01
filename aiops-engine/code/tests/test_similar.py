@@ -5,11 +5,14 @@ from investigator import similar as SIM
 
 
 class FakeES:
-    """只做 similar 用到的：status 的 terms 過濾、exists、must_not ids；should 不算（分數由 explain 自己算）。"""
+    """只做 similar 用到的：status 的 terms 過濾、exists、must_not ids、size（照 docs 的順序切前 size 件，當作 ES 的排名）；
+    should 不算（分數由 explain 自己算）。"""
     def __init__(self, incidents: dict):
         self.docs = incidents
+        self.bodies = []
 
     def search(self, index, body):
+        self.bodies.append(body)
         q = body["query"]["bool"]
         out = []
         for _id, s in self.docs.items():
@@ -24,7 +27,7 @@ class FakeES:
                 ok &= _id not in m["ids"]["values"]
             if ok:
                 out.append({"_id": _id, "_source": s})
-        return {"hits": {"hits": out}}
+        return {"hits": {"hits": out[:body.get("size", 10)]}}
 
 
 def findings(seg="mes-api › wip-worker › Oracle SELECT lots 123", err=None, pats=()):
@@ -98,6 +101,20 @@ class Search(unittest.TestCase):
         self.assertEqual(r["n"], 4)
         self.assertEqual(r["hit"], 2)
         self.assertAlmostEqual(r["recall"], 0.5)
+
+    def test_best_match_beyond_es_top20_is_found(self):
+        """docs/pdca/phase5-learning-loop/2026-10-fix-critical.md Act「相似事故 ES 前 20 截斷」：ES 排前面的 25 件只有同服務（3 分、不夠像），
+        一模一樣的那件排第 26；候選只要 20 件就被截掉，要 200 件才找得到。"""
+        only_svc = {"services": ["mes-api"], "routes": [], "series": [], "slow_segments": [], "error_origins": [], "patterns": []}
+        docs = {f"i-weak{i}": incident("network", only_svc) for i in range(25)}
+        docs["i-best"] = incident("db", self.fp)
+        es = FakeES(docs)
+        self.assertEqual([g["incident_id"] for g in SIM.search(es, self.fp)], ["i-best"])
+        self.assertEqual(es.bodies[-1]["size"], SIM.CANDIDATES)
+        self.assertGreaterEqual(SIM.CANDIDATES, 26)
+        # 以前的 20 件就會漏掉；size 可以指定
+        self.assertEqual(SIM.search(es, self.fp, size=20), [])
+        self.assertEqual(es.bodies[-1]["size"], 20)
 
     def test_format(self):
         lines = SIM.format_similar(SIM.search(self.es, self.fp))

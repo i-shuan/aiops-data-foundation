@@ -9,6 +9,7 @@
                      /orders/123 沒換成 /orders/{id}，每個訂單一條序列，序列數爆炸、每條都學不到。
                      另外看抽樣的值裡有幾成「長得像帶了 ID」（數字、UUID、長 hex）。
   type: missing      必填欄位缺了幾成（例如 service.name、k8s.pod.name）。缺的資料對不到服務，學不進任何序列。
+                     missing_if_equals：欄位等於另一個欄位也算缺（service.name 被 Collector 補成 container 名稱）。
   type: stopped      之前有資料、最近 silent 這段時間完全沒有（服務、或整個來源停了）。不是 0 流量，是收不到。
   type: share        某一部分佔全部的比例變多（例如落到 unassigned 的 log）：dept 清單漏同步、namespace 沒標 dept。
   type: lag          兩個時間欄位差多少（依 by 分組，看百分位）：
@@ -223,9 +224,24 @@ def fetch_cardinality(es: ES, check: dict, start, end, examples: int = 500) -> p
                         columns=keys + ["values", "examples"])
 
 
+def _missing_filter(field: str, equals: str | None) -> dict:
+    """「缺」的條件：欄位不存在；有設 missing_if_equals 時，等於另一個欄位也算缺。
+    Collector 沒有 service label 的 Pod，service.name 會補成 container 名稱（例如 app），欄位有值但對不到服務。
+    兩個欄位都是 keyword（log 的 resource.attributes.* 是 alias，指到同一個 keyword 欄位）。"""
+    absent = {"bool": {"must_not": {"exists": {"field": field}}}}
+    if not equals:
+        return absent
+    same = {"script": {"script": {
+        "source": "doc.containsKey(params.a) && doc.containsKey(params.b) && doc[params.a].size() > 0 && "
+                  "doc[params.b].size() > 0 && doc[params.a].value == doc[params.b].value",
+        "params": {"a": field, "b": equals}}}}
+    return {"bool": {"should": [absent, same], "minimum_should_match": 1}}
+
+
 def fetch_missing(es: ES, check: dict, start, end) -> pd.DataFrame:
     keys = _keys(check)
-    aggs = {f"missing:{f}": {"filter": {"bool": {"must_not": {"exists": {"field": f}}}}} for f in check["fields"]}
+    equals = check.get("missing_if_equals") or {}
+    aggs = {f"missing:{f}": {"filter": _missing_filter(f, equals.get(f))} for f in check["fields"]}
     rows = _composite(es, check["index"], _query(check, start, end), keys, check.get("by", []), aggs)
     return _frame([{**{k: r[k] for k in keys}, "docs": r["docs"],
                           **{a: r[a]["doc_count"] for a in aggs}} for r in rows],

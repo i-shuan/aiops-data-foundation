@@ -15,6 +15,9 @@ INCIDENT_INDEX = "aiops-incidents"
 WEIGHTS = {"slow_segments": 4.0, "error_origins": 4.0, "services": 3.0, "routes": 2.0, "patterns": 2.0, "series": 1.0}
 MIN_SCORE = 4.0        # 低於這個分數不算像：至少一個強特徵、或兩三個弱特徵
 TOP_K = 3
+# 跟 ES 要幾件候選再自己重算分數：ES 的 _score（boost）跟 explain 的算法不一樣（series 這裡是 min(交集,3) 倍、ES 只算一次），
+# 排在 ES 第 21 名以後的可能本地分數最高，候選太少會被截掉。已確認的事故預期幾十到一兩百件，explain 是 O(n)、很便宜，直接要 200。
+CANDIDATES = 200
 CONFIRMED = ("confirmed", "corrected")
 
 
@@ -38,7 +41,7 @@ def fingerprint(alert: dict, findings: dict | None) -> dict:
     }
 
 
-def query(fp: dict, exclude_id: str | None = None, size: int = 20) -> dict:
+def query(fp: dict, exclude_id: str | None = None, size: int = CANDIDATES) -> dict:
     should = []
     for field, w in WEIGHTS.items():
         vals = fp.get(field) or []
@@ -69,11 +72,11 @@ def explain(fp: dict, other: dict) -> tuple[float, list[str]]:
     return score, why
 
 
-def search(es, fp: dict, exclude_id: str | None = None, k: int = TOP_K, min_score: float = MIN_SCORE) -> list[dict]:
-    """最像的 k 件（分數 ≥ min_score）。回傳給報告用的欄位＋為什麼像。"""
+def search(es, fp: dict, exclude_id: str | None = None, k: int = TOP_K, min_score: float = MIN_SCORE, size: int = CANDIDATES) -> list[dict]:
+    """最像的 k 件（分數 ≥ min_score）。回傳給報告用的欄位＋為什麼像。size：跟 ES 要幾件候選（見 CANDIDATES）。"""
     if not any(fp.get(f) for f in WEIGHTS):
         return []
-    hits = es.search(INCIDENT_INDEX, query(fp, exclude_id)).get("hits", {}).get("hits", [])
+    hits = es.search(INCIDENT_INDEX, query(fp, exclude_id, size)).get("hits", {}).get("hits", [])
     out = []
     for h in hits:
         s = h["_source"]

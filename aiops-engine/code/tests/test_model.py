@@ -4,8 +4,32 @@ import unittest
 import numpy as np
 import pandas as pd
 
-from detector.model import (TrainOptions, group_of, mark_status, mask_thin, override_for,
+from detector.model import (TrainOptions, effective_for, group_of, mark_status, mask_thin, override_for,
                                   pick_resolution, resolutions_from, score, score_poisson, train, train_groups)
+
+
+class EffectiveForTest(unittest.TestCase):
+    """tune --show 用：每個參數最終生效的值是哪一筆定的（override_for 只給值，看不出來源）。"""
+    ov = [{"series": "http.latency_p95_s", "match": {"service": "^mes-"}, "z": 6, "resolution": "5m"},            # series.yaml 第 1 筆
+          {"id": "t1", "series": "http.latency_p95_s", "match": {"service": "^mes-report"}, "z": 7, "min_abs": 0.5},  # aiops-tuning
+          {"id": "x1", "kind": "exclude_window", "series": "http.latency_p95_s", "z": 99},                        # 不是 override，不算
+          {"id": "t2", "series": "log\\..*", "confirm_points": 1}]                                                # 別條序列
+
+    def test_later_wins_and_source_is_reported(self):
+        e = effective_for("http.latency_p95_s", {"service": "mes-report-api"}, self.ov)
+        self.assertEqual({k: v["value"] for k, v in e.items()}, {"z": 7, "resolution": "5m", "min_abs": 0.5})
+        self.assertEqual((e["z"]["source"], e["min_abs"]["source"]), ("t1", "t1"))          # 後面那筆蓋掉 z，來源跟著換
+        self.assertEqual(e["resolution"]["source"], "series.yaml overrides#1")                 # 只有第一筆設了粒度，來源還是它
+        self.assertEqual(e["z"]["match"], {"service": "^mes-report"})
+        # 值跟 override_for 一致：--show 印的就是 detect 用的
+        self.assertEqual({k: v["value"] for k, v in e.items()}, override_for("http.latency_p95_s", {"service": "mes-report-api"}, self.ov))
+
+    def test_only_first_matches(self):
+        e = effective_for("http.latency_p95_s", {"service": "mes-api"}, self.ov)
+        self.assertEqual({k: (v["value"], v["source"]) for k, v in e.items()}, {"z": (6, "series.yaml overrides#1"), "resolution": ("5m", "series.yaml overrides#1")})
+
+    def test_nothing_matches(self):
+        self.assertEqual(effective_for("pod.cpu", {"service": "mes-api"}, self.ov), {})
 
 TZ = "Asia/Taipei"
 

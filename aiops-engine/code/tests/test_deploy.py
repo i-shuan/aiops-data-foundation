@@ -52,6 +52,14 @@ class EngineChart(unittest.TestCase):
         self.assertEqual(c["feedback"]["livenessProbe"]["httpGet"]["path"], "/health")
         self.assertEqual(self.docs["Service/aiops-feedback"]["spec"]["ports"][0]["port"], 8080)
 
+    def test_engine_version_is_the_image_tag(self):
+        # 每筆異常帶的 engine_version（core/version.py）要跟跑的 image 是同一個 tag，兩個 container 都從 aiops-env 拿
+        env = self.docs["ConfigMap/aiops-env"]["data"]
+        self.assertEqual(env["ENGINE_VERSION"], "0.1.0")
+        self.assertEqual(render("--set", "image.tag=0.3.1")["ConfigMap/aiops-env"]["data"]["ENGINE_VERSION"], "0.3.1")
+        for c in containers(self.docs).values():
+            self.assertIn({"configMapRef": {"name": "aiops-env"}}, c["envFrom"])
+
     def test_feedback_can_be_turned_off(self):
         docs = render("--set", "feedback.enabled=false")
         self.assertEqual(list(containers(docs)), ["scheduler"])

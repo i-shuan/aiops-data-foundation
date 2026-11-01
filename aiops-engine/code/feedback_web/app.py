@@ -4,12 +4,21 @@ from __future__ import annotations
 import html
 import json
 from datetime import datetime, timezone
+from pathlib import Path
+
+import pandas as pd
+import yaml
 
 from core.es import doc_id
 from detector.feedback import FEEDBACK_MAPPING, INCIDENT_MAPPING
 
 ALERT_INDEX, FEEDBACK_INDEX, INCIDENT_INDEX = "aiops-alerts", "aiops-feedback", "aiops-incidents"
 _ready = set()
+# 漏報表單的序列選單、時區：跟 detector 讀同一份 series.yaml（image 裡 configs/ 跟套件放在一起，路徑一樣）
+_SERIES_CFG = yaml.safe_load((Path(__file__).resolve().parents[1] / "configs/baseline/series.yaml").read_text(encoding="utf-8"))
+SERIES_NAMES = [s["name"] for s in _SERIES_CFG["series"]]
+TIMEZONE = _SERIES_CFG.get("train", {}).get("timezone", "Asia/Taipei")
+MISSED_FIELDS = ("series", "service", "at", "by", "note", "route", "pod")    # 漏報表單的元素 id（Grafana 預填的 key 要對到這些）
 VERDICTS = {"true_positive": "真的", "false_positive": "誤報", "wrong_root_cause": "真的，但根因報錯了"}
 CATEGORIES = [("db", "DB（慢查詢、鎖、連線池、統計資訊）"), ("network", "網路（延遲、斷線、DNS）"), ("config_change", "設定變更"),
               ("deploy", "版本更新"), ("external", "外部系統（供應商、其他部門的服務）"), ("resource", "資源不足（CPU、記憶體、磁碟）"),
@@ -91,6 +100,46 @@ def submit(es, form: dict, now: datetime | None = None) -> dict:
     es.req("POST", f"/{INCIDENT_INDEX}/_update/{alert['alert_id']}?refresh=true", {"doc": inc, "upsert": seed})
     # 不再另外 _refresh：bulk_index 已經 refresh=wait_for；最小權限的 key 沒有 maintenance，多打這一下會 403，資料存好了卻回「沒有存成功」
     return {"feedback": len(docs), "incident": status, "by": by}
+
+
+def missed_form_json() -> dict:
+    """漏報表單的預填（initial request）：沒有東西可預填，回空字串讓外掛把欄位清掉。"""
+    return {k: "" for k in MISSED_FIELDS}
+
+
+def submit_missed(es, form: dict, now: datetime | None = None) -> dict:
+    """漏報（該報卻沒報）：沒有 alert_id、沒有 anomaly_id，寫一筆 verdict: missed。
+    form：series（series.yaml 裡的名字）、service、at（ISO 或 YYYY-MM-DD HH:MM；沒時區當 Asia/Taipei）、by、note、route／pod（選填，進 keys）。
+    文件格式、_id 跟指令 feedback add --verdict missed 一樣（cmd_feedback.py），同一個人對同一條再送會覆蓋、不重複。"""
+    now = now or datetime.now(timezone.utc)
+    series = (form.get("series") or "").strip()
+    if series not in SERIES_NAMES:
+        raise ValueError(f"series 要是 {'、'.join(SERIES_NAMES)}")
+    service = (form.get("service") or "").strip()
+    if not service:
+        raise ValueError("service 要填（哪個服務該報卻沒報）")
+    raw_at = (form.get("at") or "").strip()
+    if not raw_at:
+        raise ValueError("at 要填（什麼時候該報：2026-10-25 10:00）")
+    try:
+        at = pd.Timestamp(raw_at)
+    except (ValueError, TypeError) as e:
+        raise ValueError(f"at 看不懂（{raw_at}）：寫 2026-10-25 10:00 或 ISO 格式") from e
+    if pd.isna(at):
+        raise ValueError("at 要填（什麼時候該報：2026-10-25 10:00）")
+    by = (form.get("by") or "").strip() or "anonymous"
+    keys = {"service": service, **{k: (form.get(k) or "").strip() for k in ("route", "pod") if (form.get(k) or "").strip()}}
+    doc = {"@timestamp": now.isoformat(), "verdict": "missed", "series": series, "keys": keys,
+           "anomaly_at": (at.tz_localize(TIMEZONE) if at.tzinfo is None else at).isoformat(), "by": by,
+           "note": (form.get("note") or "").strip() or None}
+    doc = {k: v for k, v in doc.items() if v not in (None, "")}
+    if id(es) not in _ready:
+        es.ensure_index(FEEDBACK_INDEX, FEEDBACK_MAPPING)
+        es.ensure_index(INCIDENT_INDEX, INCIDENT_MAPPING)
+        _ready.add(id(es))
+    _id = doc_id("feedback", [doc["series"], doc["keys"], doc["anomaly_at"]], by)
+    es.req("PUT", f"/{FEEDBACK_INDEX}/_doc/{_id}?refresh=true", doc)
+    return {"feedback": 1, "verdict": "missed", "series": series, "service": service, "by": by}
 
 
 def _opt(options, selected=None):

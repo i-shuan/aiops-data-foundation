@@ -53,6 +53,36 @@ class Dashboard(unittest.TestCase):
         self.assertEqual(self.p["type"], "volkovlabs-form-panel")
 
 
+class MissedPanel(unittest.TestCase):
+    """第二個面板：漏報。元素 id 要跟 /api/missed-form 回的 key 一樣（外掛拿預填的 key 對元素 id），序列選單跟 series.yaml 一樣。"""
+    def setUp(self):
+        with open(DASH, encoding="utf-8") as f:
+            self.d = json.load(f)
+        self.p = self.d["panels"][1]
+        self.opts = self.p["options"]
+
+    def test_element_ids_match_missed_form(self):
+        ids = [e["id"] for e in self.opts["elements"]]
+        self.assertEqual(set(ids), set(A.missed_form_json()), "元素 id 要跟 /api/missed-form 回的 key 一樣")
+        self.assertEqual(len(ids), len(set(ids)))
+        self.assertEqual([e["uid"] for e in self.opts["elements"]], ids)
+
+    def test_series_options_match_series_yaml(self):
+        el = {e["id"]: e for e in self.opts["elements"]}
+        self.assertEqual([o["value"] for o in el["series"]["options"]], A.SERIES_NAMES)
+        self.assertFalse(el["series"]["allowCustomValue"])
+        self.assertEqual(el["at"]["type"], "datetime")
+
+    def test_urls_and_query(self):
+        self.assertTrue(self.opts["initial"]["url"].endswith("/api/missed-form"))
+        self.assertTrue(self.opts["update"]["url"].endswith("/api/missed"))
+        for u in (self.opts["initial"]["url"], self.opts["update"]["url"]):
+            self.assertNotIn("${", u)
+        self.assertTrue(self.p.get("targets"))
+        self.assertEqual((self.p["type"], self.p["pluginVersion"]), (self.d["panels"][0]["type"], self.d["panels"][0]["pluginVersion"]))
+        self.assertEqual(len({p["id"] for p in self.d["panels"]}), len(self.d["panels"]))     # 面板 id 不能撞
+
+
 class Cors(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

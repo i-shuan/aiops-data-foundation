@@ -21,7 +21,7 @@
 | 確認（根因對） | 寫進 `aiops-incidents`；相似事故檢索（RAG）只讀 `confirmed` 的；同根因累積 3 次，產生規則草稿供人審閱 |
 | 根因錯 | 記正確根因，列入評測集，改根因分析或 prompt 時要能答對 |
 | 誤報 | 同一條序列累積 3 次，產生調整建議，經人核准才生效；單次回饋不生效 |
-| 漏報 | 降 z，補序列或規則；目前只能用指令回報 |
+| 漏報 | 降 z，補序列或規則；在 Grafana 儀表板的「回報漏報」面板（`POST /api/missed`）或指令回報 |
 
 ### 怎麼判斷是同一個根因
 
@@ -69,8 +69,9 @@
 | 介面 | 在哪 | 寫哪個索引 |
 |---|---|---|
 | Grafana 回饋表單（定案用這個） | 儀表板 `aiops-feedback`，Business Forms 外掛 `volkovlabs-form-panel` 6.3.1；預填呼叫 `GET /api/alert?alert=<alert_id>`，送出呼叫 `POST /api/feedback`；回饋服務要設 `FEEDBACK_CORS_ORIGIN` 為 Grafana 的網址 | `aiops-feedback`、`aiops-incidents` |
-| 回饋網頁（備案） | `aiops-engine/code/feedback_web`，`GET /feedback?alert=<alert_id>` 是通知裡的連結，`GET /report` 看報告全文；沒有登入 | 同上 |
-| 指令 | `python3 -m detector` 的 `feedback`（`add`、`pending`、`list`、`summary`、`suggest`）、`incident`（`add`、`list`、`resolve`）、`backtest`、`adjust`（`approve`）、`metrics`；漏報只能用指令 | `aiops-feedback`、`aiops-incidents`、`aiops-tuning` |
+| Grafana 漏報表單 | 同一個儀表板的第二個面板「回報漏報（該報卻沒報）」：選序列（[`series.yaml`](../../aiops-engine/code/configs/baseline/series.yaml) 的名字）、填服務、時間、署名；預填 `GET /api/missed-form`，送出 `POST /api/missed`；寫的文件、`_id` 跟指令 `feedback add --verdict missed` 一樣 | `aiops-feedback` |
+| 回饋網頁（備案） | `aiops-engine/code/feedback_web`，`GET /feedback?alert=<alert_id>` 是通知裡的連結，`GET /report` 看報告全文；沒有登入；沒有漏報的網頁版 | 同上 |
+| 指令 | `python3 -m detector` 的 `feedback`（`add`、`pending`、`list`、`summary`、`suggest`）、`incident`（`add`、`list`、`resolve`）、`backtest`、`adjust`（`approve`）、`metrics`；漏報用 `feedback add --verdict missed --series … --match service=… --at …` | `aiops-feedback`、`aiops-incidents`、`aiops-tuning` |
 
 ### 跟 aiops-* 索引的欄位的關係
 
@@ -87,4 +88,4 @@
 - 老師傅填的根因分類、根因、處置、怎麼看出來的、查了哪裡，存在 `aiops-incidents`；誤報不填這些，只填 `fp_reason`。
 - 相似事故檢索只讀 `confirmed`、`corrected`。
 - 建議（誤報累積 3 次、同根因累積 3 次）由 `feedback suggest` 寫進 `aiops-tuning`，`status: proposed`；`backtest` 通過、人用 `adjust approve` 改成 `active` 才生效。
-- 漏報沒有 `alert_id`，只能用 `feedback add` 寫進 `aiops-feedback`（`verdict: missed`）。
+- 漏報沒有 `alert_id`、`anomaly_id`：Grafana 漏報面板（`POST /api/missed`）或 `feedback add` 寫一筆 `aiops-feedback`（`verdict: missed`、`series`、`keys.service`、`anomaly_at`），不碰 `aiops-incidents`；時間沒寫時區當 `train.timezone`（Asia/Taipei）。

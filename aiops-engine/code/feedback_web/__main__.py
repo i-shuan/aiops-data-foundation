@@ -56,6 +56,8 @@ class Handler(BaseHTTPRequestHandler):
             if not alert:
                 return self._send(404, A.to_json({"error": f"找不到告警 {q.get('alert')}"}), "application/json")
             return self._send(200, A.to_json(A.form_json(A.form_data(alert))), "application/json")
+        if u.path == "/api/missed-form":    # 漏報表單的預填：全空（讓外掛把上一次填的清掉）
+            return self._send(200, A.to_json(A.missed_form_json()), "application/json")
         if u.path in ("/feedback", "/report"):
             alert = A.load_alert(self.es, q.get("alert", ""))
             if not alert:
@@ -68,6 +70,14 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         u = urlparse(self.path)
         raw = self.rfile.read(int(self.headers.get("Content-Length") or 0))
+        if u.path == "/api/missed":    # 漏報（Grafana 第二個表單面板）：只有 JSON，沒有網頁版
+            try:
+                return self._send(200, A.to_json(A.submit_missed(self.es, json.loads(raw or b"{}"))), "application/json")
+            except (KeyError, ValueError) as e:
+                return self._send(400, A.to_json({"error": str(e)}), "application/json")
+            except Exception as e:
+                sys.stderr.write(f"missed submit failed: {e!r}\n")
+                return self._send(503, A.to_json({"error": f"沒有存成功（{type(e).__name__}：{str(e)[:120]}）。請稍後再送一次；重送不會重複記錄。"}), "application/json")
         if u.path not in ("/feedback", "/api/feedback"):
             return self._send(404, b"not found", "text/plain")
         if self.headers.get("Content-Type", "").startswith("application/json"):
@@ -111,7 +121,7 @@ def main() -> int:
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         ctx.load_cert_chain(cert, key)
         srv.socket = ctx.wrap_socket(srv.socket, server_side=True)
-    print(f"feedback_web 在 :{port}（{'https' if cert and key else 'http'}；GET /feedback?alert=<alert_id>）", flush=True)
+    print(f"feedback_web 在 :{port}（{'https' if cert and key else 'http'}；GET /feedback?alert=<alert_id>；Grafana 表單用 /api/alert、/api/feedback、/api/missed-form、/api/missed）", flush=True)
     srv.serve_forever()
     return 0
 
