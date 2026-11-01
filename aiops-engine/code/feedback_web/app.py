@@ -47,7 +47,7 @@ def form_data(alert: dict) -> dict:
     return {"alert_id": alert["alert_id"], "title": alert.get("title"), "summary": alert.get("summary") or "", "service": alert.get("service"),
             "dept": alert.get("dept"), "severity": alert.get("severity"), "status": alert.get("status"), "started_at": alert.get("started_at"),
             "llm": alert.get("llm_summary") or "", "similar": sim[:3], "anomaly_ids": alert.get("anomaly_ids") or [],
-            "series": alert.get("series") or [], "report_url": alert.get("report_url")}
+            "series": alert.get("series") or [], "report_url": alert.get("report_url"), "report": alert.get("report") or ""}
 
 
 def form_json(d: dict) -> dict:
@@ -175,7 +175,8 @@ def _opt(options, selected=None):
     return "".join(f'<option value="{html.escape(v)}"{" selected" if v == selected else ""}>{html.escape(t)}</option>' for v, t in options)
 
 
-def render_form(d: dict, done: dict | None = None, error: str | None = None) -> str:
+def render_form(d: dict, done: dict | None = None, error: str | None = None, full: bool = False) -> str:
+    """full：根因分析全文直接放在表單上面（Grafana 抽屜裡用：先看全文、最下面填回饋，不用另開一頁）。"""
     e = html.escape
     sim = "".join(f"<li><b>{e((s.get('start') or '')[:16])}</b> [{e(s.get('root_cause_category') or '—')}] {e(s.get('root_cause') or '')}"
                   f"<br><small>處置：{e(s.get('action') or '—')}｜怎麼看出來的：{e(s.get('how_detected') or '—')}｜為什麼像：{e('；'.join(s.get('why') or []))}</small></li>"
@@ -198,15 +199,16 @@ pre{{background:#f4f4f4;padding:10px;white-space:pre-wrap}}label{{display:block;
 input[type=text],textarea,select{{width:100%;padding:6px;font-size:15px}}textarea{{height:64px}}.chk{{display:inline-block;font-weight:400;margin:4px 12px 0 0}}
 .v label{{display:inline-block;margin-right:16px;font-weight:600}}button{{margin-top:16px;padding:10px 20px;font-size:16px}}
 .ok{{background:#e6f7e6;padding:10px}}.err{{background:#fde8e8;padding:10px}}small{{color:#555}}.hint{{font-weight:400;color:#555;font-size:13px}}
-#detail{{display:none}}</style></head><body>
+#detail{{display:none}}{'body{max-width:none;margin:16px 24px}h3{border-top:2px solid #ddd;padding-top:12px;margin-top:28px}' if full else ''}</style></head><body>
 <h2>{e(d['title'] or d['alert_id'])}</h2>
 <pre>{e(d['summary'])}</pre>
 {f'<p><b>AI 摘要</b>（只是參考）：<br>{e(d["llm"]).replace(chr(10), "<br>")}</p>' if d['llm'] else ''}
 <p><b>過去相似的事故</b></p><ul>{sim}</ul>
-{f'<p><a href="/report?alert={e(d["alert_id"])}">根因報告全文</a></p>'}
+{f'<h3>根因分析全文</h3><pre>{e(d.get("report") or "（沒有報告）")}</pre><h3>資深維運專家（老師傅）回饋</h3>' if full else f'<p><a href="/report?alert={e(d["alert_id"])}">根因報告全文</a></p>'}
 {msg}
 <form method="post" action="/feedback">
 <input type="hidden" name="alert_id" value="{e(d['alert_id'])}">
+{'<input type="hidden" name="full" value="1">' if full else ''}
 {rca}
 <div class="v"><label>這件是：</label><br>
 {"".join(f'<label><input type="radio" name="verdict" value="{v}" required onclick="document.getElementById(\'detail\').style.display=(this.value==\'false_positive\')?\'none\':\'block\';document.getElementById(\'fp\').style.display=(this.value==\'false_positive\')?\'block\':\'none\'"> {t}</label>' for v, t in VERDICTS.items())}

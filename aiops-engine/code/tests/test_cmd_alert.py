@@ -158,6 +158,33 @@ if __name__ == "__main__":
     unittest.main()
 
 
+class FeedbackFooter(unittest.TestCase):
+    def test_footer_added_once(self):
+        url = "http://fb/feedback?alert=a-1"
+        r = C.with_feedback_footer("# 根因分析\n\n## 結論\n- x\n", url)
+        self.assertTrue(r.endswith(f"---\n資深維運專家（老師傅）回饋：{url}\n"))
+        self.assertEqual(C.with_feedback_footer(r, url), r)          # 下一輪寫回去不會再加一行
+        self.assertEqual(C.with_feedback_footer("報告", None), "報告")  # 沒設 feedback_url 不加
+        self.assertIsNone(C.with_feedback_footer(None, url))
+
+
+class Titled(unittest.TestCase):
+    def test_first_line_is_title_then_report(self):
+        t = C.titled("[critical] mes-api：錯誤率", "# 根因分析\n- x")
+        self.assertEqual(t.split("\n", 1)[0], "[critical] mes-api：錯誤率")
+        self.assertTrue(t.endswith("【根因分析】\n# 根因分析\n- x"))
+        self.assertEqual(C.titled("只有標題", None), "只有標題")
+
+    def test_llm_section_then_report_without_duplicate_quote_feedback_last(self):
+        llm = "Oracle 那段變慢 [S1]。\n先看連線池 [E1]。"
+        report = C.with_feedback_footer("> Oracle 那段變慢 [S1]。\n> 先看連線池 [E1]。\n\n# 根因分析\n- x\n", "http://fb/feedback?alert=a-1")
+        t = C.titled("[critical] mes-api", report, llm)
+        self.assertLess(t.index("【AI 摘要"), t.index("【根因分析】"))
+        self.assertIn("【AI 摘要（LLM，只是參考）】\nOracle 那段變慢 [S1]。\n先看連線池 [E1]。", t)
+        self.assertNotIn("> Oracle", t)                                   # 全文最前面的引用拿掉，不重複
+        self.assertTrue(t.rstrip().endswith("資深維運專家（老師傅）回饋：http://fb/feedback?alert=a-1"))
+
+
 class StampIsInThePast(unittest.TestCase):
     """docs/pdca/phase3-locate/2026-10-alert-flap.md：覆蓋寫入剛好落在 Grafana 排定評估與送出查詢之間時，
     @timestamp 不能晚於查詢範圍的結束點，不然開著的件會被當成恢復。"""

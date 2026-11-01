@@ -273,12 +273,12 @@
     {
       "id": 5,
       "type": "table",
-      "title": "⑤ AIOps：合成的事件與 AI 摘要（aiops-alerts；點儲存格看全文）",
+      "title": "⑤ AIOps：合成的事件（一列一件；title 那格點眼睛：AI 摘要、根因分析、最下面老師傅回饋網址；「老師傅回饋」點一下開表單）",
       "gridPos": {
         "x": 0,
         "y": 17,
         "w": 24,
-        "h": 7
+        "h": 14
       },
       "datasource": {
         "type": "elasticsearch",
@@ -369,12 +369,108 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "title"
+              "options": "report_titled"
             },
             "properties": [
               {
                 "id": "custom.width",
                 "value": 320
+              },
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "新分頁開這件的報告全文",
+                    "url": "${__data.fields.report_url}",
+                    "targetBlank": true
+                  }
+                ]
+              },
+              {
+                "id": "displayName",
+                "value": "title"
+              },
+              {
+                "id": "custom.inspect",
+                "value": true
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "regex",
+                    "options": {
+                      "pattern": "^([^\\n]*)[\\s\\S]*$",
+                      "result": {
+                        "text": "$1"
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "alert_id"
+            },
+            "properties": [
+              {
+                "id": "custom.hidden",
+                "value": true
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "report_url"
+            },
+            "properties": [
+              {
+                "id": "custom.hidden",
+                "value": true
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "feedback_url"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "老師傅回饋"
+              },
+              {
+                "id": "custom.width",
+                "value": 110
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "regex",
+                    "options": {
+                      "pattern": "^http.*$",
+                      "result": {
+                        "text": "✍ 填回饋"
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "老師傅回饋（全文在上、表單在下）",
+                    "url": "${__value.raw}&full=1",
+                    "targetBlank": true
+                  }
+                ]
               }
             ]
           }
@@ -387,7 +483,7 @@
             "type": "elasticsearch",
             "uid": "demo-alerts"
           },
-          "query": "NOT alert_id:heartbeat",
+          "query": "category:service",
           "timeField": "@timestamp",
           "metrics": [
             {
@@ -411,9 +507,11 @@
               "severity": true,
               "service": true,
               "dept": true,
-              "title": true,
               "anomaly_count": true,
-              "llm_summary": true
+              "alert_id": true,
+              "report_url": true,
+              "feedback_url": true,
+              "report_titled": true
             },
             "indexByName": {
               "started_at": 0,
@@ -421,53 +519,13 @@
               "severity": 2,
               "service": 3,
               "dept": 4,
-              "title": 5,
-              "anomaly_count": 6,
-              "llm_summary": 7
+              "anomaly_count": 7,
+              "alert_id": 8,
+              "report_url": 9,
+              "feedback_url": 6,
+              "report_titled": 5
             }
           }
-        }
-      ]
-    },
-    {
-      "id": 6,
-      "type": "logs",
-      "title": "⑥ AIOps：根因分析報告全文（metrics 異常 → trace 哪一段 → 那行 log）",
-      "gridPos": {
-        "x": 0,
-        "y": 24,
-        "w": 24,
-        "h": 14
-      },
-      "datasource": {
-        "type": "elasticsearch",
-        "uid": "demo-alerts"
-      },
-      "options": {
-        "showTime": true,
-        "wrapLogMessage": true,
-        "sortOrder": "Descending",
-        "enableLogDetails": false
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "elasticsearch",
-            "uid": "demo-alerts"
-          },
-          "query": "category:service",
-          "timeField": "@timestamp",
-          "metrics": [
-            {
-              "id": "1",
-              "type": "logs",
-              "settings": {
-                "limit": "5"
-              }
-            }
-          ],
-          "bucketAggs": []
         }
       ]
     }

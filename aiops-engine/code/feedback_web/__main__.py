@@ -64,7 +64,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(404, f"找不到告警 {q.get('alert')}".encode(), "text/plain; charset=utf-8")
             if u.path == "/report":
                 return self._send(200, A.render_report(alert).encode())
-            return self._send(200, A.render_form(A.form_data(alert)).encode())
+            return self._send(200, A.render_form(A.form_data(alert), full=q.get("full") == "1").encode())
         return self._send(404, b"not found", "text/plain")
 
     def do_POST(self):
@@ -90,7 +90,7 @@ class Handler(BaseHTTPRequestHandler):
             if u.path == "/api/feedback":
                 return self._send(400, A.to_json({"error": str(e)}), "application/json")
             alert = A.load_alert(self.es, form.get("alert_id", ""))
-            return self._send(400, A.render_form(A.form_data(alert), error=str(e)).encode() if alert else str(e).encode())
+            return self._send(400, A.render_form(A.form_data(alert), error=str(e), full=form.get("full") == "1").encode() if alert else str(e).encode())
         except Exception as e:    # ES 掛了、連不上：要回一頁說「沒存成功，請再送一次」，不能把連線關掉讓人猜
             msg = f"沒有存成功（{type(e).__name__}：{str(e)[:120]}）。請稍後再送一次；重送不會重複記錄。"
             sys.stderr.write(f"feedback submit failed: {e!r}\n")
@@ -100,11 +100,11 @@ class Handler(BaseHTTPRequestHandler):
                 alert = A.load_alert(self.es, form.get("alert_id", ""))
             except Exception:
                 alert = None
-            return self._send(503, A.render_form(A.form_data(alert), error=msg).encode() if alert else msg.encode())
+            return self._send(503, A.render_form(A.form_data(alert), error=msg, full=form.get("full") == "1").encode() if alert else msg.encode())
         if u.path == "/api/feedback":
             return self._send(200, A.to_json(done), "application/json")
         alert = A.load_alert(self.es, form["alert_id"])
-        return self._send(200, A.render_form(A.form_data(alert), done=done).encode())
+        return self._send(200, A.render_form(A.form_data(alert), done=done, full=form.get("full") == "1").encode())
 
     def log_message(self, fmt, *args):
         sys.stderr.write(f"{self.address_string()} {fmt % args}\n")

@@ -54,6 +54,8 @@ ALERT_MAPPING = {"mappings": {"dynamic": False, "properties": {
     # Grafana 的告警只能帶 labels（terms 分組的值），所以標題、摘要、報告連結都存成 keyword
     "title": {"type": "keyword", "ignore_above": 1024}, "summary": {"type": "keyword", "ignore_above": 4096},
     "report_url": {"type": "keyword"}, "report": {"type": "text", "index": False}, "report_at": {"type": "date"},
+    # 標題一行＋報告全文：Grafana 表格的 title 欄用它（值對應只顯示第一行），點那格的眼睛（Inspect value）就是全文
+    "report_titled": {"type": "text", "index": False},
     "feedback_url": {"type": "keyword"},
     # 結構化的根因分析結果（相似事故檢索、LLM 用；不索引）、相似事故、LLM 摘要
     "findings": {"type": "object", "enabled": False}, "similar": {"type": "object", "enabled": False},
@@ -114,6 +116,31 @@ def _incident_doc(al: dict, doc: dict, findings: dict | None) -> dict:
             "upstream_services": list(al.get("upstream_services") or []),
             "status": "auto", "dept": doc.get("dept"), "group": doc.get("group"), "anomaly_ids": al["anomaly_ids"][:200],
             "detected_at": doc["started_at"], "fingerprint": SIM.fingerprint(al, findings)}
+
+
+def with_feedback_footer(report: str | None, feedback_url: str | None) -> str | None:
+    """報告全文最後加一行老師傅回饋的網址：Grafana 表格點眼睛（Inspect value）看全文時，看完最下面就是回饋入口。
+    報告會跟著件一輪一輪寫回去，已經有這行就不再加。"""
+    if not report or not feedback_url:
+        return report
+    line = f"資深維運專家（老師傅）回饋：{feedback_url}"
+    return report if line in report else f"{report.rstrip()}\n\n---\n{line}\n"
+
+
+def titled(title: str | None, report: str | None, llm: str | None = None) -> str:
+    """Grafana 表格的 title 格用：第一行標題（表格只顯示這行），點眼睛看整份——
+    【AI 摘要】、【根因分析】（報告全文，最下面是老師傅回饋的網址）。
+    報告最前面本來就引用了 AI 摘要（「> …」），已經放在【AI 摘要】就從全文拿掉，不重複。"""
+    parts = [title or ""]
+    body = report or ""
+    if llm:
+        quoted = "\n".join(f"> {l}" for l in llm.splitlines())
+        if body.startswith(quoted):
+            body = body[len(quoted):].lstrip("\n")
+        parts.append(f"【AI 摘要（LLM，只是參考）】\n{llm}")
+    if body:
+        parts.append(f"【根因分析】\n{body}")
+    return "\n\n".join(parts)
 
 
 def llm_summary(al: dict, findings: dict | None, similar: list[dict], acfg: dict) -> dict | None:
@@ -231,11 +258,13 @@ def run(cfg: dict, args, investigate) -> int:
             al["title"], al["summary"] = AL.headline(al), AL.summary(al, report, tz, similar)
         url, furl = acfg.get("report_url"), acfg.get("feedback_url")
         doc = {k: v for k, v in al.items() if not k.startswith("_")}
-        doc.update({"report": report, "report_url": url.format(alert_id=al["alert_id"]) if url else None,
-                    "feedback_url": furl.format(alert_id=al["alert_id"]) if furl else None,
+        fb = furl.format(alert_id=al["alert_id"]) if furl else None
+        doc.update({"report": with_feedback_footer(report, fb), "report_url": url.format(alert_id=al["alert_id"]) if url else None,
+                    "feedback_url": fb,
                     "anomaly_count": len(al["anomaly_ids"]), "findings": findings, "similar": similar,
                     "llm_summary": (llm or {}).get("text") or al.get("llm_summary"), "llm_provider": (llm or {}).get("provider") or al.get("llm_provider"),
                     "@timestamp": (al["resolved_at"] if al["status"] == "resolved" else stamp_of(now))})
+        doc["report_titled"] = titled(doc.get("title"), doc.get("report"), doc.get("llm_summary"))
         doc = {k: (v.isoformat() if isinstance(v, datetime) else v) for k, v in doc.items()}
         docs.append((al["alert_id"], doc))
         if al.get("merged_into"):
