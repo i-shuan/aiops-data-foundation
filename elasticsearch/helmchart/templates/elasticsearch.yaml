@@ -55,6 +55,9 @@ spec:
 {{- end }}
 # 測試機常和別人共用磁碟，使用率超過 90% 時 ES 會拒絕配置 shard，測試時不檢查
 - {name: cluster.routing.allocation.disk.threshold_enabled, value: "false"}
+{{- if .Values.snapshots.enabled }}
+- {name: path.repo, value: /snapshots}
+{{- end }}
 - name: ELASTIC_PASSWORD
   valueFrom: {secretKeyRef: {name: es-elastic, key: password}}
 {{- end }}
@@ -108,15 +111,22 @@ volumes:
   - name: certs
     secret: {secretName: {{ .Values.twoNode.certsSecret }}}
   {{- end }}
+  {{- if .Values.snapshots.enabled }}
+  - name: snapshots
+    hostPath: {path: {{ .Values.snapshots.hostPath | quote }}, type: DirectoryOrCreate}
+  {{- end }}
 securityContext:
   fsGroup: 1000
 initContainers:
-  # local-path 建出來的目錄是 root 的，ES 以 uid 1000 執行
+  # local-path 建出來的目錄是 root 的，ES 以 uid 1000 執行（snapshot 的 hostPath 也是）
   - name: chown
     image: docker.io/library/busybox:1.37
-    command: ["sh", "-c", "chown -R 1000:1000 /data"]
+    command: ["sh", "-c", "chown -R 1000:1000 /data{{ if .Values.snapshots.enabled }} /snapshots{{ end }}"]
     volumeMounts:
       - {name: data, mountPath: /data}
+      {{- if .Values.snapshots.enabled }}
+      - {name: snapshots, mountPath: /snapshots}
+      {{- end }}
 {{- end }}
 
 {{- define "es.mounts" }}
@@ -125,6 +135,9 @@ volumeMounts:
   - {name: probe-key, mountPath: /probe, readOnly: true}
   {{- if .Values.twoNode.enabled }}
   - {name: certs, mountPath: /usr/share/elasticsearch/config/certs, readOnly: true}
+  {{- end }}
+  {{- if .Values.snapshots.enabled }}
+  - {name: snapshots, mountPath: /snapshots}
   {{- end }}
 {{- end }}
 ---

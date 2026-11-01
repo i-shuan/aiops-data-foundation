@@ -199,6 +199,25 @@ if [[ -n "$(es "${ES_URL}/_data_stream/k8s-*" | jq -r '.data_streams[]? | .name'
   es -X PUT "${ES_URL}/_data_stream/k8s-*/_options" -d '{"failure_store": {"enabled": true}}' >/dev/null
 fi
 
+# snapshot：人工判斷的索引（回饋、事故紀錄、調整）掉了不能重算，每天備份一次（SLM；天數、索引在 retention.conf）。
+# 儲存庫由管 ES 的人決定：SNAPSHOT_REPO_TYPE（fs、s3、azure、gcs…）＋ SNAPSHOT_REPO_SETTINGS（該類型的 settings JSON）。
+# 沒給就跳過（印一行提醒）。fs 的 location 要在每個 master、data 節點的 path.repo 底下（測試 chart 是 /snapshots）。
+# 還原步驟見 elasticsearch/README.md「備份與還原」
+SNAPSHOT_REPO="${SNAPSHOT_REPO:-aiops}"
+if [[ -n "${SNAPSHOT_REPO_TYPE:-}" && -n "${SNAPSHOT_REPO_SETTINGS:-}" ]]; then
+  echo "=== snapshot 儲存庫 ${SNAPSHOT_REPO}（${SNAPSHOT_REPO_TYPE}）與每天的 SLM 政策 aiops-daily ==="
+  es --fail-with-body -X PUT "${ES_URL}/_snapshot/${SNAPSHOT_REPO}" \
+    -d "{\"type\": \"${SNAPSHOT_REPO_TYPE}\", \"settings\": ${SNAPSHOT_REPO_SETTINGS}}" >/dev/null
+  es --fail-with-body -X POST "${ES_URL}/_snapshot/${SNAPSHOT_REPO}/_verify" >/dev/null
+  es --fail-with-body -X PUT "${ES_URL}/_slm/policy/aiops-daily" -d "{
+    \"schedule\": \"${SNAPSHOT_SCHEDULE}\", \"name\": \"<aiops-{now/d}>\", \"repository\": \"${SNAPSHOT_REPO}\",
+    \"config\": {\"indices\": \"${SNAPSHOT_INDICES}\", \"ignore_unavailable\": true, \"include_global_state\": false},
+    \"retention\": {\"expire_after\": \"${SNAPSHOT_KEEP}\", \"min_count\": 7, \"max_count\": 60}}" >/dev/null
+  es -X POST "${ES_URL}/_slm/start" >/dev/null
+else
+  echo "=== 沒給 SNAPSHOT_REPO_TYPE／SNAPSHOT_REPO_SETTINGS，跳過 snapshot（回饋、事故紀錄、調整沒有備份；見 elasticsearch/README.md「備份與還原」）==="
+fi
+
 [[ "${SKIP_KEYS:-}" == "1" ]] && exit 0
 
 # 1. 寫入用：一把，log、metrics、trace、所有 group 共用（都由 OpenTelemetry Collector 送）。

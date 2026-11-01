@@ -77,6 +77,12 @@ jobs:
     timeout: 1800
     args: [detector, chronic, --config, configs/baseline/chronic.yaml]
     why: 每週一的慢性病清單，要幾週資料才有意義
+  - name: prune
+    stage: 2
+    cron: "30 3 * * *"
+    timeout: 600
+    args: [detector, prune, --config, configs/baseline/prune.yaml]
+    why: aiops-anomalies、aiops-trace-segments、已結案的 aiops-alerts 沒有 ILM，超過保留天數的每天清一次（prune.yaml）
   - name: shift
     stage: 2
     cron: "0 4 * * *"
