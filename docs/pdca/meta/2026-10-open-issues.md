@@ -157,8 +157,8 @@
 | `trace.yaml` 的 `sample_per_bucket` 20 要不要調到 100 | 已改成 100。耗時：測試資料上一輪 0.3～0.5 秒（20 時 0.1 秒，排程時限 240 秒）；偵測：20 時 trace 那段 14 過 3 失敗，50 與 100 都 17 項全過，選 100 餘裕較大。100 是 ES `top_hits` 的預設上限。正式環境 API 多時的耗時沒量（[PDCA](../phase2-anomaly/2026-11-trace-sample-100.md)） | 同上 |
 | 三成 Pod 沒有服務 label 沒報（B6a） | pipeline 沒 label 時 `service.name` 退回 container 名稱 `app`，欄位不算缺，檢查看不到；master 也一樣，與 trace 合併無關。已做：`missing` 檢查加 `missing_if_equals`（等於 `k8s.container.name` 也算缺），只有單元測試、Painless 沒對真 ES 跑、e2e B6a 等叢集空了再跑（已合入 master；[PDCA](../phase5-learning-loop/2026-11-open-issues-batch.md)） | 同上 |
 | 每筆異常沒記是哪一版產生的 | 已做：每筆異常帶 `engine_version`（chart 的 `image.tag`，本機是 `dev`）（已合入 master；[PDCA](../phase5-learning-loop/2026-11-open-issues-batch.md)） | [baseline/reference.md](../../../aiops-engine/code/configs/baseline/reference.md) |
-| `suggest` 只調 `z` | 不調 `min_abs`、粒度，也不會提排除時段（月底批次更該用 `recurring_override`） | 同上 |
-| 規則核准前沒有回測 | 用 `rules --at <事故時間>` 看會不會觸發，要人手動 | 同上 |
+| `suggest` 只調 `z` | 已做：誤報累積時依時間與偏差選週期放寬（`recurring_override`）、`min_abs` 或 z；不提粒度（改粒度要重新 train，回測比不了）（[PDCA](../phase5-learning-loop/2026-11-suggest-and-rule-backtest.md)） | 同上 |
+| 規則核准前沒有回測 | 已做：`backtest` 能跑 `rule_suggestion`，`adjust approve` 對規則也要求回測（[PDCA](../phase5-learning-loop/2026-11-suggest-and-rule-backtest.md)） | 同上 |
 
 #### 9.3 回饋與相似事故
 

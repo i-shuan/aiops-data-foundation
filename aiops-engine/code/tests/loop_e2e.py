@@ -170,7 +170,13 @@ def main():
         check("  門檻 = 三件各自最低異常值的最小值（synth.latency，約 450）", isinstance(d.get("threshold"), (int, float)) and len(floors) == 3 and d["threshold"] == round(min(floors), 3) and 400 < d["threshold"] < 500, str((d.get("threshold"), floors)))
         check("  只看 mes-api、查法同 synth.latency", {"term": {"service": "mes-api"}} in d.get("filter", {}).get("bool", {}).get("filter", []) and d.get("value") == {"avg": "latency_ms"} and d.get("index") == "aiops-synth", json.dumps(d.get("filter")))
         r = run("detector", "adjust", "approve", "--config", SYNTH, "--id", rule[0]["_id"], "--by", "老王")
-        check("  規則核准（不用回測）", "已核准" in r.stdout and "rules 就會載入" in r.stdout, r.stdout[-200:])
+        check("  規則沒回測不能核准", r.returncode != 0 and "回測" in r.stdout, r.stdout[-200:])
+        r = run("detector", "backtest", "--config", SYNTH, "--id", rule[0]["_id"], "--weeks", "1", "--at", iso(2, "00:00"))
+        btr = es.req("GET", f"/aiops-tuning/_doc/{rule[0]['_id']}")["_source"].get("backtest") or {}
+        check("  規則回測：三件事故都抓得到、事故以外不多報 → 建議核准", btr.get("recommended") is True and btr.get("incidents_caught") == 3
+              and btr.get("extra_fires") == 0, str({k: btr.get(k) for k in ("reason", "incidents_caught", "extra_fires", "fires")}))
+        r = run("detector", "adjust", "approve", "--config", SYNTH, "--id", rule[0]["_id"], "--by", "老王")
+        check("  規則核准（回測過）", "已核准" in r.stdout and "rules 就會載入" in r.stdout, r.stdout[-200:])
         r = run("detector", "rules", "--config", "tests/rules_loop.yaml", "--at", iso(1, "10:12"))
         check("  核准後 detector rules 自動載入、在第 2 次事故的時間會觸發", "載入 1 條核准的規則" in r.stdout and "觸發 1 個" in r.stdout, r.stdout[-300:])
         r = run("detector", "rules", "--config", "tests/rules_loop.yaml", "--at", iso(1, "12:00"), quiet=True)

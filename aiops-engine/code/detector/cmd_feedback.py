@@ -48,6 +48,15 @@ def _confirmed_incidents(es, days: int, now) -> list[dict]:
     return [{"id": h["_id"], **h["_source"]} for h in hits]
 
 
+def _anomaly_details(es, ids: list[str]) -> list[dict]:
+    """被標成誤報的那幾筆異常：時間、值、平常值、z（suggest 依這些選放寬方式）。"""
+    if not ids:
+        return []
+    got = es.req("POST", f"/{ANOMALY_INDEX}/_mget?_source_includes=@timestamp,value,median,z", {"ids": ids}).get("docs", [])
+    return [{"at": g["_source"].get("@timestamp"), "value": g["_source"].get("value"), "median": g["_source"].get("median"),
+             "z": g["_source"].get("z")} for g in got if g.get("found")]
+
+
 def _anomalies_of(es, incidents: list[dict]) -> dict[str, list[dict]]:
     """每件事故 anomaly_ids 對到的異常（series、value、keys）：規則草稿的門檻從這裡算。"""
     ids = sorted({a for i in incidents for a in (i.get("anomaly_ids") or [])[:200]})
@@ -90,9 +99,15 @@ def cmd_feedback(cfg: dict, args) -> int:
                      if (a.get("kind") or "override") == "override" and a.get("z")}
         existing = set(overrides)
         n = 0
+        fb = _feedback_rows(es, days, now)
+        tz = cfg.get("train", {}).get("timezone", "Asia/Taipei")
+        specs = {sp["name"]: sp for sp in cfg.get("series", [])}
         for r in s["candidates"].to_dict("records"):
-            sug = F.suggest_override(r["series"], r["target"], r["false_positive"], z0)
-            if (sug["series"], json.dumps(sug["match"], sort_keys=True)) in existing:
+            ids = fb[(fb["verdict"] == "false_positive") & (fb["series"] == r["series"]) & (fb["target"] == r["target"])]["anomaly_id"].dropna()
+            sug = F.suggest_for_false_positives(r["series"], r["target"], _anomaly_details(es, sorted(set(ids))), z0,
+                                                float((specs.get(r["series"]) or {}).get("min_abs", 0.0)), tz)
+            if (sug["series"], json.dumps(sug["match"], sort_keys=True)) in existing \
+                    or es.req("GET", f"/{TUNING_INDEX}/_doc/{doc_id('suggest', sug['series'], sug['match'])}", ok=(200, 404)).get("found"):
                 print(f"  已經有調整或建議：{r['series']} {r['target']}")
                 continue
             sug.update({"at": now.isoformat(), "by": "feedback"})

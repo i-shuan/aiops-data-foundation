@@ -7,6 +7,9 @@
      事故的服務、時間範圍裡至少還有一個 anomaly 才算抓到；少抓一件就「不建議」
   3. 漏報（aiops-feedback 的 missed）有沒有抓到（降門檻的建議才看）
 結果寫回那筆建議的 backtest 欄位，adjust list 看得到；adjust approve 沒回測或不建議的要 --force。
+
+「升級成規則」（rule_suggestion）另一種算法（run_rule_backtest）：過去 N 週每 lookback（5 分鐘）一點算規則的值，
+看提這條規則的那幾件事故抓不抓得到、事故以外會多報幾次。
 """
 from __future__ import annotations
 
@@ -16,10 +19,11 @@ import re
 import pandas as pd
 
 from .cmd_baseline import detect_series
-from .es import ES, load_baseline
+from .es import ES, fetch, load_baseline
 from .model import DetectOptions
 from . import adjust as A
 from . import feedback as F
+from . import rules as R
 from .common import _freq, _now, keys_of
 from .tuning import TUNING_INDEX, load_adjustments
 
@@ -161,7 +165,62 @@ def run_backtest(es, cfg: dict, proposal: dict, weeks: int, now=None, quiet: boo
     return res
 
 
+RULE_MAX_EXTRA_PER_WEEK = 1.0   # 事故以外平均每週最多多報幾次（估的；規則一核准每次都直接報，比 baseline 更不能吵）
+
+
+def rule_backtest_result(df: pd.DataFrame, rule: dict, incidents: list[dict], weeks: int, tz: str = "UTC",
+                         max_extra_per_week: float = RULE_MAX_EXTRA_PER_WEEK) -> dict:
+    """df：fetch(規則, 過去 N 週, interval=lookback) 的結果（ts、value、n），每一點等於「那一輪 rules 看到的值」（只差在對齊）。
+    incidents：提這條規則的事故 [{id, title, start, end}]。事故時間內（前後各放一個 lookback）有觸發就算抓到；
+    其他時間的觸發算多報。全部抓到、多報平均每週不超過 max_extra_per_week 才建議核准。"""
+    lb = R._dur(rule.get("lookback", "5m"))
+    op, th, need = R.OPS[rule.get("op", ">=")], rule["threshold"], rule.get("min_events", 0)
+    if df.empty:
+        hits = pd.Series([], dtype="datetime64[ns, UTC]")
+    else:
+        v = pd.to_numeric(df["value"], errors="coerce")
+        ok = v.notna() & (pd.to_numeric(df["n"], errors="coerce").fillna(0) >= need)
+        hits = pd.to_datetime(df.loc[ok & op(v.fillna(0), th), "ts"], utc=True).reset_index(drop=True)
+    windows = [(_ts(i["start"], tz) - lb, _ts(i["end"], tz) + lb) for i in incidents]
+    rows = [{"id": i["id"], "title": i.get("title"), "caught": bool(((hits >= a) & (hits <= b)).any())}
+            for i, (a, b) in zip(incidents, windows)]
+    inside = pd.Series(False, index=hits.index)
+    for a, b in windows:
+        inside |= (hits >= a) & (hits <= b)
+    extra = hits[~inside]
+    per_week = len(extra) / max(weeks, 1)
+    res = {"kind": "rule_suggestion", "weeks": weeks, "rule": rule.get("name"), "threshold": th, "points": int(len(df)),
+           "fires": int(len(hits)), "incidents": rows, "incidents_caught": sum(r["caught"] for r in rows),
+           "incidents_total": len(rows), "extra_fires": int(len(extra)),
+           "extra_days": int(extra.dt.tz_convert(tz).dt.date.nunique()) if len(extra) else 0}
+    lost = [r for r in rows if not r["caught"]]
+    if lost:
+        res.update(recommended=False, reason=f"提這條規則的事故有 {len(lost)} 件抓不到：{'、'.join(r['title'] or r['id'] for r in lost)}")
+    elif per_week > max_extra_per_week:
+        res.update(recommended=False, reason=f"事故以外會多報 {len(extra)} 次（{res['extra_days']} 天，平均每週 {per_week:.1f} 次，"
+                                             f"上限 {max_extra_per_week:g}）")
+    else:
+        res.update(recommended=True, reason=f"{res['incidents_caught']}/{len(rows)} 件事故抓得到；事故以外 {weeks} 週多報 {len(extra)} 次")
+    return res
+
+
+def run_rule_backtest(es, cfg: dict, proposal: dict, weeks: int, now=None) -> dict:
+    draft = {k: v for k, v in (proposal.get("rule_draft") or {}).items() if not k.startswith("_")}
+    if not isinstance(draft.get("threshold"), (int, float)):
+        return {"kind": "rule_suggestion", "recommended": False, "reason": "這條規則算不出門檻，不能回測（見 rule_draft._note）"}
+    now = now or _now(None)
+    tz = cfg.get("train", {}).get("timezone", "Asia/Taipei")
+    ids = list(proposal.get("incident_ids") or [])
+    got = es.req("POST", f"/{F.INCIDENT_INDEX}/_mget", {"ids": ids}).get("docs", []) if ids else []
+    incidents = [{"id": g["_id"], **g["_source"]} for g in got if g.get("found") and g["_source"].get("start")]
+    df = fetch(es, draft, now - pd.Timedelta(weeks=weeks), now, draft.get("lookback", "5m"))   # ES 的 fixed_interval 要 5m，不是 pandas 的 5min
+    return rule_backtest_result(df, draft, incidents, weeks, tz)
+
+
 def format_backtest(r: dict) -> str:
+    if r.get("kind") == "rule_suggestion" and "fires" in r:
+        return (f"回測 {r['weeks']} 週（規則 {r['rule']}，門檻 {r['threshold']:g}）：{'建議核准' if r['recommended'] else '不建議'}"
+                f"（{r['reason']}）")
     if "anomalies_before" not in r:
         return f"回測：{r.get('reason')}"
     return (f"回測 {r['weeks']} 週（{'、'.join(r['series'])}）：{'建議核准' if r['recommended'] else '不建議'}（{r['reason']}）")
@@ -175,7 +234,10 @@ def cmd_backtest(cfg: dict, args) -> int:
         return 2
     prop = {**got["_source"], "id": args.id}
     print(f"建議：{A.describe(prop)}")
-    r = run_backtest(es, cfg, prop, args.weeks, _now(args.at), quiet=not args.verbose)
+    if prop.get("kind") == "rule_suggestion":
+        r = run_rule_backtest(es, cfg, prop, args.weeks, _now(args.at))
+    else:
+        r = run_backtest(es, cfg, prop, args.weeks, _now(args.at), quiet=not args.verbose)
     print(format_backtest(r))
     es.req("POST", f"/{TUNING_INDEX}/_update/{args.id}?refresh=true", {"doc": {"backtest": r}})
     print("已寫回這筆建議的 backtest 欄位（adjust list 看得到）；核准：adjust approve --id " + args.id)
