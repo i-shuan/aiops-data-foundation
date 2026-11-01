@@ -200,6 +200,49 @@ class MissingBucket(unittest.TestCase):
         self.assertEqual(Q.eval_stopped(before, recent, ["service"]), [])
 
 
+class FakeES:
+    """只記下 search 的 body（看 fetch_* 組出什麼查詢），回空的 composite 結果。"""
+    def __init__(self):
+        self.bodies = []
+
+    def search(self, index, body):
+        self.bodies.append(body)
+        return {"aggregations": {"g": {"buckets": []}}}
+
+
+class MissingQuery(unittest.TestCase):
+    """fetch_missing 的 filter agg：預設只算「欄位不存在」；missing_if_equals 時「等於另一個欄位」也算缺。"""
+    SVC, CTR = "resource.attributes.service.name", "resource.attributes.k8s.container.name"
+    T = pd.Timestamp("2026-10-30T00:00:00Z")
+
+    def aggs(self, check):
+        es = FakeES()
+        df = Q.fetch_missing(es, {"name": "x", "index": "k8s-*", "by": ["ns"], "keys": ["namespace"], **check},
+                             self.T - pd.Timedelta("1h"), self.T)
+        self.assertEqual(list(df.columns), ["namespace", "docs"] + [f"missing:{f}" for f in check["fields"]])
+        return es.bodies[0]["aggs"]["g"]["aggs"]
+
+    def test_default_is_must_not_exists(self):
+        a = self.aggs({"fields": [self.SVC]})
+        self.assertEqual(a[f"missing:{self.SVC}"],
+                         {"filter": {"bool": {"must_not": {"exists": {"field": self.SVC}}}}})
+
+    def test_missing_if_equals_adds_script(self):
+        a = self.aggs({"fields": [self.SVC, "resource.attributes.k8s.pod.name"],
+                       "missing_if_equals": {self.SVC: self.CTR}})
+        # 還是一個 filter agg（_frame／eval_missing 不用改）
+        self.assertEqual(list(a[f"missing:{self.SVC}"]), ["filter"])
+        should = a[f"missing:{self.SVC}"]["filter"]["bool"]["should"]
+        self.assertEqual(len(should), 2)
+        self.assertIn({"bool": {"must_not": {"exists": {"field": self.SVC}}}}, should)
+        script = [s for s in should if "script" in s][0]["script"]["script"]
+        self.assertEqual(script["params"], {"a": self.SVC, "b": self.CTR})
+        self.assertIn("doc[params.a].value == doc[params.b].value", script["source"])
+        # 沒列在 missing_if_equals 的欄位維持原樣
+        self.assertEqual(a["missing:resource.attributes.k8s.pod.name"],
+                         {"filter": {"bool": {"must_not": {"exists": {"field": "resource.attributes.k8s.pod.name"}}}}})
+
+
 class Config(unittest.TestCase):
     """quality.yaml 每個檢查都有該有的欄位（打錯 type、少了 field 的話排程跑到才會當掉）。"""
 
@@ -220,6 +263,14 @@ class Config(unittest.TestCase):
                 self.assertEqual(len(Q._keys(c)), len(c["by"]), c["name"])
         for n in ["quality.trace_name_cardinality", "quality.trace_stopped", "quality.metrics_missing_service"]:
             self.assertIn(n, names)
+        # service.name 被 Collector 補成 container 名稱的也要算缺（e2e B6a：沒有 service label 的 Pod）
+        by_name = {c["name"]: c for c in cfg["checks"]}
+        for n in ["quality.log_missing_identity", "quality.metrics_missing_service"]:
+            c = by_name[n]
+            self.assertEqual(c["missing_if_equals"],
+                             {"resource.attributes.service.name": "resource.attributes.k8s.container.name"}, n)
+            for f in c["missing_if_equals"]:
+                self.assertIn(f, c["fields"], n)
 
 
 if __name__ == "__main__":

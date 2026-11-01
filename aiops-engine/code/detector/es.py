@@ -27,6 +27,9 @@ ANOMALY_MAPPING = {"mappings": {"dynamic": False, "properties": {
     "status": {"type": "keyword"}, "streak": {"type": "integer"},
     "dept": {"type": "keyword"}, "group": {"type": "keyword"},
     "alert_id": {"type": "keyword"},   # 併進哪一件（investigator alert 寫回；儀表板依它撈這件的異常）
+    # 哪一版 engine 產生的（core/version.py；owner.write_anomalies 補）。放在這裡而不是 RULE_FIELDS：index 是 dynamic false，
+    # 但 ensure_index 對既有 index 也會 PUT _mapping 把這份 properties 補上，detect、rules、peer、quality、trace 每輪都呼叫，不用另外補
+    "engine_version": {"type": "keyword"},
 }}}
 
 

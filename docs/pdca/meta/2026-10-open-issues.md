@@ -44,27 +44,26 @@
 | 升級那一刻漏合 | setup 把舊 raw 資料流 rollover 之前寫的 span 沒有索引的 `event.ingested`，`trace-merge` 看不到；實測約 9 個 trace，只影響第一次升級 |
 | merged 不是 OTel 原生格式 | 自訂格式；Kibana 只有 raw 那 2 天看得到原生 |
 | 讀端兩套 | 根因分析讀 merged，trace baseline、資料品質讀 raw（只看最近 10 分鐘）；`aiops-trace-segments` 要改讀 merged 得把 composite 聚合改成 nested，這次不碰 |
-| `tests/trace_quality_edge_e2e.py` | 只把尾端取樣模擬改成全留，沒重跑 |
-| 實測環境 | Rancher Desktop 單節點、ES 8.19.23：`run-trace-e2e.sh` 7b 的 raw 21 個 trace 對 merged 21 筆、重跑不重複、權限正確；`run-rca-e2e.sh` 11 項過；單元測試 376 個過。正式環境沒跑過 |
-| ES 停 180 秒，trace 遺失（本分支造成的回歸） | 遺失 2,552／7,199（約 35%），master 是 0。Collector 的 ES 元件遇到連線逾時不重試，trace 改 100% 直寫後繼承這個弱點；log 遺失 master 也有（9,649 對 7,715），是原本就有的。待決定：合併前先修（Collector 的 ES exporter 開 retry 與 sending queue，同時改善 log），或記為已知風險。傾向先修，還沒動 |
+| 實測環境 | Rancher Desktop 單節點、ES 8.19.23：`run-trace-e2e.sh` 7b 的 raw 21 個 trace 對 merged 21 筆、重跑不重複、權限正確；`run-rca-e2e.sh` 11 項過；單元測試 377 個過。排程器（含 `trace-merge` 每分鐘）24 項、`loop_e2e` 43 項、⑧⑨ 實跑 11 項、metrics-trace 15 項、keys 84 項、trace-id 15 項、kafka 9 項、peer-edge 6 項都過。正式環境沒跑過 |
+| ES 停 180 秒，trace 遺失（本分支造成的回歸） | 遺失 2,552／7,199（約 35%），master 是 0。Collector 的 ES 元件遇到連線逾時（`dial tcp … i/o timeout`，連線黑洞）不重試；一直重試的 `retry`、`timeout: 0`、磁碟佇列早就開了，缺的只有這一種錯誤。trace 改 100% 直寫後繼承這個弱點；log 遺失 master 也有（9,649 對 7,715），是原本就有的。前案 [collector-es-exporter](2026-10-collector-es-exporter.md) 已記這個限制，決定是 ES 前面放 LB 加健康檢查，當時只掉停機前後約 10 秒（log、trace 約 3%）；這次損失大很多（trace 35%、log 11%），原因還沒查清（測試 ES 記憶體約 97%、恢復慢，或黑洞期間每批都被丟）。待決定：A. ES 前面放 LB／VIP 加健康檢查（傾向，並用它重跑同一個對照）、B. 升 Collector 版本（上游有沒有修還沒查）、C. trace 回到有重試的中間層、D. 每個 Collector 旁放本機 proxy。先確認正式環境 ES 前面有沒有 LB。分支 `claude/es-retry`，還沒動 |
 | `trace_quality` 測試 6 項失敗 | 3 項在測已廢止的隨機取 5%，已刪；另 3 項原因見 9.2 兩列（抽樣太少、B6a），偵測行為沒改 |
 | B8（unassigned 的 log 比例）單獨跑沒過 | 整串完整跑時過；推測是 durability 之後測試 ES 有大量其他 log 把分母墊大，沒查證。合併前至少清掉測試資料單獨再跑一次 |
 
 ### 2. 偵測的時間
 
-**狀態：已安排測試**（測試內容與結果另記）。
+**狀態：已測**（事故到 Grafana 通知的延遲、p95 暴衝都已量，見下表與第 3 節）。
 
 | 問題 | 現況 | 傾向 |
 |---|---|---|
-| `detect` 每分鐘跑、窗口 10 分鐘 | 停機超過 10 分鐘的那段不補判，Collector 補送的舊資料也不判，只進 `train` | 頻率與窗口不改；把這個限制寫進文件 |
+| `detect` 每分鐘跑、窗口 10 分鐘 | 停機超過 10 分鐘的那段不補判，Collector 補送的舊資料也不判，只進 `train` | 頻率與窗口不改；限制已寫進 [aiops-engine/README.md](../../../aiops-engine/README.md) 排程表（已合入 master；[PDCA](../phase5-learning-loop/2026-11-open-issues-batch.md)） |
 | peer、trace 每 5 分鐘 | trace 異常約 5～10 分鐘才出現（推算），metrics 約 1～3 分鐘（推算）。trace 的統計本來就以 5 分鐘為單位。`claude/trace-merge` 拆掉尾端取樣的 30 秒等待、加每分鐘的 `trace-merge`，這個推算合入後要重估 | 可接受；只有 trace 看得到的緩慢變差會晚發現 |
-| 實際延遲沒量過 | 上面的時間大多是推算；p95 暴衝到開事故已實測約 70 秒（見第 3 節），到 Grafana 通知的計時腳本已加、還沒跑 | 上線前量一次（已安排測試） |
+| 實際延遲沒量過 | 上面的時間大多是推算；p95 暴衝到開事故已實測約 70 秒（見第 3 節）。⑧⑨ 實跑（Collector → trace-merge → rules → alert → Grafana → notify-sink，每分鐘一輪 tick 模擬排程器，誤差約 ±1 分鐘）：事故開始後 159 秒有第一筆異常、162 秒開件、**186 秒 Grafana 通知到**。測試環境，不是正式環境 | 上線前在正式環境量一次 |
 | Grafana 評估間隔 | `alert-rules.yaml` 的 `interval: 1m`，再加進 1～3 分鐘（推算）；已寫進 [grafana/README.md](../../../grafana/README.md) | 已確認 |
 | 30 秒收一點 | 10 秒的短暫尖峰會被平均掉 | 目前不處理 |
 
 ### 3. 一次就很嚴重的
 
-**狀態：測試中**。p95 暴衝的實測已做（commit `7345608`，在分支 `claude/trace-merge`，尚未合入 master，PDCA 見 [detect-latency](https://github.com/i-shuan/aiops-data-foundation/blob/claude/trace-merge/docs/pdca/phase3-locate/2026-10-detect-latency.md)）；事故到 Grafana 通知的計時已加進 ⑧⑨ 實跑腳本，還沒跑，沒有數字。
+**狀態：已測**。p95 暴衝的實測已做（commit `7345608`，在分支 `claude/trace-merge`，尚未合入 master，PDCA 見 [detect-latency](https://github.com/i-shuan/aiops-data-foundation/blob/claude/trace-merge/docs/pdca/phase3-locate/2026-10-detect-latency.md)）；事故到 Grafana 通知的延遲已用 ⑧⑨ 實跑腳本量過：事故開始後 162 秒開件、186 秒通知到（測試環境）。
 
 | 問題 | 現況 |
 |---|---|
@@ -91,7 +90,7 @@
 | override 存放 | `tune` 或回饋網頁寫進 `aiops-tuning`（有原因、誰、何時）；改 `series.yaml` 只存檔案。`series` 本身不搬進 DB（失去 git 審查與回滾） | 結構放檔案，調整放 DB |
 | 長期有效的 override 沒有「畢業」 | 不會升級成 `series.yaml` 的預設值；`aiops-tuning` 沒有備份機制，ES 重建就消失 | 半自動：生效超過 N 天，產生 PR 草稿，人審後合併再刪 DB 那筆 |
 | 過期的調整不會清 | `expires_at` 過期後不再生效，但文件留著 | 未決定 |
-| 看不到最終生效值 | 同時有多筆符合時（後面蓋前面），沒有指令查「這個服務現在用的 z 是多少、來自哪一筆」 | 想補 |
+| 看不到最終生效值 | 同時有多筆符合時（後面蓋前面），沒有指令查「這個服務現在用的 z 是多少、來自哪一筆」 | 已做：`tune --show --series … --match service=…` 印每個參數的生效值與來源（已合入 master；[PDCA](../phase5-learning-loop/2026-11-open-issues-batch.md)） |
 | `match` 是正規表示式 | 寫太寬會誤傷其他服務；套用順序是自動選 → `overrides` → `adjustments.yaml` → `aiops-tuning`（依 `at` 由舊到新），不看 `match` 多細，較晚寫的寬鬆調整會蓋掉較早的精細調整（[reference.md](../../../aiops-engine/code/configs/baseline/reference.md#使用者feedback-調整)） | 調整前用 `--list`、`backtest`；是否改成「精細的優先」未決定 |
 
 ### 6. 根因分析的限制
@@ -113,11 +112,11 @@
 | 問題 | 現況 | 傾向 |
 |---|---|---|
 | `aiops-baseline` 掉了 | `detect` 讀到空的，印一行「沒有 baseline，先跑 train」就跳過那條序列，不報錯。動態基準線這一路靜默停擺；規則、Pod 同儕橫向比對、資料品質不受影響 | 手動跑一次 `train`（[aiops-engine/README.md](../../../aiops-engine/README.md)）；不手動要等隔天 02:00 |
-| 沒有「基準線不見」的告警 | Grafana 的 `aiops-heartbeat` 只看 `investigator alert` 有沒有寫入，這種情況不會響 | 加一條：`detect` 讀到空基準線的序列數大於 0 就送平台 |
+| 沒有「基準線不見」的告警 | Grafana 的 `aiops-heartbeat` 只看 `investigator alert` 有沒有寫入，這種情況不會響 | 已做：`detect` 每輪寫 `detect-status`（`missing_baseline: N`）進 `aiops-alerts`，Grafana 規則 `aiops-baseline-missing` N > 0 持續 5 分鐘送平台；Grafana 上沒實跑（已合入 master；[PDCA](../phase5-learning-loop/2026-11-open-issues-batch.md)） |
 | 沒有 snapshot 備份 | `elasticsearch/code` 找不到 snapshot 或 SLM 設定；索引 `auto_expand_replicas: 0-1`，單節點沒有副本 | 人工判斷的三個索引優先加：`aiops-incidents`、`aiops-feedback`、`aiops-tuning`，掉了不能重算；`aiops-baseline` 是每天重寫的衍生資料，重要性較低 |
 | 回饋存在哪 | 和 log、metrics、trace 在同一個中央 ES，是 `aiops-*` 一般索引；AIOps 的 key 只能寫 `aiops-*`；回饋網頁本身不存資料。正式環境的磁碟大小由管 ES 的人決定，repo 內附的 chart 是測試用（`storage: 10Gi`） | 待和管 ES 的人確認 |
 | 測試與正式環境的回饋不互通 | 兩邊是不同叢集，測試時累積的回饋、事故紀錄不會自動帶到正式環境 | 上線前決定要不要匯入 |
-| 重建 ES 的流程 | 沒有把 `train` 列為標準步驟 | 列進去 |
+| 重建 ES 的流程 | 沒有把 `train` 列為標準步驟 | 已寫進 [aiops-engine/README.md](../../../aiops-engine/README.md)「重建 ES、換 ES 之後」（已合入 master；[PDCA](../phase5-learning-loop/2026-11-open-issues-batch.md)） |
 | `aiops-baseline` 實際大小 | 沒查到數字（文件只有訓練時 1 萬條序列、2～3GB 記憶體） | 上線前量 |
 
 ### 8. 相似事故檢索往哪裡走（指紋、向量、graph RAG）
@@ -156,8 +155,8 @@
 | 錯誤率 1 個 5xx 就到門檻 | 一週 205 個誤報（0.34%）；後續是「至少 N 個 5xx 才判斷」 | 同上 |
 | 只有一部分請求變慢時 trace 段沒報 | 每點約 20 個請求的平均，長尾讓基準線很寬（門檻約 430ms）；看 p90 或慢請求比例還沒做 | [troubleshooting.md](../../troubleshooting.md) |
 | `trace.yaml` 的 `sample_per_bucket` 20 要不要調到 100 | trace 改 100% 收後，平常 3% 的長尾進了基準線；每點只抽 20 個請求，平均值標準差約 86 ms，加 200 ms 只有約 2 個標準差，過不了 z = 5（10% 請求多 2 秒沒報）；長期 2% 吞例外時規則每點各自算，20 個裡 1 個就是 5% 剛好等於門檻，常報。暫時改成 100 後 trace 那段 17 項全過（未留在 repo）。決定：調，但先量 `trace-detect` 一輪的實際耗時（報告只說讀的 trace 變 5 倍，沒量時間）再合進去 | [PDCA](https://github.com/i-shuan/aiops-data-foundation/blob/claude/trace-merge/docs/pdca/phase1-collect/2026-10-trace-merge.md) |
-| 三成 Pod 沒有服務 label 沒報（B6a） | pipeline 沒 label 時 `service.name` 退回 container 名稱 `app`，欄位不算缺，檢查看不到；master 也一樣，與 trace 合併無關。決定：補「`service.name` 等於 container 名稱算缺」的檢查，**另開分支**，不放進 trace 合併的 PR，免得回歸與非回歸混在一起 | 同上 |
-| 每筆異常沒記是哪一版產生的 | 沒有版本，之後比較兩版結果要靠時間推 | [baseline/reference.md](../../../aiops-engine/code/configs/baseline/reference.md) |
+| 三成 Pod 沒有服務 label 沒報（B6a） | pipeline 沒 label 時 `service.name` 退回 container 名稱 `app`，欄位不算缺，檢查看不到；master 也一樣，與 trace 合併無關。已做：`missing` 檢查加 `missing_if_equals`（等於 `k8s.container.name` 也算缺），只有單元測試、Painless 沒對真 ES 跑、e2e B6a 等叢集空了再跑（已合入 master；[PDCA](../phase5-learning-loop/2026-11-open-issues-batch.md)） | 同上 |
+| 每筆異常沒記是哪一版產生的 | 已做：每筆異常帶 `engine_version`（chart 的 `image.tag`，本機是 `dev`）（已合入 master；[PDCA](../phase5-learning-loop/2026-11-open-issues-batch.md)） | [baseline/reference.md](../../../aiops-engine/code/configs/baseline/reference.md) |
 | `suggest` 只調 `z` | 不調 `min_abs`、粒度，也不會提排除時段（月底批次更該用 `recurring_override`） | 同上 |
 | 規則核准前沒有回測 | 用 `rules --at <事故時間>` 看會不會觸發，要人手動 | 同上 |
 
@@ -166,10 +165,10 @@
 | 項目 | 現況 | 來源 |
 |---|---|---|
 | 回饋沒有身分 | 表單、網頁沒登入；回饋 3 次可以是同一個人 | [architecture.md 第 10 節](../../architecture.md#10-還沒做還不足的) |
-| 漏報沒有網頁入口 | 只能用 `feedback` 指令 | 同上 |
+| 漏報沒有網頁入口 | 已做：Grafana 回饋儀表板加第二個表單面板，送 `feedback_web` 的 `/api/missed`，文件格式同指令；不另做網頁（使用者決定）；Grafana 上沒實載（已合入 master；[PDCA](../phase5-learning-loop/2026-11-open-issues-batch.md)） | 同上 |
 | 沒有評測集 | 相似事故在沒有 trace 時，只靠「同服務＋同指標」剛好壓在門檻上 | 同上 |
 | 舊事故單匯入 `aiops-incidents` 的格式沒寫 | | 同上 |
-| code-review 剩三項沒動 | metrics 回饋跨段、回測重複查 ES、相似事故 ES 前 20 筆截斷 | 同上 |
+| code-review 剩三項沒動 | 已做：metrics 的回饋改依這段告警的 `alert_id` 載入（漏報仍依時間）、回測用快取代理只讀一次 ES、相似事故候選 20 → 200（已合入 master；[PDCA](../phase5-learning-loop/2026-11-open-issues-batch.md)） | 同上 |
 
 #### 9.4 資料與 log
 

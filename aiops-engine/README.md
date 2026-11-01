@@ -39,7 +39,7 @@ kubectl -n aiops logs deploy/aiops-engine -c scheduler -f | grep '\[scheduler\]'
 | 工作 | 階段 | 頻率 | timeout | 指令 | 為什麼 |
 |---|---|---|---|---|---|
 | `rules` | 1 | 每 1 分鐘 | 50 秒 | `detector rules` | 狀態變化（容器重啟、錯誤率 5%、p95 2 秒保底）要快；老師傅核准的規則也在這裡跑 |
-| `detect` | 1 | 每 1 分鐘 | 50 秒 | `detector detect --window 10m` | 每分鐘看最近 10 分鐘；同一筆重跑會覆蓋 |
+| `detect` | 1 | 每 1 分鐘 | 50 秒 | `detector detect --window 10m` | 每分鐘看最近 10 分鐘；同一筆重跑會覆蓋。**窗口就是上限**：排程器停超過 10 分鐘的那段不補判，Collector 補送的舊資料也不判、只進隔天的 `train` |
 | `alert` | 1 | 每 1 分鐘 | 600 秒 | `investigator alert` | 合成一件、根因分析、相似事故、LLM 摘要、**心跳**。一件新的含 LLM 最多 60 秒，一輪可能好幾件 |
 | `train` | 1 | 每天 02:00 | 3600 秒 | `detector train` | 學過去 4 週（4Gi） |
 | `quality` | 2 | 每 10 分鐘 | 500 秒 | `detector quality` | 資料品質（第一個月人天天看，先不用它報） |
@@ -51,9 +51,20 @@ kubectl -n aiops logs deploy/aiops-engine -c scheduler -f | grep '\[scheduler\]'
 
 **資源與故障範圍**：`scheduler` container limit 6Gi（`train` 要 4Gi，同時每分鐘的三個還在跑；平時用不到），`feedback` 512Mi，各自獨立。pod 只能 1 個副本（多一個每個工作就跑兩份）；換 image 先停舊的（`Recreate`），中間缺幾十秒、錯過的分鐘不補。pod 被 OOM／驅逐時所有排程一起停，心跳也停——下面那條告警就是抓這個。排程器每分鐘更新 `/tmp/scheduler-alive`，超過 3 分鐘沒更新 liveness probe 會重啟 container。
 
+## 重建 ES、換 ES 之後
+
+`aiops-baseline` 是 `train` 每天重算的衍生資料，但 ES 重建（或只有這個索引掉了）到隔天 02:00 之間，`detect` 讀到空的 baseline 會印一行「沒有 baseline，先跑 train」就跳過那條序列，不報錯；動態基準線這一路靜默停擺，規則、Pod 同儕橫向比對、資料品質不受影響。所以重建 ES 的標準步驟是：
+
+1. `elasticsearch/code` 的 setup 腳本重建索引、資料流、key。
+2. 等 Collector 送進至少 2 週的 metrics（不然 `train` 學不出 `dow_hour` 這一層，見 [docs/rca](../docs/rca/README.md)）；要立刻有 baseline 就先接受只有 `hour` 或 `all` 層。
+3. **手動跑一次 `train`**（上面的 `--run train`），不要等隔天 02:00。
+4. `aiops-incidents`、`aiops-feedback`、`aiops-tuning` 是人工判斷，重算不回來；有 snapshot 就先還原這三個（備份本身還沒做，見 [open-issues 第 7 節](../docs/pdca/meta/2026-10-open-issues.md)）。
+
 ## 「AIOps 停了」怎麼知道
 
 `investigator alert` 每次跑都往 `aiops-alerts` 寫一筆心跳（`_id: heartbeat`、`status: ok`，不是一件事）。Grafana 的規則 `aiops-heartbeat`（[grafana/code/alert-rules.yaml](../grafana/code/alert-rules.yaml)）：最近 10 分鐘沒有心跳就送平台。
+
+基準線不見時排程沒停、心跳照寫，上面那條不響。`detector detect` 每輪另寫一筆 `detect-status`（`_id: detect-status`、`status: ok`、`missing_baseline`＝這輪沒有 baseline 的序列數、`series`＝它們的名字），規則 `aiops-baseline-missing` 查 `missing_baseline > 0` 持續 5 分鐘就送平台；處置就是上一節的手動 `train`。
 
 ## 先只寫入、不通知
 

@@ -4,7 +4,8 @@
 # type：
 #   cardinality  field 的不同值有幾個（依 by 分組）。max_values 上限；ratio 倍＋min_increase 個是暴增；
 #                抽樣的值 ≥ id_share 像帶了 ID（數字、UUID、長 hex）也算
-#   missing      fields 缺了幾成（依 by 分組）。max_missing 是比例上限；max_increase 是比 ref 多幾成
+#   missing      fields 缺了幾成（依 by 分組）。max_missing 是比例上限；max_increase 是比 ref 多幾成；
+#                missing_if_equals: {欄位: 另一個欄位}，等於另一個欄位也算缺
 #   stopped      lookback 這段時間（不含最近 silent）有 ≥ min_docs 筆、最近 silent 一筆都沒有
 #   share        part_index 佔 index 的比例。max_share 上限；min_increase 是比 ref 多幾成
 #   lag          to 欄位減 from 欄位（秒）的百分位（stat：p50、p95）≥ max_seconds；absolute: true 兩個方向都算
@@ -21,6 +22,9 @@ window: 1h
 ref_offset: 24h
 
 _svc: &svc resource.attributes.service.name
+# Pod 沒有 service label 時，Collector 把 service.name 補成 container 名稱（例如 app）：欄位有值但對不到服務，要算缺
+_svc_is_container: &svc_is_container
+  resource.attributes.service.name: resource.attributes.k8s.container.name
 
 checks:
   # ── 路由沒參數化：每個服務有幾條路由（http.requests 等序列依路由切，路由爆炸 = 序列爆炸）──
@@ -73,6 +77,7 @@ checks:
     by: [resource.attributes.k8s.namespace.name]
     keys: [namespace]
     fields: [resource.attributes.service.name, resource.attributes.k8s.pod.name]
+    missing_if_equals: *svc_is_container
     max_missing: 0.05
     min_docs: 100
 
@@ -96,6 +101,7 @@ checks:
     by: [resource.attributes.k8s.namespace.name]
     keys: [namespace]
     fields: [resource.attributes.service.name]
+    missing_if_equals: *svc_is_container
     max_missing: 0.05
     min_docs: 20
 

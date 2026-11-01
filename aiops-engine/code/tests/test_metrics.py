@@ -1,4 +1,5 @@
-"""量化（detector.cmd_metrics）：每天幾件、有回饋的比例、誤報率、從告警到回饋多久、經驗有沒有留下來。純計算，不連 ES。"""
+"""量化（detector.cmd_metrics）：每天幾件、有回饋的比例、誤報率、從告警到回饋多久、經驗有沒有留下來。純計算，不連 ES；
+載入（load_period）用假的 ES 記下送出的查詢。"""
 import unittest
 
 import pandas as pd
@@ -6,6 +7,80 @@ import pandas as pd
 from detector import cmd_metrics as M
 
 T = pd.Timestamp("2026-10-01T00:00:00Z")
+
+
+class FakeES:
+    """記下每個 _search 的 index 和 body；回應依 index 給固定的 hits（每筆一次就回完，不翻頁）。"""
+    def __init__(self, hits_by_index: dict | None = None):
+        self.calls = []
+        self.hits = hits_by_index or {}
+
+    def req(self, method, path, body=None, **kw):
+        index = path.split("/")[1]
+        self.calls.append((method, index, body))
+        src = self.hits.get(index, [])
+        src = src(body) if callable(src) else src    # 同一個 index 依查詢給不同結果（回饋：terms 查 vs 漏報查）
+        return {"hits": {"hits": [{"_id": f"{index}-{i}", "_source": s} for i, s in enumerate(src)]}}
+
+
+def _filters(body):
+    return body["query"]["bool"]["filter"]
+
+
+def _terms_ids(body):
+    """body 是 terms alert_id 的查詢就回那串 id，不是就 None。"""
+    for f in _filters(body):
+        if "terms" in f and "alert_id" in f["terms"]:
+            return f["terms"]["alert_id"]
+    return None
+
+
+class LoadPeriod(unittest.TestCase):
+    """docs/pdca/phase5-learning-loop/2026-10-fix-critical.md Act「回饋跨段」：回饋跟著這段的告警（alert_id）抓，不照回饋自己的時間；
+    漏報沒有 alert_id 才照時間。"""
+    END = T + pd.Timedelta(days=7)
+
+    def feedback_calls(self, es):
+        return [b for _, idx, b in es.calls if idx == M.F.FEEDBACK_INDEX]
+
+    def test_feedback_by_alert_ids_and_missed_by_time(self):
+        alerts = [alert(0), alert(1), alert(2, cat="heartbeat")]
+        late = fb("a1", "false_positive", i=24 * 10)          # 段結束後 3 天才標的：以前抓不到
+        missed = {"verdict": "missed", "by": "amy", "@timestamp": (T + pd.Timedelta(days=2)).isoformat()}
+
+        def feedback(body):
+            return [late] if _terms_ids(body) is not None else [missed]
+        es = FakeES({M.ALERT_INDEX: alerts, M.F.FEEDBACK_INDEX: feedback})
+        p = M.load_period(es, T, self.END)
+        calls = self.feedback_calls(es)
+        self.assertEqual(len(calls), 2)
+        # (a) 回饋查詢：terms alert_id，正好是這段載入的告警（含非 service 類，過濾在 compute）
+        by_id = [b for b in calls if _terms_ids(b) is not None]
+        self.assertEqual(len(by_id), 1)
+        self.assertEqual(_terms_ids(by_id[0]), ["a0", "a1", "a2"])
+        self.assertFalse(any("range" in f for f in _filters(by_id[0])))   # 不照回饋自己的時間
+        # (b) 漏報：沒有 alert_id、照 @timestamp 區間
+        by_time = [b for b in calls if _terms_ids(b) is None]
+        self.assertEqual(len(by_time), 1)
+        self.assertIn({"term": {"verdict": "missed"}}, _filters(by_time[0]))
+        self.assertIn({"range": {"@timestamp": {"gte": T.isoformat(), "lt": self.END.isoformat()}}}, _filters(by_time[0]))
+        self.assertEqual(by_time[0]["query"]["bool"]["must_not"], [{"exists": {"field": "alert_id"}}])
+        # 兩種合在一起交給 compute：遲到的回饋算進有回饋的比例，漏報照算
+        m = M.compute(p)
+        self.assertEqual((m["alerts"], m["reviewed"], m["false_positive"], m["missed"]), (2, 1, 1, 1))
+
+    def test_chunking_over_1000_ids(self):
+        es = FakeES({M.ALERT_INDEX: [alert(i) for i in range(1001)]})
+        M.load_period(es, T, self.END)
+        chunks = [_terms_ids(b) for b in self.feedback_calls(es) if _terms_ids(b) is not None]
+        self.assertEqual(sorted(len(c) for c in chunks), [1, 1000])
+        self.assertEqual(sorted(i for c in chunks for i in c), sorted(f"a{i}" for i in range(1001)))
+
+    def test_no_alerts_still_queries_missed(self):
+        es = FakeES()
+        p = M.load_period(es, T, self.END)
+        self.assertEqual([_terms_ids(b) for b in self.feedback_calls(es)], [None])   # 沒告警就不送空的 terms
+        self.assertEqual(p["feedback"], [])
 
 
 def alert(i, svc="mes-api", dept="D3120", minute=0, cat="service"):

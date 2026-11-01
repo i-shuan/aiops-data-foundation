@@ -9,7 +9,7 @@ import pandas as pd
 from .es import (ANOMALY_INDEX, ANOMALY_MAPPING, BASELINE_INDEX, BASELINE_MAPPING, ES, alive_times, doc_id, fetch, load_baseline,
                  load_group_baselines, value_kind)
 from . import adjust as A
-from .model import (CONFIDENCE, RESOLUTIONS, DetectOptions, TrainOptions, mask_thin, pick_resolution, score, group_of, mark_status, override_for, resolutions_from, score_poisson, train, train_groups)
+from .model import (CONFIDENCE, RESOLUTIONS, DetectOptions, TrainOptions, effective_for, mask_thin, pick_resolution, score, group_of, mark_status, override_for, resolutions_from, score_poisson, train, train_groups)
 from .common import _freq, _now, _v, keys_of
 from .owner import write_anomalies
 from .tuning import TUNING_INDEX, TUNING_MAPPING, data_adjustments, load_overrides
@@ -224,6 +224,31 @@ def status_params(cfg: dict, spec: dict | None, key: dict, overrides=()) -> tupl
     iz = o.get("instant_z", spec.get("instant_z", st.get("instant_z")))
     return int(cp), (float(iz) if iz is not None else None)
 
+def score_params(spec: dict, key: dict, dopts, overrides=()) -> tuple[float, float]:
+    """(z, min_abs)：aiops-tuning 的 override（依序列＋對象）＞ 這條序列的 min_abs ＞ series.yaml 的 detect.z。score_tuned 和 tune --show 都用這個。"""
+    o = override_for(spec["name"], key, overrides) if overrides else {}
+    return float(o.get("z", dopts.z)), float(o.get("min_abs", spec.get("min_abs", 0.0)))
+
+def effective_lines(cfg: dict, spec: dict, key: dict, overrides) -> list[str]:
+    """tune --show 印的每一行：這條序列、這個對象最終生效的粒度、z、min_abs、confirm_points、instant_z，各自來自哪一筆。
+    值一律從 detect 實際用的函式拿（score_params、status_params），來源從 effective_for 拿，兩邊不會各寫一套。"""
+    eff = effective_for(spec["name"], key, overrides)
+    z, min_abs = score_params(spec, key, DetectOptions(**cfg.get("detect", {})), overrides)
+    cp, iz = status_params(cfg, spec, key, overrides)
+    # 粒度在 train 時套（apply_resolution_overrides），這裡只能說「有 override 就是它，沒有就是序列寫死的或自動選的」
+    res = eff["resolution"]["value"] if "resolution" in eff else spec.get("resolution") or "自動（train 依事件數選，看 aiops-baseline 的 resolution）"
+    values = {"resolution": res, "z": z, "min_abs": min_abs, "confirm_points": cp, "instant_z": iz}
+    lines = []
+    for k, v in values.items():
+        if k in eff:
+            e = eff[k]
+            who = ", ".join(f"{f}={p}" for f, p in (e.get("match") or {}).items()) or "全部"
+            src = f"來自 {e['source']}：{e.get('series') or '.*'} {who}"
+        else:
+            src = "series.yaml 預設"
+        lines.append(f"  {k} = {'無' if v is None else v}（{src}）")
+    return lines
+
 
 def with_status(cfg: dict, s: pd.DataFrame, keys: list[str], step: str, start, spec: dict | None = None, overrides=()) -> pd.DataFrame:
     """超標的點分 warning（跳一次）／anomaly（連續、或偏太多）。只回傳 start 之後的點：start 之前那一個時間窗是多查的，
@@ -243,7 +268,8 @@ def with_status(cfg: dict, s: pd.DataFrame, keys: list[str], step: str, start, s
     return out[out["ts"] >= start]
 
 def cmd_tune(cfg: dict, args) -> int:
-    """寫一筆調整進 aiops-tuning（同一條序列＋同一組 match 會覆蓋）；--remove 刪掉；--list 列出。"""
+    """寫一筆調整進 aiops-tuning（同一條序列＋同一組 match 會覆蓋）；--remove 刪掉；--list 列出；
+    --show 看某條序列、某個對象最終生效的值與來源（多筆都符合時後面蓋前面，不然看不出是哪一筆定的）。"""
     es = ES()
     es.ensure_index(TUNING_INDEX, TUNING_MAPPING)
     if args.list:
@@ -251,6 +277,18 @@ def cmd_tune(cfg: dict, args) -> int:
             print(A.describe(o))
         return 0
     match = dict(m.split("=", 1) for m in (args.match or []))
+    if args.show:
+        if not args.series or not match:
+            print("--show 要給 --series（series.yaml 的名稱）和 --match（對象的實際值，例如 service=mes-api）")
+            return 2
+        spec = next((s for s in cfg["series"] if s["name"] == args.series), None)
+        if spec is None:
+            print(f"series.yaml 沒有這條序列：{args.series}")
+            return 2
+        print(f"{args.series} {match} 現在生效的值：")
+        for line in effective_lines(cfg, spec, match, load_overrides(es, cfg)):
+            print(line)
+        return 0
     _id = doc_id("tune", args.series, match)
     if args.remove:
         es.req("DELETE", f"/{TUNING_INDEX}/_doc/{_id}?refresh=true", ok=(200, 404))
@@ -269,10 +307,7 @@ def score_tuned(fn, cur: pd.DataFrame, base: pd.DataFrame, keys: list[str], spec
     if cur.empty:
         return cur.assign(anomaly=False)
     ks = cur[keys].drop_duplicates()
-    params = []
-    for k in ks.to_dict("records"):
-        o = override_for(spec["name"], k, overrides)
-        params.append((o.get("z", dopts.z), o.get("min_abs", spec.get("min_abs", 0.0))))
+    params = [score_params(spec, k, dopts, overrides) for k in ks.to_dict("records")]
     ks = ks.assign(_z=[p[0] for p in params], _min_abs=[p[1] for p in params])
     parts = []
     for (z, min_abs), g in ks.groupby(["_z", "_min_abs"]):
@@ -363,6 +398,21 @@ def detect_series(es, cfg: dict, spec: dict, base: pd.DataFrame, now, window: pd
     return out
 
 
+def write_detect_status(es, now: pd.Timestamp, missing: list[str]) -> None:
+    """每輪寫一筆 _id detect-status 進 aiops-alerts，跟 investigator alert 的心跳同一個形狀（status ok，不是一件事；
+    事件整合、儀表板、metrics 都只拿 status open／category service 的，不會把它當成一件）。
+    missing_baseline 是這輪沒有 baseline 的序列數。aiops-baseline 掉了（ES 重建、index 被刪）時 detect 只印一行就跳過，
+    動態基準線這一路靜默停擺，aiops-heartbeat 看不到；Grafana 的 aiops-baseline-missing 規則查 missing_baseline > 0 送平台
+    （grafana/code/alert-rules.yaml、docs/pdca/meta/2026-10-open-issues.md 第 7 節）。"""
+    from investigator.cmd_alert import ALERT_INDEX, ALERT_MAPPING, stamp_of   # 函式內 import：cmd_alert 也 import detector，避免循環
+    es.ensure_index(ALERT_INDEX, ALERT_MAPPING)    # 既有 index 補 missing_baseline 欄位（dynamic false；ensure_index 會 PUT _mapping）
+    es.bulk_index(ALERT_INDEX, [("detect-status", {
+        "@timestamp": stamp_of(now).isoformat(), "alert_id": "detect-status", "category": "status", "status": "ok",
+        "service": "aiops", "group": "unassigned", "title": "detector detect 狀態",
+        "started_at": now.isoformat(), "updated_at": now.isoformat(),
+        "anomaly_ids": [], "series": list(missing), "routes": [], "anomaly_count": 0, "missing_baseline": len(missing)})])
+
+
 def cmd_detect(cfg: dict, args) -> int:
     es = ES()
     es.ensure_index(ANOMALY_INDEX, ANOMALY_MAPPING)
@@ -375,7 +425,7 @@ def cmd_detect(cfg: dict, args) -> int:
     dopts = DetectOptions(**cfg.get("detect", {}))
     overrides = load_overrides(es, cfg, now)   # --at 回放時以 --at 判斷有沒有過期（跟排除時段、重置點、backtest 一樣）
     adjs = data_adjustments(es, cfg, now)
-    total = 0
+    total, missing = 0, []
     print(f"偵測區間 {start.tz_convert(tz):%Y-%m-%d %H:%M} ～ {end.tz_convert(tz):%Y-%m-%d %H:%M}（{tz}）")
     for spec in cfg["series"]:
         keys = keys_of(spec)
@@ -384,8 +434,10 @@ def cmd_detect(cfg: dict, args) -> int:
             total += detect_borrowed(es, cfg, spec, base, now, pd.Timedelta(args.window), dopts, tz, adjs)
         if base.empty:
             print(f"  {spec['name']}：沒有 baseline，先跑 train")
+            missing.append(spec["name"])
             continue
         for r, s in detect_series(es, cfg, spec, base, now, pd.Timedelta(args.window), dopts, tz, overrides, adjs):
             total += save_anomalies(es, spec["name"], keys, s, spec.get("direction", "both"), tz, resolution=r)
-    print(f"共 {total} 個異常")
+    write_detect_status(es, now, missing)
+    print(f"共 {total} 個異常" + (f"；{len(missing)} 條序列沒有 baseline（已寫 detect-status）" if missing else ""))
     return 0

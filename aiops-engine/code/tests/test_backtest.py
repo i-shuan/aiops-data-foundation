@@ -45,3 +45,74 @@ class Timezones(unittest.TestCase):
 
     def test_empty_df(self):
         self.assertFalse(B.caught(self.df.iloc[0:0], None, "2026-10-05 10:00", "2026-10-05 10:20"))
+
+
+class CountingES:
+    """數 search／req 各被叫幾次，回傳帶著呼叫序號，看得出是不是同一次的結果。"""
+    def __init__(self):
+        self.calls = []
+
+    def search(self, index, body):
+        self.calls.append(("search", index, body))
+        return {"n": len(self.calls)}
+
+    def req(self, method, path, body=None, ok=(200, 201)):
+        self.calls.append((method, path, body))
+        return {"n": len(self.calls)}
+
+    def bulk_index(self, index, docs):
+        self.calls.append(("bulk", index, docs))
+
+
+class CachedES(unittest.TestCase):
+    """docs/pdca/phase5-learning-loop/2026-10-fix-critical.md Act「回測重複查 ES」：before／after 讀同一批資料，同一個查詢只打一次。"""
+    def setUp(self):
+        self.raw = CountingES()
+        self.es = B._CachedES(self.raw)
+
+    def test_same_search_body_once(self):
+        body = {"query": {"range": {"@timestamp": {"gte": "2026-10-01"}}}, "size": 0}
+        a = self.es.req("POST", "/idx/_search?ignore_unavailable=true", body)
+        b = self.es.req("POST", "/idx/_search?ignore_unavailable=true", {"size": 0, "query": {"range": {"@timestamp": {"gte": "2026-10-01"}}}})
+        self.assertIs(a, b)                       # key 順序不同也算同一個查詢
+        self.assertEqual(len(self.raw.calls), 1)
+        self.es.req("POST", "/idx/_search?ignore_unavailable=true", {**body, "size": 1})
+        self.assertEqual(len(self.raw.calls), 2)  # body 不同就再查
+        self.es.req("POST", "/other/_search?ignore_unavailable=true", body)
+        self.assertEqual(len(self.raw.calls), 3)  # path 不同也再查
+
+    def test_search_method_cached_too(self):
+        body = {"size": 1000, "query": {"match_all": {}}}
+        self.assertIs(self.es.search("aiops-incidents", body), self.es.search("aiops-incidents", dict(body)))
+        self.assertEqual(len(self.raw.calls), 1)
+
+    def test_writes_pass_through(self):
+        for _ in range(2):
+            self.es.req("PUT", "/aiops-tuning/_doc/x", {"a": 1})
+            self.es.req("POST", "/aiops-tuning/_update/x?refresh=true", {"doc": {"a": 1}})
+            self.es.req("DELETE", "/aiops-tuning/_doc/x", ok=(200, 404))
+            self.es.bulk_index("aiops-anomalies", [("1", {})])
+        self.assertEqual(len(self.raw.calls), 8)
+        self.assertEqual(self.raw.calls[0], ("PUT", "/aiops-tuning/_doc/x", {"a": 1}))
+
+    def test_run_backtest_uses_one_wrapper_for_both_labels(self):
+        """detect_series 的每次呼叫（before、after、每一天）拿到的都是同一個包住真 ES 的物件。"""
+        from unittest import mock
+        seen = []
+
+        def fake_detect(es, *a, **kw):
+            seen.append(es)
+            return []
+        cfg = {"series": [{"name": "x", "by": ["service"]}], "train": {"timezone": "Asia/Taipei"}}
+        now = pd.Timestamp("2026-10-10T00:00:00Z")
+        with mock.patch.object(B, "detect_series", fake_detect), \
+             mock.patch.object(B, "load_adjustments", lambda es, cfg: []), \
+             mock.patch.object(B, "load_baseline", lambda es, name, keys: pd.DataFrame({"service": ["mes-api"]})), \
+             mock.patch.object(B, "_confirmed_incidents", lambda es, since: []), \
+             mock.patch.object(B, "_missed", lambda es, since: []):
+            r = B.run_backtest(self.raw, cfg, {"series": "x", "kind": "override", "z": 6}, weeks=1, now=now)
+        self.assertEqual(len(seen), 2 * 8)        # 兩套設定 × 8 天（含頭尾）
+        self.assertTrue(all(s is seen[0] for s in seen))
+        self.assertIsInstance(seen[0], B._CachedES)
+        self.assertIs(seen[0]._es, self.raw)
+        self.assertEqual((r["anomalies_before"], r["anomalies_after"]), (0, 0))

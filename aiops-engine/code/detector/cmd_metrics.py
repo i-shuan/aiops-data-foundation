@@ -27,10 +27,26 @@ def _all(es, index: str, body: dict) -> list[dict]:
         after = hits[-1]["sort"]
 
 
+TERMS_CHUNK = 1000   # 一次 terms 查幾個 alert_id：查詢字串別太長
+
+
+def load_feedback(es, alert_ids: list[str], start, end) -> list[dict]:
+    """這段的回饋＝「這段告警的回饋」（照 alert_id，不管回饋什麼時候給的：段結束後才標的也算、段內標前一段告警的不算）
+    ＋「漏報」（沒有 alert_id，只能照回饋自己的時間）。"""
+    ids = sorted({i for i in alert_ids if i})
+    out = []
+    for i in range(0, len(ids), TERMS_CHUNK):
+        out += _all(es, F.FEEDBACK_INDEX, {"query": {"bool": {"filter": [{"terms": {"alert_id": ids[i:i + TERMS_CHUNK]}}]}}})
+    out += _all(es, F.FEEDBACK_INDEX, {"query": {"bool": {
+        "filter": [{"term": {"verdict": "missed"}}, {"range": {"@timestamp": {"gte": start.isoformat(), "lt": end.isoformat()}}}],
+        "must_not": [{"exists": {"field": "alert_id"}}]}}})
+    return out
+
+
 def load_period(es, start, end) -> dict:
     rng = lambda f: {"range": {f: {"gte": start.isoformat(), "lt": end.isoformat()}}}
     alerts = _all(es, ALERT_INDEX, {"query": {"bool": {"filter": [rng("started_at")]}}})
-    feedback = _all(es, F.FEEDBACK_INDEX, {"query": {"bool": {"filter": [rng("@timestamp")]}}})
+    feedback = load_feedback(es, [a.get("alert_id") for a in alerts], start, end)
     incidents = _all(es, F.INCIDENT_INDEX, {"query": {"bool": {"filter": [rng("start")]}}})
     return {"alerts": alerts, "feedback": feedback, "incidents": incidents, "start": start, "end": end}
 

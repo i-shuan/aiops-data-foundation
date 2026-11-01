@@ -2,9 +2,10 @@
 import unittest
 from datetime import datetime, timezone
 
+from core.es import doc_id
 from feedback_web import app as A
 
-NOW = datetime(2026, 10, 25, 3, 0, tzinfo=timezone.utc)
+NOW =datetime(2026, 10, 25, 3, 0, tzinfo=timezone.utc)
 ALERT = {"alert_id": "a-20261025-0200-mes-api", "service": "mes-api", "dept": "D3120", "group": "it", "severity": "critical", "status": "open",
          "title": "mes-api 變慢", "summary": "從 02:00 開始", "started_at": "2026-10-25T02:00:00+00:00", "updated_at": "2026-10-25T02:12:00+00:00",
          "anomaly_ids": ["x1", "x2", "gone"], "series": ["http.latency_p95_s"], "llm_summary": "Oracle 那段多花 1.4 秒 [S1]。",
@@ -30,6 +31,9 @@ class FakeES:
             self.updates.append((path.split("/")[1], path.split("/")[3].split("?")[0], body))
             return {}
         if path.endswith("_refresh"):
+            return {}
+        if method == "PUT" and path.startswith(f"/{A.FEEDBACK_INDEX}/_doc/"):     # 漏報：單筆 PUT，_id 在路徑裡
+            self.written.setdefault(A.FEEDBACK_INDEX, {})[path.rsplit("/", 1)[1].split("?")[0]] = body
             return {}
         raise AssertionError(path)
 
@@ -98,6 +102,43 @@ class Submit(unittest.TestCase):
             A.submit(self.es, {"alert_id": "nope", "verdict": "true_positive"}, NOW)
         with self.assertRaises(ValueError):
             A.submit(self.es, {"alert_id": ALERT["alert_id"], "verdict": "maybe"}, NOW)
+        self.assertEqual(self.es.written, {})
+
+
+class SubmitMissed(unittest.TestCase):
+    """漏報：沒有告警、沒有異常，直接寫一筆 verdict: missed；格式、_id 要跟指令 feedback add --verdict missed 一樣。"""
+    def setUp(self):
+        self.es = FakeES()
+        self.form = {"series": "http.latency_p95_s", "service": "mes-api", "at": "2026-10-25 10:00", "by": "老王", "note": "lots 查詢全逾時"}
+
+    def test_naive_time_is_taipei_and_id_matches_cli(self):
+        r = A.submit_missed(self.es, self.form, NOW)
+        self.assertEqual(r, {"feedback": 1, "verdict": "missed", "series": "http.latency_p95_s", "service": "mes-api", "by": "老王"})
+        (_id, doc), = self.es.written[A.FEEDBACK_INDEX].items()
+        self.assertEqual(doc["anomaly_at"], "2026-10-25T10:00:00+08:00")     # 沒寫時區 → 當工廠當地時間，跟指令一樣
+        self.assertEqual((doc["verdict"], doc["series"], doc["keys"], doc["by"], doc["note"]),
+                         ("missed", "http.latency_p95_s", {"service": "mes-api"}, "老王", "lots 查詢全逾時"))
+        self.assertNotIn("anomaly_id", doc)
+        self.assertEqual(_id, doc_id("feedback", ["http.latency_p95_s", {"service": "mes-api"}, "2026-10-25T10:00:00+08:00"], "老王"))   # cmd_feedback.py 的算法
+        self.assertEqual(self.es.ensured[0], A.FEEDBACK_INDEX)      # 先用正式的 mapping 建 index
+
+    def test_tz_aware_time_kept_and_optional_keys(self):
+        A.submit_missed(self.es, {**self.form, "at": "2026-10-25T02:00:00.000Z", "route": "/api/lots", "pod": "", "by": ""}, NOW)
+        (doc,) = self.es.written[A.FEEDBACK_INDEX].values()
+        self.assertEqual(doc["anomaly_at"], "2026-10-25T02:00:00+00:00")     # Grafana 的 datetime 元素送的是 UTC ISO
+        self.assertEqual(doc["keys"], {"service": "mes-api", "route": "/api/lots"})   # 空的 pod 不進 keys
+        self.assertEqual(doc["by"], "anonymous")
+
+    def test_series_comes_from_series_yaml(self):
+        self.assertIn("http.latency_p95_s", A.SERIES_NAMES)
+        self.assertTrue(len(A.SERIES_NAMES) >= 5)
+
+    def test_bad_input(self):
+        for bad, msg in (({"series": ""}, "series 要是"), ({"series": "nope.series"}, "http.latency_p95_s"), ({"service": " "}, "service 要填"),
+                         ({"at": ""}, "at 要填"), ({"at": "昨天"}, "at 看不懂")):
+            with self.assertRaises(ValueError, msg=bad) as cm:
+                A.submit_missed(self.es, {**self.form, **bad}, NOW)
+            self.assertIn(msg, str(cm.exception))
         self.assertEqual(self.es.written, {})
 
 

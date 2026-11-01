@@ -93,6 +93,15 @@ python3 -m detector tune --series http.error_rate --match service=^mes- --remove
 - 寫進 `aiops-tuning`，下一次 `detect` 起 mes 用 `z: 7`，其他服務不變；`series.yaml` 的預設不動。
 - 之後發現是某段事故污染了歷史，再用上面的 `adjust add --kind exclude_window`，隔天 02:00 的 `train` 重學。
 - 套用順序與覆蓋規則見 [reference.md](reference.md#使用者feedback-調整)：較晚寫的寬鬆調整會蓋掉較早的精細調整，所以寫 `--match` 時範圍要準，改完用 `--list` 確認。
+- 要知道某個對象**最終**用的是哪個值、被哪一筆定的（多筆都符合時 `--list` 看不出來）：
+
+```bash
+python3 -m detector tune --show --series http.error_rate --match service=mes-api
+#   z = 7.0（來自 3f9c…（aiops-tuning 那筆的 _id）：http.error_rate service=^mes-）
+#   min_abs = 0.02（series.yaml 預設）…
+```
+
+  `--match` 給對象的實際值（不是正規表示式）；值從 `detect` 用的同一個函式算，不會跟實際判斷兩套。
 
 ## 慢性病清單、行事曆
 

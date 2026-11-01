@@ -351,14 +351,38 @@ def match_keys(key: dict, match: dict | None) -> bool:
     return _match(key, match)
 
 
-def override_for(series: str, key: dict, overrides: list[dict]) -> dict:
-    """這條序列、這個對象的調整（粒度、z、min_abs、confirm_points、instant_z）：符合的依序套上，後面的蓋前面的。
-    來源：series.yaml 的 overrides（使用者設定），再來是 aiops-tuning（tune 指令、之後的 feedback 寫的）。"""
+OVERRIDE_FIELDS = ("resolution", "z", "min_abs", "confirm_points", "instant_z")
+
+
+def _matching_overrides(series: str, key: dict, overrides: list[dict]):
+    """符合這條序列、這個對象的 override，依原本的順序（後面的蓋前面的）。"""
     import re
-    out = {}
     for o in overrides:
         if (o.get("kind") or "override") != "override":   # 排除時段、重置點、週期放寬由 adjust.py 處理
             continue
         if re.fullmatch(o.get("series") or ".*", series) and match_keys(key, o.get("match")):
-            out.update({k: o[k] for k in ("resolution", "z", "min_abs", "confirm_points", "instant_z") if o.get(k) is not None})
+            yield o
+
+
+def override_for(series: str, key: dict, overrides: list[dict]) -> dict:
+    """這條序列、這個對象的調整（粒度、z、min_abs、confirm_points、instant_z）：符合的依序套上，後面的蓋前面的。
+    來源：series.yaml 的 overrides（使用者設定），再來是 aiops-tuning（tune 指令、之後的 feedback 寫的）。"""
+    out = {}
+    for o in _matching_overrides(series, key, overrides):
+        out.update({k: o[k] for k in OVERRIDE_FIELDS if o.get(k) is not None})
+    return out
+
+
+def effective_for(series: str, key: dict, overrides: list[dict]) -> dict:
+    """跟 override_for 同一套規則，但每個參數多記「是哪一筆定的」：{"z": {"value": 7, "source": "<id>", "series": …, "match": …}}。
+    source：aiops-tuning 的文件有 id（adjust list 看得到）；設定檔的沒有 id，寫成 series.yaml overrides#<第幾筆>
+    （adjustments.yaml 裡沒寫 id 的 override 也排在這個序號裡，在 series.yaml 的後面）。"""
+    out, n_cfg = {}, 0
+    for o in _matching_overrides(series, key, overrides):
+        if not o.get("id"):
+            n_cfg += 1
+        src = o.get("id") or f"series.yaml overrides#{n_cfg}"
+        for k in OVERRIDE_FIELDS:
+            if o.get(k) is not None:
+                out[k] = {"value": o[k], "source": src, "series": o.get("series"), "match": o.get("match")}
     return out

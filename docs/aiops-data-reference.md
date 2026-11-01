@@ -35,7 +35,7 @@ Grafana（⑧）         讀 aiops-alerts 發通知；儀表板讀 alerts、anom
 | 索引 | 誰寫 | 誰讀 | `_id` |
 |---|---|---|---|
 | `aiops-anomalies` | `detector`（detect、rules） | 事件整合、Grafana、回饋 | 內容的 sha1（`doc_id`），同一點重跑不重複 |
-| `aiops-alerts` | `investigator alert` | Grafana（告警規則、儀表板）、回饋網頁 | `alert_id`；心跳固定 `heartbeat` |
+| `aiops-alerts` | `investigator alert`；`detector detect` 只寫 `detect-status` 一筆 | Grafana（告警規則、儀表板）、回饋網頁 | `alert_id`；心跳固定 `heartbeat`、detect 狀態固定 `detect-status` |
 | `aiops-incidents` | `investigator alert`（開）、回饋網頁（確認）、`detector incident`（人工補登） | 相似事故檢索 | 等於 `alert_id`；人工補登的是 `--id`，沒給就是（標題、開始時間）的 sha1 |
 | `aiops-feedback` | 回饋網頁、`detector feedback` | `feedback suggest`、儀表板 | 內容的 sha1（一筆異常、一個人一筆） |
 | `aiops-tuning` | `detector tune／adjust／feedback suggest` | `detect`、`train`、儀表板 | `--id` 指定的；沒給就是內容的 sha1（`suggest` 的是序列與對象、或服務與根因分類的 sha1） |
@@ -64,6 +64,7 @@ Grafana（⑧）         讀 aiops-alerts 發通知；儀表板讀 alerts、anom
 | `alert_id` | keyword | 併進哪一件；事件整合寫回，沒併進去的沒有 |
 | `rule`、`severity`、`message` | keyword、keyword、text | 動態基準線學習的沒有，`rule`、`peer`、`quality` 的有：規則名、嚴重度、給人看的一句話。**這三個欄位不在 `ANOMALY_MAPPING`**，由 `rules`、`peer`、`trace`、`quality` 第一次跑時用 `PUT _mapping` 補進索引（`detector/common.py` 的 `RULE_FIELDS`），所以只跑過 detect 的新索引沒有它們 |
 | `since` | 不索引 | 只有靜態規則有：條件開始成立的時間 |
+| `engine_version` | keyword | 哪一版 engine 寫的（`core/version.py`：環境變數 `ENGINE_VERSION`，chart 填 image tag；本機是 `dev`）。五種寫入都經 `detector/owner.py`，都有 |
 
 **哪些異常會自己開一件**（`investigator/alerts.py`）：`severity: critical` 的規則、`status: anomaly` 的基準線、資料品質會直接開；`severity: warning` 的規則、同儕橫向比對是弱的，同一個服務在 `close_after` 內有 2 筆以上才開；基準線的 `status: warning` 只併進已開著的件。
 | `detected_at` | date | 偵測程式跑的時間 |
@@ -99,7 +100,7 @@ Grafana（⑧）         讀 aiops-alerts 發通知；儀表板讀 alerts、anom
 | 欄位 | 型別 | 說明 |
 |---|---|---|
 | `alert_id` | keyword | 同時是 `_id`；格式 `a-<開始日期>-<開始時分>-<服務>`（服務名的特殊字元換成 `_`） |
-| `category` | keyword | 這件歸在誰身上：`service`（服務，優先）、`namespace`、`node`（異常的 `keys` 裡沒有服務時依序退到這兩個）、`other`（都沒有，名稱用序列名）、`data_quality`（資料品質，`alert_id` 結尾多 `-dq`）、`heartbeat`（心跳）。**只有 `service` 會跑根因分析、寫進 `aiops-incidents`、顯示在事故清單面板** |
+| `category` | keyword | 這件歸在誰身上：`service`（服務，優先）、`namespace`、`node`（異常的 `keys` 裡沒有服務時依序退到這兩個）、`other`（都沒有，名稱用序列名）、`data_quality`（資料品質，`alert_id` 結尾多 `-dq`）、`heartbeat`（心跳）、`status`（detect 狀態，見下）。**只有 `service` 會跑根因分析、寫進 `aiops-incidents`、顯示在事故清單面板** |
 | `service`、`status` | keyword | `service` 欄位放的是上一列那個類別的名稱（服務名、namespace、節點名…）；`status` 是 `open`、`resolved` |
 | `severity` | keyword | `warning`、`critical` |
 | `dept`、`group` | keyword | 通知依 `dept` 分送；沒有 dept 的送平台 |
@@ -170,6 +171,15 @@ Grafana（⑧）         讀 aiops-alerts 發通知；儀表板讀 alerts、anom
  "service": "aiops", "title": "investigator alert 心跳", "group": "unassigned",
  "started_at": "2026-10-06T07:45:00+00:00", "updated_at": "2026-10-06T07:45:00+00:00",
  "anomaly_ids": [], "series": [], "routes": [], "anomaly_count": 0}
+```
+
+**detect 狀態**：`_id: detect-status` 的一筆，每輪 `detector detect` 都更新，形狀跟心跳一樣（`status: ok`，不是一件）。`missing_baseline` 是這輪沒有 baseline 的序列數、`series` 是那些序列名。Grafana 的 `aiops-baseline-missing` 規則查 `missing_baseline > 0` 持續 5 分鐘就送平台（`aiops-baseline` 掉了 detect 只會跳過那些序列，不然沒人知道）。
+
+```json
+{"@timestamp": "2026-11-01T02:04:00+00:00", "alert_id": "detect-status", "category": "status", "status": "ok",
+ "service": "aiops", "title": "detector detect 狀態", "group": "unassigned",
+ "started_at": "2026-11-01T02:05:00+00:00", "updated_at": "2026-11-01T02:05:00+00:00",
+ "anomaly_ids": [], "series": ["http.latency_p95_s", "http.error_rate"], "routes": [], "anomaly_count": 0, "missing_baseline": 2}
 ```
 
 ## aiops-incidents：事故庫（相似事故檢索的資料池）
@@ -287,5 +297,6 @@ Grafana（⑧）         讀 aiops-alerts 發通知；儀表板讀 alerts、anom
 | 調整建議（表） | `aiops-tuning` | 全部 | `at`、`kind`、`status`、`series`、`service`、`z`、`reason`、`backtest.*`、`approved_by` |
 | 告警規則 `aiops-incident` | `aiops-alerts` | `status:open`，最近 5 分鐘，依 `alert_id` 分組 | 把 `service`、`dept`、`group`、`severity`、`summary`、`report_url` 帶成 label |
 | 告警規則 `aiops-heartbeat` | `aiops-alerts` | `alert_id:heartbeat`，最近 10 分鐘 | 數筆數，少於 1 就告警 |
+| 告警規則 `aiops-baseline-missing` | `aiops-alerts` | `alert_id:detect-status AND missing_baseline:>0`，最近 10 分鐘 | 數筆數，有就告警（持續 5 分鐘才送；查不到不算） |
 
 相似事故的資料池是 `aiops-incidents`，但面板不直接讀它：相似事故在事件整合寫入前就檢索好、寫進 `aiops-alerts` 的 `similar` 與 `summary`。

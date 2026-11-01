@@ -121,6 +121,7 @@
 |---|---|---|
 | 使用者設定 | `series.yaml` 的 `overrides`（`series` 可用正規表示式、`match` 依 keys 比對） | 粒度：下次 train；z、min_abs：下次 detect |
 | 指令 | `python3 -m detector tune --series http.latency_p95_s --match service=^mes-report --resolution 5m --z 7 --reason 誤報多 --by 王小明`，寫進 `aiops-tuning`（`--list` 列出、`--remove` 刪掉） | 同上 |
+| 查生效值 | `python3 -m detector tune --show --series http.latency_p95_s --match service=mes-report-api`（`--match` 給對象的實際值，不是正規表示式）：印 `resolution`、`z`、`min_abs`、`confirm_points`、`instant_z` 各自現在的值與來源（`aiops-tuning` 的 id、`series.yaml overrides#<第幾筆>`、或 `series.yaml 預設`）。值跟 detect 用的同一個函式算，不會兩套 | 不寫入 |
 | feedback（📝） | 之後的 feedback 流程寫同一個 `aiops-tuning`：同一條序列誤報累積多次 → 建議粒度往粗一級或調高 z，回測通過才寫入（見 [docs/feedback/README.md「對了怎麼強化、錯了怎麼 feedback」](../../../../docs/feedback/README.md)） | 同上 |
 
 套用順序：自動選 → `series.yaml` 的 `overrides`（檔案順序）→ `adjustments.yaml` → `aiops-tuning`（依 `at` 由舊到新），同一欄位後面的蓋前面的，不同欄位各自生效；不看 `match` 寫得多細（較晚寫的寬鬆調整會蓋掉較早的精細調整）。每筆調整記 `reason`、`by`、`at`，查得到誰、為什麼、什麼時候改的。
@@ -183,6 +184,7 @@ series:
 | `baseline_source` | `self` 或 `group:<組名>` |
 | `dept`、`group` | 這筆異常屬於哪個部門、哪個 group（告警依它分送、人只看自己部門的）。寫入時依 keys 裡的 namespace（優先）或服務，對回資料裡的 `resource.attributes.dept`、`.group`；對不到的 `dept` 空、`group` 是 `unassigned`（跟 Collector 對沒有 dept 的處理一樣）。程式 `detector/owner.py` |
 | `confidence` | dow_hour → high；hour → medium；all、借來的 → low |
+| `engine_version` | 哪一版 engine 寫的：chart 把 image tag 放進環境變數 `ENGINE_VERSION`（`core/version.py`），本機跑是 `dev`。規則、peer、quality、trace 的異常也有（都從 `detector/owner.py` 寫） |
 
 卜瓦松的異常另外記 `p`（機率）。根因報告的異常表多一欄「可信度」（例如 `low、1h、借 query-apis`），有 low 時加註「用的是不分時段、或借同類 API 的 baseline（不是自己的歷史），先確認是不是真的變了」。
 
@@ -355,14 +357,16 @@ series:
 |---|---|---|
 | `quality.route_cardinality` | 每個服務有幾條路由（metrics 的 `http.route`）；抽最多 500 個值看像不像帶了 ID（數字、UUID、長 hex） | 超過 500 條；或比昨天多 3 倍且多 50 條以上；或至少 50 條且一半以上像 ID（路由沒參數化：`/orders/123` 沒換成 `/orders/{id}`） |
 | `quality.trace_name_cardinality` | 同上，看 trace 入口 span 的名稱（自己用 SDK 埋點、把真實路徑放進名稱時，trace 每一段的 baseline 每個名稱都不到 `min_requests`，整個服務學不到） | 同上 |
-| `quality.log_missing_identity` | log 缺 `service.name`、`kubernetes.pod.name`（依 namespace） | 缺 5% 以上（至少 100 筆才看） |
+| `quality.log_missing_identity` | log 缺 `service.name`、`kubernetes.pod.name`（依 namespace）；`service.name` 等於 container 名稱也算缺 | 缺 5% 以上（至少 100 筆才看） |
 | `quality.metrics_missing_identity` | 應用 metrics 缺 Pod、namespace（依服務） | 缺 5% 以上 |
-| `quality.metrics_missing_service` | 應用 metrics 缺 `service.name`（依 namespace：依服務分的話，缺服務名的那組看不出來源） | 缺 5% 以上（至少 20 筆） |
+| `quality.metrics_missing_service` | 應用 metrics 缺 `service.name`（依 namespace：依服務分的話，缺服務名的那組看不出來源）；`service.name` 等於 container 名稱也算缺 | 缺 5% 以上（至少 20 筆） |
 | `quality.log_trace_id_drop` | 帶 `trace.id` 的 log（依服務） | 缺的比例比昨天多 30 個百分點以上（本來就不是每行都有，只看變化） |
 | `quality.log_stopped`、`quality.metrics_stopped`、`quality.trace_stopped` | 之前 1 小時有資料、最近 15 分鐘（metrics 5 分鐘）一筆都沒有；trace 只看入口 span | 之前至少 30 筆（metrics 20 筆） |
 | `quality.log_unassigned_share`、`quality.metrics_unassigned_share` | 落到 `unassigned` 的比例（namespace 沒標 dept、`dept` 清單漏同步） | 比昨天多 5 個百分點以上 |
 | `quality.log_ingest_lag` | 收資料延遲：Collector 讀到（`event.created`）→ 寫進 ES（`event.ingested`），依服務、最近 15 分鐘（用寫進 ES 的時間篩） | p95 ≥ 60 秒 |
 | `quality.log_clock_skew` | 應用的時間（`@timestamp`）跟節點（`event.created`）差多少，只看時間是應用自己寫的（用 Collector 讀到的時間篩） | 中位數快或慢 ≥ 5 分鐘（時鐘偏了、時區寫錯） |
+
+`missing` 檢查的 `missing_if_equals: {欄位: 另一個欄位}`：欄位等於另一個欄位也算缺。Pod 沒有 service label 時 Collector 把 `service.name` 補成 container 名稱（例如 `app`），欄位有值但對不到服務，只看 `exists` 看不出來。
 
 觸發的寫進 `aiops-anomalies`：`level` 是 `quality`、`median` 放昨天的值、`keys` 缺欄位時多一個 `field`。
 
