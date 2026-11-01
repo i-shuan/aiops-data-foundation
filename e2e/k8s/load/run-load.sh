@@ -116,9 +116,9 @@ do_outage() {
   start_gen "${run}" 200 $(( secs + 180 ))
   sleep 60
   down="$(now)"; kubectl -n es-test scale statefulset/elasticsearch --replicas=0 >/dev/null
-  kubectl -n es-test wait --for=delete pod/elasticsearch-0 --timeout=120s >/dev/null 2>&1 || true
+  kubectl -n es-test wait --for=delete pod/elasticsearch-0 pod/elasticsearch-1 --timeout=120s >/dev/null 2>&1 || true
   echo "   $(ts) ES 關掉"; sleep "${secs}"
-  up="$(now)"; kubectl -n es-test scale statefulset/elasticsearch --replicas=1 >/dev/null; wait_es; ready=$(date +%s)
+  up="$(now)"; kubectl -n es-test scale statefulset/elasticsearch --replicas="${ES_REPLICAS:-2}" >/dev/null; wait_es; ready=$(date +%s)
   echo "   $(ts) ES 可以用了"
   emitted="$(wait_gen "${run}")"; wait_both "${run}" "${emitted}" 600
   report "${run}" "${emitted}" "${ready}" "${down}" "${up}"

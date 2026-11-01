@@ -102,6 +102,7 @@ metrics、trace、log 怎麼收、怎麼存、三種怎麼關聯（欄位、時�
 | [phase1-collect/2026-10-time-alignment.md](phase1-collect/2026-10-time-alignment.md) | ② 時間對齊：log 沒帶時區、收資料延遲、主機時鐘 | 沒帶時區的原本差 8 小時、空白分隔的默默換時間，已修；延遲與時鐘偏差、主機時鐘都抓得到；`NTP_SERVER` 要填 |
 | [phase1-collect/2026-10-trace-durability.md](phase1-collect/2026-10-trace-durability.md) | ① trace 收值線要不要 message queue | 不用 Kafka；兩段佇列改寫磁碟；node 端放子 exporter 的做法後來發現有錯、當掉掉多少重新量過（[durability](phase1-collect/2026-10-durability.md)） |
 | [phase1-collect/2026-10-trace-merge.md](phase1-collect/2026-10-trace-merge.md) | ①②③⑦ trace 不取樣（100% 收）、每個請求合成一筆：拆 trace-sampler、Collector 直接寫 raw（2 天），engine 每分鐘 `trace-merge` 合成 `traces-merged-*`（7 天），根因分析改讀 merged | （實測後更新） |
+| [phase1-collect/2026-11-es-two-pods.md](phase1-collect/2026-11-es-two-pods.md) | ③① 測試用 ES 改成兩個資料節點＋一個只投票節點：掛一個資料節點 log、trace 都 0 遺失；兩個都停仍掉（log 10.5%、trace 13.8%） | 已完成；全停的遺失記為已知風險 |
 
 ### Phase 2 異常分析（`phase2-anomaly/`）
 

@@ -82,7 +82,7 @@ scenario_outage() {
   local down restart_at restarted up
   down="$(now)"
   k -n es-test scale statefulset/elasticsearch --replicas=0 >/dev/null
-  k -n es-test wait --for=delete pod/elasticsearch-0 --timeout=120s >/dev/null 2>&1 || true
+  k -n es-test wait --for=delete pod/elasticsearch-0 pod/elasticsearch-1 --timeout=120s >/dev/null 2>&1 || true
   echo "   $(ts) ES 關掉"
   sleep "${half}"
   restart_at="$(now)"
@@ -94,7 +94,7 @@ scenario_outage() {
   sleep "${half}"
   echo "   $(ts) 節點上的佇列：$(du -sh /var/lib/otelcol 2>/dev/null | cut -f1)"
   up="$(now)"
-  k -n es-test scale statefulset/elasticsearch --replicas=1 >/dev/null
+  k -n es-test scale statefulset/elasticsearch --replicas="${ES_REPLICAS:-2}" >/dev/null
   until [[ "$(es -m 5 "${ES_URL}/_cluster/health" 2>/dev/null | jq -r .status 2>/dev/null)" =~ green|yellow ]]; do sleep 2; done
   echo "   $(ts) ES 可以用了，等三個 group 都補完（最多 5 分鐘）"
 
