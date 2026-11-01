@@ -4,7 +4,8 @@
   ES_URL=http://127.0.0.1:31511 ES_AUTH=x:x python -X utf8 -m tests.chain_e2e      （在 aiops-engine/code/ 底下；LLM 固定 template）
 可重跑：每次先刪 cs- 開頭的資料，時間以「現在」為準重新產生。約 3 分鐘，每項印 PASS／FAIL。
 
-合成 trace 直接寫進 traces-generic.otel-it（跟 Collector 寫出來的形狀一樣，不經 Collector）、異常直接寫進 aiops-anomalies
+合成 trace 直接寫進 traces-generic.otel-it（跟 Collector 寫出來的形狀一樣，不經 Collector），再跑一次 detector trace-merge 合成
+traces-merged-*（排程器平常每分鐘跑；根因分析、「誰呼叫誰」都讀 merged）；異常直接寫進 aiops-anomalies
 （不跑 detect：測的是併件，不是判斷），再跑 `investigator alert --config tests/rca_chain.yaml --at …`，看 aiops-alerts 開了幾件。
 
 服務：cs-portal → cs-mes-api → cs-wip-worker → oracle；cs-report → oracle（跟誰都沒有呼叫關係）。
@@ -146,7 +147,8 @@ def bulk_create(es: ES, index: str, docs: list[dict], chunk: int = 4000) -> int:
 
 def cleanup(es: ES):
     dbq = "_delete_by_query?conflicts=proceed&refresh=true&ignore_unavailable=true&allow_no_indices=true&expand_wildcards=all"
-    for index, field in [("traces-*.otel-*", "resource.attributes.service.name"), ("aiops-anomalies", "keys.service"),
+    for index, field in [("traces-*.otel-*", "resource.attributes.service.name"), ("traces-merged-*", "root.service"),
+                         ("aiops-anomalies", "keys.service"),
                          ("aiops-anomalies", "keys.resource.attributes.service.name"), ("aiops-alerts", "service"),
                          ("aiops-incidents", "services")]:
         es.s.post(f"{es.url}/{index}/{dbq}", json={"query": {"prefix": {field: "cs-"}}}, timeout=600)
@@ -154,6 +156,16 @@ def cleanup(es: ES):
 
 def refresh(es: ES, pattern: str):
     es.s.post(f"{es.url}/{pattern}/_refresh?ignore_unavailable=true&allow_no_indices=true&expand_wildcards=all", timeout=120)
+
+
+def merge_traces() -> None:
+    """寫進 raw 的 span 合成一個請求一筆（traces-merged-*）：trace-merge 依 event.ingested 找新寫進去的 trace，
+    合成情境是幾小時前的時間，要從寫入當下往回合。trace-merge 只合到「現在 − settle_seconds（10 秒）」：剛寫完要先等過這段。"""
+    import time
+    time.sleep(15)
+    r = subprocess.run([PY, "-X", "utf8", "-m", "detector", "trace-merge", "--config", "configs/baseline/trace.yaml", "--window", "30min"],
+                       capture_output=True, text=True, encoding="utf-8", cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    print("  " + (r.stdout.strip().splitlines() or ["trace-merge 沒有輸出"])[-1] + ("" if r.returncode == 0 else f"（rc={r.returncode}：{r.stderr[-300:]}）"))
 
 
 def run_alert(at: datetime) -> subprocess.CompletedProcess:
@@ -241,6 +253,8 @@ def main() -> int:
     refresh(es, "traces-*.otel-*")
     refresh(es, "aiops-anomalies")
     print(f"  trace span {n} 筆、異常 {len(anoms)} 筆")
+    merge_traces()
+    refresh(es, "traces-merged-*")
 
     per_kind: dict[str, list[bool]] = {}
     chain_first: dict | None = None
