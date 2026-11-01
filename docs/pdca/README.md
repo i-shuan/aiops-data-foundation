@@ -197,4 +197,4 @@ metrics → trace → log 找到哪一段、哪行 log；事件整合、排程�
 | [meta/2026-10-log-readme.md](meta/2026-10-log-readme.md) | ①②③ `docs/log/README.md` 改成流程圖加四個重點（樣式格式、什麼時候與怎麼清洗、多久壓縮） | 圖＋格式表＋欄位名稱表＋兩個前後對照例子＋壓縮與保留時間表；Fluent Bit 比較、部署與換 key、現況全刪（在 git 歷史）；例子沒實際送一行驗證 |
 | [meta/2026-10-data-reference.md](meta/2026-10-data-reference.md) | ④～⑨ 新增 AIOps 資料格式規格（aiops-alerts／anomalies／incidents／feedback／tuning 的欄位、誰寫、範例） | 欄位對 mapping 無漏；兩輪對程式與實際 ES mapping 共修正 14 處不精確；欄位、型別、列舉、範例、儀表板腳本比對全部一致；欄位與 mapping 仍沒有自動比對 |
 | [meta/2026-10-docs-governance.md](meta/2026-10-docs-governance.md) | 跨階段 文件治理：索引＋狀態標籤、設定與原理分離、術語寫進 CLAUDE.md、檢查腳本 | `docs/README.md` 地圖、`CLAUDE.md`、`tools/check-docs.py`；活的文件舊說法 0；pdca 根目錄雜項收進 `meta/` |
-| [meta/2026-10-poc-acceptance.md](meta/2026-10-poc-acceptance.md) | ①～⑨ POC 驗收計畫：6 個 KPI、4 個故障情境、Go/No-Go | 計畫：缺跨服務聚合、回饋的 LLM 抽取、情境 4 注入、事故單匯入，拆 4 個任務；串查、MTTI（3 分 40 秒）、相似事故檢索已有，差資料與量測腳本 |
+| [meta/2026-10-poc-acceptance.md](meta/2026-10-poc-acceptance.md) | ①～⑨ POC 驗收計畫：6 個 KPI、4 個故障情境、Go/No-Go | 四個任務已合入 master；模擬服務、合成資料上：聚合率 100%、解析率 100%、串查 ✅、召回率 50%（要真實事故單）；Go/No-Go 待真實服務 |

@@ -167,7 +167,7 @@
 | 回饋沒有身分 | 表單、網頁沒登入；回饋 3 次可以是同一個人 | [architecture.md 第 10 節](../../architecture.md#10-還沒做還不足的) |
 | 漏報沒有網頁入口 | 已做：Grafana 回饋儀表板加第二個表單面板，送 `feedback_web` 的 `/api/missed`，文件格式同指令；不另做網頁（使用者決定）；Grafana 上沒實載（已合入 master；[PDCA](../phase5-learning-loop/2026-11-open-issues-batch.md)） | 同上 |
 | 沒有評測集 | 相似事故在沒有 trace 時，只靠「同服務＋同指標」剛好壓在門檻上 | 同上 |
-| 舊事故單匯入 `aiops-incidents` 的格式沒寫 | | 同上 |
+| 舊事故單匯入 `aiops-incidents` 的格式沒寫 | 已做：`investigator import-incidents`（CSV／JSON，格式見 [configs/rca/README.md](../../../aiops-engine/code/configs/rca/README.md)）；合成 20 筆 recall@3 50%，等真實事故單（[PDCA](../phase4-rca-llm/2026-10-incident-import.md)） | 同上 |
 | code-review 剩三項沒動 | 已做：metrics 的回饋改依這段告警的 `alert_id` 載入（漏報仍依時間）、回測用快取代理只讀一次 ES、相似事故候選 20 → 200（已合入 master；[PDCA](../phase5-learning-loop/2026-11-open-issues-batch.md)） | 同上 |
 
 #### 9.4 資料與 log
@@ -187,7 +187,7 @@
 | ① .NET SQL Server、Serilog／NLog 驗證 | 沒做 | [architecture.md 第 10 節](../../architecture.md#10-還沒做還不足的) |
 | ③ 副本、正式環境容量 | 沒做 | 同上 |
 | ④ p99、慢請求比例、往外呼叫耗時、`groups` 依公司命名、變化點偵測 | 沒做 | 同上 |
-| ⑥ 沿呼叫關係合併、排優先、一段記成一筆、靜音、限頻 | 📝 設計 | 同上 |
+| ⑥ 沿呼叫關係合併、排優先、一段記成一筆、靜音、限頻 | 沿呼叫關係合併：一層已做（下游有件開著、直接呼叫它的上游併進來；[PDCA](../phase3-locate/2026-10-cross-service-aggregation.md)）；多層、排優先、靜音、限頻 📝 | 同上 |
 | ⑦ 單一 Pod 異常拿它的 trace 逐段比；撈 log 帶 `span.id` | 沒做 | 同上 |
 | ⑨ 版本、評測集、第二人確認、排除時段的建議 | 沒做 | 同上 |
 | 過度設計：三個自動機制（自選粒度、卜瓦松、借同組）、trace 每一段 baseline、回饋表單選項是估的 | 建議留著不再擴，等真實資料再決定砍哪個 | [architecture.md 第 11 節](../../architecture.md#11-哪裡過度設計) |

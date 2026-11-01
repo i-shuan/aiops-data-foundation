@@ -1,6 +1,6 @@
 # POC 驗收：KPI、故障情境、Go/No-Go（2026-10）
 
-**狀態**：進行中（計畫；使用者看過後開任務）　　**日期**：2026-10-29　　**相關**：分支 `claude/poc-acceptance-plan`；現況評估見 [architecture.md](../../architecture.md) 第二部分
+**狀態**：四個任務已做、合入 master；KPI 已量（模擬服務、合成資料），Go/No-Go 待真實服務與真實事故單　　**日期**：2026-10-29　　**相關**：分支 `claude/poc-acceptance-plan`；現況評估見 [architecture.md](../../architecture.md) 第二部分
 **模組**：①～⑨（跨階段；驗收的是整條線）
 
 > 這份的「POC」是對外驗收，涵蓋本 repo 的 Phase 1～5；**不是** [README.md](../README.md) 的「Phase 1 收值」。
@@ -71,16 +71,30 @@ Go：串查成功率 100%、聚合率 ≥ 80%、召回率 ≥ 70% 三項都到�
 
 ## Do：改動哪些 code、改了什麼、為何要改
 
-無 code 改動：這一輪只寫計畫。任務 1～4 各自的 PDCA 記改動。
+四個任務的程式在分支 `claude/poc-acceptance-plan` 上做（2026-10-29～30），各自有 PDCA；2026-11-01 搬到當時的 master（分支 `claude/poc-port`，用 cherry-pick 加目錄改名偵測），搬的時候改了這些：
+
+| 改了什麼 | 為何要改 |
+|---|---|
+| 路徑：`engine/` → `aiops-engine/code/`、`engine/configs/grafana/` → `grafana/code/`、`e2e/local-k3s/` → `e2e/k8s/` | 中間做過元件重整（PDCA [restructure-components](2026-10-restructure-components.md)） |
+| `feedback_web/app.py`：留 master 的「不再另外 `_refresh`」，加上任務 2 的抽取結果回傳 | master 已修掉最小權限 key 會 403 的那一下 |
+| `tests/test_feedback_web.py`：master 的漏報測試與任務 2 的測試都留；假 ES 的漏報分支補回 `return` | 合併時兩段 `if` 疊在一起，漏報那段少了 `return` |
+| `grafana/README.md`：補任務 2 的表單欄位表 | 原本寫在已刪的 `engine/configs/grafana/README.md` |
+| `docs/architecture.md`：⑥ 收斂改成「同服務一件；沿呼叫關係一層 ✅、多層 📝」 | 原本寫在已刪的 `docs/architecture-reference.md` |
+| `run-rca-demo.sh`：用任務 3 的版本（情境 4、`loop` 可設秒數、腳本有改就重啟 Pod），`tick` 保留 master 的「先跑 `trace-merge`」 | master 的 trace 已改成 100% 收、engine 合成 |
+| `tests/chain_e2e.py`、`tests/rca_chain.yaml`：寫完 raw 先等 15 秒再跑 `trace-merge`，設定讀 `traces-merged-*` | 「誰呼叫誰」（`service_trace_ids`）用的是 merged 的 nested 查法，讀 raw 永遠是 0 筆，聚合率 0%；`trace-merge` 只合到「現在 − 10 秒」，剛寫完馬上跑會漏掉 |
 
 ## Check：測試的目的與結果
 
-待執行。結果照「量法」那張表填：
+環境：Rancher Desktop、ES 8.19.23（兩個資料節點＋一個只投票節點）；單元測試 490 個通過。**全部是模擬服務、合成資料，沒有真實服務、沒有真實事故單。**
 
-| 測試目的（為了確認什麼） | 怎麼測 | 結果 |
-|---|---|---|
-| 6 個 KPI 各一列 | 見「量法」 | 待填 |
-| 4 個情境各一列 | 見「情境對照」的預期行為 | 待填 |
+| KPI（目標） | 怎麼量 | 結果 | 判定 |
+|---|---|---|---|
+| 連鎖警報聚合率（≥ 80%，Go/No-Go） | `tests.chain_e2e`：合成 trace（cs-portal → cs-mes-api → cs-wip-worker → oracle）＋直接寫的異常，連鎖 5 種寫入順序 | **5/5（100%）**；誤併率 0/5；多層只併一層、時間不重疊不併；26 項全過 | ✅（合成資料） |
+| 回饋標記解析率（≥ 90%） | `tests.feedback_extract_eval`，26 句語料，真的模型（OpenAI `gpt-6-luna`），四欄全對才算對 | **26/26（100%）**，共 51 秒 | ✅（語料是自己寫、自己標的） |
+| 端到端串查成功率（100%，Go/No-Go） | ⑧⑨ 實跑（`run-live-chain.sh`，見 [detect-latency](../phase3-locate/2026-10-detect-latency.md)） | 報告有慢在哪一段、最慢請求的 `trace_id`、依 `trace_id` 撈到的 log | ✅（模擬服務；真實服務沒跑） |
+| 根因初篩時間 MTTI（< 3 分鐘） | `measure-mtti.sh`：情境 1、情境 4 各 3 次，取中位數 | （量測中，見下） | |
+| 相似事故 Top-3 召回率（≥ 70%，Go/No-Go） | `import-incidents tests/incidents-synthetic.csv` → `similar-eval`（留一法 recall@3） | 合成 20 筆 **10/20（50%）**（測試 ES 另有 3 件，合計 13/23 = 57%） | ❌（合成資料；要真實事故單） |
+| RCA 建議採納率（≥ 60%） | 回饋表單兩題 → `detector metrics` | 表單、計算都有了；沒有真實回饋 | 量不出來 |
 
 ## Act：Check 後沒改善的、還沒解決的
 
