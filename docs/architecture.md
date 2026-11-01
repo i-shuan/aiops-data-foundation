@@ -14,6 +14,7 @@
   - [3.2 零業務侵入埋點 (Zero-code Instrumentation)](#32-零業務侵入埋點-zero-code-instrumentation)
   - [3.3 多租戶隔離 (Multi-tenancy & Isolation)](#33-多租戶隔離-multi-tenancy--isolation)
   - [3.4 其他已定案決策](#34-其他已定案決策)
+  - [3.5 人在迴圈中：系統只建議、人決定 (Human-in-the-Loop)](#35-人在迴圈中系統只建議人決定-human-in-the-loop)
 - [4. 核心處理模組職責 (Core Components ①～⑨)](#4-核心處理模組職責-core-components-①⑨)
   - [4.1 平台層與 AIOps 層的分界](#41-平台層與-aiops-層的分界)
 - [5. 資料關聯與根因定位機制 (Correlation & RCA)](#5-資料關聯與根因定位機制-correlation--rca)
@@ -159,6 +160,37 @@ flowchart TB
 | 季節性時間序列基準線為主力 | 星期幾 × 小時的週期（上下班、夜間批次）只有分時段的歷史看得出來 | 需累積 2～4 週；超過一週的週期（月底批次）要另設週期放寬 |
 | 統計＋LLM，不自訓模型 | 可解釋、可重現，不需大量標註與 MLOps（[feedback/README.md](feedback/README.md)） | 多指標複雜關聯的能力有限；準確度靠回饋與評測集校正 |
 | metrics → trace 用「服務＋路由＋時間窗」，不用 exemplar | ES 不存 exemplar；exemplar 只是單一樣本、不保證是造成異常的那個請求 | 是同時間、同路由的統計關聯，不是同一個請求 |
+
+### 3.5 人在迴圈中：系統只建議、人決定 (Human-in-the-Loop)
+
+- **決策**：AIOps 只提供線索與建議，不做處置，也不自己改變偵測的行為。處置（重啟、擴縮、改設定）由值班決定；會改變偵測行為的調整，系統只提案，要人核准才生效。
+- **理由**：製造業 IT 的處置錯了影響產線；統計與 LLM 的判斷會錯，要有人把關、可追責（誰、何時、為什麼）。單一回饋不改門檻，避免一個人按錯就改壞。
+- **取捨**：從異常到處置一定經過人，處置時間取決於值班；建議累積後要有人審，沒人審就不會變好。
+
+系統自動做的，都只是產生資訊給人看：
+
+| 自動的部分 | 做什麼 | 界線 |
+|---|---|---|
+| 偵測、事件整合（⑤⑥） | 異常合成一件、同服務合併、沿呼叫關係併一層（上游併進下游那件） | 只決定怎麼呈現；併進來的上游記在 `upstream_services`，看得到 |
+| 根因分析報告（⑦） | 慢在哪一段、最慢請求的 trace、相關 log、相似的過去事故 | 給值班的線索，不下結論 |
+| LLM 摘要（⑦） | 報告開頭三到五句 | 只加註；每句要附依據，驗證不過就不顯示、退回固定句型 |
+| 通知（⑧） | Grafana 依部門送出 | 通知人，不替人決定 |
+| 自動開的事故（⑨） | `aiops-incidents` 的 `status: auto` | 老師傅確認後才是 `confirmed`；相似事故檢索只用確認過的 |
+
+會改變偵測行為的，一律要人核准：
+
+| 調整 | 誰提 | 怎麼生效 |
+|---|---|---|
+| 放寬門檻、週期放寬、調 `min_abs` | 同一個對象誤報累積 3 次（`feedback suggest`） | `status: proposed` → `backtest` → 人 `adjust approve --by <誰>` |
+| 漏報後降門檻 | 漏報回饋 | 同上 |
+| 升級成規則（`rule_suggestion`） | 同一個根因被確認 3 次 | 同上（核准前也要回測） |
+| 一句話回饋抽出的調整 | LLM 抽取 | 只寫成 proposed，同上 |
+| 事故時段不學（`exclude_window`） | 事故紀錄 | proposed，人核准 |
+
+- 程式裡把建議變成生效的只有 `adjust approve`，會記 `approved_by`、`approved_at`；回測時把建議當成生效來試算，但不寫回。
+- 人自己用 `tune`、`adjust add` 寫的調整預設直接生效、不用回測：是人做的決定，但沒有第二個人把關。
+- 沿呼叫關係的合併是自動判斷的：合錯時上游那件會被標成已併入（`merged_into`）。合成資料的誤併率 0，還沒有真實資料驗證。
+- 細節：[feedback/README.md](feedback/README.md)（回饋與調整怎麼生效）、[aiops-engine/code/configs/baseline/reference.md](../aiops-engine/code/configs/baseline/reference.md#使用者feedback-調整)（指令）。
 
 ## 4. 核心處理模組職責 (Core Components ①～⑨)
 
