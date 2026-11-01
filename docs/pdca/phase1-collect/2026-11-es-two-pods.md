@@ -1,6 +1,6 @@
 # 測試用 ES 一律兩個 Pod：先把 HA 機制做起來（2026-11）
 
-**狀態**：HA 部分已完成；ES 全停時的遺失、Ingress／Gateway 實際導流還沒處理　　**日期**：2026-11-01　　**相關**：分支 `claude/es-retry`（從 `claude/trace-merge` 合入 master 最新後開出）；起因見 [trace-merge 的 Act](2026-10-trace-merge.md)「ES 停 180 秒」
+**狀態**：已完成；ES 全停時的遺失決定記為已知風險、Ingress／Gateway 實際導流沒實測　　**日期**：2026-11-01　　**相關**：分支 `claude/es-retry`（從 `claude/trace-merge` 合入 master 最新後開出）；起因見 [trace-merge 的 Act](2026-10-trace-merge.md)「ES 停 180 秒」
 **模組**：③ 存、① 收值（Collector 出口對 ES 掛掉的反應）
 
 ## Plan：這一次要達到什麼
@@ -59,7 +59,7 @@
 
 | 沒解決的 | 在什麼情況下發現的 | 影響 | 後續 |
 |---|---|---|---|
-| 兩個資料節點都停時仍會掉資料（log 10.5%、trace 13.8%） | `es-down` 180 秒 | 只有「沒有任何資料節點」時才發生；掛一個沒事。遺失集中在停機後 0～30 秒與 50～92 秒，其餘時間沒掉，不是整段都掉。原因還沒查：需要 Collector 的 log 依時間與錯誤種類（`dial tcp i/o timeout`、`context deadline`）分類 | 等你決定：先查原因，還是接受「全停才掉」 |
+| 兩個資料節點都停時仍會掉資料（log 10.5%、trace 13.8%） | `es-down` 180 秒 | 只有「沒有任何資料節點」時才發生；掛一個沒事。遺失集中在停機後 0～30 秒與 50～92 秒，其餘時間沒掉，不是整段都掉。原因還沒查：需要 Collector 的 log 依時間與錯誤種類（`dial tcp i/o timeout`、`context deadline`）分類 | **決定：不處理，記為已知風險**（掛任何一個資料節點都安全，全停才會掉；記在 [open-issues 第 1 節](../meta/2026-10-open-issues.md)） |
 | 資料節點被卡住的最初 35～50 秒，直接寫入叢集會失敗 | `es-one-down` 卡住期間每 5 秒寫一筆 | Collector 重試，沒掉資料；但經 Ingress／Gateway 進來的非 Collector 流量會看到這段失敗 | 這是 ES 偵測節點失聯的時間（推測，沒驗證）；Gateway 要設逾時與重試 |
 | Ingress／Gateway 沒實測 | 只做了 Service 與文件 | 後端只列資料節點的做法沒在真的 Gateway 上跑過 | 有 Gateway 環境時補測 |
 | 第一輪 `es-down` 沒出結果表 | 腳本在停機結束的恢復步驟中斷，沒有錯誤訊息 | 改了 `es_up`（每一步失敗印出來、等兩個 Pod）後第二輪正常 | 舊寫法為何中斷沒查 |
