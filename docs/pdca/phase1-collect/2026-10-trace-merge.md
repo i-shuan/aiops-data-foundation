@@ -1,6 +1,6 @@
 # trace 不取樣、一個請求合成一筆（2026-10）
 
-**狀態**：進行中　　**日期**：2026-10-31　　**相關**：分支 `claude/trace-merge`；取代 [tail-sampling 的設計](2026-10-trace-durability.md)、[durability](2026-10-durability.md) 裡 trace-sampler 那段
+**狀態**：已完成（2026-11-01 合入 master，PR #36）　　**日期**：2026-10-31　　**相關**：分支 `claude/trace-merge`；取代 [tail-sampling 的設計](2026-10-trace-durability.md)、[durability](2026-10-durability.md) 裡 trace-sampler 那段
 **模組**：①②③（收、存）、⑦（根因分析讀 trace）
 
 ## Plan：這一次要達到什麼

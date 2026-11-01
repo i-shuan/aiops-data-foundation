@@ -21,13 +21,13 @@
 
 ### 1. trace 合併
 
-**狀態：測試中**（分支 `claude/trace-merge`，尚未合入 master；設計與實測見該分支的 [PDCA](https://github.com/i-shuan/aiops-data-foundation/blob/claude/trace-merge/docs/pdca/phase1-collect/2026-10-trace-merge.md)）。master 上的 [trace/README.md](../../trace/README.md)、[retention.md](../../retention.md) 在合入前仍是尾端取樣的說法。
+**狀態：已合入 master**（PR #36、#37，2026-11-01；設計與實測見 [PDCA](../phase1-collect/2026-10-trace-merge.md)，ES 兩個資料節點加只投票節點見 [es-two-pods](../phase1-collect/2026-11-es-two-pods.md)）。[trace/README.md](../../trace/README.md)、[retention.md](../../retention.md) 已改成 100% 收、一個請求合成一筆。
 
 目的：製造業事故檢討不能少資料，不在收值端取樣；一個請求原本是 5～8 筆 span，希望查一個請求只讀一筆。
 
-討論時的選項與分支的決定：
+討論時的選項與決定：
 
-| 問題 | 分支的決定 |
+| 問題 | 決定 |
 |---|---|
 | 在哪裡合 | 不在收值端、不用 ES transform（`scripted_metric` 組 `nested` 難寫難測；continuous transform 寫不進 data stream）；由 engine 的排程器每分鐘跑 `detector trace-merge`，以 `event.ingested` 找這一分鐘有新 span 的 trace，讀回全部的段，合成一筆 upsert（`_id` = `trace_id`） |
 | 取代 span 還是多存一份 | 都留：raw（OTel 原生、100% 收）只留 2 天，merged（`traces-merged-*`，一請求一筆、每段放 `nested`）留 7 天；根因分析讀 merged，trace 每一段的 baseline 仍讀 raw |
@@ -36,7 +36,7 @@
 | 摘要延遲 | 晚 1～2 分鐘：排程器每分鐘跑，根因分析看到的 merged 是 1～2 分鐘前的；事故當下要看即時的查 raw（2 天內） |
 | 工廠端是什麼意思 | 未回答 |
 
-測試中還沒解決的（來源：該分支 PDCA 的 Act）：
+合入時還沒解決的（來源：[PDCA](../phase1-collect/2026-10-trace-merge.md) 的 Act）：
 
 | 項目 | 現況 |
 |---|---|
@@ -45,7 +45,7 @@
 | merged 不是 OTel 原生格式 | 自訂格式；Kibana 只有 raw 那 2 天看得到原生 |
 | 讀端兩套 | 根因分析讀 merged，trace baseline、資料品質讀 raw（只看最近 10 分鐘）；`aiops-trace-segments` 要改讀 merged 得把 composite 聚合改成 nested，這次不碰 |
 | 實測環境 | Rancher Desktop 單節點、ES 8.19.23：`run-trace-e2e.sh` 7b 的 raw 21 個 trace 對 merged 21 筆、重跑不重複、權限正確；`run-rca-e2e.sh` 11 項過；單元測試 377 個過。排程器（含 `trace-merge` 每分鐘）24 項、`loop_e2e` 43 項、⑧⑨ 實跑 11 項、metrics-trace 15 項、keys 84 項、trace-id 15 項、kafka 9 項、peer-edge 6 項都過。正式環境沒跑過 |
-| ES 全部資料節點停機會掉資料（**已知風險，決定不處理**） | 測試 ES 改成兩個資料節點加一個只投票節點後（[PDCA](../phase1-collect/2026-11-es-two-pods.md)，分支 `claude/es-retry`）：卡住任何一個資料節點，log、trace 都 0 遺失；兩個資料節點都停 180 秒仍掉（log 7,580／71,988 = 10.5%、trace 993／7,199 = 13.8%、metrics 空 209 秒），遺失集中在停機後 0～30 秒與 50～92 秒，其餘時間沒掉。單 Pod 時 trace 掉 35%（master 是 0，因為 trace 以前經 sampler 無限重試）。原因：Collector 的 ES 元件遇到連線逾時不重試；一直重試的 `retry`、`timeout: 0`、磁碟佇列早就開了，缺的只有這一種錯誤。log 遺失 master 也有（9,649 對 7,715）。**決定：不處理，記成已知風險——掛任何一個資料節點都安全，全停才會掉。**沒查全停時掉資料的具體錯誤種類；正式環境若 ES 前面有 LB 加健康檢查，連線黑洞會變成 503、Collector 會重試，風險可能更小（沒實測）；前案 [collector-es-exporter](2026-10-collector-es-exporter.md) 記過同一個限制 |
+| ES 全部資料節點停機會掉資料（**已知風險，決定不處理**） | 測試 ES 改成兩個資料節點加一個只投票節點後（[PDCA](../phase1-collect/2026-11-es-two-pods.md)）：卡住任何一個資料節點，log、trace 都 0 遺失；兩個資料節點都停 180 秒仍掉（log 7,580／71,988 = 10.5%、trace 993／7,199 = 13.8%、metrics 空 209 秒），遺失集中在停機後 0～30 秒與 50～92 秒，其餘時間沒掉。單 Pod 時 trace 掉 35%（master 是 0，因為 trace 以前經 sampler 無限重試）。原因：Collector 的 ES 元件遇到連線逾時不重試；一直重試的 `retry`、`timeout: 0`、磁碟佇列早就開了，缺的只有這一種錯誤。log 遺失 master 也有（9,649 對 7,715）。**決定：不處理，記成已知風險——掛任何一個資料節點都安全，全停才會掉。**沒查全停時掉資料的具體錯誤種類；正式環境若 ES 前面有 LB 加健康檢查，連線黑洞會變成 503、Collector 會重試，風險可能更小（沒實測）；前案 [collector-es-exporter](2026-10-collector-es-exporter.md) 記過同一個限制 |
 | `trace_quality` 測試 6 項失敗 | 3 項在測已廢止的隨機取 5%，已刪；另 3 項原因見 9.2 兩列（抽樣太少、B6a），偵測行為沒改 |
 | B8（unassigned 的 log 比例）單獨跑沒過 | 整串完整跑時過；推測是 durability 之後測試 ES 有大量其他 log 把分母墊大，沒查證。合併前至少清掉測試資料單獨再跑一次 |
 
@@ -56,14 +56,14 @@
 | 問題 | 現況 | 傾向 |
 |---|---|---|
 | `detect` 每分鐘跑、窗口 10 分鐘 | 停機超過 10 分鐘的那段不補判，Collector 補送的舊資料也不判，只進 `train` | 頻率與窗口不改；限制已寫進 [aiops-engine/README.md](../../../aiops-engine/README.md) 排程表（已合入 master；[PDCA](../phase5-learning-loop/2026-11-open-issues-batch.md)） |
-| peer、trace 每 5 分鐘 | trace 異常約 5～10 分鐘才出現（推算），metrics 約 1～3 分鐘（推算）。trace 的統計本來就以 5 分鐘為單位。`claude/trace-merge` 拆掉尾端取樣的 30 秒等待、加每分鐘的 `trace-merge`，這個推算合入後要重估 | 可接受；只有 trace 看得到的緩慢變差會晚發現 |
+| peer、trace 每 5 分鐘 | trace 異常約 5～10 分鐘才出現（推算），metrics 約 1～3 分鐘（推算）。trace 的統計本來就以 5 分鐘為單位。100% 收已拆掉尾端取樣的 30 秒等待、加了每分鐘的 `trace-merge`，但 trace 的偵測仍是 5 分鐘一點，這個推算合入後沒重新量過 | 可接受；只有 trace 看得到的緩慢變差會晚發現 |
 | 實際延遲沒量過 | 上面的時間大多是推算；p95 暴衝到開事故已實測約 70 秒（見第 3 節）。⑧⑨ 實跑（Collector → trace-merge → rules → alert → Grafana → notify-sink，每分鐘一輪 tick 模擬排程器，誤差約 ±1 分鐘）：事故開始後 159 秒有第一筆異常、162 秒開件、**186 秒 Grafana 通知到**。測試環境，不是正式環境 | 上線前在正式環境量一次 |
 | Grafana 評估間隔 | `alert-rules.yaml` 的 `interval: 1m`，再加進 1～3 分鐘（推算）；已寫進 [grafana/README.md](../../../grafana/README.md) | 已確認 |
 | 30 秒收一點 | 10 秒的短暫尖峰會被平均掉 | 目前不處理 |
 
 ### 3. 一次就很嚴重的
 
-**狀態：已測**。p95 暴衝的實測已做（commit `7345608`，在分支 `claude/trace-merge`，尚未合入 master，PDCA 見 [detect-latency](https://github.com/i-shuan/aiops-data-foundation/blob/claude/trace-merge/docs/pdca/phase3-locate/2026-10-detect-latency.md)）；事故到 Grafana 通知的延遲已用 ⑧⑨ 實跑腳本量過：事故開始後 162 秒開件、186 秒通知到（測試環境）。
+**狀態：已測**。p95 暴衝的實測已做（已合入 master，PDCA 見 [detect-latency](../phase3-locate/2026-10-detect-latency.md)）；事故到 Grafana 通知的延遲已用 ⑧⑨ 實跑腳本量過：事故開始後 162 秒開件、186 秒通知到（測試環境）。
 
 | 問題 | 現況 |
 |---|---|
@@ -100,12 +100,12 @@
 | 多個服務共用同一個資料庫 | 每件事故各算各的，看不出同源；跨服務合併未做 |
 | metrics → trace 是統計對應 | metrics 沒有 `trace_id`，樣本不保證是造成異常的那個請求 |
 | 每段取平均 | 少數極慢請求會拉高排名 |
-| 比 1 秒快的變慢 | 200ms 變 800ms 只剩隨機 5%；實測 1,586 個請求剩 88 個。`claude/trace-merge` 改成 100% 收後不再受取樣影響（測試中，合入 master 前仍適用） |
+| 比 1 秒快的變慢 | 以前 200ms 變 800ms 只剩隨機 5%（實測 1,586 個請求剩 88 個）。2026-11-01 起 100% 收、不取樣，根因分析讀 `traces-merged-*`，不再有這個限制；但 trace 每一段的偵測仍是每點抽 20 個請求（`sample_per_bucket`），這個案例沒重測，見 9.2 的抽樣一列 |
 | 路由沒參數化 | 撈到 0 筆 |
 | 沒做 | 趨勢（慢慢惡化）、指標之間的關係、慢請求的共同點（Pod、版本、批號、SQL）、事故紀錄格式、log 樣式字典、處理手冊 |
 | 沒在正式環境跑過 | 驗證都在測試環境 |
 
-問題 1 的分支（`claude/trace-merge`）已讓根因分析改讀 merged；合入後這一節的「取樣」「每段取平均」等限制要對照重寫。
+問題 1 已合入 master，根因分析改讀 `traces-merged-*`。對照後：「取樣」那條已改（上表）；「每段取平均」「metrics → trace 是統計對應」「路由沒參數化」不受影響，仍成立；merged 晚 1～2 分鐘，事故當下要看即時的查 raw（2 天內）。
 
 ### 7. 基準線與調整索引掉了
 
@@ -154,7 +154,7 @@
 | p95 誤報超過目標 | anomaly 0.53%（目標 0.1%）、warning 1.97%（目標 1%） | [baseline-threshold-tune](../phase2-anomaly/2026-10-baseline-threshold-tune.md) |
 | 錯誤率 1 個 5xx 就到門檻 | 一週 205 個誤報（0.34%）；後續是「至少 N 個 5xx 才判斷」 | 同上 |
 | 只有一部分請求變慢時 trace 段沒報 | 每點約 20 個請求的平均，長尾讓基準線很寬（門檻約 430ms）；看 p90 或慢請求比例還沒做 | [troubleshooting.md](../../troubleshooting.md) |
-| `trace.yaml` 的 `sample_per_bucket` 20 要不要調到 100 | trace 改 100% 收後，平常 3% 的長尾進了基準線；每點只抽 20 個請求，平均值標準差約 86 ms，加 200 ms 只有約 2 個標準差，過不了 z = 5（10% 請求多 2 秒沒報）；長期 2% 吞例外時規則每點各自算，20 個裡 1 個就是 5% 剛好等於門檻，常報。暫時改成 100 後 trace 那段 17 項全過（未留在 repo）。決定：調，但先量 `trace-detect` 一輪的實際耗時（報告只說讀的 trace 變 5 倍，沒量時間）再合進去 | [PDCA](https://github.com/i-shuan/aiops-data-foundation/blob/claude/trace-merge/docs/pdca/phase1-collect/2026-10-trace-merge.md) |
+| `trace.yaml` 的 `sample_per_bucket` 20 要不要調到 100 | trace 改 100% 收後，平常 3% 的長尾進了基準線；每點只抽 20 個請求，平均值標準差約 86 ms，加 200 ms 只有約 2 個標準差，過不了 z = 5（10% 請求多 2 秒沒報）；長期 2% 吞例外時規則每點各自算，20 個裡 1 個就是 5% 剛好等於門檻，常報。暫時改成 100 後 trace 那段 17 項全過（未留在 repo）。決定：調，但先量 `trace-detect` 一輪的實際耗時（報告只說讀的 trace 變 5 倍，沒量時間）再合進去 | [PDCA](../phase1-collect/2026-10-trace-merge.md) |
 | 三成 Pod 沒有服務 label 沒報（B6a） | pipeline 沒 label 時 `service.name` 退回 container 名稱 `app`，欄位不算缺，檢查看不到；master 也一樣，與 trace 合併無關。已做：`missing` 檢查加 `missing_if_equals`（等於 `k8s.container.name` 也算缺），只有單元測試、Painless 沒對真 ES 跑、e2e B6a 等叢集空了再跑（已合入 master；[PDCA](../phase5-learning-loop/2026-11-open-issues-batch.md)） | 同上 |
 | 每筆異常沒記是哪一版產生的 | 已做：每筆異常帶 `engine_version`（chart 的 `image.tag`，本機是 `dev`）（已合入 master；[PDCA](../phase5-learning-loop/2026-11-open-issues-batch.md)） | [baseline/reference.md](../../../aiops-engine/code/configs/baseline/reference.md) |
 | `suggest` 只調 `z` | 不調 `min_abs`、粒度，也不會提排除時段（月底批次更該用 `recurring_override`） | 同上 |
