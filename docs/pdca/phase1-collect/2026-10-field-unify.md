@@ -83,7 +83,7 @@ log：那些 trace 的 log，看錯誤訊息、例外
 - **不放 metrics**（鐵則）：每個不同的值就是一條新序列，交易 ID 每筆都不同，序列數會爆炸。metrics 跟交易 ID 永遠不直接接，走 (3)：metrics → trace → 交易 ID。
 - **新程式**：入口把交易 ID 放 span attribute，同時放 log 的 MDC／scope。
 - **舊程式不改**：log 裡本來就印 `txnId=…` 這類字串，中央 pipeline 依格式抽成標準欄位；再靠 log 的 `trace.id` 對到 trace。
-- **卡住的**：名稱沒定（`sdk/standards/tracing.md` 已定案的只有 `lot.id`、`equipment.id`、`work_order.id`、`recipe.id`）；抽取規則要兩三個服務的真實 log 樣本。
+- **卡住的**：名稱沒定（`apps/standards/tracing.md` 已定案的只有 `lot.id`、`equipment.id`、`work_order.id`、`recipe.id`）；抽取規則要兩三個服務的真實 log 樣本。
 
 ## Do：改動哪些 code、改了什麼、為何要改
 

@@ -10,7 +10,7 @@
 - **範圍**：`docs/` 底下非 PDCA 的 17 份共用文件（architecture、retention、troubleshooting、log、metrics、trace、rca、feedback）。
 - **不做**：
   - PDCA 紀錄（它是當時的紀錄，不是文件）。
-  - `engine/`、`sdk/`、`e2e/` 旁邊的 13 份 README：它們本來就貼著程式、是操作與規格；只在索引標類型，不拆。
+  - `engine/`、`apps/`、`e2e/` 旁邊的 13 份 README：它們本來就貼著程式、是操作與規格；只在索引標類型，不拆。
   - 不改程式。
 
 ### 四種類型

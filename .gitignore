@@ -1,5 +1,5 @@
 # helm dependency build 產生的相依套件
-sdk/examples/*/charts/
+apps/examples/*/charts/
 
 # Python
 __pycache__/

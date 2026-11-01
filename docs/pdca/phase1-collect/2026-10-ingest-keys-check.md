@@ -20,7 +20,7 @@
 | 問題 | 現況 | 證據 |
 |---|---|---|
 | 共同鑰匙圈 | 三種資料同一條路徑（見下）；log 是 alias 指到 ECS 欄位 | `component-mappings.json`；k3s trace e2e 23 項 |
-| log↔trace（Java agent） | agent 把 `trace_id`、`span_id` 放進 MDC；log 格式有印 MDC 才會在 stdout 上 | `sdk/standards/java/logback-spring.xml` |
+| log↔trace（Java agent） | agent 把 `trace_id`、`span_id` 放進 MDC；log 格式有印 MDC 才會在 stdout 上 | `apps/standards/java/logback-spring.xml` |
 | 同上 | SDK 的 `logback-spring.xml`（LogstashEncoder）會印；pipeline 認 `trace_id`／`traceId`／`trace.id` | `pipeline-fields.painless` |
 | log↔trace（.NET 自動埋點） | chart 開 JSON console＋`IncludeScopes`，`TraceId` 在 `Scopes`，pipeline 會拿 | `_deployment.tpl`、[dotnet.md](../../metrics/README.md) |
 | 同上 | Serilog compact 的 `@tr` 也認 | `pipeline-fields.painless` |
@@ -43,14 +43,14 @@
 | 同上 | 第二、三段用 `k8s-logs-otel` 模擬 agent 直送的 log record、span 的例外事件 | 同上 |
 | `telemetry/collectors/node.yaml` | 新 pipeline `logs/otlp`（順序見下） | 應用不印 MDC 時，agent 直送的 log record 本身帶 trace_id；之前沒有這條路 |
 | 同上 | `transform/logs-otlp-pre` 跟 trace 一樣拿掉自帶的 K8s、部門欄位 | 邊緣身份鑑別與標籤注入 (Edge Identity Sanitization & Injection) |
-| `sdk/charts/app-common`（`_deployment.tpl`、`_helpers.tpl`）、`sdk/examples/mes-api/values.yaml` | `otel.logs.exporter`：`none`（預設，stdout）或 `otlp` | 應用團隊一個開關就能切 |
+| `apps/charts/app-common`（`_deployment.tpl`、`_helpers.tpl`）、`apps/examples/mes-api/values.yaml` | `otel.logs.exporter`：`none`（預設，stdout）或 `otlp` | 應用團隊一個開關就能切 |
 | 同上 | `otlp` 時多設 `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT`、協定；值不對 `helm template` 會失敗 | 同上 |
 | `telemetry/storage/pipeline-otel.painless` | agent 直送的 log record（有 `trace_id` 或 `severity_text`）：相關欄位帶成 `_otel` | 原本只重組 body 和 K8s 身分，trace_id 被丟掉，對不起來 |
 | 同上 | 帶的是 `trace_id`、`span_id`、`severity_text`、自訂 attributes | 同上 |
 | 同上 | 再重組成 Fluent Bit 的形狀 | 後面的 pipeline 照常處理 |
 | `telemetry/storage/pipeline-fields.painless` | 原文裡沒有的從 `_otel` 補：`trace.id`、`span.id`、`log.level`，自訂欄位進 `app` | 同上 |
 | 同上 | span 的例外事件變成的 log record（沒有 body）補 `message`、`level: error`、`error.type` | ES 的 OTLP trace 入口會把例外事件另存成一筆 log |
-| `docs/trace/README.md`、`docs/rca/README.md`、`sdk/standards/tracing.md` | 問題 2 的表（哪種輸出、trace_id 在哪、綁不綁得起來、要做什麼） | |
+| `docs/trace/README.md`、`docs/rca/README.md`、`apps/standards/tracing.md` | 問題 2 的表（哪種輸出、trace_id 在哪、綁不綁得起來、要做什麼） | |
 
 - `logs/otlp` 的順序：otlp receiver → `transform/logs-otlp-pre` → `k8s_attributes` → `transform/group` → ES。
 - 7 種 log 輸出：logback JSON、camelCase JSON、ECS JSON、.NET console＋Scopes、Serilog compact、純文字沒印 MDC、純文字有印 MDC。

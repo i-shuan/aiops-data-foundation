@@ -28,7 +28,7 @@
 | `aiops/baseline/` | `engine/configs/baseline/` | yaml 設定 |
 | `aiops/rca/` | `engine/configs/rca/` | yaml 設定 |
 | `aiops/{tests,fake-data,interfaces,requirements.txt}` | `engine/…` | 跟著搬 |
-| `apps/` | `sdk/` | 給應用團隊：chart、範例、規範、CI 檢查 |
+| `apps/` | `apps/` | 給應用團隊：chart、範例、規範、CI 檢查 |
 | `test/` | `e2e/` | 本機 k3s、ES pipeline 案例 |
 | `docs/` | 不動 | |
 
@@ -69,9 +69,9 @@
 | e2e 腳本的路徑 | 讀腳本：`repo="${here}/../.."` 深度沒變（`e2e/local-k3s` 跟 `test/local-k3s` 同深） | 路徑對得上；**沒有在 k3s 實跑** |
 | 同上：kustomization | `../../../telemetry/collectors` 存不存在 | 存在 |
 
-- `sdk/examples/mes-api/templates/*.yaml` 是 Helm 範本，本來就不是純 YAML，不算失敗。
+- `apps/examples/mes-api/templates/*.yaml` 是 Helm 範本，本來就不是純 YAML，不算失敗。
 
-**沒測到**：11 支 e2e 腳本在 k3s 實跑；`sdk/ci/validate-charts.sh`（要 helm，測試機沒有）。
+**沒測到**：11 支 e2e 腳本在 k3s 實跑；`apps/ci/validate-charts.sh`（要 helm，測試機沒有）。
 
 ## Act：Check 後沒改善的、還沒解決的
 

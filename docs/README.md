@@ -1,6 +1,6 @@
 # 文件地圖
 
-全 repo 的 md 都從這裡找得到。**文件留在原位**（跟程式強相關的放在各元件資料夾（`aiops-engine/`、`collector/`、`elasticsearch/`、`grafana/`）、`sdk/`、`e2e/` 旁，改程式時才會順手改），這份只做索引和標類型、狀態。每次新增、刪除 md 都要更新這裡，`python3 tools/check-docs.py` 會檢查（沒列進來、連結斷了、用了舊說法、共用文件沒標類型都會失敗）。規則見 [CLAUDE.md](../CLAUDE.md)。
+全 repo 的 md 都從這裡找得到。**文件留在原位**（跟程式強相關的放在各元件資料夾（`aiops-engine/`、`collector/`、`elasticsearch/`、`grafana/`）、`apps/`、`e2e/` 旁，改程式時才會順手改），這份只做索引和標類型、狀態。每次新增、刪除 md 都要更新這裡，`python3 tools/check-docs.py` 會檢查（沒列進來、連結斷了、用了舊說法、共用文件沒標類型都會失敗）。規則見 [CLAUDE.md](../CLAUDE.md)。
 
 **類型**（Diátaxis：每份文件只做一種事；log、metrics、trace、rca、feedback 各合成一份 README，原理在前，規格、操作、案例是章節）：
 **原理**＝為什麼這樣設計　**操作**＝我要做 X 怎麼做　**規格**＝查欄位、參數、現況　**案例**＝實際跑一遍的實例
@@ -39,7 +39,7 @@
 | 文件 | 類型 | 內容 | 狀態 |
 |---|---|---|---|
 | [metrics/README.md](metrics/README.md) | 原理 | 資料怎麼走、關鍵決定、欄位、收了哪些指標與哪些有 baseline、能做到與做不到、.NET 與 Java、部署與驗證、現況 | 🟢（.NET Framework、Windows 非 K8s 未驗證） |
-| [../sdk/standards/tracing.md](../sdk/standards/tracing.md) | 操作 | 給應用團隊的 trace 埋點指引 | 🟢 |
+| [../apps/standards/tracing.md](../apps/standards/tracing.md) | 操作 | 給應用團隊的 trace 埋點指引 | 🟢 |
 
 ### ①②③ 收值、清資料、存：trace
 

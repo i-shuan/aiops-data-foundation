@@ -142,7 +142,7 @@ log 用 `trace_id` 對到同一個請求；metrics 沒有 `trace_id`，只能以
 |---|---|---|---|
 | 結構 | `parent_span_id`、`name`、`kind`、`duration`、`status.code`、`links` | `spans.parent`、`spans.name`、`spans.kind`、`spans.dur_ms`、`spans.error`、`spans.links` | 呼叫關係、種類、耗時、狀態、跨 trace 的關聯 |
 | 例外 | `attributes.exception.type`、`attributes.exception.message` | `spans.exception`、`spans.attrs`（flattened） | Collector 從事件抄上來的 |
-| 業務 | `attributes.lot.id`、`attributes.equipment.id` | `spans.attrs` | 應用加的批號、機台；工單、配方欄位名稱見 [埋點指引](../../sdk/standards/tracing.md) |
+| 業務 | `attributes.lot.id`、`attributes.equipment.id` | `spans.attrs` | 應用加的批號、機台；工單、配方欄位名稱見 [埋點指引](../../apps/standards/tracing.md) |
 | 摘要 | — | `root.*`、`duration_ms`、`error`、`services`、`span_count`、`entries.*` | 合成時算的，挑請求用 |
 
 排錯見 [troubleshooting.md](../troubleshooting.md)。

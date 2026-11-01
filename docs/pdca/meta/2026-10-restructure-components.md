@@ -17,7 +17,7 @@
 | `aiops-engine/` | `engine/` 的 Python（`core`、`detector`、`investigator`、`feedback_web`、`interfaces`、`fake-data`、`tests`）、`configs/baseline`、`configs/rca`、`Dockerfile`、`requirements.txt` | `engine/deploy/`（CronJob、回饋網頁；這次先照搬成 chart，排程改成一隻 pod 是下一輪，另開 PDCA） |
 
 - **刪掉**：`telemetry/`、`engine/` 兩個頂層；`engine/deploy/gen-cronjobs.py`（chart 的 template 取代）；`e2e/local-k3s/` 裡的部署檔（`elasticsearch*.yaml`、`otel-collector/`、`engine-schedule/`、`rca-demo/grafana.yaml`、provisioning yaml）；`e2e/local-k3d/` 整個（Docker Desktop 時期的環境，耐久測試跟 `e2e/local-k3s/load/` 重複，結果都在 PDCA）。
-- **不動**：`sdk/`（本來就是 Helm）、`docs/`（只改連結與地圖）、`tools/`、`e2e/pipeline/`、`e2e/local-k3s/` 的模擬服務與測試腳本（只改部署指令）。PDCA 紀錄裡的舊路徑不回頭改。
+- **不動**：`apps/`（本來就是 Helm）、`docs/`（只改連結與地圖）、`tools/`、`e2e/pipeline/`、`e2e/local-k3s/` 的模擬服務與測試腳本（只改部署指令）。PDCA 紀錄裡的舊路徑不回頭改。
 - **行為不變**：Collector 設定、ES 結構、Grafana 規則、engine 程式一個字都不改；chart render 出來的資源要跟原本的 manifest 等價。
 
 ## Do：改動哪些 code、改了什麼、為何要改

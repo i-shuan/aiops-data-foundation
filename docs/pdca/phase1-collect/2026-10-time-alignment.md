@@ -90,7 +90,7 @@
 | 沒改善的 | 在什麼情況下發現的 | 影響 | 後續 |
 |---|---|---|---|
 | 所有 cluster 共用一個 `LOG_DEFAULT_TIMEZONE` | 設計：時區是中央 pipeline 的一個設定 | 不同時區的 cluster（例如海外廠）會差幾小時 | 需要時依 `orchestrator.cluster.name` 對照時區 |
-| 時區規範（寫 UTC 或帶時區）還沒寫進應用標準 | — | 新服務還是可能沒帶時區，只能靠 pipeline 推定 | 寫進 [sdk/standards](../../../sdk/standards/tracing.md) |
+| 時區規範（寫 UTC 或帶時區）還沒寫進應用標準 | — | 新服務還是可能沒帶時區，只能靠 pipeline 推定 | 寫進 [apps/standards](../../../apps/standards/tracing.md) |
 | 已經寫進 ES 的舊資料不會更正 | pipeline 只影響新進來的資料 | 改之前沒帶時區的 log 仍差 8 小時 | 需要的話對特定服務 reindex |
 | [①] DB 主機（不在 K8s 裡）沒有時鐘監控 | 只做了 node Collector | DB 慢、DB 時鐘偏了時，根因分析順序可能錯 | DB 主機裝 Collector（或 node_exporter）＋同一條規則 |
 | [①] `NTP_SERVER` 預設是佔位的 `ntp.example.internal:123` | 實作時 | 沒改的話 `ntp` receiver 每 30 分鐘報錯、沒有資料 | 部署時填公司的 NTP |

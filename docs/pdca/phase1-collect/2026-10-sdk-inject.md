@@ -8,7 +8,7 @@
 - **需求**：應用團隊不改程式、只掛 Java agent 或 .NET 自動埋點，log 跟 trace 能不能在 ES 對起來，之前只驗過「一個請求」的基本情況；子執行緒、背景排程、上游帶怪的 traceparent、多跳、Kafka 時 log 帶哪個 trace_id 沒人測過。
 - **目的**：每個情境寫下預期，在 K8s 上實際跑，ES 裡的 log `trace.id`／`span.id` 跟 span 的 `trace_id`、`parent_span_id`、`kind` 對照；不符合的寫成給應用團隊的注意事項。
 - **範圍**：
-  - Java：agent 2.20.0，JDK 21，JDK 內建 HTTP server、`java.net.http.HttpClient`、kafka-clients 3.7.1，log 用 SDK 的 [logback-spring.xml](../../../sdk/standards/java/logback-spring.xml)。
+  - Java：agent 2.20.0，JDK 21，JDK 內建 HTTP server、`java.net.http.HttpClient`、kafka-clients 3.7.1，log 用 SDK 的 [logback-spring.xml](../../../apps/standards/java/logback-spring.xml)。
   - .NET：**只測 .NET 8**（ASP.NET Core 8），自動埋點 1.12.0，`HttpClient`、Confluent.Kafka 2.6.1，log 用內建 JSON console＋`IncludeScopes`（跟 chart 一樣用環境變數開）。
   - 不測：Spring（`@Async`、`@Scheduled`）、.NET 9、.NET Framework、Kafka 批次消費與重送、取樣（測試環境的 trace-sampler 全部留）。
 
@@ -27,7 +27,7 @@
 - 腳本從部署到檢查完整段拿著 cluster 鎖；在鎖裡才 port-forward ES，斷了（ES Pod 被重建）自動重連，每次查 ES 連不上會等最多 2 分鐘。
 - 量之前先確認最近 1 分鐘有 span 進 ES、再發 6 個探測請求（只通一台 trace-sampler 會缺一半）；不通就停下來說原因，不動 cluster，不會印出一堆假 FAIL。
 
-文件：[sdk/standards/tracing.md](../../../sdk/standards/tracing.md)（log 什麼時候帶 trace_id、2-4）、[troubleshooting.md](../../troubleshooting.md)、[metrics/dotnet.md](../../metrics/README.md) 的 Kafka、[trace/README.md](../../trace/README.md)。
+文件：[apps/standards/tracing.md](../../../apps/standards/tracing.md)（log 什麼時候帶 trace_id、2-4）、[troubleshooting.md](../../troubleshooting.md)、[metrics/dotnet.md](../../metrics/README.md) 的 Kafka、[trace/README.md](../../trace/README.md)。
 
 ## Check：測試的目的與結果
 
@@ -81,7 +81,7 @@ Kafka 兩種語言的 span 長得不一樣（同一輪，從 `traces-*` 查）�
 - 測的過程發現：master 版 `node.yaml` 部署後 node Collector 對所有 trace 回 `couldn't find the exporter for the endpoint`，探測請求的 log 進了、span 沒進（見 Act）。
 - 第 9 次 log 進 ES 慢到約 58 秒，19 項 FAIL（log 還沒進就查）：當時 p1-load 在同一個 cluster 壓測、Collector 積壓，不是 SDK 的問題。腳本改成輪詢到最後一筆 log、span 進 ES（上限 5 分鐘）並印出延遲。
 - Java 的 `trace_id` 是 agent 在 log 事件上加的：LogstashEncoder 的 JSON 有，程式裡 `MDC.get("trace_id")` 拿不到。
-- **沒測到的**：Spring 的 `@Async`、`@Scheduled`（[tracing.md](../../../sdk/standards/tracing.md) 第 1 節列為自動）；chart 用的 agent 2.10.0（這次是 2.20.0）；.NET 9、Framework；Kafka 一次 poll 多筆、重送；尾端取樣 5% 時的行為。
+- **沒測到的**：Spring 的 `@Async`、`@Scheduled`（[tracing.md](../../../apps/standards/tracing.md) 第 1 節列為自動）；chart 用的 agent 2.10.0（這次是 2.20.0）；.NET 9、Framework；Kafka 一次 poll 多筆、重送；尾端取樣 5% 時的行為。
 
 ## Act：Check 後沒改善的、還沒解決的
 
