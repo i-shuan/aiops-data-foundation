@@ -36,7 +36,7 @@
 | 共同點、趨勢、同源的計算 | 單元測試 12 個；全部 527 過 | 通過 |
 | 真資料上兩節長什麼樣 | 測試 ES 今天 MTTI 情境 1（wip-worker 查 Oracle 變慢、1/4 失敗，03:09～03:21Z）跑 `investigate --service rca-mes-api` | 趨勢：「出事前 60 分鐘的 p95 都在 91 ms 左右（91、91、111、91、91、91），出事時 1.54 s → **突然**」——對（是注入的故障）。共同點：慢的 200 個 100% 在 `rca-wip-worker-…-4v2vj`、平常 0% → 標「平常沒見過（換版、新 Pod？）」——對（`run-rca-demo.sh` 每次先 rollout restart，Pod 名字變了）。原本的結論（SELECT LOT_HISTORY → oracle 多 794 ms、connection pool timeout log）不變 |
 | 同一小時內重複注入時趨勢怎麼講 | 情境 4 第 3 次（04:31～04:41Z，前一小時已注入兩次） | 「出事前 60 分鐘的 p95 起伏（81 ms、1.54 s、10.04 s、81 ms、10.05 s、81 ms），看不出」——對，前面真的有兩次事故 |
-| 同源標記寫進 `aiops-alerts`、摘要多一行 | 單元測試（`link_shared`、`summary`）；`cmd_alert` 的流程改動靪既有的 `test_cmd_alert` 與 527 個單元測試擋 | 通過；**沒有對真 ES 跑 `investigator alert`**（示範環境只有一個服務呼叫 Oracle，跑了也不會有同源） |
+| 同源標記寫進 `aiops-alerts`、摘要多一行 | 單元測試（`link_shared`、`summary`）；`cmd_alert` 的流程改動靠既有的 `test_cmd_alert` 與 527 個單元測試擋 | 通過；**沒有對真 ES 跑 `investigator alert`**（示範環境只有一個服務呼叫 Oracle，跑了也不會有同源） |
 
 **沒測到的**：同源在真環境（兩個服務同時卡同一個 DB）沒看過；共同點的 `lot.id`、`db.statement` 兩項示範資料沒帶，沒看過真的 SQL 集中長什麼樣；LLM 輸入包還沒帶這三樣。
 
