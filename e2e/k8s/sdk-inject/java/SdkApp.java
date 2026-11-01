@@ -1,5 +1,5 @@
 // 「不改程式」自動埋點驗證用的 Java 應用（e2e/k8s/sdk-inject/java.yaml）：程式裡沒有任何 OpenTelemetry，只掛 Java agent。
-// log 用 logback＋LogstashEncoder（跟 sdk/standards/java/logback-spring.xml 一樣），trace_id、span_id 由 agent 放進 MDC。
+// log 用 logback＋LogstashEncoder（跟 apps/standards/java/logback-spring.xml 一樣），trace_id、span_id 由 agent 放進 MDC。
 // 每個請求帶 rid（英數字），log 訊息都寫 rid，驗證腳本用 rid 在 ES 找 log，再用 log 的 trace_id／span_id 找 span。
 //   /hop?rid=&next=url1,url2   印「hop」（含收到的 traceparent），有 next 就用 java.net.http.HttpClient 呼叫下一跳（剩下的 next 往下傳）
 //   /leaf?rid=                 印「leaf」，子工作打回自己用

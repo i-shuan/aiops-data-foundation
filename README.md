@@ -28,7 +28,7 @@ docs/
 |---|---|---|
 | **log** | [log/README.md](docs/log/README.md)：怎麼收、依格式解析、欄位規格、換 key、Fluent Bit 與 OTel 的比較 | |
 | **metrics** | [metrics/README.md](docs/metrics/README.md)：怎麼收、直方圖換增量、欄位、能做到什麼、.NET 不改程式 | |
-| **trace** | [trace/README.md](docs/trace/README.md)：100% 收、一個請求合成一筆、欄位、六個場景 | [sdk/standards/tracing.md](sdk/standards/tracing.md)（給應用團隊的埋點指引） |
+| **trace** | [trace/README.md](docs/trace/README.md)：100% 收、一個請求合成一筆、欄位、六個場景 | [apps/standards/tracing.md](apps/standards/tracing.md)（給應用團隊的埋點指引） |
 | **rca** | [rca/README.md](docs/rca/README.md)：根因分析六步、三種資料怎麼串、動態基準線學習、15 個故障案例 | 程式：[aiops-engine/code/configs/baseline](aiops-engine/code/configs/baseline/README.md)、[aiops-engine/code/configs/rca](aiops-engine/code/configs/rca/README.md)（[報告範例](aiops-engine/code/configs/rca/example-report.md)） |
 | **feedback** | [feedback/README.md](docs/feedback/README.md)：閉環、LLMOps 的定案、LLM 與 token | |
 
@@ -39,10 +39,10 @@ docs/
 - **集中式資料寫入憑證 (Shared Ingest Token)**：一把 key，所有 group、log、metrics、trace 共用；資料屬於哪個 group 由 Collector 依 Pod 決定（讀取權限照樣依 group 分）。**換 key 不掉資料、不重啟**（`elasticsearch/code/scripts/rotate-writer-key.sh`）。被 ES 拒絕的文件留在 failure store，`quality.ingest_rejected` 會報。
 - **舊專案不改程式**：Java 用 agent，.NET 用自動埋點＋OTLP 推（[metrics/README.md](docs/metrics/README.md)）。
 - **trace 100% 收、不取樣**：Collector 全寫（每一段一筆、2 天），engine 每分鐘把每個請求合成一筆（7 天）；製造業的事故檢討不能少資料。
-- **應用團隊不需要知道 group、key**：規格由共用 chart 產生（[apps/](sdk)）。
+- **應用團隊不需要知道 group、key**：規格由共用 chart 產生（[apps/](apps)）。
 - **namespace 名稱不含組織資訊**（`{cluster}-{app}-{env}` 或 `{app}-{env}`），歸屬另外標。
 - **AIOps 以統計＋LLM 為主，不自己訓練模型**（[feedback/README.md](docs/feedback/README.md)）。
-- **業務欄位名稱**：`lot.id`、`equipment.id`、`work_order.id`、`recipe.id`（[sdk/standards/tracing.md](sdk/standards/tracing.md)）。工廠用，之後再接。
+- **業務欄位名稱**：`lot.id`、`equipment.id`、`work_order.id`、`recipe.id`（[apps/standards/tracing.md](apps/standards/tracing.md)）。工廠用，之後再接。
 
 ## 還沒定案的
 
@@ -66,7 +66,7 @@ collector/       code/（common、node、cluster、groups.yaml）           helm
 elasticsearch/   code/storage/、code/scripts/                           helmchart/（只給測試用的 ES，twoNode 開關）
 grafana/         code/（規則、contact point、policy、儀表板、外掛說明）  helmchart/（Grafana＋initContainer 裝外掛＋provisioning）
 aiops-engine/    code/（Python、configs、Dockerfile）                  helmchart/（排程器＋回饋網頁一隻 pod）
-sdk/  e2e/（pipeline/、k8s/）  docs/  tools/
+apps/  e2e/（pipeline/、k8s/）  docs/  tools/
 ```
 
 | 資料夾 | 模組 | 內容 |
@@ -75,7 +75,7 @@ sdk/  e2e/（pipeline/、k8s/）  docs/  tools/
 | `elasticsearch/` | ③ | 中央 ES 的結構設定（mapping、pipeline、ILM）與 setup／換 key 腳本；正式 ES 是公司的，chart 只部署測試用 ES |
 | `grafana/` | ⑧ | 讀 `aiops-alerts` 依部門發通知、儀表板、回饋表單外掛 |
 | `aiops-engine/` | ④～⑨ | AIOps 分析核心：`core/`（ES、trace、LLM）、`detector/`（動態基準線學習、規則、資料品質、回饋、回測、量化）、`investigator/`（根因分析、事件整合、相似事故）、`feedback_web/`（老師傅的回饋網頁）、`scheduler/`（定期工作的排程器）、`configs/`（baseline、rca、schedule） |
-| `sdk/` | ① | 給應用團隊：通用 Helm chart、範例、Java log 設定、trace 埋點指引、CI 檢查 |
+| `apps/` | ① | 給應用團隊：通用 Helm chart、範例、Java log 設定、trace 埋點指引、CI 檢查 |
 | `e2e/` | 測試 | `pipeline/`（ES pipeline 案例，只要 ES）、`k8s/`（端到端：模擬服務與腳本，要 K8s）；不是正式程式 |
 | `docs/` | — | 設計文件、規劃、`docs/pdca/` 每一輪的紀錄 |
 

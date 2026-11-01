@@ -88,7 +88,7 @@ Map app = ctx.remove('_app');
 Map log = ctx.log;
 if (log == null) { log = new HashMap(); ctx.log = log; }
 
-// 例：logback JSON（sdk/standards/java/logback-spring.xml）、ECS JSON、logfmt、
+// 例：logback JSON（apps/standards/java/logback-spring.xml）、ECS JSON、logfmt、
 // .NET 內建的 JSON console（Message、LogLevel、Category、Exception、Scopes 裡的 TraceId）、Serilog compact JSON（@m、@l、@x、@tr）
 if (app != null) {
   // .NET JSON console：trace_id、span_id 放在 Scopes（一個 list）裡其中一個 scope

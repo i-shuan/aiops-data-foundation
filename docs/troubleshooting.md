@@ -62,7 +62,7 @@
 | ES 空間不夠 | trace 100% 收，量比 log 大；merged 的 `nested` 不省空間 | 縮保留天數（merged 7 天；raw 2 天不能再短）、舊的快照到物件儲存（另案）；不要在應用調低 `otel.traces.sampleRatio` |
 | 根因分析找不到剛發生的請求 | 根因分析讀 merged，`trace-merge` 每分鐘合、合到「現在 − 10 秒」 | 等 1～2 分鐘；要看即時的查 raw（`traces-*.otel-*`，2 天內） |
 | merged 裡少了幾個 trace | `trace-merge` 從上次合到的時間接著合（`aiops-state/trace-merge`），pod 停很久會分段補、最多補 2 天（raw 的保留） | 看排程器 log 的 `trace-merge … 合了 N 個`；停超過 2 天那段補不回來 |
-| Java 自己 `new Thread` 印的 log 沒有 trace_id | agent 不會把 context 帶到自己開的執行緒 | `Context.current().wrap(...)`（[tracing.md 2-4](../sdk/standards/tracing.md#2-4-自己管理的執行緒)） |
+| Java 自己 `new Thread` 印的 log 沒有 trace_id | agent 不會把 context 帶到自己開的執行緒 | `Context.current().wrap(...)`（[tracing.md 2-4](../apps/standards/tracing.md#2-4-自己管理的執行緒)） |
 | 背景排程的 log 沒有 trace_id | 沒有上游請求，log 當下沒有 span | 預期行為；要查就印業務 ID |
 | log 的 trace_id 在 ES 查不到 trace | 上游送的 `traceparent` 結尾 `-00`（未取樣），整條都不送 span | 找送 `-00` 的上游 |
 

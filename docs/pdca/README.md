@@ -173,7 +173,7 @@ metrics → trace → log 找到哪一段、哪行 log；事件整合、排程�
 | 檔案 | 主題 | 結論 |
 |---|---|---|
 | [meta/2026-10-docs-vs-code.md](meta/2026-10-docs-vs-code.md) | ①～⑨ 文件對程式：整條線一份看完（[architecture.md](../architecture.md)）、總覽狀態對齊 | 只改文件；6 處對不上改掉 5 處；code-review 的 10 項對過程式，4 項要修、記在流程文件的「不足」 |
-| [meta/2026-10-restructure.md](meta/2026-10-restructure.md) | 全部 目錄改名：專案名 it-aiops | `platform/`→`telemetry/`、`aiops/`→`engine/`、`apps/`→`sdk/`、`test/`→`e2e/`；Python 套件改名；行為不變，200 個單元測試與連結檢查過 |
+| [meta/2026-10-restructure.md](meta/2026-10-restructure.md) | 全部 目錄改名：專案名 it-aiops | `platform/`→`telemetry/`、`aiops/`→`engine/`、`apps/`→`apps/`、`test/`→`e2e/`；Python 套件改名；行為不變，200 個單元測試與連結檢查過 |
 | [meta/2026-10-restructure-components.md](meta/2026-10-restructure-components.md) | 全部 依部署元件重整：`collector/`、`elasticsearch/`、`grafana/`、`aiops-engine/` 各有 `code/`＋`helmchart/`；部署一律 Helm，kustomize、純 yaml、`e2e/local-k3d/` 刪掉；`e2e/local-k3s` 改名 `e2e/k8s` | chart render 跟舊 manifest 逐資源比對等價；Rancher Desktop 刪光重裝：log 54、metrics 46、trace 24 全過；rca-demo、schedule、es-2node 等五支改了部署指令的腳本沒實跑 |
 | [meta/2026-10-sonar.md](meta/2026-10-sonar.md) | 跨階段 SonarQube 第一次掃：範圍固定、真的問題修掉、剩的寫清楚 | `e2e/` 不掃；bug 5 → 0、vulnerability 121 → 4（剩 4 個都有理由）；`doc_id` 不變、https 選用 |
 | [meta/2026-10-diataxis.md](meta/2026-10-diataxis.md) | 跨階段 共用文件採用 Diátaxis：每份只做一種事（原理／操作／規格／案例） | 7 份混合文件拆成 19 份；檢查腳本擋沒標類型的；連結 0 斷；內容沒掉 |

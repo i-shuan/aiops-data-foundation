@@ -133,8 +133,8 @@ rca-mes-api › GET /lots/{id}                       |████████�
 
 | 要什麼 | 誰做 | 沒有的話 |
 |---|---|---|
-| 服務有 trace（Java agent 自動，見 [tracing.md](../../../../sdk/standards/tracing.md)） | chart 自動 | 第 2～4、6 節是空的，只剩 log |
-| log 帶 `trace_id`（照 [logback-spring.xml](../../../../sdk/standards/java/logback-spring.xml)） | chart＋應用 | 撈不到「這個請求在各服務的 log」，但第 5 節依服務、時間找樣式還是有 |
+| 服務有 trace（Java agent 自動，見 [tracing.md](../../../../apps/standards/tracing.md)） | chart 自動 | 第 2～4、6 節是空的，只剩 log |
+| log 帶 `trace_id`（照 [logback-spring.xml](../../../../apps/standards/java/logback-spring.xml)） | chart＋應用 | 撈不到「這個請求在各服務的 log」，但第 5 節依服務、時間找樣式還是有 |
 | 往外呼叫帶 `peer.service`、`db.system` 或 `server.address` | agent 自動 | 關係圖少了資料庫、外部系統那一格 |
 | log 有 level（`log.level`） | 中央 pipeline 解析 | 第 5 節找不到 warn／error |
 

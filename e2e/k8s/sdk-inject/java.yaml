@@ -1,4 +1,4 @@
-# 「不改程式」驗證用的 Java 服務（程式 java/SdkApp.java，ConfigMap sdk-java-src；log 設定直接用 sdk/standards/java/logback-spring.xml）。
+# 「不改程式」驗證用的 Java 服務（程式 java/SdkApp.java，ConfigMap sdk-java-src；log 設定直接用 apps/standards/java/logback-spring.xml）。
 # run-sdk-inject-e2e.sh 用 sed 把 __NAME__、__CONSUME__ 換掉，部署成 sdk-java-a（消費 Kafka）、sdk-java-b 兩個服務。
 # initContainer 從 GitHub、Maven Central 下載 agent 與 logback、Kafka 的 jar（測試用；正式環境 agent 由 chart 的 image 帶）。
 apiVersion: v1
@@ -50,7 +50,7 @@ spec:
             - {name: OTEL_TRACES_EXPORTER, value: otlp}
             - {name: OTEL_EXPORTER_OTLP_TRACES_ENDPOINT, value: "http://otel-node-collector.otel-collector.svc:4318/v1/traces"}
             - {name: OTEL_EXPORTER_OTLP_TRACES_PROTOCOL, value: http/protobuf}
-            # 跟 app-common chart 一樣（sdk/standards/tracing.md 第 4 節）
+            # 跟 app-common chart 一樣（apps/standards/tracing.md 第 4 節）
             - {name: OTEL_TRACES_SAMPLER, value: parentbased_traceidratio}
             - {name: OTEL_TRACES_SAMPLER_ARG, value: "1.0"}
             - {name: OTEL_METRICS_EXPORTER, value: none}

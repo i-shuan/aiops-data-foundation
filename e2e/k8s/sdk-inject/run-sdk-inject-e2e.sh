@@ -35,7 +35,7 @@ if [[ -z "${SKIP_DEPLOY:-}" ]]; then
   kubectl create namespace "${ns}" >/dev/null
   kubectl label namespace "${ns}" dept=D1110 >/dev/null
   kubectl -n "${ns}" create configmap sdk-java-src --from-file="${here}/java/SdkApp.java" \
-    --from-file="${repo}/sdk/standards/java/logback-spring.xml" >/dev/null
+    --from-file="${repo}/apps/standards/java/logback-spring.xml" >/dev/null
   kubectl -n "${ns}" create configmap sdk-dotnet-src --from-file="${here}/dotnet/Program.cs" --from-file="${here}/dotnet/app.csproj" >/dev/null
   [[ -f /root/.ccr/ca-bundle.crt ]] && kubectl -n "${ns}" create configmap proxy-ca --from-file=ca-bundle.crt=/root/.ccr/ca-bundle.crt >/dev/null
   kubectl apply -f "${here}/base.yaml" >/dev/null
@@ -191,7 +191,7 @@ for L in java dotnet; do
     got="$([[ ${ct} == "${pt}" && ${cs} == "${ps}" ]] && echo 子工作log同trace || echo "子工作log=${ct}")"
     got+=" $([[ ${lt} == "${pt}" && ${ck} == Client && ${cp} == "${ps}" ]] && echo 呼叫掛在請求底下 || echo "呼叫的trace=${lt},Client的parent=${cp}")"
     if [[ ${L} == java && ${w} == thread ]]; then
-      # 自己 new Thread：agent 不幫忙帶 context（sdk/standards/tracing.md 2-4 要自己 wrap）
+      # 自己 new Thread：agent 不幫忙帶 context（apps/standards/tracing.md 2-4 要自己 wrap）
       check "${L}" "子工作 ${w}：log 沒有 trace_id，呼叫自成新 trace" \
         "${ct} $([[ ${lt} != - && ${lt} != "${pt}" && $(root_of "${lt}") == Client* ]] && echo 新trace)" "- 新trace"
     else
