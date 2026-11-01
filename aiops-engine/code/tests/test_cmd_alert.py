@@ -158,6 +158,16 @@ if __name__ == "__main__":
     unittest.main()
 
 
+class FeedbackFooter(unittest.TestCase):
+    def test_footer_added_once(self):
+        url = "http://fb/feedback?alert=a-1"
+        r = C.with_feedback_footer("# 根因分析\n\n## 結論\n- x\n", url)
+        self.assertTrue(r.endswith(f"---\n資深維運專家（老師傅）回饋：{url}\n"))
+        self.assertEqual(C.with_feedback_footer(r, url), r)          # 下一輪寫回去不會再加一行
+        self.assertEqual(C.with_feedback_footer("報告", None), "報告")  # 沒設 feedback_url 不加
+        self.assertIsNone(C.with_feedback_footer(None, url))
+
+
 class StampIsInThePast(unittest.TestCase):
     """docs/pdca/phase3-locate/2026-10-alert-flap.md：覆蓋寫入剛好落在 Grafana 排定評估與送出查詢之間時，
     @timestamp 不能晚於查詢範圍的結束點，不然開著的件會被當成恢復。"""

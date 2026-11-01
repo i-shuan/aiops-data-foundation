@@ -273,7 +273,7 @@
     {
       "id": 5,
       "type": "table",
-      "title": "⑤ AIOps：合成的事件（一列一件；點標題：看這件的根因全文、老師傅回饋）",
+      "title": "⑤ AIOps：合成的事件（一列一件；「根因分析全文」那格點眼睛看全文，最下面是老師傅回饋；點標題換 ⑥ 或開回饋）",
       "gridPos": {
         "x": 0,
         "y": 17,
@@ -432,6 +432,26 @@
                 "value": true
               }
             ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "report"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "根因分析全文（點格子的眼睛）"
+              },
+              {
+                "id": "custom.width",
+                "value": 230
+              },
+              {
+                "id": "custom.inspect",
+                "value": true
+              }
+            ]
           }
         ]
       },
@@ -471,7 +491,8 @@
               "llm_summary": true,
               "alert_id": true,
               "report_url": true,
-              "feedback_url": true
+              "feedback_url": true,
+              "report": true
             },
             "indexByName": {
               "started_at": 0,
@@ -480,11 +501,12 @@
               "service": 3,
               "dept": 4,
               "title": 5,
-              "anomaly_count": 6,
-              "llm_summary": 7,
-              "alert_id": 8,
-              "report_url": 9,
-              "feedback_url": 10
+              "anomaly_count": 7,
+              "llm_summary": 8,
+              "alert_id": 9,
+              "report_url": 10,
+              "feedback_url": 11,
+              "report": 6
             }
           }
         }

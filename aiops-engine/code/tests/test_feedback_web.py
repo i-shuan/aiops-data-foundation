@@ -61,6 +61,16 @@ class FormData(unittest.TestCase):
     def test_report_page(self):
         self.assertIn("# 報告", A.render_report(ALERT))
 
+    def test_full_puts_report_above_the_form(self):
+        # Grafana 抽屜：根因全文在上、老師傅回饋表單在最下面，送出後還是 full（hidden 欄位帶著）
+        html = A.render_form(A.form_data(ALERT), full=True)
+        self.assertLess(html.index("根因分析全文"), html.index("# 報告"))
+        self.assertLess(html.index("# 報告"), html.index("老師傅）回饋"))
+        self.assertLess(html.index("老師傅）回饋"), html.index('<form method="post"'))
+        self.assertIn('name="full" value="1"', html)
+        self.assertNotIn("/report?alert=", html)
+        self.assertNotIn("根因分析全文", A.render_form(A.form_data(ALERT)))
+
 
 class Submit(unittest.TestCase):
     def setUp(self):

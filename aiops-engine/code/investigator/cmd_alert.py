@@ -116,6 +116,15 @@ def _incident_doc(al: dict, doc: dict, findings: dict | None) -> dict:
             "detected_at": doc["started_at"], "fingerprint": SIM.fingerprint(al, findings)}
 
 
+def with_feedback_footer(report: str | None, feedback_url: str | None) -> str | None:
+    """報告全文最後加一行老師傅回饋的網址：Grafana 表格點眼睛（Inspect value）看全文時，看完最下面就是回饋入口。
+    報告會跟著件一輪一輪寫回去，已經有這行就不再加。"""
+    if not report or not feedback_url:
+        return report
+    line = f"資深維運專家（老師傅）回饋：{feedback_url}"
+    return report if line in report else f"{report.rstrip()}\n\n---\n{line}\n"
+
+
 def llm_summary(al: dict, findings: dict | None, similar: list[dict], acfg: dict) -> dict | None:
     """LLM 摘要：只加註、不擋告警。輸入包裡有 NaN、模型掛了、程式有 bug，都只是這件沒有摘要，這一輪照寫。"""
     if not acfg.get("llm", True):
@@ -231,8 +240,9 @@ def run(cfg: dict, args, investigate) -> int:
             al["title"], al["summary"] = AL.headline(al), AL.summary(al, report, tz, similar)
         url, furl = acfg.get("report_url"), acfg.get("feedback_url")
         doc = {k: v for k, v in al.items() if not k.startswith("_")}
-        doc.update({"report": report, "report_url": url.format(alert_id=al["alert_id"]) if url else None,
-                    "feedback_url": furl.format(alert_id=al["alert_id"]) if furl else None,
+        fb = furl.format(alert_id=al["alert_id"]) if furl else None
+        doc.update({"report": with_feedback_footer(report, fb), "report_url": url.format(alert_id=al["alert_id"]) if url else None,
+                    "feedback_url": fb,
                     "anomaly_count": len(al["anomaly_ids"]), "findings": findings, "similar": similar,
                     "llm_summary": (llm or {}).get("text") or al.get("llm_summary"), "llm_provider": (llm or {}).get("provider") or al.get("llm_provider"),
                     "@timestamp": (al["resolved_at"] if al["status"] == "resolved" else stamp_of(now))})
