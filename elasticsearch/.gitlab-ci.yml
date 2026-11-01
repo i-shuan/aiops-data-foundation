@@ -1,34 +1,45 @@
-# elasticsearch：把結構、權限套上公司的 ES，發 4 把 API key（elasticsearch/code/scripts/elasticsearch-setup.sh）。
+# elasticsearch：在 ES／AIOps 那個 cluster 裡用 Job 跑 elasticsearch-setup.sh（elasticsearch/setup-helmchart；
+# GitLab Runner 不用連到 ES，只要能 kubectl 到那個 cluster）。
 #
 # 變數：
-#   ES_URL     公司 ES 的網址，例如 https://es.example.internal:9200
-#   ES_AUTH    有 manage_security 權限的帳號，帳號:密碼（Masked、Protected）
-#   選填：SNAPSHOT_REPO_TYPE、SNAPSHOT_REPO_SETTINGS（要備份才給，見 elasticsearch/README.md）
+#   KUBE_CONFIG_AIOPS      （Type: File）ES、AIOps 那個 cluster 的 kubeconfig
+#   ES_URL                 從那個 cluster 裡面連 ES 的網址，例如 https://elasticsearch.es.svc:9200
+#   ES_AUTH                有 manage_security 權限的帳號，帳號:密碼（Masked、Protected）
+#   ES_SETUP_IMAGE         有 bash、curl、jq、kubectl 的工具 image，例如 nexus.example.internal/alpine/k8s:1.30.4
+#   ES_SETUP_SKIP_KEYS     選填，true：只更新結構（改了 retention.conf、storage/），不發新 key、不碰 Secret
+#   選填：SNAPSHOT_REPO_TYPE、SNAPSHOT_REPO_SETTINGS（要備份才給）
 #
-# key 不印進 log：寫在 keys/（writer、engine、grafana、probe 是 key 本身；collector-values.yaml、engine-values.yaml、
-# grafana-values.yaml 是 chart 的 values），放 artifact 1 小時，給同一條 pipeline 後面的部署 job 用。
-# 健康檢查 key（keys/probe）要放進 ES 前面的 LB：從這個 artifact 手動取，不經過其他 job。
+# 什麼時候跑：第一次部署（Collector 開始送資料之前）、改了 elasticsearch/code/、要換 key。日常部署不用。
+# 每次真的發 key 都是 4 把新的、舊的不會作廢；只改結構時設 ES_SETUP_SKIP_KEYS=true。
+# key 不經過 CI：Job 直接寫進 aiops/aiops-secrets、grafana/grafana-env，5 把都存一份在 es-setup/es-setup-keys
+# （應用 cluster 的 Collector job 從這裡讀寫入 key）。
 
 es-setup:
   stage: es-setup
-  image: alpine:3.20
-  when: manual
+  image:
+    name: dtzar/helm-kubectl:3.15
+    entrypoint: [""]
   variables:
-    KEYS_OUT_DIR: keys
-  before_script:
-    - apk add --no-cache bash curl jq
+    KUBECONFIG: ${KUBE_CONFIG_AIOPS}
   script:
-    - mkdir -p "${KEYS_OUT_DIR}" && chmod 700 "${KEYS_OUT_DIR}"
-    - bash elasticsearch/code/scripts/elasticsearch-setup.sh
-  artifacts:
-    paths:
-      - keys/
-    expire_in: 1 hour
-    access: developer          # artifact 裡有 API key：只有 Developer 以上下載（GitLab 16.11 以上；更舊的版本把專案設成只有成員可見）
+    - kubectl get namespace es-setup >/dev/null 2>&1 || kubectl create namespace es-setup
+    # ES 管理員帳號放 Secret（不進 helm 的 values；server-side apply 不存 annotation）
+    - kubectl -n es-setup create secret generic es-setup-admin --from-literal=ES_AUTH="${ES_AUTH}" --dry-run=client -o yaml
+        | kubectl apply --server-side --force-conflicts --field-manager=ci -f - >/dev/null
+    # 腳本與設定檔打包帶進 chart（chart 讀不到 chart 外面的檔）
+    - tar czf - -C elasticsearch code | base64 | tr -d '\n' > es-code.b64
+    - printf '%s' "${SNAPSHOT_REPO_SETTINGS:-}" > snapshot-settings.json   # JSON 裡有逗號，--set 會拆壞，用 --set-file
+    - helm upgrade --install es-setup elasticsearch/setup-helmchart -n es-setup --timeout 15m
+        --set esSetup.enabled=true --set esSetup.skipKeys="${ES_SETUP_SKIP_KEYS:-false}"
+        --set esUrl="${ES_URL}" --set image="${ES_SETUP_IMAGE}"
+        --set snapshot.type="${SNAPSHOT_REPO_TYPE:-}" --set-file snapshot.settings=snapshot-settings.json
+        --set-file bundle=es-code.b64
+    - kubectl -n es-setup logs job/es-setup --tail=20
   rules:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
       changes:
         - elasticsearch/code/**/*
+        - elasticsearch/setup-helmchart/**/*
       when: manual
-    - if: $CI_PIPELINE_SOURCE == "web"       # 沒改檔、只想重跑（例如換 key）：在 GitLab 畫面 Run pipeline
+    - if: $CI_PIPELINE_SOURCE == "web"       # 沒改檔、只想重跑（第一次部署、換 key）：在 GitLab 畫面 Run pipeline
       when: manual

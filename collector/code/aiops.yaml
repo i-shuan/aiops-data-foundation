@@ -1,0 +1,120 @@
+# AIOps 專屬的收集設定：只有 AIOps 判斷（baseline、規則、根因分析）要用的部分，跟 common.yaml、node.yaml 一起載入。
+# 公司已經有自己的 Collector 時，只要加這一份的內容（processor 與 receiver 的定義；node.yaml 裡 metrics/in、metrics/otlp、
+# traces/in 這幾條 pipeline 要引用的 processor 順序見 collector/README.md「公司已經有 Collector」）。
+#
+# 這裡有：
+#   receivers   ntp（節點時鐘偏移）、prometheus/cadvisor（CPU 被限流）
+#   processors  cAdvisor 的整理、Java 名字統一、直方圖增量與 _sum、例外抄到 span 屬性、ntp 補節點名稱
+#   pipelines   metrics/cadvisor、metrics/ntp（這兩條只有 AIOps 用；metrics/in、metrics/otlp、traces/in 在 node.yaml，
+#               引用這裡的 processor）
+
+receivers:
+  # 這台節點的時鐘跟 NTP 伺服器差多少（ntp.offset，奈秒）。最短 30 分鐘一次（receiver 的限制，避免打爆 NTP 伺服器；
+  # 時鐘偏移是慢慢漂的，30 分鐘夠）。NTP_SERVER 是 helmchart values 的 ntpServer，要用公司的 NTP。
+  # 規則在 aiops-engine/code/configs/baseline/rules.yaml 的 node.clock_offset。docs/pdca/phase1-collect/2026-10-time-alignment.md
+  ntp:
+    endpoint: ${env:NTP_SERVER}
+    collection_interval: 30m
+  # CPU 被限流（CFS throttling）：kubelet 的 stats 沒有，要從 kubelet 內建的 cAdvisor 抓。
+  # Pod 設了 CPU limit 時，瞬間用量碰到上限就會被凍結到下一個 100ms，平均 CPU 看起來不高、延遲卻變長。
+  # 只留兩個數字：總共幾個週期、其中幾個被限流（cAdvisor 一個節點有上千種指標，其他都不要）
+  prometheus/cadvisor:
+    config:
+      scrape_configs:
+        - job_name: cadvisor
+          scrape_interval: 30s
+          scheme: https
+          metrics_path: /metrics/cadvisor
+          tls_config: {insecure_skip_verify: true}   # 同 kubeletstats：kubelet 憑證通常是自簽的
+          authorization: {credentials_file: /var/run/secrets/kubernetes.io/serviceaccount/token}
+          static_configs: [{targets: ["${env:K8S_NODE_IP}:10250"]}]
+          metric_relabel_configs:
+            - source_labels: [__name__]
+              regex: container_cpu_cfs_(throttled_)?periods_total
+              action: keep
+            - source_labels: [container]           # Pod 層級的加總（container 空白或 POD）不要，只看各容器
+              regex: (|POD)
+              action: drop
+            - regex: (id|image|name)                 # cgroup 路徑、image、容器 ID：值太多，不要
+              action: labeldrop
+
+
+processors:
+  # cAdvisor 的資料是「節點」吐的，每一筆屬於哪個 Pod 寫在 namespace、pod、container 這三個 label。
+  # 先依這三個 label 分組、搬到資源欄位，k8s_attributes 才能依 Pod 名稱補上部門、服務名稱
+  groupbyattrs/cadvisor:
+    keys: [namespace, pod, container]
+  transform/cadvisor:
+    error_mode: ignore
+    metric_statements:
+      - set(resource.attributes["k8s.namespace.name"], resource.attributes["namespace"])
+      - set(resource.attributes["k8s.pod.name"], resource.attributes["pod"])
+      - set(resource.attributes["k8s.container.name"], resource.attributes["container"])
+      - delete_matching_keys(resource.attributes, "^(namespace|pod|container|service\\.name|service\\.instance\\.id|server\\..*|url\\.scheme|dept|group)$$")
+
+  # Java agent 用 Prometheus 格式開給 Collector 抓，名字是 Prometheus 慣例（底線、單位後綴、狀態碼是字串）；
+  # .NET 用 OTLP 推來的是 OTel 名字（點號、狀態碼是數字）。進來時就改成 OTel 名字，ES 裡只有一種，
+  # 下游（baseline、quality、RCA）不用再各寫兩套（docs/pdca/phase1-collect/2026-10-field-unify.md）。
+  # 條件只對舊名字生效：Java agent 升版後自己吐 OTel 名字的話直接過，不會改錯。多一種語言就在這裡多一組。
+  metricstransform/java-http:
+    transforms:
+      - include: http_server_request_duration_seconds
+        action: update
+        new_name: http.server.request.duration
+  transform/java-http:
+    error_mode: ignore
+    metric_statements:
+      - context: datapoint
+        conditions: ['metric.name == "http.server.request.duration"']
+        statements:
+          - set(datapoint.attributes["http.request.method"], datapoint.attributes["http_request_method"]) where datapoint.attributes["http_request_method"] != nil
+          - set(datapoint.attributes["http.route"], datapoint.attributes["http_route"]) where datapoint.attributes["http_route"] != nil
+          - set(datapoint.attributes["http.response.status_code"], Int(datapoint.attributes["http_response_status_code"])) where datapoint.attributes["http_response_status_code"] != nil
+          - set(datapoint.attributes["error.type"], datapoint.attributes["error_type"]) where datapoint.attributes["error_type"] != nil
+          - set(datapoint.attributes["network.protocol.version"], datapoint.attributes["network_protocol_version"]) where datapoint.attributes["network_protocol_version"] != nil
+          - set(datapoint.attributes["url.scheme"], datapoint.attributes["url_scheme"]) where datapoint.attributes["url_scheme"] != nil
+          - delete_matching_keys(datapoint.attributes, "^(http_request_method|http_route|http_response_status_code|error_type|network_protocol_version|url_scheme)$$")
+
+  # 應用的直方圖（例如 Java agent 的 http.server.request.duration）是 Prometheus 格式，從應用啟動一直累加。
+  # 換成「這次抓取比上次多了多少」，ES 才能直接加總任一段時間：每 5 分鐘幾個請求、p95 多少（AIOps baseline 用）。
+  # 每個節點的 Collector 只抓自己節點的 Pod，同一條序列一定由同一個 Collector 算。
+  # Collector 重啟後，每條序列的第一次抓取沒有「上一次」可以比，那一點會少掉（30 秒）。
+  # 計數器（counter）不換：ES 存累加值也能算速率，不改原本的資料。
+  cumulativetodelta:
+    include:
+      metric_types: [histogram]
+
+  # ES 8.19 的 histogram 欄位只存 values、counts，直方圖的 sum（例如 GC 總共花了幾秒）寫進去就沒了。
+  # 在換成差值之後，把每個直方圖的 sum 另外抽成一個 <名稱>_sum 的數值（這 30 秒的總和），跟直方圖寫在同一份文件；
+  # 規則 jvm.gc_overhead 讀 metrics.jvm_gc_duration_seconds_sum。放在 cumulativetodelta 之後，抽出來的才是差值
+  transform/hist-sum:
+    error_mode: ignore
+    metric_statements:
+      - context: metric
+        statements:
+          - extract_sum_metric(true) where metric.type == METRIC_DATA_TYPE_HISTOGRAM
+
+  # 例外事件抄到 span 的屬性上：ES 的 OTLP 入口不存 span 的事件（實測），例外的種類、訊息會不見。
+  # 抄上來之後，「吞掉的例外」（有例外事件、但 status 不是 ERROR、回 200）在 ES 裡才查得到（docs/trace/README.md）。
+  # 堆疊（exception.stacktrace）不抄：很長，要看細節用 trace_id 找 log。
+  transform/exceptions:
+    error_mode: ignore
+    trace_statements:
+      - set(span.attributes["exception.type"], spanevent.attributes["exception.type"]) where spanevent.name == "exception"
+      - set(span.attributes["exception.message"], spanevent.attributes["exception.message"]) where spanevent.name == "exception"
+
+  # ntp 的資料只帶 ntp.host，不知道是哪台節點量的：補上節點名稱
+  resource/node:
+    attributes:
+      - {key: k8s.node.name, value: "${env:K8S_NODE_NAME}", action: upsert}
+
+service:
+  pipelines:
+    metrics/cadvisor:
+      receivers: [prometheus/cadvisor]
+      processors: [memory_limiter, groupbyattrs/cadvisor, transform/cadvisor, k8s_attributes, transform/group, transform/drop-log-attrs]
+      exporters: [elasticsearch/es]
+    metrics/ntp:
+      receivers: [ntp]
+      processors: [memory_limiter, resource/node, transform/group]   # 節點本身的資料：沒有 dept，歸 unassigned
+      exporters: [elasticsearch/es]
