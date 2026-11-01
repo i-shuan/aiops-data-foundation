@@ -11,9 +11,9 @@
 #   GRAFANA_ADMIN_PASSWORD     Grafana admin 密碼
 #   NOTIFY_IT_URL、NOTIFY_IMC_URL、NOTIFY_PLATFORM_URL    各部門的通知 webhook
 #
-# Secret grafana-env 由這個 job 用 kubectl 建（官方 chart 不建 Secret；key 不進 helm 的 values）：
-#   有跑 es-setup（同一條 pipeline）：用它發的 Grafana 唯讀 key（keys/grafana）加上上面的變數，建好或更新；
-#   沒跑 es-setup：不碰 Secret（沿用現有的），只更新儀表板、告警規則。
+# Secret grafana-env 兩邊各寫各的欄位（server-side apply，互不蓋掉）：
+#   這個 job：ES_URL、NOTIFY_*、GF_SECURITY_ADMIN_PASSWORD（每次部署都更新）；
+#   es-setup 的 Job：GRAFANA_ES_API_KEY（只有跑 es-setup 時）。
 
 # code/ 改了要重新產生 values-official.yaml：沒重新產生就擋下來
 check-grafana-values:
@@ -33,29 +33,19 @@ deploy-grafana:
   image:
     name: dtzar/helm-kubectl:3.15
     entrypoint: [""]
-  needs:
-    - job: es-setup
-      artifacts: true
-      optional: true
   variables:
     KUBECONFIG: ${KUBE_CONFIG_GRAFANA}
   script:
     - ns="${GRAFANA_NAMESPACE:-grafana}"
     - kubectl get namespace "${ns}" >/dev/null 2>&1 || kubectl create namespace "${ns}"
-    # 有 es-setup 的 key 才建 Secret（server-side apply：不把內容存進 annotation）
-    - |
-      if [ -f keys/grafana ]; then
-        kubectl -n "${ns}" create secret generic grafana-env \
-          --from-literal=ES_URL="${ES_URL}" \
-          --from-literal=GRAFANA_ES_API_KEY="$(cat keys/grafana)" \
-          --from-literal=NOTIFY_IT_URL="${NOTIFY_IT_URL}" \
-          --from-literal=NOTIFY_IMC_URL="${NOTIFY_IMC_URL}" \
-          --from-literal=NOTIFY_PLATFORM_URL="${NOTIFY_PLATFORM_URL}" \
-          --from-literal=GF_SECURITY_ADMIN_PASSWORD="${GRAFANA_ADMIN_PASSWORD}" \
-          --dry-run=client -o yaml | kubectl apply --server-side --force-conflicts --field-manager=ci -f -
-      else
-        echo "沒有 es-setup 的 key：不更新 Secret grafana-env，沿用現有的"
-      fi
+    # 只寫自己管的欄位；GRAFANA_ES_API_KEY 是 es-setup 的 Job 寫的，不會被蓋掉（server-side apply、不存 annotation）
+    - kubectl -n "${ns}" create secret generic grafana-env
+        --from-literal=ES_URL="${ES_URL}"
+        --from-literal=NOTIFY_IT_URL="${NOTIFY_IT_URL}"
+        --from-literal=NOTIFY_IMC_URL="${NOTIFY_IMC_URL}"
+        --from-literal=NOTIFY_PLATFORM_URL="${NOTIFY_PLATFORM_URL}"
+        --from-literal=GF_SECURITY_ADMIN_PASSWORD="${GRAFANA_ADMIN_PASSWORD}"
+        --dry-run=client -o yaml | kubectl apply --server-side --force-conflicts --field-manager=ci -f - >/dev/null
     - helm repo add grafana "${GRAFANA_HELM_REPO:-https://grafana.github.io/helm-charts}" && helm repo update
     - helm upgrade --install grafana grafana/grafana -n "${ns}" -f grafana/values-official.yaml
         --set image.registry="${GRAFANA_REGISTRY}" --set image.tag="${GRAFANA_TAG:-13.0.7}"

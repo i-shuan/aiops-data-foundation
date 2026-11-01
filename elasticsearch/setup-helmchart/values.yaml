@@ -1,0 +1,57 @@
+# es-setup：在 K8s 裡跑 elasticsearch-setup.sh（GitLab Runner 連不到內網的 ES 時用；docs/pdca/phase1-collect/2026-11-es-setup-helm-job.md）。
+# 裝在 ES、AIOps 同一個 cluster（Job 只能寫這個 cluster 的 Secret；應用 cluster 的 Collector 寫入 key 由 CI 從 es-setup-keys 複製過去）。
+#
+#   # ES 管理員帳號（有 manage_security）先建成 Secret，不進 values：
+#   kubectl -n es-setup create secret generic es-setup-admin --from-literal=ES_AUTH=<帳號>:<密碼>
+#   # 腳本與設定檔打包帶進去（chart 讀不到 chart 外面的檔）：
+#   tar czf - -C elasticsearch code | base64 -w0 > /tmp/es-code.b64
+#   helm upgrade --install es-setup elasticsearch/setup-helmchart -n es-setup \
+#     --set esSetup.enabled=true --set esUrl=https://<ES>:9200 --set-file bundle=/tmp/es-code.b64
+#
+# 日常部署不會動到它：這個 chart 只有要套結構、換 key 時才部署；就算重跑，esSetup.enabled 沒開也不會建 Job。
+# 每次真的跑（enabled=true 且 skipKeys=false）都會發 4 把新 key、舊的不會作廢（ES 的行為），所以只在第一次、換 key 時開。
+
+esSetup:
+  enabled: false        # true 才建 Job（helm hook post-install、post-upgrade）
+  skipKeys: false       # true：只更新結構（改了 retention.conf、storage/ 時），不發新 key、不碰 Secret
+
+esUrl: https://elasticsearch.example.internal:9200
+adminSecret: es-setup-admin   # 裡面要有 ES_AUTH（帳號:密碼），chart 不建
+bundle: ""                    # --set-file：elasticsearch/code/ 的 tar.gz 再 base64（約 30KB）
+
+image: nexus.example.internal/alpine/k8s:1.30.4   # 要有 bash、curl、jq、kubectl、tar、base64（alpine/k8s 都有）
+backoffLimit: 0               # 失敗不自動重試：每次重試都會發新 key
+
+# 選填：snapshot 儲存庫（要備份人工判斷的 aiops-* 才給，見 elasticsearch/README.md）
+snapshot:
+  type: ""                    # 例如 s3、fs
+  settings: ""                # 該類型的 settings JSON
+
+# 5 把 key 都存在這個 Secret（這個 chart 的 namespace）：給應用 cluster 的 Collector（CI 複製過去）、ES 前面 LB 的健康檢查用
+keysSecret: es-setup-keys
+
+# 同一個 cluster 裡要寫 key 的 Secret（namespace 要已經存在；不在這個 cluster 的關掉）。
+# 用 server-side apply 只寫 key 那一個欄位：grafana-env 的其他欄位（ES_URL、webhook、admin 密碼）由 CI 的 Grafana job 管，不會被蓋掉
+targets:
+  engine:
+    enabled: true
+    namespace: aiops
+    secret: aiops-secrets
+    key: ES_API_KEY
+    from: engine              # 哪一把：writer、reader、engine、grafana、probe
+  grafana:
+    enabled: true
+    namespace: grafana
+    secret: grafana-env
+    key: GRAFANA_ES_API_KEY
+    from: grafana
+  collector:                  # Collector 跟應用在同一個 cluster 時才開（通常不是）
+    enabled: false
+    namespace: otel-collector
+    secret: es-writer-keys
+    key: ES_WRITER_API_KEY
+    from: writer
+
+resources:
+  requests: {cpu: 50m, memory: 64Mi}
+  limits: {memory: 256Mi}

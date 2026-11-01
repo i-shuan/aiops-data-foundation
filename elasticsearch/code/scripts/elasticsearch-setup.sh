@@ -35,6 +35,9 @@ es() {
   echo
 }
 
+# Windows 的 jq 每行結尾多一個 CR（\r）：資料流名稱帶著它拼進網址，curl 會報 URL rejected。去掉（Linux 上沒影響）
+jq() { command jq "$@" | tr -d '\015'; }
+
 # 發一把 API key：沒設 KEYS_OUT_DIR 就印出來（人手動跑）；有設就只寫檔、不印（CI 的 log 不能有 key）。
 # issue_key <名稱> <curl 的參數…>
 issue_key() {
