@@ -26,6 +26,7 @@
 |---|---|---|---|
 | [retention.md](retention.md) | 原理 | 三種資料共用的保留原則、留多久的差別、容量估算、待決定 | 🟢 |
 | [retention-reference.md](retention-reference.md) | 規格 | 三種資料保留一覽、failure store、`aiops-*` | 🟢 |
+| [data-storage-reference.md](data-storage-reference.md) | 規格 | 資料存哪裡：ES 的 `aiops-*`（訓練、RCA 報告、回饋）誰寫、多久一次、會不會自己消失；Grafana 自己存什麼 | 🟢 |
 | [retention-how-to.md](retention-how-to.md) | 操作 | 天數怎麼套用、舊政策還在跑、怎麼量正式環境的量 | 🟢 |
 
 ### ①②③ 收值、清資料、存：log

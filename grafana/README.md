@@ -13,6 +13,8 @@ AIOps 把異常合成「一件事」寫進 `aiops-alerts`（`python3 -m investig
 | `policies.yaml` | 依 `dept` 送到哪個 contact point；沒有 dept（資料品質、節點）送平台 | dept 清單（跟 `collector/code/groups.yaml` 一致） |
 | `dashboards.yaml`、`dashboards/aiops-feedback.json` | 回饋表單（Grafana 裡填）：通知的 `feedback` 連結點進來 | 兩個回饋服務網址、要先裝外掛（下面） |
 
+> Grafana 讀哪些 ES 索引、自己存什麼（設定在 repo 檔案、內部 sqlite 在容器裡，Pod 重建會清掉告警歷史）：[docs/data-storage-reference.md](../docs/data-storage-reference.md)。
+
 ## 誰負責什麼
 
 原則：**判斷與存放在 AIOps，通知與畫面在 Grafana**。換掉 Grafana，AIOps 的偵測與回饋邏輯不用動，只重做下面「Grafana」那欄的規則與表單。
