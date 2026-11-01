@@ -1,0 +1,62 @@
+{{- if .Values.esSetup.enabled }}
+{{- if not .Values.bundle }}{{ fail "esSetup.enabled=true 要帶 --set-file bundle=<elasticsearch/code 的 tar.gz base64>（見 values.yaml）" }}{{ end }}
+# 腳本與設定檔（elasticsearch/code/ 打包）：chart 讀不到 chart 外面的檔，CI 打包後 --set-file 帶進來
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: es-setup-bundle
+binaryData:
+  code.tgz: {{ .Values.bundle | trim | quote }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: es-setup-run
+data:
+  run.sh: |
+{{ .Files.Get "files/run.sh" | indent 4 }}
+---
+# Job：helm hook，ConfigMap、RBAC 這些一般資源建好之後才跑。舊的 Job 在下一次跑之前刪掉（留著看 log）
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: es-setup
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  backoffLimit: {{ .Values.backoffLimit }}
+  template:
+    spec:
+      restartPolicy: Never
+      serviceAccountName: es-setup
+      containers:
+        - name: es-setup
+          image: {{ .Values.image }}
+          command: ["bash", "/es-setup-run/run.sh"]
+          env:
+            - {name: ES_URL, value: {{ .Values.esUrl | quote }}}
+            - name: ES_AUTH
+              valueFrom: {secretKeyRef: {name: {{ .Values.adminSecret }}, key: ES_AUTH}}
+            - {name: SKIP_KEYS_MODE, value: {{ ternary "1" "" .Values.esSetup.skipKeys | quote }}}
+            - {name: SNAPSHOT_REPO_TYPE, value: {{ .Values.snapshot.type | quote }}}
+            - {name: SNAPSHOT_REPO_SETTINGS, value: {{ .Values.snapshot.settings | quote }}}
+            - {name: RELEASE_NAMESPACE, valueFrom: {fieldRef: {fieldPath: metadata.namespace}}}
+            - {name: KEYS_SECRET, value: {{ .Values.keysSecret | quote }}}
+            # 要寫 key 的 Secret：「namespace secret 欄位 哪一把」一行一個
+            - name: TARGETS
+              value: |
+                {{- range $name, $t := .Values.targets }}
+                {{- if $t.enabled }}
+                {{ $t.namespace }} {{ $t.secret }} {{ $t.key }} {{ $t.from }}
+                {{- end }}
+                {{- end }}
+          volumeMounts:
+            - {name: bundle, mountPath: /bundle, readOnly: true}
+            - {name: run, mountPath: /es-setup-run, readOnly: true}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      volumes:
+        - {name: bundle, configMap: {name: es-setup-bundle}}
+        - {name: run, configMap: {name: es-setup-run}}
+{{- end }}
