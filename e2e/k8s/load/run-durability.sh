@@ -14,6 +14,8 @@
 #   drain            單節點模擬 drain：cordon、趕走產生器、正常停 node Collector（關機）、uncordon
 #   es-429           ES 寫入 thread pool 調成 1 條、佇列 ES429_QUEUE（預設 1），LOG_RATE_429 行/秒（預設 3000）
 #   es-down          ES 停 DOWN_SECONDS 秒（預設 600）
+#   es-one-down      ES 兩個 Pod 其中一個卡住 DOWN_SECONDS 秒（預設 180）：ES_VICTIM=elasticsearch-0|elasticsearch-1（預設 -1）；
+#                    卡住 = 暫停 java 程序，連線還在但不回應。要看 Service 有沒有把流量只給活的、哪一個有投票權
 #   hostpath-rm      node Collector 停 30 秒兩次：第一次保留 /var/lib/otelcol/node（對照），第二次停的時候刪掉
 #   rolling          三種 Collector 一起換版到 TO_VERSION（預設 0.161.0）、60 秒後換回原版本
 # 環境變數：GEN_NODE（多節點：產生器釘在這個節點，node Collector、metrics 也看這個節點；NODE_EXEC 要連到同一個節點）、ES_DOCKER（ES 是主機上的 docker 容器時設容器名，例如 k3d 實測用 es8；ES 起停、es-429 改用 docker／elasticsearch.yml）、PF_PORT（自己開 port-forward 到 ES，預設 31920）或 ES_URL（已經連得到就不開）、
@@ -87,16 +89,19 @@ es_up() {
     docker start "${ES_DOCKER}" >/dev/null 2>&1 || true; docker unpause "${ES_DOCKER}" >/dev/null 2>&1 || true
     es_wait_green; return
   fi
-  kubectl -n es-test scale statefulset/elasticsearch --replicas=1 >/dev/null
-  until kubectl -n es-test get pod elasticsearch-0 >/dev/null 2>&1; do sleep 2; done
-  kubectl -n es-test wait --for=condition=Ready pod/elasticsearch-0 --timeout=600s >/dev/null
-  pf_up
+  kubectl -n es-test scale statefulset/elasticsearch --replicas="${ES_REPLICAS:-2}" >/dev/null
+  local p
+  for p in elasticsearch-0 $([[ "${ES_REPLICAS:-2}" -ge 2 ]] && echo elasticsearch-1); do
+    until kubectl -n es-test get pod "${p}" >/dev/null 2>&1; do sleep 2; done
+    kubectl -n es-test wait --for=condition=Ready "pod/${p}" --timeout=600s >/dev/null || echo "   es_up：等 ${p} Ready 超時" >&2
+  done
+  pf_up || echo "   es_up：port-forward 沒接上" >&2
   es_wait_green
 }
 es_down() {
   if [[ -n "${ES_DOCKER:-}" ]]; then docker stop "${ES_DOCKER}" >/dev/null; return; fi
   kubectl -n es-test scale statefulset/elasticsearch --replicas=0 >/dev/null
-  kubectl -n es-test wait --for=delete pod/elasticsearch-0 --timeout=180s >/dev/null 2>&1 || true
+  kubectl -n es-test wait --for=delete pod/elasticsearch-0 pod/elasticsearch-1 --timeout=180s >/dev/null 2>&1 || true
 }
 wait_collectors() {
   kubectl -n "${OC}" rollout status daemonset/otel-node-collector --timeout=300s >/dev/null
@@ -108,7 +113,7 @@ ensure_ready() {
   if [[ -n "${DEPLOY_COLLECTOR:-}" ]]; then "${here}/../deploy-collector.sh"; sleep 3; fi
   if [[ -n "${ES_DOCKER:-}" ]]; then es_up
   else
-    [[ "$(kubectl -n es-test get statefulset elasticsearch -o jsonpath='{.spec.replicas}')" == 1 ]] || es_up
+    [[ "$(kubectl -n es-test get statefulset elasticsearch -o jsonpath='{.spec.replicas}')" == "${ES_REPLICAS:-2}" ]] || es_up
     kubectl -n es-test wait --for=condition=Ready pod/elasticsearch-0 --timeout=600s >/dev/null
     pf_up
     es_wait_green
@@ -363,6 +368,30 @@ sc_es_429() {
   mark "${NOTE}；Collector 收到整批 429：$(collector_429 "$(node_pod)") 次（node）"
   run_restores; mark "ES thread pool 改回預設（重啟 ES）"
   finish "es-429（佇列 ${q}）"
+}
+
+# 在活著的資料節點裡面 curl 自己：不經 Service、不經 port-forward，看的是「叢集本身能不能寫」
+in_pod() { kubectl -n es-test exec "$1" -c elasticsearch -- curl -s -m 4 -u "${A}" -H 'Content-Type: application/json' "${@:2}" 2>/dev/null || true; }
+sc_es_one_down() {
+  local down="${DOWN_SECONDS:-180}" v="${ES_VICTIM:-elasticsearch-1}" other ok=0 bad=0 code s
+  other="$([[ ${v} == elasticsearch-0 ]] && echo elasticsearch-1 || echo elasticsearch-0)"
+  begin "es-one-down-${v}-${down}s" $(( 60 + down + 120 ))
+  sleep 60
+  fault "ES ${v} 卡住 ${down} 秒"
+  kubectl -n es-test exec "${v}" -c elasticsearch -- sh -c 'kill -STOP $(pgrep java)'
+  on_restore "kubectl -n es-test exec ${v} -c elasticsearch -- sh -c 'kill -CONT \$(pgrep java)'"
+  s=$SECONDS
+  while (( SECONDS - s < down - 5 )); do
+    code="$(in_pod "${other}" -o /dev/null -w '%{http_code}' -X POST localhost:9200/ha-probe/_doc -d "{\"t\":\"$(now)\"}")"
+    if [[ ${code} == 201 ]]; then ok=$((ok + 1)); else bad=$((bad + 1)); fi
+    sleep 5
+  done
+  mark "卡住期間在 ${other} 裡每 5 秒寫一筆測試文件：成功 ${ok} 次、失敗 ${bad} 次；叢集：$(in_pod "${other}" localhost:9200/_cluster/health | jq -c '{status,number_of_nodes}' 2>/dev/null || echo 叫不到)"
+  kubectl -n es-test exec "${v}" -c elasticsearch -- sh -c 'kill -CONT $(pgrep java)'; RESTORE=(); mark "${v} 恢復"
+  es_wait_green
+  es -X DELETE "${ES_URL}/ha-probe" >/dev/null || true
+  NOTE="${v} 卡住 ${down} 秒；卡住期間寫入成功 ${ok}／失敗 ${bad}"
+  finish "es-one-down（${v}，${down}s）"
 }
 
 sc_es_down() {

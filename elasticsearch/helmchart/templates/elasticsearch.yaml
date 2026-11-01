@@ -5,16 +5,18 @@ metadata:
 stringData:
   password: {{ .Values.password | quote }}
 ---
+# 只選資料節點（role: data）：Ingress／Gateway、Collector、engine 都經這個 Service，流量不會導到只投票的節點
 apiVersion: v1
 kind: Service
 metadata:
   name: elasticsearch
 spec:
-  selector: {app: elasticsearch}
+  selector: {app: elasticsearch, role: data}
   ports:
     - {name: http, port: 9200}
+{{- $nodes := ternary 3 2 .Values.voter.enabled }}
 {{- if .Values.twoNode.enabled }}
-{{- range $i := list 0 1 }}
+{{- range $i := until $nodes }}
 ---
 apiVersion: v1
 kind: Service
@@ -23,10 +25,107 @@ metadata:
 spec:
   clusterIP: None
   publishNotReadyAddresses: true
-  selector: {statefulset.kubernetes.io/pod-name: elasticsearch-{{ $i }}}
+  selector: {statefulset.kubernetes.io/pod-name: {{ if lt $i 2 }}elasticsearch-{{ $i }}{{ else }}elasticsearch-voter-0{{ end }}}
   ports:
     - {name: transport, port: {{ add 9300 $i }}}
 {{- end }}
+{{- end }}
+
+{{- /* 多節點共用：transport 走 127.0.0.1、節點之間 TLS；單節點（twoNode.enabled=false）只給 discovery.type */}}
+{{- define "es.clusterEnv" }}
+{{- $nodes := ternary 3 2 .Values.voter.enabled }}
+{{- if .Values.twoNode.enabled }}
+- {name: discovery.seed_hosts, value: "{{ range $i := until $nodes }}{{ if $i }},{{ end }}127.0.0.1:{{ add 9300 $i }}{{ end }}"}
+# 全新安裝時由 elasticsearch-0 單獨組成叢集、其他再加入；已經成形的叢集會忽略這個設定
+- {name: cluster.initial_master_nodes, value: elasticsearch-0}
+- {name: transport.host, value: 127.0.0.1}
+- {name: xpack.security.enabled, value: "true"}
+- {name: xpack.security.http.ssl.enabled, value: "false"}
+# 多節點開 security 時，節點之間一定要 TLS（ES 規定）
+- {name: xpack.security.transport.ssl.enabled, value: "true"}
+- {name: xpack.security.transport.ssl.verification_mode, value: certificate}
+- {name: xpack.security.transport.ssl.key, value: certs/node.key}
+- {name: xpack.security.transport.ssl.certificate, value: certs/node.crt}
+- {name: xpack.security.transport.ssl.certificate_authorities, value: certs/ca.crt}
+{{- else }}
+- {name: discovery.type, value: single-node}
+- {name: xpack.security.enabled, value: "true"}
+- {name: xpack.security.http.ssl.enabled, value: "false"}
+- {name: xpack.security.transport.ssl.enabled, value: "false"}
+{{- end }}
+# 測試機常和別人共用磁碟，使用率超過 90% 時 ES 會拒絕配置 shard，測試時不檢查
+- {name: cluster.routing.allocation.disk.threshold_enabled, value: "false"}
+- name: ELASTIC_PASSWORD
+  valueFrom: {secretKeyRef: {name: es-elastic, key: password}}
+{{- end }}
+
+{{- /* transport port 依節點序號：elasticsearch-0 → 9300、-1 → 9301、voter → 9302（NODE_INDEX） */}}
+{{- define "es.command" }}
+{{- if .Values.twoNode.enabled }}
+command: ["bash", "-c", "p=$((9300 + ${NODE_INDEX:-${HOSTNAME##*-}})); exec /usr/local/bin/docker-entrypoint.sh eswrapper -Etransport.port=$p"]
+{{- end }}
+{{- end }}
+
+{{- define "es.readiness" }}
+# 健康檢查用 API key 打 GET /（values.yaml 的 probeKeySecret 說明）
+readinessProbe:
+  exec:
+    command: ["sh", "-c", "if [ -s /probe/PROBE_ES_API_KEY ]; then curl -sf -H \"Authorization: ApiKey $(cat /probe/PROBE_ES_API_KEY)\" localhost:9200/ >/dev/null; else curl -sf -u elastic:$ELASTIC_PASSWORD localhost:9200/_cluster/health >/dev/null; fi"]
+  periodSeconds: 5
+{{- end }}
+
+{{- /* 進來：本 Pod IP:自己的 port → 127.0.0.1；出去：127.0.0.1:對方的 port → 對方 Pod（每個其他節點一條）。NODE_INDEX 由呼叫端放進 env */}}
+{{- define "es.socat" }}
+{{- if .Values.twoNode.enabled }}
+- name: transport-proxy
+  image: {{ .Values.twoNode.socatImage }}
+  command: ["sh", "-c"]
+  args:
+    - |
+      n=${NODE_INDEX:-${HOSTNAME##*-}}; me=$((9300 + n))
+      socat TCP-LISTEN:$me,bind=$POD_IP,fork,reuseaddr TCP:127.0.0.1:$me &
+      for o in {{ range $i := until (ternary 3 2 .Values.voter.enabled) }}{{ $i }} {{ end }}; do
+        [ "$o" = "$n" ] && continue
+        socat TCP-LISTEN:$((9300 + o)),bind=127.0.0.1,fork,reuseaddr TCP:es-node-$o.{{ .Release.Namespace }}.svc:$((9300 + o)) &
+      done
+      wait
+  env:
+    - name: POD_IP
+      valueFrom: {fieldRef: {fieldPath: status.podIP}}
+    {{- if .nodeIndex }}
+    - {name: NODE_INDEX, value: {{ .nodeIndex | quote }}}
+    {{- end }}
+  resources:
+    requests: {cpu: 10m, memory: 16Mi}
+{{- end }}
+{{- end }}
+
+{{- define "es.volumes" }}
+volumes:
+  - name: probe-key
+    secret: {secretName: {{ .Values.probeKeySecret }}, optional: true}   # setup 之後才有；建好後約 1 分鐘內出現在 /probe
+  {{- if .Values.twoNode.enabled }}
+  - name: certs
+    secret: {secretName: {{ .Values.twoNode.certsSecret }}}
+  {{- end }}
+securityContext:
+  fsGroup: 1000
+initContainers:
+  # local-path 建出來的目錄是 root 的，ES 以 uid 1000 執行
+  - name: chown
+    image: docker.io/library/busybox:1.37
+    command: ["sh", "-c", "chown -R 1000:1000 /data"]
+    volumeMounts:
+      - {name: data, mountPath: /data}
+{{- end }}
+
+{{- define "es.mounts" }}
+volumeMounts:
+  - {name: data, mountPath: /usr/share/elasticsearch/data}
+  - {name: probe-key, mountPath: /probe, readOnly: true}
+  {{- if .Values.twoNode.enabled }}
+  - {name: certs, mountPath: /usr/share/elasticsearch/config/certs, readOnly: true}
+  {{- end }}
 {{- end }}
 ---
 apiVersion: apps/v1
@@ -36,90 +135,32 @@ metadata:
 spec:
   serviceName: elasticsearch
   replicas: {{ .Values.replicas }}
+  # 兩個一起起來：整個叢集停掉再起時，有投票權的可能是 elasticsearch-1；照順序的話 -0 單獨選不出主、一直不 ready，-1 就永遠不會起來
+  podManagementPolicy: Parallel
   selector:
     matchLabels: {app: elasticsearch}
   template:
     metadata:
-      labels: {app: elasticsearch}
+      labels: {app: elasticsearch, role: data}
     spec:
       containers:
         - name: elasticsearch
           image: {{ .Values.image }}
-          {{- if .Values.twoNode.enabled }}
-          # transport port 依序號：elasticsearch-0 → 9300、elasticsearch-1 → 9301
-          command: ["bash", "-c", "p=$((9300 + ${HOSTNAME##*-})); exec /usr/local/bin/docker-entrypoint.sh eswrapper -Etransport.port=$p"]
-          {{- end }}
+          {{- include "es.command" . | nindent 10 }}
           env:
             {{- if .Values.twoNode.enabled }}
-            - {name: discovery.seed_hosts, value: "127.0.0.1:9300,127.0.0.1:9301"}
-            - {name: transport.host, value: 127.0.0.1}
             - {name: http.host, value: 0.0.0.0}
-            - {name: xpack.security.enabled, value: "true"}
-            - {name: xpack.security.http.ssl.enabled, value: "false"}
-            # 多節點開 security 時，節點之間一定要 TLS（ES 規定）
-            - {name: xpack.security.transport.ssl.enabled, value: "true"}
-            - {name: xpack.security.transport.ssl.verification_mode, value: certificate}
-            - {name: xpack.security.transport.ssl.key, value: certs/node.key}
-            - {name: xpack.security.transport.ssl.certificate, value: certs/node.crt}
-            - {name: xpack.security.transport.ssl.certificate_authorities, value: certs/ca.crt}
-            {{- else }}
-            - {name: discovery.type, value: single-node}
-            - {name: xpack.security.enabled, value: "true"}
-            - {name: xpack.security.http.ssl.enabled, value: "false"}
-            - {name: xpack.security.transport.ssl.enabled, value: "false"}
             {{- end }}
+            {{- include "es.clusterEnv" . | nindent 12 }}
             - {name: ES_JAVA_OPTS, value: {{ .Values.javaOpts | quote }}}
-            # 測試機常和別人共用磁碟，使用率超過 90% 時 ES 會拒絕配置 shard，測試時不檢查
-            - {name: cluster.routing.allocation.disk.threshold_enabled, value: "false"}
-            - name: ELASTIC_PASSWORD
-              valueFrom: {secretKeyRef: {name: es-elastic, key: password}}
           ports:
             - {name: http, containerPort: 9200}
-          readinessProbe:
-            exec:
-              command: ["sh", "-c", "if [ -s /probe/PROBE_ES_API_KEY ]; then curl -sf -H \"Authorization: ApiKey $(cat /probe/PROBE_ES_API_KEY)\" localhost:9200/ >/dev/null; else curl -sf -u elastic:$ELASTIC_PASSWORD localhost:9200/_cluster/health >/dev/null; fi"]
-            periodSeconds: 5
+          {{- include "es.readiness" . | nindent 10 }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
-          volumeMounts:
-            - {name: data, mountPath: /usr/share/elasticsearch/data}
-            - {name: probe-key, mountPath: /probe, readOnly: true}
-            {{- if .Values.twoNode.enabled }}
-            - {name: certs, mountPath: /usr/share/elasticsearch/config/certs, readOnly: true}
-            {{- end }}
-        {{- if .Values.twoNode.enabled }}
-        # 進來：本 Pod IP:自己的 port → 127.0.0.1；出去：127.0.0.1:對方的 port → 對方 Pod
-        - name: transport-proxy
-          image: {{ .Values.twoNode.socatImage }}
-          command: ["sh", "-c"]
-          args:
-            - |
-              n=${HOSTNAME##*-}; o=$((1 - n)); me=$((9300 + n)); other=$((9300 + o))
-              socat TCP-LISTEN:$me,bind=$POD_IP,fork,reuseaddr TCP:127.0.0.1:$me &
-              socat TCP-LISTEN:$other,bind=127.0.0.1,fork,reuseaddr TCP:es-node-$o.{{ .Release.Namespace }}.svc:$other &
-              wait
-          env:
-            - name: POD_IP
-              valueFrom: {fieldRef: {fieldPath: status.podIP}}
-          resources:
-            requests: {cpu: 10m, memory: 16Mi}
-        {{- end }}
-      volumes:
-        - name: probe-key
-          secret: {secretName: {{ .Values.probeKeySecret }}, optional: true}   # setup 之後才有；建好後約 1 分鐘內出現在 /probe
-        {{- if .Values.twoNode.enabled }}
-        - name: certs
-          secret: {secretName: {{ .Values.twoNode.certsSecret }}}
-        {{- end }}
-      securityContext:
-        fsGroup: 1000
-      initContainers:
-        # local-path 建出來的目錄是 root 的，ES 以 uid 1000 執行
-        - name: chown
-          image: docker.io/library/busybox:1.37
-          command: ["sh", "-c", "chown -R 1000:1000 /data"]
-          volumeMounts:
-            - {name: data, mountPath: /data}
+          {{- include "es.mounts" . | nindent 10 }}
+        {{- include "es.socat" (dict "Values" .Values "Release" .Release "nodeIndex" "") | nindent 8 }}
+      {{- include "es.volumes" . | nindent 6 }}
   volumeClaimTemplates:
     - metadata:
         name: data
@@ -128,3 +169,44 @@ spec:
         storageClassName: {{ .Values.storageClassName }}
         resources:
           requests: {storage: {{ .Values.storage }}}
+{{- if and .Values.twoNode.enabled .Values.voter.enabled }}
+---
+# 只投票的節點：master + voting_only，不放資料。HTTP 只綁 127.0.0.1（健康檢查用），Service 不選它
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: elasticsearch-voter
+spec:
+  serviceName: elasticsearch
+  replicas: 1
+  selector:
+    matchLabels: {app: elasticsearch-voter}
+  template:
+    metadata:
+      labels: {app: elasticsearch-voter, role: voting-only}
+    spec:
+      containers:
+        - name: elasticsearch
+          image: {{ .Values.image }}
+          {{- include "es.command" . | nindent 10 }}
+          env:
+            - {name: NODE_INDEX, value: "2"}
+            - {name: node.roles, value: "master,voting_only"}
+            - {name: http.host, value: 127.0.0.1}
+            {{- include "es.clusterEnv" . | nindent 12 }}
+            - {name: ES_JAVA_OPTS, value: {{ .Values.voter.javaOpts | quote }}}
+          {{- include "es.readiness" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.voter.resources | nindent 12 }}
+          {{- include "es.mounts" . | nindent 10 }}
+        {{- include "es.socat" (dict "Values" .Values "Release" .Release "nodeIndex" "2") | nindent 8 }}
+      {{- include "es.volumes" . | nindent 6 }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        storageClassName: {{ .Values.storageClassName }}
+        resources:
+          requests: {storage: {{ .Values.voter.storage }}}
+{{- end }}
