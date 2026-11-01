@@ -129,7 +129,7 @@ class ScheduleFileTest(unittest.TestCase):
         self.assertEqual(tz.key, "Asia/Taipei")
         self.assertEqual(sorted(j.name for j in jobs), ["alert", "detect", "rules", "trace-merge", "train"])
         _, all_jobs = load_schedule(SCHEDULE, 2)
-        self.assertEqual(len(all_jobs), 11)
+        self.assertEqual(len(all_jobs), 12)
 
     def test_alert_timeout_covers_llm_calls(self):
         # 一件新的：LLM 最多 60 秒逾時（core/llm.py）；一輪至少要能處理好幾件，不然被砍什麼都沒寫

@@ -18,6 +18,26 @@ ES_URL=https://<中央 ES>:9200 ES_AUTH=elastic:<password> elasticsearch/code/sc
 
 重跑是安全的（已存在的只更新）。印出四把 key：寫入 key（給 Collector 的 Secret `es-writer-keys`）、AIOps baseline key（給 engine 的 Secret `aiops-secrets`）、Grafana 唯讀 key、健康檢查 key。保留天數改 `retention.conf` 再重跑；細節見 [docs/retention-how-to.md](../docs/retention-how-to.md)。
 
+## 備份與還原（aiops-* 的人工判斷）
+
+回饋、事故紀錄、調整（`aiops-feedback`、`aiops-incidents`、`aiops-tuning`）不會自己消失、掉了不能重算，setup 會註冊每天一次的 snapshot（SLM 政策 `aiops-daily`，另外也帶 `aiops-baseline`、`aiops-alerts`；索引、保留天數在 [retention.conf](code/scripts/retention.conf)）。**儲存庫要先有**，由管 ES 的人決定類型與位置，跑 setup 時給：
+
+```bash
+SNAPSHOT_REPO_TYPE=s3 SNAPSHOT_REPO_SETTINGS='{"bucket":"es-snapshots","base_path":"aiops"}' ES_URL=… ES_AUTH=… elasticsearch/code/scripts/elasticsearch-setup.sh
+```
+
+沒給就跳過並印一行提醒（沒有備份）。測試 chart 用節點目錄：`SNAPSHOT_REPO_TYPE=fs SNAPSHOT_REPO_SETTINGS='{"location":"/snapshots"}'`。
+
+| 要做的 | 指令 |
+|---|---|
+| 看有哪些備份 | `GET _snapshot/aiops/_all`、`GET _slm/policy/aiops-daily`（`last_success`、`last_failure`） |
+| 馬上備一次 | `POST _slm/policy/aiops-daily/_execute` |
+| 還原一個索引 | 先把壞掉的關掉或刪掉：`DELETE aiops-tuning`；再 `POST _snapshot/aiops/<快照名>/_restore` 帶 `{"indices": "aiops-tuning", "include_global_state": false}`；`GET _cat/recovery/aiops-tuning` 看進度 |
+| 還原到別的名字（對照用） | 同上，多帶 `"rename_pattern": "(.+)", "rename_replacement": "restored-$1"` |
+| 還原後 | `aiops-baseline` 還原後不用重 train；`aiops-tuning` 還原後 `detector adjust list` 看一眼 |
+
+快照之間只存差異（segment 檔共用），每天一次、留 30 天不會長太大；這五個索引都是 MB 等級（[data-storage-reference.md](../docs/data-storage-reference.md)）。衍生資料的保留天數是 engine 每天刪（`detector prune`），不在這裡。
+
 ## 測試用 ES
 
 ```bash

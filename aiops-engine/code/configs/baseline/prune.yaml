@@ -1,0 +1,17 @@
+# AIOps 自己寫的索引：超過保留天數的文件每天清一次（python3 -m detector prune --config configs/baseline/prune.yaml）。
+# 排程表（configs/schedule/schedule.yaml）每天 03:30 跑。天數是估的；為什麼這些要清、哪些不清見 docs/data-storage-reference.md。
+#
+# 不在這裡的（不清）：aiops-incidents、aiops-feedback、aiops-tuning（人工判斷，事故紀錄要長留，備份見 elasticsearch-setup.sh 的 snapshot）、
+# aiops-baseline（每天 train 覆蓋）、aiops-state（一筆）、aiops-log-stats（有自己的 ILM）。
+timezone: Asia/Taipei
+indices:
+  - index: aiops-anomalies            # 異常總表：回饋、回測最多看 4 週；事故的 anomaly_ids 對不到舊異常時只影響「每個異常各一筆回饋」，退回一件一筆
+    time_field: "@timestamp"
+    keep_days: 90
+  - index: aiops-trace-segments       # trace 每一段每 5 分鐘的統計：trace-train 回看 4 週；API 多時長最快
+    time_field: "@timestamp"
+    keep_days: 90
+  - index: aiops-alerts               # 事故（一件一筆，含 RCA 報告）：只刪已結案的；開著的件、心跳、detect-status 沒有 resolved_at，不會被刪
+    time_field: resolved_at
+    keep_days: 180
+    filter: {term: {status: resolved}}

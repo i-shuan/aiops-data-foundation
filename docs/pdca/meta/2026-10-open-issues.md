@@ -41,7 +41,7 @@
 | 項目 | 現況 |
 |---|---|
 | 容量 | 100% 收；文件的估算：低流量服務 7 天 1.2GB 變 12GB、高流量 39GB 變 387GB。`nested` 不會省空間，省的只有文件固定開銷；raw 多留 2 天，這 2 天是雙份。收值不省是使用者的決定，之後靠保留天數與冷儲存（MinIO，另案）處理 |
-| 升級那一刻漏合 | setup 把舊 raw 資料流 rollover 之前寫的 span 沒有索引的 `event.ingested`，`trace-merge` 看不到；實測約 9 個 trace，只影響第一次升級 |
+| 升級那一刻漏合 | setup 把舊 raw 資料流 rollover 之前寫的 span 沒有索引的 `event.ingested`，`trace-merge` 看不到；實測約 9 個 trace，只影響第一次升級。**決定：不處理**——正式環境還沒部署過，第一次安裝時沒有舊 index，不會發生；只有「已經在跑舊版 raw 的叢集升級」才會掉那幾分鐘的 trace，屆時 raw 還留 2 天，可以手動對舊 index 跑一次 `update_by_query` 補 `event.ingested` 再跑 `trace-merge` |
 | merged 不是 OTel 原生格式 | 自訂格式；Kibana 只有 raw 那 2 天看得到原生 |
 | 讀端兩套 | 根因分析讀 merged，trace baseline、資料品質讀 raw（只看最近 10 分鐘）；`aiops-trace-segments` 要改讀 merged 得把 composite 聚合改成 nested，這次不碰 |
 | 實測環境 | Rancher Desktop 單節點、ES 8.19.23：`run-trace-e2e.sh` 7b 的 raw 21 個 trace 對 merged 21 筆、重跑不重複、權限正確；`run-rca-e2e.sh` 11 項過；單元測試 377 個過。排程器（含 `trace-merge` 每分鐘）24 項、`loop_e2e` 43 項、⑧⑨ 實跑 11 項、metrics-trace 15 項、keys 84 項、trace-id 15 項、kafka 9 項、peer-edge 6 項都過。正式環境沒跑過 |
@@ -113,7 +113,8 @@
 |---|---|---|
 | `aiops-baseline` 掉了 | `detect` 讀到空的，印一行「沒有 baseline，先跑 train」就跳過那條序列，不報錯。動態基準線這一路靜默停擺；規則、Pod 同儕橫向比對、資料品質不受影響 | 手動跑一次 `train`（[aiops-engine/README.md](../../../aiops-engine/README.md)）；不手動要等隔天 02:00 |
 | 沒有「基準線不見」的告警 | Grafana 的 `aiops-heartbeat` 只看 `investigator alert` 有沒有寫入，這種情況不會響 | 已做：`detect` 每輪寫 `detect-status`（`missing_baseline: N`）進 `aiops-alerts`，Grafana 規則 `aiops-baseline-missing` N > 0 持續 5 分鐘送平台；Grafana 上沒實跑（已合入 master；[PDCA](../phase5-learning-loop/2026-11-open-issues-batch.md)） |
-| 沒有 snapshot 備份 | `elasticsearch/code` 找不到 snapshot 或 SLM 設定；索引 `auto_expand_replicas: 0-1`，單節點沒有副本 | 人工判斷的三個索引優先加：`aiops-incidents`、`aiops-feedback`、`aiops-tuning`，掉了不能重算；`aiops-baseline` 是每天重寫的衍生資料，重要性較低 |
+| 沒有 snapshot 備份 | 已做：setup 給了 `SNAPSHOT_REPO_TYPE`／`SNAPSHOT_REPO_SETTINGS` 就註冊儲存庫與 SLM `aiops-daily`（每天、留 30 天；`aiops-incidents`、`aiops-feedback`、`aiops-tuning`、`aiops-baseline`、`aiops-alerts`）；測試 chart 用節點目錄。**儲存庫類型與位置仍要管 ES 的人決定**，沒給就沒備份（[PDCA](../phase2-anomaly/2026-11-aiops-retention-backup.md)） | 待管 ES 的人給儲存庫 |
+| `aiops-alerts`、`aiops-anomalies`、`aiops-trace-segments` 沒有保留天數 | 已做：`detector prune` 每天 03:30 刪超過 90／90／180 天的（結案的事故才刪；開著的、心跳、`detect-status` 不動）；一般索引不能用 ILM。天數是估的（[PDCA](../phase2-anomaly/2026-11-aiops-retention-backup.md)） | 上線後看量再調 |
 | 回饋存在哪 | 和 log、metrics、trace 在同一個中央 ES，是 `aiops-*` 一般索引；AIOps 的 key 只能寫 `aiops-*`；回饋網頁本身不存資料。正式環境的磁碟大小由管 ES 的人決定，repo 內附的 chart 是測試用（`storage: 10Gi`） | 待和管 ES 的人確認 |
 | 測試與正式環境的回饋不互通 | 兩邊是不同叢集，測試時累積的回饋、事故紀錄不會自動帶到正式環境 | 上線前決定要不要匯入 |
 | 重建 ES 的流程 | 沒有把 `train` 列為標準步驟 | 已寫進 [aiops-engine/README.md](../../../aiops-engine/README.md)「重建 ES、換 ES 之後」（已合入 master；[PDCA](../phase5-learning-loop/2026-11-open-issues-batch.md)） |
