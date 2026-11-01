@@ -328,3 +328,38 @@ class TuningTest(unittest.TestCase):
         ov = [{"series": "http.latency_p95_s", "match": {"service": "^pay"}, "confirm_points": 1, "instant_z": 10}]
         self.assertEqual(override_for("http.latency_p95_s", {"service": "pay-api"}, ov), {"confirm_points": 1, "instant_z": 10})
         self.assertEqual(override_for("http.latency_p95_s", {"service": "mes-api"}, ov), {})
+
+
+
+B = [0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5, 0.75, 1.0, 2.5, 5.0, 7.5, 10.0]
+
+
+class BucketFloorTest(unittest.TestCase):
+    """p95 從直方圖算：σ 至少是中位數所在那一格寬度的一半（buckets 是直方圖的邊界）。"""
+    def hist(self):
+        ts = pd.date_range("2026-09-07", periods=28 * 288, freq="5min", tz="UTC")
+        v = np.where(np.arange(len(ts)) % 97 == 0, 0.375, 0.175)      # 平常 0.175，偶爾跳一格到 0.375
+        v = np.where(np.arange(len(ts)) % 89 == 0, 0.185, v)           # ES 在桶之間內插出來的值
+        return ts, pd.DataFrame({"svc": "x", "ts": ts, "value": v})
+
+    def test_floor_is_half_the_bucket_of_the_median(self):
+        from detector.model import bucket_floor
+        got = bucket_floor(np.array([0.175, 0.0375, 0.003, 12.0, np.nan]), B)
+        self.assertTrue(np.allclose(got, [0.075, 0.0125, 0.0025, 1.25, 0.0025]))   # 0.1～0.25；0.025～0.05；0～0.005；超過 10 用最後一格；NaN 當 0
+
+    def test_one_bucket_up_is_not_an_anomaly(self):
+        ts, h = self.hist()
+        b = train(h, ["svc"], TrainOptions(timezone=TZ))
+        now = pd.DataFrame({"svc": ["x"], "ts": [ts[-1] + pd.Timedelta("5min")], "value": [0.375]})
+        plain = score(now, b, ["svc"], direction="up", min_abs=0.05, tz=TZ)
+        withb = score(now, b, ["svc"], direction="up", min_abs=0.05, tz=TZ, buckets=B)
+        self.assertTrue(plain["anomaly"].item())                         # 原本：σ 只剩中位數的 5%，跨一格 z 約 23
+        self.assertGreater(plain["z"].item(), 20)
+        self.assertFalse(withb["anomaly"].item())                        # 半個桶寬 0.075：0.2 ÷ 0.075 ≈ 2.7
+        self.assertAlmostEqual(withb["z"].item(), 0.2 / 0.075)
+
+    def test_many_buckets_up_is_still_an_anomaly(self):
+        ts, h = self.hist()
+        b = train(h, ["svc"], TrainOptions(timezone=TZ))
+        now = pd.DataFrame({"svc": ["x"], "ts": [ts[-1] + pd.Timedelta("5min")], "value": [1.75]})
+        self.assertTrue(score(now, b, ["svc"], direction="up", min_abs=0.05, tz=TZ, buckets=B)["anomaly"].item())
