@@ -99,6 +99,8 @@ helm upgrade --install grafana grafana/helmchart -n grafana \
 
 ## 回饋表單放在 Grafana 裡（定案：用這個）
 
+> 送出後資料怎麼流（瀏覽器 → 回饋網頁 → ES 三個索引）：[docs/data-storage-reference.md](../docs/data-storage-reference.md#回饋表單的資料流)。
+
 老師傅從通知點 `feedback` 連結，直接在 Grafana 裡填回饋：預填那件告警（標題、摘要、AI 摘要、相似事故），選真的／誤報／根因錯，填根因、處置、怎麼看出來的，按送出。寫回 ES 的還是回饋服務（[aiops-engine/code/feedback_web](../aiops-engine/code/feedback_web/__init__.py)，Grafana 本身不能寫 ES），所以兩邊都要有。
 
 表單欄位（元素 id ＝ `POST /api/feedback` 的 JSON key；測試 `tests/test_grafana_form.py` 比對兩邊一致）：

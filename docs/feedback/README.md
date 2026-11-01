@@ -60,6 +60,8 @@
 - [rules.yaml](../../aiops-engine/code/configs/baseline/rules.yaml) 現有規則的門檻：改 yaml；回饋只能新增 `rule_suggestion`。
 - `quality`：不讀 `aiops-tuning`，改 [quality.yaml](../../aiops-engine/code/configs/baseline/quality.yaml)。
 
+> 回饋表單送出後資料怎麼流、寫進哪幾個索引：[data-storage-reference.md](../data-storage-reference.md#回饋表單的資料流)。
+
 ## feedback 有哪些介面
 
 ![Grafana 回饋表單](grafana-form.png)

@@ -50,6 +50,34 @@ AIOps 與 Grafana 的資料各存在哪裡、誰寫、多久一次、會不會�
 | 3. 看報告全文 | 通知裡的 `report_url` → 回饋網頁 `/report?alert=…` 從 `aiops-alerts` 讀出來顯示 |
 | 4. 儀表板 | Grafana 的資料來源直接讀 `aiops-alerts`、`aiops-anomalies`、`aiops-tuning`、`aiops-feedback`（[datasource.yaml](../grafana/code/datasource.yaml)） |
 
+## 回饋表單的資料流
+
+回饋資料**不存在 Grafana，也不是 Grafana 寫的**：值班人員在瀏覽器填表，瀏覽器直接把資料送給回饋網頁，由它寫進 ES。Grafana 只畫表單、把填的內容送出去。
+
+```
+值班人員 ──瀏覽器──> Grafana 的表單（Business Forms 外掛）
+                        │ 1. 開表單：GET  回饋網頁 /api/alert?alert=…    （預填告警資訊）
+                        │ 2. 按送出：POST 回饋網頁 /api/feedback
+                        ▼
+                   回饋網頁（feedback_web，engine 的另一個 container）
+                        │ 讀  aiops-alerts、aiops-anomalies
+                        │ 寫  ↓
+                        ▼
+                   中央 ES 的三個索引
+```
+
+| 一次送出寫到 | 寫幾筆 | 內容 |
+|---|---|---|
+| `aiops-feedback` | 這件告警的**每個異常各一筆**（最多 200 筆） | 真的／誤報／根因錯、誰填、怎麼看出來的、兩題評分、一句話與 LLM 抽取結果。每個異常一筆，因為 `feedback summary`、`suggest` 是依「序列加對象」算的 |
+| `aiops-incidents` | 這件一筆（用 `alert_id` 當 id，更新或補建） | 狀態 `confirmed`（真的）、`corrected`（根因報錯）、`false_positive`；真的時附根因分類、根因、處置、怎麼看出來的、查了哪裡、下次怎麼更快 |
+| `aiops-tuning` | 有填一句話、且 LLM 抽得到調整種類時才寫一筆 | `status: proposed`，要人核准才生效（[architecture.md 3.5](architecture.md#35-人在迴圈中系統只建議人決定-human-in-the-loop)） |
+
+- **漏報面板**走另一條：`POST /api/missed`，只寫 `aiops-feedback` 一筆（`verdict: missed`），沒有告警、不寫事故。
+- **寫進去之後誰用**：`aiops-incidents` 的 `confirmed`、`corrected` 給相似事故檢索（自動開的 `auto` 事故不會拿來教人）；`aiops-feedback` 給 `feedback summary`、`feedback suggest`、`metrics`；`aiops-tuning` 的建議給 `adjust list`、回測、核准。
+- **寫入用的是回饋網頁自己的 ES key，不是使用者的**：所以沒有登入也寫得進去；`by` 是自己填的名字，空的記成 `anonymous`，同一個人可以填多次，系統不知道是誰。
+- **抽取失敗不影響回饋本身**：LLM 掛了或格式不對，只存原文（`extract.ok: false`）；建議寫不進去也一樣，回應多一個 `tuning_error`。
+- 程式在 [feedback_web/app.py](../aiops-engine/code/feedback_web/app.py) 的 `submit`、`submit_missed`；欄位對照見 [grafana/README.md](../grafana/README.md#回饋表單放在-grafana-裡定案用這個)。
+
 ## Grafana 自己存什麼
 
 | 項目 | 放哪 | Pod 重建後 |
