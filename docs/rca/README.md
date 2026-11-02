@@ -19,7 +19,7 @@ baseline 的操作、規格、實測見 [aiops-engine/code/configs/baseline/](..
 
 ## 三種資料怎麼串
 
-metrics 決定何時告警，trace 指出哪一段，log 給證據。基準線用 metrics 算：每個請求都計入；應用直方圖的原始資料留 90 天（ES 8.19 的 `histogram` 不能降解析度，見 [retention.md](../retention.md)）；trace 的 raw 只留 2 天，log 無法算分布。log 只學 `log.lines`、`log.errors` 筆數，抓 API 正常但背景工作失敗的情況。
+metrics 決定何時告警，trace 指出哪一段，log 給證據。基準線用 metrics 算：每個請求都計入；應用直方圖的原始資料留 90 天（ES 8.19 的 `histogram` 不能降解析度）；trace 的 raw 只留 2 天，log 無法算分布。log 只學 `log.lines`、`log.errors` 筆數，抓 API 正常但背景工作失敗的情況。
 
 | 鑰匙 | 路徑 | 串哪兩種 |
 |---|---|---|

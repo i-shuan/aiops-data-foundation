@@ -1,6 +1,6 @@
 # 資料存哪裡：ES 與 Grafana
 
-> **類型：規格 Reference**　同主題：[保留天數（ILM、容量）](retention-reference.md)・[aiops-* 的欄位](aiops-data-reference.md)・[回饋與學習](feedback/README.md)
+> **類型：規格 Reference**　同主題：[aiops-* 的欄位](aiops-data-reference.md)・[回饋與學習](feedback/README.md)
 
 AIOps 與 Grafana 的資料各存在哪裡、誰寫、多久一次、會不會自己消失。**沒有模型檔、沒有本機資料庫**：訓練的結果、RCA 報告、回饋，全部是中央 ES 裡的索引。Grafana 自己幾乎不存資料。
 
@@ -34,12 +34,12 @@ AIOps 與 Grafana 的資料各存在哪裡、誰寫、多久一次、會不會�
 
 | 資料 | 資料流 | 保留 |
 |---|---|---|
-| log 原文 | `k8s-*` | 30 天 |
-| metrics | `metrics-*.otel-*` | 30 秒一點留 14 天 → 5 分鐘一點 → 第 90 天 1 小時一點 → 第 400 天刪；應用的直方圖 `metrics-generic.otel-*` 不降解析度，留 90 天 |
-| trace raw（Collector 寫，100% 收） | `traces-generic.otel-*` | 2 天，只是合成前的暫存 |
-| trace merged（一個請求一筆，engine 合成） | `traces-merged-<group>-<日期>` | 7 天 |
+| log | `logs-apm.app.<服務>-*`、`logs-apm.error-*`（Elastic APM 寫） | 公司 ES 的 ILM 決定（2026-11 看到 `logs-apm.app.*` 10 天） |
+| metrics | `metrics-apm.transaction.1m-*`、`metrics-apm.service_destination.1m-*` 等（Elastic APM 寫，每分鐘一點） | 公司 ES 的 ILM 決定（2026-11 看到 `.1m` 的 90 天） |
+| trace raw（transaction、span 各一筆） | `traces-apm-*`（Elastic APM 寫） | 公司 ES 的 ILM 決定 |
+| trace merged（一個請求一筆，engine 合成） | `traces-merged-<group>-<日期>` | 7 天（[retention.conf](../elasticsearch/code/scripts/retention.conf)） |
 
-天數與 ILM 政策的完整說明：[retention-reference.md](retention-reference.md)。
+APM 寫的三種資料 engine 只讀，保留天數不在這個 repo 管；`traces-merged-*` 要比 raw 留得久才有意義。
 
 ## RCA 報告：從產生到 Grafana
 

@@ -22,7 +22,7 @@
 
 > 另見：[原理](../../../../docs/rca/README.md)・[規格](reference.md#trace-每一段的-baseline)・[操作](reference.md#trace-每一段的-baseline)
 
-**實測**（`e2e/k8s/run-trace-baseline-e2e.sh`，兩個模擬服務走真正的路線：Collector → ES；測試用 1 分鐘一點、學 20 分鐘）：
+**實測**（`e2e/k8s/run-trace-baseline-e2e.sh`，兩個模擬服務走自建 Collector → ES；e2e/ 與 Collector 已刪，在 git 歷史；測試用 1 分鐘一點、學 20 分鐘）：
 
 | 情境 | 抓到的（預期那一段） | 同時也報的 |
 |---|---|---|
@@ -46,7 +46,7 @@
 
 > 另見：[原理](../../../../docs/rca/README.md)・[規格](reference.md#規則狀態變化離極限多遠)・[操作](reference.md#規則狀態變化離極限多遠)
 
-四個領域的案例與實測見 [metrics/README.md](../../../../docs/metrics/README.md)。
+四個領域的案例與實測見各 PDCA 紀錄（[docs/pdca/](../../../../docs/pdca/README.md)）。
 
 `container.memory_leak`（趨勢）：合成資料 8 個案例（30 分鐘 500 → 800、上限 1000 → 0.33 小時後到：報；GC 鋸齒但低點墊高：報；純鋸齒、上限很遠、新容器只有 10 分鐘、沒設上限、單點飆高、Pod 已刪除：不報），`tests/rules_edge_e2e.py` 對測試 ES 全過；真的洩漏程式沒跑過（[phase2-anomaly/2026-11-peer-z-and-slope.md](../../../../docs/pdca/phase2-anomaly/2026-11-peer-z-and-slope.md)）。
 
@@ -54,7 +54,7 @@
 
 > 另見：[原理](../../../../docs/rca/README.md)・[規格](reference.md#pod-同儕橫向比對同一個服務的-pod-互相比)・[操作](reference.md#pod-同儕橫向比對同一個服務的-pod-互相比)
 
-**實測**（[e2e/k8s/run-peer-e2e.sh](../../../../e2e/k8s/run-peer-e2e.sh)，2026-10-10，全部通過）：真的 .NET 應用（自動埋點）開 3 個副本，每次只弄壞一個。
+**實測**（`e2e/k8s/run-peer-e2e.sh`，2026-10-10，全部通過；e2e/ 已隨自建收值刪除，在 git 歷史）：真的 .NET 應用（自動埋點）開 3 個副本，每次只弄壞一個。
 
 | 案例 | 怎麼弄壞 | 抓到的 | 其他 2 個 Pod |
 |---|---|---|---|

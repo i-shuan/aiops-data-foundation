@@ -21,7 +21,7 @@
 
 ### 1. trace 合併
 
-**狀態：已合入 master**（PR #36、#37，2026-11-01；設計與實測見 [PDCA](../phase1-collect/2026-10-trace-merge.md)，ES 兩個資料節點加只投票節點見 [es-two-pods](../phase1-collect/2026-11-es-two-pods.md)）。[trace/README.md](../../trace/README.md)、[retention.md](../../retention.md) 已改成 100% 收、一個請求合成一筆。
+**狀態：已合入 master**（PR #36、#37，2026-11-01；設計與實測見 [PDCA](../phase1-collect/2026-10-trace-merge.md)，ES 兩個資料節點加只投票節點見 [es-two-pods](../phase1-collect/2026-11-es-two-pods.md)）。trace/README.md、retention.md 已改成 100% 收、一個請求合成一筆。
 
 目的：製造業事故檢討不能少資料，不在收值端取樣；一個請求原本是 5～8 筆 span，希望查一個請求只讀一筆。
 
@@ -152,7 +152,7 @@
 
 | 項目 | 現況 | 來源 |
 |---|---|---|
-| Pod 同儕比對在 3 個 Pod、年紀不同時抓不到記憶體洩漏 | 已做（A2）：z 的門檻依其他 Pod 數分級（`peer.yaml` 的 `z_by_peers: {2: 3, 3: 4, 4: 4}`），其他只剩 2 個值時它們之間的差距沒統計意義，靠 `min_abs`、`min_ratio` 擋；10/31 那個案例（420 vs 251、163 MB，z 3.3）合成資料抓到。斜率另做成規則 `container.memory_leak`（30 分鐘 Theil–Sen 斜率、三段低點墊高、≤ 6 小時到上限），不放進同儕比對。HPA 擴容後老 Pod 被誤報成洩漏（`warmup` 5 分鐘蓋不住 heap 長大）沒動，推論未驗（[PDCA](../phase2-anomaly/2026-11-peer-z-and-slope.md)） | [run-peer-e2e.sh](../../../e2e/k8s/run-peer-e2e.sh)、[peer.yaml](../../../aiops-engine/code/configs/baseline/peer.yaml) |
+| Pod 同儕比對在 3 個 Pod、年紀不同時抓不到記憶體洩漏 | 已做（A2）：z 的門檻依其他 Pod 數分級（`peer.yaml` 的 `z_by_peers: {2: 3, 3: 4, 4: 4}`），其他只剩 2 個值時它們之間的差距沒統計意義，靠 `min_abs`、`min_ratio` 擋；10/31 那個案例（420 vs 251、163 MB，z 3.3）合成資料抓到。斜率另做成規則 `container.memory_leak`（30 分鐘 Theil–Sen 斜率、三段低點墊高、≤ 6 小時到上限），不放進同儕比對。HPA 擴容後老 Pod 被誤報成洩漏（`warmup` 5 分鐘蓋不住 heap 長大）沒動，推論未驗（[PDCA](../phase2-anomaly/2026-11-peer-z-and-slope.md)） | run-peer-e2e.sh、[peer.yaml](../../../aiops-engine/code/configs/baseline/peer.yaml) |
 | p95 誤報超過目標 | 已做：p95 的 σ 下限加半個桶寬（`series.yaml` 的 `buckets`，OTel 預設邊界）。一週合成資料 anomaly 0.530% → 0.068%、warning 1.97% → 0.008%，兩項都達標；p95 在 svc-peak、svc-season、svc-spike 都降到 0。**代價**：p95 只跨一格的變慢（175ms → 375ms）不再是 anomaly，最多 warning，只靠靜態規則抓，漏報沒量（[PDCA](../phase2-anomaly/2026-11-baseline-false-alarm.md)） | [baseline-threshold-tune](../phase2-anomaly/2026-10-baseline-threshold-tune.md) |
 | 錯誤率 1 個 5xx 就到門檻 | 已做：`min_count: 3`，這個時間窗至少 3 個 5xx 才算異常（3 是估的）。錯誤率 anomaly 205 → 18（[PDCA](../phase2-anomaly/2026-11-baseline-false-alarm.md)） | 同上 |
 | 只有一部分請求變慢時 trace 段沒報 | 每點改抽 100 個後，合成資料上 10% 請求多 2 秒報得出來；慢的比例更低時仍報不出來，看 p90 或慢請求比例還沒做（[PDCA](../phase2-anomaly/2026-11-trace-sample-100.md)） | [troubleshooting.md](../../troubleshooting.md) |
@@ -177,9 +177,9 @@
 
 | 項目 | 現況 | 來源 |
 |---|---|---|
-| 設備通訊（SECS）、REST API 的 log 還沒有規則 | 缺一般事件、告警、逾時、多行的真實樣本 | [log/README.md](../../log/README.md) |
-| 業務 ID（交易 ID）名稱未定 | log、metrics、trace 三份鑰匙圈都是 ❌ | [log](../../log/README.md)、[metrics](../../metrics/README.md)、[trace](../../trace/README.md) |
-| metrics 沒有 `trace_id` | exemplar 寫進 ES 時被丟（ES 9.5.5、8.19.23 實測） | [metrics/README.md](../../metrics/README.md) |
+| 設備通訊（SECS）、REST API 的 log 還沒有規則 | 缺一般事件、告警、逾時、多行的真實樣本 | log/README.md |
+| 業務 ID（交易 ID）名稱未定 | log、metrics、trace 三份鑰匙圈都是 ❌ | log、metrics、trace |
+| metrics 沒有 `trace_id` | exemplar 寫進 ES 時被丟（ES 9.5.5、8.19.23 實測） | metrics/README.md |
 | 開 otlp 的服務 log 量兩倍 | 存量兩倍，統計推論也算兩次 | [log-trace-bind](../phase1-collect/2026-10-log-trace-bind.md) |
 | Collector 接回 16KB 長行、file＋OTLP 兩份未驗證 | 只用 `_simulate` 驗了 pipeline | 同上 |
 
@@ -200,4 +200,4 @@
 | 項目 | 現況 |
 |---|---|
 | retention 內容搬進 log、metrics、trace | 數字照原文搬，沒有重新對程式核對 |
-| 保留天數寫兩處 | 各 README 的「多久壓縮」與 [retention-reference.md](../../retention-reference.md) 同一批天數；天數的來源是 `retention.conf` |
+| 保留天數寫兩處 | 各 README 的「多久壓縮」與 retention-reference.md 同一批天數；天數的來源是 `retention.conf` |

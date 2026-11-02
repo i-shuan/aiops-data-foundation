@@ -1,6 +1,0 @@
-apiVersion: v2
-name: collector
-description: 每個應用 cluster 一套 OpenTelemetry Collector（node DaemonSet、cluster Deployment），收 log、metrics、trace（trace 100% 收、不取樣），依 namespace 的 dept 分流寫進中央 ES
-type: application
-version: 0.1.0
-appVersion: "0.162.0"

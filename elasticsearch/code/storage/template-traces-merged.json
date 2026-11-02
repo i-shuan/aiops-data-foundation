@@ -40,6 +40,6 @@
     }
   },
   "_meta": {
-    "description": "一個請求一筆（detector trace-merge 從 traces-generic.otel-* 合成；_id = trace_id；index 依 group 與根 span 的日期）。spans 是每一段（nested，欄位跟 core.traces 的 span 一樣，attrs／resource 用 flattened 免得欄位爆掉）；entries 是入口 span，依服務／API 挑請求用。保留天數 ILM traces-merged（telemetry/scripts/retention.conf）"
+    "description": "一個請求一筆（detector trace-merge 從 Elastic APM 的 traces-apm-* 合成；_id = trace_id；index 依 group 與根 span 的日期）。spans 是每一段（nested，欄位跟 core.traces 的 span 一樣，attrs／resource 用 flattened 免得欄位爆掉）；entries 是入口 span，依服務／API 挑請求用。保留天數 ILM traces-merged（elasticsearch/code/scripts/retention.conf）"
   }
 }

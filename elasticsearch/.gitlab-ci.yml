@@ -9,10 +9,9 @@
 #   ES_SETUP_SKIP_KEYS     選填，true：只更新結構（改了 retention.conf、storage/），不發新 key、不碰 Secret
 #   選填：SNAPSHOT_REPO_TYPE、SNAPSHOT_REPO_SETTINGS（要備份才給）
 #
-# 什麼時候跑：第一次部署（Collector 開始送資料之前）、改了 elasticsearch/code/、要換 key。日常部署不用。
-# 每次真的發 key 都是 4 把新的、舊的不會作廢；只改結構時設 ES_SETUP_SKIP_KEYS=true。
-# key 不經過 CI：Job 直接寫進 aiops/aiops-secrets、grafana/grafana-env，5 把都存一份在 es-setup/es-setup-keys
-# （應用 cluster 的 Collector job 從這裡讀寫入 key）。
+# 什麼時候跑：第一次部署（engine 啟動之前）、改了 elasticsearch/code/、要換 key。日常部署不用。
+# 每次真的發 key 都是 2 把新的、舊的不會作廢；只改結構時設 ES_SETUP_SKIP_KEYS=true。
+# key 不經過 CI：Job 直接寫進 aiops/aiops-secrets、grafana/grafana-env，2 把都存一份在 es-setup/es-setup-keys。
 
 es-setup:
   stage: es-setup

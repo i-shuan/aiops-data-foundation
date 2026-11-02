@@ -1,4 +1,4 @@
-# 依 dept 送到哪個 contact point（dept 清單跟 collector/code/groups.yaml 一致）；沒有 dept 的（資料品質、節點）送平台
+# 依 dept 送到哪個 contact point（dept 清單跟 APM agent 的 labels.dept 值一致）；沒有 dept 的（資料品質、節點）送平台
 apiVersion: 1
 policies:
   - orgId: 1

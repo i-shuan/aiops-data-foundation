@@ -27,9 +27,8 @@ apply_secret() {  # apply_secret <namespace> <secret> <--from-file=…>…
 }
 
 apply_secret "${RELEASE_NAMESPACE}" "${KEYS_SECRET}" \
-  --from-file=writer="${keys}/writer" --from-file=reader="${keys}/reader" --from-file=engine="${keys}/engine" \
-  --from-file=grafana="${keys}/grafana" --from-file=probe="${keys}/probe"
-echo "=== 5 把 key 寫進 ${RELEASE_NAMESPACE}/${KEYS_SECRET}（不印出）==="
+  --from-file=engine="${keys}/engine" --from-file=grafana="${keys}/grafana"
+echo "=== 2 把 key 寫進 ${RELEASE_NAMESPACE}/${KEYS_SECRET}（不印出）==="
 
 while read -r ns secret field from; do
   [[ -n "${ns}" ]] || continue

@@ -1,9 +1,9 @@
 # 保留天數（2026-10）
 
-**狀態**：已實作、已合進 master　　**日期**：2026-10-13　　**相關**：commit `3a38430`、`187d1c8`、[retention.md](../../retention.md)
+**狀態**：已實作、已合進 master　　**日期**：2026-10-13　　**相關**：commit `3a38430`、`187d1c8`、retention.md
 **模組**：③ 存
 
-> 這份是讀 commit 與 diff 整理的，沒有重跑測試；Check 的結果來自 commit 說明與 [retention.md](../../retention.md)。
+> 這份是讀 commit 與 diff 整理的，沒有重跑測試；Check 的結果來自 commit 說明與 retention.md。
 
 ## Plan：這一次要達到什麼
 
@@ -45,7 +45,7 @@
 | [④] metrics 降成 5 分鐘後，30 秒粒度的 baseline 只剩 `fine_history: 14d` | 對照 `series.yaml` | 兩個數字要一起維護，只改一個會出問題 | 文件註明；改任一邊時同步檢查 |
 | log 的 `max_primary_shard_size` 寫死 30gb | 讀 diff：其他政策用 `retention.conf` 的 50gb | 設定不一致 | 統一進 `retention.conf` |
 | `traces-problem` 的 template 從內建 `traces-otel@template` 複製 | 讀 `elasticsearch-setup.sh` | ES 升級改了內建組成，要重跑腳本才會跟上 | README 註明 |
-| 天數是暫定值 | [retention.md](../../retention.md) | 容量可能不夠或浪費 | 用正式環境的量重算 |
+| 天數是暫定值 | retention.md | 容量可能不夠或浪費 | 用正式環境的量重算 |
 
 - 合併時的修改：`engine/configs/baseline/trace.yaml` 的 `traces_index` 改成 `traces-generic.otel-*`。
 - 只改了正式設定；k3s 測試用的 `engine/tests/trace_k3s.yaml` 沒動，也沒重跑。

@@ -6,15 +6,12 @@
 
 | 資料夾 | 內容 |
 |---|---|
-| `collector/` | ①② 邊緣收值：每個應用 cluster 一套 OTel Collector（`code/` 設定檔、`helmchart/`） |
-| `elasticsearch/` | ③ 中央 ES 的結構設定與 setup 腳本（`code/`）；`helmchart/` 只部署測試用 ES |
+| `elasticsearch/` | ③ 在公司 ES 上補的東西：`traces-merged-*` 的 template 與 ILM、engine 與 Grafana 的 key（`code/`）、`setup-helmchart/`（在 K8s 裡跑 setup 的 Job） |
 | `grafana/` | ⑧ 通知、儀表板、回饋表單（`code/` provisioning、`helmchart/`） |
-| `aiops-engine/` | ④～⑨ AIOps（`code/`：detector、investigator、feedback_web、configs、Dockerfile；`helmchart/`） |
-| `apps/` | 應用用的 Helm chart、埋點指引 |
-| `e2e/` | 測試：`pipeline/`（只要 ES）、`k8s/`（要 K8s：模擬服務、腳本），**不是正式程式** |
+| `aiops-engine/` | ④～⑨ AIOps（`code/`：detector、investigator、feedback_web、configs（`apm/` Elastic APM 版、`baseline/` `rca/` `schedule/` OTel 版）、Dockerfile；`helmchart/`） |
 | `docs/` | 原理、案例、PDCA 紀錄 |
 
-模組編號只用 ①～⑨：① 收值 ② 清資料 ③ 存 ④ 判斷 ⑤ 異常總表 ⑥ 收斂 ⑦ 根因分析 ⑧ 出口 ⑨ feedback。
+**收值（①②③）是公司現有的 Elastic APM 與 ES，不在這個 repo**（2026-11 自建的 Collector 已刪）。模組編號只用 ①～⑨：① 收值 ② 清資料 ③ 存 ④ 判斷 ⑤ 異常總表 ⑥ 收斂 ⑦ 根因分析 ⑧ 出口 ⑨ feedback。
 
 ## 術語對照表
 
@@ -27,8 +24,6 @@
 | 靜態臨界值規則 (Static Threshold Rules) | 規則（一次就算）、保底規則、固定門檻 | 保底規則 |
 | 單點即判定 (Instant Anomaly) | 單次就報、一次就算（`confirm_points: 1`、`instant_z`） | |
 | 例外吞噬檢測 (Exception Swallowing Detection) | 吞例外、吞掉的例外（規則 `swallowed`） | |
-| 邊緣身份鑑別與標籤注入 (Edge Identity Sanitization & Injection) | 擋冒充、補身分 | |
-| 集中式資料寫入憑證 (Shared Ingest Token) | 一把寫入 key | 一把寫入 |
 | 資深維運專家回饋 (Expert Feedback) | 老師傅回饋 | |
 
 - 「老師傅」是產品用語（賣點之一），使用者介面和對話可以用；正式文件第一次出現寫「資深維運專家（老師傅）」。「一件」（一件事故）、「值班」、「一把 key」（量詞）都是正常用語，不在表內。
@@ -57,7 +52,7 @@
 - 一個主題要寫的東西超過一種，就在**同一個資料夾**拆成不同檔案（不另開 `explanation/`、`how-to/` 資料夾），並在 `docs/README.md` 標類型。
 - 「現況與待辦」「還沒做」留在該主題的原理文件（Diátaxis 沒有「狀態」這一類，放在原理最接近）。
 - 步驟（部署、驗證、遇到問題怎麼辦）不要寫進原理或規格；原理（為什麼）不要寫進操作，用連結指過去。
-- `aiops-engine/`、`collector/`、`elasticsearch/`、`grafana/`、`apps/`、`e2e/` 旁邊的 README 本來就貼著程式（操作、規格），多半不拆，只在 `docs/README.md` 標類型。**例外：`aiops-engine/code/configs/baseline/` 已依類型拆開**——`README.md` 操作、`reference.md` 規格、`verification.md` 案例（實測），原理在 [rca/README.md](docs/rca/README.md)；這個資料夾的 md 同樣要標類型。
+- `aiops-engine/`、`elasticsearch/`、`grafana/` 旁邊的 README 本來就貼著程式（操作、規格），多半不拆，只在 `docs/README.md` 標類型。**例外：`aiops-engine/code/configs/baseline/` 已依類型拆開**——`README.md` 操作、`reference.md` 規格、`verification.md` 案例（實測），原理在 [rca/README.md](docs/rca/README.md)；這個資料夾的 md 同樣要標類型。
 
 - 新增、刪除、改名 md：同一個 commit 更新 `docs/README.md`（PDCA 紀錄更新 `docs/pdca/README.md`）。
 - 長文（超過約 300 行）在第一個 `##` 前放 `<!-- toc -->` 和 `<!-- /toc -->`，用 `python3 tools/check-docs.py --toc` 產生，不要手寫目錄。

@@ -1,6 +1,0 @@
-# 本機測試（e2e/k8s）：ES 是同一個 cluster 裡的 es-test。
-clusterName: local
-esEndpoint: http://elasticsearch.es-test.svc:9200
-ntpServer: pool.ntp.org:123                               # 測試機要能連外；不能的話換成區網的 NTP
-image:
-  repository: docker.io/otel/opentelemetry-collector-contrib

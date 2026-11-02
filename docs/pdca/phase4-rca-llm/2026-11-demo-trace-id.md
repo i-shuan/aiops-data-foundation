@@ -1,6 +1,6 @@
 # 示範儀表板：③ Trace 每一列看得到 trace_id（2026-11）
 
-**狀態**：已完成　　**日期**：2026-11-01　　**相關**：分支 `claude/demo-trace-id`；[e2e/k8s/rca-demo/dashboard.json](../../../e2e/k8s/rca-demo/dashboard.json)
+**狀態**：已完成　　**日期**：2026-11-01　　**相關**：分支 `claude/demo-trace-id`；e2e/k8s/rca-demo/dashboard.json
 **模組**：⑧ 出口
 
 ## Plan：這一次要達到什麼

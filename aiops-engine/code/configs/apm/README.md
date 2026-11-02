@@ -11,7 +11,7 @@
 |---|---|---|
 | 每支 API 的請求數、錯誤率、p95／p99、慢請求比例 | ✅ | `metrics-apm.transaction.1m-*`（每分鐘的直方圖，微秒） |
 | 往外呼叫（DB、下游）的次數、平均耗時、錯誤率 | ✅ 沒有 p95 | `metrics-apm.service_destination.1m-*`（只有次數與總和） |
-| 保底規則：錯誤率 5%、p95 2 秒 | ✅ | 同上 |
+| 靜態臨界值規則：錯誤率 5%、p95 2 秒 | ✅ | 同上 |
 | Pod 同儕橫向比對：錯誤率、p95 | ✅ | 同上，依 `service.node.name` 分 Pod |
 | trace 合成一筆、每一段的 baseline、根因分析 | ✅ | `traces-apm-*` → engine 合成 `traces-merged-*` |
 | 例外數、錯誤 log 樣式 | ✅ | `logs-apm.error-*`（每個服務都有） |

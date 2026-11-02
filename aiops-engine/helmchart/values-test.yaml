@@ -1,7 +1,0 @@
-# run-schedule-e2e.sh：連 es-test、image 是 nerdctl 建進 k8s.io 的、不測回饋網頁
-image:
-  repository: aiops-engine
-  tag: p2-schedule
-esUrl: http://elasticsearch.es-test.svc:9200
-feedback:
-  enabled: false

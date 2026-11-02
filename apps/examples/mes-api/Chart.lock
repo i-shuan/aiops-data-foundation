@@ -1,6 +1,0 @@
-dependencies:
-- name: app-common
-  repository: file://../../charts/app-common
-  version: 0.1.0
-digest: sha256:501b3ad644699d8a1092fdd3e1a0df39c75700e22e104029d3cd8e62f8599fbd
-generated: "2026-09-19T18:47:08.2159225+08:00"

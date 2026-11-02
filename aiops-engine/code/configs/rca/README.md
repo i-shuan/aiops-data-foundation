@@ -142,7 +142,7 @@ python3 -m investigator similar-eval --config configs/rca/rca.yaml  # 匯完量�
 
 ## 報告長什麼樣子
 
-`e2e/k8s/run-rca-e2e.sh` 實測：rca-mes-api → rca-wip-worker → Oracle，製造「查 Oracle 從 30ms 變 1.5 秒、connection pool timeout、約 1/4 請求失敗」：
+`e2e/k8s/run-rca-e2e.sh`（e2e/ 已隨自建收值刪除，在 git 歷史）實測：rca-mes-api → rca-wip-worker → Oracle，製造「查 Oracle 從 30ms 變 1.5 秒、connection pool timeout、約 1/4 請求失敗」：
 
 ````
 ## 3. Trace：慢在哪一段
@@ -180,8 +180,8 @@ rca-mes-api › GET /lots/{id}                       |████████�
 
 | 要什麼 | 誰做 | 沒有的話 |
 |---|---|---|
-| 服務有 trace（Java agent 自動，見 [tracing.md](../../../../apps/standards/tracing.md)） | chart 自動 | 第 2～4、6 節是空的，只剩 log |
-| log 帶 `trace_id`（照 [logback-spring.xml](../../../../apps/standards/java/logback-spring.xml)） | chart＋應用 | 撈不到「這個請求在各服務的 log」，但第 5 節依服務、時間找樣式還是有 |
+| 服務有 trace（Elastic APM agent 自動；transaction sample rate 設 1.0） | agent | 第 2～4、6 節是空的，只剩 log |
+| log 帶 `trace.id`（APM 的 log shipping 或 ecs-logging） | 應用 | 撈不到「這個請求在各服務的 log」，但第 5 節依服務、時間找樣式還是有 |
 | 往外呼叫帶 `peer.service`、`db.system` 或 `server.address` | agent 自動 | 關係圖少了資料庫、外部系統那一格 |
 | trace context 有傳到下游（下游的 Server span 的 parent 是上游的 Client span）、trace 的 `service.name` 跟異常的服務名一樣 | agent 自動（跨 HTTP／Kafka 要帶 header） | 算不出「誰呼叫誰」，上下游同時出事各開一件 |
 | log 有 level（`log.level`） | 中央 pipeline 解析 | 第 5 節找不到 warn／error |
@@ -198,9 +198,8 @@ rca-mes-api › GET /lots/{id}                       |████████�
 
 ```bash
 python3 -m unittest discover -s tests -t .                  # 在 aiops 底下；單元測試，不需要 ES
-ES_URL=http://<ip>:9200 e2e/k8s/run-rca-e2e.sh        # k3s 端到端，約 14 分鐘
 ```
 
 `loop_e2e`（2026-10-25，docker 的 ES 9.5.5、模擬資料，見 [architecture.md「產品主線 8 步」](../../../../docs/architecture.md#9-產品主線-8-步)）：第 1 次事故 → 回饋網頁確認 → 第 2 次同樣症狀的報告附上第 1 件（為什麼像、當時的根因、處置、怎麼看出來的）、LLM 摘要（template）每句附依據；`similar-eval` 3/3；誤報 3 次 → 建議 → 回測 → 核准 → 不再報。
 
-`run-rca-e2e.sh`：兩個模擬服務走真正的路線（Collector → ES），正常 7 分鐘、事故 5 分鐘，再模擬 baseline 記到一筆延遲異常，**不指定服務**跑 investigate，檢查 11 項：從異常找到服務與 API、瓶頸、錯誤源頭、新的 log 樣式、log 依 trace_id 串到兩個服務、關係圖。
+`run-rca-e2e.sh`：兩個模擬服務走自建 Collector → ES，正常 7 分鐘、事故 5 分鐘，再模擬 baseline 記到一筆延遲異常，**不指定服務**跑 investigate，檢查 11 項：從異常找到服務與 API、瓶頸、錯誤源頭、新的 log 樣式、log 依 trace_id 串到兩個服務、關係圖。

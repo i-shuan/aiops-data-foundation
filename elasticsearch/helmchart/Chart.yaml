@@ -1,6 +1,0 @@
-apiVersion: v2
-name: elasticsearch-test
-description: 只給測試環境用的 Elasticsearch（單節點，或 run-es-2node.sh 的兩節點）。正式環境用公司的中央 ES，只套 ../code/ 的結構設定，不用這個 chart
-type: application
-version: 0.1.0
-appVersion: "8.19.23"

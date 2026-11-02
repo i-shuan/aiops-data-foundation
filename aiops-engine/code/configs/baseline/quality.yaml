@@ -164,7 +164,7 @@ checks:
     silent: 15m
     min_docs: 30
 
-  # ── 落到 unassigned 變多：namespace 沒標 dept、或 dept 清單漏同步（collector/code/groups.yaml、common.yaml）──
+  # ── 落到 unassigned 變多：namespace 沒標 dept、或 dept 清單漏同步（agent 的 labels.dept 沒設）──
   - name: quality.log_unassigned_share
     title: 落到 unassigned 的 log 變多
     type: share
