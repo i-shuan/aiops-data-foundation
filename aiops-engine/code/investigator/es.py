@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
+from core import source
 from core.es import ES, time_range
 
 
@@ -90,14 +91,21 @@ def service_trace_ids(es: ES, index: str, service: str, start: datetime, end: da
 
 # ── 3. log ──
 
-LOG_FIELDS = ["@timestamp", "resource.attributes.service.name", "log.level", "trace_id", "message"]
+def _log_fields() -> dict:
+    """log 的欄位名依資料來源（core/source.py 的 log）：我們的 k8s-* 是 resource.attributes.service.name、trace_id（alias，
+    _source 裡沒有，要用 fields 取）；APM 的 logs-apm.* 是 service.name、trace.id。"""
+    return source.profile("log")
 
 
 def _to_log(hit: dict) -> dict:
-    """log 的 resource.attributes.service.name、trace_id 是 alias（跟 metrics、trace 同一條路徑），_source 裡沒有，要用 fields 取。"""
+    p = _log_fields()
     f = {k: (v[0] if isinstance(v, list) and v else v) for k, v in hit.get("fields", {}).items()}
-    return {"ts": f.get("@timestamp"), "service": f.get("resource.attributes.service.name") or "?", "level": f.get("log.level"),
-            "trace_id": f.get("trace_id"), "message": f.get("message") or ""}
+    return {"ts": f.get("@timestamp"), "service": f.get(p["service"]) or "?", "level": f.get(p["level"]),
+            "trace_id": f.get(p["trace_id"]), "message": next((f[m] for m in p["message"] if f.get(m)), "")}
+
+
+def _fields_param(p: dict) -> list[str]:
+    return ["@timestamp", p["service"], p["level"], p["trace_id"], *p["message"]]
 
 
 # log 的 @timestamp 是應用自己的時間：時鐘偏了、或請求結束後才寫的 log，可能離 span 十幾分鐘。
@@ -109,15 +117,19 @@ def logs_of_traces(es: ES, index: str, trace_ids: list[str], start: datetime, en
     """這些請求在各服務留下的 log（log 的 trace_id 是 alias，指到 trace.id；跟 trace 的 trace_id 同名）。"""
     if not trace_ids:
         return []
-    body = {"size": size, "sort": [{"@timestamp": "asc"}], "_source": False, "fields": LOG_FIELDS,
+    p = _log_fields()
+    body = {"size": size, "sort": [{"@timestamp": "asc"}], "_source": False, "fields": _fields_param(p),
             "query": {"bool": {"filter": [time_range(start - LOG_TRACE_SKEW, end + LOG_TRACE_SKEW),
-                                          {"terms": {"trace_id": trace_ids[:1000]}}]}}}
+                                          {"terms": {p["trace_id"]: trace_ids[:1000]}}]}}}
     return [_to_log(h) for h in es.search(index, body)["hits"]["hits"]]
 
 
 def problem_logs(es: ES, index: str, services: list[str], start: datetime, end: datetime, size: int = 5000) -> list[dict]:
-    """這些服務在這段時間的 warn、error、fatal log（不限有沒有 trace_id：有些錯誤不在請求裡，例如背景工作）。"""
-    body = {"size": size, "_source": False, "fields": LOG_FIELDS,
-            "query": {"bool": {"filter": [time_range(start, end), {"terms": {"resource.attributes.service.name": services}},
-                                          {"terms": {"log.level": ["warn", "error", "fatal"]}}]}}}
+    """這些服務在這段時間的 warn、error、fatal log（不限有沒有 trace_id：有些錯誤不在請求裡，例如背景工作）。
+    來源有 problem_query 的（APM 的例外文件沒有 log.level，用 processor.event: error 認）一起撈。"""
+    p = _log_fields()
+    level = {"terms": {p["level"]: p["problem_levels"]}}
+    which = {"bool": {"should": [level, p["problem_query"]], "minimum_should_match": 1}} if p.get("problem_query") else level
+    body = {"size": size, "_source": False, "fields": _fields_param(p),
+            "query": {"bool": {"filter": [time_range(start, end), {"terms": {p["service"]: services}}, which]}}}
     return [_to_log(h) for h in es.search(index, body)["hits"]["hits"]]

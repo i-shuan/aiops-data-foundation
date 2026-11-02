@@ -1,0 +1,187 @@
+# 資料來源是 Elastic APM（Fleet 的 apm integration）時的序列。寫法跟 configs/baseline/series.yaml 一樣，只是索引、欄位換成 APM 的。
+# 怎麼部署、哪些功能在 APM 資料上做不到：README.md；為什麼這樣學：docs/rca/README.md。
+#
+# 跟 Collector 寫的 OTel 資料差在哪：
+#   - metrics-apm.transaction.1m-*：apm-server 每分鐘算好的直方圖（transaction.duration.histogram，ES histogram），已經是增量，
+#     不用 cumulativetodelta；值是**微秒**，序列用 scale: 1.0e-6 換成秒，min_abs、門檻照樣寫秒
+#   - 桶是 HDR（寬約值的 1%），沒有固定邊界，不設 buckets（p95 的 σ 下限只靠 rel_floor）
+#   - 服務是 service.name；API 是 transaction.name（"GET /api/x"，method 含在裡面），所以 keys 只有 service、route
+#   - 錯誤看 event.outcome: failure（agent 判的：5xx、例外），不是狀態碼
+#   - 往外呼叫在 metrics-apm.service_destination.1m-*：只有次數和耗時總和，算平均（div），沒有 p95
+
+interval: 1m          # APM 的指標是每分鐘一筆
+history_weeks: 4
+fine_history: 14d
+lag: 90s              # apm-server 在那一分鐘結束後才算、才寫；再加 ES refresh
+
+adaptive:
+  resolutions: [1m, 5m, 15m, 30m, 1h]
+  min_events: {rate: 20, count: 10}
+  coverage: 0.3
+
+status:
+  confirm_points: 2
+  confirm_span: 30m
+  instant_z: 15
+
+borrowing:
+  min_members: 3
+  z: 7
+
+train:
+  timezone: Asia/Taipei
+  min_weeks: 2
+  min_days: 3
+  min_points: 50
+
+detect:
+  z: 5
+  rel_floor: 0.05
+
+# 共用的片段
+_tx: &tx metrics-apm.transaction.1m-*
+_hist: &hist transaction.duration.histogram
+_txf: &txf {bool: {filter: [{term: {metricset.name: transaction}}, {term: {transaction.type: request}}]}}   # 只看 HTTP 請求；背景工作（transaction.type 不是 request）另外列
+_txby: &txby [service.name, transaction.name]
+_dest: &dest metrics-apm.service_destination.1m-*
+_dcount: &dcount span.destination.service.response_time.count
+_dsum: &dsum span.destination.service.response_time.sum.us
+
+series:
+  # ── 每個服務 × API 的流量、錯誤率、延遲 ──
+  - name: http.requests
+    keys: [service, route]
+    min_resolution: 1m
+    index: *tx
+    filter: *txf
+    by: *txby
+    value: {hist_count: *hist}
+    fill_zero: true
+    direction: both
+    min_abs: 5
+
+  - name: http.error_rate
+    keys: [service, route]
+    confirm_points: 1
+    borrow: true
+    index: *tx
+    filter: *txf
+    by: *txby
+    value: {hist_ratio: {field: *hist, query: {term: {event.outcome: failure}}}}
+    direction: up
+    min_abs: 0.05
+    min_count: 3
+
+  - name: http.latency_p95_s
+    keys: [service, route]
+    borrow: true
+    index: *tx
+    filter: *txf
+    by: *txby
+    value: {percentile: {field: *hist, percent: 95}}
+    scale: 1.0e-6          # 微秒 → 秒
+    direction: up
+    min_abs: 0.05
+    instant_z: null
+
+  - name: http.latency_p99_s
+    keys: [service, route]
+    borrow: true
+    index: *tx
+    filter: *txf
+    by: *txby
+    value: {percentile: {field: *hist, percent: 99}}
+    scale: 1.0e-6
+    direction: up
+    min_abs: 0.1
+    instant_z: null
+
+  - name: http.slow_ratio
+    keys: [service, route]
+    borrow: true
+    index: *tx
+    filter: *txf
+    by: *txby
+    value: {hist_ratio_above: {field: *hist, gt: 2.0}}   # gt 寫秒，程式依 scale 換成微秒去查
+    scale: 1.0e-6
+    direction: up
+    min_abs: 0.02
+    min_count: 3
+
+  # ── 往外呼叫（DB、下游 API、外部系統）：每個服務 × 對象（span.destination.service.resource，例如 oracle、mes-api:8080）──
+  - name: dep.calls
+    keys: [service, target]
+    min_resolution: 1m
+    index: *dest
+    filter: {term: {metricset.name: service_destination}}
+    by: [service.name, span.destination.service.resource]
+    value: {sum: *dcount}
+    events: value
+    fill_zero: true
+    direction: both
+    min_abs: 5
+
+  - name: dep.latency_avg_s     # 平均耗時（總和 ÷ 次數）：沒有直方圖，算不出 p95；只有一部分變慢時這條不太動，靠 trace 每一段的 baseline
+    keys: [service, target]
+    index: *dest
+    filter: {term: {metricset.name: service_destination}}
+    by: [service.name, span.destination.service.resource]
+    value: {div: {num: *dsum, den: *dcount}}
+    scale: 1.0e-6
+    direction: up
+    min_abs: 0.02
+
+  - name: dep.error_rate
+    keys: [service, target]
+    confirm_points: 1
+    index: *dest
+    filter: {term: {metricset.name: service_destination}}
+    by: [service.name, span.destination.service.resource]
+    value: {div: {num: {field: *dcount, query: {term: {event.outcome: failure}}}, den: *dcount}}
+    direction: up
+    min_abs: 0.05
+
+  # ── log：每個服務 ──
+  # logs-apm.app.<服務>-*：agent 有開 log shipping 的服務才有（清單裡目前只有 aicb069_cronjob）。
+  # log.level 是應用自己寫的，大小寫不一（ERROR、error、Error），keyword 比對分大小寫，全列。
+  - name: log.lines
+    index: logs-apm.app.*
+    by: [service.name]
+    value: count
+    direction: both
+    min_abs: 20
+
+  - name: log.errors
+    index: logs-apm.app.*
+    filter: {terms: {log.level: [error, ERROR, Error, fatal, FATAL, Fatal, critical, CRITICAL, Critical]}}
+    by: [service.name]
+    value: count
+    direction: up
+    min_abs: 5
+
+  # logs-apm.error-*：agent 回報的例外，每個服務都有（不用開 log shipping）
+  - name: apm.errors
+    index: logs-apm.error-*
+    filter: {term: {processor.event: error}}
+    by: [service.name]
+    value: count
+    direction: up
+    min_abs: 5
+
+  # ── 資源：Pod CPU、記憶體 ──
+  # APM agent 的 system metrics 寫在 metrics-apm.app.<服務>-*（metricset.name: app）。公司的資料流清單裡沒有這條（agent 沒送），
+  # 先不開；有的話把下面打開
+  # - name: pod.cpu
+  #   index: metrics-apm.app.*
+  #   filter: {exists: {field: system.process.cpu.total.norm.pct}}
+  #   by: [service.name]
+  #   value: {avg: system.process.cpu.total.norm.pct}     # 0～1：佔全部核的比例
+  #   direction: up
+  #   min_abs: 0.1
+  # - name: pod.memory_bytes
+  #   index: metrics-apm.app.*
+  #   filter: {exists: {field: system.process.memory.rss.bytes}}
+  #   by: [service.name]
+  #   value: {avg: system.process.memory.rss.bytes}
+  #   direction: up
+  #   min_abs: 104857600

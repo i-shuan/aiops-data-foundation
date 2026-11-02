@@ -1,0 +1,32 @@
+# 資料來源是 Elastic APM 時的根因分析設定。寫法跟 configs/rca/rca.yaml 一樣；log 的欄位名（service.name、trace.id）由
+# AIOPS_SOURCE=apm 決定（core/source.py），不在這裡。
+indices:
+  anomalies: aiops-anomalies
+  traces: traces-merged-*                          # trace-merge 從 traces-apm-* 合成的
+  logs: logs-apm.app.*,logs-apm.error-*            # 應用 log（有開 log shipping 的服務）＋ agent 回報的例外
+timezone: Asia/Taipei
+compare_with: 7d
+ref_gap: 10m
+sample: 200
+interval: 5m
+
+trend: {windows: 6, window: 10m}
+commonality:
+  resource: [k8s.pod.name, service.version, host.name]   # core/traces.py 把 APM 的 kubernetes.pod.name 攤成 k8s.pod.name
+  attrs: [db.statement]                                  # span.db.statement → db.statement；業務 ID 在 labels.<名字>，有的話加進來
+  min_share: 0.6
+  min_lift: 2
+
+alerts:
+  close_after: 30m
+  lookback: 2h
+  rca: true
+  rca_retry: true
+  rca_retry_after: 2m
+  rca_retry_max: 5
+  similar: true
+  llm: true
+  chain: true
+  chain_sample: 100
+  # feedback_url: http://aiops-feedback.aiops.svc:8080/feedback?alert={alert_id}
+  # report_url: http://aiops-feedback.aiops.svc:8080/report?alert={alert_id}

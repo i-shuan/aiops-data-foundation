@@ -24,6 +24,7 @@ kubectl -n aiops logs deploy/aiops-engine -c scheduler -f | grep '\[scheduler\]'
 ```
 
 - `rca.yaml` 的 `alerts.feedback_url`、`report_url` 填回饋網頁的網址（Service `aiops-feedback:8080`；要讓人從公司網路點得到再加 Ingress）。
+- 資料來源：預設讀我們 Collector 寫的 OTel 格式。公司 ES 裡是 Elastic APM 的資料（`traces-apm-*`、`logs-apm.*`、`metrics-apm.*`）時 `--set source=apm`，設定檔與怎麼接見 [code/configs/apm/README.md](code/configs/apm/README.md)。
 - LLM：`values.yaml` 的 `llm.provider`（`template` 不叫模型）、`llm.model`（空的用程式預設 openai `gpt-4o-mini`、anthropic `claude-sonnet-4-5`）、`llm.baseUrl`（內網閘道，不含 `/v1`）放 ConfigMap `aiops-env`；`llm.apiKey` 由 chart 建成 Secret `aiops-llm`。**key 只寫在 `values-local.yaml`**（`.gitignore` 擋掉），`values.yaml` 永遠留空。改了重跑 helm，pod 會自己重啟（`checksum/env`）。
 - 設定檔要跟 image 裡的不一樣：`--set-file configOverrides.baseline.series=aiops-engine/code/configs/baseline/series.yaml`（掛在 `/app/configs/baseline/series.yaml`）；排程表是 `configOverrides.schedule.schedule`。
 - **換 ES key 要重啟 pod**（`kubectl -n aiops rollout restart deploy/aiops-engine`）：環境變數是 pod 起來時讀的，不像以前每個 CronJob 每分鐘重讀。
