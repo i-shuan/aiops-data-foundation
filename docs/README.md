@@ -58,6 +58,7 @@
 | [../aiops-engine/code/configs/baseline/verification.md](../aiops-engine/code/configs/baseline/verification.md) | 案例 | baseline 各功能的實測與驗證結果 | 🟢 |
 | [../aiops-engine/code/configs/rca/README.md](../aiops-engine/code/configs/rca/README.md) | 操作 | 根因分析：預設值、怎麼跑、匯入歷史事故單、報告長什麼樣子、限制、怎麼驗 | 🟢 |
 | [../aiops-engine/code/configs/rca/example-report.md](../aiops-engine/code/configs/rca/example-report.md) | 案例 | 一份範例報告 | 🟢 |
+| [../aiops-engine/code/configs/apm/README.md](../aiops-engine/code/configs/apm/README.md) | 操作 | 用 Elastic APM 的資料跑 engine：哪些功能能用、ES role、template、`source: apm`、欄位對照 | 🟡（未在真實 APM 資料上跑過） |
 | [../aiops-engine/code/interfaces/README.md](../aiops-engine/code/interfaces/README.md) | 規格 | 要別人提供的資料的格式 | 🟢 |
 | [../aiops-engine/code/fake-data/README.md](../aiops-engine/code/fake-data/README.md) | 規格 | 假資料（只為了讓程式現在能跑、能測） | 🟢 |
 

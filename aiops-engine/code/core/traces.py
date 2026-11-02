@@ -6,24 +6,43 @@ span 的格式（to_span 從 raw 的 ES 文件轉成這樣；from_merged 從合�
   links：這一段連到的其他 span（span_id）。.NET 自動埋點的 Kafka 消費者（receive）是新的 trace，只用 link 指回生產者
   target：往外呼叫的對象（peer.service、db.system、db.system.name、server.address），沒有就是 None
 
-兩種 index：
-  raw    traces-generic.otel-<group>：Collector 寫的、每一段一筆、OTel 原生格式，只留 2 天（trace baseline、資料品質讀這份）
+三種 index（schema_of 看 index 名稱分；回傳的 span 格式一樣，後面的函式不用管來源）：
+  otel   traces-generic.otel-<group>：Collector 寫的、每一段一筆、OTel 原生格式，只留 2 天（trace baseline、資料品質讀這份）
+  apm    traces-apm-*：Elastic APM（Fleet apm integration）寫的，transaction／span 各一筆（_apm_span 轉成同一種格式）
   merged traces-merged-<group>-<日期>：detector trace-merge 合成的、一個請求一筆（根因分析讀這份，事故可能幾天後才查）
-  spans_of、spans_by_id 看 index 名稱決定怎麼讀；回傳的 span 格式一樣，後面的函式不用管來源。
 """
 from __future__ import annotations
 
 from collections import defaultdict
 from datetime import datetime
 
+from . import source
 from .es import ES, get_field, time_range
 
 _SPAN_FIELDS = ["@timestamp", "trace_id", "span_id", "parent_span_id", "name", "kind", "duration", "status.code", "links",
                 "resource.attributes", "attributes"]
+# APM 的文件：transaction、span 都是物件（span.stacktrace 很大、不要）；labels 是 agent 設的標籤（dept、group、業務 ID）
+_APM_FIELDS = {"includes": ["@timestamp", "timestamp.us", "processor.event", "trace.id", "parent.id", "transaction", "span",
+                            "event.outcome", "service", "kubernetes", "host.name", "labels", "data_stream.namespace",
+                            "http.request.method", "http.response.status_code", "url.path"],
+               "excludes": ["span.stacktrace", "transaction.custom", "transaction.marks"]}
+
+
+def schema_of(index: str) -> str:
+    """merged（engine 合成的）、apm（Elastic APM 的 traces-apm-*；AIOPS_SOURCE=apm 時其他 raw 索引也當 APM）、otel（Collector 寫的 raw）。"""
+    if "traces-merged" in index:
+        return "merged"
+    if "apm" in index or source.name() == "apm":
+        return "apm"
+    return "otel"
 
 
 def is_merged(index: str) -> bool:
-    return "traces-merged" in index
+    return schema_of(index) == "merged"
+
+
+def trace_id_field(index: str) -> str:
+    return "trace.id" if schema_of(index) == "apm" else "trace_id"
 
 
 def _duration_ms(v) -> float:
@@ -35,19 +54,71 @@ def _duration_ms(v) -> float:
     return d / 1e6 if d > 0 else 0.0
 
 
+def _start_ms(ts) -> float:
+    # ES 回的 @timestamp 可能是數字、數字的字串（奈秒精度時，例如 "1791687912264.916000"），或 ISO 格式
+    if isinstance(ts, str) and ts.replace(".", "", 1).isdigit():
+        ts = float(ts)
+    return float(ts) if isinstance(ts, (int, float)) else datetime.fromisoformat(ts.replace("Z", "+00:00")).timestamp() * 1000
+
+
+def is_apm_doc(src: dict) -> bool:
+    return get_field(src, "processor.event") in ("transaction", "span") or get_field(src, "trace.id") is not None
+
+
+def _apm_kind(event: str, obj: dict) -> str:
+    """APM 沒有 OTel 的 kind，從文件種類推：transaction 是入口（HTTP 請求 Server、訊息處理 Consumer）；
+    span 有往外的對象（DB、下游、外部系統）是 Client，送訊息是 Producer，其餘是程式內部的段（Internal）。"""
+    typ = (get_field(obj, "type") or "").split(".")[0]
+    if event == "transaction":
+        return "Consumer" if typ == "messaging" else "Server"
+    if typ == "messaging" and (get_field(obj, "action") or "") in ("send", "publish", "produce"):
+        return "Producer"
+    if typ in ("db", "external", "storage", "messaging") or get_field(obj, "destination.service.resource"):
+        return "Client"
+    return "Internal"
+
+
+def _apm_span(src: dict) -> dict:
+    """Elastic APM 的 transaction／span 文件 → 跟 to_span 同一種格式。
+    耗時是微秒（*.duration.us）；錯誤看 event.outcome；對象是 span.destination.service.resource（"oracle"、"mes-api:8080"）；
+    span 本身沒有例外（例外是 logs-apm.error 的獨立文件，先不接）。attrs、resource 攤平成 OTel 的名字，根因分析的
+    commonality（k8s.pod.name、db.statement）兩種來源同一套設定。"""
+    event = get_field(src, "processor.event") or ("transaction" if get_field(src, "transaction.duration.us") is not None else "span")
+    obj = (src.get(event) if isinstance(src.get(event), dict) else {k[len(event) + 1:]: v for k, v in src.items() if k.startswith(event + ".")}) or {}
+    labels = src.get("labels") or {}
+    us = get_field(src, "timestamp.us")
+    attrs = {k: v for k, v in {
+        "db.statement": get_field(obj, "db.statement"), "db.system": get_field(obj, "subtype") if (get_field(obj, "type") or "").startswith("db") else None,
+        "http.request.method": get_field(src, "http.request.method"), "http.response.status_code": get_field(src, "http.response.status_code"),
+        "url.path": get_field(src, "url.path"), f"{event}.type": get_field(obj, "type"), "span.subtype": get_field(obj, "subtype"),
+        "transaction.result": get_field(obj, "result"),
+        **{f"labels.{k}": v for k, v in labels.items()}}.items() if v is not None}
+    resource = {k: v for k, v in {
+        "service.name": get_field(src, "service.name"), "service.version": get_field(src, "service.version"),
+        "service.environment": get_field(src, "service.environment"),
+        "k8s.pod.name": get_field(src, "kubernetes.pod.name"), "k8s.namespace.name": get_field(src, "kubernetes.namespace"),
+        "k8s.node.name": get_field(src, "kubernetes.node.name") or get_field(src, "host.name"), "host.name": get_field(src, "host.name"),
+        "dept": labels.get("dept"), "group": labels.get("group"), "data_stream.namespace": get_field(src, "data_stream.namespace")}.items() if v is not None}
+    return {"trace_id": get_field(src, "trace.id"), "span_id": get_field(obj, "id"), "parent": get_field(src, "parent.id") or None,
+            "service": get_field(src, "service.name") or "?", "name": get_field(obj, "name") or "?",
+            "kind": _apm_kind(event, obj), "target": get_field(obj, "destination.service.resource") or get_field(src, "service.target.name"),
+            "start_ms": us / 1000.0 if isinstance(us, (int, float)) else _start_ms(src["@timestamp"]),
+            "dur_ms": _duration_ms(get_field(obj, "duration.us")) * 1000.0,     # 微秒 → 毫秒（_duration_ms 是奈秒 → 毫秒）
+            "error": get_field(src, "event.outcome") == "failure", "exception": None,
+            "links": [sid for l in (get_field(obj, "links") or []) if (sid := get_field(l, "span.id"))],
+            "attrs": attrs, "resource": resource}
+
+
 def to_span(src: dict) -> dict:
+    if is_apm_doc(src):
+        return _apm_span(src)
     attrs = src.get("attributes") or {}
     # db.system.name：新版 DB 語意（舊的 db.system 改名）；沒有對象的 Client span 段名沒有「→」，N+1 規則看不到
     target = (get_field(attrs, "peer.service") or get_field(attrs, "db.system") or get_field(attrs, "db.system.name")
               or get_field(attrs, "server.address"))
-    ts = src["@timestamp"]
-    # ES 回的 @timestamp 可能是數字、數字的字串（奈秒精度時，例如 "1791687912264.916000"），或 ISO 格式
-    if isinstance(ts, str) and ts.replace(".", "", 1).isdigit():
-        ts = float(ts)
-    start_ms = float(ts) if isinstance(ts, (int, float)) else datetime.fromisoformat(ts.replace("Z", "+00:00")).timestamp() * 1000
     return {"trace_id": src["trace_id"], "span_id": src["span_id"], "parent": src.get("parent_span_id") or None,
             "service": get_field(src, "resource.attributes.service.name") or "?", "name": src.get("name", "?"),
-            "kind": src.get("kind", ""), "target": target, "start_ms": start_ms,
+            "kind": src.get("kind", ""), "target": target, "start_ms": _start_ms(src["@timestamp"]),
             "dur_ms": _duration_ms(src.get("duration")), "error": get_field(src, "status.code") == "Error",
             "exception": get_field(attrs, "exception.type"),
             "links": [l["span_id"] for l in src.get("links") or [] if l.get("span_id")],
@@ -69,11 +140,17 @@ def spans_by_id(es: ES, index: str, span_ids: list[str], start: datetime, end: d
     want = set(span_ids)
     for i in range(0, len(span_ids), 1000):
         chunk = span_ids[i:i + 1000]
-        if is_merged(index):
+        schema = schema_of(index)
+        if schema == "merged":
             body = {"size": 1000, "query": {"bool": {"filter": [time_range(start, end),
                                                                  {"nested": {"path": "spans", "query": {"terms": {"spans.span_id": chunk}}}}]}}}
             for h in es.search(index, body)["hits"]["hits"]:
                 out.update({s["span_id"]: s for s in from_merged(h["_source"]) if s["span_id"] in want})
+        elif schema == "apm":   # transaction 的 id 在 transaction.id，span 的在 span.id
+            body = {"size": 1000, "_source": _APM_FIELDS,
+                    "query": {"bool": {"filter": [time_range(start, end)],
+                                       "should": [{"terms": {"span.id": chunk}}, {"terms": {"transaction.id": chunk}}], "minimum_should_match": 1}}}
+            out.update({s["span_id"]: s for s in (to_span(h["_source"]) for h in es.search(index, body)["hits"]["hits"]) if s["span_id"] in want})
         else:
             body = {"size": 1000, "_source": _SPAN_FIELDS,
                     "query": {"bool": {"filter": [time_range(start, end), {"terms": {"span_id": chunk}}]}}}
@@ -84,21 +161,29 @@ def spans_by_id(es: ES, index: str, span_ids: list[str], start: datetime, end: d
 def spans_of(es: ES, index: str, trace_ids: list[str], start: datetime, end: datetime) -> list[dict]:
     """把這些 trace 的所有 span 讀回來（含其他服務的）。時間放寬，跨過邊界的請求也讀得完整。"""
     out = []
+    schema = schema_of(index)
     for i in range(0, len(trace_ids), 500):
         ids = trace_ids[i:i + 500]
-        if is_merged(index):
+        if schema == "merged":
             body = {"size": 500, "query": {"bool": {"filter": [time_range(start, end), {"terms": {"trace_id": ids}}]}}}
             for h in es.search(index, body)["hits"]["hits"]:
                 out += from_merged(h["_source"])
             continue
-        after = None
+        # APM 的 transaction 沒有 span.id，分頁的次要排序只能用 _doc；同一毫秒的文件跨頁可能重複，最後依 span_id 去重
+        src, sort, tid = ((_APM_FIELDS, [{"@timestamp": "asc"}, {"_doc": "asc"}], "trace.id") if schema == "apm"
+                          else (_SPAN_FIELDS, [{"@timestamp": "asc"}, {"span_id": "asc"}], "trace_id"))
+        after, seen = None, set()
         while True:
-            body = {"size": 5000, "_source": _SPAN_FIELDS, "sort": [{"@timestamp": "asc"}, {"span_id": "asc"}],
-                    "query": {"bool": {"filter": [time_range(start, end), {"terms": {"trace_id": ids}}]}}}
+            body = {"size": 5000, "_source": src, "sort": sort,
+                    "query": {"bool": {"filter": [time_range(start, end), {"terms": {tid: ids}}]}}}
             if after:
                 body["search_after"] = after
             hits = es.search(index, body)["hits"]["hits"]
-            out += [to_span(h["_source"]) for h in hits]
+            for h in hits:
+                s = to_span(h["_source"])
+                if s["span_id"] not in seen:
+                    seen.add(s["span_id"])
+                    out.append(s)
             if len(hits) < 5000:
                 break
             after = hits[-1]["sort"]

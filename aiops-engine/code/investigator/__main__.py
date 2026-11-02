@@ -71,6 +71,8 @@ def _route_of(keys: dict) -> str | None:
         return f"{keys['attributes.http.request.method']} {keys['attributes.http.route']}"
     if keys.get("method") and keys.get("route"):          # http.* 序列統一後的 keys
         return f"{keys['method']} {keys['route']}"
+    if keys.get("route"):                                 # APM 的 transaction.name 本來就是 "GET /api/x"，沒有分開的 method
+        return keys["route"]
     return None
 
 

@@ -1,0 +1,48 @@
+# 資料來源是 Elastic APM 時的 Pod 同儕橫向比對（detector/peer.py）。寫法跟 configs/baseline/peer.yaml 一樣。
+# 「哪一個 Pod」用 service.node.name：APM agent 每個實例都有（預設是容器 ID，K8s 上 agent 會填 pod 名）；
+# kubernetes.pod.name 要 agent 拿得到 K8s metadata 才有，不一定每個服務都有。
+# CPU、記憶體的比對要 metrics-apm.app.*（agent 的 system metrics），公司的資料流沒有，沒列。
+
+window: 10m
+z: 5
+z_by_peers: {2: 3, 3: 4, 4: 4}
+rel_floor: 0.1
+min_peers: 3
+fresh: 2m
+warmup: 5m
+
+_tx: &tx metrics-apm.transaction.1m-*
+_hist: &hist transaction.duration.histogram
+_txf: &txf {bool: {filter: [{term: {metricset.name: transaction}}, {term: {transaction.type: request}}]}}
+_by: &by [service.name, service.node.name]
+
+checks:
+  - name: peer.http_error_rate
+    show: pct
+    title: 這個 Pod 的錯誤率比同服務其他 Pod 高
+    severity: warning
+    keys: [service, pod]
+    index: *tx
+    filter: *txf
+    by: *by
+    value: {hist_ratio: {field: *hist, query: {term: {event.outcome: failure}}}}
+    direction: up
+    min_abs: 0.05
+    min_volume: 20
+    max_peer_median: 0.05
+
+  - name: peer.http_latency_p95_s
+    show: seconds
+    title: 這個 Pod 比同服務其他 Pod 慢
+    severity: warning
+    keys: [service, pod]
+    index: *tx
+    filter: *txf
+    by: *by
+    value: {percentile: {field: *hist, percent: 95}}
+    scale: 1.0e-6
+    direction: up
+    min_abs: 0.1
+    min_ratio: 2
+    min_volume: 20
+    max_peer_median: 2

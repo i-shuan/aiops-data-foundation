@@ -18,6 +18,10 @@ image:
 
 esUrl: https://elasticsearch.example.internal:9200
 tz: Asia/Taipei
+# 原始資料是誰寫的：otel（我們的 Collector：metrics-*.otel-*、k8s-*、traces-generic.otel-*）或 apm（Elastic APM：metrics-apm.*、
+# logs-apm.*、traces-apm-*）。apm 時環境變數 AIOPS_SOURCE=apm、排程表換成 configs/apm/schedule.yaml（設定檔在 code/configs/apm/，
+# 怎麼接見 code/configs/apm/README.md）
+source: otel
 secret: aiops-secrets          # ES_API_KEY
 esApiKey: ""                   # CI 部署時給（setup 的 engine-values.yaml）：chart 建上面這個 Secret；空的就不建、沿用手動建的
 

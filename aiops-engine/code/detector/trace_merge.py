@@ -13,7 +13,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 from core.es import ES, time_range
-from core.traces import group_traces, root_of, spans_of
+from core.traces import group_traces, root_of, spans_of, trace_id_field
 
 STATE_INDEX = "aiops-state"
 STATE_ID = "trace-merge"
@@ -54,10 +54,10 @@ def build(spans: list[dict], merged_at: datetime) -> tuple[str, dict]:
 
 
 def updated_trace_ids(es: ES, raw_index: str, since: datetime, until: datetime) -> list[str]:
-    """這段時間（依 event.ingested）有 span 進來的 trace。"""
+    """這段時間（依 event.ingested）有 span 進來的 trace。event.ingested 我們的 pipeline traces-otel 蓋、APM 的 Fleet pipeline 也蓋。"""
     out, after = [], None
     body = {"size": 0, "query": {"range": {"event.ingested": {"gte": since.isoformat(), "lt": until.isoformat()}}},
-            "aggs": {"t": {"composite": {"size": 2000, "sources": [{"id": {"terms": {"field": "trace_id"}}}]}}}}
+            "aggs": {"t": {"composite": {"size": 2000, "sources": [{"id": {"terms": {"field": trace_id_field(raw_index)}}}]}}}}
     while True:
         if after:
             body["aggs"]["t"]["composite"]["after"] = after
