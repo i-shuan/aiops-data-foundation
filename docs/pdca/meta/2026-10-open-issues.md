@@ -167,7 +167,7 @@
 | 項目 | 現況 | 來源 |
 |---|---|---|
 | 回饋沒有身分 | 表單、網頁沒登入；回饋 3 次可以是同一個人 | [architecture.md 第 10 節](../../architecture.md#10-還沒做還不足的) |
-| Grafana 回饋表單是陽春版（**決定：先不改**） | 表單放在 Grafana 的儀表板裡（Business Forms 外掛 6.3.1）。基本的回饋表單 2026-10-26 在真的 Grafana（12.2、13.0.7）上跑過（截圖 [grafana-form.png](../../feedback/grafana-form.png)）。**之後才加的部分沒在真的 Grafana 畫面上驗過**：兩題評分、一句話、漏報面板（`datetime` 元素型別是照外掛文件寫的）；目前的測試 Grafana 沒裝外掛、也沒載這張儀表板。部署時要照 [grafana/README.md](../../../grafana/README.md) 做：儀表板 JSON 的四個網址 `http://localhost:18080` 換成值班人員瀏覽器連得到的回饋服務位址，回饋服務設 `FEEDBACK_CORS_ORIGIN`（`feedback.corsOrigin`，已支援）。沒有登入、回饋沒有身分 | [grafana/README.md](../../../grafana/README.md)、[aiops-feedback.json](../../../grafana/code/dashboards/aiops-feedback.json) |
+| Grafana 回饋表單是陽春版（**決定：先不改**） | 表單放在 Grafana 的儀表板裡（Business Forms 外掛 6.3.1）。基本的回饋表單 2026-10-26 在真的 Grafana（12.2、13.0.7）上跑過（截圖 [grafana-form.png](../../feedback/grafana-form.png)）。**之後才加的部分沒在真的 Grafana 畫面上驗過**：兩題評分、一句話、漏報面板（`datetime` 元素型別是照外掛文件寫的）；目前的測試 Grafana 沒裝外掛、也沒載這張儀表板。部署時要照 [grafana/README.md](../../../grafana/README.md) 做：儀表板 JSON 的四個網址 `http://localhost:18080` 換成值班人員瀏覽器連得到的回饋服務位址，回饋服務設 `FEEDBACK_CORS_ORIGIN`（`feedback.corsOrigin`，已支援）。沒有登入、回饋沒有身分 | [grafana/README.md](../../../grafana/README.md)、aiops-feedback.json（當時在 grafana/code/dashboards/） |
 | 漏報沒有網頁入口 | 已做：Grafana 回饋儀表板加第二個表單面板，送 `feedback_web` 的 `/api/missed`，文件格式同指令；不另做網頁（使用者決定）；Grafana 上沒實載（已合入 master；[PDCA](../phase5-learning-loop/2026-11-open-issues-batch.md)） | 同上 |
 | 沒有評測集 | 相似事故在沒有 trace 時，只靠「同服務＋同指標」剛好壓在門檻上 | 同上 |
 | 舊事故單匯入 `aiops-incidents` 的格式沒寫 | 已做：`investigator import-incidents`（CSV／JSON，格式見 [configs/rca/README.md](../../../aiops-engine/code/configs/rca/README.md)）；合成 20 筆 recall@3 50%，等真實事故單（[PDCA](../phase4-rca-llm/2026-10-incident-import.md)） | 同上 |

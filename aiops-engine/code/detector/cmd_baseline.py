@@ -415,7 +415,7 @@ def write_detect_status(es, now: pd.Timestamp, missing: list[str]) -> None:
     事件整合、儀表板、metrics 都只拿 status open／category service 的，不會把它當成一件）。
     missing_baseline 是這輪沒有 baseline 的序列數。aiops-baseline 掉了（ES 重建、index 被刪）時 detect 只印一行就跳過，
     動態基準線這一路靜默停擺，aiops-heartbeat 看不到；Grafana 的 aiops-baseline-missing 規則查 missing_baseline > 0 送平台
-    （grafana/code/alert-rules.yaml、docs/pdca/meta/2026-10-open-issues.md 第 7 節）。"""
+    （grafana/helmchart/files/alert-rules.yaml、docs/pdca/meta/2026-10-open-issues.md 第 7 節）。"""
     from investigator.cmd_alert import ALERT_INDEX, ALERT_MAPPING, stamp_of   # 函式內 import：cmd_alert 也 import detector，避免循環
     es.ensure_index(ALERT_INDEX, ALERT_MAPPING)    # 既有 index 補 missing_baseline 欄位（dynamic false；ensure_index 會 PUT _mapping）
     es.bulk_index(ALERT_INDEX, [("detect-status", {

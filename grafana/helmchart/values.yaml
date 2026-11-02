@@ -1,10 +1,9 @@
 # 正式環境的預設值。公司已經有 Grafana 的話不用這個 chart：只把 initContainer 那段加進現有的 Deployment（見 ../README.md）。
 #
-# provisioning 的檔在 ../code/，不複製進 chart，安裝時用 --set-file 帶進來；key 是檔名（不含副檔名）：
-#   --set-file provisioning.datasources.aiops=grafana/code/datasource.yaml
-#   --set-file provisioning.alerting.alert-rules=grafana/code/alert-rules.yaml,provisioning.alerting.contact-points=…,provisioning.alerting.policies=…
-#   --set-file provisioning.dashboards.aiops-feedback=grafana/code/dashboards/aiops-feedback.json,…
+# data source、3 條告警規則、contact point、policy、3 個儀表板都在 files/ 裡（Helm 只讀得到 chart 資料夾內的檔），
+# 裝的時候不用再帶檔案：helm upgrade --install grafana grafana/helmchart -n <ns>
 # 檔裡的 ${ES_URL}、${GRAFANA_ES_API_KEY}、${NOTIFY_*_URL} 由 Grafana 從環境變數展開（envSecret）。
+# 要改通知管道、dept 清單：改 files/ 的檔再升級；回饋網頁的網址用下面的 feedbackUrl。
 image: grafana/grafana:13.0.7                              # 換成 Nexus 的路徑
 
 service:
@@ -30,10 +29,9 @@ plugin:                                                    # Business Forms（�
     requests: {cpu: 10m, memory: 32Mi, ephemeral-storage: 64Mi}
     limits: {memory: 128Mi, ephemeral-storage: 256Mi}    # 外掛 zip 約 1.4MB，解開約 4.6MB
 
-provisioning:
-  datasources: {}
-  alerting: {}
-  dashboards: {}                                           # 全部載進 Grafana 的 AIOps 資料夾
+# 回饋網頁（engine 的 aiops-feedback）的網址，要是使用者的**瀏覽器**連得到的（Service 前面加 Ingress）。
+# 儀表板 aiops-feedback 的回饋表單從瀏覽器直接打它，渲染時把檔裡的 http://localhost:18080 換成這個值。
+feedbackUrl: http://localhost:18080
 
 resources:
   requests: {cpu: 100m, memory: 256Mi, ephemeral-storage: 256Mi}

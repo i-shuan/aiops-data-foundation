@@ -1,6 +1,6 @@
 """alert：最近的異常 → 合成一件（investigator/alerts.py）→ 新的那件跑一次根因分析 → 寫 aiops-alerts。
 
-Grafana 讀 aiops-alerts 發通知（grafana/code/）：status open 的每一件一則，依 dept 分送；
+Grafana 讀 aiops-alerts 發通知（grafana/helmchart/files/）：status open 的每一件一則，依 dept 分送；
 @timestamp 是「這次執行還看到它開著」的時間往前 1 分鐘（心跳；為什麼往前見 STAMP_LAG），所以 Grafana 只要查最近幾分鐘有 @timestamp 的 open 件。
 這支要定期跑（建議每 1～2 分鐘，跟 rules、detect 之後）。
 """

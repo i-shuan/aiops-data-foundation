@@ -48,7 +48,7 @@ APM 寫的三種資料 engine 只讀，保留天數不在這個 repo 管；`trac
 | 1. 根因分析、LLM 摘要、相似事故 | `investigator alert` 算，寫進 `aiops-alerts` 那一件：`report`（全文，不建索引）、`llm_summary`、`findings`、`similar`（結構化，不建索引） |
 | 2. 通知 | Grafana 告警規則讀 `aiops-alerts`，帶 `title`、`summary`、`report_url`、`feedback_url` 這些 keyword 欄位（告警只能帶 labels） |
 | 3. 看報告全文 | 通知裡的 `report_url` → 回饋網頁 `/report?alert=…` 從 `aiops-alerts` 讀出來顯示 |
-| 4. 儀表板 | Grafana 的資料來源直接讀 `aiops-alerts`、`aiops-anomalies`、`aiops-tuning`、`aiops-feedback`（[datasource.yaml](../grafana/code/datasource.yaml)） |
+| 4. 儀表板 | Grafana 的資料來源直接讀 `aiops-alerts`、`aiops-anomalies`、`aiops-tuning`、`aiops-feedback`（[datasource.yaml](../grafana/helmchart/files/datasource.yaml)） |
 
 ## 回饋表單的資料流
 
@@ -82,7 +82,7 @@ APM 寫的三種資料 engine 只讀，保留天數不在這個 repo 管；`trac
 
 | 項目 | 放哪 | Pod 重建後 |
 |---|---|---|
-| 資料來源、告警規則、通知對象、通知路由、儀表板（`aiops-rca`、`aiops-feedback`、`aiops-learning`） | repo 的 [grafana/code/](../grafana/code/)，部署時 provisioning 載入 | **回來**（在檔案裡） |
+| 資料來源、告警規則、通知對象、通知路由、儀表板（`aiops-rca`、`aiops-feedback`、`aiops-learning`） | repo 的 [grafana/helmchart/files/](../grafana/helmchart/files/)，部署時 provisioning 載入 | **回來**（在檔案裡） |
 | 告警目前的狀態與歷史、使用者、在畫面上手動改的東西 | Grafana 內部 sqlite，**在容器裡，chart 沒掛 PVC** | **清掉** |
 | 回饋表單外掛（Business Forms） | `emptyDir` | 由 initContainer 重新下載安裝 |
 

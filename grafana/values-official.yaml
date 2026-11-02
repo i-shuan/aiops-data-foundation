@@ -1,5 +1,5 @@
 # Grafana chart（helm repo grafana-community/grafana；原 grafana/grafana 已棄用、搬到 grafana-community）的 values：data source、告警、儀表板都在這一份。
-# 由 grafana/code/build-official-values.py 從 grafana/code/ 產生，**不要手改**：改 code/ 的檔，再跑
+# 由 grafana/code/build-official-values.py 從 grafana/helmchart/files/ 產生，**不要手改**：改 helmchart/files/ 的檔，再跑
 #   python3 grafana/code/build-official-values.py
 #
 # 部署（Secret grafana-env 要先有：ES_URL、GRAFANA_ES_API_KEY、NOTIFY_IT_URL、NOTIFY_IMC_URL、NOTIFY_PLATFORM_URL、GF_SECURITY_ADMIN_USER、GF_SECURITY_ADMIN_PASSWORD；
@@ -1680,7 +1680,7 @@ dashboards:
           }
         }
     aiops-rca:
-      json: |-
+      json: |
         {
           "uid": "aiops-rca",
           "title": "AIOps 事故與根因",
@@ -1700,8 +1700,8 @@ dashboards:
             {
               "id": 1,
               "type": "table",
-              "title": "事故清單（AIOps 把很多筆異常合成一件）",
-              "description": "",
+              "title": "事故清單：一列 = 一件事故（一個服務在一段時間內的所有異常合成一件）",
+              "description": "engine 每分鐘把同一個服務、時間相連的異常合成一件事故（aiops-alerts 一筆）。「合併的異常筆數」是這件合進來幾筆異常（aiops-anomalies）；30 分鐘沒有新異常就結案。上面選一件，下面看它的 LLM 摘要、相似事故與根因報告。",
               "datasource": {
                 "type": "elasticsearch",
                 "uid": "aiops-alerts"
@@ -1756,7 +1756,15 @@ dashboards:
                       "anomaly_count": 5,
                       "title": 6
                     },
-                    "renameByName": {}
+                    "renameByName": {
+                      "started_at": "開始時間",
+                      "status": "狀態",
+                      "severity": "嚴重度",
+                      "service": "服務",
+                      "dept": "部門",
+                      "anomaly_count": "合併的異常筆數",
+                      "title": "標題"
+                    }
                   }
                 },
                 {
@@ -1850,7 +1858,7 @@ dashboards:
                     "properties": [
                       {
                         "id": "custom.width",
-                        "value": 90
+                        "value": 130
                       }
                     ]
                   }
@@ -2252,13 +2260,9 @@ dashboards:
                 "refresh": 2,
                 "sort": 2,
                 "includeAll": false,
-                "query": {
-                  "find": "terms",
-                  "field": "alert_id",
-                  "query": "category:service",
-                  "size": 100
-                },
-                "current": {}
+                "query": "{\"find\": \"terms\", \"field\": \"alert_id\", \"query\": \"category:service\", \"size\": 100}",
+                "current": {},
+                "definition": "{\"find\": \"terms\", \"field\": \"alert_id\", \"query\": \"category:service\", \"size\": 100}"
               }
             ]
           }

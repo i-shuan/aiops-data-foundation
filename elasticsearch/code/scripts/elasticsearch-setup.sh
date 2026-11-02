@@ -110,7 +110,7 @@ issue_key engine -d '{
 echo
 
 # 2. Grafana 唯讀 key：讀 aiops-alerts（AIOps 合併過的事件，Grafana 依它發通知）和儀表板用的 aiops-anomalies、aiops-tuning、
-#    aiops-feedback（grafana/code/datasource.yaml 的四個 data source；只給 aiops-alerts 的話另外三個讀取 403、儀表板空白）。
+#    aiops-feedback（grafana/helmchart/files/datasource.yaml 的四個 data source；只給 aiops-alerts 的話另外三個讀取 403、儀表板空白）。
 #    cluster monitor：Grafana 的 ES data source 會先打 GET / 看版本（沒有這個權限 data source 測試回 403）
 echo "=== Grafana 唯讀 key ==="
 issue_key grafana -d '{

@@ -1,4 +1,4 @@
-"""Grafana 裡的回饋表單（grafana/code/dashboards/aiops-feedback.json）跟回饋服務對得起來（docs/pdca/phase5-learning-loop/2026-10-grafana-form.md）。"""
+"""Grafana 裡的回饋表單（grafana/helmchart/files/dashboards/aiops-feedback.json）跟回饋服務對得起來（docs/pdca/phase5-learning-loop/2026-10-grafana-form.md）。"""
 import json
 import os
 import threading
@@ -13,7 +13,7 @@ from feedback_web import app as A
 from tests.test_feedback_web import ALERT, FakeES
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-DASH = os.path.join(HERE, "..", "..", "..", "grafana", "code", "dashboards", "aiops-feedback.json")
+DASH = os.path.join(HERE, "..", "..", "..", "grafana", "helmchart", "files", "dashboards", "aiops-feedback.json")
 SUBMIT_FIELDS = {"alert_id", "verdict", "by", "root_cause_category", "root_cause", "action", "how_detected", "checked", "improve",
                  "fp_reason", "fp_reason_text", "note", "feedback_text", "rca_cause_useful", "rca_action_useful"}
 DISPLAY_FIELDS = {"title", "summary", "llm", "similar"}

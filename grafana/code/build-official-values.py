@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""把 grafana/code/ 的 provisioning 檔合成 Grafana 社群維護的 chart（grafana-community/grafana，原 grafana/grafana 已棄用）的 values：grafana/values-official.yaml。
+"""把 grafana/helmchart/files/ 的 provisioning 檔合成 Grafana 社群維護的 chart（grafana-community/grafana，原 grafana/grafana 已棄用）的 values：grafana/values-official.yaml。
 
 用法：python3 grafana/code/build-official-values.py            產生（覆蓋 grafana/values-official.yaml）
-      python3 grafana/code/build-official-values.py --check    產生的跟檔案裡的不一樣就失敗（CI 用，確認 code/ 改了有重新產生）
+      python3 grafana/code/build-official-values.py --check    產生的跟檔案裡的不一樣就失敗（CI 用，確認 helmchart/files/ 改了有重新產生）
 
-code/ 永遠是唯一的來源，values-official.yaml 是產生出來的，不要手改。
+helmchart/files/ 永遠是唯一的來源，values-official.yaml 是產生出來的，不要手改。
 官方 chart 的對應：datasources、alerting（rules／contactpoints／policies）、dashboardProviders、dashboards。
 chart 會把 datasources、alerting 的內容先 toYaml 再當 Helm template（tpl）處理，所以 Grafana 自己的 {{ $labels.x }}
 要跳脫成 {{ `{{ $labels.x }}` }}（Go template 的原始字串，裡面不用引號，toYaml 之後也不會被改壞）；alerting 的值要是 map，不能是字串。
@@ -18,11 +18,12 @@ from pathlib import Path
 import yaml
 
 HERE = Path(__file__).resolve().parent
+SRC = HERE.parent / "helmchart" / "files"          # provisioning 的檔（也是自建 chart 讀的）
 OUT = HERE.parent / "values-official.yaml"
 
 HEADER = """\
 # Grafana chart（helm repo grafana-community/grafana；原 grafana/grafana 已棄用、搬到 grafana-community）的 values：data source、告警、儀表板都在這一份。
-# 由 grafana/code/build-official-values.py 從 grafana/code/ 產生，**不要手改**：改 code/ 的檔，再跑
+# 由 grafana/code/build-official-values.py 從 grafana/helmchart/files/ 產生，**不要手改**：改 helmchart/files/ 的檔，再跑
 #   python3 grafana/code/build-official-values.py
 #
 # 部署（Secret grafana-env 要先有：ES_URL、GRAFANA_ES_API_KEY、NOTIFY_IT_URL、NOTIFY_IMC_URL、NOTIFY_PLATFORM_URL、GF_SECURITY_ADMIN_USER、GF_SECURITY_ADMIN_PASSWORD；
@@ -66,7 +67,7 @@ def escape_tree(x):
 
 
 def load(name: str):
-    return yaml.safe_load((HERE / name).read_text(encoding="utf-8"))
+    return yaml.safe_load((SRC / name).read_text(encoding="utf-8"))
 
 
 def alerting_file(name: str) -> dict:
@@ -93,7 +94,7 @@ def build() -> str:
             "options": {"path": "/var/lib/grafana/dashboards/aiops"}}]}},
         "dashboards": {"aiops": {
             p.stem: {"json": Literal(p.read_text(encoding="utf-8"))}
-            for p in sorted((HERE / "dashboards").glob("*.json"))}},
+            for p in sorted((SRC / "dashboards").glob("*.json"))}},
     }
     body = yaml.safe_dump(values, allow_unicode=True, sort_keys=False, width=1000)
     plugins = ("\n# 回饋表單外掛（Business Forms 6.3.1）：公司的 Grafana 沒裝再打開，官方 chart 用 grafana-cli 下載\n"
@@ -106,9 +107,9 @@ if __name__ == "__main__":
     if "--check" in sys.argv:
         cur = OUT.read_text(encoding="utf-8").replace("\r\n", "\n") if OUT.exists() else ""
         if cur != out:
-            print("grafana/values-official.yaml 跟 code/ 不一致：跑 python3 grafana/code/build-official-values.py", file=sys.stderr)
+            print("grafana/values-official.yaml 跟 helmchart/files/ 不一致：跑 python3 grafana/code/build-official-values.py", file=sys.stderr)
             sys.exit(1)
-        print("values-official.yaml 跟 code/ 一致")
+        print("values-official.yaml 跟 helmchart/files/ 一致")
     else:
         OUT.write_text(out, encoding="utf-8", newline="\n")
         print(f"已產生 {OUT.relative_to(HERE.parent.parent)}（{len(out)} 字）")

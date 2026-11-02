@@ -64,7 +64,7 @@ kubectl -n aiops logs deploy/aiops-engine -c scheduler -f | grep '\[scheduler\]'
 
 ## 「AIOps 停了」怎麼知道
 
-`investigator alert` 每次跑都往 `aiops-alerts` 寫一筆心跳（`_id: heartbeat`、`status: ok`，不是一件事）。Grafana 的規則 `aiops-heartbeat`（[grafana/code/alert-rules.yaml](../grafana/code/alert-rules.yaml)）：最近 10 分鐘沒有心跳就送平台。
+`investigator alert` 每次跑都往 `aiops-alerts` 寫一筆心跳（`_id: heartbeat`、`status: ok`，不是一件事）。Grafana 的規則 `aiops-heartbeat`（[grafana/helmchart/files/alert-rules.yaml](../grafana/helmchart/files/alert-rules.yaml)）：最近 10 分鐘沒有心跳就送平台。
 
 基準線不見時排程沒停、心跳照寫，上面那條不響。`detector detect` 每輪另寫一筆 `detect-status`（`_id: detect-status`、`status: ok`、`missing_baseline`＝這輪沒有 baseline 的序列數、`series`＝它們的名字），規則 `aiops-baseline-missing` 查 `missing_baseline > 0` 持續 5 分鐘就送平台；處置就是上一節的手動 `train`。
 
