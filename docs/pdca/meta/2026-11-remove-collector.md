@@ -28,6 +28,7 @@
 | `docs/troubleshooting.md` | 刪收值、log、metrics、trace、.NET、Elasticsearch、本機測試環境六個區塊；新增「Elastic APM 的資料」一區 | 前面六個都是 Collector 與測試環境的問題 |
 | `docs/data-storage-reference.md`、`docs/aiops-data-reference.md`、`docs/rca/README.md`、`grafana/*`、`aiops-engine/` 的 README 與 baseline、rca 說明 | 改成 APM 的索引與欄位，或把指到已刪檔案的連結改掉、「實測」標明 e2e 已刪 | 連結檢查 |
 | `aiops-engine/helmchart/values-test.yaml`、`grafana/helmchart/values-test.yaml`、`tests/rca_k3s.yaml`、`tests/trace_k3s.yaml` | 刪 | 只給已刪的 e2e 腳本與 demo 用 |
+| `docs/deploy-how-to.md`（新） | 部署步驟：不跑 `es-setup`，在 Kibana 手動補 `traces-merged` 的 ILM 與 template、engine 的角色與 key；部署 engine 帶 `source=apm`；接 Grafana | 公司已有 ES，管 ES 的人不一定讓腳本跑；原本的 engine 角色只有寫、沒有讀 |
 | `docs/pdca/` 內 10 份紀錄 | 31 個指向已刪檔案的連結改成純文字，內容不動 | 紀錄是當時的措辭，但連結不能斷 |
 
 ## Check：測試的目的與結果

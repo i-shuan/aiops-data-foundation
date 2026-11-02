@@ -18,6 +18,7 @@
 | [../README.md](../README.md) | 原理 | 專案是什麼、怎麼跑起來 | 🟢 |
 | [architecture.md](architecture.md) | 原理 | 架構、設計決策與現況：收值用公司現有的 Elastic APM、目標、全域架構圖、關鍵決策、①～⑨ 模組職責、根因定位機制（第 1～5 節）；各 phase、各模組的程式、驗證、還沒做的、PDCA 索引（第 6～14 節） | 🟡（Elastic APM 的資料沒實跑過） |
 | [aiops-data-reference.md](aiops-data-reference.md) | 規格 | AIOps 資料格式：`aiops-anomalies`、`aiops-alerts`、`aiops-incidents`、`aiops-feedback`、`aiops-tuning` 的欄位、誰在什麼時候寫、真實範例、Grafana 面板讀哪些欄位 | 🟢 |
+| [deploy-how-to.md](deploy-how-to.md) | 操作 | 部署：公司已有 Elastic APM 與 ES，不跑 es-setup，在 Kibana 手動補設定、部署 aiops-engine、接 Grafana | 🟡（沒在真實環境照做過） |
 | [troubleshooting.md](troubleshooting.md) | 操作 | 症狀 → 原因 → 做法 | 🟢 |
 
 ### 資料存哪裡
@@ -60,7 +61,7 @@
 | 我要… | 看這些 |
 |---|---|
 | **懂為什麼這樣設計**（原理） | [architecture.md](architecture.md)、[rca](rca/README.md)・[feedback](feedback/README.md) 的 README（各自也含規格、操作、案例章節） |
-| **做一件事**（操作） | [troubleshooting.md](troubleshooting.md)、[接 Elastic APM 的資料](../aiops-engine/code/configs/apm/README.md)、[baseline 怎麼跑](../aiops-engine/code/configs/baseline/README.md)、[在公司 ES 上補設定](../elasticsearch/README.md) |
+| **做一件事**（操作） | [部署](deploy-how-to.md)、[troubleshooting.md](troubleshooting.md)、[接 Elastic APM 的資料](../aiops-engine/code/configs/apm/README.md)、[baseline 怎麼跑](../aiops-engine/code/configs/baseline/README.md)、[在公司 ES 上補設定](../elasticsearch/README.md) |
 | **查欄位、參數、現況**（規格） | [aiops-data-reference.md](aiops-data-reference.md)、[data-storage-reference.md](data-storage-reference.md)、[baseline 規格](../aiops-engine/code/configs/baseline/reference.md) |
 | **看實例**（案例） | [baseline 實測](../aiops-engine/code/configs/baseline/verification.md)、[範例報告](../aiops-engine/code/configs/rca/example-report.md)；故障案例的歸納在 [rca/README.md](rca/README.md) |
 

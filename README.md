@@ -38,7 +38,7 @@ docs/
   pdca/              現況與待辦（依 PDCA 分）、每一輪紀錄、TEMPLATE.md
 ```
 
-閱讀順序：[architecture.md](docs/architecture.md) → [aiops-engine/code/configs/apm/README.md](aiops-engine/code/configs/apm/README.md)（怎麼接 Elastic APM 的資料）→ 各主題。
+要部署看 [docs/deploy-how-to.md](docs/deploy-how-to.md)。閱讀順序：[architecture.md](docs/architecture.md) → [aiops-engine/code/configs/apm/README.md](aiops-engine/code/configs/apm/README.md)（怎麼接 Elastic APM 的資料）→ 各主題。
 
 | 資料夾 | 主文件 |
 |---|---|
