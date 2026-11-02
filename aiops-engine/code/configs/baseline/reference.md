@@ -56,7 +56,7 @@
 |---|---|
 | 每條序列多細 | 預設 30 秒一點（跟收值一樣），量不夠的自己往粗調到 1 分鐘～1 小時（見「自動調整」(1)）；每條序列切成 168 個時段（星期幾 × 小時）各自學 |
 | 最快多久開始判斷 | 50 個點（`all` 層）：30 秒一點約 25 分鐘、5 分鐘一點約 4 小時；3 天後有「每天同一小時」；2 週後有「同星期幾 × 同小時」 |
-| 訓練（`train`） | 建議每天一次；5 分鐘以上的粒度用最近 4 週，30 秒、1 分鐘用最近 14 天（跟 metrics 原始資料留 14 天一致，見 [retention.md](../../../../docs/retention.md)） |
+| 訓練（`train`） | 建議每天一次；5 分鐘以上的粒度用最近 4 週，30 秒、1 分鐘用最近 14 天（OTel 版跟 metrics 原始資料留 14 天一致；Elastic APM 版是 1 分鐘一點，見 [../apm/series.yaml](../apm/series.yaml)） |
 | 偵測（`detect`） | 建議每 30 秒一次，看最近 30 分鐘、只看已經結束（再退 30 秒確定收齊）的時間窗 |
 | 現況 | ⚠️ 正式環境還沒排程，目前是測試環境手動跑（排程範例見「怎麼跑」） |
 
@@ -206,9 +206,9 @@ series:
 | `trace.segment.repeated` | 同一個請求裡，同一個往外的呼叫平均幾次 | **N+1、迴圈裡打 API**（規則，不用學：≥ 20 次）。從上線第一天就有的 N+1，baseline 會學成平常，所以要有固定門檻 |
 | `trace.segment.swallowed` | 同上的吞掉例外比例 | **吞掉的例外**（規則，不用學：≥ 5% 的請求）。訊息帶例外種類，例如「5% 的請求丟了 System.TimeoutException，但沒標成錯誤」 |
 
-**訊息消費者（Kafka）：** 入口除了 HTTP 請求（Server），也算訊息消費者（Consumer）和「沒有上一層的 span」。消費者多一段「`服務 › 排隊（topic）← 生產者`」＝拿到訊息的時間 − 生產者送出的時間（生產者是上一層，或用 link 找回來）。.NET 自動埋點的消費者處理時查的 DB 自成一個 trace，當成自己的入口算，所以看得到「這個消費者寫 DB 變慢、出錯」。實測見 [trace/README.md 場景四](../../../../docs/trace/README.md)。
+**訊息消費者（Kafka）：** 入口除了 HTTP 請求（Server），也算訊息消費者（Consumer）和「沒有上一層的 span」。消費者多一段「`服務 › 排隊（topic）← 生產者`」＝拿到訊息的時間 − 生產者送出的時間（生產者是上一層，或用 link 找回來）。.NET 自動埋點的消費者處理時查的 DB 自成一個 trace，當成自己的入口算，所以看得到「這個消費者寫 DB 變慢、出錯」。
 
-吞掉的例外要靠 Collector：ES 不存 span 的例外事件，node Collector 先把例外的種類、訊息抄到 span 的屬性（`exception.type`、`exception.message`，[node.yaml](../../../../collector/code/node.yaml) 的 `transform/exceptions`）。兩種樣子都算吞掉：這一段有例外、status 沒設；或這一段有例外又標了錯誤，但這個服務的入口沒標錯誤（Java agent 的 JDBC、HTTP client 丟例外一定標錯誤，程式 catch 掉、回 200 就是這樣）。錯誤傳到入口（回 500）的算錯誤，不算吞掉。
+吞掉的例外要靠 span 上有例外的種類（屬性 `exception.type`）：OTel 版是 Collector 從例外事件抄到 span 屬性（Collector 已從這個 repo 移除）；Elastic APM 版的例外是 `logs-apm.error-*` 的獨立文件，還沒接回 span，這條不會觸發。兩種樣子都算吞掉：這一段有例外、status 沒設；或這一段有例外又標了錯誤，但這個服務的入口沒標錯誤（Java agent 的 JDBC、HTTP client 丟例外一定標錯誤，程式 catch 掉、回 200 就是這樣）。錯誤傳到入口（回 500）的算錯誤，不算吞掉。
 
 往外呼叫的對象依序取 `peer.service`、`db.system`、`db.system.name`（新版 DB 語意）、`server.address`；都沒有的 Client span 段名沒有「→ 對象」，`repeated`（N+1）規則看不到。
 
@@ -267,7 +267,7 @@ series:
 - **全部一起壞不報**：例如下游 DB 掛了，每個 Pod 都錯，那不是「某個 Pod」的問題，交給 baseline 和規則。其他 Pod 的中位數已經到規則門檻（錯誤率 5%、p95 2 秒，`max_peer_median`）時，最嚴重的那個也不單獨挑出來。
 - 門檻比 baseline 寬（`rel_floor` 10%，再加上至少差多少、至少幾倍）：同一個服務的 Pod 本來就不會一模一樣。
 
-**誰跟誰是同儕**：不是 AIOps 判斷，是照資料裡的欄位分組（`namespace`、`service.name`、Deployment、`pod`）。這些欄位是 Collector 依連線來源 IP 對到 Pod 後補上的；服務名的來源順序是 Pod label `app.kubernetes.io/name`、`OTEL_SERVICE_NAME`、Deployment 名稱（見 [metrics 的共同鑰匙圈](../../../../docs/metrics/README.md#共同鑰匙圈)）。
+**誰跟誰是同儕**：不是 AIOps 判斷，是照資料裡的欄位分組（`namespace`、`service.name`、Deployment、`pod`）。OTel 版這些欄位是 Collector 依連線來源 IP 對到 Pod 後補上的；Elastic APM 版用 `service.name`、`service.node.name`（見 [../apm/peer.yaml](../apm/peer.yaml)）。
 
 **限制：**
 - 標籤錯了就分錯組：兩個不同的服務用了同一個 `service.name`，會被當成同儕互相比。

@@ -16,20 +16,20 @@ PDCA 的意思：**Plan** 定規則與門檻 → **Do** 收值、判斷、報告
 | ⑨ 上線前記下基準（每天告警幾筆、誤報多少、從告警到回饋多久） | ⚠️ `metrics` 指令有了，數字要等試點 | [phase5-learning-loop/2026-10-metrics-kpi.md](phase5-learning-loop/2026-10-metrics-kpi.md) |
 | ④ 用真實資料校正門檻 | 📝 要先排程跑 2～4 週 | [rca/](../rca/README.md) |
 | ② 歸屬放哪裡（讀 namespace 的 `dept`，或改成 app → group 中央清單）、app 名稱是否全公司唯一 | 未定案 | [README「還沒定案的」](../../README.md#還沒定案的) |
-| ③ 保留天數與容量（用正式環境的量重算） | ⚠️ 已合進 master；天數是暫定值，要用正式環境的量重算 | [retention.md](../retention.md) |
+| ③ 保留天數與容量（用正式環境的量重算） | ⚠️ 已合進 master；天數是暫定值，要用正式環境的量重算 | retention.md |
 | ②④ 服務命名規則（`groups`）、交易 ID 命名、寫入 key 怎麼自動進新 cluster | 未定案，要別人配合 | 各資料夾 |
 
 ## Do：收值、判斷、報告
 
 | 項目 | 狀態 | 細節 |
 |---|---|---|
-| ①②③ 收值（log、metrics、trace、尾端取樣）、清資料、存 | ✅ | [log](../log/README.md)、[metrics](../metrics/README.md)、[trace](../trace/README.md) |
+| ①②③ 收值（log、metrics、trace、尾端取樣）、清資料、存 | ✅ | log、metrics、trace |
 | ④ 判斷：靜態臨界值規則 (Static Threshold Rules)、動態基準線學習 (Dynamic Baseline Learning)、Pod 同儕橫向比對 (Peer Comparison)、trace 每一段 | ✅ | [engine/configs/baseline](../../aiops-engine/code/configs/baseline/README.md) |
 | ⑦ 根因分析：metrics → trace → log | ✅ | [engine/configs/rca](../../aiops-engine/code/configs/rca/README.md) |
 | ④ **正式環境排程**（train 每天、detect 每 30 秒、rules 與 peer 每分鐘） | ⚠️ 程式好了，沒部署 | [rca/](../rca/README.md) |
 | 已完成部分的小尾巴：② 統一指標名稱（metrics）、② 統一欄位路徑（log）（① trace-sampler 磁碟佇列已做） | ⚠️ | 各資料夾 README 開頭 |
 | ①②④ 時間對齊：主機時鐘監控（metrics）、收資料延遲與時區（log）、時鐘差日報（trace） | 📝 | 同上 |
-| ①② 業務 ID：交易 ID 命名、從 log 抽出；Kafka 驗證 Java | 📝 | [trace/](../trace/README.md) |
+| ①② 業務 ID：交易 ID 命名、從 log 抽出；Kafka 驗證 Java | 📝 | trace/ |
 | ⑦ 根因分析改看一批慢 trace 找共同瓶頸（不用 exemplar，ES 不存） | 📝 | [rca/「為什麼不用 exemplar」](../rca/README.md) |
 | ④ baseline 補強：p99、慢請求比例、往外呼叫耗時、變化點、Pod → trace 逐段比、趨勢 | 📝 | [rca/](../rca/README.md) |
 | ⑥ 收斂：(1) 連續的點合成一段、(2) 同服務合成一件、(3) 沿呼叫關係找源頭 | 📝 | [rca/「雜訊壓制」](../rca/README.md) |
@@ -212,3 +212,4 @@ metrics → trace → log 找到哪一段、哪行 log；事件整合、排程�
 | [meta/2026-10-docs-governance.md](meta/2026-10-docs-governance.md) | 跨階段 文件治理：索引＋狀態標籤、設定與原理分離、術語寫進 CLAUDE.md、檢查腳本 | `docs/README.md` 地圖、`CLAUDE.md`、`tools/check-docs.py`；活的文件舊說法 0；pdca 根目錄雜項收進 `meta/` |
 | [meta/2026-10-poc-acceptance.md](meta/2026-10-poc-acceptance.md) | ①～⑨ POC 驗收計畫：6 個 KPI、4 個故障情境、Go/No-Go | 四個任務已合入 master；模擬服務、合成資料上：聚合率 100%、解析率 100%、串查 ✅、召回率 50%（要真實事故單）；Go/No-Go 待真實服務 |
 | [meta/2026-11-apm-source.md](meta/2026-11-apm-source.md) | ④⑤⑦ engine 讀 Elastic APM 的資料（不改 Collector、ES）：`configs/apm/`、`source: apm`、序列 `scale`／`div`、trace 的 APM 轉換 | 562 個單元測試過（新加 17 個：APM span 轉換、查詢欄位、scale／div、owner／log 欄位）；chart 兩種 source render 對；沒有真實 APM 資料，整條沒在 ES 上跑；例外吞噬、Pod 資源、往外呼叫 p95 在 APM 資料上做不到 |
+| [meta/2026-11-remove-collector.md](meta/2026-11-remove-collector.md) | ①②③ 刪自建收值：`collector/`、`apps/`、`e2e/`、ES 的 OTel 入口設定與文件；`elasticsearch/` 縮成只補 `traces-merged-*` 與兩把 key | 刪約 200 個檔；連結檢查從 80 個壞連結修到 0；engine 的 OTel 來源沒動；瘦身後的 setup 腳本與 chart 沒對真實 ES 跑 |

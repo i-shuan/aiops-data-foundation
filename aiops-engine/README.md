@@ -29,7 +29,6 @@ kubectl -n aiops logs deploy/aiops-engine -c scheduler -f | grep '\[scheduler\]'
 - 設定檔要跟 image 裡的不一樣：`--set-file configOverrides.baseline.series=aiops-engine/code/configs/baseline/series.yaml`（掛在 `/app/configs/baseline/series.yaml`）；排程表是 `configOverrides.schedule.schedule`。
 - **換 ES key 要重啟 pod**（`kubectl -n aiops rollout restart deploy/aiops-engine`）：環境變數是 pod 起來時讀的，不像以前每個 CronJob 每分鐘重讀。
 - 手動跑一次某個工作（例如剛部署要先有 baseline）：`kubectl -n aiops exec deploy/aiops-engine -c scheduler -- python3 -m scheduler --config configs/schedule/schedule.yaml --run train`。
-- 本機測試：`e2e/k8s/run-schedule-e2e.sh`（`values-test.yaml`：連 es-test、image 用 nerdctl 建進 containerd、不裝回饋網頁）。
 
 ## 排程：一隻 pod，第一階段只開 4 個
 

@@ -1,6 +1,6 @@
 # log 的 trace_id／span_id：各種格式、各種值都取對、對得到 trace（2026-10）
 
-**狀態**：已完成（cluster 那段未驗證，見 Act）　　**日期**：2026-10-27　　**相關**：分支 `claude/p1-logtrace-59c3aa`；[ingest-keys-check](2026-10-ingest-keys-check.md)（log↔trace 綁定的第一輪）、[docs/log/README「trace_id 怎麼取」](../../log/README.md)
+**狀態**：已完成（cluster 那段未驗證，見 Act）　　**日期**：2026-10-27　　**相關**：分支 `claude/p1-logtrace-59c3aa`；[ingest-keys-check](2026-10-ingest-keys-check.md)（log↔trace 綁定的第一輪）、docs/log/README「trace_id 怎麼取」
 **模組**：① 收值、② 清資料、⑦ 根因分析
 
 ## Plan：這一次要達到什麼

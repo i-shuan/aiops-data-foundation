@@ -1,6 +1,6 @@
 # collector：設定拆成通用與 AIOps 專屬，並寫公司已經有 Collector 時要加哪些（2026-11）
 
-**狀態**：已完成　　**日期**：2026-11-01　　**相關**：分支 `claude/collector-aiops-additions`；[collector/README.md](../../../collector/README.md)
+**狀態**：已完成　　**日期**：2026-11-01　　**相關**：分支 `claude/collector-aiops-additions`；collector/README.md
 **模組**：① 收值、② 清資料
 
 ## Plan：這一次要達到什麼
