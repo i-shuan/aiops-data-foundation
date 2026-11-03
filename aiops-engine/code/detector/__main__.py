@@ -75,9 +75,10 @@ def main(argv=None) -> int:
     tu.add_argument("--list", action="store_true")
     tu.add_argument("--show", action="store_true",
                     help="看最終生效的值與來源：--series 給 series.yaml 的名稱、--match 給對象的實際值（例如 service=mes-api），不寫入")
-    bt = sub.add_parser("backtest", help="改門檻前先回測：一筆建議用過去 N 週重跑，看告警少幾個、已確認事故還抓不抓得到")
+    bt = sub.add_parser("backtest", help="改門檻前先回測：一筆或一組建議用過去 N 週重跑，看告警少幾個、已確認事故還抓不抓得到；一組有效才逐筆剔除看哪筆多餘")
     bt.add_argument("--config", default="configs/baseline/series.yaml")
-    bt.add_argument("--id", required=True, help="aiops-tuning 的建議 id（adjust list 看得到）")
+    bt.add_argument("--id", required=True, nargs="+", help="aiops-tuning 的建議 id（adjust list 看得到）；給好幾個就一組一起測")
+    bt.add_argument("--group", action="store_true", help="把同一個對象（同序列、同 match）其他還是 proposed 的建議一起拉進來當一組")
     bt.add_argument("--weeks", type=int, default=4)
     bt.add_argument("--at")
     bt.add_argument("--verbose", action="store_true")

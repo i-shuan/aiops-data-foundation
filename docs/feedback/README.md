@@ -35,7 +35,7 @@
 - 分類選得不同就分開算；選 `other` 的會把不同原因混在一起。核准前要看這幾件的 `root_cause` 文字，確認是同一個原因。
 - 規則草稿的門檻是這幾件事故各自最低的延遲異常值取最小值；沒有延遲類異常就算不出門檻，不能核准。
 
-`override`、`recurring_override` 的建議核准前必須跑 `backtest`：現行設定與「現行＋建議」各重跑過去 N 週，已確認事故少抓一件就不建議；沒回測的不能核准。
+`override`、`recurring_override` 的建議核准前必須跑 `backtest`：現行設定與「現行＋建議」各重跑過去 N 週。同一個對象的幾筆建議（例如 `min_abs`＋`min_count`）是一個方案，**一組一起測**（`backtest --id a b` 或 `--group`），整組有效才逐筆剔除，標出多餘的（核准多餘的會被擋）。結論四種：有效（告警減少、已確認事故沒漏）、無效（範圍內有異常但一筆沒少）、無法判斷（回測窗內沒有落在建議範圍的異常，例如每月最後一天的建議只回測 2 週）、有害（會漏掉已確認事故，整組退回）。沒回測的不能核准。
 
 ### 調整：調什麼、怎麼調、哪些能調
 
@@ -61,7 +61,7 @@
   | 否 | 否 | `min_abs` 調到最大偏差 × 1.2 |
 
   老師傅在表單選的原因優先：換版 → `reset_point`；壓測 → `exclude_window`；批次 → 那 1 小時不報不學（1 筆也算得出時段）；本來就慢 → `min_abs`；量太少 → 再加一筆 `min_count`。漏報，`z` 乘 0.8。回測時告警一筆沒少就「無效，不建議」。
-- 生效流程：`backtest --id <id>`（預設過去 4 週）→ `adjust approve --id <id> --by <誰>`。`override`、`recurring_override`、`rule_suggestion` 沒回測或回測不建議時，要加 `--force` 才能核准；其他 `kind` 不用回測。`rule_suggestion` 算不出門檻不能核准；它的回測看提這條規則的事故抓不抓得到、事故以外多報幾次。
+- 生效流程：`backtest --id <id> --group`（預設過去 4 週；`--group` 把同一對象其他 proposed 的建議拉進來一起測）→ `adjust approve --id <id> --by <誰>`。`override`、`recurring_override`、`rule_suggestion` 沒回測或回測不建議時，要加 `--force` 才能核准；其他 `kind` 不用回測。`rule_suggestion` 算不出門檻不能核准；它的回測看提這條規則的事故抓不抓得到、事故以外多報幾次。
 - `--expires` 到期自動失效；`adjust remove --id <id>` 刪除。
 
 不能用這些指令調的：

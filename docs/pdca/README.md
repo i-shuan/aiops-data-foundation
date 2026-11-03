@@ -219,3 +219,4 @@ metrics → trace → log 找到哪一段、哪行 log；事件整合、排程�
 | [meta/2026-11-semiconductor-design.md](meta/2026-11-semiconductor-design.md) | ④⑥⑦ 半導體（FDC）設計文件：lot 路徑取代 trace id、五個模型與目前設計的對照 | 只有文件、無 code；欄位名是假設，等 MES／FDC 樣本 |
 | [meta/2026-11-severity-grading.md](meta/2026-11-severity-grading.md) | ⑥⑧ 嚴重度分級 critical／high／warning：訊號廣度（幾類黃金訊號）＋持續（滑動窗）＋換版上限；Grafana 只通知 critical、high | 合成 5 情境 7 件：改前全 warning → 改後 critical 2、high 1、warning 4，通知管道 0 誤報 0 漏報；Grafana 靜音沒實際 provision |
 | [meta/2026-11-suggest-features.md](meta/2026-11-suggest-features.md) | ⑨ 回饋提建議改成特徵查表（時段固定 × z 壓得掉 → mute／那 1 小時 z／整條 z／min_abs）、讀老師傅的原因、不累積、回測擋無效建議 | 同一批 28 筆標記：舊迴圈按完 61% → 61%；新迴圈 61% → 21%、真的 11 筆沒掉；迴圈仍沒排程 |
+| [meta/2026-11-backtest-group.md](meta/2026-11-backtest-group.md) | ⑨ 回測改成同一對象的建議整組測、範圍命中、逐筆剔除；結論分有效／無效／無法判斷／有害 | 假資料驗四種結論；測試 ES 上 report-svc 兩筆一組：min_count 必要、min_abs 多餘，核准多餘的被擋；誤報率 61% → 21% 不變 |
