@@ -156,6 +156,9 @@ def run_backtest(es, cfg: dict, proposal: dict, weeks: int, now=None, quiet: boo
         res.update(recommended=False, reason=f"會漏掉 {len(lost)} 件已確認的事故：{'、'.join(i['title'] or i['id'] for i in lost)}")
     elif len(after) > len(before) and not any(m["after"] for m in missed):
         res.update(recommended=False, reason=f"告警反而變多（{len(before)} → {len(after)}），也沒抓到漏報")
+    elif len(after) == len(before) and not any(m["after"] for m in missed):
+        # 沒效果的建議不核准：核准了只是多一筆調整，誤報照舊（docs/pdca/meta/2026-11-suggest-features.md）
+        res.update(recommended=False, reason=f"無效：告警 {len(before)} → {len(after)} 一筆都沒少，也沒抓到漏報")
     else:
         # 已確認的事故本來就不是這條序列抓的（在別條序列、別的規則）：說清楚「不受影響」，不要寫成 0/3 像是抓不到
         inc_txt = (f"已確認事故 {res['incidents_caught_after']}/{len(incidents)} 件還抓得到" if res["incidents_caught_before"]

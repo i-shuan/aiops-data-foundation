@@ -17,7 +17,7 @@ def fp(at, value=150.0, median=100.0, z=6.0):
 
 class SuggestKind(unittest.TestCase):
     def test_month_end_same_hour_is_recurring(self):
-        s = F.suggest_for_false_positives("synth.requests", T, [fp("2026-08-31 20:10"), fp("2026-09-30 20:20"), fp("2026-10-31 20:05")], tz=TZ)
+        s = F.suggest_for_false_positives("synth.requests", T, [fp("2026-08-31 20:10"), fp("2026-09-30 20:20"), fp("2026-10-31 20:05")], tz=TZ)[0]
         self.assertEqual((s["kind"], s["status"]), ("recurring_override", "proposed"))
         self.assertEqual(s["schedule"], {"cron": "0 20 * * *", "duration": "1h", "days_of_month": [-1]})
         self.assertEqual(s["effect"], {"z": 7.0})
@@ -28,26 +28,26 @@ class SuggestKind(unittest.TestCase):
 
     def test_same_weekday_hour_is_recurring(self):
         # 三個星期一 09 點（10-05、10-12、10-19 都是週一）
-        s = F.suggest_for_false_positives("synth.requests", T, [fp("2026-10-05 09:10"), fp("2026-10-12 09:40"), fp("2026-10-19 09:05")], tz=TZ)
+        s = F.suggest_for_false_positives("synth.requests", T, [fp("2026-10-05 09:10"), fp("2026-10-12 09:40"), fp("2026-10-19 09:05")], tz=TZ)[0]
         self.assertEqual(s["schedule"], {"cron": "0 9 * * 1", "duration": "1h"})
         self.assertIn("星期一 9 點", s["reason"])
 
     def test_high_z_small_deviation_raises_min_abs(self):
         # 平常不動的序列：z 都 ≥ 20（z 放寬到 7 也壓不掉），偏差最多 0.03
         fps = [fp("2026-10-05 10:00", 0.12, 0.1, 20), fp("2026-10-06 15:00", 0.13, 0.1, 30), fp("2026-10-08 03:00", 0.11, 0.1, 25)]
-        s = F.suggest_for_false_positives("http.latency_p95_s", T, fps, current_min_abs=0.01, tz=TZ)
+        s = F.suggest_for_false_positives("http.latency_p95_s", T, fps, current_min_abs=0.01, tz=TZ)[0]
         self.assertEqual((s["kind"], s["min_abs"]), ("override", 0.036))
         self.assertNotIn("z", s)
         self.assertIn("壓不掉", s["reason"])
 
     def test_otherwise_relaxes_z(self):
         fps = [fp("2026-10-05 13:00"), fp("2026-10-05 17:00"), fp("2026-10-06 09:00")]   # 時間分散、z 約 6
-        s = F.suggest_for_false_positives("synth.requests", T, fps, tz=TZ)
+        s = F.suggest_for_false_positives("synth.requests", T, fps, tz=TZ)[0]
         self.assertEqual((s["kind"], s["z"]), ("override", 7.0))
         self.assertEqual(s, F.suggest_override("synth.requests", T, 3, 5.0))
 
     def test_missing_details_fall_back_to_z(self):
-        s = F.suggest_for_false_positives("synth.requests", T, [{}, {}, {}], tz=TZ)
+        s = F.suggest_for_false_positives("synth.requests", T, [{}, {}, {}], tz=TZ)[0]
         self.assertEqual((s["kind"], s["z"]), ("override", 7.0))
 
 

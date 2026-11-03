@@ -218,3 +218,4 @@ metrics → trace → log 找到哪一段、哪行 log；事件整合、排程�
 | [meta/2026-11-case-classify.md](meta/2026-11-case-classify.md) | ⑦⑨ case 只做告警分類：指紋投票的分類器（信心、留一法準確率、學權重）、報告／摘要／通知只給分類、表單預帶、`import-incidents --db`、precision 自動提門檻建議 | 投票＋信心寫進 aiops-alerts，報告／摘要／通知不再列 case 的根因、處置；留一法準確率、≥ 50 件才學權重；sqlite／SQLAlchemy 讀事故單；606 個測試過；真 DB、真事故單沒跑 |
 | [meta/2026-11-semiconductor-design.md](meta/2026-11-semiconductor-design.md) | ④⑥⑦ 半導體（FDC）設計文件：lot 路徑取代 trace id、五個模型與目前設計的對照 | 只有文件、無 code；欄位名是假設，等 MES／FDC 樣本 |
 | [meta/2026-11-severity-grading.md](meta/2026-11-severity-grading.md) | ⑥⑧ 嚴重度分級 critical／high／warning：訊號廣度（幾類黃金訊號）＋持續（滑動窗）＋換版上限；Grafana 只通知 critical、high | 合成 5 情境 7 件：改前全 warning → 改後 critical 2、high 1、warning 4，通知管道 0 誤報 0 漏報；Grafana 靜音沒實際 provision |
+| [meta/2026-11-suggest-features.md](meta/2026-11-suggest-features.md) | ⑨ 回饋提建議改成特徵查表（時段固定 × z 壓得掉 → mute／那 1 小時 z／整條 z／min_abs）、讀老師傅的原因、不累積、回測擋無效建議 | 同一批 28 筆標記：舊迴圈按完 61% → 61%；新迴圈 61% → 21%、真的 11 筆沒掉；迴圈仍沒排程 |

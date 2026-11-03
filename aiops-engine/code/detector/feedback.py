@@ -65,7 +65,7 @@ def target_of(keys: dict | None) -> str:
     return json.dumps(keys or {}, sort_keys=True, ensure_ascii=False)
 
 
-def summarize(anomalies: pd.DataFrame, feedback: pd.DataFrame, *, min_false_positive: int = 3) -> dict:
+def summarize(anomalies: pd.DataFrame, feedback: pd.DataFrame, *, min_false_positive: int = 1) -> dict:
     """anomalies：series、target、status（只算 anomaly；warning 還沒通知任何人）；
     feedback：series、target、verdict、anomaly_id（missed 沒有）。
 
@@ -140,13 +140,14 @@ def _match_of(target: str) -> dict:
     return {k: f"^{re.escape(str(v))}$" for k, v in json.loads(target).items()}
 
 
-def _slot(fps: list[dict], tz: str, min_share: float):
+def _slot(fps: list[dict], tz: str, min_share: float, min_n: int = 3):
     """誤報是不是集中在同一個時段：先看「每月最後一天的同一個小時」，再看「同一個星期幾的同一個小時」。
-    回傳 (schedule, 說明) 或 None。schedule 是 recurring_override 的格式（cron 當地時間、duration、days_of_month）。"""
+    回傳 (schedule, 說明) 或 None。schedule 是 recurring_override 的格式（cron 當地時間、duration、days_of_month）。
+    min_n：至少幾筆才看得出時段（老師傅已經說是批次時可以 1 筆）。"""
     import calendar
     from collections import Counter
     local = [pd.Timestamp(f["at"]).tz_convert(tz) for f in fps if f.get("at")]
-    if len(local) < 3:
+    if len(local) < max(1, min_n):
         return None
     last = Counter(t.hour for t in local if t.day == calendar.monthrange(t.year, t.month)[1])
     if last:
@@ -160,36 +161,89 @@ def _slot(fps: list[dict], tz: str, min_share: float):
     return None
 
 
+# 老師傅在表單選的「為什麼不是問題」（feedback_web.app.FP_REASONS）→ 這批誤報是哪一種；沒選就用算出來的特徵
+REASON_SLOT = ("batch",)            # 固定時段的批次：那個時段不報、不學
+REASON_ONEOFF = ("loadtest",)       # 一次性的：那段時間不報、不學（exclude_window）
+REASON_VOLUME = ("low_volume",)     # 量太少幾筆就跳：min_count
+REASON_DEPLOY = ("deploy",)         # 換版：reset_point 重學
+REASON_SLOW = ("known_slow",)       # 本來就慢：min_abs
+
+
+def fp_features(fps: list[dict], *, current_z: float = 5.0, factor: float = 1.4, tz: str = "Asia/Taipei", min_share: float = 0.8,
+                reasons: list[str] | None = None, deploy_at=None, deploy_grace_min: int = 10) -> dict:
+    """誤報的特徵，每個獨立算（docs/pdca/meta/2026-11-suggest-features.md）：
+      reason        老師傅選的原因（最多人選的；沒選是 None）
+      slot          集中在固定時段：(schedule, 說明) 或 None；老師傅說是批次時 1 筆也算
+      z_ok          放寬 z（× factor）壓得掉：每一筆的 z 都 < z × factor（沒有 z 資料當壓得掉）
+      low_volume    量太少：每筆符合的事件數（值 × 事件數）都 ≤ 5
+      after_deploy  每一筆都在換版後 deploy_grace_min 分鐘內
+      max_dev、max_hits  偏差最大值、符合的事件數最大值（給 min_abs、min_count 用）"""
+    from collections import Counter
+    reason = Counter(r for r in (reasons or []) if r and r != "other").most_common(1)
+    reason = reason[0][0] if reason else None
+    slot = _slot(fps, tz, min_share, min_n=1 if reason in REASON_SLOT else 3)
+    zs = [abs(float(f["z"])) for f in fps if f.get("z") is not None]
+    devs = [abs(float(f["value"]) - float(f["median"])) for f in fps if f.get("value") is not None and f.get("median") is not None]
+    hits = [round(float(f["value"]) * float(f["n"])) for f in fps if f.get("value") is not None and f.get("n") not in (None, 0)]
+    after = False
+    if deploy_at is not None:
+        d = pd.Timestamp(deploy_at)
+        ats = [pd.Timestamp(f["at"]) for f in fps if f.get("at")]
+        after = bool(ats) and all(pd.Timedelta(0) <= t - d < pd.Timedelta(minutes=deploy_grace_min) for t in ats)
+    return {"reason": reason, "slot": slot, "z_ok": not zs or max(zs) < current_z * factor, "low_volume": bool(hits) and max(hits) <= 5,
+            "after_deploy": after, "max_dev": max(devs) if devs else None, "max_hits": max(hits) if hits else None, "n": len(fps)}
+
+
 def suggest_for_false_positives(series: str, target: str, fps: list[dict], current_z: float = 5.0,
                                 current_min_abs: float = 0.0, tz: str = "Asia/Taipei", factor: float = 1.4,
-                                min_share: float = 0.8) -> dict:
-    """誤報累積多次：依這些誤報的時間與偏差，選一種放寬的方式（都是 proposed，要 backtest、人 approve 才生效）。
-    fps：這個對象被標成誤報的異常，每筆 {at, value, median, z}（缺的欄位就跳過那個判斷）。
-      1. 八成以上集中在同一個時段（每月最後一天的同一小時、或同一個星期幾的同一小時）→ 週期放寬（recurring_override），
-         只有那 1 小時 z 乘 factor：月底批次這種「固定時段才高」的，整天放寬會漏掉其他時候的真異常
-      2. 每一筆的 z 都超過 z × factor（z 放寬也壓不掉）→ min_abs 調到最大偏差的 1.2 倍：
-         平常幾乎不動的序列 MAD 是 0，一點點變化 z 就很高
-      3. 其他 → z 乘 factor（suggest_override）
-    比例（min_share）、倍數（1.2）是估的。"""
-    n = len(fps)
-    slot = _slot(fps, tz, min_share)
-    if slot:
-        sched, why = slot
+                                min_share: float = 0.8, *, reasons: list[str] | None = None, current_min_count: int | None = None,
+                                deploy_at=None) -> list[dict]:
+    """有人標誤報就提（不用累積）：特徵全部算完（fp_features）再查表，老師傅選的原因優先。回傳一到兩筆建議（都是 proposed）。
+
+    | 時段固定 | z 壓得掉 | 動作 |
+    |---|---|---|
+    | 是 | 是 | 那 1 小時 z × factor（recurring_override effect.z） |
+    | 是 | 否 | 那 1 小時不報、不學（recurring_override effect.mute + train exclude） |
+    | 否 | 是 | 整條 z × factor（override z） |
+    | 否 | 否 | min_abs 調到最大偏差 × 1.2（override min_abs） |
+    老師傅說換版／都在換版後 → reset_point；說壓測 → 那段時間不報不學（exclude_window）；量太少（說的或算的）→ 再加一筆 min_count。
+    fps：這個對象被標成誤報的異常，每筆 {at, value, median, z, n}（缺的欄位就跳過那個判斷）。"""
+    f = fp_features(fps, current_z=current_z, factor=factor, tz=tz, min_share=min_share, reasons=reasons, deploy_at=deploy_at)
+    n, match, sr = f["n"], _match_of(target), re.escape(series)
+    base = {"series": sr, "match": match, "status": "proposed", "source": "feedback"}
+    who = f"誤報 {n} 次（值班回饋" + (f"：{f['reason']}" if f["reason"] else "") + "）"
+    out = []
+    if f["reason"] in REASON_DEPLOY or f["after_deploy"]:
+        at = pd.Timestamp(deploy_at) if deploy_at is not None else min(pd.Timestamp(x["at"]) for x in fps if x.get("at")) - pd.Timedelta(minutes=10)
+        out.append({**base, "kind": "reset_point", "reset_at": at.isoformat(), "reason": f"{who}，換版後的震盪：{at:%m-%d %H:%M} 起重學（reset_point）"})
+    elif f["reason"] in REASON_ONEOFF:
+        ats = [pd.Timestamp(x["at"]) for x in fps if x.get("at")]
+        out.append({**base, "kind": "exclude_window", "start": (min(ats) - pd.Timedelta(minutes=5)).isoformat(),
+                    "end": (max(ats) + pd.Timedelta(minutes=5)).isoformat(), "apply_to": ["train", "detect"],
+                    "reason": f"{who}，一次性的（壓測、演練）：那段時間不報、不學"})
+    elif f["slot"] and (f["reason"] in REASON_SLOT or not f["z_ok"]):
+        sched, why = f["slot"]
+        out.append({**base, "kind": "recurring_override", "schedule": sched, "effect": {"mute": True, "train": "exclude"},
+                    "reason": f"{who}，{why}" + ("" if f["z_ok"] else f"、z 放寬到 {current_z * factor:g} 也壓不掉") + "：那 1 小時不報、也不學進基準線"})
+    elif f["slot"]:
+        sched, why = f["slot"]
         z = round(current_z * factor, 1)
-        return {"kind": "recurring_override", "series": re.escape(series), "match": _match_of(target),
-                "schedule": sched, "effect": {"z": z}, "status": "proposed", "source": "feedback",
-                "reason": f"誤報 {n} 次（值班回饋），{why}：只在那 1 小時 z {current_z:g} → {z}"}
-    zs = [abs(float(f["z"])) for f in fps if f.get("z") is not None]
-    devs = [abs(float(f["value"]) - float(f["median"])) for f in fps
-            if f.get("value") is not None and f.get("median") is not None]
-    if zs and devs and len(zs) == n and min(zs) >= current_z * factor:
-        new = float(f"{max(devs) * 1.2:.2g}")
+        out.append({**base, "kind": "recurring_override", "schedule": sched, "effect": {"z": z}, "reason": f"{who}，{why}：只在那 1 小時 z {current_z:g} → {z}"})
+    elif f["z_ok"] and f["reason"] not in REASON_SLOW:
+        out.append(suggest_override(series, target, n, current_z, factor))
+    else:
+        new = float(f"{(f['max_dev'] or current_min_abs) * 1.2:.2g}")
         if new > current_min_abs:
-            return {"kind": "override", "series": re.escape(series), "match": _match_of(target), "min_abs": new,
-                    "status": "proposed", "source": "feedback",
-                    "reason": f"誤報 {n} 次（值班回饋），z 都 ≥ {min(zs):.0f}（z 放寬到 {current_z * factor:g} 也壓不掉）、"
-                              f"偏差最多 {max(devs):.3g}：min_abs {current_min_abs:g} → {new:g}"}
-    return suggest_override(series, target, n, current_z, factor)
+            out.append({**base, "kind": "override", "min_abs": new,
+                        "reason": f"{who}，z 放寬到 {current_z * factor:g} 也壓不掉、偏差最多 {f['max_dev']:.3g}：min_abs {current_min_abs:g} → {new:g}"})
+        else:
+            out.append(suggest_override(series, target, n, current_z, factor))
+    if (f["reason"] in REASON_VOLUME or f["low_volume"]) and f["max_hits"] is not None:
+        mc = int(f["max_hits"]) + 1
+        if current_min_count is None or mc > current_min_count:
+            out.append({**base, "kind": "override", "min_count": mc,
+                        "reason": f"{who}，每次只有 {f['max_hits']} 筆符合就跳：min_count {current_min_count if current_min_count is not None else '—'} → {mc}"})
+    return out
 
 
 def suggest_missed(series: str, target: str, current_z: float = 5.0, factor: float = 0.8) -> dict:

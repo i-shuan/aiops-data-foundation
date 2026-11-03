@@ -39,8 +39,9 @@ def _feedback_rows(es, days: int, now) -> pd.DataFrame:
         "query": {"range": {"@timestamp": {"gte": (now - pd.Timedelta(days=days)).isoformat()}}}}).get("hits", {}).get("hits", [])
     return pd.DataFrame([{"series": h["_source"]["series"], "target": F.target_of(h["_source"].get("keys")),
                           "verdict": h["_source"]["verdict"], "anomaly_id": h["_source"].get("anomaly_id"),
-                          "at": h["_source"]["@timestamp"], "by": h["_source"].get("by"), "note": h["_source"].get("note")}
-                         for h in hits], columns=["series", "target", "verdict", "anomaly_id", "at", "by", "note"])
+                          "at": h["_source"]["@timestamp"], "by": h["_source"].get("by"), "note": h["_source"].get("note"),
+                          "fp_reason": h["_source"].get("fp_reason")}
+                         for h in hits], columns=["series", "target", "verdict", "anomaly_id", "at", "by", "note", "fp_reason"])
 
 def _confirmed_incidents(es, days: int, now) -> list[dict]:
     """老師傅確認過、有根因分類的事故（升級成規則的材料）。"""
@@ -54,9 +55,22 @@ def _anomaly_details(es, ids: list[str]) -> list[dict]:
     """被標成誤報的那幾筆異常：時間、值、平常值、z（suggest 依這些選放寬方式）。"""
     if not ids:
         return []
-    got = es.req("POST", f"/{ANOMALY_INDEX}/_mget?_source_includes=@timestamp,value,median,z", {"ids": ids}).get("docs", [])
+    got = es.req("POST", f"/{ANOMALY_INDEX}/_mget?_source_includes=@timestamp,value,median,z,n,keys", {"ids": ids}).get("docs", [])
     return [{"at": g["_source"].get("@timestamp"), "value": g["_source"].get("value"), "median": g["_source"].get("median"),
-             "z": g["_source"].get("z")} for g in got if g.get("found")]
+             "z": g["_source"].get("z"), "n": g["_source"].get("n"), "keys": g["_source"].get("keys")} for g in got if g.get("found")]
+
+
+def _deploy_before(es, fps: list[dict], grace_min: int = 10):
+    """這些誤報的服務在它們之前 grace_min 分鐘內有沒有換版（investigator.cmd_alert.deploy_at）；查不到就 None。"""
+    svc = next((((f.get("keys") or {}).get("service")) for f in fps if (f.get("keys") or {}).get("service")), None)
+    ats = [pd.Timestamp(f["at"]) for f in fps if f.get("at")]
+    if not svc or not ats:
+        return None
+    try:
+        from investigator.cmd_alert import deploy_at
+        return deploy_at(es, svc, (min(ats) - pd.Timedelta(minutes=grace_min)).to_pydatetime(), (max(ats) + pd.Timedelta(minutes=1)).to_pydatetime())
+    except Exception:  # noqa: BLE001  沒有 service.version、來源不是 ES：當作沒換版
+        return None
 
 
 def _anomalies_of(es, incidents: list[dict]) -> dict[str, list[dict]]:
@@ -104,20 +118,32 @@ def cmd_feedback(cfg: dict, args) -> int:
         fb = _feedback_rows(es, days, now)
         tz = cfg.get("train", {}).get("timezone", "Asia/Taipei")
         specs = {sp["name"]: sp for sp in cfg.get("series", [])}
+        # 有人標誤報就提（不用累積）：特徵全部算完再查表，老師傅選的原因優先（feedback.suggest_for_false_positives）
         for r in s["candidates"].to_dict("records"):
-            ids = fb[(fb["verdict"] == "false_positive") & (fb["series"] == r["series"]) & (fb["target"] == r["target"])]["anomaly_id"].dropna()
-            sug = F.suggest_for_false_positives(r["series"], r["target"], _anomaly_details(es, sorted(set(ids))), z0,
-                                                float((specs.get(r["series"]) or {}).get("min_abs", 0.0)), tz)
-            if (sug["series"], json.dumps(sug["match"], sort_keys=True)) in existing \
-                    or es.req("GET", f"/{TUNING_INDEX}/_doc/{doc_id('suggest', sug['series'], sug['match'])}", ok=(200, 404)).get("found"):
-                print(f"  已經有調整或建議：{r['series']} {r['target']}")
+            if str(r["series"]).startswith("rule."):   # 靜態規則沒有 z、min_abs：門檻在 rules.yaml，這裡提不了
+                print(f"  靜態規則的誤報（{r['series']} {r['target']}）：改 rules.yaml 的門檻或 for，這裡不提")
                 continue
-            sug.update({"at": now.isoformat(), "by": "feedback"})
-            _id = doc_id("suggest", sug["series"], sug["match"])
-            es.ensure_index(TUNING_INDEX, TUNING_MAPPING)
-            es.req("PUT", f"/{TUNING_INDEX}/_doc/{_id}?refresh=true", sug)
-            print(f"  建議 {_id}：{A.describe(sug)}")
-            n += 1
+            rows = fb[(fb["verdict"] == "false_positive") & (fb["series"] == r["series"]) & (fb["target"] == r["target"])]
+            fps = _anomaly_details(es, sorted(set(rows["anomaly_id"].dropna())))
+            spec = specs.get(r["series"]) or {}
+            sugs = F.suggest_for_false_positives(r["series"], r["target"], fps, z0, float(spec.get("min_abs", 0.0)), tz,
+                                                 reasons=rows["fp_reason"].dropna().tolist(), current_min_count=spec.get("min_count"),
+                                                 deploy_at=_deploy_before(es, fps))
+            for sug in sugs:
+                what = sug.get("kind", "override") + ":" + ",".join(k for k in ("z", "min_abs", "min_count", "reset_at", "start") if sug.get(k) is not None) \
+                    + json.dumps(sug.get("effect") or {}, sort_keys=True)
+                _id = doc_id("suggest", sug["series"], sug["match"], what)
+                if (sug["series"], json.dumps(sug["match"], sort_keys=True)) in existing and sug.get("kind", "override") == "override" and sug.get("z"):
+                    print(f"  已經有 z 的調整：{r['series']} {r['target']}")
+                    continue
+                if es.req("GET", f"/{TUNING_INDEX}/_doc/{_id}", ok=(200, 404)).get("found"):
+                    print(f"  已經提過：{r['series']} {r['target']}（{_id}）")
+                    continue
+                sug.update({"at": now.isoformat(), "by": "feedback"})
+                es.ensure_index(TUNING_INDEX, TUNING_MAPPING)
+                es.req("PUT", f"/{TUNING_INDEX}/_doc/{_id}?refresh=true", sug)
+                print(f"  建議 {_id}：{A.describe(sug)}")
+                n += 1
         # 漏報：那條序列、那個對象的 z 降 0.8 倍（proposed，回測看抓不抓得到）
         for r in s["missed"].to_dict("records"):
             # 這個對象已經有調整（例如之前誤報被放寬成 z 7）：從那個值往下降，不是從設定檔的 z；漏報不能因為以前放寬過就沒建議

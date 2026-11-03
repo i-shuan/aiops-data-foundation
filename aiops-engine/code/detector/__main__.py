@@ -147,8 +147,8 @@ def main(argv=None) -> int:
     fb.add_argument("--at", help="add missed：漏報的時間")
     fb.add_argument("--days", type=int, default=28)
     fb.add_argument("--limit", type=int, default=50)
-    fb.add_argument("--min-false-positive", dest="min_false_positive", type=int, default=3,
-                    help="同一個對象誤報幾次才列入、才提建議（預設 3）")
+    fb.add_argument("--min-false-positive", dest="min_false_positive", type=int, default=1,
+                    help="同一個對象誤報幾次才列入、才提建議（預設 1：有人標就提，不累積）")
     fb.add_argument("--min-recurring", dest="min_recurring", type=int, default=3,
                     help="suggest：同一個服務、同一個根因分類確認幾次才提「升級成規則」（預設 3）")
     me = sub.add_parser("metrics", help="量化：每天幾件、有回饋的比例、誤報率、從告警到回饋多久；兩段時間並排比「學之前 vs 學之後」")

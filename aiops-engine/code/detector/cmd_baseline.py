@@ -314,15 +314,24 @@ def cmd_tune(cfg: dict, args) -> int:
           + "（粒度下次 train 生效；z、min_abs、confirm_points、instant_z 下次 detect 生效）")
     return 0
 
-def apply_min_count(s: pd.DataFrame, spec: dict) -> pd.DataFrame:
+def apply_min_count(s: pd.DataFrame, spec: dict, keys: list[str] | None = None, overrides=()) -> pd.DataFrame:
     """比例類（錯誤率）：這個時間窗符合的事件數（值 × 底下的事件數，例如 5xx 個數）不到 min_count，不算異常。
-    20 個請求錯 1 個就是 5%，已經等於 min_abs；一週合成資料這樣報了 205 次（docs/pdca/phase2-anomaly/2026-11-baseline-false-alarm.md）。"""
-    mc = spec.get("min_count")
-    if mc is None or s.empty or "n" not in s.columns:
+    20 個請求錯 1 個就是 5%，已經等於 min_abs；一週合成資料這樣報了 205 次（docs/pdca/phase2-anomaly/2026-11-baseline-false-alarm.md）。
+    aiops-tuning 的 override 可以依對象蓋 min_count（回饋「量太少」提的）：keys、overrides 有給時每列各自查。"""
+    if s.empty or "n" not in s.columns:
+        return s
+    mc = pd.Series(spec.get("min_count"), index=s.index, dtype="float")
+    if keys and overrides:
+        for i, k in zip(s.index, s[keys].to_dict("records")):
+            o = override_for(spec["name"], k, overrides).get("min_count")
+            if o is not None:
+                mc.at[i] = float(o)
+    if mc.isna().all():
         return s
     hits = np.round(pd.to_numeric(s["value"], errors="coerce").fillna(0).to_numpy(dtype=float)
                     * pd.to_numeric(s["n"], errors="coerce").fillna(0).to_numpy(dtype=float))
-    return s.assign(anomaly=s["anomaly"].to_numpy(dtype=bool) & (hits >= mc))
+    ok = mc.isna().to_numpy() | (hits >= mc.fillna(0).to_numpy())
+    return s.assign(anomaly=s["anomaly"].to_numpy(dtype=bool) & ok)
 
 def score_tuned(fn, cur: pd.DataFrame, base: pd.DataFrame, keys: list[str], spec: dict, dopts, tz, overrides) -> pd.DataFrame:
     """依每個對象的調整（z、min_abs）分組打分；沒有調整的用預設。"""
@@ -414,7 +423,7 @@ def detect_series(es, cfg: dict, spec: dict, base: pd.DataFrame, now, window: pd
             cm = cur.merge(bm[keys].drop_duplicates(), on=keys)
             if cm.empty:
                 continue
-            s = apply_min_count(score_tuned(fn, cm, bm, keys, spec, dopts, tz, overrides).assign(baseline_method=method), spec)
+            s = apply_min_count(score_tuned(fn, cm, bm, keys, spec, dopts, tz, overrides).assign(baseline_method=method), spec, keys, overrides)
             s, muted = A.detect_filter(s, keys, spec["name"], adjs, tz, baseline=bm)
             if muted and not quiet:
                 print(f"  {spec['name']}（{r} 一點）：{muted} 個點在排除時段、週期放寬、重置點之後，不算")
