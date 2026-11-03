@@ -125,19 +125,19 @@ POST _security/api_key
   {"names": ["aiops-alerts", "aiops-anomalies", "aiops-tuning", "aiops-feedback"], "privileges": ["read", "view_index_metadata"]}]}}}
 ```
 
-**3-2. 送進 Grafana**：內容都在 `grafana/code/`（data source、3 條告警規則、contact point、policy、3 個儀表板），依公司有沒有 Grafana 選一種：
+**3-2. 送進 Grafana**：內容都在 `grafana/helmchart/files/`（data source、3 條告警規則、contact point、policy、3 個儀表板），依公司有沒有 Grafana 選一種：
 
 | 情況 | 怎麼做 |
 |---|---|
-| 公司已有 Grafana | `grafana/code/` 的檔交給管 Grafana 的人放進 provisioning 資料夾；Grafana 要有環境變數 `ES_URL`、`GRAFANA_ES_API_KEY`、`NOTIFY_*_URL`；外掛沒裝就照 [INSTALL-form-plugin.md](../grafana/code/INSTALL-form-plugin.md) |
+| 公司已有 Grafana | `grafana/helmchart/files/` 的檔交給管 Grafana 的人放進 provisioning 資料夾；Grafana 要有環境變數 `ES_URL`、`GRAFANA_ES_API_KEY`、`NOTIFY_*_URL`；外掛沒裝就照 [INSTALL-form-plugin.md](../grafana/code/INSTALL-form-plugin.md) |
 | 公司用官方 chart 管 Grafana | `grafana-community/grafana` 加 `-f grafana/values-official.yaml`（GitLab CI 的 `deploy-grafana` 就是這樣） |
-| 沒有 Grafana | 用 `grafana/helmchart/` 裝一台（Secret `grafana-env` + `helm upgrade`，指令在 [grafana/README.md「部署」](../grafana/README.md#部署)） |
+| 沒有 Grafana | 用 `grafana/helmchart/` 裝一台（檔都在 chart 裡，只要 Secret `grafana-env` + `helm upgrade`，指令在 [grafana/README.md「部署」](../grafana/README.md#部署)） |
 
 **3-3. 跟 engine 接起來的三個網址**
 
 | 改哪裡 | 改成 |
 |---|---|
-| `grafana/code/dashboards/aiops-feedback.json` 裡兩個 `http://localhost:18080` | 回饋網頁的 Ingress 網址 |
+| 儀表板 `aiops-feedback.json` 裡寫死的 `http://localhost:18080` | 用我們的 chart：`--set feedbackUrl=<回饋網頁的 Ingress 網址>`；其他方式：改檔 |
 | engine 部署加 `--set feedback.corsOrigin=https://<Grafana 網址>` | 表單從瀏覽器直接打回饋網頁，要開 CORS |
 | `alert-rules.yaml` 的 `feedback` annotation、engine `configs/apm/rca.yaml` 的 `alerts.feedback_url`、`report_url` | Grafana 與回饋網頁的網址（通知裡的連結） |
 

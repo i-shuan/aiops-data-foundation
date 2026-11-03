@@ -13,7 +13,7 @@ AIOps 的告警通知裡有一個「回饋」連結，點進來是 Grafana 裡�
 
 Administration → Plugins 搜 `Business Forms`（id `volkovlabs-form-panel`），或 `curl -u admin:<密碼> http://<grafana>/api/plugins/volkovlabs-form-panel/settings` 看 `info.version`。
 
-- 版本是 **6.3.1**：不用裝、不用加 initContainer，跳過下面所有步驟；只要把 `code/` 的 provisioning 檔放進去（[grafana/README.md](../README.md#公司已經有-grafana把-code-的檔交給管-grafana-的人)）。
+- 版本是 **6.3.1**：不用裝、不用加 initContainer，跳過下面所有步驟；只要把 `helmchart/files/` 的 provisioning 檔放進去（[grafana/README.md](../README.md#公司已經有-grafana把-helmchartfiles-的檔交給管-grafana-的人)）。
 - 版本不同：Grafana 12.3 以上新版應該也能用，但本專案沒驗過，先在測試環境試表單；版本太舊或不確定就換成 6.3.1。
 - 用我們的 chart 又不想讓它裝外掛：`--set plugin.enabled=false`。
 
@@ -53,7 +53,7 @@ Grafana 的 Pod 多一個 initContainer：Grafana 啟動前，從公司的 Nexus
 
    Grafana 用 Helm chart 裝的話，不要直接 patch（下次 helm upgrade 會蓋掉）：把同樣的 initContainer、volume、volumeMount 寫進 chart 的 values（Grafana 官方 chart 有放額外 initContainer、volume 的欄位）。
 
-4. **放回饋表單的儀表板**：[dashboards/aiops-feedback.json](dashboards/aiops-feedback.json) 放進 Grafana 的 provisioning（用 chart 的話 `--set-file provisioning.dashboards.aiops-feedback=grafana/code/dashboards/aiops-feedback.json`；公司現有 Grafana 用 ConfigMap 掛進 `/etc/grafana/provisioning/dashboards/`，provider 見 chart 的 `templates/configmaps.yaml`）。放之前把 `aiops-feedback.json` 裡兩處 `http://localhost:18080` 改成 AIOps 回饋服務的網址（AIOps 那邊會給，要是使用者瀏覽器連得到的）。
+4. **放回饋表單的儀表板**：[aiops-feedback.json](../helmchart/files/dashboards/aiops-feedback.json) 放進 Grafana 的 provisioning（用我們的 chart 已經內建，網址設 `--set feedbackUrl=…`；公司現有 Grafana 用 ConfigMap 掛進 `/etc/grafana/provisioning/dashboards/`，provider 見 chart 的 `templates/configmaps.yaml`）。放之前把 `aiops-feedback.json` 裡兩處 `http://localhost:18080` 改成 AIOps 回饋服務的網址（AIOps 那邊會給，要是使用者瀏覽器連得到的）。
 
 5. **確認**：
 

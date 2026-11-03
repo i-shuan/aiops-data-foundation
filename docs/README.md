@@ -20,6 +20,7 @@
 | [aiops-data-reference.md](aiops-data-reference.md) | 規格 | AIOps 資料格式：`aiops-anomalies`、`aiops-alerts`、`aiops-incidents`、`aiops-feedback`、`aiops-tuning` 的欄位、誰在什麼時候寫、真實範例、Grafana 面板讀哪些欄位 | 🟢 |
 | [deploy-how-to.md](deploy-how-to.md) | 操作 | 部署：公司已有 Elastic APM 與 ES，不跑 es-setup，在 Kibana 手動補設定、部署 aiops-engine、接 Grafana | 🟡（沒在真實環境照做過） |
 | [troubleshooting.md](troubleshooting.md) | 操作 | 症狀 → 原因 → 做法 | 🟢 |
+| [img/README.md](img/README.md) | 案例 | POC 五個 KPI（聚合警報、LLM 解析、端到端串查、相似事故 Top-3、RCA 全文）在 Grafana 上的截圖 | 🟢（合成資料） |
 
 ### 資料存哪裡
 

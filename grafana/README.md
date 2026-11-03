@@ -2,7 +2,7 @@
 
 AIOps 把異常合成「一件事」寫進 `aiops-alerts`（`python3 -m investigator alert`，見 [configs/rca](../aiops-engine/code/configs/rca/README.md)）；**通知交給 Grafana**：送到哪、依 dept 分送、夜間、靜音、恢復通知都在 Grafana 設（[pdca/phase3-locate/2026-10-alert-exit.md](../docs/pdca/phase3-locate/2026-10-alert-exit.md)）。
 
-`code/` 是 Grafana provisioning 的檔，管 Grafana 的人照著改；`helmchart/` 是沒有現成 Grafana 時裝一台的 chart（見下面「部署」）；`plugins/` 放回饋表單外掛的 zip（git lfs，連不到 Nexus 時從這裡裝）：
+`helmchart/files/` 是 Grafana provisioning 的檔（唯一來源：自建 chart 直接讀它，管 Grafana 的人照著改）；`helmchart/` 是沒有現成 Grafana 時裝一台的 chart（見下面「部署」）；`code/` 只放外掛安裝說明、initContainer 補丁和產生官方 chart values 的腳本；`plugins/` 放回饋表單外掛的 zip（git lfs，連不到 Nexus 時從這裡裝）：
 
 | 檔案 | 內容 | 要改的 |
 |---|---|---|
@@ -41,16 +41,16 @@ AIOps 把異常合成「一件事」寫進 `aiops-alerts`（`python3 -m investig
 
 ## 部署
 
-### 公司已經有 Grafana：把 `code/` 的檔交給管 Grafana 的人
+### 公司已經有 Grafana：把 `helmchart/files/` 的檔交給管 Grafana 的人
 
-不用我們的 image 或 chart，只要把 `code/` 的檔放進公司 Grafana 的 provisioning 資料夾。`code/` 是**內容**；image、chart、手動放檔只是「怎麼送進 Grafana」的方式，選哪個看公司的 Grafana 是誰管、怎麼部署。
+不用我們的 image 或 chart，只要把 `helmchart/files/` 的檔放進公司 Grafana 的 provisioning 資料夾。`helmchart/files/` 是**內容**；image、chart、手動放檔只是「怎麼送進 Grafana」的方式，選哪個看公司的 Grafana 是誰管、怎麼部署。
 
-| `code/` 的檔 | 放到 Grafana 的 | 要改的 |
+| `helmchart/files/` 的檔 | 放到 Grafana 的 | 要改的 |
 |---|---|---|
 | `datasource.yaml` | `/etc/grafana/provisioning/datasources/` | ES 網址、唯讀 key（環境變數 `ES_URL`、`GRAFANA_ES_API_KEY`） |
 | `alert-rules.yaml`、`contact-points.yaml`、`policies.yaml` | `/etc/grafana/provisioning/alerting/` | 通知管道換成公司的、dept 清單（環境變數 `NOTIFY_IT_URL`、`NOTIFY_IMC_URL`、`NOTIFY_PLATFORM_URL`） |
-| `dashboards/*.json` | 任一資料夾，例如 `/var/lib/grafana/dashboards/aiops/` | `aiops-feedback.json` 裡兩個 `http://localhost:18080` 換成使用者瀏覽器連得到的回饋服務網址 |
-| （`code/` 裡沒有，要自己寫）dashboards provider | `/etc/grafana/provisioning/dashboards/aiops.yaml` | 見下面 |
+| `dashboards/*.json` | 任一資料夾，例如 `/var/lib/grafana/dashboards/aiops/` | `aiops-feedback.json` 裡寫死的 `http://localhost:18080` 全部換成使用者瀏覽器連得到的回饋服務網址 |
+| （檔裡沒有，要自己寫）dashboards provider | `/etc/grafana/provisioning/dashboards/aiops.yaml` | 見下面 |
 
 dashboards provider（告訴 Grafana 去哪個資料夾讀儀表板；我們的 chart 會自動產生這個，公司自己的 Grafana 要自己放）：
 
@@ -72,12 +72,12 @@ providers:
 |---|---|---|---|
 | 公司現有 Grafana，放 provisioning 檔 | 管 Grafana 的人把檔放進上面的資料夾（掛 ConfigMap 或放磁碟） | 改檔、重啟或 reload | 公司已經有 Grafana |
 | 自建 image | 把檔 `COPY` 進 image 的 `/etc/grafana/provisioning/`（外掛放 `/var/lib/grafana/plugins/`） | 改檔要重新 build、推 image、重佈 | 要整包固定版本、不能掛外部檔 |
-| 我們的 helm chart（下面） | `--set-file` 從 `code/` 讀，chart 做成 ConfigMap 掛進 Pod 並產生 provider；外掛用 initContainer | 改檔重跑同一個 helm 指令，Pod 自動重啟 | 公司沒有 Grafana、要自己裝一台 |
-| Grafana 的 helm chart（社群維護的 `grafana-community/grafana`；原 `grafana/grafana` 已棄用） | 同樣內容寫進它的 `values`：已經合好一份 [`values-official.yaml`](values-official.yaml)（`code/` 的檔由 `code/build-official-values.py` 產生，不手改；改 `code/` 後重跑，`--check` 檢查有沒有忘記） | 改 `code/`、重跑腳本、重跑 helm | 公司已經用官方 chart 管 Grafana |
+| 我們的 helm chart（下面） | 檔都在 chart 的 `files/` 裡，chart 做成 ConfigMap 掛進 Pod 並產生 provider；外掛用 initContainer | 改檔重跑同一個 helm 指令，Pod 自動重啟 | 公司沒有 Grafana、要自己裝一台 |
+| Grafana 的 helm chart（社群維護的 `grafana-community/grafana`；原 `grafana/grafana` 已棄用） | 同樣內容寫進它的 `values`：已經合好一份 [`values-official.yaml`](values-official.yaml)（`helmchart/files/` 的檔由 `code/build-official-values.py` 產生，不手改；改 `helmchart/files/` 後重跑，`--check` 檢查有沒有忘記） | 改 `helmchart/files/`、重跑腳本、重跑 helm | 公司已經用官方 chart 管 Grafana |
 
 ### 沒有現成 Grafana：用 `helmchart/` 裝一台
 
-沒有現成 Grafana、或要一台專用的：用 `helmchart/`。provisioning 的檔不複製進 chart，`--set-file` 從 `code/` 帶（key 是檔名、不含副檔名）：
+沒有現成 Grafana、或要一台專用的：用 `helmchart/`。data source、告警規則、contact point、policy、3 個儀表板都已經在 chart 的 `files/` 裡（Helm 只讀得到 chart 資料夾內的檔），裝的時候不用再帶檔案：
 
 ```bash
 kubectl create namespace grafana
@@ -87,16 +87,14 @@ kubectl -n grafana create secret generic grafana-env \
   --from-literal=GF_SECURITY_ADMIN_PASSWORD=<admin 密碼>
 helm upgrade --install grafana grafana/helmchart -n grafana \
   --set image=<nexus>/grafana/grafana:13.0.7 --set plugin.url=https://<nexus>/repository/raw/grafana-plugins/volkovlabs-form-panel-6.3.1.zip \
-  --set-file provisioning.datasources.aiops=grafana/code/datasource.yaml \
-  --set-file provisioning.alerting.alert-rules=grafana/code/alert-rules.yaml,provisioning.alerting.contact-points=grafana/code/contact-points.yaml,provisioning.alerting.policies=grafana/code/policies.yaml \
-  --set-file provisioning.dashboards.aiops-feedback=grafana/code/dashboards/aiops-feedback.json,provisioning.dashboards.aiops-rca=grafana/code/dashboards/aiops-rca.json,provisioning.dashboards.aiops-learning=grafana/code/dashboards/aiops-learning.json
+  --set feedbackUrl=https://<回饋網頁的網址，使用者瀏覽器連得到的>
 ```
 
 **連不到 Nexus**：外掛 zip 用 repo 裡的 `plugins/volkovlabs-form-panel-6.3.1.zip`（git lfs；clone 後先 `git lfs install && git lfs pull`）。ConfigMap、Secret、Helm release 都有 1MB 上限，zip 放不進 chart，先用腳本切成 ConfigMap，它印出要加的參數，把上面指令的 `--set plugin.url=…` 換成這串：
 
 ```bash
 args="$(grafana/helmchart/load-plugin.sh -n grafana)"     # 預設讀腳本旁邊的 ../plugins/volkovlabs-form-panel-6.3.1.zip
-helm upgrade --install grafana grafana/helmchart -n grafana --set image=… ${args} --set-file …（同上）
+helm upgrade --install grafana grafana/helmchart -n grafana --set image=… --set feedbackUrl=… ${args}
 ```
 
 zip 換版：新的 zip 放 `plugins/`、改 `values.yaml` 的 `plugin.sha256`，重跑這兩行。initContainer 接回各段後照樣核對 SHA-256，不符 Grafana 不啟動。
@@ -162,7 +160,7 @@ zip 換版：新的 zip 放 `plugins/`、改 `values.yaml` 的 `plugin.sha256`�
 要做的：
 
 1. **裝外掛** Business Forms（`volkovlabs-form-panel`，Apache 2.0、Grafana 簽章）。**實測過 Grafana 12.2 與 13.0.7，外掛都用 6.3.1**（6.3.2 以後要 Grafana 12.3 以上，13 也符合，但本專案只驗過 6.3.1）。Grafana 跑在 K8s 上：**用 initContainer**，Grafana 啟動前從 Nexus 下載、核對 SHA-256、解開到外掛資料夾（[grafana/helmchart/](helmchart/)），**不換 Grafana image**；裝在一般主機上：解開放進外掛資料夾、重啟。給管 Grafana 的人照做的那一頁：[INSTALL-form-plugin.md](code/INSTALL-form-plugin.md)。
-2. **儀表板**：`code/dashboards/` 的 json 用 chart 的 `provisioning.dashboards` 帶進去（chart 會產生 provider，載進 AIOps 資料夾）。`aiops-feedback.json` 裡兩個網址 `http://localhost:18080` 改成**使用者瀏覽器連得到的**回饋服務網址（Ingress）。外掛會把變數做 URL 編碼，所以網址不能用變數，只能寫死。
+2. **儀表板**：`helmchart/files/dashboards/` 的 json 已經在 chart 裡（chart 會產生 provider，載進 AIOps 資料夾）。`aiops-feedback.json` 裡寫死的 `http://localhost:18080` 用 `--set feedbackUrl=` 換成**使用者瀏覽器連得到的**回饋服務網址（Ingress），chart 渲染時全部換掉。外掛會把變數做 URL 編碼，所以網址不能用 Grafana 變數，只能渲染時寫死。
 3. **回饋服務開 CORS**：`FEEDBACK_CORS_ORIGIN=<Grafana 的網址>`（`aiops-engine/helmchart/values.yaml` 的 `feedback.corsOrigin`），只對 `/api/*`。
 4. `alert-rules.yaml` 的 `feedback` annotation 換成你們的 Grafana 網址。
 

@@ -1,5 +1,5 @@
 # grafana：用 Grafana 社群維護的 chart（grafana-community/grafana；原 grafana/grafana 已棄用）部署，設定在 grafana/values-official.yaml
-# （由 grafana/code/ 產生；公司已經有 Grafana、不歸我們部署就不用這份，見 grafana/README.md）。
+# （由 grafana/helmchart/files/ 產生；公司已經有 Grafana、不歸我們部署就不用這份，見 grafana/README.md）。
 #
 # 變數：
 #   KUBE_CONFIG_GRAFANA        （Type: File）部署 Grafana 的 cluster 的 kubeconfig
@@ -15,7 +15,7 @@
 #   這個 job：ES_URL、NOTIFY_*、GF_SECURITY_ADMIN_PASSWORD（每次部署都更新）；
 #   es-setup 的 Job：GRAFANA_ES_API_KEY（只有跑 es-setup 時）。
 
-# code/ 改了要重新產生 values-official.yaml：沒重新產生就擋下來
+# helmchart/files/ 改了要重新產生 values-official.yaml：沒重新產生就擋下來
 check-grafana-values:
   stage: test
   image: python:3.12-slim
@@ -26,6 +26,7 @@ check-grafana-values:
   rules:
     - changes:
         - grafana/code/**/*
+        - grafana/helmchart/files/**/*
         - grafana/values-official.yaml
 
 deploy-grafana:
@@ -57,6 +58,7 @@ deploy-grafana:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
       changes:
         - grafana/code/**/*
+        - grafana/helmchart/files/**/*
         - grafana/values-official.yaml
       when: manual
     - if: $CI_PIPELINE_SOURCE == "web"

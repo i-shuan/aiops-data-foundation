@@ -1,22 +1,20 @@
-{{- /* provisioning：key 是檔名（不含副檔名），內容由 --set-file 帶進來 */}}
+{{- /* provisioning 的檔都在 chart 的 files/ 裡（Helm 只讀得到 chart 資料夾內的檔），不用 --set-file */}}
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: grafana-datasources
 data:
-  {{- range $name, $body := .Values.provisioning.datasources }}
-  {{ $name }}.yaml: |
-{{ $body | indent 4 }}
-  {{- end }}
+  aiops.yaml: |
+{{ .Files.Get "files/datasource.yaml" | indent 4 }}
 ---
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: grafana-alerting
 data:
-  {{- range $name, $body := .Values.provisioning.alerting }}
-  {{ $name }}.yaml: |
-{{ $body | indent 4 }}
+  {{- range $f := list "alert-rules" "contact-points" "policies" }}
+  {{ $f }}.yaml: |
+{{ $.Files.Get (printf "files/%s.yaml" $f) | indent 4 }}
   {{- end }}
 ---
 # 儀表板：dashboards/ 底下的 json 載進 AIOps 資料夾
@@ -41,9 +39,10 @@ kind: ConfigMap
 metadata:
   name: grafana-dashboards
 data:
-  {{- range $name, $body := .Values.provisioning.dashboards }}
-  {{ $name }}.json: |
-{{ $body | indent 4 }}
+  {{- /* 儀表板裡寫死的回饋網頁網址（http://localhost:18080）換成 values 的 feedbackUrl */}}
+  {{- range $path, $_ := .Files.Glob "files/dashboards/*.json" }}
+  {{ base $path }}: |
+{{ $.Files.Get $path | replace "http://localhost:18080" $.Values.feedbackUrl | indent 4 }}
   {{- end }}
 {{- if .Values.plugin.enabled }}
 ---
