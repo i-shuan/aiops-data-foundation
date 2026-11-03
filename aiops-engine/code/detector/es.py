@@ -4,6 +4,8 @@ from __future__ import annotations
 import pandas as pd
 
 from core.es import ES, doc_id  # noqa: F401  doc_id 給 cmd_*.py 用（從 .es 一起 import）
+from sources.base import is_backend
+from sources.shape import fill_zero as _fill_zero  # noqa: F401  補 0 的邏輯搬到 sources/shape.py（ES 與其他來源共用）；名字留給既有的 import
 
 BASELINE_INDEX = "aiops-baseline"
 ANOMALY_INDEX = "aiops-anomalies"
@@ -142,7 +144,10 @@ def _bucket_events(value, b: dict):
 
 def fetch(es: ES, spec: dict, start: pd.Timestamp, end: pd.Timestamp, interval: str | None) -> pd.DataFrame:
     """有 keys 時（統一的名字，例如 service、method、route），回傳的欄位用 keys 取代 by 的欄位路徑。
-    同一個指標不同語言名字不同的問題在 node Collector 改名解決（docs/pdca/phase1-collect/2026-10-field-unify.md），這裡不再分語言各查一次。"""
+    同一個指標不同語言名字不同的問題在 node Collector 改名解決（docs/pdca/phase1-collect/2026-10-field-unify.md），這裡不再分語言各查一次。
+    es 是 sources 的 Backend（檔案、HTTP、記憶體）時交給它：整形在 pandas 做（sources/shape.py），回傳格式一樣。"""
+    if is_backend(es):
+        return es.series(spec, start, end, interval)
     df = _fetch_one(es, spec, start, end, interval)
     if spec.get("keys"):
         df = df.rename(columns=dict(zip(spec["by"], spec["keys"])))
@@ -197,6 +202,8 @@ def _fetch_one(es: ES, spec: dict, start: pd.Timestamp, end: pd.Timestamp, inter
 def alive_times(es: ES, spec: dict, start: pd.Timestamp, end: pd.Timestamp, interval: str) -> pd.DatetimeIndex:
     """收集系統有在送資料的時間窗：這條序列的 index、不加序列自己的 filter，任何一筆資料就算。
     整個 index 都沒有資料的時段＝收集系統停了（「不知道」），不是零流量。"""
+    if is_backend(es):
+        return es.alive_times(spec, start, end, interval)
     tf = spec.get("time_field", "@timestamp")
     body = {"size": 0, "query": {"bool": {"filter": [{"range": {tf: {"gte": start.isoformat(), "lt": end.isoformat()}}}]}},
             "aggs": {"t": {"composite": {"size": 10000, "sources": [{"ts": {"date_histogram": {"field": tf, "fixed_interval": interval}}}]}}}}
@@ -213,33 +220,6 @@ def alive_times(es: ES, spec: dict, start: pd.Timestamp, end: pd.Timestamp, inte
     return pd.DatetimeIndex(pd.to_datetime(out, unit="ms", utc=True))
 
 
-def _fill_zero(df: pd.DataFrame, by: list[str], start, end, interval, alive=None) -> pd.DataFrame:
-    """筆數類的序列：沒資料的時段補 0。但有兩種情況不補，當成「不知道」（NaN）：
-    1. 這條序列第一次出現之前：服務還沒上線，不是「平常是 0」。
-    2. 收集系統本身停了（ES、Collector 停機）的時段，不是大家都沒流量。alive 是收集系統有在送資料的時段
-       （alive_times：整個 index、不加 filter）；沒給就用這次查到的資料（沒有 filter 的序列兩者一樣）。
-    """
-    if df.empty:
-        return df
-    freq = interval[:-1] + "min" if interval.endswith("m") else interval   # ES 的 5m = pandas 的 5min
-    grid = pd.date_range(start.floor(freq), end, freq=freq, inclusive="left")
-    alive = pd.Index(df["ts"].unique()) if alive is None else pd.Index(alive).union(pd.Index(df["ts"].unique()))
-    out = []
-    for key_vals, g in df.groupby(by, sort=False):
-        key_vals = key_vals if isinstance(key_vals, tuple) else (key_vals,)
-        s = g.set_index("ts")["value"].reindex(grid)
-        n = g.set_index("ts")["n"].reindex(grid) if "n" in g else pd.Series(None, index=grid, dtype=float)
-        known = (grid >= g["ts"].min()) & grid.isin(alive)
-        fill = known & s.isna()
-        s[fill] = 0.0
-        n[fill] = 0.0
-        part = pd.DataFrame({"ts": s.index, "value": s.to_numpy(), "n": n.to_numpy()})
-        for f, v in zip(by, key_vals):
-            part[f] = v
-        out.append(part)
-    return pd.concat(out, ignore_index=True)[by + ["ts", "value", "n"]]
-
-
 # 讀回來的欄位。method 存成 baseline_method：序列的 keys 也可能有 method（HTTP method），會撞名
 BASELINE_COLUMNS = ("dow", "hour", "level", "median", "mad", "resolution", "baseline_method", "baseline_source",
                     "trained_at")
@@ -248,6 +228,8 @@ _RENAMED = {"baseline_method": "method"}
 
 def load_baseline(es: ES, series: str, by: list[str]) -> pd.DataFrame:
     """這條序列自己學出來的 baseline（不含借給別人用的組 baseline）。"""
+    if is_backend(es):
+        return es.load_baseline(series, by)
     rows, after = [], None
     while True:
         body = {"size": 10000, "query": {"bool": {"filter": [{"term": {"series": series}}],
@@ -267,6 +249,8 @@ def load_baseline(es: ES, series: str, by: list[str]) -> pd.DataFrame:
 
 def load_group_baselines(es: ES, series: str) -> pd.DataFrame:
     """train 時從成員算出來的組 baseline：group + dow、hour、level、median、mad、resolution。"""
+    if is_backend(es):
+        return es.load_group_baselines(series)
     body = {"size": 10000, "query": {"bool": {"filter": [{"term": {"series": series}},
                                                          {"prefix": {"baseline_source": "group:"}}]}}}
     hits = es.req("POST", f"/{BASELINE_INDEX}/_search?ignore_unavailable=true", body).get("hits", {}).get("hits", [])

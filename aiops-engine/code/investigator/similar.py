@@ -72,23 +72,38 @@ def explain(fp: dict, other: dict) -> tuple[float, list[str]]:
     return score, why
 
 
-def search(es, fp: dict, exclude_id: str | None = None, k: int = TOP_K, min_score: float = MIN_SCORE, size: int = CANDIDATES) -> list[dict]:
-    """最像的 k 件（分數 ≥ min_score）。回傳給報告用的欄位＋為什麼像。size：跟 ES 要幾件候選（見 CANDIDATES）。"""
+def rank(fp: dict, candidates: list[tuple[str, dict]], k: int = TOP_K, min_score: float = MIN_SCORE) -> list[dict]:
+    """M5 的核心（不碰 ES）：候選事故 [(id, 文件), …] 各自算分數（explain），留 ≥ min_score 的前 k 件，附為什麼像。
+    候選要先只留老師傅確認過的（status 在 CONFIRMED）：ES 的 query 已經過濾；自己準備候選時用 confirmed_only。"""
     if not any(fp.get(f) for f in WEIGHTS):
         return []
-    hits = es.search(INCIDENT_INDEX, query(fp, exclude_id, size)).get("hits", {}).get("hits", [])
     out = []
-    for h in hits:
-        s = h["_source"]
+    for _id, s in candidates:
         score, why = explain(fp, s)
         if score < min_score:
             continue
-        out.append({"incident_id": h["_id"], "score": score, "why": why, "title": s.get("title"), "start": s.get("start"),
+        out.append({"incident_id": _id, "score": score, "why": why, "title": s.get("title"), "start": s.get("start"),
                     "services": s.get("services"), "root_cause_category": s.get("root_cause_category"), "root_cause": s.get("root_cause"),
                     "action": s.get("action"), "how_detected": s.get("how_detected"), "checked": s.get("checked"), "by": s.get("by"),
                     "status": s.get("status")})
     out.sort(key=lambda x: (-x["score"], x.get("start") or ""))
     return out[:k]
+
+
+def confirmed_only(candidates: list[tuple[str, dict]], exclude_id: str | None = None) -> list[tuple[str, dict]]:
+    return [(i, s) for i, s in candidates if s.get("status") in CONFIRMED and i != exclude_id]
+
+
+def search(es, fp: dict, exclude_id: str | None = None, k: int = TOP_K, min_score: float = MIN_SCORE, size: int = CANDIDATES) -> list[dict]:
+    """最像的 k 件（分數 ≥ min_score）。回傳給報告用的欄位＋為什麼像。size：跟 ES 要幾件候選（見 CANDIDATES）。
+    es 是 sources 的 Backend 時候選從它的 Store 拿（aiops-incidents 裡已確認的），分數一樣用 rank 算。"""
+    if not any(fp.get(f) for f in WEIGHTS):
+        return []
+    from sources.base import is_backend
+    if is_backend(es):
+        return rank(fp, es.incidents(CONFIRMED, exclude_id), k, min_score)
+    hits = es.search(INCIDENT_INDEX, query(fp, exclude_id, size)).get("hits", {}).get("hits", [])
+    return rank(fp, [(h["_id"], h["_source"]) for h in hits], k, min_score)
 
 
 def format_similar(items: list[dict], tz_label: str = "") -> list[str]:

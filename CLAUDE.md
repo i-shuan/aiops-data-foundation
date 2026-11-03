@@ -8,7 +8,7 @@
 |---|---|
 | `elasticsearch/` | ③ 在公司 ES 上補的東西：`traces-merged-*` 的 template 與 ILM、engine 與 Grafana 的 key（`code/`）、`setup-helmchart/`（在 K8s 裡跑 setup 的 Job） |
 | `grafana/` | ⑧ 通知、儀表板、回饋表單（`code/` provisioning、`helmchart/`） |
-| `aiops-engine/` | ④～⑨ AIOps（`code/`：detector、investigator、feedback_web、configs（`apm/` Elastic APM 版、`baseline/` `rca/` `schedule/` OTel 版）、Dockerfile；`helmchart/`） |
+| `aiops-engine/` | ④～⑨ AIOps（`code/`：detector、investigator、feedback_web、`sources/`（資料來源介面：ES、檔案、HTTP、程式給）、`models/`（五個模型的輸入規格）、configs（`apm/` Elastic APM 版、`baseline/` `rca/` `schedule/` OTel 版）、Dockerfile；`helmchart/`） |
 | `docs/` | 原理、案例、PDCA 紀錄 |
 
 **收值（①②③）是公司現有的 Elastic APM 與 ES，不在這個 repo**（2026-11 自建的 Collector 已刪）。模組編號只用 ①～⑨：① 收值 ② 清資料 ③ 存 ④ 判斷 ⑤ 異常總表 ⑥ 收斂 ⑦ 根因分析 ⑧ 出口 ⑨ feedback。

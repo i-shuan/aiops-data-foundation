@@ -315,14 +315,18 @@ def load(es, index: str, cfg: dict) -> list[dict]:
         with open(cal, encoding="utf-8") as f:
             entries, tz = load_calendar(yaml.safe_load(f) or {})
         out += calendar_adjustments(entries, tz or cfg.get("train", {}).get("timezone", "Asia/Taipei"))
-    # 讀不到（index 關閉、沒權限、ES 逾時）不整個失敗：印出來，這一輪只用設定檔的。index 不存在是正常的（還沒人調過）
-    try:
-        hits = es.req("POST", f"/{index}/_search", {"size": 10000, "sort": [{"at": {"order": "asc", "unmapped_type": "date"}}]},
-                      ok=(200, 404)).get("hits", {}).get("hits", [])
-    except Exception as e:  # noqa: BLE001  RuntimeError（ES 回錯誤）或 requests 的連線、逾時錯誤
-        print(f"  ⚠ 讀不到 {index}（{str(e)[:120]}），這一輪不套用裡面的調整，只用設定檔的")
-        hits = []
-    out += [{"id": h["_id"], **h["_source"]} for h in hits]
+    from sources.base import is_backend
+    if is_backend(es):   # 檔案、記憶體的 Store
+        out += es.adjustments()
+    else:
+        # 讀不到（index 關閉、沒權限、ES 逾時）不整個失敗：印出來，這一輪只用設定檔的。index 不存在是正常的（還沒人調過）
+        try:
+            hits = es.req("POST", f"/{index}/_search", {"size": 10000, "sort": [{"at": {"order": "asc", "unmapped_type": "date"}}]},
+                          ok=(200, 404)).get("hits", {}).get("hits", [])
+        except Exception as e:  # noqa: BLE001  RuntimeError（ES 回錯誤）或 requests 的連線、逾時錯誤
+            print(f"  ⚠ 讀不到 {index}（{str(e)[:120]}），這一輪不套用裡面的調整，只用設定檔的")
+            hits = []
+        out += [{"id": h["_id"], **h["_source"]} for h in hits]
     by_id = {}
     for a in out:
         by_id[a.get("id") or id(a)] = a

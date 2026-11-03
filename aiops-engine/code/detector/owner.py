@@ -61,6 +61,10 @@ def write_anomalies(es, docs: list) -> None:
     baseline、規則、peer、quality、trace 都從這裡寫，所以「每筆異常都要有」的欄位只補在這一處。"""
     if not docs:
         return
+    from sources.base import is_backend
+    if is_backend(es):   # 檔案、記憶體來源：沒有 dept／group 的資料可查，全部 unassigned
+        es.write_anomalies(docs)
+        return
     owners = load_owners(es)
     for _, d in docs:
         d["dept"], d["group"] = owner_of(d.get("keys"), owners)

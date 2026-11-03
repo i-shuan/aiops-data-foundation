@@ -136,6 +136,9 @@ def from_merged(doc: dict) -> list[dict]:
 
 def spans_by_id(es: ES, index: str, span_ids: list[str], start: datetime, end: datetime) -> dict[str, dict]:
     """用 span_id 讀回 span（例如 link 指到的、另一個 trace 裡的生產者）。"""
+    from sources.base import is_backend
+    if is_backend(es):
+        return es.spans_by_id(index, span_ids, start, end)
     out = {}
     want = set(span_ids)
     for i in range(0, len(span_ids), 1000):
@@ -159,7 +162,11 @@ def spans_by_id(es: ES, index: str, span_ids: list[str], start: datetime, end: d
 
 
 def spans_of(es: ES, index: str, trace_ids: list[str], start: datetime, end: datetime) -> list[dict]:
-    """把這些 trace 的所有 span 讀回來（含其他服務的）。時間放寬，跨過邊界的請求也讀得完整。"""
+    """把這些 trace 的所有 span 讀回來（含其他服務的）。時間放寬，跨過邊界的請求也讀得完整。
+    es 是 sources 的 Backend 時 span 已經是這個格式，直接拿。"""
+    from sources.base import is_backend
+    if is_backend(es):
+        return es.spans(index, trace_ids, start, end)
     out = []
     schema = schema_of(index)
     for i in range(0, len(trace_ids), 500):

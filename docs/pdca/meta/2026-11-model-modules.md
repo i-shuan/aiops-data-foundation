@@ -1,6 +1,6 @@
 # 五個模型拆成模組：資料來源介面＋萬用資料處理器（2026-11）
 
-**狀態**：進行中（Plan 已定，Do 未開始）　　**日期**：2026-11-03　　**相關**：分支 `claude/model-modules`
+**狀態**：已完成　　**日期**：2026-11-03　　**相關**：分支 `claude/model-modules`
 **模組**：④⑥⑦
 
 ## Plan：這一次要達到什麼
@@ -53,27 +53,42 @@
 
 ## Do：改動哪些 code、改了什麼、為何要改
 
-（未開始）
-
 | 檔案 | 改了什麼 | 為何要改 |
 |---|---|---|
-| | | |
+| `sources/base.py`（新） | `Backend`（Source 五個方法＋轉交 Store）、`Store`（baseline、異常、tuning、incidents 的讀寫）兩個抽象類別，`is_backend()` | 指令只拿到一個物件；ES 本身**不是** Backend，沒寫 `source` 時指令拿到的還是 `core.es.ES`，走原路 |
+| `sources/shape.py`（新） | 萬用處理器：`mask`（ES query DSL 子集 → 列的遮罩）、`series_from_rows`（events／series 兩種格式 → `keys + ts + value + n`，含直方圖欄位、補 0）、`points_from_rows`（→ 規則的 points，含 join）；`fill_zero` 從 `detector/es.py` 搬來 | ES 端 aggregation 的 pandas 版，語意照 `_value_aggs`／`_bucket_value`／`_bucket_events` 一比一寫；補 0 兩邊共用一份 |
+| `sources/stores.py`（新） | `MemoryStore`、`FileStore`（每個 index 一個 NDJSON）、`ESStore`（source 不是 ES、結果要進 ES 時用）、`open_store` | 檔案來源不用 ES 也能 train → detect（baseline 要留到下一次行程） |
+| `sources/rows.py`（新） | `RowsBackend`（原始列 → shape）、`MemoryBackend`（程式給 DataFrame）、`FileBackend`（CSV／Parquet／NDJSON／JSON）、`HttpBackend`（GET 回 JSON）、`ESSourceBackend`（讀 ES、寫別處） | 四種來源只負責「拿原始列」，整形都在 shape |
+| `sources/__init__.py`（新） | `open_backend(cfg, es_factory)`：依 `source`／`store` 給 ES 或 Backend | `es_factory` 傳指令模組自己的 `ES`，測試蓋 `C.ES` 照樣有效；只在真的要連 ES 時才建連線 |
+| `detector/es.py`、`rules.py`、`owner.py`、`adjust.py`、`core/traces.py`、`investigator/similar.py` | `fetch`、`alive_times`、`load_baseline`、`load_group_baselines`、`rules.fetch`、`write_anomalies`、`adjust.load`、`spans_of`、`spans_by_id`、`similar.search` 開頭多一句：是 Backend 就交給它 | 指令、backtest、既有測試的假 ES 一行都不用改；`similar.search` 把打分拆成 `rank()`（M5 的純函式） |
+| `detector/cmd_baseline.py`、`cmd_peer.py`、`cmd_rules.py` | `ES()` → `backend or open_backend(cfg, ES)`（`cmd_*` 多一個 `backend=` 參數，程式直接給 `MemoryBackend` 用）；`save_baseline`、`_keep_upgraded` 是 Backend 時交給 Store；`tune` 在 store 不是 ES 時拒絕 | 入口只改這一處 |
+| `models/`（新：`baseline`、`peer`、`rules`、`trace`、`similar`、`README.md`） | 五個模型的門面：docstring 寫輸入格式、`check_*()` 檢查欄位、re-export 演算法；`baseline.fit_and_score`、`peer.compare_checked`、`rules.points_of`、`trace.check_spans`、`similar.check_candidates` | 別的程式 `import models` 自己準備 DataFrame 就能叫；演算法沒搬 |
+| `Dockerfile` | 多 `COPY sources/`、`COPY models/` | `detector/es.py` 現在 import `sources`，image 少了這兩個資料夾起不來（測試不會抓到，靠這一行） |
+| `tests/test_shape.py`、`test_sources_backend.py`、`test_models.py`（新，31 個） | 見 Check | |
+| `sources/README.md`（操作）、`models/README.md`（規格）、`aiops-engine/README.md`、`docs/README.md`、`CLAUDE.md` | 怎麼寫 `source`／`store`、五個模型的輸入規格、索引 | |
 
 ## Check：測試的目的與結果
 
-（未開始）
-
 | 測試目的（為了確認什麼） | 怎麼測 | 結果 |
 |---|---|---|
-| | | |
+| ES 路徑沒變 | 既有 562 個測試不改 | 全過（含假 ES 蓋 `C.ES` 的 `test_detect_status`、`test_tune_show`、`test_peer` 蓋 `fetch`、`test_backtest`） |
+| shape 跟 ES 算出來一樣 | 12,669 筆合成請求列（3 條序列 × 3 小時）＋ 988 筆 APM 式 1 分鐘直方圖文件，寫進測試 ES；10 種 `value` 各用 `detector.es.fetch`（ES）與 `MemoryBackend.series`（shape）算，逐窗比 value、n | `count`、`ratio`、`percentile`（事件列）、`avg`、`div`、`hist_count`、`hist_ratio`、整段一個值：**完全一樣**（差 0，窗數、n 都一樣）。直方圖欄位的 `percentile`：最大相對差 2.2%（ES 用 TDigest 近似）；`hist_ratio_above`：最大絕對差 0.0034、相對差 9.1%（ES 在桶之間內插，這裡整格算一邊） |
+| 不用 ES 也能 train → detect | `test_sources_backend`：15 天、每小時 60 個請求的合成列，第 14 天 10 點錯誤率 2% → 60%；`MemoryBackend` 一個行程內 train → detect；`FileBackend`（CSV）＋ `FileStore` 分兩次 `open_backend`（模擬兩個行程） | 兩種都只報那一小時的 `http.error_rate`，status `anomaly`，detect-status 的 `missing_baseline` 0；第二次行程從 `.ndjson` 讀回 baseline、沒印「沒有 baseline」 |
+| rules、peer、相似事故也走 Backend | 同上檔：`increase` 型規則（p1 重啟 1→3、p2 不變）、peer（4 個 Pod 一個 CPU 1.5）、`similar.search` 給 Backend 的 incidents（confirmed／proposed 各一） | 只報 p1、只報那個 Pod、只回 confirmed 那件並寫出「同一段變慢」 |
+| 五個模型 import 就能用 | `test_models`：每個模型只給 DataFrame／list | M1 抓到注入的 0.5；M2 流量 5 的 Pod 不比；M3 增加 1 觸發；M4 慢的那段是 oracle、多 280 ms；M5 只排 confirmed |
+| 設定錯誤看得懂 | `test_shape`：`hist_count` 用在事件列、`by` 欄位不存在、不支援的 query | 訊息有序列名、缺的欄位、「改用 count、ratio、percentile」 |
+| 文件 | `tools/check-docs.py` | 連結、索引、舊說法、類型 0 個問題 |
+
+- 過程中**發現的問題**：`mask` 的 `exists` 寫法是 `{"exists": {"field": …}}`，一開始照 `{欄位: 值}` 拆、永遠 False；不支援的 query 一開始沒先擋、當成「欄位不存在」回全 False——都是測試抓到的，已修。
+- **沒測到的**：HTTP 來源只用假的 fetch 測（沒有真的 API）；`ESSourceBackend`（讀 ES、寫檔案）只測到建得起來；`store: es` 搭檔案來源沒跑；`tests/synth_e2e.py` 沒在測試 ES 上重跑（ES 路徑的程式碼只多了 `is_backend` 判斷，靠 562 個測試）。
 
 ## Act：Check 後沒改善的、還沒解決的
 
-（未開始）
-
 | 沒改善的 | 在什麼情況下發現的 | 影響 | 後續 |
 |---|---|---|---|
-| | | | |
+| `hist_ratio_above` 在直方圖上跟 ES 差到 9% | 比對時 | 「超過 2 秒的請求比例」檔案來源算出來比 ES 略不同，門檻剛好落在某格時明顯 | 要一樣就照 ES 的 `percentile_ranks` 做線性內插 |
+| 檔案、記憶體來源的異常沒有 dept／group | 設計時 | 分部門通知靠 Grafana 依 dept 分流，這些異常全進 `unassigned` | `source` 加一個可選的 owners 對照（`interfaces/` 的 owners 格式） |
+| `trace-merge`、根因分析的 log、`tune`／`adjust`、回饋網頁仍只有 ES | 範圍外 | 檔案來源能跑 M1～M3 的指令與 M4、M5 的模組，跑不了整條 alert | 要離線跑整條線時再把 `investigator/es.py` 的讀 log 也走 Backend |
 
-- **決定**：不改套件名、不搬 `detector/`、`investigator/`；新加 `sources/`、`models/`，舊路徑用 re-export 保留。理由：500 多個測試和排程表都指著舊路徑，改名只是搬家，不增加「換來源不用改程式」這件事的價值。
-- **下一輪**：（未開始）
+- **決定**：不改套件名、不搬 `detector/`、`investigator/`；新加 `sources/`、`models/`，舊路徑全保留；ES 本身不包成 Backend（是就交給它，不是就走原路）。理由：500 多個測試和排程表都指著舊路徑，改名只是搬家，不增加「換來源不用改程式」這件事的價值；ES 不包一層，假 ES 的測試才不用動。
+- **下一輪**：拿真的 APM 匯出檔（Kibana 匯 CSV 或 `_search` 的 NDJSON）用 `source: file` 跑一次 train → detect，看欄位對不對、速度夠不夠。

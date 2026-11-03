@@ -6,6 +6,8 @@ ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 TZ=Asia/Taipei
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt     # 內網：改成 --index-url 指到 Nexus
 COPY core/ core/
+COPY sources/ sources/
+COPY models/ models/
 COPY detector/ detector/
 COPY investigator/ investigator/
 COPY feedback_web/ feedback_web/
