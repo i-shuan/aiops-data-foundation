@@ -34,7 +34,7 @@ AIOps 把異常合成「一件事」寫進 `aiops-alerts`（`python3 -m investig
 |---|---|---|---|
 | ES 索引欄位 | 寫 `aiops-alerts` 等索引（欄位見 [aiops-data-reference.md](../docs/aiops-data-reference.md)） | `datasource.yaml` 的唯讀 key；規則與儀表板的查詢直接寫欄位名（`status`、`alert_id`、`dept`、`missing_baseline`…） | 改欄位名或型別 |
 | 回饋 HTTP API | `feedback_web`：`GET /api/alert`、`/api/missed-form`；`POST /api/feedback`、`/api/missed` | 表單面板的 `initial.url`、`update.url`；**瀏覽器直接打**，不經 Grafana 後端 | 改路徑或欄位；部署時 URL 要改成使用者瀏覽器連得到的位置、`FEEDBACK_CORS_ORIGIN` 設成 Grafana 的網址 |
-| 告警標籤 | `aiops-alerts` 的 `service`、`dept`、`group`、`severity`、`summary`、`report_url` | 規則把它們帶成 labels；`policies.yaml` 依 `dept` 路由 | 改 `dept` 清單（要跟 APM agent 的 `labels.dept` 值一致） |
+| 告警標籤 | `aiops-alerts` 的 `service`、`dept`、`group`、`severity`、`summary`、`report_url` | 規則把它們帶成 labels；`policies.yaml` 依 `dept` 路由；`severity: warning` 的件走永遠靜音的 mute timing（`always`），只有 `critical`、`high` 送通知 | 改 `dept` 清單（要跟 APM agent 的 `labels.dept` 值一致）；要讓 warning 也通知就刪掉第一條路由 |
 
 - 表單的欄位 id 必須等於後端回傳 JSON 的 key（`/api/alert`、`/api/missed-form`）；漏報面板的 series 下拉是靜態列表，要跟 `series.yaml` 的名字一致。這兩點由 `tests/test_grafana_form.py` 擋。
 - 更細的通知分工（含管 Grafana 的人要設什麼）的設計紀錄：[alert-exit.md](../docs/pdca/phase3-locate/2026-10-alert-exit.md)。

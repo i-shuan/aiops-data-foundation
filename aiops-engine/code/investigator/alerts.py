@@ -28,7 +28,7 @@ from datetime import datetime, timedelta
 SVC_KEYS = ("resource.attributes.service.name", "service", "entry.service", "service.name", "caller")
 NS_KEYS = ("resource.attributes.k8s.namespace.name", "k8s.namespace.name", "namespace", "kubernetes.namespace")
 NODE_KEYS = ("resource.attributes.k8s.node.name", "k8s.node.name", "node")
-SEVERITY = {"warning": 1, "critical": 2}
+SEVERITY = {"warning": 1, "high": 2, "critical": 3}   # 一件最後的嚴重度由 severity.grade 算（訊號廣度＋持續＋換版上限）；這裡只是異常自己帶的
 MAX_IDS = 500          # 一件最多記幾筆異常 id（很長的事故不要讓文件無限長）
 
 

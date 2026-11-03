@@ -64,6 +64,8 @@ ALERT_MAPPING = {"mappings": {"dynamic": False, "properties": {
     "llm_summary": {"type": "text", "index": False}, "llm_provider": {"type": "keyword"},
     # case 只做分類（investigator/similar.classify）：像哪一類、信心；回饋表單預帶、Grafana 可依它分組
     "suggested_category": {"type": "keyword"}, "category_confidence": {"type": "double"},
+    # 嚴重度怎麼來的（investigator/severity.py）：訊號廣度、持續、換版上限；deploy_at 是這個服務最近一次換版
+    "severity_why": {"type": "text", "index": False}, "deploy_at": {"type": "date"},
     # detector detect 每輪寫的 detect-status（detector/cmd_baseline.py）：這輪沒有 baseline 的序列數；Grafana 的 aiops-baseline-missing 查它
     "missing_baseline": {"type": "integer"},
 }}}
@@ -81,6 +83,54 @@ def _anomalies(es: ES, index: str, start: datetime, end: datetime) -> list[dict]
         if len(hits) < 5000:
             return out
         after = hits[-1]["sort"]
+
+
+def deploy_at(es: ES, service: str, since: datetime, now: datetime, index: str = "metrics-apm.transaction.1m-*",
+              field: str = "service.version") -> datetime | None:
+    """這個服務最近一次換版的時間：since 之後第一次出現的新版本（之前還有別的版本才算換版，不是服務剛上線）。查不到回 None。"""
+    body = {"size": 0, "query": {"bool": {"filter": [{"term": {"service.name": service}},
+                                                       {"range": {"@timestamp": {"gte": (since - timedelta(hours=24)).isoformat(), "lt": now.isoformat()}}}]}},
+            "aggs": {"v": {"terms": {"field": field, "size": 20}, "aggs": {"first": {"min": {"field": "@timestamp"}}}}}}
+    buckets = es.search(index, body).get("aggregations", {}).get("v", {}).get("buckets", [])
+    firsts = sorted(datetime.fromtimestamp(b["first"]["value"] / 1000, tz=timezone.utc) for b in buckets if b.get("first", {}).get("value") is not None)
+    new = [t for t in firsts[1:] if t >= since]     # 最早的那個版本不算
+    return max(new) if new else None
+
+
+def grade_alert(es: ES, cfg: dict, al: dict, now: datetime) -> None:
+    """這件的嚴重度：訊號廣度＋持續時間＋換版上限（investigator/severity.py）。要全部異常（不只這一輪的）才算得出持續。"""
+    from . import severity as SEV
+    acfg = cfg.get("alerts", {})
+    opts = SEV.GradeOptions(**(acfg.get("severity") or {}))
+    have = {a["_id"]: a for a in al.get("_anoms") or []}
+    missing = [i for i in al.get("anomaly_ids") or [] if i not in have]
+    if missing:
+        try:
+            got = es.req("POST", f"/{cfg['indices']['anomalies']}/_mget?_source_includes=@timestamp,series,keys,severity,level", {"ids": missing}).get("docs", [])
+            have.update({d["_id"]: {**d["_source"], "_id": d["_id"]} for d in got if d.get("found")})
+        except Exception as e:  # noqa: BLE001  讀不到就只用這一輪的：寧可低估持續，不擋告警
+            print(f"  讀不到 {al['alert_id']} 的舊異常（{type(e).__name__}），持續時間只看這一輪")
+    anoms = list(have.values())
+    own = [a for a in anoms if AL.entity_of(a)[1] == al["service"]] or anoms
+    dep = None
+    if acfg.get("deploy_grace", True):
+        try:
+            from sources.base import is_backend
+            if not is_backend(es):
+                dep = deploy_at(es, al["service"], AL._ts(al["started_at"]) - timedelta(minutes=opts.deploy_grace), now,
+                                acfg.get("deploy_index", "metrics-apm.transaction.1m-*"), acfg.get("version_field", "service.version"))
+        except Exception as e:  # noqa: BLE001
+            print(f"  查不到 {al['service']} 的換版時間（{type(e).__name__}）")
+    golden = [a for a in own if SEV.signal_class(a.get("series")) not in ("traffic", "other")]
+    g = SEV.grade([a.get("series") for a in own], [AL._ts(a["@timestamp"]) for a in own],
+                  members=len({(a.get("series"), AL.route_of(a.get("keys") or {})) for a in golden}),
+                  rule_critical=any(a.get("severity") == "critical" and a.get("level") in ("rule", "peer", "quality") for a in own),
+                  now=now, deploy_at=dep, opts=opts)
+    if g["severity"] != al.get("severity"):
+        al["_upgraded"] = AL.SEVERITY.get(g["severity"], 1) > AL.SEVERITY.get(al.get("severity") or "warning", 1) and not al.get("_new")
+    al["severity"], al["severity_why"] = g["severity"], g["why"]
+    if dep is not None:
+        al["deploy_at"] = dep
 
 
 def _open_alerts(es: ES) -> list[dict]:
@@ -252,6 +302,8 @@ def run(cfg: dict, args, investigate) -> int:
     docs, incidents, tags, new, resolved = [], [], [], 0, 0
     for al in alerts:
         al["dept"], al["group"] = AL.owner(al) if al.get("_anoms") else (al.get("dept"), al.get("group") or "unassigned")
+        if al["category"] == "service" and not al.get("merged_into"):
+            grade_alert(es, cfg, al, now)
         report, findings, similar, llm = al.get("report"), al.get("findings"), al.get("similar") or [], None
         rerun = acfg.get("rca", True) and al["category"] == "service" and al["status"] == "open" and needs_rerun(al, now, acfg)
         if ((al.get("_new") or not report) and acfg.get("rca", True) and al["category"] == "service" and al["status"] == "open") or rerun:
