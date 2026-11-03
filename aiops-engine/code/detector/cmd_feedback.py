@@ -136,6 +136,17 @@ def cmd_feedback(cfg: dict, args) -> int:
             es.req("PUT", f"/{TUNING_INDEX}/_doc/{_id}?refresh=true", sug)
             print(f"  建議 {_id}（漏報）：{A.describe(sug)}")
             n += 1
+        # 整條序列的 precision 太低／太高：放寬／收緊整條（docs/pdca/meta/2026-11-case-classify.md）
+        for sug in F.suggest_by_precision(s["series"], z0):
+            _id = doc_id("suggest-precision", sug["series"])
+            if es.req("GET", f"/{TUNING_INDEX}/_doc/{_id}", ok=(200, 404)).get("found"):
+                print(f"  precision 的建議已經有了：{sug['series']}（{_id}）")
+                continue
+            sug.update({"at": now.isoformat(), "by": "feedback"})
+            es.ensure_index(TUNING_INDEX, TUNING_MAPPING)
+            es.req("PUT", f"/{TUNING_INDEX}/_doc/{_id}?refresh=true", sug)
+            print(f"  建議 {_id}（precision）：{sug['reason']}")
+            n += 1
         # 同一個服務、同一個根因分類被確認 ≥ N 次 → 提「升級成規則」（不用等 baseline，一次就報）
         confirmed = _confirmed_incidents(es, days, now)
         for sug in F.suggest_rules(confirmed, args.min_recurring, _anomalies_of(es, confirmed), cfg.get("series")):

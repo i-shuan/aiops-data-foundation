@@ -66,7 +66,7 @@ FEEDBACK_PORT=8080 python3 -m feedback_web
 - **哪些會開一件**：critical 規則、baseline 連續才算的 `anomaly`、資料品質；warning 規則和Pod 同儕橫向比對要同一個服務 2 筆以上；只跳一次的 baseline `warning` 只併進已經開著的那件。
 - **送給誰看 dept**：每一件帶 `dept`、`group`（取它的異常的，異常寫入時已補上）；資料品質一律 `group: unassigned`（送平台）。Grafana 依 `dept` 分送，設定範例在 [configs/grafana](../../../../grafana/README.md)。
 - 新的那件跑一次 `investigate`：結論寫進 `summary`（Grafana 通知帶這個）、全文存 `report`；結構化結果存 `findings`（慢在哪一段、錯從哪開始、新 log 樣式），也拿來算這件的**指紋**，寫一筆 `aiops-incidents`（`status: auto`）。
-- **過去相似的事故**（`alerts.similar`，[investigator/similar.py](../../investigator/similar.py)）：用指紋（服務、API、慢的那段、錯的源頭、異常的指標組合、新 log 樣式）去 `aiops-incidents` 找老師傅**確認過的**（`confirmed`、`corrected`）最像的 3 件，附在報告最前面：當時的根因、處置、怎麼看出來的、誰處理的，和**為什麼像**（哪幾點相同）。分數不到 4（至少一個強特徵：同一段變慢、同一個錯誤源頭；或同服務＋同指標）就不附。用 ES 的欄位比對、自己算分，不用向量，看得出為什麼像。通知摘要多一行「過去相似：…」。
+- **告警分類**（`alerts.similar`，[investigator/similar.py](../../investigator/similar.py)）：用指紋（服務、API、慢的那段、錯的源頭、異常的指標組合、新 log 樣式）去 `aiops-incidents` 找老師傅**確認過的**（`confirmed`、`corrected`）最像的 3 件，以分數投票說這件**像哪一類**（db、network、config_change…）＋信心，寫進 `suggested_category`、`category_confidence`；報告最前面一段只列分類和那幾件的日期、分類、標題、**為什麼像**。**不列當時的根因、處置**：程式換版後指紋還對得上、根因可能已經不是那個，根因請看定位（慢在哪一段）。分數不到 4（至少一個強特徵：同一段變慢、同一個錯誤源頭；或同服務＋同指標）就不附、不分類。用 ES 的欄位比對、自己算分，不用向量，看得出為什麼像。通知摘要多一行「分類：像 db 類…」。權重可用 `alerts.similar_weights` 蓋過（`similar-eval --learn-weights` 在 case ≥ 50 件時會建議）。
 - **LLM 摘要**（`alerts.llm`，[core/llm.py](../../core/llm.py)）：報告最前面三到五句（原因、影響、建議先做什麼），每句結尾附依據的 id（`[A1]` 異常、`[S1]` 慢的那段、`[E1]` 錯誤源頭、`[L1]` log 樣式、`[I1]` 過去事故）；引用了不存在的 id、或有一句沒依據，**整段不顯示**（程式檢查）。模型掛了退回固定句型（`template`），報告照出。provider 用環境變數 `LLM_PROVIDER`（`template`／`anthropic`／`openai`）或 `alerts.llm_provider` 蓋過；`template` 不叫模型，沒有模型也能跑。`openai` 實測過（`LLM_API_KEY`、`LLM_CHAT_MODEL`，可選 `OPENAI_BASE_URL`）：一件 5～8 秒；`anthropic` 只寫了沒跑過。
 - **回饋連結**：`alerts.feedback_url`、`report_url`（含 `{alert_id}`）寫進每一件，Grafana 通知帶著；指到 [feedback_web](../../feedback_web/__init__.py)。設了 `feedback_url` 時 `report` 全文最後一行也是回饋網址（Grafana 表格點眼睛看全文，看完就是回饋入口）；回饋頁加 `&full=1` 會把全文放在表單上面。
 - **回饋的一句話抽取**（`core.llm.extract_feedback`，同一個 `LLM_PROVIDER`）：值班在表單寫一句自然語言（「這是每月初的批次匯出報表，屬於預期內負載」），抽成 `feedback_type`（false_positive／true_positive／wrong_root_cause）、`identified_cause`（短代號，如 `scheduled_batch_job`）、`target_service`（預設告警的服務，文字點名別的才覆蓋）、`suggested_action`（`suppress_during_cron`／`widen_threshold`／`add_rule`／`none`）。模型回的要過格式檢查，不過就只存原文；對得到調整種類的寫一筆 `aiops-tuning`（`status: proposed`、`source: feedback`、`reason` 帶原文），**人核准才生效**。解析率用 `python3 -m tests.feedback_extract_eval` 量（26 句語料 `tests/feedback_corpus.yaml`；[pdca/phase5-learning-loop/2026-10-feedback-nl-extract.md](../../../../docs/pdca/phase5-learning-loop/2026-10-feedback-nl-extract.md)）。
@@ -110,13 +110,21 @@ helm upgrade --install aiops aiops-engine/helmchart -n aiops --set llmProvider=o
 換 key 或模型要重啟 pod（環境變數是 pod 起來時讀的）。
 ### 匯入歷史事故單（`import-incidents`）
 
-相似事故檢索只拿老師傅確認過的事故教人；系統剛上線時知識庫是空的，先把過去的事故單匯進來。範例 [incidents-example.csv](incidents-example.csv)（10 筆製造業 IT 常見的事故，照格式填）。
+告警分類只拿老師傅確認過的事故投票；系統剛上線時知識庫是空的，先把過去的事故單匯進來。範例 [incidents-example.csv](incidents-example.csv)（10 筆製造業 IT 常見的事故，照格式填）。
 
 ```bash
 python3 -m investigator import-incidents incidents.csv --dry-run    # 先檢查：印出第幾筆缺什麼，不寫
 python3 -m investigator import-incidents incidents.csv              # 寫進 aiops-incidents；印出匯入幾筆、略過幾筆
-python3 -m investigator similar-eval --config configs/rca/rca.yaml  # 匯完量一次 recall@3
+python3 -m investigator similar-eval --config configs/rca/rca.yaml  # 匯完量一次：分類準確率、recall@3
 ```
+
+事故單在資料庫時直接讀（SQL 的欄位別名要跟 CSV 的欄位名一樣；sqlite 不用裝東西，其他要 `pip install sqlalchemy` 和驅動）：
+
+```bash
+python3 -m investigator import-incidents --db 'postgresql://aiops:${INCIDENTS_DB_PW}@db.example.internal/itsm' --sql "SELECT subject AS title, opened_at AS start, closed_at AS end, services, category AS root_cause_category, root_cause, action, how_detected, checked FROM incidents WHERE closed_at > now() - interval '2 years'"
+```
+
+要定期匯（每天讓分類器多幾票）：`rca.yaml` 加 `incidents_db: {url: …, sql: …}`，排程表加一個 job 跑 `investigator import-incidents --config configs/apm/rca.yaml`；密碼用 `${環境變數}` 寫在 URL 裡，由 Secret 帶進 pod。
 
 一列（CSV）或一個物件（JSON 陣列，或 `{"incidents": [...]}`）是一件。CSV 用 UTF-8（Excel 另存的 UTF-8 BOM 也行）。
 

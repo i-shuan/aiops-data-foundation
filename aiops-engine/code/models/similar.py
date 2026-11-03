@@ -5,15 +5,17 @@
   findings   根因分析的結果（segments、error_origins、new_patterns…），沒有就 None
   candidates [(id, 事故文件), …]：事故文件要有 fingerprint（fingerprint() 的格式）、status；只有 status 是 confirmed／corrected 的才拿來教人
 
-用法：
+用法（case 只做分類，不給根因、處置）：
   fp = fingerprint(alert, findings)
-  top = rank(fp, confirmed_only(candidates, exclude_id=alert["alert_id"]), k=3)   # [{incident_id, score, why, title, root_cause, action…}]
-  lines = format_similar(top)                                                      # 報告用的 Markdown
+  top = rank(fp, confirmed_only(candidates, exclude_id=alert["alert_id"]), k=3)   # [{incident_id, score, why, root_cause_category…}]
+  cls = classify(top)                                                              # {"category", "confidence", "votes", "n", "based_on"} 或 None
+  evaluate_cases(cases)                                                            # 留一法：recall@3、accuracy
+  learn_weights(cases)                                                             # case ≥ 50 件時學特徵權重
 """
 from __future__ import annotations
 
-from investigator.similar import (CONFIRMED, MIN_SCORE, TOP_K, WEIGHTS, confirmed_only, explain, fingerprint,  # noqa: F401
-                                  format_similar, rank)
+from investigator.similar import (CONFIRMED, MIN_SCORE, TOP_K, WEIGHTS, classify, confirmed_only, describe_class,  # noqa: F401
+                                  evaluate_cases, explain, fingerprint, format_similar, learn_weights, rank)
 
 
 def check_candidates(candidates) -> list[tuple[str, dict]]:

@@ -1,6 +1,8 @@
 """歷史事故單匯入（docs/pdca/phase4-rca-llm/2026-10-incident-import.md）。
 
   python3 -m investigator import-incidents <csv 或 json> [--tz Asia/Taipei] [--dry-run]
+  python3 -m investigator import-incidents --db 'postgresql://user:${PW}@host/db' --sql "SELECT subject AS title, … FROM incidents"
+  （或 rca.yaml 寫 incidents_db: {url, sql}，排程定期匯：docs/pdca/meta/2026-11-case-classify.md）
 
 一列一件，欄位就是 aiops-incidents 的（title、start、end、services、root_cause_category、root_cause、action、how_detected、checked；
 可選 by、note；有的話再給指紋欄位 routes、series、slow_segments、error_origins、patterns）。
@@ -30,8 +32,41 @@ LIST_FIELDS = ("services", "checked") + FP_FIELDS
 DEFAULT_TZ = "Asia/Taipei"
 
 
-def read_rows(path: str | Path) -> list[dict]:
-    """CSV（Excel 存的 UTF-8 BOM 也行）或 JSON 陣列；JSON 也接受 {"incidents": [...]}（跟 owners、calendar 一樣可包可不包）。"""
+class DbRows:
+    """從資料庫讀：SQL 一句，欄位別名就是 CSV 的欄位名（SELECT subject AS title, opened AS start, … FROM incidents）。
+    url 是 SQLAlchemy 的；sqlite:/// 不用裝 SQLAlchemy（標準庫）。url 裡的 ${VAR} 用環境變數換掉（密碼不寫進設定檔）。"""
+
+    def __init__(self, url: str, sql: str):
+        import os
+        self.url, self.sql = os.path.expandvars(url), sql
+
+    def __str__(self):
+        import re
+        return re.sub(r"://([^:/@]+):[^@]*@", r"://\1:***@", self.url)   # 印出來時遮密碼
+
+    def rows(self) -> list[dict]:
+        if self.url.startswith("sqlite:///"):
+            import sqlite3
+            con = sqlite3.connect(self.url[len("sqlite:///"):])
+            con.row_factory = sqlite3.Row
+            try:
+                return [dict(r) for r in con.execute(self.sql)]
+            finally:
+                con.close()
+        try:
+            import sqlalchemy
+        except ImportError:
+            raise SystemExit(f"讀 {self} 要裝 SQLAlchemy（pip install sqlalchemy 和對應的驅動）；sqlite 不用")
+        with sqlalchemy.create_engine(self.url).connect() as con:
+            res = con.execute(sqlalchemy.text(self.sql))
+            return [dict(r._mapping) for r in res]
+
+
+def read_rows(path: "str | Path | DbRows") -> list[dict]:
+    """CSV（Excel 存的 UTF-8 BOM 也行）或 JSON 陣列；JSON 也接受 {"incidents": [...]}（跟 owners、calendar 一樣可包可不包）；
+    或 DbRows（資料庫）。"""
+    if isinstance(path, DbRows):
+        return path.rows()
     p = Path(path)
     if p.suffix.lower() == ".json":
         data = json.loads(p.read_text(encoding="utf-8-sig"))
@@ -112,7 +147,7 @@ def fingerprint(row: dict, services: list[str]) -> dict:
             "patterns": [p[:120] for p in split_list(row.get("patterns"))][:5]}
 
 
-def parse(path: str | Path, tz: str = DEFAULT_TZ, now: datetime | None = None) -> tuple[list[tuple[str, dict]], list[tuple[int, str]]]:
+def parse(path: "str | Path | DbRows", tz: str = DEFAULT_TZ, now: datetime | None = None) -> tuple[list[tuple[str, dict]], list[tuple[int, str]]]:
     """整個檔 → (能匯的 [(_id, doc)], 略過的 [(第幾筆, 原因)])。"""
     docs, skipped = [], []
     for n, row in enumerate(read_rows(path), 1):
@@ -134,7 +169,9 @@ def write(es: ES, docs: list[tuple[str, dict]]) -> int:
     return len(docs)
 
 
-def run(path: str, tz: str = DEFAULT_TZ, dry_run: bool = False, es: ES | None = None) -> int:
+def run(path: "str | DbRows", tz: str = DEFAULT_TZ, dry_run: bool = False, es: ES | None = None) -> int:
+    if isinstance(path, DbRows):
+        print(f"從資料庫讀：{path}")
     docs, skipped = parse(path, tz)
     for n, why in skipped:
         print(f"  第 {n} 筆略過：{why}")

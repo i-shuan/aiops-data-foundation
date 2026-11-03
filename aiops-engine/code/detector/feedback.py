@@ -114,6 +114,28 @@ def suggest_override(series: str, target: str, n_false_positive: int, current_z:
             "reason": f"誤報 {n_false_positive} 次（值班回饋），z {current_z:g} → {round(current_z * factor, 1)}"}
 
 
+def suggest_by_precision(series_rows, current_z: float = 5.0, *, low: float = 0.7, high: float = 0.95, min_reviewed: int = 10,
+                         loosen: float = 1.4, tighten: float = 0.8) -> list[dict]:
+    """每條序列看最近的 precision（真的 ÷ 有人標的；根因報錯也算真的）：低於 low 提放寬（整條序列，z × loosen）、
+    高於 high 而且有漏報提收緊（z × tighten）。reviewed 不到 min_reviewed 不提（幾筆就跳不準）。
+    series_rows：summarize()["series"] 的 DataFrame（series、reviewed、true_positive、wrong_root_cause、missed）。
+    一樣是 proposed，照舊回測、人核准；跟誤報累積 3 次（單一對象）那條互補：這條看整條序列的比例。"""
+    out = []
+    for r in series_rows.to_dict("records"):
+        n = int(r.get("reviewed") or 0)
+        if n < min_reviewed:
+            continue
+        prec = (int(r.get("true_positive") or 0) + int(r.get("wrong_root_cause") or 0)) / n
+        base = {"kind": "override", "series": re.escape(str(r["series"])), "match": {}, "status": "proposed", "source": "feedback"}
+        if prec < low:
+            out.append({**base, "z": round(current_z * loosen, 1),
+                        "reason": f"precision {prec:.0%}（{n} 筆有人標，低於 {low:.0%}），整條放寬 z {current_z:g} → {round(current_z * loosen, 1)}"})
+        elif prec > high and int(r.get("missed") or 0) > 0:
+            out.append({**base, "z": round(current_z * tighten, 1),
+                        "reason": f"precision {prec:.0%}（{n} 筆）且漏報 {int(r['missed'])} 次，整條收緊 z {current_z:g} → {round(current_z * tighten, 1)}"})
+    return out
+
+
 def _match_of(target: str) -> dict:
     return {k: f"^{re.escape(str(v))}$" for k, v in json.loads(target).items()}
 

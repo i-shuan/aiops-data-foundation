@@ -119,9 +119,12 @@ class Search(unittest.TestCase):
     def test_format(self):
         lines = SIM.format_similar(SIM.search(self.es, self.fp))
         text = "\n".join(lines)
-        self.assertIn("過去相似的事故", text)
-        self.assertIn("當時的根因：[db] db 的根因", text)
-        self.assertIn("怎麼看出來的：看 Oracle 段", text)
+        # case 只做分類：段落標題是分類，清單只有日期、分類、標題、為什麼像；不列當時的根因、處置
+        self.assertTrue(lines[0].startswith("## 分類（依過去相似的 case）：像 db 類"), lines[0])
+        self.assertIn("[db] db 事故（為什麼像：", text)
+        self.assertNotIn("當時的根因", text)
+        self.assertNotIn("處置", text)
+        self.assertNotIn("看 Oracle 段", text)
         self.assertEqual(SIM.format_similar([]), [])
 
 

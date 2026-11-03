@@ -115,6 +115,7 @@ Grafana（⑧）         讀 aiops-alerts 發通知；儀表板讀 alerts、anom
 | `report_url`、`feedback_url` | keyword | 由 `rca.yaml` 的 `alerts.report_url`、`alerts.feedback_url` 帶入 `{alert_id}` |
 | `findings` | object（不索引） | 結構化的根因分析結果，見下 |
 | `similar` | object（不索引） | 相似事故，見下 |
+| `suggested_category`、`category_confidence` | keyword、double | 告警分類：相似事故（只有確認過的）以分數投票的結果與信心（贏的那類分數 ÷ 全部）；沒有相似的就空。回饋表單預帶這個分類，人改掉就是 `corrected`（[case 只做分類](pdca/meta/2026-11-case-classify.md)） |
 | `llm_summary`、`llm_provider` | text、keyword | LLM 摘要與誰產的：`template`（固定句型，沒設 LLM）、`anthropic`、`openai`；模型回空的或失敗時寫成 `template（<原本的 provider> 回空的）`、`template（<provider> 失敗：…）`。每一句要附依據編號，驗證沒過就沒有摘要（`llm_summary` 空） |
 
 **`findings`**（`investigator/__main__.py` 的 `investigate_full`）：

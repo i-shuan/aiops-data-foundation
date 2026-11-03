@@ -62,6 +62,8 @@ ALERT_MAPPING = {"mappings": {"dynamic": False, "properties": {
     # 結構化的根因分析結果（相似事故檢索、LLM 用；不索引）、相似事故、LLM 摘要
     "findings": {"type": "object", "enabled": False}, "similar": {"type": "object", "enabled": False},
     "llm_summary": {"type": "text", "index": False}, "llm_provider": {"type": "keyword"},
+    # case 只做分類（investigator/similar.classify）：像哪一類、信心；回饋表單預帶、Grafana 可依它分組
+    "suggested_category": {"type": "keyword"}, "category_confidence": {"type": "double"},
     # detector detect 每輪寫的 detect-status（detector/cmd_baseline.py）：這輪沒有 baseline 的序列數；Grafana 的 aiops-baseline-missing 查它
     "missing_baseline": {"type": "integer"},
 }}}
@@ -274,12 +276,16 @@ def run(cfg: dict, args, investigate) -> int:
                 print(f"  🔁 {al['alert_id']}：trace 到了，重跑根因分析（第 {al['rca_attempts']} 次）")
             # 相似事故（老師傅確認過的）→ 附在報告最前面；LLM 摘要（只加註）
             try:
-                similar = SIM.search(es, SIM.fingerprint(al, findings)) if acfg.get("similar", True) else []
+                similar = SIM.search(es, SIM.fingerprint(al, findings), weights=acfg.get("similar_weights")) if acfg.get("similar", True) else []
             except Exception as e:
                 similar = []
                 print(f"  相似事故檢索失敗：{e}")
+            # case 只做分類：像哪一類＋信心，寫進告警；報告、摘要不列 case 的處置
+            cls = SIM.classify(similar)
+            al["suggested_category"] = cls["category"] if cls else None
+            al["category_confidence"] = cls["confidence"] if cls else None
             llm = llm_summary(al, findings, similar, acfg)
-            head = ([f"> {l}" for l in llm["text"].splitlines()] + [""] if llm and llm["ok"] else []) + SIM.format_similar(similar)
+            head = ([f"> {l}" for l in llm["text"].splitlines()] + [""] if llm and llm["ok"] else []) + SIM.format_similar(similar, cls=cls)
             if head and report:
                 report = "\n".join(head) + "\n" + report
             al["findings"], al["similar"] = findings, similar

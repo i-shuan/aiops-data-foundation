@@ -20,7 +20,8 @@ import re
 import requests
 
 CITE = re.compile(r"\[([A-Z]\d+)\]")
-PROMPT = """你是工廠 IT 維運的值班助理。根據下面的輸入包，用繁體中文寫 3～5 句話：最可能的原因、影響（哪些服務、API、多久）、建議先做什麼（有過去事故就引用它的處置）。
+PROMPT = """你是工廠 IT 維運的值班助理。根據下面的輸入包，用繁體中文寫 3～5 句話：最可能的原因（只能從 segments、error_origins、new_patterns 推）、影響（哪些服務、API、多久）、建議先查哪一段。
+過去的 case（similar、classification）只用來說「這件像哪一類」，不要照抄它們的處置當建議；程式可能已經換版，舊的處置不一定對。
 規則：每一句結尾一定要放依據的 id，格式像 [S1] 或 [A1][I1]（講這件告警本身：服務、持續多久、嚴重度，引用 [T1]）；只能引用輸入包裡有的 id；不能自己編服務名、數字；不確定就說「不確定」。只輸出那幾句，一句一行，不要標題。
 
 trace_ready 是 false：這個服務這段時間的 trace 還沒就緒（trace 合成晚 1～2 分鐘，剛開件時常見），不能寫「trace 沒看到變慢」；要寫「trace 還沒就緒，先不下結論」，建議看 log、稍後報告會重跑。
@@ -67,11 +68,15 @@ def build_pack(alert: dict, findings: dict | None, similar: list[dict]) -> dict:
     for i, p in enumerate(f.get("new_patterns") or [], 1):
         k = f"L{i}"; items[k] = p
         pack["new_patterns"].append({"id": k, "service": p["service"], "pattern": p["pattern"][:120], "now": p["now"], "usual": p["ref"]})
+    # 過去的 case 只給分類用：只放日期、分類、為什麼像，不放當時的根因、處置（docs/pdca/meta/2026-11-case-classify.md）
     for i, s in enumerate(similar or [], 1):
         k = f"I{i}"; items[k] = s
         pack["similar"].append({"id": k, "when": (s.get("start") or "")[:16], "root_cause_category": s.get("root_cause_category"),
-                                "root_cause": s.get("root_cause"), "action": s.get("action"), "how_detected": s.get("how_detected"),
                                 "why_similar": s.get("why")})
+    if similar:
+        from investigator.similar import classify
+        cls = classify(similar)
+        pack["classification"] = {"category": cls["category"], "confidence": cls["confidence"], "votes": cls["votes"]} if cls else None
     # trace 還沒就緒：根因分析查過、但這個服務這段時間沒有任何 trace（trace 合成晚 1～2 分鐘）。沒查過（findings 是 None）不算
     req = f.get("requests")
     pack["trace_ready"] = not (isinstance(req, dict) and not req.get("requests"))
@@ -116,11 +121,16 @@ def template(pack: dict) -> str:
         p = pats[0]
         out.append(f"同時間 {p['service']} 新出現 log「{p['pattern'][:60]}」{p['now']} 次 [{p['id']}]。")
     if sim:
-        s = sim[0]
-        cat = f"[{s['root_cause_category']}] " if s.get("root_cause_category") else ""
-        act = f"，當時的處置：{s['action']}" if s.get("action") else ""
-        out.append(f"跟 {s['when']} 的事故相似（{'；'.join(s.get('why_similar') or [])[:80]}），當時的根因是 {cat}{s.get('root_cause') or '未記錄'}{act} [{s['id']}]。")
-        out.append(f"建議先照上次的方式確認：{s.get('how_detected') or '看同一段的指標'} [{s['id']}]。")
+        s, cls = sim[0], pack.get("classification")
+        ids = "".join(f"[{x['id']}]" for x in sim)
+        if cls:
+            out.append(f"依過去相似的 case，這件像 {cls['category']} 類（{len(sim)} 件裡佔 {cls['confidence']:.0%}；最像 {s['when']}："
+                       f"{'；'.join(s.get('why_similar') or [])[:80]}）{ids}。")
+        else:
+            out.append(f"跟 {s['when']} 的事故相似（{'；'.join(s.get('why_similar') or [])[:80]}），但那件沒有分類 [{s['id']}]。")
+        if slow or err:
+            where = (slow["segment"] if slow else err[0]["segment"]).split(" › ")[-1]
+            out.append(f"根因請以上面的定位為準，先查 {where} 這一段的下游 [{slow['id'] if slow else err[0]['id']}]。")
     elif slow or err:
         where = (slow["segment"] if slow else err[0]["segment"]).split(" › ")[-1]
         ref = slow["id"] if slow else err[0]["id"]

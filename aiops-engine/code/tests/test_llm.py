@@ -11,7 +11,7 @@ FINDINGS = {"anomalies": [{"series": "http.latency_p95_s", "value": 3.1, "median
             "error_origins": [{"segment": "wip-worker › Oracle", "now_errors": 40, "ref_errors": 0}],
             "new_patterns": [{"service": "wip-worker", "pattern": "connection pool timeout after <N>ms", "now": 120, "ref": 0}]}
 SIMILAR = [{"start": "2026-09-12T02:00:00+00:00", "root_cause_category": "db", "root_cause": "統計資訊過期", "action": "重跑 analyze",
-            "how_detected": "只有 lots 的查詢慢", "why": ["同服務（mes-api）", "同一段變慢（…Oracle SELECT lots）"]}]
+            "how_detected": "只有 lots 的查詢慢", "score": 9.0, "why": ["同服務（mes-api）", "同一段變慢（…Oracle SELECT lots）"]}]
 
 
 class Pack(unittest.TestCase):
@@ -19,7 +19,11 @@ class Pack(unittest.TestCase):
         p = LLM.build_pack(ALERT, FINDINGS, SIMILAR)
         self.assertEqual(p["_ids"], ["A1", "E1", "I1", "L1", "S1", "T1"])
         self.assertEqual(p["segments"][0]["extra_ms"], 1470)
-        self.assertEqual(p["similar"][0]["action"], "重跑 analyze")
+        # case 只做分類：輸入包裡不給 case 的處置、根因，模型抄不到（docs/pdca/meta/2026-11-case-classify.md）
+        self.assertNotIn("action", p["similar"][0])
+        self.assertNotIn("root_cause", p["similar"][0])
+        self.assertEqual(p["similar"][0]["root_cause_category"], "db")
+        self.assertEqual((p["classification"]["category"], p["classification"]["confidence"]), ("db", 1.0))
 
     def test_no_findings_no_similar(self):
         p = LLM.build_pack(ALERT, None, [])
@@ -55,8 +59,11 @@ class Template(unittest.TestCase):
         ok, why = LLM.validate(text, pack)
         self.assertTrue(ok, why)
         self.assertIn("多花約 1470 毫秒", text)
-        self.assertIn("當時的根因是 [db] 統計資訊過期，當時的處置：重跑 analyze [I1]", text)
-        self.assertIn("建議先照上次的方式確認：只有 lots 的查詢慢 [I1]", text)
+        self.assertIn("依過去相似的 case，這件像 db 類（1 件裡佔 100%；最像 2026-09-12T02:00", text)
+        self.assertIn("[I1]", text)
+        self.assertIn("根因請以上面的定位為準，先查 Oracle SELECT lots 這一段的下游 [S1]", text)
+        self.assertNotIn("重跑 analyze", text)          # 不照抄舊的處置
+        self.assertNotIn("統計資訊過期", text)
 
     def test_no_trace_is_not_reported_as_no_slowdown(self):
         # trace 還沒合成完（根因分析查過、這個服務沒有任何 trace）：不能說「trace 沒看到變慢」

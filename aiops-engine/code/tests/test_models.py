@@ -72,4 +72,5 @@ class SimilarModel(unittest.TestCase):
             ("new", {"status": "proposed", "title": "沒人看過", "fingerprint": fp})])
         top = similar.rank(fp, similar.confirmed_only(cands), k=3)
         self.assertEqual([t["incident_id"] for t in top], ["old"])
-        self.assertTrue(similar.format_similar(top)[0].startswith("## 過去相似的事故"))
+        self.assertTrue(similar.format_similar(top)[0].startswith("## 分類"))
+        self.assertIsNone(similar.classify(top))          # 候選沒有分類 → 不猜
