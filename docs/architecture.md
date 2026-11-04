@@ -17,6 +17,7 @@
   - [3.5 人在迴圈中：系統只建議、人決定 (Human-in-the-Loop)](#35-人在迴圈中系統只建議人決定-human-in-the-loop)
 - [4. 核心處理模組職責 (Core Components ①～⑨)](#4-核心處理模組職責-core-components-①⑨)
   - [4.1 平台層與 AIOps 層的分界](#41-平台層與-aiops-層的分界)
+  - [4.2 主程式與 plugin](#42-主程式與-plugin)
 - [5. 資料關聯與根因定位機制 (Correlation & RCA)](#5-資料關聯與根因定位機制-correlation--rca)
 - [6. 各 phase 一句話](#6-各-phase-一句話)
 - [7. 各模組：程式、驗證、狀態](#7-各模組程式驗證狀態)
@@ -208,6 +209,20 @@ flowchart TB
 | 讀進來時的格式轉換 | APM 與 OTel 的欄位名不同，轉換在 engine（`core/traces.py`、`configs/apm/`）；屬 ④ 的前處理，不是改資料 |
 | 靜態臨界值規則 | 固定門檻屬傳統監控；放 engine 是為了跟其他異常走同一套收斂與通知 |
 | 餵給基準線之前的清理（排除時段、行事曆、慢性病清單） | 決定基準線學哪些資料，屬 AIOps |
+
+### 4.2 主程式與 plugin
+
+engine 一份程式，情境各是一個 plugin（[core/plugin.py](../aiops-engine/code/core/plugin.py)、[plugins/](../aiops-engine/code/plugins/README.md)），環境變數 `AIOPS_PLUGIN` 選：`observability`（IT）、`factory`（工廠：ML／FDC 的異常＋履歷）、`metrics_only`（只有指標）；也可以自己寫一個掛上去。
+
+| | 主程式（哪個情境都一樣） | plugin（情境不同就不同） |
+|---|---|---|
+| ④ | 五個模型的數學、`ingest`（別人判好的異常 → ⑤） | — |
+| ⑤ | `aiops-anomalies` 的格式：**這是主程式與 plugin 之間的契約**——異常只要進得了 ⑤（有 `series`、`keys`、`level`、時間），後面全部接得上 | 異常的 `keys` 裡哪個欄位是「對象」（服務／機台）、哪個是「API」（method＋route／recipe） |
+| ⑥ | 同對象時間相連合一件、開件關件、嚴重度分級（廣度＋持續＋換版上限） | 跨對象併件的依據（呼叫關係／履歷前後站／不併）、「換版」是什麼（版號／recipe 變更）、訊號怎麼分類（黃金訊號／參數家族） |
+| ⑦ | 報告的每一段（[investigator/report.py](../aiops-engine/code/investigator/report.py)）、M4 分段、共同點、log 樣式、相似事故 | 報告有哪幾段、順序；索引與欄位的對照；用語（請求／lot、Trace／履歷） |
+| ⑧⑨ | Grafana 通知、回饋、匯出 | 回饋表單的分類表、誤報原因 |
+
+擴充點只開「現在真的有兩種以上做法」的地方，沒有的不預先抽；第四種情境（例如網路設備靠拓樸併件）出現時，繼承一個內建 plugin 覆寫那幾個就好。`configs/` 不隨 plugin 搬：plugin 只決定預設排程表，設定檔仍在 `configs/<情境>/`。
 
 ## 5. 資料關聯與根因定位機制 (Correlation & RCA)
 

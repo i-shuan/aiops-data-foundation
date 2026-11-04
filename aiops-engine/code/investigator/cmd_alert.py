@@ -13,12 +13,10 @@ from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from core import llm as LLM
-from core import traces as T
+from core import plugin
 from core.es import ES
 
 from . import alerts as AL
-from . import analyze as A
-from . import es as E
 from . import similar as SIM
 
 INCIDENT_INDEX = "aiops-incidents"
@@ -87,28 +85,17 @@ def _anomalies(es: ES, index: str, start: datetime, end: datetime) -> list[dict]
         after = hits[-1]["sort"]
 
 
-def deploy_at(es: ES, service: str, since: datetime, now: datetime, index: str = "metrics-apm.transaction.1m-*",
-              field: str = "service.version") -> datetime | None:
-    """這個服務最近一次換版的時間：since 之後第一次出現的新版本（之前還有別的版本才算換版，不是服務剛上線）。查不到回 None。"""
-    body = {"size": 0, "query": {"bool": {"filter": [{"term": {"service.name": service}},
-                                                       {"range": {"@timestamp": {"gte": (since - timedelta(hours=24)).isoformat(), "lt": now.isoformat()}}}]}},
-            "aggs": {"v": {"terms": {"field": field, "size": 20}, "aggs": {"first": {"min": {"field": "@timestamp"}}}}}}
-    buckets = es.search(index, body).get("aggregations", {}).get("v", {}).get("buckets", [])
-    firsts = sorted(datetime.fromtimestamp(b["first"]["value"] / 1000, tz=timezone.utc) for b in buckets if b.get("first", {}).get("value") is not None)
-    new = [t for t in firsts[1:] if t >= since]     # 最早的那個版本不算
-    return max(new) if new else None
-
-
 def grade_alert(es: ES, cfg: dict, al: dict, now: datetime) -> None:
     """這件的嚴重度：訊號廣度＋持續時間＋換版上限（investigator/severity.py）。要全部異常（不只這一輪的）才算得出持續。
-    工廠版（configs/factory/rca.yaml）：severity.classes 把序列分成參數家族；critical_levels 加 fdc（FDC 的 OOS 鳴叫直接 critical）；
-    deploy_kind: change_log 把 recipe 變更紀錄當換版（investigator/factory.change_at）。"""
+    訊號怎麼分類（IT 黃金訊號／工廠參數家族）、哪些 level 的 critical 直接算 critical、「換版」是什麼（版號／recipe 變更）由 plugin 給預設，
+    cfg 的 alerts.severity.classes、alerts.critical_levels 可覆蓋（core/plugin.py）。"""
     from . import severity as SEV
+    pg = plugin.current()
     acfg = cfg.get("alerts", {})
     sev_cfg = dict(acfg.get("severity") or {})
-    classes = SEV.parse_classes(sev_cfg.pop("classes", None))
+    classes = SEV.parse_classes(sev_cfg.pop("classes", None) or pg.severity_classes)
     opts = SEV.GradeOptions(**sev_cfg)
-    critical_levels = set(acfg.get("critical_levels") or ("rule", "peer", "quality"))
+    critical_levels = set(acfg.get("critical_levels") or pg.critical_levels)
     have = {a["_id"]: a for a in al.get("_anoms") or []}
     missing = [i for i in al.get("anomaly_ids") or [] if i not in have]
     if missing:
@@ -124,15 +111,8 @@ def grade_alert(es: ES, cfg: dict, al: dict, now: datetime) -> None:
         try:
             from sources.base import is_backend
             since = AL._ts(al["started_at"]) - timedelta(minutes=opts.deploy_grace)
-            if is_backend(es):
-                pass
-            elif acfg.get("deploy_kind") == "change_log":
-                from . import factory as FAC
-                dep = FAC.change_at(es, acfg.get("deploy_index", "eqp-logs-*"), acfg.get("deploy_entity_field", "equipment_id"), al["service"],
-                                    since, now, acfg.get("deploy_time_field", "@timestamp"), acfg.get("deploy_filter"))
-            else:
-                dep = deploy_at(es, al["service"], since, now,
-                                acfg.get("deploy_index", "metrics-apm.transaction.1m-*"), acfg.get("version_field", "service.version"))
+            if not is_backend(es):
+                dep = pg.change_at(es, cfg, al["service"], since, now)
         except Exception as e:  # noqa: BLE001
             print(f"  查不到 {al['service']} 的換版時間（{type(e).__name__}）")
     golden = [a for a in own if SEV.signal_class(a.get("series"), classes) not in ("traffic", "other")]
@@ -157,23 +137,6 @@ def _done_ids(es: ES, since: datetime) -> set:
     body = {"size": 10000, "_source": ["anomaly_ids"], "query": {"bool": {"filter": [
         {"term": {"status": "resolved"}}, {"range": {"resolved_at": {"gte": since.isoformat()}}}]}}}
     return {i for h in es.search(ALERT_INDEX, body)["hits"]["hits"] for i in h["_source"].get("anomaly_ids") or []}
-
-
-def call_edges(es: ES, cfg: dict, services: set[str], start: datetime, end: datetime, per: int = 100) -> set[tuple[str, str]]:
-    """這段時間 trace 裡這幾個服務之間誰呼叫誰：{(上游, 下游)}。
-    每個服務取最近 per 個收到的請求、整個 trace 讀回來（含其他服務的 span），用根因分析同一套 topology 算邊
-    （父 span 的服務 ≠ 子 span 的服務 → 父呼叫子）；只留兩端都在 services 裡的。少於 2 個服務、沒有 trace 都回空集合。"""
-    if len(services) < 2:
-        return set()
-    ix, pad = cfg["indices"]["traces"], timedelta(minutes=5)
-    ids: list[str] = []
-    for s in sorted(services):
-        ids += E.service_trace_ids(es, ix, s, start, end, per)
-    ids = list(dict.fromkeys(ids))
-    if not ids:
-        return set()
-    edges = A.topology(T.group_traces(T.spans_of(es, ix, ids, start - pad, end + pad)))
-    return {(e.caller, e.callee) for e in edges if e.caller in services and e.callee in services and e.caller != e.callee}
 
 
 def _incident_doc(al: dict, doc: dict, findings: dict | None) -> dict:
@@ -303,24 +266,15 @@ def run(cfg: dict, args, investigate) -> int:
     oldest = min([datetime.fromisoformat(str(a["updated_at"]).replace("Z", "+00:00")) for a in open_alerts], default=now)
     start = min(now - lookback, oldest - close_after)
     anoms = _anomalies(es, cfg["indices"]["anomalies"], start, now)
-    calls: set[tuple[str, str]] = set()
-    links: dict = {}
-    if acfg.get("chain", True) and acfg.get("chain_source") == "lot_path":
-        # 工廠版：沒有呼叫關係，用履歷（lot-paths-*）找這批 lot 的前站（investigator/factory.lot_links）
-        from . import factory as FAC
+    # 跨對象（一層）要不要併、依什麼併，由 plugin 決定（IT：trace 的呼叫關係；工廠：履歷的前後站；只有指標：不併）。
+    # 查失敗只是這一輪不併跨對象，不擋告警
+    chain = plugin.Chain()
+    if acfg.get("chain", True):
         try:
-            links = FAC.lot_links(es, cfg["indices"]["traces"], anoms, now, _dur(acfg.get("paths_lookback", "3d")))
-        except Exception as e:
-            print(f"  履歷查不到（{type(e).__name__}: {str(e)[:80]}），這一輪不併前後站")
-    elif acfg.get("chain", True):
-        # 跨服務（一層）：這段時間 trace 裡「誰呼叫誰」，只看有件開著、或這次有異常的服務。查失敗只是這一輪不併跨服務，不擋告警
-        svcs = {al["service"] for al in open_alerts if al.get("category") == "service"}
-        svcs |= {ent[1] for ent in map(AL.entity_of, anoms) if ent[0] == "service"}
-        try:
-            calls = call_edges(es, cfg, svcs, start, now, int(acfg.get("chain_sample", 100)))
-        except Exception as e:
-            print(f"  呼叫關係查不到（{type(e).__name__}: {str(e)[:80]}），這一輪不併跨服務")
-    alerts = AL.merge(open_alerts, anoms, now, close_after, _done_ids(es, start - close_after), calls, links)
+            chain = plugin.current().chain(es, cfg, anoms, open_alerts, start, now)
+        except Exception as e:  # noqa: BLE001
+            print(f"  跨對象的關聯查不到（{type(e).__name__}: {str(e)[:80]}），這一輪不併跨對象")
+    alerts = AL.merge(open_alerts, anoms, now, close_after, _done_ids(es, start - close_after), chain.calls, chain.links)
     docs, incidents, tags, new, resolved = [], [], [], 0, 0
     for al in alerts:
         al["dept"], al["group"] = AL.owner(al) if al.get("_anoms") else (al.get("dept"), al.get("group") or "unassigned")

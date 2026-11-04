@@ -41,9 +41,7 @@ CAUSE_CATEGORY = {"db_slow_query": "db", "db_lock": "db", "db_connection_pool": 
                   "config_change": "config_change", "deploy": "deploy", "external_api": "external", "resource_cpu": "resource",
                   "resource_memory": "resource", "disk_full": "resource", "bug": "bug", "data_volume": "data", "dirty_data": "data"}
 # status：open／resolved（人補登的）、auto（事件整合自動開的，還沒人看）、confirmed（老師傅標真的）、corrected（真的但根因改過）
-# 相似事故檢索只用 confirmed、corrected（investigator/similar.py）
-from core import domain as _domain
-ROOT_CAUSE_CATEGORIES = _domain.category_codes()    # 依 AIOPS_DOMAIN：IT 是 db、network…；工廠是 equipment、process_drift…（core/domain.py）
+# 相似事故檢索只用 confirmed、corrected（investigator/similar.py）。根因分類表在 plugin（core/domain.categories）
 INCIDENT_MAPPING = {"mappings": {"dynamic": False, "properties": {
     "@timestamp": {"type": "date"}, "title": {"type": "text"}, "start": {"type": "date"}, "end": {"type": "date"},
     "services": {"type": "keyword"}, "severity": {"type": "keyword"}, "status": {"type": "keyword"},

@@ -11,8 +11,8 @@
   python3 -m detector chronic --config configs/baseline/chronic.yaml [--at …]
   python3 -m detector feedback pending|add|list|summary|suggest|export   值班回饋（真的／誤報／根因錯／漏報）；export 匯出給 ML 團隊
   python3 -m detector incident add|list|resolve                   事故紀錄
-  python3 -m detector ingest --config configs/factory/ingest.yaml [--window 10m] [--at …]     工廠版：ML／FDC 判好的異常接進 ⑤
-  python3 -m detector paths-merge --config configs/factory/paths.yaml [--window 1d] [--at …]  工廠版：MES＋S6F11 → 一個 lot 一筆履歷
+  python3 -m detector ingest --config configs/factory/ingest.yaml [--window 10m] [--at …]     別人判好的異常（ML、FDC）接進 ⑤
+  （plugin 加的子命令只在那個 plugin 下才有：AIOPS_PLUGIN=factory 多 paths-merge；core/plugin.py、plugins/README.md）
 
 train ：讀過去 N 週的資料，每條序列、每個時段學出中位數與波動範圍，寫進 ES 的 aiops-baseline。
 detect：讀最近一段時間的資料，跟 baseline 比，超出範圍的寫進 aiops-anomalies，並印出來。
@@ -37,6 +37,8 @@ import sys
 
 import yaml
 
+from core import plugin
+
 from .cmd_baseline import cmd_train, cmd_tune, cmd_detect
 from .cmd_adjust import cmd_adjust
 from .cmd_backtest import cmd_backtest
@@ -50,7 +52,6 @@ from .cmd_rules import cmd_rules
 from .cmd_peer import cmd_peer
 from .cmd_quality import cmd_quality
 from .cmd_ingest import cmd_ingest
-from .cmd_paths import cmd_paths_merge
 
 
 def main(argv=None) -> int:
@@ -194,14 +195,13 @@ def main(argv=None) -> int:
     sh = sub.add_parser("shift", help="一階跳變：最近一天幾乎每點都往同一邊超標、新水準很穩的序列，提 reset_point（proposed）")
     sh.add_argument("--config", required=True, help="series.yaml（可加 shift: {window, min_points, min_share, max_spread}）")
     sh.add_argument("--at", help="拿某個時間點當成現在")
-    ig = sub.add_parser("ingest", help="工廠版：ML 的異常跳點、FDC 鳴叫（別人判好的）→ aiops-anomalies（detector/ingest.py）")
+    ig = sub.add_parser("ingest", help="別人判好的異常（ML 的異常跳點、FDC 鳴叫）→ aiops-anomalies（detector/ingest.py）")
     ig.add_argument("--config", required=True, help="configs/factory/ingest.yaml")
     ig.add_argument("--window", default="10m", help="看最近多久的來源列（預設 10m；_id 依來源識別碼，重讀不重複）")
     ig.add_argument("--at", help="拿某個時間點當成現在")
-    pm = sub.add_parser("paths-merge", help="工廠版：MES 進出站＋S6F11 機台事件 → 一個 lot 一筆履歷 lot-paths-*（detector/path_merge.py）")
-    pm.add_argument("--config", required=True, help="configs/factory/paths.yaml")
-    pm.add_argument("--window", default="1d", help="最近多久有進站／出站的 lot 重合成（預設 1d）")
-    pm.add_argument("--at", help="拿某個時間點當成現在")
+    extra = plugin.current().commands()                 # 這個 plugin 多出來的子命令（例如工廠的 paths-merge）
+    for add, _ in extra.values():
+        add(sub)
     args = p.parse_args(argv)
     with open(args.config, encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
@@ -209,7 +209,7 @@ def main(argv=None) -> int:
             "trace-train": cmd_trace_train, "trace-detect": cmd_trace_detect, "trace-merge": cmd_trace_merge, "rules": cmd_rules, "peer": cmd_peer,
             "quality": cmd_quality, "adjust": cmd_adjust, "backtest": cmd_backtest, "metrics": cmd_metrics,
             "chronic": cmd_chronic, "feedback": cmd_feedback, "incident": cmd_incident, "prune": cmd_prune, "shift": cmd_shift,
-            "ingest": cmd_ingest, "paths-merge": cmd_paths_merge}
+            "ingest": cmd_ingest, **{k: h for k, (_, h) in extra.items()}}
     return cmds[args.cmd](cfg, args)
 
 

@@ -1,10 +1,10 @@
-"""工廠版履歷合成器（detector/path_merge.py）：MES 進出站＋S6F11 → 跟 traces-merged 同格式的一筆。不連 ES。"""
+"""工廠 plugin 的履歷合成器（plugins/factory/paths.py）：MES 進出站＋S6F11 → 跟 traces-merged 同格式的一筆。不連 ES。"""
 import unittest
 from datetime import datetime, timezone
 
 from core import traces as T
-from detector import path_merge as P
 from investigator import analyze as A
+from plugins.factory import paths as P
 
 NOW = datetime(2026, 11, 4, 6, 0, tzinfo=timezone.utc)
 CFG = {"group": "fab1", "dept_field": "dept",

@@ -20,8 +20,12 @@ spec:
       containers:
         - name: scheduler
           image: {{ include "aiops.image" . }}
-          {{- $schedules := dict "otel" "configs/schedule/schedule.yaml" "apm" "configs/apm/schedule.yaml" "factory" "configs/factory/schedule.yaml" }}
-          args: ["scheduler", "--config", {{ index $schedules (.Values.source | default "otel") | quote }}, "--stage", {{ .Values.scheduler.stage | quote }}, "--alive-file", "/tmp/scheduler-alive"]
+          {{- /* 排程表依 plugin（code/plugins/<plugin>/__init__.py 的 schedule）；observability 再看 source 是 otel 還是 apm */}}
+          {{- $plugin := .Values.plugin | default "observability" }}
+          {{- $schedules := dict "observability" (printf "configs/%s/schedule.yaml" (ternary "apm" "schedule" (eq (.Values.source | default "otel") "apm"))) "factory" "configs/factory/schedule.yaml" "metrics_only" "configs/metrics_only/schedule.yaml" }}
+          {{- $schedule := index $schedules $plugin }}
+          {{- if not $schedule }}{{ fail (printf "plugin 只能是 observability、factory、metrics_only，不是 %q" $plugin) }}{{ end }}
+          args: ["scheduler", "--config", {{ $schedule | quote }}, "--stage", {{ .Values.scheduler.stage | quote }}, "--alive-file", "/tmp/scheduler-alive"]
           envFrom:
             - configMapRef: {name: aiops-env}
             - secretRef: {name: {{ .Values.secret }}}

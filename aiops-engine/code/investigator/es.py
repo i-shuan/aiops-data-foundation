@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
-from core import source
+from core import plugin, source
 from core.es import ES, time_range
 
 
@@ -15,11 +15,8 @@ from core.es import ES, time_range
 
 def anomalies(es: ES, index: str, start: datetime, end: datetime, service: str | None = None) -> list[dict]:
     f = [time_range(start, end)]
-    if service:
-        f.append({"bool": {"should": [{"term": {"keys.resource.attributes.service.name": service}},
-                                      {"term": {"keys.entry.service": service}},
-                                      {"term": {"keys.service": service}},
-                                      {"term": {"keys.equipment": service}}], "minimum_should_match": 1}})   # 工廠版：機台
+    if service:   # 這個對象的異常：keys 裡哪幾個欄位是對象由 plugin 決定（服務／機台）
+        f.append({"bool": {"should": [{"term": {f"keys.{k}": service}} for k in plugin.current().entity_keys], "minimum_should_match": 1}})
     hits = es.search(index, {"size": 1000, "query": {"bool": {"filter": f}}, "sort": [{"@timestamp": "asc"}]})["hits"]["hits"]
     return [{**h["_source"], "_id": h["_id"]} for h in hits]
 
@@ -93,7 +90,7 @@ def recent_trace_ids(es: ES, index: str, start: datetime, end: datetime, n: int)
 
 
 def service_trace_ids(es: ES, index: str, service: str, start: datetime, end: datetime, n: int, lag: timedelta = timedelta(0)) -> list[str]:
-    """這個服務最近收到的 n 個請求（Server span）的 trace_id：事件整合算「誰呼叫誰」用（cmd_alert.call_edges）。"""
+    """這個服務最近收到的 n 個請求（Server span）的 trace_id：事件整合算「誰呼叫誰」用（plugins/observability/chain.call_edges）。"""
     hits = es.search(index, {"size": n, "_source": ["trace_id"], "sort": [{"@timestamp": "desc"}],
                              "query": {"bool": {"filter": [_doc_range(start, end, lag), *entry_filter(service, None, start, end)]}}})["hits"]["hits"]
     return list(dict.fromkeys(h["_source"]["trace_id"] for h in hits))

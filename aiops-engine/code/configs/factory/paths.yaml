@@ -1,4 +1,4 @@
-# 工廠版 ⑦ 履歷合成器（detector paths-merge，程式 detector/path_merge.py）：MES 進出站＋S6F11 機台事件 → 一個 lot 一筆 lot-paths-*，
+# 工廠 ⑦ 履歷合成器（detector paths-merge，只有 AIOPS_PLUGIN=factory 有這個子命令；程式 plugins/factory/paths.py）：MES 進出站＋S6F11 機台事件 → 一個 lot 一筆 lot-paths-*，
 # 格式跟 traces-merged-* 一樣，M4、根因分析、前後站都照舊。欄位名全是假設（沒有 MES、EAP 樣本），拿到樣本換 fields 右邊。
 # 離線跑假資料：最上層加 source: {kind: file, format: events, files: {mes-history-*: data/mes.ndjson, eqp-events-*: data/events.ndjson}}。
 timezone: Asia/Taipei

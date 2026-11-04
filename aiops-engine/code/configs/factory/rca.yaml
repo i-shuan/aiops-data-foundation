@@ -1,11 +1,11 @@
-# 工廠版的事件整合、根因分析設定（investigator alert／investigate）。寫法跟 configs/apm/rca.yaml 一樣，差在：
-#   對象是機台（anomalies 的 keys.equipment）、「API」是 recipe、trace 換成履歷 lot-paths-*、log 是機台 alarm／PM／recipe 變更、
-#   前後站從履歷找（chain_source: lot_path）、recipe 變更當換版（deploy_kind: change_log）、嚴重度依參數家族分類。
-# 跑之前 AIOPS_SOURCE=factory、AIOPS_DOMAIN=factory（core/source.py、core/domain.py）。
+# 工廠的事件整合、根因分析設定（investigator alert／investigate）。寫法跟 configs/apm/rca.yaml 一樣，差在索引與時間尺度；
+# 「對象是機台、API 是 recipe、前後站從履歷找、recipe 變更當換版、嚴重度依參數家族」是 plugin 決定的（plugins/factory/），
+# 跑之前 AIOPS_PLUGIN=factory（core/plugin.py）。plugin 給的預設想改才寫在這裡：alerts.critical_levels、alerts.severity.classes、
+# alerts.deploy_index／deploy_entity_field／deploy_time_field／deploy_filter（recipe 變更紀錄在哪）。
 indices:
   anomalies: aiops-anomalies
   traces: lot-paths-*                                # detector paths-merge 合成的履歷
-  logs: eqp-logs-*                                   # 機台 alarm（S5F1）、PM／維修紀錄、recipe 變更，合在一個索引（欄位見 core/source.py 的 factory）
+  logs: eqp-logs-*                                   # 機台 alarm（S5F1）、PM／維修紀錄、recipe 變更，合在一個索引（欄位見 plugins/factory/__init__.py）
 timezone: Asia/Taipei
 compare_with: 7d                                     # 「平常」拿一週前同一段的 lot 比
 ref_gap: 2h
@@ -35,14 +35,10 @@ alerts:
   similar: true
   llm: true
   llm_provider: template                             # 廠內多半不能用外部 LLM：固定句型，不叫模型
-  chain: true
-  chain_source: lot_path                             # 前後站從履歷找（investigator/factory.lot_links）；IT 版是 trace 的呼叫關係
+  chain: true                                        # 前後站從履歷找（plugins/factory/chain.py）；false 就不併跨機台
   paths_lookback: 3d                                 # 履歷往前找幾天的 lot
-  critical_levels: [rule, peer, quality, fdc]        # FDC 的 OOS 鳴叫（severity critical）直接讓這件 critical
-  deploy_kind: change_log                            # recipe 變更紀錄當換版：變更後 deploy_grace 分鐘內的異常上限 warning
-  deploy_index: eqp-logs-*
-  deploy_entity_field: equipment_id
-  deploy_filter: {term: {event_type: recipe_change}}
+  # critical_levels、換版的索引（deploy_index eqp-logs-*、deploy_entity_field equipment_id、deploy_filter event_type recipe_change）、
+  # severity.classes（參數家族）都用 plugin 的預設（plugins/factory/__init__.py）；要改才寫
   severity:
     window: 120                                      # 滑動窗 2 小時（IT 是 15 分鐘）：工廠一站幾十分鐘
     min_coverage: 0.3
@@ -50,13 +46,5 @@ alerts:
     min_span_critical: 30
     min_points_per_class: 2
     deploy_grace: 30                                 # recipe 變更後 30 分鐘內的異常上限 warning
-    classes:                                         # 序列名 → 參數家族；幾個家族同時異常＝廣度（IT 版是延遲／錯誤／往外呼叫／飽和）
-      pressure: [pressure, vacuum]
-      temperature: [temp]
-      flow: [flow, gas]
-      power: [power, rf, bias, current, voltage]
-      time: [time, endpoint, rate]
-      metrology: [cd, overlay, thickness, defect, particle, yield]
-      alarm: [alarm, oos]
   # feedback_url: http://aiops-feedback.aiops.svc:8080/feedback?alert={alert_id}
   # report_url: http://aiops-feedback.aiops.svc:8080/report?alert={alert_id}

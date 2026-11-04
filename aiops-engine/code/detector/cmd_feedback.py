@@ -61,14 +61,15 @@ def _anomaly_details(es, ids: list[str]) -> list[dict]:
 
 
 def _deploy_before(es, fps: list[dict], grace_min: int = 10):
-    """這些誤報的服務在它們之前 grace_min 分鐘內有沒有換版（investigator.cmd_alert.deploy_at）；查不到就 None。"""
-    svc = next((((f.get("keys") or {}).get("service")) for f in fps if (f.get("keys") or {}).get("service")), None)
+    """這些誤報的對象在它們之前 grace_min 分鐘內有沒有換版（plugin 的 change_at：IT 看版號、工廠看 recipe 變更）；查不到就 None。"""
+    from core import plugin
+    svc = next((v for f in fps for k in plugin.current().entity_keys if (v := (f.get("keys") or {}).get(k))), None)
     ats = [pd.Timestamp(f["at"]) for f in fps if f.get("at")]
     if not svc or not ats:
         return None
     try:
-        from investigator.cmd_alert import deploy_at
-        return deploy_at(es, svc, (min(ats) - pd.Timedelta(minutes=grace_min)).to_pydatetime(), (max(ats) + pd.Timedelta(minutes=1)).to_pydatetime())
+        return plugin.current().change_at(es, {}, str(svc), (min(ats) - pd.Timedelta(minutes=grace_min)).to_pydatetime(),
+                                          (max(ats) + pd.Timedelta(minutes=1)).to_pydatetime())
     except Exception:  # noqa: BLE001  沒有 service.version、來源不是 ES：當作沒換版
         return None
 

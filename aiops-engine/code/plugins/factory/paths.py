@@ -1,4 +1,4 @@
-"""⑦ 履歷合成器（工廠版）：MES 進出站＋S6F11 機台事件 → 一個 lot 一筆（lot-paths-<group>-<日期>），文件格式跟 traces-merged 一樣
+"""⑦ 履歷合成器（工廠 plugin）：MES 進出站＋S6F11 機台事件 → 一個 lot 一筆（lot-paths-<group>-<日期>），文件格式跟 traces-merged 一樣
 （detector/trace_merge.build），所以 M4 trace 分段、根因分析（慢在哪一站、壞 lot 的共同點）、事件整合的前後站都照舊，只是：
 
   trace id   = lot id
@@ -30,8 +30,7 @@ from datetime import datetime, timezone
 import pandas as pd
 
 from core.es import get_field
-
-from .trace_merge import build
+from detector.trace_merge import build
 
 PATHS_PREFIX = "lot-paths"
 ROOT_SERVICE = "lot"

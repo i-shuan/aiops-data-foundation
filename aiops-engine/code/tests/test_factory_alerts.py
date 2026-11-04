@@ -1,18 +1,29 @@
-"""工廠版的事件整合與嚴重度（docs/pdca/meta/2026-11-factory-engine.md）：對象是機台、API 是 recipe、前後站從履歷找、
-嚴重度依參數家族、recipe 變更當換版。不連 ES。"""
+"""工廠 plugin 的事件整合與嚴重度（docs/pdca/meta/2026-11-factory-engine.md）：對象是機台、API 是 recipe、前後站從履歷找、
+嚴重度依參數家族、recipe 變更當換版。不連 ES。整個模組在 AIOPS_PLUGIN=factory 下跑（core/plugin.py）。"""
 import os
 import unittest
 from datetime import datetime, timedelta, timezone
 from unittest import mock
 
 from core import domain as D
+from core import plugin
 from investigator import alerts as AL
-from investigator import factory as FAC
 from investigator import severity as S
+from plugins.factory import chain as FAC
 
 T0 = datetime(2026, 11, 4, 1, 0, tzinfo=timezone.utc)
 GAP = timedelta(hours=2)
 _n = 0
+_env = mock.patch.dict(os.environ, {"AIOPS_PLUGIN": "factory"})
+
+
+def setUpModule():
+    _env.start()
+
+
+def tearDownModule():
+    _env.stop()
+    plugin.reset()
 
 
 def anom(eq, minute, *, series="fdc.pressure", lot="LOT-1", status="anomaly", severity="high", level="ml", recipe="REC-1", **extra):
@@ -134,18 +145,18 @@ class SeverityClasses(unittest.TestCase):
 
 class Domain(unittest.TestCase):
     def test_factory_domain_tables(self):
-        with mock.patch.dict(os.environ, {"AIOPS_DOMAIN": "factory"}):
-            self.assertEqual(D.entity_label(), "機台")
-            self.assertEqual(D.unit_label(), "lot")
-            self.assertIn("equipment", D.category_codes())
-            self.assertIn(("pm_just_done", "剛做完 PM，暖機中"), D.fp_reasons())
-        with mock.patch.dict(os.environ, {"AIOPS_DOMAIN": "it"}):
+        self.assertEqual(D.entity_label(), "機台")
+        self.assertEqual(D.unit_label(), "lot")
+        self.assertIn("equipment", D.category_codes())
+        self.assertIn(("pm_just_done", "剛做完 PM，暖機中"), D.fp_reasons())
+        with mock.patch.dict(os.environ, {"AIOPS_PLUGIN": "observability"}):
             self.assertEqual(D.category_codes(), ("db", "network", "config_change", "deploy", "external", "resource", "bug", "data", "other"))
-        with mock.patch.dict(os.environ, {"AIOPS_DOMAIN": "mars"}), self.assertRaises(ValueError):
+        with mock.patch.dict(os.environ, {"AIOPS_PLUGIN": "mars"}), self.assertRaises(ValueError):
             D.name()
 
-    def test_every_domain_has_other_category(self):
-        for name, d in D.DOMAINS.items():
+    def test_every_builtin_plugin_has_other_category(self):
+        for name in plugin.BUILTIN:
+            d = plugin.load(name).domain()
             self.assertEqual(d["categories"][-1][0], "other", name)
             self.assertEqual(d["fp_reasons"][-1][0], "other", name)
             self.assertTrue(d["checked"], name)

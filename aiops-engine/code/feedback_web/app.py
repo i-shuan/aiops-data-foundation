@@ -28,7 +28,7 @@ VERDICTS = {"true_positive": "真的", "false_positive": "誤報", "wrong_root_c
 RCA_USEFUL = [(v, t) for v, t in zip(_RCA_USEFUL, ("是", "否", "沒看"))]
 RCA_QUESTIONS = [("rca_cause_useful", "可能根因有參考價值？"), ("rca_action_useful", "建議的排查動作有參考價值？")]
 TEXT_HINT = "選填。一句話說這件怎麼回事，系統會抽成結構化欄位、提一筆待審核的調整建議；例：「這是每月初的批次匯出報表，屬於預期內負載」"
-# 根因分類、常查的地方、誤報原因依領域（AIOPS_DOMAIN：it／factory；core/domain.py）。Grafana 的表單（aiops-feedback.json）是 IT 版的選項
+# 根因分類、常查的地方、誤報原因依 plugin（AIOPS_PLUGIN；core/domain.py 是門面）。Grafana 的表單（aiops-feedback.json）是 IT 的選項
 CATEGORIES = domain.categories()
 CHECKED = domain.checked()
 FP_REASONS = domain.fp_reasons()

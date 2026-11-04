@@ -28,7 +28,7 @@ _APM_FIELDS = {"includes": ["@timestamp", "timestamp.us", "processor.event", "tr
                "excludes": ["span.stacktrace", "transaction.custom", "transaction.marks"]}
 
 
-MERGED_LIKE = ("traces-merged", "lot-paths")   # engine 合成、一個請求（一個 lot）一筆的索引；lot-paths 是工廠版的履歷（detector/path_merge.py）
+MERGED_LIKE = ("traces-merged", "lot-paths")   # engine 合成、一個請求（一個 lot）一筆的索引；lot-paths 是工廠的履歷（plugins/factory/paths.py）
 
 
 def schema_of(index: str) -> str:

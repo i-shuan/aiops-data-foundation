@@ -1,10 +1,7 @@
-"""工廠版（半導體）在事件整合、嚴重度用到的兩件事（docs/pdca/meta/2026-11-factory-engine.md）：
-
-  lot_links  前後站：後站看到的異常（量測 CD 偏、良率掉）是前站做壞的。從履歷（lot-paths-*，detector/path_merge.py）查這批 lot
-             在出事機台之前經過哪幾站、幾點在那站，事件整合（alerts.merge 的 links）把它併進前站那件、根因分析以前站跑。
-             IT 版是從 trace 算「誰呼叫誰」（cmd_alert.call_edges）；工廠沒有呼叫關係，但有 lot 的路徑，鍵是 lot id。
-  change_at  recipe 變更當成「換版」：變更後 N 分鐐內的異常上限 warning（investigator/severity.py 的 deploy_grace）。
-             IT 版看 service.version 第一次出現（cmd_alert.deploy_at）；工廠是變更紀錄一筆一筆的，直接拿最近一筆的時間。
+"""工廠的併件依據：前後站（docs/pdca/meta/2026-11-factory-engine.md）。
+後站看到的異常（量測 CD 偏、良率掉）是前站做壞的。從履歷（lot-paths-*，plugins/factory/paths.py）查這批 lot 在出事機台之前
+經過哪幾站、幾點在那站，事件整合（investigator/alerts.merge 的 links）把它併進前站那件、根因分析以前站跑。
+IT 是從 trace 算「誰呼叫誰」（plugins/observability/chain.py）；工廠沒有呼叫關係，但有 lot 的路徑，鍵是 lot id。
 """
 from __future__ import annotations
 
@@ -63,17 +60,3 @@ def lot_links(es, index: str, anomalies: list[dict], now: datetime, lookback: ti
     if not lots:
         return {}
     return links_from_docs(anomalies, lot_docs(es, index, lots, now - lookback, now + timedelta(minutes=5)))
-
-
-def change_at(es, index: str, entity_field: str, entity: str, since: datetime, now: datetime, time_field: str = "@timestamp",
-              extra_filter: dict | None = None) -> datetime | None:
-    """這台機台 since 之後最近一筆變更（recipe 變更、設定變更）的時間；沒有回 None。index 是變更紀錄（一筆一次變更）。"""
-    f = [{"term": {entity_field: entity}}, {"range": {time_field: {"gte": since.isoformat(), "lt": now.isoformat()}}}]
-    if extra_filter:
-        f.append(extra_filter)
-    body = {"size": 1, "_source": [time_field], "sort": [{time_field: "desc"}], "query": {"bool": {"filter": f}}}
-    hits = es.search(index, body).get("hits", {}).get("hits", [])
-    if not hits:
-        return None
-    v = hits[0]["_source"].get(time_field)
-    return datetime.fromisoformat(str(v).replace("Z", "+00:00")) if v else None

@@ -1,8 +1,8 @@
-# 工廠版（半導體）：用 ML／FDC 的異常與生產履歷跑 aiops-engine
+# 工廠（半導體）：用 ML／FDC 的異常與生產履歷跑 aiops-engine
 
-> **類型：操作 How-To**　原理與對照見 [docs/semiconductor-design.md](../../../../docs/semiconductor-design.md)・紀錄 [docs/pdca/meta/2026-11-factory-engine.md](../../../../docs/pdca/meta/2026-11-factory-engine.md)・IT 版的設定在 [configs/apm/](../apm/README.md)
+> **類型：操作 How-To**　原理與對照見 [docs/semiconductor-design.md](../../../../docs/semiconductor-design.md)・紀錄 [docs/pdca/meta/2026-11-factory-engine.md](../../../../docs/pdca/meta/2026-11-factory-engine.md)・plugin 怎麼選、三個內建差在哪見 [plugins/README.md](../../plugins/README.md)・IT 的設定在 [configs/apm/](../apm/README.md)
 
-同一份 engine、另一套設定、另外部署。工廠的異常由 ML 團隊的模型（異常跳點）和 FDC 鳴叫系統判，engine **不自己判 FDC 感測值**，從 ⑤ 異常總表開始接：
+同一份 engine、`factory` plugin（[plugins/factory/](../../plugins/factory/__init__.py)）、另一套設定、另外部署。工廠的異常由 ML 團隊的模型（異常跳點）和 FDC 鳴叫系統判，engine **不自己判 FDC 感測值**，從 ⑤ 異常總表開始接：
 收斂成一件（同機台；後站的異常依 lot 履歷併進前站）→ 根因分析（慢在哪一站哪個 chamber、壞 lot 的共同點、機台 alarm、事故前的 PM／recipe 變更）→ 通知 → 老師傅回饋 → 誤報匯出給 ML 團隊。
 
 **欄位名全是假設**（沒有 ML 輸出、FDC、MES、EAP 的樣本）：拿到樣本只改各 yaml 裡 `fields`／`keys` 的右邊，程式不動。
@@ -12,11 +12,11 @@
 | 檔 | 程式 | 做什麼 |
 |---|---|---|
 | [ingest.yaml](ingest.yaml) | `detector ingest`（[ingest.py](../../detector/ingest.py)） | ML 的異常跳點、FDC 鳴叫 → `aiops-anomalies`：`keys` 是 equipment、chamber、recipe、step、lot、parameter；`series` 是 `fdc.<參數>`；`level` 是 `ml`／`fdc`；ML 的 strong／weak 對到 anomaly／warning；FDC 的 OOS 是 critical |
-| [paths.yaml](paths.yaml) | `detector paths-merge`（[path_merge.py](../../detector/path_merge.py)） | MES 進出站＋S6F11 機台事件 → 一個 lot 一筆 `lot-paths-<group>-<日期>`，格式跟 `traces-merged-*` 一樣：一站一段（service 是機台、name 是 recipe、耗時是進站到出站、hold／scrap 算錯），站裡的 chamber 加工段掛在底下 |
-| [rca.yaml](rca.yaml) | `investigator alert`／`investigate` | 對象是機台、API 是 recipe、trace 換履歷、log 是 `eqp-logs-*`（alarm、PM、recipe 變更）；`chain_source: lot_path` 前後站從履歷找；`deploy_kind: change_log` 把 recipe 變更當換版；`severity.classes` 把序列分成參數家族；`changes` 讓報告多一段「事故前的變更」 |
+| [paths.yaml](paths.yaml) | `detector paths-merge`（[plugins/factory/paths.py](../../plugins/factory/paths.py)；只有 `factory` plugin 有這個子命令） | MES 進出站＋S6F11 機台事件 → 一個 lot 一筆 `lot-paths-<group>-<日期>`，格式跟 `traces-merged-*` 一樣：一站一段（service 是機台、name 是 recipe、耗時是進站到出站、hold／scrap 算錯），站裡的 chamber 加工段掛在底下 |
+| [rca.yaml](rca.yaml) | `investigator alert`／`investigate` | 索引（履歷 `lot-paths-*`、log `eqp-logs-*`）與時間尺度（`close_after` 2h、滑動窗 2h、`entry_lag` 12h）；`changes` 讓報告多一段「事故前的變更」。「對象是機台、API 是 recipe、前後站從履歷找、recipe 變更當換版、嚴重度依參數家族」是 plugin 給的，要改才寫進 `alerts` |
 | [schedule.yaml](schedule.yaml) | `scheduler` | 每分鐘 `ingest`、`alert`；每 5 分鐘 `paths-merge`；每天 `prune`。沒有 train／detect／rules／peer／trace-* |
 
-跑之前設環境變數 **`AIOPS_SOURCE=factory`**（索引、欄位的 profile，[core/source.py](../../core/source.py)）、**`AIOPS_DOMAIN=factory`**（回饋表單的分類表與誤報原因、報告的措辭「lot／履歷／機台」，[core/domain.py](../../core/domain.py)）。chart 是 `--set source=factory --set domain=factory`。
+跑之前設環境變數 **`AIOPS_PLUGIN=factory`**（[core/plugin.py](../../core/plugin.py)）；chart 是 `--set plugin=factory`。沒有 MES 履歷、只有 ML／FDC 的異常時用 **`metrics_only`**（`configs/metrics_only/`；不合成履歷、不併前後站、報告只有異常／log／事故前的變更）。
 
 ## 要給 engine 什麼資料
 
@@ -41,13 +41,13 @@
 cd aiops-engine/code && ES_URL=http://localhost:19200 ES_AUTH=elastic:changeme-test-only python -m tests.factory_e2e
 ```
 
-[tests/factory_e2e.py](../../tests/factory_e2e.py) 造 7 天、728 個 lot 的 MES 與 S6F11、兩個事故（ETCH-01 CH-B 壓力漂移連帶 METRO-01 量測偏；CVD-01 換 recipe 後震盪）寫進 `*-synth` 索引，跑 `paths-merge` → `ingest` → `alert` → `feedback add`／`export`，印出 15 項檢查。`--dump <資料夾>` 把假資料另存成 NDJSON，`--clean` 清掉。結果寫在共用的 `aiops-anomalies`（`source` 欄位是 ml／fdc）、`aiops-alerts`（service 是那 5 台機台）、`lot-paths-fab1-*`。
+[tests/factory_e2e.py](../../tests/factory_e2e.py) 造 7 天、728 個 lot 的 MES 與 S6F11、兩個事故（ETCH-01 CH-B 壓力漂移連帶 METRO-01 量測偏；CVD-01 換 recipe 後震盪）寫進 `*-synth` 索引，跑 `paths-merge` → `ingest` → `alert` → `feedback add`／`export`，印出 15 項檢查。`--plugin metrics_only` 用同一批假資料但不給履歷（13 項：ETCH-01 仍 critical、報告只有異常／log／PM、METRO-01 自己開一件）。`--dump <資料夾>` 把假資料另存成 NDJSON，`--clean` 清掉。結果寫在共用的 `aiops-anomalies`（`source` 欄位是 ml／fdc）、`aiops-alerts`（service 是那 5 台機台）、`lot-paths-fab1-*`。
 
 ### 接真資料
 
-1. ES 開一把 key：讀上表的索引，寫 `aiops-*`、`lot-paths-*`，加 cluster 權限 `manage_index_templates`（`paths-merge` 自己放 `lot-paths` 的 index template；沒權限就請管理員用 [path_merge.py](../../detector/path_merge.py) 的 `PATHS_TEMPLATE` 放一次）。
+1. ES 開一把 key：讀上表的索引，寫 `aiops-*`、`lot-paths-*`，加 cluster 權限 `manage_index_templates`（`paths-merge` 自己放 `lot-paths` 的 index template；沒權限就請管理員用 [plugins/factory/paths.py](../../plugins/factory/paths.py) 的 `PATHS_TEMPLATE` 放一次）。
 2. 改三份 yaml 的欄位名、索引名；`ingest.yaml` 的 `status`／`severity` 對應表照 ML、FDC 的實際值填。
-3. 部署：`helm upgrade --install aiops-factory aiops-engine/helmchart -n aiops-factory --set source=factory --set domain=factory …`（跟 IT 版分開的 namespace 與 ES；同一個 ES 要分 `aiops-*` 前綴的話還沒做，見 PDCA 的 Act）。
+3. 部署：`helm upgrade --install aiops-factory aiops-engine/helmchart -n aiops-factory --set plugin=factory …`（跟 IT 分開的 namespace 與 ES；同一個 ES 要分 `aiops-*` 前綴的話還沒做，見 PDCA 的 Act）。
 4. 離線先試：yaml 最上層加 `source: {kind: file, format: events, files: {factory-ml-anomalies-*: data/ml.ndjson}}`、`store: {kind: file, dir: .aiops-store}`，`ingest`、`paths-merge` 不用 ES；`alert`（事件整合、根因分析）仍要 ES。
 
 ## 哪些功能在工廠版能用
@@ -68,5 +68,5 @@ cd aiops-engine/code && ES_URL=http://localhost:19200 ES_AUTH=elastic:changeme-t
 
 ## 怎麼驗
 
-- 單元測試（不連 ES）：`python -m pytest -q tests/test_ingest.py tests/test_path_merge.py tests/test_factory_alerts.py tests/test_feedback_export.py`。
+- 單元測試（不連 ES）：`python -m pytest -q tests/test_ingest.py tests/test_path_merge.py tests/test_factory_alerts.py tests/test_feedback_export.py tests/test_plugin.py`。
 - 整條：上面的 `tests.factory_e2e`，15 項全過才算（履歷一個 lot 一筆、32 筆異常全進、ETCH-01 critical、METRO-01 併進 ETCH-01、報告慢在 CH-B、共同點 CH-B、alarm 新樣式、事故前的 PM、CVD-01 換版 warning、weak 不開件、單點 warning 自己結束、匯出帶 run_id）。

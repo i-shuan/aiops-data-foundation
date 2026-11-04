@@ -87,7 +87,7 @@
 
 ## 現況（2026-11）
 
-廠方的異常由 ML 團隊的模型（異常跳點）和 FDC 鳴叫系統判，所以**沒有照上表做 M1～M3**，改成 engine 從 ⑤ 開始接；其餘照對照表做了第一版（[configs/factory/README.md](../aiops-engine/code/configs/factory/README.md)、[PDCA](pdca/meta/2026-11-factory-engine.md)）：
+廠方的異常由 ML 團隊的模型（異常跳點）和 FDC 鳴叫系統判，所以**沒有照上表做 M1～M3**，改成 engine 從 ⑤ 開始接；其餘照對照表做了第一版（[configs/factory/README.md](../aiops-engine/code/configs/factory/README.md)、[PDCA](pdca/meta/2026-11-factory-engine.md)）。工廠是 engine 的一個 plugin（`AIOPS_PLUGIN=factory`），沒有 MES 履歷時用 `metrics_only`（只有異常、log、事故前的變更，不併前後站；[plugins/README.md](../aiops-engine/code/plugins/README.md)、[PDCA](pdca/meta/2026-11-plugin-architecture.md)）：
 
 | 對照表的項目 | 做了 | 沒做 |
 |---|---|---|

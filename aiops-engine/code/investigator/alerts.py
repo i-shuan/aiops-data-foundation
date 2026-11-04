@@ -9,7 +9,7 @@
 同一個服務已經有開著的那件、而且離它最後一筆異常不到 close_after：併進去；超過 close_after 沒有新的異常：resolved。
 
 跨服務（一層父子關係，docs/pdca/phase3-locate/2026-10-cross-service-aggregation.md）：calls 是這段時間 trace 算出來的
-「上游 → 下游」（cmd_alert.call_edges，用根因分析同一套 topology）。下游出事連帶上游異常時只開一件、留下游那件：
+「上游 → 下游」（plugins/observability/chain.py，用根因分析同一套 topology）。下游出事連帶上游異常時只開一件、留下游那件：
   - 上游服務的異常、自己沒有開著的件、它直接呼叫的下游有開著的件、時間重疊（離下游那件開始不到 close_after）→ 併進下游那件，
     下游那件的 upstream_services 記這個上游；之後同一個上游的異常照同服務的規則併（離最後一筆不到 close_after）。
   - 下游開新的一件時，直接呼叫它的上游若已經有一件、開始時間差不到 close_after → 上游那件整件併進下游：這一輪才開的直接消失；
@@ -25,8 +25,9 @@ import re
 from collections import Counter
 from datetime import datetime, timedelta
 
-# equipment：工廠版的對象是機台（detector/ingest.py 寫的 keys.equipment），一台機台一件，跟服務同一套（docs/pdca/meta/2026-11-factory-engine.md）
-SVC_KEYS = ("resource.attributes.service.name", "service", "entry.service", "service.name", "caller", "equipment")
+from core import plugin
+
+# 異常的 keys 裡哪個欄位是「對象」（一件的主體：服務／機台）由 plugin 決定（core/plugin.py 的 entity_keys）；namespace、節點是共通的 fallback
 NS_KEYS = ("resource.attributes.k8s.namespace.name", "k8s.namespace.name", "namespace", "kubernetes.namespace")
 NODE_KEYS = ("resource.attributes.k8s.node.name", "k8s.node.name", "node")
 SEVERITY = {"warning": 1, "high": 2, "critical": 3}   # 一件最後的嚴重度由 severity.grade 算（訊號廣度＋持續＋換版上限）；這裡只是異常自己帶的
@@ -41,7 +42,7 @@ def entity_of(a: dict) -> tuple[str, str]:
     """(類別, 名稱)：這筆異常歸到哪一件。服務優先；沒有服務的用 namespace、再用節點；資料品質另外一類（送平台）。"""
     keys = a.get("keys") or {}
     cat = "data_quality" if a.get("level") == "quality" else "service"
-    for kind, fields in (("service", SVC_KEYS), ("namespace", NS_KEYS), ("node", NODE_KEYS)):
+    for kind, fields in (("service", plugin.current().entity_keys), ("namespace", NS_KEYS), ("node", NODE_KEYS)):
         for f in fields:
             if keys.get(f):
                 return (cat if kind == "service" or cat == "data_quality" else kind), str(keys[f])
@@ -61,15 +62,8 @@ def kind_of(a: dict) -> str:
 
 
 def route_of(keys: dict) -> str | None:
-    """哪支 API（跟根因分析 _route_of 同一套寫法）。"""
-    if keys.get("entry.name"):
-        return keys["entry.name"]
-    for m, r in (("attributes.http.request.method", "attributes.http.route"), ("method", "route")):
-        if keys.get(m) and keys.get(r):
-            return f"{keys[m]} {keys[r]}"
-    if keys.get("recipe"):          # 工廠版：「哪支 API」是哪個 recipe（履歷裡站的 name 就是 recipe，根因分析用它挑 lot）
-        return str(keys["recipe"])
-    return None
+    """「哪支 API」：IT 是 trace 入口的名稱或 method＋route，工廠是 recipe（plugin 決定；根因分析挑樣本也用它）。"""
+    return plugin.current().route_of(keys or {})
 
 
 def alert_id(cat: str, name: str, started: datetime) -> str:
@@ -135,7 +129,7 @@ def merge(open_alerts: list[dict], anomalies: list[dict], now: datetime, close_a
     """open_alerts：aiops-alerts 裡 status open 的；anomalies：最近的異常（含 _id）；
     done_ids：最近已經結束的件裡的異常 id（不要再被開一次，重跑才不會重複）；
     calls：{(上游服務, 下游服務)}，這段時間 trace 裡誰呼叫誰（沒有就不併跨服務）；
-    links：工廠版的前後站（investigator/factory.lot_links）：{異常 _id: [(前站機台, 這批 lot 在前站的時間), …]}。
+    links：工廠的前後站（plugins/factory/chain.lot_links）：{異常 _id: [(前站機台, 這批 lot 在前站的時間), …]}。
       後站（量測站）看到的異常是前站做壞的：前站有開著的件、而且 lot 在前站的時間落在那件的範圍內（前後各 close_after）→
       併進前站那件、記 upstream_services（跟 IT 的「上游併進下游」同一個欄位：被併進去的那一方）；自己已經有件就照同對象的規則。
     回傳這次要寫回的件：新開的（_new）、有更新的、這次結束的（resolved，含被併進下游的 merged_into），以及其他還開著的（更新心跳）。"""

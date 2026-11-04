@@ -9,9 +9,10 @@
       alarm 新樣式、事故前的 PM；CVD-01 一件 warning（換版）；LITHO-01 沒有件。
 
 執行（在 aiops-engine/code 底下，要有測試 ES）：
-  ES_URL=http://localhost:19200 ES_AUTH=elastic:changeme-test-only python -m tests.factory_e2e [--keep] [--dump 資料夾]
+  ES_URL=http://localhost:19200 ES_AUTH=elastic:changeme-test-only python -m tests.factory_e2e [--plugin factory|metrics_only] [--dump 資料夾]
 會建立／覆蓋 *-synth 的來源索引、eqp-master，寫 aiops-anomalies（source ml／fdc）、aiops-alerts（這 5 台機台的件）、lot-paths-fab1-*。
---dump 另外把假資料寫成 NDJSON（source: file 離線跑用）；--keep 跑完不清。
+--plugin metrics_only：同一批假資料但**不給履歷**（不跑 paths-merge、configs/metrics_only/rca.yaml）：ETCH-01 仍要開 critical、報告只有異常／log／
+事故前的變更；METRO-01 沒有履歷併不進前站，自己開一件（已知限制）。--dump 另外把假資料寫成 NDJSON（source: file 離線跑用）。
 """
 from __future__ import annotations
 
@@ -22,8 +23,7 @@ from datetime import timedelta
 
 import pandas as pd
 
-os.environ.setdefault("AIOPS_SOURCE", "factory")
-os.environ.setdefault("AIOPS_DOMAIN", "factory")
+os.environ.setdefault("AIOPS_PLUGIN", "factory")       # core/plugin.py：機台、recipe、履歷、recipe 變更當換版
 
 TZ = "Asia/Taipei"
 TODAY = pd.Timestamp("2026-11-04", tz=TZ)
@@ -156,6 +156,11 @@ def dump(data: dict, folder: str) -> None:
 
 
 def _delete_index(es, name: str) -> None:
+    if "*" in name:   # ES 8 預設不讓用萬用字元刪（destructive_requires_name）：先列出再一個一個刪
+        r = es.s.get(f"{es.url}/_cat/indices/{name}?h=index&format=json", timeout=60)
+        for row in (r.json() if r.ok else []):
+            es.s.delete(f"{es.url}/{row['index']}", timeout=60)
+        return
     es.s.delete(f"{es.url}/{name}", timeout=60)
 
 
@@ -179,10 +184,12 @@ def load(es, data: dict) -> None:
         es.bulk_index(name, [(f"{k}-{i}", r) for i, r in enumerate(rows)])
 
 
-def run(keep: bool = False, dump_dir: str | None = None) -> int:
+def run(keep: bool = False, dump_dir: str | None = None, plugin_name: str = "factory") -> int:
     from core.es import ES
     from detector.__main__ import main as detector
     from investigator.__main__ import main as investigator
+    os.environ["AIOPS_PLUGIN"] = plugin_name
+    full = plugin_name == "factory"          # 有履歷；metrics_only 沒有
     es = ES()
     data = make()
     print(f"假資料：MES {len(data['mes'])} 列、S6F11 {len(data['events'])}、ML {len(data['ml'])}、FDC {len(data['fdc'])}、log {len(data['logs'])}；"
@@ -194,7 +201,7 @@ def run(keep: bool = False, dump_dir: str | None = None) -> int:
     load(es, data)
     at = _iso(NOW)
     with open("configs/factory/ingest.yaml", encoding="utf-8") as f, open("configs/factory/paths.yaml", encoding="utf-8") as g, \
-            open("configs/factory/rca.yaml", encoding="utf-8") as h:
+            open(f"configs/{plugin_name}/rca.yaml", encoding="utf-8") as h:
         ingest_cfg, paths_cfg, rca_cfg = f.read(), g.read(), h.read()
     tmp = os.path.join(os.environ.get("TEMP", "/tmp"), "factory-e2e")
     os.makedirs(tmp, exist_ok=True)
@@ -206,8 +213,9 @@ def run(keep: bool = False, dump_dir: str | None = None) -> int:
             body = body.replace(a, b)
         with open(os.path.join(tmp, name), "w", encoding="utf-8") as f:
             f.write(body)
-    # 1. 履歷（過去 8 天有動的 lot 全部合）
-    detector(["paths-merge", "--config", os.path.join(tmp, "paths.yaml"), "--at", at, "--window", "8d"])
+    # 1. 履歷（過去 8 天有動的 lot 全部合）；metrics_only 沒有履歷（plugin 也沒有這個子命令）
+    if full:
+        detector(["paths-merge", "--config", os.path.join(tmp, "paths.yaml"), "--at", at, "--window", "8d"])
     # 2. 接收器（今天的異常全部接）
     detector(["ingest", "--config", os.path.join(tmp, "ingest.yaml"), "--at", at, "--window", "14h"])
     # 3. 事件整合＋根因分析
@@ -223,26 +231,39 @@ def run(keep: bool = False, dump_dir: str | None = None) -> int:
         checks.append((name, bool(ok)))
         print(f"  {'✅' if ok else '❌'} {name}" + (f"：{detail}" if detail else ""))
 
-    print("\n檢查：")
-    check("履歷：一個 lot 一筆", paths == len({r['lot_id'] for r in data['mes']}), f"{paths} 筆，MES 有 {len({r['lot_id'] for r in data['mes']})} 個 lot")
+    print(f"\n檢查（plugin {plugin_name}）：")
+    if full:
+        check("履歷：一個 lot 一筆", paths == len({r['lot_id'] for r in data['mes']}), f"{paths} 筆，MES 有 {len({r['lot_id'] for r in data['mes']})} 個 lot")
+    else:
+        from core import plugin
+        check("沒有履歷（metrics_only 沒有 paths-merge、沒合成）", paths == 0 and "paths-merge" not in plugin.current().commands(),
+              f"{paths} 筆；子命令 {list(plugin.current().commands()) or '無'}")
     check("接收器：ML＋FDC 全部進異常總表", anoms == len(data["ml"]) + len(data["fdc"]), f"{anoms} 筆（來源 {len(data['ml']) + len(data['fdc'])}）")
     e = alerts.get("ETCH-01")
     check("ETCH-01 開一件", e is not None and e["status"] == "open", (e or {}).get("title"))
     if e:
         check("ETCH-01 是 critical（FDC OOS）", e.get("severity") == "critical", f"{e.get('severity')}：{e.get('severity_why')}")
-        check("METRO-01 的異常併進 ETCH-01（前後站）", "METRO-01" in (e.get("upstream_services") or []), f"upstream_services={e.get('upstream_services')}")
         f_ = e.get("findings") or {}
         segs = f_.get("segments") or []
-        check("報告：慢在 ETCH-01 › CH-B", bool(segs) and "ETCH-01" in segs[0]["segment"] and "CH-B" in segs[0]["segment"],
-              f"{segs[0]['segment'] if segs else '—'} +{(segs[0]['delta_ms'] / 60000) if segs else 0:.1f} 分")
-        com = f_.get("commonality") or []
-        check("報告：壞 lot 的共同點是 chamber CH-B", any(c["dim"] == "chamber" and c["value"].endswith("CH-B") for c in com),
-              "、".join(f"{c['dim']}={c['value']} {c['now_share']:.0%}" for c in com) or "—")
+        report = e.get("report") or ""
+        if full:
+            check("METRO-01 的異常併進 ETCH-01（前後站）", "METRO-01" in (e.get("upstream_services") or []), f"upstream_services={e.get('upstream_services')}")
+            check("報告：慢在 ETCH-01 › CH-B", bool(segs) and "ETCH-01" in segs[0]["segment"] and "CH-B" in segs[0]["segment"],
+                  f"{segs[0]['segment'] if segs else '—'} +{(segs[0]['delta_ms'] / 60000) if segs else 0:.1f} 分")
+            com = f_.get("commonality") or []
+            check("報告：壞 lot 的共同點是 chamber CH-B", any(c["dim"] == "chamber" and c["value"].endswith("CH-B") for c in com),
+                  "、".join(f"{c['dim']}={c['value']} {c['now_share']:.0%}" for c in com) or "—")
+        else:
+            check("沒有履歷：METRO-01 併不進前站、自己開一件（已知限制）", "METRO-01" in alerts and not e.get("upstream_services"),
+                  f"upstream_services={e.get('upstream_services')}；METRO-01 {'有件' if 'METRO-01' in alerts else '沒件'}")
+            check("報告：沒有履歷那幾段、沒有錯誤訊息", "慢在哪一段" not in report and "根因分析失敗" not in report and not segs
+                  and f_.get("requests") is None, "；".join(l for l in report.splitlines() if l.startswith("## ")))
         pats = f_.get("new_patterns") or []
         check("報告：新 alarm 樣式 ALID 2041", any("ALID" in p["pattern"] for p in pats), "；".join(p["pattern"][:60] for p in pats[:3]) or "—")
         chg = f_.get("changes") or []
         check("報告：事故前的 PM", any("PM" in c["message"] for c in chg), "；".join(c["message"][:60] for c in chg) or "—")
-        check("METRO-01 沒有另開一件", "METRO-01" not in alerts, f"有：{alerts['METRO-01']['title']}" if "METRO-01" in alerts else "")
+        if full:
+            check("METRO-01 沒有另開一件", "METRO-01" not in alerts, f"有：{alerts['METRO-01']['title']}" if "METRO-01" in alerts else "")
     c = alerts.get("CVD-01")
     check("CVD-01 開一件", c is not None, (c or {}).get("title"))
     if c:
@@ -283,13 +304,14 @@ def main(argv=None) -> int:
     p.add_argument("--keep", action="store_true", help="跑完不清（預設也不清；留著給人看）")
     p.add_argument("--clean", action="store_true", help="只清掉假資料與結果，不跑")
     p.add_argument("--dump", help="假資料另外寫成 NDJSON 到這個資料夾")
+    p.add_argument("--plugin", default="factory", choices=["factory", "metrics_only"], help="factory（有履歷，預設）或 metrics_only（只有指標）")
     a = p.parse_args(argv)
     if a.clean:
         from core.es import ES
         cleanup(ES(), EQUIPMENTS)
         print("清掉了")
         return 0
-    return run(a.keep, a.dump)
+    return run(a.keep, a.dump, a.plugin)
 
 
 if __name__ == "__main__":

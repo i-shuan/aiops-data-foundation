@@ -1,17 +1,17 @@
-"""paths-merge：MES 進出站＋S6F11 → 一個 lot 一筆（lot-paths-*；detector/path_merge.py）。排程器每 5 分鐘跑：
-最近 --window（預設 1 天）內有進站或出站的 lot 全部重合成一次、整份覆蓋（_id = lot id），所以晚到的站、剛出站的時間都會補上，重跑不重複。
-來源是 ES 時直接查索引；設定檔有 source: file 時走 sources 的 Backend（離線跑假資料），結果寫進 store。"""
+"""paths-merge（工廠 plugin 加的 detector 子命令）：MES 進出站＋S6F11 → 一個 lot 一筆（lot-paths-*；plugins/factory/paths.py）。
+排程器每 5 分鐘跑：最近 --window（預設 1 天）內有進站或出站的 lot 全部重合成一次、整份覆蓋（_id = lot id），
+所以晚到的站、剛出站的時間都會補上，重跑不重複。來源是 ES 時直接查索引；設定檔有 source: file 時走 sources 的 Backend（離線跑假資料），結果寫進 store。"""
 from __future__ import annotations
 
 import pandas as pd
 
 from core.es import ES, get_field
+from detector.cmd_ingest import read_rows
+from detector.common import _now
 from sources import open_backend
 from sources.base import is_backend
 
-from . import path_merge as P
-from .cmd_ingest import read_rows
-from .common import _now
+from . import paths as P
 
 
 def _lot_ids(rows: list[dict], lot_field: str) -> set[str]:
@@ -59,6 +59,13 @@ def run(es, cfg: dict, now: pd.Timestamp, window: pd.Timedelta) -> int:
     for index, batch in docs.items():
         es.bulk_index(index, batch)
     return sum(len(b) for b in docs.values())
+
+
+def add_parser(sub) -> None:
+    pm = sub.add_parser("paths-merge", help="工廠：MES 進出站＋S6F11 機台事件 → 一個 lot 一筆履歷 lot-paths-*（plugins/factory/paths.py）")
+    pm.add_argument("--config", required=True, help="configs/factory/paths.yaml")
+    pm.add_argument("--window", default="1d", help="最近多久有進站／出站的 lot 重合成（預設 1d）")
+    pm.add_argument("--at", help="拿某個時間點當成現在")
 
 
 def cmd_paths_merge(cfg: dict, args) -> int:
