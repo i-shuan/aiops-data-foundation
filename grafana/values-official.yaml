@@ -327,6 +327,12 @@ alerting:
           httpMethod: POST
   policies.yaml:
     apiVersion: 1
+    muteTimes:
+    - orgId: 1
+      name: always
+      time_intervals:
+      - weekdays:
+        - monday:sunday
     policies:
     - orgId: 1
       receiver: platform
@@ -336,6 +342,16 @@ alerting:
       group_interval: 1m
       repeat_interval: 4h
       routes:
+      - receiver: platform
+        object_matchers:
+        - - source
+          - '='
+          - aiops
+        - - severity
+          - '='
+          - warning
+        mute_time_intervals:
+        - always
       - receiver: it-oncall
         object_matchers:
         - - source

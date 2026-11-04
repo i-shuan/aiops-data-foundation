@@ -41,6 +41,9 @@ def cmd_adjust(cfg: dict, args) -> int:
                 if not bt.get("recommended"):
                     print(f"回測不建議核准：{bt.get('reason')}（硬要核准用 --force）")
                     return 2
+                if (bt.get("ablation") or {}).get(args.id) == "redundant":
+                    print(f"回測整組有效，但這筆拿掉也一樣（多餘）：{bt.get('reason')}（硬要核准用 --force）")
+                    return 2
             es.req("POST", f"/{TUNING_INDEX}/_update/{args.id}?refresh=true",
                    {"doc": {"status": "active", "approved_by": args.by, "approved_at": pd.Timestamp.now(tz="UTC").isoformat()}})
             if src.get("kind") == "rule_suggestion":

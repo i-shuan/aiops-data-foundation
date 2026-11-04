@@ -44,18 +44,31 @@ def load_alert(es, alert_id: str) -> dict | None:
 def form_data(alert: dict) -> dict:
     """給表單用的預填資料。"""
     sim = alert.get("similar") or []
+    cat = alert.get("suggested_category")
+    if cat is None and sim:                      # 舊的告警（分類器之前寫的）：現場算
+        from investigator.similar import classify
+        cls = classify(sim)
+        cat = cls["category"] if cls else None
     return {"alert_id": alert["alert_id"], "title": alert.get("title"), "summary": alert.get("summary") or "", "service": alert.get("service"),
             "dept": alert.get("dept"), "severity": alert.get("severity"), "status": alert.get("status"), "started_at": alert.get("started_at"),
             "llm": alert.get("llm_summary") or "", "similar": sim[:3], "anomaly_ids": alert.get("anomaly_ids") or [],
-            "series": alert.get("series") or [], "report_url": alert.get("report_url"), "report": alert.get("report") or ""}
+            "series": alert.get("series") or [], "report_url": alert.get("report_url"), "report": alert.get("report") or "",
+            "suggested_category": cat, "category_confidence": alert.get("category_confidence")}
+
+
+def _sim_line(s: dict) -> str:
+    """相似 case 一行：日期 [分類] 標題｜為什麼像。不給當時的處置（case 只做分類，docs/pdca/meta/2026-11-case-classify.md）。"""
+    return (f"{(s.get('start') or '')[:16].replace('T', ' ')} [{s.get('root_cause_category') or '—'}] {s.get('title') or ''}"
+            f"｜為什麼像：{'；'.join(s.get('why') or [])}")
 
 
 def form_json(d: dict) -> dict:
-    """給 Grafana 表單預填用：一層的 key → 字串（表單元素的 id 對到這些 key）。相似事故攤成幾行文字。"""
-    sim = "\n".join(f"{(s.get('start') or '')[:16].replace('T', ' ')} [{s.get('root_cause_category') or '—'}] {s.get('root_cause') or ''}"
-                    f"｜處置：{s.get('action') or '—'}｜怎麼看出來的：{s.get('how_detected') or '—'}" for s in d["similar"]) or "沒有相似的過去事故"
+    """給 Grafana 表單預填用：一層的 key → 字串（表單元素的 id 對到這些 key）。相似事故攤成幾行文字；
+    root_cause_category 預帶分類器的結果（表單那格的 id 就是它），人改掉就是 corrected。"""
+    sim = "\n".join(_sim_line(s) for s in d["similar"]) or "沒有相似的過去事故"
     return {"alert_id": d["alert_id"], "title": d["title"] or d["alert_id"], "summary": d["summary"], "llm": d["llm"] or "（沒有 AI 摘要）",
-            "similar": sim, "service": d["service"], "dept": d["dept"], "report_url": d["report_url"] or ""}
+            "similar": sim, "service": d["service"], "dept": d["dept"], "report_url": d["report_url"] or "",
+            "root_cause_category": d.get("suggested_category") or ""}
 
 
 def submit(es, form: dict, now: datetime | None = None) -> dict:
@@ -178,9 +191,10 @@ def _opt(options, selected=None):
 def render_form(d: dict, done: dict | None = None, error: str | None = None, full: bool = False) -> str:
     """full：根因分析全文直接放在表單上面（Grafana 抽屜裡用：先看全文、最下面填回饋，不用另開一頁）。"""
     e = html.escape
-    sim = "".join(f"<li><b>{e((s.get('start') or '')[:16])}</b> [{e(s.get('root_cause_category') or '—')}] {e(s.get('root_cause') or '')}"
-                  f"<br><small>處置：{e(s.get('action') or '—')}｜怎麼看出來的：{e(s.get('how_detected') or '—')}｜為什麼像：{e('；'.join(s.get('why') or []))}</small></li>"
+    sim = "".join(f"<li><b>{e((s.get('start') or '')[:16])}</b> [{e(s.get('root_cause_category') or '—')}] {e(s.get('title') or '')}"
+                  f"<br><small>為什麼像：{e('；'.join(s.get('why') or []))}</small></li>"
                   for s in d["similar"]) or "<li>沒有相似的過去事故</li>"
+    cat_hint = (f'<span class="hint">（系統依過去相似的 case 預帶 {e(d["suggested_category"])}，不對請改）</span>' if d.get("suggested_category") else "")
     extra = ""
     if done and done.get("extract"):
         x = done["extract"]
@@ -217,7 +231,7 @@ input[type=text],textarea,select{{width:100%;padding:6px;font-size:15px}}textare
 <div id="fp" style="display:none"><label>為什麼不是問題 <select name="fp_reason">{_opt(FP_REASONS)}</select></label>
 <label>補充 <span class="hint">（選填）</span><input type="text" name="fp_reason_text"></label></div>
 <div id="detail">
-<label>根因分類 <select name="root_cause_category">{_opt([("", "—")] + CATEGORIES)}</select></label>
+<label>根因分類 {cat_hint}<select name="root_cause_category">{_opt([("", "—")] + CATEGORIES, d.get("suggested_category"))}</select></label>
 <label>根因（一句話） <input type="text" name="root_cause" placeholder="例：Oracle 統計資訊過期，SELECT lots 走錯執行計畫"></label>
 <label>處置（做了什麼讓它恢復） <span class="hint">（選填）</span><input type="text" name="action" placeholder="例：重跑 analyze，10 分鐘後恢復"></label>
 <label>怎麼看出來的：看到什麼現象讓你想到是這個原因 <span class="hint">（這是最值錢的，請寫）</span>

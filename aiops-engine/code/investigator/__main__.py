@@ -316,11 +316,14 @@ def main(argv=None) -> int:
     al = sub.add_parser("alert", help="異常合成一件、新的那件跑根因分析，寫 aiops-alerts（Grafana 讀它發通知）")
     al.add_argument("--config", required=True)
     al.add_argument("--at", help="回測：拿這個時間當成「現在」")
-    se = sub.add_parser("similar-eval", help="相似事故檢索的評測：留一法 recall@3（同一個根因分類有沒有排進前 3）")
+    se = sub.add_parser("similar-eval", help="告警分類的評測：留一法分類準確率與 recall@3（同一個根因分類有沒有排進前 3）")
     se.add_argument("--config", required=True)
-    im = sub.add_parser("import-incidents", help="歷史事故單匯入 aiops-incidents（status confirmed、source import），相似事故檢索馬上用得到")
-    im.add_argument("file", help="CSV 或 JSON 陣列；欄位見 configs/rca/README.md「匯入歷史事故單」，範例 configs/rca/incidents-example.csv")
-    im.add_argument("--config", help="選填：拿 timezone 當沒寫時區的時間的時區")
+    se.add_argument("--learn-weights", action="store_true", help="case ≥ 50 件時用留一法準確率學特徵權重，印出來（不自動寫入）")
+    im = sub.add_parser("import-incidents", help="歷史事故單匯入 aiops-incidents（status confirmed、source import），告警分類馬上用得到")
+    im.add_argument("file", nargs="?", help="CSV 或 JSON 陣列；欄位見 configs/rca/README.md「匯入歷史事故單」，範例 configs/rca/incidents-example.csv；用 --db 時不給")
+    im.add_argument("--db", help="從資料庫讀：SQLAlchemy 的 URL（sqlite:///x.db、postgresql://…、mssql+pyodbc://…）；密碼可寫 ${環境變數}")
+    im.add_argument("--sql", help="搭 --db：SELECT 一句，欄位別名要跟 CSV 的欄位名一樣（title、start、end、services、root_cause_category…）")
+    im.add_argument("--config", help="選填：拿 timezone 當沒寫時區的時間的時區；incidents_db: {url, sql} 可以放這裡代替 --db、--sql")
     im.add_argument("--tz", help="沒寫時區的時間當哪裡的時間（預設 Asia/Taipei，或 --config 的 timezone）")
     im.add_argument("--dry-run", action="store_true", help="只解析、印出哪幾筆會略過，不寫 ES")
     args = p.parse_args(argv)
@@ -330,15 +333,39 @@ def main(argv=None) -> int:
             cfg = yaml.safe_load(f) or {}
     if args.cmd == "import-incidents":
         from . import importer as IMP
+        db = cfg.get("incidents_db") or {}
+        url, sql = args.db or db.get("url"), args.sql or db.get("sql")
+        if url:
+            if not sql:
+                print("--db 要搭 --sql（或 config 的 incidents_db.sql）")
+                return 2
+            return IMP.run(IMP.DbRows(url, sql), tz=args.tz or cfg.get("timezone") or IMP.DEFAULT_TZ, dry_run=args.dry_run)
+        if not args.file:
+            print("要給檔案，或 --db + --sql")
+            return 2
         return IMP.run(args.file, tz=args.tz or cfg.get("timezone") or IMP.DEFAULT_TZ, dry_run=args.dry_run)
     if args.cmd == "alert":
         return cmd_alert.run(cfg, args, investigate_full)
     if args.cmd == "similar-eval":
         from . import similar as SIM
-        r = SIM.evaluate(E.ES())
+        es = E.ES()
+        weights = (cfg.get("alerts") or {}).get("similar_weights")
+        r = SIM.evaluate(es, weights=weights)
         for row in r["rows"]:
-            print(f"  {'✓' if row['hit'] else '✗'} {row['id'][:24]:<24} [{row['category']}] {row['title'] or ''}  → {row['found']}")
-        print(f"recall@3：{r['hit']}/{r['n']}" + (f"（{r['recall']:.0%}）" if r["recall"] is not None else "（沒有已確認、有根因分類的事故）"))
+            pred = f"→ 分類 {row['predicted']}（{row['confidence']:.0%}）" if row["predicted"] else "→ 沒有相似的、不分類"
+            print(f"  {'✓' if row['correct'] else '✗'} {row['id'][:24]:<24} [{row['category']}] {row['title'] or ''}  {pred}")
+        if r["n"]:
+            print(f"分類準確率：{r['correct']}/{r['n']}（{r['accuracy']:.0%}）；recall@3：{r['hit']}/{r['n']}（{r['recall']:.0%}）"
+                  + (f"；權重 {weights}" if weights else ""))
+        else:
+            print("沒有已確認、有根因分類的事故")
+        if args.learn_weights:
+            got = SIM.learn_weights(SIM._confirmed_cases(es), start=weights)
+            if not got["ok"]:
+                print(got["reason"])
+            else:
+                print(f"學出來的權重：{got['weights']}（準確率 {got['before']:.0%} → {got['after']:.0%}，{got['n']} 件）；"
+                      f"要用的話寫進 rca.yaml 的 alerts.similar_weights")
         return 0
     report = investigate(cfg, args) if args.cmd == "investigate" else topology(cfg, args)
     print(report)

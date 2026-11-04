@@ -75,9 +75,10 @@ def main(argv=None) -> int:
     tu.add_argument("--list", action="store_true")
     tu.add_argument("--show", action="store_true",
                     help="看最終生效的值與來源：--series 給 series.yaml 的名稱、--match 給對象的實際值（例如 service=mes-api），不寫入")
-    bt = sub.add_parser("backtest", help="改門檻前先回測：一筆建議用過去 N 週重跑，看告警少幾個、已確認事故還抓不抓得到")
+    bt = sub.add_parser("backtest", help="改門檻前先回測：一筆或一組建議用過去 N 週重跑，看告警少幾個、已確認事故還抓不抓得到；一組有效才逐筆剔除看哪筆多餘")
     bt.add_argument("--config", default="configs/baseline/series.yaml")
-    bt.add_argument("--id", required=True, help="aiops-tuning 的建議 id（adjust list 看得到）")
+    bt.add_argument("--id", required=True, nargs="+", help="aiops-tuning 的建議 id（adjust list 看得到）；給好幾個就一組一起測")
+    bt.add_argument("--group", action="store_true", help="把同一個對象（同序列、同 match）其他還是 proposed 的建議一起拉進來當一組")
     bt.add_argument("--weeks", type=int, default=4)
     bt.add_argument("--at")
     bt.add_argument("--verbose", action="store_true")
@@ -147,8 +148,8 @@ def main(argv=None) -> int:
     fb.add_argument("--at", help="add missed：漏報的時間")
     fb.add_argument("--days", type=int, default=28)
     fb.add_argument("--limit", type=int, default=50)
-    fb.add_argument("--min-false-positive", dest="min_false_positive", type=int, default=3,
-                    help="同一個對象誤報幾次才列入、才提建議（預設 3）")
+    fb.add_argument("--min-false-positive", dest="min_false_positive", type=int, default=1,
+                    help="同一個對象誤報幾次才列入、才提建議（預設 1：有人標就提，不累積）")
     fb.add_argument("--min-recurring", dest="min_recurring", type=int, default=3,
                     help="suggest：同一個服務、同一個根因分類確認幾次才提「升級成規則」（預設 3）")
     me = sub.add_parser("metrics", help="量化：每天幾件、有回饋的比例、誤報率、從告警到回饋多久；兩段時間並排比「學之前 vs 學之後」")

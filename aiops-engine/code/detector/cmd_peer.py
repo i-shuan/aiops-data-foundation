@@ -7,13 +7,14 @@ from .es import ANOMALY_INDEX, ANOMALY_MAPPING, ES, doc_id, fetch
 from . import peer as P
 from .common import RULE_FIELDS, _freq, _now, keys_of
 from .owner import write_anomalies
+from sources import open_backend
 
 
 SHOW = {"pct": lambda x: f"{x:.0%}", "seconds": lambda x: f"{x * 1000:.0f}ms", "cores": lambda x: f"{x:.2f} 核",
         "bytes": lambda x: f"{x / 1048576:.0f}MB"}
 
-def cmd_peer(cfg: dict, args) -> int:
-    es = ES()
+def cmd_peer(cfg: dict, args, backend=None) -> int:
+    es = backend or open_backend(cfg, ES)
     es.ensure_index(ANOMALY_INDEX, ANOMALY_MAPPING)
     es.req("PUT", f"/{ANOMALY_INDEX}/_mapping", {"properties": RULE_FIELDS})
     end = _now(args.at)

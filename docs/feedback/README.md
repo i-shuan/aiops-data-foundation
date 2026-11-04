@@ -18,9 +18,9 @@
 
 | 結果 | 用法 |
 |---|---|
-| 確認（根因對） | 寫進 `aiops-incidents`；相似事故檢索（RAG）只讀 `confirmed` 的；同根因累積 3 次，產生規則草稿供人審閱 |
+| 確認（根因對） | 寫進 `aiops-incidents`；告警分類只讀 `confirmed` 的（case 只用來投票說新的一件「像哪一類」，不給根因、處置）；同根因累積 3 次，產生規則草稿供人審閱 |
 | 根因錯 | 記正確根因，列入評測集，改根因分析或 prompt 時要能答對 |
-| 誤報 | 同一條序列累積 3 次，產生調整建議，經人核准才生效；單次回饋不生效 |
+| 誤報 | 有人標就提調整建議（不累積）：特徵全部算完再查表，老師傅選的「為什麼不是問題」優先；經回測、人核准才生效 |
 | 漏報 | 降 z，補序列或規則；在 Grafana 儀表板的「回報漏報」面板（`POST /api/missed`）或指令回報 |
 
 ### 怎麼判斷是同一個根因
@@ -35,7 +35,7 @@
 - 分類選得不同就分開算；選 `other` 的會把不同原因混在一起。核准前要看這幾件的 `root_cause` 文字，確認是同一個原因。
 - 規則草稿的門檻是這幾件事故各自最低的延遲異常值取最小值；沒有延遲類異常就算不出門檻，不能核准。
 
-`override`、`recurring_override` 的建議核准前必須跑 `backtest`：現行設定與「現行＋建議」各重跑過去 N 週，已確認事故少抓一件就不建議；沒回測的不能核准。
+`override`、`recurring_override` 的建議核准前必須跑 `backtest`：現行設定與「現行＋建議」各重跑過去 N 週。同一個對象的幾筆建議（例如 `min_abs`＋`min_count`）是一個方案，**一組一起測**（`backtest --id a b` 或 `--group`），整組有效才逐筆剔除，標出多餘的（核准多餘的會被擋）。結論四種：有效（告警減少、已確認事故沒漏）、無效（範圍內有異常但一筆沒少）、無法判斷（回測窗內沒有落在建議範圍的異常，例如每月最後一天的建議只回測 2 週）、有害（會漏掉已確認事故，整組退回）。沒回測的不能核准。
 
 ### 調整：調什麼、怎麼調、哪些能調
 
@@ -51,8 +51,17 @@
 
 - `--match` 的對象用正規表示式，欄位可用別名（`service`、`namespace`、`pod`）。
 - 同一個對象有多處設定時，對象 > 序列 > `series.yaml`；來源有設定檔與 ES，同 `id` 後寫的蓋前面。
-- 人用 `tune`、`adjust` 寫的預設直接生效。`feedback suggest` 寫的是 `status: proposed`，不生效。誤報累積 3 次時依誤報選一種放寬：集中在同一個時段 → 週期放寬（只有那 1 小時 `z` 乘 1.4）；`z` 都高到放寬也壓不掉 → 調 `min_abs`；其他 → `z` 乘 1.4（例如 5 → 7）。漏報，`z` 乘 0.8（[feedback.py](../../aiops-engine/code/detector/feedback.py)）。
-- 生效流程：`backtest --id <id>`（預設過去 4 週）→ `adjust approve --id <id> --by <誰>`。`override`、`recurring_override`、`rule_suggestion` 沒回測或回測不建議時，要加 `--force` 才能核准；其他 `kind` 不用回測。`rule_suggestion` 算不出門檻不能核准；它的回測看提這條規則的事故抓不抓得到、事故以外多報幾次。
+- 人用 `tune`、`adjust` 寫的預設直接生效。`feedback suggest` 寫的是 `status: proposed`，不生效。誤報的建議依特徵查表（[feedback.py](../../aiops-engine/code/detector/feedback.py) 的 `fp_features`、`suggest_for_false_positives`）：
+
+  | 時段固定 | `z` 放寬壓得掉 | 動作 |
+  |---|---|---|
+  | 是 | 是 | 那 1 小時 `z` 乘 1.4 |
+  | 是 | 否 | 那 1 小時不報、不學（`mute` + `train: exclude`） |
+  | 否 | 是 | 整條 `z` 乘 1.4 |
+  | 否 | 否 | `min_abs` 調到最大偏差 × 1.2 |
+
+  老師傅在表單選的原因優先：換版 → `reset_point`；壓測 → `exclude_window`；批次 → 那 1 小時不報不學（1 筆也算得出時段）；本來就慢 → `min_abs`；量太少 → 再加一筆 `min_count`。漏報，`z` 乘 0.8。回測時告警一筆沒少就「無效，不建議」。
+- 生效流程：`backtest --id <id> --group`（預設過去 4 週；`--group` 把同一對象其他 proposed 的建議拉進來一起測）→ `adjust approve --id <id> --by <誰>`。`override`、`recurring_override`、`rule_suggestion` 沒回測或回測不建議時，要加 `--force` 才能核准；其他 `kind` 不用回測。`rule_suggestion` 算不出門檻不能核准；它的回測看提這條規則的事故抓不抓得到、事故以外多報幾次。
 - `--expires` 到期自動失效；`adjust remove --id <id>` 刪除。
 
 不能用這些指令調的：
@@ -89,5 +98,5 @@
 
 - 老師傅填的根因分類、根因、處置、怎麼看出來的、查了哪裡，存在 `aiops-incidents`；誤報不填這些，只填 `fp_reason`。
 - 相似事故檢索只讀 `confirmed`、`corrected`。
-- 建議（誤報累積 3 次、同根因累積 3 次）由 `feedback suggest` 寫進 `aiops-tuning`，`status: proposed`；`backtest` 通過、人用 `adjust approve` 改成 `active` 才生效。
+- 建議（有人標誤報就提、同根因累積 3 次）由 `feedback suggest` 寫進 `aiops-tuning`，`status: proposed`；`backtest` 通過、人用 `adjust approve` 改成 `active` 才生效。
 - 漏報沒有 `alert_id`、`anomaly_id`：Grafana 漏報面板（`POST /api/missed`）或 `feedback add` 寫一筆 `aiops-feedback`（`verdict: missed`、`series`、`keys.service`、`anomaly_at`），不碰 `aiops-incidents`；時間沒寫時區當 `train.timezone`（Asia/Taipei）。

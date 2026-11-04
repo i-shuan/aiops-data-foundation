@@ -4,7 +4,7 @@
 
 | 資料夾 | 內容 |
 |---|---|
-| `code/` | 一個 Python 專案：`core/`（共用：ES、trace、LLM）、`detector/`（動態基準線學習、規則、Pod 同儕比對、資料品質、回饋、回測、量化）、`investigator/`（事件整合、根因分析、相似事故、告警）、`feedback_web/`（老師傅的回饋網頁）、`scheduler/`（定期工作的排程器）、`configs/`（[baseline](code/configs/baseline/README.md)、[rca](code/configs/rca/README.md)、[schedule](code/configs/schedule/schedule.yaml)）、`interfaces/`、`fake-data/`、`tests/`、`Dockerfile`（一個 image 裝全部，`ENTRYPOINT python3 -m`，`args` 給套件名和指令） |
+| `code/` | 一個 Python 專案：`core/`（共用：ES、trace、LLM）、`detector/`（動態基準線學習、規則、Pod 同儕比對、資料品質、回饋、回測、量化）、`investigator/`（事件整合、根因分析、相似事故、告警）、`feedback_web/`（老師傅的回饋網頁）、`scheduler/`（定期工作的排程器）、[`sources/`](code/sources/README.md)（資料來源：ES 以外的檔案、HTTP、程式給的 DataFrame 也能餵）、[`models/`](code/models/README.md)（五個模型的輸入規格，import 就能用）、`configs/`（[baseline](code/configs/baseline/README.md)、[rca](code/configs/rca/README.md)、[schedule](code/configs/schedule/schedule.yaml)）、`interfaces/`、`fake-data/`、`tests/`、`Dockerfile`（一個 image 裝全部，`ENTRYPOINT python3 -m`，`args` 給套件名和指令） |
 | `helmchart/` | **一隻 pod、兩個 container**（同一個 image）：`scheduler`（照 `configs/schedule/schedule.yaml` 跑定期工作）、`feedback`（回饋網頁）＋Service `aiops-feedback:8080` |
 
 本機跑：`cd aiops-engine/code && python3 -m detector <指令>`、`python3 -m investigator investigate`；單元測試 `python3 -m pytest -q`。

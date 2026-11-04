@@ -28,7 +28,7 @@ from datetime import datetime, timedelta
 SVC_KEYS = ("resource.attributes.service.name", "service", "entry.service", "service.name", "caller")
 NS_KEYS = ("resource.attributes.k8s.namespace.name", "k8s.namespace.name", "namespace", "kubernetes.namespace")
 NODE_KEYS = ("resource.attributes.k8s.node.name", "k8s.node.name", "node")
-SEVERITY = {"warning": 1, "critical": 2}
+SEVERITY = {"warning": 1, "high": 2, "critical": 3}   # 一件最後的嚴重度由 severity.grade 算（訊號廣度＋持續＋換版上限）；這裡只是異常自己帶的
 MAX_IDS = 500          # 一件最多記幾筆異常 id（很長的事故不要讓文件無限長）
 
 
@@ -306,7 +306,7 @@ def summary(al: dict, report: str | None, tz, similar: list[dict] | None = None)
     if al.get("shared_dependency") and al.get("related_alerts"):
         lines.append(f"可能同源：{'、'.join(al['related_alerts'][:3])} 也卡在 {'、'.join(al['shared_dependency'][:3])}")
     if similar:
-        s = similar[0]
-        cat = f"[{s['root_cause_category']}] " if s.get("root_cause_category") else ""
-        lines.append(f"過去相似：{(s.get('start') or '')[:10]} {cat}{s.get('root_cause') or ''}；處置：{s.get('action') or '未記錄'}（{'；'.join(s['why'][:2])}）")
+        # case 只做分類：通知裡只說像哪一類、為什麼像，不給當時的處置（docs/pdca/meta/2026-11-case-classify.md）
+        from .similar import classify, describe_class
+        lines.append(f"分類：{describe_class(classify(similar))}；最像 {(similar[0].get('start') or '')[:10]}（{'；'.join(similar[0]['why'][:2])}）")
     return "\n".join(lines)

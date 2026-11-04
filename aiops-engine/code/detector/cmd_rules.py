@@ -8,6 +8,7 @@ from .es import ANOMALY_INDEX, ANOMALY_MAPPING, ES, doc_id, fetch
 from . import rules as R
 from .common import RULE_FIELDS, _freq, _now
 from .owner import write_anomalies
+from sources import open_backend
 
 
 def approved_rules(es: ES, cfg: dict, now: pd.Timestamp | None = None) -> list[dict]:
@@ -34,8 +35,8 @@ def approved_rules(es: ES, cfg: dict, now: pd.Timestamp | None = None) -> list[d
     return out
 
 
-def cmd_rules(cfg: dict, args) -> int:
-    es = ES()
+def cmd_rules(cfg: dict, args, backend=None) -> int:
+    es = backend or open_backend(cfg, ES)
     es.ensure_index(ANOMALY_INDEX, ANOMALY_MAPPING)
     es.req("PUT", f"/{ANOMALY_INDEX}/_mapping", {"properties": RULE_FIELDS})   # 舊的 index 補上規則用的欄位
     now = _now(args.at)

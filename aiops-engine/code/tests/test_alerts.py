@@ -216,10 +216,13 @@ class SummaryWithSimilar(unittest.TestCase):
               "started_at": T0.isoformat(), "updated_at": (T0 + timedelta(minutes=12)).isoformat(), "series": ["http.latency_p95_s"],
               "routes": ["GET /lots/{id}"], "anomaly_ids": ["x1"], "kinds": ["baseline"]}
         sim = [{"start": "2026-09-12T02:00:00+00:00", "root_cause_category": "db", "root_cause": "統計資訊過期", "action": "重跑 analyze",
-                "why": ["同服務（mes-api）", "同一段變慢（Oracle）", "同一支 API"]}]
+                "score": 9.0, "why": ["同服務（mes-api）", "同一段變慢（Oracle）", "同一支 API"]}]
         s = AL.summary(al, None, ZoneInfo("Asia/Taipei"), sim)
-        self.assertIn("過去相似：2026-09-12 [db] 統計資訊過期；處置：重跑 analyze（同服務（mes-api）；同一段變慢（Oracle））", s)
-        self.assertNotIn("過去相似", AL.summary(al, None, ZoneInfo("Asia/Taipei"), []))
+        # case 只做分類：通知只說像哪一類、為什麼像；不給當時的根因、處置（docs/pdca/meta/2026-11-case-classify.md）
+        self.assertIn("分類：像 db 類（1 件相似的 case 裡 db 佔 100%）；最像 2026-09-12（同服務（mes-api）；同一段變慢（Oracle））", s)
+        self.assertNotIn("處置", s)
+        self.assertNotIn("統計資訊過期", s)
+        self.assertNotIn("分類", AL.summary(al, None, ZoneInfo("Asia/Taipei"), []))
 
 
 def stored(alerts):

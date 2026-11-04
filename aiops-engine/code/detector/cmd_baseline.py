@@ -13,11 +13,13 @@ from .model import (CONFIDENCE, RESOLUTIONS, DetectOptions, TrainOptions, effect
 from .common import _freq, _now, _v, keys_of
 from .owner import write_anomalies
 from .tuning import TUNING_INDEX, TUNING_MAPPING, data_adjustments, load_overrides
+from sources import is_backend, open_backend
 
 
 def save_baseline(es, name: str, by: list[str], b: pd.DataFrame, start, end, had_data: bool = False) -> None:
     """寫進 aiops-baseline，再刪掉這條序列上一次訓練留下、這次沒有的（例如改了粒度、或 4 週內都沒出現的 API）。
-    had_data：這次有查到資料（只是不夠學）。ES 查不到任何資料時不刪，保留舊的。"""
+    had_data：這次有查到資料（只是不夠學）。ES 查不到任何資料時不刪，保留舊的。
+    es 是 sources 的 Backend 時交給它的 Store（memory、file、es）。"""
     trained_at = pd.Timestamp.now(tz="UTC").isoformat()
     docs = []
     for r in b.to_dict("records"):
@@ -29,6 +31,9 @@ def save_baseline(es, name: str, by: list[str], b: pd.DataFrame, start, end, had
             "resolution": _v(r.get("resolution")), "method": _v(r.get("baseline_method")) or "mad",
             "baseline_source": f"group:{group}" if group else "self", "events": _v(r.get("events")),
             "trained_at": trained_at, "history_from": start.isoformat(), "history_to": end.isoformat()}))
+    if is_backend(es):
+        es.save_baseline(name, docs, trained_at, had_data)
+        return
     es.bulk_index(BASELINE_INDEX, docs)
     if docs or had_data:   # ES 查不到任何資料（例如停機）就不刪，保留舊的
         es.req("POST", f"/{BASELINE_INDEX}/_delete_by_query?conflicts=proceed", {"query": {"bool": {"filter": [
@@ -84,8 +89,11 @@ def _keep_upgraded(es, docs: list) -> None:
     ids = [i for i, d in docs if d["status"] == "warning"]
     if not ids:
         return
-    got = es.req("POST", f"/{ANOMALY_INDEX}/_mget?_source_includes=status,streak", {"ids": ids}).get("docs", [])
-    was = {g["_id"]: g["_source"] for g in got if g.get("found") and g["_source"].get("status") == "anomaly"}
+    if is_backend(es):
+        was = es.anomaly_status(ids)
+    else:
+        got = es.req("POST", f"/{ANOMALY_INDEX}/_mget?_source_includes=status,streak", {"ids": ids}).get("docs", [])
+        was = {g["_id"]: g["_source"] for g in got if g.get("found") and g["_source"].get("status") == "anomaly"}
     for i, d in docs:
         if i in was:
             d["status"], d["streak"] = "anomaly", was[i].get("streak", d.get("streak"))
@@ -127,8 +135,9 @@ def save_anomalies(es, name: str, by: list[str], s: pd.DataFrame, direction: str
               f"{'' if d['status'] == 'anomaly' else '  ← warning（跳一次，還沒連續）'}")
     return len(docs)
 
-def cmd_train(cfg: dict, args) -> int:
-    es = ES()
+def cmd_train(cfg: dict, args, backend=None) -> int:
+    # 設定檔沒寫 source 就是 ES；寫了 file／http 就是那個來源（讀）＋ store（寫）；程式直接給 DataFrame 時傳 backend=sources.MemoryBackend(…)
+    es = backend or open_backend(cfg, ES)
     es.ensure_index(BASELINE_INDEX, BASELINE_MAPPING)
     interval = cfg.get("interval", "5m")
     end = _now(args.end).floor(_freq(interval))
@@ -270,7 +279,10 @@ def with_status(cfg: dict, s: pd.DataFrame, keys: list[str], step: str, start, s
 def cmd_tune(cfg: dict, args) -> int:
     """寫一筆調整進 aiops-tuning（同一條序列＋同一組 match 會覆蓋）；--remove 刪掉；--list 列出；
     --show 看某條序列、某個對象最終生效的值與來源（多筆都符合時後面蓋前面，不然看不出是哪一筆定的）。"""
-    es = ES()
+    es = open_backend(cfg, ES)
+    if is_backend(es) and es.store.kind != "es" and not (args.list or args.show):
+        print(f"tune 要寫 aiops-tuning，store 是 {es.store.kind}（不是 ES）：直接改 series.yaml 的 overrides")
+        return 2
     es.ensure_index(TUNING_INDEX, TUNING_MAPPING)
     if args.list:
         for o in load_overrides(es, cfg):
@@ -302,15 +314,24 @@ def cmd_tune(cfg: dict, args) -> int:
           + "（粒度下次 train 生效；z、min_abs、confirm_points、instant_z 下次 detect 生效）")
     return 0
 
-def apply_min_count(s: pd.DataFrame, spec: dict) -> pd.DataFrame:
+def apply_min_count(s: pd.DataFrame, spec: dict, keys: list[str] | None = None, overrides=()) -> pd.DataFrame:
     """比例類（錯誤率）：這個時間窗符合的事件數（值 × 底下的事件數，例如 5xx 個數）不到 min_count，不算異常。
-    20 個請求錯 1 個就是 5%，已經等於 min_abs；一週合成資料這樣報了 205 次（docs/pdca/phase2-anomaly/2026-11-baseline-false-alarm.md）。"""
-    mc = spec.get("min_count")
-    if mc is None or s.empty or "n" not in s.columns:
+    20 個請求錯 1 個就是 5%，已經等於 min_abs；一週合成資料這樣報了 205 次（docs/pdca/phase2-anomaly/2026-11-baseline-false-alarm.md）。
+    aiops-tuning 的 override 可以依對象蓋 min_count（回饋「量太少」提的）：keys、overrides 有給時每列各自查。"""
+    if s.empty or "n" not in s.columns:
+        return s
+    mc = pd.Series(spec.get("min_count"), index=s.index, dtype="float")
+    if keys and overrides:
+        for i, k in zip(s.index, s[keys].to_dict("records")):
+            o = override_for(spec["name"], k, overrides).get("min_count")
+            if o is not None:
+                mc.at[i] = float(o)
+    if mc.isna().all():
         return s
     hits = np.round(pd.to_numeric(s["value"], errors="coerce").fillna(0).to_numpy(dtype=float)
                     * pd.to_numeric(s["n"], errors="coerce").fillna(0).to_numpy(dtype=float))
-    return s.assign(anomaly=s["anomaly"].to_numpy(dtype=bool) & (hits >= mc))
+    ok = mc.isna().to_numpy() | (hits >= mc.fillna(0).to_numpy())
+    return s.assign(anomaly=s["anomaly"].to_numpy(dtype=bool) & ok)
 
 def score_tuned(fn, cur: pd.DataFrame, base: pd.DataFrame, keys: list[str], spec: dict, dopts, tz, overrides) -> pd.DataFrame:
     """依每個對象的調整（z、min_abs）分組打分；沒有調整的用預設。"""
@@ -402,7 +423,7 @@ def detect_series(es, cfg: dict, spec: dict, base: pd.DataFrame, now, window: pd
             cm = cur.merge(bm[keys].drop_duplicates(), on=keys)
             if cm.empty:
                 continue
-            s = apply_min_count(score_tuned(fn, cm, bm, keys, spec, dopts, tz, overrides).assign(baseline_method=method), spec)
+            s = apply_min_count(score_tuned(fn, cm, bm, keys, spec, dopts, tz, overrides).assign(baseline_method=method), spec, keys, overrides)
             s, muted = A.detect_filter(s, keys, spec["name"], adjs, tz, baseline=bm)
             if muted and not quiet:
                 print(f"  {spec['name']}（{r} 一點）：{muted} 個點在排除時段、週期放寬、重置點之後，不算")
@@ -425,8 +446,8 @@ def write_detect_status(es, now: pd.Timestamp, missing: list[str]) -> None:
         "anomaly_ids": [], "series": list(missing), "routes": [], "anomaly_count": 0, "missing_baseline": len(missing)})])
 
 
-def cmd_detect(cfg: dict, args) -> int:
-    es = ES()
+def cmd_detect(cfg: dict, args, backend=None) -> int:
+    es = backend or open_backend(cfg, ES)
     es.ensure_index(ANOMALY_INDEX, ANOMALY_MAPPING)
     interval = cfg.get("interval", "5m")
     now = _now(args.at)

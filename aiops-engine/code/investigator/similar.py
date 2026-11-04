@@ -1,10 +1,13 @@
 """相似事故檢索（RAG 的「檢索」，docs/pdca/phase4-rca-llm/2026-10-similar-incidents.md）。
 
 一件新的告警 → 指紋（服務、API、慢在哪一段、錯從哪開始、異常的指標組合、新 log 樣式）→ 去 aiops-incidents 找最像的幾件
-→ 附上當時的根因、處置、怎麼看出來的，以及**為什麼像**（哪幾點相同）。
+→ **只拿來分類**：前 k 件以分數投票，說這件「像哪一類」（db、network、config_change…）＋信心（classify），
+以及**為什麼像**（哪幾點相同）。不拿它們的根因、處置當建議：程式換版後指紋還對得上、根因可能已經不是那個
+（docs/pdca/meta/2026-11-case-classify.md）。根因定位從當下的 trace 算（investigator/analyze.py），不靠 case。
 
 先用欄位比對（ES 的 bool／terms），不用向量：結果看得出為什麼像、不用模型、20～30 件就夠。
 只檢索老師傅確認過的（status confirmed、corrected）；自動產生、還沒人看的不拿來教人。
+權重手設（WEIGHTS）；case ≥ 50 件時 learn_weights 用留一法準確率學，人決定要不要寫進 rca.yaml 的 similar_weights。
 """
 from __future__ import annotations
 
@@ -57,13 +60,14 @@ def query(fp: dict, exclude_id: str | None = None, size: int = CANDIDATES) -> di
     return {"size": size, "query": q}
 
 
-def explain(fp: dict, other: dict) -> tuple[float, list[str]]:
-    """自己算分數（不用 ES 的 _score，才解釋得出為什麼像）：每個欄位有交集就加權重，並寫出交集的內容。"""
+def explain(fp: dict, other: dict, weights: dict | None = None) -> tuple[float, list[str]]:
+    """自己算分數（不用 ES 的 _score，才解釋得出為什麼像）：每個欄位有交集就加權重，並寫出交集的內容。
+    weights：rca.yaml 的 similar_weights 或 learn_weights 學出來的；沒給用 WEIGHTS。"""
     ofp = other.get("fingerprint") or {}
     score, why = 0.0, []
     labels = {"services": "同服務", "routes": "同一支 API", "slow_segments": "同一段變慢", "error_origins": "錯誤源頭相同",
               "patterns": "同樣的新 log 樣式", "series": "同樣的指標異常"}
-    for field, w in WEIGHTS.items():
+    for field, w in (weights or WEIGHTS).items():
         mine, theirs = set(fp.get(field) or []), set(ofp.get(field) or [])
         hit = mine & theirs
         if hit:
@@ -72,18 +76,18 @@ def explain(fp: dict, other: dict) -> tuple[float, list[str]]:
     return score, why
 
 
-def search(es, fp: dict, exclude_id: str | None = None, k: int = TOP_K, min_score: float = MIN_SCORE, size: int = CANDIDATES) -> list[dict]:
-    """最像的 k 件（分數 ≥ min_score）。回傳給報告用的欄位＋為什麼像。size：跟 ES 要幾件候選（見 CANDIDATES）。"""
+def rank(fp: dict, candidates: list[tuple[str, dict]], k: int = TOP_K, min_score: float = MIN_SCORE,
+         weights: dict | None = None) -> list[dict]:
+    """M5 的核心（不碰 ES）：候選事故 [(id, 文件), …] 各自算分數（explain），留 ≥ min_score 的前 k 件，附為什麼像。
+    候選要先只留老師傅確認過的（status 在 CONFIRMED）：ES 的 query 已經過濾；自己準備候選時用 confirmed_only。"""
     if not any(fp.get(f) for f in WEIGHTS):
         return []
-    hits = es.search(INCIDENT_INDEX, query(fp, exclude_id, size)).get("hits", {}).get("hits", [])
     out = []
-    for h in hits:
-        s = h["_source"]
-        score, why = explain(fp, s)
+    for _id, s in candidates:
+        score, why = explain(fp, s, weights)
         if score < min_score:
             continue
-        out.append({"incident_id": h["_id"], "score": score, "why": why, "title": s.get("title"), "start": s.get("start"),
+        out.append({"incident_id": _id, "score": score, "why": why, "title": s.get("title"), "start": s.get("start"),
                     "services": s.get("services"), "root_cause_category": s.get("root_cause_category"), "root_cause": s.get("root_cause"),
                     "action": s.get("action"), "how_detected": s.get("how_detected"), "checked": s.get("checked"), "by": s.get("by"),
                     "status": s.get("status")})
@@ -91,39 +95,119 @@ def search(es, fp: dict, exclude_id: str | None = None, k: int = TOP_K, min_scor
     return out[:k]
 
 
-def format_similar(items: list[dict], tz_label: str = "") -> list[str]:
-    """報告最前面那一段（Markdown）。"""
+def confirmed_only(candidates: list[tuple[str, dict]], exclude_id: str | None = None) -> list[tuple[str, dict]]:
+    return [(i, s) for i, s in candidates if s.get("status") in CONFIRMED and i != exclude_id]
+
+
+def search(es, fp: dict, exclude_id: str | None = None, k: int = TOP_K, min_score: float = MIN_SCORE, size: int = CANDIDATES,
+           weights: dict | None = None) -> list[dict]:
+    """最像的 k 件（分數 ≥ min_score）。回傳給報告用的欄位＋為什麼像。size：跟 ES 要幾件候選（見 CANDIDATES）。
+    es 是 sources 的 Backend 時候選從它的 Store 拿（aiops-incidents 裡已確認的），分數一樣用 rank 算。"""
+    if not any(fp.get(f) for f in WEIGHTS):
+        return []
+    from sources.base import is_backend
+    if is_backend(es):
+        return rank(fp, es.incidents(CONFIRMED, exclude_id), k, min_score, weights)
+    hits = es.search(INCIDENT_INDEX, query(fp, exclude_id, size)).get("hits", {}).get("hits", [])
+    return rank(fp, [(h["_id"], h["_source"]) for h in hits], k, min_score, weights)
+
+
+# ── 分類：case 只用來說「這件像哪一類」（docs/pdca/meta/2026-11-case-classify.md）──
+
+def classify(ranked: list[dict]) -> dict | None:
+    """rank／search 的結果 → {"category", "confidence", "votes", "n", "based_on"}；沒有像的 case 就 None（不猜）。
+    每件以分數投給它的 root_cause_category；信心 = 贏的那類分數 ÷ 全部分數。沒有分類的 case 不投票。"""
+    votes: dict[str, float] = {}
+    for it in ranked:
+        cat = it.get("root_cause_category")
+        if cat:
+            votes[cat] = votes.get(cat, 0.0) + float(it.get("score") or 0)
+    if not votes:
+        return None
+    total = sum(votes.values())
+    cat = max(votes, key=lambda c: (votes[c], c))
+    return {"category": cat, "confidence": round(votes[cat] / total, 2) if total else 0.0,
+            "votes": {c: round(v, 1) for c, v in sorted(votes.items(), key=lambda x: -x[1])}, "n": len(ranked),
+            "based_on": [it.get("incident_id") for it in ranked]}
+
+
+def describe_class(cls: dict | None) -> str:
+    """一句話：「像 db 類（3 件相似的 case 裡 db 佔 67%）」；沒有就「沒有相似的過去 case，不分類」。"""
+    if not cls:
+        return "沒有相似的過去 case，不分類"
+    return f"像 {cls['category']} 類（{cls['n']} 件相似的 case 裡 {cls['category']} 佔 {cls['confidence']:.0%}）"
+
+
+def format_similar(items: list[dict], tz_label: str = "", cls: dict | None = None) -> list[str]:
+    """報告最前面那一段（Markdown）：只給分類和「歷史上也發生過」的清單（日期、標題、為什麼像），不列當時的根因、處置：
+    程式換版後指紋還對得上、根因可能已經不是那個，舊藥方不給新病。"""
     if not items:
         return []
-    lines = ["## 過去相似的事故（老師傅確認過的）", ""]
+    cls = cls if cls is not None else classify(items)
+    lines = [f"## 分類（依過去相似的 case）：{describe_class(cls)}", ""]
     for i, it in enumerate(items, 1):
         when = (it.get("start") or "")[:16].replace("T", " ")
-        lines.append(f"{i}. **{when}** {it.get('title') or '、'.join(it.get('services') or [])}（為什麼像：{'；'.join(it['why'])}）")
-        if it.get("root_cause"):
-            lines.append(f"   - 當時的根因：{'[' + it['root_cause_category'] + '] ' if it.get('root_cause_category') else ''}{it['root_cause']}")
-        if it.get("action"):
-            lines.append(f"   - 處置：{it['action']}")
-        if it.get("how_detected"):
-            lines.append(f"   - 怎麼看出來的：{it['how_detected']}")
-        if it.get("checked"):
-            lines.append(f"   - 當時查了：{'、'.join(it['checked']) if isinstance(it['checked'], list) else it['checked']}")
-        if it.get("by"):
-            lines.append(f"   - 處理的人：{it['by']}")
+        cat = f"[{it['root_cause_category']}] " if it.get("root_cause_category") else ""
+        lines.append(f"{i}. **{when}** {cat}{it.get('title') or '、'.join(it.get('services') or [])}（為什麼像：{'；'.join(it['why'])}）")
     lines.append("")
     return lines
 
 
-def evaluate(es, k: int = TOP_K, min_score: float = MIN_SCORE) -> dict:
-    """留一法：每件已確認、有根因分類的事故輪流當「新的」，用它的指紋查其他的，看同一個根因分類有沒有排在前 k（recall@k）。"""
+def _confirmed_cases(es) -> list[tuple[str, dict]]:
+    from sources.base import is_backend
+    if is_backend(es):
+        return [(i, s) for i, s in es.incidents(CONFIRMED) if s.get("root_cause_category") and s.get("fingerprint")]
     hits = es.search(INCIDENT_INDEX, {"size": 1000, "query": {"bool": {"filter": [{"terms": {"status": list(CONFIRMED)}},
                                                                                      {"exists": {"field": "root_cause_category"}},
                                                                                      {"exists": {"field": "fingerprint"}}]}}}).get("hits", {}).get("hits", [])
-    rows, hit = [], 0
-    for h in hits:
-        s = h["_source"]
-        found = search(es, s["fingerprint"], exclude_id=h["_id"], k=k, min_score=min_score)
+    return [(h["_id"], h["_source"]) for h in hits]
+
+
+def evaluate_cases(cases: list[tuple[str, dict]], k: int = TOP_K, min_score: float = MIN_SCORE, weights: dict | None = None) -> dict:
+    """留一法（不碰 ES）：每件輪流當「新的」，用其他件分類。recall@k：同分類有沒有排進前 k；accuracy：投票結果等不等於它的分類。"""
+    rows, hit, right = [], 0, 0
+    for _id, s in cases:
+        found = rank(s["fingerprint"], [(i, o) for i, o in cases if i != _id], k, min_score, weights)
         ok = any(f.get("root_cause_category") == s["root_cause_category"] for f in found)
+        cls = classify(found)
+        correct = bool(cls) and cls["category"] == s["root_cause_category"]
         hit += ok
-        rows.append({"id": h["_id"], "title": s.get("title"), "category": s["root_cause_category"], "hit": ok,
+        right += correct
+        rows.append({"id": _id, "title": s.get("title"), "category": s["root_cause_category"], "hit": ok,
+                     "predicted": cls["category"] if cls else None, "confidence": cls["confidence"] if cls else None, "correct": correct,
                      "found": [(f["incident_id"], f.get("root_cause_category"), f["score"]) for f in found]})
-    return {"n": len(rows), "hit": hit, "recall": (hit / len(rows)) if rows else None, "rows": rows}
+    n = len(rows)
+    return {"n": n, "hit": hit, "recall": (hit / n) if n else None, "correct": right, "accuracy": (right / n) if n else None, "rows": rows}
+
+
+def evaluate(es, k: int = TOP_K, min_score: float = MIN_SCORE, weights: dict | None = None) -> dict:
+    """留一法：每件已確認、有根因分類的事故輪流當「新的」（recall@k 與分類準確率，見 evaluate_cases）。"""
+    return evaluate_cases(_confirmed_cases(es), k, min_score, weights)
+
+
+MIN_CASES_TO_LEARN = 50
+WEIGHT_GRID = (0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0)
+
+
+def learn_weights(cases: list[tuple[str, dict]], start: dict | None = None, min_cases: int = MIN_CASES_TO_LEARN,
+                  k: int = TOP_K, min_score: float = MIN_SCORE, rounds: int = 3) -> dict:
+    """座標上升學特徵權重：每個欄位的權重在 WEIGHT_GRID 裡試，留一法準確率變好才換；全部欄位掃一輪沒變就停。
+    case 少於 min_cases 不學（會過擬合），回 {"ok": False, "reason"}。回傳 {"ok", "weights", "before", "after", "n"}。"""
+    if len(cases) < min_cases:
+        return {"ok": False, "reason": f"已確認、有分類的 case 只有 {len(cases)} 件，少於 {min_cases} 件不學（維持手設的權重）", "n": len(cases)}
+    w = dict(start or WEIGHTS)
+    before = evaluate_cases(cases, k, min_score, w)["accuracy"]
+    best = before
+    for _ in range(rounds):
+        changed = False
+        for field in list(w):
+            for v in WEIGHT_GRID:
+                if v == w[field]:
+                    continue
+                trial = {**w, field: v}
+                acc = evaluate_cases(cases, k, min_score, trial)["accuracy"]
+                if acc > best + 1e-9:
+                    w, best, changed = trial, acc, True
+        if not changed:
+            break
+    return {"ok": True, "weights": w, "before": before, "after": best, "n": len(cases)}

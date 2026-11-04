@@ -367,7 +367,7 @@ def match_keys(key: dict, match: dict | None) -> bool:
     return _match(key, match)
 
 
-OVERRIDE_FIELDS = ("resolution", "z", "min_abs", "confirm_points", "instant_z")
+OVERRIDE_FIELDS = ("resolution", "z", "min_abs", "confirm_points", "instant_z", "min_count")
 
 
 def _matching_overrides(series: str, key: dict, overrides: list[dict]):

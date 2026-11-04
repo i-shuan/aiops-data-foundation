@@ -17,6 +17,8 @@
 |---|---|---|---|
 | [../README.md](../README.md) | 原理 | 專案是什麼、怎麼跑起來 | 🟢 |
 | [architecture.md](architecture.md) | 原理 | 架構、設計決策與現況：收值用公司現有的 Elastic APM、目標、全域架構圖、關鍵決策、①～⑨ 模組職責、根因定位機制（第 1～5 節）；各 phase、各模組的程式、驗證、還沒做的、PDCA 索引（第 6～14 節） | 🟡（Elastic APM 的資料沒實跑過） |
+| [detection-and-learning.md](detection-and-learning.md) | 原理 | 異常偵測與學習機制現在寫了什麼：統計方法清單、回饋學習（人在迴圈）、跟強化式學習差在哪、已知哪裡不準、貝氏更新構想 | 🟡（貝氏更新是構想；誤報量測是合成資料） |
+| [semiconductor-design.md](semiconductor-design.md) | 原理 | 半導體（FDC）沒有 trace id 時：lot 加工路徑取代 trace、五個模型與事件整合各要改什麼、跟目前設計的對照、做的順序 | ⚪ 構想（沒有 MES、FDC 欄位樣本） |
 | [aiops-data-reference.md](aiops-data-reference.md) | 規格 | AIOps 資料格式：`aiops-anomalies`、`aiops-alerts`、`aiops-incidents`、`aiops-feedback`、`aiops-tuning` 的欄位、誰在什麼時候寫、真實範例、Grafana 面板讀哪些欄位 | 🟢 |
 | [deploy-how-to.md](deploy-how-to.md) | 操作 | 部署：公司已有 Elastic APM 與 ES，不跑 es-setup，在 Kibana 手動補設定、部署 aiops-engine、接 Grafana | 🟡（沒在真實環境照做過） |
 | [troubleshooting.md](troubleshooting.md) | 操作 | 症狀 → 原因 → 做法 | 🟢 |
@@ -39,6 +41,8 @@
 | [../aiops-engine/code/configs/rca/README.md](../aiops-engine/code/configs/rca/README.md) | 操作 | 根因分析：預設值、怎麼跑、匯入歷史事故單、報告長什麼樣子、限制、怎麼驗 | 🟢 |
 | [../aiops-engine/code/configs/rca/example-report.md](../aiops-engine/code/configs/rca/example-report.md) | 案例 | 一份範例報告 | 🟢 |
 | [../aiops-engine/code/configs/apm/README.md](../aiops-engine/code/configs/apm/README.md) | 操作 | 用 Elastic APM 的資料跑 engine（收值就是這個）：哪些功能能用、ES role、template、`source: apm`、欄位對照 | 🟡（未在真實 APM 資料上跑過） |
+| [../aiops-engine/code/sources/README.md](../aiops-engine/code/sources/README.md) | 操作 | 資料來源：ES 以外（檔案、HTTP、程式給 DataFrame）也能跑 train／detect／peer／rules；`source:`、`store:` 怎麼寫、跟 ES 算得一不一樣 | 🟢 |
+| [../aiops-engine/code/models/README.md](../aiops-engine/code/models/README.md) | 規格 | 五個模型的標準輸入（欄位、一列是什麼）與主要函式 | 🟢 |
 | [../aiops-engine/code/interfaces/README.md](../aiops-engine/code/interfaces/README.md) | 規格 | 要別人提供的資料的格式 | 🟢 |
 | [../aiops-engine/code/fake-data/README.md](../aiops-engine/code/fake-data/README.md) | 規格 | 假資料（只為了讓程式現在能跑、能測） | 🟢 |
 

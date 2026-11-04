@@ -39,6 +39,7 @@ import numpy as np
 import pandas as pd
 
 from core.es import ES, get_field, time_range
+from sources.base import is_backend
 
 OPS = {">=": operator.ge, ">": operator.gt, "<=": operator.le, "<": operator.lt, "==": operator.eq, "!=": operator.ne}
 
@@ -189,6 +190,8 @@ def evaluate(rule: dict, series: dict[tuple, list[tuple[pd.Timestamp, dict]]], n
 
 
 def fetch(es: ES, rule: dict, start: pd.Timestamp, end: pd.Timestamp) -> dict[tuple, list[tuple[pd.Timestamp, dict]]]:
+    if is_backend(es):   # 檔案、HTTP、記憶體來源：sources/shape.points_from_rows
+        return es.points(rule, start, end)
     # exists：直方圖的 sum 這種子欄位不能拿來過濾「有沒有」，要用直方圖本身（例如 metrics.jvm_gc_duration_seconds）
     out = _fetch(es, rule["index"], rule["field"], rule.get("filter", []), rule, start, end, rule.get("exists"))
     if rule.get("join"):
