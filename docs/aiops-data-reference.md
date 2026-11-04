@@ -54,7 +54,8 @@ Grafana（⑧）         讀 aiops-alerts 發通知；儀表板讀 alerts、anom
 | `value` | double | 當時的值 |
 | `median`、`expected_low`、`expected_high` | double | 平常的中位數與範圍；規則觸發的沒有中位數 |
 | `z` | double | 偏離程度；規則觸發的是 null，卜瓦松的序列另有 `p` |
-| `level` | keyword | 基準線那一層：`dow_hour`（星期×小時）、`hour`、`all`、`group`（用同群當基準）；不是基準線算出來的：`rule`（靜態規則、trace 規則）、`peer`（Pod 同儕橫向比對）、`quality`（資料品質） |
+| `level` | keyword | 基準線那一層：`dow_hour`（星期×小時）、`hour`、`all`、`group`（用同群當基準）；不是基準線算出來的：`rule`（靜態規則、trace 規則）、`peer`（Pod 同儕橫向比對）、`quality`（資料品質）；工廠版接進來的：`ml`（ML 的異常跳點）、`fdc`（FDC 鳴叫） |
+| `source`、`source_id` | keyword | 只有工廠版 `detector ingest` 寫的有：來源名（`ingest.yaml` 的 input 名，ml／fdc）與來源的識別碼（run_id、alarm_id；`_id` 由它算，重讀不重複）。工廠版的 `keys` 是 `equipment`、`chamber`、`recipe`、`step`、`lot`、`parameter` |
 | `direction` | keyword | `both`、`up`、`down`；規則是比較符號（`>=`） |
 | `resolution`、`method` | keyword | 粒度（`30s`、`5m`、`1h`）與方法（`mad`、`poisson`） |
 | `baseline_source` | keyword | `self`，或 `group:<名稱>` |
@@ -110,7 +111,8 @@ Grafana（⑧）         讀 aiops-alerts 發通知；儀表板讀 alerts、anom
 | `dept`、`group` | keyword | 通知依 `dept` 分送；沒有 dept 的送平台 |
 | `started_at`、`updated_at`、`resolved_at` | date | 事故起訖 |
 | `anomaly_ids`、`anomaly_count` | keyword、integer | 併進來的異常（指到 `aiops-anomalies` 的 `_id`），一件最多記 500 筆 |
-| `series`、`routes` | keyword | 涉及的指標、路由 |
+| `series`、`routes` | keyword | 涉及的指標、路由（工廠版的「路由」是 recipe） |
+| `lots` | keyword | 工廠版：這件牽涉哪些 lot（異常的 `keys.lot`，最多 500 筆）；前後站併件時「那件已經有這批 lot」的前站優先（[investigator/alerts.py](../aiops-engine/code/investigator/alerts.py) 的 `links`） |
 | `title`、`summary` | keyword | 通知用的標題與摘要。**存成 keyword**：Grafana 告警只能把「分組欄位的值」帶成 label，內容一變就是另一則（舊的 resolved、新的 firing），所以摘要不放持續時間、筆數 |
 | `report` | text（不索引） | 根因報告全文（Markdown）；有相似事故與 LLM 摘要時放在最前面 |
 | `report_at` | date | 跑根因分析的時間（新開的一件跑一次；之後只有還沒有報告時才補跑） |

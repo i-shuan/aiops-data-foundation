@@ -26,8 +26,9 @@ def is_entry(s: dict, ids: set[str]) -> bool:
     return s["kind"] in ("Server", "Consumer") or not s.get("parent") or s["parent"] not in ids
 
 
-def build(spans: list[dict], merged_at: datetime) -> tuple[str, dict]:
-    """同一個 trace 的 span（core.traces 的格式）→ (index 名稱, 文件)。index 依 group 與根 span 的日期（UTC）分。"""
+def build(spans: list[dict], merged_at: datetime, prefix: str = MERGED_PREFIX) -> tuple[str, dict]:
+    """同一個 trace 的 span（core.traces 的格式）→ (index 名稱, 文件)。index 依 group 與根 span 的日期（UTC）分。
+    prefix：index 名的前綴；工廠版的履歷用 lot-paths（detector/path_merge.py），文件格式一樣。"""
     root = root_of(spans)
     ids = {s["span_id"] for s in spans}
     start = datetime.fromtimestamp(root["start_ms"] / 1000, timezone.utc)
@@ -50,7 +51,7 @@ def build(spans: list[dict], merged_at: datetime) -> tuple[str, dict]:
                    "exception": s.get("exception"), "links": s.get("links") or [], "attrs": s.get("attrs") or {},
                    "resource": s.get("resource") or {}} for s in sorted(spans, key=lambda x: (x["start_ms"], x["span_id"]))],
     }
-    return f"{MERGED_PREFIX}-{group}-{start:%Y.%m.%d}", doc
+    return f"{prefix}-{group}-{start:%Y.%m.%d}", doc
 
 
 def updated_trace_ids(es: ES, raw_index: str, since: datetime, until: datetime) -> list[str]:

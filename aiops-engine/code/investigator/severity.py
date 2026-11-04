@@ -38,10 +38,20 @@ class GradeOptions:
     deploy_grace: int = 10    # 換版後幾分鐘內的異常上限 warning
 
 
-def signal_class(series: str) -> str:
-    """序列名 → 類；規則、同儕的前綴（rule.、peer.）去掉再看。不認得的是 other（不算廣度）。"""
+def parse_classes(raw) -> tuple | None:
+    """rca.yaml 的 alerts.severity.classes → 跟 CLASSES 同一種格式；沒設回 None（用內建的）。
+    寫法：{類名: [pattern, …]}（依序比對）或 [{name, patterns}]。工廠版用它把序列分成 pressure、temperature、metrology…（參數家族）。"""
+    if not raw:
+        return None
+    if isinstance(raw, dict):
+        return tuple((str(k), tuple(str(p) for p in (v if isinstance(v, list) else [v]))) for k, v in raw.items())
+    return tuple((str(c["name"]), tuple(str(p) for p in c.get("patterns") or [])) for c in raw)
+
+
+def signal_class(series: str, classes: tuple | None = None) -> str:
+    """序列名 → 類；規則、同儕的前綴（rule.、peer.）去掉再看。不認得的是 other（不算廣度）。classes：自訂的分類表（parse_classes）。"""
     s = re.sub(r"^(rule|peer|quality)\.", "", str(series or "")).lower()
-    for cls, pats in CLASSES:
+    for cls, pats in (classes or CLASSES):
         if any(re.search(p, s) for p in pats):
             return cls
     return "other"
@@ -65,11 +75,13 @@ def coverage(timestamps: list[datetime], window: int) -> tuple[float, int]:
 
 
 def grade(series: list[str], timestamps: list[datetime], *, members: int = 1, rule_critical: bool = False,
-          now: datetime | None = None, deploy_at: datetime | None = None, opts: GradeOptions = GradeOptions()) -> dict:
+          now: datetime | None = None, deploy_at: datetime | None = None, opts: GradeOptions = GradeOptions(),
+          classes: tuple | None = None) -> dict:
     """series：這件的異常序列名；timestamps：每筆異常的時間；members：不同的（序列, 對象）數；
-    rule_critical：有靜態規則 critical 的異常；deploy_at：這個服務最近一次換版的時間（沒有就 None）。
+    rule_critical：有靜態規則 critical 的異常；deploy_at：這個服務最近一次換版的時間（沒有就 None）；
+    classes：自訂的分類表（parse_classes），沒給用 CLASSES。
     回傳 {"severity", "why", "classes", "breadth", "span", "coverage", "sustained", "capped"}。"""
-    counts = Counter(signal_class(s) for s in series)
+    counts = Counter(signal_class(s, classes) for s in series)
     classes = {c for c, n in counts.items() if c != "other" and n >= opts.min_points_per_class}
     golden = sorted(classes - {"traffic"})
     breadth = len(golden)

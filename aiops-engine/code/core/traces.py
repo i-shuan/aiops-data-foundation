@@ -28,9 +28,13 @@ _APM_FIELDS = {"includes": ["@timestamp", "timestamp.us", "processor.event", "tr
                "excludes": ["span.stacktrace", "transaction.custom", "transaction.marks"]}
 
 
+MERGED_LIKE = ("traces-merged", "lot-paths")   # engine 合成、一個請求（一個 lot）一筆的索引；lot-paths 是工廠版的履歷（detector/path_merge.py）
+
+
 def schema_of(index: str) -> str:
-    """merged（engine 合成的）、apm（Elastic APM 的 traces-apm-*；AIOPS_SOURCE=apm 時其他 raw 索引也當 APM）、otel（Collector 寫的 raw）。"""
-    if "traces-merged" in index:
+    """merged（engine 合成的：traces-merged-*、lot-paths-*）、apm（Elastic APM 的 traces-apm-*；AIOPS_SOURCE=apm 時其他 raw 索引也當 APM）、
+    otel（Collector 寫的 raw）。"""
+    if any(m in index for m in MERGED_LIKE):
         return "merged"
     if "apm" in index or source.name() == "apm":
         return "apm"

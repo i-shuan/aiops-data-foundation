@@ -10,6 +10,7 @@ from pathlib import Path
 import pandas as pd
 import yaml
 
+from core import domain
 from core import llm as LLM
 from core.es import doc_id
 from detector import tuning as T
@@ -27,13 +28,10 @@ VERDICTS = {"true_positive": "真的", "false_positive": "誤報", "wrong_root_c
 RCA_USEFUL = [(v, t) for v, t in zip(_RCA_USEFUL, ("是", "否", "沒看"))]
 RCA_QUESTIONS = [("rca_cause_useful", "可能根因有參考價值？"), ("rca_action_useful", "建議的排查動作有參考價值？")]
 TEXT_HINT = "選填。一句話說這件怎麼回事，系統會抽成結構化欄位、提一筆待審核的調整建議；例：「這是每月初的批次匯出報表，屬於預期內負載」"
-CATEGORIES = [("db", "DB（慢查詢、鎖、連線池、統計資訊）"), ("network", "網路（延遲、斷線、DNS）"), ("config_change", "設定變更"),
-              ("deploy", "版本更新"), ("external", "外部系統（供應商、其他部門的服務）"), ("resource", "資源不足（CPU、記憶體、磁碟）"),
-              ("bug", "程式錯誤"), ("data", "資料問題（髒資料、量暴增）"), ("other", "其他")]
-CHECKED = ["Oracle AWR / 慢查詢", "DB 連線池", "主機 CPU / 記憶體 / 磁碟", "網路 / DNS", "Kibana log", "trace 瀑布圖",
-           "Kafka lag", "近期的版本更新 / 設定變更", "上游 / 下游服務", "外部系統狀態"]
-FP_REASONS = [("batch", "月底 / 定時批次本來就這樣"), ("loadtest", "壓測、演練"), ("known_slow", "這支 API 本來就慢"),
-              ("low_volume", "量太少，幾筆就跳"), ("deploy", "換版期間"), ("other", "其他")]
+# 根因分類、常查的地方、誤報原因依領域（AIOPS_DOMAIN：it／factory；core/domain.py）。Grafana 的表單（aiops-feedback.json）是 IT 版的選項
+CATEGORIES = domain.categories()
+CHECKED = domain.checked()
+FP_REASONS = domain.fp_reasons()
 
 
 def load_alert(es, alert_id: str) -> dict | None:

@@ -20,7 +20,8 @@ spec:
       containers:
         - name: scheduler
           image: {{ include "aiops.image" . }}
-          args: ["scheduler", "--config", {{ ternary "configs/apm/schedule.yaml" "configs/schedule/schedule.yaml" (eq (.Values.source | default "otel") "apm") | quote }}, "--stage", {{ .Values.scheduler.stage | quote }}, "--alive-file", "/tmp/scheduler-alive"]
+          {{- $schedules := dict "otel" "configs/schedule/schedule.yaml" "apm" "configs/apm/schedule.yaml" "factory" "configs/factory/schedule.yaml" }}
+          args: ["scheduler", "--config", {{ index $schedules (.Values.source | default "otel") | quote }}, "--stage", {{ .Values.scheduler.stage | quote }}, "--alive-file", "/tmp/scheduler-alive"]
           envFrom:
             - configMapRef: {name: aiops-env}
             - secretRef: {name: {{ .Values.secret }}}

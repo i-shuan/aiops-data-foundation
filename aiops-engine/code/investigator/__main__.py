@@ -51,6 +51,9 @@ def _local(t: datetime, tz: str) -> str:
 
 
 def _ms(v: float) -> str:
+    """毫秒 → 給人看：工廠的一站是幾十分鐘，超過 1 分鐘用分鐘寫。"""
+    if v >= 60_000:
+        return f"{v / 60_000:.1f} 分"
     return f"{v / 1000:.2f} s" if v >= 1000 else f"{v:.0f} ms" if v >= 10 else f"{v:.1f} ms"
 
 
@@ -59,8 +62,8 @@ def _delta(v: float) -> str:
 
 
 def _svc_of(keys: dict) -> str | None:
-    """異常是哪個服務：metrics 的序列用 resource.attributes.service.name，trace 每一段的用 entry.service。"""
-    return keys.get("resource.attributes.service.name") or keys.get("entry.service") or keys.get("service")
+    """異常是哪個服務：metrics 的序列用 resource.attributes.service.name，trace 每一段的用 entry.service；工廠版是機台 equipment。"""
+    return keys.get("resource.attributes.service.name") or keys.get("entry.service") or keys.get("service") or keys.get("equipment")
 
 
 def _route_of(keys: dict) -> str | None:
@@ -73,6 +76,8 @@ def _route_of(keys: dict) -> str | None:
         return f"{keys['method']} {keys['route']}"
     if keys.get("route"):                                 # APM 的 transaction.name 本來就是 "GET /api/x"，沒有分開的 method
         return keys["route"]
+    if keys.get("recipe"):                                # 工廠版：履歷裡站的 name 是 recipe（detector/path_merge.py）
+        return str(keys["recipe"])
     return None
 
 
@@ -115,6 +120,9 @@ def investigate_full(cfg: dict, args) -> tuple[str, dict]:
     ix = cfg["indices"]
     tz = cfg.get("timezone", "Asia/Taipei")
     n = cfg.get("sample", 200)
+    lag = _dur(str(cfg.get("entry_lag", "0s")))     # 入口比文件時間晚最多多久（工廠的履歷：lot 開始到到這一站；IT 是 0）
+    from core import domain as D
+    U, TRACE = D.unit_text(), D.trace_label()       # 一個「請求」還是一個「 lot 」；trace 還是履歷（core/domain.py）
     service, route, found = args.service, args.route, []
     if args.start:
         start, end = _ts(args.start), _ts(args.end)
@@ -134,7 +142,7 @@ def investigate_full(cfg: dict, args) -> tuple[str, dict]:
     ref_start, ref_end, ref_label = None, None, ""
     for rs, re_, label in ((start - back, end - back, f"{cfg.get('compare_with', '7d')} 前同一段時間"),
                            (start - gap - length, start - gap, "出事前一段時間")):
-        if E.entry_stats(es, ix["traces"], service, route, rs, re_)["requests"]:
+        if E.entry_stats(es, ix["traces"], service, route, rs, re_, lag)["requests"]:
             ref_start, ref_end, ref_label = rs, re_, label
             break
 
@@ -165,22 +173,22 @@ def investigate_full(cfg: dict, args) -> tuple[str, dict]:
     out.append("")
 
     # ── 2. Trace：範圍 ──
-    now = E.entry_stats(es, ix["traces"], service, route, start, end)
-    out += ["## 2. Trace：這個服務收到的請求", ""]
+    now = E.entry_stats(es, ix["traces"], service, route, start, end, lag)
+    out += [f"## 2. {TRACE}：這個{D.entity_label()}收到的{U}", ""]
     findings["requests"] = now
     if not now["requests"]:
         out.append("這段時間沒有這個服務的 trace（服務沒埋點、或名稱不對；剛開件時 trace 還沒合成完也會這樣，合成晚 1～2 分鐘）。只能先從 log 找；沒有 trace 的件系統會自動重跑報告（每 2 分鐘、最多 5 次）。")
         return "\n".join(out), findings
-    ref = E.entry_stats(es, ix["traces"], service, route, ref_start, ref_end) if ref_start else None
+    ref = E.entry_stats(es, ix["traces"], service, route, ref_start, ref_end, lag) if ref_start else None
     out += [f"| | 現在 | 平常（{ref_label or '沒有資料'}） |", "|---|---|---|"]
-    for k, label in (("requests", "請求數（trace，有取樣）"), ("errors", "錯誤"), ("p50_ms", "p50"), ("p95_ms", "p95")):
+    for k, label in (("requests", f"{U}數（{TRACE}，有取樣）"), ("errors", "錯誤"), ("p50_ms", "p50"), ("p95_ms", "p95")):
         f = _ms if k.endswith("_ms") else str
         out.append(f"| {label} | {f(now[k])} | {f(ref[k]) if ref else '—'} |")
     out.append("")
     # 出事前的趨勢：前面幾段（預設 6 段、每段 10 分鐘）的 p95，一路往上＝慢慢惡化、平的然後跳＝突然
     tcfg = cfg.get("trend") or {}
     tw, tn = _dur(str(tcfg.get("window", "10m"))), int(tcfg.get("windows", 6))
-    p95s = [E.entry_stats(es, ix["traces"], service, route, start - tw * (k + 1), start - tw * k)["p95_ms"] for k in reversed(range(tn))]
+    p95s = [E.entry_stats(es, ix["traces"], service, route, start - tw * (k + 1), start - tw * k, lag)["p95_ms"] for k in reversed(range(tn))]
     trend = A.classify_trend(p95s, now["p95_ms"])
     trend["window"], trend["windows"] = str(tcfg.get("window", "10m")), tn
     findings["trend"] = trend
@@ -188,19 +196,19 @@ def investigate_full(cfg: dict, args) -> tuple[str, dict]:
     out += [A.describe_trend(trend, span_label, _ms), ""]
 
     pad = timedelta(minutes=5)
-    now_ids = E.sample_trace_ids(es, ix["traces"], service, route, start, end, n, slowest=True)
-    now_tr = T.group_traces(T.spans_of(es, ix["traces"], now_ids, start - pad, end + pad))
+    now_ids = E.sample_trace_ids(es, ix["traces"], service, route, start, end, n, slowest=True, lag=lag)
+    now_tr = T.group_traces(T.spans_of(es, ix["traces"], now_ids, start - pad - lag, end + pad))
     ref_tr = {}
     if ref_start:
-        ref_ids = E.sample_trace_ids(es, ix["traces"], service, route, ref_start, ref_end, n, slowest=False)
-        ref_tr = T.group_traces(T.spans_of(es, ix["traces"], ref_ids, ref_start - pad, ref_end + pad))
+        ref_ids = E.sample_trace_ids(es, ix["traces"], service, route, ref_start, ref_end, n, slowest=False, lag=lag)
+        ref_tr = T.group_traces(T.spans_of(es, ix["traces"], ref_ids, ref_start - pad - lag, ref_end + pad))
 
     # ── 3. Trace：瓶頸 ──
     diffs = A.compare_segments(now_tr, ref_tr)
-    out += ["## 3. Trace：慢在哪一段", "",
-            f"比較最慢、出錯的 {len(now_tr)} 個請求和平常的 {len(ref_tr)} 個請求，每個請求在每一段**自己**花的時間"
+    out += [f"## 3. {TRACE}：慢在哪一段", "",
+            f"比較最慢、出錯的 {len(now_tr)} 個{U}和平常的 {len(ref_tr)} 個{U.rstrip()}，每個{U}在每一段**自己**花的時間"
             "（扣掉等下游的時間，所以慢的那段不會一路算到最上層）：", "",
-            "| 段 | 現在 | 平常 | 多了 | 每個請求呼叫幾次 |", "|---|---|---|---|---|"]
+            f"| 段 | 現在 | 平常 | 多了 | 每個{U}呼叫幾次 |", "|---|---|---|---|---|"]
     for d in diffs[:6]:
         out.append(f"| {d.segment} | {_ms(d.now_ms)} | {_ms(d.ref_ms)} | **{_delta(d.delta_ms)}** "
                    f"| {d.now_calls:.1f}（平常 {d.ref_calls:.1f}） |")
@@ -210,25 +218,26 @@ def investigate_full(cfg: dict, args) -> tuple[str, dict]:
     findings["error_origins"] = [{"segment": d.segment, "now_errors": d.now_errors, "ref_errors": d.ref_errors} for d in errs[:5]]
     if errs:
         out += ["", "錯誤最早出在哪一段（上層只是把錯誤往上傳）：", "", "| 段 | 現在 | 平常 |", "|---|---|---|"]
-        out += [f"| {d.segment} | {d.now_errors} 個請求 | {d.ref_errors} |" for d in errs[:5]]
+        out += [f"| {d.segment} | {d.now_errors} 個{U} | {d.ref_errors} |" for d in errs[:5]]
     out.append("")
 
     # ── 3b. 慢請求的共同點 ──
     ccfg = cfg.get("commonality") or {}
     commons = A.commonality(now_tr, ref_tr, res_keys=tuple(ccfg.get("resource") or ("k8s.pod.name", "service.version", "k8s.node.name")),
                             attr_keys=tuple(ccfg.get("attrs") or ("lot.id", "db.statement")),
-                            min_share=float(ccfg.get("min_share", 0.6)), min_lift=float(ccfg.get("min_lift", 2)))
+                            min_share=float(ccfg.get("min_share", 0.6)), min_lift=float(ccfg.get("min_lift", 2)),
+                            min_traces=int(ccfg.get("min_traces", 5)))
     findings["commonality"] = [{"dim": c.dim, "value": c.value, "now": c.now, "now_share": c.now_share, "ref_share": c.ref_share}
                                for c in commons[:5]]
     if commons:
-        out += ["這批慢的請求有什麼共同點（平常沒這麼集中）：", "", "| 看什麼 | 值 | 慢的請求裡 | 平常 |", "|---|---|---|---|"]
-        out += [f"| {c.dim} | `{c.value}` | {c.now_share:.0%}（{c.now} 個） | {'平常沒見過（換版、新 Pod？）' if c.is_new else f'{c.ref_share:.0%}'} |"
+        out += [f"這批慢的{U}有什麼共同點（平常沒這麼集中）：", "", f"| 看什麼 | 值 | 慢的{U}裡 | 平常 |", "|---|---|---|---|"]
+        out += [f"| {c.dim} | `{c.value}` | {c.now_share:.0%}（{c.now} 個） | {'平常沒見過（新的？）' if c.is_new else f'{c.ref_share:.0%}'} |"
                 for c in commons[:5]]
         out.append("")
 
     # ── 4. 瀑布圖 ──
     slowest = max(now_tr.values(), key=lambda t: A.root_of(t)["dur_ms"])
-    out += [f"## 4. 最慢的那個請求（trace_id `{slowest[0]['trace_id']}`）", "", "```"] + A.waterfall(slowest) + ["```", ""]
+    out += [f"## 4. 最慢的那個{U}（{'lot' if U == 'lot' else 'trace_id'} `{slowest[0]['trace_id']}`）", "", "```"] + A.waterfall(slowest) + ["```", ""]
 
     # ── 5. Log ──
     top = [d for d in diffs if d.delta_ms > 0][:3]
@@ -248,33 +257,49 @@ def investigate_full(cfg: dict, args) -> tuple[str, dict]:
     else:
         out.append("沒有比平常多的 warn／error log。")
     lines = E.logs_of_traces(es, ix["logs"], [slowest[0]["trace_id"]], start - pad, end + pad)
-    out += ["", f"最慢那個請求的 log（依 trace_id 從各服務撈出來，{len(lines)} 行）：", "", "```"]
+    out += ["", f"最慢那個{U}的 log（依 {'lot id' if U == 'lot' else 'trace_id'} 撈出來，{len(lines)} 行）：", "", "```"]
     out += [f"{l['ts']}  {l['service']:<14} {str(l['level'] or ''):<5}  {l['message'].splitlines()[0][:150]}" for l in lines[:20]] or ["（沒有：這幾個服務的 log 沒寫 trace_id？）"]
     out += ["```", ""]
+    # 事故前的變更（工廠版：PM、recipe 變更；IT 也可以設成部署紀錄）：出事前 lookback 內、這幾個對象的變更紀錄，照時間列
+    chcfg = cfg.get("changes") or {}
+    changes = []
+    if chcfg.get("query"):
+        try:
+            changes = E.change_logs(es, ix["logs"], suspects, start - _dur(str(chcfg.get("lookback", "12h"))), end, chcfg["query"])
+        except Exception as ex:  # noqa: BLE001  變更紀錄查不到不擋報告
+            out += [f"（事故前的變更查不到：{type(ex).__name__}）", ""]
+    findings["changes"] = [{"at": c["ts"], "service": c["service"], "message": c["message"].splitlines()[0][:200]} for c in changes[:10]]
+    if chcfg.get("query"):
+        out += [f"## 5b. 事故前 {chcfg.get('lookback', '12h')} 內的變更（PM、recipe、設定）", ""]
+        out += [f"- {_local(_ts(str(c['ts'])), tz)}  {c['service']}  {c['message'].splitlines()[0][:150]}" for c in changes[:10]] or ["沒有變更紀錄。"]
+        out.append("")
 
     # ── 6. 呼叫關係 ──
     edges = A.topology(now_tr)
     findings["topology"] = [{"caller": e.caller, "callee": e.callee, "calls": e.calls, "errors": e.errors} for e in edges]
-    out += ["## 6. 這些請求經過的服務", "", "```mermaid", A.mermaid(edges), "```", ""]
+    out += [f"## 6. 這些{U}經過的{D.entity_label()}", "", "```mermaid", A.mermaid(edges), "```", ""]
 
     # ── 結論 ──
     out += ["## 結論（給人確認）", ""]
     if top:
         d = top[0]
-        out.append(f"- {what} 變慢，主要多在 **{d.segment}**：每個請求多花 {_ms(d.delta_ms)}（平常 {_ms(d.ref_ms)}）。")
+        out.append(f"- {what} 變慢，主要多在 **{d.segment}**：每個{U}多花 {_ms(d.delta_ms)}（平常 {_ms(d.ref_ms)}）。")
     if errs:
-        out.append(f"- 錯誤最早出在 **{errs[0].segment}**（{errs[0].now_errors} 個請求，平常 {errs[0].ref_errors}）。")
+        out.append(f"- 錯誤最早出在 **{errs[0].segment}**（{errs[0].now_errors} 個{U.rstrip()}，平常 {errs[0].ref_errors}）。")
     new = [p for p in pats if p.is_new][:2]
     for p in new:
         out.append(f"- 同時間 {p.service} 新出現 log「{p.example.splitlines()[0][:100]}」，{p.now} 次。")
     if commons:
         c = commons[0]
         if c.is_new:
-            out.append(f"- 慢的請求 {c.now_share:.0%} 都在平常沒見過的 {c.dim} `{c.value}`：像是換版後的新 Pod／新版本，先確認那時有沒有部署。")
+            out.append(f"- 慢的{U} {c.now_share:.0%} 都在平常沒見過的 {c.dim} `{c.value}`：平常那批完全沒有這個值（{D.new_value_hint()}），先確認那時有沒有換。")
         else:
-            out.append(f"- 慢的請求 {c.now_share:.0%} 都是 {c.dim} = `{c.value}`（平常 {c.ref_share:.0%}）：問題可能只在它身上。")
+            out.append(f"- 慢的{U} {c.now_share:.0%} 都是 {c.dim} = `{c.value}`（平常 {c.ref_share:.0%}）：問題可能只在它身上。")
     if trend.get("kind") in ("gradual", "sudden"):
         out.append("- " + A.describe_trend(trend, span_label, _ms).split("→ ", 1)[1].replace("**", ""))
+    if changes:
+        c = changes[0]
+        out.append(f"- 出事前 {c['service']} 有變更：{_local(_ts(str(c['ts'])), tz)}「{c['message'].splitlines()[0][:80]}」，先確認是不是它。")
     if not (top or errs or new):
         out.append("- 跟平常比看不出哪一段變化特別大，可能是整體量變大，或問題不在有 trace 的地方。")
     return "\n".join(out), findings

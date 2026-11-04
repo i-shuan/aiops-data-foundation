@@ -1,7 +1,7 @@
 # 半導體（FDC）：沒有 trace id 時怎麼做 AIOps
 
 > **類型：原理 Explanation**　目前的設計見 [architecture.md](architecture.md)・五個模型的輸入規格見 [models/README.md](../aiops-engine/code/models/README.md)・資料怎麼餵進來見 [sources/README.md](../aiops-engine/code/sources/README.md)
-> ⚪ 構想，尚未實作。沒有 MES 歷程、FDC 的欄位樣本，下面的欄位名是假設，拿到樣本要重對。
+> 🟡 部分實作：工廠版 engine（`configs/factory/`）已用假資料整條跑通，怎麼跑、要給什麼資料見 [configs/factory/README.md](../aiops-engine/code/configs/factory/README.md)；沒有 MES 歷程、FDC 的欄位樣本，欄位名是假設，拿到樣本要重對。現況見文末。
 
 目前的設計是一般服務（Web API、worker、Kafka、DB）：靠 Elastic APM 的 trace id 把「一個請求經過哪幾段」串起來。半導體的 FDC（Fault Detection and Classification）沒有 trace id，但有同樣功能的鍵：**lot（或 wafer）的加工路徑**。這份說明路徑怎麼取代 trace、五個模型各要改什麼、跟目前設計差在哪。
 
@@ -84,6 +84,20 @@
 | 6 | M5 分類（半導體分類表、指紋） | 歷史事故單 |
 
 步驟 1 不需要路徑，拿到 FDC 檔就能做；步驟 3 是這份設計的關鍵依賴。
+
+## 現況（2026-11）
+
+廠方的異常由 ML 團隊的模型（異常跳點）和 FDC 鳴叫系統判，所以**沒有照上表做 M1～M3**，改成 engine 從 ⑤ 開始接；其餘照對照表做了第一版（[configs/factory/README.md](../aiops-engine/code/configs/factory/README.md)、[PDCA](pdca/meta/2026-11-factory-engine.md)）：
+
+| 對照表的項目 | 做了 | 沒做 |
+|---|---|---|
+| ④ 判斷 | 接收器 `detector ingest`：ML、FDC 的輸出 → `aiops-anomalies`（`level` ml／fdc、`source_id` 是 run_id／alarm_id） | engine 自己判 FDC（M1、M3）、chamber matching（M2） |
+| ③ 存 | `lot-paths-*`（一個 lot 一筆，跟 `traces-merged-*` 同格式） | 同一個 ES 跟 IT 版分 `aiops-*` 前綴 |
+| ⑥ 收斂 | 同機台一件；後站的異常依履歷併進前站（優先「那件已有這批 lot」的前站）；嚴重度依參數家族；recipe 變更當換版 | 前後站併件只併一層 |
+| ⑦ 根因 | 履歷合成器 `paths-merge`（MES 主幹＋S6F11 子段）→ M4 照舊：哪一站哪個 chamber 多花多久、壞 lot 的共同點（chamber、recipe 版本、材料批）、機台 alarm 新樣式、事故前的 PM／recipe 變更 | RCA graph；rework、split／merge lot 的路徑 |
+| ⑨ 回饋 | 半導體分類表、誤報原因；`feedback export` 匯出給 ML 團隊 | Grafana 回饋表單的選項仍是 IT 版；調不到 ML 的門檻（本來就不該在 engine 調） |
+
+驗證只有假資料（7 天、728 個 lot、兩個事故，15 項檢查全過）；真實資料的欄位、lot 路徑的分叉、量測延遲都還沒碰到。
 
 ## 風險與還不知道的
 

@@ -18,32 +18,42 @@ def anomalies(es: ES, index: str, start: datetime, end: datetime, service: str |
     if service:
         f.append({"bool": {"should": [{"term": {"keys.resource.attributes.service.name": service}},
                                       {"term": {"keys.entry.service": service}},
-                                      {"term": {"keys.service": service}}], "minimum_should_match": 1}})
+                                      {"term": {"keys.service": service}},
+                                      {"term": {"keys.equipment": service}}], "minimum_should_match": 1}})   # 工廠版：機台
     hits = es.search(index, {"size": 1000, "query": {"bool": {"filter": f}}, "sort": [{"@timestamp": "asc"}]})["hits"]["hits"]
     return [{**h["_source"], "_id": h["_id"]} for h in hits]
 
 
 # ── 2. trace（merged）──
 
-def entry_query(service: str, route: str | None, error: bool | None = None) -> dict:
-    """「這個服務收到的請求」：entries 裡有一個是這個服務的 Server span（可以再限定 API、只要出錯的）。"""
+def entry_query(service: str, route: str | None, error: bool | None = None, start: datetime | None = None, end: datetime | None = None) -> dict:
+    """「這個服務收到的請求」：entries 裡有一個是這個服務的 Server span（可以再限定 API、只要出錯的、入口開始的時間在 [start, end)）。
+    時間放在入口上而不是文件的 @timestamp（＝整個請求開始）：IT 兩者差幾毫秒；工廠的履歷一個 lot 一筆、文件時間是 lot 開始，
+    lot 幾小時後才到這一站，要看的是「幾點在這一站」。"""
     f = [{"term": {"entries.service": service}}, {"term": {"entries.kind": "Server"}}]
     if route:
         f.append({"term": {"entries.name": route}})
     if error is not None:
         f.append({"term": {"entries.error": error}})
+    if start is not None and end is not None:
+        f.append({"range": {"entries.start_ms": {"gte": start.timestamp() * 1000.0, "lt": end.timestamp() * 1000.0}}})
     return {"bool": {"filter": f}}
 
 
-def entry_filter(service: str, route: str | None) -> list[dict]:
-    return [{"nested": {"path": "entries", "query": entry_query(service, route)}}]
+def entry_filter(service: str, route: str | None, start: datetime | None = None, end: datetime | None = None) -> list[dict]:
+    return [{"nested": {"path": "entries", "query": entry_query(service, route, None, start, end)}}]
 
 
-def entry_stats(es: ES, index: str, service: str, route: str | None, start: datetime, end: datetime) -> dict:
+def _doc_range(start: datetime, end: datetime, lag: timedelta) -> dict:
+    """文件層的時間框：入口可能比文件的 @timestamp 晚 lag（工廠：lot 開始到到這一站最多幾小時；IT 是 0），往前多框 lag。"""
+    return time_range(start - lag, end)
+
+
+def entry_stats(es: ES, index: str, service: str, route: str | None, start: datetime, end: datetime, lag: timedelta = timedelta(0)) -> dict:
     """這個服務（這條 API）這段時間幾個請求、幾個出錯、p50／p95：都算在入口那一段上。"""
-    q = entry_query(service, route)
+    q = entry_query(service, route, None, start, end)
     body = {"size": 0, "track_total_hits": True,
-            "query": {"bool": {"filter": [time_range(start, end), {"nested": {"path": "entries", "query": q}}]}},
+            "query": {"bool": {"filter": [_doc_range(start, end, lag), {"nested": {"path": "entries", "query": q}}]}},
             "aggs": {"n": {"nested": {"path": "entries"},
                            "aggs": {"m": {"filter": q,
                                           "aggs": {"p": {"percentiles": {"field": "entries.duration_ms", "percents": [50, 95]}},
@@ -55,18 +65,18 @@ def entry_stats(es: ES, index: str, service: str, route: str | None, start: date
             "p50_ms": p.get("50.0") or 0, "p95_ms": p.get("95.0") or 0}
 
 
-def _entry_sort(service: str, route: str | None, slowest: bool) -> list:
+def _entry_sort(service: str, route: str | None, slowest: bool, start: datetime | None = None, end: datetime | None = None) -> list:
     if not slowest:
         return [{"@timestamp": "desc"}]
-    return [{"entries.duration_ms": {"order": "desc", "nested": {"path": "entries", "filter": entry_query(service, route)}}}]
+    return [{"entries.duration_ms": {"order": "desc", "nested": {"path": "entries", "filter": entry_query(service, route, None, start, end)}}}]
 
 
 def sample_trace_ids(es: ES, index: str, service: str, route: str | None, start: datetime, end: datetime,
-                     n: int, slowest: bool) -> list[str]:
+                     n: int, slowest: bool, lag: timedelta = timedelta(0)) -> list[str]:
     """出事時：挑最慢的、和出錯的請求；平常：挑最近的請求（當作「正常的樣子」）。"""
     def ids(error):
-        q = {"bool": {"filter": [time_range(start, end), {"nested": {"path": "entries", "query": entry_query(service, route, error)}}]}}
-        hits = es.search(index, {"size": n if error is None else n // 2, "query": q, "sort": _entry_sort(service, route, slowest),
+        q = {"bool": {"filter": [_doc_range(start, end, lag), {"nested": {"path": "entries", "query": entry_query(service, route, error, start, end)}}]}}
+        hits = es.search(index, {"size": n if error is None else n // 2, "query": q, "sort": _entry_sort(service, route, slowest, start, end),
                                  "_source": ["trace_id"]})["hits"]["hits"]
         return [h["_source"]["trace_id"] for h in hits]
     out = ids(None)
@@ -82,10 +92,10 @@ def recent_trace_ids(es: ES, index: str, start: datetime, end: datetime, n: int)
     return list(dict.fromkeys(h["_source"]["trace_id"] for h in hits))
 
 
-def service_trace_ids(es: ES, index: str, service: str, start: datetime, end: datetime, n: int) -> list[str]:
+def service_trace_ids(es: ES, index: str, service: str, start: datetime, end: datetime, n: int, lag: timedelta = timedelta(0)) -> list[str]:
     """這個服務最近收到的 n 個請求（Server span）的 trace_id：事件整合算「誰呼叫誰」用（cmd_alert.call_edges）。"""
     hits = es.search(index, {"size": n, "_source": ["trace_id"], "sort": [{"@timestamp": "desc"}],
-                             "query": {"bool": {"filter": [time_range(start, end), *entry_filter(service, None)]}}})["hits"]["hits"]
+                             "query": {"bool": {"filter": [_doc_range(start, end, lag), *entry_filter(service, None, start, end)]}}})["hits"]["hits"]
     return list(dict.fromkeys(h["_source"]["trace_id"] for h in hits))
 
 
@@ -121,6 +131,14 @@ def logs_of_traces(es: ES, index: str, trace_ids: list[str], start: datetime, en
     body = {"size": size, "sort": [{"@timestamp": "asc"}], "_source": False, "fields": _fields_param(p),
             "query": {"bool": {"filter": [time_range(start - LOG_TRACE_SKEW, end + LOG_TRACE_SKEW),
                                           {"terms": {p["trace_id"]: trace_ids[:1000]}}]}}}
+    return [_to_log(h) for h in es.search(index, body)["hits"]["hits"]]
+
+
+def change_logs(es: ES, index: str, services: list[str], start: datetime, end: datetime, query: dict, size: int = 200) -> list[dict]:
+    """這些對象在這段時間的變更紀錄（工廠：PM、recipe 變更；query 是哪些算變更，例如 {terms: {event_type: [pm, recipe_change]}}），依時間排。"""
+    p = _log_fields()
+    body = {"size": size, "_source": False, "fields": _fields_param(p), "sort": [{"@timestamp": "asc"}],
+            "query": {"bool": {"filter": [time_range(start, end), {"terms": {p["service"]: services}}, query]}}}
     return [_to_log(h) for h in es.search(index, body)["hits"]["hits"]]
 
 

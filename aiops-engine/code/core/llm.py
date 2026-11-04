@@ -108,10 +108,12 @@ def template(pack: dict) -> str:
     seg, err, sim, pats, anoms = pack["segments"], pack["error_origins"], pack["similar"], pack["new_patterns"], pack["anomalies"]
     slow = seg[0] if seg and (seg[0]["extra_ms"] or 0) > 0 else None      # 第一段沒變慢（可能還變快）就不算「慢在哪」
     if slow:
-        out.append(f"{a['service']} 變慢，主要多在 {slow['segment']}：每個請求多花約 {slow['extra_ms']} 毫秒（平常 {slow['usual_ms']} 毫秒）[{slow['id']}]。")
+        from core import domain as D
+        out.append(f"{a['service']} 變慢，主要多在 {slow['segment']}：每個{D.unit_text()}多花約 {slow['extra_ms']} 毫秒（平常 {slow['usual_ms']} 毫秒）[{slow['id']}]。")
     if err:
         e = err[0]
-        out.append(f"錯誤最早出在 {e['segment']}（{e['requests_with_error']} 個請求，平常 {e['usual']}）[{e['id']}]。")
+        from core import domain as D
+        out.append(f"錯誤最早出在 {e['segment']}（{e['requests_with_error']} 個{D.unit_text().rstrip()}，平常 {e['usual']}）[{e['id']}]。")
     if anoms and not (slow or err):
         x = anoms[0]
         usual = f"，平常 {x['usual']:.4g}" if x.get("usual") is not None else ""

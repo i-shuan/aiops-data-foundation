@@ -49,6 +49,8 @@ ALERT_MAPPING = {"mappings": {"dynamic": False, "properties": {
     "routes": {"type": "keyword"},
     # 跨服務（一層）：這件連帶了哪些上游服務；上游那件被整件併進下游時，上游那件標 resolved、merged_into 指到下游那件
     "upstream_services": {"type": "keyword"}, "merged_into": {"type": "keyword"},
+    # 工廠版：這件牽涉哪些 lot（異常的 keys.lot；前後站併件時「同一批 lot」優先，investigator/alerts.merge 的 links）
+    "lots": {"type": "keyword"},
     # 根因分析重跑：沒有 trace 的件（開件太快、trace 還沒合成完）每隔一陣子重跑，這是跑了幾次
     "rca_attempts": {"type": "integer"},
     # 同源（不合併）：這件卡在哪些外部依賴；跟它卡同一個依賴的其他開著的件
@@ -98,10 +100,15 @@ def deploy_at(es: ES, service: str, since: datetime, now: datetime, index: str =
 
 
 def grade_alert(es: ES, cfg: dict, al: dict, now: datetime) -> None:
-    """這件的嚴重度：訊號廣度＋持續時間＋換版上限（investigator/severity.py）。要全部異常（不只這一輪的）才算得出持續。"""
+    """這件的嚴重度：訊號廣度＋持續時間＋換版上限（investigator/severity.py）。要全部異常（不只這一輪的）才算得出持續。
+    工廠版（configs/factory/rca.yaml）：severity.classes 把序列分成參數家族；critical_levels 加 fdc（FDC 的 OOS 鳴叫直接 critical）；
+    deploy_kind: change_log 把 recipe 變更紀錄當換版（investigator/factory.change_at）。"""
     from . import severity as SEV
     acfg = cfg.get("alerts", {})
-    opts = SEV.GradeOptions(**(acfg.get("severity") or {}))
+    sev_cfg = dict(acfg.get("severity") or {})
+    classes = SEV.parse_classes(sev_cfg.pop("classes", None))
+    opts = SEV.GradeOptions(**sev_cfg)
+    critical_levels = set(acfg.get("critical_levels") or ("rule", "peer", "quality"))
     have = {a["_id"]: a for a in al.get("_anoms") or []}
     missing = [i for i in al.get("anomaly_ids") or [] if i not in have]
     if missing:
@@ -116,16 +123,23 @@ def grade_alert(es: ES, cfg: dict, al: dict, now: datetime) -> None:
     if acfg.get("deploy_grace", True):
         try:
             from sources.base import is_backend
-            if not is_backend(es):
-                dep = deploy_at(es, al["service"], AL._ts(al["started_at"]) - timedelta(minutes=opts.deploy_grace), now,
+            since = AL._ts(al["started_at"]) - timedelta(minutes=opts.deploy_grace)
+            if is_backend(es):
+                pass
+            elif acfg.get("deploy_kind") == "change_log":
+                from . import factory as FAC
+                dep = FAC.change_at(es, acfg.get("deploy_index", "eqp-logs-*"), acfg.get("deploy_entity_field", "equipment_id"), al["service"],
+                                    since, now, acfg.get("deploy_time_field", "@timestamp"), acfg.get("deploy_filter"))
+            else:
+                dep = deploy_at(es, al["service"], since, now,
                                 acfg.get("deploy_index", "metrics-apm.transaction.1m-*"), acfg.get("version_field", "service.version"))
         except Exception as e:  # noqa: BLE001
             print(f"  查不到 {al['service']} 的換版時間（{type(e).__name__}）")
-    golden = [a for a in own if SEV.signal_class(a.get("series")) not in ("traffic", "other")]
+    golden = [a for a in own if SEV.signal_class(a.get("series"), classes) not in ("traffic", "other")]
     g = SEV.grade([a.get("series") for a in own], [AL._ts(a["@timestamp"]) for a in own],
                   members=len({(a.get("series"), AL.route_of(a.get("keys") or {})) for a in golden}),
-                  rule_critical=any(a.get("severity") == "critical" and a.get("level") in ("rule", "peer", "quality") for a in own),
-                  now=now, deploy_at=dep, opts=opts)
+                  rule_critical=any(a.get("severity") == "critical" and a.get("level") in critical_levels for a in own),
+                  now=now, deploy_at=dep, opts=opts, classes=classes)
     if g["severity"] != al.get("severity"):
         al["_upgraded"] = AL.SEVERITY.get(g["severity"], 1) > AL.SEVERITY.get(al.get("severity") or "warning", 1) and not al.get("_new")
     al["severity"], al["severity_why"] = g["severity"], g["why"]
@@ -290,7 +304,15 @@ def run(cfg: dict, args, investigate) -> int:
     start = min(now - lookback, oldest - close_after)
     anoms = _anomalies(es, cfg["indices"]["anomalies"], start, now)
     calls: set[tuple[str, str]] = set()
-    if acfg.get("chain", True):
+    links: dict = {}
+    if acfg.get("chain", True) and acfg.get("chain_source") == "lot_path":
+        # 工廠版：沒有呼叫關係，用履歷（lot-paths-*）找這批 lot 的前站（investigator/factory.lot_links）
+        from . import factory as FAC
+        try:
+            links = FAC.lot_links(es, cfg["indices"]["traces"], anoms, now, _dur(acfg.get("paths_lookback", "3d")))
+        except Exception as e:
+            print(f"  履歷查不到（{type(e).__name__}: {str(e)[:80]}），這一輪不併前後站")
+    elif acfg.get("chain", True):
         # 跨服務（一層）：這段時間 trace 裡「誰呼叫誰」，只看有件開著、或這次有異常的服務。查失敗只是這一輪不併跨服務，不擋告警
         svcs = {al["service"] for al in open_alerts if al.get("category") == "service"}
         svcs |= {ent[1] for ent in map(AL.entity_of, anoms) if ent[0] == "service"}
@@ -298,7 +320,7 @@ def run(cfg: dict, args, investigate) -> int:
             calls = call_edges(es, cfg, svcs, start, now, int(acfg.get("chain_sample", 100)))
         except Exception as e:
             print(f"  呼叫關係查不到（{type(e).__name__}: {str(e)[:80]}），這一輪不併跨服務")
-    alerts = AL.merge(open_alerts, anoms, now, close_after, _done_ids(es, start - close_after), calls)
+    alerts = AL.merge(open_alerts, anoms, now, close_after, _done_ids(es, start - close_after), calls, links)
     docs, incidents, tags, new, resolved = [], [], [], 0, 0
     for al in alerts:
         al["dept"], al["group"] = AL.owner(al) if al.get("_anoms") else (al.get("dept"), al.get("group") or "unassigned")
@@ -310,8 +332,10 @@ def run(cfg: dict, args, investigate) -> int:
             # 新的一件跑一次根因分析：時間是這件的開始到最後一筆異常再往後一個 interval；只有一支 API 時只查那支
             # （連帶進來的上游的 API 不算：根因分析以這件的服務＝下游跑）
             route = AL.rca_route(al)
+            # rca_lead：根因分析的窗往前多看（工廠：ML 在 run 結束才報，出事的 run 是 started_at 之前就開始的；IT 是 0）
             try:
-                report, findings = investigate(cfg, Namespace(service=al["service"], route=route, start=AL._ts(al["started_at"]).isoformat(),
+                report, findings = investigate(cfg, Namespace(service=al["service"], route=route,
+                                                              start=(AL._ts(al["started_at"]) - _dur(acfg.get("rca_lead", "0s"))).isoformat(),
                                                               end=(AL._ts(al["updated_at"]) + interval).isoformat(), at=None, window=None))
             except Exception as e:   # 根因分析失敗不擋這一件
                 report, findings = f"根因分析失敗：{e}", None

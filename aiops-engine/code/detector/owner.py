@@ -18,7 +18,8 @@ UNASSIGNED = "unassigned"
 
 # 異常的 keys 裡，哪些欄位是 namespace、哪些是服務（baseline、規則、peer、quality、trace 的寫法都不一樣）
 NS_KEYS = ("resource.attributes.k8s.namespace.name", "k8s.namespace.name", "namespace", "kubernetes.namespace")
-SVC_KEYS = ("resource.attributes.service.name", "service", "entry.service", "service.name", "caller", "callee")
+SVC_KEYS = ("resource.attributes.service.name", "service", "entry.service", "service.name", "caller", "callee",
+            "equipment")   # 工廠版：對象是機台（detector/ingest.py 寫的 keys.equipment），歸屬查機台主檔
 
 
 def _agg(field: str, f: dict) -> dict:
@@ -38,8 +39,9 @@ def owners_from_agg(res: dict) -> dict:
 
 def load_owners(es, days: int = OWNER_DAYS) -> dict:
     f = source.profile("owner")
-    body = {"size": 0, "query": {"range": {"@timestamp": {"gte": f"now-{days}d"}}},
-            "aggs": {"ns": _agg(f["namespace"], f), "svc": _agg(f["service"], f)}}
+    # static：主檔（工廠的 eqp-master）沒有時間欄位，整份都算
+    query = {"match_all": {}} if f.get("static") else {"range": {"@timestamp": {"gte": f"now-{days}d"}}}
+    body = {"size": 0, "query": query, "aggs": {"ns": _agg(f["namespace"], f), "svc": _agg(f["service"], f)}}
     res = es.req("POST", f"/{f['index']}/_search?ignore_unavailable=true&allow_no_indices=true", body)
     return owners_from_agg(res)
 

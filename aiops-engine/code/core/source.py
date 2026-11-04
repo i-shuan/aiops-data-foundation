@@ -4,7 +4,8 @@
   owner   dept／group 歸屬查哪個索引、哪幾個欄位（detector/owner.py）
   log     根因分析讀 log 的欄位（investigator/es.py）
   traces  raw trace 的 trace id 欄位（detector/trace_merge.py；span 的轉換在 core/traces.py 依索引名選）
-環境變數 AIOPS_SOURCE 選：otel（預設，我們的 Collector 寫的）、apm（Elastic APM／Fleet apm integration）。
+環境變數 AIOPS_SOURCE 選：otel（預設，我們的 Collector 寫的）、apm（Elastic APM／Fleet apm integration）、
+factory（工廠版：對象是機台，異常由 ML／FDC 判好接進來，履歷取代 trace；docs/pdca/meta/2026-11-factory-engine.md）。
 chart 的 values `source` 會設這個變數，並把排程表換成 configs/<來源>/schedule.yaml（docs/pdca/meta/2026-11-apm-source.md）。
 """
 from __future__ import annotations
@@ -32,6 +33,17 @@ PROFILES = {
                                    "Warn", "Warning", "Error", "Fatal", "Critical"],
                 "problem_query": {"term": {"processor.event": "error"}}},
         "traces": {"trace_id": "trace.id"},
+    },
+    "factory": {
+        # 機台歸屬（廠區、設備工程師群）在機台主檔 eqp-master：一台一筆、沒有時間欄位（static），engine 只讀
+        "owner": {"index": "eqp-master", "namespace": "area", "service": "equipment_id", "dept": "dept", "group": "group", "static": True},
+        # 「log」是機台 alarm（S5F1）、PM／維修紀錄、recipe 變更，合在 eqp-logs-*：一列一筆，equipment_id、level、lot_id（有的話）、
+        # message；event_type（alarm、pm、recipe_change）是哪一種，level 不是 warn／error 的 PM、recipe 變更也要撈
+        "log": {"service": "equipment_id", "level": "level", "trace_id": "lot_id", "message": ["message", "alarm_text"],
+                "problem_levels": ["warn", "warning", "error", "alarm", "critical", "WARN", "WARNING", "ERROR", "ALARM", "CRITICAL"],
+                "problem_query": {"terms": {"event_type": ["alarm", "pm", "recipe_change"]}}},
+        # 履歷（lot-paths-*）是 engine 自己合成的（detector/path_merge.py），lot id 就是 trace id
+        "traces": {"trace_id": "lot_id"},
     },
 }
 

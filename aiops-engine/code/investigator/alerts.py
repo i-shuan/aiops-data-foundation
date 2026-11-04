@@ -25,7 +25,8 @@ import re
 from collections import Counter
 from datetime import datetime, timedelta
 
-SVC_KEYS = ("resource.attributes.service.name", "service", "entry.service", "service.name", "caller")
+# equipment：工廠版的對象是機台（detector/ingest.py 寫的 keys.equipment），一台機台一件，跟服務同一套（docs/pdca/meta/2026-11-factory-engine.md）
+SVC_KEYS = ("resource.attributes.service.name", "service", "entry.service", "service.name", "caller", "equipment")
 NS_KEYS = ("resource.attributes.k8s.namespace.name", "k8s.namespace.name", "namespace", "kubernetes.namespace")
 NODE_KEYS = ("resource.attributes.k8s.node.name", "k8s.node.name", "node")
 SEVERITY = {"warning": 1, "high": 2, "critical": 3}   # 一件最後的嚴重度由 severity.grade 算（訊號廣度＋持續＋換版上限）；這裡只是異常自己帶的
@@ -66,6 +67,8 @@ def route_of(keys: dict) -> str | None:
     for m, r in (("attributes.http.request.method", "attributes.http.route"), ("method", "route")):
         if keys.get(m) and keys.get(r):
             return f"{keys[m]} {keys[r]}"
+    if keys.get("recipe"):          # 工廠版：「哪支 API」是哪個 recipe（履歷裡站的 name 就是 recipe，根因分析用它挑 lot）
+        return str(keys["recipe"])
     return None
 
 
@@ -76,7 +79,7 @@ def alert_id(cat: str, name: str, started: datetime) -> str:
 def _new(cat: str, name: str, first: dict) -> dict:
     t = _ts(first["@timestamp"])
     return {"alert_id": alert_id(cat, name, t), "category": cat, "service": name, "status": "open",
-            "started_at": t, "updated_at": t, "resolved_at": None, "anomaly_ids": [], "series": [], "routes": [],
+            "started_at": t, "updated_at": t, "resolved_at": None, "anomaly_ids": [], "series": [], "routes": [], "lots": [],
             "upstream_services": [], "severity": "warning", "_anoms": [], "_new": True}
 
 
@@ -91,6 +94,9 @@ def _attach(al: dict, a: dict) -> None:
     r = route_of(a.get("keys") or {})
     if r and r not in al["routes"]:
         al["routes"].append(r)
+    lot = (a.get("keys") or {}).get("lot")
+    if lot is not None and str(lot) not in al.setdefault("lots", []) and len(al["lots"]) < MAX_IDS:
+        al["lots"].append(str(lot))
     sev = a.get("severity") or "warning"
     if SEVERITY.get(sev, 1) > SEVERITY.get(al["severity"], 1):
         al["severity"], al["_upgraded"] = sev, not al.get("_new")
@@ -111,6 +117,8 @@ def _fold(up: dict, down: dict, now: datetime) -> None:
             down["anomaly_ids"].append(i)
     down["series"] += [s for s in up["series"] if s not in down["series"]]
     down["routes"] += [r for r in up["routes"] if r not in down["routes"]]
+    down.setdefault("lots", [])
+    down["lots"] += [l for l in up.get("lots") or [] if l not in down["lots"]][:max(0, MAX_IDS - len(down["lots"]))]
     if SEVERITY.get(up["severity"], 1) > SEVERITY.get(down["severity"], 1):
         down["severity"] = up["severity"]
     down["started_at"] = min(_ts(down["started_at"]), _ts(up["started_at"]))
@@ -122,13 +130,19 @@ def _fold(up: dict, down: dict, now: datetime) -> None:
 
 
 def merge(open_alerts: list[dict], anomalies: list[dict], now: datetime, close_after: timedelta,
-          done_ids: set | frozenset = frozenset(), calls: set | frozenset = frozenset()) -> list[dict]:
+          done_ids: set | frozenset = frozenset(), calls: set | frozenset = frozenset(),
+          links: dict[str, list[tuple[str, datetime]]] | None = None) -> list[dict]:
     """open_alerts：aiops-alerts 裡 status open 的；anomalies：最近的異常（含 _id）；
     done_ids：最近已經結束的件裡的異常 id（不要再被開一次，重跑才不會重複）；
-    calls：{(上游服務, 下游服務)}，這段時間 trace 裡誰呼叫誰（沒有就不併跨服務）。
+    calls：{(上游服務, 下游服務)}，這段時間 trace 裡誰呼叫誰（沒有就不併跨服務）；
+    links：工廠版的前後站（investigator/factory.lot_links）：{異常 _id: [(前站機台, 這批 lot 在前站的時間), …]}。
+      後站（量測站）看到的異常是前站做壞的：前站有開著的件、而且 lot 在前站的時間落在那件的範圍內（前後各 close_after）→
+      併進前站那件、記 upstream_services（跟 IT 的「上游併進下游」同一個欄位：被併進去的那一方）；自己已經有件就照同對象的規則。
     回傳這次要寫回的件：新開的（_new）、有更新的、這次結束的（resolved，含被併進下游的 merged_into），以及其他還開著的（更新心跳）。"""
+    links = links or {}
     by_ent = {(al["category"], al["service"]): {**al, "anomaly_ids": list(al.get("anomaly_ids") or []),
                                                  "series": list(al.get("series") or []), "routes": list(al.get("routes") or []),
+                                                 "lots": list(al.get("lots") or []),
                                                  "upstream_services": list(al.get("upstream_services") or [])}
               for al in open_alerts}
     down_of: dict[str, set[str]] = {}
@@ -172,6 +186,15 @@ def merge(open_alerts: list[dict], anomalies: list[dict], now: datetime, close_a
             continue
         if ent[0] == "service":
             al = downstream_alert(ent[1], t)
+            if al is None and a["_id"] in links:
+                # 工廠：這批 lot 經過的前站有開著的件 → 併進前站那件。先找「那件已經有這批 lot」的前站（lot 在前站就異常了，最有力）；
+                # 沒有就取離它最近、而且 lot 在前站的時間落在那件範圖內（前後各 close_after）的前站
+                lot = str((a.get("keys") or {}).get("lot"))
+                cands = [(name, at, by_ent.get(("service", name))) for name, at in links[a["_id"]] if name != ent[1]]
+                cands = [(n_, at, c) for n_, at, c in cands if c]
+                al = next((c for _, _, c in cands if lot in (c.get("lots") or [])), None)
+                if al is None:
+                    al = next((c for _, at, c in cands if _ts(c["started_at"]) - close_after <= _ts(at) <= _ts(c["updated_at"]) + close_after), None)
             if al:                                             # 上游的異常：併進下游那件
                 _attach(al, a)
                 _join(al, ent[1])

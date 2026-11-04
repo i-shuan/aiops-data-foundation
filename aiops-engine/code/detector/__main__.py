@@ -9,8 +9,10 @@
   python3 -m detector peer   --config configs/baseline/peer.yaml   [--at …] [--only 檢查,…]
   python3 -m detector quality --config configs/baseline/quality.yaml [--at …] [--only 檢查,…]
   python3 -m detector chronic --config configs/baseline/chronic.yaml [--at …]
-  python3 -m detector feedback pending|add|list|summary|suggest   值班回饋（真的／誤報／根因錯／漏報）
+  python3 -m detector feedback pending|add|list|summary|suggest|export   值班回饋（真的／誤報／根因錯／漏報）；export 匯出給 ML 團隊
   python3 -m detector incident add|list|resolve                   事故紀錄
+  python3 -m detector ingest --config configs/factory/ingest.yaml [--window 10m] [--at …]     工廠版：ML／FDC 判好的異常接進 ⑤
+  python3 -m detector paths-merge --config configs/factory/paths.yaml [--window 1d] [--at …]  工廠版：MES＋S6F11 → 一個 lot 一筆履歷
 
 train ：讀過去 N 週的資料，每條序列、每個時段學出中位數與波動範圍，寫進 ES 的 aiops-baseline。
 detect：讀最近一段時間的資料，跟 baseline 比，超出範圍的寫進 aiops-anomalies，並印出來。
@@ -47,6 +49,8 @@ from .cmd_trace import cmd_trace_collect, cmd_trace_train, cmd_trace_detect, cmd
 from .cmd_rules import cmd_rules
 from .cmd_peer import cmd_peer
 from .cmd_quality import cmd_quality
+from .cmd_ingest import cmd_ingest
+from .cmd_paths import cmd_paths_merge
 
 
 def main(argv=None) -> int:
@@ -131,8 +135,10 @@ def main(argv=None) -> int:
     pe.add_argument("--config", required=True)
     pe.add_argument("--at", help="回測：拿過去某個時間點當成現在")
     pe.add_argument("--only", help="只跑這幾個（逗號分開）")
-    fb = sub.add_parser("feedback", help="值班回饋：pending（還沒標記的）、add、list、summary（誤報統計）、suggest（誤報多次→建議放寬）")
-    fb.add_argument("action", choices=["pending", "add", "list", "summary", "suggest"])
+    fb = sub.add_parser("feedback", help="值班回饋：pending（還沒標記的）、add、list、summary（誤報統計）、suggest（誤報多次→建議放寬）、"
+                                         "export（回饋＋異常匯出成 NDJSON／CSV，給 ML 團隊重訓；工廠版）")
+    fb.add_argument("action", choices=["pending", "add", "list", "summary", "suggest", "export"])
+    fb.add_argument("--out", help="export：寫到哪個檔（.ndjson 或 .csv；不給就印到 stdout）")
     fb.add_argument("--config", default="configs/baseline/series.yaml")
     fb.add_argument("--anomaly", help="add：異常的 id（pending 看得到）")
     fb.add_argument("--verdict", help="add：true_positive（真的）、false_positive（誤報）、wrong_root_cause（根因錯）、missed（漏報）")
@@ -188,13 +194,22 @@ def main(argv=None) -> int:
     sh = sub.add_parser("shift", help="一階跳變：最近一天幾乎每點都往同一邊超標、新水準很穩的序列，提 reset_point（proposed）")
     sh.add_argument("--config", required=True, help="series.yaml（可加 shift: {window, min_points, min_share, max_spread}）")
     sh.add_argument("--at", help="拿某個時間點當成現在")
+    ig = sub.add_parser("ingest", help="工廠版：ML 的異常跳點、FDC 鳴叫（別人判好的）→ aiops-anomalies（detector/ingest.py）")
+    ig.add_argument("--config", required=True, help="configs/factory/ingest.yaml")
+    ig.add_argument("--window", default="10m", help="看最近多久的來源列（預設 10m；_id 依來源識別碼，重讀不重複）")
+    ig.add_argument("--at", help="拿某個時間點當成現在")
+    pm = sub.add_parser("paths-merge", help="工廠版：MES 進出站＋S6F11 機台事件 → 一個 lot 一筆履歷 lot-paths-*（detector/path_merge.py）")
+    pm.add_argument("--config", required=True, help="configs/factory/paths.yaml")
+    pm.add_argument("--window", default="1d", help="最近多久有進站／出站的 lot 重合成（預設 1d）")
+    pm.add_argument("--at", help="拿某個時間點當成現在")
     args = p.parse_args(argv)
     with open(args.config, encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
     cmds = {"train": cmd_train, "detect": cmd_detect, "tune": cmd_tune, "trace-collect": cmd_trace_collect,
             "trace-train": cmd_trace_train, "trace-detect": cmd_trace_detect, "trace-merge": cmd_trace_merge, "rules": cmd_rules, "peer": cmd_peer,
             "quality": cmd_quality, "adjust": cmd_adjust, "backtest": cmd_backtest, "metrics": cmd_metrics,
-            "chronic": cmd_chronic, "feedback": cmd_feedback, "incident": cmd_incident, "prune": cmd_prune, "shift": cmd_shift}
+            "chronic": cmd_chronic, "feedback": cmd_feedback, "incident": cmd_incident, "prune": cmd_prune, "shift": cmd_shift,
+            "ingest": cmd_ingest, "paths-merge": cmd_paths_merge}
     return cmds[args.cmd](cfg, args)
 
 
