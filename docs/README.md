@@ -1,6 +1,6 @@
 # 文件地圖
 
-全 repo 的 md 都從這裡找得到。**文件留在原位**（跟程式強相關的放在各元件資料夾（`aiops-engine/`、`elasticsearch/`、`grafana/`）旁，改程式時才會順手改），這份只做索引和標類型、狀態。每次新增、刪除 md 都要更新這裡，`python3 tools/check-docs.py` 會檢查（沒列進來、連結斷了、用了舊說法、共用文件沒標類型都會失敗）。規則見 [CLAUDE.md](../CLAUDE.md)。
+全 repo 的 md 都從這裡找得到。**文件留在原位**（跟程式強相關的放在各元件資料夾（`aiops-engine/`、`grafana/`）旁，改程式時才會順手改），這份只做索引和標類型、狀態。每次新增、刪除 md 都要更新這裡，`python3 tools/check-docs.py` 會檢查（沒列進來、連結斷了、用了舊說法、共用文件沒標類型都會失敗）。規則見 [CLAUDE.md](../CLAUDE.md)。
 
 **類型**（Diátaxis：每份文件只做一種事；rca、feedback 各合成一份 README，原理在前，規格、操作、案例是章節）：
 **原理**＝為什麼這樣設計　**操作**＝我要做 X 怎麼做　**規格**＝查欄位、參數、現況　**案例**＝實際跑一遍的實例
@@ -20,7 +20,7 @@
 | [detection-and-learning.md](detection-and-learning.md) | 原理 | 異常偵測與學習機制現在寫了什麼：統計方法清單、回饋學習（人在迴圈）、跟強化式學習差在哪、已知哪裡不準、貝氏更新構想 | 🟡（貝氏更新是構想；誤報量測是合成資料） |
 | [semiconductor-design.md](semiconductor-design.md) | 原理 | 半導體（FDC）沒有 trace id 時：lot 加工路徑取代 trace、五個模型與事件整合各要改什麼、跟目前設計的對照、做的順序、現況 | 🟡（工廠版 engine 用假資料跑通；欄位名是假設，等 MES、FDC 樣本） |
 | [aiops-data-reference.md](aiops-data-reference.md) | 規格 | AIOps 資料格式：`aiops-anomalies`、`aiops-alerts`、`aiops-incidents`、`aiops-feedback`、`aiops-tuning` 的欄位、誰在什麼時候寫、真實範例、Grafana 面板讀哪些欄位 | 🟢 |
-| [deploy-how-to.md](deploy-how-to.md) | 操作 | 部署：公司已有 Elastic APM 與 ES，不跑 es-setup，在 Kibana 手動補設定、部署 aiops-engine、接 Grafana | 🟡（沒在真實環境照做過） |
+| [deploy-how-to.md](deploy-how-to.md) | 操作 | 部署：公司已有 Elastic APM 與 ES，在 Kibana 手動補設定、部署 aiops-engine、接 Grafana | 🟡（沒在真實環境照做過） |
 | [troubleshooting.md](troubleshooting.md) | 操作 | 症狀 → 原因 → 做法 | 🟢 |
 | [img/README.md](img/README.md) | 案例 | POC 五個 KPI（聚合警報、LLM 解析、端到端串查、相似事故 Top-3、RCA 全文）在 Grafana 上的截圖 | 🟢（合成資料） |
 
@@ -60,7 +60,6 @@
 
 | 文件 | 類型 | 內容 | 狀態 |
 |---|---|---|---|
-| [../elasticsearch/README.md](../elasticsearch/README.md) | 操作 | 在公司 ES 上補 `traces-merged-*` 的 template 與 ILM、發 engine 與 Grafana 的 key、snapshot | 🟢 |
 | [../aiops-engine/README.md](../aiops-engine/README.md) | 操作 | engine：build image、Helm 的兩種 mode（一隻 pod／api＋beat＋worker）、API 端點、排程表、「AIOps 停了」 | 🟢（分散模式本機對測試 ES＋Redis 跑過，沒 helm 實裝） |
 
 ## 依類型找
@@ -68,7 +67,7 @@
 | 我要… | 看這些 |
 |---|---|
 | **懂為什麼這樣設計**（原理） | [architecture.md](architecture.md)、[rca](rca/README.md)・[feedback](feedback/README.md) 的 README（各自也含規格、操作、案例章節） |
-| **做一件事**（操作） | [部署](deploy-how-to.md)、[troubleshooting.md](troubleshooting.md)、[接 Elastic APM 的資料](../aiops-engine/code/configs/apm/README.md)、[選 plugin／自己寫一個](../aiops-engine/code/plugins/README.md)、[工廠怎麼接](../aiops-engine/code/configs/factory/README.md)、[baseline 怎麼跑](../aiops-engine/code/configs/baseline/README.md)、[在公司 ES 上補設定](../elasticsearch/README.md) |
+| **做一件事**（操作） | [部署](deploy-how-to.md)、[troubleshooting.md](troubleshooting.md)、[接 Elastic APM 的資料](../aiops-engine/code/configs/apm/README.md)、[選 plugin／自己寫一個](../aiops-engine/code/plugins/README.md)、[工廠怎麼接](../aiops-engine/code/configs/factory/README.md)、[baseline 怎麼跑](../aiops-engine/code/configs/baseline/README.md)、[在 ES 補設定](../elasticsearch/kibana-dev-tools.txt) |
 | **查欄位、參數、現況**（規格） | [aiops-data-reference.md](aiops-data-reference.md)、[data-storage-reference.md](data-storage-reference.md)、[baseline 規格](../aiops-engine/code/configs/baseline/reference.md) |
 | **看實例**（案例） | [baseline 實測](../aiops-engine/code/configs/baseline/verification.md)、[範例報告](../aiops-engine/code/configs/rca/example-report.md)；故障案例的歸納在 [rca/README.md](rca/README.md) |
 

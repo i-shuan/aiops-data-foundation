@@ -24,44 +24,12 @@
 
 ## 怎麼接
 
-### 1. ES：給 engine 一把 key
+### 1、2. ES：key 與 `traces-merged-*` 的 template
 
-engine 要**讀** APM 的三種資料，**寫**自己的 `aiops-*` 和 `traces-merged-*`。只有寫沒有讀跑不起來；
-`aiops-*` 的索引名是 `aiops-anomalies`、`aiops-alerts`…（沒有連字號後綴），role 的 pattern 要用 `aiops-*`。權限跟
-[elasticsearch-setup.sh](../../../../elasticsearch/code/scripts/elasticsearch-setup.sh) 發的 baseline key 一樣：
+engine 要**讀** APM 的三種資料，**寫**自己的 `aiops-*` 和 `traces-merged-*`（只有寫沒有讀跑不起來；`aiops-*` 的索引名是 `aiops-anomalies`、`aiops-alerts`…，沒有連字號後綴，所以 pattern 用 `aiops-*`）。
+`traces-merged-*` 一天一個 index，mapping 要 nested，得先放 template。
 
-```json
-PUT /_security/role/aiops_engine_role
-{
-  "cluster": [],
-  "indices": [
-    {"names": ["traces-apm*", "logs-apm*", "metrics-apm*"], "privileges": ["read", "view_index_metadata"]},
-    {"names": ["aiops-*", "traces-merged-*"], "privileges": ["read", "write", "create_index", "view_index_metadata"]}
-  ]
-}
-```
-
-```json
-POST /_security/api_key
-{"name": "aiops-engine", "role_descriptors": {"aiops_engine_role": {"indices": [
-  {"names": ["traces-apm*", "logs-apm*", "metrics-apm*"], "privileges": ["read", "view_index_metadata"]},
-  {"names": ["aiops-*", "traces-merged-*"], "privileges": ["read", "write", "create_index", "view_index_metadata"]}]}}}
-```
-
-回傳的 `encoded` 就是 `ES_API_KEY`。
-
-### 2. ES：`traces-merged-*` 的 template
-
-`aiops-*` 的索引 engine 自己建（帶 mapping）；`traces-merged-*` 一天一個 index，mapping 要 nested，得先放 template
-（沒有 es-setup 時手動放；只新增，不碰現有索引）。ILM 的 `__TRACES_DELETE_AFTER__` 換成要留的天數（我們是 7d）：
-
-```bash
-curl -u ... -X PUT "$ES_URL/_ilm/policy/traces-merged" -H 'Content-Type: application/json' -d "$(sed 's/__TRACES_DELETE_AFTER__/7d/' elasticsearch/code/storage/ilm-traces-merged.json)"
-```
-
-```bash
-curl -u ... -X PUT "$ES_URL/_index_template/traces-merged" -H 'Content-Type: application/json' -d @elasticsearch/code/storage/template-traces-merged.json
-```
+兩件事都在 [elasticsearch/kibana-dev-tools.txt](../../../../elasticsearch/kibana-dev-tools.txt)：整份貼進 Kibana Dev Tools，第 1、2 段是 ILM 與 template，第 3 段發 engine 的 key（回傳的 `encoded` 就是 `ES_API_KEY`）。全部是新增，不碰現有索引。
 
 ### 3. 部署：`source: apm`
 

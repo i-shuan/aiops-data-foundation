@@ -2,7 +2,7 @@
 
 aiops-anomalies、aiops-trace-segments、aiops-alerts 是一般索引（_id 固定、每輪覆蓋），不是 rollover 的資料流，
 ILM 的 delete 會刪整個索引，所以照文件的時間 delete_by_query。人工判斷的 aiops-incidents、aiops-feedback、aiops-tuning
-不在這裡：事故紀錄要長留，掉了不能重算（備份見 elasticsearch/code/scripts/elasticsearch-setup.sh 的 snapshot 段）。
+不在這裡：事故紀錄要長留，掉了不能重算（備份見 elasticsearch/kibana-dev-tools.txt 第 5 段）。
 """
 from __future__ import annotations
 

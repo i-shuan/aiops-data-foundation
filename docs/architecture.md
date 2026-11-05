@@ -117,7 +117,7 @@ flowchart TB
   - metrics 是 apm-server 預先聚合的每分鐘直方圖（微秒），最細粒度 1 分鐘；沒有 Pod CPU／記憶體、K8s 物件狀態（要 `metrics-apm.app.*` 或另外收）。
   - log 只有開 log shipping 的服務才有；例外是 `logs-apm.error-*` 的獨立文件，還沒接回 span（例外吞噬檢測做不到）。
   - 往外呼叫（DB、下游）的 metrics 只有次數與耗時總和，沒有直方圖，只能算平均。
-  - 保留天數由公司 ES 的 ILM 決定；`traces-merged-*` 7 天（[retention.conf](../elasticsearch/code/scripts/retention.conf)）。
+  - 保留天數由公司 ES 的 ILM 決定；`traces-merged-*` 7 天（[kibana-dev-tools.txt](../elasticsearch/kibana-dev-tools.txt) 第 1 段）。
 
 ### 3.2 應用的埋點要求 (Instrumentation Requirements)
 
@@ -133,7 +133,7 @@ flowchart TB
 
 - **決策**：
   - **歸屬讀 agent 的標籤**：engine 寫 `aiops-anomalies` 時，依異常的服務（或 namespace）去查 `metrics-apm.transaction.1m-*` 最近 2 天的 `labels.dept`、`labels.group` 補上；對不到歸 `unassigned`。
-  - **權限**：engine 與 Grafana 各一把 API key（[elasticsearch/README.md](../elasticsearch/README.md)）。engine 讀 APM 的三種資料、讀寫 `aiops-*`、`traces-merged-*`；Grafana 只讀 `aiops-alerts` 等四個索引。
+  - **權限**：engine 與 Grafana 各一把 API key（[kibana-dev-tools.txt](../elasticsearch/kibana-dev-tools.txt) 第 3、4 段）。engine 讀 APM 的三種資料、讀寫 `aiops-*`、`traces-merged-*`；Grafana 只讀 `aiops-alerts` 等四個索引。
 - **理由**：部門歸屬用現有的標籤機制，不另建對照表；讀寫分開，engine 出錯最多弄壞自己的索引，不會動到 APM 的資料。
 - **取捨**：標籤由 agent 自報，沒有邊緣驗證，填錯會送錯部門；沒設標籤的服務全進平台。要更準確時改成 engine 維護一張「服務 → 部門」的對照表（`owner.py` 已是單一入口）。
 
@@ -185,7 +185,7 @@ flowchart TB
 |---|---|---|---|---|
 | ① | 公司現有 | 收值 | 應用的 log、metrics、trace | Elastic APM agent；apm-server；trace 100% 收 |
 | ② | 公司現有 | 清資料 | apm-server 寫入時的欄位統一；engine 讀進來時轉成同一種格式 | `core/traces.py` 的 APM 轉換、序列的 `scale`（微秒→秒）、`configs/apm/` |
-| ③ | 公司現有 | 存 | 公司 ES 8.19 的 data stream 與 ILM；engine 另在 ES 補 `traces-merged-*` 的 template 與 key | `elasticsearch/code/scripts/elasticsearch-setup.sh` |
+| ③ | 公司現有 | 存 | 公司 ES 8.19 的 data stream 與 ILM；engine 另在 ES 補 `traces-merged-*` 的 template 與 key | `elasticsearch/kibana-dev-tools.txt` |
 | ④ | AIOps | 判斷 | 判斷每條序列是否異常，分 `warning`、`anomaly` 兩級 | 靜態臨界值規則 (Static Threshold Rules)；動態基準線學習（168 時段中位數＋MAD、卜瓦松、借同組）；Pod 同儕橫向比對 (Peer Comparison)；Trace 分段基準、N+1、例外吞噬檢測 (Exception Swallowing Detection)；學習前排除事故時段、行事曆、慢性問題 |
 | ⑤ | AIOps | 異常總表 | 所有判斷結果的單一交接點 | `aiops-anomalies`，同序列同時間重跑覆蓋同一筆；寫入時補 `dept`、`group` |
 | ⑥ | AIOps | 收斂 | 把大量異常合成值班可處理的「一件」 | 同一服務、30 分鐘內接續的異常合為一件；30 分鐘無新異常即結束；全程程式計算 |
@@ -270,7 +270,7 @@ K8s 排程頻率見 [aiops-engine/README.md](../aiops-engine/README.md)；Elasti
 |---|---|---|---|---|---|---|
 | ① 收值 | 公司現有 | 1 | Elastic APM（公司管） | 常駐；metrics 每分鐘 | — | 公司現有 |
 | ② 清資料 | 公司現有 | 1 | `aiops-engine/code/core/traces.py`（`_apm_span`）、`core/source.py`、`configs/apm/` | 讀進來時 | `tests/test_apm.py`（[apm-source](pdca/meta/2026-11-apm-source.md)） | 🟡 沒有真實 APM 資料 |
-| ③ 存 | 公司現有 | 1 | `elasticsearch/code/scripts/elasticsearch-setup.sh`、`retention.conf`（只補 `traces-merged-*` 與 key） | — | — | 🟡 GitLab 上沒實跑 |
+| ③ 存 | 公司現有 | 1 | `elasticsearch/kibana-dev-tools.txt`（只補 `traces-merged-*` 與 key） | — | — | 🟡 公司環境沒實跑 |
 | ④ 判斷 | AIOps | 2 | `aiops-engine/code/detector/`、`aiops-engine/code/configs/baseline/*.yaml` | 每 1 分鐘（train 每天） | 單元測試；`synth_e2e`、`adaptive_e2e`、`fine_e2e`（一個 ES） | ✅；K8s CronJob 沒跑過 |
 | ⑤ 異常總表 | AIOps | 2 | `aiops-anomalies` | — | — | ✅ |
 | ⑥ 收斂 | AIOps | 3 | `aiops-engine/code/investigator/alerts.py`、`cmd_alert.py`；`rca.yaml` 的 `alerts:` | 每 1 分鐘 | `test_alerts.py`、`chain_e2e`；[alert-exit](pdca/phase3-locate/2026-10-alert-exit.md)、[cross-service-aggregation](pdca/phase3-locate/2026-10-cross-service-aggregation.md) | ✅ 同服務合成一件；沿呼叫關係一層 ✅、多層 📝 |

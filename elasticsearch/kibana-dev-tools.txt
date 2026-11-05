@@ -1,0 +1,123 @@
+# 在公司的 Elasticsearch 上補 AIOps 需要的東西。整份貼進 Kibana → Dev Tools，從上往下一段一段執行（游標放在該段，按執行）。
+# 全部是新增，不碰 Elastic APM 寫的任何索引（traces-apm*、logs-apm*、metrics-apm*）。重跑安全（template、ILM 是覆蓋）；key 每次都是新的。
+# 需要的權限：manage_index_templates、manage_ilm、manage_own_api_key（發 key）。沒有的話請有權限的人貼。
+# 第一次部署 engine 之前做完 1～4。5 是備份，選用。aiops-* 的索引 engine 自己建，不用在這裡建。
+
+
+# ── 1. traces-merged 的保留天數（ILM）：engine 合成的「一個請求一筆」，留 7 天 ──
+# 要改天數就改 min_age。
+PUT _ilm/policy/traces-merged
+{
+  "policy": {
+    "_meta": {"description": "traces-merged-<group>-<日期>（一個請求一筆，100% 收、不取樣）：一天一個 index，建立滿 7d 刪。"},
+    "phases": {
+      "hot": {"actions": {}},
+      "delete": {"min_age": "7d", "actions": {"delete": {}}}
+    }
+  }
+}
+
+
+# ── 2. traces-merged 的 index template：spans、entries 要是 nested，沒有它根因分析會查詢失敗 ──
+PUT _index_template/traces-merged
+{
+  "index_patterns": ["traces-merged-*"],
+  "priority": 200,
+  "template": {
+    "settings": {
+      "index.number_of_shards": 1,
+      "index.lifecycle.name": "traces-merged",
+      "index.mapping.nested_objects.limit": 20000
+    },
+    "mappings": {
+      "dynamic": false,
+      "properties": {
+        "@timestamp": {"type": "date"},
+        "merged_at": {"type": "date"},
+        "trace_id": {"type": "keyword"},
+        "group": {"type": "keyword"},
+        "dept": {"type": "keyword"},
+        "root": {"properties": {"service": {"type": "keyword"}, "name": {"type": "keyword"}, "kind": {"type": "keyword"}, "error": {"type": "boolean"}}},
+        "duration_ms": {"type": "double"},
+        "error": {"type": "boolean"},
+        "services": {"type": "keyword"},
+        "span_count": {"type": "integer"},
+        "entries": {
+          "type": "nested",
+          "properties": {
+            "span_id": {"type": "keyword"}, "service": {"type": "keyword"}, "name": {"type": "keyword"}, "kind": {"type": "keyword"},
+            "start_ms": {"type": "double"}, "duration_ms": {"type": "double"}, "error": {"type": "boolean"}
+          }
+        },
+        "spans": {
+          "type": "nested",
+          "properties": {
+            "span_id": {"type": "keyword"}, "parent": {"type": "keyword"}, "service": {"type": "keyword"}, "name": {"type": "keyword"},
+            "kind": {"type": "keyword"}, "target": {"type": "keyword"}, "start_ms": {"type": "double"}, "dur_ms": {"type": "double"},
+            "error": {"type": "boolean"}, "exception": {"type": "keyword"}, "links": {"type": "keyword"},
+            "attrs": {"type": "flattened"}, "resource": {"type": "flattened"}
+          }
+        }
+      }
+    }
+  },
+  "_meta": {
+    "description": "一個請求一筆（detector trace-merge 從 Elastic APM 的 traces-apm-* 合成；_id = trace_id；index 依 group 與根 span 的日期）。spans 是每一段（nested，欄位跟 core.traces 的 span 一樣，attrs／resource 用 flattened 免得欄位爆掉）；entries 是入口 span，依服務／API 挑請求用。保留天數 ILM traces-merged（elasticsearch/kibana-dev-tools.txt）"
+  }
+}
+
+
+# ── 3. engine 的 API key：讀 APM 的三種資料，只能寫自己的 aiops-*、traces-merged-* ──
+# 回傳的 "encoded" 就是 engine 的 ES_API_KEY（Secret aiops-secrets）。只會出現這一次；不要貼進 git、聊天或 log。
+POST _security/api_key
+{
+  "name": "aiops-engine",
+  "role_descriptors": {
+    "aiops-engine": {
+      "indices": [
+        {"names": ["traces-apm*", "logs-apm*", "metrics-apm*"], "privileges": ["read", "view_index_metadata"]},
+        {"names": ["aiops-*", "traces-merged-*"], "privileges": ["read", "write", "create_index", "view_index_metadata"]}
+      ]
+    }
+  }
+}
+
+
+# ── 4. Grafana 的唯讀 key：只讀 AIOps 寫的四個索引 ──
+# 回傳的 "encoded" 就是 GRAFANA_ES_API_KEY（Secret grafana-env）。cluster monitor：Grafana 會先打 GET / 看版本，沒有它 data source 測試回 403。
+POST _security/api_key
+{
+  "name": "grafana-aiops",
+  "role_descriptors": {
+    "grafana-aiops": {
+      "cluster": ["monitor"],
+      "indices": [
+        {"names": ["aiops-alerts", "aiops-anomalies", "aiops-tuning", "aiops-feedback"], "privileges": ["read", "view_index_metadata"]}
+      ]
+    }
+  }
+}
+
+
+# ── 確認 ──
+GET _index_template/traces-merged
+GET _ilm/policy/traces-merged
+# 用 engine 的 key 打這個（要大於 0）：GET metrics-apm.transaction.1m-*/_count
+
+
+# ── 5. （選用）每天備份人工判斷的索引：回饋、事故紀錄、調整掉了不能重算 ──
+# 先要有 snapshot 儲存庫，類型與位置由管 ES 的人決定（s3、fs、azure、gcs…）。下面兩段的 <…> 要先換成實際值。
+# PUT _snapshot/aiops
+# {"type": "s3", "settings": {"bucket": "<bucket>", "base_path": "aiops"}}
+#
+# PUT _slm/policy/aiops-daily
+# {
+#   "schedule": "0 30 3 * * ?", "name": "<aiops-{now/d}>", "repository": "aiops",
+#   "config": {"indices": "aiops-incidents,aiops-feedback,aiops-tuning,aiops-baseline,aiops-alerts", "ignore_unavailable": true, "include_global_state": false},
+#   "retention": {"expire_after": "30d", "min_count": 7, "max_count": 60}
+# }
+#
+# 看有哪些備份：  GET _snapshot/aiops/_all           馬上備一次：  POST _slm/policy/aiops-daily/_execute
+# 還原一個索引：  先 DELETE aiops-tuning，再
+#   POST _snapshot/aiops/<快照名>/_restore
+#   {"indices": "aiops-tuning", "include_global_state": false}

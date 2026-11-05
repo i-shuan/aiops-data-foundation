@@ -2,7 +2,7 @@
 
 連線用環境變數：
   ES_URL                       例如 https://es.example.internal:9200
-  ES_API_KEY 或 ES_AUTH        API key 的 encoded，或 帳號:密碼（elasticsearch-setup.sh 發的「AIOps baseline key」：
+  ES_API_KEY 或 ES_AUTH        API key 的 encoded，或 帳號:密碼（elasticsearch/kibana-dev-tools.txt 發的 engine key：
                                能讀 log、metrics、trace，只能寫 aiops-*）
   ES_CA（選填）                ES 憑證的 CA 檔；不給就用系統的
 """

@@ -128,7 +128,7 @@ cd engine                           # baseline、根因分析是同一個 Python
 pip install -r requirements.txt     # pandas、numpy、pyyaml、requests
 
 export ES_URL=https://<es>:9200
-export ES_API_KEY=<elasticsearch-setup.sh 發的「AIOps baseline key」>   # 只能讀資料、寫 aiops-*
+export ES_API_KEY=<kibana-dev-tools.txt 第 3 段發的 engine key>   # 只能讀資料、寫 aiops-*
 # export ES_CA=/path/to/ca.crt      # ES 用內部 CA 的話
 
 python3 -m detector train  --config configs/baseline/series.yaml   # 每天跑一次（例如凌晨）
