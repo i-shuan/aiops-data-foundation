@@ -11,7 +11,6 @@ from __future__ import annotations
 
 from core import plugin, source
 from core.version import ENGINE_VERSION
-from .es import ANOMALY_INDEX
 
 OWNER_DAYS = 2
 UNASSIGNED = "unassigned"
@@ -58,15 +57,11 @@ def owner_of(keys: dict, owners: dict) -> tuple[str | None, str]:
 
 def write_anomalies(es, docs: list) -> None:
     """寫進異常總表，每筆帶上 dept、group、engine_version。docs：(_id, 文件)。
-    baseline、規則、peer、quality、trace 都從這裡寫，所以「每筆異常都要有」的欄位只補在這一處。"""
+    baseline、規則、peer、quality、trace 都從這裡寫，所以「每筆異常都要有」的欄位只補在這一處：engine_version 在這裡補，
+    dept、group 由 Store 補（ES 查 load_owners／owner_of；檔案、記憶體來源沒有歸屬可查，全部 unassigned）。"""
     if not docs:
         return
-    from sources.base import is_backend
-    if is_backend(es):   # 檔案、記憶體來源：沒有 dept／group 的資料可查，全部 unassigned
-        es.write_anomalies(docs)
-        return
-    owners = load_owners(es)
+    from sources.base import as_backend
     for _, d in docs:
-        d["dept"], d["group"] = owner_of(d.get("keys"), owners)
         d["engine_version"] = ENGINE_VERSION
-    es.bulk_index(ANOMALY_INDEX, docs)
+    as_backend(es).write_anomalies(docs)

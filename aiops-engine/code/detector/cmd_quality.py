@@ -3,10 +3,9 @@ from __future__ import annotations
 
 import pandas as pd
 
-from .es import ANOMALY_INDEX, ANOMALY_MAPPING, ES, doc_id
+from .base import Anomaly, Detector
 from . import quality as Q
-from .common import RULE_FIELDS, _freq, _now, _v
-from .owner import write_anomalies
+from .common import _freq, _v
 
 
 def quality_hits(es, c: dict, now, window, ref_offset) -> list[dict]:
@@ -40,33 +39,26 @@ def quality_hits(es, c: dict, now, window, ref_offset) -> list[dict]:
                           absolute=c.get("absolute", False))
     raise ValueError(f"不認得的檢查種類：{t}")
 
-def cmd_quality(cfg: dict, args) -> int:
-    es = ES()
-    es.ensure_index(ANOMALY_INDEX, ANOMALY_MAPPING)
-    es.req("PUT", f"/{ANOMALY_INDEX}/_mapping", {"properties": RULE_FIELDS})
-    now = _now(args.at)
-    slot = now.floor(_freq(cfg.get("interval", "10m")))
-    ref_offset = pd.Timedelta(_freq(cfg.get("ref_offset", "24h")))
-    names = set(args.only.split(",")) if args.only else None
-    docs, fired, checked = [], 0, 0
-    for c in cfg["checks"]:
-        if names and c["name"] not in names:
-            continue
-        checked += 1
-        window = pd.Timedelta(_freq(c.get("window", cfg.get("window", "1h"))))
-        hits = quality_hits(es, c, now, window, ref_offset)
-        for h in hits:
+
+class QualityDetector(Detector):
+    level = "quality"
+    interval_default = "10m"
+
+    def checks(self) -> list[dict]:
+        self.ref_offset = pd.Timedelta(_freq(self.cfg.get("ref_offset", "24h")))
+        return self.cfg["checks"]
+
+    def evaluate(self, c: dict) -> list[Anomaly]:
+        window = pd.Timedelta(_freq(c.get("window", self.cfg.get("window", "1h"))))
+        out = []
+        for h in quality_hits(self.es, c, self.now, window, self.ref_offset):
             keys = {**{k: v for k, v in h["key"].items() if _v(v) is not None},   # NaN 寫進 ES 會整批被拒
                     **({"field": h["field"]} if "field" in h else {})}
-            msg = Q.describe(c, h)
-            docs.append((doc_id(c["name"], keys, slot), {
-                "@timestamp": slot.isoformat(), "series": c["name"], "rule": c["name"], "keys": keys,
-                "value": h["value"], "median": _v(h.get("ref")), "expected_low": None, "expected_high": None, "z": None,
-                "level": "quality", "direction": "up", "severity": c.get("severity", "warning"), "message": msg,
-                "detected_at": pd.Timestamp.now(tz="UTC").isoformat()}))
-            print(f"  [{c.get('severity', 'warning')}] {msg}")
-        fired += len(hits)
-    if docs:
-        write_anomalies(es, docs)
-    print(f"{slot.tz_convert('Asia/Taipei'):%m-%d %H:%M}：{checked} 個檢查，觸發 {fired} 個")
-    return 0
+            out.append(Anomaly(ts=self.slot, series=c["name"], rule=c["name"], keys=keys, value=h["value"],
+                               median=_v(h.get("ref")), level=self.level, direction="up",
+                               severity=c.get("severity", "warning"), message=Q.describe(c, h)))
+        return out
+
+
+def cmd_quality(cfg: dict, args, backend=None) -> int:
+    return QualityDetector(cfg, args, backend).run()

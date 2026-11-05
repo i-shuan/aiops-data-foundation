@@ -12,8 +12,7 @@ from core.config import load_config
 from core.es import ES, get_field
 from detector.cmd_ingest import read_rows
 from detector.common import _now
-from sources import open_backend
-from sources.base import is_backend
+from sources import as_backend, open_backend
 
 from . import paths as P
 
@@ -23,24 +22,23 @@ def _lot_ids(rows: list[dict], lot_field: str) -> set[str]:
 
 
 def _rows_of_lots(es, inp: dict, lot_field: str, lots: set[str], start: pd.Timestamp, end: pd.Timestamp) -> list[dict]:
-    """這些 lot 的全部列（含 window 之前的站：一個 lot 的履歷要完整）。lots 很多時分批 terms 查。"""
+    """這些 lot 的全部列（含 window 之前的站：一個 lot 的履歷要完整）。ES 分批 terms 查；檔案、記憶體來源沒有 terms 查詢，往前讀 60 天再挑。"""
     if not lots:
         return []
-    if is_backend(es) and not hasattr(es, "es"):
+    if es.kind != "es":
         rows = read_rows(es, inp, start - pd.Timedelta(days=60), end)
         return [r for r in rows if str(get_field(r, lot_field) or "") in lots]
-    raw = es.es if hasattr(es, "es") else es
     out, ids = [], sorted(lots)
     tf = inp.get("time_field", "@timestamp")
     for i in range(0, len(ids), 1000):
         body = {"size": 10000, "query": {"bool": {"filter": [{"terms": {lot_field: ids[i:i + 1000]}}]}}, "sort": [{tf: "asc"}, {"_doc": "asc"}]}
-        hits = raw.req("POST", f"/{inp['index']}/_search?ignore_unavailable=true&allow_no_indices=true", body).get("hits", {}).get("hits", [])
-        out += [h["_source"] for h in hits]
+        out += [h["_source"] for h in es.raw_search(inp["index"], body).get("hits", {}).get("hits", [])]
     return out
 
 
 def run(es, cfg: dict, now: pd.Timestamp, window: pd.Timedelta) -> int:
     """[now − window, now) 有動的 lot 全部重合成。回傳合了幾個 lot。"""
+    es = as_backend(es)
     mes, ev = cfg["mes"], cfg.get("events") or {}
     mf = mes["fields"]
     start = now - window
@@ -54,10 +52,9 @@ def run(es, cfg: dict, now: pd.Timestamp, window: pd.Timedelta) -> int:
     steps = _rows_of_lots(es, {**mes, "time_field": mf["start"]}, mf["lot"], lots, start, now)
     events = _rows_of_lots(es, {**ev, "time_field": ev["fields"]["start"]}, ev["fields"]["lot"], lots, start, now) if ev else []
     docs = P.build_docs(steps, events, cfg, now.to_pydatetime())
-    if not is_backend(es) or hasattr(es, "es"):
-        raw = es.es if hasattr(es, "es") else es
+    if es.kind == "es":   # 來源是 ES 才有 ES 可以放 template（結果 index 在那裡）
         try:
-            raw.req("PUT", f"/_index_template/{P.PATHS_PREFIX}", P.PATHS_TEMPLATE)
+            es.raw_req("PUT", f"/_index_template/{P.PATHS_PREFIX}", P.PATHS_TEMPLATE)
         except Exception as e:  # noqa: BLE001  沒有 manage_index_templates 權限：template 要請 ES 管理員放（configs/factory/README.md）
             print(f"  放不了 index template {P.PATHS_PREFIX}（{type(e).__name__}）；若索引還沒建，nested 查詢會失敗")
     for index, batch in docs.items():

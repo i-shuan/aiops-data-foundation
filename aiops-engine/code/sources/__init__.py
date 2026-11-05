@@ -2,7 +2,7 @@
 
 設定檔（series.yaml、peer.yaml、rules.yaml、trace.yaml…）最上層：
 
-  source:                 # 沒寫＝ES（原本的路，aggregation 在 ES 端算）
+  source:                 # 沒寫＝ES（ESBackend：aggregation 在 ES 端算）
     kind: file            # file、http、es
     format: events        # events（一列一個事件）或 series（已整好：keys + ts + value [+ n]）
     files: {metrics-apm.transaction.1m-*: data/tx.csv}
@@ -11,27 +11,29 @@
     dir: .aiops-store
 
 程式直接呼叫：sources.MemoryBackend({"metrics-*": df})，把它當 es 傳給 detector 的指令，或自己 .series(spec, …) 餵 models/。
+手上是 core.es.ES（或假 ES）時 as_backend(es) 包成 ESBackend；detector/es.py 等讀寫函式開頭就是這麼做的。
 """
 from __future__ import annotations
 
-from .base import Backend, Store, is_backend
-from .rows import ESSourceBackend, FileBackend, HttpBackend, MemoryBackend, RowsBackend, load_file
+from .base import Backend, Store, as_backend
+from .es_source import ESBackend, ESSourceBackend
+from .rows import FileBackend, HttpBackend, MemoryBackend, RowsBackend, load_file
 from .shape import ShapeError, points_from_rows, series_from_rows
 from .stores import ESStore, FileStore, MemoryStore, open_store
 
-__all__ = ["Backend", "Store", "is_backend", "ESSourceBackend", "FileBackend", "HttpBackend", "MemoryBackend", "RowsBackend",
+__all__ = ["Backend", "Store", "as_backend", "ESBackend", "ESSourceBackend", "FileBackend", "HttpBackend", "MemoryBackend", "RowsBackend",
            "load_file", "ShapeError", "points_from_rows", "series_from_rows", "ESStore", "FileStore", "MemoryStore", "open_store",
            "open_backend"]
 
 
-def open_backend(cfg: dict, es_factory):
-    """指令開頭呼叫：依設定檔的 source／store 決定給 ES（原本的 core.es.ES）還是別的 Backend。
+def open_backend(cfg: dict, es_factory) -> Backend:
+    """指令開頭呼叫：依設定檔的 source／store 決定給哪個 Backend；沒寫 source 就是 ESBackend（讀寫都是 ES）。
     es_factory 是建 ES 連線的函式（指令傳自己模組裡的 ES，測試才蓋得掉），只在真的要連 ES 時才呼叫。"""
     src = dict(cfg.get("source") or {})
     st = dict(cfg.get("store") or {})
     kind = src.pop("kind", "es")
     if kind == "es" and st.get("kind", "es") == "es":
-        return es_factory()
+        return ESBackend(es_factory())
     store = open_store(st, es_factory, default="file" if kind != "es" else "memory")
     if kind == "es":
         return ESSourceBackend(es_factory(), store)

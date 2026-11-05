@@ -390,4 +390,6 @@ series:
 | `aiops-baseline` | `series`、`keys`（例如 `keys.service.name`）、`dow`（0 = 週一）、`hour`、`level`、`median`、`mad`、`p05`、`p95`、`n`、`trained_at` |
 | `aiops-anomalies` | `@timestamp`、`series`、`keys`、`value`、`median`、`expected_low`／`expected_high`（正常範圍）、`z`（偏離幾倍）、`level`、`direction`、`dept`、`group`、`alert_id`（併進哪一件；`investigator alert` 併件時寫回，Grafana 的「這件事故的異常」依它撈） |
 
+異常文件全部欄位的定義（誰寫、什麼意思）只有一處：程式 `detector/base.py` 的 `Anomaly`；上面的 [異常帶的欄位](#異常帶的欄位) 是 baseline 多記的那幾個。
+
 在 Kibana 建一個 `aiops-anomalies` 的 data view，就能依 `series`、`keys` 看哪個服務、哪個時間點異常。

@@ -11,15 +11,15 @@ from .es import (ANOMALY_INDEX, ANOMALY_MAPPING, BASELINE_INDEX, BASELINE_MAPPIN
 from . import adjust as A
 from .model import (CONFIDENCE, RESOLUTIONS, DetectOptions, TrainOptions, effective_for, mask_thin, pick_resolution, score, group_of, mark_status, override_for, resolutions_from, score_poisson, train, train_groups)
 from .common import _freq, _now, _v, keys_of
+from .base import Anomaly
 from .owner import write_anomalies
 from .tuning import TUNING_INDEX, TUNING_MAPPING, data_adjustments, load_overrides
-from sources import is_backend, open_backend
+from sources import as_backend, open_backend
 
 
 def save_baseline(es, name: str, by: list[str], b: pd.DataFrame, start, end, had_data: bool = False) -> None:
     """寫進 aiops-baseline，再刪掉這條序列上一次訓練留下、這次沒有的（例如改了粒度、或 4 週內都沒出現的 API）。
-    had_data：這次有查到資料（只是不夠學）。ES 查不到任何資料時不刪，保留舊的。
-    es 是 sources 的 Backend 時交給它的 Store（memory、file、es）。"""
+    had_data：這次有查到資料（只是不夠學）。ES 查不到任何資料時不刪，保留舊的。寫與刪由 Store 做（memory、file、es）。"""
     trained_at = pd.Timestamp.now(tz="UTC").isoformat()
     docs = []
     for r in b.to_dict("records"):
@@ -31,13 +31,7 @@ def save_baseline(es, name: str, by: list[str], b: pd.DataFrame, start, end, had
             "resolution": _v(r.get("resolution")), "method": _v(r.get("baseline_method")) or "mad",
             "baseline_source": f"group:{group}" if group else "self", "events": _v(r.get("events")),
             "trained_at": trained_at, "history_from": start.isoformat(), "history_to": end.isoformat()}))
-    if is_backend(es):
-        es.save_baseline(name, docs, trained_at, had_data)
-        return
-    es.bulk_index(BASELINE_INDEX, docs)
-    if docs or had_data:   # ES 查不到任何資料（例如停機）就不刪，保留舊的
-        es.req("POST", f"/{BASELINE_INDEX}/_delete_by_query?conflicts=proceed", {"query": {"bool": {"filter": [
-            {"term": {"series": name}}, {"range": {"trained_at": {"lt": trained_at}}}]}}})
+    as_backend(es).save_baseline(name, docs, trained_at, had_data)
 
 def train_summary(name: str, by: list[str], hist: pd.DataFrame, b: pd.DataFrame) -> str:
     n_series = hist.groupby(by, dropna=False).ngroups if not hist.empty else 0
@@ -89,11 +83,7 @@ def _keep_upgraded(es, docs: list) -> None:
     ids = [i for i, d in docs if d["status"] == "warning"]
     if not ids:
         return
-    if is_backend(es):
-        was = es.anomaly_status(ids)
-    else:
-        got = es.req("POST", f"/{ANOMALY_INDEX}/_mget?_source_includes=status,streak", {"ids": ids}).get("docs", [])
-        was = {g["_id"]: g["_source"] for g in got if g.get("found") and g["_source"].get("status") == "anomaly"}
+    was = as_backend(es).anomaly_status(ids)
     for i, d in docs:
         if i in was:
             d["status"], d["streak"] = "anomaly", was[i].get("streak", d.get("streak"))
@@ -112,14 +102,14 @@ def save_anomalies(es, name: str, by: list[str], s: pd.DataFrame, direction: str
         source = _v(r.get("baseline_source")) or "self"
         status = _v(r.get("status")) or "anomaly"
         level = r["level"] if source == "self" else "group"
-        docs.append((doc_id(name, keys, r["ts"]), {
-            "@timestamp": r["ts"].isoformat(), "series": name, "keys": keys, "value": r["value"],
-            "median": r["median"], "expected_low": r["expected_low"], "expected_high": r["expected_high"],
-            "z": r["z"], "level": level, "direction": direction, "detected_at": detected_at,
-            "resolution": resolution, "method": _v(r.get("baseline_method")) or "mad", "baseline_source": source,
-            "confidence": CONFIDENCE.get(level, "low"), "status": status,
-            **({"streak": int(r["streak"])} if _v(r.get("streak")) is not None else {}),
-            **({"p": r["p"]} if "p" in r else {})}))
+        a = Anomaly(ts=r["ts"], series=name, keys=keys, value=r["value"],
+                    median=r["median"], expected_low=r["expected_low"], expected_high=r["expected_high"], z=r["z"],
+                    level=level, direction=direction, detected_at=detected_at,
+                    resolution=resolution, method=_v(r.get("baseline_method")) or "mad", baseline_source=source,
+                    confidence=CONFIDENCE.get(level, "low"), status=status,
+                    streak=int(r["streak"]) if _v(r.get("streak")) is not None else None,
+                    p=r["p"] if "p" in r else None)
+        docs.append((a.id(), a.to_doc()))    # 文件欄位只定義在 base.Anomaly；a.id() == doc_id(name, keys, ts)
     if docs:
         _keep_upgraded(es, docs)
         write_anomalies(es, docs)
@@ -280,7 +270,7 @@ def cmd_tune(cfg: dict, args) -> int:
     """寫一筆調整進 aiops-tuning（同一條序列＋同一組 match 會覆蓋）；--remove 刪掉；--list 列出；
     --show 看某條序列、某個對象最終生效的值與來源（多筆都符合時後面蓋前面，不然看不出是哪一筆定的）。"""
     es = open_backend(cfg, ES)
-    if is_backend(es) and es.store.kind != "es" and not (args.list or args.show):
+    if es.store.kind != "es" and not (args.list or args.show):
         print(f"tune 要寫 aiops-tuning，store 是 {es.store.kind}（不是 ES）：直接改 series.yaml 的 overrides")
         return 2
     es.ensure_index(TUNING_INDEX, TUNING_MAPPING)

@@ -33,13 +33,13 @@ min_ratio：這段時間裡至少多少比例的點成立（預設 1，全部）
 from __future__ import annotations
 
 import operator
-from collections import defaultdict
 
 import numpy as np
 import pandas as pd
 
-from core.es import ES, get_field, time_range
-from sources.base import is_backend
+from core.es import get_field
+from sources.base import as_backend
+from sources.es_source import _put  # noqa: F401  join 補分母的寫法搬去 ES 來源；名字留給既有的 import
 
 OPS = {">=": operator.ge, ">": operator.gt, "<=": operator.le, "<": operator.lt, "==": operator.eq, "!=": operator.ne}
 
@@ -189,50 +189,9 @@ def evaluate(rule: dict, series: dict[tuple, list[tuple[pd.Timestamp, dict]]], n
     return out
 
 
-def fetch(es: ES, rule: dict, start: pd.Timestamp, end: pd.Timestamp) -> dict[tuple, list[tuple[pd.Timestamp, dict]]]:
-    if is_backend(es):   # 檔案、HTTP、記憶體來源：sources/shape.points_from_rows
-        return es.points(rule, start, end)
-    # exists：直方圖的 sum 這種子欄位不能拿來過濾「有沒有」，要用直方圖本身（例如 metrics.jvm_gc_duration_seconds）
-    out = _fetch(es, rule["index"], rule["field"], rule.get("filter", []), rule, start, end, rule.get("exists"))
-    if rule.get("join"):
-        # 分母在另一種文件：依「同一個對象、同一個時間點」補進來
-        j = rule["join"]
-        other = _fetch(es, rule["index"], j["field"], j.get("filter", []), rule, start, end)
-        lookup = {(k, t): get_field(d, j["field"]) for k, pts in other.items() for t, d in pts}
-        for k, pts in out.items():
-            for t, d in pts:
-                if (v := lookup.get((k, t))) is not None:
-                    _put(d, j["field"], v)
-    return out
-
-
-def _put(d: dict, dotted: str, v) -> None:
-    head, _, rest = dotted.partition(".")
-    d.setdefault(head, {})[rest] = v   # metrics.<名稱>：名稱裡的點不拆開，跟 ES 的 _source 一樣
-
-
-def _fetch(es: ES, index: str, field: str, filters: list, rule: dict, start, end, exists: str | None = None) -> dict[tuple, list]:
-    fields = [field, *([rule["other"]] if rule.get("other") else []), *rule.get("den", [])]
-    keep = rule["by"] + rule.get("context", [])
-    q = {"bool": {"filter": [time_range(start, end), {"exists": {"field": exists or field}}, *filters]}}
-    out: dict[tuple, list] = defaultdict(list)
-    after = None
-    while True:
-        body = {"size": 5000, "_source": ["@timestamp", *fields, *keep], "query": q,
-                "sort": [{"@timestamp": "asc"}, {"_doc": "asc"}]}
-        if after:
-            body["search_after"] = after
-        hits = es.search(index, body)["hits"]["hits"]
-        for h in hits:
-            d = h["_source"]
-            key = tuple(get_field(d, f) for f in rule["by"])
-            ts = d["@timestamp"]
-            ts = pd.Timestamp(ts, unit="ms", tz="UTC") if isinstance(ts, (int, float)) else pd.Timestamp(ts)
-            out[key].append((ts, d))
-        if len(hits) < 5000:
-            break
-        after = hits[-1]["sort"]
-    return out
+def fetch(es, rule: dict, start: pd.Timestamp, end: pd.Timestamp) -> dict[tuple, list[tuple[pd.Timestamp, dict]]]:
+    """{序列的 key: [(時間, 文件), …]}。ES 的查詢（含 join 補分母）在 sources/es_source.py；檔案、HTTP、記憶體來源是 sources/shape.points_from_rows。"""
+    return as_backend(es).points(rule, start, end)
 
 
 def evaluate_window(rule: dict, df: pd.DataFrame, since: pd.Timestamp) -> list[dict]:

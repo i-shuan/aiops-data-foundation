@@ -96,7 +96,7 @@ class CmdPeerTest(unittest.TestCase):
 
     def run_peer(self, life, values, cfg_extra=None):
         """life：Pod → (起來, 停掉) 相對 END 的分鐘數（停掉 None＝還在）；values：Pod → CPU。回傳被報的 Pod。"""
-        from detector import cmd_peer as C
+        from detector import base as B, cmd_peer as C
 
         def fetch(es, spec, start, end, interval):
             if spec["value"] == "count":   # 這段時間有資料的 Pod
@@ -116,8 +116,9 @@ class CmdPeerTest(unittest.TestCase):
             {"name": "peer.pod_cpu", "title": "CPU 高", "index": "x", "by": ["ns", "deploy", "pod"],
              "value": {"avg": "cpu"}, "direction": "up", "min_abs": 0.2, "min_ratio": 3}]}
         args = type("A", (), {"at": self.END.isoformat(), "only": None})()
-        with mock.patch.object(C, "ES", FakeES), mock.patch.object(C, "fetch", fetch), \
-                mock.patch.object(C, "write_anomalies", lambda es, docs: written.extend(docs)), \
+        # 開連線、寫異常在 Detector 基底（detector/base.py）；查資料在 cmd_peer 自己
+        with mock.patch.object(B, "ES", FakeES), mock.patch.object(C, "fetch", fetch), \
+                mock.patch.object(B, "write_anomalies", lambda es, docs: written.extend(docs)), \
                 contextlib.redirect_stdout(io.StringIO()):
             C.cmd_peer(cfg, args)
         return sorted(d["keys"]["pod"] for _, d in written)

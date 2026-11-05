@@ -1,11 +1,15 @@
-"""baseline 用的 ES 查詢：把一條「時間序列定義」查成 DataFrame，以及寫回 baseline 和異常。連線見 core.es。"""
+"""baseline 的序列查詢與 aiops-baseline、aiops-anomalies 的 mapping。連線見 core.es。
+查詢本身在 sources/es_source.py（ESSourceBackend.series、alive_times）、sources/stores.py（ESStore.load_baseline…）；
+這裡的 fetch／alive_times／load_baseline／load_group_baselines 只是 as_backend(es).<方法>，名字留給指令與測試。
+value 的寫法 → ES aggregation（_value_aggs、_bucket_value、_bucket_events）留在這裡：sources/shape.py 的 pandas 版跟它是同一套定義。"""
 from __future__ import annotations
 
 import pandas as pd
 
 from core.es import ES, doc_id  # noqa: F401  doc_id 給 cmd_*.py 用（從 .es 一起 import）
-from sources.base import is_backend
-from sources.shape import fill_zero as _fill_zero  # noqa: F401  補 0 的邏輯搬到 sources/shape.py（ES 與其他來源共用）；名字留給既有的 import
+from sources.base import as_backend
+from sources.shape import fill_zero as _fill_zero  # noqa: F401  補 0 的邏輯在 sources/shape.py（ES 與其他來源共用）；名字留給既有的 import
+from sources.stores import BASELINE_COLUMNS, _RENAMED  # noqa: F401  baseline 讀回來的欄位，一份定義在 sources/stores.py
 
 BASELINE_INDEX = "aiops-baseline"
 ANOMALY_INDEX = "aiops-anomalies"
@@ -142,118 +146,22 @@ def _bucket_events(value, b: dict):
     return None
 
 
-def fetch(es: ES, spec: dict, start: pd.Timestamp, end: pd.Timestamp, interval: str | None) -> pd.DataFrame:
-    """有 keys 時（統一的名字，例如 service、method、route），回傳的欄位用 keys 取代 by 的欄位路徑。
-    同一個指標不同語言名字不同的問題在 node Collector 改名解決（docs/pdca/phase1-collect/2026-10-field-unify.md），這裡不再分語言各查一次。
-    es 是 sources 的 Backend（檔案、HTTP、記憶體）時交給它：整形在 pandas 做（sources/shape.py），回傳格式一樣。"""
-    if is_backend(es):
-        return es.series(spec, start, end, interval)
-    df = _fetch_one(es, spec, start, end, interval)
-    if spec.get("keys"):
-        df = df.rename(columns=dict(zip(spec["by"], spec["keys"])))
-    return df
+def fetch(es, spec: dict, start: pd.Timestamp, end: pd.Timestamp, interval: str | None) -> pd.DataFrame:
+    """一條序列定義 → keys（沒有就 by）+ ts + value + n。es 是 ES 就在 ES 端 aggregation（sources/es_source.py），
+    是檔案、HTTP、記憶體的 Backend 就在 pandas 整形（sources/shape.py），回傳格式一樣。"""
+    return as_backend(es).series(spec, start, end, interval)
 
 
-def _fetch_one(es: ES, spec: dict, start: pd.Timestamp, end: pd.Timestamp, interval: str | None) -> pd.DataFrame:
-    """把一條序列定義在 [start, end) 的資料，依 by 欄位和 interval 切好。interval 是 None 時整段算一個值（ts 是 end），
-    跟兄弟比（peer.py）用：每個 Pod 最近 10 分鐘的錯誤率、p95。
-
-    回傳欄位：by 的每個欄位 + ts + value + n（底下的事件數，見 _bucket_events；events: value 時就是 value）。筆數類（count、或 fill_zero: true）沒有資料的時段補 0：
-    沒有請求就是 0，不是「不知道」。這也是為什麼資料不能缺，缺了會被學成「平常會掉到 0」。
-    """
-    by = spec["by"]
-    filters = [{"range": {spec.get("time_field", "@timestamp"): {"gte": start.isoformat(), "lt": end.isoformat()}}}]
-    if spec.get("filter"):
-        filters.append(spec["filter"])
-    sources = [{f"k{i}": {"terms": {"field": f}}} for i, f in enumerate(by)]
-    if interval:
-        sources.append({"ts": {"date_histogram": {"field": spec.get("time_field", "@timestamp"), "fixed_interval": interval}}})
-    scale = float(spec.get("scale") or 1.0)      # 資料的單位換成序列的單位（APM 的微秒 → 秒），見 _value_aggs
-    aggs = _value_aggs(spec["value"], scale)
-    if isinstance(spec.get("events"), dict):
-        aggs["n"] = _value_aggs(spec["events"])["v"]
-    body = {"size": 0, "query": {"bool": {"filter": filters}},
-            "aggs": {"s": {"composite": {"size": 5000, "sources": sources}, "aggs": aggs}}}
-    rows, after = [], None
-    while True:
-        if after:
-            body["aggs"]["s"]["composite"]["after"] = after
-        res = es.req("POST", f"/{spec['index']}/_search?ignore_unavailable=true&allow_no_indices=true", body)
-        agg = res.get("aggregations", {}).get("s", {})
-        for b in agg.get("buckets", []):
-            row = {f: b["key"][f"k{i}"] for i, f in enumerate(by)}
-            row["ts"] = pd.Timestamp(b["key"]["ts"], unit="ms", tz="UTC") if interval else end
-            row["value"] = _bucket_value(spec["value"], b, scale)
-            ev = spec.get("events")
-            row["n"] = row["value"] if ev == "value" else b["n"]["value"] if isinstance(ev, dict) else _bucket_events(spec["value"], b)
-            rows.append(row)
-        after = agg.get("after_key")
-        if not after:
-            break
-    df = pd.DataFrame(rows, columns=by + ["ts", "value", "n"])
-    if interval and (spec["value"] == "count" or spec.get("fill_zero")) and not df.empty:
-        # 有 filter 的序列（例如只數 error log）不能拿自己的資料判斷收集系統有沒有在跑：沒有任何服務出錯的時段
-        # 會被當成「不知道」，稀少的錯誤數就只剩有錯的時段可學，平常被學高
-        alive = alive_times(es, spec, start, end, interval) if spec.get("filter") else None
-        df = _fill_zero(df, by, start, end, interval, alive)
-    return df
+def alive_times(es, spec: dict, start: pd.Timestamp, end: pd.Timestamp, interval: str) -> pd.DatetimeIndex:
+    """收集系統有在送資料的時間窗（Backend.alive_times）。"""
+    return as_backend(es).alive_times(spec, start, end, interval)
 
 
-def alive_times(es: ES, spec: dict, start: pd.Timestamp, end: pd.Timestamp, interval: str) -> pd.DatetimeIndex:
-    """收集系統有在送資料的時間窗：這條序列的 index、不加序列自己的 filter，任何一筆資料就算。
-    整個 index 都沒有資料的時段＝收集系統停了（「不知道」），不是零流量。"""
-    if is_backend(es):
-        return es.alive_times(spec, start, end, interval)
-    tf = spec.get("time_field", "@timestamp")
-    body = {"size": 0, "query": {"bool": {"filter": [{"range": {tf: {"gte": start.isoformat(), "lt": end.isoformat()}}}]}},
-            "aggs": {"t": {"composite": {"size": 10000, "sources": [{"ts": {"date_histogram": {"field": tf, "fixed_interval": interval}}}]}}}}
-    out, after = [], None
-    while True:
-        if after:
-            body["aggs"]["t"]["composite"]["after"] = after
-        agg = es.req("POST", f"/{spec['index']}/_search?ignore_unavailable=true&allow_no_indices=true", body
-                     ).get("aggregations", {}).get("t", {})
-        out += [b["key"]["ts"] for b in agg.get("buckets", [])]
-        after = agg.get("after_key")
-        if not after:
-            break
-    return pd.DatetimeIndex(pd.to_datetime(out, unit="ms", utc=True))
+def load_baseline(es, series: str, by: list[str]) -> pd.DataFrame:
+    """這條序列自己學出來的 baseline（不含借給別人用的組 baseline）：欄位 by + BASELINE_COLUMNS。"""
+    return as_backend(es).load_baseline(series, by)
 
 
-# 讀回來的欄位。method 存成 baseline_method：序列的 keys 也可能有 method（HTTP method），會撞名
-BASELINE_COLUMNS = ("dow", "hour", "level", "median", "mad", "resolution", "baseline_method", "baseline_source",
-                    "trained_at")
-_RENAMED = {"baseline_method": "method"}
-
-
-def load_baseline(es: ES, series: str, by: list[str]) -> pd.DataFrame:
-    """這條序列自己學出來的 baseline（不含借給別人用的組 baseline）。"""
-    if is_backend(es):
-        return es.load_baseline(series, by)
-    rows, after = [], None
-    while True:
-        body = {"size": 10000, "query": {"bool": {"filter": [{"term": {"series": series}}],
-                                                  "must_not": [{"prefix": {"baseline_source": "group:"}}]}},
-                "sort": [{"_doc": "asc"}]}
-        if after:
-            body["search_after"] = after
-        hits = es.req("POST", f"/{BASELINE_INDEX}/_search?ignore_unavailable=true", body).get("hits", {}).get("hits", [])
-        for h in hits:
-            s = h["_source"]
-            rows.append({**{f: s["keys"].get(f) for f in by}, **{k: s.get(_RENAMED.get(k, k)) for k in BASELINE_COLUMNS}})
-        if len(hits) < 10000:
-            break
-        after = hits[-1]["sort"]
-    return pd.DataFrame(rows, columns=by + list(BASELINE_COLUMNS))
-
-
-def load_group_baselines(es: ES, series: str) -> pd.DataFrame:
+def load_group_baselines(es, series: str) -> pd.DataFrame:
     """train 時從成員算出來的組 baseline：group + dow、hour、level、median、mad、resolution。"""
-    if is_backend(es):
-        return es.load_group_baselines(series)
-    body = {"size": 10000, "query": {"bool": {"filter": [{"term": {"series": series}},
-                                                         {"prefix": {"baseline_source": "group:"}}]}}}
-    hits = es.req("POST", f"/{BASELINE_INDEX}/_search?ignore_unavailable=true", body).get("hits", {}).get("hits", [])
-    rows = [{"group": h["_source"]["baseline_source"][len("group:"):],
-             **{k: h["_source"].get(k) for k in ("dow", "hour", "level", "median", "mad", "resolution")}} for h in hits]
-    return pd.DataFrame(rows, columns=["group", "dow", "hour", "level", "median", "mad", "resolution"])
+    return as_backend(es).load_group_baselines(series)

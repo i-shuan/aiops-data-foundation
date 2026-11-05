@@ -2,7 +2,7 @@
 
 > **類型：操作 How-To**　五個模型的輸入規格見 [models/README.md](../models/README.md)・為什麼這樣切見 [docs/pdca/meta/2026-11-model-modules.md](../../../docs/pdca/meta/2026-11-model-modules.md)
 
-設定檔（`series.yaml`、`peer.yaml`、`rules.yaml`…）最上層加 `source:`、`store:`，指令和模型不用改。沒寫就是現在的 ES。
+設定檔（`series.yaml`、`peer.yaml`、`rules.yaml`…）最上層加 `source:`、`store:`，指令和模型不用改。沒寫就是現在的 ES（`ESBackend`，跟 file／http／memory 一樣是 `Backend` 的實作；程式裡拿到 `core.es.ES` 時用 `sources.as_backend(es)` 包起來）。
 
 | 情況 | 怎麼做 |
 |---|---|

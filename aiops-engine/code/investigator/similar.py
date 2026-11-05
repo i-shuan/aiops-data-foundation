@@ -44,7 +44,8 @@ def fingerprint(alert: dict, findings: dict | None) -> dict:
     }
 
 
-def query(fp: dict, exclude_id: str | None = None, size: int = CANDIDATES) -> dict:
+def query(fp: dict, exclude_id: str | None = None, size: int = CANDIDATES, statuses: tuple[str, ...] = CONFIRMED) -> dict:
+    """ES 的候選查詢（sources/stores.py ESStore.similar_incidents 用）：status 過濾＋指紋各欄位的 should（boost 只影響 ES 端排前 size 件）。"""
     should = []
     for field, w in WEIGHTS.items():
         vals = fp.get(field) or []
@@ -54,7 +55,7 @@ def query(fp: dict, exclude_id: str | None = None, size: int = CANDIDATES) -> di
             should += [{"match": {"fingerprint.patterns": {"query": v, "boost": w}}} for v in vals]
         else:
             should.append({"terms": {f"fingerprint.{field}": vals, "boost": w}})
-    q = {"bool": {"filter": [{"terms": {"status": list(CONFIRMED)}}], "should": should, "minimum_should_match": 1}}
+    q = {"bool": {"filter": [{"terms": {"status": list(statuses)}}], "should": should, "minimum_should_match": 1}}
     if exclude_id:
         q["bool"]["must_not"] = [{"ids": {"values": [exclude_id]}}]
     return {"size": size, "query": q}
@@ -102,14 +103,11 @@ def confirmed_only(candidates: list[tuple[str, dict]], exclude_id: str | None = 
 def search(es, fp: dict, exclude_id: str | None = None, k: int = TOP_K, min_score: float = MIN_SCORE, size: int = CANDIDATES,
            weights: dict | None = None) -> list[dict]:
     """最像的 k 件（分數 ≥ min_score）。回傳給報告用的欄位＋為什麼像。size：跟 ES 要幾件候選（見 CANDIDATES）。
-    es 是 sources 的 Backend 時候選從它的 Store 拿（aiops-incidents 裡已確認的），分數一樣用 rank 算。"""
+    候選從 Store 拿（ES 用 query 先篩前 size 件；檔案、記憶體給全部已確認的），分數一樣用 rank 算。"""
     if not any(fp.get(f) for f in WEIGHTS):
         return []
-    from sources.base import is_backend
-    if is_backend(es):
-        return rank(fp, es.incidents(CONFIRMED, exclude_id), k, min_score, weights)
-    hits = es.search(INCIDENT_INDEX, query(fp, exclude_id, size)).get("hits", {}).get("hits", [])
-    return rank(fp, [(h["_id"], h["_source"]) for h in hits], k, min_score, weights)
+    from sources.base import as_backend
+    return rank(fp, as_backend(es).similar_incidents(fp, CONFIRMED, exclude_id, size), k, min_score, weights)
 
 
 # ── 分類：case 只用來說「這件像哪一類」（docs/pdca/meta/2026-11-case-classify.md）──
@@ -154,13 +152,9 @@ def format_similar(items: list[dict], tz_label: str = "", cls: dict | None = Non
 
 
 def _confirmed_cases(es) -> list[tuple[str, dict]]:
-    from sources.base import is_backend
-    if is_backend(es):
-        return [(i, s) for i, s in es.incidents(CONFIRMED) if s.get("root_cause_category") and s.get("fingerprint")]
-    hits = es.search(INCIDENT_INDEX, {"size": 1000, "query": {"bool": {"filter": [{"terms": {"status": list(CONFIRMED)}},
-                                                                                     {"exists": {"field": "root_cause_category"}},
-                                                                                     {"exists": {"field": "fingerprint"}}]}}}).get("hits", {}).get("hits", [])
-    return [(h["_id"], h["_source"]) for h in hits]
+    """已確認、有根因分類、有指紋的事故（留一法的樣本）。"""
+    from sources.base import as_backend
+    return as_backend(es).incidents(CONFIRMED, having=("root_cause_category", "fingerprint"))
 
 
 def evaluate_cases(cases: list[tuple[str, dict]], k: int = TOP_K, min_score: float = MIN_SCORE, weights: dict | None = None) -> dict:

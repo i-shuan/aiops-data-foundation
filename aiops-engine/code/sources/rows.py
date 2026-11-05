@@ -1,4 +1,4 @@
-"""原始列的來源：memory（程式直接給 DataFrame）、file（CSV／Parquet／NDJSON／JSON）、http（GET 回 JSON）。
+"""原始列的來源：memory（程式直接給 DataFrame）、file（CSV／Parquet／NDJSON／JSON）、http（GET 回 JSON）。ES 在 es_source.py。
 三種都只負責「把某個 index 在某段時間的原始列拿出來」，整形交給 shape.py；ES 以外的來源不在這裡做 aggregation。
 
 index 的對應：設定裡的 key 是 series.yaml 寫的 index（可以含 *），拿序列的 index 來找：完全一樣優先，再用 glob 比對。
@@ -58,6 +58,15 @@ class RowsBackend(Backend):
     def spans(self, index, trace_ids, start, end):
         want = set(trace_ids)
         return [s for s in self._spans if not want or s.get("trace_id") in want]
+
+    def source_rows(self, inp, start, end):
+        df = shape.in_window(self.rows(inp["index"], start, end), inp.get("time_field", "@timestamp"), start, end)
+        if df.empty:
+            return []
+        if inp.get("filter"):
+            df = df.loc[shape.mask(df, inp["filter"])]
+        rows = df.drop(columns=["ts"]).to_dict("records")
+        return [{k: (None if isinstance(v, float) and pd.isna(v) else v) for k, v in r.items()} for r in rows]
 
 
 class MemoryBackend(RowsBackend):
@@ -154,31 +163,3 @@ class HttpBackend(RowsBackend):
         frames = [shape.rows_from_records(self._fetch(t.format(index=index, start=start.isoformat(), end=end.isoformat())))
                   for t in targets]
         return frames[0] if len(frames) == 1 else pd.concat(frames, ignore_index=True)
-
-
-class ESSourceBackend(Backend):
-    """原始資料在 ES、結果不寫 ES（source 沒寫或 kind es，但 store 是 file／memory：例如離線實驗）。讀的部分就是原本的 ES 查詢。"""
-    kind = "es"
-
-    def __init__(self, es, store: Store):
-        self.es, self.store = es, store
-
-    def series(self, spec, start, end, interval):
-        from detector.es import fetch
-        return fetch(self.es, spec, start, end, interval)
-
-    def alive_times(self, spec, start, end, interval):
-        from detector.es import alive_times
-        return alive_times(self.es, spec, start, end, interval)
-
-    def points(self, rule, start, end):
-        from detector.rules import fetch
-        return fetch(self.es, rule, start, end)
-
-    def spans(self, index, trace_ids, start, end):
-        from core.traces import spans_of
-        return spans_of(self.es, index, trace_ids, start, end)
-
-    def spans_by_id(self, index, span_ids, start, end):
-        from core.traces import spans_by_id
-        return spans_by_id(self.es, index, span_ids, start, end)

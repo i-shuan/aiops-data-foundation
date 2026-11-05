@@ -11,9 +11,10 @@ import pandas as pd
 from .base import Store
 
 BASELINE_INDEX, ANOMALY_INDEX, TUNING_INDEX, INCIDENT_INDEX = "aiops-baseline", "aiops-anomalies", "aiops-tuning", "aiops-incidents"
-# 跟 detector/es.py 的 BASELINE_COLUMNS、_RENAMED 一樣（那邊 import 這裡會繞圈，所以各寫一份；test_sources_backend 盯著兩邊一致）
+# baseline 讀回來的欄位（detector/es.py 從這裡 import）。method 存成 baseline_method：序列的 keys 也可能有 method（HTTP method），會撞名
 BASELINE_COLUMNS = ("dow", "hour", "level", "median", "mad", "resolution", "baseline_method", "baseline_source", "trained_at")
 _RENAMED = {"baseline_method": "method"}
+_GROUP_COLUMNS = ("dow", "hour", "level", "median", "mad", "resolution")
 
 
 class MemoryStore(Store):
@@ -44,10 +45,10 @@ class MemoryStore(Store):
         return pd.DataFrame(rows, columns=by + list(BASELINE_COLUMNS))
 
     def load_group_baselines(self, series: str) -> pd.DataFrame:
-        rows = [{"group": s["baseline_source"][len("group:"):], **{k: s.get(k) for k in ("dow", "hour", "level", "median", "mad", "resolution")}}
+        rows = [{"group": s["baseline_source"][len("group:"):], **{k: s.get(k) for k in _GROUP_COLUMNS}}
                 for _, s in self.docs(BASELINE_INDEX)
                 if s.get("series") == series and str(s.get("baseline_source") or "").startswith("group:")]
-        return pd.DataFrame(rows, columns=["group", "dow", "hour", "level", "median", "mad", "resolution"])
+        return pd.DataFrame(rows, columns=["group", *_GROUP_COLUMNS])
 
     def save_baseline(self, series: str, docs, trained_at: str, had_data: bool) -> None:
         self.bulk_index(BASELINE_INDEX, docs)
@@ -66,17 +67,17 @@ class MemoryStore(Store):
         return sorted(out, key=lambda a: str(a.get("at") or ""))
 
     def write_anomalies(self, docs) -> None:
+        """檔案、記憶體來源沒有 dept／group 的資料可查：全部 unassigned。"""
         if not docs:
             return
-        from core.version import ENGINE_VERSION
         for _, d in docs:
             d.setdefault("dept", None)
             d.setdefault("group", "unassigned")
-            d["engine_version"] = ENGINE_VERSION
         self.bulk_index(ANOMALY_INDEX, docs)
 
-    def incidents(self, statuses, exclude_id=None) -> list[tuple[str, dict]]:
-        return [(i, s) for i, s in self.docs(INCIDENT_INDEX) if s.get("status") in statuses and i != exclude_id]
+    def incidents(self, statuses, exclude_id=None, having=()) -> list[tuple[str, dict]]:
+        return [(i, s) for i, s in self.docs(INCIDENT_INDEX)
+                if s.get("status") in statuses and i != exclude_id and all(s.get(f) for f in having)]
 
 
 class FileStore(MemoryStore):
@@ -100,7 +101,7 @@ class FileStore(MemoryStore):
 
 
 class ESStore(Store):
-    """結果寫進 ES（原始資料不在 ES、結果要在 ES 時用：source: file ＋ store: es）。做法跟 detector 各指令直接打 ES 一樣。"""
+    """結果在 ES（現況；也給 source: file ＋ store: es）。es 是 core.es.ES（或測試裡只有 req／search／bulk_index 的假 ES）。"""
     kind = "es"
 
     def __init__(self, es):
@@ -116,16 +117,34 @@ class ESStore(Store):
         return self.es.req(method, path, body, **({"ok": ok} if ok else {}))
 
     def load_baseline(self, series, by):
-        from detector.es import load_baseline
-        return load_baseline(self.es, series, by)
+        """這條序列自己學出來的 baseline（不含借給別人用的組 baseline）。"""
+        rows, after = [], None
+        while True:
+            body = {"size": 10000, "query": {"bool": {"filter": [{"term": {"series": series}}],
+                                                      "must_not": [{"prefix": {"baseline_source": "group:"}}]}},
+                    "sort": [{"_doc": "asc"}]}
+            if after:
+                body["search_after"] = after
+            hits = self.es.req("POST", f"/{BASELINE_INDEX}/_search?ignore_unavailable=true", body).get("hits", {}).get("hits", [])
+            for h in hits:
+                s = h["_source"]
+                rows.append({**{f: s["keys"].get(f) for f in by}, **{k: s.get(_RENAMED.get(k, k)) for k in BASELINE_COLUMNS}})
+            if len(hits) < 10000:
+                break
+            after = hits[-1]["sort"]
+        return pd.DataFrame(rows, columns=by + list(BASELINE_COLUMNS))
 
     def load_group_baselines(self, series):
-        from detector.es import load_group_baselines
-        return load_group_baselines(self.es, series)
+        """train 時從成員算出來的組 baseline：group + dow、hour、level、median、mad、resolution。"""
+        body = {"size": 10000, "query": {"bool": {"filter": [{"term": {"series": series}},
+                                                             {"prefix": {"baseline_source": "group:"}}]}}}
+        hits = self.es.req("POST", f"/{BASELINE_INDEX}/_search?ignore_unavailable=true", body).get("hits", {}).get("hits", [])
+        rows = [{"group": h["_source"]["baseline_source"][len("group:"):], **{k: h["_source"].get(k) for k in _GROUP_COLUMNS}} for h in hits]
+        return pd.DataFrame(rows, columns=["group", *_GROUP_COLUMNS])
 
     def save_baseline(self, series, docs, trained_at, had_data):
         self.es.bulk_index(BASELINE_INDEX, docs)
-        if docs or had_data:
+        if docs or had_data:   # ES 查不到任何資料（例如停機）就不刪，保留舊的
             self.es.req("POST", f"/{BASELINE_INDEX}/_delete_by_query?conflicts=proceed", {"query": {"bool": {"filter": [
                 {"term": {"series": series}}, {"range": {"trained_at": {"lt": trained_at}}}]}}})
 
@@ -134,19 +153,36 @@ class ESStore(Store):
         return {g["_id"]: g["_source"] for g in got if g.get("found") and g["_source"].get("status") == "anomaly"}
 
     def adjustments(self):
-        hits = self.es.req("POST", f"/{TUNING_INDEX}/_search", {"size": 10000, "sort": [{"at": {"order": "asc", "unmapped_type": "date"}}]},
-                           ok=(200, 404)).get("hits", {}).get("hits", [])
+        # 讀不到（index 關閉、沒權限、ES 逾時）不整個失敗：印出來，這一輪只用設定檔的。index 不存在是正常的（還沒人調過）
+        try:
+            hits = self.es.req("POST", f"/{TUNING_INDEX}/_search", {"size": 10000, "sort": [{"at": {"order": "asc", "unmapped_type": "date"}}]},
+                               ok=(200, 404)).get("hits", {}).get("hits", [])
+        except Exception as e:  # noqa: BLE001  RuntimeError（ES 回錯誤）或 requests 的連線、逾時錯誤
+            print(f"  ⚠ 讀不到 {TUNING_INDEX}（{str(e)[:120]}），這一輪不套用裡面的調整，只用設定檔的")
+            hits = []
         return [{"id": h["_id"], **h["_source"]} for h in hits]
 
     def write_anomalies(self, docs):
-        from detector.owner import write_anomalies
-        write_anomalies(self.es, docs)
+        """每筆依 keys 裡的 namespace／服務對回 dept、group（detector/owner.py）。"""
+        if not docs:
+            return
+        from detector.owner import load_owners, owner_of
+        owners = load_owners(self.es)
+        for _, d in docs:
+            d["dept"], d["group"] = owner_of(d.get("keys"), owners)
+        self.es.bulk_index(ANOMALY_INDEX, docs)
 
-    def incidents(self, statuses, exclude_id=None):
-        q = {"bool": {"filter": [{"terms": {"status": list(statuses)}}]}}
+    def incidents(self, statuses, exclude_id=None, having=()):
+        q = {"bool": {"filter": [{"terms": {"status": list(statuses)}}, *({"exists": {"field": f}} for f in having)]}}
         if exclude_id:
             q["bool"]["must_not"] = [{"ids": {"values": [exclude_id]}}]
         hits = self.es.search(INCIDENT_INDEX, {"size": 1000, "query": q}).get("hits", {}).get("hits", [])
+        return [(h["_id"], h["_source"]) for h in hits]
+
+    def similar_incidents(self, fp, statuses, exclude_id=None, size=200):
+        """ES 用指紋的 bool／terms 先篩出前 size 件（investigator.similar.query），分數還是 rank 自己算。"""
+        from investigator.similar import query
+        hits = self.es.search(INCIDENT_INDEX, query(fp, exclude_id, size, statuses)).get("hits", {}).get("hits", [])
         return [(h["_id"], h["_source"]) for h in hits]
 
 

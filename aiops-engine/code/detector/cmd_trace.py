@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import pandas as pd
 
+from .base import Anomaly
 from .es import ANOMALY_INDEX, ANOMALY_MAPPING, BASELINE_INDEX, BASELINE_MAPPING, ES, doc_id, load_baseline
 from . import adjust as A
 from . import trace as T
@@ -93,10 +94,10 @@ def cmd_trace_detect(cfg: dict, args) -> int:
     base = load_baseline(es, "trace.segment.calls", T.KEYS)
     new = T.new_segments(cur, base)
     now = pd.Timestamp.now(tz="UTC").isoformat()
-    docs = [(doc_id("trace.segment.new", {k: r[k] for k in T.KEYS}, r["ts"]), {
-        "@timestamp": r["ts"].isoformat(), "series": "trace.segment.new", "keys": {k: r[k] for k in T.KEYS},
-        "value": r["calls"], "median": 0.0, "expected_low": 0.0, "expected_high": 0.0, "z": None, "level": "rule",
-        "direction": "up", "detected_at": now}) for r in new.to_dict("records")]
+    found = [Anomaly(ts=r["ts"], series="trace.segment.new", keys={k: r[k] for k in T.KEYS}, value=r["calls"],
+                     median=0.0, expected_low=0.0, expected_high=0.0, level="rule", direction="up")
+             for r in new.to_dict("records")]
+    docs = [(a.id(), a.to_doc(now)) for a in found]
     if docs:
         write_anomalies(es, docs)
         for _, d in docs[:5]:
@@ -117,20 +118,20 @@ def cmd_trace_detect(cfg: dict, args) -> int:
                    f"（{r['swallowed_rate']:.0%} 的請求丟了 {r.get('exception_type') or '例外'}，但沒標成錯誤）")
                   for r in T.swallowed(cur, rules["swallowed_rate"]).to_dict("records")]
     es.req("PUT", f"/{ANOMALY_INDEX}/_mapping", {"properties": RULE_FIELDS})
-    docs = [(doc_id(series, {k: r[k] for k in T.KEYS}, r["ts"]), {
-        "@timestamp": r["ts"].isoformat(), "series": series, "rule": series, "keys": {k: r[k] for k in T.KEYS},
-        "value": v, "median": None, "expected_low": None, "expected_high": th, "z": None, "level": "rule",
-        "direction": "up", "severity": "warning", "message": msg, "detected_at": now}) for series, r, v, th, msg in found]
+    docs = [(a.id(), a.to_doc(now)) for a in (
+        Anomaly(ts=r["ts"], series=series, rule=series, keys={k: r[k] for k in T.KEYS}, value=v, expected_high=th,
+                level="rule", direction="up", severity="warning", message=msg) for series, r, v, th, msg in found)]
     if docs:
         write_anomalies(es, docs)
         for _, d in docs[:10]:
             print(f"  [warning] {d['message']}")
     total += len(docs)
     # 時鐘不同步：規則，超過容許值就記
-    docs = [(doc_id("trace.clock_skew_ms", r["caller"], r["callee"], r["ts"]), {
-        "@timestamp": r["ts"].isoformat(), "series": "trace.clock_skew_ms", "keys": {"caller": r["caller"], "callee": r["callee"]},
-        "value": r["skew_ms"], "median": 0.0, "expected_low": 0.0, "expected_high": cfg.get("clock_skew_ms", 500),
-        "z": None, "level": "rule", "direction": "up", "detected_at": pd.Timestamp.now(tz="UTC").isoformat()}) for r in skews]
+    # _id 不是預設的 (series, keys, ts)：既有資料就是這樣算的，換了會重複寫
+    docs = [(doc_id("trace.clock_skew_ms", r["caller"], r["callee"], r["ts"]),
+             Anomaly(ts=r["ts"], series="trace.clock_skew_ms", keys={"caller": r["caller"], "callee": r["callee"]}, value=r["skew_ms"],
+                     median=0.0, expected_low=0.0, expected_high=cfg.get("clock_skew_ms", 500), level="rule", direction="up").to_doc())
+            for r in skews]
     if docs:
         write_anomalies(es, docs)
         for _, d in docs[:5]:

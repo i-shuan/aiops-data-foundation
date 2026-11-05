@@ -109,10 +109,11 @@ def grade_alert(es: ES, cfg: dict, al: dict, now: datetime) -> None:
     dep = None
     if acfg.get("deploy_grace", True):
         try:
-            from sources.base import is_backend
+            from sources.base import as_backend
             since = AL._ts(al["started_at"]) - timedelta(minutes=opts.deploy_grace)
-            if not is_backend(es):
-                dep = pg.change_at(es, cfg, al["service"], since, now)
+            be = as_backend(es)
+            if be.kind == "es":   # 換版紀錄只有 ES 有（plugin 的 change_at 直接查 ES）
+                dep = pg.change_at(be.es, cfg, al["service"], since, now)
         except Exception as e:  # noqa: BLE001
             print(f"  查不到 {al['service']} 的換版時間（{type(e).__name__}）")
     golden = [a for a in own if SEV.signal_class(a.get("series"), classes) not in ("traffic", "other")]
