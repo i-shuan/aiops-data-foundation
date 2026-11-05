@@ -1,5 +1,0 @@
-apiVersion: v2
-name: es-setup
-description: 在 K8s 裡跑 elasticsearch-setup.sh（Job＋開關）：套結構、權限到 ES，發 API key 直接寫進同一個 cluster 的 Secret。預設不跑，--set esSetup.enabled=true 才跑
-type: application
-version: 0.1.0

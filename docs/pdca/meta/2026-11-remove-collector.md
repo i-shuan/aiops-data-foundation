@@ -49,7 +49,7 @@
 | engine 的 OTel 來源還在（`configs/baseline/` `rca/` `schedule/`、`source: otel`、`quality.yaml` 的 `k8s-*`、單元測試用 OTel 欄位） | 這次只刪 ①②③，④ 的程式不動 | repo 裡仍有一套讀 OTel 格式的設定，沒有東西產生那種資料；容易讓人以為還能用 | 決定要不要把 `configs/apm/` 升為預設並刪掉 OTel 來源；牽涉 500 多個測試的欄位，另開一輪 |
 | e2e 全刪，engine 沒有端到端驗證環境 | e2e 的腳本都靠 Collector 送資料 | `aiops-engine/code/tests/*_e2e.py`（`loop_e2e` 等直接寫合成資料進 ES）沒有一起刪，仍可手動跑，但缺 K8s 上的整條線 | 要在真實 APM 資料上驗證；需要的話另寫用 APM 格式的合成資料 |
 | 示範儀表板（`e2e/k8s/rca-demo/`）一併刪了 | 它靠 Collector 與模擬服務 | 沒有展示用的 demo | 要的話改用 APM 格式的資料重做 |
-| `elasticsearch-setup.sh`、`setup-helmchart` 沒實跑 | 沒有 ES 可跑 | key 權限寫錯到實際用才發現 | 第一次部署時照 [elasticsearch/README.md](../../../elasticsearch/README.md) 跑，看 `GET _security/api_key` |
+| `elasticsearch-setup.sh`、`setup-helmchart` 沒實跑 | 沒有 ES 可跑 | key 權限寫錯到實際用才發現 | 第一次部署時照 `elasticsearch/README.md`（已移除，改成 [kibana-dev-tools.txt](../../../elasticsearch/kibana-dev-tools.txt)） 跑，看 `GET _security/api_key` |
 
 - **決策**：收值相關的程式與文件一次刪乾淨，不留「已棄用」的資料夾；歷史在 git。engine 的 OTel 來源先留著，另行決定。
 - **下一輪**：真實 APM 資料上跑 `detect`、`trace-merge`（見 [apm-source](2026-11-apm-source.md)）；決定 engine 的 OTel 來源。

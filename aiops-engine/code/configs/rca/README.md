@@ -22,7 +22,7 @@
 cd engine                                # baseline、根因分析是同一個 Python 專案
 pip install -r requirements.txt
 export ES_URL=https://<es>:9200
-export ES_API_KEY=<baseline 的 key>      # elasticsearch-setup.sh 發的「AIOps baseline key」：能讀 log、trace、aiops-*
+export ES_API_KEY=<baseline 的 key>      # kibana-dev-tools.txt 第 3 段發的 engine key：能讀 log、trace、aiops-*
 
 # 從 baseline 找到的異常開始：最近 30 分鐘裡最嚴重的那個服務
 python3 -m investigator investigate --config configs/rca/rca.yaml

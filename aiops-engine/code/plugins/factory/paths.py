@@ -35,7 +35,7 @@ from detector.trace_merge import build
 PATHS_PREFIX = "lot-paths"
 ROOT_SERVICE = "lot"
 DEFAULT_BAD = ("hold", "scrap", "rework", "fail", "abort")
-# 跟 traces-merged 同一份 mapping（elasticsearch/code/storage/template-traces-merged.json）；工廠的 ES 沒有 es-setup，engine 自己放
+# 跟 traces-merged 同一份 mapping（elasticsearch/kibana-dev-tools.txt 第 2 段）；工廠的 ES 沒有 es-setup，engine 自己放
 PATHS_TEMPLATE = {
     "index_patterns": [f"{PATHS_PREFIX}-*"], "priority": 200,
     "template": {"settings": {"index.number_of_shards": 1, "index.mapping.nested_objects.limit": 20000},

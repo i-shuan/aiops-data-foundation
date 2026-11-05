@@ -2,7 +2,7 @@
 
 > **類型：操作 How-To**　原理見 [architecture.md](architecture.md)・APM 的欄位與能做到什麼見 [aiops-engine/code/configs/apm/README.md](../aiops-engine/code/configs/apm/README.md)
 
-收值（APM agent、apm-server）和 Elasticsearch 都是公司現有的，**不用部署**。要做的只有三件：在公司 ES 上手動補一次設定、部署 aiops-engine、（要發通知時）接 Grafana。不跑 `es-setup`。
+收值（APM agent、apm-server）和 Elasticsearch 都是公司現有的，**不用部署**。要做的只有三件：在公司 ES 上手動補一次設定、部署 aiops-engine、（要發通知時）接 Grafana。
 
 | 順序 | 做什麼 | 誰做 | 必要 |
 |---|---|---|---|
@@ -21,45 +21,17 @@
 
 ## 1. 在公司 ES 補設定（Kibana → Dev Tools）
 
-不跑 `es-setup` 的話，以下四段貼一次。全部是新增，不碰 APM 的任何索引。
+整份貼 [elasticsearch/kibana-dev-tools.txt](../elasticsearch/kibana-dev-tools.txt)，從上往下一段一段執行。全部是新增，不碰 APM 的任何索引。
 
-**1-1. `traces-merged` 的保留天數（ILM）**：engine 合成的一個請求一筆，留 7 天。
+| 段 | 做什麼 | 沒做的話 |
+|---|---|---|
+| 1 | `traces-merged` 的保留天數（ILM，7 天） | `traces-merged` 只增不減 |
+| 2 | `traces-merged` 的 index template（`spans`、`entries` 是 nested） | 根因分析查詢失敗 |
+| 3 | engine 的 API key：讀 APM 的三種資料，只能寫 `aiops-*`、`traces-merged-*` | engine 讀不到資料或寫不進去 |
+| 4 | Grafana 的唯讀 key（第 3 節要發通知時才用） | Grafana 讀不到 `aiops-*` |
+| 5 | 選用：每天 snapshot 備份 | 回饋、事故紀錄掉了不能重算 |
 
-```
-PUT _ilm/policy/traces-merged
-{"policy": {"phases": {"hot": {"actions": {}}, "delete": {"min_age": "7d", "actions": {"delete": {}}}}}}
-```
-
-**1-2. `traces-merged` 的 index template**：`spans`、`entries` 要是 nested，沒有這個 template 根因分析會查詢失敗。內容整份貼 [elasticsearch/code/storage/template-traces-merged.json](../elasticsearch/code/storage/template-traces-merged.json)：
-
-```
-PUT _index_template/traces-merged
-<template-traces-merged.json 的內容>
-```
-
-**1-3. engine 的角色**：讀 APM 的三種資料，只能寫自己的 `aiops-*`、`traces-merged-*`。只有寫、沒有讀，engine 讀不到資料。
-
-```
-PUT _security/role/aiops_engine_role
-{
-  "cluster": [],
-  "indices": [
-    {"names": ["traces-apm*", "logs-apm*", "metrics-apm*"], "privileges": ["read", "view_index_metadata"]},
-    {"names": ["aiops-*", "traces-merged-*"], "privileges": ["read", "write", "create_index", "view_index_metadata"]}
-  ]
-}
-```
-
-**1-4. engine 的 API key**：
-
-```
-POST _security/api_key
-{"name": "aiops-engine", "role_descriptors": {"aiops_engine_role": {"indices": [
-  {"names": ["traces-apm*", "logs-apm*", "metrics-apm*"], "privileges": ["read", "view_index_metadata"]},
-  {"names": ["aiops-*", "traces-merged-*"], "privileges": ["read", "write", "create_index", "view_index_metadata"]}]}}}
-```
-
-回傳的 `encoded` 下一步用；不要貼進 git、聊天或 log。
+兩把 key 回傳的 `encoded` 只出現一次；不要貼進 git、聊天或 log。engine 的那把下一步用。
 
 確認：
 
@@ -147,6 +119,6 @@ POST _security/api_key
 
 | 項目 | 什麼時候需要 | 怎麼做 |
 |---|---|---|
-| snapshot 備份 | 有老師傅回饋、事故紀錄之後（掉了不能重算） | [elasticsearch/README.md「備份與還原」](../elasticsearch/README.md#備份與還原aiops--的人工判斷) |
+| snapshot 備份 | 有老師傅回饋、事故紀錄之後（掉了不能重算） | [kibana-dev-tools.txt](../elasticsearch/kibana-dev-tools.txt) 第 5 段 |
 | 開通知 | 只寫入跑 2～4 週、誤報率可接受之後 | 第 3 節 |
 | stage 2 | stage 1 跑穩之後 | `--set scheduler.stage=2` |

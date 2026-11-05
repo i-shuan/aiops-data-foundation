@@ -1,6 +1,6 @@
 # 精簡 repo：移除 GitLab CI yaml，盤點 yaml 與不必要的檔（2026-11）
 
-**狀態**：進行中（第一步：移除 CI yaml；其餘只盤點，不動）　　**日期**：2026-11-05　　**相關**：分支 `claude/slim-repo`（從 `claude/api-beat-worker` 的已提交內容開出，用獨立 worktree，不碰那條分支沒 commit 的改動）
+**狀態**：進行中（已做：移除 CI yaml、`elasticsearch/` 收成一份 Kibana 檔；其餘只盤點，不動）　　**日期**：2026-11-05　　**相關**：分支 `claude/slim-repo`（從 `claude/api-beat-worker` 的已提交內容開出，用獨立 worktree，不碰那條分支沒 commit 的改動）
 **模組**：③ 存、④～⑨、⑧ 出口
 
 ## Plan：這一次要達到什麼
@@ -17,7 +17,10 @@
 | `elasticsearch/README.md` | 「用 GitLab CI 跑」改成「在 K8s 裡用 Job 跑 setup」：同樣的 helm 指令與三種情況表，不再說按哪個 job | CI 沒了，使用者要有手動做法；`setup-helmchart/` 本身沒改 |
 | `docs/deploy-how-to.md`、`docs/architecture.md`、`aiops-engine/helmchart/values.yaml`、`elasticsearch/setup-helmchart/values.yaml`、`grafana/helmchart/templates/secret.yaml`、`grafana/code/build-official-values.py` | 刪掉或改寫提到 CI job 的註解與句子（含「`deploy-aiops-engine` 沒帶 `source=apm`」那條，CI 沒了就不成立） | 不留指向不存在檔案的說明 |
 | `grafana/values-official.yaml` | 由 `build-official-values.py` 重新產生，只差一行註解 | 檔頭註解是產生的，不手改 |
-| 沒動 | `docs/pdca/phase1-collect/2026-11-gitlab-ci.md` 等 PDCA 紀錄；`elasticsearch-setup.sh` 的 `KEYS_OUT_DIR`、`values.yaml` 的 `esApiKey`、`secretData`（CI 以外的部署也能用 values 帶 key） | PDCA 是當時的紀錄；那幾個參數沒有 CI 也能用，要不要刪在下面「待決定」 |
+| `elasticsearch/` | 刪 `README.md`、`code/`（setup 腳本、`retention.conf`、兩個 JSON）、`setup-helmchart/`（5 個檔）；新增 `kibana-dev-tools.txt`（ILM、template、engine key、Grafana key、選用 snapshot，整份貼進 Kibana Dev Tools） | 使用者的 ES 與 Grafana 本來就有，部署用手動貼；Job、RBAC、腳本、CI 用的 key 輸出都不需要。原本單獨的 role 一段拿掉，因為 key 本身就帶權限 |
+| 引用處（`CLAUDE.md`、`README.md`、`docs/`、`aiops-engine/` 的 README 與註解、`sonar-project.properties`） | 指向 `kibana-dev-tools.txt` 的段落；`apm/README.md` 的 ES 兩節合成一節；`deploy-how-to.md` 第 1 節改成段落表 | 不留指向已刪檔的說明 |
+| 沒動 | `tests/*_e2e.py` 的 docstring 還寫「先跑 elasticsearch-setup.sh」；`baseline/verification.md` 的歷史實測句 | e2e 不在這次範圍；實測紀錄是當時的措辭 |
+| 沒動 | `docs/pdca/phase1-collect/2026-11-gitlab-ci.md` 等 PDCA 紀錄；`values.yaml` 的 `esApiKey`、`secretData`（沒有 CI 也能用 `--set` 帶 key） | PDCA 是當時的紀錄；那幾個參數要不要刪在下面「待決定」 |
 
 ## Check：測試的目的與結果
 
@@ -43,7 +46,7 @@
 | 檔案 | `aiops-engine/code/.cache/calendar/*.json`（已被追蹤） | 是抓行事曆的快取，不該進 git |
 | 檔案 | `sonar-project.properties`、`docs/pdca/meta/2026-10-sonar.md` | 公司有沒有用 SonarQube 沒確認 |
 | 檔案 | `aiops-engine/code/fake-data/`、`interfaces/` | 假資料與接口範例 |
-| 檔案 | `elasticsearch-setup.sh` 的 `KEYS_OUT_DIR`、engine／grafana chart 的 `esApiKey`、`secretData` | 原本為 CI 把 key 組成 values；沒有 CI 後只剩手動用法 |
+| 檔案 | engine／grafana chart 的 `esApiKey`、`secretData`、`secret.yaml` | 原本為 CI 把 key 組成 values；沒有 CI 與腳本後只剩手動 `--set` |
 | 工作目錄 | 根目錄 6 個檔名是 Windows 路徑的 `.tar`（`C：\Project\…\image\*.tar`，未追蹤）、`e2e/`（未追蹤，`local-k3d/.env` 被忽略） | 不在 git 裡，是本機的殘留 |
 | 工作目錄 | `.claude/worktrees/` 有 20 多個 worktree，多數對應已合或已放棄的分支 | 佔空間，也容易跑錯地方 |
 | 不要動 | `api/`（原 `feedback_web/`）、`scheduler/`、`configs/*/schedule.yaml` | 另一條分支 `claude/api-beat-worker` 正在改成 api／beat／worker |
