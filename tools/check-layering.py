@@ -10,8 +10,10 @@
   cycles   模組層循環數要是 0
   imports  函式內 import 內部套件：只允許 ALLOWED_INNER 列的（core.plugin 的 importlib、入口層）
   names    非測試 .py 不能同名（plugin 底下的 chain／changes 例外：每個情境各一份是設計）
-  words    core/、detector/、investigator/ 不能有情境詞（IT：service、route、span…；工廠：equipment、lot…）；
-           sources/traces.py 是 trace 格式解析，例外
+  words    core/、detector/、investigator/ 的「識別字」不能有情境詞（IT：service、route、span…；工廠：equipment、lot…）。
+           只數程式結構（函式、類別、變數、參數、屬性的名字，拆 snake_case 比對）；字串與註解不算——
+           ES 欄位名（al["service"]）、CLI 範例、說明文字是對外契約或文件，不是程式認得情境。
+           另外印出「字串與註解裡」的次數當參考（不判定）。sources/traces.py 是 trace 格式解析，例外
 """
 from __future__ import annotations
 
@@ -23,7 +25,7 @@ import sys
 from pathlib import Path
 
 CODE = Path(__file__).resolve().parents[1] / "aiops-engine" / "code"
-PKGS = ("core", "sources", "detector", "investigator", "plugins", "api", "scheduler", "tasks", "models")
+PKGS = ("core", "sources", "detector", "investigator", "plugins", "api", "scheduler", "tasks")
 # 只能往下：key 可以 import value 裡的套件
 ALLOWED = {
     "core": set(),
@@ -34,7 +36,6 @@ ALLOWED = {
     "api": {"core", "sources", "detector", "investigator", "plugins", "scheduler", "tasks"},
     "scheduler": {"core"},                       # runner 不碰 tasks；--enqueue 由 __main__ 注入
     "tasks": {"core", "scheduler"},
-    "models": {"core", "sources", "detector", "investigator"},
 }
 MODULE_EXCEPTIONS = {("scheduler.__main__", "tasks")}          # 入口可以拿佇列
 ALLOWED_INNER = {"core.plugin", "detector.__main__", "investigator.__main__", "api.__main__", "api.server", "scheduler.__main__", "tasks"}
@@ -136,18 +137,41 @@ def check_names():
     return [f"{k}: {', '.join(v)}" for k, v in sorted(seen.items()) if len(v) > 1]
 
 
+def _identifiers(tree) -> list[str]:
+    out = []
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            out.append(node.name)
+        elif isinstance(node, ast.Name):
+            out.append(node.id)
+        elif isinstance(node, ast.Attribute):
+            out.append(node.attr)
+        elif isinstance(node, ast.arg):
+            out.append(node.arg)
+        elif isinstance(node, ast.keyword) and node.arg:
+            out.append(node.arg)
+    return out
+
+
 def check_words():
-    bad = []
+    """回傳 (違規清單, 參考清單)：違規是識別字裡的情境詞；參考是字串與註解裡的（只印不判）。"""
+    bad, info = [], []
     for p in files():
         rel = str(p.relative_to(CODE)).replace("\\", "/")
         if rel.split("/")[0] not in WORD_DIRS or rel in WORD_EXCEPTIONS:
             continue
         text = p.read_text(encoding="utf-8")
-        it = len(re.findall(IT_WORDS, text, re.I))
-        fa = len(re.findall(FACTORY_WORDS, text, re.I))
-        if it or fa:
-            bad.append(f"{rel}: IT 詞 {it}、工廠詞 {fa}")
-    return bad
+        tree = ast.parse(text)
+        idents = " ".join(w for name in _identifiers(tree) for w in name.split("_"))
+        it_id = len(re.findall(IT_WORDS, idents, re.I))
+        fa_id = len(re.findall(FACTORY_WORDS, idents, re.I))
+        if it_id or fa_id:
+            bad.append(f"{rel}: 識別字 IT 詞 {it_id}、工廠詞 {fa_id}")
+        it_all = len(re.findall(IT_WORDS, text, re.I))
+        fa_all = len(re.findall(FACTORY_WORDS, text, re.I))
+        if (it_all - it_id) or (fa_all - fa_id):
+            info.append(f"{rel}: 字串／註解 IT 詞 {it_all - it_id}、工廠詞 {fa_all - fa_id}")
+    return bad, info
 
 
 def main() -> int:
@@ -156,8 +180,9 @@ def main() -> int:
     ap.add_argument("--only", default="layers,cycles,imports,names,words")
     a = ap.parse_args()
     imps = imports()
+    words_bad, words_info = check_words()
     results = {"layers": check_layers(imps), "cycles": check_cycles(imps), "imports": check_inner(imps),
-               "names": check_names(), "words": check_words()}
+               "names": check_names(), "words": words_bad}
     labels = {"layers": "往上 import（違反分層）", "cycles": "模組層循環", "imports": "函式內 import 內部套件（白名單外）",
               "names": "同名 .py", "words": "core／detector／investigator 的情境詞"}
     rc = 0
@@ -168,6 +193,9 @@ def main() -> int:
             print(f"    {line}")
         if v and not a.report and k in a.only.split(","):
             rc = 1
+    print(f"ℹ 字串／註解裡的情境詞（參考，不判定）：{len(words_info)} 檔")
+    for line in words_info[:40]:
+        print(f"    {line}")
     return rc
 
 

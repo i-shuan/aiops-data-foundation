@@ -69,6 +69,24 @@
 | `core/config.py` | 只留通用 `load(path, Model)` 與錯誤格式；`load_config(path, kind)` 與 `KINDS` 刪（註冊表會讓 core 認得上層） | 呼叫端（`detector/__main__`、`investigator/__main__`、`api/app.py`、`scheduler/runner.py`、`adjust.load`、`cmd_paths`）直接給模型類別 |
 | `models/`（6 檔） | 刪。`check_*`／`fit_and_score`／`points_of`／`samples_of` 併進對應功能：`detector/baseline/model.py`、`detector/rules/engine.py`、`investigator/similar/similar.py`、`detector/peer.py`、`detector/trace.py`；`tests/test_models.py` 改 import | 門面只有測試在用；同名檔的來源 |
 
+### 階段 C 的搬移對照表（IT 專用進 `plugins/observability/`、工廠專用進 `plugins/factory/`）
+
+「情境詞」的定義在階段 C 開始前改成**只數識別字**（函式、類別、變數、參數、屬性的名字，拆 snake_case 比對）；字串與註解不算，因為 `al["service"]` 這種 ES 欄位名是對外契約（Grafana 規則用它）、CLI 範例與說明是文件，不是程式認得情境。字串／註解裡的次數另外印出當參考。改定義後：識別字違規 19 檔（`rca/report.py` 71、`rca/queries.py` 38、`detector/trace.py` 19、`severity.py` 12、`analyze.py` 12…），字串／註解 37 檔。
+
+| 現在 | 新位置 | 說明 |
+|---|---|---|
+| `detector/peer.py`、`cmd_peer.py` | `plugins/observability/peer/engine.py`、`detector.py`（`PeerDetector`、`cmd_peer`） | `command.py`、`config.py` 階段 B 已在 |
+| `detector/quality.py`、`cmd_quality.py` | `plugins/observability/quality/engine.py`、`detector.py` | |
+| `detector/chronic.py`、`cmd_chronic.py` | `plugins/observability/chronic/engine.py`、`job.py` | |
+| `detector/trace.py`、`trace_merge.py`、`cmd_trace.py` | `plugins/observability/trace/engine.py`、`merge.py`、`job.py` | `sources/traces.py`（格式解析）留資料層 |
+| `detector/ingest.py`、`cmd_ingest.py` | `plugins/factory/ingest/engine.py`、`job.py` | `api/app.py` 的 `/api/anomalies` 改 import 新家（api 是入口層，可 import plugins） |
+| `investigator/rca/analyze.py` | 拆：trace 的（`SegmentDiff`、`compare_segments`、`waterfall`、`Edge`、`topology`、`mermaid`）→ `plugins/observability/trace/analyze.py`；log 樣式與共同點（`log_pattern`、`PatternDiff`、`Common`…）留 `rca/analyze.py` | |
+| `investigator/rca/queries.py` | 拆：入口請求、取樣 trace 的查詢 → `plugins/observability/rca/queries.py`；`anomalies()` 這種中立的留 | |
+| `investigator/rca/report.py` | 拆：段落函式裡 IT 的（`entries`、`segments`、`slowest`、`topology`）→ `plugins/observability/rca/sections.py`；工廠的（履歷）→ `plugins/factory/rca/sections.py`；`report.py` 留框架（`Ctx`、`pick_reference`、組報告）與中立段落（`anomalies`、`logs`、`changes`、`conclusion`）。`Plugin` 加 `report_sections() -> dict[名, callable(ctx)]`，`sections` 順序照舊由 plugin 給 | 報告的段落本來就是 plugin 的 `sections` hook，只是函式還住在共用區 |
+| `investigator/alerts/severity.py` | 黃金訊號的預設分類表 `CLASSES` → `plugins/observability/profiles.py`；基底 `Plugin.severity_classes` 不再預設 IT 的 | |
+| `investigator/alerts/merge.py`、`command.py` | 識別字裡的 `service`／`lot` 改中立（`entity`、`unit`），折疊邏輯本來就經 `plugin.chain()` | |
+| `core/llm.py`、`core/plugin.py`、`detector/baseline/*`、`adjust/backtest.py`、`feedback/command.py`、兩個 `__main__.py` | 識別字改中立：`route_of` → `where_of`（哪支 API／哪個 recipe）、`_service_of` → `_entity_of`、CLI 參數的 Python 名改中立但旗標字串（`--service`、`--route`）不變 | 旗標是對外契約 |
+
 - **範圍**：上面全部；行為、ES 查詞、異常文件欄位、CLI 參數、HTTP 端點不變；不做預設值集中（`cfg.get` 153 處）、不做檢查種類各一個類別（那是「每個資料夾裡面」的事，分層切好之後才有地方放）。
 
 ## Do：改動哪些 code、改了什麼、為何要改
