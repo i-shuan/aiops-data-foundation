@@ -8,7 +8,7 @@
 |---|---|
 | `code/storage/` | `traces-merged-*` 的 ILM 與 index template（trace-merge 一個請求一筆，nested，要先有 template） |
 | `code/scripts/` | `elasticsearch-setup.sh`（套上面兩個、發 engine 與 Grafana 的 key、註冊 snapshot）、`retention.conf`（`traces-merged` 的保留天數與 snapshot 設定） |
-| `setup-helmchart/` | 在 K8s 裡用 Job 跑 `elasticsearch-setup.sh`（`esSetup.enabled` 開關，預設不跑）；Runner 連不到內網 ES 時用，GitLab CI 的 `es-setup` 就是部署它 |
+| `setup-helmchart/` | 在 K8s 裡用 Job 跑 `elasticsearch-setup.sh`（`esSetup.enabled` 開關，預設不跑）；連不到內網 ES 時用 |
 
 `aiops-*` 的索引 engine 自己建（帶 mapping），不用在這裡建。
 
@@ -27,22 +27,28 @@ ES_URL=https://<公司 ES>:9200 ES_AUTH=elastic:<password> elasticsearch/code/sc
 
 公司的 ES 不讓這個腳本跑（沒有 `manage_security`）時，請管 ES 的人手動建：`traces-merged` 的 ILM 與 template 用 `code/storage/` 的兩個檔（ILM 的 `__TRACES_DELETE_AFTER__` 換成天數，預設 7d），engine 的角色照上表（細節見 [aiops-engine/code/configs/apm/README.md](../aiops-engine/code/configs/apm/README.md)）。保留天數改 `retention.conf` 再重跑。
 
-## 用 GitLab CI 跑（在 K8s 裡用 Job 跑 setup）
+## 在 K8s 裡用 Job 跑 setup
 
-ES、AIOps、Grafana 在同一個 cluster。GitLab Runner **不用連到 ES**，只要能 `kubectl` 到那個 cluster：`es-setup` job 部署 [`setup-helmchart/`](setup-helmchart/values.yaml)，chart 用 Job 在 cluster 裡跑 `elasticsearch-setup.sh`。每個元件一份 `.gitlab-ci.yml`（`elasticsearch/`、`aiops-engine/`、`grafana/`），job 都是手動觸發，變數清單在每份檔開頭。
+ES、AIOps、Grafana 在同一個 cluster，而你連不到內網 ES 時：用 [`setup-helmchart/`](setup-helmchart/values.yaml)，chart 用 Job 在 cluster 裡跑 `elasticsearch-setup.sh`，發的 key 直接寫進 Secret，不經過你的機器。
 
-| 什麼時候 | 按哪個 | 發生什麼 |
+```bash
+kubectl create namespace es-setup
+kubectl -n es-setup create secret generic es-setup-admin --from-literal=ES_AUTH=<有 manage_security 的帳號:密碼>
+tar czf - -C elasticsearch code | base64 -w0 > /tmp/es-code.b64       # chart 讀不到 chart 外面的檔，打包帶進去
+helm upgrade --install es-setup elasticsearch/setup-helmchart -n es-setup --timeout 15m   --set esSetup.enabled=true --set esUrl=https://<ES>:9200 --set-file bundle=/tmp/es-code.b64
+kubectl -n es-setup logs job/es-setup --tail=20
+```
+
+| 什麼時候 | 怎麼跑 | 發生什麼 |
 |---|---|---|
-| 第一次部署（engine 啟動之前） | `es-setup` | Job 套結構、發 2 把 key：直接寫進 `aiops/aiops-secrets`、`grafana/grafana-env` 的 `GRAFANA_ES_API_KEY`，2 把都存一份在 `es-setup/es-setup-keys`；key 不經過 CI、不印進 log |
-| 改了 `retention.conf`、`storage/` | `es-setup`，變數 `ES_SETUP_SKIP_KEYS=true` | 只更新結構，不發新 key、不碰 Secret |
-| 要換 key | `es-setup` | 發新 key、寫進 Secret。**舊 key 不會作廢**，要到 ES 手動作廢 |
-| 日常部署 | `deploy-aiops-engine`、`deploy-grafana` | 不跑 setup、不碰 key |
+| 第一次部署（engine 啟動之前） | 上面的指令 | Job 套結構、發 2 把 key：直接寫進 `aiops/aiops-secrets`、`grafana/grafana-env` 的 `GRAFANA_ES_API_KEY`，2 把都存一份在 `es-setup/es-setup-keys`；key 不印進 log |
+| 改了 `retention.conf`、`storage/` | 同上，加 `--set esSetup.skipKeys=true` | 只更新結構，不發新 key、不碰 Secret |
+| 要換 key | 同上 | 發新 key、寫進 Secret。**舊 key 不會作廢**，要到 ES 手動作廢 |
 
-- 腳本與設定檔：chart 讀不到 chart 外面的檔，`es-setup` job 把 `elasticsearch/code/` 打包用 `--set-file bundle=` 帶進 ConfigMap，Job 解開執行。
-- ES 管理員帳號（`ES_AUTH`）由 job 建成 Secret `es-setup-admin`，不進 helm 的 values。
+- `esSetup.enabled` 預設 `false`，沒開不會建 Job；日常部署 engine、Grafana 不用跑它。
 - Job 只給 Secret 的 get、create、patch 權限，範圍是自己的 namespace 和 `values.yaml` 的 `targets`（namespace 要先存在）。
-- `grafana-env` 兩邊各寫各的欄位（server-side apply）：Job 寫 key，Grafana job 寫 `ES_URL`、webhook、admin 密碼，互不蓋掉。
-- 設計與實測：[pdca/phase1-collect/2026-11-es-setup-helm-job.md](../docs/pdca/phase1-collect/2026-11-es-setup-helm-job.md)；GitLab 上還沒實跑過。
+- `grafana-env` 兩邊各寫各的欄位（server-side apply）：Job 寫 key，Grafana 那邊寫 `ES_URL`、webhook、admin 密碼，互不蓋掉。
+- 設計與實測：[pdca/phase1-collect/2026-11-es-setup-helm-job.md](../docs/pdca/phase1-collect/2026-11-es-setup-helm-job.md)；測試 cluster 跑過，公司環境還沒實跑。
 
 ## 備份與還原（aiops-* 的人工判斷）
 

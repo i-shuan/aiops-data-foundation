@@ -92,7 +92,7 @@ helm upgrade --install aiops aiops-engine/helmchart -n aiops -f aiops-engine/hel
   --set source=apm --set image.repository=<nexus>/aiops-engine --set image.tag=<tag> --set esUrl=https://<公司 ES>:9200
 ```
 
-- **`--set source=apm` 一定要帶**：預設是 `otel`（讀 Collector 寫的格式），不帶就讀不到 APM 的資料。GitLab CI 的 `deploy-aiops-engine` 目前沒帶這個參數，用 CI 部署前要先補。
+- **`--set source=apm` 一定要帶**：預設是 `otel`（讀 Collector 寫的格式），不帶就讀不到 APM 的資料。
 - 排程器預設 **stage 1**：rules、detect、alert、trace-merge、train。跑穩再 `--set scheduler.stage=2` 開 Pod 同儕比對、trace 每一段的基準線。
 - 回饋網頁的網址要放進通知時：`configs/apm/rca.yaml` 的 `alerts.feedback_url`、`report_url`，用 `--set-file configOverrides.apm.rca=<改好的 rca.yaml>` 蓋掉。
 
@@ -130,7 +130,7 @@ POST _security/api_key
 | 情況 | 怎麼做 |
 |---|---|
 | 公司已有 Grafana | `grafana/helmchart/files/` 的檔交給管 Grafana 的人放進 provisioning 資料夾；Grafana 要有環境變數 `ES_URL`、`GRAFANA_ES_API_KEY`、`NOTIFY_*_URL`；外掛沒裝就照 [INSTALL-form-plugin.md](../grafana/code/INSTALL-form-plugin.md) |
-| 公司用官方 chart 管 Grafana | `grafana-community/grafana` 加 `-f grafana/values-official.yaml`（GitLab CI 的 `deploy-grafana` 就是這樣） |
+| 公司用官方 chart 管 Grafana | `grafana-community/grafana` 加 `-f grafana/values-official.yaml` |
 | 沒有 Grafana | 用 `grafana/helmchart/` 裝一台（檔都在 chart 裡，只要 Secret `grafana-env` + `helm upgrade`，指令在 [grafana/README.md「部署」](../grafana/README.md#部署)） |
 
 **3-3. 跟 engine 接起來的三個網址**

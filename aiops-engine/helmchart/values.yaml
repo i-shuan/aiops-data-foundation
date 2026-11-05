@@ -25,7 +25,7 @@ plugin: observability
 # metrics-apm.*、logs-apm.*、traces-apm-*；設定檔 code/configs/apm/，怎麼接見那個資料夾的 README.md）。其他 plugin 不看這個
 source: otel
 secret: aiops-secrets          # ES_API_KEY
-esApiKey: ""                   # CI 部署時給（setup 的 engine-values.yaml）：chart 建上面這個 Secret；空的就不建、沿用手動建的
+esApiKey: ""                   # 部署時給（setup 的 engine-values.yaml）：chart 建上面這個 Secret；空的就不建、沿用手動建的
 
 # LLM 摘要（core/llm.py）。provider、model、baseUrl 放 ConfigMap aiops-env；apiKey 由 chart 建成 Secret aiops-llm。
 # apiKey 這裡永遠留空：真的 key 寫在 values-local.yaml（.gitignore 擋掉），helm 加 -f values-local.yaml
