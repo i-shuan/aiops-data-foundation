@@ -4,11 +4,10 @@ from __future__ import annotations
 import pandas as pd
 
 from core.es import get_field
-from .es import ANOMALY_INDEX, ANOMALY_MAPPING, ES, doc_id, fetch
+from .base import Anomaly, Detector
+from .es import ES, fetch
 from . import rules as R
-from .common import RULE_FIELDS, _freq, _now
-from .owner import write_anomalies
-from sources import open_backend
+from .common import _freq
 
 
 def approved_rules(es: ES, cfg: dict, now: pd.Timestamp | None = None) -> list[dict]:
@@ -35,47 +34,42 @@ def approved_rules(es: ES, cfg: dict, now: pd.Timestamp | None = None) -> list[d
     return out
 
 
-def cmd_rules(cfg: dict, args, backend=None) -> int:
-    es = backend or open_backend(cfg, ES)
-    es.ensure_index(ANOMALY_INDEX, ANOMALY_MAPPING)
-    es.req("PUT", f"/{ANOMALY_INDEX}/_mapping", {"properties": RULE_FIELDS})   # 舊的 index 補上規則用的欄位
-    now = _now(args.at)
-    slot = now.floor(_freq(cfg.get("interval", "1m")))
-    start = now - pd.Timedelta(_freq(cfg.get("lookback", "10m")))
-    names = set(args.only.split(",")) if args.only else None
-    extra = approved_rules(es, cfg, now)
-    if extra:
-        print(f"  從 aiops-tuning 載入 {len(extra)} 條核准的規則：{'、'.join(r['name'] for r in extra)}")
-    rules = list(cfg["rules"]) + extra
-    docs, fired, failed = [], 0, []
-    for rule in rules:
-        if names and rule["name"] not in names:
-            continue
-        # 一條規則壞掉（查詢錯、核准的草稿缺欄位）只跳過那一條，其他照跑、照寫
-        try:
-            r_start = now - pd.Timedelta(_freq(rule["lookback"])) if rule.get("lookback") else start
-            if rule["type"] == "window":   # 整段算一個值（錯誤率、p95）：跟 series.yaml 同一套查法
-                hits = R.evaluate_window(rule, fetch(es, rule, r_start, now, None), r_start)
-            else:
-                hits = R.evaluate(rule, R.fetch(es, rule, r_start, now), now)
-        except Exception as e:
-            failed.append(rule["name"])
-            print(f"  規則 {rule['name']} 失敗，跳過：{type(e).__name__}: {str(e)[:300]}")
-            continue
+class RulesDetector(Detector):
+    level = "rule"
+
+    def checks(self) -> list[dict]:
+        extra = approved_rules(self.es, self.cfg, self.now)
+        if extra:
+            print(f"  從 aiops-tuning 載入 {len(extra)} 條核准的規則：{'、'.join(r['name'] for r in extra)}")
+        self.rules = list(self.cfg["rules"]) + extra
+        return self.rules
+
+    def evaluate(self, rule: dict) -> list[Anomaly]:
+        now = self.now
+        start = now - pd.Timedelta(_freq(rule.get("lookback") or self.cfg.get("lookback", "10m")))
+        if rule["type"] == "window":   # 整段算一個值（錯誤率、p95）：跟 series.yaml 同一套查法
+            hits = R.evaluate_window(rule, fetch(self.es, rule, start, now, None), start)
+        else:
+            hits = R.evaluate(rule, R.fetch(self.es, rule, start, now), now)
+        out = []
         for h in hits:
             keys = {f: v for f, v in zip(rule["by"], h["key"])}
             # 附帶的資訊（服務名稱、節點），根因分析用來對到服務；不參與「同一個對象」的判斷
             keys.update({f: v for f in rule.get("context", []) if (v := get_field(h["last"], f)) is not None})
-            msg = R.describe(rule, h)
-            docs.append((doc_id(f"rule.{rule['name']}", keys, slot), {
-                "@timestamp": slot.isoformat(), "series": f"rule.{rule['name']}", "rule": rule["name"], "keys": keys,
-                "value": h["value"], "median": None, "expected_low": None, "expected_high": rule["threshold"],
-                "z": None, "level": "rule", "direction": rule.get("op", ">="), "severity": rule.get("severity", "warning"),
-                "message": msg, "since": h["since"].isoformat(), "detected_at": pd.Timestamp.now(tz="UTC").isoformat()}))
-            print(f"  [{rule.get('severity', 'warning')}] {msg}")
-        fired += len(hits)
-    if docs:
-        write_anomalies(es, docs)
-    print(f"{slot.tz_convert('Asia/Taipei'):%m-%d %H:%M}：{len(rules)} 條規則，觸發 {fired} 個"
-          + (f"，{len(failed)} 條失敗：{'、'.join(failed)}" if failed else ""))
-    return 1 if failed else 0
+            out.append(Anomaly(ts=self.slot, series=f"rule.{rule['name']}", rule=rule["name"], keys=keys, value=h["value"],
+                               expected_high=rule["threshold"], level=self.level, direction=rule.get("op", ">="),
+                               severity=rule.get("severity", "warning"), message=R.describe(rule, h), since=h["since"]))
+        return out
+
+    def on_error(self, rule: dict, exc: Exception) -> None:
+        # 一條規則壞掉（查詢錯、核准的草稿缺欄位）只跳過那一條，其他照跑、照寫
+        self.failed.append(rule["name"])
+        print(f"  規則 {rule['name']} 失敗，跳過：{type(exc).__name__}: {str(exc)[:300]}")
+
+    def summary(self) -> str:
+        return (f"{self.slot.tz_convert('Asia/Taipei'):%m-%d %H:%M}：{len(self.rules)} 條規則，觸發 {self.fired} 個"
+                + (f"，{len(self.failed)} 條失敗：{'、'.join(self.failed)}" if self.failed else ""))
+
+
+def cmd_rules(cfg: dict, args, backend=None) -> int:
+    return RulesDetector(cfg, args, backend).run()

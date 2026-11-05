@@ -98,9 +98,13 @@ class FileBackendAcrossRuns(unittest.TestCase):
 
 class OpenBackendTest(unittest.TestCase):
     def test_no_source_means_es(self):
+        """沒寫 source（或 source、store 都是 es）：拿到讀寫都是 ES 的 ESBackend，裡面包著 es_factory 給的連線。"""
         sentinel = object()
-        self.assertIs(sources.open_backend({"series": []}, lambda: sentinel), sentinel)
-        self.assertIs(sources.open_backend({"source": {"kind": "es"}}, lambda: sentinel), sentinel)
+        for cfg in ({"series": []}, {"source": {"kind": "es"}}, {"store": {"kind": "es"}}):
+            be = sources.open_backend(cfg, lambda: sentinel)
+            self.assertIsInstance(be, sources.ESBackend)
+            self.assertIs(be.es, sentinel)
+            self.assertEqual((be.kind, be.store.kind), ("es", "es"))
 
     def test_es_source_with_file_store_does_not_write_es(self):
         with tempfile.TemporaryDirectory() as d:

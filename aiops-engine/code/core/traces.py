@@ -17,7 +17,7 @@ from collections import defaultdict
 from datetime import datetime
 
 from . import source
-from .es import ES, get_field, time_range
+from .es import get_field
 
 _SPAN_FIELDS = ["@timestamp", "trace_id", "span_id", "parent_span_id", "name", "kind", "duration", "status.code", "links",
                 "resource.attributes", "attributes"]
@@ -138,67 +138,17 @@ def from_merged(doc: dict) -> list[dict]:
             for s in doc.get("spans") or []]
 
 
-def spans_by_id(es: ES, index: str, span_ids: list[str], start: datetime, end: datetime) -> dict[str, dict]:
-    """用 span_id 讀回 span（例如 link 指到的、另一個 trace 裡的生產者）。"""
-    from sources.base import is_backend
-    if is_backend(es):
-        return es.spans_by_id(index, span_ids, start, end)
-    out = {}
-    want = set(span_ids)
-    for i in range(0, len(span_ids), 1000):
-        chunk = span_ids[i:i + 1000]
-        schema = schema_of(index)
-        if schema == "merged":
-            body = {"size": 1000, "query": {"bool": {"filter": [time_range(start, end),
-                                                                 {"nested": {"path": "spans", "query": {"terms": {"spans.span_id": chunk}}}}]}}}
-            for h in es.search(index, body)["hits"]["hits"]:
-                out.update({s["span_id"]: s for s in from_merged(h["_source"]) if s["span_id"] in want})
-        elif schema == "apm":   # transaction 的 id 在 transaction.id，span 的在 span.id
-            body = {"size": 1000, "_source": _APM_FIELDS,
-                    "query": {"bool": {"filter": [time_range(start, end)],
-                                       "should": [{"terms": {"span.id": chunk}}, {"terms": {"transaction.id": chunk}}], "minimum_should_match": 1}}}
-            out.update({s["span_id"]: s for s in (to_span(h["_source"]) for h in es.search(index, body)["hits"]["hits"]) if s["span_id"] in want})
-        else:
-            body = {"size": 1000, "_source": _SPAN_FIELDS,
-                    "query": {"bool": {"filter": [time_range(start, end), {"terms": {"span_id": chunk}}]}}}
-            out.update({h["_source"]["span_id"]: to_span(h["_source"]) for h in es.search(index, body)["hits"]["hits"]})
-    return out
+def spans_by_id(es, index: str, span_ids: list[str], start: datetime, end: datetime) -> dict[str, dict]:
+    """用 span_id 讀回 span（例如 link 指到的、另一個 trace 裡的生產者）。ES 的查詢在 sources/es_source.py。"""
+    from sources.base import as_backend   # sources import 這個模組（schema_of、to_span），所以在這裡才 import
+    return as_backend(es).spans_by_id(index, span_ids, start, end)
 
 
-def spans_of(es: ES, index: str, trace_ids: list[str], start: datetime, end: datetime) -> list[dict]:
+def spans_of(es, index: str, trace_ids: list[str], start: datetime, end: datetime) -> list[dict]:
     """把這些 trace 的所有 span 讀回來（含其他服務的）。時間放寬，跨過邊界的請求也讀得完整。
-    es 是 sources 的 Backend 時 span 已經是這個格式，直接拿。"""
-    from sources.base import is_backend
-    if is_backend(es):
-        return es.spans(index, trace_ids, start, end)
-    out = []
-    schema = schema_of(index)
-    for i in range(0, len(trace_ids), 500):
-        ids = trace_ids[i:i + 500]
-        if schema == "merged":
-            body = {"size": 500, "query": {"bool": {"filter": [time_range(start, end), {"terms": {"trace_id": ids}}]}}}
-            for h in es.search(index, body)["hits"]["hits"]:
-                out += from_merged(h["_source"])
-            continue
-        # APM 的 transaction 沒有 span.id，分頁的次要排序只能用 _doc；同一毫秒的文件跨頁可能重複，最後依 span_id 去重
-        src, sort, tid = ((_APM_FIELDS, [{"@timestamp": "asc"}, {"_doc": "asc"}], "trace.id") if schema == "apm"
-                          else (_SPAN_FIELDS, [{"@timestamp": "asc"}, {"span_id": "asc"}], "trace_id"))
-        after, seen = None, set()
-        while True:
-            body = {"size": 5000, "_source": src, "sort": sort,
-                    "query": {"bool": {"filter": [time_range(start, end), {"terms": {tid: ids}}]}}}
-            if after:
-                body["search_after"] = after
-            hits = es.search(index, body)["hits"]["hits"]
-            for h in hits:
-                s = to_span(h["_source"])
-                if s["span_id"] not in seen:
-                    seen.add(s["span_id"])
-                    out.append(s)
-            if len(hits) < 5000:
-                break
-            after = hits[-1]["sort"]
-    return out
+    ES 的查詢在 sources/es_source.py；檔案來源的 span 已經是這個格式，直接拿。"""
+    from sources.base import as_backend
+    return as_backend(es).spans(index, trace_ids, start, end)
 
 
 def segment(s: dict) -> str:
