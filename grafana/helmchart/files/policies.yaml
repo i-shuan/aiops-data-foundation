@@ -5,7 +5,7 @@ muteTimes:
   - orgId: 1
     name: always               # 永遠靜音：warning 的件仍在 Grafana 的告警清單、儀表板看得到，只是不送通知
     time_intervals:
-      - weekdays: ["monday:sunday"]
+      - weekdays: ["sunday:saturday"]
 policies:
   - orgId: 1
     receiver: platform

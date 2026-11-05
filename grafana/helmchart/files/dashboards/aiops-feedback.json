@@ -846,7 +846,7 @@
       "title": "重跑根因分析：${alert}",
       "id": 3,
       "gridPos": {
-        "h": 7,
+        "h": 8,
         "w": 10,
         "x": 14,
         "y": 16
@@ -938,13 +938,28 @@
             "id": "alert_id",
             "title": "告警 id",
             "type": "disabled",
-            "labelWidth": 10,
+            "labelWidth": 12,
             "width": null,
             "tooltip": "開著的件才能重跑；trace 晚到、或剛改了設定時用",
             "section": "",
             "unit": "",
             "showIf": "",
             "disableIf": "",
+            "value": ""
+          },
+          {
+            "uid": "note",
+            "id": "note",
+            "title": "原因",
+            "type": "string",
+            "labelWidth": 12,
+            "width": null,
+            "tooltip": "要填一句才能按「重跑根因分析」（外掛規則：有改動才亮）。例：trace 晚到、剛改了設定；只是給你自己看，不影響結果",
+            "section": "",
+            "unit": "",
+            "showIf": "",
+            "disableIf": "",
+            "hidden": false,
             "value": ""
           }
         ]
