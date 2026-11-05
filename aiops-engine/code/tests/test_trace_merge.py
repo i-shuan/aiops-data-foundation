@@ -3,7 +3,8 @@
 import unittest
 from datetime import datetime, timezone
 
-from core import traces as T
+from sources import spans_by_id, spans_of
+from sources import traces as T
 from detector import trace_merge as M
 
 T0 = 1_793_400_000_000.0   # 2026-10-31T00:00:00Z 附近（毫秒）
@@ -86,7 +87,7 @@ class ReadersTest(unittest.TestCase):
     def test_spans_of_merged_index_expands_documents(self):
         _, doc = M.build(a_trace(), datetime.now(timezone.utc))
         es = self.FakeES([{"_id": "t1", "_source": doc}])
-        spans = T.spans_of(es, "traces-merged-*", ["t1"], datetime(2026, 10, 30, tzinfo=timezone.utc), datetime(2026, 11, 1, tzinfo=timezone.utc))
+        spans = spans_of(es, "traces-merged-*", ["t1"], datetime(2026, 10, 30, tzinfo=timezone.utc), datetime(2026, 11, 1, tzinfo=timezone.utc))
         self.assertEqual(len(spans), 4)
         index, body = es.bodies[0]
         self.assertEqual(index, "traces-merged-*")
@@ -95,7 +96,7 @@ class ReadersTest(unittest.TestCase):
     def test_spans_by_id_uses_nested_query(self):
         _, doc = M.build(a_trace(), datetime.now(timezone.utc))
         es = self.FakeES([{"_id": "t1", "_source": doc}])
-        got = T.spans_by_id(es, "traces-merged-*", ["c"], datetime(2026, 10, 30, tzinfo=timezone.utc), datetime(2026, 11, 1, tzinfo=timezone.utc))
+        got = spans_by_id(es, "traces-merged-*", ["c"], datetime(2026, 10, 30, tzinfo=timezone.utc), datetime(2026, 11, 1, tzinfo=timezone.utc))
         self.assertEqual(list(got), ["c"])
         self.assertEqual(got["c"]["service"], "wip-worker")
         body = es.bodies[0][1]

@@ -14,7 +14,7 @@ from detector.cmd_ingest import read_rows
 from detector.common import _now
 from sources import as_backend, open_backend
 
-from . import paths as P
+import plugins.factory.paths as P   # 不寫 from . import paths：那會先 import 套件（__init__ 又 import 這裡），繞圈
 
 
 def _lot_ids(rows: list[dict], lot_field: str) -> set[str]:

@@ -11,7 +11,7 @@ from abc import abstractmethod
 
 import pandas as pd
 
-from . import shape
+import sources.shape as shape   # 不寫 from . import shape：那會先 import 套件（__init__ 又 import 這裡），繞圈
 from .base import Backend, Store
 from .stores import MemoryStore
 
@@ -112,7 +112,7 @@ class FileBackend(RowsBackend):
           kind: file
           format: events                      # 或 series
           files: {metrics-apm.transaction.1m-*: data/tx.csv, metrics-apm.service_destination.1m-*: data/dest.parquet}
-          spans: data/spans.ndjson            # 選填：core/traces 格式的 span（M4）
+          spans: data/spans.ndjson            # 選填：sources/traces 格式的 span（M4）
     每個檔讀一次就留在記憶體。"""
     kind = "file"
 

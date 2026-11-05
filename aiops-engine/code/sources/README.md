@@ -21,7 +21,7 @@ source:
   files:
     metrics-apm.transaction.1m-*: data/tx.csv          # key 是序列寫的 index（可含 *）
     metrics-apm.service_destination.1m-*: data/dest.parquet
-  spans: data/spans.ndjson             # 選填：M4 用的 span（core/traces 的格式）
+  spans: data/spans.ndjson             # 選填：M4 用的 span（sources/traces 的格式）
 store:
   kind: file
   dir: .aiops-store                    # 每個 aiops-* index 一個 .ndjson；train 寫的 baseline 下次 detect 讀得到

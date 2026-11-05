@@ -11,7 +11,7 @@ from detector import owner as O
 from detector import rules as R
 from detector import es as DE
 from investigator import similar as SIM
-from sources.base import as_backend
+from sources import as_backend
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 CODE = os.path.dirname(HERE)

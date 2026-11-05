@@ -159,7 +159,7 @@ class ReportSections(unittest.TestCase):
         stats = {"requests": requests, "errors": 0, "p50_ms": 1.0, "p95_ms": 2.0}
         with mock.patch.object(R.E, "ES", return_value="es"), mock.patch.object(R.E, "anomalies", return_value=anoms), \
              mock.patch.object(R.E, "entry_stats", return_value=stats), mock.patch.object(R.E, "sample_trace_ids", return_value=[]), \
-             mock.patch.object(R.T, "spans_of", return_value=[]), \
+             mock.patch.object(R, "spans_of", return_value=[]), \
              mock.patch.object(R.E, "problem_logs", side_effect=lambda es, ix, s, a, b: list(logs) if a == T0 else []), \
              mock.patch.object(R.E, "change_logs", return_value=[{"ts": T0.isoformat(), "service": "ETCH-01", "message": "PM done"}]), \
              mock.patch.object(R.E, "logs_of_traces", return_value=[]):

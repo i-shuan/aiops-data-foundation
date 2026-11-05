@@ -5,17 +5,12 @@ import json
 
 import pandas as pd
 
+from sources.schema import CHRONIC_INDEX, CHRONIC_MAPPING  # noqa: F401  mapping 在 sources/schema.py；名字留給既有的 import
 from .es import ANOMALY_INDEX, ES, doc_id
 from . import chronic as C
 from .common import _now, _v
+from .sources import load_owners
 
-
-CHRONIC_INDEX = "aiops-chronic"
-
-CHRONIC_MAPPING = {"mappings": {"dynamic": False, "properties": {
-    "@timestamp": {"type": "date"}, "week": {"type": "keyword"}, "source": {"type": "keyword"}, "rank": {"type": "integer"},
-    "keys": {"type": "flattened"}, "days": {"type": "integer"}, "total": {"type": "long"}, "per_day": {"type": "double"},
-    "first_day": {"type": "date"}, "last_day": {"type": "date"}, "owner": {"type": "keyword"}, "message": {"type": "text"}}}}
 
 def cmd_chronic(cfg: dict, args) -> int:
     es = ES()
@@ -27,7 +22,6 @@ def cmd_chronic(cfg: dict, args) -> int:
     end = now.tz_convert(tz).normalize().tz_convert("UTC")
     start = end - pd.Timedelta(days=days)
     week = f"{end.tz_convert(tz) - pd.Timedelta(days=1):%G-W%V}"
-    from .sources import load_owners
     owners = load_owners(cfg)
     docs, lines = [], [f"# 慢性病清單 {week}（{start.tz_convert(tz):%m/%d}～{(end - pd.Timedelta(days=1)).tz_convert(tz):%m/%d}，"
                        f"{days} 天裡至少 {cfg.get('min_days', 6)} 天有）", ""]

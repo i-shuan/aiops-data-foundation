@@ -74,7 +74,7 @@ def _attrs(row: dict, names) -> dict:
 
 
 def build_lot(lot: str, steps: list[dict], events: list[dict], cfg: dict, now: datetime | None = None) -> list[dict]:
-    """一個 lot 的 MES 站（steps）與機台事件（events）→ span 清單（core/traces 的格式）。
+    """一個 lot 的 MES 站（steps）與機台事件（events）→ span 清單（sources/traces 的格式）。
     站依進站時間排；還沒出站的站用 now 當結束。機台事件掛到同機台、時間落在那一站裡的站底下；對不到站的事件丟掉。"""
     now = now or datetime.now(timezone.utc)
     mf, ef = cfg["mes"]["fields"], (cfg.get("events") or {}).get("fields") or {}

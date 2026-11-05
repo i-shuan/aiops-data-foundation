@@ -7,6 +7,7 @@ from .base import Anomaly
 from .es import ANOMALY_INDEX, ANOMALY_MAPPING, BASELINE_INDEX, BASELINE_MAPPING, ES, doc_id, load_baseline
 from . import adjust as A
 from . import trace as T
+from . import trace_merge as M
 from .model import DetectOptions, TrainOptions, score, train
 from .cmd_baseline import save_anomalies, save_baseline, train_summary, with_status
 from .common import RULE_FIELDS, _freq, _now
@@ -19,7 +20,6 @@ def _metric_frame(df: pd.DataFrame, m: str) -> pd.DataFrame:
 
 def cmd_trace_merge(cfg: dict, args) -> int:
     """raw（每一段一筆）→ 一個請求一筆（traces-merged-<group>-<日期>）。排程器每分鐘跑；從上次合到的時間接著合，中斷很久會分段補（最多 2 天）。"""
-    from . import trace_merge as M
     es = ES()
     at = _now(args.at).to_pydatetime()
     since, until, n = M.run(es, cfg, at, pd.Timedelta(args.window).to_pytimedelta())

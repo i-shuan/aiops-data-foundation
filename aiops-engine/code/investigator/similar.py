@@ -13,7 +13,9 @@ from __future__ import annotations
 
 import re
 
-INCIDENT_INDEX = "aiops-incidents"
+from sources import as_backend
+from sources.schema import INCIDENT_INDEX  # noqa: F401  名字留給既有的 import
+
 # 比對權重（先估的）：同一段變慢、同一個錯誤源頭最有鑑別力；同服務其次；指標組合、log 樣式較弱
 WEIGHTS = {"slow_segments": 4.0, "error_origins": 4.0, "services": 3.0, "routes": 2.0, "patterns": 2.0, "series": 1.0}
 MIN_SCORE = 4.0        # 低於這個分數不算像：至少一個強特徵、或兩三個弱特徵
@@ -45,7 +47,8 @@ def fingerprint(alert: dict, findings: dict | None) -> dict:
 
 
 def query(fp: dict, exclude_id: str | None = None, size: int = CANDIDATES, statuses: tuple[str, ...] = CONFIRMED) -> dict:
-    """ES 的候選查詢（sources/stores.py ESStore.similar_incidents 用）：status 過濾＋指紋各欄位的 should（boost 只影響 ES 端排前 size 件）。"""
+    """ES 的候選查詢（search 把它當 query_builder 交給 Store.similar_incidents；ESStore 用它查，其他 Store 不用）：
+    status 過濾＋指紋各欄位的 should（boost 只影響 ES 端排前 size 件）。"""
     should = []
     for field, w in WEIGHTS.items():
         vals = fp.get(field) or []
@@ -106,8 +109,7 @@ def search(es, fp: dict, exclude_id: str | None = None, k: int = TOP_K, min_scor
     候選從 Store 拿（ES 用 query 先篩前 size 件；檔案、記憶體給全部已確認的），分數一樣用 rank 算。"""
     if not any(fp.get(f) for f in WEIGHTS):
         return []
-    from sources.base import as_backend
-    return rank(fp, as_backend(es).similar_incidents(fp, CONFIRMED, exclude_id, size), k, min_score, weights)
+    return rank(fp, as_backend(es).similar_incidents(fp, CONFIRMED, exclude_id, size, query), k, min_score, weights)
 
 
 # ── 分類：case 只用來說「這件像哪一類」（docs/pdca/meta/2026-11-case-classify.md）──
@@ -153,7 +155,6 @@ def format_similar(items: list[dict], tz_label: str = "", cls: dict | None = Non
 
 def _confirmed_cases(es) -> list[tuple[str, dict]]:
     """已確認、有根因分類、有指紋的事故（留一法的樣本）。"""
-    from sources.base import as_backend
     return as_backend(es).incidents(CONFIRMED, having=("root_cause_category", "fingerprint"))
 
 

@@ -61,7 +61,7 @@ class Plugin:
         raise NotImplementedError
 
     def source_name(self) -> str:
-        """原始資料的格式名（core/traces.schema_of 用它判斷 raw 索引是不是 APM）。"""
+        """原始資料的格式名（sources/traces.schema_of 用它判斷 raw 索引是不是 APM）。"""
         return self.name
 
     def domain(self) -> dict:

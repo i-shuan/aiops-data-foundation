@@ -1,6 +1,7 @@
 """原始資料在 ES 的 Backend：ESSourceBackend（讀 ES，結果寫別的 Store：離線實驗）、ESBackend（讀寫都是 ES：設定沒寫 source 的預設）。
-查詢就是原本 detector/es.py、detector/rules.py、core/traces.py、detector/cmd_ingest.py 裡打 ES 的那幾段，搬來當方法；aggregation 在 ES 端算。
-es 是 core.es.ES，或測試裡只有 req／search 的假 ES（base.as_backend 包進來）。"""
+查詢就是原本 detector/es.py、detector/rules.py、core/traces.py、detector/cmd_ingest.py 裡打 ES 的那幾段，搬來當方法；aggregation 在 ES 端算
+（value → aggregation 的對照在 es_aggs.py，span 的格式解析在 traces.py）。
+es 是 core.es.ES，或測試裡只有 req／search 的假 ES（sources.as_backend 包進來）。"""
 from __future__ import annotations
 
 from collections import defaultdict
@@ -9,8 +10,10 @@ import pandas as pd
 
 from core.es import get_field, time_range
 from .base import Backend, Store
+from .es_aggs import _bucket_events, _bucket_value, _value_aggs
 from .shape import fill_zero
 from .stores import ESStore
+from .traces import _APM_FIELDS, _SPAN_FIELDS, from_merged, schema_of, to_span
 
 _SEARCH = "_search?ignore_unavailable=true&allow_no_indices=true"
 
@@ -38,10 +41,9 @@ class ESSourceBackend(Backend):
         """把一條序列定義在 [start, end) 的資料，依 by 欄位和 interval 切好（composite aggregation 翻頁）。interval 是 None 時整段算一個值
         （ts 是 end），Pod 同儕橫向比對（peer.py）用：每個 Pod 最近 10 分鐘的錯誤率、p95。
 
-        回傳欄位：by 的每個欄位（有 keys 時改成 keys 的名字）+ ts + value + n（底下的事件數，見 detector.es._bucket_events；events: value 時就是 value）。
+        回傳欄位：by 的每個欄位（有 keys 時改成 keys 的名字）+ ts + value + n（底下的事件數，見 es_aggs._bucket_events；events: value 時就是 value）。
         筆數類（count、或 fill_zero: true）沒有資料的時段補 0：沒有請求就是 0，不是「不知道」。這也是為什麼資料不能缺，缺了會被學成「平常會掉到 0」。
         同一個指標不同語言名字不同的問題在收值端改名解決（docs/pdca/phase1-collect/2026-10-field-unify.md），這裡不分語言各查一次。"""
-        from detector.es import _bucket_events, _bucket_value, _value_aggs   # detector.es import sources，所以在這裡才 import
         by = spec["by"]
         tf = spec.get("time_field", "@timestamp")
         filters = [{"range": {tf: {"gte": start.isoformat(), "lt": end.isoformat()}}}]
@@ -139,8 +141,7 @@ class ESSourceBackend(Backend):
     # ── spans（M4、根因分析）──
     def spans(self, index, trace_ids, start, end):
         """把這些 trace 的所有 span 讀回來（含其他服務的）。呼叫端把時間放寬，跨過邊界的請求也讀得完整。
-        三種 index（core.traces.schema_of）回同一種 span 格式。"""
-        from core.traces import _APM_FIELDS, _SPAN_FIELDS, from_merged, schema_of, to_span
+        三種 index（traces.schema_of）回同一種 span 格式。"""
         out = []
         schema = schema_of(index)
         for i in range(0, len(trace_ids), 500):
@@ -172,7 +173,6 @@ class ESSourceBackend(Backend):
 
     def spans_by_id(self, index, span_ids, start, end):
         """用 span_id 讀回 span（例如 link 指到的、另一個 trace 裡的生產者）。"""
-        from core.traces import _APM_FIELDS, _SPAN_FIELDS, from_merged, schema_of, to_span
         out = {}
         want = set(span_ids)
         schema = schema_of(index)

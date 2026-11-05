@@ -34,7 +34,7 @@ class CallEdges(unittest.TestCase):
         ids = {"mes-api": ["t1"], "wip-worker": ["t1"], "mes-report": ["t2"]}
         asked = []
         with mock.patch.object(CH.E, "service_trace_ids", side_effect=lambda es, ix, s, a, b, n: (asked.append(s), ids.get(s, []))[1]), \
-             mock.patch.object(CH.T, "spans_of", return_value=self.SPANS) as spans_of:
+             mock.patch.object(CH, "spans_of", return_value=self.SPANS) as spans_of:
             edges = CH.call_edges("es", {"indices": {"traces": "traces-*"}}, {"mes-api", "wip-worker", "mes-report"}, T0, T0 + timedelta(hours=1), per=50)
         self.assertEqual(edges, {("mes-api", "wip-worker")})       # oracle 不是候選服務；mes-report 沒人呼叫、也沒呼叫誰
         self.assertEqual(sorted(asked), ["mes-api", "mes-report", "wip-worker"])

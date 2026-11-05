@@ -12,12 +12,16 @@ import pandas as pd
 
 from core import domain
 from core import llm as LLM
+from core import plugin
 from core.config import load_config
 from core.es import doc_id
 from detector import tuning as T
-from detector.feedback import FEEDBACK_MAPPING, INCIDENT_MAPPING, RCA_USEFUL as _RCA_USEFUL
+from detector.cmd_ingest import ingest_rows
+from detector.feedback import RCA_USEFUL as _RCA_USEFUL
+from investigator.similar import classify
+from scheduler.runner import load_schedule
+from sources.schema import ALERT_INDEX, FEEDBACK_INDEX, FEEDBACK_MAPPING, INCIDENT_INDEX, INCIDENT_MAPPING
 
-ALERT_INDEX, FEEDBACK_INDEX, INCIDENT_INDEX = "aiops-alerts", "aiops-feedback", "aiops-incidents"
 _ready = set()
 # 漏報表單的序列選單、時區：跟 detector 讀同一份 series.yaml（image 裡 configs/ 跟套件放在一起，路徑一樣）
 _SERIES_CFG = load_config(str(Path(__file__).resolve().parents[1] / "configs/baseline/series.yaml"), "series")
@@ -45,7 +49,6 @@ def form_data(alert: dict) -> dict:
     sim = alert.get("similar") or []
     cat = alert.get("suggested_category")
     if cat is None and sim:                      # 舊的告警（分類器之前寫的）：現場算
-        from investigator.similar import classify
         cls = classify(sim)
         cat = cls["category"] if cls else None
     return {"alert_id": alert["alert_id"], "title": alert.get("title"), "summary": alert.get("summary") or "", "service": alert.get("service"),
@@ -297,9 +300,7 @@ def ingest_config_path() -> str | None:
     排程表沒有 ingest（observability 自己判，沒有外部來源）回 None。"""
     if os.environ.get("AIOPS_INGEST_CONFIG"):
         return os.environ["AIOPS_INGEST_CONFIG"]
-    from core import plugin
-    from scheduler.runner import load_schedule
-    here = Path(__file__).resolve().parents[1]
+    here =Path(__file__).resolve().parents[1]
     _, jobs = load_schedule(str(here / plugin.current().schedule), stage=2)
     job = next((j for j in jobs if j.name == "ingest"), None)
     if job is None or "--config" not in job.args:
@@ -311,8 +312,7 @@ def ingest(es, body: dict, now: datetime | None = None) -> dict:
     """{"input": "ml", "rows": [...]} → 照 ingest.yaml 裡叫 input 的對照轉成異常、寫進 aiops-anomalies。
     rows 的欄位跟那個 input 的索引裡一樣（time_field、keys、value…）。回 {"input", "written", "skipped"}。
     沒有 ingest.yaml、沒有這個 input → LookupError（404）；body 不對 → ValueError（400）。"""
-    from detector.cmd_ingest import ingest_rows
-    name, rows = body.get("input"), body.get("rows")
+    name, rows =body.get("input"), body.get("rows")
     if not name or not isinstance(rows, list):
         raise ValueError('要 {"input": "<ingest.yaml 的 inputs 名>", "rows": [ {...}, ... ]}')
     if not all(isinstance(r, dict) for r in rows):

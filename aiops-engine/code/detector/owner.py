@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from core import plugin, source
 from core.version import ENGINE_VERSION
+from sources import as_backend
 
 OWNER_DAYS = 2
 UNASSIGNED = "unassigned"
@@ -35,11 +36,15 @@ def owners_from_agg(res: dict) -> dict:
 
 
 def load_owners(es, days: int = OWNER_DAYS) -> dict:
+    """es 是 core.es.ES 或 Backend。歸屬只有 ES 的原始資料裡有：檔案、記憶體來源回 {}（每筆都 unassigned）。"""
     f = source.profile("owner")
     # static：主檔（工廠的 eqp-master）沒有時間欄位，整份都算
     query = {"match_all": {}} if f.get("static") else {"range": {"@timestamp": {"gte": f"now-{days}d"}}}
     body = {"size": 0, "query": query, "aggs": {"ns": _agg(f["namespace"], f), "svc": _agg(f["service"], f)}}
-    res = es.req("POST", f"/{f['index']}/_search?ignore_unavailable=true&allow_no_indices=true", body)
+    try:
+        res = as_backend(es).raw_req("POST", f"/{f['index']}/_search?ignore_unavailable=true&allow_no_indices=true", body)
+    except NotImplementedError:   # 不是 ES 來源：沒有歸屬可查
+        return {}
     return owners_from_agg(res)
 
 
@@ -57,11 +62,13 @@ def owner_of(keys: dict, owners: dict) -> tuple[str | None, str]:
 
 def write_anomalies(es, docs: list) -> None:
     """寫進異常總表，每筆帶上 dept、group、engine_version。docs：(_id, 文件)。
-    baseline、規則、peer、quality、trace 都從這裡寫，所以「每筆異常都要有」的欄位只補在這一處：engine_version 在這裡補，
-    dept、group 由 Store 補（ES 查 load_owners／owner_of；檔案、記憶體來源沒有歸屬可查，全部 unassigned）。"""
+    baseline、規則、peer、quality、trace 都從這裡寫，所以「每筆異常都要有」的欄位只補在這一處，補完才交給 Store 寫
+    （Store 只負責寫；檔案、記憶體來源查不到歸屬，全部 unassigned）。"""
     if not docs:
         return
-    from sources.base import as_backend
+    be = as_backend(es)
+    owners = load_owners(be)
     for _, d in docs:
         d["engine_version"] = ENGINE_VERSION
-    as_backend(es).write_anomalies(docs)
+        d["dept"], d["group"] = owner_of(d.get("keys"), owners)
+    be.write_anomalies(docs)

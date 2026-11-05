@@ -23,6 +23,8 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
+from .adjust import match_keys as _match
+
 MAD_TO_SIGMA = 1.4826  # 常態分布下 MAD 換成標準差的係數
 
 LEVELS = ("dow_hour", "hour", "all")
@@ -363,7 +365,6 @@ def resolutions_from(resolutions, min_resolution: str | None) -> list[str]:
 
 def match_keys(key: dict, match: dict | None) -> bool:
     """match 的每個欄位都要符合（正規表示式，re.search；欄位可以用別名，見 adjust.ALIASES）；沒有 match 就是全部。"""
-    from .adjust import match_keys as _match
     return _match(key, match)
 
 

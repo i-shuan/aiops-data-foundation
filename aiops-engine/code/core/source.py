@@ -12,7 +12,7 @@ from . import plugin
 
 
 def name() -> str:
-    """原始資料的格式名：otel、apm、factory…（core/traces.schema_of 用它判斷 raw 索引是不是 APM）。"""
+    """原始資料的格式名：otel、apm、factory…（sources/traces.schema_of 用它判斷 raw 索引是不是 APM）。"""
     return plugin.current().source_name()
 
 

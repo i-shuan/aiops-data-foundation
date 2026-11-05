@@ -1,4 +1,6 @@
-"""trace 的共用處理：從 ES 讀 span、組回一個個請求、算每一段自己花的時間。根因分析與 trace 的 baseline 都用。
+"""trace 的共用處理：span 的格式解析（三種 index 轉成同一種 span）、組回一個個請求、算每一段自己花的時間。
+根因分析與 trace 的 baseline 都用（原本是 core/traces.py）。從 Backend 讀 span 的 spans_of／spans_by_id 在 sources/__init__.py
+（要 as_backend；es_source 又 import 這裡的解析，放這裡會繞圈）。
 
 span 的格式（to_span 從 raw 的 ES 文件轉成這樣；from_merged 從合成一筆的文件展開成同樣的格式）：
   {"trace_id", "span_id", "parent", "service", "name", "kind", "target", "start_ms", "dur_ms", "error", "exception", "attrs", "resource"}
@@ -16,8 +18,8 @@ from __future__ import annotations
 from collections import defaultdict
 from datetime import datetime
 
-from . import source
-from .es import get_field
+from core import source
+from core.es import get_field
 
 _SPAN_FIELDS = ["@timestamp", "trace_id", "span_id", "parent_span_id", "name", "kind", "duration", "status.code", "links",
                 "resource.attributes", "attributes"]
@@ -136,19 +138,6 @@ def from_merged(doc: dict) -> list[dict]:
              "dur_ms": float(s.get("dur_ms") or 0), "error": bool(s.get("error")), "exception": s.get("exception"),
              "links": list(s.get("links") or []), "attrs": s.get("attrs") or {}, "resource": s.get("resource") or {}}
             for s in doc.get("spans") or []]
-
-
-def spans_by_id(es, index: str, span_ids: list[str], start: datetime, end: datetime) -> dict[str, dict]:
-    """用 span_id 讀回 span（例如 link 指到的、另一個 trace 裡的生產者）。ES 的查詢在 sources/es_source.py。"""
-    from sources.base import as_backend   # sources import 這個模組（schema_of、to_span），所以在這裡才 import
-    return as_backend(es).spans_by_id(index, span_ids, start, end)
-
-
-def spans_of(es, index: str, trace_ids: list[str], start: datetime, end: datetime) -> list[dict]:
-    """把這些 trace 的所有 span 讀回來（含其他服務的）。時間放寬，跨過邊界的請求也讀得完整。
-    ES 的查詢在 sources/es_source.py；檔案來源的 span 已經是這個格式，直接拿。"""
-    from sources.base import as_backend
-    return as_backend(es).spans(index, trace_ids, start, end)
 
 
 def segment(s: dict) -> str:

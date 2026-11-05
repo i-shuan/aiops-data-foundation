@@ -21,18 +21,11 @@ from dataclasses import dataclass
 import pandas as pd
 
 from core.es import ES, doc_id, time_range
-from core.traces import group_traces, is_merged, segment, self_times, spans_by_id, spans_of
+from sources import spans_by_id, spans_of
+from sources.schema import SEGMENT_INDEX, SEGMENT_MAPPING  # noqa: F401  mapping 在 sources/schema.py；名字留給既有的 import
+from sources.traces import group_traces, is_merged, segment, self_times
 
-SEGMENT_INDEX = "aiops-trace-segments"
-SEGMENT_MAPPING = {"mappings": {"dynamic": False, "properties": {
-    "@timestamp": {"type": "date"}, "kind": {"type": "keyword"},
-    "entry": {"properties": {"service": {"type": "keyword"}, "name": {"type": "keyword"}}},
-    "segment": {"type": "keyword"}, "requests": {"type": "integer"},
-    "calls": {"type": "double"}, "time_ms": {"type": "double"}, "error_rate": {"type": "double"},
-    "swallowed_rate": {"type": "double"}, "exception_type": {"type": "keyword"},
-    "caller": {"type": "keyword"}, "callee": {"type": "keyword"}, "skew_ms": {"type": "double"},
-}}}
-KEYS = ["entry.service", "entry.name", "segment"]
+KEYS =["entry.service", "entry.name", "segment"]
 COLUMNS = ["ts", *KEYS, "requests", "calls", "time_ms", "error_rate", "swallowed_rate", "exception_type"]
 METRICS = ("calls", "time_ms", "error_rate", "swallowed_rate")
 

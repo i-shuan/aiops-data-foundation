@@ -21,8 +21,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from core.es import ES, doc_id
+from detector.adjust import local_iso
+from sources.schema import INCIDENT_INDEX, INCIDENT_MAPPING
 
-from .similar import INCIDENT_INDEX, _seg_name
+from .similar import _seg_name
 
 REQUIRED = ("title", "start", "end", "services", "root_cause_category", "root_cause", "action", "how_detected", "checked")
 OPTIONAL = ("by", "note")
@@ -98,7 +100,6 @@ def _text(v) -> str | None:
 
 def _time(v, tz: str) -> str | None:
     """沒寫時區的當 tz 的當地時間。看不懂回 None（呼叫端當成缺欄位）。"""
-    from detector.adjust import local_iso
     s = _text(v)
     if not s:
         return None
@@ -163,7 +164,6 @@ def write(es: ES, docs: list[tuple[str, dict]]) -> int:
     """index（不是 update）：匯入的檔案是這幾件的真相，重匯就覆蓋，包括回饋網頁後來改過的欄位。"""
     if not docs:
         return 0
-    from detector.feedback import INCIDENT_MAPPING
     es.ensure_index(INCIDENT_INDEX, INCIDENT_MAPPING)
     es.bulk_index(INCIDENT_INDEX, docs)
     return len(docs)

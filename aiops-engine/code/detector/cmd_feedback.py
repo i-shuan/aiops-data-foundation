@@ -6,6 +6,7 @@ import json
 import pandas as pd
 
 from core import llm as LLM
+from core import plugin
 
 from .es import ANOMALY_INDEX, ES, doc_id
 from . import adjust as A
@@ -62,8 +63,7 @@ def _anomaly_details(es, ids: list[str]) -> list[dict]:
 
 def _deploy_before(es, fps: list[dict], grace_min: int = 10):
     """這些誤報的對象在它們之前 grace_min 分鐘內有沒有換版（plugin 的 change_at：IT 看版號、工廠看 recipe 變更）；查不到就 None。"""
-    from core import plugin
-    svc = next((v for f in fps for k in plugin.current().entity_keys if (v := (f.get("keys") or {}).get(k))), None)
+    svc =next((v for f in fps for k in plugin.current().entity_keys if (v := (f.get("keys") or {}).get(k))), None)
     ats = [pd.Timestamp(f["at"]) for f in fps if f.get("at")]
     if not svc or not ats:
         return None

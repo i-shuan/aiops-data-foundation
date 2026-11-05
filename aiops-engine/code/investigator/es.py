@@ -1,4 +1,4 @@
-"""根因分析從 ES 讀的資料：baseline 找到的異常、某個服務的請求、log。連線見 core.es，span 見 core.traces。
+"""根因分析從 ES 讀的資料：baseline 找到的異常、某個服務的請求、log。連線見 core.es，span 見 sources.traces。
 
 trace 讀合成一筆的 traces-merged-*（detector trace-merge 寫的；事故可能幾天後才查，raw 只留 2 天）：
 「某個服務收到的請求」用 nested 的 entries（入口 span：服務、API、耗時、有沒有錯）挑，不用展開 spans。

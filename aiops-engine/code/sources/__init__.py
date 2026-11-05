@@ -12,10 +12,13 @@
 
 程式直接呼叫：sources.MemoryBackend({"metrics-*": df})，把它當 es 傳給 detector 的指令，或自己 .series(spec, …) 餵 models/。
 手上是 core.es.ES（或假 ES）時 as_backend(es) 包成 ESBackend；detector/es.py 等讀寫函式開頭就是這麼做的。
+索引名與 mapping 在 schema.py；span 的格式解析在 traces.py。
 """
 from __future__ import annotations
 
-from .base import Backend, Store, as_backend
+from datetime import datetime
+
+from .base import Backend, Store
 from .es_source import ESBackend, ESSourceBackend
 from .rows import FileBackend, HttpBackend, MemoryBackend, RowsBackend, load_file
 from .shape import ShapeError, points_from_rows, series_from_rows
@@ -23,7 +26,17 @@ from .stores import ESStore, FileStore, MemoryStore, open_store
 
 __all__ = ["Backend", "Store", "as_backend", "ESBackend", "ESSourceBackend", "FileBackend", "HttpBackend", "MemoryBackend", "RowsBackend",
            "load_file", "ShapeError", "points_from_rows", "series_from_rows", "ESStore", "FileStore", "MemoryStore", "open_store",
-           "open_backend"]
+           "open_backend", "spans_of", "spans_by_id"]
+
+
+def as_backend(x) -> Backend:
+    """唯一的正規化點：已經是 Backend 就原樣回；core.es.ES 或長得像 ES 的東西（有 req／search 的假 ES）包成 ESBackend。
+    放在這裡而不是 base.py：base 定義 Backend、es_source 繼承它，base 再 import ESBackend 就繞圈。"""
+    if isinstance(x, Backend):
+        return x
+    if x is None or not any(hasattr(x, m) for m in ("req", "search", "bulk_index")):
+        raise TypeError(f"要 sources.Backend 或 core.es.ES，不是 {type(x).__name__}")
+    return ESBackend(x)
 
 
 def open_backend(cfg: dict, es_factory) -> Backend:
@@ -43,3 +56,14 @@ def open_backend(cfg: dict, es_factory) -> Backend:
     if kind == "http":
         return HttpBackend(src.get("url"), src.get("urls"), fmt, store, src.get("headers"), src.get("timeout", 60))
     raise ValueError(f"source.kind 只能是 es、file、http，不是 {kind!r}（程式裡直接給 DataFrame 用 sources.MemoryBackend）")
+
+
+def spans_by_id(es, index: str, span_ids: list[str], start: datetime, end: datetime) -> dict[str, dict]:
+    """用 span_id 讀回 span（例如 link 指到的、另一個 trace 裡的生產者）。ES 的查詢在 es_source.py；格式見 traces.py。"""
+    return as_backend(es).spans_by_id(index, span_ids, start, end)
+
+
+def spans_of(es, index: str, trace_ids: list[str], start: datetime, end: datetime) -> list[dict]:
+    """把這些 trace 的所有 span 讀回來（含其他服務的）。時間放寬，跨過邊界的請求也讀得完整。
+    ES 的查詢在 es_source.py；檔案來源的 span 已經是這個格式，直接拿。"""
+    return as_backend(es).spans(index, trace_ids, start, end)

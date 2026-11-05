@@ -26,8 +26,9 @@ from datetime import timedelta
 
 import typer
 
-from core import traces as T
 from core.config import load_config
+from sources import spans_of
+from sources import traces as T
 
 from . import analyze as A
 from . import cmd_alert
@@ -47,7 +48,7 @@ def topology(cfg: dict, args) -> str:
     end = _ts(args.at)
     start = end - _dur(args.window)
     ids = E.recent_trace_ids(es, cfg["indices"]["traces"], start, end, args.sample)
-    tr = T.group_traces(T.spans_of(es, cfg["indices"]["traces"], ids, start - timedelta(minutes=5), end + timedelta(minutes=5)))
+    tr = T.group_traces(spans_of(es, cfg["indices"]["traces"], ids, start - timedelta(minutes=5), end + timedelta(minutes=5)))
     edges = A.topology(tr)
     tz = cfg.get("timezone", "Asia/Taipei")
     out = [f"# 服務之間的呼叫關係：{_local(start, tz)}～{_local(end, tz)}（{tz}，最近 {len(tr)} 個請求）", "",

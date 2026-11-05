@@ -6,15 +6,15 @@ import pandas as pd
 from core.es import get_field
 from .base import Anomaly, Detector
 from .es import ES, fetch
+from . import adjust as A
 from . import rules as R
 from .common import _freq
+from .tuning import load_adjustments
 
 
 def approved_rules(es: ES, cfg: dict, now: pd.Timestamp | None = None) -> list[dict]:
     """老師傅核准的「升級成規則」（aiops-tuning 的 rule_suggestion，status active、expires_at 還沒到、門檻是數字）：
     跟 rules.yaml 的一起跑。now 是這一輪的時間（--at），過期用它比。"""
-    from . import adjust as A
-    from .tuning import load_adjustments
     try:
         adjs = load_adjustments(es, cfg)
     except Exception as e:

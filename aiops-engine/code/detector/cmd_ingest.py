@@ -6,15 +6,13 @@ from __future__ import annotations
 import pandas as pd
 
 from core.es import ES
-from sources import open_backend
-from sources.base import as_backend
+from sources import as_backend, open_backend
+from sources.schema import INGEST_FIELDS  # noqa: F401  ingest 多補的欄位，定義在 sources/schema.py；名字留給既有的 import
 
 from . import ingest as I
-from .common import RULE_FIELDS, _now
+from .common import _now
 from .es import ANOMALY_INDEX, ANOMALY_MAPPING
 from .owner import write_anomalies
-
-INGEST_FIELDS = {**RULE_FIELDS, "source": {"type": "keyword"}, "source_id": {"type": "keyword"}, "status": {"type": "keyword"}}
 
 
 def read_rows(es, inp: dict, start: pd.Timestamp, end: pd.Timestamp) -> list[dict]:

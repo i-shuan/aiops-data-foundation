@@ -1,6 +1,6 @@
 """萬用資料處理器：原始列（DataFrame，一列一個事件或一個預先統計好的點）＋序列定義 → 五個模型的標準輸入。
 
-跟 ES 端的 aggregation（detector/es.py 的 _value_aggs、_bucket_value、_bucket_events）是同一套定義的 pandas 實作，
+跟 ES 端的 aggregation（sources/es_aggs.py 的 _value_aggs、_bucket_value、_bucket_events）是同一套定義的 pandas 實作，
 同一批資料兩邊算出來要一樣（docs/pdca/meta/2026-11-model-modules.md 的 Check）。
 
 原始列的欄位名用 ES 的點號路徑（service.name、event.outcome、transaction.duration.histogram）。
@@ -309,7 +309,7 @@ def fill_zero(df: pd.DataFrame, by: list[str], start, end, interval, alive=None)
     """筆數類的序列：沒資料的時段補 0。但兩種情況當成「不知道」（NaN）：
     1. 這條序列第一次出現之前：服務還沒上線，不是「平常是 0」。
     2. 收集系統本身停了的時段：alive 是有資料的時段（整個 index、不加 filter）；沒給就用這次查到的資料。
-    （原本在 detector/es.py；ES 與這裡共用。）"""
+    （原本在 detector/es.py，ES 端的對照在 es_aggs.py；兩邊共用。）"""
     if df.empty:
         return df
     freq = to_freq(interval)

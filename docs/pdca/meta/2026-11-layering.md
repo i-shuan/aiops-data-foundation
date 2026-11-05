@@ -1,6 +1,6 @@
 # 高內聚、低耦合：套件分層、一個功能一個資料夾、plugin 邊界切乾淨（2026-11）
 
-**狀態**：進行中　　**日期**：2026-11-05　　**相關**：分支 `claude/layering`（從 master `31c72f8` 開）；接 [frameworks](2026-11-frameworks.md)、[oop-core](2026-11-oop-core.md)（兩輪都在加介面與框架，沒動套件怎麼切，使用者看完判斷「檔案太散、plugin 沒切乾淨」）
+**狀態**：階段 A 完成，B～D 進行中　　**日期**：2026-11-05　　**相關**：分支 `claude/layering`（從 master `31c72f8` 開）；接 [frameworks](2026-11-frameworks.md)、[oop-core](2026-11-oop-core.md)（兩輪都在加介面與框架，沒動套件怎麼切，使用者看完判斷「檔案太散、plugin 沒切乾淨」）
 **模組**：④～⑨ 全部
 
 ## Plan：這一次要達到什麼
@@ -47,12 +47,50 @@
 
 ## Do：改動哪些 code、改了什麼、為何要改
 
-（進行中）
+### 階段 A：解循環（已完成）
+
+| 檔案 | 改了什麼 | 為何要改 |
+|---|---|---|
+| `tools/check-layering.py`（新） | 量五項：往上 import、模組層循環、函式內 import 內部套件、同名 `.py`、`core`／`detector`／`investigator` 的情境詞。規則寫在檔頭（`ALLOWED`＝誰能 import 誰、`ALLOWED_INNER`、`MODULE_EXCEPTIONS`） | 驗收標準要能量，不靠感覺；規則在階段 A 沒有為了通過而改 |
+| `sources/schema.py`（新） | 所有 `aiops-*` 索引名與 mapping 一份：baseline、anomalies、tuning、incidents、feedback、alerts、chronic、segments，加 `RULE_FIELDS`、`INGEST_FIELDS`、`STAMP_LAG`／`stamp_of`、`BASELINE_COLUMNS`。舊模組用 `from sources.schema import … # noqa` re-export，既有 import 與測試不用改 | `sources` 與 `detector`／`investigator` 之間的循環，根源是「索引的定義放在上層、下層要用」；定義放最底下，大家往下取 |
+| `sources/es_aggs.py`（新） | `_value_aggs`、`_bucket_value`、`_bucket_events`、`value_kind` 從 `detector/es.py` 搬來 | `sources/es_source.py` 要用這些，原本向上 import `detector.es` |
+| `core/traces.py` → `sources/traces.py` | span 格式解析與純函式整個搬到 sources；`spans_of`／`spans_by_id` 放在 `sources/__init__.py`（要 `as_backend`，放 `traces.py` 會繞圈）。所有使用者改指向新家 | `core` 不該依賴 `sources`，而 trace 格式解析本來就是資料層的事 |
+| `as_backend` 從 `sources/base.py` 搬到 `sources/__init__.py` | `from sources.base import as_backend` 全改成 `from sources import as_backend` | `base` ↔ `es_source` 的循環唯一解法 |
+| `detector/owner.py`、`sources/base.py`、`sources/stores.py` | `Store.write_anomalies` 只負責寫（基底給預設實作）；dept／group／`engine_version` 的補值回到 `detector/owner.py::write_anomalies`，用 `as_backend(x).raw_req` 查負責人，非 ES 來源丟 `NotImplementedError` 就當空表、全部 `unassigned` | `sources` 不該 import `detector.owner`。副作用見 Act 第 1 列 |
+| `Store.similar_incidents(..., query_builder=None)`、`investigator/similar.py` | 查詞函式由 `investigator` 傳進去，`ESStore` 只負責執行 | `sources` 不該 import `investigator.similar` |
+| `core/llm.py`、`investigator/cmd_alert.py` | `build_pack(..., classification=None)`：分類結果由呼叫端傳進來，`core` 不再 import `investigator.similar`。`llm.py` 沒搬（`detector/cmd_feedback`、`api` 也用它） | `core` 不該依賴 `investigator` |
+| 41 處函式內 import | 全部提到模組頂；兩處 `from . import x` 改絕對寫法（`sources/rows.py`、`plugins/factory/cmd_paths.py`） | 函式內 import 是躲循環的徵兆，循環解開後就不需要 |
+| 文件與註解 | `core/traces.py` → `sources/traces.py` 的路徑文字（`architecture.md` 3 處、`apm/README.md`、`apm/trace.yaml`、`apm/rca.yaml`、幾個 docstring） | 不留指向已刪檔的說明 |
+| 測試（只改 mock 目標或傳參） | `test_cmd_rules`、`test_plugin`、`test_cmd_alert`、`test_llm`、`test_es_backend`、四個 trace 測試 | 名字綁定的位置變了 |
+
+### 階段 B～D
+
+（尚未開始）
 
 ## Check：測試的目的與結果
 
-（進行中）
+### 階段 A
+
+`PYTHONUTF8=1 py -m pytest -q` → 769 個通過（跟開始前一樣，沒有退步）；`py -W error -c "import api.server, detector.__main__, investigator.__main__, scheduler.__main__, tasks"` 沒有警告；`tools/check-docs.py` 四項 0 個問題。
+
+| 指標 | 開始 | 階段 A 後 | 階段 A 目標 |
+|---|---|---|---|
+| 往上 import（違反分層） | 6 | 0 | 0 ✓ |
+| 模組層循環 | 8 | 0 | 0 ✓ |
+| 函式內 import 內部套件 | 41 | 0 | 0 ✓ |
+| 同名 `.py` | 6 | 6 | 階段 B |
+| 情境詞 | 39 | 38 | 階段 C |
+| 非測試總行數 | 12,286 | 12,313 | — |
+
+沒測到的：沒連真的 ES、沒在 k3d 跑。
 
 ## Act：Check 後沒改善的、還沒解決的
 
-（進行中）
+| 沒改善的 | 在什麼情況下發現的 | 影響 | 後續 |
+|---|---|---|---|
+| [⑤] 行為有兩處差異：`ESSourceBackend` 搭配 file／memory store 現在也會從 ES 查 dept／group（以前全部 unassigned）；`MemoryStore` 以前 `setdefault`、現在一律覆寫 dept／group | 階段 A 把補值搬回 `owner.py` 時 | 只影響「來源是 ES、結果存檔案」這種離線實驗組合 | 跟 ES 路徑一致，不處理 |
+| `detector/sources.py` 沒搬成 `sources/providers.py` | 它不 import 任何內部套件，不是循環的一部分 | 檔名 `sources.py` 與套件 `sources/` 仍容易混 | 階段 B 一併改名 |
+| `check-layering` 把 `from . import x` 視為 import 套件 `__init__` | 階段 A 修循環時 | 同套件內用這種寫法、`__init__` 又 import 該模組，會算循環 | Python 層面確實是循環（靠部分初始化才跑得過），改絕對 import 是誠實的修法 |
+| 同名 `.py` 6 組、情境詞 38 處 | 計畫就分階段 | 內聚的部分還沒做 | 階段 B、C |
+| 沒連真的 ES | 只有單元測試 | 搬過去的查詢沒對 ES 跑過 | 全部階段做完後在 k3d 跑一輪 |
+

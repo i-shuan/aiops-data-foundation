@@ -8,10 +8,9 @@ from __future__ import annotations
 
 import pandas as pd
 
+from sources.schema import ALERT_INDEX
 from .es import ES
 from . import feedback as F
-
-ALERT_INDEX = "aiops-alerts"
 
 
 def _all(es, index: str, body: dict) -> list[dict]:

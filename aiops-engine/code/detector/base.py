@@ -20,7 +20,7 @@ from sources import open_backend
 
 @dataclass
 class Anomaly:
-    """寫進 aiops-anomalies 的一筆異常。**這是異常文件唯一的定義處**：detector/es.py 的 ANOMALY_MAPPING、common.py 的
+    """寫進 aiops-anomalies 的一筆異常。**這是異常文件唯一的定義處**：sources/schema.py 的 ANOMALY_MAPPING、
     RULE_FIELDS 要跟它一致（tests/test_detector_base.py 會對）。to_doc() 產生寫入的 dict。
 
     欄位            誰寫                      意思

@@ -2,7 +2,7 @@
 import unittest
 from datetime import datetime, timezone
 
-from core import traces as T
+from sources import traces as T
 from investigator import analyze as A
 from plugins.factory import paths as P
 

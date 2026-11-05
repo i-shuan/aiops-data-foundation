@@ -5,7 +5,9 @@ import unittest
 from datetime import datetime, timezone
 from unittest import mock
 
-from core import source, traces as T
+from core import source
+from sources import spans_by_id, spans_of
+from sources import traces as T
 from detector import owner as O, trace_merge as M
 from detector.es import _bucket_events, _bucket_value, _value_aggs, value_kind
 from investigator import es as E
@@ -30,7 +32,7 @@ APP = {"@timestamp": "2026-11-02T01:00:00.020Z", "processor": {"event": "span"},
 
 
 class ApmSpanTest(unittest.TestCase):
-    """APM 的 transaction／span 文件轉成 core.traces 的 span 格式。"""
+    """APM 的 transaction／span 文件轉成 sources.traces 的 span 格式。"""
 
     def test_transaction_is_server_entry(self):
         s = T.to_span(TX)
@@ -96,7 +98,7 @@ class ApmQueryTest(unittest.TestCase):
 
     def test_spans_of_queries_trace_id_and_dedupes(self):
         es = self.FakeES([TX, DB, DB])
-        got = T.spans_of(es, "traces-apm-*", ["t1"], datetime(2026, 11, 1, tzinfo=timezone.utc), datetime(2026, 11, 3, tzinfo=timezone.utc))
+        got = spans_of(es, "traces-apm-*", ["t1"], datetime(2026, 11, 1, tzinfo=timezone.utc), datetime(2026, 11, 3, tzinfo=timezone.utc))
         self.assertEqual(sorted(s["span_id"] for s in got), ["s1", "tx1"])      # 同一毫秒跨頁重複的只留一個
         body = es.bodies[0][1]
         self.assertIn({"terms": {"trace.id": ["t1"]}}, body["query"]["bool"]["filter"])
@@ -105,7 +107,7 @@ class ApmQueryTest(unittest.TestCase):
 
     def test_spans_by_id_matches_span_or_transaction_id(self):
         es = self.FakeES([TX, DB])
-        got = T.spans_by_id(es, "traces-apm-*", ["tx1"], datetime(2026, 11, 1, tzinfo=timezone.utc), datetime(2026, 11, 3, tzinfo=timezone.utc))
+        got = spans_by_id(es, "traces-apm-*", ["tx1"], datetime(2026, 11, 1, tzinfo=timezone.utc), datetime(2026, 11, 3, tzinfo=timezone.utc))
         self.assertEqual(list(got), ["tx1"])
         should = es.bodies[0][1]["query"]["bool"]["should"]
         self.assertEqual(should, [{"terms": {"span.id": ["tx1"]}}, {"terms": {"transaction.id": ["tx1"]}}])

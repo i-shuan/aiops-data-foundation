@@ -1,5 +1,5 @@
 """根因分析的計算，不碰 ES：比較出事時和平常、畫瀑布圖、畫服務之間的呼叫關係、把 log 歸成樣式。
-span 的格式與「每一段自己的時間」見 core.traces。
+span 的格式與「每一段自己的時間」見 sources.traces。
 """
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from statistics import median
 
 from core.es import get_field
-from core.traces import error_origins, group_traces, root_of, segment, self_times  # noqa: F401  給 __main__ 用
+from sources.traces import error_origins, group_traces, root_of, segment, self_times  # noqa: F401  給 __main__ 用
 
 
 @dataclass

@@ -12,7 +12,7 @@ interval: 5m
 
 trend: {windows: 6, window: 10m}
 commonality:
-  resource: [k8s.pod.name, service.version, host.name]   # core/traces.py 把 APM 的 kubernetes.pod.name 攤成 k8s.pod.name
+  resource: [k8s.pod.name, service.version, host.name]   # sources/traces.py 把 APM 的 kubernetes.pod.name 攤成 k8s.pod.name
   attrs: [db.statement]                                  # span.db.statement → db.statement；業務 ID 在 labels.<名字>，有的話加進來
   min_share: 0.6
   min_lift: 2

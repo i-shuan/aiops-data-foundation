@@ -3,8 +3,9 @@ import unittest
 from unittest import mock
 
 from core import llm as LLM
+from investigator.similar import classify
 
-ALERT = {"alert_id": "a-1", "service": "mes-api", "severity": "critical", "started_at": "2026-10-25T02:00:00+00:00", "minutes": 12,
+ALERT ={"alert_id": "a-1", "service": "mes-api", "severity": "critical", "started_at": "2026-10-25T02:00:00+00:00", "minutes": 12,
          "routes": ["GET /lots/{id}"], "dept": "D3120"}
 FINDINGS = {"anomalies": [{"series": "http.latency_p95_s", "value": 3.1, "median": 0.2, "z": 20}],
             "segments": [{"segment": "mes-api › wip-worker › Oracle SELECT lots", "now_ms": 1500.4, "ref_ms": 30.2, "delta_ms": 1470.2}],
@@ -12,11 +13,12 @@ FINDINGS = {"anomalies": [{"series": "http.latency_p95_s", "value": 3.1, "median
             "new_patterns": [{"service": "wip-worker", "pattern": "connection pool timeout after <N>ms", "now": 120, "ref": 0}]}
 SIMILAR = [{"start": "2026-09-12T02:00:00+00:00", "root_cause_category": "db", "root_cause": "統計資訊過期", "action": "重跑 analyze",
             "how_detected": "只有 lots 的查詢慢", "score": 9.0, "why": ["同服務（mes-api）", "同一段變慢（…Oracle SELECT lots）"]}]
+CLS = classify(SIMILAR)   # 分類由呼叫端（cmd_alert）算好傳進來，core.llm 不認得 investigator
 
 
 class Pack(unittest.TestCase):
     def test_ids(self):
-        p = LLM.build_pack(ALERT, FINDINGS, SIMILAR)
+        p = LLM.build_pack(ALERT, FINDINGS, SIMILAR, CLS)
         self.assertEqual(p["_ids"], ["A1", "E1", "I1", "L1", "S1", "T1"])
         self.assertEqual(p["segments"][0]["extra_ms"], 1470)
         # case 只做分類：輸入包裡不給 case 的處置、根因，模型抄不到（docs/pdca/meta/2026-11-case-classify.md）
@@ -31,7 +33,7 @@ class Pack(unittest.TestCase):
 
 
 class Validate(unittest.TestCase):
-    pack = LLM.build_pack(ALERT, FINDINGS, SIMILAR)
+    pack = LLM.build_pack(ALERT, FINDINGS, SIMILAR, CLS)
 
     def test_ok(self):
         ok, why = LLM.validate("mes-api 變慢在 Oracle [S1]。\n跟 9/12 相似 [I1][S1]。", self.pack)
@@ -54,7 +56,7 @@ class Validate(unittest.TestCase):
 
 class Template(unittest.TestCase):
     def test_template_passes_validate_and_cites_similar(self):
-        pack = LLM.build_pack(ALERT, FINDINGS, SIMILAR)
+        pack = LLM.build_pack(ALERT, FINDINGS, SIMILAR, CLS)
         text = LLM.template(pack)
         ok, why = LLM.validate(text, pack)
         self.assertTrue(ok, why)
@@ -97,7 +99,7 @@ class Template(unittest.TestCase):
 
 
 class Summarize(unittest.TestCase):
-    pack = LLM.build_pack(ALERT, FINDINGS, SIMILAR)
+    pack = LLM.build_pack(ALERT, FINDINGS, SIMILAR, CLS)
 
     def test_model_failure_falls_back_to_template(self):
         with mock.patch.object(LLM, "_call_openai", side_effect=RuntimeError("401 Unauthorized")):
@@ -163,6 +165,6 @@ class SegmentsThatDidNotSlowDown(unittest.TestCase):
         self.assertTrue(LLM.summarize(pack, "template")["ok"])
 
     def test_with_similar_uses_similar(self):
-        text = LLM.template(LLM.build_pack(ALERT, self.f, SIMILAR))
+        text = LLM.template(LLM.build_pack(ALERT, self.f, SIMILAR, CLS))
         self.assertIn("[I1]", text)
         self.assertNotIn("redis", text)

@@ -207,7 +207,7 @@ class HardRuleTest(unittest.TestCase):
 
     def test_target_from_new_db_semconv(self):
         # 新版 DB 語意只有 db.system.name（沒有 server.address）：也要有「→ 對象」，N+1 規則才看得到
-        from core.traces import to_span
+        from sources.traces import to_span
         s = to_span({"@timestamp": "2026-10-10T10:00:00Z", "trace_id": "t", "span_id": "s", "name": "SELECT X",
                      "kind": "Client", "duration": 2_000_000, "attributes": {"db.system.name": "oracle"},
                      "resource": {"attributes": {"service.name": "a"}}})

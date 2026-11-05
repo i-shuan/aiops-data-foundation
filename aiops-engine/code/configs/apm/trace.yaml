@@ -1,5 +1,5 @@
 # 資料來源是 Elastic APM 時的 trace 設定（detector/trace.py、trace_merge.py）。寫法跟 configs/baseline/trace.yaml 一樣。
-# raw 是 traces-apm-*（transaction、span 各一筆；core/traces.py 依索引名用 APM 的欄位轉：trace.id、parent.id、*.duration.us、
+# raw 是 traces-apm-*（transaction、span 各一筆；sources/traces.py 依索引名用 APM 的欄位轉：trace.id、parent.id、*.duration.us、
 # event.outcome、span.destination.service.resource）。合成後的 traces-merged-* 跟 OTel 來源同一種格式，後面的全部照舊。
 traces_index: traces-merged-*
 interval: 5m

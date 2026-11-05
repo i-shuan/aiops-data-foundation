@@ -4,7 +4,7 @@ Collector 把每一段原樣寫進 traces-generic.otel-<group>（只留 2 天）
   1. 找這一段時間有新 span 進來的 trace（raw 文件的 event.ingested 由 pipeline traces-otel 蓋）
   2. 讀回這些 trace 全部的 span（含更早到的）
   3. 合成一筆 upsert：晚到的 span 讓那個 trace 再被合一次、整份覆蓋，所以合得完整；重跑不會重複
-文件：上層是摘要（入口、總耗時、有沒有錯、經過哪些服務），`spans` 是每一段（nested，欄位跟 core.traces 的 span 一樣），
+文件：上層是摘要（入口、總耗時、有沒有錯、經過哪些服務），`spans` 是每一段（nested，欄位跟 sources.traces 的 span 一樣），
 `entries` 是入口（Server、Consumer、沒有上一層的 span），讓「依服務／API 挑請求」不用展開 spans。
 docs/pdca/phase1-collect/2026-10-trace-merge.md。
 """
@@ -13,7 +13,8 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 from core.es import ES, time_range
-from core.traces import group_traces, root_of, spans_of, trace_id_field
+from sources import spans_of
+from sources.traces import group_traces, root_of, trace_id_field
 
 STATE_INDEX = "aiops-state"
 STATE_ID = "trace-merge"
@@ -27,7 +28,7 @@ def is_entry(s: dict, ids: set[str]) -> bool:
 
 
 def build(spans: list[dict], merged_at: datetime, prefix: str = MERGED_PREFIX) -> tuple[str, dict]:
-    """同一個 trace 的 span（core.traces 的格式）→ (index 名稱, 文件)。index 依 group 與根 span 的日期（UTC）分。
+    """同一個 trace 的 span（sources.traces 的格式）→ (index 名稱, 文件)。index 依 group 與根 span 的日期（UTC）分。
     prefix：index 名的前綴；工廠的履歷用 lot-paths（plugins/factory/paths.py），文件格式一樣。"""
     root = root_of(spans)
     ids = {s["span_id"] for s in spans}

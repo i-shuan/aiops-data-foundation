@@ -17,46 +17,14 @@ import re
 
 import pandas as pd
 
-FEEDBACK_INDEX = "aiops-feedback"
-INCIDENT_INDEX = "aiops-incidents"
-VERDICTS = ("true_positive", "false_positive", "wrong_root_cause", "missed")
+from sources.schema import FEEDBACK_INDEX, FEEDBACK_MAPPING, INCIDENT_INDEX, INCIDENT_MAPPING  # noqa: F401  mapping 在 sources/schema.py；名字留給既有的 import
 
-FEEDBACK_MAPPING = {"mappings": {"dynamic": False, "properties": {
-    "@timestamp": {"type": "date"}, "anomaly_id": {"type": "keyword"}, "anomaly_at": {"type": "date"},
-    "series": {"type": "keyword"}, "keys": {"type": "flattened"}, "verdict": {"type": "keyword"},
-    "incident_id": {"type": "keyword"}, "correct_root_cause": {"type": "text"}, "note": {"type": "text"},
-    "by": {"type": "keyword"}, "alert_id": {"type": "keyword"}, "alert_started_at": {"type": "date"},
-    "fp_reason": {"type": "keyword"},
-    # 自由文字＋LLM 抽出來的四欄（docs/pdca/phase5-learning-loop/2026-10-feedback-nl-extract.md）；extract.ok false 就只有原文
-    "feedback_text": {"type": "text"},
-    "extract": {"properties": {"ok": {"type": "boolean"}, "provider": {"type": "keyword"}, "reason": {"type": "text"},
-                               "feedback_type": {"type": "keyword"}, "identified_cause": {"type": "keyword"},
-                               "target_service": {"type": "keyword"}, "suggested_action": {"type": "keyword"}}},
-    "tuning_id": {"type": "keyword"},      # 抽取結果寫進 aiops-tuning 的那一筆（proposed）
-    # 採納率的兩題：可能根因／建議的排查動作有沒有參考價值（yes、no、not_seen）
-    "rca_cause_useful": {"type": "keyword"}, "rca_action_useful": {"type": "keyword"}}}}
+VERDICTS = ("true_positive", "false_positive", "wrong_root_cause", "missed")
 RCA_USEFUL = ("yes", "no", "not_seen")
 # identified_cause（core/llm.py 的 CAUSE_CODES）→ 表單的根因分類；規則草稿的 root_cause_category 用。沒列的是 other
 CAUSE_CATEGORY = {"db_slow_query": "db", "db_lock": "db", "db_connection_pool": "db", "network": "network", "dns": "network",
                   "config_change": "config_change", "deploy": "deploy", "external_api": "external", "resource_cpu": "resource",
                   "resource_memory": "resource", "disk_full": "resource", "bug": "bug", "data_volume": "data", "dirty_data": "data"}
-# status：open／resolved（人補登的）、auto（事件整合自動開的，還沒人看）、confirmed（老師傅標真的）、corrected（真的但根因改過）
-# 相似事故檢索只用 confirmed、corrected（investigator/similar.py）。根因分類表在 plugin（core/domain.categories）
-INCIDENT_MAPPING = {"mappings": {"dynamic": False, "properties": {
-    "@timestamp": {"type": "date"}, "title": {"type": "text"}, "start": {"type": "date"}, "end": {"type": "date"},
-    "services": {"type": "keyword"}, "severity": {"type": "keyword"}, "status": {"type": "keyword"},
-    "root_cause": {"type": "text"}, "action": {"type": "text"}, "anomaly_ids": {"type": "keyword"},
-    "detected_at": {"type": "date"}, "resolved_at": {"type": "date"}, "by": {"type": "keyword"},
-    # 老師傅的經驗（docs/pdca/phase5-learning-loop/2026-10-expert-feedback.md）
-    "alert_id": {"type": "keyword"}, "dept": {"type": "keyword"}, "group": {"type": "keyword"},
-    "root_cause_category": {"type": "keyword"}, "how_detected": {"type": "text"}, "checked": {"type": "keyword"},
-    "improve": {"type": "text"}, "confirmed_at": {"type": "date"}, "confirmed_by": {"type": "keyword"},
-    # 歷史事故單匯入（investigator/importer.py）：source import；note 是匯入檔的備註
-    "source": {"type": "keyword"}, "note": {"type": "text"},
-    # 指紋：相似事故檢索用（investigator/similar.py）
-    "fingerprint": {"properties": {"services": {"type": "keyword"}, "routes": {"type": "keyword"}, "series": {"type": "keyword"},
-                                   "slow_segments": {"type": "keyword"}, "error_origins": {"type": "keyword"},
-                                   "patterns": {"type": "text"}}}}}}
 
 
 def target_of(keys: dict | None) -> str:

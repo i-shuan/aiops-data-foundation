@@ -38,7 +38,7 @@ import numpy as np
 import pandas as pd
 
 from core.es import get_field
-from sources.base import as_backend
+from sources import as_backend
 from sources.es_source import _put  # noqa: F401  join 補分母的寫法搬去 ES 來源；名字留給既有的 import
 
 OPS = {">=": operator.ge, ">": operator.gt, "<=": operator.le, "<": operator.lt, "==": operator.eq, "!=": operator.ne}

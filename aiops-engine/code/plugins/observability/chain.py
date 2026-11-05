@@ -3,7 +3,8 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
-from core import traces as T
+from sources import spans_of
+from sources import traces as T
 from investigator import analyze as A
 from investigator import es as E
 
@@ -21,5 +22,5 @@ def call_edges(es, cfg: dict, services: set[str], start: datetime, end: datetime
     ids = list(dict.fromkeys(ids))
     if not ids:
         return set()
-    edges = A.topology(T.group_traces(T.spans_of(es, ix, ids, start - pad, end + pad)))
+    edges = A.topology(T.group_traces(spans_of(es, ix, ids, start - pad, end + pad)))
     return {(e.caller, e.callee) for e in edges if e.caller in services and e.callee in services and e.caller != e.callee}

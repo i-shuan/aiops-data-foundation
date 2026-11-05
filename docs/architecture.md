@@ -184,7 +184,7 @@ flowchart TB
 | 編號 | 層 | 模組 | 職責定義 | 核心技術或演算法 |
 |---|---|---|---|---|
 | ① | 公司現有 | 收值 | 應用的 log、metrics、trace | Elastic APM agent；apm-server；trace 100% 收 |
-| ② | 公司現有 | 清資料 | apm-server 寫入時的欄位統一；engine 讀進來時轉成同一種格式 | `core/traces.py` 的 APM 轉換、序列的 `scale`（微秒→秒）、`configs/apm/` |
+| ② | 公司現有 | 清資料 | apm-server 寫入時的欄位統一；engine 讀進來時轉成同一種格式 | `sources/traces.py` 的 APM 轉換、序列的 `scale`（微秒→秒）、`configs/apm/` |
 | ③ | 公司現有 | 存 | 公司 ES 8.19 的 data stream 與 ILM；engine 另在 ES 補 `traces-merged-*` 的 template 與 key | `elasticsearch/kibana-dev-tools.txt` |
 | ④ | AIOps | 判斷 | 判斷每條序列是否異常，分 `warning`、`anomaly` 兩級 | 靜態臨界值規則 (Static Threshold Rules)；動態基準線學習（168 時段中位數＋MAD、卜瓦松、借同組）；Pod 同儕橫向比對 (Peer Comparison)；Trace 分段基準、N+1、例外吞噬檢測 (Exception Swallowing Detection)；學習前排除事故時段、行事曆、慢性問題 |
 | ⑤ | AIOps | 異常總表 | 所有判斷結果的單一交接點 | `aiops-anomalies`，同序列同時間重跑覆蓋同一筆；寫入時補 `dept`、`group` |
@@ -206,7 +206,7 @@ flowchart TB
 
 | 項目 | 為什麼算灰色 |
 |---|---|
-| 讀進來時的格式轉換 | APM 與 OTel 的欄位名不同，轉換在 engine（`core/traces.py`、`configs/apm/`）；屬 ④ 的前處理，不是改資料 |
+| 讀進來時的格式轉換 | APM 與 OTel 的欄位名不同，轉換在 engine（`sources/traces.py`、`configs/apm/`）；屬 ④ 的前處理，不是改資料 |
 | 靜態臨界值規則 | 固定門檻屬傳統監控；放 engine 是為了跟其他異常走同一套收斂與通知 |
 | 餵給基準線之前的清理（排除時段、行事曆、慢性病清單） | 決定基準線學哪些資料，屬 AIOps |
 
@@ -269,7 +269,7 @@ K8s 排程頻率見 [aiops-engine/README.md](../aiops-engine/README.md)；Elasti
 | # | 層 | Phase | 程式／設定 | 多久跑一次 | 怎麼驗過 | 狀態 |
 |---|---|---|---|---|---|---|
 | ① 收值 | 公司現有 | 1 | Elastic APM（公司管） | 常駐；metrics 每分鐘 | — | 公司現有 |
-| ② 清資料 | 公司現有 | 1 | `aiops-engine/code/core/traces.py`（`_apm_span`）、`core/source.py`、`configs/apm/` | 讀進來時 | `tests/test_apm.py`（[apm-source](pdca/meta/2026-11-apm-source.md)） | 🟡 沒有真實 APM 資料 |
+| ② 清資料 | 公司現有 | 1 | `aiops-engine/code/sources/traces.py`（`_apm_span`）、`core/source.py`、`configs/apm/` | 讀進來時 | `tests/test_apm.py`（[apm-source](pdca/meta/2026-11-apm-source.md)） | 🟡 沒有真實 APM 資料 |
 | ③ 存 | 公司現有 | 1 | `elasticsearch/kibana-dev-tools.txt`（只補 `traces-merged-*` 與 key） | — | — | 🟡 公司環境沒實跑 |
 | ④ 判斷 | AIOps | 2 | `aiops-engine/code/detector/`、`aiops-engine/code/configs/baseline/*.yaml` | 每 1 分鐘（train 每天） | 單元測試；`synth_e2e`、`adaptive_e2e`、`fine_e2e`（一個 ES） | ✅；K8s CronJob 沒跑過 |
 | ⑤ 異常總表 | AIOps | 2 | `aiops-anomalies` | — | — | ✅ |
