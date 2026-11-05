@@ -133,6 +133,8 @@ helm upgrade --install grafana grafana/helmchart -n grafana \
 
 ## 回饋表單：預設用 engine api 的網頁；要在 Grafana 裡直接填才裝外掛
 
+**內嵌（選用）**：`--set embedFeedback=true`，回饋表單、漏報表單直接顯示在儀表板裡（iframe），不用另開分頁。代價是關掉 Grafana 的 HTML 消毒（`GF_PANELS_DISABLE_SANITIZE_HTML`），所有文字面板都能放任意 HTML——只在專給 AIOps、編輯權限收緊的 Grafana 開；公司現有的 Grafana 要管的人同意。沒開時 iframe 被洗掉，面板上只剩連結。
+
 **預設（不裝外掛）**：儀表板 `aiops-feedback` 只有一個文字面板，三個連結都指到 engine 的 api（`feedbackUrl`）——`/feedback?alert=${alert}&full=1`（先看根因全文、再填回饋；開著的件最上面有「重跑根因分析」）、`/report?alert=…`、`/missed`（回報漏報）。寫進 ES 的東西跟外掛版一樣。不用 CORS（瀏覽器是直接開 api 的網頁，不是從 Grafana 打 API）。
 
 ### 外掛版（選用）

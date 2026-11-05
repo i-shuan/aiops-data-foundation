@@ -31,14 +31,29 @@
       "title": "AIOps 回饋：${alert}",
       "id": 1,
       "gridPos": {
-        "h": 9,
-        "w": 24,
+        "h": 34,
+        "w": 15,
         "x": 0,
         "y": 0
       },
       "options": {
         "mode": "html",
-        "content": "<div style=\"font-size:15px;line-height:2\"><p>這件：<b>${alert}</b>（上面「告警 id」換成通知裡的那件）。表單在 AIOps 的網頁上填，送出後寫進 ES，跟以前一樣。</p><p>👉 <a href=\"http://localhost:18080/feedback?alert=${alert}&amp;full=1\" target=\"_blank\">開回饋表單</a>：先看根因分析全文，再選真的／誤報／根因錯、填根因與怎麼看出來的；同一頁最上面有「重跑根因分析」（trace 晚到、剛改了設定時用）。</p><p>📄 <a href=\"http://localhost:18080/report?alert=${alert}\" target=\"_blank\">只看根因報告全文</a></p><p>🔕 <a href=\"http://localhost:18080/missed\" target=\"_blank\">回報漏報（該報卻沒報）</a></p></div>"
+        "content": "<div style=\"font-size:14px\"><a href=\"http://localhost:18080/feedback?alert=${alert}&amp;full=1\" target=\"_blank\">另開分頁</a>　｜　<a href=\"http://localhost:18080/report?alert=${alert}\" target=\"_blank\">只看根因報告全文</a>　｜　<a href=\"http://localhost:18080/missed\" target=\"_blank\">回報漏報（該報卻沒報）</a><span style=\"color:#888\">　（下面沒有表單：這台 Grafana 沒開內嵌，用上面的連結）</span></div><iframe src=\"http://localhost:18080/feedback?alert=${alert}&amp;full=1\" style=\"width:100%;height:calc(100% - 28px);border:0;margin-top:6px;background:#fff\" title=\"AIOps 回饋\"></iframe>"
+      }
+    },
+    {
+      "type": "text",
+      "title": "回報漏報（該報卻沒報）",
+      "id": 2,
+      "gridPos": {
+        "h": 34,
+        "w": 9,
+        "x": 15,
+        "y": 0
+      },
+      "options": {
+        "mode": "html",
+        "content": "<div style=\"font-size:14px\"><a href=\"http://localhost:18080/missed\" target=\"_blank\">另開分頁</a></div><iframe src=\"http://localhost:18080/missed\" style=\"width:100%;height:calc(100% - 28px);border:0;background:#fff\" title=\"回報漏報\"></iframe>"
       }
     }
   ]

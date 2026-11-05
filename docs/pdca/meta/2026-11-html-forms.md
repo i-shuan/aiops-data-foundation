@@ -7,7 +7,7 @@
 
 - **需求**：repo 裡要在本機跑的 sh（`grafana/helmchart/load-plugin.sh`）不要了，只留 Pod 裡會自己跑的；`grafana/` 檔案太多。回饋表單靠 Grafana 外掛（Business Forms），裝外掛要準備 zip、initContainer、本機切 ConfigMap，使用者決定**先用 HTML 當表單**。
 - **目的**：Grafana 預設不裝外掛也能回饋、回報漏報、重跑根因分析；repo 裡沒有本機 sh；外掛路線保留成選用。
-- **範圍**：做：刪 `load-plugin.sh`、repo 裡的外掛 zip、chart 的 ConfigMap 外掛路徑；刪社群 chart 的副本 `values-official.yaml` 與產生它的 `build-official-values.py`；api 的回饋網頁加「重跑根因分析」、新的漏報網頁；預設儀表板改成連結；外掛表單版搬到 `forms/`、只有 `plugin.enabled` 才載入。不做：把網頁內嵌進 Grafana（iframe 要改 Grafana 的安全設定）。
+- **範圍**：做：刪 `load-plugin.sh`、repo 裡的外掛 zip、chart 的 ConfigMap 外掛路徑；刪社群 chart 的副本 `values-official.yaml` 與產生它的 `build-official-values.py`；api 的回饋網頁加「重跑根因分析」、新的漏報網頁；預設儀表板改成連結；外掛表單版搬到 `forms/`、只有 `plugin.enabled` 才載入。內嵌：chart 的 `embedFeedback`（選用，預設關）。
 
 ## Do：改動哪些 code、改了什麼、為何要改
 
@@ -42,7 +42,7 @@
 
 | 沒改善的 | 在什麼情況下發現的 | 影響 | 後續 |
 |---|---|---|---|
-| 回饋表單不在 Grafana 裡面，是另開分頁 | 設計時：Grafana 的文字面板預設會把 iframe 洗掉，要開 `disable_sanitize_html`（安全設定） | 使用者多一次跳頁 | 要內嵌再評估 |
+| 內嵌要關掉 Grafana 的 HTML 消毒 | 使用者要內嵌；chart 加 `embedFeedback`（預設 false），開了設 `GF_PANELS_DISABLE_SANITIZE_HTML`；儀表板同時放 iframe 與連結，沒開時 iframe 被洗掉、只剩連結 | 開了以後所有文字面板都能放任意 HTML，有編輯權的人能塞東西 | 只在專給 AIOps、編輯權限收緊的 Grafana 開；測試 cluster 還沒開（要使用者同意） |
 | [⑦] 工廠版的 LLM 範本摘要寫「還沒有 trace 可以看」 | K8s 上看工廠版報告 | 用語不對（工廠應該是履歷）；報告本文是對的 | 範本跟著 plugin 的用語，另案 |
 | api 的網頁沒有登入 | 之前就有 | `by` 是自己填的名字 | 放內網；要鎖加 Ingress 驗證 |
 

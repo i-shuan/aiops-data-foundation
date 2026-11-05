@@ -46,6 +46,11 @@ spec:
             - {name: GF_AUTH_ANONYMOUS_ENABLED, value: "true"}
             - {name: GF_AUTH_ANONYMOUS_ORG_ROLE, value: Viewer}
             {{- end }}
+            {{- if .Values.embedFeedback }}
+            # 回饋網頁內嵌在儀表板 aiops-feedback 裡（文字面板的 iframe）：要關掉 HTML 消毒。代價：所有文字面板都能放任意 HTML，
+            # 有編輯權的人能在儀表板塞東西——這台 Grafana 只給 AIOps 用、編輯權限收緊時才開
+            - {name: GF_PANELS_DISABLE_SANITIZE_HTML, value: "true"}
+            {{- end }}
             {{- with .Values.homeDashboard }}
             - {name: GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH, value: {{ . | quote }}}
             {{- end }}
