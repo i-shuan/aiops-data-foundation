@@ -131,8 +131,8 @@ class DetectorCommands(unittest.TestCase):
 
         from detector.__main__ import main
         buf = io.StringIO()
-        with contextlib.redirect_stdout(buf), self.assertRaises(SystemExit):
-            main(["--help"])
+        with contextlib.redirect_stdout(buf):
+            self.assertEqual(main(["--help"]), 0)             # typer：--help 回 0，不丟 SystemExit
         return buf.getvalue()
 
     def test_paths_merge_only_under_factory(self):

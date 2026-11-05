@@ -9,10 +9,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import pandas as pd
-import yaml
 
 from core import domain
 from core import llm as LLM
+from core.config import load_config
 from core.es import doc_id
 from detector import tuning as T
 from detector.feedback import FEEDBACK_MAPPING, INCIDENT_MAPPING, RCA_USEFUL as _RCA_USEFUL
@@ -20,7 +20,7 @@ from detector.feedback import FEEDBACK_MAPPING, INCIDENT_MAPPING, RCA_USEFUL as 
 ALERT_INDEX, FEEDBACK_INDEX, INCIDENT_INDEX = "aiops-alerts", "aiops-feedback", "aiops-incidents"
 _ready = set()
 # 漏報表單的序列選單、時區：跟 detector 讀同一份 series.yaml（image 裡 configs/ 跟套件放在一起，路徑一樣）
-_SERIES_CFG = yaml.safe_load((Path(__file__).resolve().parents[1] / "configs/baseline/series.yaml").read_text(encoding="utf-8"))
+_SERIES_CFG = load_config(str(Path(__file__).resolve().parents[1] / "configs/baseline/series.yaml"), "series")
 SERIES_NAMES = [s["name"] for s in _SERIES_CFG["series"]]
 TIMEZONE = _SERIES_CFG.get("train", {}).get("timezone", "Asia/Taipei")
 MISSED_FIELDS = ("series", "service", "at", "by", "note", "route", "pod")    # 漏報表單的元素 id（Grafana 預填的 key 要對到這些）
@@ -320,7 +320,7 @@ def ingest(es, body: dict, now: datetime | None = None) -> dict:
     path = ingest_config_path()
     if not path:
         raise LookupError("這個 plugin 沒有 ingest（排程表沒有 ingest 工作、也沒設 AIOPS_INGEST_CONFIG）")
-    cfg = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
+    cfg = load_config(path, "ingest")
     written, skipped = ingest_rows(es, cfg, str(name), rows, pd.Timestamp(now or datetime.now(timezone.utc)))
     return {"input": name, "written": written, "skipped": skipped}
 

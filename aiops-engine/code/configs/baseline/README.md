@@ -125,7 +125,7 @@ python3 -m detector quality --config configs/baseline/quality.yaml   # 每 10 �
 
 ```bash
 cd engine                           # baseline、根因分析是同一個 Python 專案
-pip install -r requirements.txt     # pandas、numpy、pyyaml、requests
+pip install -r requirements.txt     # pandas、numpy、pyyaml、requests、celery、redis；pydantic（驗設定）、typer（命令列）、fastapi＋uvicorn（api）
 
 export ES_URL=https://<es>:9200
 export ES_API_KEY=<kibana-dev-tools.txt 第 3 段發的 engine key>   # 只能讀資料、寫 aiops-*

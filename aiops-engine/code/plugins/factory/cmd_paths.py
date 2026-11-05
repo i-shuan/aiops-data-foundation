@@ -3,8 +3,12 @@
 所以晚到的站、剛出站的時間都會補上，重跑不重複。來源是 ES 時直接查索引；設定檔有 source: file 時走 sources 的 Backend（離線跑假資料），結果寫進 store。"""
 from __future__ import annotations
 
-import pandas as pd
+from argparse import Namespace
 
+import pandas as pd
+import typer
+
+from core.config import load_config
 from core.es import ES, get_field
 from detector.cmd_ingest import read_rows
 from detector.common import _now
@@ -61,11 +65,15 @@ def run(es, cfg: dict, now: pd.Timestamp, window: pd.Timedelta) -> int:
     return sum(len(b) for b in docs.values())
 
 
-def add_parser(sub) -> None:
-    pm = sub.add_parser("paths-merge", help="工廠：MES 進出站＋S6F11 機台事件 → 一個 lot 一筆履歷 lot-paths-*（plugins/factory/paths.py）")
-    pm.add_argument("--config", required=True, help="configs/factory/paths.yaml")
-    pm.add_argument("--window", default="1d", help="最近多久有進站／出站的 lot 重合成（預設 1d）")
-    pm.add_argument("--at", help="拿某個時間點當成現在")
+def register(app: typer.Typer) -> None:
+    """掛成 detector 的子命令（core/plugin.Plugin.commands）。"""
+    app.command("paths-merge", help="工廠：MES 進出站＋S6F11 機台事件 → 一個 lot 一筆履歷 lot-paths-*（plugins/factory/paths.py）")(paths_merge)
+
+
+def paths_merge(config: str = typer.Option(..., help="configs/factory/paths.yaml"),
+                window: str = typer.Option("1d", help="最近多久有進站／出站的 lot 重合成（預設 1d）"),
+                at: str | None = typer.Option(None, help="拿某個時間點當成現在")) -> int:
+    return cmd_paths_merge(load_config(config, "paths"), Namespace(config=config, window=window, at=at))
 
 
 def cmd_paths_merge(cfg: dict, args) -> int:

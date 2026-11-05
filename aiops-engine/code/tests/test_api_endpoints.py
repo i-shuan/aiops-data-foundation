@@ -1,18 +1,17 @@
 """api 的三個新端點（docs/pdca/meta/2026-11-api-beat-worker.md）：POST /api/anomalies（token、走 ingest.yaml 的對照、寫 ⑤、丟 alert）、
 POST /api/rca（標 rca_requested、結束的件不重跑、丟 alert）、GET /api/alerts；以及 alert 看到 rca_requested 會強制重跑、把標記拿掉。
-假的 ES、apply_async 用 mock 接住。"""
+假的 ES、apply_async 用 mock 接住；HTTP 用 FastAPI 的 TestClient，不開 socket。"""
 import json
 import os
-import threading
 import unittest
-import urllib.error
-import urllib.request
+import urllib.parse
 from datetime import datetime, timezone
-from http.server import ThreadingHTTPServer
 from unittest import mock
 
+from fastapi.testclient import TestClient
+
 import tasks
-from api import __main__ as W
+from api import server as W
 from api import app as A
 from investigator import cmd_alert as C
 from tests.test_api import ALERT, FakeES
@@ -41,26 +40,16 @@ class ES(FakeES):
 class Http(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.srv = ThreadingHTTPServer(("127.0.0.1", 0), W.Handler)
-        cls.port = cls.srv.server_address[1]
-        threading.Thread(target=cls.srv.serve_forever, daemon=True).start()
-
-    @classmethod
-    def tearDownClass(cls):
-        cls.srv.shutdown()
+        cls.c = TestClient(W.app)
 
     def setUp(self):
-        W.Handler.es = self.es = ES()
+        self.es = ES()
+        W.set_es(self.es)
 
     def call(self, method, path, body=None, headers=None):
         data = json.dumps(body).encode() if body is not None else None
-        req = urllib.request.Request(f"http://127.0.0.1:{self.port}{path}", data=data, method=method,
-                                     headers={"Content-Type": "application/json", **(headers or {})})
-        try:
-            with urllib.request.urlopen(req, timeout=10) as r:
-                return r.status, json.loads(r.read().decode())
-        except urllib.error.HTTPError as e:
-            return e.code, json.loads(e.read().decode())
+        r = self.c.request(method, path, content=data, headers={"Content-Type": "application/json", **(headers or {})})
+        return r.status_code, json.loads(r.content)
 
     # ── POST /api/anomalies ──
     ROWS = [{"@timestamp": "2026-11-05T01:00:00Z", "is_anomaly": True, "equipment_id": "ETCH-01", "chamber_id": "CH-B", "recipe_id": "R1",
@@ -135,10 +124,12 @@ class Http(unittest.TestCase):
     def test_rca_cors_for_grafana_button(self):
         """按鈕在 Grafana 的網頁裡，瀏覽器會先 OPTIONS 再 POST：跟回饋表單同一套 CORS。"""
         with mock.patch.dict(os.environ, {**TOKEN, "API_CORS_ORIGIN": "https://grafana.example.internal"}):
-            req = urllib.request.Request(f"http://127.0.0.1:{self.port}/api/rca", method="OPTIONS", headers={"Origin": "https://grafana.example.internal"})
-            with urllib.request.urlopen(req, timeout=10) as r:
-                self.assertEqual(r.status, 204)
-                self.assertEqual(r.headers["Access-Control-Allow-Origin"], "https://grafana.example.internal")
+            r = self.c.options("/api/rca", headers={"Origin": "https://grafana.example.internal"})
+            self.assertEqual(r.status_code, 204)
+            self.assertEqual(r.headers["Access-Control-Allow-Origin"], "https://grafana.example.internal")
+            self.assertEqual(r.headers["Vary"], "Origin")
+            r = self.c.post("/api/rca", content=json.dumps({"alert_id": "nope"}).encode(), headers={"Origin": "https://grafana.example.internal", "Content-Type": "application/json"})
+            self.assertEqual((r.status_code, r.headers["Access-Control-Allow-Origin"]), (404, "https://grafana.example.internal"))   # 錯誤回應也帶，瀏覽器才看得到訊息
 
     # ── GET /api/alerts ──
     def test_list_alerts(self):
@@ -180,34 +171,19 @@ class HtmlPages(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.srv = ThreadingHTTPServer(("127.0.0.1", 0), W.Handler)
-        cls.port = cls.srv.server_address[1]
-        threading.Thread(target=cls.srv.serve_forever, daemon=True).start()
-
-    @classmethod
-    def tearDownClass(cls):
-        cls.srv.shutdown()
+        cls.c = TestClient(W.app, follow_redirects=False)     # 303 要自己看 Location
 
     def setUp(self):
-        W.Handler.es = self.es = ES()
+        self.es = ES()
+        W.set_es(self.es)
 
     def post_form(self, path, data):
-        import urllib.parse
-
-        class NoRedirect(urllib.request.HTTPRedirectHandler):
-            def redirect_request(self, *a, **k):
-                return None
-        req = urllib.request.Request(f"http://127.0.0.1:{self.port}{path}", data=urllib.parse.urlencode(data).encode(),
-                                     headers={"Content-Type": "application/x-www-form-urlencoded"})
-        try:
-            with urllib.request.build_opener(NoRedirect).open(req, timeout=10) as r:
-                return r.status, dict(r.headers), r.read().decode()
-        except urllib.error.HTTPError as e:
-            return e.code, dict(e.headers), e.read().decode()
+        r = self.c.post(path, content=urllib.parse.urlencode(data).encode(), headers={"Content-Type": "application/x-www-form-urlencoded"})
+        return r.status_code, r.headers, r.text
 
     def get(self, path):
-        with urllib.request.urlopen(f"http://127.0.0.1:{self.port}{path}", timeout=10) as r:
-            return r.status, r.read().decode()
+        r = self.c.get(path)
+        return r.status_code, r.text
 
     def test_feedback_page_has_rerun_only_when_open(self):
         _, page = self.get(f"/feedback?alert={ALERT['alert_id']}")

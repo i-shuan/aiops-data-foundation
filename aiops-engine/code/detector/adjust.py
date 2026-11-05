@@ -302,18 +302,16 @@ def load(es, index: str, cfg: dict) -> list[dict]:
     """設定檔（adjustments_file、series.yaml 的 overrides）＋ ES（index），全部 kind。同 id 後面蓋前面。"""
     import os
 
-    import yaml
+    from core.config import load_config
     out = list(cfg.get("overrides") or [])
     tz = cfg.get("train", {}).get("timezone", "Asia/Taipei")
     path = cfg.get("adjustments_file", "configs/baseline/adjustments.yaml")
     if path and os.path.exists(path):
-        with open(path, encoding="utf-8") as f:
-            out += [localize(a, tz) for a in (yaml.safe_load(f) or {}).get("adjustments") or []]
+        out += [localize(a, tz) for a in load_config(path, "adjustments").get("adjustments") or []]
     cal = cfg.get("calendar_file", "configs/baseline/calendar.yaml")
     if cal and os.path.exists(cal):
         from .sources import load_calendar
-        with open(cal, encoding="utf-8") as f:
-            entries, tz = load_calendar(yaml.safe_load(f) or {})
+        entries, tz = load_calendar(load_config(cal, "calendar"))
         out += calendar_adjustments(entries, tz or cfg.get("train", {}).get("timezone", "Asia/Taipei"))
     from sources.base import is_backend
     if is_backend(es):   # 檔案、記憶體的 Store

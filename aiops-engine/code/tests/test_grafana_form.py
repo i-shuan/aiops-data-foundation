@@ -1,14 +1,12 @@
 """Grafana 裡的回饋表單（grafana/helmchart/files/dashboards/aiops-feedback.json）跟回饋服務對得起來（docs/pdca/phase5-learning-loop/2026-10-grafana-form.md）。"""
 import json
 import os
-import threading
 import unittest
-import urllib.error
-import urllib.request
-from http.server import ThreadingHTTPServer
 from unittest import mock
 
-from api import __main__ as W
+from fastapi.testclient import TestClient
+
+from api import server as W
 from api import app as A
 from tests.test_api import ALERT, FakeES
 
@@ -96,27 +94,18 @@ class MissedPanel(unittest.TestCase):
 
 
 class Cors(unittest.TestCase):
+    """CORS 只開在 /api/*、Origin 要在 API_CORS_ORIGIN 裡；網頁本身（/feedback）永遠不開。"""
     @classmethod
     def setUpClass(cls):
-        W.Handler.es = FakeES()
-        cls.srv = ThreadingHTTPServer(("127.0.0.1", 0), W.Handler)
-        cls.port = cls.srv.server_address[1]
-        threading.Thread(target=cls.srv.serve_forever, daemon=True).start()
-
-    @classmethod
-    def tearDownClass(cls):
-        cls.srv.shutdown()
+        W.set_es(FakeES())
+        cls.c = TestClient(W.app)
 
     def req(self, path, method="GET", origin="http://grafana.local", body=None, ctype=None):
         h = {"Origin": origin}
         if ctype:
             h["Content-Type"] = ctype
-        r = urllib.request.Request(f"http://127.0.0.1:{self.port}{path}", data=body, headers=h, method=method)
-        try:
-            with urllib.request.urlopen(r, timeout=10) as resp:
-                return resp.status, dict(resp.headers), resp.read().decode()
-        except urllib.error.HTTPError as e:
-            return e.code, dict(e.headers), e.read().decode()
+        r = self.c.request(method, path, content=body, headers=h)
+        return r.status_code, r.headers, r.text
 
     def test_allowed_origin(self):
         with mock.patch.dict(os.environ, {"API_CORS_ORIGIN": "http://grafana.local/"}):
@@ -127,6 +116,10 @@ class Cors(unittest.TestCase):
             st, h, _ = self.req("/api/feedback", method="OPTIONS")
             self.assertEqual(st, 204)
             self.assertIn("POST", h.get("Access-Control-Allow-Methods", ""))
+            self.assertEqual(h.get("Access-Control-Allow-Headers"), "Content-Type")
+            self.assertEqual(h.get("Vary"), "Origin")
+            st, h, _ = self.req("/feedback", method="OPTIONS")                       # 網頁沒有 preflight
+            self.assertEqual(st, 404)
 
     def test_other_origin_not_allowed(self):
         with mock.patch.dict(os.environ, {"API_CORS_ORIGIN": "http://grafana.local"}):
@@ -140,6 +133,7 @@ class Cors(unittest.TestCase):
         with mock.patch.dict(os.environ, {"API_CORS_ORIGIN": "http://grafana.local"}):
             _, h, _ = self.req(f"/feedback?alert={ALERT['alert_id']}")      # 網頁本身不開
             self.assertNotIn("Access-Control-Allow-Origin", h)
+            self.assertNotIn("Vary", h)
 
     def test_unknown_alert_404_json(self):
         st, _, body = self.req("/api/alert?alert=nope")
@@ -157,7 +151,7 @@ class Cors(unittest.TestCase):
         self.assertEqual(r["extract"]["suggested_action"], "suppress_during_cron")
         self.assertTrue(r["extract"]["ok"])
         self.assertTrue(r["tuning_id"])
-        es = W.Handler.es
+        es = W.state.es
         fb = next(iter(es.written[A.FEEDBACK_INDEX].values()))
         self.assertEqual((fb["rca_cause_useful"], fb["rca_action_useful"], fb["tuning_id"]), ("yes", "not_seen", r["tuning_id"]))
         self.assertEqual(es.written["aiops-tuning"][r["tuning_id"]]["status"], "proposed")

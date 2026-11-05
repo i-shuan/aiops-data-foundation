@@ -18,7 +18,7 @@
   severity_classes   嚴重度的訊號分類預設（IT 黃金訊號／工廠參數家族）           cfg 的 alerts.severity.classes 可覆蓋
   critical_levels    哪些 level 的 critical 異常直接讓這件 critical
   sections           根因分析報告有哪幾段、順序（investigator/report.py 的 SECTIONS）
-  commands()         這個情境多出來的 detector 子命令（例如工廠的 paths-merge）
+  commands()         這個情境多出來的 detector 子命令：{名: register(app)}，掛到 typer app（例如工廠的 paths-merge）
   schedule           預設排程表（chart 的 deployment 依 plugin 選）
 """
 from __future__ import annotations
@@ -77,8 +77,9 @@ class Plugin:
     def change_at(self, es, cfg: dict, entity: str, since: datetime, now: datetime) -> datetime | None:
         return None
 
-    def commands(self) -> dict[str, tuple[Callable, Callable]]:
-        """{子命令名: (加 parser 的函式 add(sub), 處理函式 handler(cfg, args))}。"""
+    def commands(self) -> dict[str, Callable]:
+        """{子命令名: register(app)}：register 把子命令掛到 detector 的 typer app（app.command(名, help=…)(函式)），
+        跟內建子命令同一種形狀（detector/__main__.py 的 COMMANDS）；函式自己讀設定（core.config.load_config）、呼叫處理函式。"""
         return {}
 
 
