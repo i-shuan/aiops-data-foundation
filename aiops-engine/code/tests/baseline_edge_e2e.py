@@ -36,11 +36,13 @@ import pandas as pd
 import yaml
 
 from detector.__main__ import main as cli
-from detector.cmd_baseline import detect_series
-from detector.common import keys_of
-from detector.es import ANOMALY_INDEX, BASELINE_INDEX, ES, load_baseline
-from detector.model import DetectOptions
-from detector.tuning import TUNING_INDEX, data_adjustments, load_overrides
+from detector.baseline.detect import detect_series
+from core.timeutil import keys_of
+from core.es_client import ES
+from sources import load_baseline
+from sources.schema import ANOMALY_INDEX, BASELINE_INDEX
+from detector.baseline.model import DetectOptions
+from detector.adjust.tuning import TUNING_INDEX, data_adjustments, load_overrides
 from tests import otlp_synth as O
 
 
@@ -48,7 +50,7 @@ def _patient_es():
     """測試機很慢時（多個 ES 共用一台 VM，單一查詢可以超過 2 分鐘），engine 的 ES 用戶端逾時（120 秒）就整輪失敗。
     這裡只在測試裡把逾時拉長、逾時或連線被重設時重送（查詢、帶 _id 的寫入、delete_by_query 重送都不會多出資料）。"""
     import requests
-    from core.es import ES as _ES
+    from core.es_client import ES as _ES
 
     def req(self, method, path, body=None, ok=(200, 201)):
         for i in range(6):
@@ -417,8 +419,8 @@ def scored_points(config: str, es: ES, now: pd.Timestamp, window: str, services:
 
 def old_fill_lambda(es: ES, config: str) -> float:
     """修正前的 _fill_zero（alive 只看這條序列自己查到的資料）學出來的 svc-logs log.errors λ：沒有任何 error 的小時變成「不知道」。"""
-    import detector.es as DE
-    from detector.model import TrainOptions, train as mtrain
+    import sources as DE
+    from detector.baseline.model import TrainOptions, train as mtrain
     with open(config, encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
     spec = next(s for s in cfg["series"] if s["name"].endswith("log.errors"))
@@ -604,7 +606,7 @@ def phase_edge(es: ES, config: str):
         w = a[(a["ts"] >= at("15:00")) & (a["ts"] < at("16:00"))]
         check(G, f"收集中斷：像正式環境一樣 detect（{t}）、中斷時段內的異常", "0 個", fmt_counts(w), w.empty)
     # 對照：修正前的 _add_silent（不看收集系統有沒有在跑，有 baseline 但整段沒資料的一律補 0）
-    import detector.cmd_baseline as CB
+    import detector.baseline.detect as CB
     orig = CB._add_silent
     CB._add_silent = lambda cur, base, by, s_, e_, i_, alive=None: orig(cur, base, by, s_, e_, i_)
     try:

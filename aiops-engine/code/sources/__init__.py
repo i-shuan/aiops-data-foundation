@@ -10,13 +10,15 @@
     kind: file
     dir: .aiops-store
 
-程式直接呼叫：sources.MemoryBackend({"metrics-*": df})，把它當 es 傳給 detector 的指令，或自己 .series(spec, …) 餵 models/。
-手上是 core.es.ES（或假 ES）時 as_backend(es) 包成 ESBackend；detector/es.py 等讀寫函式開頭就是這麼做的。
-索引名與 mapping 在 schema.py；span 的格式解析在 traces.py。
+程式直接呼叫：sources.MemoryBackend({"metrics-*": df})，把它當 es 傳給 detector 的指令，或自己 .series(spec, …) 餵 detector/baseline/model.py。
+手上是 core.es_client.ES（或假 ES）時 as_backend(es) 包成 ESBackend；底下的 fetch／load_baseline 等讀寫函式開頭就是這麼做的。
+索引名與 mapping 在 schema.py；span 的格式解析在 traces.py；行事曆與負責人的 file／http／taiwan 來源在 providers.py。
 """
 from __future__ import annotations
 
 from datetime import datetime
+
+import pandas as pd
 
 from .base import Backend, Store
 from .es_source import ESBackend, ESSourceBackend
@@ -26,16 +28,16 @@ from .stores import ESStore, FileStore, MemoryStore, open_store
 
 __all__ = ["Backend", "Store", "as_backend", "ESBackend", "ESSourceBackend", "FileBackend", "HttpBackend", "MemoryBackend", "RowsBackend",
            "load_file", "ShapeError", "points_from_rows", "series_from_rows", "ESStore", "FileStore", "MemoryStore", "open_store",
-           "open_backend", "spans_of", "spans_by_id"]
+           "open_backend", "spans_of", "spans_by_id", "fetch", "alive_times", "load_baseline", "load_group_baselines"]
 
 
 def as_backend(x) -> Backend:
-    """唯一的正規化點：已經是 Backend 就原樣回；core.es.ES 或長得像 ES 的東西（有 req／search 的假 ES）包成 ESBackend。
+    """唯一的正規化點：已經是 Backend 就原樣回；core.es_client.ES 或長得像 ES 的東西（有 req／search 的假 ES）包成 ESBackend。
     放在這裡而不是 base.py：base 定義 Backend、es_source 繼承它，base 再 import ESBackend 就繞圈。"""
     if isinstance(x, Backend):
         return x
     if x is None or not any(hasattr(x, m) for m in ("req", "search", "bulk_index")):
-        raise TypeError(f"要 sources.Backend 或 core.es.ES，不是 {type(x).__name__}")
+        raise TypeError(f"要 sources.Backend 或 core.es_client.ES，不是 {type(x).__name__}")
     return ESBackend(x)
 
 
@@ -67,3 +69,26 @@ def spans_of(es, index: str, trace_ids: list[str], start: datetime, end: datetim
     """把這些 trace 的所有 span 讀回來（含其他服務的）。時間放寬，跨過邊界的請求也讀得完整。
     ES 的查詢在 es_source.py；檔案來源的 span 已經是這個格式，直接拿。"""
     return as_backend(es).spans(index, trace_ids, start, end)
+
+
+# ── baseline 的序列查詢（指令、測試用的名字；查詢本身在 es_source.py 的 ESSourceBackend.series、alive_times、stores.py 的 ESStore）──
+
+def fetch(es, spec: dict, start: pd.Timestamp, end: pd.Timestamp, interval: str | None) -> pd.DataFrame:
+    """一條序列定義 → keys（沒有就 by）+ ts + value + n。es 是 ES 就在 ES 端 aggregation（es_source.py），
+    是檔案、HTTP、記憶體的 Backend 就在 pandas 整形（shape.py），回傳格式一樣。"""
+    return as_backend(es).series(spec, start, end, interval)
+
+
+def alive_times(es, spec: dict, start: pd.Timestamp, end: pd.Timestamp, interval: str) -> pd.DatetimeIndex:
+    """收集系統有在送資料的時間窗（Backend.alive_times）。"""
+    return as_backend(es).alive_times(spec, start, end, interval)
+
+
+def load_baseline(es, series: str, by: list[str]) -> pd.DataFrame:
+    """這條序列自己學出來的 baseline（不含借給別人用的組 baseline）：欄位 by + schema.BASELINE_COLUMNS。"""
+    return as_backend(es).load_baseline(series, by)
+
+
+def load_group_baselines(es, series: str) -> pd.DataFrame:
+    """train 時從成員算出來的組 baseline：group + dow、hour、level、median、mad、resolution。"""
+    return as_backend(es).load_group_baselines(series)

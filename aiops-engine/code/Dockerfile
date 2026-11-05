@@ -9,7 +9,6 @@ RUN pip install --no-cache-dir -r requirements.txt     # 內網：改成 --index
 COPY core/ core/
 COPY plugins/ plugins/
 COPY sources/ sources/
-COPY models/ models/
 COPY detector/ detector/
 COPY investigator/ investigator/
 COPY api/ api/

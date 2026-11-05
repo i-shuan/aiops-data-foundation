@@ -5,12 +5,12 @@ import unittest
 from datetime import datetime, timezone
 from unittest import mock
 
-from core import source
+from core import plugin
 from sources import spans_by_id, spans_of
 from sources import traces as T
 from detector import owner as O, trace_merge as M
-from detector.es import _bucket_events, _bucket_value, _value_aggs, value_kind
-from investigator import es as E
+from sources.es_aggs import _bucket_events, _bucket_value, _value_aggs, value_kind
+from investigator.rca import queries as E
 
 TX = {"@timestamp": "2026-11-02T01:00:00.000Z", "timestamp.us": 1793581200000000, "processor": {"event": "transaction"},
       "trace": {"id": "t1"}, "transaction": {"id": "tx1", "name": "GET /lots/{id}", "type": "request", "duration": {"us": 300000}, "result": "HTTP 2xx"},
@@ -161,10 +161,10 @@ class SourceProfileTest(unittest.TestCase):
     def test_default_is_otel_and_unknown_rejected(self):
         with mock.patch.dict(os.environ, {}, clear=False):
             os.environ.pop("AIOPS_SOURCE", None)
-            self.assertEqual(source.name(), "otel")
+            self.assertEqual(plugin.source_name(), "otel")
         with mock.patch.dict(os.environ, {"AIOPS_SOURCE": "zipkin"}):
             with self.assertRaises(ValueError):
-                source.name()
+                plugin.source_name()
 
     def test_owner_query_uses_apm_fields(self):
         class Fake:

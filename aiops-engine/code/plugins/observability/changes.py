@@ -1,4 +1,4 @@
-"""IT 的「換版」：服務的版號（service.version）第一次出現的時間。換版後 deploy_grace 分鐘內的異常上限 warning（investigator/severity.py）。"""
+"""IT 的「換版」：服務的版號（service.version）第一次出現的時間。換版後 deploy_grace 分鐘內的異常上限 warning（investigator/alerts/severity.py）。"""
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone

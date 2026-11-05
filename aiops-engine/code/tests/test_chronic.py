@@ -4,7 +4,7 @@ import unittest
 
 import pandas as pd
 
-from detector import adjust as A
+from detector.adjust import adjust as A
 from detector import chronic as C
 
 TZ = "Asia/Taipei"

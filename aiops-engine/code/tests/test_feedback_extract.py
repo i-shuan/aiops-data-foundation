@@ -7,9 +7,9 @@ from unittest import mock
 import pandas as pd
 
 from core import llm as LLM
-from detector import feedback as F
-from detector import tuning as T
-from detector.adjust import active, problem
+from detector.feedback import feedback as F
+from detector.adjust import tuning as T
+from detector.adjust.adjust import active, problem
 
 ALERT = {"alert_id": "a-1", "service": "mes-api", "series": ["http.latency_p95_s", "http.error_rate"], "title": "mes-api 變慢"}
 GOOD = {"feedback_type": "false_positive", "identified_cause": "scheduled_batch_job", "target_service": "mes-api", "suggested_action": "suppress_during_cron"}

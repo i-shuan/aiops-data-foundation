@@ -1,7 +1,7 @@
 """回測（detector.cmd_backtest）的結果怎麼呈現；回測本身要 ES 和 baseline，在 e2e 驗（docs/pdca/phase5-learning-loop/2026-10-loop-update.md）。"""
 import unittest
 
-from detector import cmd_backtest as B
+from detector.adjust import backtest as B
 
 
 class Format(unittest.TestCase):

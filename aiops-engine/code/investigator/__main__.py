@@ -15,8 +15,8 @@
   python3 -m investigator import-incidents configs/rca/incidents-example.csv [--tz Asia/Taipei] [--dry-run]
 
 investigate 照「Metrics 發現異常 → Trace 縮小到哪一段 → Log 找出原因」的順序查，印出一份 Markdown 報告；報告有哪幾段由 plugin 決定
-（investigator/report.py、core/plugin.py）。--out 另存成檔案。
-命令列用 typer（跟 detector 一樣）：@app.command 的函式把參數裝成 argparse.Namespace、用 core.config.load_config 讀 rca.yaml，再交給處理函式。
+（investigator/rca/report.py、core/plugin.py）。--out 另存成檔案。
+命令列用 typer（跟 detector 一樣）：@app.command 的函式把參數裝成 argparse.Namespace、用 core.config.load（investigator/rca/config.py 的 RcaConfig）讀 rca.yaml，再交給處理函式。
 """
 from __future__ import annotations
 
@@ -26,14 +26,15 @@ from datetime import timedelta
 
 import typer
 
-from core.config import load_config
+from core.config import load
 from sources import spans_of
 from sources import traces as T
 
-from . import analyze as A
-from . import cmd_alert
-from . import es as E
-from .report import _dur, _local, _ms, _ts, investigate_full  # noqa: F401  舊的 import 路徑還有人用
+from .alerts import command as cmd_alert
+from .rca import analyze as A
+from .rca import queries as E
+from .rca.config import RcaConfig
+from .rca.report import _dur, _local, _ms, _ts, investigate_full
 
 app = typer.Typer(add_completion=False, rich_markup_mode=None, pretty_exceptions_enable=False)
 Opt = typer.Option
@@ -59,7 +60,7 @@ def topology(cfg: dict, args) -> str:
 
 
 def similar_eval(cfg: dict, args) -> int:
-    from . import similar as SIM
+    from .similar import similar as SIM
     es = E.ES()
     weights = (cfg.get("alerts") or {}).get("similar_weights")
     r = SIM.evaluate(es, weights=weights)
@@ -82,7 +83,7 @@ def similar_eval(cfg: dict, args) -> int:
 
 
 def import_incidents(cfg: dict, args) -> int:
-    from . import importer as IMP
+    from .similar import importer as IMP
     db = cfg.get("incidents_db") or {}
     url, sql = args.db or db.get("url"), args.sql or db.get("sql")
     tz = args.tz or cfg.get("timezone") or IMP.DEFAULT_TZ
@@ -112,25 +113,25 @@ def investigate_cmd(config: str = Opt(...), service: str | None = Opt(None),
                     at: str | None = Opt(None, help="不給 --start/--end 時：查到這個時間為止（預設現在）"),
                     window: str = Opt("30m"), out: str | None = Opt(None)) -> int:
     args = Namespace(**locals())
-    return _report(investigate(load_config(config, "rca"), args), out)
+    return _report(investigate(load(config, RcaConfig), args), out)
 
 
 @app.command("topology")
 def topology_cmd(config: str = Opt(...), at: str | None = Opt(None), window: str = Opt("1h"), sample: int = Opt(2000),
                  out: str | None = Opt(None)) -> int:
     args = Namespace(**locals())
-    return _report(topology(load_config(config, "rca"), args), out)
+    return _report(topology(load(config, RcaConfig), args), out)
 
 
 @app.command("alert", help="異常合成一件、新的那件跑根因分析，寫 aiops-alerts（Grafana 讀它發通知）")
 def alert_cmd(config: str = Opt(...), at: str | None = Opt(None, help="回測：拿這個時間當成「現在」")) -> int:
-    return cmd_alert.run(load_config(config, "rca"), Namespace(**locals()), investigate_full)
+    return cmd_alert.run(load(config, RcaConfig), Namespace(**locals()), investigate_full)
 
 
 @app.command("similar-eval", help="告警分類的評測：留一法分類準確率與 recall@3（同一個根因分類有沒有排進前 3）")
 def similar_eval_cmd(config: str = Opt(...),
                      learn_weights: bool = Opt(False, "--learn-weights", help="case ≥ 50 件時用留一法準確率學特徵權重，印出來（不自動寫入）")) -> int:
-    return similar_eval(load_config(config, "rca"), Namespace(**locals()))
+    return similar_eval(load(config, RcaConfig), Namespace(**locals()))
 
 
 @app.command("import-incidents", help="歷史事故單匯入 aiops-incidents（status confirmed、source import），告警分類馬上用得到")
@@ -142,7 +143,7 @@ def import_incidents_cmd(file: str | None = typer.Argument(None, help="CSV 或 J
                          tz: str | None = Opt(None, help="沒寫時區的時間當哪裡的時間（預設 Asia/Taipei，或 --config 的 timezone）"),
                          dry_run: bool = Opt(False, "--dry-run", help="只解析、印出哪幾筆會略過，不寫 ES")) -> int:
     args = Namespace(**locals())
-    return import_incidents(load_config(config, "rca") if config else {}, args)
+    return import_incidents(load(config, RcaConfig) if config else {}, args)
 
 
 def main(argv=None) -> int:

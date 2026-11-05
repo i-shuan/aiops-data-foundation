@@ -26,7 +26,7 @@ groups:
                 - {id: "4", type: terms, field: dept, settings: {size: "1", min_doc_count: "1", order: desc, orderBy: _count, missing: "none"}}
                 - {id: "5", type: terms, field: group, settings: {size: "1", min_doc_count: "1", order: desc, orderBy: _count, missing: "unassigned"}}
                 - {id: "6", type: terms, field: severity, settings: {size: "1", min_doc_count: "1", order: desc, orderBy: _count, missing: "warning"}}
-                # summary 是 label：內容一變就是另一則（舊的 resolved、新的 firing），所以 investigator/alerts.py 的 summary 不放持續時間、筆數
+                # summary 是 label：內容一變就是另一則（舊的 resolved、新的 firing），所以 investigator/alerts/merge.py 的 summary 不放持續時間、筆數
                 - {id: "7", type: terms, field: summary, settings: {size: "1", min_doc_count: "1", order: desc, orderBy: _count, missing: ""}}
                 - {id: "8", type: terms, field: report_url, settings: {size: "1", min_doc_count: "1", order: desc, orderBy: _count, missing: ""}}
                 - {id: "9", type: date_histogram, field: "@timestamp", settings: {interval: 1m, min_doc_count: "0"}}
@@ -73,7 +73,7 @@ groups:
         labels: {source: aiops, severity: critical}
         annotations:
           summary: "AIOps 的 investigator alert 已經 10 分鐘沒有寫入 aiops-alerts：排程停了、或連不到 ES。停著的期間所有件都看不到，不是真的恢復。"
-      # 基準線不見了：detector detect 每輪寫一筆 detect-status（_id detect-status，status ok，detector/cmd_baseline.py），
+      # 基準線不見了：detector detect 每輪寫一筆 detect-status（_id detect-status，status ok，detector/baseline/detect.py），
       # missing_baseline 是這輪沒有 baseline 的序列數。aiops-baseline 掉了（ES 重建、index 被刪）detect 只印一行就跳過，
       # 動態基準線這一路靜默停擺；上面兩條都不會響（docs/pdca/meta/2026-10-open-issues.md 第 7 節）。送平台（labels 沒有 dept）。
       - uid: aiops-baseline-missing

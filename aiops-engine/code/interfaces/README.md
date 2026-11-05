@@ -1,6 +1,6 @@
 # 介面：要別人提供的資料
 
-程式只認**格式**，不管資料從哪來。**接口**（這個資料夾、`detector/sources.py`）是長期的；**假資料**（[fake-data/](../fake-data/README.md)）是現在拿來跑的範例，之後換成真的來源，程式不用改。
+程式只認**格式**，不管資料從哪來。**接口**（這個資料夾、`sources/providers.py`）是長期的；**假資料**（[fake-data/](../fake-data/README.md)）是現在拿來跑的範例，之後換成真的來源，程式不用改。
 
 | 介面 | 內容 | 誰用 | provider | 假資料 |
 |---|---|---|---|---|
@@ -51,7 +51,7 @@
 | `detect` | `false`（預設）：不學也不報；`true`：只是不學，照常判斷 |
 
 - `timezone` 不寫就用 `train.timezone`。
-- 每一筆變成一筆 `exclude_window`（[detector/adjust.py](../detector/adjust.py)），`adjust list` 看得到。
+- 每一筆變成一筆 `exclude_window`（[detector/adjust/adjust.py](../detector/adjust/adjust.py)），`adjust list` 看得到。
 - 也可以直接回傳陣列（不包 `calendar`）。
 
 ## 換成真的來源

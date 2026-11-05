@@ -72,7 +72,7 @@ class RowsBackend(Backend):
 class MemoryBackend(RowsBackend):
     """程式直接呼叫：frames = {index pattern: DataFrame}。
         be = MemoryBackend({"metrics-apm.transaction.1m-*": df}, fmt="events")
-        detector.cmd_baseline.cmd_train(cfg, args) 之類的指令把 be 當 es 用；或自己呼叫 be.series(spec, …) 餵 models/。"""
+        detector.baseline.train.cmd_train(cfg, args) 之類的指令把 be 當 es 用；或自己呼叫 be.series(spec, …) 餵 detector/baseline/model.py。"""
     kind = "memory"
 
     def __init__(self, frames: dict[str, pd.DataFrame], fmt: str = "events", store: Store | None = None,

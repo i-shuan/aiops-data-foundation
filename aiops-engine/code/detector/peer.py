@@ -19,7 +19,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from .model import MAD_TO_SIGMA
+from detector.baseline.model import MAD_TO_SIGMA
 
 
 def compare(df: pd.DataFrame, group: list[str], member: str, *, direction: str = "up", z: float = 5.0,
@@ -79,3 +79,21 @@ def describe(check: dict, r: dict, keys: list[str], fmt) -> str:
     who = "、".join(str(r[k]) for k in keys if r.get(k) is not None)
     return (f"{check['title']}：{who}（{fmt(r['value'])}，其他 {r['peers']} 個 Pod 中位數 {fmt(r['median'])}，"
             f"z={'>999' if abs(r['z']) > 999 else format(r['z'], '.1f')}）")   # 其他 Pod 都是 0 時 z 會上億，沒意義
+
+
+# ── 標準輸入（原 models/peer.py）：group… + member + value [+ volume]，一列一個 Pod（member）在這個 window 的一個值；
+#    group 是它屬於哪個服務（可以多欄）；volume 是這段時間的請求數（有給就能用 min_volume 擋流量太少的 Pod）──
+
+def check_peer(df: pd.DataFrame, group: list[str], member: str) -> pd.DataFrame:
+    missing = [c for c in list(group) + [member, "value"] if c not in df.columns]
+    if missing:
+        raise ValueError(f"peer 缺欄位 {missing}：要有 {list(group)} + [{member!r}, 'value']（有：{list(df.columns)}）")
+    return df.assign(value=pd.to_numeric(df["value"], errors="coerce"))
+
+
+def compare_checked(df: pd.DataFrame, group: list[str], member: str, *, min_volume: float | None = None, **kw) -> pd.DataFrame:
+    """check_peer → （有 volume 欄位與 min_volume 就先擋流量太少的）→ compare。"""
+    d = check_peer(df, group, member)
+    if min_volume is not None and "volume" in d.columns:
+        d = d[pd.to_numeric(d["volume"], errors="coerce").fillna(0) >= min_volume]
+    return compare(d, list(group), member, **kw)

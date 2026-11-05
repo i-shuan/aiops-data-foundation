@@ -1,4 +1,4 @@
-# 行事曆（detector/adjust.py 的 calendar_adjustments）：歲修、機房維護、大型活動。
+# 行事曆（detector/adjust/adjust.py 的 calendar_adjustments）：歲修、機房維護、大型活動。
 # 工廠 24×7，國定假日跟平日一樣，不列（列了反而把假日的資料從 baseline 挖掉）；要列的是歲修，一次歲修一筆、不合併。
 # 每一筆變成 exclude_window：那段時間的資料不學（baseline 不會把歲修的零流量學成平常），也不判斷（不報）。
 #   date: 2026-10-10                       一整天（當地時間 00:00～隔天 00:00）
@@ -17,7 +17,7 @@
 
 timezone: Asia/Taipei
 
-# 資料從哪來（detector/sources.py；格式、假資料見 interfaces/README.md、fake-data/README.md）。多個來源合在一起，
+# 資料從哪來（sources/providers.py；格式、假資料見 interfaces/README.md、fake-data/README.md）。多個來源合在一起，
 # 某個來源失敗只印警告、不擋訓練。
 sources:
   # 台灣國定假日（https://github.com/ruyut/TaiwanCalendar）：工廠 24×7 不用；只有週休的辦公室系統才打開

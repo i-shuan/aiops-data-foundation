@@ -10,21 +10,22 @@ from pathlib import Path
 
 import pandas as pd
 
-from core import domain
 from core import llm as LLM
 from core import plugin
-from core.config import load_config
-from core.es import doc_id
-from detector import tuning as T
+from core.config import load
+from core.es_client import doc_id
+from detector.adjust import tuning as T
+from detector.baseline.config import SeriesConfig
 from detector.cmd_ingest import ingest_rows
-from detector.feedback import RCA_USEFUL as _RCA_USEFUL
-from investigator.similar import classify
+from detector.feedback.feedback import RCA_USEFUL as _RCA_USEFUL
+from investigator.similar.similar import classify
+from plugins.factory.ingest.config import IngestConfig
 from scheduler.runner import load_schedule
 from sources.schema import ALERT_INDEX, FEEDBACK_INDEX, FEEDBACK_MAPPING, INCIDENT_INDEX, INCIDENT_MAPPING
 
 _ready = set()
 # 漏報表單的序列選單、時區：跟 detector 讀同一份 series.yaml（image 裡 configs/ 跟套件放在一起，路徑一樣）
-_SERIES_CFG = load_config(str(Path(__file__).resolve().parents[1] / "configs/baseline/series.yaml"), "series")
+_SERIES_CFG = load(str(Path(__file__).resolve().parents[1] / "configs/baseline/series.yaml"), SeriesConfig)
 SERIES_NAMES = [s["name"] for s in _SERIES_CFG["series"]]
 TIMEZONE = _SERIES_CFG.get("train", {}).get("timezone", "Asia/Taipei")
 MISSED_FIELDS = ("series", "service", "at", "by", "note", "route", "pod")    # 漏報表單的元素 id（Grafana 預填的 key 要對到這些）
@@ -33,10 +34,10 @@ VERDICTS = {"true_positive": "真的", "false_positive": "誤報", "wrong_root_c
 RCA_USEFUL = [(v, t) for v, t in zip(_RCA_USEFUL, ("是", "否", "沒看"))]
 RCA_QUESTIONS = [("rca_cause_useful", "可能根因有參考價值？"), ("rca_action_useful", "建議的排查動作有參考價值？")]
 TEXT_HINT = "選填。一句話說這件怎麼回事，系統會抽成結構化欄位、提一筆待審核的調整建議；例：「這是每月初的批次匯出報表，屬於預期內負載」"
-# 根因分類、常查的地方、誤報原因依 plugin（AIOPS_PLUGIN；core/domain.py 是門面）。Grafana 的表單（aiops-feedback.json）是 IT 的選項
-CATEGORIES = domain.categories()
-CHECKED = domain.checked()
-FP_REASONS = domain.fp_reasons()
+# 根因分類、常查的地方、誤報原因依 plugin（AIOPS_PLUGIN；core/plugin.py 是門面）。Grafana 的表單（aiops-feedback.json）是 IT 的選項
+CATEGORIES = plugin.categories()
+CHECKED = plugin.checked()
+FP_REASONS = plugin.fp_reasons()
 
 
 def load_alert(es, alert_id: str) -> dict | None:
@@ -320,7 +321,7 @@ def ingest(es, body: dict, now: datetime | None = None) -> dict:
     path = ingest_config_path()
     if not path:
         raise LookupError("這個 plugin 沒有 ingest（排程表沒有 ingest 工作、也沒設 AIOPS_INGEST_CONFIG）")
-    cfg = load_config(path, "ingest")
+    cfg = load(path, IngestConfig)
     written, skipped = ingest_rows(es, cfg, str(name), rows, pd.Timestamp(now or datetime.now(timezone.utc)))
     return {"input": name, "written": written, "skipped": skipped}
 

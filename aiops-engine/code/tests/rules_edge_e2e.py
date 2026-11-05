@@ -753,7 +753,7 @@ def check_tuning():
     r = run_rules(only=only)
     check("動態調整", "aiops-tuning 不存在：只跑 rules.yaml、exit 0", r.returncode == 0 and "觸發" in r.stdout,
           r.stdout[-300:] + r.stderr[-300:])
-    from detector.tuning import TUNING_MAPPING  # noqa: E402  跟 adjust 寫的同一個 mapping
+    from detector.adjust.tuning import TUNING_MAPPING  # noqa: E402  跟 adjust 寫的同一個 mapping
     req("PUT", "/aiops-tuning", TUNING_MAPPING)
     tune_doc("p2-rule", "proposed")
     wipe_tuned()

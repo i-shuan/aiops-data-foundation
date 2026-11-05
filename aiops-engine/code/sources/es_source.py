@@ -1,14 +1,14 @@
 """原始資料在 ES 的 Backend：ESSourceBackend（讀 ES，結果寫別的 Store：離線實驗）、ESBackend（讀寫都是 ES：設定沒寫 source 的預設）。
-查詢就是原本 detector/es.py、detector/rules.py、core/traces.py、detector/cmd_ingest.py 裡打 ES 的那幾段，搬來當方法；aggregation 在 ES 端算
+查詢就是原本 detector、investigator 各模組裡打 ES 的那幾段，搬來當方法；aggregation 在 ES 端算
 （value → aggregation 的對照在 es_aggs.py，span 的格式解析在 traces.py）。
-es 是 core.es.ES，或測試裡只有 req／search 的假 ES（sources.as_backend 包進來）。"""
+es 是 core.es_client.ES，或測試裡只有 req／search 的假 ES（sources.as_backend 包進來）。"""
 from __future__ import annotations
 
 from collections import defaultdict
 
 import pandas as pd
 
-from core.es import get_field, time_range
+from core.es_client import get_field, time_range
 from .base import Backend, Store
 from .es_aggs import _bucket_events, _bucket_value, _value_aggs
 from .shape import fill_zero
@@ -214,7 +214,7 @@ class ESSourceBackend(Backend):
 
 
 class ESBackend(ESSourceBackend):
-    """讀寫都是 ES：設定沒寫 source（或 source、store 都是 es）時 open_backend 給的；as_backend 把 core.es.ES 包成這個。"""
+    """讀寫都是 ES：設定沒寫 source（或 source、store 都是 es）時 open_backend 給的；as_backend 把 core.es_client.ES 包成這個。"""
 
     def __init__(self, es):
         super().__init__(es, ESStore(es))

@@ -1,4 +1,4 @@
-"""用法（在 engine 底下；每個指令的程式在 detector/cmd_*.py，這裡只有參數與分派）：
+"""用法（在 engine 底下；每個指令的程式在各功能的資料夾（baseline/、rules/、adjust/、feedback/、prune.py），這裡只有參數與分派）：
 
   python3 -m detector train  --config configs/baseline/series.yaml [--weeks 4] [--end 2026-10-10T00:00:00Z]
   python3 -m detector detect --config configs/baseline/series.yaml [--window 30m] [--at 2026-10-10T08:00:00Z]
@@ -12,11 +12,12 @@
   python3 -m detector feedback pending|add|list|summary|suggest|export   值班回饋（真的／誤報／根因錯／漏報）；export 匯出給 ML 團隊
   python3 -m detector incident add|list|resolve                   事故紀錄
   python3 -m detector ingest --config configs/factory/ingest.yaml [--window 10m] [--at …]     別人判好的異常（ML、FDC）接進 ⑤
-  （plugin 加的子命令只在那個 plugin 下才有：AIOPS_PLUGIN=factory 多 paths-merge；core/plugin.py、plugins/README.md）
+  （情境的子命令由 plugin 的 commands() 給、只在那個 plugin 下才有：observability 有 peer、quality、chronic、trace-*；
+   factory 有 ingest、paths-merge；metrics_only 有 ingest。core/plugin.py、plugins/README.md）
 
 命令列用 typer：每個子命令是一個函式，參數就是命令列參數；@command 登記進 COMMANDS，main() 建 app 時連同
 plugin.commands() 一起掛上（兩邊同一種形狀：{子命令名: register(app)}）。函式只把參數裝成 argparse.Namespace、
-用 core.config.load_config 讀設定，再交給 detector/cmd_*.py 的 cmd_*(cfg, args)。
+用 core.config.load 讀設定，再交給各功能的 cmd_*(cfg, args)（detector/cli.py 的 run）。
 可以給好幾個值的參數（--match、--service、--anomaly、--id）要重複寫：--match service=a --match route=b。
 
 train ：讀過去 N 週的資料，每條序列、每個時段學出中位數與波動範圍，寫進 ES 的 aiops-baseline。
@@ -26,7 +27,7 @@ detect：讀最近一段時間的資料，跟 baseline 比，超出範圍的寫�
 tune  ：調整某條序列、某些對象的粒度、z、min_abs（寫進 aiops-tuning；之後 feedback 也寫這裡），下次 train／detect 生效。
         --show 看某條序列、某個對象現在生效的值是多少、來自哪一筆（多筆都符合時後面蓋前面）。
 adjust：排除時段（事故、維護、壓測不學）、重置點（換版後只學新的）、週期放寬（月底批次放寬或不報），
-        也寫 aiops-tuning（detector/adjust.py）。status: proposed 的要 approve 才生效。
+        也寫 aiops-tuning（detector/adjust/adjust.py）。status: proposed 的要 approve 才生效。
 rules ：狀態變化、離極限多遠（不用學）。
 peer  ：跟兄弟比，同一個服務的 Pod 互相比，抓只有一個 Pod 壞掉（不用學）。
 feedback：值班對每筆異常的判斷，統計誤報率；誤報累積多次才提放寬門檻的建議（proposed，人核准才生效）。
@@ -38,32 +39,28 @@ quality：資料品質檢查（路由沒參數化、必填欄位缺、資料停�
 from __future__ import annotations
 
 import sys
-from argparse import Namespace
 from typing import Callable, List, Literal
 
 import typer
 
 from core import plugin
-from core.config import load_config
 
-from .cmd_baseline import cmd_train, cmd_tune, cmd_detect
-from .cmd_adjust import cmd_adjust
-from .cmd_backtest import cmd_backtest
-from .cmd_metrics import cmd_metrics
-from .cmd_feedback import cmd_feedback, cmd_incident
-from .cmd_chronic import cmd_chronic
-from .cmd_prune import cmd_prune
-from .cmd_shift import cmd_shift
-from .cmd_trace import cmd_trace_collect, cmd_trace_train, cmd_trace_detect, cmd_trace_merge
-from .cmd_rules import cmd_rules
-from .cmd_peer import cmd_peer
-from .cmd_quality import cmd_quality
-from .cmd_ingest import cmd_ingest
+from .adjust.backtest import cmd_backtest
+from .adjust.command import cmd_adjust
+from .adjust.shift import cmd_shift
+from .baseline.config import SeriesConfig
+from .baseline.detect import cmd_detect
+from .baseline.train import cmd_train
+from .baseline.tune import cmd_tune
+from .cli import Opt, run
+from .feedback.command import cmd_feedback, cmd_incident
+from .feedback.metrics import cmd_metrics
+from .prune import PruneConfig, cmd_prune
+from .rules.command import cmd_rules
+from .rules.config import RulesConfig
 
 SERIES = "configs/baseline/series.yaml"
 COMMANDS: dict[str, Callable[[typer.Typer], None]] = {}      # 內建子命令：名字 → register(app)；plugin.commands() 回同一種形狀
-
-Opt = typer.Option
 
 
 def command(name: str, help: str | None = None):
@@ -74,20 +71,14 @@ def command(name: str, help: str | None = None):
     return deco
 
 
-def run(handler, kind: str, params: dict) -> int:
-    """typer 的參數 → argparse.Namespace（屬性名跟以前一樣；id_、list_ 去掉底線），讀設定（core.config，kind 挑模型），交給 cmd_*(cfg, args)。"""
-    args = Namespace(**{k.rstrip("_"): v for k, v in params.items()})
-    return handler(load_config(args.config, kind), args)
-
-
 @command("train")
 def train(config: str = Opt(...), weeks: int | None = Opt(None), end: str | None = Opt(None)) -> int:
-    return run(cmd_train, "series", locals())
+    return run(cmd_train, SeriesConfig, locals())
 
 
 @command("detect")
 def detect(config: str = Opt(...), window: str = Opt("30min"), at: str | None = Opt(None)) -> int:
-    return run(cmd_detect, "series", locals())
+    return run(cmd_detect, SeriesConfig, locals())
 
 
 @command("tune", help="調整某條序列、某些對象的粒度、z、min_abs（寫進 aiops-tuning）")
@@ -104,7 +95,7 @@ def tune(config: str = Opt(SERIES),
          remove: bool = Opt(False, "--remove"),
          list_: bool = Opt(False, "--list"),
          show: bool = Opt(False, "--show", help="看最終生效的值與來源：--series 給 series.yaml 的名稱、--match 給對象的實際值（例如 service=mes-api），不寫入")) -> int:
-    return run(cmd_tune, "series", locals())
+    return run(cmd_tune, SeriesConfig, locals())
 
 
 @command("backtest", help="改門檻前先回測：一筆或一組建議用過去 N 週重跑，看告警少幾個、已確認事故還抓不抓得到；一組有效才逐筆剔除看哪筆多餘")
@@ -112,7 +103,7 @@ def backtest(config: str = Opt(SERIES),
              id_: List[str] = Opt(..., "--id", help="aiops-tuning 的建議 id（adjust list 看得到）；給好幾個（--id a --id b）就一組一起測"),
              group: bool = Opt(False, "--group", help="把同一個對象（同序列、同 match）其他還是 proposed 的建議一起拉進來當一組"),
              weeks: int = Opt(4), at: str | None = Opt(None), verbose: bool = Opt(False, "--verbose")) -> int:
-    return run(cmd_backtest, "series", locals())
+    return run(cmd_backtest, SeriesConfig, locals())
 
 
 @command("adjust", help="排除時段、重置點、週期放寬（寫進 aiops-tuning）")
@@ -139,41 +130,13 @@ def adjust(action: Literal["add", "list", "approve", "remove"] = typer.Argument(
            expires: str | None = Opt(None, help="到期時間（選填）"),
            reason: str | None = Opt(None), by: str | None = Opt(None),
            force: bool = Opt(False, "--force", help="approve：沒回測、或回測不建議也硬核准")) -> int:
-    return run(cmd_adjust, "series", locals())
-
-
-@command("trace-collect")
-def trace_collect(config: str = Opt(...), start: str | None = Opt(None), end: str | None = Opt(None)) -> int:
-    return run(cmd_trace_collect, "trace", locals())
-
-
-@command("trace-train")
-def trace_train(config: str = Opt(...), history: str | None = Opt(None, help="學多久的資料，例如 4w、2h（預設 history_weeks）"),
-                end: str | None = Opt(None)) -> int:
-    return run(cmd_trace_train, "trace", locals())
-
-
-@command("trace-detect")
-def trace_detect(config: str = Opt(...), window: str = Opt("30min"), at: str | None = Opt(None)) -> int:
-    return run(cmd_trace_detect, "trace", locals())
-
-
-@command("trace-merge")
-def trace_merge(config: str = Opt(...), window: str = Opt("3min", help="第一次（沒有上次合到哪的紀錄）往前合多久"),
-                at: str | None = Opt(None)) -> int:
-    return run(cmd_trace_merge, "trace", locals())
+    return run(cmd_adjust, SeriesConfig, locals())
 
 
 @command("rules")
 def rules(config: str = Opt(...), at: str | None = Opt(None, help="回測：拿過去某個時間點當成現在"),
           only: str | None = Opt(None, help="只跑這幾條（逗號分開）")) -> int:
-    return run(cmd_rules, "rules", locals())
-
-
-@command("peer")
-def peer(config: str = Opt(...), at: str | None = Opt(None, help="回測：拿過去某個時間點當成現在"),
-         only: str | None = Opt(None, help="只跑這幾個（逗號分開）")) -> int:
-    return run(cmd_peer, "peer", locals())
+    return run(cmd_rules, RulesConfig, locals())
 
 
 @command("feedback", help="值班回饋：pending（還沒標記的）、add、list、summary（誤報統計）、suggest（誤報多次→建議放寬）、"
@@ -195,7 +158,7 @@ def feedback(action: Literal["pending", "add", "list", "summary", "suggest", "ex
              days: int = Opt(28), limit: int = Opt(50),
              min_false_positive: int = Opt(1, help="同一個對象誤報幾次才列入、才提建議（預設 1：有人標就提，不累積）"),
              min_recurring: int = Opt(3, help="suggest：同一個服務、同一個根因分類確認幾次才提「升級成規則」（預設 3）")) -> int:
-    return run(cmd_feedback, "series", locals())
+    return run(cmd_feedback, SeriesConfig, locals())
 
 
 @command("metrics", help="量化：每天幾件、有回饋的比例、誤報率、從告警到回饋多久；兩段時間並排比「學之前 vs 學之後」")
@@ -203,7 +166,7 @@ def metrics(config: str = Opt(SERIES),
             start: str = Opt(..., "--from", help="例如 2026-10-01"), end: str = Opt(..., "--to"),
             cstart: str | None = Opt(None, "--compare-from", help="另一段（學之前）"), cend: str | None = Opt(None, "--compare-to"),
             out: str | None = Opt(None)) -> int:
-    return run(cmd_metrics, "series", locals())
+    return run(cmd_metrics, SeriesConfig, locals())
 
 
 @command("incident", help="事故紀錄：add、list、resolve")
@@ -215,37 +178,19 @@ def incident(action: Literal["add", "list", "resolve"] = typer.Argument(...),
              root_cause: str | None = Opt(None), action_taken: str | None = Opt(None, help="處置"),
              anomaly: List[str] | None = Opt(None, help="相關的異常 id"), by: str | None = Opt(None),
              exclude_training: bool = Opt(False, "--exclude-training", help="同時提一筆「這段時間不學」的建議（proposed，adjust approve 才生效）")) -> int:
-    return run(cmd_incident, "series", locals())
-
-
-@command("chronic", help="慢性病清單：天天噴錯、沒人修的（每週）")
-def chronic(config: str = Opt(...), at: str | None = Opt(None, help="回測：拿過去某個時間點當成現在")) -> int:
-    return run(cmd_chronic, "chronic", locals())
-
-
-@command("quality")
-def quality(config: str = Opt(...), at: str | None = Opt(None, help="回測：拿過去某個時間點當成現在"),
-            only: str | None = Opt(None, help="只跑這幾個（逗號分開）")) -> int:
-    return run(cmd_quality, "quality", locals())
+    return run(cmd_incident, SeriesConfig, locals())
 
 
 @command("prune", help="aiops-anomalies、aiops-trace-segments、已結案的 aiops-alerts 超過保留天數的文件清掉（每天）")
 def prune(config: str = Opt(...), at: str | None = Opt(None, help="拿某個時間點當成現在"),
           dry_run: bool = Opt(False, "--dry-run", help="只印會刪幾筆，不刪")) -> int:
-    return run(cmd_prune, "prune", locals())
+    return run(cmd_prune, PruneConfig, locals())
 
 
 @command("shift", help="一階跳變：最近一天幾乎每點都往同一邊超標、新水準很穩的序列，提 reset_point（proposed）")
 def shift(config: str = Opt(..., help="series.yaml（可加 shift: {window, min_points, min_share, max_spread}）"),
           at: str | None = Opt(None, help="拿某個時間點當成現在")) -> int:
-    return run(cmd_shift, "series", locals())
-
-
-@command("ingest", help="別人判好的異常（ML 的異常跳點、FDC 鳴叫）→ aiops-anomalies（detector/ingest.py）")
-def ingest(config: str = Opt(..., help="configs/factory/ingest.yaml"),
-           window: str = Opt("10m", help="看最近多久的來源列（預設 10m；_id 依來源識別碼，重讀不重複）"),
-           at: str | None = Opt(None, help="拿某個時間點當成現在")) -> int:
-    return run(cmd_ingest, "ingest", locals())
+    return run(cmd_shift, SeriesConfig, locals())
 
 
 def build_app() -> typer.Typer:

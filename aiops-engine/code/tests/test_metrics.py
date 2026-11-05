@@ -4,7 +4,7 @@ import unittest
 
 import pandas as pd
 
-from detector import cmd_metrics as M
+from detector.feedback import metrics as M
 
 T = pd.Timestamp("2026-10-01T00:00:00Z")
 

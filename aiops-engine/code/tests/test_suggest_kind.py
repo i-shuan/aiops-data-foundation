@@ -3,9 +3,9 @@ import unittest
 
 import pandas as pd
 
-from detector import cmd_backtest as B
-from detector import feedback as F
-from detector.adjust import in_schedule
+from detector.adjust import backtest as B
+from detector.feedback import feedback as F
+from detector.adjust.adjust import in_schedule
 
 TZ = "Asia/Taipei"
 T = F.target_of({"service": "mes-report", "route": "/close"})

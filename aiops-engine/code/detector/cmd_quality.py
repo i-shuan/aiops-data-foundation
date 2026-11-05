@@ -3,9 +3,11 @@ from __future__ import annotations
 
 import pandas as pd
 
-from .base import Anomaly, Detector
+from core.anomaly import Anomaly
+from core.timeutil import _freq, _v
+
 from . import quality as Q
-from .common import _freq, _v
+from .detector import Detector
 
 
 def quality_hits(es, c: dict, now, window, ref_offset) -> list[dict]:

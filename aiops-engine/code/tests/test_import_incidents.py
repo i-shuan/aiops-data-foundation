@@ -6,8 +6,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from investigator import importer as IMP
-from investigator import similar as SIM
+from investigator.similar import importer as IMP
+from investigator.similar import similar as SIM
 from investigator.__main__ import main
 
 HERE = Path(__file__).resolve().parent

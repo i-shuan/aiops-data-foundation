@@ -7,7 +7,7 @@ import sys
 import uvicorn
 
 import tasks
-from core.es import ES
+from core.es_client import ES
 
 from .server import app, set_es, state    # noqa: F401  uvicorn api.__main__:app、舊的 import 路徑都還找得到
 

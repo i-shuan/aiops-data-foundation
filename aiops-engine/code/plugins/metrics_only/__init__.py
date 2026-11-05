@@ -1,5 +1,5 @@
 """只有指標：ML／FDC 判好的異常接進 ⑤（detector ingest），**沒有** MES 履歷。跟 factory 差在：
-不併跨機台（沒有履歷就不知道前後站）、報告沒有履歷那幾段（只有異常、log、事故前的變更、結論）、沒有 paths-merge。
+不併跨機台（沒有履歷就不知道前後站）、報告沒有履歷那幾段（只有異常、log、事故前的變更、結論）、有 ingest 沒有 paths-merge。
 機台的 log、PM／recipe 變更、分類表、參數家族都跟 factory 一樣。configs/metrics_only/。
 """
 from __future__ import annotations
@@ -7,6 +7,7 @@ from __future__ import annotations
 from core.plugin import Chain
 
 from plugins.factory import Plugin as Factory
+from plugins.factory.ingest.command import register as _register_ingest
 
 
 class Plugin(Factory):
@@ -18,4 +19,4 @@ class Plugin(Factory):
         return Chain()
 
     def commands(self) -> dict:
-        return {}
+        return {"ingest": _register_ingest}

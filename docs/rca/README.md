@@ -63,7 +63,7 @@ metrics 決定何時告警，trace 指出哪一段，log 給證據。基準線�
 | 併件 | 現在這批異常屬於哪一件 | 服務、時間、呼叫關係 |
 | 指紋 | 這一件像過去哪一類 case | 慢的那段、錯的源頭、服務、API、log 樣式、指標；有交集就加權重，總分 ≥ 4 才算像 |
 
-完整流程：異常 → 依服務、時間、呼叫關係併成一件 → 對這一件做 trace 定位、log 佐證 → 算這一件的指紋 → 比過去 case，以分數投票出「像哪一類」（case 只做分類，不給根因、處置）。程式在 [investigator/alerts.py](../../aiops-engine/code/investigator/alerts.py)（併件）、[investigator/similar.py](../../aiops-engine/code/investigator/similar.py)（指紋與分類）。
+完整流程：異常 → 依服務、時間、呼叫關係併成一件 → 對這一件做 trace 定位、log 佐證 → 算這一件的指紋 → 比過去 case，以分數投票出「像哪一類」（case 只做分類，不給根因、處置）。程式在 [investigator/alerts/merge.py](../../aiops-engine/code/investigator/alerts/merge.py)（併件）、[investigator/similar/similar.py](../../aiops-engine/code/investigator/similar/similar.py)（指紋與分類）。
 
 ## 動態基準線學習怎麼判斷
 

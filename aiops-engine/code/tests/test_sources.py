@@ -6,8 +6,8 @@ import unittest
 
 import pandas as pd
 
-from detector import adjust as A
-from detector import sources as S
+from detector.adjust import adjust as A
+from sources import providers as S
 
 NOW = pd.Timestamp("2026-10-24T00:00:00Z")
 

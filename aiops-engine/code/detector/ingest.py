@@ -20,7 +20,7 @@
       direction: up                         # 選填：up／down／both；或 {field, map, default}
       message: "{equipment_id} {chamber_id} {parameter}={value}（score {score}）"           # 選填：給人看的一句話
 
-keys 的名字（equipment、chamber、recipe、step、lot）是後面收斂、根因分析認的（investigator/alerts.py 的 SVC_KEYS、route_of）；
+keys 的名字（equipment、chamber、recipe、step、lot）是後面收斂、根因分析認的（investigator/alerts/merge.py 的 SVC_KEYS、route_of）；
 右邊是來源的欄位名，拿到真實樣本換右邊就好。這裡只做轉換（單元測試用）；讀來源、寫 ES 在 cmd_ingest.py。
 """
 from __future__ import annotations
@@ -30,7 +30,7 @@ from datetime import datetime, timezone
 
 import pandas as pd
 
-from core.es import doc_id, get_field
+from core.es_client import doc_id, get_field
 
 LEVELS = ("ml", "fdc", "external")
 _FIELD = re.compile(r"\{([^{}]+)\}")

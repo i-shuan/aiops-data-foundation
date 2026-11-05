@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from core.es import ES, time_range
+from core.es_client import ES, time_range
 from sources import spans_of
 from sources.traces import group_traces, root_of, trace_id_field
 
@@ -29,7 +29,7 @@ def is_entry(s: dict, ids: set[str]) -> bool:
 
 def build(spans: list[dict], merged_at: datetime, prefix: str = MERGED_PREFIX) -> tuple[str, dict]:
     """同一個 trace 的 span（sources.traces 的格式）→ (index 名稱, 文件)。index 依 group 與根 span 的日期（UTC）分。
-    prefix：index 名的前綴；工廠的履歷用 lot-paths（plugins/factory/paths.py），文件格式一樣。"""
+    prefix：index 名的前綴；工廠的履歷用 lot-paths（plugins/factory/paths/build.py），文件格式一樣。"""
     root = root_of(spans)
     ids = {s["span_id"] for s in spans}
     start = datetime.fromtimestamp(root["start_ms"] / 1000, timezone.utc)

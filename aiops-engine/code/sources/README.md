@@ -1,15 +1,15 @@
 # 資料來源：ES 以外的資料也能跑 train／detect／peer／rules
 
-> **類型：操作 How-To**　五個模型的輸入規格見 [models/README.md](../models/README.md)・為什麼這樣切見 [docs/pdca/meta/2026-11-model-modules.md](../../../docs/pdca/meta/2026-11-model-modules.md)
+> **類型：操作 How-To**　為什麼這樣切見 [docs/pdca/meta/2026-11-model-modules.md](../../../docs/pdca/meta/2026-11-model-modules.md)
 
-設定檔（`series.yaml`、`peer.yaml`、`rules.yaml`…）最上層加 `source:`、`store:`，指令和模型不用改。沒寫就是現在的 ES（`ESBackend`，跟 file／http／memory 一樣是 `Backend` 的實作；程式裡拿到 `core.es.ES` 時用 `sources.as_backend(es)` 包起來）。
+設定檔（`series.yaml`、`peer.yaml`、`rules.yaml`…）最上層加 `source:`、`store:`，指令和模型不用改。沒寫就是現在的 ES（`ESBackend`，跟 file／http／memory 一樣是 `Backend` 的實作；程式裡拿到 `core.es_client.ES` 時用 `sources.as_backend(es)` 包起來）。
 
 | 情況 | 怎麼做 |
 |---|---|
 | 資料在 ES（現況） | 什麼都不加 |
 | 資料是檔案（CSV、Parquet、NDJSON、JSON） | `source: {kind: file, format: events, files: {<index>: <路徑>}}`，結果放 `store: {kind: file, dir: .aiops-store}` |
 | 資料在別的系統，有 HTTP API | `source: {kind: http, format: events, url: "https://…?index={index}&start={start}&end={end}"}` |
-| 別的 Python 程式手上有 DataFrame | `be = sources.MemoryBackend({"<index>": df})`，傳給指令 `detector.cmd_baseline.cmd_train(cfg, args, backend=be)`，或自己 `be.series(spec, …)` 餵 `models/` |
+| 別的 Python 程式手上有 DataFrame | `be = sources.MemoryBackend({"<index>": df})`，傳給指令 `detector.baseline.train.cmd_train(cfg, args, backend=be)`，或自己 `be.series(spec, …)` 餵 `detector/baseline/model.py` 的 `fit_and_score` |
 | 資料在 ES、結果不要寫 ES（離線實驗） | 只加 `store: {kind: file, dir: …}` |
 
 ## 檔案來源

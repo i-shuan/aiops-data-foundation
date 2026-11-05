@@ -4,7 +4,7 @@ from unittest import mock
 
 import pandas as pd
 
-from detector import cmd_backtest as B
+from detector.adjust import backtest as B
 
 NOW = pd.Timestamp("2026-11-03T00:00:00Z")
 CFG = {"series": [{"name": "http.error_rate", "by": ["service", "route"], "min_count": 3}], "train": {"timezone": "Asia/Taipei"}, "interval": "1m"}

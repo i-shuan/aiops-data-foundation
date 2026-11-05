@@ -86,7 +86,7 @@ class FileStore(MemoryStore):
 
 
 class ESStore(Store):
-    """結果在 ES（現況；也給 source: file ＋ store: es）。es 是 core.es.ES（或測試裡只有 req／search／bulk_index 的假 ES）。"""
+    """結果在 ES（現況；也給 source: file ＋ store: es）。es 是 core.es_client.ES（或測試裡只有 req／search／bulk_index 的假 ES）。"""
     kind = "es"
 
     def __init__(self, es):

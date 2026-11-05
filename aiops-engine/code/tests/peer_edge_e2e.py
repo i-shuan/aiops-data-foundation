@@ -25,7 +25,7 @@ import requests
 import yaml
 
 from detector.__main__ import main as cli
-from detector.es import ES
+from core.es_client import ES
 
 CONFIG = os.environ.get("PEER_CONFIG", "configs/baseline/peer.yaml")   # 換別的設定比較用（例如改之前的版本）
 HTTP_INDEX = "metrics-generic.otel-default"

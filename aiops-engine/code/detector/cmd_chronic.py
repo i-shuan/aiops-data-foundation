@@ -5,11 +5,12 @@ import json
 
 import pandas as pd
 
-from sources.schema import CHRONIC_INDEX, CHRONIC_MAPPING  # noqa: F401  mapping 在 sources/schema.py；名字留給既有的 import
-from .es import ANOMALY_INDEX, ES, doc_id
+from core.es_client import ES, doc_id
+from core.timeutil import _now, _v
+from sources.providers import load_owners
+from sources.schema import ANOMALY_INDEX, CHRONIC_INDEX, CHRONIC_MAPPING
+
 from . import chronic as C
-from .common import _now, _v
-from .sources import load_owners
 
 
 def cmd_chronic(cfg: dict, args) -> int:

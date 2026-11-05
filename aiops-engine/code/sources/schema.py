@@ -1,7 +1,7 @@
 """所有 aiops-* 索引的名字與 mapping，一份定義在這裡（docs/pdca/meta/2026-11-layering.md）。
 
 Store 的三種實作（memory、file、es）索引名與文件格式都一樣，同一批結果搬到 ES 不用轉。
-detector／investigator 各模組照舊 `from detector.es import ANOMALY_INDEX` 等（那邊只是 re-export），新程式直接從這裡拿。
+detector／investigator 各模組直接 `from sources.schema import ANOMALY_INDEX` 等。
 """
 from __future__ import annotations
 
@@ -80,7 +80,7 @@ FEEDBACK_MAPPING = {"mappings": {"dynamic": False, "properties": {
     # 採納率的兩題：可能根因／建議的排查動作有沒有參考價值（yes、no、not_seen）
     "rca_cause_useful": {"type": "keyword"}, "rca_action_useful": {"type": "keyword"}}}}
 # status：open／resolved（人補登的）、auto（事件整合自動開的，還沒人看）、confirmed（老師傅標真的）、corrected（真的但根因改過）
-# 相似事故檢索只用 confirmed、corrected（investigator/similar.py）。根因分類表在 plugin（core/domain.categories）
+# 相似事故檢索只用 confirmed、corrected（investigator/similar/similar.py）。根因分類表在 plugin（core/domain.categories）
 INCIDENT_MAPPING = {"mappings": {"dynamic": False, "properties": {
     "@timestamp": {"type": "date"}, "title": {"type": "text"}, "start": {"type": "date"}, "end": {"type": "date"},
     "services": {"type": "keyword"}, "severity": {"type": "keyword"}, "status": {"type": "keyword"},
@@ -90,9 +90,9 @@ INCIDENT_MAPPING = {"mappings": {"dynamic": False, "properties": {
     "alert_id": {"type": "keyword"}, "dept": {"type": "keyword"}, "group": {"type": "keyword"},
     "root_cause_category": {"type": "keyword"}, "how_detected": {"type": "text"}, "checked": {"type": "keyword"},
     "improve": {"type": "text"}, "confirmed_at": {"type": "date"}, "confirmed_by": {"type": "keyword"},
-    # 歷史事故單匯入（investigator/importer.py）：source import；note 是匯入檔的備註
+    # 歷史事故單匯入（investigator/similar/importer.py）：source import；note 是匯入檔的備註
     "source": {"type": "keyword"}, "note": {"type": "text"},
-    # 指紋：相似事故檢索用（investigator/similar.py）
+    # 指紋：相似事故檢索用（investigator/similar/similar.py）
     "fingerprint": {"properties": {"services": {"type": "keyword"}, "routes": {"type": "keyword"}, "series": {"type": "keyword"},
                                    "slow_segments": {"type": "keyword"}, "error_origins": {"type": "keyword"},
                                    "patterns": {"type": "text"}}}}}}
@@ -119,7 +119,7 @@ ALERT_MAPPING = {"mappings": {"dynamic": False, "properties": {
     "routes": {"type": "keyword"},
     # 跨服務（一層）：這件連帶了哪些上游服務；上游那件被整件併進下游時，上游那件標 resolved、merged_into 指到下游那件
     "upstream_services": {"type": "keyword"}, "merged_into": {"type": "keyword"},
-    # 工廠版：這件牽涉哪些 lot（異常的 keys.lot；前後站併件時「同一批 lot」優先，investigator/alerts.merge 的 links）
+    # 工廠版：這件牽涉哪些 lot（異常的 keys.lot；前後站併件時「同一批 lot」優先，investigator/alerts/merge.merge 的 links）
     "lots": {"type": "keyword"},
     # 根因分析重跑：沒有 trace 的件（開件太快、trace 還沒合成完）每隔一陣子重跑，這是跑了幾次
     "rca_attempts": {"type": "integer"},
@@ -136,9 +136,9 @@ ALERT_MAPPING = {"mappings": {"dynamic": False, "properties": {
     "llm_summary": {"type": "text", "index": False}, "llm_provider": {"type": "keyword"},
     # case 只做分類（investigator/similar.classify）：像哪一類、信心；回饋表單預帶、Grafana 可依它分組
     "suggested_category": {"type": "keyword"}, "category_confidence": {"type": "double"},
-    # 嚴重度怎麼來的（investigator/severity.py）：訊號廣度、持續、換版上限；deploy_at 是這個服務最近一次換版
+    # 嚴重度怎麼來的（investigator/alerts/severity.py）：訊號廣度、持續、換版上限；deploy_at 是這個服務最近一次換版
     "severity_why": {"type": "text", "index": False}, "deploy_at": {"type": "date"},
-    # detector detect 每輪寫的 detect-status（detector/cmd_baseline.py）：這輪沒有 baseline 的序列數；Grafana 的 aiops-baseline-missing 查它
+    # detector detect 每輪寫的 detect-status（detector/baseline/detect.py）：這輪沒有 baseline 的序列數；Grafana 的 aiops-baseline-missing 查它
     "missing_baseline": {"type": "integer"},
 }}}
 

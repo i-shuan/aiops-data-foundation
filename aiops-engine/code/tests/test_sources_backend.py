@@ -12,9 +12,11 @@ import numpy as np
 import pandas as pd
 
 import sources
-from detector import cmd_baseline as C
-from detector import cmd_peer, cmd_rules
-from detector import es as DE
+from detector.baseline import detect as C
+from detector.baseline import train as TR
+from detector import cmd_peer
+from detector.rules import command as cmd_rules
+from sources import schema as DE
 from sources import stores
 
 T0 = pd.Timestamp("2026-10-05T00:00:00Z")      # 週一
@@ -56,8 +58,8 @@ class MemoryBackendTrainDetect(unittest.TestCase):
         """程式直接給 DataFrame：指令的 backend= 參數。"""
         spike = T0 + pd.Timedelta(days=14, hours=10)
         be = sources.MemoryBackend({"metrics-apm.transaction.1m-*": history(spike_at=spike)})
-        with mock.patch.object(C, "ES", lambda: self.fail("不該連 ES")):
-            rc, text = quiet(C.cmd_train, CFG, Namespace(end=(T0 + pd.Timedelta(days=14)).isoformat(), weeks=None, at=None), be)
+        with mock.patch.object(C, "ES", lambda: self.fail("不該連 ES")), mock.patch.object(TR, "ES", lambda: self.fail("不該連 ES")):
+            rc, text = quiet(TR.cmd_train, CFG, Namespace(end=(T0 + pd.Timedelta(days=14)).isoformat(), weeks=None, at=None), be)
             self.assertEqual(rc, 0)
             rc, text = quiet(C.cmd_detect, CFG, Namespace(at=(spike + pd.Timedelta(hours=1)).isoformat(), window="2h"), be)
         self.assertEqual(rc, 0)
@@ -77,8 +79,8 @@ class FileBackendAcrossRuns(unittest.TestCase):
             history(spike_at=spike).to_csv(csv, index=False)
             cfg = {**CFG, "source": {"kind": "file", "format": "events", "files": {"metrics-apm.transaction.1m-*": csv}},
                    "store": {"kind": "file", "dir": os.path.join(d, "store")}}
-            with mock.patch.object(C, "ES", lambda: self.fail("不該連 ES")):
-                rc, _ = quiet(C.cmd_train, cfg, Namespace(end=(T0 + pd.Timedelta(days=14)).isoformat(), weeks=None, at=None))
+            with mock.patch.object(C, "ES", lambda: self.fail("不該連 ES")), mock.patch.object(TR, "ES", lambda: self.fail("不該連 ES")):
+                rc, _ = quiet(TR.cmd_train, cfg, Namespace(end=(T0 + pd.Timedelta(days=14)).isoformat(), weeks=None, at=None))
                 self.assertEqual(rc, 0)
                 self.assertTrue(os.path.exists(os.path.join(d, "store", "aiops-baseline.ndjson")))
                 # 第二次「行程」：open_backend 重開 FileStore，baseline 從檔案讀回來
@@ -115,7 +117,7 @@ class OpenBackendTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             sources.open_backend({"source": {"kind": "kafka"}}, lambda: None)
 
-    def test_baseline_columns_match_detector_es(self):
+    def test_baseline_columns_match_schema(self):
         self.assertEqual(stores.BASELINE_COLUMNS, DE.BASELINE_COLUMNS)
         self.assertEqual(stores._RENAMED, DE._RENAMED)
 
@@ -160,7 +162,7 @@ class RulesPeerSimilarOnBackend(unittest.TestCase):
         self.assertEqual([d["keys"]["pod"] for _, d in be.store.docs("aiops-anomalies")], ["d"])
 
     def test_similar_from_backend_incidents(self):
-        from investigator import similar as SIM
+        from investigator.similar import similar as SIM
         fp = {"services": ["mes-api"], "routes": [], "series": ["http.error_rate"], "slow_segments": ["mes-api › SELECT WIP → oracle"],
               "error_origins": [], "patterns": []}
         inc = [("i-db", {"status": "confirmed", "title": "連線池耗盡", "root_cause_category": "db",

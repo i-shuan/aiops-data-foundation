@@ -26,7 +26,7 @@ sources:
     min_per_day: 1
 
 # 負責人：依對象找第一個符合的（match 欄位可用別名：service、namespace…）。沒有符合的顯示「未指定」
-# 資料從哪來（detector/sources.py；格式、假資料見 interfaces/README.md、fake-data/README.md）：
+# 資料從哪來（sources/providers.py；格式、假資料見 interfaces/README.md、fake-data/README.md）：
 #   owners         直接寫在這裡的（優先）
 #   owners_source  讀檔案或 URL；多個來源合在一起，某個失敗只印警告
 owners: []

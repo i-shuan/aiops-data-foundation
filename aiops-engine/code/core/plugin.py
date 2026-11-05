@@ -9,17 +9,20 @@
 主程式（core／detector／investigator／api）只透過 current() 問 plugin，不認得 factory、lot、equipment 這些字。
 擴充點只開「現在真的有兩種以上做法」的地方：
 
-  source_profile()   索引、欄位名的對照（owner 歸屬查哪裡、log 的欄位）        detector/owner.py、investigator/es.py
-  domain()           用語、回饋表單的分類表                                       core/domain.py 的門面、api 的回饋表單、報告
-  entity_keys        異常 keys 裡哪個欄位是「對象」（服務／機台）                 investigator/alerts.py、detector/owner.py
+  source_profile()   索引、欄位名的對照（owner 歸屬查哪裡、log 的欄位）        detector/owner.py、investigator/rca/queries.py
+  domain()           用語、回饋表單的分類表                                       這個檔底下的門面函式、api 的回饋表單、報告
+  entity_keys        異常 keys 裡哪個欄位是「對象」（服務／機台）                 investigator/alerts/merge.py、detector/owner.py
   route_of(keys)     「哪支 API」（IT 是 method＋route；工廠是 recipe）            alerts.route_of、根因分析挑 lot
-  chain(...)         跨對象併件的依據（呼叫關係／履歷前後站／不併）              investigator/cmd_alert.py → alerts.merge
-  change_at(...)     「換版」時間（版號第一次出現／變更紀錄最近一筆／沒有）      cmd_alert.grade_alert → severity 的上限
+  chain(...)         跨對象併件的依據（呼叫關係／履歷前後站／不併）              investigator/alerts/command.py → merge.merge
+  change_at(...)     「換版」時間（版號第一次出現／變更紀錄最近一筆／沒有）      alerts/command.grade_alert → severity 的上限
   severity_classes   嚴重度的訊號分類預設（IT 黃金訊號／工廠參數家族）           cfg 的 alerts.severity.classes 可覆蓋
   critical_levels    哪些 level 的 critical 異常直接讓這件 critical
-  sections           根因分析報告有哪幾段、順序（investigator/report.py 的 SECTIONS）
-  commands()         這個情境多出來的 detector 子命令：{名: register(app)}，掛到 typer app（例如工廠的 paths-merge）
+  sections           根因分析報告有哪幾段、順序（investigator/rca/report.py 的 SECTIONS）
+  commands()         這個情境的 detector 子命令：{名: register(app)}，掛到 typer app（IT 的 peer／quality／chronic／trace-*、
+                     工廠的 ingest／paths-merge）
   schedule           預設排程表（chart 的 deployment 依 plugin 選）
+
+門面（原 core/domain.py、core/source.py，已併進來）：source_name()、source_profile(section)；domain(section) 與 entity_label() 等用語函式。
 """
 from __future__ import annotations
 
@@ -40,7 +43,7 @@ BUILTIN = {
 
 @dataclass
 class Chain:
-    """跨對象併件的依據（investigator/alerts.merge 的 calls、links）。
+    """跨對象併件的依據（investigator/alerts/merge.merge 的 calls、links）。
     calls：{(上游, 下游)}，下游出事連帶上游（IT 的呼叫關係）。
     links：{異常 _id: [(前一個對象, 這個單位在那裡的時間), …]}，後站的異常依單位併進前站（工廠的履歷）。兩個都空＝不併。"""
     calls: set[tuple[str, str]] = field(default_factory=set)
@@ -79,7 +82,7 @@ class Plugin:
 
     def commands(self) -> dict[str, Callable]:
         """{子命令名: register(app)}：register 把子命令掛到 detector 的 typer app（app.command(名, help=…)(函式)），
-        跟內建子命令同一種形狀（detector/__main__.py 的 COMMANDS）；函式自己讀設定（core.config.load_config）、呼叫處理函式。"""
+        跟內建子命令同一種形狀（detector/__main__.py 的 COMMANDS）；函式自己讀設定（core.config.load）、呼叫處理函式。"""
         return {}
 
 
@@ -119,3 +122,66 @@ def current() -> Plugin:
 def reset() -> None:
     global _cache
     _cache = None
+
+
+# ── 資料來源 profile 的門面：engine 讀的原始資料是誰寫的，決定程式裡寫死的那幾個欄位名與索引名 ──
+#   owner   dept／group 歸屬查哪個索引、哪幾個欄位（detector/owner.py）
+#   log     根因分析讀 log 的欄位（investigator/rca/queries.py）
+# 序列、規則、Pod 同儕比對的欄位全在 YAML（configs/<來源>/*.yaml），不經過這裡。IT 用 AIOPS_SOURCE 再選 otel／apm；工廠只有一種。
+
+def source_name() -> str:
+    """原始資料的格式名：otel、apm、factory…（sources/traces.schema_of 用它判斷 raw 索引是不是 APM）。"""
+    return current().source_name()
+
+
+def source_profile(section: str) -> dict:
+    return current().source_profile()[section]
+
+
+# ── 領域用語的門面：對象叫什麼（服務／機台）、一個單位叫什麼（請求／lot）、回饋表單的分類表、誤報原因、常查的地方 ──
+# 內容在 plugin 的 domain()；報告、LLM 範本、api 的回饋表單都從這裡拿。
+
+def domain(section: str):
+    return current().domain()[section]
+
+
+def categories() -> list[tuple[str, str]]:
+    return list(domain("categories"))
+
+
+def category_codes() -> tuple[str, ...]:
+    return tuple(c for c, _ in categories())
+
+
+def fp_reasons() -> list[tuple[str, str]]:
+    return list(domain("fp_reasons"))
+
+
+def checked() -> list[str]:
+    return list(domain("checked"))
+
+
+def entity_label() -> str:
+    """對象叫什麼：服務／機台。"""
+    return domain("entity")
+
+
+def unit_label() -> str:
+    """被追蹤的一個單位叫什麼：請求／lot（報告、摘要的措辭）。"""
+    return domain("unit")
+
+
+def unit_text() -> str:
+    """unit_label 放進中文句子用：英文的（lot）前後補空格，「每個 lot 多花」。"""
+    u = unit_label()
+    return f" {u} " if u.isascii() else u
+
+
+def trace_label() -> str:
+    """把一個單位串起來的那份資料叫什麼：Trace／履歷。"""
+    return domain("trace")
+
+
+def new_value_hint() -> str:
+    """共同點是「平常沒見過的值」時，提示可能是什麼。"""
+    return domain("new_value_hint")

@@ -6,8 +6,8 @@ import unittest
 from argparse import Namespace
 from unittest import mock
 
-from detector import cmd_baseline as C
-from investigator.cmd_alert import ALERT_INDEX, ALERT_MAPPING
+from detector.baseline import detect as C
+from sources.schema import ALERT_INDEX, ALERT_MAPPING
 
 CFG = {"interval": "5m", "adjustments_file": None, "calendar_file": None, "detect": {"z": 5}, "status": {"confirm_points": 2},
        "series": [{"name": "a.cpu", "index": "m", "by": ["service"], "value": {"avg": "v"}},

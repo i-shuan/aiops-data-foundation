@@ -6,10 +6,10 @@ import unittest
 
 import pandas as pd
 
-from detector import feedback as F
+from detector.feedback import feedback as F
 from api import app as A
-from investigator import importer as IMP
-from investigator import similar as SIM
+from investigator.similar import importer as IMP
+from investigator.similar import similar as SIM
 
 
 def fp(svc="mes-api", seg="mes-api › SELECT WIP → oracle", series=("http.error_rate",), route="GET /lots"):

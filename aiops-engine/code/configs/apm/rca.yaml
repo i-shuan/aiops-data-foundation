@@ -1,5 +1,5 @@
 # 資料來源是 Elastic APM 時的根因分析設定。寫法跟 configs/rca/rca.yaml 一樣；log 的欄位名（service.name、trace.id）由
-# AIOPS_SOURCE=apm 決定（core/source.py），不在這裡。
+# AIOPS_SOURCE=apm 決定（core/plugin.py），不在這裡。
 indices:
   anomalies: aiops-anomalies
   traces: traces-merged-*                          # trace-merge 從 traces-apm-* 合成的
@@ -28,7 +28,7 @@ alerts:
   llm: true
   chain: true
   chain_sample: 100
-  # 嚴重度（investigator/severity.py）：critical／high／warning 依幾類黃金訊號、持續多久、換版後多久；只通知 critical、high
+  # 嚴重度（investigator/alerts/severity.py）：critical／high／warning 依幾類黃金訊號、持續多久、換版後多久；只通知 critical、high
   # severity: {window: 15, min_coverage: 0.8, min_duration: 10, min_span_critical: 3, min_points_per_class: 2, deploy_grace: 10}
   # deploy_grace: false           # 不查換版（例如沒有 service.version）
   # deploy_index: metrics-apm.transaction.1m-*

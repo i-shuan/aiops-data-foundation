@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient
 import tasks
 from api import server as W
 from api import app as A
-from investigator import cmd_alert as C
+from investigator.alerts import command as C
 from tests.test_api import ALERT, FakeES
 
 TOKEN = {"AIOPS_API_TOKEN": "s3cret", "AIOPS_PLUGIN": "factory", tasks.BROKER_ENV: "redis://fake:6379/0"}
@@ -231,7 +231,7 @@ class EntryStatsWithoutIndex(unittest.TestCase):
     """工廠版剛上線、lot-paths-* 還不存在：ES 回空結果、沒有 aggregations。不能讓整份根因報告變「失敗：'aggregations'」（K8s 實裝時發現）。"""
 
     def test_missing_index_counts_as_no_requests(self):
-        from investigator import es as E
+        from investigator.rca import queries as E
         fake = mock.Mock()
         fake.search.return_value = {"took": 0, "hits": {"total": {"value": 0}, "hits": []}}
         got = E.entry_stats(fake, "lot-paths-*", "K8S-01", None, datetime(2026, 11, 5, 1, tzinfo=timezone.utc), datetime(2026, 11, 5, 2, tzinfo=timezone.utc))

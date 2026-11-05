@@ -1,9 +1,9 @@
-"""一件的嚴重度（investigator/severity.py）：訊號廣度（幾類、不是幾條）＋持續（滑動窗覆蓋率）＋換版上限。不連 ES。"""
+"""一件的嚴重度（investigator/alerts/severity.py）：訊號廣度（幾類、不是幾條）＋持續（滑動窗覆蓋率）＋換版上限。不連 ES。"""
 import unittest
 from datetime import datetime, timedelta, timezone
 from unittest import mock
 
-from investigator import severity as S
+from investigator.alerts import severity as S
 
 T0 = datetime(2026, 11, 3, 13, 0, tzinfo=timezone.utc)
 
@@ -107,7 +107,7 @@ class GradeAlert(unittest.TestCase):
     """cmd_alert.grade_alert：舊異常用 _mget 補齊、只算這件自己服務的、換版查不到不擋。"""
 
     def test_reads_old_anomalies_and_detects_deploy(self):
-        from investigator import cmd_alert as C
+        from investigator.alerts import command as C
         old = [{"_id": f"o{i}", "_source": {"@timestamp": (T0 + timedelta(minutes=i)).isoformat(), "series": "http.error_rate", "keys": {"service": "pay-api", "route": "POST /pay"}}} for i in range(5)]
 
         class FakeES:

@@ -1,4 +1,4 @@
-"""detector/base.py：Anomaly.to_doc() 跟改成類別之前各指令手寫的 dict 一字不差；欄位跟 ANOMALY_MAPPING、RULE_FIELDS 對得上；
+"""core/anomaly.py 的 Anomaly、detector/detector.py 的 Detector：Anomaly.to_doc() 跟改成類別之前各指令手寫的 dict 一字不差；欄位跟 ANOMALY_MAPPING、RULE_FIELDS 對得上；
 Detector.run() 的順序（prepare → checks → evaluate → 一次 write → 回傳碼）、--only、一條壞掉只跳過那一條。不連 ES。"""
 import contextlib
 import dataclasses
@@ -9,10 +9,11 @@ from unittest import mock
 
 import pandas as pd
 
-from detector import base as B
-from detector.base import Anomaly, Detector
-from detector.common import RULE_FIELDS
-from detector.es import ANOMALY_INDEX, ANOMALY_MAPPING
+from core.anomaly import Anomaly
+from detector import detector as B
+from detector.detector import Detector
+from sources.schema import RULE_FIELDS
+from sources.schema import ANOMALY_INDEX, ANOMALY_MAPPING
 
 SLOT = pd.Timestamp("2026-11-05T10:03:00Z")
 DET = "2026-11-05T10:03:07+00:00"
@@ -84,7 +85,7 @@ class ToDoc(unittest.TestCase):
         self.assertTrue(a.to_doc()["detected_at"].startswith("20"))     # 沒給就是現在
 
     def test_default_id(self):
-        from core.es import doc_id
+        from core.es_client import doc_id
         a = Anomaly(ts=SLOT, series="rule.x", keys={"a": 1}, value=1, level="rule")
         self.assertEqual(a.id(), doc_id("rule.x", {"a": 1}, SLOT))
 

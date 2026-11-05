@@ -1,6 +1,6 @@
 # 高內聚、低耦合：套件分層、一個功能一個資料夾、plugin 邊界切乾淨（2026-11）
 
-**狀態**：階段 A 完成，B～D 進行中　　**日期**：2026-11-05　　**相關**：分支 `claude/layering`（從 master `31c72f8` 開）；接 [frameworks](2026-11-frameworks.md)、[oop-core](2026-11-oop-core.md)（兩輪都在加介面與框架，沒動套件怎麼切，使用者看完判斷「檔案太散、plugin 沒切乾淨」）
+**狀態**：階段 A、B 完成，C～D 進行中　　**日期**：2026-11-05　　**相關**：分支 `claude/layering`（從 master `31c72f8` 開）；接 [frameworks](2026-11-frameworks.md)、[oop-core](2026-11-oop-core.md)（兩輪都在加介面與框架，沒動套件怎麼切，使用者看完判斷「檔案太散、plugin 沒切乾淨」）
 **模組**：④～⑨ 全部
 
 ## Plan：這一次要達到什麼
@@ -89,7 +89,24 @@
 | 文件與註解 | `core/traces.py` → `sources/traces.py` 的路徑文字（`architecture.md` 3 處、`apm/README.md`、`apm/trace.yaml`、`apm/rca.yaml`、幾個 docstring） | 不留指向已刪檔的說明 |
 | 測試（只改 mock 目標或傳參） | `test_cmd_rules`、`test_plugin`、`test_cmd_alert`、`test_llm`、`test_es_backend`、四個 trace 測試 | 名字綁定的位置變了 |
 
-### 階段 B～D
+### 階段 B：一個功能一個資料夾（已完成）
+
+照上面的搬移對照表做，153 個檔 +877／−898；全部用 `git mv`（27 個 R、34 個新檔、11 個刪）。跟對照表不同的地方：
+
+| 不同 | 為什麼 |
+|---|---|
+| `Detector` 放 `detector/detector.py`，不是 `core/` | 它要 `sources.open_backend`、`sources.schema`、`detector.owner`，放 L0 一定往上 import；`Anomaly` 照表放 `core/anomaly.py` |
+| `borrow_resolution`、`min_events` 放 `baseline/train.py` | train 與 detect 都用，放 detect 會互相 import |
+| `to_freq` 搬到 `core/timeutil.py` | `_freq` 在 core，不能回頭 import detector |
+| `plugins/factory/paths.py`、`cmd_paths.py` 提前搬進 `plugins/factory/paths/{build,command}.py` | 套件 `paths/` 與模組 `paths.py` 同名，Python 會指到套件 |
+| peer／quality／chronic／trace-*／ingest 的 typer 包裝放各功能資料夾的 `command.py`，plugin 的 `commands()` 回 `{名: register}` | `detector/__main__` 不能 import `plugins`（分層）；引擎本體階段 C 才搬 |
+| 新增 `detector/cli.py`（`Opt`、`run(handler, Model, params)`） | 內建與 plugin 的子命令共用，plugin 不必 import `detector.__main__` |
+| `core/domain.py`、`core/source.py` 併進 `core/plugin.py` 時函式改名（`categories()`、`entity_label()`、`source_profile(section)`…） | 避免撞名 |
+| `load_config(path, kind)` → `load(path, Model)`，`KINDS` 刪 | 註冊表會讓 core 認得上層；呼叫端直接給模型類別 |
+
+文件：`Dockerfile` 刪 `COPY models/`；`CLAUDE.md` 結構表刪 `models/` 一項；`aiops-engine/README.md`、`docs/README.md`、`sources/README.md`、`plugins/README.md`、`docs/semiconductor-design.md` 的路徑與連結對齊；PDCA 紀錄只改壞掉的連結目標。
+
+### 階段 C～D
 
 （尚未開始）
 
@@ -99,14 +116,16 @@
 
 `PYTHONUTF8=1 py -m pytest -q` → 769 個通過（跟開始前一樣，沒有退步）；`py -W error -c "import api.server, detector.__main__, investigator.__main__, scheduler.__main__, tasks"` 沒有警告；`tools/check-docs.py` 四項 0 個問題。
 
-| 指標 | 開始 | 階段 A 後 | 階段 A 目標 |
-|---|---|---|---|
-| 往上 import（違反分層） | 6 | 0 | 0 ✓ |
-| 模組層循環 | 8 | 0 | 0 ✓ |
-| 函式內 import 內部套件 | 41 | 0 | 0 ✓ |
-| 同名 `.py` | 6 | 6 | 階段 B |
-| 情境詞 | 39 | 38 | 階段 C |
-| 非測試總行數 | 12,286 | 12,313 | — |
+| 指標 | 開始 | 階段 A 後 | 階段 B 後 | 目標 |
+|---|---|---|---|---|
+| 往上 import（違反分層） | 6 | 0 | 0 | 0 ✓ |
+| 模組層循環 | 8 | 0 | 0 | 0 ✓ |
+| 函式內 import 內部套件 | 41 | 0 | 0 | 0 ✓ |
+| 同名 `.py` | 6 | 6 | 0 | 0 ✓ |
+| 情境詞 | 39 | 38 | 37 | 階段 C |
+| 非測試總行數 | 12,286 | 12,313 | 12,412 | — |
+
+階段 B：`pytest` 768 個通過（少 1 是 `test_config` 刪了兩個測 `KINDS` 的、加一個 `test_not_a_mapping`，其餘只改 import 與 mock 目標）；`--help` 內建 11 個子命令＋observability 7 個、factory 2 個、metrics_only 1 個，跟以前一樣；`check-docs` 四項 0。
 
 沒測到的：沒連真的 ES、沒在 k3d 跑。
 

@@ -3,7 +3,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from investigator import alerts as AL
+from investigator.alerts import merge as AL
 
 T0 = datetime(2026, 10, 25, 2, 0, tzinfo=timezone.utc)
 GAP = timedelta(minutes=30)

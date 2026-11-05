@@ -1,9 +1,9 @@
-"""依序列、依對象決定「連續幾次才算」「偏多少不用等」（detector.cmd_baseline.status_params、with_status）。"""
+"""依序列、依對象決定「連續幾次才算」「偏多少不用等」（detector/baseline/detect.py 的 status_params、with_status）。"""
 import unittest
 
 import pandas as pd
 
-from detector.cmd_baseline import status_params, with_status
+from detector.baseline.detect import status_params, with_status
 
 CFG = {"status": {"confirm_points": 2, "confirm_span": "30m", "instant_z": 15}}
 

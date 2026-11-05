@@ -3,13 +3,13 @@
 資料本身早就有（Collector 讀 namespace 的 dept label、算出 group，metrics／trace 在 resource.attributes.dept、.group；
 APM 是 agent 設的 labels.dept、labels.group）；異常算出來寫回 aiops-anomalies 時沒帶，這裡補上：
   1. 每次執行去 metrics 查一次「namespace → dept、group」「服務 → dept、group」（最近 OWNER_DAYS 天）；
-     查哪個索引、哪幾個欄位依資料來源（core/source.py 的 owner）
+     查哪個索引、哪幾個欄位依資料來源（core/plugin.py 的 source_profile("owner")）
   2. 每筆異常依 keys 裡的 namespace（優先，dept 是 namespace 的 label）或服務對回去
   3. 找不到的記 group = unassigned、dept 空，跟 Collector 對「沒有 dept」的處理一樣
 """
 from __future__ import annotations
 
-from core import plugin, source
+from core import plugin
 from core.version import ENGINE_VERSION
 from sources import as_backend
 
@@ -36,8 +36,8 @@ def owners_from_agg(res: dict) -> dict:
 
 
 def load_owners(es, days: int = OWNER_DAYS) -> dict:
-    """es 是 core.es.ES 或 Backend。歸屬只有 ES 的原始資料裡有：檔案、記憶體來源回 {}（每筆都 unassigned）。"""
-    f = source.profile("owner")
+    """es 是 core.es_client.ES 或 Backend。歸屬只有 ES 的原始資料裡有：檔案、記憶體來源回 {}（每筆都 unassigned）。"""
+    f = plugin.source_profile("owner")
     # static：主檔（工廠的 eqp-master）沒有時間欄位，整份都算
     query = {"match_all": {}} if f.get("static") else {"range": {"@timestamp": {"gte": f"now-{days}d"}}}
     body = {"size": 0, "query": query, "aggs": {"ns": _agg(f["namespace"], f), "svc": _agg(f["service"], f)}}

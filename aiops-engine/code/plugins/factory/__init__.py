@@ -6,11 +6,12 @@ from __future__ import annotations
 from datetime import datetime
 
 from core.plugin import Chain, Plugin as Base
-from investigator.report import _dur
+from investigator.rca.report import _dur
 
 from .chain import lot_links
 from .changes import change_at as _change_at
-from .cmd_paths import register as _register_paths
+from .ingest.command import register as _register_ingest
+from .paths.command import register as _register_paths
 
 PROFILE = {
     # 機台歸屬（廠區、設備工程師群）在機台主檔 eqp-master：一台一筆、沒有時間欄位（static），engine 只讀
@@ -74,4 +75,5 @@ class Plugin(Base):
                           since, now, acfg.get("deploy_time_field", "@timestamp"), acfg.get("deploy_filter", {"term": {"event_type": "recipe_change"}}))
 
     def commands(self) -> dict:
-        return {"paths-merge": _register_paths}
+        """工廠的 detector 子命令：ingest（ML／FDC 的異常接進 ⑤）、paths-merge（履歷合成）。"""
+        return {"ingest": _register_ingest, "paths-merge": _register_paths}

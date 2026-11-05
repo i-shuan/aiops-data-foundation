@@ -2,9 +2,9 @@
 
 指令（train、detect、peer、rules…）拿到的是一個 Backend：讀原始資料（Source 的五個方法）＋讀寫 aiops-*（Store）。
 ES 也是其中一個實作（es_source.ESBackend ＝ ESSourceBackend 讀 ＋ stores.ESStore 寫）：設定沒寫 source 時 open_backend 給的就是它，
-原本散在 detector/es.py、rules.py、owner.py、adjust.py、sources/traces.py、investigator/similar.py 的 ES 查詢都搬成它的方法。
-detector/es.py 那些讀寫函式還在（名字給指令用），但只剩一行：as_backend(es).<方法>(…)。
-sources.as_backend（在 __init__.py）是唯一的正規化點：傳進來的已經是 Backend 就原樣用，是 core.es.ES 或測試的假 ES（只有 req／search）
+原本散在 detector、investigator 各模組的 ES 查詢都搬成它的方法。
+sources/__init__.py 的 fetch／alive_times／load_baseline／load_group_baselines（名字給指令用）只剩一行：as_backend(es).<方法>(…)。
+sources.as_backend（在 __init__.py）是唯一的正規化點：傳進來的已經是 Backend 就原樣用，是 core.es_client.ES 或測試的假 ES（只有 req／search）
 就包成 ESBackend，所以指令、測試裡的假 ES 都不用改，程式裡也不再有「是不是 Backend」的分支。
 索引名與 mapping 在 schema.py。
 
@@ -51,7 +51,7 @@ class Store(ABC):
 
     @abstractmethod
     def anomaly_status(self, ids: list[str]) -> dict[str, dict]:
-        """{_id: {status, streak}}，只回 status 是 anomaly 的（cmd_baseline._keep_upgraded）。"""
+        """{_id: {status, streak}}，只回 status 是 anomaly 的（detector/baseline/detect._keep_upgraded）。"""
 
     @abstractmethod
     def adjustments(self) -> list[dict]:

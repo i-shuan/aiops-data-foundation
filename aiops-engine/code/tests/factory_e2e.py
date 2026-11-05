@@ -185,7 +185,7 @@ def load(es, data: dict) -> None:
 
 
 def run(keep: bool = False, dump_dir: str | None = None, plugin_name: str = "factory") -> int:
-    from core.es import ES
+    from core.es_client import ES
     from detector.__main__ import main as detector
     from investigator.__main__ import main as investigator
     os.environ["AIOPS_PLUGIN"] = plugin_name
@@ -307,7 +307,7 @@ def main(argv=None) -> int:
     p.add_argument("--plugin", default="factory", choices=["factory", "metrics_only"], help="factory（有履歷，預設）或 metrics_only（只有指標）")
     a = p.parse_args(argv)
     if a.clean:
-        from core.es import ES
+        from core.es_client import ES
         cleanup(ES(), EQUIPMENTS)
         print("清掉了")
         return 0

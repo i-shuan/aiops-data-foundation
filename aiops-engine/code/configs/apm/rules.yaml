@@ -1,4 +1,4 @@
-# 資料來源是 Elastic APM 時的規則（detector/rules.py）。寫法跟 configs/baseline/rules.yaml 一樣。
+# 資料來源是 Elastic APM 時的規則（detector/rules/engine.py）。寫法跟 configs/baseline/rules.yaml 一樣。
 # APM 只有應用層的資料：保底的錯誤率、p95 兩條能用；K8s 狀態（重啟、Pending、節點）、kubelet、cAdvisor、ntp、JVM／.NET runtime
 # 那些 APM 不收，沒列。agent 有送 system metrics（metrics-apm.app.*）或 JVM metrics 時再加。
 

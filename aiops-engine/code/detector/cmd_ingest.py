@@ -5,13 +5,12 @@ from __future__ import annotations
 
 import pandas as pd
 
-from core.es import ES
+from core.es_client import ES
+from core.timeutil import _now
 from sources import as_backend, open_backend
-from sources.schema import INGEST_FIELDS  # noqa: F401  ingest 多補的欄位，定義在 sources/schema.py；名字留給既有的 import
+from sources.schema import ANOMALY_INDEX, ANOMALY_MAPPING, INGEST_FIELDS
 
 from . import ingest as I
-from .common import _now
-from .es import ANOMALY_INDEX, ANOMALY_MAPPING
 from .owner import write_anomalies
 
 

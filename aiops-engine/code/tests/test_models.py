@@ -1,10 +1,14 @@
-"""models/：五個模型只給標準輸入（DataFrame／list）就能算，不 mock ES、不讀設定檔。"""
+"""五個模型只給標準輸入（DataFrame／list）就能算，不 mock ES、不讀設定檔（check_*／fit_and_score／points_of／samples_of 住在各自的引擎裡）。"""
 import unittest
 
 import numpy as np
 import pandas as pd
 
-from models import baseline, peer, rules, similar, trace
+from detector import peer, trace
+from detector.baseline import model as baseline
+from detector.rules import engine as rules
+from investigator.rca import analyze
+from investigator.similar import similar
 
 T0 = pd.Timestamp("2026-10-05T00:00:00Z")
 
@@ -53,7 +57,7 @@ class TraceModel(unittest.TestCase):
 
     def test_compare_segments_finds_the_slow_one(self):
         now, ref = trace.group_traces(self.spans(300)), trace.group_traces(self.spans(20))
-        diffs = {d.segment: d.delta_ms for d in trace.compare_segments(now, ref)}
+        diffs = {d.segment: d.delta_ms for d in analyze.compare_segments(now, ref)}
         slow = max(diffs, key=diffs.get)
         self.assertIn("oracle", slow)
         self.assertAlmostEqual(diffs[slow], 280)

@@ -4,8 +4,8 @@ import unittest
 import numpy as np
 import pandas as pd
 
-from detector import adjust as A
-from detector.model import override_for
+from detector.adjust import adjust as A
+from detector.baseline.model import override_for
 
 TZ = "Asia/Taipei"
 

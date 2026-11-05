@@ -4,7 +4,7 @@ import unittest
 from datetime import datetime, timezone
 from unittest import mock
 
-from core.es import doc_id
+from core.es_client import doc_id
 from api import app as A
 
 NOW =datetime(2026, 10, 25, 3, 0, tzinfo=timezone.utc)

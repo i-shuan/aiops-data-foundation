@@ -8,9 +8,9 @@ import pandas as pd
 import sources
 from core.version import ENGINE_VERSION
 from detector import owner as O
-from detector import rules as R
-from detector import es as DE
-from investigator import similar as SIM
+from detector.rules import engine as R
+import sources as DE
+from investigator.similar import similar as SIM
 from sources import as_backend
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -87,7 +87,7 @@ class WriteAnomalies(unittest.TestCase):
 
 
 class EsBodiesMoved(unittest.TestCase):
-    """搬進 ESSourceBackend／ESStore 的查詢，透過 detector/es.py、rules.py、similar.py 的函式名呼叫，打到的還是同一種 body。"""
+    """搬進 ESSourceBackend／ESStore 的查詢，透過 sources.fetch、rules/engine.py、similar.py 的函式名呼叫，打到的還是同一種 body。"""
     T0 = pd.Timestamp("2026-10-05T00:00:00Z")
 
     def test_series_renames_by_to_keys_and_pages_composite(self):

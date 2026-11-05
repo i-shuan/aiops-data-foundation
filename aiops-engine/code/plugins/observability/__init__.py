@@ -7,10 +7,14 @@ import os
 from datetime import datetime
 
 from core.plugin import Chain, Plugin as Base
-from investigator import alerts as AL
+from investigator.alerts import merge as AL
 
 from .chain import call_edges
 from .changes import deploy_at
+from .chronic.command import register as _register_chronic
+from .peer.command import register as _register_peer
+from .quality.command import register as _register_quality
+from .trace.command import commands as _trace_commands
 
 SOURCE_ENV = "AIOPS_SOURCE"
 
@@ -97,3 +101,7 @@ class Plugin(Base):
     def change_at(self, es, cfg, entity, since, now) -> datetime | None:
         acfg = cfg.get("alerts", {})
         return deploy_at(es, entity, since, now, acfg.get("deploy_index", "metrics-apm.transaction.1m-*"), acfg.get("version_field", "service.version"))
+
+    def commands(self) -> dict:
+        """IT 專用的 detector 子命令：peer、quality、chronic、trace-collect／train／detect／merge。"""
+        return {"peer": _register_peer, "quality": _register_quality, "chronic": _register_chronic, **_trace_commands()}

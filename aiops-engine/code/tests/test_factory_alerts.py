@@ -5,10 +5,9 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from unittest import mock
 
-from core import domain as D
 from core import plugin
-from investigator import alerts as AL
-from investigator import severity as S
+from investigator.alerts import merge as AL
+from investigator.alerts import severity as S
 from plugins.factory import chain as FAC
 
 T0 = datetime(2026, 11, 4, 1, 0, tzinfo=timezone.utc)
@@ -145,14 +144,14 @@ class SeverityClasses(unittest.TestCase):
 
 class Domain(unittest.TestCase):
     def test_factory_domain_tables(self):
-        self.assertEqual(D.entity_label(), "機台")
-        self.assertEqual(D.unit_label(), "lot")
-        self.assertIn("equipment", D.category_codes())
-        self.assertIn(("pm_just_done", "剛做完 PM，暖機中"), D.fp_reasons())
+        self.assertEqual(plugin.entity_label(), "機台")
+        self.assertEqual(plugin.unit_label(), "lot")
+        self.assertIn("equipment", plugin.category_codes())
+        self.assertIn(("pm_just_done", "剛做完 PM，暖機中"), plugin.fp_reasons())
         with mock.patch.dict(os.environ, {"AIOPS_PLUGIN": "observability"}):
-            self.assertEqual(D.category_codes(), ("db", "network", "config_change", "deploy", "external", "resource", "bug", "data", "other"))
+            self.assertEqual(plugin.category_codes(), ("db", "network", "config_change", "deploy", "external", "resource", "bug", "data", "other"))
         with mock.patch.dict(os.environ, {"AIOPS_PLUGIN": "mars"}), self.assertRaises(ValueError):
-            D.name()
+            plugin.current()
 
     def test_every_builtin_plugin_has_other_category(self):
         for name in plugin.BUILTIN:

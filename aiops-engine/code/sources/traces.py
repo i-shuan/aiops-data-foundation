@@ -18,8 +18,8 @@ from __future__ import annotations
 from collections import defaultdict
 from datetime import datetime
 
-from core import source
-from core.es import get_field
+from core import plugin
+from core.es_client import get_field
 
 _SPAN_FIELDS = ["@timestamp", "trace_id", "span_id", "parent_span_id", "name", "kind", "duration", "status.code", "links",
                 "resource.attributes", "attributes"]
@@ -30,7 +30,7 @@ _APM_FIELDS = {"includes": ["@timestamp", "timestamp.us", "processor.event", "tr
                "excludes": ["span.stacktrace", "transaction.custom", "transaction.marks"]}
 
 
-MERGED_LIKE = ("traces-merged", "lot-paths")   # engine 合成、一個請求（一個 lot）一筆的索引；lot-paths 是工廠的履歷（plugins/factory/paths.py）
+MERGED_LIKE = ("traces-merged", "lot-paths")   # engine 合成、一個請求（一個 lot）一筆的索引；lot-paths 是工廠的履歷（plugins/factory/paths/build.py）
 
 
 def schema_of(index: str) -> str:
@@ -38,7 +38,7 @@ def schema_of(index: str) -> str:
     otel（Collector 寫的 raw）。"""
     if any(m in index for m in MERGED_LIKE):
         return "merged"
-    if "apm" in index or source.name() == "apm":
+    if "apm" in index or plugin.source_name() == "apm":
         return "apm"
     return "otel"
 

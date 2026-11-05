@@ -1,4 +1,4 @@
-# 規則：狀態變化、離極限多遠（detector/rules.py）。不用學、不用歷史。
+# 規則：狀態變化、離極限多遠（detector/rules/engine.py）。不用學、不用歷史。
 # 每分鐘跑一次：python3 -m detector rules --config configs/baseline/rules.yaml
 # 觸發的寫進 aiops-anomalies（series = rule.<name>，level = rule，另有 severity、message）。
 #

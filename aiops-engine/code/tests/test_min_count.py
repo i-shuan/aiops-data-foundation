@@ -1,9 +1,9 @@
-"""cmd_baseline.apply_min_count 的單元測試（錯誤率至少 N 個 5xx 才算異常），不需要 ES。"""
+"""detector/baseline/detect.apply_min_count 的單元測試（錯誤率至少 N 個 5xx 才算異常），不需要 ES。"""
 import unittest
 
 import pandas as pd
 
-from detector.cmd_baseline import apply_min_count
+from detector.baseline.detect import apply_min_count
 
 
 class MinCountTest(unittest.TestCase):

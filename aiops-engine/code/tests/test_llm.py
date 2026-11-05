@@ -3,7 +3,7 @@ import unittest
 from unittest import mock
 
 from core import llm as LLM
-from investigator.similar import classify
+from investigator.similar.similar import classify
 
 ALERT ={"alert_id": "a-1", "service": "mes-api", "severity": "critical", "started_at": "2026-10-25T02:00:00+00:00", "minutes": 12,
          "routes": ["GET /lots/{id}"], "dept": "D3120"}

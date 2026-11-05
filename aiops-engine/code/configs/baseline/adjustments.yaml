@@ -1,4 +1,4 @@
-# 調整（detector/adjust.py）：哪些資料不學、從哪裡重新學、哪些時段放寬。統計公式不動，用這些修正。
+# 調整（detector/adjust/adjust.py）：哪些資料不學、從哪裡重新學、哪些時段放寬。統計公式不動，用這些修正。
 # 長期、人維護的規則寫這裡（進版控）；事故、換版這類事件用指令寫進 ES 的 aiops-tuning：
 #   python3 -m detector adjust add --kind exclude_window --match service=^mes-api$ \
 #       --start 2026-10-20T02:00:00+08:00 --end 2026-10-20T05:00:00+08:00 --reason "DB 鎖表事故"

@@ -1,12 +1,12 @@
-"""IT 的併件依據：trace 裡「誰呼叫誰」（下游出事連帶上游；investigator/alerts.merge 的 calls）。"""
+"""IT 的併件依據：trace 裡「誰呼叫誰」（下游出事連帶上游；investigator/alerts/merge.merge 的 calls）。"""
 from __future__ import annotations
 
 from datetime import datetime, timedelta
 
 from sources import spans_of
 from sources import traces as T
-from investigator import analyze as A
-from investigator import es as E
+from investigator.rca import analyze as A
+from investigator.rca import queries as E
 
 
 def call_edges(es, cfg: dict, services: set[str], start: datetime, end: datetime, per: int = 100) -> set[tuple[str, str]]:

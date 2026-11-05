@@ -23,7 +23,7 @@ from datetime import datetime, timedelta, timezone
 
 import redis
 
-from core.es import ES
+from core.es_client import ES
 
 PY = sys.executable
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

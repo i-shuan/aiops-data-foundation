@@ -5,12 +5,10 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from unittest import mock
 
-from core import domain as D
 from core import plugin
-from core import source
 from detector import owner as O
-from investigator import alerts as AL
-from investigator import report as R
+from investigator.alerts import merge as AL
+from investigator.rca import report as R
 
 T0 = datetime(2026, 11, 4, 1, 0, tzinfo=timezone.utc)
 
@@ -41,18 +39,18 @@ class Registry(unittest.TestCase):
             os.environ.pop("AIOPS_PLUGIN", None)
             os.environ.pop("AIOPS_SOURCE", None)
             self.assertEqual(plugin.current().name, "observability")
-            self.assertEqual(source.name(), "otel")
-            self.assertEqual(D.entity_label(), "服務")
+            self.assertEqual(plugin.source_name(), "otel")
+            self.assertEqual(plugin.entity_label(), "服務")
             self.assertEqual(plugin.current().schedule, "configs/schedule/schedule.yaml")
 
     def test_env_selects_and_switch_is_live(self):
         with env(AIOPS_PLUGIN="factory"):
-            self.assertEqual((plugin.current().name, source.name(), D.unit_label()), ("factory", "factory", "lot"))
+            self.assertEqual((plugin.current().name, plugin.source_name(), plugin.unit_label()), ("factory", "factory", "lot"))
         with env(AIOPS_PLUGIN="metrics_only"):
             self.assertEqual(plugin.current().name, "metrics_only")
             self.assertEqual(plugin.current().sections, ("anomalies", "logs", "changes", "conclusion"))
         with env(AIOPS_PLUGIN="observability", AIOPS_SOURCE="apm"):
-            self.assertEqual((source.name(), plugin.current().schedule), ("apm", "configs/apm/schedule.yaml"))
+            self.assertEqual((plugin.source_name(), plugin.current().schedule), ("apm", "configs/apm/schedule.yaml"))
 
     def test_unknown_name_and_bad_path(self):
         for bad in ("mars", "no.such.module:Plugin", "tests.test_plugin:Nope", "tests.test_plugin:T0"):
@@ -62,7 +60,7 @@ class Registry(unittest.TestCase):
     def test_custom_plugin_by_dotted_path(self):
         with env(AIOPS_PLUGIN="tests.test_plugin:MyPlugin"):
             self.assertEqual(plugin.current().name, "mine")
-            self.assertEqual(D.entity_label(), "主機")
+            self.assertEqual(plugin.entity_label(), "主機")
             self.assertEqual(AL.entity_of({"keys": {"host": "h1"}, "series": "s"}), ("service", "h1"))
             self.assertEqual(O.owner_of({"host": "h1"}, {("svc", "h1"): ("D1", "G1")}), ("D1", "G1"))
             self.assertEqual(plugin.current().chain(None, {}, [], [], T0, T0), plugin.Chain())
@@ -81,7 +79,7 @@ class Builtins(unittest.TestCase):
         self.assertIn("service", p.entity_keys)
         self.assertNotIn("equipment", p.entity_keys)
         self.assertIsNone(p.severity_classes)
-        self.assertEqual(p.commands(), {})
+        self.assertEqual(sorted(p.commands()), ["chronic", "peer", "quality", "trace-collect", "trace-detect", "trace-merge", "trace-train"])   # IT 專用的子命令由 plugin 掛
         self.assertIn("segments", p.sections)
 
     def test_factory_and_metrics_only(self):
@@ -92,8 +90,8 @@ class Builtins(unittest.TestCase):
             self.assertIn("fdc", p.critical_levels)
             self.assertIn("pressure", p.severity_classes)
             self.assertEqual(p.source_profile()["owner"]["index"], "eqp-master")
-        self.assertEqual(list(f.commands()), ["paths-merge"])
-        self.assertEqual(m.commands(), {})
+        self.assertEqual(list(f.commands()), ["ingest", "paths-merge"])
+        self.assertEqual(list(m.commands()), ["ingest"])            # 只有指標：有 ingest、沒有履歷合成
         self.assertIn("segments", f.sections)
         self.assertNotIn("segments", m.sections)
         self.assertEqual(m.chain(None, {}, [], [], T0, T0), plugin.Chain())

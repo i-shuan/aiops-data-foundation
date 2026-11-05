@@ -28,7 +28,7 @@ engine 一份程式；「IT 可觀測性」「全套工廠」「只有指標」�
 | `severity_classes` 嚴重度的訊號分類 | 內建黃金訊號（延遲、錯誤、往外呼叫、飽和） | 參數家族（pressure、temperature、flow、power、time、metrology、alarm） | 同 |
 | `critical_levels` | rule、peer、quality | ＋fdc | 同 |
 | `sections` 報告有哪幾段 | anomalies、entries、segments、slowest、logs、changes、topology、conclusion | 同 | anomalies、logs、changes、conclusion |
-| `commands()` 多出來的 detector 子命令 | — | `paths-merge` | — |
+| `commands()` 這個情境的 detector 子命令 | `peer`、`quality`、`chronic`、`trace-collect`／`trace-train`／`trace-detect`／`trace-merge` | `ingest`、`paths-merge` | `ingest` |
 | `schedule` 預設排程表 | `configs/schedule/`（apm：`configs/apm/`） | `configs/factory/schedule.yaml` | `configs/metrics_only/schedule.yaml` |
 
 cfg 可以覆蓋 plugin 的預設：`alerts.critical_levels`、`alerts.severity.classes`、`alerts.chain: false`、換版的索引（`alerts.deploy_index` 等）。報告的 `changes` 段要 cfg 有 `changes.query` 才出。
@@ -68,8 +68,8 @@ class Plugin(Observability):
 `AIOPS_PLUGIN=myplugins.network:Plugin`，chart `--set plugin=myplugins.network:Plugin`（image 要含那個套件；排程表 chart 只認三個內建的名字，客製的用 `configOverrides` 掛自己的排程表）。
 
 - `source_profile()` 要回 `{"owner": {...}, "log": {...}}`（欄位見 [plugins/observability/__init__.py](observability/__init__.py) 的 `PROFILES`）；`domain()` 要有 `entity`、`unit`、`trace`、`new_value_hint`、`categories`、`fp_reasons`、`checked`，`categories`、`fp_reasons` 最後一項是 `other`。
-- `sections` 只能從 [investigator/report.py](../investigator/report.py) 的 `SECTIONS` 挑；要 trace 的段在沒有 trace 時自己寫一行略過，不用你管。
-- `commands()` 回 `{"子命令名": register}`，`register(app)` 用 `app.command("子命令名", help=…)` 掛一個 typer 函式；函式自己 `load_config(config, kind)`、組 `argparse.Namespace` 再呼叫處理函式 `(cfg, args) -> int`（寫法見 [plugins/factory/cmd_paths.py](factory/cmd_paths.py)）。內建子命令也是同一種形狀。
+- `sections` 只能從 [investigator/rca/report.py](../investigator/rca/report.py) 的 `SECTIONS` 挑；要 trace 的段在沒有 trace 時自己寫一行略過，不用你管。
+- `commands()` 回 `{"子命令名": register}`，`register(app)` 用 `app.command("子命令名", help=…)` 掛一個 typer 函式；函式用 `detector.cli.run(處理函式, 設定模型, locals())`（讀設定 `core.config.load(config, Model)`、組 `argparse.Namespace`、呼叫處理函式 `(cfg, args) -> int`；寫法見 [plugins/observability/peer/command.py](observability/peer/command.py)、[plugins/factory/paths/command.py](factory/paths/command.py)）。內建子命令也是同一種形狀。
 - 單元測試：`AIOPS_PLUGIN` 用 `mock.patch.dict(os.environ, …)` 包，`core.plugin.current()` 看到環境變數變了會自己換；寫法見 [tests/test_plugin.py](../tests/test_plugin.py)。
 
 ## 怎麼驗

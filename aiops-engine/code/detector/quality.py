@@ -25,7 +25,7 @@ import re
 
 import pandas as pd
 
-from core.es import ES, time_range
+from core.es_client import ES, time_range
 
 # 路徑裡「像是 ID」的一段：純數字、UUID、8 碼以上的 hex、混了數字的長字串（例如訂單號 A20261023001）
 _ID_SEGMENT = re.compile(

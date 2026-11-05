@@ -6,7 +6,7 @@ import unittest
 import pandas as pd
 
 from detector import trace as T
-from detector.model import DetectOptions, TrainOptions, score, train
+from detector.baseline.model import DetectOptions, TrainOptions, score, train
 
 API = ("mes-api", "GET /lots/{id}")
 

@@ -17,7 +17,8 @@ import pandas as pd
 import yaml
 
 from detector.__main__ import main as cli
-from detector.es import ANOMALY_INDEX, BASELINE_INDEX, ES
+from core.es_client import ES
+from sources.schema import ANOMALY_INDEX, BASELINE_INDEX
 
 TZ = "Asia/Taipei"
 INDEX = "aiops-adaptive"

@@ -20,9 +20,9 @@ from dataclasses import dataclass
 
 import pandas as pd
 
-from core.es import ES, doc_id, time_range
+from core.es_client import ES, doc_id, time_range
 from sources import spans_by_id, spans_of
-from sources.schema import SEGMENT_INDEX, SEGMENT_MAPPING  # noqa: F401  mapping 在 sources/schema.py；名字留給既有的 import
+from sources.schema import SEGMENT_INDEX, SEGMENT_MAPPING  # noqa: F401  cmd_trace 從這裡拿
 from sources.traces import group_traces, is_merged, segment, self_times
 
 KEYS =["entry.service", "entry.name", "segment"]
@@ -318,3 +318,23 @@ def load_segments(es: ES, start: pd.Timestamp, end: pd.Timestamp) -> pd.DataFram
             break
         after = hits[-1]["sort"]
     return pd.DataFrame(rows, columns=["ts", *KEYS, "requests", *METRICS])
+
+
+# ── 標準輸入（原 models/trace.py）：spans 是 sources/traces.py 的格式，一列一段 ──
+SPAN_FIELDS = ("trace_id", "span_id", "parent", "service", "name", "kind", "start_ms", "dur_ms")
+
+
+def check_spans(spans: list[dict]) -> list[dict]:
+    """欄位齊不齊；缺的補預設（target、error、exception、attrs、resource）。"""
+    out = []
+    for i, s in enumerate(spans):
+        missing = [f for f in SPAN_FIELDS if f not in s]
+        if missing:
+            raise ValueError(f"第 {i} 段缺欄位 {missing}：要有 {list(SPAN_FIELDS)}")
+        out.append({"target": None, "error": False, "exception": None, "attrs": {}, "resource": {}, "links": [], **s})
+    return out
+
+
+def samples_of(spans: list[dict], bucket) -> list[Sampled]:
+    """沒有抽樣時：每個入口（沒有 parent 的段）都當抽到的請求，時段都是 bucket。"""
+    return [Sampled(bucket, s["trace_id"], s["span_id"]) for s in spans if not s.get("parent")]

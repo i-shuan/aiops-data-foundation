@@ -1,10 +1,10 @@
-"""規則（detector/rules.py）的單元測試，不需要 ES。"""
+"""規則（detector/rules/engine.py）的單元測試，不需要 ES。"""
 import unittest
 
 import pandas as pd
 import yaml
 
-from detector import rules as R
+from detector.rules import engine as R
 
 NOW = pd.Timestamp("2026-10-10T10:00:00Z")
 
@@ -184,7 +184,8 @@ class NewTypesTest(unittest.TestCase):
 
     def test_join_fills_denominator(self):
         d = {"metrics": {"usage": 5.0}}
-        R._put(d, "metrics.db_client_connections_max", 5.0)
+        from sources.es_source import _put
+        _put(d, "metrics.db_client_connections_max", 5.0)
         self.assertEqual(d["metrics"]["db_client_connections_max"], 5.0)
         rule = {"type": "ratio", "field": "metrics.usage", "den": ["metrics.db_client_connections_max"], "op": ">=", "threshold": 0.9}
         self.assertEqual(R.sample_value(rule, d), 1.0)
@@ -221,12 +222,12 @@ class ClockOffsetTest(unittest.TestCase):
             "fresh": "40m"}
 
     def test_abs_both_directions(self):
-        from detector import rules as R
+        from detector.rules import engine as R
         self.assertEqual(R.sample_value(self.rule, {"metrics": {"ntp.offset": -300_000_000}}), 300_000_000)
         self.assertEqual(R.sample_value({**self.rule, "abs": False}, {"metrics": {"ntp.offset": -300_000_000}}), -300_000_000)
 
     def test_message_in_ms(self):
-        from detector import rules as R
+        from detector.rules import engine as R
         msg = R.describe(self.rule, {"key": ("node-1",), "value": 2_500_460_925})
         self.assertIn("2,500 毫秒", msg)
         self.assertIn("100 毫秒", msg)

@@ -1,5 +1,5 @@
 """命令列（typer）跟以前 argparse 的參數一樣：排程表裡的字面指令都還能跑、處理函式拿到的 Namespace 屬性名沒變、
-choices 與預設值沒變、錯誤回 2 不丟例外、plugin 的子命令掛在同一個 app。不連 ES：處理函式與 load_config 都用 mock 接住。"""
+choices 與預設值沒變、錯誤回 2 不丟例外、plugin 的子命令掛在同一個 app。不連 ES：處理函式與 core.config.load 都用 mock 接住。"""
 import contextlib
 import glob
 import io
@@ -13,24 +13,43 @@ from typer.testing import CliRunner
 import detector.__main__ as D
 import investigator.__main__ as I
 from core import plugin
-from investigator import cmd_alert
-from plugins.factory import cmd_paths
+from detector import cli
+from detector.baseline.config import SeriesConfig
+from detector.prune import PruneConfig
+from detector.rules.config import RulesConfig
+from investigator.alerts import command as cmd_alert
+from investigator.rca.config import RcaConfig
+from plugins.factory.ingest import command as cmd_ingest
+from plugins.factory.ingest.config import IngestConfig
+from plugins.factory.paths import command as cmd_paths
+from plugins.factory.paths.config import PathsConfig
+from plugins.observability.chronic import command as cmd_chronic
+from plugins.observability.chronic.config import ChronicConfig
+from plugins.observability.peer import command as cmd_peer
+from plugins.observability.peer.config import PeerConfig
+from plugins.observability.quality import command as cmd_quality
+from plugins.observability.quality.config import QualityConfig
+from plugins.observability.trace import command as cmd_trace
+from plugins.observability.trace.config import TraceConfig
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 CODE = os.path.dirname(HERE)
 
-# 子命令 → (處理函式所在的模組, 屬性名, load_config 的 kind)
+# 子命令 → (處理函式所在的模組, 屬性名, core.config.load 收到的模型)；IT 與工廠的子命令在 plugin 的 command.py
 HANDLERS = {
-    "train": (D, "cmd_train", "series"), "detect": (D, "cmd_detect", "series"), "tune": (D, "cmd_tune", "series"),
-    "backtest": (D, "cmd_backtest", "series"), "adjust": (D, "cmd_adjust", "series"), "shift": (D, "cmd_shift", "series"),
-    "metrics": (D, "cmd_metrics", "series"), "feedback": (D, "cmd_feedback", "series"), "incident": (D, "cmd_incident", "series"),
-    "rules": (D, "cmd_rules", "rules"), "peer": (D, "cmd_peer", "peer"), "quality": (D, "cmd_quality", "quality"),
-    "trace-collect": (D, "cmd_trace_collect", "trace"), "trace-train": (D, "cmd_trace_train", "trace"),
-    "trace-detect": (D, "cmd_trace_detect", "trace"), "trace-merge": (D, "cmd_trace_merge", "trace"),
-    "chronic": (D, "cmd_chronic", "chronic"), "prune": (D, "cmd_prune", "prune"), "ingest": (D, "cmd_ingest", "ingest"),
-    "paths-merge": (cmd_paths, "cmd_paths_merge", "paths"),
-    "alert": (cmd_alert, "run", "rca"),
+    "train": (D, "cmd_train", SeriesConfig), "detect": (D, "cmd_detect", SeriesConfig), "tune": (D, "cmd_tune", SeriesConfig),
+    "backtest": (D, "cmd_backtest", SeriesConfig), "adjust": (D, "cmd_adjust", SeriesConfig), "shift": (D, "cmd_shift", SeriesConfig),
+    "metrics": (D, "cmd_metrics", SeriesConfig), "feedback": (D, "cmd_feedback", SeriesConfig), "incident": (D, "cmd_incident", SeriesConfig),
+    "rules": (D, "cmd_rules", RulesConfig), "prune": (D, "cmd_prune", PruneConfig),
+    "peer": (cmd_peer, "cmd_peer", PeerConfig), "quality": (cmd_quality, "cmd_quality", QualityConfig),
+    "chronic": (cmd_chronic, "cmd_chronic", ChronicConfig),
+    "trace-collect": (cmd_trace, "cmd_trace_collect", TraceConfig), "trace-train": (cmd_trace, "cmd_trace_train", TraceConfig),
+    "trace-detect": (cmd_trace, "cmd_trace_detect", TraceConfig), "trace-merge": (cmd_trace, "cmd_trace_merge", TraceConfig),
+    "ingest": (cmd_ingest, "cmd_ingest", IngestConfig),
+    "paths-merge": (cmd_paths, "cmd_paths_merge", PathsConfig),
+    "alert": (cmd_alert, "run", RcaConfig),
 }
+PLUGIN_OF = {"factory": "factory", "metrics_only": "metrics_only"}     # 排程表所在的資料夾 → plugin；其餘是 observability
 
 
 def env(**kw):
@@ -38,26 +57,26 @@ def env(**kw):
 
 
 def run(prog: str, argv: list[str], rc: int = 0):
-    """跑一次，回 (處理函式拿到的 args, load_config 收到的 (path, kind))。處理函式回 0。"""
+    """跑一次，回 (處理函式拿到的 args, load 收到的 (path, 模型))。處理函式回 0。"""
     cmd = next(a for a in argv if not a.startswith("-"))
-    mod, name, kind = HANDLERS[cmd]
+    mod, name, model = HANDLERS[cmd]
     seen = {}
 
     def handler(cfg, args, *rest):
         seen["args"], seen["cfg"] = args, cfg
         return 0
 
-    def load(path, k):
-        seen["load"] = (path, k)
+    def load(path, m):
+        seen["load"] = (path, m)
         return {}
     main = D.main if prog == "detector" else I.main
-    with mock.patch.object(mod, name, handler), mock.patch.object(D, "load_config", load), \
-         mock.patch.object(I, "load_config", load), mock.patch.object(cmd_paths, "load_config", load), \
+    with mock.patch.object(mod, name, handler), mock.patch.object(cli, "load", load), \
+         mock.patch.object(I, "load", load), mock.patch.object(cmd_paths, "load", load), \
          contextlib.redirect_stdout(io.StringIO()):
         got = main(argv)
     assert got == rc, (argv, got)
     if rc == 0:
-        assert seen["load"][1] == kind, (argv, seen["load"])
+        assert seen["load"][1] is model, (argv, seen["load"])
     return seen.get("args"), seen.get("load")
 
 
@@ -81,7 +100,8 @@ class ScheduleCommands(unittest.TestCase):
         self.assertGreaterEqual(len(jobs), 30)
         self.assertTrue(any(a[0] == "paths-merge" for _, _, a in jobs))
         for path, prog, argv in jobs:
-            with self.subTest(path=path, argv=argv), env(AIOPS_PLUGIN="factory" if "factory" in path else "observability"):
+            with self.subTest(path=path, argv=argv), env(AIOPS_PLUGIN=PLUGIN_OF.get(os.path.basename(os.path.dirname(path)), "observability")):
+                plugin.reset()
                 args, load = run(prog, argv)
                 self.assertEqual(args.config, argv[argv.index("--config") + 1])
                 self.assertEqual(load[0], args.config)
@@ -95,9 +115,11 @@ class ScheduleCommands(unittest.TestCase):
         self.assertEqual(run("detector", ["detect", "--config", "s.yaml"])[0].window, "30min")
         self.assertEqual(run("detector", ["trace-detect", "--config", "t.yaml"])[0].window, "30min")
         self.assertEqual(run("detector", ["trace-merge", "--config", "t.yaml"])[0].window, "3min")
-        self.assertEqual(run("detector", ["ingest", "--config", "i.yaml"])[0].window, "10m")
         with env(AIOPS_PLUGIN="factory"):
+            plugin.reset()
+            self.assertEqual(run("detector", ["ingest", "--config", "i.yaml"])[0].window, "10m")
             self.assertEqual(run("detector", ["paths-merge", "--config", "p.yaml"])[0].window, "1d")
+        plugin.reset()
         a, _ = run("detector", ["train", "--config", "s.yaml"])
         self.assertEqual((a.weeks, a.end), (None, None))
         a, _ = run("detector", ["prune", "--config", "p.yaml"])
@@ -115,7 +137,7 @@ class Attributes(unittest.TestCase):
         self.assertTrue(a.show)
         self.assertEqual((a.list, a.remove), (False, False))
         self.assertEqual((a.series, a.resolution, a.z, a.min_abs, a.confirm_points, a.instant_z), ("x", None, None, None, None, None))
-        self.assertEqual(load, ("configs/baseline/series.yaml", "series"))       # --config 的預設
+        self.assertEqual(load, ("configs/baseline/series.yaml", SeriesConfig))    # --config 的預設
         a, _ = run("detector", ["tune", "--series", "x", "--z", "4", "--min-abs", "0.5", "--confirm-points", "1", "--instant-z", "8", "--list"])
         self.assertEqual((a.z, a.min_abs, a.confirm_points, a.instant_z, a.list, a.match), (4.0, 0.5, 1, 8.0, True, None))
 
@@ -168,15 +190,15 @@ class Attributes(unittest.TestCase):
     def test_investigator_attributes(self):
         seen = {}
         with mock.patch.object(I, "investigate_full", lambda cfg, args: (seen.setdefault("args", args) and "報告", {})), \
-             mock.patch.object(I, "load_config", lambda p, k: {"kind": k}), contextlib.redirect_stdout(io.StringIO()):
+             mock.patch.object(I, "load", lambda p, m: {"model": m.__name__}), contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(I.main(["investigate", "--config", "r.yaml", "--service", "mes-api", "--route", "GET /lots/{id}", "--window", "1h"]), 0)
         a = seen["args"]
         self.assertEqual((a.service, a.route, a.window, a.start, a.end, a.at, a.out), ("mes-api", "GET /lots/{id}", "1h", None, None, None, None))
         with mock.patch.object(I, "topology", lambda cfg, args: seen.setdefault("topo", (cfg, args)) and "拓撲"), \
-             mock.patch.object(I, "load_config", lambda p, k: {"kind": k}), contextlib.redirect_stdout(io.StringIO()):
+             mock.patch.object(I, "load", lambda p, m: {"model": m.__name__}), contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(I.main(["topology", "--config", "r.yaml"]), 0)
         cfg, a = seen["topo"]
-        self.assertEqual((cfg, a.window, a.sample, a.at), ({"kind": "rca"}, "1h", 2000, None))
+        self.assertEqual((cfg, a.window, a.sample, a.at), ({"model": "RcaConfig"}, "1h", 2000, None))
 
 
 class Errors(unittest.TestCase):
@@ -193,13 +215,16 @@ class Errors(unittest.TestCase):
         with env(AIOPS_PLUGIN="observability"):
             r = CliRunner().invoke(D.build_app(), ["--help"])
         self.assertEqual(r.exit_code, 0)
-        for name in D.COMMANDS:
+        for name in list(D.COMMANDS) + ["peer", "quality", "chronic", "trace-collect", "trace-train", "trace-detect", "trace-merge"]:
             self.assertIn(name, r.output)
-        self.assertNotIn("paths-merge", r.output)
+        for name in ("paths-merge", "ingest"):
+            self.assertNotIn(name, r.output)
         with env(AIOPS_PLUGIN="factory"):
             plugin.reset()
             r = CliRunner().invoke(D.build_app(), ["--help"])
             self.assertIn("paths-merge", r.output)
+            self.assertIn("ingest", r.output)
+            self.assertNotIn("peer", r.output)
             r = CliRunner().invoke(D.build_app(), ["paths-merge", "--help"])
             self.assertEqual(r.exit_code, 0)
             for opt in ("--config", "--window", "--at"):

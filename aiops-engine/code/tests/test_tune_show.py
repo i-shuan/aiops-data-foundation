@@ -1,4 +1,4 @@
-"""tune --show：印出某條序列、某個對象現在生效的值與來源（detector.cmd_baseline.cmd_tune、effective_lines）。
+"""tune --show：印出某條序列、某個對象現在生效的值與來源（detector/baseline/tune.py 的 cmd_tune、effective_lines）。
 用假的 ES（aiops-tuning 裡放兩筆都符合的 override），不連 ES；設定檔的 adjustments、calendar 關掉，只看這裡給的。"""
 import contextlib
 import io
@@ -6,7 +6,8 @@ import unittest
 from argparse import Namespace
 from unittest import mock
 
-from detector import cmd_baseline as C
+from detector.baseline import detect as C
+from detector.baseline import tune as TU
 
 CFG = {"interval": "5m", "adjustments_file": None, "calendar_file": None,
        "status": {"confirm_points": 2, "confirm_span": "30m", "instant_z": 15}, "detect": {"z": 5},
@@ -35,8 +36,8 @@ def show(series, match):
     out = io.StringIO()
     args = Namespace(list=False, remove=False, show=True, series=series, match=match, resolution=None, z=None, min_abs=None,
                      confirm_points=None, instant_z=None, reason=None, by=None)
-    with mock.patch.object(C, "ES", FakeES), contextlib.redirect_stdout(out):
-        rc = C.cmd_tune(CFG, args)
+    with mock.patch.object(TU, "ES", FakeES), contextlib.redirect_stdout(out):
+        rc = TU.cmd_tune(CFG, args)
     return rc, out.getvalue()
 
 
@@ -58,8 +59,8 @@ class TuneShow(unittest.TestCase):
 
     def test_values_match_what_detect_uses(self):
         # --show 的值跟 detect 的 score_params／status_params 同一個函式算出來，不會兩套
-        from detector.model import DetectOptions
-        from detector.tuning import load_overrides
+        from detector.baseline.model import DetectOptions
+        from detector.adjust.tuning import load_overrides
         ov = load_overrides(FakeES(), CFG)
         spec, key = CFG["series"][0], {"service": "mes-report-api"}
         self.assertEqual(C.score_params(spec, key, DetectOptions(**CFG["detect"]), ov), (7.0, 0.2))

@@ -4,7 +4,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from unittest import mock
 
-from investigator import cmd_alert as C
+from investigator.alerts import command as C
 from plugins.observability import chain as CH
 
 AL = {"alert_id": "a-1", "service": "mes-api", "started_at": "2026-10-25T02:00:00+00:00", "updated_at": "2026-10-25T02:12:00+00:00",

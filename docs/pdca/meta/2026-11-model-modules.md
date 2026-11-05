@@ -62,7 +62,7 @@
 | `sources/__init__.py`（新） | `open_backend(cfg, es_factory)`：依 `source`／`store` 給 ES 或 Backend | `es_factory` 傳指令模組自己的 `ES`，測試蓋 `C.ES` 照樣有效；只在真的要連 ES 時才建連線 |
 | `detector/es.py`、`rules.py`、`owner.py`、`adjust.py`、`core/traces.py`、`investigator/similar.py` | `fetch`、`alive_times`、`load_baseline`、`load_group_baselines`、`rules.fetch`、`write_anomalies`、`adjust.load`、`spans_of`、`spans_by_id`、`similar.search` 開頭多一句：是 Backend 就交給它 | 指令、backtest、既有測試的假 ES 一行都不用改；`similar.search` 把打分拆成 `rank()`（M5 的純函式） |
 | `detector/cmd_baseline.py`、`cmd_peer.py`、`cmd_rules.py` | `ES()` → `backend or open_backend(cfg, ES)`（`cmd_*` 多一個 `backend=` 參數，程式直接給 `MemoryBackend` 用）；`save_baseline`、`_keep_upgraded` 是 Backend 時交給 Store；`tune` 在 store 不是 ES 時拒絕 | 入口只改這一處 |
-| `models/`（新：`baseline`、`peer`、`rules`、`trace`、`similar`、`README.md`） | 五個模型的門面：docstring 寫輸入格式、`check_*()` 檢查欄位、re-export 演算法；`baseline.fit_and_score`、`peer.compare_checked`、`rules.points_of`、`trace.check_spans`、`similar.check_candidates` | 別的程式 `import models` 自己準備 DataFrame 就能叫；演算法沒搬 |
+| `models/`（新：`baseline`、`peer`、`rules`、`trace`、`similar`、`README.md`；2026-11 已併入各功能，見 [2026-11-layering.md](2026-11-layering.md)） | 五個模型的門面：docstring 寫輸入格式、`check_*()` 檢查欄位、re-export 演算法；`baseline.fit_and_score`、`peer.compare_checked`、`rules.points_of`、`trace.check_spans`、`similar.check_candidates` | 別的程式 `import models` 自己準備 DataFrame 就能叫；演算法沒搬 |
 | `Dockerfile` | 多 `COPY sources/`、`COPY models/` | `detector/es.py` 現在 import `sources`，image 少了這兩個資料夾起不來（測試不會抓到，靠這一行） |
 | `tests/test_shape.py`、`test_sources_backend.py`、`test_models.py`（新，31 個） | 見 Check | |
 | `sources/README.md`（操作）、`models/README.md`（規格）、`aiops-engine/README.md`、`docs/README.md`、`CLAUDE.md` | 怎麼寫 `source`／`store`、五個模型的輸入規格、索引 | |

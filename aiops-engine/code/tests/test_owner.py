@@ -66,7 +66,7 @@ class WriteAnomalies(unittest.TestCase):
     def test_every_doc_carries_engine_version(self):
         # 五種寫入（baseline、規則、peer、quality、trace）都走這裡，所以在這裡補就等於每筆都有；欄位也要在 mapping（dynamic false）
         from core.version import ENGINE_VERSION
-        from detector.es import ANOMALY_MAPPING
+        from sources.schema import ANOMALY_MAPPING
         class Fake:
             def __init__(self): self.written = None
             def req(self, *a, **k): return {}

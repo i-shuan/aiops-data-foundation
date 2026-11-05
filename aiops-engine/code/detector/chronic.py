@@ -18,9 +18,8 @@ import json
 
 import pandas as pd
 
-from core.es import ES, time_range
-
-from .adjust import match_keys
+from core.es_client import ES, time_range
+from detector.adjust.adjust import match_keys
 
 
 def find_chronic(daily: pd.DataFrame, keys: list[str], *, min_days: int = 6, min_per_day: float = 1,

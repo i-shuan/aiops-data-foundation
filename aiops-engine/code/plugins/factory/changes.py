@@ -1,4 +1,4 @@
-"""工廠的「換版」：recipe 變更紀錄最近一筆的時間。變更後 deploy_grace 分鐘內的異常上限 warning（investigator/severity.py）。
+"""工廠的「換版」：recipe 變更紀錄最近一筆的時間。變更後 deploy_grace 分鐘內的異常上限 warning（investigator/alerts/severity.py）。
 IT 看 service.version 第一次出現（plugins/observability/changes.py）；工廠的變更紀錄一筆一次，直接拿最近一筆。"""
 from __future__ import annotations
 
