@@ -54,7 +54,9 @@
 | 寫入端點的 token | 沒設 `AIOPS_API_TOKEN` 回 401「伺服器沒設…」；token 錯回「token 不對」 | 符合 |
 | 真的起一次 api | `API_PORT=18089 py -m api`，curl `/health`、`OPTIONS /api/feedback`、`/nope` | `ok` 純 text、204、404；啟動行印出 |
 
-沒測到的：k3d 上沒部署（chart 只有 `helm template`）；Grafana 儀表板沒對新 api 打過；排程器沒真的跑子行程（只驗了字面指令能解析）。
+使用者實跑（2026-11-05，回報「執行一直驗證到 Grafana 都是 ok」）：換框架後的 engine 跑起來，一路驗到 Grafana 都正常；沒有逐項數字，是使用者的口頭回報，不是我重跑的。
+
+沒測到的：我這邊沒有在 k3d 上部署（chart 只有 `helm template`）；排程器沒真的跑子行程（只驗了字面指令能解析）。
 
 ## Act：Check 後沒改善的、還沒解決的
 
@@ -67,7 +69,7 @@
 | [⑧] `starlette.testclient` 對 httpx 1.x 印 `StarletteDeprecationWarning`（要 httpx2） | 跑測試 | 只有警告 | 之後 requirements 換 `httpx2` |
 | [④] `--help` 的子命令總表會被 click 截成 `...`（feedback 那條 help 很長） | 本機看 `--help` | 各子命令自己的 `--help` 完整 | 不處理 |
 | [④] `scheduler/__main__.py`、`tasks/__init__.py` 仍用 argparse | 範圍外 | 兩處各 60 行、不是公開命令列 | 要一致的話下一輪順手改 |
-| 沒在 k3d 部署、Grafana 沒對新 api 打過 | 這輪只有單元測試 | 路由、CORS 都有測，但沒有端到端 | 合入前在 k3d 起一次 api、從 Grafana 送一筆回饋 |
+| 端到端驗證只有使用者的口頭回報（執行一路驗到 Grafana 都 ok） | 使用者跑過；我沒有細節 | 沒有記錄是哪些畫面、哪些端點 | 要留紀錄的話補一次：k3d 起 api、Grafana 送一筆回饋與一筆漏報，貼結果 |
 
 - **決定**：三層一次換，但只換骨架；行為、參數、端點全部不變，由 `test_cli`（31 條字面指令）與 `test_api_*`（bytes 比對）守住。
 - **下一輪**：設定預設值集中到模型；`ESBackend` 實作 `Backend` 介面、`Detector` 基底（code-review 的另兩項結構發現）。
