@@ -43,6 +43,32 @@
 | C | IT 專用進 `plugins/observability/`，工廠的 `ingest` 進 `plugins/factory/`；`detector/__main__` 只註冊中立命令，其餘由 `commands()` 給 | `core/`、`detector/`、`investigator/` grep IT 與工廠詞 0（`sources/traces.py` 的格式解析例外，另註明）；刪掉 `plugins/factory/` 整個資料夾，其餘程式與測試照跑 |
 | D | 文件連結、Dockerfile `COPY`、docs/README 索引、量指標、PDCA | `check-docs` 四項 0；指標表填上「之後」 |
 
+### 階段 B 的搬移對照表（不留轉發用的舊檔；import 全部改指新家）
+
+| 現在 | 新位置 | 說明 |
+|---|---|---|
+| `detector/base.py` | `core/anomaly.py`（`Anomaly`）、`core/detector.py`（`Detector`） | 中立的基底放 L0 |
+| `detector/common.py` | `core/timeutil.py` | `_freq`、`_now`、`_v`、`keys_of` |
+| `core/es.py` | `core/es_client.py` | 三個 `es.py` 之一；名字說清楚是連線 |
+| `detector/es.py` | 刪。`fetch`／`alive_times`／`load_baseline`／`load_group_baselines` 四個一行函式搬到 `sources/__init__.py`（跟 `spans_of` 同一處）；mapping 的 re-export 不再需要（直接 `from sources.schema import …`） | 階段 A 後它只剩轉發 |
+| `detector/model.py` | `detector/baseline/model.py` | |
+| `detector/cmd_baseline.py`（466 行） | 拆三個：`detector/baseline/train.py`（`save_baseline`、`train_summary`、`min_events`、`apply_resolution_overrides`、`series_resolutions`、`cmd_train`）、`detector/baseline/detect.py`（`_keep_upgraded`、`save_anomalies`、`_add_silent`、`status_params`、`score_params`、`with_status`、`score_tuned`、`borrow_resolution`、`detect_borrowed`、`detect_series`、`write_detect_status`、`cmd_detect`）、`detector/baseline/tune.py`（`effective_lines`、`cmd_tune`） | 一個檔三件事 |
+| `detector/rules.py`、`cmd_rules.py` | `detector/rules/engine.py`、`detector/rules/command.py` | 引擎與命令同一個資料夾 |
+| `detector/adjust.py`、`tuning.py`、`cmd_adjust.py`、`cmd_shift.py`、`cmd_backtest.py` | `detector/adjust/adjust.py`、`tuning.py`、`command.py`、`shift.py`、`backtest.py` | 回測是核准調整的一環 |
+| `detector/sources.py` | `sources/providers.py` | 行事曆與負責人的 file／http／taiwan 來源是資料層；也消掉跟套件 `sources/` 撞名 |
+| `detector/feedback.py`、`cmd_feedback.py`、`cmd_metrics.py` | `detector/feedback/feedback.py`、`command.py`（含 `cmd_incident`、匯出）、`metrics.py` | |
+| `detector/cmd_prune.py` | `detector/prune.py` | 單一檔就夠 |
+| `detector/owner.py` | 不動 | |
+| `detector/peer.py`、`quality.py`、`chronic.py`、`trace.py`、`trace_merge.py`、`ingest.py` 與它們的 `cmd_*` | **階段 B 不動**（階段 C 搬進 plugin） | 同名問題不在它們身上 |
+| `investigator/alerts.py`、`cmd_alert.py`、`severity.py` | `investigator/alerts/merge.py`、`command.py`、`severity.py` | ⑥ 收斂 |
+| `investigator/analyze.py`、`report.py`、`es.py` | `investigator/rca/analyze.py`、`report.py`、`queries.py` | ⑦ 根因分析；`es.py` 改名說清楚是查詢 |
+| `investigator/similar.py`、`importer.py` | `investigator/similar/similar.py`、`importer.py` | 相似事故與匯入 |
+| `core/llm.py` | 不動 | detector 的回饋、api、investigator 都用；階段 C 再看情境詞 |
+| `core/domain.py`、`core/source.py` | 併進 `core/plugin.py` | 兩個都是 plugin 的門面 |
+| `core/config_models.py`（716 行，55 個類別） | 拆回各功能：`sources/config.py`（`Source`、`Store`、`Provider`）、`detector/baseline/config.py`（`Train`、`Detect`、`Status`、`Adaptive*`、`Group`、`Borrowing`、`Shift`、`Series`、`SeriesConfig`）、`detector/rules/config.py`（`Join`、`Rule`、`RulesConfig`）、`detector/adjust/config.py`（`RecurringSchedule`、`RecurringEffect`、`Adjustment`、`AdjustmentsConfig`、`CalendarEntry`、`CalendarConfig`）、`detector/prune.py` 旁的 `PruneIndex`／`PruneConfig`、`investigator/rca/config.py`（`Indices`、`Trend`、`Commonality`、`Changes`、`SeverityClass`、`SeverityCfg`、`Alerts`、`IncidentsDb`、`RcaConfig`）、`scheduler/config.py`（`Job`、`ScheduleConfig`）；IT 與工廠的（`Peer*`、`Quality*`、`Trace*`／`Merge`／`MetricRule`、`Chronic*`、`Pick`／`Input`／`IngestConfig`、`Mes*`／`Events*`／`PathsConfig`）先放到階段 C 的目標資料夾 `plugins/observability/{peer,quality,trace,chronic}/config.py`、`plugins/factory/{ingest,paths}/config.py`，只放模型 | 設定模型跟它的功能住一起；`Strict` 基底留在 `core/config.py` |
+| `core/config.py` | 只留通用 `load(path, Model)` 與錯誤格式；`load_config(path, kind)` 與 `KINDS` 刪（註冊表會讓 core 認得上層） | 呼叫端（`detector/__main__`、`investigator/__main__`、`api/app.py`、`scheduler/runner.py`、`adjust.load`、`cmd_paths`）直接給模型類別 |
+| `models/`（6 檔） | 刪。`check_*`／`fit_and_score`／`points_of`／`samples_of` 併進對應功能：`detector/baseline/model.py`、`detector/rules/engine.py`、`investigator/similar/similar.py`、`detector/peer.py`、`detector/trace.py`；`tests/test_models.py` 改 import | 門面只有測試在用；同名檔的來源 |
+
 - **範圍**：上面全部；行為、ES 查詞、異常文件欄位、CLI 參數、HTTP 端點不變；不做預設值集中（`cfg.get` 153 處）、不做檢查種類各一個類別（那是「每個資料夾裡面」的事，分層切好之後才有地方放）。
 
 ## Do：改動哪些 code、改了什麼、為何要改
