@@ -99,9 +99,171 @@ POST _security/api_key
 }
 
 
+# ── 4b. （只有 AIOPS_PLUGIN=factory 或 metrics_only 才做）工廠版要多的東西 ──
+# 工廠的 engine 不讀 APM，改讀 ML／FDC 判好的異常、MES 進出站、機台 log；履歷（lot-paths-*）取代 traces-merged-*。
+# 第 3 段的 key 讀不到這些，所以工廠版的 engine key 用下面這把取代第 3 段（只想先接 ML／FDC 不要履歷的 metrics_only：不需要 mes-history-*、eqp-events-*、lot-paths-*）。
+# 索引名是假設（configs/factory/ingest.yaml、paths.yaml），拿到 ML／FDC／MES 的樣本後依實際名字改。
+
+# 履歷（一個 lot 一筆）保留 7 天
+PUT _ilm/policy/lot-paths
+{"policy": {"phases": {"hot": {"actions": {}}, "delete": {"min_age": "7d", "actions": {"delete": {}}}}}}
+
+# 履歷的 index template（跟第 2 段同一份 mapping；engine 的 key 沒有 manage_index_templates，paths-merge 自己放會失敗，要在這裡先放）
+PUT _index_template/lot-paths
+{
+  "index_patterns": [
+    "lot-paths-*"
+  ],
+  "priority": 200,
+  "template": {
+    "settings": {
+      "index.number_of_shards": 1,
+      "index.mapping.nested_objects.limit": 20000,
+      "index.lifecycle.name": "lot-paths"
+    },
+    "mappings": {
+      "dynamic": false,
+      "properties": {
+        "@timestamp": {
+          "type": "date"
+        },
+        "merged_at": {
+          "type": "date"
+        },
+        "trace_id": {
+          "type": "keyword"
+        },
+        "group": {
+          "type": "keyword"
+        },
+        "dept": {
+          "type": "keyword"
+        },
+        "root": {
+          "properties": {
+            "service": {
+              "type": "keyword"
+            },
+            "name": {
+              "type": "keyword"
+            },
+            "kind": {
+              "type": "keyword"
+            },
+            "error": {
+              "type": "boolean"
+            }
+          }
+        },
+        "duration_ms": {
+          "type": "double"
+        },
+        "error": {
+          "type": "boolean"
+        },
+        "services": {
+          "type": "keyword"
+        },
+        "span_count": {
+          "type": "integer"
+        },
+        "entries": {
+          "type": "nested",
+          "properties": {
+            "span_id": {
+              "type": "keyword"
+            },
+            "service": {
+              "type": "keyword"
+            },
+            "name": {
+              "type": "keyword"
+            },
+            "kind": {
+              "type": "keyword"
+            },
+            "start_ms": {
+              "type": "double"
+            },
+            "duration_ms": {
+              "type": "double"
+            },
+            "error": {
+              "type": "boolean"
+            }
+          }
+        },
+        "spans": {
+          "type": "nested",
+          "properties": {
+            "span_id": {
+              "type": "keyword"
+            },
+            "parent": {
+              "type": "keyword"
+            },
+            "service": {
+              "type": "keyword"
+            },
+            "name": {
+              "type": "keyword"
+            },
+            "kind": {
+              "type": "keyword"
+            },
+            "target": {
+              "type": "keyword"
+            },
+            "start_ms": {
+              "type": "double"
+            },
+            "dur_ms": {
+              "type": "double"
+            },
+            "error": {
+              "type": "boolean"
+            },
+            "exception": {
+              "type": "keyword"
+            },
+            "links": {
+              "type": "keyword"
+            },
+            "attrs": {
+              "type": "flattened"
+            },
+            "resource": {
+              "type": "flattened"
+            }
+          }
+        }
+      }
+    }
+  },
+  "_meta": {
+    "description": "一個 lot 一筆（detector path-merge 從 MES 進出站＋S6F11 合成；_id = lot id）。格式跟 traces-merged 一樣：spans 每一站、站裡的機台事件；entries 是站（依機台／recipe 挑 lot 用）。"
+  }
+}
+
+# 工廠版 engine 的 key：讀 ML／FDC／MES／機台 log，寫自己的 aiops-*、lot-paths-*
+POST _security/api_key
+{
+  "name": "aiops-engine-factory",
+  "role_descriptors": {
+    "aiops-engine-factory": {
+      "indices": [
+        {"names": ["factory-ml-anomalies-*", "factory-fdc-alarms-*", "mes-history-*", "eqp-events-*", "eqp-logs-*", "eqp-master"], "privileges": ["read", "view_index_metadata"]},
+        {"names": ["aiops-*", "lot-paths-*"], "privileges": ["read", "write", "create_index", "view_index_metadata"]}
+      ]
+    }
+  }
+}
+
+
 # ── 確認 ──
 GET _index_template/traces-merged
 GET _ilm/policy/traces-merged
+# 工廠版另外：GET _index_template/lot-paths、GET _ilm/policy/lot-paths
 # 用 engine 的 key 打這個（要大於 0）：GET metrics-apm.transaction.1m-*/_count
 
 
