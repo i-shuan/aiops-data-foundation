@@ -6,7 +6,7 @@ import os
 import ssl
 import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, quote, urlparse
 
 import tasks
 from core.es import ES
@@ -75,13 +75,15 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, A.to_json(A.list_alerts(self.es, q.get("status", "open"), int(q.get("size", "50")))), "application/json")
             except ValueError as e:
                 return self._send(400, A.to_json({"error": str(e)}), "application/json")
+        if u.path == "/missed":    # 漏報的網頁版
+            return self._send(200, A.render_missed().encode())
         if u.path in ("/feedback", "/report"):
             alert = A.load_alert(self.es, q.get("alert", ""))
             if not alert:
                 return self._send(404, f"找不到告警 {q.get('alert')}".encode(), "text/plain; charset=utf-8")
             if u.path == "/report":
                 return self._send(200, A.render_report(alert).encode())
-            return self._send(200, A.render_form(A.form_data(alert), full=q.get("full") == "1").encode())
+            return self._send(200, A.render_form(A.form_data(alert), full=q.get("full") == "1", notice=q.get("notice")).encode())
         return self._send(404, b"not found", "text/plain")
 
     def do_POST(self):
@@ -114,6 +116,33 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(503, A.to_json({"error": f"沒有記下來（{type(e).__name__}：{str(e)[:120]}），請再按一次"}), "application/json")
             got["queued"] = tasks.trigger("alert")
             return self._send(200, A.to_json(got), "application/json")
+        if u.path in ("/missed", "/rca"):    # 網頁版的漏報、重跑根因分析（表單送出，form-urlencoded）
+            form = {k: v[0] for k, v in parse_qs(raw.decode("utf-8")).items()}
+            if u.path == "/missed":
+                try:
+                    return self._send(200, A.render_missed(done=A.submit_missed(self.es, form)).encode())
+                except (KeyError, ValueError) as e:
+                    return self._send(400, A.render_missed(error=str(e), form=form).encode())
+                except Exception as e:
+                    sys.stderr.write(f"missed submit failed: {e!r}\n")
+                    return self._send(503, A.render_missed(error=f"沒有存成功（{type(e).__name__}），請再送一次；重送不會重複記錄。", form=form).encode())
+            aid = form.get("alert_id", "")
+            try:
+                A.request_rca(self.es, aid)
+                notice = "已排進佇列，幾秒到一分鐘後重新整理這頁，報告會換新。" if tasks.trigger("alert") else "已記下，下一分鐘的 alert 會重跑，之後重新整理這頁。"
+            except LookupError as e:
+                return self._send(404, str(e).encode(), "text/plain; charset=utf-8")
+            except ValueError as e:
+                notice = str(e)
+            except Exception as e:
+                sys.stderr.write(f"rca request failed: {e!r}\n")
+                notice = f"沒有記下來（{type(e).__name__}），請再按一次"
+            back = f"/feedback?alert={quote(aid)}&notice={quote(notice)}" + ("&full=1" if form.get("full") == "1" else "")
+            self.send_response(303)
+            self.send_header("Location", back)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
         if u.path == "/api/missed":    # 漏報（Grafana 第二個表單面板）：只有 JSON，沒有網頁版
             try:
                 return self._send(200, A.to_json(A.submit_missed(self.es, json.loads(raw or b"{}"))), "application/json")

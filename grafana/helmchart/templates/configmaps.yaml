@@ -44,6 +44,13 @@ data:
   {{ base $path }}: |
 {{ $.Files.Get $path | replace "http://localhost:18080" $.Values.feedbackUrl | indent 4 }}
   {{- end }}
+  {{- /* 外掛表單版（Business Forms）只有 plugin.enabled 才載入；預設的 aiops-feedback.json 是連到 engine api 的 HTML 頁 */}}
+  {{- if .Values.plugin.enabled }}
+  {{- range $path, $_ := .Files.Glob "files/dashboards/forms/*.json" }}
+  {{ base $path }}: |
+{{ $.Files.Get $path | replace "http://localhost:18080" $.Values.feedbackUrl | indent 4 }}
+  {{- end }}
+  {{- end }}
 {{- if .Values.plugin.enabled }}
 ---
 apiVersion: v1

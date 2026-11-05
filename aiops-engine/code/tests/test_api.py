@@ -66,7 +66,7 @@ class FormData(unittest.TestCase):
         html = A.render_form(A.form_data(ALERT), full=True)
         self.assertLess(html.index("根因分析全文"), html.index("# 報告"))
         self.assertLess(html.index("# 報告"), html.index("老師傅）回饋"))
-        self.assertLess(html.index("老師傅）回饋"), html.index('<form method="post"'))
+        self.assertLess(html.index("老師傅）回饋"), html.index('<form method="post" action="/feedback"'))
         self.assertIn('name="full" value="1"', html)
         self.assertNotIn("/report?alert=", html)
         self.assertNotIn("根因分析全文", A.render_form(A.form_data(ALERT)))

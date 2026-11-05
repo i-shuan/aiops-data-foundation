@@ -218,7 +218,19 @@ class GrafanaPluginInit(unittest.TestCase):
         with open(os.path.join(GRAFANA, "code", "INSTALL-form-plugin.md"), encoding="utf-8") as f:
             self.assertIn(SHA, f.read())
         if shutil.which("helm"):   # chart 裝外掛時用 emptyDir：Pod 重建就重裝，版本永遠是 values 寫的
-            out = subprocess.run(["helm", "template", "g", os.path.join(GRAFANA, "helmchart")], capture_output=True, text=True, encoding="utf-8", check=True).stdout
-            dep = next(d for d in yaml.safe_load_all(out) if d and d["kind"] == "Deployment")
+            g = lambda *a: list(yaml.safe_load_all(subprocess.run(["helm", "template", "g", os.path.join(GRAFANA, "helmchart"), *a],
+                                                                    capture_output=True, text=True, encoding="utf-8", check=True).stdout))
+            docs = g("--set", "plugin.enabled=true")
+            dep = next(d for d in docs if d and d["kind"] == "Deployment")
             vols = {v["name"]: v for v in dep["spec"]["template"]["spec"]["volumes"]}
             self.assertIn("emptyDir", vols["grafana-plugins"])
+            dash = next(d for d in docs if d and d["kind"] == "ConfigMap" and d["metadata"]["name"] == "grafana-dashboards")["data"]
+            self.assertIn("aiops-feedback-forms.json", dash)                    # 外掛開：多載入外掛表單版
+            off = g()                                                            # 預設：不裝外掛、沒有 initContainer、只有 HTML 連結版
+            dep = next(d for d in off if d and d["kind"] == "Deployment")
+            self.assertNotIn("initContainers", dep["spec"]["template"]["spec"])
+            dash = next(d for d in off if d and d["kind"] == "ConfigMap" and d["metadata"]["name"] == "grafana-dashboards")["data"]
+            self.assertNotIn("aiops-feedback-forms.json", dash)
+            self.assertIn("/feedback?alert=${alert}", dash["aiops-feedback.json"])
+            self.assertNotIn("http://localhost:18080", g("--set", "feedbackUrl=https://aiops.example")[0] and
+                             next(d for d in g("--set", "feedbackUrl=https://aiops.example") if d and d["kind"] == "ConfigMap" and d["metadata"]["name"] == "grafana-dashboards")["data"]["aiops-feedback.json"])

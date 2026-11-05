@@ -53,8 +53,8 @@
 | 文件 | 類型 | 內容 | 狀態 |
 |---|---|---|---|
 | [feedback/README.md](feedback/README.md) | 原理 | 閉環怎麼走、為什麼用 LLMOps 不自己訓練模型、紀律、LLM 何時叫與 token、現況 | 🟢 |
-| [../grafana/README.md](../grafana/README.md) | 操作 | Grafana：讀 aiops-alerts 發通知、儀表板、回饋表單、用 Helm 裝或 initContainer 裝外掛 | 🟢 |
-| [../grafana/code/INSTALL-form-plugin.md](../grafana/code/INSTALL-form-plugin.md) | 操作 | 給管 Grafana 的人：裝回饋表單外掛 | 🟢 |
+| [../grafana/README.md](../grafana/README.md) | 操作 | Grafana：讀 aiops-alerts 發通知、儀表板、回饋入口（預設連到 engine api 的網頁，外掛選用）、用 Helm 裝 | 🟢 |
+| [../grafana/code/INSTALL-form-plugin.md](../grafana/code/INSTALL-form-plugin.md) | 操作 | 給管 Grafana 的人：裝回饋表單外掛（選用：要在 Grafana 裡直接填才需要） | 🟢 |
 
 ### 部署
 

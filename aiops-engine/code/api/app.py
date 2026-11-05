@@ -187,8 +187,9 @@ def _opt(options, selected=None):
     return "".join(f'<option value="{html.escape(v)}"{" selected" if v == selected else ""}>{html.escape(t)}</option>' for v, t in options)
 
 
-def render_form(d: dict, done: dict | None = None, error: str | None = None, full: bool = False) -> str:
-    """full：根因分析全文直接放在表單上面（Grafana 抽屜裡用：先看全文、最下面填回饋，不用另開一頁）。"""
+def render_form(d: dict, done: dict | None = None, error: str | None = None, full: bool = False, notice: str | None = None) -> str:
+    """full：根因分析全文直接放在表單上面（從 Grafana 的連結點進來：先看全文、最下面填回饋，不用另開一頁）。
+    notice：重跑根因分析之後的提示（POST /rca 轉回來時帶）。開著的件最上面有「重跑根因分析」。"""
     e = html.escape
     sim = "".join(f"<li><b>{e((s.get('start') or '')[:16])}</b> [{e(s.get('root_cause_category') or '—')}] {e(s.get('title') or '')}"
                   f"<br><small>為什麼像：{e('；'.join(s.get('why') or []))}</small></li>"
@@ -200,6 +201,11 @@ def render_form(d: dict, done: dict | None = None, error: str | None = None, ful
         extra = (f"已依你的一句話提了一筆調整建議（待審核，id {e(done['tuning_id'])}）。" if done.get("tuning_id")
                  else f"一句話抽成：{e(x.get('feedback_type', ''))}／{e(x.get('identified_cause', ''))}／{e(x.get('target_service', ''))}／{e(x.get('suggested_action', ''))}。" if x.get("ok")
                  else "一句話沒抽成結構化欄位（只存了原文）。")
+    rerun = (f'''<form method="post" action="/rca" class="rerun"><input type="hidden" name="alert_id" value="{e(d['alert_id'])}">
+{'<input type="hidden" name="full" value="1">' if full else ''}
+<b>重跑根因分析</b> <span class="hint">（trace 晚到、剛改了設定時用；含相似事故、摘要；幾秒到一分鐘後重新整理這頁）</span>
+<input type="text" name="reason" placeholder="原因（選填）"> <button type="submit">重跑</button></form>''' if d.get("status") == "open" else "")
+    notice_html = f'<p class="ok">{e(notice)}</p>' if notice else ""
     msg = (f'<p class="ok">已記錄：{e(VERDICTS.get(done["incident"], done["incident"]))}（{done["feedback"]} 筆回饋，{e(done["by"])}）。謝謝，這會讓下一次更準。{extra}</p>' if done
            else f'<p class="err">{e(error)}</p>' if error else "")
     checked = "".join(f'<label class="chk"><input type="checkbox" name="checked" value="{e(c)}"> {e(c)}</label>' for c in CHECKED)
@@ -212,8 +218,10 @@ pre{{background:#f4f4f4;padding:10px;white-space:pre-wrap}}label{{display:block;
 input[type=text],textarea,select{{width:100%;padding:6px;font-size:15px}}textarea{{height:64px}}.chk{{display:inline-block;font-weight:400;margin:4px 12px 0 0}}
 .v label{{display:inline-block;margin-right:16px;font-weight:600}}button{{margin-top:16px;padding:10px 20px;font-size:16px}}
 .ok{{background:#e6f7e6;padding:10px}}.err{{background:#fde8e8;padding:10px}}small{{color:#555}}.hint{{font-weight:400;color:#555;font-size:13px}}
+.rerun{{background:#f4f6fb;padding:10px;margin:12px 0}}.rerun input[type=text]{{width:40%}}.rerun button{{margin-top:0;padding:6px 14px;font-size:14px}}
 #detail{{display:none}}{'body{max-width:none;margin:16px 24px}h3{border-top:2px solid #ddd;padding-top:12px;margin-top:28px}' if full else ''}</style></head><body>
 <h2>{e(d['title'] or d['alert_id'])}</h2>
+{notice_html}{rerun}
 <pre>{e(d['summary'])}</pre>
 {f'<p><b>AI 摘要</b>（只是參考）：<br>{e(d["llm"]).replace(chr(10), "<br>")}</p>' if d['llm'] else ''}
 <p><b>過去相似的事故</b></p><ul>{sim}</ul>
@@ -241,6 +249,32 @@ input[type=text],textarea,select{{width:100%;padding:6px;font-size:15px}}textare
 <label>你是 <input type="text" name="by" placeholder="名字或工號" required></label>
 <label>備註 <span class="hint">（選填）</span><input type="text" name="note"></label>
 <button type="submit">送出</button>
+</form></body></html>"""
+
+
+def render_missed(done: dict | None = None, error: str | None = None, form: dict | None = None) -> str:
+    """漏報（該報卻沒報）的網頁版：欄位跟 Grafana 外掛的漏報面板一樣（MISSED_FIELDS），送出走 submit_missed。"""
+    e = html.escape
+    f = form or {}
+    val = lambda k: e(str(f.get(k) or ""))
+    msg = (f'<p class="ok">已記錄漏報：{e(done["series"])}／{e(done["service"])}（{e(done["by"])}）。謝謝，累積起來會提調降門檻或新規則的建議。</p>' if done
+           else f'<p class="err">{e(error)}</p>' if error else "")
+    return f"""<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><title>回報漏報</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>body{{font-family:system-ui,sans-serif;max-width:640px;margin:24px auto;padding:0 16px;line-height:1.5}}
+label{{display:block;margin-top:12px;font-weight:600}}input,textarea,select{{width:100%;padding:6px;font-size:15px}}textarea{{height:64px}}
+button{{margin-top:16px;padding:10px 20px;font-size:16px}}.ok{{background:#e6f7e6;padding:10px}}.err{{background:#fde8e8;padding:10px}}.hint{{font-weight:400;color:#555;font-size:13px}}</style></head><body>
+<h2>回報漏報（該報卻沒報）</h2>
+{msg}
+<form method="post" action="/missed">
+<label>哪條序列該報 <select name="series" required>{_opt([("", "—")] + [(s, s) for s in SERIES_NAMES], f.get("series"))}</select></label>
+<label>服務 <input type="text" name="service" value="{val('service')}" placeholder="service.name，例：mes-api" required></label>
+<label>什麼時候該報 <span class="hint">（台北時間，大概就好）</span><input type="datetime-local" name="at" value="{val('at')}" required></label>
+<label>API 路徑 <span class="hint">（選填；http.* 序列可以縮到一支 API，例：/api/lots）</span><input type="text" name="route" value="{val('route')}"></label>
+<label>Pod <span class="hint">（選填）</span><input type="text" name="pod" value="{val('pod')}"></label>
+<label>你是 <input type="text" name="by" value="{val('by')}" placeholder="名字或工號" required></label>
+<label>發生了什麼 <span class="hint">（選填，例：10:05 起 lots 查詢全部逾時，告警沒出來）</span><textarea name="note">{val('note')}</textarea></label>
+<button type="submit">送出漏報</button>
 </form></body></html>"""
 
 

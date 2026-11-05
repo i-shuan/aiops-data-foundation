@@ -63,8 +63,8 @@ kubectl -n aiops logs deploy/aiops-worker-alert -f | grep '\[scheduler\]'  # 工
 | `POST /api/anomalies` `{"input": "ml", "rows": [...]}` | ML／FDC 系統 | 推判好的異常進 ⑤（跟 `detector ingest` 同一套對照，`configs/<plugin>/ingest.yaml` 的 `inputs`）；要 `Authorization: Bearer <AIOPS_API_TOKEN>`（`api.token`）；分散模式會立刻丟一個 `alert` 工作，幾秒內開件，不用等每分鐘的 `ingest` |
 | `POST /api/rca` `{"alert_id": "..."}` | Grafana 回饋儀表板的「重跑根因分析」按鈕 | 在開著的那件上標 `rca_requested`，下一輪 `alert` 強制重跑根因（含相似事故、摘要）；分散模式立刻丟 `alert`。結束的件回 409 |
 | `GET /api/alerts?status=open&size=50` | 別的系統（工單、入口網站） | 件的清單，不含報告全文 |
-| `GET /api/alert`、`POST /api/feedback`、`GET /api/missed-form`、`POST /api/missed` | Grafana 的回饋表單、漏報表單 | 預填、寫回饋（[docs/feedback](../docs/feedback/README.md)） |
-| `GET /feedback?alert=…`、`GET /report?alert=…` | 通知裡的連結 | 備用回饋網頁、報告全文（Grafana 外掛裝不起來時用） |
+| `GET /api/alert`、`POST /api/feedback`、`GET /api/missed-form`、`POST /api/missed` | Grafana 的外掛表單（選用） | 預填、寫回饋（[docs/feedback](../docs/feedback/README.md)） |
+| `GET /feedback?alert=…`（`POST /feedback`、`POST /rca`）、`GET /report?alert=…`、`GET /missed`（`POST /missed`） | Grafana 儀表板 `aiops-feedback` 的連結、通知裡的連結 | **預設的回饋入口**：回饋表單（開著的件最上面有「重跑根因分析」）、報告全文、回報漏報 |
 
 `/api/*` 給瀏覽器打的要開 CORS：`api.corsOrigin=<Grafana 網址>`。
 
