@@ -13,7 +13,7 @@ from api import app as A
 from tests.test_api import ALERT, FakeES
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-DASH = os.path.join(HERE, "..", "..", "..", "grafana", "helmchart", "files", "dashboards", "aiops-feedback.json")
+DASH = os.path.join(HERE, "..", "..", "..", "grafana", "helmchart", "files", "dashboards", "forms", "aiops-feedback-forms.json")   # 外掛表單版（plugin.enabled 才載入）
 SUBMIT_FIELDS = {"alert_id", "verdict", "by", "root_cause_category", "root_cause", "action", "how_detected", "checked", "improve",
                  "fp_reason", "fp_reason_text", "note", "feedback_text", "rca_cause_useful", "rca_action_useful"}
 DISPLAY_FIELDS = {"title", "summary", "llm", "similar"}

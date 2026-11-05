@@ -56,6 +56,8 @@ def entry_stats(es: ES, index: str, service: str, route: str | None, start: date
                                           "aggs": {"p": {"percentiles": {"field": "entries.duration_ms", "percents": [50, 95]}},
                                                    "e": {"filter": {"term": {"entries.error": True}}}}}}}}}
     r = es.search(index, body)
+    if "aggregations" not in r:     # 索引還不存在（工廠剛上線、還沒合成過履歷；allow_no_indices 回空的、沒有 aggregations）：當作沒有請求
+        return {"requests": 0, "errors": 0, "p50_ms": 0, "p95_ms": 0}
     m = r["aggregations"]["n"]["m"]
     p = m["p"]["values"]
     return {"requests": m["doc_count"], "errors": m["e"]["doc_count"],

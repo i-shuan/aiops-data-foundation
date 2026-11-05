@@ -55,9 +55,9 @@ APM 寫的三種資料 engine 只讀，保留天數不在這個 repo 管；`trac
 回饋資料**不存在 Grafana，也不是 Grafana 寫的**：值班人員在瀏覽器填表，瀏覽器直接把資料送給回饋網頁，由它寫進 ES。Grafana 只畫表單、把填的內容送出去。
 
 ```
-值班人員 ──瀏覽器──> Grafana 的表單（Business Forms 外掛）
-                        │ 1. 開表單：GET  回饋網頁 /api/alert?alert=…    （預填告警資訊）
-                        │ 2. 按送出：POST 回饋網頁 /api/feedback
+值班人員 ──瀏覽器──> engine api 的回饋網頁（Grafana 儀表板、通知的連結點進來；外掛版是 Grafana 裡的表單）
+                        │ 1. 開表單：GET  /feedback?alert=…   （外掛版：GET /api/alert）
+                        │ 2. 按送出：POST /feedback           （外掛版：POST /api/feedback）
                         ▼
                    engine 的 api（mode single 是同一隻 pod 的另一個 container；distributed 是 aiops-api）
                         │ 讀  aiops-alerts、aiops-anomalies
@@ -72,11 +72,11 @@ APM 寫的三種資料 engine 只讀，保留天數不在這個 repo 管；`trac
 | `aiops-incidents` | 這件一筆（用 `alert_id` 當 id，更新或補建） | 狀態 `confirmed`（真的）、`corrected`（根因報錯）、`false_positive`；真的時附根因分類、根因、處置、怎麼看出來的、查了哪裡、下次怎麼更快 |
 | `aiops-tuning` | 有填一句話、且 LLM 抽得到調整種類時才寫一筆 | `status: proposed`，要人核准才生效（[architecture.md 3.5](architecture.md#35-人在迴圈中系統只建議人決定-human-in-the-loop)） |
 
-- **漏報面板**走另一條：`POST /api/missed`，只寫 `aiops-feedback` 一筆（`verdict: missed`），沒有告警、不寫事故。
+- **漏報**走另一條：網頁 `POST /missed`（外掛版 `POST /api/missed`），只寫 `aiops-feedback` 一筆（`verdict: missed`），沒有告警、不寫事故。
 - **寫進去之後誰用**：`aiops-incidents` 的 `confirmed`、`corrected` 給相似事故檢索（自動開的 `auto` 事故不會拿來教人）；`aiops-feedback` 給 `feedback summary`、`feedback suggest`、`metrics`；`aiops-tuning` 的建議給 `adjust list`、回測、核准。
 - **寫入用的是回饋網頁自己的 ES key，不是使用者的**：所以沒有登入也寫得進去；`by` 是自己填的名字，空的記成 `anonymous`，同一個人可以填多次，系統不知道是誰。
 - **抽取失敗不影響回饋本身**：LLM 掛了或格式不對，只存原文（`extract.ok: false`）；建議寫不進去也一樣，回應多一個 `tuning_error`。
-- 程式在 [api/app.py](../aiops-engine/code/api/app.py) 的 `submit`、`submit_missed`；欄位對照見 [grafana/README.md](../grafana/README.md#回饋表單放在-grafana-裡定案用這個)。
+- 程式在 [api/app.py](../aiops-engine/code/api/app.py) 的 `submit`、`submit_missed`；欄位對照見 [grafana/README.md](../grafana/README.md#回饋表單預設用-engine-api-的網頁要在-grafana-裡直接填才裝外掛)。
 
 ## Grafana 自己存什麼
 
@@ -84,7 +84,7 @@ APM 寫的三種資料 engine 只讀，保留天數不在這個 repo 管；`trac
 |---|---|---|
 | 資料來源、告警規則、通知對象、通知路由、儀表板（`aiops-rca`、`aiops-feedback`、`aiops-learning`） | repo 的 [grafana/helmchart/files/](../grafana/helmchart/files/)，部署時 provisioning 載入 | **回來**（在檔案裡） |
 | 告警目前的狀態與歷史、使用者、在畫面上手動改的東西 | Grafana 內部 sqlite，**在容器裡，chart 沒掛 PVC** | **清掉** |
-| 回饋表單外掛（Business Forms） | `emptyDir` | 由 initContainer 重新下載安裝 |
+| 回饋表單外掛（Business Forms，選用；預設不裝） | `emptyDir` | 由 initContainer 重新下載安裝 |
 
 所以改儀表板、告警規則要改 repo 的檔案，不要在畫面上改。repo 的 chart 是測試用；正式環境 Grafana 是否外接資料庫、告警歷史留多久，**這份沒有資料**（要問管 Grafana 的人）。
 

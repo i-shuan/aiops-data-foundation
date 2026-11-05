@@ -89,7 +89,7 @@ engine 只把告警寫進 `aiops-alerts`，**不自己發通知**。先只寫入
 | Grafana 的唯讀 key | 讀 `aiops-alerts`、`aiops-anomalies`、`aiops-tuning`、`aiops-feedback`，加 cluster `monitor`（Grafana 會先打 `GET /` 看版本） | 下面的 Dev Tools 指令 |
 | 各部門的通知管道 | `NOTIFY_IT_URL`、`NOTIFY_IMC_URL`、`NOTIFY_PLATFORM_URL`（範例是 webhook；Teams、Email 改 `contact-points.yaml`） | 各部門、平台團隊 |
 | dept 清單 | `policies.yaml` 的 dept 要跟 APM agent 的 `labels.dept` 值一樣 | 第 0 節的標籤 |
-| 回饋表單外掛 | Business Forms（`volkovlabs-form-panel`）**6.3.1**；Grafana 12.2、13.0.7 實測過 | Nexus，或 repo 的 `grafana/plugins/`（git lfs） |
+| 回饋表單外掛（選用） | 預設不用：回饋走 engine api 的網頁。要在 Grafana 裡直接填才裝 Business Forms（`volkovlabs-form-panel`）**6.3.1**；Grafana 12.2、13.0.7 實測過 | Nexus |
 | 回饋網頁的網址 | 使用者**瀏覽器**連得到的 engine 回饋網頁（Service `aiops-api:8080` 前面加 Ingress） | 我們 |
 
 ```
@@ -102,8 +102,7 @@ POST _security/api_key
 
 | 情況 | 怎麼做 |
 |---|---|
-| 公司已有 Grafana | `grafana/helmchart/files/` 的檔交給管 Grafana 的人放進 provisioning 資料夾；Grafana 要有環境變數 `ES_URL`、`GRAFANA_ES_API_KEY`、`NOTIFY_*_URL`；外掛沒裝就照 [INSTALL-form-plugin.md](../grafana/code/INSTALL-form-plugin.md) |
-| 公司用官方 chart 管 Grafana | `grafana-community/grafana` 加 `-f grafana/values-official.yaml` |
+| 公司已有 Grafana | `grafana/helmchart/files/` 的檔（`dashboards/forms/` 除外，那是外掛版）交給管 Grafana 的人放進 provisioning 資料夾；Grafana 要有環境變數 `ES_URL`、`GRAFANA_ES_API_KEY`、`NOTIFY_*_URL` |
 | 沒有 Grafana | 用 `grafana/helmchart/` 裝一台（檔都在 chart 裡，只要 Secret `grafana-env` + `helm upgrade`，指令在 [grafana/README.md「部署」](../grafana/README.md#部署)） |
 
 **3-3. 跟 engine 接起來的三個網址**

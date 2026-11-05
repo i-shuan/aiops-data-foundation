@@ -75,14 +75,13 @@
 
 ![Grafana 回饋表單](grafana-form.png)
 
-圖是 Grafana 儀表板 `aiops-feedback` 的回饋表單：告警 id、這件、摘要、AI 摘要、過去相似的事故由系統預填；老師傅選「真的／誤報／真的，但根因報錯了」，填根因分類、根因、處置、怎麼看出來的、查了哪些地方、下次怎麼更快、署名與備註，按送出。
+圖是外掛版（儀表板 `aiops-feedback-forms`）的回饋表單，網頁版欄位一樣：告警 id、這件、摘要、AI 摘要、過去相似的事故由系統預填；老師傅選「真的／誤報／真的，但根因報錯了」，填根因分類、根因、處置、怎麼看出來的、查了哪些地方、下次怎麼更快、署名與備註，按送出。
 
 | 介面 | 在哪 | 寫哪個索引 |
 |---|---|---|
-| Grafana 回饋表單（定案用這個） | 儀表板 `aiops-feedback`，Business Forms 外掛 `volkovlabs-form-panel` 6.3.1；預填呼叫 `GET /api/alert?alert=<alert_id>`，送出呼叫 `POST /api/feedback`；回饋服務要設 `API_CORS_ORIGIN` 為 Grafana 的網址 | `aiops-feedback`、`aiops-incidents` |
-| Grafana 漏報表單 | 同一個儀表板的第二個面板「回報漏報（該報卻沒報）」：選序列（[`series.yaml`](../../aiops-engine/code/configs/baseline/series.yaml) 的名字）、填服務、時間、署名；預填 `GET /api/missed-form`，送出 `POST /api/missed`；寫的文件、`_id` 跟指令 `feedback add --verdict missed` 一樣 | `aiops-feedback` |
-| Grafana「重跑根因分析」按鈕 | 同一個儀表板的第三個面板：按下去 `POST /api/rca {alert_id}`，開著的那件下一輪 `alert` 強制重跑根因分析（含相似事故、摘要）；結束的件不重跑 | `aiops-alerts`（報告換新） |
-| 回饋網頁（備案） | `aiops-engine/code/api`，`GET /feedback?alert=<alert_id>` 是通知裡的連結，`GET /report` 看報告全文；沒有登入；沒有漏報的網頁版 | 同上 |
+| 回饋網頁（預設） | engine api 的 `GET /feedback?alert=<alert_id>&full=1`：先看根因全文、再填；Grafana 儀表板 `aiops-feedback`、通知的 `feedback` 連結都指到這裡；開著的件最上面有「重跑根因分析」（`POST /rca`） | `aiops-feedback`、`aiops-incidents`（重跑：`aiops-alerts` 的報告換新） |
+| 漏報網頁（預設） | `GET /missed`、`POST /missed`：選序列、填服務、時間、署名；寫的文件、`_id` 跟指令 `feedback add --verdict missed` 一樣 | `aiops-feedback` |
+| Grafana 外掛表單（選用） | 儀表板 `aiops-feedback-forms`（chart `plugin.enabled: true` 才載入），Business Forms 外掛 6.3.1；預填 `GET /api/alert`、送出 `POST /api/feedback`；漏報面板 `POST /api/missed`；重跑面板 `POST /api/rca`；要設 `API_CORS_ORIGIN` | 同上 |
 | 指令 | `python3 -m detector` 的 `feedback`（`add`、`pending`、`list`、`summary`、`suggest`）、`incident`（`add`、`list`、`resolve`）、`backtest`、`adjust`（`approve`）、`metrics`；漏報用 `feedback add --verdict missed --series … --match service=… --at …` | `aiops-feedback`、`aiops-incidents`、`aiops-tuning` |
 
 ### 跟 aiops-* 索引的欄位的關係

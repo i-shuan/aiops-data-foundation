@@ -11,7 +11,8 @@ AIOps 把異常合成「一件事」寫進 `aiops-alerts`（`python3 -m investig
 | `alert-rules.yaml` | (1) 每一件 `status: open` 的事件一則告警；labels 帶 `alert_id`、`service`、`dept`、`group`、`severity`，annotation 帶摘要與報告連結；(2) `aiops-heartbeat`：10 分鐘沒有心跳 → 「AIOps 停了」送平台；(3) `aiops-baseline-missing`：`detect` 寫的 `detect-status` 的 `missing_baseline > 0` 持續 5 分鐘 → 「基準線不見」送平台 | 一般不用改 |
 | `contact-points.yaml` | 各部門的通知管道（範例用 webhook） | 換成你們的 Teams、Email、LINE… |
 | `policies.yaml` | 依 `dept` 送到哪個 contact point；沒有 dept（資料品質、節點）送平台 | dept 清單（跟 APM agent 的 `labels.dept` 值一致） |
-| `dashboards/aiops-feedback.json` | 回饋表單（Grafana 裡填）：通知的 `feedback` 連結點進來 | 兩個回饋服務網址、要先裝外掛（下面） |
+| `dashboards/aiops-feedback.json` | 回饋入口（預設，不用外掛）：一個文字面板，連到 engine api 的網頁——回饋表單（同一頁有「重跑根因分析」）、報告全文、回報漏報；通知的 `feedback` 連結點進來 | api 的網址（`feedbackUrl`） |
+| `dashboards/forms/aiops-feedback-forms.json` | 外掛表單版（在 Grafana 裡直接填）：只有 chart 的 `plugin.enabled: true` 才載入 | 要先裝 Business Forms 外掛（下面「回饋表單」） |
 
 > Grafana 讀哪些 ES 索引、自己存什麼（設定在 repo 檔案、內部 sqlite 在容器裡，Pod 重建會清掉告警歷史）：[docs/data-storage-reference.md](../docs/data-storage-reference.md)。
 
@@ -24,8 +25,8 @@ AIOps 把異常合成「一件事」寫進 `aiops-alerts`（`python3 -m investig
 | 事故通知 | 異常合成一件，寫 `aiops-alerts`（`investigator alert`） | 規則 `aiops-incident` 每件一則；依 `dept` 分送、靜音、結束發恢復 | contact point、哪個 dept 送哪裡、夜間規則 |
 | AIOps 停了 | `investigator alert` 每輪寫心跳（`_id: heartbeat`） | 規則 `aiops-heartbeat`：10 分鐘沒心跳送平台 | 平台的 contact point |
 | 基準線不見 | `detector detect` 每輪寫 `detect-status`（`missing_baseline`） | 規則 `aiops-baseline-missing`：> 0 持續 5 分鐘送平台 | 同上；處置是手動 `train`（[aiops-engine/README.md](../aiops-engine/README.md)） |
-| 事故回饋 | `api` 驗資料、寫 `aiops-feedback`、`aiops-incidents`（`/api/alert`、`/api/feedback`） | 儀表板 `aiops-feedback` 第一個面板：預填與送出的表單 | 裝 Business Forms 外掛（[INSTALL-form-plugin.md](code/INSTALL-form-plugin.md)）、設回饋服務網址 |
-| 漏報回報 | `api` 驗序列名與時間、寫 `aiops-feedback`（`/api/missed-form`、`/api/missed`） | 同一個儀表板第二個面板 | 同上 |
+| 事故回饋 | `api` 的網頁 `/feedback?alert=…` 驗資料、寫 `aiops-feedback`、`aiops-incidents`；同一頁可以「重跑根因分析」（`POST /rca`） | 儀表板 `aiops-feedback` 放連結 | 給 api 一個使用者瀏覽器連得到的網址（Ingress） |
+| 漏報回報 | `api` 的網頁 `/missed` 驗序列名與時間、寫 `aiops-feedback` | 同一個儀表板的連結 | 同上 |
 | 唯讀儀表板 | 寫 `aiops-alerts`、`aiops-anomalies`、`aiops-tuning`、`aiops-feedback` | `aiops-rca`、`aiops-learning`：只讀這幾個索引畫圖 | 給 Grafana 唯讀 key |
 
 兩邊只用下面三個接口接起來，改任何一個，另一邊要一起改：
@@ -66,14 +67,13 @@ providers:
 
 - 檔裡的 `${ES_URL}`、`${GRAFANA_ES_API_KEY}`、`${NOTIFY_*_URL}` 由 Grafana 從**環境變數**展開，所以公司的 Grafana 要有這幾個環境變數（K8s 用 Secret 的 `envFrom`）。
 - 檔放好之後重啟 Grafana（或呼叫 provisioning reload 的 API）才會生效。不想動檔案系統，也可以用 Grafana 的 HTTP API 或畫面匯入儀表板、告警，內容一樣。
-- 回饋表單外掛：先看公司的 Grafana 有沒有裝（Administration → Plugins 搜 `Business Forms`），裝了、版本是 6.3.1 就什麼都不用做；沒裝照 [INSTALL-form-plugin.md](code/INSTALL-form-plugin.md)。
+- 回饋表單預設是 engine api 的網頁，不用裝外掛。要在 Grafana 裡直接填才需要 Business Forms 外掛（[INSTALL-form-plugin.md](code/INSTALL-form-plugin.md)），並把 `dashboards/forms/aiops-feedback-forms.json` 也放進去。
 
 | 送進 Grafana 的方式 | 怎麼進去 | 改設定時 | 適合 |
 |---|---|---|---|
 | 公司現有 Grafana，放 provisioning 檔 | 管 Grafana 的人把檔放進上面的資料夾（掛 ConfigMap 或放磁碟） | 改檔、重啟或 reload | 公司已經有 Grafana |
-| 自建 image | 把檔 `COPY` 進 image 的 `/etc/grafana/provisioning/`（外掛放 `/var/lib/grafana/plugins/`） | 改檔要重新 build、推 image、重佈 | 要整包固定版本、不能掛外部檔 |
-| 我們的 helm chart（下面） | 檔都在 chart 的 `files/` 裡，chart 做成 ConfigMap 掛進 Pod 並產生 provider；外掛用 initContainer | 改檔重跑同一個 helm 指令，Pod 自動重啟 | 公司沒有 Grafana、要自己裝一台 |
-| Grafana 的 helm chart（社群維護的 `grafana-community/grafana`；原 `grafana/grafana` 已棄用） | 同樣內容寫進它的 `values`：已經合好一份 [`values-official.yaml`](values-official.yaml)（`helmchart/files/` 的檔由 `code/build-official-values.py` 產生，不手改；改 `helmchart/files/` 後重跑，`--check` 檢查有沒有忘記） | 改 `helmchart/files/`、重跑腳本、重跑 helm | 公司已經用官方 chart 管 Grafana |
+| 自建 image | 把檔 `COPY` 進 image 的 `/etc/grafana/provisioning/` | 改檔要重新 build、推 image、重佈 | 要整包固定版本、不能掛外部檔 |
+| 我們的 helm chart（下面） | 檔都在 chart 的 `files/` 裡，chart 做成 ConfigMap 掛進 Pod 並產生 provider；外掛（選用）用 initContainer | 改檔重跑同一個 helm 指令，Pod 自動重啟 | 公司沒有 Grafana、要自己裝一台 |
 
 ### 沒有現成 Grafana：用 `helmchart/` 裝一台
 
@@ -86,18 +86,11 @@ kubectl -n grafana create secret generic grafana-env \
   --from-literal=NOTIFY_IT_URL=<IT 的 webhook> --from-literal=NOTIFY_IMC_URL=<IMC 的 webhook> --from-literal=NOTIFY_PLATFORM_URL=<平台的 webhook> \
   --from-literal=GF_SECURITY_ADMIN_PASSWORD=<admin 密碼>
 helm upgrade --install grafana grafana/helmchart -n grafana \
-  --set image=<nexus>/grafana/grafana:13.0.7 --set plugin.url=https://<nexus>/repository/raw/grafana-plugins/volkovlabs-form-panel-6.3.1.zip \
+  --set image=<nexus>/grafana/grafana:13.0.7 \
   --set feedbackUrl=https://<回饋網頁的網址，使用者瀏覽器連得到的>
 ```
 
-**連不到 Nexus**：外掛 zip 用 repo 裡的 `plugins/volkovlabs-form-panel-6.3.1.zip`（git lfs；clone 後先 `git lfs install && git lfs pull`）。ConfigMap、Secret、Helm release 都有 1MB 上限，zip 放不進 chart，先用腳本切成 ConfigMap，它印出要加的參數，把上面指令的 `--set plugin.url=…` 換成這串：
-
-```bash
-args="$(grafana/helmchart/load-plugin.sh -n grafana)"     # 預設讀腳本旁邊的 ../plugins/volkovlabs-form-panel-6.3.1.zip
-helm upgrade --install grafana grafana/helmchart -n grafana --set image=… --set feedbackUrl=… ${args}
-```
-
-zip 換版：新的 zip 放 `plugins/`、改 `values.yaml` 的 `plugin.sha256`，重跑這兩行。initContainer 接回各段後照樣核對 SHA-256，不符 Grafana 不啟動。
+預設不裝外掛（`plugin.enabled: false`），回饋走 engine api 的網頁。要在 Grafana 裡直接填：加 `--set plugin.enabled=true --set plugin.url=https://<nexus>/…/volkovlabs-form-panel-6.3.1.zip`，Pod 啟動時 initContainer 跑 `files/install-plugin.sh`（下載、核對 `plugin.sha256`、解開；不符 Grafana 不啟動），並多載入外掛表單版的儀表板。zip 要先放到 Pod 連得到的地方（Nexus 的 raw repository，[INSTALL-form-plugin.md](code/INSTALL-form-plugin.md)）。
 
 檔裡的 `${ES_URL}`、`${GRAFANA_ES_API_KEY}`、`${NOTIFY_*_URL}` 由 Grafana 從 Secret 的環境變數展開。provisioning 改了再跑同一個指令，Pod 會自己重啟（`checksum/provisioning`）。
 
@@ -138,7 +131,11 @@ zip 換版：新的 zip 放 `plugins/`、改 `values.yaml` 的 `plugin.sha256`�
 
 一件事已經是 AIOps 合併過的結果（同一個服務的多筆異常）。Grafana 這邊**不要再依 dept 或 service 合併**，不然同一個 dept 的兩件不相關的事會被併成一則通知。
 
-## 回饋表單放在 Grafana 裡（定案：用這個）
+## 回饋表單：預設用 engine api 的網頁；要在 Grafana 裡直接填才裝外掛
+
+**預設（不裝外掛）**：儀表板 `aiops-feedback` 只有一個文字面板，三個連結都指到 engine 的 api（`feedbackUrl`）——`/feedback?alert=${alert}&full=1`（先看根因全文、再填回饋；開著的件最上面有「重跑根因分析」）、`/report?alert=…`、`/missed`（回報漏報）。寫進 ES 的東西跟外掛版一樣。不用 CORS（瀏覽器是直接開 api 的網頁，不是從 Grafana 打 API）。
+
+### 外掛版（選用）
 
 > 送出後資料怎麼流（瀏覽器 → 回饋網頁 → ES 三個索引）：[docs/data-storage-reference.md](../docs/data-storage-reference.md#回饋表單的資料流)。
 

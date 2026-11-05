@@ -173,3 +173,88 @@ class AlertHonoursRcaRequest(unittest.TestCase):
         self.assertEqual(C.wants_rerun(al, self.NOW, {}), (False, False))
         self.assertNotIn("rca_requested", al)                                   # 標記還是拿掉，不留在文件裡
         self.assertEqual(C.wants_rerun({**self.BASE, "rca_requested": True}, self.NOW, {"rca": False}), (False, False))
+
+
+class HtmlPages(unittest.TestCase):
+    """不裝 Grafana 外掛時的網頁版：回饋頁上的「重跑根因分析」、漏報頁（docs/pdca/meta/2026-11-html-forms.md）。"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = ThreadingHTTPServer(("127.0.0.1", 0), W.Handler)
+        cls.port = cls.srv.server_address[1]
+        threading.Thread(target=cls.srv.serve_forever, daemon=True).start()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.srv.shutdown()
+
+    def setUp(self):
+        W.Handler.es = self.es = ES()
+
+    def post_form(self, path, data):
+        import urllib.parse
+
+        class NoRedirect(urllib.request.HTTPRedirectHandler):
+            def redirect_request(self, *a, **k):
+                return None
+        req = urllib.request.Request(f"http://127.0.0.1:{self.port}{path}", data=urllib.parse.urlencode(data).encode(),
+                                     headers={"Content-Type": "application/x-www-form-urlencoded"})
+        try:
+            with urllib.request.build_opener(NoRedirect).open(req, timeout=10) as r:
+                return r.status, dict(r.headers), r.read().decode()
+        except urllib.error.HTTPError as e:
+            return e.code, dict(e.headers), e.read().decode()
+
+    def get(self, path):
+        with urllib.request.urlopen(f"http://127.0.0.1:{self.port}{path}", timeout=10) as r:
+            return r.status, r.read().decode()
+
+    def test_feedback_page_has_rerun_only_when_open(self):
+        _, page = self.get(f"/feedback?alert={ALERT['alert_id']}")
+        self.assertIn('action="/rca"', page)
+        _, page = self.get("/feedback?alert=a-done")
+        self.assertNotIn('action="/rca"', page)
+
+    def test_rerun_marks_and_redirects_back_with_notice(self):
+        with mock.patch.dict(os.environ, {tasks.BROKER_ENV: ""}):
+            code, h, _ = self.post_form("/rca", {"alert_id": ALERT["alert_id"], "full": "1", "reason": "trace 晚到"})
+        self.assertEqual(code, 303)
+        self.assertTrue(h["Location"].startswith(f"/feedback?alert={ALERT['alert_id']}&notice="))
+        self.assertTrue(h["Location"].endswith("&full=1"))
+        self.assertTrue(self.es.updates[-1][2]["doc"]["rca_requested"])
+        _, page = self.get(h["Location"])
+        self.assertIn("下一分鐘的 alert 會重跑", page)                 # 沒有佇列：下一分鐘排程接手
+
+    def test_rerun_resolved_explains(self):
+        code, h, _ = self.post_form("/rca", {"alert_id": "a-done"})
+        self.assertEqual(code, 303)
+        _, page = self.get(h["Location"])
+        self.assertIn("已經結束", page)
+        self.assertEqual(self.es.updates, [])
+
+    def test_missed_page_and_submit(self):
+        code, page = self.get("/missed")
+        self.assertEqual(code, 200)
+        self.assertIn('name="series"', page)
+        self.assertIn("http.latency_p95_s", page)
+        code, _, page = self.post_form("/missed", {"series": "http.error_rate", "service": "mes-api", "at": "2026-11-05T10:05", "by": "amy"})
+        self.assertEqual(code, 200, page)
+        self.assertIn("已記錄漏報", page)
+        (doc,) = self.es.written[A.FEEDBACK_INDEX].values()
+        self.assertEqual((doc["verdict"], doc["series"], doc["keys"]["service"], doc["by"]), ("missed", "http.error_rate", "mes-api", "amy"))
+
+    def test_missed_bad_input_keeps_what_was_typed(self):
+        code, _, page = self.post_form("/missed", {"series": "nope", "service": "mes-api", "at": "2026-11-05T10:05", "by": "amy"})
+        self.assertEqual(code, 400)
+        self.assertIn('value="mes-api"', page)
+
+
+class EntryStatsWithoutIndex(unittest.TestCase):
+    """工廠版剛上線、lot-paths-* 還不存在：ES 回空結果、沒有 aggregations。不能讓整份根因報告變「失敗：'aggregations'」（K8s 實裝時發現）。"""
+
+    def test_missing_index_counts_as_no_requests(self):
+        from investigator import es as E
+        fake = mock.Mock()
+        fake.search.return_value = {"took": 0, "hits": {"total": {"value": 0}, "hits": []}}
+        got = E.entry_stats(fake, "lot-paths-*", "K8S-01", None, datetime(2026, 11, 5, 1, tzinfo=timezone.utc), datetime(2026, 11, 5, 2, tzinfo=timezone.utc))
+        self.assertEqual(got, {"requests": 0, "errors": 0, "p50_ms": 0, "p95_ms": 0})

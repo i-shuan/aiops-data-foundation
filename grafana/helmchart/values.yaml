@@ -18,11 +18,11 @@ env:
 anonymousViewer: false                                     # true：不登入也能看（demo 用）
 homeDashboard: ""                                          # 例如 /etc/grafana/provisioning/dashboards/aiops/aiops-rca.json
 
-plugin:                                                    # Business Forms（回饋表單）：initContainer 拿到 zip、核對 SHA-256、解到 emptyDir
-  enabled: true                                            # Pod 每次重建都重裝，版本永遠是這裡寫的
+# 回饋表單預設用 engine api 的 HTML 頁（儀表板 aiops-feedback 放連結），不用外掛。要在 Grafana 裡直接填（Business Forms 外掛）：
+# enabled: true、url 指到 Nexus 上的 zip；會多載入儀表板「AIOps 回饋（外掛表單）」（files/dashboards/forms/）
+plugin:                                                    # initContainer（files/install-plugin.sh，Pod 啟動時跑）從 url 下載 zip、核對 SHA-256、解到 emptyDir
+  enabled: false                                           # Pod 每次重建都重裝，版本永遠是這裡寫的
   id: volkovlabs-form-panel
-  source: url                                              # url：從 Nexus 下載；configmap：用 repo 裡的 zip（grafana/plugins/，git lfs），
-  parts: 0                                                 #   先跑 load-plugin.sh 切成 ConfigMap，它會印出 --set plugin.source=configmap --set plugin.parts=<段數>
   url: https://nexus.example.internal/repository/raw/grafana-plugins/volkovlabs-form-panel-6.3.1.zip
   sha256: 1eece14d67b2ffac4bbba18f5c69cde3f0f7aecef2276b0f1b33bc3cfb9998d0
   resources:
