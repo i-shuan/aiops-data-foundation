@@ -330,7 +330,7 @@ series:
 | `backtest --id <建議> --weeks 4` | 改門檻前先回測：用「現行」和「現行＋這筆建議」各重跑過去 N 週的 detect（不寫 ES），比告警少幾個、已確認的事故（`aiops-incidents` confirmed／corrected／resolved）還抓不抓得到、漏報抓到沒；少抓一件已確認的事故就「不建議」。`rule_suggestion` 另算：過去 N 週每 5 分鐘（規則的 `lookback`）一點算規則的值，提這條規則的事故都要抓到、事故以外平均每週多報不超過 1 次（估的）才「建議」。結果寫回建議的 `backtest` 欄位，`adjust list` 看得到 |
 | `adjust approve --id … --by …` | override、`recurring_override`、`rule_suggestion` **沒回測、或回測不建議的不能核准**（要跳過用 `--force`）；記 `approved_by`、`approved_at` |
 | `metrics --from … --to … [--compare-from … --compare-to …]` | 量化：件數（每天、依 dept）、有回饋的比例、誤報率、根因錯的比例、漏報、從告警到第一筆回饋的中位時間、老師傅確認的事故數、「怎麼看出來的」有填的比例；兩段並排就是「學之前 vs 學之後」。只印 Markdown（`--out` 存檔），畫圖交給 Grafana |
-| `python3 -m feedback_web` | 老師傅的回饋網頁（通知裡的連結）：一鍵真的／誤報／根因錯，多填根因分類、根因、處置、**怎麼看出來的**、查了哪裡、下次怎麼更快、兩題評分、**一句話**（LLM 抽成四欄，同 `feedback add --text`）；寫 `aiops-feedback`（一件的每筆異常各一筆）和 `aiops-incidents`（`confirmed`／`corrected`／`false_positive`）。Grafana 裡的表單欄位對照見 [configs/grafana/README.md](../../../../grafana/README.md#回饋表單放在-grafana-裡定案用這個) |
+| `python3 -m api` | 老師傅的回饋網頁（通知裡的連結）：一鍵真的／誤報／根因錯，多填根因分類、根因、處置、**怎麼看出來的**、查了哪裡、下次怎麼更快、兩題評分、**一句話**（LLM 抽成四欄，同 `feedback add --text`）；寫 `aiops-feedback`（一件的每筆異常各一筆）和 `aiops-incidents`（`confirmed`／`corrected`／`false_positive`）。Grafana 裡的表單欄位對照見 [configs/grafana/README.md](../../../../grafana/README.md#回饋表單放在-grafana-裡定案用這個) |
 
 一句話抽出來的 `suggested_action` 對到的調整（都 `status: proposed`、`source: feedback`、`reason` 帶原文；`adjust approve` 才生效）：
 

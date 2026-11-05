@@ -79,7 +79,7 @@ unzip volkovlabs-form-panel-6.3.1.zip -d /var/lib/grafana/plugins/
 
 ## 要回給 AIOps 那邊的
 
-- Grafana 的網址（例如 `https://grafana.example.internal`）：AIOps 的回饋服務要允許這個網址（`FEEDBACK_CORS_ORIGIN`），通知裡的連結也用它。
+- Grafana 的網址（例如 `https://grafana.example.internal`）：AIOps 的回饋服務要允許這個網址（`API_CORS_ORIGIN`），通知裡的連結也用它。
 
 ## 以後升級 Grafana
 

@@ -29,8 +29,8 @@ plugin:                                                    # Business Forms（�
     requests: {cpu: 10m, memory: 32Mi, ephemeral-storage: 64Mi}
     limits: {memory: 128Mi, ephemeral-storage: 256Mi}    # 外掛 zip 約 1.4MB，解開約 4.6MB
 
-# 回饋網頁（engine 的 aiops-feedback）的網址，要是使用者的**瀏覽器**連得到的（Service 前面加 Ingress）。
-# 儀表板 aiops-feedback 的回饋表單從瀏覽器直接打它，渲染時把檔裡的 http://localhost:18080 換成這個值。
+# engine 的 api（Service aiops-api）的網址，要是使用者的**瀏覽器**連得到的（Service 前面加 Ingress）。
+# 儀表板 aiops-feedback 的回饋表單、漏報表單、「重跑根因分析」按鈕都從瀏覽器直接打它，渲染時把檔裡的 http://localhost:18080 換成這個值。
 feedbackUrl: http://localhost:18080
 
 resources:

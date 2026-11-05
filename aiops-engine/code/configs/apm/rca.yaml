@@ -33,5 +33,5 @@ alerts:
   # deploy_grace: false           # 不查換版（例如沒有 service.version）
   # deploy_index: metrics-apm.transaction.1m-*
   # version_field: service.version
-  # feedback_url: http://aiops-feedback.aiops.svc:8080/feedback?alert={alert_id}
-  # report_url: http://aiops-feedback.aiops.svc:8080/report?alert={alert_id}
+  # feedback_url: http://aiops-api.aiops.svc:8080/feedback?alert={alert_id}
+  # report_url: http://aiops-api.aiops.svc:8080/report?alert={alert_id}

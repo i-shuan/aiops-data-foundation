@@ -101,7 +101,7 @@ flowchart TB
   TUNE -. "門檻、排除時段、新規則" .-> DET
 ```
 
-- **部署拓撲**：收值是公司現有的 Elastic APM 與 ES，不在這個 repo；ES、AIOps engine、Grafana 在同一個 cluster；engine 以專用 API key 讀 `traces-apm*`、`logs-apm*`、`metrics-apm*`，只寫 `aiops-*`、`traces-merged-*`。
+- **部署拓撲**：收值是公司現有的 Elastic APM 與 ES，不在這個 repo；ES、AIOps engine、Grafana 在同一個 cluster；engine 以專用 API key 讀 `traces-apm*`、`logs-apm*`、`metrics-apm*`，只寫 `aiops-*`、`traces-merged-*`。engine 一個 image，裝成一隻 pod 或 api／beat／worker 三種角色（4.3）；畫面全在 Grafana。
 - **模組交接**：模組之間只透過 ES 索引交接（`aiops-anomalies`、`aiops-alerts`、`aiops-incidents`、`aiops-feedback`、`aiops-tuning`），任一模組可獨立重跑或替換。
 
 ## 3. 關鍵架構決策 (Key Architectural Decisions)
@@ -224,6 +224,23 @@ engine 一份程式，情境各是一個 plugin（[core/plugin.py](../aiops-engi
 
 擴充點只開「現在真的有兩種以上做法」的地方，沒有的不預先抽；第四種情境（例如網路設備靠拓樸併件）出現時，繼承一個內建 plugin 覆寫那幾個就好。`configs/` 不隨 plugin 搬：plugin 只決定預設排程表，設定檔仍在 `configs/<情境>/`。
 
+### 4.3 部署角色：api／beat／worker（Superset 式）
+
+engine 的每個工作都是「定期讀 ES、算、寫 ES」的子命令，沒有常駐狀態，所以**怎麼觸發**跟**算什麼**可以分開。一個 image、一份 values，`mode` 選（[aiops-engine/README.md](../aiops-engine/README.md)、[pdca/meta/2026-11-api-beat-worker.md](pdca/meta/2026-11-api-beat-worker.md)）：
+
+| 角色 | 做什麼 | 份數 | 對應 Superset |
+|---|---|---|---|
+| Grafana（公司現有） | 所有畫面：儀表板、通知、回饋表單、「重跑根因分析」按鈕 | — | web 的畫面 |
+| `api` | 沒有頁面的薄 API：表單送出、`POST /api/anomalies`（ML／FDC 推異常進 ⑤）、`POST /api/rca`；收到就寫 ES、丟一個 `alert` 工作 | 多份 | web 的後端 |
+| `beat` | 每分鐘照 `schedule.yaml` 把該跑的工作丟進佇列，自己不跑 | 1 | celery beat |
+| `worker` | 從一個佇列拿工作，開子行程跑 `python3 -m <args>`；`realtime`（每幾分鐘的）、`alert`（收斂，**單一消費者**）、`batch`（每天的，吃資源）各一個 Deployment | 各自設 | celery worker |
+| Redis | 佇列（Celery broker） | 1 | Redis |
+
+- **`mode: single`** 是同一份程式不經佇列：排程器自己開子行程，api 同一隻 pod。開發、離線廠區用；行為跟原本一樣。
+- 為什麼 ④ 不改成事件驛動：ES 不會主動推資料，`detect`、`rules`、`train` 本來就要定時查；事件驛動只在「外部推異常進來」（工廠）和「人按重跑」兩處有意義，所以只有那兩處走 api → 佇列。
+- 為什麼 `alert` 單一消費者：收斂是「一輪看所有新異常、同對象併一件」，兩個 worker 同時跑會各開一件。其他工作寫入都是固定 `_id`、重跑覆蓋，同時跑兩份不會錯只是浪費。
+- 「上一次沒跑完就跳過」在佇列裡變成 `expires`：每個工作帶「下一次排定前 5 秒」的過期時間，worker 忙到過期的直接丟，不會堆一排舊的追著跑。
+
 ## 5. 資料關聯與根因定位機制 (Correlation & RCA)
 
 **原則**：Metrics 回答「有沒有出事、何時開始」，Trace 回答「哪個服務的哪一段造成」，Log 回答「那一段裡發生了什麼」。三者靠共同鑰匙（服務、路由、Pod、namespace、時間窗、`trace_id`）串接；`dept`、`group` 是歸屬標籤，只決定資料屬於誰，不用於串接。
@@ -259,12 +276,12 @@ K8s 排程頻率見 [aiops-engine/README.md](../aiops-engine/README.md)；Elasti
 | ⑥ 收斂 | AIOps | 3 | `aiops-engine/code/investigator/alerts.py`、`cmd_alert.py`；`rca.yaml` 的 `alerts:` | 每 1 分鐘 | `test_alerts.py`、`chain_e2e`；[alert-exit](pdca/phase3-locate/2026-10-alert-exit.md)、[cross-service-aggregation](pdca/phase3-locate/2026-10-cross-service-aggregation.md) | ✅ 同服務合成一件；沿呼叫關係一層 ✅、多層 📝 |
 | ⑦ 根因分析 | AIOps | 3、4 | `aiops-engine/code/investigator/`（`__main__.py`、`similar.py`）、`aiops-engine/code/core/llm.py` | 跟 ⑥ 同一次 | `loop_e2e`；`test_similar.py`、`test_llm.py` | ✅；沒有評測集 |
 | ⑧ 出口 | AIOps | 3 | `grafana/helmchart/files/*.yaml` | Grafana 每 1 分鐘查 | Grafana 12.2、13.0.7 實測；[rca-demo](pdca/phase3-locate/2026-10-rca-demo.md) | ✅；K8s CronJob 沒跑過 |
-| ⑨ feedback | AIOps | 5 | `aiops-engine/code/feedback_web/`、`cmd_feedback.py`、`cmd_backtest.py`、`cmd_metrics.py` | 網頁常駐；suggest、backtest 人跑 | `loop_e2e`；`test_feedback_web.py`、`test_feedback.py`、`test_metrics.py` | ✅（模擬資料） |
+| ⑨ feedback | AIOps | 5 | `aiops-engine/code/api/`、`cmd_feedback.py`、`cmd_backtest.py`、`cmd_metrics.py` | api 常駐；suggest、backtest 人跑 | `loop_e2e`；`test_api.py`、`test_feedback.py`、`test_metrics.py` | ✅（模擬資料） |
 
 - ⑤ 欄位見 [baseline README「異常帶的欄位」](../aiops-engine/code/configs/baseline/reference.md#異常帶的欄位)；⑥ 哪些異常會開一件、怎麼不重複開見 [rca README「事件整合」](../aiops-engine/code/configs/rca/README.md#事件整合alert)。
 - ⑧ `aiops-alerts` 帶 `status`、`service`、`dept`、`group`、`severity`、`summary`、`report`、`feedback_url`；`summary` 是 Grafana 的 label，不放會變的字；心跳「AIOps 停了」docker 實測過。
 - ⑨ 回饋表單定案用 Grafana Business Forms 外掛，回饋服務的小網頁當備案（[grafana-form](pdca/phase5-learning-loop/2026-10-grafana-form.md)）。
-- 排程是一隻常駐 pod 裡的排程器（`aiops-engine/code/scheduler`，照 `configs/schedule/schedule.yaml`）；第一階段只開 rules、detect、alert、train 四個工作，其他 6 個在第二階段。
+- 排程：`mode: single` 是一隻常駐 pod 裡的排程器（`aiops-engine/code/scheduler`，照 `configs/<plugin>/schedule.yaml`）自己跑；`mode: distributed` 是 beat 丟進佇列、worker 跑（4.3）。第一階段只開 rules、detect、alert、train 四個工作，其他在第二階段。
 
 ## 8. 收斂：很多筆怎麼變成一件
 

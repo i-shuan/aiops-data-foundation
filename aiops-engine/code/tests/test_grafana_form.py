@@ -8,9 +8,9 @@ import urllib.request
 from http.server import ThreadingHTTPServer
 from unittest import mock
 
-from feedback_web import __main__ as W
-from feedback_web import app as A
-from tests.test_feedback_web import ALERT, FakeES
+from api import __main__ as W
+from api import app as A
+from tests.test_api import ALERT, FakeES
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DASH = os.path.join(HERE, "..", "..", "..", "grafana", "helmchart", "files", "dashboards", "aiops-feedback.json")
@@ -119,7 +119,7 @@ class Cors(unittest.TestCase):
             return e.code, dict(e.headers), e.read().decode()
 
     def test_allowed_origin(self):
-        with mock.patch.dict(os.environ, {"FEEDBACK_CORS_ORIGIN": "http://grafana.local/"}):
+        with mock.patch.dict(os.environ, {"API_CORS_ORIGIN": "http://grafana.local/"}):
             st, h, body = self.req(f"/api/alert?alert={ALERT['alert_id']}")
             self.assertEqual(st, 200)
             self.assertEqual(h.get("Access-Control-Allow-Origin"), "http://grafana.local")
@@ -129,15 +129,15 @@ class Cors(unittest.TestCase):
             self.assertIn("POST", h.get("Access-Control-Allow-Methods", ""))
 
     def test_other_origin_not_allowed(self):
-        with mock.patch.dict(os.environ, {"FEEDBACK_CORS_ORIGIN": "http://grafana.local"}):
+        with mock.patch.dict(os.environ, {"API_CORS_ORIGIN": "http://grafana.local"}):
             st, h, _ = self.req(f"/api/alert?alert={ALERT['alert_id']}", origin="http://evil.local")
             self.assertNotIn("Access-Control-Allow-Origin", h)
 
     def test_not_set_means_no_cors_and_html_pages_never(self):
-        with mock.patch.dict(os.environ, {"FEEDBACK_CORS_ORIGIN": ""}):
+        with mock.patch.dict(os.environ, {"API_CORS_ORIGIN": ""}):
             _, h, _ = self.req(f"/api/alert?alert={ALERT['alert_id']}")
             self.assertNotIn("Access-Control-Allow-Origin", h)
-        with mock.patch.dict(os.environ, {"FEEDBACK_CORS_ORIGIN": "http://grafana.local"}):
+        with mock.patch.dict(os.environ, {"API_CORS_ORIGIN": "http://grafana.local"}):
             _, h, _ = self.req(f"/feedback?alert={ALERT['alert_id']}")      # 網頁本身不開
             self.assertNotIn("Access-Control-Allow-Origin", h)
 

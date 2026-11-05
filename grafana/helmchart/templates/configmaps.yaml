@@ -39,7 +39,7 @@ kind: ConfigMap
 metadata:
   name: grafana-dashboards
 data:
-  {{- /* 儀表板裡寫死的回饋網頁網址（http://localhost:18080）換成 values 的 feedbackUrl */}}
+  {{- /* 儀表板裡寫死的 engine api 網址（http://localhost:18080）換成 values 的 feedbackUrl */}}
   {{- range $path, $_ := .Files.Glob "files/dashboards/*.json" }}
   {{ base $path }}: |
 {{ $.Files.Get $path | replace "http://localhost:18080" $.Values.feedbackUrl | indent 4 }}

@@ -4,3 +4,5 @@ llm:
   model: gpt-4o-mini           # 空的用程式預設
   baseUrl: ""                  # 內網閘道（不含 /v1）；空的用公網
   apiKey: "<LLM 的 API key>"
+api:
+  token: "<隨機字串>"            # AIOPS_API_TOKEN：ML／FDC 推異常（POST /api/anomalies）要帶 Authorization: Bearer <token>

@@ -1,8 +1,9 @@
-"""回饋表單的邏輯（不含 HTTP）：讀告警、組表單資料、寫回饋與事故。單元測試用假的 ES 測這裡。"""
+"""api 的邏輯（不含 HTTP）：回饋表單（讀告警、組表單資料、寫回饋與事故）、外部推異常進 ⑤、要求重跑根因、件的清單。單元測試用假的 ES 測這裡。"""
 from __future__ import annotations
 
 import html
 import json
+import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -251,3 +252,63 @@ def render_report(alert: dict) -> str:
 
 def to_json(x) -> bytes:
     return json.dumps(x, ensure_ascii=False, default=str).encode("utf-8")
+
+
+# ── 外部推異常進 ⑤、重跑根因、件的清單（docs/pdca/meta/2026-11-api-beat-worker.md）──
+
+def ingest_config_path() -> str | None:
+    """POST /api/anomalies 用哪份 ingest.yaml：AIOPS_INGEST_CONFIG，沒設就從這個 plugin 的排程表找 ingest 工作的 --config。
+    排程表沒有 ingest（observability 自己判，沒有外部來源）回 None。"""
+    if os.environ.get("AIOPS_INGEST_CONFIG"):
+        return os.environ["AIOPS_INGEST_CONFIG"]
+    from core import plugin
+    from scheduler.runner import load_schedule
+    here = Path(__file__).resolve().parents[1]
+    _, jobs = load_schedule(str(here / plugin.current().schedule), stage=2)
+    job = next((j for j in jobs if j.name == "ingest"), None)
+    if job is None or "--config" not in job.args:
+        return None
+    return str(here / job.args[job.args.index("--config") + 1])
+
+
+def ingest(es, body: dict, now: datetime | None = None) -> dict:
+    """{"input": "ml", "rows": [...]} → 照 ingest.yaml 裡叫 input 的對照轉成異常、寫進 aiops-anomalies。
+    rows 的欄位跟那個 input 的索引裡一樣（time_field、keys、value…）。回 {"input", "written", "skipped"}。
+    沒有 ingest.yaml、沒有這個 input → LookupError（404）；body 不對 → ValueError（400）。"""
+    from detector.cmd_ingest import ingest_rows
+    name, rows = body.get("input"), body.get("rows")
+    if not name or not isinstance(rows, list):
+        raise ValueError('要 {"input": "<ingest.yaml 的 inputs 名>", "rows": [ {...}, ... ]}')
+    if not all(isinstance(r, dict) for r in rows):
+        raise ValueError("rows 每一筆要是物件")
+    path = ingest_config_path()
+    if not path:
+        raise LookupError("這個 plugin 沒有 ingest（排程表沒有 ingest 工作、也沒設 AIOPS_INGEST_CONFIG）")
+    cfg = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
+    written, skipped = ingest_rows(es, cfg, str(name), rows, pd.Timestamp(now or datetime.now(timezone.utc)))
+    return {"input": name, "written": written, "skipped": skipped}
+
+
+def request_rca(es, alert_id: str, now: datetime | None = None) -> dict:
+    """在開著的那件上標 rca_requested：下一輪 investigator alert 看到就強制重跑根因分析（含相似事故、LLM、摘要，跟新開件同一條路），
+    跑完把標記拿掉。結束的件不重跑（ValueError → 409）；沒有這件 LookupError → 404。"""
+    alert = load_alert(es, alert_id)
+    if not alert:
+        raise LookupError(f"找不到告警 {alert_id}")
+    if alert.get("status") != "open":
+        raise ValueError(f"這件已經結束（{alert.get('status')}），不重跑；要看舊報告用 /report?alert={alert_id}")
+    at = (now or datetime.now(timezone.utc)).isoformat()
+    es.req("POST", f"/{ALERT_INDEX}/_update/{alert_id}?refresh=true", {"doc": {"rca_requested": True, "rca_requested_at": at}})
+    return {"alert_id": alert_id, "requested_at": at}
+
+
+def list_alerts(es, status: str = "open", size: int = 50) -> list[dict]:
+    """件的清單（新的在前），不含報告全文。status：open／resolved／all。"""
+    if status not in ("open", "resolved", "all"):
+        raise ValueError("status 要是 open、resolved 或 all")
+    size = max(1, min(int(size), 500))
+    q = {"match_all": {}} if status == "all" else {"term": {"status": status}}
+    fields = ["alert_id", "service", "title", "summary", "severity", "status", "dept", "group", "started_at", "updated_at", "resolved_at",
+              "anomaly_count", "series", "upstream_services", "suggested_category", "category_confidence", "report_url", "feedback_url"]
+    hits = es.search(ALERT_INDEX, {"size": size, "_source": fields, "query": q, "sort": [{"updated_at": "desc"}]})["hits"]["hits"]
+    return [h["_source"] for h in hits]

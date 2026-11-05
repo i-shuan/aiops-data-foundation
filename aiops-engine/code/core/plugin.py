@@ -6,11 +6,11 @@
   AIOPS_PLUGIN=metrics_only     只有 ML／FDC 判好的指標、沒有履歷：不併跨機台、報告略過履歷那幾節
   AIOPS_PLUGIN=套件.模組:類別    客製：繼承 Plugin（或任一內建 plugin）覆寫要改的那幾個
 
-主程式（core／detector／investigator／feedback_web）只透過 current() 問 plugin，不認得 factory、lot、equipment 這些字。
+主程式（core／detector／investigator／api）只透過 current() 問 plugin，不認得 factory、lot、equipment 這些字。
 擴充點只開「現在真的有兩種以上做法」的地方：
 
   source_profile()   索引、欄位名的對照（owner 歸屬查哪裡、log 的欄位）        detector/owner.py、investigator/es.py
-  domain()           用語、回饋表單的分類表                                       core/domain.py 的門面、feedback_web、報告
+  domain()           用語、回饋表單的分類表                                       core/domain.py 的門面、api 的回饋表單、報告
   entity_keys        異常 keys 裡哪個欄位是「對象」（服務／機台）                 investigator/alerts.py、detector/owner.py
   route_of(keys)     「哪支 API」（IT 是 method＋route；工廠是 recipe）            alerts.route_of、根因分析挑 lot
   chain(...)         跨對象併件的依據（呼叫關係／履歷前後站／不併）              investigator/cmd_alert.py → alerts.merge

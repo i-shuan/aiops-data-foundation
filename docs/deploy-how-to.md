@@ -94,14 +94,15 @@ helm upgrade --install aiops aiops-engine/helmchart -n aiops -f aiops-engine/hel
 
 - **`--set source=apm` 一定要帶**：預設是 `otel`（讀 Collector 寫的格式），不帶就讀不到 APM 的資料。GitLab CI 的 `deploy-aiops-engine` 目前沒帶這個參數，用 CI 部署前要先補。
 - 排程器預設 **stage 1**：rules、detect、alert、trace-merge、train。跑穩再 `--set scheduler.stage=2` 開 Pod 同儕比對、trace 每一段的基準線。
+- 預設 `mode: single`（一隻 pod）。要 api 跟排程分開、`train` 不拖慢每分鐘的工作、或 ML／FDC 要即時推異常：`--set mode=distributed`（api、beat、worker 依佇列、redis；[aiops-engine/README.md「部署模式」](../aiops-engine/README.md#部署模式一隻-pod或-apibeatworker)）。
 - 回饋網頁的網址要放進通知時：`configs/apm/rca.yaml` 的 `alerts.feedback_url`、`report_url`，用 `--set-file configOverrides.apm.rca=<改好的 rca.yaml>` 蓋掉。
 
 確認：
 
 | 要確認的 | 怎麼看 |
 |---|---|
-| Pod 起來 | `kubectl -n aiops get pod`：`aiops-engine-…` 2/2 |
-| 排程在跑 | `kubectl -n aiops logs deploy/aiops-engine -c scheduler -f`：每分鐘有 rules、detect、alert、trace-merge |
+| Pod 起來 | `kubectl -n aiops get pod`：`aiops-engine-…` 2/2（distributed：`aiops-api`、`aiops-beat`、三個 `aiops-worker-*`、`aiops-redis` 都 Running） |
+| 排程在跑 | `kubectl -n aiops logs deploy/aiops-engine -c scheduler -f`：每分鐘有 rules、detect、alert、trace-merge（distributed：`deploy/aiops-beat` 每分鐘 `[beat] … → 佇列`，`deploy/aiops-worker-realtime` 有 `[scheduler] detect … ok`） |
 | 讀得到資料 | Kibana 看 `traces-merged-*` 開始有資料、`aiops-alerts` 有 `heartbeat` 那筆 |
 | 基準線 | 每天 02:00 train；資料要累積 2 週才有「同星期幾 × 同小時」，之前只有靜態臨界值規則在報 |
 
@@ -117,7 +118,7 @@ engine 只把告警寫進 `aiops-alerts`，**不自己發通知**。先只寫入
 | 各部門的通知管道 | `NOTIFY_IT_URL`、`NOTIFY_IMC_URL`、`NOTIFY_PLATFORM_URL`（範例是 webhook；Teams、Email 改 `contact-points.yaml`） | 各部門、平台團隊 |
 | dept 清單 | `policies.yaml` 的 dept 要跟 APM agent 的 `labels.dept` 值一樣 | 第 0 節的標籤 |
 | 回饋表單外掛 | Business Forms（`volkovlabs-form-panel`）**6.3.1**；Grafana 12.2、13.0.7 實測過 | Nexus，或 repo 的 `grafana/plugins/`（git lfs） |
-| 回饋網頁的網址 | 使用者**瀏覽器**連得到的 engine 回饋網頁（Service `aiops-feedback:8080` 前面加 Ingress） | 我們 |
+| 回饋網頁的網址 | 使用者**瀏覽器**連得到的 engine 回饋網頁（Service `aiops-api:8080` 前面加 Ingress） | 我們 |
 
 ```
 POST _security/api_key
@@ -138,7 +139,7 @@ POST _security/api_key
 | 改哪裡 | 改成 |
 |---|---|
 | 儀表板 `aiops-feedback.json` 裡寫死的 `http://localhost:18080` | 用我們的 chart：`--set feedbackUrl=<回饋網頁的 Ingress 網址>`；其他方式：改檔 |
-| engine 部署加 `--set feedback.corsOrigin=https://<Grafana 網址>` | 表單從瀏覽器直接打回饋網頁，要開 CORS |
+| engine 部署加 `--set api.corsOrigin=https://<Grafana 網址>` | 表單、「重跑根因分析」按鈕從瀏覽器直接打 api，要開 CORS |
 | `alert-rules.yaml` 的 `feedback` annotation、engine `configs/apm/rca.yaml` 的 `alerts.feedback_url`、`report_url` | Grafana 與回饋網頁的網址（通知裡的連結） |
 
 確認：Grafana 的 AIOps 資料夾有 `aiops-rca`、`aiops-learning`、`aiops-feedback` 三個儀表板；Alerting 有 `aiops-incident`、`aiops-heartbeat`、`aiops-baseline-missing` 三條規則；data source 測試通過。

@@ -160,7 +160,7 @@ def _slot(fps: list[dict], tz: str, min_share: float, min_n: int = 3):
     return None
 
 
-# 老師傅在表單選的「為什麼不是問題」（feedback_web.app.FP_REASONS）→ 這批誤報是哪一種；沒選就用算出來的特徵
+# 老師傅在表單選的「為什麼不是問題」（api.app.FP_REASONS）→ 這批誤報是哪一種；沒選就用算出來的特徵
 REASON_SLOT = ("batch",)            # 固定時段的批次：那個時段不報、不學
 REASON_ONEOFF = ("loadtest",)       # 一次性的：那段時間不報、不學（exclude_window）
 REASON_VOLUME = ("low_volume",)     # 量太少幾筆就跳：min_count

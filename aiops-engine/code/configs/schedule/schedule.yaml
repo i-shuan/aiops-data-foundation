@@ -3,7 +3,8 @@
 #   同一個工作上一次沒跑完就跳過這次、超過 timeout 砍掉、錯過的分鐘不補跑、時區照 timezone、
 #   每天／每週的失敗在同一次內重試 retries 次（每幾分鐘的不重試：下一輪就是重試）。
 # 每個工作：name、stage（1 第一階段就開；2 跑穩後再開）、cron（5 欄）、timeout（秒）、args（python3 -m 的參數）、
-#   retries（沒寫：分鐘欄是 * 給 0、否則 2）。改這裡、重新 build image（或 chart 的 configOverrides.schedule.schedule 蓋掉）。
+#   retries（沒寫：分鐘欄是 * 給 0、否則 2）、queue（分散模式進哪個佇列，tasks/：realtime 每幾分鐘的、alert 收斂（單一消費者）、
+#   batch 每天／每週的；沒寫照這個規則自動選）。改這裡、重新 build image（或 chart 的 configOverrides.schedule.schedule 蓋掉）。
 #
 # 第一階段只開 4 個（rules、detect、alert、train）：能跑通「告警 → 回饋 → 調門檻」這一圈的最少集合，偵測來源少，
 # 第一個月誤報來了容易知道是哪裡出的；四個在真實資料上跑穩、看過一輪誤報再開 stage 2（建議順序：quality → peer → trace 三個 → chronic）。
@@ -12,12 +13,14 @@ jobs:
   - name: rules
     stage: 1
     cron: "* * * * *"
+    queue: realtime
     timeout: 50
     args: [detector, rules, --config, configs/baseline/rules.yaml]
     why: 狀態變化（容器重啟、錯誤率 5%、p95 2 秒保底…）要快；老師傅核准的規則也在這裡跑
   - name: detect
     stage: 1
     cron: "* * * * *"
+    queue: realtime
     timeout: 50
     args: [detector, detect, --config, configs/baseline/series.yaml, --window, 10m]
     why: 每分鐘看最近 10 分鐘；同一筆重跑會覆蓋
@@ -26,66 +29,77 @@ jobs:
   - name: alert
     stage: 1
     cron: "* * * * *"
+    queue: alert
     timeout: 600
     args: [investigator, alert, --config, configs/rca/rca.yaml]
     why: 合成一件、根因分析、相似事故、LLM 摘要、心跳
   - name: trace-merge
     stage: 1
     cron: "* * * * *"
+    queue: realtime
     timeout: 50
     args: [detector, trace-merge, --config, configs/baseline/trace.yaml]
     why: raw 的每一段 → 一個請求一筆（traces-merged）；根因分析讀合成的那份
   - name: train
     stage: 1
     cron: "0 2 * * *"
+    queue: batch
     timeout: 3600
     args: [detector, train, --config, configs/baseline/series.yaml]
     why: 每天學過去 4 週（要 4Gi 記憶體）
   - name: peer
     stage: 2
     cron: "*/5 * * * *"
+    queue: realtime
     timeout: 240
     args: [detector, peer, --config, configs/baseline/peer.yaml]
     why: Pod 同儕橫向比對看最近 10 分鐘
   - name: trace-collect
     stage: 2
     cron: "*/5 * * * *"
+    queue: realtime
     timeout: 240
     args: [detector, trace-collect, --config, configs/baseline/trace.yaml]
     why: trace 每一段的量
   - name: trace-detect
     stage: 2
     cron: "*/5 * * * *"
+    queue: realtime
     timeout: 240
     args: [detector, trace-detect, --config, configs/baseline/trace.yaml, --window, 10m]
     why: trace 每一段跟 baseline 比
   - name: quality
     stage: 2
     cron: "*/10 * * * *"
+    queue: realtime
     timeout: 500
     args: [detector, quality, --config, configs/baseline/quality.yaml]
     why: 資料品質（第一個月人天天看，先不用它報）
   - name: trace-train
     stage: 2
     cron: "20 2 * * *"
+    queue: batch
     timeout: 3600
     args: [detector, trace-train, --config, configs/baseline/trace.yaml]
     why: 每天學 trace 每一段
   - name: chronic
     stage: 2
     cron: "0 8 * * 1"
+    queue: batch
     timeout: 1800
     args: [detector, chronic, --config, configs/baseline/chronic.yaml]
     why: 每週一的慢性病清單，要幾週資料才有意義
   - name: prune
     stage: 2
     cron: "30 3 * * *"
+    queue: batch
     timeout: 600
     args: [detector, prune, --config, configs/baseline/prune.yaml]
     why: aiops-anomalies、aiops-trace-segments、已結案的 aiops-alerts 沒有 ILM，超過保留天數的每天清一次（prune.yaml）
   - name: shift
     stage: 2
     cron: "0 4 * * *"
+    queue: batch
     timeout: 300
     args: [detector, shift, --config, configs/baseline/series.yaml]
     why: 一階跳變（換版後停在新水準、一直報）提 reset_point 的建議（proposed，人核准才生效）；每天看一次最近 24 小時
