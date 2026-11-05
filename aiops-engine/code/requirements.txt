@@ -4,3 +4,4 @@ pyyaml>=6.0
 requests>=2.31
 celery>=5.4
 redis>=5.0
+packaging>=23

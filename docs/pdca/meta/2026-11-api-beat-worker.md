@@ -1,6 +1,6 @@
 # engine 拆成 api／beat／worker 三種角色（2026-11）
 
-**狀態**：已完成（沒 helm 實裝進 K8s）　　**日期**：2026-11-05　　**相關**：分支 `claude/api-beat-worker`（從 `claude/plugin-architecture` 開）
+**狀態**：已完成　　**日期**：2026-11-05　　**相關**：分支 `claude/api-beat-worker`（從 `claude/plugin-architecture` 開）
 **模組**：⑤⑥⑦⑧⑨（部署方式；④ 的演算法不動）
 
 ## Plan：這一次要達到什麼
@@ -90,7 +90,8 @@
 
 - **第二次 `distributed_e2e`**（加 `SIGBREAK` 後）：21 項 17 過 3 敗，三個都是測試本身或 Windows 的問題，不是功能：(1) 「paths-merge → realtime」——`paths-merge` 每 5 分鐘，等 150 秒不一定碰到 :x5，第一次剛好碰到；改成有丟才檢查。(2) 「alert worker 的 log 有『人要求重跑』」——ES 已經看到 `rca_attempts +1`，但子行程的輸出要等它結束才 flush 進 log，一次性檢查太早；改成等 30 秒。(3) 停 beat：上一列。功能面 17 項（丟對佇列、worker 跑、不堆積、推異常 3 秒開件、重跑根因、404）跟第一次一樣過。
 - **第三次 `distributed_e2e`**（`serve` 一秒醒一次、e2e 兩處改成等）：**20 項全過**（paths-merge 那項併進佇列檢查，所以 21 → 20）。推異常到開件 2 秒；beat 收到 Ctrl-Break 在 1 秒內停、log 有「結束」。單元測試 714 過。
-- **沒測到的**：沒用 helm 真的裝進 K8s（只 `helm template`）；Redis 掉線時 beat／worker 的重連（Celery `broker_connection_retry_on_startup` 設了，沒拔線試）；`expires` 真的丟掉過期工作（佇列沒堆積是間接證據；沒刻意把 worker 卡住看它丟）；多個 realtime worker 同時跑同一個 `detect` 的寫入（設計上固定 `_id` 覆蓋，沒實測）；真的 LLM；Grafana 按鈕只改了 json，沒在 Grafana 裡按過。
+- **helm 實裝進測試 cluster（rancher-desktop，namespace `aiops`，`mode=distributed`、`plugin=factory`，image 用 `nerdctl --namespace k8s.io build`）**：第一次 6 個 Deployment 有 3 個 CrashLoop——`kombu/transport/redis.py` 要 `packaging`，本機剛好有、`python:3.13-slim` 沒有；`requirements.txt` 補 `packaging>=23` 重建後 6 個全 Running、零重啟。beat 把 `ingest`、`alert` 丟進 `realtime`／`alert`，兩個 worker 各自 `[scheduler] … ok 1.0s`；port-forward 進 `aiops-api`：`/health` ok、沒 token 401、有 token 推 1 筆 `written 1 alert_queued true`，數秒後 `/api/alerts` 看得到 `a-20261105-1128-K8S-01`。沒測：`single` mode 沒裝、`workers.*.replicas>1`、滾動更新。
+- **沒測到的**：Redis 掉線時 beat／worker 的重連（Celery `broker_connection_retry_on_startup` 設了，沒拔線試）；`expires` 真的丟掉過期工作（佇列沒堆積是間接證據；沒刻意把 worker 卡住看它丟）；多個 realtime worker 同時跑同一個 `detect` 的寫入（設計上固定 `_id` 覆蓋，沒實測）；真的 LLM；Grafana 按鈕只改了 json，沒在 Grafana 裡按過。
 
 ## Act：Check 後沒改善的、還沒解決的
 
@@ -104,4 +105,4 @@
 | `ingest.yaml` 的 `inputs` 名字（`ml`、`fdc`）就是 API 的 `input` | 設計時 | ML 系統要知道自己叫 `ml`；改名要兩邊一起 | 文件寫明；欄位名本來就是假設，拿到樣本一起定 |
 
 - **決定**：採用 Celery＋Redis（跟 Superset 同一套，維運熟；重試、逾時、`expires`、單一消費者都現成），不自己拿 ES 當佇列。`alert` 不改逐筆事件驛動：收斂是「一輪看所有新異常」，單一消費者就夠；事件驛動只放在「外部推異常」「人按重跑」兩處。HTML 回饋頁留著當備用。
-- **下一輪**：真的用 helm 把 `mode=distributed` 裝進測試 cluster 跑一天；拿到 ML／FDC 樣本後定 `POST /api/anomalies` 的欄位；Grafana 裡實際按一次「重跑根因分析」。
+- **下一輪**：`mode=distributed` 在測試 cluster 跑一天（已裝起來、驗過一輪）；拿到 ML／FDC 樣本後定 `POST /api/anomalies` 的欄位；Grafana 裡實際按一次「重跑根因分析」。
