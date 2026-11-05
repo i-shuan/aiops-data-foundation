@@ -31,11 +31,11 @@
 
 ## Act：沒解決的
 
-下面是盤點，**沒有任何一項已動**，等使用者決定。盤點只看檔案與參照，沒有逐一驗證有沒有被用到。
+**前提（使用者）：只有一種部署法，helm chart 格式 + Rancher Desktop + k3d。**下面是盤點，**沒有任何一項已動**，等使用者決定。盤點只看檔案與參照，沒有逐一驗證有沒有被用到。
 
 | 類別 | 項目 | 為什麼可能不需要 |
 |---|---|---|
-| yaml | `grafana/values-official.yaml`（2,289 行，全部由 `helmchart/files/` 產生） | 與自建的 `grafana/helmchart/` 是同一份內容兩種部署法；整個 repo 的 yaml 5,557 行裡它佔 41% |
+| yaml | `grafana/values-official.yaml`（2,289 行，全部由 `helmchart/files/` 產生）、`grafana/code/build-official-values.py`、`plugin-init-patch.yaml`（套在既有 Grafana Deployment 上的 patch）、`INSTALL-form-plugin.md` | 使用者只有一種部署法：helm chart 格式、Rancher Desktop、k3d。官方 chart 的 values 與「改既有 Deployment」都不屬於這條路；`test_deploy.py` 有一條測試讀 `plugin-init-patch.yaml`，刪的時候要一起改 |
 | yaml | `configs/baseline/` 的 OTel 版：`series`、`rules`（569 行）、`quality`（219）、`peer`、`trace`、`chronic`、`calendar` | 讀的是 `k8s-*`、`metrics-*.otel-*`，自建 Collector 已刪；現行資料是 APM。`baseline/prune.yaml` 與 `apm/schedule.yaml` 還在用，要留 |
 | yaml | 四份排程表：`schedule/`、`apm/`、`factory/`、`metrics_only/`（各約 80～105 行） | 指令幾乎相同，只差設定檔路徑 |
 | yaml | `source: otel｜apm` 開關與 chart 裡的三元運算 | 只剩 APM 時可拿掉 |
