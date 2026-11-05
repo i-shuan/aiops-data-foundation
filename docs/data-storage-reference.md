@@ -22,7 +22,7 @@ AIOps 與 Grafana 的資料各存在哪裡、誰寫、多久一次、會不會�
 | `aiops-trace-segments` | trace 每一段的統計：每個 API × 每一段 × 每 5 分鐘的呼叫次數、耗時、錯誤率、吞例外比例；另有時鐘差 | `detector trace-collect`，每 5 分鐘 | `detector prune` 每天刪超過 **90 天**的（[prune.yaml](../aiops-engine/code/configs/baseline/prune.yaml)） |
 | `aiops-anomalies` | 異常總表：每個異常一筆（序列、對象、值、平常值、z、status） | `detect`（每分鐘）、`rules`（每分鐘）、`peer`、`trace-detect`、`quality` | `detector prune` 每天刪超過 **90 天**的；同一個對象同一時槽的 `_id` 固定，重跑是覆蓋 |
 | `aiops-alerts` | 事故（一件一筆）：標題、摘要、**RCA 報告全文**、LLM 摘要、相似事故、連帶的上游服務；另有 `heartbeat`、`detect-status` 兩筆狀態 | `investigator alert`，每分鐘；開著的件每輪覆蓋同一筆 | `detector prune` 每天刪**結案超過 180 天**的；開著的件、心跳、`detect-status` 不刪。每天的 snapshot 也帶它 |
-| `aiops-incidents` | 事故庫：老師傅確認過的事故、根因分類、怎麼看出來的、指紋 | 回饋網頁、`incident` 指令、`import-incidents` | **不會**，刻意不刪；每天 snapshot（[備份與還原](../elasticsearch/README.md#備份與還原aiops--的人工判斷)） |
+| `aiops-incidents` | 事故庫：老師傅確認過的事故、根因分類、怎麼看出來的、指紋 | 回饋網頁、`incident` 指令、`import-incidents` | **不會**，刻意不刪；有貼 snapshot 才有備份（[kibana-dev-tools.txt](../elasticsearch/kibana-dev-tools.txt) 第 5 段） |
 | `aiops-feedback` | 值班回饋：真的／誤報／根因錯／漏報，一句話與抽取結果 | 回饋網頁、`feedback` 指令 | **不會**，刻意不刪；每天 snapshot |
 | `aiops-tuning` | 偵測的調整與建議（override、排除時段、週期放寬、`rule_suggestion`），含 `status`、誰核准 | `tune`、`adjust`、`feedback suggest`、回饋網頁 | **不會**；`expires_at` 到期只是不再生效，文件還在；每天 snapshot |
 | `aiops-state` | `trace-merge` 合到哪個時間（就一筆） | `detector trace-merge`，每分鐘 | 每次覆蓋同一筆 |
@@ -37,7 +37,7 @@ AIOps 與 Grafana 的資料各存在哪裡、誰寫、多久一次、會不會�
 | log | `logs-apm.app.<服務>-*`、`logs-apm.error-*`（Elastic APM 寫） | 公司 ES 的 ILM 決定（2026-11 看到 `logs-apm.app.*` 10 天） |
 | metrics | `metrics-apm.transaction.1m-*`、`metrics-apm.service_destination.1m-*` 等（Elastic APM 寫，每分鐘一點） | 公司 ES 的 ILM 決定（2026-11 看到 `.1m` 的 90 天） |
 | trace raw（transaction、span 各一筆） | `traces-apm-*`（Elastic APM 寫） | 公司 ES 的 ILM 決定 |
-| trace merged（一個請求一筆，engine 合成） | `traces-merged-<group>-<日期>` | 7 天（[retention.conf](../elasticsearch/code/scripts/retention.conf)） |
+| trace merged（一個請求一筆，engine 合成） | `traces-merged-<group>-<日期>` | 7 天（[kibana-dev-tools.txt](../elasticsearch/kibana-dev-tools.txt) 第 1 段） |
 
 APM 寫的三種資料 engine 只讀，保留天數不在這個 repo 管；`traces-merged-*` 要比 raw 留得久才有意義。
 
@@ -96,7 +96,7 @@ APM 寫的三種資料 engine 只讀，保留天數不在這個 repo 管；`trac
 
 | 項目 | 現況 |
 |---|---|
-| `aiops-feedback`、`aiops-incidents`、`aiops-tuning`（人工判斷） | 不自動刪；setup 給了儲存庫設定就每天 snapshot 一次、留 30 天（SLM `aiops-daily`，也帶 `aiops-baseline`、`aiops-alerts`）。**儲存庫由管 ES 的人決定**，沒給就沒有備份（setup 會印提醒）。還原步驟：[elasticsearch/README.md](../elasticsearch/README.md#備份與還原aiops--的人工判斷) |
+| `aiops-feedback`、`aiops-incidents`、`aiops-tuning`（人工判斷） | 不自動刪；有貼 [kibana-dev-tools.txt](../elasticsearch/kibana-dev-tools.txt) 第 5 段才有每天一次的 snapshot、留 30 天（SLM `aiops-daily`，也帶 `aiops-baseline`、`aiops-alerts`）。**儲存庫由管 ES 的人決定**，沒貼就沒有備份。還原指令在同一段 |
 | `aiops-anomalies`、`aiops-trace-segments`、結案的 `aiops-alerts` | 排程 `prune` 每天 03:30 刪超過 90／90／180 天的（[prune.yaml](../aiops-engine/code/configs/baseline/prune.yaml)，天數是估的）。異常刪了之後，事故的 `anomaly_ids` 對不到的那幾筆，回饋退回「一件一筆」，其他不受影響 |
 | `aiops-baseline` | 每天重寫的衍生資料；snapshot 有帶，還原後不用重 train。重建 ES 沒還原的話要手動跑一次 `train`，否則等隔天 02:00（期間基準線這一路停擺，Grafana 的 `aiops-baseline-missing` 會響） |
 

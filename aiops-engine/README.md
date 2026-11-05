@@ -15,7 +15,7 @@
 cd aiops-engine/code && docker build -t <nexus>/aiops-engine:0.1.0 . && docker push <nexus>/aiops-engine:0.1.0   # 內網：Dockerfile 的 pip 改 --index-url 指到 Nexus
 kubectl create namespace aiops
 kubectl -n aiops create secret generic aiops-secrets \
-  --from-literal=ES_API_KEY=<elasticsearch-setup.sh 發的「AIOps baseline key」>
+  --from-literal=ES_API_KEY=<elasticsearch/kibana-dev-tools.txt 第 3 段發的 engine key>
 cp aiops-engine/helmchart/values-local.example.yaml aiops-engine/helmchart/values-local.yaml   # 填 LLM 的 provider、model、baseUrl、apiKey；不進 git
 helm upgrade --install aiops aiops-engine/helmchart -n aiops -f aiops-engine/helmchart/values-local.yaml \
   --set image.repository=<nexus>/aiops-engine --set image.tag=0.1.0 --set esUrl=https://<中央 ES>:9200
@@ -24,7 +24,8 @@ kubectl -n aiops logs deploy/aiops-engine -c scheduler -f | grep '\[scheduler\]'
 ```
 
 - `rca.yaml` 的 `alerts.feedback_url`、`report_url` 填回饋網頁的網址（Service `aiops-feedback:8080`；要讓人從公司網路點得到再加 Ingress）。
-- 資料來源：預設讀我們 Collector 寫的 OTel 格式。公司 ES 裡是 Elastic APM 的資料（`traces-apm-*`、`logs-apm.*`、`metrics-apm.*`）時 `--set source=apm`，設定檔與怎麼接見 [code/configs/apm/README.md](code/configs/apm/README.md)。
+- 情境（plugin）：預設 `observability`（IT）；工廠 `--set plugin=factory`，只有 ML／FDC 指標 `--set plugin=metrics_only`（[code/plugins/README.md](code/plugins/README.md)）。各裝一個 release、各自一隻 pod。
+- 資料來源（observability 才看）：預設讀我們 Collector 寫的 OTel 格式。公司 ES 裡是 Elastic APM 的資料（`traces-apm-*`、`logs-apm.*`、`metrics-apm.*`）時 `--set source=apm`，設定檔與怎麼接見 [code/configs/apm/README.md](code/configs/apm/README.md)。
 - LLM：`values.yaml` 的 `llm.provider`（`template` 不叫模型）、`llm.model`（空的用程式預設 openai `gpt-4o-mini`、anthropic `claude-sonnet-4-5`）、`llm.baseUrl`（內網閘道，不含 `/v1`）放 ConfigMap `aiops-env`；`llm.apiKey` 由 chart 建成 Secret `aiops-llm`。**key 只寫在 `values-local.yaml`**（`.gitignore` 擋掉），`values.yaml` 永遠留空。改了重跑 helm，pod 會自己重啟（`checksum/env`）。
 - 設定檔要跟 image 裡的不一樣：`--set-file configOverrides.baseline.series=aiops-engine/code/configs/baseline/series.yaml`（掛在 `/app/configs/baseline/series.yaml`）；排程表是 `configOverrides.schedule.schedule`。
 - **換 ES key 要重啟 pod**（`kubectl -n aiops rollout restart deploy/aiops-engine`）：環境變數是 pod 起來時讀的，不像以前每個 CronJob 每分鐘重讀。
@@ -57,7 +58,7 @@ kubectl -n aiops logs deploy/aiops-engine -c scheduler -f | grep '\[scheduler\]'
 
 `aiops-baseline` 是 `train` 每天重算的衍生資料，但 ES 重建（或只有這個索引掉了）到隔天 02:00 之間，`detect` 讀到空的 baseline 會印一行「沒有 baseline，先跑 train」就跳過那條序列，不報錯；動態基準線這一路靜默停擺，規則、Pod 同儕橫向比對、資料品質不受影響。所以重建 ES 的標準步驟是：
 
-1. `elasticsearch/code` 的 setup 腳本重建索引、資料流、key。
+1. 重貼 [elasticsearch/kibana-dev-tools.txt](../elasticsearch/kibana-dev-tools.txt)（ILM、template、key）。
 2. 等 Collector 送進至少 2 週的 metrics（不然 `train` 學不出 `dow_hour` 這一層，見 [docs/rca](../docs/rca/README.md)）；要立刻有 baseline 就先接受只有 `hour` 或 `all` 層。
 3. **手動跑一次 `train`**（上面的 `--run train`），不要等隔天 02:00。
 4. `aiops-incidents`、`aiops-feedback`、`aiops-tuning` 是人工判斷，重算不回來；有 snapshot 就先還原這三個（備份本身還沒做，見 [open-issues 第 7 節](../docs/pdca/meta/2026-10-open-issues.md)）。

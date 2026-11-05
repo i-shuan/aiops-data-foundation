@@ -13,12 +13,10 @@ from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from core import llm as LLM
-from core import traces as T
+from core import plugin
 from core.es import ES
 
 from . import alerts as AL
-from . import analyze as A
-from . import es as E
 from . import similar as SIM
 
 INCIDENT_INDEX = "aiops-incidents"
@@ -49,6 +47,8 @@ ALERT_MAPPING = {"mappings": {"dynamic": False, "properties": {
     "routes": {"type": "keyword"},
     # 跨服務（一層）：這件連帶了哪些上游服務；上游那件被整件併進下游時，上游那件標 resolved、merged_into 指到下游那件
     "upstream_services": {"type": "keyword"}, "merged_into": {"type": "keyword"},
+    # 工廠版：這件牽涉哪些 lot（異常的 keys.lot；前後站併件時「同一批 lot」優先，investigator/alerts.merge 的 links）
+    "lots": {"type": "keyword"},
     # 根因分析重跑：沒有 trace 的件（開件太快、trace 還沒合成完）每隔一陣子重跑，這是跑了幾次
     "rca_attempts": {"type": "integer"},
     # 同源（不合併）：這件卡在哪些外部依賴；跟它卡同一個依賴的其他開著的件
@@ -85,23 +85,17 @@ def _anomalies(es: ES, index: str, start: datetime, end: datetime) -> list[dict]
         after = hits[-1]["sort"]
 
 
-def deploy_at(es: ES, service: str, since: datetime, now: datetime, index: str = "metrics-apm.transaction.1m-*",
-              field: str = "service.version") -> datetime | None:
-    """這個服務最近一次換版的時間：since 之後第一次出現的新版本（之前還有別的版本才算換版，不是服務剛上線）。查不到回 None。"""
-    body = {"size": 0, "query": {"bool": {"filter": [{"term": {"service.name": service}},
-                                                       {"range": {"@timestamp": {"gte": (since - timedelta(hours=24)).isoformat(), "lt": now.isoformat()}}}]}},
-            "aggs": {"v": {"terms": {"field": field, "size": 20}, "aggs": {"first": {"min": {"field": "@timestamp"}}}}}}
-    buckets = es.search(index, body).get("aggregations", {}).get("v", {}).get("buckets", [])
-    firsts = sorted(datetime.fromtimestamp(b["first"]["value"] / 1000, tz=timezone.utc) for b in buckets if b.get("first", {}).get("value") is not None)
-    new = [t for t in firsts[1:] if t >= since]     # 最早的那個版本不算
-    return max(new) if new else None
-
-
 def grade_alert(es: ES, cfg: dict, al: dict, now: datetime) -> None:
-    """這件的嚴重度：訊號廣度＋持續時間＋換版上限（investigator/severity.py）。要全部異常（不只這一輪的）才算得出持續。"""
+    """這件的嚴重度：訊號廣度＋持續時間＋換版上限（investigator/severity.py）。要全部異常（不只這一輪的）才算得出持續。
+    訊號怎麼分類（IT 黃金訊號／工廠參數家族）、哪些 level 的 critical 直接算 critical、「換版」是什麼（版號／recipe 變更）由 plugin 給預設，
+    cfg 的 alerts.severity.classes、alerts.critical_levels 可覆蓋（core/plugin.py）。"""
     from . import severity as SEV
+    pg = plugin.current()
     acfg = cfg.get("alerts", {})
-    opts = SEV.GradeOptions(**(acfg.get("severity") or {}))
+    sev_cfg = dict(acfg.get("severity") or {})
+    classes = SEV.parse_classes(sev_cfg.pop("classes", None) or pg.severity_classes)
+    opts = SEV.GradeOptions(**sev_cfg)
+    critical_levels = set(acfg.get("critical_levels") or pg.critical_levels)
     have = {a["_id"]: a for a in al.get("_anoms") or []}
     missing = [i for i in al.get("anomaly_ids") or [] if i not in have]
     if missing:
@@ -116,16 +110,16 @@ def grade_alert(es: ES, cfg: dict, al: dict, now: datetime) -> None:
     if acfg.get("deploy_grace", True):
         try:
             from sources.base import is_backend
+            since = AL._ts(al["started_at"]) - timedelta(minutes=opts.deploy_grace)
             if not is_backend(es):
-                dep = deploy_at(es, al["service"], AL._ts(al["started_at"]) - timedelta(minutes=opts.deploy_grace), now,
-                                acfg.get("deploy_index", "metrics-apm.transaction.1m-*"), acfg.get("version_field", "service.version"))
+                dep = pg.change_at(es, cfg, al["service"], since, now)
         except Exception as e:  # noqa: BLE001
             print(f"  查不到 {al['service']} 的換版時間（{type(e).__name__}）")
-    golden = [a for a in own if SEV.signal_class(a.get("series")) not in ("traffic", "other")]
+    golden = [a for a in own if SEV.signal_class(a.get("series"), classes) not in ("traffic", "other")]
     g = SEV.grade([a.get("series") for a in own], [AL._ts(a["@timestamp"]) for a in own],
                   members=len({(a.get("series"), AL.route_of(a.get("keys") or {})) for a in golden}),
-                  rule_critical=any(a.get("severity") == "critical" and a.get("level") in ("rule", "peer", "quality") for a in own),
-                  now=now, deploy_at=dep, opts=opts)
+                  rule_critical=any(a.get("severity") == "critical" and a.get("level") in critical_levels for a in own),
+                  now=now, deploy_at=dep, opts=opts, classes=classes)
     if g["severity"] != al.get("severity"):
         al["_upgraded"] = AL.SEVERITY.get(g["severity"], 1) > AL.SEVERITY.get(al.get("severity") or "warning", 1) and not al.get("_new")
     al["severity"], al["severity_why"] = g["severity"], g["why"]
@@ -143,23 +137,6 @@ def _done_ids(es: ES, since: datetime) -> set:
     body = {"size": 10000, "_source": ["anomaly_ids"], "query": {"bool": {"filter": [
         {"term": {"status": "resolved"}}, {"range": {"resolved_at": {"gte": since.isoformat()}}}]}}}
     return {i for h in es.search(ALERT_INDEX, body)["hits"]["hits"] for i in h["_source"].get("anomaly_ids") or []}
-
-
-def call_edges(es: ES, cfg: dict, services: set[str], start: datetime, end: datetime, per: int = 100) -> set[tuple[str, str]]:
-    """這段時間 trace 裡這幾個服務之間誰呼叫誰：{(上游, 下游)}。
-    每個服務取最近 per 個收到的請求、整個 trace 讀回來（含其他服務的 span），用根因分析同一套 topology 算邊
-    （父 span 的服務 ≠ 子 span 的服務 → 父呼叫子）；只留兩端都在 services 裡的。少於 2 個服務、沒有 trace 都回空集合。"""
-    if len(services) < 2:
-        return set()
-    ix, pad = cfg["indices"]["traces"], timedelta(minutes=5)
-    ids: list[str] = []
-    for s in sorted(services):
-        ids += E.service_trace_ids(es, ix, s, start, end, per)
-    ids = list(dict.fromkeys(ids))
-    if not ids:
-        return set()
-    edges = A.topology(T.group_traces(T.spans_of(es, ix, ids, start - pad, end + pad)))
-    return {(e.caller, e.callee) for e in edges if e.caller in services and e.callee in services and e.caller != e.callee}
 
 
 def _incident_doc(al: dict, doc: dict, findings: dict | None) -> dict:
@@ -289,16 +266,15 @@ def run(cfg: dict, args, investigate) -> int:
     oldest = min([datetime.fromisoformat(str(a["updated_at"]).replace("Z", "+00:00")) for a in open_alerts], default=now)
     start = min(now - lookback, oldest - close_after)
     anoms = _anomalies(es, cfg["indices"]["anomalies"], start, now)
-    calls: set[tuple[str, str]] = set()
+    # 跨對象（一層）要不要併、依什麼併，由 plugin 決定（IT：trace 的呼叫關係；工廠：履歷的前後站；只有指標：不併）。
+    # 查失敗只是這一輪不併跨對象，不擋告警
+    chain = plugin.Chain()
     if acfg.get("chain", True):
-        # 跨服務（一層）：這段時間 trace 裡「誰呼叫誰」，只看有件開著、或這次有異常的服務。查失敗只是這一輪不併跨服務，不擋告警
-        svcs = {al["service"] for al in open_alerts if al.get("category") == "service"}
-        svcs |= {ent[1] for ent in map(AL.entity_of, anoms) if ent[0] == "service"}
         try:
-            calls = call_edges(es, cfg, svcs, start, now, int(acfg.get("chain_sample", 100)))
-        except Exception as e:
-            print(f"  呼叫關係查不到（{type(e).__name__}: {str(e)[:80]}），這一輪不併跨服務")
-    alerts = AL.merge(open_alerts, anoms, now, close_after, _done_ids(es, start - close_after), calls)
+            chain = plugin.current().chain(es, cfg, anoms, open_alerts, start, now)
+        except Exception as e:  # noqa: BLE001
+            print(f"  跨對象的關聯查不到（{type(e).__name__}: {str(e)[:80]}），這一輪不併跨對象")
+    alerts = AL.merge(open_alerts, anoms, now, close_after, _done_ids(es, start - close_after), chain.calls, chain.links)
     docs, incidents, tags, new, resolved = [], [], [], 0, 0
     for al in alerts:
         al["dept"], al["group"] = AL.owner(al) if al.get("_anoms") else (al.get("dept"), al.get("group") or "unassigned")
@@ -310,8 +286,10 @@ def run(cfg: dict, args, investigate) -> int:
             # 新的一件跑一次根因分析：時間是這件的開始到最後一筆異常再往後一個 interval；只有一支 API 時只查那支
             # （連帶進來的上游的 API 不算：根因分析以這件的服務＝下游跑）
             route = AL.rca_route(al)
+            # rca_lead：根因分析的窗往前多看（工廠：ML 在 run 結束才報，出事的 run 是 started_at 之前就開始的；IT 是 0）
             try:
-                report, findings = investigate(cfg, Namespace(service=al["service"], route=route, start=AL._ts(al["started_at"]).isoformat(),
+                report, findings = investigate(cfg, Namespace(service=al["service"], route=route,
+                                                              start=(AL._ts(al["started_at"]) - _dur(acfg.get("rca_lead", "0s"))).isoformat(),
                                                               end=(AL._ts(al["updated_at"]) + interval).isoformat(), at=None, window=None))
             except Exception as e:   # 根因分析失敗不擋這一件
                 report, findings = f"根因分析失敗：{e}", None

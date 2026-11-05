@@ -1,0 +1,77 @@
+"""paths-merge（工廠 plugin 加的 detector 子命令）：MES 進出站＋S6F11 → 一個 lot 一筆（lot-paths-*；plugins/factory/paths.py）。
+排程器每 5 分鐘跑：最近 --window（預設 1 天）內有進站或出站的 lot 全部重合成一次、整份覆蓋（_id = lot id），
+所以晚到的站、剛出站的時間都會補上，重跑不重複。來源是 ES 時直接查索引；設定檔有 source: file 時走 sources 的 Backend（離線跑假資料），結果寫進 store。"""
+from __future__ import annotations
+
+import pandas as pd
+
+from core.es import ES, get_field
+from detector.cmd_ingest import read_rows
+from detector.common import _now
+from sources import open_backend
+from sources.base import is_backend
+
+from . import paths as P
+
+
+def _lot_ids(rows: list[dict], lot_field: str) -> set[str]:
+    return {str(v) for r in rows if (v := get_field(r, lot_field)) not in (None, "")}
+
+
+def _rows_of_lots(es, inp: dict, lot_field: str, lots: set[str], start: pd.Timestamp, end: pd.Timestamp) -> list[dict]:
+    """這些 lot 的全部列（含 window 之前的站：一個 lot 的履歷要完整）。lots 很多時分批 terms 查。"""
+    if not lots:
+        return []
+    if is_backend(es) and not hasattr(es, "es"):
+        rows = read_rows(es, inp, start - pd.Timedelta(days=60), end)
+        return [r for r in rows if str(get_field(r, lot_field) or "") in lots]
+    raw = es.es if hasattr(es, "es") else es
+    out, ids = [], sorted(lots)
+    tf = inp.get("time_field", "@timestamp")
+    for i in range(0, len(ids), 1000):
+        body = {"size": 10000, "query": {"bool": {"filter": [{"terms": {lot_field: ids[i:i + 1000]}}]}}, "sort": [{tf: "asc"}, {"_doc": "asc"}]}
+        hits = raw.req("POST", f"/{inp['index']}/_search?ignore_unavailable=true&allow_no_indices=true", body).get("hits", {}).get("hits", [])
+        out += [h["_source"] for h in hits]
+    return out
+
+
+def run(es, cfg: dict, now: pd.Timestamp, window: pd.Timedelta) -> int:
+    """[now − window, now) 有動的 lot 全部重合成。回傳合了幾個 lot。"""
+    mes, ev = cfg["mes"], cfg.get("events") or {}
+    mf = mes["fields"]
+    start = now - window
+    # MES 列的時間欄位：進站時間（出站晚到的用 end 欄位也查一次）
+    recent = read_rows(es, {**mes, "time_field": mf["start"]}, start, now)
+    if mf.get("end"):
+        recent += read_rows(es, {**mes, "time_field": mf["end"]}, start, now)
+    lots = _lot_ids(recent, mf["lot"])
+    if not lots:
+        return 0
+    steps = _rows_of_lots(es, {**mes, "time_field": mf["start"]}, mf["lot"], lots, start, now)
+    events = _rows_of_lots(es, {**ev, "time_field": ev["fields"]["start"]}, ev["fields"]["lot"], lots, start, now) if ev else []
+    docs = P.build_docs(steps, events, cfg, now.to_pydatetime())
+    if not is_backend(es) or hasattr(es, "es"):
+        raw = es.es if hasattr(es, "es") else es
+        try:
+            raw.req("PUT", f"/_index_template/{P.PATHS_PREFIX}", P.PATHS_TEMPLATE)
+        except Exception as e:  # noqa: BLE001  沒有 manage_index_templates 權限：template 要請 ES 管理員放（configs/factory/README.md）
+            print(f"  放不了 index template {P.PATHS_PREFIX}（{type(e).__name__}）；若索引還沒建，nested 查詢會失敗")
+    for index, batch in docs.items():
+        es.bulk_index(index, batch)
+    return sum(len(b) for b in docs.values())
+
+
+def add_parser(sub) -> None:
+    pm = sub.add_parser("paths-merge", help="工廠：MES 進出站＋S6F11 機台事件 → 一個 lot 一筆履歷 lot-paths-*（plugins/factory/paths.py）")
+    pm.add_argument("--config", required=True, help="configs/factory/paths.yaml")
+    pm.add_argument("--window", default="1d", help="最近多久有進站／出站的 lot 重合成（預設 1d）")
+    pm.add_argument("--at", help="拿某個時間點當成現在")
+
+
+def cmd_paths_merge(cfg: dict, args) -> int:
+    es = open_backend(cfg, ES)
+    now = _now(args.at)
+    n = run(es, cfg, now, pd.Timedelta(args.window))
+    tz = cfg.get("timezone", "Asia/Taipei")
+    print(f"{now.tz_convert(tz):%m-%d %H:%M}：paths-merge 最近 {args.window} 有動的 lot，合了 {n} 個")
+    return 0

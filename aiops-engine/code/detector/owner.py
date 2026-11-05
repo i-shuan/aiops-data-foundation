@@ -9,16 +9,15 @@ APM 是 agent 設的 labels.dept、labels.group）；異常算出來寫回 aiops
 """
 from __future__ import annotations
 
-from core import source
+from core import plugin, source
 from core.version import ENGINE_VERSION
 from .es import ANOMALY_INDEX
 
 OWNER_DAYS = 2
 UNASSIGNED = "unassigned"
 
-# 異常的 keys 裡，哪些欄位是 namespace、哪些是服務（baseline、規則、peer、quality、trace 的寫法都不一樣）
+# 異常的 keys 裡，哪些欄位是 namespace；哪些是「對象」（服務／機台）由 plugin 決定（core/plugin.py 的 entity_keys）
 NS_KEYS = ("resource.attributes.k8s.namespace.name", "k8s.namespace.name", "namespace", "kubernetes.namespace")
-SVC_KEYS = ("resource.attributes.service.name", "service", "entry.service", "service.name", "caller", "callee")
 
 
 def _agg(field: str, f: dict) -> dict:
@@ -38,15 +37,16 @@ def owners_from_agg(res: dict) -> dict:
 
 def load_owners(es, days: int = OWNER_DAYS) -> dict:
     f = source.profile("owner")
-    body = {"size": 0, "query": {"range": {"@timestamp": {"gte": f"now-{days}d"}}},
-            "aggs": {"ns": _agg(f["namespace"], f), "svc": _agg(f["service"], f)}}
+    # static：主檔（工廠的 eqp-master）沒有時間欄位，整份都算
+    query = {"match_all": {}} if f.get("static") else {"range": {"@timestamp": {"gte": f"now-{days}d"}}}
+    body = {"size": 0, "query": query, "aggs": {"ns": _agg(f["namespace"], f), "svc": _agg(f["service"], f)}}
     res = es.req("POST", f"/{f['index']}/_search?ignore_unavailable=true&allow_no_indices=true", body)
     return owners_from_agg(res)
 
 
 def owner_of(keys: dict, owners: dict) -> tuple[str | None, str]:
     """(dept, group)。namespace 優先（dept 是 namespace 的 label），其次服務；找不到 → (None, unassigned)。"""
-    for kind, fields in (("ns", NS_KEYS), ("svc", SVC_KEYS)):
+    for kind, fields in (("ns", NS_KEYS), ("svc", plugin.current().entity_keys)):
         for f in fields:
             v = (keys or {}).get(f)
             if v is not None and (kind, v) in owners:

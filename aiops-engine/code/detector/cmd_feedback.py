@@ -61,14 +61,15 @@ def _anomaly_details(es, ids: list[str]) -> list[dict]:
 
 
 def _deploy_before(es, fps: list[dict], grace_min: int = 10):
-    """這些誤報的服務在它們之前 grace_min 分鐘內有沒有換版（investigator.cmd_alert.deploy_at）；查不到就 None。"""
-    svc = next((((f.get("keys") or {}).get("service")) for f in fps if (f.get("keys") or {}).get("service")), None)
+    """這些誤報的對象在它們之前 grace_min 分鐘內有沒有換版（plugin 的 change_at：IT 看版號、工廠看 recipe 變更）；查不到就 None。"""
+    from core import plugin
+    svc = next((v for f in fps for k in plugin.current().entity_keys if (v := (f.get("keys") or {}).get(k))), None)
     ats = [pd.Timestamp(f["at"]) for f in fps if f.get("at")]
     if not svc or not ats:
         return None
     try:
-        from investigator.cmd_alert import deploy_at
-        return deploy_at(es, svc, (min(ats) - pd.Timedelta(minutes=grace_min)).to_pydatetime(), (max(ats) + pd.Timedelta(minutes=1)).to_pydatetime())
+        return plugin.current().change_at(es, {}, str(svc), (min(ats) - pd.Timedelta(minutes=grace_min)).to_pydatetime(),
+                                          (max(ats) + pd.Timedelta(minutes=1)).to_pydatetime())
     except Exception:  # noqa: BLE001  沒有 service.version、來源不是 ES：當作沒換版
         return None
 
@@ -83,11 +84,64 @@ def _anomalies_of(es, incidents: list[dict]) -> dict[str, list[dict]]:
     return {i["id"]: [src[a] for a in (i.get("anomaly_ids") or []) if a in src] for i in incidents}
 
 
+EXPORT_COLUMNS = ("feedback_at", "verdict", "fp_reason", "by", "note", "alert_id", "anomaly_id", "anomaly_at", "series", "value", "median", "z",
+                  "level", "status", "severity", "source", "source_id", "keys")
+
+
+def export_rows(es, days: int, now) -> list[dict]:
+    """最近 days 天的每筆回饋＋它那筆異常的內容（值、分數、來源識別碼、對象）：一列一筆，給 ML 團隊當標記重訓
+    （工廠版 engine 調不到 ML 的門檻，誤報只能回給模型那邊；docs/pdca/meta/2026-11-factory-engine.md）。"""
+    hits = es.req("POST", f"/{F.FEEDBACK_INDEX}/_search?ignore_unavailable=true", {
+        "size": 10000, "sort": [{"@timestamp": "asc"}],
+        "query": {"range": {"@timestamp": {"gte": (now - pd.Timedelta(days=days)).isoformat()}}}}).get("hits", {}).get("hits", [])
+    fbs = [h["_source"] for h in hits]
+    ids = sorted({f["anomaly_id"] for f in fbs if f.get("anomaly_id")})
+    anoms: dict[str, dict] = {}
+    for i in range(0, len(ids), 1000):
+        got = es.req("POST", f"/{ANOMALY_INDEX}/_mget?_source_includes=@timestamp,series,keys,value,median,z,level,status,severity,source,source_id",
+                     {"ids": ids[i:i + 1000]}).get("docs", [])
+        anoms.update({g["_id"]: g["_source"] for g in got if g.get("found")})
+    out = []
+    for f in fbs:
+        a = anoms.get(f.get("anomaly_id") or "", {})
+        out.append({"feedback_at": f.get("@timestamp"), "verdict": f.get("verdict"), "fp_reason": f.get("fp_reason"), "by": f.get("by"),
+                    "note": f.get("note"), "alert_id": f.get("alert_id"), "anomaly_id": f.get("anomaly_id"),
+                    "anomaly_at": a.get("@timestamp") or f.get("anomaly_at"), "series": a.get("series") or f.get("series"),
+                    "value": a.get("value"), "median": a.get("median"), "z": a.get("z"), "level": a.get("level"), "status": a.get("status"),
+                    "severity": a.get("severity"), "source": a.get("source"), "source_id": a.get("source_id"),
+                    "keys": a.get("keys") or f.get("keys") or {}})
+    return out
+
+
+def write_export(rows: list[dict], out: str | None) -> str:
+    """寫 .ndjson（keys 保留巢狀）或 .csv（keys 攤成 key.<名> 欄）；out 空的印到 stdout（NDJSON）。回傳寫到哪。"""
+    import sys
+    if out and out.lower().endswith(".csv"):
+        flat = [{**{k: v for k, v in r.items() if k != "keys"}, **{f"key.{k}": v for k, v in (r.get("keys") or {}).items()}} for r in rows]
+        pd.DataFrame(flat).to_csv(out, index=False, encoding="utf-8-sig")
+        return out
+    lines = [json.dumps(r, ensure_ascii=False, default=str) for r in rows]
+    if out:
+        with open(out, "w", encoding="utf-8") as f:
+            f.write("\n".join(lines) + ("\n" if lines else ""))
+        return out
+    sys.stdout.write("\n".join(lines) + ("\n" if lines else ""))
+    return "stdout"
+
+
 def cmd_feedback(cfg: dict, args) -> int:
     es = ES()
     es.ensure_index(F.FEEDBACK_INDEX, F.FEEDBACK_MAPPING)
     now = _now(None)
     days = args.days
+    if args.action == "export":
+        rows = export_rows(es, days, now)
+        where = write_export(rows, getattr(args, "out", None))
+        if where != "stdout":
+            from collections import Counter
+            c = Counter(r["verdict"] for r in rows)
+            print(f"匯出 {len(rows)} 筆回饋（最近 {days} 天）→ {where}；" + "、".join(f"{k} {v}" for k, v in sorted(c.items())))
+        return 0
     if args.action == "pending":
         a, f = _anomaly_rows(es, days, now), _feedback_rows(es, days, now)
         done = set(f["anomaly_id"].dropna())

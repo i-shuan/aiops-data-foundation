@@ -3,7 +3,7 @@
 #   python3 grafana/code/build-official-values.py
 #
 # 部署（Secret grafana-env 要先有：ES_URL、GRAFANA_ES_API_KEY、NOTIFY_IT_URL、NOTIFY_IMC_URL、NOTIFY_PLATFORM_URL、GF_SECURITY_ADMIN_USER、GF_SECURITY_ADMIN_PASSWORD；
-# 或用 .gitlab-ci.yml 的 grafana job 建）：
+# 或部署時用 --set secretData.… 建）：
 #   helm repo add grafana-community https://grafana-community.github.io/helm-charts
 #   helm upgrade --install grafana grafana-community/grafana -n grafana -f grafana/values-official.yaml \
 #     --set image.registry=<nexus> --set image.tag=13.0.7

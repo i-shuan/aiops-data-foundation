@@ -6,7 +6,7 @@ AIOps 把異常合成「一件事」寫進 `aiops-alerts`（`python3 -m investig
 
 | 檔案 | 內容 | 要改的 |
 |---|---|---|
-| `datasource.yaml` | ES data source，只讀 `aiops-alerts`、`aiops-anomalies`、`aiops-tuning`、`aiops-feedback` | `ES_URL`、`GRAFANA_ES_API_KEY`（`elasticsearch/code/scripts/elasticsearch-setup.sh` 發的「Grafana 唯讀 key」） |
+| `datasource.yaml` | ES data source，只讀 `aiops-alerts`、`aiops-anomalies`、`aiops-tuning`、`aiops-feedback` | `ES_URL`、`GRAFANA_ES_API_KEY`（`elasticsearch/kibana-dev-tools.txt` 第 4 段發的 Grafana 唯讀 key） |
 | `dashboards/aiops-rca.json`、`aiops-learning.json` | 事故與根因（選一件：LLM 摘要、相似事故、報告全文、這件的異常）；學習迴圈（回饋 → 建議 → 回測 → 核准後的筆數） | 一般不用改 |
 | `alert-rules.yaml` | (1) 每一件 `status: open` 的事件一則告警；labels 帶 `alert_id`、`service`、`dept`、`group`、`severity`，annotation 帶摘要與報告連結；(2) `aiops-heartbeat`：10 分鐘沒有心跳 → 「AIOps 停了」送平台；(3) `aiops-baseline-missing`：`detect` 寫的 `detect-status` 的 `missing_baseline > 0` 持續 5 分鐘 → 「基準線不見」送平台 | 一般不用改 |
 | `contact-points.yaml` | 各部門的通知管道（範例用 webhook） | 換成你們的 Teams、Email、LINE… |

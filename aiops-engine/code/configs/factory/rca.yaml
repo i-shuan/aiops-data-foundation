@@ -1,0 +1,50 @@
+# 工廠的事件整合、根因分析設定（investigator alert／investigate）。寫法跟 configs/apm/rca.yaml 一樣，差在索引與時間尺度；
+# 「對象是機台、API 是 recipe、前後站從履歷找、recipe 變更當換版、嚴重度依參數家族」是 plugin 決定的（plugins/factory/），
+# 跑之前 AIOPS_PLUGIN=factory（core/plugin.py）。plugin 給的預設想改才寫在這裡：alerts.critical_levels、alerts.severity.classes、
+# alerts.deploy_index／deploy_entity_field／deploy_time_field／deploy_filter（recipe 變更紀錄在哪）。
+indices:
+  anomalies: aiops-anomalies
+  traces: lot-paths-*                                # detector paths-merge 合成的履歷
+  logs: eqp-logs-*                                   # 機台 alarm（S5F1）、PM／維修紀錄、recipe 變更，合在一個索引（欄位見 plugins/factory/__init__.py）
+timezone: Asia/Taipei
+compare_with: 7d                                     # 「平常」拿一週前同一段的 lot 比
+ref_gap: 2h
+sample: 6                                            # 一站一小時只有幾個 lot：取最慢的 6 個（IT 是 200）；壞 lot 占比才看得出 chamber 的集中
+interval: 30m
+entry_lag: 12h                                       # lot 開始到到這一站最多幾小時（履歷一個 lot 一筆、文件時間是 lot 開始；挑「幾點在這一站的 lot」要往前框）
+
+trend: {windows: 6, window: 2h}                      # 出事前 12 小時每 2 小時的站耗時 p95
+commonality:
+  resource: [chamber, recipe.version]                # 壞 lot 的共同點：都在同一個 chamber？同一版 recipe？
+  attrs: [material_lot, operator, carrier_id]
+  min_share: 0.6
+  min_lift: 1.5                                      # 兩個 chamber 的機台，壞的全在一個 chamber 也只有平常的 2 倍；放寬到 1.5
+  min_traces: 5                                      # 至少幾個 lot 才算共同點（IT 預設 5）
+changes:                                             # 報告多一段「事故前的變更」：出事前 lookback 內這幾台的 PM、recipe 變更（logs 索引裡 query 符合的）
+  lookback: 12h
+  query: {terms: {event_type: [pm, recipe_change]}}
+
+alerts:
+  close_after: 2h                                    # 一站 30～60 分鐘；兩個 lot 之間隔 2 小時內算同一件
+  lookback: 8h
+  rca: true
+  rca_lead: 1h                                       # 根因分析的窗從第一筆異常往前 1 小時：ML 是 run 結束才報，出事的 run 早就開始了
+  rca_retry: true
+  rca_retry_after: 5m
+  rca_retry_max: 5
+  similar: true
+  llm: true
+  llm_provider: template                             # 廠內多半不能用外部 LLM：固定句型，不叫模型
+  chain: true                                        # 前後站從履歷找（plugins/factory/chain.py）；false 就不併跨機台
+  paths_lookback: 3d                                 # 履歷往前找幾天的 lot
+  # critical_levels、換版的索引（deploy_index eqp-logs-*、deploy_entity_field equipment_id、deploy_filter event_type recipe_change）、
+  # severity.classes（參數家族）都用 plugin 的預設（plugins/factory/__init__.py）；要改才寫
+  severity:
+    window: 120                                      # 滑動窗 2 小時（IT 是 15 分鐘）：工廠一站幾十分鐘
+    min_coverage: 0.3
+    min_duration: 60
+    min_span_critical: 30
+    min_points_per_class: 2
+    deploy_grace: 30                                 # recipe 變更後 30 分鐘內的異常上限 warning
+  # feedback_url: http://aiops-feedback.aiops.svc:8080/feedback?alert={alert_id}
+  # report_url: http://aiops-feedback.aiops.svc:8080/report?alert={alert_id}
