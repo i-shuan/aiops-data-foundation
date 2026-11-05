@@ -69,7 +69,7 @@ class Plugin(Observability):
 
 - `source_profile()` 要回 `{"owner": {...}, "log": {...}}`（欄位見 [plugins/observability/__init__.py](observability/__init__.py) 的 `PROFILES`）；`domain()` 要有 `entity`、`unit`、`trace`、`new_value_hint`、`categories`、`fp_reasons`、`checked`，`categories`、`fp_reasons` 最後一項是 `other`。
 - `sections` 只能從 [investigator/report.py](../investigator/report.py) 的 `SECTIONS` 挑；要 trace 的段在沒有 trace 時自己寫一行略過，不用你管。
-- `commands()` 回 `{"子命令名": (加 parser 的函式, 處理函式 (cfg, args) -> int)}`。
+- `commands()` 回 `{"子命令名": register}`，`register(app)` 用 `app.command("子命令名", help=…)` 掛一個 typer 函式；函式自己 `load_config(config, kind)`、組 `argparse.Namespace` 再呼叫處理函式 `(cfg, args) -> int`（寫法見 [plugins/factory/cmd_paths.py](factory/cmd_paths.py)）。內建子命令也是同一種形狀。
 - 單元測試：`AIOPS_PLUGIN` 用 `mock.patch.dict(os.environ, …)` 包，`core.plugin.current()` 看到環境變數變了會自己換；寫法見 [tests/test_plugin.py](../tests/test_plugin.py)。
 
 ## 怎麼驗

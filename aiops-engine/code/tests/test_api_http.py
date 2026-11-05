@@ -1,13 +1,13 @@
-"""回饋網頁的 HTTP 層（api.__main__）：ES 掛了要回 503 和說明，不能斷線（docs/pdca/phase5-learning-loop/2026-10-fix-feedback-ux.md 7）。"""
+"""回饋網頁的 HTTP 層（api.server，FastAPI）：ES 掛了要回 503 和說明，不能斷線（docs/pdca/phase5-learning-loop/2026-10-fix-feedback-ux.md 7）；
+換成 FastAPI 之後路徑、狀態碼、回應的 bytes、Content-Type 要跟 http.server 版一樣（Grafana 直接打）。TestClient，不開真的 socket。"""
 import json
-import threading
 import unittest
-import urllib.error
-import urllib.request
-from http.server import ThreadingHTTPServer
+import urllib.parse
 from unittest import mock
 
-from api import __main__ as W
+from fastapi.testclient import TestClient
+
+from api import server as W
 from api import app as A
 from tests.test_api import ALERT, FakeES
 
@@ -21,22 +21,12 @@ class BrokenES(FakeES):
 class Http(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        W.Handler.es = BrokenES()
-        cls.srv = ThreadingHTTPServer(("127.0.0.1", 0), W.Handler)
-        cls.port = cls.srv.server_address[1]
-        threading.Thread(target=cls.srv.serve_forever, daemon=True).start()
-
-    @classmethod
-    def tearDownClass(cls):
-        cls.srv.shutdown()
+        W.set_es(BrokenES())
+        cls.c = TestClient(W.app)
 
     def post(self, path, body, ctype):
-        req = urllib.request.Request(f"http://127.0.0.1:{self.port}{path}", data=body, headers={"Content-Type": ctype})
-        try:
-            with urllib.request.urlopen(req, timeout=10) as r:
-                return r.status, r.read().decode()
-        except urllib.error.HTTPError as e:
-            return e.code, e.read().decode()
+        r = self.c.post(path, content=body, headers={"Content-Type": ctype})
+        return r.status_code, r.text
 
     def test_api_returns_503_with_message(self):
         with mock.patch.object(A, "_ready", set()):
@@ -57,13 +47,13 @@ class Http(unittest.TestCase):
         self.assertEqual(st, 400)
 
     def test_health(self):
-        with urllib.request.urlopen(f"http://127.0.0.1:{self.port}/health", timeout=10) as r:
-            self.assertEqual(r.read(), b"ok")
+        r = self.c.get("/health")
+        self.assertEqual((r.status_code, r.content, r.headers["content-type"]), (200, b"ok", "text/plain"))     # 純 text/plain，沒被補 charset
 
     def test_missed_form_is_flat_empty_json(self):
-        with urllib.request.urlopen(f"http://127.0.0.1:{self.port}/api/missed-form", timeout=10) as r:
-            self.assertEqual(r.status, 200)
-            self.assertEqual(json.loads(r.read()), {k: "" for k in A.MISSED_FIELDS})
+        r = self.c.get("/api/missed-form")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(json.loads(r.content), {k: "" for k in A.MISSED_FIELDS})
 
     def test_missed_bad_series_is_400_good_is_200(self):
         st, body = self.post("/api/missed", json.dumps({"series": "nope", "service": "mes-api", "at": "2026-10-25 10:00"}).encode(), "application/json")
@@ -73,13 +63,70 @@ class Http(unittest.TestCase):
             st, body = self.post("/api/missed", json.dumps({"series": "http.latency_p95_s", "service": "mes-api", "at": "2026-10-25 10:00", "by": "amy"}).encode(), "application/json")
         self.assertEqual(st, 200)
         self.assertEqual(json.loads(body)["verdict"], "missed")
-        self.assertTrue(any(d.get("verdict") == "missed" for d in W.Handler.es.written[A.FEEDBACK_INDEX].values()))
+        self.assertTrue(any(d.get("verdict") == "missed" for d in W.state.es.written[A.FEEDBACK_INDEX].values()))
 
     def test_missed_es_down_is_503_with_message(self):
-        with mock.patch.object(W.Handler.es, "req", side_effect=RuntimeError("PUT → 503")), mock.patch.object(A, "_ready", {id(W.Handler.es)}):
+        with mock.patch.object(W.state.es, "req", side_effect=RuntimeError("PUT → 503")), mock.patch.object(A, "_ready", {id(W.state.es)}):
             st, body = self.post("/api/missed", json.dumps({"series": "http.latency_p95_s", "service": "mes-api", "at": "2026-10-25 10:00"}).encode(), "application/json")
         self.assertEqual(st, 503)
         self.assertIn("沒有存成功", json.loads(body)["error"])
+
+
+class Wire(unittest.TestCase):
+    """跟 http.server 版一樣的線上格式：JSON 是 A.to_json 的 bytes 原樣、表單的 checked 是 list、沒有的路／方法不對回 404 not found。"""
+    @classmethod
+    def setUpClass(cls):
+        cls.c = TestClient(W.app)
+
+    def setUp(self):
+        self.es = FakeES()
+        W.set_es(self.es)
+
+    def test_json_bytes_are_to_json_verbatim(self):
+        r = self.c.get(f"/api/alert?alert={ALERT['alert_id']}")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.headers["content-type"], "application/json")
+        self.assertEqual(r.content, A.to_json(A.form_json(A.form_data(ALERT))))     # ensure_ascii=False：中文不會被轉成 \uXXXX
+        self.assertIn("變慢".encode(), r.content)
+        r = self.c.get("/api/alert?alert=nope")
+        self.assertEqual((r.status_code, r.content), (404, A.to_json({"error": "找不到告警 nope"})))
+
+    def test_form_checked_reaches_submit_as_list(self):
+        data = [("alert_id", ALERT["alert_id"]), ("verdict", "true_positive"), ("by", "amy"), ("checked", "Oracle AWR / 慢查詢"), ("checked", "K8s events")]
+        with mock.patch.object(A, "submit", return_value={"feedback": 2, "incident": "confirmed", "by": "amy"}) as sub:
+            r = self.c.post("/feedback", content=urllib.parse.urlencode(data).encode(), headers={"Content-Type": "application/x-www-form-urlencoded"})
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.headers["content-type"], "text/html; charset=utf-8")
+        form = sub.call_args.args[1]
+        self.assertEqual(form["checked"], ["Oracle AWR / 慢查詢", "K8s events"])
+        self.assertEqual((form["verdict"], form["by"]), ("true_positive", "amy"))     # 其他欄位還是單一字串
+        self.assertIn("已記錄", r.text)
+
+    def test_html_pages_content_type(self):
+        for path in (f"/feedback?alert={ALERT['alert_id']}", f"/report?alert={ALERT['alert_id']}", "/missed"):
+            r = self.c.get(path)
+            self.assertEqual((r.status_code, r.headers["content-type"]), (200, "text/html; charset=utf-8"), path)
+        r = self.c.get("/feedback?alert=nope")
+        self.assertEqual((r.status_code, r.headers["content-type"], r.text), (404, "text/plain; charset=utf-8", "找不到告警 nope"))
+
+    def test_unknown_path_or_method_is_plain_404(self):
+        for method, path in (("GET", "/nope"), ("POST", "/nope"), ("GET", "/api/feedback"), ("POST", "/health"), ("GET", "/health/")):
+            r = self.c.request(method, path)
+            self.assertEqual((r.status_code, r.content, r.headers["content-type"]), (404, b"not found", "text/plain"), (method, path))
+        self.assertEqual(self.c.get("/docs").status_code, 404)     # 不開 FastAPI 的文件頁，路徑跟原本一樣
+
+    def test_options_preflight(self):
+        self.assertEqual(self.c.options("/api/feedback").status_code, 204)
+        self.assertEqual(self.c.options("/feedback").status_code, 404)
+
+    def test_anomalies_without_token_is_401(self):
+        with mock.patch.dict("os.environ", {"AIOPS_API_TOKEN": ""}):
+            r = self.c.post("/api/anomalies", content=b"{}", headers={"Content-Type": "application/json"})
+        self.assertEqual(r.status_code, 401)
+        self.assertEqual(json.loads(r.content)["error"], "伺服器沒設 AIOPS_API_TOKEN，這個端點關著")
+        with mock.patch.dict("os.environ", {"AIOPS_API_TOKEN": "s3cret"}):
+            r = self.c.post("/api/anomalies", content=b"{}", headers={"Content-Type": "application/json", "Authorization": "Bearer nope"})
+        self.assertEqual((r.status_code, json.loads(r.content)["error"]), (401, "token 不對（Authorization: Bearer <AIOPS_API_TOKEN>）"))
 
 
 if __name__ == "__main__":

@@ -73,5 +73,5 @@ class Plugin(Base):
                          since, now, acfg.get("deploy_time_field", "@timestamp"), acfg.get("deploy_filter", {"term": {"event_type": "recipe_change"}}))
 
     def commands(self) -> dict:
-        from .cmd_paths import add_parser, cmd_paths_merge
-        return {"paths-merge": (add_parser, cmd_paths_merge)}
+        from .cmd_paths import register
+        return {"paths-merge": register}
