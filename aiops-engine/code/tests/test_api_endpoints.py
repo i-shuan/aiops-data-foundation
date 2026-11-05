@@ -237,7 +237,9 @@ class HtmlPages(unittest.TestCase):
         self.assertEqual(code, 200)
         self.assertIn('name="series"', page)
         self.assertIn("http.latency_p95_s", page)
-        code, _, page = self.post_form("/missed", {"series": "http.error_rate", "service": "mes-api", "at": "2026-11-05T10:05", "by": "amy"})
+        self.assertIn('type="text" name="at"', page)                           # 文字欄、預填現在（不用 datetime-local）
+        self.assertRegex(page, r'name="at" value="20\d\d-\d\d-\d\d \d\d:\d\d"')
+        code, _, page = self.post_form("/missed", {"series": "http.error_rate", "service": "mes-api", "at": "2026-11-05 10:05", "by": "amy"})
         self.assertEqual(code, 200, page)
         self.assertIn("已記錄漏報", page)
         (doc,) = self.es.written[A.FEEDBACK_INDEX].values()

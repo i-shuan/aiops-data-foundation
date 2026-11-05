@@ -36,13 +36,13 @@
 | 工廠版沒有履歷時的報告 | 同一件重跑後讀 `/report` | 修之前「根因分析失敗：'aggregations'」；修之後：異常、履歷段寫「沒有履歷，略過」、log、事故前變更、結論都出 |
 | 文件 | `tools/check-docs.py` | 0 問題 |
 
-- **沒測到的**：漏報網頁沒在叢集裡實際送一筆（單元測試有）；舊的瀏覽器對 `datetime-local` 的支援。
+- **另外**：給測試 Grafana 換上測試 ES 發的唯讀 key 後，`aiops-rca` 儀表板（事故清單、LLM 摘要、通知摘要、根因報告全文）有資料。
 
 ## Act：Check 後沒改善的、還沒解決的
 
 | 沒改善的 | 在什麼情況下發現的 | 影響 | 後續 |
 |---|---|---|---|
-| 內嵌要關掉 Grafana 的 HTML 消毒 | 使用者要內嵌；chart 加 `embedFeedback`（預設 false），開了設 `GF_PANELS_DISABLE_SANITIZE_HTML`；儀表板同時放 iframe 與連結，沒開時 iframe 被洗掉、只剩連結 | 開了以後所有文字面板都能放任意 HTML，有編輯權的人能塞東西 | 只在專給 AIOps、編輯權限收緊的 Grafana 開；測試 cluster 的 grafana-new 已開（使用者同意）：兩個 iframe 都顯示（回饋表單 548×1198、漏報表單），內容是 api 的網頁；**在 iframe 裡點按鈕、打字，瀏覽器自動化沒送進去**（api 沒收到 POST），沒判斷出是工具碰不到跨網域 iframe 還是頁面本身的問題，要人實際點一次確認 |
+| 內嵌要關掉 Grafana 的 HTML 消毒 | 使用者要內嵌；chart 加 `embedFeedback`（預設 false），開了設 `GF_PANELS_DISABLE_SANITIZE_HTML`；儀表板同時放 iframe 與連結，沒開時 iframe 被洗掉、只剩連結 | 開了以後所有文字面板都能放任意 HTML，有編輯權的人能塞東西 | 只在專給 AIOps、編輯權限收緊的 Grafana 開；測試 cluster 的 grafana-new 已開（使用者同意）。**內嵌送出驗過**：Grafana 裡內嵌的回饋頁按「重跑」→ api `POST /rca` 303、iframe 內綠色提示、worker 重跑；內嵌的漏報頁送出 → `POST /missed` 200、`aiops-feedback` 查得到 `verdict: missed`、`by: iframe-test`。先前「點不進去」是座標點到右邊的漏報框（純網頁對照組證實工具點得進跨網域 iframe）。漏報頁的時間欄原本是 `datetime-local`，在內嵌框裡打不進去、被「必填」擋下，改成文字欄預填現在時間 |
 | [⑦] 工廠版的 LLM 範本摘要寫「還沒有 trace 可以看」 | K8s 上看工廠版報告 | 用語不對（工廠應該是履歷）；報告本文是對的 | 範本跟著 plugin 的用語，另案 |
 | api 的網頁沒有登入 | 之前就有 | `by` 是自己填的名字 | 放內網；要鎖加 Ingress 驗證 |
 

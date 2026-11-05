@@ -257,6 +257,8 @@ def render_missed(done: dict | None = None, error: str | None = None, form: dict
     e = html.escape
     f = form or {}
     val = lambda k: e(str(f.get(k) or ""))
+    # 一般文字欄、預填現在（台北）：datetime-local 在舊瀏覽器、內嵌在 Grafana 的 iframe 裡不好填（實測自動化打不進去）；submit_missed 本來就吃這個格式
+    now_local = pd.Timestamp.now(tz=TIMEZONE).strftime("%Y-%m-%d %H:%M")
     msg = (f'<p class="ok">已記錄漏報：{e(done["series"])}／{e(done["service"])}（{e(done["by"])}）。謝謝，累積起來會提調降門檻或新規則的建議。</p>' if done
            else f'<p class="err">{e(error)}</p>' if error else "")
     return f"""<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><title>回報漏報</title>
@@ -269,7 +271,7 @@ button{{margin-top:16px;padding:10px 20px;font-size:16px}}.ok{{background:#e6f7e
 <form method="post" action="/missed">
 <label>哪條序列該報 <select name="series" required>{_opt([("", "—")] + [(s, s) for s in SERIES_NAMES], f.get("series"))}</select></label>
 <label>服務 <input type="text" name="service" value="{val('service')}" placeholder="service.name，例：mes-api" required></label>
-<label>什麼時候該報 <span class="hint">（台北時間，大概就好）</span><input type="datetime-local" name="at" value="{val('at')}" required></label>
+<label>什麼時候該報 <span class="hint">（台北時間，大概就好；格式 2026-11-05 10:00）</span><input type="text" name="at" value="{val('at') or e(now_local)}" placeholder="2026-11-05 10:00" required></label>
 <label>API 路徑 <span class="hint">（選填；http.* 序列可以縮到一支 API，例：/api/lots）</span><input type="text" name="route" value="{val('route')}"></label>
 <label>Pod <span class="hint">（選填）</span><input type="text" name="pod" value="{val('pod')}"></label>
 <label>你是 <input type="text" name="by" value="{val('by')}" placeholder="名字或工號" required></label>
