@@ -42,7 +42,7 @@
 
 | 沒改善的 | 在什麼情況下發現的 | 影響 | 後續 |
 |---|---|---|---|
-| 內嵌要關掉 Grafana 的 HTML 消毒 | 使用者要內嵌；chart 加 `embedFeedback`（預設 false），開了設 `GF_PANELS_DISABLE_SANITIZE_HTML`；儀表板同時放 iframe 與連結，沒開時 iframe 被洗掉、只剩連結 | 開了以後所有文字面板都能放任意 HTML，有編輯權的人能塞東西 | 只在專給 AIOps、編輯權限收緊的 Grafana 開；測試 cluster 還沒開（要使用者同意） |
+| 內嵌要關掉 Grafana 的 HTML 消毒 | 使用者要內嵌；chart 加 `embedFeedback`（預設 false），開了設 `GF_PANELS_DISABLE_SANITIZE_HTML`；儀表板同時放 iframe 與連結，沒開時 iframe 被洗掉、只剩連結 | 開了以後所有文字面板都能放任意 HTML，有編輯權的人能塞東西 | 只在專給 AIOps、編輯權限收緊的 Grafana 開；測試 cluster 的 grafana-new 已開（使用者同意）：兩個 iframe 都顯示（回饋表單 548×1198、漏報表單），內容是 api 的網頁；**在 iframe 裡點按鈕、打字，瀏覽器自動化沒送進去**（api 沒收到 POST），沒判斷出是工具碰不到跨網域 iframe 還是頁面本身的問題，要人實際點一次確認 |
 | [⑦] 工廠版的 LLM 範本摘要寫「還沒有 trace 可以看」 | K8s 上看工廠版報告 | 用語不對（工廠應該是履歷）；報告本文是對的 | 範本跟著 plugin 的用語，另案 |
 | api 的網頁沒有登入 | 之前就有 | `by` 是自己填的名字 | 放內網；要鎖加 Ingress 驗證 |
 
