@@ -5,18 +5,21 @@ jobs:
   - name: ingest
     stage: 1
     cron: "* * * * *"
+    queue: realtime
     timeout: 50
     args: [detector, ingest, --config, configs/factory/ingest.yaml, --window, 10m]
     why: ML 的異常跳點、FDC 鳴叫 → aiops-anomalies（最近 10 分鐘，重讀不重複）；設定跟 factory 共用
   - name: alert
     stage: 1
     cron: "* * * * *"
+    queue: alert
     timeout: 600
     args: [investigator, alert, --config, configs/metrics_only/rca.yaml]
     why: 同機台合成一件（不併跨機台）、嚴重度、根因分析（alarm 新樣式、事故前的 PM／recipe 變更）、分類、心跳
   - name: prune
     stage: 2
     cron: "30 3 * * *"
+    queue: batch
     timeout: 600
     args: [detector, prune, --config, configs/baseline/prune.yaml]
     why: aiops-* 沒有 ILM，超過保留天數的每天清一次

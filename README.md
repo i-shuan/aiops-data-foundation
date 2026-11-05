@@ -72,7 +72,7 @@ docs/
 ```
 elasticsearch/   kibana-dev-tools.txt（貼進 Kibana Dev Tools 的一份檔）
 grafana/         code/（規則、contact point、policy、儀表板、外掛說明）  helmchart/（Grafana＋initContainer 裝外掛＋provisioning）
-aiops-engine/    code/（Python、configs、Dockerfile）                  helmchart/（排程器＋回饋網頁一隻 pod）
+aiops-engine/    code/（Python、configs、Dockerfile）                  helmchart/（mode：一隻 pod，或 api＋beat＋worker＋redis）
 docs/  tools/
 ```
 
@@ -80,7 +80,7 @@ docs/  tools/
 |---|---|---|
 | `elasticsearch/` | ③ | 在公司 ES 上補的東西：一份貼進 Kibana Dev Tools 的檔（`traces-merged-*` 的 ILM 與 template、engine 與 Grafana 的 key、選用的 snapshot）。不部署 ES、不碰 APM 的索引 |
 | `grafana/` | ⑧ | 讀 `aiops-alerts` 依部門發通知、儀表板、回饋表單外掛 |
-| `aiops-engine/` | ④～⑨ | AIOps 分析核心：`core/`（ES、trace、LLM）、`detector/`（動態基準線學習、規則、回饋、回測、量化）、`investigator/`（根因分析、事件整合、相似事故）、`feedback_web/`（老師傅的回饋網頁）、`scheduler/`（定期工作的排程器）、`configs/`（`apm/` Elastic APM 版、`baseline/` `rca/` `schedule/` OTel 版） |
+| `aiops-engine/` | ④～⑨ | AIOps 分析核心：`core/`（ES、trace、LLM）、`detector/`（動態基準線學習、規則、回饋、回測、量化）、`investigator/`（根因分析、事件整合、相似事故）、`api/`（薄 API：推異常、重跑根因、回饋表單後端）、`scheduler/`（排程器／beat）、`tasks/`（佇列 worker）、`configs/`（`apm/` Elastic APM 版、`baseline/` `rca/` `schedule/` OTel 版） |
 | `docs/` | — | 設計文件、規劃、`docs/pdca/` 每一輪的紀錄 |
 
 Python 的執行位置在 `aiops-engine/code/`：`cd aiops-engine/code && python3 -m detector <指令>`、`python3 -m investigator investigate`。

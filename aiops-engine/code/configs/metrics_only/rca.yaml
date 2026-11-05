@@ -28,5 +28,5 @@ alerts:
     min_span_critical: 30
     min_points_per_class: 2
     deploy_grace: 30                                 # recipe 變更後 30 分鐘內的異常上限 warning
-  # feedback_url: http://aiops-feedback.aiops.svc:8080/feedback?alert={alert_id}
-  # report_url: http://aiops-feedback.aiops.svc:8080/report?alert={alert_id}
+  # feedback_url: http://aiops-api.aiops.svc:8080/feedback?alert={alert_id}
+  # report_url: http://aiops-api.aiops.svc:8080/report?alert={alert_id}

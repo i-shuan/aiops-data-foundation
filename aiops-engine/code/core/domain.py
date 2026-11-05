@@ -1,5 +1,5 @@
 """領域用語的門面：對象叫什麼（服務／機台）、一個單位叫什麼（請求／lot）、回饋表單的分類表、誤報原因、常查的地方。
-內容在 plugin 的 domain()（core/plugin.py；plugins/observability、plugins/factory）。報告、LLM 範本、feedback_web 都從這裡拿。
+內容在 plugin 的 domain()（core/plugin.py；plugins/observability、plugins/factory）。報告、LLM 範本、api 的回饋表單都從這裡拿。
 """
 from __future__ import annotations
 

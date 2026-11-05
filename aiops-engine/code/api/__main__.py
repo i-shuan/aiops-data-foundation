@@ -1,4 +1,4 @@
-"""HTTP 這一層：標準函式庫的 http.server，邏輯在 app.py。"""
+"""HTTP 這一層：標準函式庫的 http.server，邏輯在 app.py。端點清單在 __init__.py。"""
 from __future__ import annotations
 
 import json
@@ -8,15 +8,27 @@ import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
+import tasks
 from core.es import ES
 
 from . import app as A
 
 
 def _cors_origins() -> set[str]:
-    """FEEDBACK_CORS_ORIGIN：允許哪些網頁從瀏覽器打 /api/*（例如 Grafana 的網址 https://grafana.example.internal）；逗號分隔；不設就不開。
+    """API_CORS_ORIGIN：允許哪些網頁從瀏覽器打 /api/*（例如 Grafana 的網址 https://grafana.example.internal）；逗號分隔；不設就不開。
     Grafana 儀表板裡的表單（Business Forms 外掛）是從瀏覽器直接打這裡，跟 Grafana 不同網域，要開。"""
-    return {o.strip().rstrip("/") for o in os.environ.get("FEEDBACK_CORS_ORIGIN", "").split(",") if o.strip()}
+    return {o.strip().rstrip("/") for o in os.environ.get("API_CORS_ORIGIN", "").split(",") if o.strip()}
+
+
+def _authorized(headers) -> tuple[bool, str]:
+    """寫入類端點（/api/anomalies）要 Authorization: Bearer <AIOPS_API_TOKEN>。沒設 token 一律擋（不會因為忘了設就全開）。"""
+    token = os.environ.get("AIOPS_API_TOKEN", "")
+    if not token:
+        return False, "伺服器沒設 AIOPS_API_TOKEN，這個端點關著"
+    got = (headers.get("Authorization") or "").strip()
+    if got != f"Bearer {token}":
+        return False, "token 不對（Authorization: Bearer <AIOPS_API_TOKEN>）"
+    return True, ""
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -58,6 +70,11 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, A.to_json(A.form_json(A.form_data(alert))), "application/json")
         if u.path == "/api/missed-form":    # 漏報表單的預填：全空（讓外掛把上一次填的清掉）
             return self._send(200, A.to_json(A.missed_form_json()), "application/json")
+        if u.path == "/api/alerts":         # 件的清單（給別的系統：工單、入口網站）
+            try:
+                return self._send(200, A.to_json(A.list_alerts(self.es, q.get("status", "open"), int(q.get("size", "50")))), "application/json")
+            except ValueError as e:
+                return self._send(400, A.to_json({"error": str(e)}), "application/json")
         if u.path in ("/feedback", "/report"):
             alert = A.load_alert(self.es, q.get("alert", ""))
             if not alert:
@@ -70,6 +87,33 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         u = urlparse(self.path)
         raw = self.rfile.read(int(self.headers.get("Content-Length") or 0))
+        if u.path == "/api/anomalies":    # ML／FDC 推異常進 ⑤（detector/ingest.py 同一套對照），有佇列就立刻丟 alert
+            ok, why = _authorized(self.headers)
+            if not ok:
+                return self._send(401, A.to_json({"error": why}), "application/json")
+            try:
+                got = A.ingest(self.es, json.loads(raw or b"{}"))
+            except LookupError as e:
+                return self._send(404, A.to_json({"error": str(e)}), "application/json")
+            except (KeyError, ValueError, TypeError) as e:
+                return self._send(400, A.to_json({"error": str(e)}), "application/json")
+            except Exception as e:
+                sys.stderr.write(f"anomalies ingest failed: {e!r}\n")
+                return self._send(503, A.to_json({"error": f"沒有寫進去（{type(e).__name__}：{str(e)[:120]}），請再送一次；重送不會重複"}), "application/json")
+            got["alert_queued"] = tasks.trigger("alert") if got["written"] else False
+            return self._send(200, A.to_json(got), "application/json")
+        if u.path == "/api/rca":    # Grafana 的「重跑根因分析」按鈕：標在那件上，下一輪 alert 強制重跑
+            try:
+                got = A.request_rca(self.es, json.loads(raw or b"{}").get("alert_id", ""))
+            except LookupError as e:
+                return self._send(404, A.to_json({"error": str(e)}), "application/json")
+            except ValueError as e:
+                return self._send(409, A.to_json({"error": str(e)}), "application/json")
+            except Exception as e:
+                sys.stderr.write(f"rca request failed: {e!r}\n")
+                return self._send(503, A.to_json({"error": f"沒有記下來（{type(e).__name__}：{str(e)[:120]}），請再按一次"}), "application/json")
+            got["queued"] = tasks.trigger("alert")
+            return self._send(200, A.to_json(got), "application/json")
         if u.path == "/api/missed":    # 漏報（Grafana 第二個表單面板）：只有 JSON，沒有網頁版
             try:
                 return self._send(200, A.to_json(A.submit_missed(self.es, json.loads(raw or b"{}"))), "application/json")
@@ -112,16 +156,17 @@ class Handler(BaseHTTPRequestHandler):
 
 def main() -> int:
     Handler.es = ES()
-    port = int(os.environ.get("FEEDBACK_PORT", "8080"))
+    port = int(os.environ.get("API_PORT", "8080"))
     srv = ThreadingHTTPServer(("", port), Handler)
     # 平常放在 Ingress 後面、由 Ingress 做 TLS，這裡走 http 就好。要直接對外（沒有 Ingress）就給憑證，改走 https：
-    #   FEEDBACK_TLS_CERT=<cert.pem> FEEDBACK_TLS_KEY=<key.pem>
-    cert, key = os.environ.get("FEEDBACK_TLS_CERT"), os.environ.get("FEEDBACK_TLS_KEY")
+    #   API_TLS_CERT=<cert.pem> API_TLS_KEY=<key.pem>
+    cert, key = os.environ.get("API_TLS_CERT"), os.environ.get("API_TLS_KEY")
     if cert and key:
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         ctx.load_cert_chain(cert, key)
         srv.socket = ctx.wrap_socket(srv.socket, server_side=True)
-    print(f"feedback_web 在 :{port}（{'https' if cert and key else 'http'}；GET /feedback?alert=<alert_id>；Grafana 表單用 /api/alert、/api/feedback、/api/missed-form、/api/missed）", flush=True)
+    print(f"api 在 :{port}（{'https' if cert and key else 'http'}；POST /api/anomalies、/api/rca；GET /api/alerts；Grafana 表單用 /api/alert、/api/feedback、"
+          f"/api/missed-form、/api/missed；備用網頁 GET /feedback?alert=<alert_id>；佇列：{'有' if tasks.configured() else '沒有（一隻 pod 的模式）'}）", flush=True)
     srv.serve_forever()
     return 0
 

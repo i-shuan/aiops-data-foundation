@@ -253,6 +253,16 @@ def needs_rerun(al: dict, now: datetime, acfg: dict) -> bool:
     return at is None or now - AL._ts(at) >= _dur(acfg.get("rca_retry_after", "2m"))
 
 
+def wants_rerun(al: dict, now: datetime, acfg: dict) -> tuple[bool, bool]:
+    """這一輪要不要重跑根因分析：回 (要不要, 是不是人要求的)。
+    人要求的＝api POST /api/rca 標在件上的 rca_requested（Grafana 的「重跑根因分析」按鈕）：不管有沒有 trace 都重跑；標記在這裡拿掉，不寫回去。
+    自動的＝needs_rerun（沒 trace 的件隔一陣子再試）。只有開著的 service 類的件會重跑；rca 關了都不跑。"""
+    forced = bool(al.pop("rca_requested", False))
+    al.pop("rca_requested_at", None)
+    wants = bool(acfg.get("rca", True)) and al.get("category") == "service" and al.get("status") == "open"
+    return wants and (needs_rerun(al, now, acfg) or forced), wants and forced
+
+
 def run(cfg: dict, args, investigate) -> int:
     """investigate：根因分析的函式（investigator.__main__.investigate_full），傳進來避免循環 import。"""
     es = ES()
@@ -281,7 +291,7 @@ def run(cfg: dict, args, investigate) -> int:
         if al["category"] == "service" and not al.get("merged_into"):
             grade_alert(es, cfg, al, now)
         report, findings, similar, llm = al.get("report"), al.get("findings"), al.get("similar") or [], None
-        rerun = acfg.get("rca", True) and al["category"] == "service" and al["status"] == "open" and needs_rerun(al, now, acfg)
+        rerun, forced = wants_rerun(al, now, acfg)   # forced：人按了「重跑根因分析」（api POST /api/rca）
         if ((al.get("_new") or not report) and acfg.get("rca", True) and al["category"] == "service" and al["status"] == "open") or rerun:
             # 新的一件跑一次根因分析：時間是這件的開始到最後一筆異常再往後一個 interval；只有一支 API 時只查那支
             # （連帶進來的上游的 API 不算：根因分析以這件的服務＝下游跑）
@@ -295,7 +305,7 @@ def run(cfg: dict, args, investigate) -> int:
                 report, findings = f"根因分析失敗：{e}", None
             al["report_at"] = now
             al["rca_attempts"] = attempts(al) + 1
-            if rerun and not has_trace(findings):
+            if rerun and not forced and not has_trace(findings):
                 # 重跑了還是沒有 trace：不覆蓋舊的報告、不再叫模型，只記下又試了一次（下一輪再看）
                 print(f"  ⏳ {al['alert_id']}：trace 還沒就緒（第 {al['rca_attempts']} 次），先不換報告")
                 al["_report"], al["_llm"] = al.get("report"), None
@@ -303,7 +313,7 @@ def run(cfg: dict, args, investigate) -> int:
             if rerun:
                 al["_rerun"] = True
                 al["llm_summary"] = None      # 舊的摘要是「沒有 trace」時寫的（可能說 trace 沒變慢），換掉
-                print(f"  🔁 {al['alert_id']}：trace 到了，重跑根因分析（第 {al['rca_attempts']} 次）")
+                print(f"  🔁 {al['alert_id']}：{'人要求' if forced else 'trace 到了，'}重跑根因分析（第 {al['rca_attempts']} 次）")
             # 相似事故（老師傅確認過的）→ 附在報告最前面；LLM 摘要（只加註）
             try:
                 similar = SIM.search(es, SIM.fingerprint(al, findings), weights=acfg.get("similar_weights")) if acfg.get("similar", True) else []

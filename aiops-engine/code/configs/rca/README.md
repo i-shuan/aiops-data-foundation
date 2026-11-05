@@ -46,7 +46,7 @@ python3 -m investigator import-incidents configs/rca/incidents-example.csv --dry
 python3 -m investigator import-incidents <你的事故單.csv>
 
 # 老師傅的回饋入口（通知裡的連結點進來填；寫 aiops-feedback、aiops-incidents）
-FEEDBACK_PORT=8080 python3 -m feedback_web
+API_PORT=8080 python3 -m api
 ```
 
 ### 事件整合（`alert`）
@@ -69,7 +69,7 @@ FEEDBACK_PORT=8080 python3 -m feedback_web
 - 新的那件跑一次 `investigate`：結論寫進 `summary`（Grafana 通知帶這個）、全文存 `report`；結構化結果存 `findings`（慢在哪一段、錯從哪開始、新 log 樣式），也拿來算這件的**指紋**，寫一筆 `aiops-incidents`（`status: auto`）。
 - **告警分類**（`alerts.similar`，[investigator/similar.py](../../investigator/similar.py)）：用指紋（服務、API、慢的那段、錯的源頭、異常的指標組合、新 log 樣式）去 `aiops-incidents` 找老師傅**確認過的**（`confirmed`、`corrected`）最像的 3 件，以分數投票說這件**像哪一類**（db、network、config_change…）＋信心，寫進 `suggested_category`、`category_confidence`；報告最前面一段只列分類和那幾件的日期、分類、標題、**為什麼像**。**不列當時的根因、處置**：程式換版後指紋還對得上、根因可能已經不是那個，根因請看定位（慢在哪一段）。分數不到 4（至少一個強特徵：同一段變慢、同一個錯誤源頭；或同服務＋同指標）就不附、不分類。用 ES 的欄位比對、自己算分，不用向量，看得出為什麼像。通知摘要多一行「分類：像 db 類…」。權重可用 `alerts.similar_weights` 蓋過（`similar-eval --learn-weights` 在 case ≥ 50 件時會建議）。
 - **LLM 摘要**（`alerts.llm`，[core/llm.py](../../core/llm.py)）：報告最前面三到五句（原因、影響、建議先做什麼），每句結尾附依據的 id（`[A1]` 異常、`[S1]` 慢的那段、`[E1]` 錯誤源頭、`[L1]` log 樣式、`[I1]` 過去事故）；引用了不存在的 id、或有一句沒依據，**整段不顯示**（程式檢查）。模型掛了退回固定句型（`template`），報告照出。provider 用環境變數 `LLM_PROVIDER`（`template`／`anthropic`／`openai`）或 `alerts.llm_provider` 蓋過；`template` 不叫模型，沒有模型也能跑。`openai` 實測過（`LLM_API_KEY`、`LLM_CHAT_MODEL`，可選 `OPENAI_BASE_URL`）：一件 5～8 秒；`anthropic` 只寫了沒跑過。
-- **回饋連結**：`alerts.feedback_url`、`report_url`（含 `{alert_id}`）寫進每一件，Grafana 通知帶著；指到 [feedback_web](../../feedback_web/__init__.py)。設了 `feedback_url` 時 `report` 全文最後一行也是回饋網址（Grafana 表格點眼睛看全文，看完就是回饋入口）；回饋頁加 `&full=1` 會把全文放在表單上面。
+- **回饋連結**：`alerts.feedback_url`、`report_url`（含 `{alert_id}`）寫進每一件，Grafana 通知帶著；指到 [api](../../api/__init__.py)。設了 `feedback_url` 時 `report` 全文最後一行也是回饋網址（Grafana 表格點眼睛看全文，看完就是回饋入口）；回饋頁加 `&full=1` 會把全文放在表單上面。
 - **回饋的一句話抽取**（`core.llm.extract_feedback`，同一個 `LLM_PROVIDER`）：值班在表單寫一句自然語言（「這是每月初的批次匯出報表，屬於預期內負載」），抽成 `feedback_type`（false_positive／true_positive／wrong_root_cause）、`identified_cause`（短代號，如 `scheduled_batch_job`）、`target_service`（預設告警的服務，文字點名別的才覆蓋）、`suggested_action`（`suppress_during_cron`／`widen_threshold`／`add_rule`／`none`）。模型回的要過格式檢查，不過就只存原文；對得到調整種類的寫一筆 `aiops-tuning`（`status: proposed`、`source: feedback`、`reason` 帶原文），**人核准才生效**。解析率用 `python3 -m tests.feedback_extract_eval` 量（26 句語料 `tests/feedback_corpus.yaml`；[pdca/phase5-learning-loop/2026-10-feedback-nl-extract.md](../../../../docs/pdca/phase5-learning-loop/2026-10-feedback-nl-extract.md)）。
 - 重跑不會重複：已經在某一件裡的異常、最近結束的件裡的異常都不會再開一次。停了一陣子才跑時，已經過去的件只記錄（`resolved`），不算新開、不會通知。
 

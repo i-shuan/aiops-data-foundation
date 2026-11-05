@@ -1,4 +1,5 @@
-# AIOps engine：detector（④⑤⑨）、investigator（⑥⑦⑧）、feedback_web（⑧）、scheduler（定期工作的排程器）都在同一個 image，
+# AIOps engine：detector（④⑤⑨）、investigator（⑥⑦⑧）、api（⑧⑨：POST /api/anomalies、/api/rca、回饋）、scheduler（排程器；--enqueue 是 beat）、
+# tasks（佇列的 worker）都在同一個 image，角色由啟動指令決定（helmchart 的 mode：single 一隻 pod／distributed api＋beat＋worker）；
 # 用 python3 -m <套件> <指令> 跑；設定檔（configs/）一起放進去，要改就用 chart 的 configOverrides 蓋在 /app/configs 上。
 FROM python:3.13-slim
 WORKDIR /app
@@ -11,7 +12,8 @@ COPY sources/ sources/
 COPY models/ models/
 COPY detector/ detector/
 COPY investigator/ investigator/
-COPY feedback_web/ feedback_web/
+COPY api/ api/
+COPY tasks/ tasks/
 COPY scheduler/ scheduler/
 COPY configs/ configs/
 COPY interfaces/ interfaces/

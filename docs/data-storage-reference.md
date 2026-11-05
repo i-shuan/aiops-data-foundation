@@ -59,7 +59,7 @@ APM 寫的三種資料 engine 只讀，保留天數不在這個 repo 管；`trac
                         │ 1. 開表單：GET  回饋網頁 /api/alert?alert=…    （預填告警資訊）
                         │ 2. 按送出：POST 回饋網頁 /api/feedback
                         ▼
-                   回饋網頁（feedback_web，engine 的另一個 container）
+                   engine 的 api（mode single 是同一隻 pod 的另一個 container；distributed 是 aiops-api）
                         │ 讀  aiops-alerts、aiops-anomalies
                         │ 寫  ↓
                         ▼
@@ -76,7 +76,7 @@ APM 寫的三種資料 engine 只讀，保留天數不在這個 repo 管；`trac
 - **寫進去之後誰用**：`aiops-incidents` 的 `confirmed`、`corrected` 給相似事故檢索（自動開的 `auto` 事故不會拿來教人）；`aiops-feedback` 給 `feedback summary`、`feedback suggest`、`metrics`；`aiops-tuning` 的建議給 `adjust list`、回測、核准。
 - **寫入用的是回饋網頁自己的 ES key，不是使用者的**：所以沒有登入也寫得進去；`by` 是自己填的名字，空的記成 `anonymous`，同一個人可以填多次，系統不知道是誰。
 - **抽取失敗不影響回饋本身**：LLM 掛了或格式不對，只存原文（`extract.ok: false`）；建議寫不進去也一樣，回應多一個 `tuning_error`。
-- 程式在 [feedback_web/app.py](../aiops-engine/code/feedback_web/app.py) 的 `submit`、`submit_missed`；欄位對照見 [grafana/README.md](../grafana/README.md#回饋表單放在-grafana-裡定案用這個)。
+- 程式在 [api/app.py](../aiops-engine/code/api/app.py) 的 `submit`、`submit_missed`；欄位對照見 [grafana/README.md](../grafana/README.md#回饋表單放在-grafana-裡定案用這個)。
 
 ## Grafana 自己存什麼
 

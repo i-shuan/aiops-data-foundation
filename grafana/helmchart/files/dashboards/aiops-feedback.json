@@ -840,6 +840,144 @@
           "queryType": "randomWalk"
         }
       ]
+    },
+    {
+      "type": "volkovlabs-form-panel",
+      "title": "重跑根因分析：${alert}",
+      "id": 3,
+      "gridPos": {
+        "h": 8,
+        "w": 10,
+        "x": 14,
+        "y": 16
+      },
+      "pluginVersion": "6.3.1",
+      "options": {
+        "sync": true,
+        "initial": {
+          "method": "GET",
+          "url": "http://localhost:18080/api/alert?alert=${alert}",
+          "header": [],
+          "code": "",
+          "contentType": "application/json",
+          "payloadMode": "all",
+          "getPayload": "return {}",
+          "datasource": "",
+          "payload": {},
+          "highlight": false,
+          "highlightColor": "red",
+          "confirm": false
+        },
+        "updateEnabled": "auto",
+        "update": {
+          "method": "POST",
+          "url": "http://localhost:18080/api/rca",
+          "header": [],
+          "contentType": "application/json",
+          "payloadMode": "all",
+          "getPayload": "return {}",
+          "code": "if (context.panel.response && context.panel.response.ok) {\n  context.panel.response.json().then((r) => context.grafana.notifySuccess(['根因分析', r.queued ? '已排進佇列，幾秒到一分鐘後報告會換新（重新整理這頁）。' : '已記下，下一分鐘的 alert 會重跑（重新整理這頁）。']))\n    .catch(() => context.grafana.notifySuccess(['根因分析', '已記下。']));\n} else if (context.panel.response) {\n  context.panel.response.json().then((r) => context.grafana.notifyError(['沒有排進去', r.error || String(context.panel.response.status)]))\n    .catch(() => context.grafana.notifyError(['沒有排進去', String(context.panel.response.status)]));\n} else {\n  context.grafana.notifyError(['沒有排進去', '連不到 AIOps API（網址、CORS）']);\n}",
+          "datasource": "",
+          "payload": {},
+          "confirm": false
+        },
+        "resetAction": {
+          "mode": "initial",
+          "code": "",
+          "datasource": "",
+          "getPayload": "return {}",
+          "payload": {},
+          "payloadMode": "all",
+          "confirm": false
+        },
+        "buttonGroup": {
+          "orientation": "left",
+          "size": "md"
+        },
+        "submit": {
+          "variant": "primary",
+          "text": "重跑根因分析",
+          "icon": "sync",
+          "foregroundColor": "yellow",
+          "backgroundColor": "purple"
+        },
+        "reset": {
+          "variant": "hidden",
+          "text": "重填",
+          "icon": "process",
+          "foregroundColor": "yellow",
+          "backgroundColor": "purple"
+        },
+        "saveDefault": {
+          "variant": "hidden",
+          "text": "Save Default",
+          "icon": "save"
+        },
+        "layout": {
+          "variant": "single",
+          "orientation": "vertical",
+          "padding": 10,
+          "sections": []
+        },
+        "confirmModal": {
+          "title": "重跑根因分析",
+          "body": "對這件重新跑一次根因分析（含相似事故、摘要）？結束的件不會重跑。",
+          "confirm": "送出",
+          "cancel": "取消",
+          "columns": {
+            "name": "Label",
+            "oldValue": "Old Value",
+            "newValue": "New Value"
+          },
+          "elementDisplayMode": "modified"
+        },
+        "elementValueChanged": "",
+        "elements": [
+          {
+            "uid": "alert_id",
+            "id": "alert_id",
+            "title": "告警 id",
+            "type": "disabled",
+            "labelWidth": 12,
+            "width": null,
+            "tooltip": "開著的件才能重跑；trace 晚到、或剛改了設定時用",
+            "section": "",
+            "unit": "",
+            "showIf": "",
+            "disableIf": "",
+            "value": ""
+          },
+          {
+            "uid": "note",
+            "id": "note",
+            "title": "原因",
+            "type": "string",
+            "labelWidth": 12,
+            "width": null,
+            "tooltip": "要填一句才能按「重跑根因分析」（外掛規則：有改動才亮）。例：trace 晚到、剛改了設定；只是給你自己看，不影響結果",
+            "section": "",
+            "unit": "",
+            "showIf": "",
+            "disableIf": "",
+            "hidden": false,
+            "value": ""
+          }
+        ]
+      },
+      "datasource": {
+        "type": "datasource",
+        "uid": "grafana"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "datasource",
+            "uid": "grafana"
+          },
+          "queryType": "randomWalk"
+        }
+      ]
     }
   ],
   "description": "AIOps 回饋表單（Business Forms 外掛 6.3.1）。左：對一件告警的回饋（真的／誤報／根因錯，GET /api/alert 預填、POST /api/feedback）；右：回報漏報（該報卻沒報，GET /api/missed-form、POST /api/missed）。回饋服務的網址寫在面板的 initial.url、update.url（http://localhost:18080），部署時改成使用者瀏覽器連得到的網址"

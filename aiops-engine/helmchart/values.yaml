@@ -3,15 +3,20 @@
 #   2. Secret（手動建，不進 git）：
 #        kubectl -n aiops create secret generic aiops-secrets \
 #          --from-literal=ES_API_KEY=<elasticsearch/kibana-dev-tools.txt 第 3 段發的 engine key>
-#   3. esUrl 改成實際值；LLM 的設定在下面 llm（key 寫在不進 git 的 values-local.yaml，部署時 -f 帶進來）
+#   3. esUrl 改成實際值；LLM 的設定在下面 llm、API 的 token 在 api.token（key 寫在不進 git 的 values-local.yaml，部署時 -f 帶進來）
 #   4. 設定檔要跟 image 裡的不一樣時用 configOverrides（--set-file configOverrides.baseline.series=aiops-engine/code/configs/baseline/series.yaml；
 #      排程表是 configOverrides.schedule.schedule）
 #
-# 一隻 pod、兩個 container（同一個 image）：scheduler（排程器，照 configs/schedule/schedule.yaml 跑定期工作）、feedback（回饋網頁）。
-# 只能 1 個副本（多一個會重複跑）；換 image 時先停舊的（Recreate），中間缺幾十秒、錯過的分鐘不補跑。
+# 一個 image、一份 values：mode 決定裝成什麼樣（docs/pdca/meta/2026-11-api-beat-worker.md；畫面全在 Grafana，grafana/）：
+#   single       一隻 pod 兩個 container：scheduler（排程器自己跑 configs/<plugin>/schedule.yaml 的工作）＋ api。不用 Redis；
+#                只能 1 個副本（多一個每個工作就跑兩份）；換 image 先停舊的（Recreate），中間缺幾十秒。開發、離線廠區用
+#   distributed  Superset 式：api（N 份）、beat（1 份，每分鐘只把工作丟進佇列）、worker 依佇列 realtime／alert／batch 各一個 Deployment
+#                （各自 replicas、resources；alert 固定 1 份 concurrency 1）、redis（佇列）。train 跟每分鐘的工作分開跑、api 跟排程分開掛
 #
 # 先只寫入、不通知：Grafana 那邊先不設 contact point（或 policies 全送到一個沒人看的 webhook），跑 2～4 週，
 # 用 python3 -m detector metrics --from … --to … 記下基準，再開通知。
+mode: single
+
 image:
   repository: nexus.example.internal/aiops/aiops-engine
   tag: 0.1.0
@@ -37,22 +42,58 @@ llm:
 
 configOverrides: {}            # {baseline: {series: <內容>}} → 掛在 /app/configs/baseline/series.yaml 蓋掉 image 裡的
 
-# 排程器：第一階段只開 stage 1 的 4 個（rules、detect、alert、train）；跑穩、看過一輪誤報再 stage: 2 開其他 6 個。
-# 排程表（頻率、逾時、重試）在 code/configs/schedule/schedule.yaml，不在這裡。
+# 排程：single 的排程器、distributed 的 beat 共用這段。第一階段只開 stage 1 的 4 個（rules、detect、alert、train）；跑穩、看過一輪誤報再
+# stage: 2 開其他。排程表（頻率、逾時、重試、佇列）在 code/configs/<plugin>/schedule.yaml，不在這裡。
 scheduler:
   stage: 1
-  resources:
+  resources:                   # single：工作都在這個 container 裡跑，train 要 4Gi；distributed 的 beat 只丟工作，用 beatResources
     requests: {cpu: 100m, memory: 512Mi}
-    limits: {memory: 6Gi}       # train 要 4Gi，同時每分鐘的 rules／detect／alert 還在跑；平時用不到，只有 02:00 那段
+    limits: {memory: 6Gi}
+  beatResources:
+    requests: {cpu: 20m, memory: 64Mi}
+    limits: {memory: 256Mi}
   terminationGracePeriodSeconds: 120   # 收到停止後等還在跑的工作收尾（alert 最多 600 秒，但換版時寧願少一輪）
 
-# 老師傅的回饋入口（feedback_web）：通知裡的連結點進來填。rca.yaml 的 alerts.feedback_url、report_url 填這個 Service 的網址：
-#   feedback_url: http://aiops-feedback.aiops.svc:8080/feedback?alert={alert_id}
-# 要讓人從公司網路點得到：再加 Ingress（或 NodePort）指到這個 Service；表單沒有登入，放內網就好
-feedback:
+# api（code/api/）：沒有頁面的薄 API＋老師傅回饋的備用網頁。Grafana 的回饋表單、「重跑根因分析」按鈕從瀏覽器打它；ML／FDC 用 POST /api/anomalies 推異常。
+# rca.yaml 的 alerts.feedback_url、report_url 填這個 Service 的網址：http://aiops-api.aiops.svc:8080/feedback?alert={alert_id}
+# 要讓人從公司網路點得到：再加 Ingress（或 NodePort）指到這個 Service
+api:
   enabled: true
+  replicas: 1                  # distributed 才看；single 固定跟排程器同一隻 pod
   port: 8080
-  corsOrigin: https://grafana.example.internal    # Grafana 儀表板的回饋表單從瀏覽器直接打 /api/*：填 Grafana 的網址（逗號分隔；不用就留空）
+  corsOrigin: https://grafana.example.internal    # Grafana 從瀏覽器直接打 /api/*：填 Grafana 的網址（逗號分隔；不用就留空）
+  token: ""                    # AIOPS_API_TOKEN：POST /api/anomalies 要帶 Authorization: Bearer <token>；空的那個端點關著。寫在 values-local.yaml
   resources:
     requests: {cpu: 50m, memory: 128Mi}
     limits: {memory: 512Mi}
+
+# worker（distributed 才有）：key 是佇列名（code/tasks/），每個佇列一個 Deployment。工作就是開子行程跑 python3 -m <args>，記憶體給那個佇列裡最重的工作
+workers:
+  realtime:                    # 每幾分鐘的：rules、detect、trace-merge、ingest、peer、trace-*、quality、paths-merge
+    replicas: 1
+    concurrency: 2
+    resources:
+      requests: {cpu: 200m, memory: 512Mi}
+      limits: {memory: 2Gi}
+  alert:                       # 收斂＋根因分析＋LLM：固定 1 份、concurrency 1（兩筆異常同時進來才不會各開一件）
+    replicas: 1
+    concurrency: 1
+    resources:
+      requests: {cpu: 100m, memory: 512Mi}
+      limits: {memory: 2Gi}
+  batch:                       # 每天、每週的：train（4Gi）、trace-train、chronic、prune、shift
+    replicas: 1
+    concurrency: 1
+    resources:
+      requests: {cpu: 100m, memory: 1Gi}
+      limits: {memory: 6Gi}
+
+# 佇列（distributed 才有）。chart 裝一個 Redis（不持久化：佇列裡只有「這一分鐘該跑的」，掉了下一分鐘 beat 再丟）；
+# 用公司現有的就 enabled: false、url 填它
+redis:
+  enabled: true
+  image: redis:7-alpine
+  url: ""                      # redis://host:6379/0；空的用 chart 裝的那個
+  resources:
+    requests: {cpu: 20m, memory: 64Mi}
+    limits: {memory: 256Mi}

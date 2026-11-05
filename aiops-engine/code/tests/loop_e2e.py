@@ -81,7 +81,7 @@ def main():
     print(f"  {len(df)} 筆")
     print("== 1. train（只用前 4 週）")
     run("detector", "train", "--config", SYNTH, "--end", D0.tz_convert("UTC").strftime("%Y-%m-%dT%H:%M:%SZ"), quiet=True)
-    web = subprocess.Popen([PY, "-m", "feedback_web"], env={**os.environ, "FEEDBACK_PORT": "18080"}, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+    web = subprocess.Popen([PY, "-m", "api"], env={**os.environ, "API_PORT": "18080"}, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
     try:
         for _ in range(30):
             try: get("/health"); break
@@ -217,7 +217,7 @@ def main():
     finally:
         web.terminate()
         err = web.stderr.read()[-600:] if web.stderr else ""
-        if err: print("  feedback_web stderr（最後幾行）:\n    " + err.replace("\n", "\n    "))
+        if err: print("  api stderr（最後幾行）:\n    " + err.replace("\n", "\n    "))
     print("\n== 結果：" + ("全部 PASS" if not fails else f"{len(fails)} 個 FAIL：{fails}"))
     return 1 if fails else 0
 

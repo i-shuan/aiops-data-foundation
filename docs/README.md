@@ -60,7 +60,7 @@
 
 | 文件 | 類型 | 內容 | 狀態 |
 |---|---|---|---|
-| [../aiops-engine/README.md](../aiops-engine/README.md) | 操作 | engine：build image、Helm 裝一隻 pod（排程器＋回饋網頁）、排程表、「AIOps 停了」 | 🟢 |
+| [../aiops-engine/README.md](../aiops-engine/README.md) | 操作 | engine：build image、Helm 的兩種 mode（一隻 pod／api＋beat＋worker）、API 端點、排程表、「AIOps 停了」 | 🟢（分散模式本機對測試 ES＋Redis 跑過，沒 helm 實裝） |
 
 ## 依類型找
 

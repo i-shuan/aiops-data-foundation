@@ -1,0 +1,158 @@
+{{- if eq (include "aiops.mode" .) "distributed" }}
+{{- $schedule := include "aiops.schedule" . }}
+{{- $env := include (print .Template.BasePath "/env.yaml") . | sha256sum }}
+# mode: distributed——Superset 式（docs/pdca/meta/2026-11-api-beat-worker.md）：
+#   aiops-api             薄 API（回饋表單、POST /api/anomalies、/api/rca）；可以多份
+#   aiops-beat            每分鐘照排程表把工作丟進佇列，自己不跑；只能 1 份
+#   aiops-worker-<佇列>   從一個佇列拿工作跑（python3 -m <args> 的子行程）；realtime／alert／batch 各一個 Deployment，各自 replicas、resources
+#   aiops-redis           佇列（redis.enabled）
+{{- if .Values.api.enabled }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aiops-api
+  labels: {app.kubernetes.io/name: aiops-api}
+spec:
+  replicas: {{ .Values.api.replicas }}
+  selector:
+    matchLabels: {app.kubernetes.io/name: aiops-api}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: aiops-api}
+      annotations:
+        checksum/env: {{ $env }}
+    spec:
+      containers:
+        {{- include "aiops.apiContainer" . | nindent 8 }}
+      {{- with include "aiops.configVolumes" . }}
+      volumes:
+        {{- . | nindent 8 }}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: aiops-api
+spec:
+  selector: {app.kubernetes.io/name: aiops-api}
+  ports:
+    - {name: http, port: {{ .Values.api.port }}, targetPort: http}
+{{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aiops-beat
+  labels: {app.kubernetes.io/name: aiops-beat}
+spec:
+  replicas: 1          # 一定要 1，多一個每個工作就丟兩份
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels: {app.kubernetes.io/name: aiops-beat}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: aiops-beat}
+      annotations:
+        checksum/env: {{ $env }}
+    spec:
+      containers:
+        - name: beat
+          image: {{ include "aiops.image" . }}
+          args: ["scheduler", "--config", {{ $schedule | quote }}, "--stage", {{ .Values.scheduler.stage | quote }}, "--enqueue", "--alive-file", "/tmp/scheduler-alive"]
+          {{- include "aiops.envFrom" . | nindent 10 }}
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", "test $(( $(date +%s) - $(stat -c %Y /tmp/scheduler-alive) )) -lt 180"]
+            initialDelaySeconds: 30
+            periodSeconds: 60
+          resources:
+            {{- toYaml .Values.scheduler.beatResources | nindent 12 }}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+            {{- with include "aiops.configMounts" . }}
+            {{- . | nindent 12 }}
+            {{- end }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        {{- with include "aiops.configVolumes" . }}
+        {{- . | nindent 8 }}
+        {{- end }}
+{{- range $queue, $w := .Values.workers }}
+{{- if not (has $queue (list "realtime" "alert" "batch")) }}{{ fail (printf "workers 的 key 要是 realtime、alert、batch，不是 %q" $queue) }}{{ end }}
+{{- if and (eq $queue "alert") (or (ne (int $w.replicas) 1) (ne (int ($w.concurrency | default 1)) 1)) }}{{ fail "workers.alert 只能 replicas 1、concurrency 1（收斂要單一消費者）" }}{{ end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aiops-worker-{{ $queue }}
+  labels: {app.kubernetes.io/name: aiops-worker, aiops/queue: {{ $queue | quote }}}
+spec:
+  replicas: {{ $w.replicas | default 1 }}
+  {{- if eq $queue "alert" }}
+  strategy:
+    type: Recreate     # 換版時新舊不會同時吃 alert 佇列
+  {{- end }}
+  selector:
+    matchLabels: {app.kubernetes.io/name: aiops-worker, aiops/queue: {{ $queue | quote }}}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: aiops-worker, aiops/queue: {{ $queue | quote }}}
+      annotations:
+        checksum/env: {{ $env }}
+    spec:
+      terminationGracePeriodSeconds: {{ $.Values.scheduler.terminationGracePeriodSeconds }}
+      containers:
+        - name: worker
+          image: {{ include "aiops.image" $ }}
+          args: ["tasks", "worker", "--queue", {{ $queue | quote }}, "--concurrency", {{ $w.concurrency | default 1 | quote }}]
+          {{- include "aiops.envFrom" $ | nindent 10 }}
+          resources:
+            {{- toYaml $w.resources | nindent 12 }}
+          {{- with include "aiops.configMounts" $ }}
+          volumeMounts:
+            {{- . | nindent 12 }}
+          {{- end }}
+      {{- with include "aiops.configVolumes" $ }}
+      volumes:
+        {{- . | nindent 8 }}
+      {{- end }}
+{{- end }}
+{{- if .Values.redis.enabled }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aiops-redis
+  labels: {app.kubernetes.io/name: aiops-redis}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: aiops-redis}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: aiops-redis}
+    spec:
+      containers:
+        - name: redis
+          image: {{ .Values.redis.image }}
+          args: ["--save", "", "--appendonly", "no"]    # 不持久化：佇列裡只有「這一分鐘該跑的」，掉了下一分鐘 beat 再丟
+          ports:
+            - {name: redis, containerPort: 6379}
+          readinessProbe:
+            exec: {command: ["redis-cli", "ping"]}
+          resources:
+            {{- toYaml .Values.redis.resources | nindent 12 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: aiops-redis
+spec:
+  selector: {app.kubernetes.io/name: aiops-redis}
+  ports:
+    - {name: redis, port: 6379, targetPort: redis}
+{{- end }}
+{{- end }}

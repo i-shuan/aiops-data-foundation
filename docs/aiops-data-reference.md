@@ -191,7 +191,7 @@ Grafana（⑧）         讀 aiops-alerts 發通知；儀表板讀 alerts、anom
 
 ## aiops-incidents：事故庫（相似事故檢索的資料池）
 
-三種寫入：事件整合每一輪只要這件有新異常併進來、新開或結束，就寫一次（`status: auto`；用 scripted upsert，**只更新還是 `auto` 的，人處理過的一個欄位都不動**）；資深維運專家在回饋表單送出後，回饋網頁（`aiops-engine/code/feedback_web/app.py`）更新同一筆；也可以人用 `python3 -m detector incident add／resolve` 補登一件（`status: open`，結束時 `resolved`）。
+三種寫入：事件整合每一輪只要這件有新異常併進來、新開或結束，就寫一次（`status: auto`；用 scripted upsert，**只更新還是 `auto` 的，人處理過的一個欄位都不動**）；資深維運專家在回饋表單送出後，回饋網頁（`aiops-engine/code/api/app.py`）更新同一筆；也可以人用 `python3 -m detector incident add／resolve` 補登一件（`status: open`，結束時 `resolved`）。
 
 | 欄位 | 型別 | 誰寫 | 說明 |
 |---|---|---|---|
@@ -235,7 +235,7 @@ Grafana（⑧）         讀 aiops-alerts 發通知；儀表板讀 alerts、anom
 
 ## aiops-feedback：回饋
 
-寫入：回饋網頁（`feedback_web/app.py`）；命令列 `python3 -m detector feedback add` 也能寫（四種判定值都可以，漏報只能用命令列）。**一件事故的每筆異常各寫一筆**（現有的 `feedback summary`、`suggest` 是依「序列＋對象」算的，才對得起來）。
+寫入：回饋網頁（`api/app.py`）；命令列 `python3 -m detector feedback add` 也能寫（四種判定值都可以，漏報只能用命令列）。**一件事故的每筆異常各寫一筆**（現有的 `feedback summary`、`suggest` 是依「序列＋對象」算的，才對得起來）。
 
 | 欄位 | 型別 | 說明 |
 |---|---|---|

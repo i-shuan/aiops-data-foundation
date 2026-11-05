@@ -1,5 +1,6 @@
-"""helmchart/：render 出來是一隻 pod 兩個 container（scheduler＋feedback），資源、探測、設定檔覆蓋掛對位置。要有 helm；沒有就跳過。
-排程本身（Forbid、逾時、重試）在 configs/schedule/schedule.yaml，由 test_scheduler 驗。"""
+"""helmchart/：mode single render 出來是一隻 pod 兩個 container（scheduler＋api）；mode distributed 是 api、beat、三個 worker、redis
+（docs/pdca/meta/2026-11-api-beat-worker.md）。資源、探測、設定檔覆蓋掛對位置。要有 helm；沒有就跳過。
+排程本身（Forbid、逾時、重試）在 configs/schedule/schedule.yaml，由 test_scheduler 驗；佇列由 test_tasks 驗。"""
 import os
 import shutil
 import subprocess
@@ -17,8 +18,8 @@ def render(*args) -> dict[str, dict]:
     return {f"{d['kind']}/{d['metadata']['name']}": d for d in yaml.safe_load_all(out) if d}
 
 
-def containers(docs) -> dict[str, dict]:
-    return {c["name"]: c for c in docs["Deployment/aiops-engine"]["spec"]["template"]["spec"]["containers"]}
+def containers(docs, deployment="aiops-engine") -> dict[str, dict]:
+    return {c["name"]: c for c in docs[f"Deployment/{deployment}"]["spec"]["template"]["spec"]["containers"]}
 
 
 @unittest.skipUnless(shutil.which("helm"), "要 helm")
@@ -28,10 +29,13 @@ class EngineChart(unittest.TestCase):
         cls.docs = render()
 
     def test_one_pod_two_containers_no_cronjob(self):
-        self.assertEqual(sorted(k.split("/")[0] for k in self.docs), ["ConfigMap", "Deployment", "Secret", "Service"])   # Secret：aiops-llm（LLM key，沒填就是空的）
+        # Secret ×2：aiops-llm（LLM key）、aiops-api（API token），沒填就是空的
+        self.assertEqual(sorted(k.split("/")[0] for k in self.docs), ["ConfigMap", "Deployment", "Secret", "Secret", "Service"])
         dep = self.docs["Deployment/aiops-engine"]["spec"]
         self.assertEqual((dep["replicas"], dep["strategy"]["type"]), (1, "Recreate"))
-        self.assertEqual(sorted(containers(self.docs)), ["feedback", "scheduler"])
+        self.assertEqual(sorted(containers(self.docs)), ["api", "scheduler"])
+        self.assertNotIn("--enqueue", containers(self.docs)["scheduler"]["args"])          # single：排程器自己跑
+        self.assertNotIn("AIOPS_BROKER_URL", self.docs["ConfigMap/aiops-env"]["data"])     # 沒有佇列
 
     def test_scheduler_runs_stage1_by_default_and_stage2_on_demand(self):
         args = containers(self.docs)["scheduler"]["args"]
@@ -45,12 +49,16 @@ class EngineChart(unittest.TestCase):
         self.assertIn("/tmp/scheduler-alive", " ".join(c["livenessProbe"]["exec"]["command"]))
         self.assertIn({"name": "tmp", "mountPath": "/tmp"}, c["volumeMounts"])
 
-    def test_memory_covers_train_and_feedback_is_separate(self):
+    def test_memory_covers_train_and_api_is_separate(self):
         c = containers(self.docs)
         self.assertEqual(c["scheduler"]["resources"]["limits"]["memory"], "6Gi")
-        self.assertEqual(c["feedback"]["resources"]["limits"]["memory"], "512Mi")
-        self.assertEqual(c["feedback"]["livenessProbe"]["httpGet"]["path"], "/health")
-        self.assertEqual(self.docs["Service/aiops-feedback"]["spec"]["ports"][0]["port"], 8080)
+        self.assertEqual(c["api"]["resources"]["limits"]["memory"], "512Mi")
+        self.assertEqual(c["api"]["livenessProbe"]["httpGet"]["path"], "/health")
+        self.assertEqual(c["api"]["args"], ["api"])
+        self.assertIn({"name": "API_PORT", "value": "8080"}, c["api"]["env"])
+        self.assertEqual(self.docs["Service/aiops-api"]["spec"]["ports"][0]["port"], 8080)
+        self.assertEqual(self.docs["Secret/aiops-api"]["stringData"], {"AIOPS_API_TOKEN": ""})
+        self.assertEqual(render("--set", "api.token=abc")["Secret/aiops-api"]["stringData"]["AIOPS_API_TOKEN"], "abc")
 
     def test_engine_version_is_the_image_tag(self):
         # 每筆異常帶的 engine_version（core/version.py）要跟跑的 image 是同一個 tag，兩個 container 都從 aiops-env 拿
@@ -60,10 +68,14 @@ class EngineChart(unittest.TestCase):
         for c in containers(self.docs).values():
             self.assertIn({"configMapRef": {"name": "aiops-env"}}, c["envFrom"])
 
-    def test_feedback_can_be_turned_off(self):
-        docs = render("--set", "feedback.enabled=false")
+    def test_api_can_be_turned_off(self):
+        docs = render("--set", "api.enabled=false")
         self.assertEqual(list(containers(docs)), ["scheduler"])
-        self.assertNotIn("Service/aiops-feedback", docs)
+        self.assertNotIn("Service/aiops-api", docs)
+
+    def test_bad_mode_fails(self):
+        with self.assertRaises(subprocess.CalledProcessError):
+            render("--set", "mode=weird")
 
     def test_config_override_mounts_in_place_for_both_containers(self):
         docs = render("--set", "configOverrides.schedule.schedule=timezone: UTC")
@@ -72,6 +84,66 @@ class EngineChart(unittest.TestCase):
             mount = next(m for m in c["volumeMounts"] if m["name"] == "configs")
             self.assertEqual((mount["mountPath"], mount["subPath"]), ("/app/configs/schedule/schedule.yaml", "schedule__schedule.yaml"), name)
         self.assertEqual([m["name"] for m in containers(self.docs)["scheduler"]["volumeMounts"]], ["tmp"])
+
+
+@unittest.skipUnless(shutil.which("helm"), "要 helm")
+class DistributedChart(unittest.TestCase):
+    """mode: distributed——Superset 式：api、beat（只丟）、worker 依佇列、redis；alert worker 只能一個。"""
+    @classmethod
+    def setUpClass(cls):
+        cls.docs = render("--set", "mode=distributed")
+
+    def test_roles(self):
+        deps = sorted(k.split("/")[1] for k in self.docs if k.startswith("Deployment/"))
+        self.assertEqual(deps, ["aiops-api", "aiops-beat", "aiops-redis", "aiops-worker-alert", "aiops-worker-batch", "aiops-worker-realtime"])
+        self.assertNotIn("Deployment/aiops-engine", self.docs)
+        self.assertEqual(sorted(k.split("/")[1] for k in self.docs if k.startswith("Service/")), ["aiops-api", "aiops-redis"])
+        self.assertEqual(self.docs["ConfigMap/aiops-env"]["data"]["AIOPS_BROKER_URL"], "redis://aiops-redis:6379/0")
+
+    def test_beat_only_enqueues_and_is_single(self):
+        beat = containers(self.docs, "aiops-beat")["beat"]
+        self.assertEqual(beat["args"][:3], ["scheduler", "--config", "configs/schedule/schedule.yaml"])
+        self.assertIn("--enqueue", beat["args"])
+        self.assertIn("/tmp/scheduler-alive", " ".join(beat["livenessProbe"]["exec"]["command"]))
+        dep = self.docs["Deployment/aiops-beat"]["spec"]
+        self.assertEqual((dep["replicas"], dep["strategy"]["type"]), (1, "Recreate"))
+        self.assertEqual(beat["resources"]["limits"]["memory"], "256Mi")       # 只丟工作，不用 6Gi
+
+    def test_workers_per_queue(self):
+        for q, conc in (("realtime", "2"), ("alert", "1"), ("batch", "1")):
+            w = containers(self.docs, f"aiops-worker-{q}")["worker"]
+            self.assertEqual(w["args"], ["tasks", "worker", "--queue", q, "--concurrency", conc], q)
+            self.assertIn({"configMapRef": {"name": "aiops-env"}}, w["envFrom"])
+        self.assertEqual(containers(self.docs, "aiops-worker-batch")["worker"]["resources"]["limits"]["memory"], "6Gi")   # train 在這
+        self.assertEqual(self.docs["Deployment/aiops-worker-alert"]["spec"]["strategy"]["type"], "Recreate")
+        self.assertEqual(render("--set", "mode=distributed", "--set", "workers.realtime.replicas=3")["Deployment/aiops-worker-realtime"]["spec"]["replicas"], 3)
+
+    def test_alert_worker_must_be_single_consumer(self):
+        for bad in ("workers.alert.replicas=2", "workers.alert.concurrency=2"):
+            with self.assertRaises(subprocess.CalledProcessError, msg=bad):
+                render("--set", "mode=distributed", "--set", bad)
+        with self.assertRaises(subprocess.CalledProcessError):
+            render("--set", "mode=distributed", "--set", "workers.fast.replicas=1")
+
+    def test_external_redis(self):
+        docs = render("--set", "mode=distributed", "--set", "redis.enabled=false", "--set", "redis.url=redis://corp-redis:6379/3")
+        self.assertNotIn("Deployment/aiops-redis", docs)
+        self.assertEqual(docs["ConfigMap/aiops-env"]["data"]["AIOPS_BROKER_URL"], "redis://corp-redis:6379/3")
+
+    def test_api_service_points_at_api_pods(self):
+        self.assertEqual(self.docs["Service/aiops-api"]["spec"]["selector"], {"app.kubernetes.io/name": "aiops-api"})
+        self.assertEqual(render("--set", "mode=distributed", "--set", "api.replicas=2")["Deployment/aiops-api"]["spec"]["replicas"], 2)
+
+    def test_plugin_picks_schedule_for_beat(self):
+        beat = containers(render("--set", "mode=distributed", "--set", "plugin=factory"), "aiops-beat")["beat"]
+        self.assertEqual(beat["args"][2], "configs/factory/schedule.yaml")
+
+    def test_config_override_mounts_in_every_role(self):
+        docs = render("--set", "mode=distributed", "--set", "configOverrides.schedule.schedule=timezone: UTC")
+        for dep in ("aiops-api", "aiops-beat", "aiops-worker-realtime", "aiops-worker-alert", "aiops-worker-batch"):
+            c = next(iter(containers(docs, dep).values()))
+            mount = next(m for m in c["volumeMounts"] if m["name"] == "configs")
+            self.assertEqual(mount["mountPath"], "/app/configs/schedule/schedule.yaml", dep)
 
 
 if __name__ == "__main__":

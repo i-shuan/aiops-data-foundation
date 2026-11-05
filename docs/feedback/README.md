@@ -11,7 +11,7 @@
 | 判斷 | ④ 的結果全寫入異常總表，帶 `status`（warning／anomaly）、可信度、粒度、方法 | `aiops-anomalies` |
 | 出口 | ⑥ 同服務合成一件，Grafana 依部門分送 | `aiops-alerts` |
 | 紀錄 | 告警一開就建一筆 `auto`（帶指紋）；老師傅在回饋網頁確認後改 `confirmed`，存根因分類、處置、怎麼看出來的、查了哪裡 | `aiops-incidents` |
-| 回饋 | 回饋網頁 `feedback_web`（通知裡有連結）或指令；記哪一筆、為什麼 | `aiops-feedback` |
+| 回饋 | Grafana 的回饋表單（後端是 engine 的 `api`；通知裡有連結）或指令；記哪一筆、為什麼 | `aiops-feedback` |
 | 調整 | [`series.yaml`](../../aiops-engine/code/configs/baseline/series.yaml) 的 `overrides`，或 [`tune` 指令](../../aiops-engine/code/configs/baseline/README.md#使用者feedback-調整)（程式 [`cmd_baseline.py`](../../aiops-engine/code/detector/cmd_baseline.py)）；記原因、誰、何時 | `aiops-tuning`（欄位見 [`tuning.py`](../../aiops-engine/code/detector/tuning.py) 的 `TUNING_MAPPING`） |
 
 ### 回饋結果與用法
@@ -79,9 +79,10 @@
 
 | 介面 | 在哪 | 寫哪個索引 |
 |---|---|---|
-| Grafana 回饋表單（定案用這個） | 儀表板 `aiops-feedback`，Business Forms 外掛 `volkovlabs-form-panel` 6.3.1；預填呼叫 `GET /api/alert?alert=<alert_id>`，送出呼叫 `POST /api/feedback`；回饋服務要設 `FEEDBACK_CORS_ORIGIN` 為 Grafana 的網址 | `aiops-feedback`、`aiops-incidents` |
+| Grafana 回饋表單（定案用這個） | 儀表板 `aiops-feedback`，Business Forms 外掛 `volkovlabs-form-panel` 6.3.1；預填呼叫 `GET /api/alert?alert=<alert_id>`，送出呼叫 `POST /api/feedback`；回饋服務要設 `API_CORS_ORIGIN` 為 Grafana 的網址 | `aiops-feedback`、`aiops-incidents` |
 | Grafana 漏報表單 | 同一個儀表板的第二個面板「回報漏報（該報卻沒報）」：選序列（[`series.yaml`](../../aiops-engine/code/configs/baseline/series.yaml) 的名字）、填服務、時間、署名；預填 `GET /api/missed-form`，送出 `POST /api/missed`；寫的文件、`_id` 跟指令 `feedback add --verdict missed` 一樣 | `aiops-feedback` |
-| 回饋網頁（備案） | `aiops-engine/code/feedback_web`，`GET /feedback?alert=<alert_id>` 是通知裡的連結，`GET /report` 看報告全文；沒有登入；沒有漏報的網頁版 | 同上 |
+| Grafana「重跑根因分析」按鈕 | 同一個儀表板的第三個面板：按下去 `POST /api/rca {alert_id}`，開著的那件下一輪 `alert` 強制重跑根因分析（含相似事故、摘要）；結束的件不重跑 | `aiops-alerts`（報告換新） |
+| 回饋網頁（備案） | `aiops-engine/code/api`，`GET /feedback?alert=<alert_id>` 是通知裡的連結，`GET /report` 看報告全文；沒有登入；沒有漏報的網頁版 | 同上 |
 | 指令 | `python3 -m detector` 的 `feedback`（`add`、`pending`、`list`、`summary`、`suggest`）、`incident`（`add`、`list`、`resolve`）、`backtest`、`adjust`（`approve`）、`metrics`；漏報用 `feedback add --verdict missed --series … --match service=… --at …` | `aiops-feedback`、`aiops-incidents`、`aiops-tuning` |
 
 ### 跟 aiops-* 索引的欄位的關係

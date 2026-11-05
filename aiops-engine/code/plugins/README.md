@@ -2,7 +2,7 @@
 
 > **類型：操作 How-To**　原理（為什麼拆成主程式＋plugin、擴充點怎麼挑）見 [docs/architecture.md §4.2](../../../docs/architecture.md)・紀錄 [docs/pdca/meta/2026-11-plugin-architecture.md](../../../docs/pdca/meta/2026-11-plugin-architecture.md)
 
-engine 一份程式；「IT 可觀測性」「全套工廠」「只有指標」各是一個 plugin，環境變數 `AIOPS_PLUGIN` 選。主程式（`core/`、`detector/`、`investigator/`、`feedback_web/`）只透過 [core/plugin.py](../core/plugin.py) 的 `current()` 問 plugin，不認得 `factory`、`lot`、`equipment` 這些字。
+engine 一份程式；「IT 可觀測性」「全套工廠」「只有指標」各是一個 plugin，環境變數 `AIOPS_PLUGIN` 選。主程式（`core/`、`detector/`、`investigator/`、`api/`）只透過 [core/plugin.py](../core/plugin.py) 的 `current()` 問 plugin，不認得 `factory`、`lot`、`equipment` 這些字。
 
 ## 選哪個
 

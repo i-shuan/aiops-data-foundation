@@ -1,4 +1,4 @@
-"""回饋網頁的 HTTP 層（feedback_web.__main__）：ES 掛了要回 503 和說明，不能斷線（docs/pdca/phase5-learning-loop/2026-10-fix-feedback-ux.md 7）。"""
+"""回饋網頁的 HTTP 層（api.__main__）：ES 掛了要回 503 和說明，不能斷線（docs/pdca/phase5-learning-loop/2026-10-fix-feedback-ux.md 7）。"""
 import json
 import threading
 import unittest
@@ -7,9 +7,9 @@ import urllib.request
 from http.server import ThreadingHTTPServer
 from unittest import mock
 
-from feedback_web import __main__ as W
-from feedback_web import app as A
-from tests.test_feedback_web import ALERT, FakeES
+from api import __main__ as W
+from api import app as A
+from tests.test_api import ALERT, FakeES
 
 
 class BrokenES(FakeES):
