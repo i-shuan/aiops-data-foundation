@@ -24,7 +24,7 @@ from detect.store.anomaly import entity_value
 from shared.repos import Repos
 from shared.scenario import load_scenario
 
-import incident.analyze as A
+import incident.rca_analyzer as A
 
 PAD = timedelta(minutes=5)
 

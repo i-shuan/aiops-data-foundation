@@ -1,4 +1,4 @@
-"""incident/store/alert.py：Alert 是 ⑥ 併件時手上的物件、寫進 aiops-alerts 的格式、讀回來的格式。
+"""incident/store/models.py：Alert 是 ⑥ 併件時手上的物件、寫進 aiops-alerts 的格式、讀回來的格式。
 欄位跟 ALERT_MAPPING 對得上；執行期欄位（anoms、new…）不寫 ES；時間欄位物件裡是 datetime、to_doc 轉 ISO 字串；from_doc 讀舊文件寬鬆；打錯欄位名會擋。
 to_doc 跟改成類別之前 alert_doc 寫的 dict 的逐欄位比對記在 docs/pdca/meta/2026-11-clean-code.md Check。"""
 import unittest
@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 
 from pydantic import ValidationError
 
-from incident.store.alert import ALERT_MAPPING, UNMAPPED_FIELDS, Alert
+from incident.store.models import ALERT_MAPPING, UNMAPPED_FIELDS, Alert
 
 T0 = datetime(2026, 10, 25, 2, 0, tzinfo=timezone.utc)
 

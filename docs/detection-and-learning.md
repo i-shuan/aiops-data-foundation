@@ -33,7 +33,7 @@
 | case 分類 | 指紋比對（權重手設 4、4、3、2、2、1）、前 3 件以分數投票；`learn_weights` 在 case ≥ 50 件時才學，只印建議 | 投票自動，權重不會自動改 |
 | 嚴重度分級 | 依訊號廣度、持續、換版上限分 critical／high／warning，只通知前兩級 | 自動 |
 
-程式：⑨ 在 [learn/](../aiops-engine/src/learn/)（[suggest.py](../aiops-engine/src/learn/suggest.py)、[feedback_service.py](../aiops-engine/src/learn/feedback_service.py)、[backtest.py](../aiops-engine/src/learn/backtest.py)）、[similar.py](../aiops-engine/src/llm/similar.py)、[severity.py](../aiops-engine/src/incident/severity.py)。
+程式：⑨ 在 [learn/](../aiops-engine/src/learn/)（[suggest.py](../aiops-engine/src/learn/suggest.py)、[feedback_service.py](../aiops-engine/src/learn/feedback_service.py)、[backtest.py](../aiops-engine/src/learn/backtest.py)）、[similar.py](../aiops-engine/src/llm/similar.py)、[severity.py](../aiops-engine/src/incident/alert_severity.py)。
 
 ## 跟強化式學習差在哪
 

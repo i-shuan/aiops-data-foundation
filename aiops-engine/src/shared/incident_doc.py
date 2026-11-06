@@ -7,7 +7,7 @@ feedback/cmd_feedback cmd_incident；回饋網頁 upsert 的種子：api/app）�
 指紋（Fingerprint）是相似事故檢索的比對依據（investigator/similar.py）：六組 keyword 陣列。從告警＋根因分析算（from_alert）、
 從匯入的一列算（normalized）都走同一套正規化：段名去數字、慢的段與錯誤源頭最多 3 個、log 樣式截 120 字最多 5 個。
 
-跟 detect/store/anomaly.py 的 Anomaly、incident/store/alert.py 的 Alert 同一個做法（基底 core/doc.py）：模型是唯一定義處，INCIDENT_MAPPING 要跟它一致（tests/test_incident.py 會對）。
+跟 detect/store/anomaly.py 的 Anomaly、incident/store/models.py 的 Alert 同一個做法（基底 core/doc.py）：模型是唯一定義處，INCIDENT_MAPPING 要跟它一致（tests/test_incident.py 會對）。
 時間欄位目前都是 ISO 字串（三條寫入路徑拿到的本來就是字串），這一輪不轉 datetime。
 """
 from __future__ import annotations

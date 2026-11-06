@@ -7,9 +7,9 @@ from unittest import mock
 
 from shared.scenario import load_scenario
 import shared.scenario.base as SC
-import incident.merge as AL
-import incident.severity as S
-import incident.strategy.factory_chain as FAC
+import incident.alert_grouper as AL
+import incident.alert_severity as S
+import incident.strategy.fab_process_flow as FAC
 
 T0 = datetime(2026, 11, 4, 1, 0, tzinfo=timezone.utc)
 GAP = timedelta(hours=2)

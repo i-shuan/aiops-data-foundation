@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 
 from pydantic import ValidationError
 
-from incident.store.alert import Alert
+from incident.store.models import Alert
 from shared.incident_doc import INCIDENT_MAPPING, UNMAPPED_FIELDS, Fingerprint, Incident
 import learn.importer as IMP
 import llm.similar as SIM

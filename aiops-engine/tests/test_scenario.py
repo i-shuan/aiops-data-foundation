@@ -9,8 +9,8 @@ import shared.scenario.base as SC
 from shared.repos import Repos
 from detect.store.owner_repo import owner_of
 from shared.scenario import Chain, Scenario, load_scenario
-import incident.merge as AL
-import incident.report as R
+import incident.alert_grouper as AL
+import incident.rca_report as R
 
 T0 = datetime(2026, 11, 4, 1, 0, tzinfo=timezone.utc)
 # 客製：拿內建的改幾個欄位（AIOPS_PLUGIN=tests.test_scenario:MINE）

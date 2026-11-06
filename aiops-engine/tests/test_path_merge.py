@@ -3,7 +3,7 @@ import unittest
 from datetime import datetime, timezone
 
 import detect.store.trace as T
-import incident.analyze as A
+import incident.rca_analyzer as A
 import detect.trace.path_builder as P
 
 NOW = datetime(2026, 11, 4, 6, 0, tzinfo=timezone.utc)

@@ -46,8 +46,8 @@ domain:
 
 entity_keys: [equipment]                 # detect/factory/ingest.py 寫的 keys.equipment；一台機台一件
 route: recipe
-chain: {strategy: "incident.strategy.factory_chain:LotLinks"}       # 前後站：這一輪帶 lot 的異常 → 從履歷找這批 lot 之前經過哪幾站
-change: {strategy: "incident.strategy.factory_change:LatestChange"} # recipe 變更紀錄當換版
+chain: {strategy: "incident.strategy.fab_process_flow:LotLinks"}       # 前後站：這一輪帶 lot 的異常 → 從履歷找這批 lot 之前經過哪幾站
+change: {strategy: "incident.strategy.fab_recipe_change:LatestChange"} # recipe 變更紀錄當換版
 critical_levels: [rule, peer, quality, fdc]                      # FDC 的 OOS 鳴叫（severity critical）直接讓這件 critical
 severity_classes:                        # 序列名 → 參數家族；幾個家族同時異常＝嚴重度的廣度（IT 是延遲／錯誤／往外呼叫／飽和）
   pressure: [pressure, vacuum]

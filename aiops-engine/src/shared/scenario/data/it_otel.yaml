@@ -46,9 +46,9 @@ domain:
 # 異常的 keys 裡哪個是服務（baseline、規則、peer、quality、trace 的寫法都不一樣）；caller／callee 是 trace 分段的
 entity_keys: [resource.attributes.service.name, service, entry.service, service.name, caller, callee]
 route: http
-chain: {strategy: "incident.strategy.it_chain:CallEdges"}         # 跨服務（一層）：trace 裡誰呼叫誰
-change: {strategy: "incident.strategy.it_change:VersionFirstSeen"} # 版號（service.version）第一次出現
+chain: {strategy: "incident.strategy.it_topology:CallEdges"}         # 跨服務（一層）：trace 裡誰呼叫誰
+change: {strategy: "incident.strategy.it_deployment:VersionFirstSeen"} # 版號（service.version）第一次出現
 critical_levels: [rule, peer, quality]
-severity_classes: null                                           # null＝incident/severity.CLASSES（黃金訊號）
+severity_classes: null                                           # null＝incident/alert_severity.CLASSES（黃金訊號）
 sections: [anomalies, entries, segments, slowest, logs, changes, topology, conclusion]
 commands: {}

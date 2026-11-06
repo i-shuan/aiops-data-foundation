@@ -3,7 +3,7 @@
 誰讀：investigator/（下一輪併件）、api/（表單、清單）、feedback/（量化）、Grafana。寫的人和讀的人在不同階段，所以放 core/。
 
 Alert 是 ⑥ 併件時在手上的那個物件：異常併進來（attach）、連帶上游（join_upstream、fold_into）、標題與摘要（headline、summary）都是它的方法，
-incident/merge.py 只做「哪筆異常歸哪件」的演算法。同時是寫進 ES 的格式（to_doc）、讀回來的格式（from_doc）。
+incident/alert_grouper.py 只做「哪筆異常歸哪件」的演算法。同時是寫進 ES 的格式（to_doc）、讀回來的格式（from_doc）。
 時間欄位在物件裡是 datetime（ES 的字串、"Z" 結尾都收），to_doc 轉 ISO 字串。這一輪算的、不寫 ES 的（anoms、new…）標 exclude。
 心跳與 detect-status 不是一件事，照舊是兩個小 dict（heartbeat_doc、write_detect_status）。"""
 from __future__ import annotations
@@ -59,7 +59,7 @@ ALERT_MAPPING = {"mappings": {"dynamic": False, "properties": {
 UNMAPPED_FIELDS = ("rca_requested", "rca_requested_at")
 
 AlertStatus = Literal["open", "resolved"]
-SEVERITY = {"warning": 1, "high": 2, "critical": 3}   # 一件最後的嚴重度由 incident/severity.grade 算；這裡只是異常自己帶的
+SEVERITY = {"warning": 1, "high": 2, "critical": 3}   # 一件最後的嚴重度由 incident/alert_severity.grade 算；這裡只是異常自己帶的
 _LIST_FIELDS = ("anomaly_ids", "series", "routes", "lots", "upstream_services", "similar", "dependencies", "related_alerts", "shared_dependency")
 
 
@@ -123,7 +123,7 @@ class Alert(Doc):
     def _lists(cls, v):
         return [] if v is None else list(v)
 
-    # ── 併件（incident/merge.py 的演算法呼叫）──
+    # ── 併件（incident/alert_grouper.py 的演算法呼叫）──
     @staticmethod
     def _ts(s) -> datetime:
         return s if isinstance(s, datetime) else datetime.fromisoformat(str(s).replace("Z", "+00:00"))

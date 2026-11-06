@@ -11,7 +11,7 @@
 | 索引 | mapping 在哪 |
 |---|---|
 | `aiops-anomalies` | `aiops-engine/src/detect/store/anomaly.py` 的 `ANOMALY_MAPPING`（欄位的唯一定義是同一檔的 `Anomaly`） |
-| `aiops-alerts` | `aiops-engine/src/incident/store/alert.py` 的 `ALERT_MAPPING`（欄位的唯一定義是同一檔的 `Alert`；事件整合在手上的就是這個物件，`to_doc()` 寫、`from_doc()` 讀） |
+| `aiops-alerts` | `aiops-engine/src/incident/store/models.py` 的 `ALERT_MAPPING`（欄位的唯一定義是同一檔的 `Alert`；事件整合在手上的就是這個物件，`to_doc()` 寫、`from_doc()` 讀） |
 | `aiops-incidents` | `aiops-engine/src/shared/incident_doc.py` 的 `INCIDENT_MAPPING`（欄位的唯一定義是同一檔的 `Incident`、`Fingerprint` 模型，寫入一律 `to_doc()`） |
 | `aiops-feedback` | `aiops-engine/feedback/suggest.py` 的 `FEEDBACK_MAPPING` |
 | `aiops-tuning` | `aiops-engine/src/learn/store/adjustment.py` 的 `TUNING_MAPPING`（⑨ 寫、④ 讀，所以放 `core/`）；寫進去前過同一檔的 `Adjustment`（`validated`） |
@@ -70,7 +70,7 @@ Grafana（⑧）         讀 aiops-alerts 發通知；儀表板讀 alerts、anom
 | `since` | 不索引 | 只有靜態規則有：條件開始成立的時間 |
 | `engine_version` | keyword | 哪一版 engine 寫的（`aiops.ENGINE_VERSION`：環境變數 `ENGINE_VERSION`，chart 填 image tag；本機是 `dev`）。五種寫入都經 `AnomalyRepository.write`，都有 |
 
-**哪些異常會自己開一件**（`incident/merge.py`）：`severity: critical` 的規則、`status: anomaly` 的基準線、資料品質會直接開；`severity: warning` 的規則、同儕橫向比對是弱的，同一個服務在 `close_after` 內有 2 筆以上才開；基準線的 `status: warning` 只併進已開著的件。
+**哪些異常會自己開一件**（`incident/alert_grouper.py`）：`severity: critical` 的規則、`status: anomaly` 的基準線、資料品質會直接開；`severity: warning` 的規則、同儕橫向比對是弱的，同一個服務在 `close_after` 內有 2 筆以上才開；基準線的 `status: warning` 只併進已開著的件。
 | `detected_at` | date | 偵測程式跑的時間 |
 
 範例（動態基準線學習，小時粒度、卜瓦松）：
@@ -106,14 +106,14 @@ Grafana（⑧）         讀 aiops-alerts 發通知；儀表板讀 alerts、anom
 | `alert_id` | keyword | 同時是 `_id`；格式 `a-<開始日期>-<開始時分>-<服務>`（服務名的特殊字元換成 `_`） |
 | `category` | keyword | 這件歸在誰身上：`service`（服務，優先）、`namespace`、`node`（異常的 `keys` 裡沒有服務時依序退到這兩個）、`other`（都沒有，名稱用序列名）、`data_quality`（資料品質，`alert_id` 結尾多 `-dq`）、`heartbeat`（心跳）、`status`（detect 狀態，見下）。**只有 `service` 會跑根因分析、寫進 `aiops-incidents`、顯示在事故清單面板** |
 | `service`、`status` | keyword | `service` 欄位放的是上一列那個類別的名稱（服務名、namespace、節點名…）；`status` 是 `open`、`resolved` |
-| `severity` | keyword | `critical`、`high`、`warning`：代表要不要吵人，不是偏離幾倍。critical：靜態規則 critical，或 ≥ 3 類黃金訊號（latency、errors、downstream、saturation）同時異常且不是單點；high：2 類，或 1 類但持續（≥ 10 分鐘、最後 15 分鐘窗 ≥ 80% 有異常）或好幾條都跳；warning：其餘。換版後 10 分鐘內的異常上限 warning。Grafana 只通知 critical、high（[investigator/severity.py](../aiops-engine/src/incident/severity.py)） |
+| `severity` | keyword | `critical`、`high`、`warning`：代表要不要吵人，不是偏離幾倍。critical：靜態規則 critical，或 ≥ 3 類黃金訊號（latency、errors、downstream、saturation）同時異常且不是單點；high：2 類，或 1 類但持續（≥ 10 分鐘、最後 15 分鐘窗 ≥ 80% 有異常）或好幾條都跳；warning：其餘。換版後 10 分鐘內的異常上限 warning。Grafana 只通知 critical、high（[investigator/severity.py](../aiops-engine/src/incident/alert_severity.py)） |
 | `severity_why` | text（不索引） | 嚴重度怎麼來的一句話（幾類、跨幾分鐘、換版上限） |
 | `deploy_at` | date | 這個服務最近一次換版（`service.version` 第一次出現的時間）；查不到就沒有 |
 | `dept`、`group` | keyword | 通知依 `dept` 分送；沒有 dept 的送平台 |
 | `started_at`、`updated_at`、`resolved_at` | date | 事故起訖 |
 | `anomaly_ids`、`anomaly_count` | keyword、integer | 併進來的異常（指到 `aiops-anomalies` 的 `_id`），一件最多記 500 筆 |
 | `series`、`routes` | keyword | 涉及的指標、路由（工廠版的「路由」是 recipe） |
-| `lots` | keyword | 工廠版：這件牽涉哪些 lot（異常的 `keys.lot`，最多 500 筆）；前後站併件時「那件已經有這批 lot」的前站優先（[investigator/alerts.py](../aiops-engine/src/incident/merge.py) 的 `links`） |
+| `lots` | keyword | 工廠版：這件牽涉哪些 lot（異常的 `keys.lot`，最多 500 筆）；前後站併件時「那件已經有這批 lot」的前站優先（[investigator/alerts.py](../aiops-engine/src/incident/alert_grouper.py) 的 `links`） |
 | `title`、`summary` | keyword | 通知用的標題與摘要。**存成 keyword**：Grafana 告警只能把「分組欄位的值」帶成 label，內容一變就是另一則（舊的 resolved、新的 firing），所以摘要不放持續時間、筆數 |
 | `report` | text（不索引） | 根因報告全文（Markdown）；有相似事故與 LLM 摘要時放在最前面 |
 | `report_at` | date | 跑根因分析的時間（新開的一件跑一次；之後只有還沒有報告時才補跑） |
@@ -123,7 +123,7 @@ Grafana（⑧）         讀 aiops-alerts 發通知；儀表板讀 alerts、anom
 | `suggested_category`、`category_confidence` | keyword、double | 告警分類：相似事故（只有確認過的）以分數投票的結果與信心（贏的那類分數 ÷ 全部）；沒有相似的就空。回饋表單預帶這個分類，人改掉就是 `corrected`（[case 只做分類](pdca/meta/2026-11-case-classify.md)） |
 | `llm_summary`、`llm_provider` | text、keyword | LLM 摘要與誰產的：`template`（固定句型，沒設 LLM）、`anthropic`、`openai`；模型回空的或失敗時寫成 `template（<原本的 provider> 回空的）`、`template（<provider> 失敗：…）`。每一句要附依據編號，驗證沒過就沒有摘要（`llm_summary` 空） |
 
-**`findings`**（`incident/report.py` 的 `investigate_full`）：
+**`findings`**（`incident/rca_report.py` 的 `investigate_full`）：
 
 | 子欄位 | 內容 |
 |---|---|

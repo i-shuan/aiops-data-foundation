@@ -13,7 +13,7 @@ import json
 import pandas as pd
 
 from shared.env import ENGINE_VERSION
-from incident.store.alert import ALERT_INDEX, Alert
+from incident.store.models import ALERT_INDEX, Alert
 from detect.store.anomaly import ANOMALY_INDEX
 from detect.store.baseline import BASELINE_COLUMNS, BASELINE_INDEX, GROUP_COLUMNS, RENAMED
 from learn.store.feedback import FEEDBACK_INDEX

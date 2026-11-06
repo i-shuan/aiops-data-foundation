@@ -9,7 +9,7 @@
 同一個服務已經有開著的那件、而且離它最後一筆異常不到 close_after：併進去；超過 close_after 沒有新的異常：resolved。
 
 跨服務（一層父子關係，docs/pdca/phase3-locate/2026-10-cross-service-aggregation.md）：calls 是這段時間 trace 算出來的
-「上游 → 下游」（incident/strategy/it_chain.py，用根因分析同一套 topology）。下游出事連帶上游異常時只開一件、留下游那件：
+「上游 → 下游」（incident/strategy/it_topology.py，用根因分析同一套 topology）。下游出事連帶上游異常時只開一件、留下游那件：
   - 上游服務的異常、自己沒有開著的件、它直接呼叫的下游有開著的件、時間重疊（離下游那件開始不到 close_after）→ 併進下游那件，
     下游那件的 upstream_services 記這個上游；之後同一個上游的異常照同服務的規則併（離最後一筆不到 close_after）。
   - 下游開新的一件時，直接呼叫它的上游若已經有一件、開始時間差不到 close_after → 上游那件整件併進下游：這一輪才開的直接消失；
@@ -17,13 +17,13 @@
   - 只看直接呼叫（一層）：A→B→C 時 B 併進 C，A 不併進 C；已經帶 upstream_services 的件不會再被併進別件。
   - 沒有呼叫關係、或時間不重疊：照舊各開一件。
 
-這裡只做「哪筆異常歸哪件」的演算法（單元測試用）；動一件屬性的在 incident/store/alert.Alert；讀寫 ES、跑根因分析在 alert_service.py。
+這裡只做「哪筆異常歸哪件」的演算法（單元測試用）；動一件屬性的在 incident/store/models.Alert；讀寫 ES、跑根因分析在 alert_service.py。
 """
 from __future__ import annotations
 
 from datetime import datetime, timedelta
 
-from incident.store.alert import SEVERITY, Alert  # noqa: F401  SEVERITY 給 alert_service 用
+from incident.store.models import SEVERITY, Alert  # noqa: F401  SEVERITY 給 alert_service 用
 from detect.store.anomaly import entity_of as _entity_of
 from shared.scenario import Scenario, load_scenario
 
@@ -130,7 +130,7 @@ def merge(open_alerts: list, anomalies: list[dict], now: datetime, close_after: 
     """open_alerts：aiops-alerts 裡 status open 的；anomalies：最近的異常（含 _id）；
     done_ids：最近已經結束的件裡的異常 id（不要再被開一次，重跑才不會重複）；
     calls：{(上游服務, 下游服務)}，這段時間 trace 裡誰呼叫誰（沒有就不併跨服務）；
-    links：工廠的前後站（incident/strategy/factory_chain.lot_links）：{異常 _id: [(前站機台, 這批 lot 在前站的時間), …]}。
+    links：工廠的前後站（incident/strategy/fab_process_flow.lot_links）：{異常 _id: [(前站機台, 這批 lot 在前站的時間), …]}。
       後站（量測站）看到的異常是前站做壞的：前站有開著的件、而且 lot 在前站的時間落在那件的範圍內（前後各 close_after）→
       併進前站那件、記 upstream_services（跟 IT 的「上游併進下游」同一個欄位：被併進去的那一方）；自己已經有件就照同對象的規則。
     scenario：對象的 key、「哪支 API」怎麼算；沒給就依環境變數載入。

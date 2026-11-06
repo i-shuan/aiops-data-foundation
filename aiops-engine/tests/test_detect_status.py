@@ -7,7 +7,7 @@ from argparse import Namespace
 from unittest import mock
 
 import detect.detect_service as C
-from incident.store.alert import ALERT_INDEX, ALERT_MAPPING
+from incident.store.models import ALERT_INDEX, ALERT_MAPPING
 
 CFG = {"interval": "5m", "adjustments_file": None, "calendar_file": None, "detect": {"z": 5}, "status": {"confirm_points": 2},
        "series": [{"name": "a.cpu", "index": "m", "by": ["service"], "value": {"avg": "v"}},

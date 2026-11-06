@@ -3,7 +3,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from unittest import mock
 
-import incident.severity as S
+import incident.alert_severity as S
 
 T0 = datetime(2026, 11, 3, 13, 0, tzinfo=timezone.utc)
 

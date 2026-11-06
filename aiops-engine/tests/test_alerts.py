@@ -3,8 +3,8 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from incident.store.alert import Alert
-import incident.merge as AL
+from incident.store.models import Alert
+import incident.alert_grouper as AL
 
 T0 = datetime(2026, 10, 25, 2, 0, tzinfo=timezone.utc)
 GAP = timedelta(minutes=30)

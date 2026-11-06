@@ -8,7 +8,7 @@ from shared.connection import doc_id
 import interface.web.dto as D
 import learn.feedback_service as F
 import interface.web.views as V
-from incident.store.alert import ALERT_INDEX
+from incident.store.models import ALERT_INDEX
 from learn.store.feedback import FEEDBACK_INDEX
 from shared.incident_doc import INCIDENT_INDEX
 from shared.repos import Repos

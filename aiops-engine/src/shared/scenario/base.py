@@ -33,7 +33,7 @@ BUILTIN = {"observability": {"otel": "it_otel", "apm": "it_apm"}, "factory": "fa
 
 @dataclass
 class Chain:
-    """跨對象併件的依據（incident/merge 的 calls、links）。
+    """跨對象併件的依據（incident/alert_grouper 的 calls、links）。
     calls：{(上游, 下游)}，下游出事連帶上游（IT 的呼叫關係）。
     links：{異常 _id: [(前一個對象, 這個單位在那裡的時間), …]}，後站的異常依單位併進前站（工廠的履歷）。兩個都空＝不併。"""
     calls: set[tuple[str, str]] = field(default_factory=set)
@@ -96,7 +96,7 @@ class Scenario:
     chain: ChainStrategy = field(default_factory=NoChain)
     change: ChangeStrategy = field(default_factory=NoChange)
     critical_levels: tuple[str, ...] = ("rule", "peer", "quality")
-    severity_classes: dict | None = None          # None＝incident/severity.CLASSES（IT 黃金訊號）
+    severity_classes: dict | None = None          # None＝incident/alert_severity.CLASSES（IT 黃金訊號）
     sections: tuple[str, ...] = ("anomalies", "entries", "segments", "slowest", "logs", "changes", "topology", "conclusion")
     schedule: str = "configs/schedule/schedule.yaml"
     commands: dict[str, Callable] = field(default_factory=dict)   # 多出來的 detector 子命令：{名: register(app)}

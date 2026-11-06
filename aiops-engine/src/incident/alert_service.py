@@ -12,14 +12,14 @@ from zoneinfo import ZoneInfo
 
 import llm.summary as LLM
 from shared.connection import ES
-from incident.store.alert import Alert, stamp_of
+from incident.store.models import Alert, stamp_of
 from shared.incident_doc import Incident
 from shared.repos import Repos
 from shared.scenario import Chain, load_scenario
 from shared.scenario import load_scenario
 
-import incident.merge as AL
-import incident.severity as SEV
+import incident.alert_grouper as AL
+import incident.alert_severity as SEV
 import llm.similar as SIM
 
 

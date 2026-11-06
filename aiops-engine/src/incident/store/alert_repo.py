@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from incident.store.alert import ALERT_INDEX, ALERT_MAPPING, Alert
+from incident.store.models import ALERT_INDEX, ALERT_MAPPING, Alert
 from shared.repository import Repository
 
 LIST_FIELDS = ["alert_id", "service", "title", "summary", "severity", "status", "dept", "group", "started_at", "updated_at", "resolved_at",

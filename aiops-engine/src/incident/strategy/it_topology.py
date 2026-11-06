@@ -1,4 +1,4 @@
-"""IT 的併件依據：trace 裡「誰呼叫誰」（下游出事連帶上游；incident/merge 的 calls）。"""
+"""IT 的併件依據：trace 裡「誰呼叫誰」（下游出事連帶上游；incident/alert_grouper 的 calls）。"""
 from __future__ import annotations
 
 from datetime import datetime, timedelta

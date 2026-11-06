@@ -1,7 +1,7 @@
 """analyze 的單元測試，不需要 ES。"""
 import unittest
 
-import incident.analyze as A
+import incident.rca_analyzer as A
 import detect.store.trace as T
 
 

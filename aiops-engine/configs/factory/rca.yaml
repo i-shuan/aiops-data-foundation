@@ -35,7 +35,7 @@ alerts:
   similar: true
   llm: true
   llm_provider: template                             # 廠內多半不能用外部 LLM：固定句型，不叫模型
-  chain: true                                        # 前後站從履歷找（incident/strategy/factory_chain.py）；false 就不併跨機台
+  chain: true                                        # 前後站從履歷找（incident/strategy/fab_process_flow.py）；false 就不併跨機台
   paths_lookback: 3d                                 # 履歷往前找幾天的 lot
   # critical_levels、換版的索引（deploy_index eqp-logs-*、deploy_entity_field equipment_id、deploy_filter event_type recipe_change）、
   # severity.classes（參數家族）都用情境的預設（shared/scenario/data/factory.yaml）；要改才寫
