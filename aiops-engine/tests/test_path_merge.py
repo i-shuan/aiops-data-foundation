@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 
 import detect.store.trace as T
 import incident.analyze as A
-import detect.factory.paths as P
+import detect.trace.path_builder as P
 
 NOW = datetime(2026, 11, 4, 6, 0, tzinfo=timezone.utc)
 CFG = {"group": "fab1", "dept_field": "dept",

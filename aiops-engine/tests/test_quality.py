@@ -3,7 +3,7 @@ import unittest
 
 import pandas as pd
 
-import detect.quality as Q
+import detect.series_ops.quality_check as Q
 import detect.store.quality_repo as QR
 from shared.repos import Repos
 from shared.scenario import load_scenario

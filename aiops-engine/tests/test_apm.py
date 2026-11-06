@@ -13,8 +13,8 @@ from shared.repos import Repos
 from shared.scenario import load_scenario
 
 SC = load_scenario()
-import detect.trace_merge as M
-from detect._util import value_kind
+import detect.trace.span_merge as M
+from detect.utils import value_kind
 from detect.store.series_repo import _bucket_events, _bucket_value, _value_aggs
 
 TX = {"@timestamp": "2026-11-02T01:00:00.000Z", "timestamp.us": 1793581200000000, "processor": {"event": "transaction"},

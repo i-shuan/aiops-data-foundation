@@ -1,5 +1,5 @@
 """動態基準線（aiops-baseline）的索引與 mapping：一條序列、一個對象、每個星期幾 × 小時一筆（median、mad、p05、p95、n）。
-學與比的計算在 detect/baseline.py；讀寫在 detect/store/baseline_repo.py。"""
+學與比的計算在 detect/strategy/dynamic_baseline.py；讀寫在 detect/store/baseline_repo.py。"""
 from __future__ import annotations
 
 from detect.store.anomaly import KEYS_MAPPING

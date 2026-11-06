@@ -8,9 +8,9 @@ from unittest import mock
 import numpy as np
 import pandas as pd
 
-import detect.baseline_job as C
-import detect.peer as cmd_peer
-import detect.rules as cmd_rules
+import detect.detect_service as C
+import detect.strategy.peer_compare as cmd_peer
+import detect.strategy.threshold_rule as cmd_rules
 from tests.fakes import MemoryRepos
 
 T0 = pd.Timestamp("2026-10-05T00:00:00Z")      # 週一

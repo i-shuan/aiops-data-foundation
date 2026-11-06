@@ -259,7 +259,7 @@ def is_entry(s: dict, ids: set[str]) -> bool:
 def merged_doc(spans: list[dict], merged_at: datetime, prefix: str = MERGED_PREFIX) -> tuple[str, dict]:
     """同一個 trace 的 span → (index 名稱, 文件)。index 依 group 與根 span 的日期（UTC）分。
     文件：上層是摘要（入口、總耗時、有沒有錯、經過哪些服務），spans 是每一段（nested），entries 是入口，讓「依服務／API 挑請求」不用展開 spans。
-    prefix：index 名的前綴；工廠的履歷用 lot-paths（detect/factory/paths.py），文件格式一樣。"""
+    prefix：index 名的前綴；工廠的履歷用 lot-paths（detect/trace/path_builder.py），文件格式一樣。"""
     root = root_of(spans)
     ids = {s["span_id"] for s in spans}
     start = datetime.fromtimestamp(root["start_ms"] / 1000, timezone.utc)

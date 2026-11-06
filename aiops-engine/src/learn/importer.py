@@ -28,7 +28,7 @@ from shared.connection import ES, doc_id
 from shared.incident_doc import INCIDENT_INDEX, Fingerprint, Incident
 from shared.repos import Repos
 from shared.scenario import load_scenario
-from detect.adjustments import local_iso
+from detect.series_ops.manual_adjust import local_iso
 
 REQUIRED = ("title", "start", "end", "services", "root_cause_category", "root_cause", "action", "how_detected", "checked")
 OPTIONAL = ("by", "note")

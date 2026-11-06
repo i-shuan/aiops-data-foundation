@@ -358,7 +358,7 @@ series:
 
 每個來源排前 10 名（天數多的先，再看量），依 `owners`（match 可用別名）附負責人，寫進 `aiops-chronic`（每週一份），並印成報告。修掉的下週自然從清單消失。
 
-**資料來源**：負責人（`owners`）和行事曆（`calendar`）是要別人提供的資料，程式只認格式，來源可以換（`file`、`http`，行事曆另有 `taiwan`）。**接口**在 [detect/providers.py](../../src/detect/providers.py) 和 [fake-data/interfaces.md](../../fake-data/interfaces.md)，**假資料**在 [fake-data/](../../fake-data/README.md)，兩邊分開；換成真的只改設定。
+**資料來源**：負責人（`owners`）和行事曆（`calendar`）是要別人提供的資料，程式只認格式，來源可以換（`file`、`http`，行事曆另有 `taiwan`）。**接口**在 [detect/reference_data.py](../../src/detect/reference_data.py) 和 [fake-data/interfaces.md](../../fake-data/interfaces.md)，**假資料**在 [fake-data/](../../fake-data/README.md)，兩邊分開；換成真的只改設定。
 
 **行事曆**：歲修、機房維護、大型活動，寫在 [calendar.yaml](calendar.yaml)，**一次歲修一筆、不合併**（`match` 限定哪個廠、哪些服務）。工廠 24×7，國定假日跟平日一樣，**不列**（列了會把假日的資料從 baseline 挖掉）；只有週休的辦公室系統才打開 `taiwan` provider（[TaiwanCalendar](https://github.com/ruyut/TaiwanCalendar)，含補班日，抓到的存 `.cache/calendar`，失敗用快取），**而且來源要寫 `match`** 限定那些系統：來源的 `match`、`series`、`detect` 套到它的每一天，不寫就是假日那天所有服務都不學、不判斷，24×7 的服務當天真的故障也被吞掉（靜態臨界值規則不看行事曆，照報）。每一筆變成 `exclude_window`：預設不學也不報；`detect: true` 時只是不學、照常判斷（例如活動日流量本來就高）。日期是當地的一整天（`date`），或一段（`start`、`end`，可帶時間）。`adjust list` 會一起列出。
 

@@ -25,7 +25,7 @@ import pandas as pd
 import yaml
 
 from interface.cli.detect import main as cli
-from detect.quality import quality_hits
+from detect.series_ops.quality_check import quality_hits
 from shared.connection import ES
 
 CFG = "tests/trace_edge.yaml"

@@ -8,8 +8,8 @@ import pandas as pd
 from shared.connection import ES, doc_id
 from shared.repos import Repos
 from shared.scenario import load_scenario
-import detect.adjustments as A
-from detect.adjustments import load_adjustments
+import detect.series_ops.manual_adjust as A
+from detect.series_ops.manual_adjust import load_adjustments
 
 # add 每種 kind 必填的參數
 REQUIRED = {"exclude_window": ("start", "end"), "reset_point": ("at",), "recurring_override": ("cron", "duration")}

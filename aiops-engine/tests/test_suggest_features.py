@@ -79,7 +79,7 @@ class Table(unittest.TestCase):
         self.assertEqual(sugs[0].get("min_abs"), 0.24)                # z 壓得掉也不放寬 z：本來就慢是 min_abs 的事
 
     def test_min_count_override_is_applied_per_target(self):
-        from detect.baseline_job import apply_min_count
+        from detect.detect_service import apply_min_count
         s = pd.DataFrame({"service": ["a", "b"], "route": ["r", "r"], "value": [0.1, 0.1], "n": [30, 30], "anomaly": [True, True]})
         ov = [{"kind": "override", "series": "http\\.error_rate", "match": {"service": "^a$"}, "min_count": 4, "status": "active"}]
         out = apply_min_count(s, {"name": "http.error_rate", "min_count": 3}, ["service", "route"], ov)

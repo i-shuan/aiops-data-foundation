@@ -5,7 +5,7 @@ import pandas as pd
 
 import learn.backtest as B
 import learn.suggest as F
-from detect.adjustments import in_schedule
+from detect.series_ops.manual_adjust import in_schedule
 
 TZ = "Asia/Taipei"
 T = F.target_of({"service": "mes-report", "route": "/close"})

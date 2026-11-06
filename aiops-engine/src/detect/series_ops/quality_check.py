@@ -28,7 +28,7 @@ import pandas as pd
 from detect.store.quality_repo import check_keys  # noqa: F401  讀統計在 repository；keys 的算法兩邊共用
 from detect.store.anomaly import Anomaly
 from detect.base import Detector
-from detect._util import _freq, _v
+from detect.utils import _freq, _v
 
 # 路徑裡「像是 ID」的一段：純數字、UUID、8 碼以上的 hex、混了數字的長字串（例如訂單號 A20261023001）
 _ID_SEGMENT = re.compile(

@@ -4,8 +4,8 @@ import unittest
 
 import pandas as pd
 
-import detect.adjustments as A
-import detect.chronic as C
+import detect.series_ops.manual_adjust as A
+import detect.strategy.chronic_issue as C
 
 TZ = "Asia/Taipei"
 

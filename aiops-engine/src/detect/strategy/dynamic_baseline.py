@@ -24,7 +24,7 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-from detect.adjustments import match_keys
+from detect.series_ops.manual_adjust import match_keys
 
 MAD_TO_SIGMA = 1.4826  # 常態分布下 MAD 換成標準差的係數
 

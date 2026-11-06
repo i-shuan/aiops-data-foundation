@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from detect.baseline import to_freq
+from detect.strategy.dynamic_baseline import to_freq
 
 
 def keys_of(spec: dict) -> list[str]:

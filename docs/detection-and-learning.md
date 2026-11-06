@@ -9,14 +9,14 @@
 
 | 方法 | 做法 | 程式 |
 |---|---|---|
-| 動態基準線學習 (Dynamic Baseline Learning) | 每條序列（服務 × API × 指標）取過去 4 週「同星期幾、同小時」的中位數與 MAD，共 168 個時段；歷史不夠往下退（同小時、全部）；z ≥ 5 且差距 ≥ `min_abs` 才算；連續 `confirm_points` 個窗才升 `anomaly`，否則 `warning` | [model.py](../aiops-engine/src/detect/baseline.py)：`train`、`score`、`mark_status` |
+| 動態基準線學習 (Dynamic Baseline Learning) | 每條序列（服務 × API × 指標）取過去 4 週「同星期幾、同小時」的中位數與 MAD，共 168 個時段；歷史不夠往下退（同小時、全部）；z ≥ 5 且差距 ≥ `min_abs` 才算；連續 `confirm_points` 個窗才升 `anomaly`，否則 `warning` | [model.py](../aiops-engine/src/detect/strategy/dynamic_baseline.py)：`train`、`score`、`mark_status` |
 | 稀少筆數的卜瓦松版 | 學平均次數 λ，機率 < 0.001 才算 | `score_poisson` |
 | 粒度自選 | 每條序列從 1m 到 1h 挑事件數夠的最細窗 | `pick_resolution` |
 | 借組基準線 | 新 API、量少的序列借同類成員的基準線，門檻調高 | `train_groups` |
-| 靜態臨界值規則 (Static Threshold Rules) | 狀態變化、錯誤率 5%、p95 2 秒、趨勢（Theil–Sen 斜率）、累計增量 | [rules.py](../aiops-engine/src/detect/rules.py) |
-| Pod 同儕橫向比對 (Peer Comparison) | 同服務的 Pod 互比，用其他 Pod 的中位數與 MAD | [peer.py](../aiops-engine/src/detect/peer.py) |
-| trace 每一段的基準線 | 每個請求每一段自己的時間，出事時跟平常比 | [trace.py](../aiops-engine/src/detect/trace_stats.py) |
-| 排除時段、重置點 | 行事曆、假日、維護窗不學、不判斷 | [adjust.py](../aiops-engine/src/detect/adjustments.py) |
+| 靜態臨界值規則 (Static Threshold Rules) | 狀態變化、錯誤率 5%、p95 2 秒、趨勢（Theil–Sen 斜率）、累計增量 | [rules.py](../aiops-engine/src/detect/strategy/threshold_rule.py) |
+| Pod 同儕橫向比對 (Peer Comparison) | 同服務的 Pod 互比，用其他 Pod 的中位數與 MAD | [peer.py](../aiops-engine/src/detect/strategy/peer_compare.py) |
+| trace 每一段的基準線 | 每個請求每一段自己的時間，出事時跟平常比 | [trace.py](../aiops-engine/src/detect/trace/latency_stats.py) |
+| 排除時段、重置點 | 行事曆、假日、維護窗不學、不判斷 | [adjust.py](../aiops-engine/src/detect/series_ops/manual_adjust.py) |
 
 全部是統計方法（中位數、MAD、卜瓦松、秩統計），沒有訓練任何模型。
 

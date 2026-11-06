@@ -6,12 +6,12 @@ import unittest
 
 import pandas as pd
 
-import detect.adjustments as A
+import detect.series_ops.manual_adjust as A
 from shared.repos import Repos
 from shared.scenario import load_scenario
 
 SC = load_scenario()
-import detect.providers as S
+import detect.reference_data as S
 
 NOW = pd.Timestamp("2026-10-24T00:00:00Z")
 
@@ -232,7 +232,7 @@ class LoadOwners(unittest.TestCase):
         here = os.path.dirname(os.path.dirname(__file__))
         with open(os.path.join(here, "fake-data", "owners.json"), encoding="utf-8") as f:
             owners = json.load(f)["owners"]
-        from detect.chronic import owner_of
+        from detect.strategy.chronic_issue import owner_of
         self.assertEqual(owner_of({"resource.attributes.service.name": "mes-api"}, owners), "【假】MES 團隊")
         self.assertIsNone(owner_of({"service": "other"}, owners))
         with open(os.path.join(here, "fake-data", "calendar.json"), encoding="utf-8") as f:

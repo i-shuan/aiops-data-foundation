@@ -4,7 +4,7 @@ import unittest
 import numpy as np
 import pandas as pd
 
-from detect.baseline import (TrainOptions, effective_for, group_of, mark_status, mask_thin, override_for,
+from detect.strategy.dynamic_baseline import (TrainOptions, effective_for, group_of, mark_status, mask_thin, override_for,
                                   pick_resolution, resolutions_from, score, score_poisson, train, train_groups)
 
 
@@ -343,7 +343,7 @@ class BucketFloorTest(unittest.TestCase):
         return ts, pd.DataFrame({"svc": "x", "ts": ts, "value": v})
 
     def test_floor_is_half_the_bucket_of_the_median(self):
-        from detect.baseline import bucket_floor
+        from detect.strategy.dynamic_baseline import bucket_floor
         got = bucket_floor(np.array([0.175, 0.0375, 0.003, 12.0, np.nan]), B)
         self.assertTrue(np.allclose(got, [0.075, 0.0125, 0.0025, 1.25, 0.0025]))   # 0.1～0.25；0.025～0.05；0～0.005；超過 10 用最後一格；NaN 當 0
 

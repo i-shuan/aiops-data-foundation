@@ -1,4 +1,4 @@
-"""資料品質檢查讀的統計（detect/quality.py 判斷）：每組（check 的 by）的不同值個數、缺欄位筆數、筆數、時間差百分位。索引由 check 給。"""
+"""資料品質檢查讀的統計（detect/series_ops/quality_check.py 判斷）：每組（check 的 by）的不同值個數、缺欄位筆數、筆數、時間差百分位。索引由 check 給。"""
 from __future__ import annotations
 
 import pandas as pd

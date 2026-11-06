@@ -18,10 +18,10 @@ from learn.store.feedback import RCA_USEFUL, VERDICTS
 from shared.incident_doc import Incident
 from shared.repos import Repos
 from shared.scenario import load_scenario
-import detect.adjustments as A
-from detect.adjustments import load_adjustments
-from detect._util import _now
-from detect.baseline import DetectOptions
+import detect.series_ops.manual_adjust as A
+from detect.series_ops.manual_adjust import load_adjustments
+from detect.utils import _now
+from detect.strategy.dynamic_baseline import DetectOptions
 import learn.suggest as F
 from learn.suggest import propose_from_text
 

@@ -11,7 +11,7 @@ SC = load_scenario()
 from argparse import Namespace
 from unittest import mock
 
-import detect.baseline_job as C
+import detect.detect_service as C
 
 CFG = {"interval": "5m", "adjustments_file": None, "calendar_file": None,
        "status": {"confirm_points": 2, "confirm_span": "30m", "instant_z": 15}, "detect": {"z": 5},
@@ -63,8 +63,8 @@ class TuneShow(unittest.TestCase):
 
     def test_values_match_what_detect_uses(self):
         # --show 的值跟 detect 的 score_params／status_params 同一個函式算出來，不會兩套
-        from detect.baseline import DetectOptions
-        from detect.adjustments import load_overrides
+        from detect.strategy.dynamic_baseline import DetectOptions
+        from detect.series_ops.manual_adjust import load_overrides
         ov = load_overrides(Repos(FakeES(), SC), CFG)
         spec, key = CFG["series"][0], {"service": "mes-report-api"}
         self.assertEqual(C.score_params(spec, key, DetectOptions(**CFG["detect"]), ov), (7.0, 0.2))

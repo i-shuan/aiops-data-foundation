@@ -40,8 +40,8 @@ import pandas as pd
 from shared.connection import get_field
 from detect.store.anomaly import Anomaly
 from detect.base import Detector
-from detect._util import _freq
-import detect.adjustments as A
+from detect.utils import _freq
+import detect.series_ops.manual_adjust as A
 
 OPS = {">=": operator.ge, ">": operator.gt, "<=": operator.le, "<": operator.lt, "==": operator.eq, "!=": operator.ne}
 

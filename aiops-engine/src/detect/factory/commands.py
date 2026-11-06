@@ -14,7 +14,7 @@ from shared.repos import Repos
 from shared.scenario import load_scenario
 from shared.clock import now_ts as _now
 
-import detect.factory.paths as P
+import detect.trace.path_builder as P
 
 
 def _lot_ids(rows: list[dict], lot_field: str) -> set[str]:

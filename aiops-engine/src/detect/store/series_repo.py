@@ -98,7 +98,7 @@ def _bucket_value(value, b: dict, scale: float = 1.0):
 
 
 def _bucket_events(value, b: dict):
-    """這個時間窗裡底下的事件數：選粒度用（detect/baseline.pick_resolution）。量測值是 None。"""
+    """這個時間窗裡底下的事件數：選粒度用（detect/strategy/dynamic_baseline.pick_resolution）。量測值是 None。"""
     if value == "count":
         return float(b["doc_count"])
     (kind, _), = value.items()

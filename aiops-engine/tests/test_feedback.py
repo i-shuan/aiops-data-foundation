@@ -5,7 +5,7 @@ import unittest
 import pandas as pd
 
 import learn.suggest as F
-from detect.baseline import override_for
+from detect.strategy.dynamic_baseline import override_for
 
 
 def anomalies(rows):
@@ -101,13 +101,13 @@ class Suggest(unittest.TestCase):
         # 路由裡的 { } . 不能被當成正規表示式
         keys = {"service": "mes.api", "route": "/lots/{id}"}
         sug = F.suggest_override("http.latency_p95_s", F.target_of(keys), 3)
-        from detect.adjustments import match_keys
+        from detect.series_ops.manual_adjust import match_keys
         self.assertTrue(match_keys(keys, sug["match"]))
         self.assertFalse(match_keys({"service": "mesXapi", "route": "/lots/{id}"}, sug["match"]))
         self.assertFalse(match_keys({"service": "mes.api", "route": "/lots/{id}/items"}, sug["match"]))
 
     def test_proposed_does_not_take_effect_until_approved(self):
-        from detect.adjustments import active
+        from detect.series_ops.manual_adjust import active
         keys = {"service": "a"}
         sug = F.suggest_override("x.y", F.target_of(keys), 3)
         now = pd.Timestamp("2026-10-24", tz="UTC")

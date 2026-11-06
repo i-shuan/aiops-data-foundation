@@ -32,7 +32,7 @@ import numpy as np
 import pandas as pd
 
 from shared.schema.loader import load_config
-from detect.providers import load_calendar
+from detect.reference_data import load_calendar
 
 KINDS = ("override", "exclude_window", "reset_point", "recurring_override")
 DEFAULT_WARMUP = "24h"   # reset_point 之後多久內不判斷

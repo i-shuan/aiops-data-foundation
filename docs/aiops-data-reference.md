@@ -45,7 +45,7 @@ Grafana（⑧）         讀 aiops-alerts 發通知；儀表板讀 alerts、anom
 
 ## aiops-anomalies：一筆異常
 
-寫入：`detect/baseline_job.py`（動態基準線學習，每次 detect）、`rules.py`（靜態臨界值規則）、`peer.py`（Pod 同儕橫向比對）、`trace_stats.py`（trace 的基準線與規則）、`quality.py`（資料品質），都經 `detect/store/anomaly_repo.py` 的 `AnomalyRepository.write`。事件整合另外用部分更新補上 `alert_id`。
+寫入：`detect/detect_service.py`（動態基準線學習，每次 detect）、`rules.py`（靜態臨界值規則）、`peer.py`（Pod 同儕橫向比對）、`trace_stats.py`（trace 的基準線與規則）、`quality.py`（資料品質），都經 `detect/store/anomaly_repo.py` 的 `AnomalyRepository.write`。事件整合另外用部分更新補上 `alert_id`。
 
 | 欄位 | 型別 | 說明 |
 |---|---|---|

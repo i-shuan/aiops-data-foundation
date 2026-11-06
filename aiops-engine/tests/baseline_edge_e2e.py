@@ -36,15 +36,15 @@ import pandas as pd
 import yaml
 
 from interface.cli.detect import main as cli
-from detect.baseline_job import detect_series
-from detect._util import keys_of
+from detect.detect_service import detect_series
+from detect.utils import keys_of
 from detect.store.anomaly import ANOMALY_INDEX
 from shared.connection import ES
 from detect.store.baseline import BASELINE_INDEX
 from shared.repos import Repos
-from detect.baseline import DetectOptions
+from detect.strategy.dynamic_baseline import DetectOptions
 from learn.store.adjustment import TUNING_INDEX
-from detect.adjustments import data_adjustments, load_overrides
+from detect.series_ops.manual_adjust import data_adjustments, load_overrides
 from tests import otlp_synth as O
 
 
@@ -422,7 +422,7 @@ def scored_points(config: str, es: ES, now: pd.Timestamp, window: str, services:
 
 def old_fill_lambda(es: ES, config: str) -> float:
     """修正前的 _fill_zero（alive 只看這條序列自己查到的資料）學出來的 svc-logs log.errors λ：沒有任何 error 的小時變成「不知道」。"""
-    from detect.baseline import TrainOptions, train as mtrain
+    from detect.strategy.dynamic_baseline import TrainOptions, train as mtrain
     with open(config, encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
     spec = next(s for s in cfg["series"] if s["name"].endswith("log.errors"))
@@ -605,7 +605,7 @@ def phase_edge(es: ES, config: str):
         w = a[(a["ts"] >= at("15:00")) & (a["ts"] < at("16:00"))]
         check(G, f"收集中斷：像正式環境一樣 detect（{t}）、中斷時段內的異常", "0 個", fmt_counts(w), w.empty)
     # 對照：修正前的 _add_silent（不看收集系統有沒有在跑，有 baseline 但整段沒資料的一律補 0）
-    import detect.baseline_job as CB
+    import detect.detect_service as CB
     orig = CB._add_silent
     CB._add_silent = lambda cur, base, by, s_, e_, i_, alive=None: orig(cur, base, by, s_, e_, i_)
     try:

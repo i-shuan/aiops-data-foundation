@@ -4,7 +4,7 @@ import unittest
 import pandas as pd
 import yaml
 
-import detect.rules as R
+import detect.strategy.threshold_rule as R
 
 NOW = pd.Timestamp("2026-10-10T10:00:00Z")
 
@@ -222,12 +222,12 @@ class ClockOffsetTest(unittest.TestCase):
             "fresh": "40m"}
 
     def test_abs_both_directions(self):
-        import detect.rules as R
+        import detect.strategy.threshold_rule as R
         self.assertEqual(R.sample_value(self.rule, {"metrics": {"ntp.offset": -300_000_000}}), 300_000_000)
         self.assertEqual(R.sample_value({**self.rule, "abs": False}, {"metrics": {"ntp.offset": -300_000_000}}), -300_000_000)
 
     def test_message_in_ms(self):
-        import detect.rules as R
+        import detect.strategy.threshold_rule as R
         msg = R.describe(self.rule, {"key": ("node-1",), "value": 2_500_460_925})
         self.assertIn("2,500 毫秒", msg)
         self.assertIn("100 毫秒", msg)

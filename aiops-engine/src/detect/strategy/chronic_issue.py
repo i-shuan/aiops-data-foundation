@@ -19,12 +19,12 @@ import json
 import pandas as pd
 
 
-from detect.adjustments import match_keys
+from detect.series_ops.manual_adjust import match_keys
 from shared.connection import ES, doc_id
 from shared.repos import Repos
 from shared.scenario import load_scenario
-from detect._util import _now, _v
-from detect.providers import load_owners
+from detect.utils import _now, _v
+from detect.reference_data import load_owners
 
 
 def find_chronic(daily: pd.DataFrame, keys: list[str], *, min_days: int = 6, min_per_day: float = 1,

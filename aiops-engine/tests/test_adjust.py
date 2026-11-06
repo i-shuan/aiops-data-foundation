@@ -4,12 +4,12 @@ import unittest
 import numpy as np
 import pandas as pd
 
-import detect.adjustments as A
+import detect.series_ops.manual_adjust as A
 from shared.repos import Repos
 from shared.scenario import load_scenario
 
 SC = load_scenario()
-from detect.baseline import override_for
+from detect.strategy.dynamic_baseline import override_for
 
 TZ = "Asia/Taipei"
 

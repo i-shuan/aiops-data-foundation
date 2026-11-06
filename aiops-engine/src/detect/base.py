@@ -14,7 +14,7 @@ from shared.connection import ES
 from detect.store.anomaly import Anomaly
 from shared.repos import Repos
 from shared.scenario import load_scenario
-from detect._util import _freq, _now
+from detect.utils import _freq, _now
 
 
 class Detector(ABC):

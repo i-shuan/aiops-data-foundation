@@ -2,7 +2,7 @@
 import unittest
 from unittest import mock
 
-import detect.rules as C
+import detect.strategy.threshold_rule as C
 
 DRAFT = {"name": "mes-api.db.recurring", "type": "window", "lookback": "5m", "index": "x", "filter": {}, "by": ["service"], "value": {"avg": "v"},
          "op": ">=", "threshold": 2.4, "_note": "說明", "_source": {"peaks": [1]}}
@@ -10,7 +10,7 @@ DRAFT = {"name": "mes-api.db.recurring", "type": "window", "lookback": "5m", "in
 
 class ApprovedRules(unittest.TestCase):
     def rules(self, adjs):
-        with mock.patch("detect.adjustments.load_adjustments", return_value=adjs):
+        with mock.patch("detect.series_ops.manual_adjust.load_adjustments", return_value=adjs):
             return C.approved_rules(object(), {})
 
     def test_only_active_with_numeric_threshold(self):
@@ -25,7 +25,7 @@ class ApprovedRules(unittest.TestCase):
     def test_expired_not_loaded(self):
         import pandas as pd
         now = pd.Timestamp("2026-10-28T10:00:00Z")
-        with mock.patch("detect.adjustments.load_adjustments", return_value=[
+        with mock.patch("detect.series_ops.manual_adjust.load_adjustments", return_value=[
                 {"kind": "rule_suggestion", "status": "active", "rule_draft": {**DRAFT, "name": "past"}, "expires_at": "2026-10-28T09:59:00Z"},
                 {"kind": "rule_suggestion", "status": "active", "rule_draft": {**DRAFT, "name": "future"}, "expires_at": "2026-10-28T10:01:00+00:00"},
                 {"kind": "rule_suggestion", "status": "active", "rule_draft": {**DRAFT, "name": "never"}}]):
@@ -41,7 +41,7 @@ class ApprovedRules(unittest.TestCase):
         self.assertEqual(self.rules([{"kind": "rule_suggestion", "status": "active", "rule_draft": draft}]), [])
 
     def test_tuning_unreadable_falls_back_to_yaml_only(self):
-        with mock.patch("detect.adjustments.load_adjustments", side_effect=RuntimeError("es down")):
+        with mock.patch("detect.series_ops.manual_adjust.load_adjustments", side_effect=RuntimeError("es down")):
             self.assertEqual(C.approved_rules(object(), {}), [])
 
 

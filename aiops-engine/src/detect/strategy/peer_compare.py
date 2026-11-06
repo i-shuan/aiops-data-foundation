@@ -19,10 +19,10 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from detect.baseline import MAD_TO_SIGMA
+from detect.strategy.dynamic_baseline import MAD_TO_SIGMA
 from detect.store.anomaly import Anomaly
 from detect.base import Detector
-from detect._util import _freq, keys_of
+from detect.utils import _freq, keys_of
 
 
 def compare(df: pd.DataFrame, group: list[str], member: str, *, direction: str = "up", z: float = 5.0,

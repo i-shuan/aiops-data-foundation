@@ -19,9 +19,9 @@ import pandas as pd
 from shared.connection import ES, doc_id
 from shared.repos import Repos
 from shared.scenario import load_scenario
-import detect.adjustments as A
-from detect._util import _now
-from detect.adjustments import load_adjustments
+import detect.series_ops.manual_adjust as A
+from detect.utils import _now
+from detect.series_ops.manual_adjust import load_adjustments
 
 DEFAULTS = {"window": "24h", "min_points": 20, "min_share": 0.9, "max_spread": 0.3}
 

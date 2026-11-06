@@ -1,4 +1,4 @@
-"""慢性病清單（aiops-chronic）：每週一份，天天都有的告警、log（detect/chronic.py）。"""
+"""慢性病清單（aiops-chronic）：每週一份，天天都有的告警、log（detect/strategy/chronic_issue.py）。"""
 from __future__ import annotations
 
 from shared.repository import Repository

@@ -19,15 +19,15 @@ import re
 import numpy as np
 import pandas as pd
 
-import detect.adjustments as A
-import detect.rules as R
-from detect.adjustments import load_adjustments
-from detect.baseline_job import detect_series
-from detect._util import _freq, _now, keys_of
+import detect.series_ops.manual_adjust as A
+import detect.strategy.threshold_rule as R
+from detect.series_ops.manual_adjust import load_adjustments
+from detect.detect_service import detect_series
+from detect.utils import _freq, _now, keys_of
 from shared.connection import ES
 from shared.repos import Repos
 from shared.scenario import load_scenario
-from detect.baseline import DetectOptions
+from detect.strategy.dynamic_baseline import DetectOptions
 import learn.suggest as F
 
 

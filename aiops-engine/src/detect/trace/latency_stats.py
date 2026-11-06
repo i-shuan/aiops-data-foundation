@@ -25,11 +25,11 @@ from detect.store.trace import group_traces, segment, self_times
 from detect.store.anomaly import Anomaly
 from shared.repos import Repos
 from shared.scenario import load_scenario
-import detect.adjustments as A
-from detect.adjustments import data_adjustments
-from detect.baseline_job import save_anomalies, save_baseline, train_summary, with_status
-from detect._util import _freq, _now
-import detect.trace_merge as M
+import detect.series_ops.manual_adjust as A
+from detect.series_ops.manual_adjust import data_adjustments
+from detect.detect_service import save_anomalies, save_baseline, train_summary, with_status
+from detect.utils import _freq, _now
+import detect.trace.span_merge as M
 
 KEYS = ["entry.service", "entry.name", "segment"]
 COLUMNS = ["ts", *KEYS, "requests", "calls", "time_ms", "error_rate", "swallowed_rate", "exception_type"]

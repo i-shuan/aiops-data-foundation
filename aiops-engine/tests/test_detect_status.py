@@ -6,7 +6,7 @@ import unittest
 from argparse import Namespace
 from unittest import mock
 
-import detect.baseline_job as C
+import detect.detect_service as C
 from incident.store.alert import ALERT_INDEX, ALERT_MAPPING
 
 CFG = {"interval": "5m", "adjustments_file": None, "calendar_file": None, "detect": {"z": 5}, "status": {"confirm_points": 2},

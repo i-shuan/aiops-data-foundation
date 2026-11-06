@@ -11,10 +11,10 @@ from shared.clock import stamp_of
 from detect.store.anomaly import Anomaly
 from shared.repos import Repos
 from shared.scenario import load_scenario
-import detect.adjustments as A
-from detect.baseline import (CONFIDENCE, RESOLUTIONS, DetectOptions, TrainOptions, effective_for, mask_thin, pick_resolution, score, group_of, mark_status, override_for, resolutions_from, score_poisson, train, train_groups)
-from detect._util import _freq, _now, _v, keys_of, value_kind
-from detect.adjustments import data_adjustments, load_overrides
+import detect.series_ops.manual_adjust as A
+from detect.strategy.dynamic_baseline import (CONFIDENCE, RESOLUTIONS, DetectOptions, TrainOptions, effective_for, mask_thin, pick_resolution, score, group_of, mark_status, override_for, resolutions_from, score_poisson, train, train_groups)
+from detect.utils import _freq, _now, _v, keys_of, value_kind
+from detect.series_ops.manual_adjust import data_adjustments, load_overrides
 
 
 def save_baseline(repo: Repos, name: str, by: list[str], b: pd.DataFrame, start, end, had_data: bool = False) -> None:

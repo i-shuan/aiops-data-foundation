@@ -5,12 +5,12 @@ import unittest
 
 import pandas as pd
 
-import detect.trace_stats as T
+import detect.trace.latency_stats as T
 from shared.repos import Repos
 from shared.scenario import load_scenario
 
 SC = load_scenario()
-from detect.baseline import DetectOptions, TrainOptions, score, train
+from detect.strategy.dynamic_baseline import DetectOptions, TrainOptions, score, train
 
 API = ("mes-api", "GET /lots/{id}")
 
