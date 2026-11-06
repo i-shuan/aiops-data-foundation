@@ -1,0 +1,43 @@
+<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><title>回饋：{{ d.service or '' }}</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>body{font-family:system-ui,sans-serif;max-width:760px;margin:24px auto;padding:0 16px;line-height:1.5}
+pre{background:#f4f4f4;padding:10px;white-space:pre-wrap}label{display:block;margin-top:12px;font-weight:600}
+input[type=text],textarea,select{width:100%;padding:6px;font-size:15px}textarea{height:64px}.chk{display:inline-block;font-weight:400;margin:4px 12px 0 0}
+.v label{display:inline-block;margin-right:16px;font-weight:600}button{margin-top:16px;padding:10px 20px;font-size:16px}
+.ok{background:#e6f7e6;padding:10px}.err{background:#fde8e8;padding:10px}small{color:#555}.hint{font-weight:400;color:#555;font-size:13px}
+.rerun{background:#f4f6fb;padding:10px;margin:12px 0}.rerun input[type=text]{width:40%}.rerun button{margin-top:0;padding:6px 14px;font-size:14px}
+#detail{display:none}{% if full %}body{max-width:none;margin:16px 24px}h3{border-top:2px solid #ddd;padding-top:12px;margin-top:28px}{% endif %}</style></head><body>
+<h2>{{ d.title or d.alert_id }}</h2>
+{% if notice %}<p class="ok">{{ notice }}</p>{% endif %}
+{% if is_open %}<form method="post" action="/rca" class="rerun"><input type="hidden" name="alert_id" value="{{ d.alert_id }}">
+{% if full %}<input type="hidden" name="full" value="1">{% endif %}
+<b>重跑根因分析</b> <span class="hint">（trace 晚到、剛改了設定時用；含相似事故、摘要；幾秒到一分鐘後重新整理這頁）</span>
+<input type="text" name="reason" placeholder="原因（選填）"> <button type="submit">重跑</button></form>{% endif %}
+<pre>{{ d.summary }}</pre>
+{% if d.llm %}<p><b>AI 摘要</b>（只是參考）：<br>{{ d.llm|replace('\n', '<br>'|safe) }}</p>{% endif %}
+<p><b>過去相似的事故</b></p><ul>{% for s in d.similar %}<li><b>{{ (s.start or '')[:16] }}</b> [{{ s.root_cause_category or '—' }}] {{ s.title or '' }}<br><small>為什麼像：{{ (s.why or [])|join('；') }}</small></li>{% else %}<li>沒有相似的過去事故</li>{% endfor %}</ul>
+{% if full %}<h3>根因分析全文</h3><pre>{{ d.report or '（沒有報告）' }}</pre><h3>資深維運專家（老師傅）回饋</h3>{% else %}<p><a href="/report?alert={{ d.alert_id }}">根因報告全文</a></p>{% endif %}
+{% if done %}<p class="ok">{{ done }}</p>{% elif error %}<p class="err">{{ error }}</p>{% endif %}
+<form method="post" action="/feedback">
+<input type="hidden" name="alert_id" value="{{ d.alert_id }}">
+{% if full %}<input type="hidden" name="full" value="1">{% endif %}
+{% for k, q in rca_questions %}<div class="v"><label>{{ q }}</label><br>{% for v, t in rca_useful %}<label><input type="radio" name="{{ k }}" value="{{ v }}"> {{ t }}</label>{% endfor %}</div>{% endfor %}
+<div class="v"><label>這件是：</label><br>
+{% for v, t in verdicts.items() %}<label><input type="radio" name="verdict" value="{{ v }}" required onclick="document.getElementById('detail').style.display=(this.value=='false_positive')?'none':'block';document.getElementById('fp').style.display=(this.value=='false_positive')?'block':'none'"> {{ t }}</label>{% endfor %}
+</div>
+<label>一句話說這件怎麼回事 <span class="hint">（{{ text_hint }}）</span><textarea name="feedback_text"></textarea></label>
+<div id="fp" style="display:none"><label>為什麼不是問題 <select name="fp_reason">{% for v, t in fp_reasons %}<option value="{{ v }}">{{ t }}</option>{% endfor %}</select></label>
+<label>補充 <span class="hint">（選填）</span><input type="text" name="fp_reason_text"></label></div>
+<div id="detail">
+<label>根因分類 {% if d.suggested_category %}<span class="hint">（系統依過去相似的 case 預帶 {{ d.suggested_category }}，不對請改）</span>{% endif %}<select name="root_cause_category"><option value="">—</option>{% for v, t in categories %}<option value="{{ v }}"{% if v == d.suggested_category %} selected{% endif %}>{{ t }}</option>{% endfor %}</select></label>
+<label>根因（一句話） <input type="text" name="root_cause" placeholder="例：Oracle 統計資訊過期，SELECT lots 走錯執行計畫"></label>
+<label>處置（做了什麼讓它恢復） <span class="hint">（選填）</span><input type="text" name="action" placeholder="例：重跑 analyze，10 分鐘後恢復"></label>
+<label>怎麼看出來的：看到什麼現象讓你想到是這個原因 <span class="hint">（這是最值錢的，請寫）</span>
+<textarea name="how_detected" placeholder="例：只有 lots 那張表的查詢慢、其他 API 都正常，AWR 看到執行計畫變了"></textarea></label>
+<label>查了哪些地方 <span class="hint">（可複選）</span></label>{% for c in checked %}<label class="chk"><input type="checkbox" name="checked" value="{{ c }}"> {{ c }}</label>{% endfor %}
+<label>下次怎麼更快：缺什麼指標、規則、畫面 <span class="hint">（選填）</span><input type="text" name="improve"></label>
+</div>
+<label>你是 <input type="text" name="by" placeholder="名字或工號" required></label>
+<label>備註 <span class="hint">（選填）</span><input type="text" name="note"></label>
+<button type="submit">送出</button>
+</form></body></html>

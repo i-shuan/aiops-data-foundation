@@ -31,14 +31,14 @@
       "title": "AIOps 回饋：${alert}",
       "id": 1,
       "gridPos": {
-        "h": 34,
+        "h": 4,
         "w": 15,
         "x": 0,
         "y": 0
       },
       "options": {
         "mode": "html",
-        "content": "<div style=\"font-size:14px\"><a href=\"http://localhost:18080/feedback?alert=${alert}&amp;full=1\" target=\"_blank\">另開分頁</a>　｜　<a href=\"http://localhost:18080/report?alert=${alert}\" target=\"_blank\">只看根因報告全文</a>　｜　<a href=\"http://localhost:18080/missed\" target=\"_blank\">回報漏報（該報卻沒報）</a><span style=\"color:#888\">　（下面沒出現表單：這台 Grafana 沒開內嵌，用這些連結）</span></div><iframe src=\"http://localhost:18080/feedback?alert=${alert}&amp;full=1\" style=\"width:100%;height:calc(100% - 28px);border:0;margin-top:6px;background:#fff\" title=\"AIOps 回饋\"></iframe>"
+        "content": "<div style=\"font-size:14px\"><a href=\"http://localhost:18080/feedback?alert=${alert}&amp;full=1\" target=\"_blank\">另開分頁</a>　｜　<a href=\"http://localhost:18080/report?alert=${alert}\" target=\"_blank\">只看根因報告全文</a>　｜　<a href=\"http://localhost:18080/missed\" target=\"_blank\">回報漏報（該報卻沒報）</a><span style=\"color:#888\">　（表單另開分頁填；Grafana 開了內嵌就會直接顯示在下面）</span></div><iframe src=\"http://localhost:18080/feedback?alert=${alert}&amp;full=1\" style=\"width:100%;height:calc(100% - 28px);border:0;margin-top:6px;background:#fff\" title=\"AIOps 回饋\"></iframe>"
       }
     },
     {
@@ -46,7 +46,7 @@
       "title": "回報漏報（該報卻沒報）",
       "id": 2,
       "gridPos": {
-        "h": 34,
+        "h": 4,
         "w": 9,
         "x": 15,
         "y": 0

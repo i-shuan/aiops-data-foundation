@@ -78,7 +78,7 @@
 
 | 測試目的（為了確認什麼） | 怎麼測 | 結果 |
 |---|---|---|
-| 四步每一步行為沒變 | `cd aiops-engine/code && python3 -m pytest -q`，每步結束跑一次 | 改之前 773 過；A 773、B 773、C 776（多 test_layers 的 3 個）、D 785（多 test_alert 5、test_tuning 4）；16 skipped 四步都一樣 |
+| 四步每一步行為沒變 | `cd aiops-engine && python3 -m pytest -q`，每步結束跑一次 | 改之前 773 過；A 773、B 773、C 776（多 test_layers 的 3 個）、D 785（多 test_alert 5、test_tuning 4）；16 skipped 四步都一樣 |
 | **A** 命令列沒變 | `tests/test_cli.py` 的 `ScheduleCommands`：四張排程表裡每一條字面指令都還解析得過、到得了處理函式 | 全過；`python3 -m detector feedback suggest`、`incident add`、`adjust approve --id …` 的參數值跟以前一樣 |
 | **B** 拆完的函式跟拆之前做一樣的事 | 沒改任何既有測試的斷言值（test_feedback、test_feedback_export、test_alerts 44 個 merge 情境、test_factory_alerts、test_backtest、test_backtest_group、test_api）；只改了 test_cli 的查表方式與 `a.action` 斷言 | 全過。拆 `alerts.merge` 時 docstring 接錯過一次（三引號不在行首），測試整檔 SyntaxError 立刻抓到，從 git 的原文重接 |
 | **B** 子命令只收自己的參數 | test_cli 新加：`feedback export --min-false-positive 2`、`adjust approve`（沒 `--id`）、`incident resolve`（沒 `--id`）、`["feedback"]`、`["adjust"]` 都要回 2 | 過；`adjust add` 的 Namespace 沒有 `force` 屬性（以前有） |

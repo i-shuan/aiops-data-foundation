@@ -1,0 +1,54 @@
+# IT 可觀測性（預設，AIOPS_PLUGIN=observability、AIOPS_SOURCE=otel）：對象是服務、「API」是 method＋route、
+# trace 的呼叫關係決定誰連帶誰、版號第一次出現當換版。原始資料是我們的 Collector 寫的（k8s-*、metrics-*.otel-*、traces-generic.otel-*）。
+name: observability
+source: otel
+schedule: configs/schedule/schedule.yaml
+
+owner:                                   # dept／group 歸屬查哪裡（detect/store/owner_repo.py）
+  index: metrics-*.otel-*
+  namespace: resource.attributes.k8s.namespace.name
+  service: resource.attributes.service.name
+  dept: resource.attributes.dept
+  group: resource.attributes.group
+log:                                     # 根因分析讀 log 的欄位（incident/store/log_repo.py）；service.name、trace_id 是 alias，_source 裡沒有，用 fields 取
+  service: resource.attributes.service.name
+  level: log.level
+  trace_id: trace_id
+  message: [message]
+  problem_levels: [warn, error, fatal]
+  problem_query: null
+
+domain:
+  entity: 服務
+  unit: 請求
+  trace: Trace
+  new_value_hint: 換版後的新 Pod、新版本
+  categories:
+    - [db, "DB（慢查詢、鎖、連線池、統計資訊）"]
+    - [network, "網路（延遲、斷線、DNS）"]
+    - [config_change, 設定變更]
+    - [deploy, 版本更新]
+    - [external, "外部系統（供應商、其他部門的服務）"]
+    - [resource, "資源不足（CPU、記憶體、磁碟）"]
+    - [bug, 程式錯誤]
+    - [data, "資料問題（髒資料、量暴增）"]
+    - [other, 其他]
+  fp_reasons:
+    - [batch, "月底 / 定時批次本來就這樣"]
+    - [loadtest, "壓測、演練"]
+    - [known_slow, 這支 API 本來就慢]
+    - [low_volume, "量太少，幾筆就跳"]
+    - [deploy, 換版期間]
+    - [other, 其他]
+  checked: ["Oracle AWR / 慢查詢", DB 連線池, "主機 CPU / 記憶體 / 磁碟", "網路 / DNS", Kibana log, trace 瀑布圖,
+            Kafka lag, "近期的版本更新 / 設定變更", "上游 / 下游服務", 外部系統狀態]
+
+# 異常的 keys 裡哪個是服務（baseline、規則、peer、quality、trace 的寫法都不一樣）；caller／callee 是 trace 分段的
+entity_keys: [resource.attributes.service.name, service, entry.service, service.name, caller, callee]
+route: http
+chain: {strategy: "incident.strategy.it_topology:CallEdges"}         # 跨服務（一層）：trace 裡誰呼叫誰
+change: {strategy: "incident.strategy.it_deployment:VersionFirstSeen"} # 版號（service.version）第一次出現
+critical_levels: [rule, peer, quality]
+severity_classes: null                                           # null＝incident/alert_severity.CLASSES（黃金訊號）
+sections: [anomalies, entries, segments, slowest, logs, changes, topology, conclusion]
+commands: {}

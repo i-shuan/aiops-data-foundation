@@ -38,11 +38,11 @@ docs/
   pdca/              現況與待辦（依 PDCA 分）、每一輪紀錄、TEMPLATE.md
 ```
 
-要部署看 [docs/deploy-how-to.md](docs/deploy-how-to.md)。閱讀順序：[architecture.md](docs/architecture.md) → [aiops-engine/code/configs/apm/README.md](aiops-engine/code/configs/apm/README.md)（怎麼接 Elastic APM 的資料）→ 各主題。
+要部署看 [docs/deploy-how-to.md](docs/deploy-how-to.md)。閱讀順序：[architecture.md](docs/architecture.md) → [aiops-engine/configs/apm/README.md](aiops-engine/configs/apm/README.md)（怎麼接 Elastic APM 的資料）→ 各主題。
 
 | 資料夾 | 主文件 |
 |---|---|
-| **rca** | [rca/README.md](docs/rca/README.md)：根因分析六步、三種資料怎麼串、動態基準線學習、15 個故障案例；程式：[aiops-engine/code/configs/baseline](aiops-engine/code/configs/baseline/README.md)、[aiops-engine/code/configs/rca](aiops-engine/code/configs/rca/README.md)（[報告範例](aiops-engine/code/configs/rca/example-report.md)） |
+| **rca** | [rca/README.md](docs/rca/README.md)：根因分析六步、三種資料怎麼串、動態基準線學習、15 個故障案例；程式：[aiops-engine/configs/baseline](aiops-engine/configs/baseline/README.md)、[aiops-engine/configs/rca](aiops-engine/configs/rca/README.md)（[報告範例](aiops-engine/configs/rca/example-report.md)） |
 | **feedback** | [feedback/README.md](docs/feedback/README.md)：閉環、LLMOps 的定案、LLM 與 token |
 
 ## 已經定案的
@@ -67,20 +67,28 @@ docs/
 
 ## 目錄
 
-一個部署元件一個資料夾，裡面固定 `README.md`（怎麼部署）、`code/`（程式與設定檔）、`helmchart/`（Helm chart）。
+一個部署元件一個資料夾，裡面固定 `README.md`（怎麼部署）、程式與設定檔、`helmchart/`（Helm chart）；`grafana/`、`elasticsearch/` 的程式與設定檔放在 `code/`，`aiops-engine/` 直接放在資料夾裡。
 
 ```
-elasticsearch/   kibana-dev-tools.txt（貼進 Kibana Dev Tools 的一份檔）
-grafana/         code/（規則、contact point、policy、儀表板、外掛說明）  helmchart/（Grafana＋initContainer 裝外掛＋provisioning）
-aiops-engine/    code/（Python、configs、Dockerfile）                  helmchart/（mode：一隻 pod，或 api＋beat＋worker＋redis）
-docs/  tools/
+repo/
+├─ CLAUDE.md  README.md  sonar-project.properties
+├─ elasticsearch/   kibana-dev-tools.txt          ③ 貼進 Kibana Dev Tools 的設定
+├─ grafana/         README.md  code/  helmchart/  ⑧ 通知、儀表板、回饋表單
+├─ tools/           check-docs.py                 文件檢查（連結、索引、舊說法、類型）
+├─ docs/            原理、案例、PDCA 紀錄
+└─ aiops-engine/                                  ④～⑨ AIOps 核心（src/ 裡的結構見它的 README.md）
+   ├─ main.py  Dockerfile  requirements.txt  README.md
+   ├─ src/        Python 程式：interface、learn、incident、llm、detect、shared
+   ├─ configs/    設定檔的實際值（apm、baseline、factory、metrics_only、rca、schedule）
+   ├─ helmchart/  mode：一隻 pod，或 api＋beat＋worker＋redis
+   ├─ tests/  fake-data/
 ```
 
 | 資料夾 | 模組 | 內容 |
 |---|---|---|
 | `elasticsearch/` | ③ | 在公司 ES 上補的東西：一份貼進 Kibana Dev Tools 的檔（`traces-merged-*` 的 ILM 與 template、engine 與 Grafana 的 key、選用的 snapshot）。不部署 ES、不碰 APM 的索引 |
 | `grafana/` | ⑧ | 讀 `aiops-alerts` 依部門發通知、儀表板、回饋表單外掛 |
-| `aiops-engine/` | ④～⑨ | AIOps 分析核心：`core/`（ES、trace、LLM）、`detector/`（動態基準線學習、規則、回饋、回測、量化）、`investigator/`（根因分析、事件整合、相似事故）、`api/`（薄 API：推異常、重跑根因、回饋表單後端）、`scheduler/`（排程器／beat）、`tasks/`（佇列 worker）、`configs/`（`apm/` Elastic APM 版、`baseline/` `rca/` `schedule/` OTel 版） |
+| `aiops-engine/` | ④～⑨ | AIOps 分析核心：Python 程式在 `src/`，一個功能一個資料夾：`detect/` 異常分析、`llm/` LLM 與過去相似事故、`incident/` 告警與根因、`learn/` 學習迴圈、`interface/` 命令列／API／排程器與 worker、`shared/` 共用底層（`infra/` ES 連線、`types/` 事故與指紋、`scenario/` 情境與設定檔欄位定義）；指令一律 `python3 -m main <detector|investigator|scheduler|tasks|api> …`；`configs/`（`apm/` Elastic APM 版、`baseline/` `rca/` `schedule/` OTel 版） |
 | `docs/` | — | 設計文件、規劃、`docs/pdca/` 每一輪的紀錄 |
 
-Python 的執行位置在 `aiops-engine/code/`：`cd aiops-engine/code && python3 -m detector <指令>`、`python3 -m investigator investigate`。
+Python 的執行位置在 `aiops-engine/`：`cd aiops-engine && python3 -m main detector <指令>`、`python3 -m main investigator investigate`。

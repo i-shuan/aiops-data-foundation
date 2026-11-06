@@ -1,0 +1,17 @@
+<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><title>回報漏報</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>body{font-family:system-ui,sans-serif;max-width:640px;margin:24px auto;padding:0 16px;line-height:1.5}
+label{display:block;margin-top:12px;font-weight:600}input,textarea,select{width:100%;padding:6px;font-size:15px}textarea{height:64px}
+button{margin-top:16px;padding:10px 20px;font-size:16px}.ok{background:#e6f7e6;padding:10px}.err{background:#fde8e8;padding:10px}.hint{font-weight:400;color:#555;font-size:13px}</style></head><body>
+<h2>回報漏報（該報卻沒報）</h2>
+{% if done %}<p class="ok">已記錄漏報：{{ done.series }}／{{ done.service }}（{{ done.by }}）。謝謝，累積起來會提調降門檻或新規則的建議。</p>{% elif error %}<p class="err">{{ error }}</p>{% endif %}
+<form method="post" action="/missed">
+<label>哪條序列該報 <select name="series" required><option value="">—</option>{% for s in series_names %}<option value="{{ s }}"{% if s == f.get('series') %} selected{% endif %}>{{ s }}</option>{% endfor %}</select></label>
+<label>服務 <input type="text" name="service" value="{{ f.get('service', '') }}" placeholder="service.name，例：mes-api" required></label>
+<label>什麼時候該報 <span class="hint">（台北時間，大概就好；格式 2026-11-05 10:00）</span><input type="text" name="at" value="{{ f.get('at') or now_local }}" placeholder="2026-11-05 10:00" required></label>
+<label>API 路徑 <span class="hint">（選填；http.* 序列可以縮到一支 API，例：/api/lots）</span><input type="text" name="route" value="{{ f.get('route', '') }}"></label>
+<label>Pod <span class="hint">（選填）</span><input type="text" name="pod" value="{{ f.get('pod', '') }}"></label>
+<label>你是 <input type="text" name="by" value="{{ f.get('by', '') }}" placeholder="名字或工號" required></label>
+<label>發生了什麼 <span class="hint">（選填，例：10:05 起 lots 查詢全部逾時，告警沒出來）</span><textarea name="note">{{ f.get('note', '') }}</textarea></label>
+<button type="submit">送出漏報</button>
+</form></body></html>

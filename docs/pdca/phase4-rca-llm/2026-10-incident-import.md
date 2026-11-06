@@ -13,7 +13,7 @@
 
 ### `similar-eval` 怎麼算（留一法 recall@3）
 
-[similar.py](../../../aiops-engine/code/investigator/similar.py) 的 `evaluate`：
+[similar.py](../../../aiops-engine/src/llm/similar.py) 的 `evaluate`：
 
 1. 從 `aiops-incidents` 取 `status` 是 `confirmed`／`corrected`、**有 `root_cause_category`、有 `fingerprint`** 的全部 N 件。
 2. 每一件輪流當「新的」：用它的指紋查其他 N−1 件（`must_not ids` 排除自己），`search` 留分數 ≥ 4 的前 3 件。
@@ -27,7 +27,7 @@
 | 某個分類只有 1 件時，那件不可能命中（沒有同類可查），但分母照算 | 合成資料每個根因分類 ≥ 2 筆 |
 | 只有 `services` 的事故單自己只有 3 分，不到門檻 4；要同指標（+1）或同 API（+2）才會被附上；慢的那段、錯的源頭各 4 分最有鑑別力 | 匯入格式收這幾個指紋欄位（選填）；合成資料照真實工單的樣子，**有的填、有的不填** |
 
-### 匯入格式（寫在 [configs/rca/README.md「匯入歷史事故單」](../../../aiops-engine/code/configs/rca/README.md#匯入歷史事故單import-incidents)）
+### 匯入格式（寫在 [configs/rca/README.md「匯入歷史事故單」](../../../aiops-engine/configs/rca/README.md#匯入歷史事故單import-incidents)）
 
 | 決定 | 內容 | 為什麼 |
 |---|---|---|
@@ -44,14 +44,14 @@
 
 | 檔案 | 改了什麼 | 為何要改 |
 |---|---|---|
-| `aiops-engine/code/investigator/importer.py`（新） | `read_rows`（CSV 用 `utf-8-sig`、JSON 陣列或 `{"incidents": […]}`）、`split_list`、`normalize`（一列 → `(_id, 文件)` 或略過原因）、`fingerprint`、`parse`、`write`、`run` | 解析、驗證、寫入分開：單元測試不用 ES；`--dry-run` 讓使用者沒有 ES 權限也能先檢查檔案 |
+| `aiops-engine/investigator/importer.py`（新） | `read_rows`（CSV 用 `utf-8-sig`、JSON 陣列或 `{"incidents": […]}`）、`split_list`、`normalize`（一列 → `(_id, 文件)` 或略過原因）、`fingerprint`、`parse`、`write`、`run` | 解析、驗證、寫入分開：單元測試不用 ES；`--dry-run` 讓使用者沒有 ES 權限也能先檢查檔案 |
 | 同上 | 指紋的慢段、錯誤源頭過 `similar._seg_name`（數字換 `#`） | 跟 `alert` 自動產生的指紋同一個正規化，不然 `SELECT lots 123` 對不上 `SELECT lots #` |
-| `aiops-engine/code/investigator/__main__.py` | 新增 `import-incidents <file> [--config] [--tz] [--dry-run]`；`--config` 對這個子指令改成選填 | 匯入不需要 rca.yaml；給了就拿它的 `timezone` |
-| `aiops-engine/code/detector/feedback.py` | `INCIDENT_MAPPING` 加 `source`（keyword）、`note`（text） | mapping 是 `dynamic: false`，不加就查不到「哪些是匯入的」；`ensure_index` 會把新欄位補進既有 index |
-| `aiops-engine/code/configs/rca/incidents-example.csv`（新） | 10 筆製造業 IT 常見事故（統計資訊過期、連線池耗盡、憑證過期、Kafka 落後、磁碟滿、簡訊 API 逾時、換版 N+1、DNS、月底鎖表、空指標），欄位齊、含指紋欄位 | 使用者照格式填；也是單元測試的輸入 |
-| `aiops-engine/code/tests/incidents-synthetic.csv`（新） | 20 筆＝範例 10 筆＋10 筆；分類 db 5、external 3、config_change／data／resource／deploy／network／bug 各 2 | 召回率評測用；每類 ≥ 2 才算得出來；放 tests 讓單元測試盯著它每筆都齊 |
-| `aiops-engine/code/tests/test_import_incidents.py`（新） | 16 個測試（項目見 Check） | |
-| `aiops-engine/code/configs/rca/README.md` | 「怎麼跑」加指令；新段落「匯入歷史事故單」：欄位表、分隔、時區、`_id`、重跑、門檻 4 的提醒 | 操作文件跟程式放一起 |
+| `aiops-engine/investigator/__main__.py` | 新增 `import-incidents <file> [--config] [--tz] [--dry-run]`；`--config` 對這個子指令改成選填 | 匯入不需要 rca.yaml；給了就拿它的 `timezone` |
+| `aiops-engine/detector/feedback.py` | `INCIDENT_MAPPING` 加 `source`（keyword）、`note`（text） | mapping 是 `dynamic: false`，不加就查不到「哪些是匯入的」；`ensure_index` 會把新欄位補進既有 index |
+| `aiops-engine/configs/rca/incidents-example.csv`（新） | 10 筆製造業 IT 常見事故（統計資訊過期、連線池耗盡、憑證過期、Kafka 落後、磁碟滿、簡訊 API 逾時、換版 N+1、DNS、月底鎖表、空指標），欄位齊、含指紋欄位 | 使用者照格式填；也是單元測試的輸入 |
+| `aiops-engine/tests/incidents-synthetic.csv`（新） | 20 筆＝範例 10 筆＋10 筆；分類 db 5、external 3、config_change／data／resource／deploy／network／bug 各 2 | 召回率評測用；每類 ≥ 2 才算得出來；放 tests 讓單元測試盯著它每筆都齊 |
+| `aiops-engine/tests/test_import_incidents.py`（新） | 16 個測試（項目見 Check） | |
+| `aiops-engine/configs/rca/README.md` | 「怎麼跑」加指令；新段落「匯入歷史事故單」：欄位表、分隔、時區、`_id`、重跑、門檻 4 的提醒 | 操作文件跟程式放一起 |
 | `docs/README.md`、`docs/pdca/README.md` | 描述加「匯入歷史事故單」；索引加這份 | |
 
 - 合成的 20 筆在跑評測**之前**定稿（見 `tests/incidents-synthetic.csv`），看到結果沒有改資料。

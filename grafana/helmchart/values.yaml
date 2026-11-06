@@ -31,7 +31,7 @@ plugin:                                                    # initContainer（fil
 
 # 回饋網頁（engine api 的 /feedback）內嵌在儀表板 aiops-feedback 裡（iframe），不用另開分頁。預設關：開了會關掉 Grafana 的
 # HTML 消毒（GF_PANELS_DISABLE_SANITIZE_HTML），所有文字面板都能放任意 HTML——只在這台 Grafana 專給 AIOps、編輯權限收緊時開。
-# 關著：iframe 會被 Grafana 洗掉，面板上只剩連結（另開分頁），功能一樣
+# 關著：chart 渲染時把 iframe 拿掉（Grafana 13 的消毒只洗掉 style、留著 iframe，留著會縮成一小塊），面板上只剩連結（另開分頁），功能一樣
 embedFeedback: false
 
 # engine 的 api（Service aiops-api）的網址，要是使用者的**瀏覽器**連得到的（Service 前面加 Ingress）。

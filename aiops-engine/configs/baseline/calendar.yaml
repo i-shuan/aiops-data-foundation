@@ -1,0 +1,39 @@
+# 行事曆（detector/adjust.py 的 calendar_adjustments）：歲修、機房維護、大型活動。
+# 工廠 24×7，國定假日跟平日一樣，不列（列了反而把假日的資料從 baseline 挖掉）；要列的是歲修，一次歲修一筆、不合併。
+# 每一筆變成 exclude_window：那段時間的資料不學（baseline 不會把歲修的零流量學成平常），也不判斷（不報）。
+#   date: 2026-10-10                       一整天（當地時間 00:00～隔天 00:00）
+#   start: 2026-10-01、end: 2026-10-04      好幾天（含頭尾）
+#   start: 2026-11-01T02:00、end: 2026-11-01T06:00   一段時間
+#   type    holiday | maintenance | event（只是記錄用）
+#   match   只影響哪些對象（欄位可用別名：service、namespace…）；不寫就是全部
+#   series  只影響哪些序列（正規表示式）；不寫就是全部
+#   detect  false（預設）：不學也不報；true：照常判斷、只是不學
+#   沒寫時區的時間（2026-11-01T02:00）是 timezone 的當地時間
+#   sources 的每個來源也可以寫 match、series、detect，套到那個來源的每一筆（那一筆自己寫的優先）
+# 改這裡不用重啟，下次 train／detect 生效。
+#
+# 注意：「不學」之後，那段時間就沒有 baseline 能比；歲修期間本來就不判斷，所以沒關係。
+#       歲修完剛開機那幾天流量、延遲都還不穩，要的話再加一筆 detect: true 的（只是不學、照常判斷）或用 adjust add --kind reset_point。
+
+timezone: Asia/Taipei
+
+# 資料從哪來（detector/sources.py；格式、假資料見 fake-data/interfaces.md、fake-data/README.md）。多個來源合在一起，
+# 某個來源失敗只印警告、不擋訓練。
+sources:
+  # 台灣國定假日（https://github.com/ruyut/TaiwanCalendar）：工廠 24×7 不用；只有週休的辦公室系統才打開
+  # 一定要寫 match：來源的 match、series、detect 套到它的每一天；不寫的話假日那天所有服務（含 24×7 的）都不學、不判斷，
+  # 假日當天真的故障也報不出來（規則照報）
+  # - provider: taiwan
+  #   years: [2026, 2027]
+  #   match: {namespace: "^office-"}
+  # 範例用的假資料（日期都在 2099 年）；要看格式再打開
+  - provider: file
+    path: fake-data/calendar.json
+    enabled: false
+
+# 歲修、機房維護、活動：直接寫這裡，一次一筆、不合併（match 限定哪些服務、namespace；不寫就是全部）
+calendar: []
+  # - {start: 2026-02-14T08:00, end: 2026-02-18T20:00, name: 2026 春節歲修 fab1, type: maintenance, match: {namespace: "^fab1-"}}
+  # - {start: 2026-07-04T08:00, end: 2026-07-05T20:00, name: 2026 年中歲修 fab1, type: maintenance, match: {namespace: "^fab1-"}}
+  # - {start: 2026-11-01T02:00, end: 2026-11-01T06:00, name: 機房 UPS 維護, type: maintenance}
+  # - {date: 2026-11-11, name: 雙 11 活動, type: event, match: {service: "^order"}, detect: true}   # 流量本來就高：不學，但照常判斷

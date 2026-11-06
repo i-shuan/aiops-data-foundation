@@ -1,0 +1,13 @@
+pandas>=2.2
+numpy>=1.26
+pyyaml>=6.0
+requests>=2.31
+celery>=5.4
+redis>=5.0
+packaging>=23
+pydantic>=2.9
+fastapi>=0.115
+uvicorn>=0.30
+typer>=0.20          # 0.20 起自帶 click，__main__ 接 typer.TyperException
+httpx>=0.27          # fastapi.testclient 用
+jinja2>=3.1          # interface/web 的 HTML 模板

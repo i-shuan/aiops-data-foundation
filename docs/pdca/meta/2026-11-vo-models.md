@@ -5,7 +5,7 @@
 
 ## Plan：這一次要達到什麼
 
-- **需求**：使用者問「有沒有像 Java 的 VO、getter／setter」。目前 `aiops-engine/code/` 非測試的 .py 約 12,300 行，除了 `Anomaly`、設定的 pydantic 模型和約 11 個 dataclass，**資料都以 dict 在函式之間傳**（用 grep 粗數：`["欄位"]` 與 `.get("欄位")` 約 1,764 處）。欄位名稱與型別沒有任何東西約束，打錯字要到執行時才發現；同一個形狀（例如指紋）在 `similar.py` 與 `importer.py` 各寫一份，靠註解「跟 xxx 同一個形狀」維持一致。
+- **需求**：使用者問「有沒有像 Java 的 VO、getter／setter」。目前 `aiops-engine/` 非測試的 .py 約 12,300 行，除了 `Anomaly`、設定的 pydantic 模型和約 11 個 dataclass，**資料都以 dict 在函式之間傳**（用 grep 粗數：`["欄位"]` 與 `.get("欄位")` 約 1,764 處）。欄位名稱與型別沒有任何東西約束，打錯字要到執行時才發現；同一個形狀（例如指紋）在 `similar.py` 與 `importer.py` 各寫一份，靠註解「跟 xxx 同一個形狀」維持一致。
 - **目的**：在流動的 dict 裡，挑出**有固定欄位、跨檔案傳遞**的，改成 pydantic 模型（或 dataclass）。做完要能：
   1. 欄位只定義一處，讀寫 ES 的 dict 由模型的 `to_doc()`／`from_doc()` 產生與解析（跟 `Anomaly.to_doc()` 同一個做法）。
   2. 打錯欄位名稱在建立物件時（或 IDE／型別檢查）就報錯，不是執行到一半才 `KeyError`。
@@ -99,7 +99,7 @@
 | 錯誤的欄位名稱或型別在建立物件時被擋 | `Incident(titel=…)`、`status="confimed"`、建好後 `inc.status = "done"`、`Fingerprint(service=…)` | 四個都丟 `ValidationError`（`validate_assignment=True` 連賦值也擋） |
 | 用既有文件讀回來不炸 | `from_doc` 餵：只有 `status` 的、`services` 是單值字串、`severity` 是數字、多一個不認得的鍵、`fingerprint` 是字串、`title` 是空字串、沒有 `@timestamp`（既有測試的假候選都沒有） | 都讀得進來：缺的給預設值、單值包成陣列、數字轉字串、不認得的鍵忽略、壞掉的指紋當 None。`@timestamp` 因此**不設必填**（寫入的四條路都會給，但讀的一端擋不得） |
 | `from_doc` → `to_doc` 來回 | 匯入的一筆讀回再寫 | 跟原文件相同（`exclude_unset` 之後才成立） |
-| 整體行為沒變 | `cd aiops-engine/code && python3 -m pytest -q` | 改之前 753 過；改完 773 過（多的 20 個是 test_incident）、16 skipped 同改前。`python3 tools/check-docs.py` 連結、索引、舊說法、類型 0 個問題 |
+| 整體行為沒變 | `cd aiops-engine && python3 -m pytest -q` | 改之前 753 過；改完 773 過（多的 20 個是 test_incident）、16 skipped 同改前。`python3 tools/check-docs.py` 連結、索引、舊說法、類型 0 個問題 |
 | `Span` 改 dataclass 後不比 dict 慢太多 | 步驟 3 | 未做 |
 
 沒測到的：連真的 ES 跑（oop-core 也沒連）；Grafana 面板讀改過的文件；回饋網頁 `submit` 的種子只有單元測試的假 ES，沒在瀏覽器點過。

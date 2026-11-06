@@ -35,18 +35,17 @@
 | 文件 | 類型 | 內容 | 狀態 |
 |---|---|---|---|
 | [rca/README.md](rca/README.md) | 原理 | 根因分析六步與 AI 的位置、三種資料怎麼串、動態基準線學習怎麼判斷、15 個故障案例的歸納、現況；graph RAG 構想（⚪ 沒有程式、沒有驗證） | 🟢 |
-| [../aiops-engine/code/configs/baseline/reference.md](../aiops-engine/code/configs/baseline/reference.md) | 規格 | baseline 規格：序列、狀態、參數、規則、檢查、欄位、結果在哪 | 🟢 |
-| [../aiops-engine/code/configs/baseline/README.md](../aiops-engine/code/configs/baseline/README.md) | 操作 | baseline：怎麼跑 train／detect／rules／peer／quality／chronic、怎麼調、怎麼驗 | 🟢 |
-| [../aiops-engine/code/configs/baseline/verification.md](../aiops-engine/code/configs/baseline/verification.md) | 案例 | baseline 各功能的實測與驗證結果 | 🟢 |
-| [../aiops-engine/code/configs/rca/README.md](../aiops-engine/code/configs/rca/README.md) | 操作 | 根因分析：預設值、怎麼跑、匯入歷史事故單、報告長什麼樣子、限制、怎麼驗 | 🟢 |
-| [../aiops-engine/code/configs/rca/example-report.md](../aiops-engine/code/configs/rca/example-report.md) | 案例 | 一份範例報告 | 🟢 |
-| [../aiops-engine/code/configs/apm/README.md](../aiops-engine/code/configs/apm/README.md) | 操作 | 用 Elastic APM 的資料跑 engine（收值就是這個）：哪些功能能用、ES role、template、`source: apm`、欄位對照 | 🟡（未在真實 APM 資料上跑過） |
-| [../aiops-engine/code/plugins/README.md](../aiops-engine/code/plugins/README.md) | 操作 | plugin：`AIOPS_PLUGIN` 選 observability／factory／metrics_only、三個內建各填了哪些擴充點、哪些功能在哪個 plugin 能用、怎麼自己寫一個 | 🟢（三個都有單元測試；factory、metrics_only 假資料 e2e 跑通） |
-| [../aiops-engine/code/configs/factory/README.md](../aiops-engine/code/configs/factory/README.md) | 操作 | 工廠（`AIOPS_PLUGIN=factory`）：ML／FDC 判好的異常接進 ⑤、MES＋S6F11 合成履歷取代 trace、機台 alarm／PM／recipe 變更當 log、前後站併件、誤報匯出給 ML；要給什麼資料、怎麼跑、哪些功能能用 | 🟡（假資料跑通；欄位名是假設） |
-| [../aiops-engine/code/sources/README.md](../aiops-engine/code/sources/README.md) | 操作 | 資料來源：ES 以外（檔案、HTTP、程式給 DataFrame）也能跑 train／detect／peer／rules；`source:`、`store:` 怎麼寫、跟 ES 算得一不一樣 | 🟢 |
-| [../aiops-engine/code/models/README.md](../aiops-engine/code/models/README.md) | 規格 | 五個模型的標準輸入（欄位、一列是什麼）與主要函式 | 🟢 |
-| [../aiops-engine/code/interfaces/README.md](../aiops-engine/code/interfaces/README.md) | 規格 | 要別人提供的資料的格式 | 🟢 |
-| [../aiops-engine/code/fake-data/README.md](../aiops-engine/code/fake-data/README.md) | 規格 | 假資料（只為了讓程式現在能跑、能測） | 🟢 |
+| [../aiops-engine/configs/baseline/reference.md](../aiops-engine/configs/baseline/reference.md) | 規格 | baseline 規格：序列、狀態、參數、規則、檢查、欄位、結果在哪 | 🟢 |
+| [../aiops-engine/configs/baseline/README.md](../aiops-engine/configs/baseline/README.md) | 操作 | baseline：怎麼跑 train／detect／rules／peer／quality／chronic、怎麼調、怎麼驗 | 🟢 |
+| [../aiops-engine/configs/baseline/verification.md](../aiops-engine/configs/baseline/verification.md) | 案例 | baseline 各功能的實測與驗證結果 | 🟢 |
+| [../aiops-engine/configs/rca/README.md](../aiops-engine/configs/rca/README.md) | 操作 | 根因分析：預設值、怎麼跑、匯入歷史事故單、報告長什麼樣子、限制、怎麼驗 | 🟢 |
+| [../aiops-engine/configs/rca/example-report.md](../aiops-engine/configs/rca/example-report.md) | 案例 | 一份範例報告 | 🟢 |
+| [../aiops-engine/configs/apm/README.md](../aiops-engine/configs/apm/README.md) | 操作 | 用 Elastic APM 的資料跑 engine（收值就是這個）：哪些功能能用、ES role、template、`source: apm`、欄位對照 | 🟡（未在真實 APM 資料上跑過） |
+| [../aiops-engine/src/shared/scenario/README.md](../aiops-engine/src/shared/scenario/README.md) | 操作 | 情境：`AIOPS_PLUGIN` 選 observability／factory／metrics_only、三份資料檔（yaml）各填了什麼、兩個策略、哪些功能在哪個情境能用、怎麼自己寫一個 | 🟢（三個都有單元測試；factory、metrics_only 假資料 e2e 跑通） |
+| [../aiops-engine/configs/factory/README.md](../aiops-engine/configs/factory/README.md) | 操作 | 工廠（`AIOPS_PLUGIN=factory`）：ML／FDC 判好的異常接進 ⑤、MES＋S6F11 合成履歷取代 trace、機台 alarm／PM／recipe 變更當 log、前後站併件、誤報匯出給 ML；要給什麼資料、怎麼跑、哪些功能能用 | 🟡（假資料跑通；欄位名是假設） |
+| [../aiops-engine/src/shared/README.md](../aiops-engine/src/shared/README.md) | 規格 | repository 層：一個實體一個，索引名與 ES 查詢只在這裡；`Repos` 怎麼用、每個 repository 管哪個索引 | 🟢 |
+| [../aiops-engine/fake-data/interfaces.md](../aiops-engine/fake-data/interfaces.md) | 規格 | 要別人提供的資料的格式 | 🟢 |
+| [../aiops-engine/fake-data/README.md](../aiops-engine/fake-data/README.md) | 規格 | 假資料（只為了讓程式現在能跑、能測） | 🟢 |
 
 ### ⑧⑨ 出口與 feedback（learning loop）
 
@@ -67,9 +66,9 @@
 | 我要… | 看這些 |
 |---|---|
 | **懂為什麼這樣設計**（原理） | [architecture.md](architecture.md)、[rca](rca/README.md)・[feedback](feedback/README.md) 的 README（各自也含規格、操作、案例章節） |
-| **做一件事**（操作） | [部署](deploy-how-to.md)、[troubleshooting.md](troubleshooting.md)、[接 Elastic APM 的資料](../aiops-engine/code/configs/apm/README.md)、[選 plugin／自己寫一個](../aiops-engine/code/plugins/README.md)、[工廠怎麼接](../aiops-engine/code/configs/factory/README.md)、[baseline 怎麼跑](../aiops-engine/code/configs/baseline/README.md)、[在 ES 補設定](../elasticsearch/kibana-dev-tools.txt) |
-| **查欄位、參數、現況**（規格） | [aiops-data-reference.md](aiops-data-reference.md)、[data-storage-reference.md](data-storage-reference.md)、[baseline 規格](../aiops-engine/code/configs/baseline/reference.md) |
-| **看實例**（案例） | [baseline 實測](../aiops-engine/code/configs/baseline/verification.md)、[範例報告](../aiops-engine/code/configs/rca/example-report.md)；故障案例的歸納在 [rca/README.md](rca/README.md) |
+| **做一件事**（操作） | [部署](deploy-how-to.md)、[troubleshooting.md](troubleshooting.md)、[接 Elastic APM 的資料](../aiops-engine/configs/apm/README.md)、[選情境／自己寫一份](../aiops-engine/src/shared/scenario/README.md)、[工廠怎麼接](../aiops-engine/configs/factory/README.md)、[baseline 怎麼跑](../aiops-engine/configs/baseline/README.md)、[在 ES 補設定](../elasticsearch/kibana-dev-tools.txt) |
+| **查欄位、參數、現況**（規格） | [aiops-data-reference.md](aiops-data-reference.md)、[data-storage-reference.md](data-storage-reference.md)、[baseline 規格](../aiops-engine/configs/baseline/reference.md) |
+| **看實例**（案例） | [baseline 實測](../aiops-engine/configs/baseline/verification.md)、[範例報告](../aiops-engine/configs/rca/example-report.md)；故障案例的歸納在 [rca/README.md](rca/README.md) |
 
 ## PDCA 紀錄
 

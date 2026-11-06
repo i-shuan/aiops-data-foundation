@@ -75,7 +75,7 @@ Go：串查成功率 100%、聚合率 ≥ 80%、召回率 ≥ 70% 三項都到�
 
 | 改了什麼 | 為何要改 |
 |---|---|
-| 路徑：`engine/` → `aiops-engine/code/`、`engine/configs/grafana/` → `grafana/code/`、`e2e/local-k3s/` → `e2e/k8s/` | 中間做過元件重整（PDCA [restructure-components](2026-10-restructure-components.md)） |
+| 路徑：`engine/` → `aiops-engine/`、`engine/configs/grafana/` → `grafana/code/`、`e2e/local-k3s/` → `e2e/k8s/` | 中間做過元件重整（PDCA [restructure-components](2026-10-restructure-components.md)） |
 | `feedback_web/app.py`：留 master 的「不再另外 `_refresh`」，加上任務 2 的抽取結果回傳 | master 已修掉最小權限 key 會 403 的那一下 |
 | `tests/test_feedback_web.py`：master 的漏報測試與任務 2 的測試都留；假 ES 的漏報分支補回 `return` | 合併時兩段 `if` 疊在一起，漏報那段少了 `return` |
 | `grafana/README.md`：補任務 2 的表單欄位表 | 原本寫在已刪的 `engine/configs/grafana/README.md` |

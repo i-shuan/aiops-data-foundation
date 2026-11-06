@@ -4,15 +4,65 @@
 
 | 資料夾 | 內容 |
 |---|---|
-| `code/` | 一個 Python 專案：`core/`（共用：ES、trace、LLM）、`detector/`（動態基準線學習、規則、Pod 同儕比對、資料品質、回饋、回測、量化）、`investigator/`（事件整合、根因分析、相似事故、告警）、[`api/`](code/api/__init__.py)（沒有頁面的薄 API：ML／FDC 推異常、重跑根因、Grafana 表單的後端；備用回饋網頁）、`scheduler/`（排程器；`--enqueue` 是 beat）、[`tasks/`](code/tasks/__init__.py)（佇列：Celery＋Redis，worker）、[`sources/`](code/sources/README.md)（資料來源：ES 以外的檔案、HTTP、程式給的 DataFrame 也能餵）、[`models/`](code/models/README.md)（五個模型的輸入規格，import 就能用）、`configs/`（[baseline](code/configs/baseline/README.md)、[rca](code/configs/rca/README.md)、[schedule](code/configs/schedule/schedule.yaml)）、`interfaces/`、`fake-data/`、`tests/`、`Dockerfile`（一個 image 裝全部，`ENTRYPOINT python3 -m`，`args` 給套件名和指令） |
+| `src/` | Python 程式，一個功能一個資料夾，依賴只能往左：`interface/`（`cli/` 命令列、`web/` API 與回饋網頁、`jobs/` 排程器與佇列 worker）→ `learn/`（⑨ 學習迴圈：`feedback_service` 回饋、`tuning_service` 調整、`param_suggester` 建議、`rule_backtester` 回測、`evaluation_metrics` 指標、`history_importer` 事故單匯入）→ `incident/`（⑥⑦⑧ 告警與根因：`alert_service` 主流程、`alert_grouper` 併件、`alert_severity` 嚴重度、`rca_analyzer`／`rca_report` 根因分析與報告）→ `llm/`（LLM 摘要、過去相似事故的檢索）→ `detect/`（②③④⑤ 異常分析：`strategy/` 判斷方法、`series_ops/` 前處理與修正、`trace/`、`fab_ingest/` 工廠接 ML／FDC 的異常）→ `shared/`（`infra/` ES 連線與 [`Repos`](src/shared/README.md)、`types/` 事故與指紋、[`scenario/`](src/shared/scenario/README.md) 情境與設定檔欄位定義）；`detect/`、`incident/`、`learn/` 各有 `store/`，放自己的資料物件和 ES 讀寫。`shared/scenario/config.py` 是設定檔欄位的定義（型別、預設值、檢查），值在 `configs/` |
+| `configs/` | 各情境的設定檔（[baseline](configs/baseline/README.md)、[rca](configs/rca/README.md)、[schedule](configs/schedule/schedule.yaml)、`apm/`、`factory/`、`metrics_only/`） |
+| `tests/` | 單元測試與 e2e（e2e 要測試用的 ES） |
+| `Dockerfile`、`requirements.txt` | 一個 image 裝全部，`ENTRYPOINT python3 -m`，`args` 給套件名和指令 |
+| 入口 | 只有一個：`python3 -m main <detector\|investigator\|scheduler\|tasks\|api> …`（[main.py](main.py)）；排程表（`configs/*/schedule.yaml`）和 helm 的 `args` 第一個字都是 `main` |
+| `fake-data/` | 要別人提供的資料（負責人、行事曆）的格式說明 [interfaces.md](fake-data/interfaces.md)，加範例用的假資料 |
 | `helmchart/` | 一個 image、一份 values，`mode` 選：**`single`** 一隻 pod 兩個 container（`scheduler` 自己跑定期工作、`api`）；**`distributed`** Superset 式：`aiops-api`、`aiops-beat`（只丟工作）、`aiops-worker-realtime／alert／batch`、`aiops-redis`。Service `aiops-api:8080` |
 
-本機跑：`cd aiops-engine/code && python3 -m detector <指令>`、`python3 -m investigator investigate`；單元測試 `python3 -m pytest -q`。
+**情境名與設定資料夾怎麼對**（兩邊名字不是一對一，因為選法不同）：
+
+| 選什麼 | 情境資料檔（`src/shared/scenario/`） | 設定資料夾（`configs/`） |
+|---|---|---|
+| `AIOPS_PLUGIN=observability`（預設）、`AIOPS_SOURCE=otel`（預設） | `it_otel.yaml` | `baseline/`、`rca/`、`schedule/` |
+| `AIOPS_PLUGIN=observability`、`AIOPS_SOURCE=apm` | `it_apm.yaml` | `apm/` |
+| `AIOPS_PLUGIN=factory` | `factory.yaml` | `factory/` |
+| `AIOPS_PLUGIN=metrics_only` | `metrics_only.yaml` | `metrics_only/` |
+
+情境資料檔是程式內建的預設（欄位對照、策略、報告段）；`configs/` 是各情境實際跑的參數與排程表，部署時可用 chart 的 `configOverrides` 蓋掉。
+
+本機跑：`cd aiops-engine && python3 -m main detector <指令>`、`python3 -m main investigator investigate`；單元測試 `python3 -m pytest -q`。
+
+## 程式結構（`src/`）
+
+依賴只能往下：`interface → learn → incident → llm → detect → shared`（`tests/test_layers.py` 鎖著）。每個功能的資料物件與 ES 讀寫放自己的 `store/`。
+
+```
+src/
+├─ interface/     對外的入口
+│  ├─ cli/        common · detect · feedback · rca · fab
+│  ├─ web/        routes · dto · views · __main__ · templates/(feedback、missed、report.html)
+│  └─ jobs/       runner · local · worker · cron · sleep
+├─ learn/         ⑨ 學習迴圈
+│  ├─ feedback_service · tuning_service · param_suggester
+│  ├─ rule_backtester · evaluation_metrics · history_importer
+│  └─ store/      models · feedback_repo · tuning_repo
+├─ incident/      ⑥⑦⑧ 告警與根因
+│  ├─ alert_service · alert_grouper · alert_severity
+│  ├─ rca_analyzer · rca_report
+│  ├─ strategy/   it_topology · it_deployment · fab_process_flow · fab_recipe_change
+│  └─ store/      models · alert_repo · incident_repo · change_repo · log_repo
+├─ llm/           summary（LLM 摘要）· similar（過去相似事故）
+├─ detect/        ②③④⑤ 異常分析
+│  ├─ base · detect_service · housekeeping · reference_data · utils
+│  ├─ strategy/   threshold_rule · peer_compare · dynamic_baseline · chronic_issue
+│  ├─ series_ops/ quality_check · level_shift · manual_adjust
+│  ├─ trace/      span_merge · latency_stats · path_builder · path_service
+│  ├─ fab_ingest/ ingest · ingest_service
+│  └─ store/      models · anomaly／baseline／chronic／housekeeping／owner／
+│                 quality／segment／series／state／trace 的 *_repo
+└─ shared/        共用底層
+   ├─ infra/      env · clock · es · repos
+   ├─ types/      incident
+   └─ scenario/   base · config · factory／it_apm／it_otel／metrics_only.yaml
+```
 
 ## 怎麼上
 
 ```bash
-cd aiops-engine/code && docker build -t <nexus>/aiops-engine:0.1.0 . && docker push <nexus>/aiops-engine:0.1.0   # 內網：Dockerfile 的 pip 改 --index-url 指到 Nexus
+cd aiops-engine && docker build -t <nexus>/aiops-engine:0.1.0 . && docker push <nexus>/aiops-engine:0.1.0   # 內網：Dockerfile 的 pip 改 --index-url 指到 Nexus
 kubectl create namespace aiops
 kubectl -n aiops create secret generic aiops-secrets \
   --from-literal=ES_API_KEY=<elasticsearch/kibana-dev-tools.txt 第 3 段發的 engine key>
@@ -25,12 +75,12 @@ kubectl -n aiops logs deploy/aiops-engine -c scheduler -f | grep '\[scheduler\]'
 
 - `rca.yaml` 的 `alerts.feedback_url`、`report_url` 填 api 的網址（Service `aiops-api:8080`；要讓人從公司網路點得到再加 Ingress）。
 - 分散模式：`--set mode=distributed`（下一節）；ML／FDC 要推異常進來時再 `--set api.token=<隨機字串>`（寫在 `values-local.yaml`）。
-- 情境（plugin）：預設 `observability`（IT）；工廠 `--set plugin=factory`，只有 ML／FDC 指標 `--set plugin=metrics_only`（[code/plugins/README.md](code/plugins/README.md)）。各裝一個 release、各自一隻 pod。
-- 資料來源（observability 才看）：預設讀我們 Collector 寫的 OTel 格式。公司 ES 裡是 Elastic APM 的資料（`traces-apm-*`、`logs-apm.*`、`metrics-apm.*`）時 `--set source=apm`，設定檔與怎麼接見 [code/configs/apm/README.md](code/configs/apm/README.md)。
+- 情境：預設 `observability`（IT）；工廠 `--set plugin=factory`，只有 ML／FDC 指標 `--set plugin=metrics_only`（[shared/scenario/README.md](src/shared/scenario/README.md)）。各裝一個 release、各自一隻 pod。
+- 資料來源（observability 才看）：預設讀我們 Collector 寫的 OTel 格式。公司 ES 裡是 Elastic APM 的資料（`traces-apm-*`、`logs-apm.*`、`metrics-apm.*`）時 `--set source=apm`，設定檔與怎麼接見 [configs/apm/README.md](configs/apm/README.md)。
 - LLM：`values.yaml` 的 `llm.provider`（`template` 不叫模型）、`llm.model`（空的用程式預設 openai `gpt-4o-mini`、anthropic `claude-sonnet-4-5`）、`llm.baseUrl`（內網閘道，不含 `/v1`）放 ConfigMap `aiops-env`；`llm.apiKey` 由 chart 建成 Secret `aiops-llm`。**key 只寫在 `values-local.yaml`**（`.gitignore` 擋掉），`values.yaml` 永遠留空。改了重跑 helm，pod 會自己重啟（`checksum/env`）。
-- 設定檔要跟 image 裡的不一樣：`--set-file configOverrides.baseline.series=aiops-engine/code/configs/baseline/series.yaml`（掛在 `/app/configs/baseline/series.yaml`）；排程表是 `configOverrides.schedule.schedule`。
+- 設定檔要跟 image 裡的不一樣：`--set-file configOverrides.baseline.series=aiops-engine/configs/baseline/series.yaml`（掛在 `/app/configs/baseline/series.yaml`）；排程表是 `configOverrides.schedule.schedule`。
 - **換 ES key 要重啟 pod**（`kubectl -n aiops rollout restart deploy/aiops-engine`）：環境變數是 pod 起來時讀的，不像以前每個 CronJob 每分鐘重讀。
-- 手動跑一次某個工作（例如剛部署要先有 baseline）：`kubectl -n aiops exec deploy/aiops-engine -c scheduler -- python3 -m scheduler --config configs/schedule/schedule.yaml --run train`。
+- 手動跑一次某個工作（例如剛部署要先有 baseline）：`kubectl -n aiops exec deploy/aiops-engine -c scheduler -- python3 -m main scheduler --config configs/schedule/schedule.yaml --run train`。
 
 ## 部署模式：一隻 pod，或 api／beat／worker
 
@@ -54,9 +104,9 @@ kubectl -n aiops logs deploy/aiops-worker-alert -f | grep '\[scheduler\]'  # 工
 
 佇列三個（`schedule.yaml` 每個工作的 `queue`）：`realtime` 每幾分鐘的（rules、detect、trace-merge、ingest、peer、trace-*、quality、paths-merge）、`alert` 收斂＋根因（**固定 1 份、concurrency 1**，chart 擋著：兩筆異常同時進來才不會各開一件）、`batch` 每天／每週的（train 4Gi、trace-train、chronic、prune、shift）。`alert` 跑太慢只會晚一點，不會重複開件。
 
-## API（`python3 -m api`，Service `aiops-api`）
+## API（`python3 -m main api`，Service `aiops-api`）
 
-畫面全在 Grafana（[grafana/](../grafana/README.md)），api 只收請求。端點清單在 [code/api/__init__.py](code/api/__init__.py)：
+畫面全在 Grafana（[grafana/](../grafana/README.md)），api 只收請求。端點清單在 [interface/web/__init__.py](src/interface/web/__init__.py)：
 
 | 端點 | 誰打 | 做什麼 |
 |---|---|---|
@@ -70,7 +120,7 @@ kubectl -n aiops logs deploy/aiops-worker-alert -f | grep '\[scheduler\]'  # 工
 
 ## 排程：第一階段只開 4 個
 
-排程器（`python3 -m scheduler`）每分鐘醒來一次，照 [`configs/schedule/schedule.yaml`](code/configs/schedule/schedule.yaml) 把該跑的工作各開一個子行程（`python3 -m <args>`；分散模式加 `--enqueue` 就只丟進佇列）。行為跟原本的 K8s CronJob 一樣：同一個工作上一次沒跑完就跳過這次、超過 `timeout` 砍掉、錯過的分鐘不補跑、時區 Asia/Taipei、每天／每週的失敗在同一次內重試 2 次（每幾分鐘的不重試，下一輪就是重試）。一個工作卡住不影響別的（各自一條執行緒）。
+排程器（`python3 -m main scheduler`）每分鐘醒來一次，照 [`configs/schedule/schedule.yaml`](configs/schedule/schedule.yaml) 把該跑的工作各開一個子行程（`python3 -m <args>`；分散模式加 `--enqueue` 就只丟進佇列）。行為跟原本的 K8s CronJob 一樣：同一個工作上一次沒跑完就跳過這次、超過 `timeout` 砍掉、錯過的分鐘不補跑、時區 Asia/Taipei、每天／每週的失敗在同一次內重試 2 次（每幾分鐘的不重試，下一輪就是重試）。一個工作卡住不影響別的（各自一條執行緒）。
 
 能跑通「告警 → 回饋 → 調門檻」這一圈的最少集合是 4 個；偵測來源少，第一個月誤報來了容易知道是哪裡出的。四個在真實資料上跑穩、看過一輪誤報，再 `--set scheduler.stage=2` 開其他 6 個（建議順序：quality → peer → trace 三個 → chronic）。
 
@@ -84,7 +134,7 @@ kubectl -n aiops logs deploy/aiops-worker-alert -f | grep '\[scheduler\]'  # 工
 | `peer` | 2 | 每 5 分鐘 | 240 秒 | `detector peer` | Pod 同儕橫向比對：多一種告警來源 |
 | `trace-collect`、`trace-train`、`trace-detect` | 2 | 每 5 分鐘／每天 02:20／每 5 分鐘 | 240／3600／240 秒 | `detector trace-*` | trace 每一段的 baseline；從 raw（100% 收、2 天）抽樣 |
 | `chronic` | 2 | 每週一 08:00 | 1800 秒 | `detector chronic` | 慢性病清單，要幾週資料才有意義 |
-| `prune` | 2 | 每天 03:30 | 600 秒 | `detector prune` | `aiops-anomalies`、`aiops-trace-segments`、已結案的 `aiops-alerts` 超過保留天數的每天清一次（[prune.yaml](code/configs/baseline/prune.yaml)；這三個是一般索引、不能用 ILM）。人工判斷的索引不清、只備份（[data-storage-reference](../docs/data-storage-reference.md)） |
+| `prune` | 2 | 每天 03:30 | 600 秒 | `detector prune` | `aiops-anomalies`、`aiops-trace-segments`、已結案的 `aiops-alerts` 超過保留天數的每天清一次（[prune.yaml](configs/baseline/prune.yaml)；這三個是一般索引、不能用 ILM）。人工判斷的索引不清、只備份（[data-storage-reference](../docs/data-storage-reference.md)） |
 | `shift` | 2 | 每天 04:00 | 300 秒 | `detector shift` | 一階跳變（換版後延遲停在新水準、每點都報）→ 提 `reset_point` 建議（proposed，人核准才生效）；ES 的 `change_point` 聚合要付費授權，這裡看 `aiops-anomalies` 裡已判出的點 |
 
 改頻率、逾時改 `schedule.yaml` 再 build image（或用 `configOverrides.schedule.schedule` 蓋）。
@@ -108,7 +158,7 @@ kubectl -n aiops logs deploy/aiops-worker-alert -f | grep '\[scheduler\]'  # 工
 
 ## 先只寫入、不通知
 
-上線前 2～4 週 Grafana 先不接 contact point（或全部送到沒人看的 webhook），讓它跑、累積 `aiops-alerts`、`aiops-feedback`。期間用 `python3 -m detector metrics --from … --to …` 記下基準（每天幾件、誤報率），再開通知。
+上線前 2～4 週 Grafana 先不接 contact point（或全部送到沒人看的 webhook），讓它跑、累積 `aiops-alerts`、`aiops-feedback`。期間用 `python3 -m main detector metrics --from … --to …` 記下基準（每天幾件、誤報率），再開通知。
 
 ## 驗證過的
 

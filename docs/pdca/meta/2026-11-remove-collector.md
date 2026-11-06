@@ -37,7 +37,7 @@
 |---|---|---|
 | 刪的東西沒有被留下的東西依賴 | 刪完 grep `collector/`、`apps/`、`e2e/`、`groups.yaml`、`rotate-writer`、`es-writer` | 剩的是 PDCA 紀錄（歷史）、engine 的測試 docstring（`trace_quality_edge_e2e.py` 提到取樣 Collector）、`feedback_extract_eval.py` 的本機 `.env` 路徑，都只是文字 |
 | 文件沒有斷連結、索引完整 | `tools/check-docs.py` | 連結、索引、舊說法、類型都 0 個問題（第一次刪完 80 個連結壞掉，分三批修完） |
-| engine 沒被影響 | `cd aiops-engine/code && python3 -m pytest -q` | 見下方 Act 的記錄 |
+| engine 沒被影響 | `cd aiops-engine && python3 -m pytest -q` | 見下方 Act 的記錄 |
 | 兩把 key 的權限寫對 | 讀腳本與 `run.sh`、`values.yaml` 的欄位、`targets` 對應 | 未在 ES 上跑：腳本沒執行過 |
 
 **沒測到的**：`elasticsearch-setup.sh` 瘦身後沒對真實 ES 跑；`setup-helmchart` 沒 render 驗證；GitLab 流程本來就沒實跑過。
@@ -47,7 +47,7 @@
 | 沒改善的 | 在什麼情況下發現的 | 影響 | 後續 |
 |---|---|---|---|
 | engine 的 OTel 來源還在（`configs/baseline/` `rca/` `schedule/`、`source: otel`、`quality.yaml` 的 `k8s-*`、單元測試用 OTel 欄位） | 這次只刪 ①②③，④ 的程式不動 | repo 裡仍有一套讀 OTel 格式的設定，沒有東西產生那種資料；容易讓人以為還能用 | 決定要不要把 `configs/apm/` 升為預設並刪掉 OTel 來源；牽涉 500 多個測試的欄位，另開一輪 |
-| e2e 全刪，engine 沒有端到端驗證環境 | e2e 的腳本都靠 Collector 送資料 | `aiops-engine/code/tests/*_e2e.py`（`loop_e2e` 等直接寫合成資料進 ES）沒有一起刪，仍可手動跑，但缺 K8s 上的整條線 | 要在真實 APM 資料上驗證；需要的話另寫用 APM 格式的合成資料 |
+| e2e 全刪，engine 沒有端到端驗證環境 | e2e 的腳本都靠 Collector 送資料 | `aiops-engine/tests/*_e2e.py`（`loop_e2e` 等直接寫合成資料進 ES）沒有一起刪，仍可手動跑，但缺 K8s 上的整條線 | 要在真實 APM 資料上驗證；需要的話另寫用 APM 格式的合成資料 |
 | 示範儀表板（`e2e/k8s/rca-demo/`）一併刪了 | 它靠 Collector 與模擬服務 | 沒有展示用的 demo | 要的話改用 APM 格式的資料重做 |
 | `elasticsearch-setup.sh`、`setup-helmchart` 沒實跑 | 沒有 ES 可跑 | key 權限寫錯到實際用才發現 | 第一次部署時照 `elasticsearch/README.md`（已移除，改成 [kibana-dev-tools.txt](../../../elasticsearch/kibana-dev-tools.txt)） 跑，看 `GET _security/api_key` |
 

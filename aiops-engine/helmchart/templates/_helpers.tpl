@@ -36,7 +36,7 @@ envFrom:
 {{- define "aiops.apiContainer" -}}
 - name: api
   image: {{ include "aiops.image" . }}
-  args: ["api"]
+  args: ["main", "api"]
   env:
     - {name: API_PORT, value: {{ .Values.api.port | quote }}}
     {{- with .Values.api.corsOrigin }}

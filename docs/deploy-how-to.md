@@ -1,6 +1,6 @@
 # 部署：公司已有 Elastic APM 與 ES，只裝 AIOps
 
-> **類型：操作 How-To**　原理見 [architecture.md](architecture.md)・APM 的欄位與能做到什麼見 [aiops-engine/code/configs/apm/README.md](../aiops-engine/code/configs/apm/README.md)
+> **類型：操作 How-To**　原理見 [architecture.md](architecture.md)・APM 的欄位與能做到什麼見 [aiops-engine/configs/apm/README.md](../aiops-engine/configs/apm/README.md)
 
 收值（APM agent、apm-server）和 Elasticsearch 都是公司現有的，**不用部署**。要做的只有三件：在公司 ES 上手動補一次設定、部署 aiops-engine、（要發通知時）接 Grafana。
 
@@ -44,7 +44,7 @@
 ## 2. 部署 aiops-engine
 
 ```bash
-cd aiops-engine/code && docker build -t <nexus>/aiops-engine:<tag> . && docker push <nexus>/aiops-engine:<tag>   # 內網：Dockerfile 的 pip 指到 Nexus
+cd aiops-engine && docker build -t <nexus>/aiops-engine:<tag> . && docker push <nexus>/aiops-engine:<tag>   # 內網：Dockerfile 的 pip 指到 Nexus
 ```
 
 ```bash

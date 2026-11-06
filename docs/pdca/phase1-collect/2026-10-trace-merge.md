@@ -13,7 +13,7 @@
 - **做法（決定）**：合併不在收值端、在 ES 端由 engine 做。Collector 照原本的路（磁碟佇列、重送不重複、停機不掉，三輪 PDCA 驗過的）把每一段寫進 `traces-generic.otel-<group>`（只留 **2 天**）；engine 的排程器每分鐘跑 `detector trace-merge`：找這一分鐘有新 span 進來的 trace、讀回它全部的 span、合成一筆 upsert。晚到的 span 會讓那個 trace 再被合一次（覆蓋），所以合得完整；重跑不會重複。
   - 不寫新的收值服務（自己寫的 OTLP 接收端要重做磁碟佇列、重送去重、停機測試）。
   - 不用 ES transform（`scripted_metric` 組 nested 難寫難測；continuous transform 寫不進 data stream）。
-- **範圍**：`collector/`（拆 trace-sampler）、`elasticsearch/code`（raw 2 天、merged 的 template／ILM／pipeline、角色）、`aiops-engine/code`（`detector trace-merge`、讀端改讀 merged、排程表加一列）、e2e（trace、trace-baseline、rca、kafka、sdk-inject 改；tail-sampling 刪）、文件（trace README、retention 三份、architecture、collector README）。
+- **範圍**：`collector/`（拆 trace-sampler）、`elasticsearch/code`（raw 2 天、merged 的 template／ILM／pipeline、角色）、`aiops-engine`（`detector trace-merge`、讀端改讀 merged、排程表加一列）、e2e（trace、trace-baseline、rca、kafka、sdk-inject 改；tail-sampling 刪）、文件（trace README、retention 三份、architecture、collector README）。
 - **不做**：MinIO／冷儲存（另案）；trace 每一段的 baseline 改讀 merged（它只看最近 10 分鐘，raw 夠；要改要把 composite 聚合改成 nested，這次不碰）。
 
 | 取捷 | 說明 |
@@ -35,7 +35,7 @@
 | `elasticsearch/code/scripts/elasticsearch-setup.sh` | 加 `rollover_if_no_field 'traces-*.otel-*' event.ingested` | mapping 只對新的 backing index 生效，已存在的資料流要換一個 index |
 | `elasticsearch/code/storage/ilm-traces-otel.json`、`scripts/retention.conf` | raw 改 `TRACES_RAW_DELETE_AFTER=2d`；刪 `ilm-traces-problem-otel.json`、`traces-problem-otel-custom.json`、`PROBLEM` 參數 | raw 只是合成前的暫存 |
 | `elasticsearch/code/scripts/elasticsearch-setup.sh` | 裝 merged 的 template／ILM；各部門唯讀角色加 `traces-merged-<group>-*`；aiops-reader 讀 `traces-merged-*`；baseline key 可寫 `traces-merged-*`；刪 traces-problem 區塊 | 根因分析、Grafana 讀 merged；只有 engine 能寫 merged |
-| `aiops-engine/code/detector/trace_merge.py`（新） | `updated_trace_ids`（composite 聚合 `event.ingested` 範圍）→ 讀回全部 span → `build()` 合成一筆（入口、總耗時、錯誤、服務、段數、`entries`、`spans`）→ bulk upsert `_id`=trace_id；進度存 `aiops-state/trace-merge`；`run()` 從上次合到的時間接著合、最多回補 2 天、10 分鐘一段 | 晚到的 span 讓整個 trace 重合一次（覆蓋），合得完整、重跑不重複；pod 停很久能補 |
+| `aiops-engine/detector/trace_merge.py`（新） | `updated_trace_ids`（composite 聚合 `event.ingested` 範圍）→ 讀回全部 span → `build()` 合成一筆（入口、總耗時、錯誤、服務、段數、`entries`、`spans`）→ bulk upsert `_id`=trace_id；進度存 `aiops-state/trace-merge`；`run()` 從上次合到的時間接著合、最多回補 2 天、10 分鐘一段 | 晚到的 span 讓整個 trace 重合一次（覆蓋），合得完整、重跑不重複；pod 停很久能補 |
 | `detector/__main__.py`、`cmd_trace.py` | 子命令 `trace-merge --config --window --at` | 排程器呼叫 |
 | `configs/schedule/schedule.yaml` | 加 `trace-merge`（stage 1、每分鐘、timeout 50 秒） | 跟 alert 同一分鐘跑完 |
 | `configs/baseline/trace.yaml` | 加 `raw_index`、`merge.settle_seconds: 10`；刪 `sample_policy` | 合到「現在 − 10 秒」，讓 Collector 剛寫進去的 span 進得了這一輪；沒有取樣就沒有 policy 要過濾 |
@@ -45,10 +45,10 @@
 | e2e | `run-trace-e2e.sh` 加「7b. 合成一個請求一筆」（跑 `trace-merge`、檢查 merged 文件／摘要／entries／重跑不重複／權限）；`run-rca-e2e.sh` 在 investigate 前手動跑一次 `trace-merge`（測試 cluster 沒有 engine pod）、`tests/rca_k3s.yaml` 讀 `traces-merged-*`；`deploy-collector.sh`、durability、stress、keys、sdk-inject、kafka 去掉 trace-sampler；刪 `e2e/k8s/tail-sampling/`；`trace_quality_edge_e2e.py` 的尾端取樣模擬改成全留，並刪掉三項測隨機取 5% 的檢查（基準線只用 random 兩項、錯的慢的全留的對照、低流量 API 不學）與只給它們用的函式 | 跟著程式；這三項測的行為已不存在 |
 | `aiops-engine/helmchart`（順手，不屬 trace） | `llmProvider` 改成 `llm.{provider,model,baseUrl,apiKey}`：前三個進 ConfigMap `aiops-env`（`LLM_CHAT_MODEL`、依 provider 給 `OPENAI_BASE_URL`／`ANTHROPIC_BASE_URL`），`apiKey` 由 chart 建 Secret `aiops-llm`；key 只寫在 `values-local.yaml`（新加進 `.gitignore`，附 `values-local.example.yaml`） | 原本 chart 沒地方設模型與閘道，只能用程式預設與公網；使用者要 key 跟著 yaml 走、但不能進 git |
 | e2e（順手） | `run-metrics-e2e.sh`、`run-es-2node.sh` 的 kube context 預設改成目前的（原本寫死 `default`，Rancher Desktop 叫 `rancher-desktop`，第一個 kubectl 就失敗） | 同上 |
-| e2e（順手） | 10 支腳本的 `${repo}/engine` 改成 `${repo}/aiops-engine/code`；`run-rca-e2e.sh` 建 `rca-lib` configmap 時去掉 `\r` | 元件重整（PR #34）時漏改，這些 e2e 從那之後其實跑不起來；Windows checkout 成 CRLF 時 busybox sh 讀 `lib.sh` 會 syntax error（trace-app 早就這樣處理，rca 漏了） |
+| e2e（順手） | 10 支腳本的 `${repo}/engine` 改成 `${repo}/aiops-engine`；`run-rca-e2e.sh` 建 `rca-lib` configmap 時去掉 `\r` | 元件重整（PR #34）時漏改，這些 e2e 從那之後其實跑不起來；Windows checkout 成 CRLF 時 busybox sh 讀 `lib.sh` 會 syntax error（trace-app 早就這樣處理，rca 漏了） |
 | 文件 | `docs/trace/README.md` 重寫；architecture、retention 三份、rca、troubleshooting、根目錄與 docs README、sdk 埋點指引改成 100% 收／raw／merged | 跟著程式 |
 | `core/traces.py` | `to_span` 的 duration 改用 `_duration_ms`：字串、負數、沒有一律當 0 | 排程器全跑時發現：測試 ES 裡有 duration 是 "not-a-number" 的 span（ES 的 `ignore_malformed` 收下來），`trace-merge` 除錯直接崩潰，狀態推不進去，之後每分鐘都失敗。一個壞 SDK 就能卡死合併 |
-| e2e（順手） | `rca-demo/notify-sink.yaml` 的 Service 補 `ports`；`run-alert-flap.py`、`run-log-trace-skew.py`、`metrics_trace_check.py` 的 `engine` 路徑改 `aiops-engine/code`；`loop_e2e.py` 的 metrics 查詢區間結尾改成明天；`test_deploy.py` 預期多一個 Secret（`aiops-llm`） | 元件重整（PR #34）漏掉的；`loop_e2e` 把回饋時間（寫入當下）算在固定的 10/05～10/28 外，過了 10/28 就一定失敗 |
+| e2e（順手） | `rca-demo/notify-sink.yaml` 的 Service 補 `ports`；`run-alert-flap.py`、`run-log-trace-skew.py`、`metrics_trace_check.py` 的 `engine` 路徑改 `aiops-engine`；`loop_e2e.py` 的 metrics 查詢區間結尾改成明天；`test_deploy.py` 預期多一個 Secret（`aiops-llm`） | 元件重整（PR #34）漏掉的；`loop_e2e` 把回饋時間（寫入當下）算在固定的 10/05～10/28 外，過了 10/28 就一定失敗 |
 | e2e（順手） | `metrics_trace_check.py`：entry_* 查詢改讀 `traces-merged-*`、檢查前先跑一次 `trace-merge`，取 raw span 的 `traces()` 改用欄位條件；`run-metrics-scenarios.sh` 的 kube context 預設改成目前的 | 這支腳本用的 `entry_filter` 是 merged 的 nested 查法，對 raw 查全是 0 筆（第 3 串 11 項 FAIL，改後 15 項全過） |
 | e2e（順手） | `run-dotnet-e2e.sh` 的 baseline 查詢窗口從「對齊 5 分鐘、往前 10 分鐘」改成「現在往前 1 分鐘、往前 15 分鐘」 | 第 3 串 dotnet 1 項 FAIL（`http.* 0 None`）：應用只跑約 4 分鐘，窗口對齊 5 分鐘時資料可能全落在最後一個還沒結束的窗口外，查到 0 列。不是 baseline 算出 0，也和 trace 無關；拿 ES 裡留著的 dotnet-app 資料，用同一段 `fetch` 重現：窗內有資料時三條序列都有值，窗內沒資料時印出一模一樣的 `0 None`。**只重現了原因，沒有整支重跑**（約 20 分鐘） |
 | e2e（順手） | `sdk-inject/run-sdk-inject-e2e.sh` 的 `pf_stop` 改成沒有 port-forward 時也回 0 | 第 3 串 sdk-inject 21 項全過、結束碼卻是 1，也沒印「全部通過」：自己帶 `ES_URL` 跑時沒有 port-forward，`pf_stop` 的 `[[ -n ${pfdir} ]] && …` 回 1，在 `set -e` 下腳本當場結束，收尾的 EXIT trap 只放了鎖。檢查本身不受影響，但串接這支腳本的流程會當成失敗。用同樣的 `set -e` 重現：舊寫法 rc=1、新寫法 rc=0；沒整支重跑 |

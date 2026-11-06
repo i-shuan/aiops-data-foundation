@@ -1,6 +1,6 @@
 # aiops-engine 讀 Elastic APM 的資料（2026-11）
 
-**狀態**：已完成（程式與設定；未在真實 APM 資料上跑）　　**日期**：2026-11-02　　**相關**：分支 `claude/apm-source`；[aiops-engine/code/configs/apm/README.md](../../../aiops-engine/code/configs/apm/README.md)
+**狀態**：已完成（程式與設定；未在真實 APM 資料上跑）　　**日期**：2026-11-02　　**相關**：分支 `claude/apm-source`；[aiops-engine/configs/apm/README.md](../../../aiops-engine/configs/apm/README.md)
 **模組**：④ 判斷、⑤ 異常總表、⑦ 根因分析
 
 ## Plan：這一次要達到什麼

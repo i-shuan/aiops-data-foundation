@@ -12,7 +12,7 @@ PDCA 的意思：**Plan** 定規則與門檻 → **Do** 收值、判斷、報告
 
 | 項目 | 狀態 | 細節 |
 |---|---|---|
-| ④ 判斷設定：序列、粒度、z、`min_abs`、規則門檻 | ✅ | [engine/configs/baseline](../../aiops-engine/code/configs/baseline/README.md)（`series.yaml`、`rules.yaml`、`peer.yaml`、`trace.yaml`） |
+| ④ 判斷設定：序列、粒度、z、`min_abs`、規則門檻 | ✅ | [engine/configs/baseline](../../aiops-engine/configs/baseline/README.md)（`series.yaml`、`rules.yaml`、`peer.yaml`、`trace.yaml`） |
 | ⑨ 上線前記下基準（每天告警幾筆、誤報多少、從告警到回饋多久） | ⚠️ `metrics` 指令有了，數字要等試點 | [phase5-learning-loop/2026-10-metrics-kpi.md](phase5-learning-loop/2026-10-metrics-kpi.md) |
 | ④ 用真實資料校正門檻 | 📝 要先排程跑 2～4 週 | [rca/](../rca/README.md) |
 | ② 歸屬放哪裡（讀 namespace 的 `dept`，或改成 app → group 中央清單）、app 名稱是否全公司唯一 | 未定案 | [README「還沒定案的」](../../README.md#還沒定案的) |
@@ -24,8 +24,8 @@ PDCA 的意思：**Plan** 定規則與門檻 → **Do** 收值、判斷、報告
 | 項目 | 狀態 | 細節 |
 |---|---|---|
 | ①②③ 收值（log、metrics、trace、尾端取樣）、清資料、存 | ✅ | log、metrics、trace |
-| ④ 判斷：靜態臨界值規則 (Static Threshold Rules)、動態基準線學習 (Dynamic Baseline Learning)、Pod 同儕橫向比對 (Peer Comparison)、trace 每一段 | ✅ | [engine/configs/baseline](../../aiops-engine/code/configs/baseline/README.md) |
-| ⑦ 根因分析：metrics → trace → log | ✅ | [engine/configs/rca](../../aiops-engine/code/configs/rca/README.md) |
+| ④ 判斷：靜態臨界值規則 (Static Threshold Rules)、動態基準線學習 (Dynamic Baseline Learning)、Pod 同儕橫向比對 (Peer Comparison)、trace 每一段 | ✅ | [engine/configs/baseline](../../aiops-engine/configs/baseline/README.md) |
+| ⑦ 根因分析：metrics → trace → log | ✅ | [engine/configs/rca](../../aiops-engine/configs/rca/README.md) |
 | ④ **正式環境排程**（train 每天、detect 每 30 秒、rules 與 peer 每分鐘） | ⚠️ 程式好了，沒部署 | [rca/](../rca/README.md) |
 | 已完成部分的小尾巴：② 統一指標名稱（metrics）、② 統一欄位路徑（log）（① trace-sampler 磁碟佇列已做） | ⚠️ | 各資料夾 README 開頭 |
 | ①②④ 時間對齊：主機時鐘監控（metrics）、收資料延遲與時區（log）、時鐘差日報（trace） | 📝 | 同上 |
@@ -42,9 +42,9 @@ PDCA 的意思：**Plan** 定規則與門檻 → **Do** 收值、判斷、報告
 | ⑧ 告警出口（通知） | ✅ 合成一件寫 `aiops-alerts`，Grafana 分送；排程改成一隻 pod、K8s 上跑過 | [phase3-locate/2026-10-alert-exit.md](phase3-locate/2026-10-alert-exit.md)、[phase3-locate/2026-10-schedule.md](phase3-locate/2026-10-schedule.md) |
 | ⑧ 事故紀錄 `aiops-incidents`（`incident` 指令、alert 自動開 `auto`、回饋網頁確認） | ✅ 接上告警與回饋；存根因分類、怎麼看出來的、指紋 | [phase5-learning-loop/2026-10-expert-feedback.md](phase5-learning-loop/2026-10-expert-feedback.md) |
 | ⑨ 值班回饋 `aiops-feedback`（回饋網頁＋`feedback` 指令） | ✅ 網頁入口（沒登入）；漏報仍靠指令；一句話 LLM 抽成四欄、提 proposed 調整；採納率兩題 | 同上、[phase5-learning-loop/2026-10-feedback-nl-extract.md](phase5-learning-loop/2026-10-feedback-nl-extract.md) |
-| ② 資料品質檢查：路由沒參數化、必填欄位缺、資料停了、落到 unassigned 變多（`quality`） | ⚠️ 程式好了、實測過，沒排程 | [baseline README](../../aiops-engine/code/configs/baseline/reference.md#資料品質檢查資料本身怪不怪) |
-| ② 排除已知干擾：事故、維護、壓測時段不學（`exclude_window`）；換版重新學（`reset_point`）；月底批次放寬（`recurring_override`） | ⚠️ 程式好了、實測過，沒排程 | [baseline README「調整」](../../aiops-engine/code/configs/baseline/reference.md#調整哪些資料不學從哪裡重新學哪些時段放寬) |
-| ② 慢性病清單（`chronic`，每週）、行事曆（`calendar.yaml`） | ⚠️ 程式好了、實測過，沒排程；假日已改成直接抓台灣行事曆（`taiwan` provider）；`owners` 目前是**假資料**（`fake-data/owners.json`），要換成真的來源 | [baseline README「慢性病清單、行事曆」](../../aiops-engine/code/configs/baseline/reference.md#慢性病清單行事曆) |
+| ② 資料品質檢查：路由沒參數化、必填欄位缺、資料停了、落到 unassigned 變多（`quality`） | ⚠️ 程式好了、實測過，沒排程 | [baseline README](../../aiops-engine/configs/baseline/reference.md#資料品質檢查資料本身怪不怪) |
+| ② 排除已知干擾：事故、維護、壓測時段不學（`exclude_window`）；換版重新學（`reset_point`）；月底批次放寬（`recurring_override`） | ⚠️ 程式好了、實測過，沒排程 | [baseline README「調整」](../../aiops-engine/configs/baseline/reference.md#調整哪些資料不學從哪裡重新學哪些時段放寬) |
+| ② 慢性病清單（`chronic`，每週）、行事曆（`calendar.yaml`） | ⚠️ 程式好了、實測過，沒排程；假日已改成直接抓台灣行事曆（`taiwan` provider）；`owners` 目前是**假資料**（`fake-data/owners.json`），要換成真的來源 | [baseline README「慢性病清單、行事曆」](../../aiops-engine/configs/baseline/reference.md#慢性病清單行事曆) |
 | ⑨ 回測（`backtest`：改門檻前重跑過去 N 週） | ✅ 沒回測不能核准 | [phase5-learning-loop/2026-10-loop-update.md](phase5-learning-loop/2026-10-loop-update.md) |
 | ⑨ 版本（每筆異常記哪一版產生）、評測集（20～30 件過去事故） | ❌ 要真實事故 | [feedback/](../feedback/README.md) |
 | ①② REST API 的 log 樣本、重要 .NET Kafka 消費者加幾行 | 要別人配合 | 各資料夾 |
@@ -53,12 +53,12 @@ PDCA 的意思：**Plan** 定規則與門檻 → **Do** 收值、判斷、報告
 
 | 項目 | 狀態 | 細節 |
 |---|---|---|
-| ④ 手動調整：`series.yaml` 的 `overrides`、`tune` 指令（記原因、誰、何時） | ✅ | [baseline README「使用者、feedback 調整」](../../aiops-engine/code/configs/baseline/reference.md#使用者feedback-調整) |
+| ④ 手動調整：`series.yaml` 的 `overrides`、`tune` 指令（記原因、誰、何時） | ✅ | [baseline README「使用者、feedback 調整」](../../aiops-engine/configs/baseline/reference.md#使用者feedback-調整) |
 | ② 修慢性病（天天噴錯、沒人修的） | 要別人配合 | [rca/](../rca/README.md) |
 | ⑨ 同一個根因 ≥ 3 次 → 升級成規則 | ✅ 門檻算好、核准後 `rules` 自動載入；只處理延遲類；`expires_at` 到期不載入，但核准時還設不了 | [phase5-learning-loop/2026-10-rule-threshold.md](phase5-learning-loop/2026-10-rule-threshold.md)、[phase2-anomaly/2026-10-rules-verify.md](phase2-anomaly/2026-10-rules-verify.md) |
 | [phase5-learning-loop/2026-11-open-issues-batch.md](phase5-learning-loop/2026-11-open-issues-batch.md) | ④⑧⑨ open-issues 可平行做的七項：B6a 檢查、`tune --show`、異常記版本、基準線不見的告警、漏報進 Grafana 表單、code-review 三殘項、重建 ES 文件 | 七項都做了，404 個單元測試過；Painless、Grafana 規則與面板沒在真環境跑，e2e 等叢集空了再跑 |
 | ⑨ 回饋累積夠且回測通過 → 調門檻、排除時段 | ⚠️ 誤報 3 次 → 放寬 z → 回測 → 人核准；還不會提排除時段 | 同上 |
-| ② 資料品質檢查的門檻：先估的，正式環境只記錄跑 2～4 週再手動校；`quality` 還不能用 `tune` 調 | 📝 | [baseline README「門檻怎麼校、誰來調」](../../aiops-engine/code/configs/baseline/verification.md#門檻怎麼校誰來調) |
+| ② 資料品質檢查的門檻：先估的，正式環境只記錄跑 2～4 週再手動校；`quality` 還不能用 `tune` 調 | 📝 | [baseline README「門檻怎麼校、誰來調」](../../aiops-engine/configs/baseline/verification.md#門檻怎麼校誰來調) |
 | ⑦⑨ 相似事故檢索（RAG 的檢索，欄位比對） | ✅ 模擬資料驗過；門檻、權重是估的；匯入指令有了，合成 20 筆 recall@3 50%，等真實事故單 | [phase4-rca-llm/2026-10-similar-incidents.md](phase4-rca-llm/2026-10-similar-incidents.md) |
 | ⑦⑨ LLM：根因報告摘要（只加註、每句附依據） | ✅ template 與真的模型（OpenAI）都跑過，每句附依據；評測集 ❌ | [phase4-rca-llm/2026-10-llm-summary.md](phase4-rca-llm/2026-10-llm-summary.md)、[phase5-learning-loop/2026-10-fix-feedback-ux.md](phase5-learning-loop/2026-10-fix-feedback-ux.md) |
 
@@ -215,6 +215,8 @@ metrics → trace → log 找到哪一段、哪行 log；事件整合、排程�
 | [meta/2026-11-oop-core.md](meta/2026-11-oop-core.md) | ④⑤⑦ 核心邏輯物件導向化（一）：ES 實作 Backend 刪 18 處 `is_backend`；`Anomaly` 與 `Detector` 基底，rules／peer／quality 繼承 | 769 個單元測試過；`is_backend` 0 處；五種異常文件樣式與舊程式逐鍵比對相同；總行數 +189（搬與去重，沒刪）；沒連 ES |
 | [meta/2026-11-vo-models.md](meta/2026-11-vo-models.md) | ④～⑨ 資料物件化（VO）：盤點在函式之間流動的 dict（Alert、Incident、Fingerprint、Span、Findings 等 11 項），分 P0／P1／P2 | 進行中；步驟 1 `Fingerprint`、`Incident`（`core/incident.py`）做完，四條寫入路徑改走 `to_doc()`，773 個單元測試過、golden 逐欄位比對只差 null 不再寫 |
 | [meta/2026-11-clean-code.md](meta/2026-11-clean-code.md) | ②～⑨ 程式整理：A 一個階段一個資料夾（⑨ → `feedback/`）、B 拆大函式與子命令、C 依賴只往一個方向＋`test_layers`、D 跨階段文件改模型 | 四步都做完（分支 `claude/clean-code`）：785 個單元測試過、`test_layers` 鎖依賴方向；函式 >100 行 2 → 0、函式內 import 71 → 3、反向依賴 5 → 0；Alert 的 golden 比對只差 null 不再寫 |
+| [meta/2026-11-target-architecture.md](meta/2026-11-target-architecture.md) | ②～⑨ 目標架構：core（連線、entity、repository）／scenario／service／interface 四層，逐檔搬遷表與 S0～S5 步驟 | 已完成；已合進 master |
+| [meta/2026-11-feature-folders.md](meta/2026-11-feature-folders.md) | 程式改成一個功能一個資料夾：detect／learn／incident／llm／shared，逐檔來源與依賴順序 | 已完成；已合進 master |
 | [meta/2026-10-poc-acceptance.md](meta/2026-10-poc-acceptance.md) | ①～⑨ POC 驗收計畫：6 個 KPI、4 個故障情境、Go/No-Go | 四個任務已合入 master；模擬服務、合成資料上：聚合率 100%、解析率 100%、串查 ✅、召回率 50%（要真實事故單）；Go/No-Go 待真實服務 |
 | [meta/2026-11-apm-source.md](meta/2026-11-apm-source.md) | ④⑤⑦ engine 讀 Elastic APM 的資料（不改 Collector、ES）：`configs/apm/`、`source: apm`、序列 `scale`／`div`、trace 的 APM 轉換 | 562 個單元測試過（新加 17 個：APM span 轉換、查詢欄位、scale／div、owner／log 欄位）；chart 兩種 source render 對；沒有真實 APM 資料，整條沒在 ES 上跑；例外吞噬、Pod 資源、往外呼叫 p95 在 APM 資料上做不到 |
 | [meta/2026-11-remove-collector.md](meta/2026-11-remove-collector.md) | ①②③ 刪自建收值：`collector/`、`apps/`、`e2e/`、ES 的 OTel 入口設定與文件；`elasticsearch/` 縮成只補 `traces-merged-*` 與兩把 key | 刪約 200 個檔；連結檢查從 80 個壞連結修到 0；engine 的 OTel 來源沒動；瘦身後的 setup 腳本與 chart 沒對真實 ES 跑 |

@@ -1,0 +1,37 @@
+# 工廠 ⑦ 履歷合成器（detector paths-merge，只有 AIOPS_PLUGIN=factory 有這個子命令；程式 detect/trace/path_builder.py）：MES 進出站＋S6F11 機台事件 → 一個 lot 一筆 lot-paths-*，
+# 格式跟 traces-merged-* 一樣，M4、根因分析、前後站都照舊。欄位名全是假設（沒有 MES、EAP 樣本），拿到樣本換 fields 右邊。
+# 離線跑假資料：tests/factory_e2e.py 把假 MES、事件寫進 ES 再跑（paths-merge 只讀 ES）。
+timezone: Asia/Taipei
+group: fab1                      # index 名：lot-paths-fab1-<日期>；或 group_field: area 從 MES 列讀
+dept_field: dept                 # MES 列裡的部門（選填；Grafana 依它分送）
+
+# MES 進出站（track-in／track-out）：主幹，一站一段
+mes:
+  index: mes-history-*
+  fields:
+    lot: lot_id
+    step: step_no
+    station: station
+    equipment: equipment_id
+    chamber: chamber_id
+    recipe: recipe_id
+    recipe_version: recipe_version
+    product: product_id
+    start: track_in
+    end: track_out               # 還沒出站的列沒有這欄：當成還在站上
+    result: result               # ok／hold／scrap／rework…
+  bad_results: [hold, scrap, rework, fail, abort]
+  attrs: [operator, carrier_id, material_lot]   # 其他帶進 span 的欄位（根因分析的 commonality 可以比：壞 lot 是不是同一批材料）
+
+# S6F11 機台事件（EAP 存下來的事件表）：一站裡面 chamber、recipe step 的進出，掛在那一站底下。沒有就整段刪掉
+events:
+  index: eqp-events-*
+  fields:
+    lot: lot_id
+    equipment: equipment_id
+    chamber: chamber_id
+    step: recipe_step
+    start: start_time
+    end: end_time
+    event: ceid
+  attrs: [ceid, wafer_count]

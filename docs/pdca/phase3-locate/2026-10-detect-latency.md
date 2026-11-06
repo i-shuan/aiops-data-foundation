@@ -13,7 +13,7 @@
 
 | 檔案 | 改了什麼 | 為何要改 |
 |---|---|---|
-| `aiops-engine/code/tests/p95_spike_e2e.py`（新） | 對真的 ES 灌兩個服務 21 分鐘的 HTTP 請求直方圖（跟 `rules_edge_e2e.py` 一樣的 TSDS 寫法），一個點多 4 個 3 秒的請求（A）、另一個點多 1 個（B）；暴衝後每分鐘跑一輪真的 `detector rules --at`，把累積的規則異常餵給 `alerts.merge`，印每一輪的命中數與有沒有開件 | 規則是 window 5m，一個暴衝點會被連續好幾輪看到；weak 要 2 筆才開——兩者湊起來的實際行為要量 |
+| `aiops-engine/tests/p95_spike_e2e.py`（新） | 對真的 ES 灌兩個服務 21 分鐘的 HTTP 請求直方圖（跟 `rules_edge_e2e.py` 一樣的 TSDS 寫法），一個點多 4 個 3 秒的請求（A）、另一個點多 1 個（B）；暴衝後每分鐘跑一輪真的 `detector rules --at`，把累積的規則異常餵給 `alerts.merge`，印每一輪的命中數與有沒有開件 | 規則是 window 5m，一個暴衝點會被連續好幾輪看到；weak 要 2 筆才開——兩者湊起來的實際行為要量 |
 | `e2e/k8s/rca-demo/run-live-chain.sh`（新，⑧⑨ 串接：`run-rca-demo.sh` 的 up／tick／incident 串成一支，再對那件告警送回饋） | 事故開始記時間；每分鐘一輪 tick 後記「第一筆異常」「第一件 open」；從 notify-sink 的 log 抓第一則帶 `rca-` 服務的 firing 時間；印四段延遲，事故到通知 > 10 分鐘算 FAIL | 量事故到通知的實際延遲 |
 
 ## Check：測試的目的與結果

@@ -47,7 +47,7 @@
 
 | 檔案 | 改了什麼 | 為何要改 |
 |---|---|---|
-| `aiops-engine/code/tasks/__init__.py`、`__main__.py`（新） | Celery app（`AIOPS_BROKER_URL`，沒設就是 `configured()=False`）；任務 `run_job` 開子行程跑 `python -m <args>`（就是 `scheduler.runner.run_once`）；`enqueue(job, at)` 算 `expires`、丟進 `job.queue`；`trigger(name)` 照 plugin 的排程表找工作丟（api 用）；`worker_main` 起 threads pool 的 worker，`alert` 佇列 concurrency ≠ 1 直接拒絕 | 工作本身不改、只換觸發方式，detector／investigator 一行不動；`configured()` 讓同一份程式沒 Redis 時退回一隻 pod 的行為 |
+| `aiops-engine/tasks/__init__.py`、`__main__.py`（新） | Celery app（`AIOPS_BROKER_URL`，沒設就是 `configured()=False`）；任務 `run_job` 開子行程跑 `python -m <args>`（就是 `scheduler.runner.run_once`）；`enqueue(job, at)` 算 `expires`、丟進 `job.queue`；`trigger(name)` 照 plugin 的排程表找工作丟（api 用）；`worker_main` 起 threads pool 的 worker，`alert` 佇列 concurrency ≠ 1 直接拒絕 | 工作本身不改、只換觸發方式，detector／investigator 一行不動；`configured()` 讓同一份程式沒 Redis 時退回一隻 pod 的行為 |
 | `scheduler/cron.py` | `frequent`（每幾分鐘的）、`next_after(t)`（下一次排定，一分鐘一分鐘比、最多 8 天） | 預設佇列要分「每幾分鐘」跟「每天／每週」；`expires` 要知道下一次是幾點 |
 | `scheduler/runner.py` | `Job.queue`（排程表的 `queue`，沒寫 `default_queue`：alert→alert、frequent→realtime、其餘→batch；不是三個之一報錯）；`tick`／`serve` 多一個 `run` callback：給了就只呼叫它（beat），不開執行緒、不看有沒有在跑 | beat 跟排程器共用同一套 cron、stage、alive file；只是「跑」換成「丟」 |
 | `scheduler/__main__.py` | `--enqueue`（沒設 broker 回 2）；`--list` 印 `queue`；多接 `SIGBREAK`（Windows 的 Ctrl-Break） | beat 就是排程器的另一個開法；本機 e2e 要能乾淨停它 |

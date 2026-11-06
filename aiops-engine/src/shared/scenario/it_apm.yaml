@@ -1,0 +1,21 @@
+# IT 可觀測性，原始資料是 Elastic APM／Fleet apm integration（AIOPS_SOURCE=apm；docs/pdca/meta/2026-11-apm-source.md）。
+# 跟 it_otel 只差原始資料的欄位名與排程表（configs/apm/）。
+extends: it_otel
+source: apm
+schedule: configs/apm/schedule.yaml
+
+owner:                                   # dept、group 是 agent 設的 label（labels.dept、labels.group）；沒設就全部 unassigned
+  index: metrics-apm.transaction.1m-*
+  namespace: kubernetes.namespace
+  service: service.name
+  dept: labels.dept
+  group: labels.group
+log:
+  service: service.name
+  level: log.level
+  trace_id: trace.id
+  message: [message, error.exception.message, error.log.message]
+  # log.level 是應用自己寫的，大小寫不一（ERROR、error、Error），keyword 比對分大小寫，全列。
+  problem_levels: [warn, warning, error, fatal, critical, WARN, WARNING, ERROR, FATAL, CRITICAL, Warn, Warning, Error, Fatal, Critical]
+  # logs-apm.error-* 的例外文件沒有 log.level，用 processor.event: error 一起撈；訊息在 message 或 error.exception.message
+  problem_query: {term: {processor.event: error}}

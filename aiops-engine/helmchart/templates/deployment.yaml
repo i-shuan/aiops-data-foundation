@@ -21,7 +21,7 @@ spec:
       containers:
         - name: scheduler
           image: {{ include "aiops.image" . }}
-          args: ["scheduler", "--config", {{ include "aiops.schedule" . | quote }}, "--stage", {{ .Values.scheduler.stage | quote }}, "--alive-file", "/tmp/scheduler-alive"]
+          args: ["main", "scheduler", "--config", {{ include "aiops.schedule" . | quote }}, "--stage", {{ .Values.scheduler.stage | quote }}, "--alive-file", "/tmp/scheduler-alive"]
           {{- include "aiops.envFrom" . | nindent 10 }}
           # 排程器每分鐘醒來更新 /tmp/scheduler-alive；超過 3 分鐘沒更新就是卡死，重啟
           livenessProbe:

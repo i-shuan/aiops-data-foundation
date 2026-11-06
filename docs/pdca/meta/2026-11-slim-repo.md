@@ -43,9 +43,9 @@
 | yaml | 四份排程表：`schedule/`、`apm/`、`factory/`、`metrics_only/`（各約 80～105 行） | 指令幾乎相同，只差設定檔路徑 |
 | yaml | `source: otel｜apm` 開關與 chart 裡的三元運算 | 只剩 APM 時可拿掉 |
 | 檔案 | Grafana 外掛安裝有四種做法：`grafana/plugins/*.zip`（1.4 MB 二進位）、`helmchart/load-plugin.sh`、`helmchart/files/install-plugin.sh`、`code/plugin-init-patch.yaml` ＋ `INSTALL-form-plugin.md` | 留一種 |
-| 檔案 | `aiops-engine/code/.cache/calendar/*.json`（已被追蹤） | 是抓行事曆的快取，不該進 git |
+| 檔案 | `aiops-engine/.cache/calendar/*.json`（已被追蹤） | 是抓行事曆的快取，不該進 git |
 | 檔案 | `sonar-project.properties`、`docs/pdca/meta/2026-10-sonar.md` | 公司有沒有用 SonarQube 沒確認 |
-| 檔案 | `aiops-engine/code/fake-data/`、`interfaces/` | 假資料與接口範例 |
+| 檔案 | `aiops-engine/fake-data/`、`interfaces/` | 假資料與接口範例 |
 | 檔案 | engine／grafana chart 的 `esApiKey`、`secretData`、`secret.yaml` | 原本為 CI 把 key 組成 values；沒有 CI 與腳本後只剩手動 `--set` |
 | 工作目錄 | 根目錄 6 個檔名是 Windows 路徑的 `.tar`（`C：\Project\…\image\*.tar`，未追蹤）、`e2e/`（未追蹤，`local-k3d/.env` 被忽略） | 不在 git 裡，是本機的殘留 |
 | 工作目錄 | `.claude/worktrees/` 有 20 多個 worktree，多數對應已合或已放棄的分支 | 佔空間，也容易跑錯地方 |
