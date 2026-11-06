@@ -35,7 +35,7 @@ repo.series.fetch(spec, start, end, "5m")   # 原始資料 → 一條序列（ke
 | `housekeeping` | `detect/store/housekeeping_repo.py` | 設定給 | count／delete_by_query（prune）、put_index_template |
 | （函式） | `detect/store/owner_repo.py` | 設定給 | `load_owners`、`owner_of`：異常的 dept／group（AnomalyRepository.write 用） |
 
-- mapping 跟著實體：`detect/store/{anomaly,baseline}.py`、`incident/store/models.py`、`shared/incident_doc.py`、`learn/store/{adjustment,feedback}.py`；只有 repository 自己用的索引（segments、state、chronic）mapping 放在 repository 檔裡。
+- mapping 跟著實體：`detect/store/{anomaly,baseline}.py`、`incident/store/models.py`、`shared/incident_doc.py`、`learn/store/models.py`；只有 repository 自己用的索引（segments、state、chronic）mapping 放在 repository 檔裡。
 - 共用的翻頁（search_after、composite）、_mget、_update、_bulk update 在 `shared/repository.py` 的 `Repository`。
 - 不連 ES 的測試：`tests/fakes.MemoryRepos`（原始資料給 DataFrame，整形在 `tests/shaping.py`，語意跟 ES 端的 aggregation 一樣，`tests/test_shape.py`、`test_values.py` 對過）。
 

@@ -13,11 +13,11 @@ import typer
 
 from interface.cli.common import SERIES, Opt, group, registry, run
 
-from learn.adjust_service import adjust_add, adjust_approve, adjust_list, adjust_remove
-from learn.backtest import cmd_backtest
+from learn.tuning_service import adjust_add, adjust_approve, adjust_list, adjust_remove
+from learn.rule_backtester import cmd_backtest
 from learn.feedback_service import (feedback_add, feedback_export, feedback_list, feedback_pending, feedback_suggest, feedback_summary,
                            incident_add, incident_list, incident_resolve)
-from learn.metrics import cmd_metrics
+from learn.evaluation_metrics import cmd_metrics
 
 COMMANDS: dict[str, Callable[[typer.Typer], None]] = {}
 command = registry(COMMANDS)

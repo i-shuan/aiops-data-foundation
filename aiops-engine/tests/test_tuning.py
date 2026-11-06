@@ -1,12 +1,12 @@
-"""learn/store/adjustment.py：aiops-tuning 寫進去前過 Adjustment（validated）：kind／status 給錯、型別不對會擋；八種建議、tune、adjust add、shift 寫的都過得了；
+"""learn/store/models.py：aiops-tuning 寫進去前過 Adjustment（validated）：kind／status 給錯、型別不對會擋；八種建議、tune、adjust add、shift 寫的都過得了；
 mapping 的欄位都在模型裡。讀的那端（detector/adjust.py）還是 dict，這裡不測。"""
 import unittest
 
 import pandas as pd
 from pydantic import ValidationError
 
-from learn.store.adjustment import TUNING_MAPPING, Adjustment, validated
-import learn.suggest as F
+from learn.store.models import TUNING_MAPPING, Adjustment, validated
+import learn.param_suggester as F
 
 
 class Validated(unittest.TestCase):

@@ -35,7 +35,7 @@ from shared.scenario import load_scenario
 import incident.rca_analyzer as A
 import incident.alert_service as cmd_alert
 import llm.similar as SIM
-import learn.importer as IMP
+import learn.history_importer as IMP
 from incident.rca_report import _dur, _local, _ms, _ts, investigate_full  # noqa: F401  舊的 import 路徑還有人用
 
 app = typer.Typer(add_completion=False, rich_markup_mode=None, pretty_exceptions_enable=False)

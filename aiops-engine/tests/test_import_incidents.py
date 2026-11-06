@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 
 from shared.incident_doc import INCIDENT_INDEX
-import learn.importer as IMP
+import learn.history_importer as IMP
 from shared.repos import Repos
 from shared.scenario import load_scenario
 

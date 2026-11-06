@@ -12,9 +12,9 @@ from unittest import mock
 import pandas as pd
 
 import llm.summary as LLM
-from learn.store.adjustment import TUNING_INDEX
-import learn.suggest as F
-import learn.suggest as T
+from learn.store.models import TUNING_INDEX
+import learn.param_suggester as F
+import learn.param_suggester as T
 from detect.series_ops.manual_adjust import active, problem
 
 ALERT = {"alert_id": "a-1", "service": "mes-api", "series": ["http.latency_p95_s", "http.error_rate"], "title": "mes-api 變慢"}

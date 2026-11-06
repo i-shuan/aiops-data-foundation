@@ -23,7 +23,7 @@ import pandas as pd
 from shared.connection import doc_id
 from shared.incident_doc import Fingerprint
 
-from learn.store.feedback import VERDICTS
+from learn.store.models import VERDICTS
 # identified_cause（llm/summary.py 的 CAUSE_CODES）→ 表單的根因分類；規則草稿的 root_cause_category 用。沒列的是 other
 CAUSE_CATEGORY = {"db_slow_query": "db", "db_lock": "db", "db_connection_pool": "db", "network": "network", "dns": "network",
                   "config_change": "config_change", "deploy": "deploy", "external_api": "external", "resource_cpu": "resource",

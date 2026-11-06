@@ -6,7 +6,7 @@ import json
 import os
 
 from shared.env import CODE_ROOT
-from learn.store.feedback import RCA_USEFUL as _RCA_USEFUL
+from learn.store.models import RCA_USEFUL as _RCA_USEFUL
 from shared.incident_doc import classify
 from interface.jobs.runner import load_schedule
 from shared.scenario import Scenario

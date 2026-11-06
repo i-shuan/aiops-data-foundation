@@ -12,7 +12,7 @@ import learn.feedback_service as F
 from shared.scenario import load_scenario
 
 SC = load_scenario()
-from learn.store.feedback import FEEDBACK_INDEX
+from learn.store.models import FEEDBACK_INDEX
 from tests.test_api import ALERT, FakeES
 
 HERE = os.path.dirname(os.path.abspath(__file__))

@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 import interface.web.routes as W
 import interface.web.dto as D
 import learn.feedback_service as F
-from learn.store.feedback import FEEDBACK_INDEX
+from learn.store.models import FEEDBACK_INDEX
 from tests.test_api import ALERT, FakeES
 
 

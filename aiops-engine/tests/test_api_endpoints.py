@@ -1,4 +1,4 @@
-from learn.store.feedback import FEEDBACK_INDEX
+from learn.store.models import FEEDBACK_INDEX
 """api 的三個新端點（docs/pdca/meta/2026-11-api-beat-worker.md）：POST /api/anomalies（token、走 ingest.yaml 的對照、寫 ⑤、丟 alert）、
 POST /api/rca（標 rca_requested、結束的件不重跑、丟 alert）、GET /api/alerts；以及 alert 看到 rca_requested 會強制重跑、把標記拿掉。
 假的 ES、apply_async 用 mock 接住；HTTP 用 FastAPI 的 TestClient，不開 socket。"""

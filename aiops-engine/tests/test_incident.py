@@ -9,7 +9,7 @@ from pydantic import ValidationError
 
 from incident.store.models import Alert
 from shared.incident_doc import INCIDENT_MAPPING, UNMAPPED_FIELDS, Fingerprint, Incident
-import learn.importer as IMP
+import learn.history_importer as IMP
 import llm.similar as SIM
 
 ALERT = {"alert_id": "a-1", "service": "mes-api", "routes": ["GET /lots/{id}"], "series": ["http.latency_p95_s"]}

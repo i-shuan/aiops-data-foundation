@@ -4,7 +4,7 @@ import unittest
 
 import pandas as pd
 
-import learn.suggest as F
+import learn.param_suggester as F
 from detect.strategy.dynamic_baseline import override_for
 
 

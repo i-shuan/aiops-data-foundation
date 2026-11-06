@@ -6,10 +6,10 @@ import unittest
 
 import pandas as pd
 
-import learn.suggest as F
+import learn.param_suggester as F
 import interface.web.dto as D
 import interface.web.views as V
-import learn.importer as IMP
+import learn.history_importer as IMP
 import llm.similar as SIM
 
 

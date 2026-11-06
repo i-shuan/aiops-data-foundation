@@ -4,7 +4,7 @@ from unittest import mock
 
 import pandas as pd
 
-import learn.backtest as B
+import learn.rule_backtester as B
 from shared.repos import Repos
 from shared.scenario import load_scenario
 

@@ -12,7 +12,7 @@ PKG = ROOT / "src"
 LAYERS = ("shared", "detect", "llm", "incident", "learn", "interface")       # 由下往上
 ALLOWED = {name: set(LAYERS[:i]) for i, name in enumerate(LAYERS)}
 # 函式內才 import 的（其他都要在檔頭）：sqlalchemy 是選配、worker 要 broker
-LAZY_OK = {("learn/importer.py", "sqlalchemy"), ("interface/jobs/local.py", "interface.jobs.worker")}
+LAZY_OK = {("learn/history_importer.py", "sqlalchemy"), ("interface/jobs/local.py", "interface.jobs.worker")}
 # 索引名的字面值只能在各功能的 store/（資料物件定義、repository 讀寫）與 shared/
 INDEX_LITERALS = ("aiops-anomalies", "aiops-alerts", "aiops-incidents", "aiops-feedback", "aiops-tuning", "aiops-baseline",
                   "aiops-trace-segments", "aiops-state", "aiops-chronic")

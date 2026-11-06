@@ -3,8 +3,8 @@ import unittest
 
 import pandas as pd
 
-import learn.backtest as B
-import learn.suggest as F
+import learn.rule_backtester as B
+import learn.param_suggester as F
 from detect.series_ops.manual_adjust import in_schedule
 
 TZ = "Asia/Taipei"

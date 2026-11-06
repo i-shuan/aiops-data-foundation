@@ -28,7 +28,7 @@ from shared.connection import ES
 from shared.repos import Repos
 from shared.scenario import load_scenario
 from detect.strategy.dynamic_baseline import DetectOptions
-import learn.suggest as F
+import learn.param_suggester as F
 
 
 def _confirmed_incidents(repo, since) -> list[dict]:

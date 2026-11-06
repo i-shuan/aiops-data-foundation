@@ -1,7 +1,7 @@
 """回測（feedback.cmd_backtest）的結果怎麼呈現；回測本身要 ES 和 baseline，在 e2e 驗（docs/pdca/phase5-learning-loop/2026-10-loop-update.md）。"""
 import unittest
 
-import learn.backtest as B
+import learn.rule_backtester as B
 from shared.repos import Repos
 from detect.store.baseline_repo import BaselineRepository
 

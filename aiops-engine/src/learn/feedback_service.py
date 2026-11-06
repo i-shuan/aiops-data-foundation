@@ -1,5 +1,5 @@
 """⑨ 值班回饋：命令列的 feedback（pending、add、list、summary、suggest、export）、事故紀錄 incident（add、list、resolve），
-與網頁／Grafana 表單走的 submit（一件的回饋）、submit_missed（漏報）、request_rca（重跑根因分析）、list_alerts；計算在 suggest.py。
+與網頁／Grafana 表單走的 submit（一件的回饋）、submit_missed（漏報）、request_rca（重跑根因分析）、list_alerts；計算在 param_suggester.py。
 HTTP 層（interface/web）只做收參數、挑回 HTML 還是 JSON。"""
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ import llm.summary as LLM
 from shared.env import CODE_ROOT
 from shared.schema.loader import load_config
 from shared.connection import ES, doc_id
-from learn.store.feedback import RCA_USEFUL, VERDICTS
+from learn.store.models import RCA_USEFUL, VERDICTS
 from shared.incident_doc import Incident
 from shared.repos import Repos
 from shared.scenario import load_scenario
@@ -22,8 +22,8 @@ import detect.series_ops.manual_adjust as A
 from detect.series_ops.manual_adjust import load_adjustments
 from detect.utils import _now
 from detect.strategy.dynamic_baseline import DetectOptions
-import learn.suggest as F
-from learn.suggest import propose_from_text
+import learn.param_suggester as F
+from learn.param_suggester import propose_from_text
 
 
 def _anomaly_rows(repo, days: int, now) -> pd.DataFrame:

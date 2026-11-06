@@ -43,7 +43,7 @@ from shared.connection import ES
 from detect.store.baseline import BASELINE_INDEX
 from shared.repos import Repos
 from detect.strategy.dynamic_baseline import DetectOptions
-from learn.store.adjustment import TUNING_INDEX
+from learn.store.models import TUNING_INDEX
 from detect.series_ops.manual_adjust import data_adjustments, load_overrides
 from tests import otlp_synth as O
 

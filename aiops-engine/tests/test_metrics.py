@@ -4,9 +4,9 @@ import unittest
 
 import pandas as pd
 
-import learn.metrics as M
+import learn.evaluation_metrics as M
 from incident.store.models import ALERT_INDEX
-from learn.store.feedback import FEEDBACK_INDEX
+from learn.store.models import FEEDBACK_INDEX
 from shared.repos import Repos
 from shared.scenario import load_scenario
 

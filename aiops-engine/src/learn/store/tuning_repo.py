@@ -1,8 +1,8 @@
-"""調整（aiops-tuning）：門檻覆寫、排除時段、重置點、週期放寬、升級成規則（learn/store/adjustment.py）。
+"""調整（aiops-tuning）：門檻覆寫、排除時段、重置點、週期放寬、升級成規則（learn/store/models.py）。
 status proposed 的是建議，adjust approve 才生效。"""
 from __future__ import annotations
 
-from learn.store.adjustment import TUNING_INDEX, TUNING_MAPPING, validated
+from learn.store.models import TUNING_INDEX, TUNING_MAPPING, validated
 from shared.repository import Repository
 
 

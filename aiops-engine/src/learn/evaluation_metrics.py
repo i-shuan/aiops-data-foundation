@@ -11,7 +11,7 @@ import pandas as pd
 from shared.connection import ES
 from shared.repos import Repos
 from shared.scenario import load_scenario
-import learn.suggest as F
+import learn.param_suggester as F
 
 
 

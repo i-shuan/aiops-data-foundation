@@ -16,9 +16,9 @@ from shared.env import ENGINE_VERSION
 from incident.store.models import ALERT_INDEX, Alert
 from detect.store.anomaly import ANOMALY_INDEX
 from detect.store.baseline import BASELINE_COLUMNS, BASELINE_INDEX, GROUP_COLUMNS, RENAMED
-from learn.store.feedback import FEEDBACK_INDEX
+from learn.store.models import FEEDBACK_INDEX
 from shared.incident_doc import INCIDENT_INDEX
-from learn.store.adjustment import TUNING_INDEX, validated
+from learn.store.models import TUNING_INDEX, validated
 from detect.store.segment_repo import SEGMENT_INDEX
 from detect.store.state_repo import STATE_INDEX
 from shared.scenario import load_scenario
