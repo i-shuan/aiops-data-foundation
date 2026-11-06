@@ -18,8 +18,6 @@ from detector.adjust import tuning as T
 from detector.baseline.config import SeriesConfig
 from detector.feedback.feedback import RCA_USEFUL as _RCA_USEFUL
 from investigator.similar.similar import classify
-from plugins.factory.ingest.command import ingest_rows
-from plugins.factory.ingest.config import IngestConfig
 from scheduler.runner import load_schedule
 from sources.schema import ALERT_INDEX, FEEDBACK_INDEX, FEEDBACK_MAPPING, INCIDENT_INDEX, INCIDENT_MAPPING
 
@@ -312,7 +310,8 @@ def ingest_config_path() -> str | None:
 def ingest(es, body: dict, now: datetime | None = None) -> dict:
     """{"input": "ml", "rows": [...]} → 照 ingest.yaml 裡叫 input 的對照轉成異常、寫進 aiops-anomalies。
     rows 的欄位跟那個 input 的索引裡一樣（time_field、keys、value…）。回 {"input", "written", "skipped"}。
-    沒有 ingest.yaml、沒有這個 input → LookupError（404）；body 不對 → ValueError（400）。"""
+    沒有 ingest.yaml、plugin 沒有 ingest、沒有這個 input → LookupError（404）；body 不對 → ValueError（400）。
+    對照與寫入交給 plugin.ingest()（core/plugin.py 的擴充點）：api 不認得 ingest.yaml 的格式。"""
     name, rows =body.get("input"), body.get("rows")
     if not name or not isinstance(rows, list):
         raise ValueError('要 {"input": "<ingest.yaml 的 inputs 名>", "rows": [ {...}, ... ]}')
@@ -321,8 +320,7 @@ def ingest(es, body: dict, now: datetime | None = None) -> dict:
     path = ingest_config_path()
     if not path:
         raise LookupError("這個 plugin 沒有 ingest（排程表沒有 ingest 工作、也沒設 AIOPS_INGEST_CONFIG）")
-    cfg = load(path, IngestConfig)
-    written, skipped = ingest_rows(es, cfg, str(name), rows, pd.Timestamp(now or datetime.now(timezone.utc)))
+    written, skipped = plugin.current().ingest(es, path, str(name), rows, pd.Timestamp(now or datetime.now(timezone.utc)))
     return {"input": name, "written": written, "skipped": skipped}
 
 

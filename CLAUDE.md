@@ -8,7 +8,7 @@
 |---|---|
 | `elasticsearch/` | ③ 在公司 ES 上補的東西：一份貼進 Kibana Dev Tools 的檔 `kibana-dev-tools.txt`（`traces-merged-*` 的 ILM 與 template、engine 與 Grafana 的 key、選用的 snapshot） |
 | `grafana/` | ⑧ 通知、儀表板、回饋表單（`code/` provisioning、`helmchart/`） |
-| `aiops-engine/` | ④～⑨ AIOps（`code/`：主程式 `core/`（含 `plugin.py` 擴充點）、detector、investigator、`api/`（薄 API）、`scheduler/`（排程器／beat）、`tasks/`（佇列 worker）、`sources/`（資料來源介面：ES、檔案、HTTP、程式給）；`plugins/`（情境各一個：`observability/` IT、`factory/` 工廠（ML／FDC 的異常接進 ⑤、履歷取代 trace）、`metrics_only/` 只有指標；`AIOPS_PLUGIN` 選）；configs（`apm/` Elastic APM、`factory/`、`metrics_only/`、`baseline/` `rca/` `schedule/` OTel）、Dockerfile；`helmchart/`） |
+| `aiops-engine/` | ④～⑨ AIOps。`code/` 分層只能往下 import（`tools/check-layering.py` 會擋）：`core/`（中立底層：ES 連線、設定載入、`Anomaly`、`plugin.py` 擴充點、LLM）→ `sources/`（資料層：`Backend`／`Store` 介面、ES 與檔案實作、`schema.py` 所有 `aiops-*` 索引的 mapping、trace 格式解析）→ `detector/`（中立 ④⑤，一個功能一個資料夾：`baseline/` `rules/` `adjust/` `feedback/` `prune.py`）→ `investigator/`（中立 ⑥⑦⑧：`alerts/` `rca/` `similar/`）→ `plugins/`（情境專用的程式**全部**在這：`observability/` IT 的 `peer/` `quality/` `chronic/` `trace/`、`factory/` 工廠的 `ingest/` `paths/`、`metrics_only/`；`AIOPS_PLUGIN` 選）→ 入口 `api/`、`scheduler/`、`tasks/`。中立碼用 `entity`／`unit`／`path`／`where`，不寫 service、lot、trace、route 這類情境詞（ES 欄位名與 CLI 旗標除外）。configs（`apm/` Elastic APM、`factory/`、`metrics_only/`、`baseline/` `rca/` `schedule/` OTel）、Dockerfile；`helmchart/`） |
 | `docs/` | 原理、案例、PDCA 紀錄 |
 
 **收值（①②③）是公司現有的 Elastic APM 與 ES，不在這個 repo**（2026-11 自建的 Collector 已刪）。模組編號只用 ①～⑨：① 收值 ② 清資料 ③ 存 ④ 判斷 ⑤ 異常總表 ⑥ 收斂 ⑦ 根因分析 ⑧ 出口 ⑨ feedback。
@@ -56,7 +56,7 @@
 
 - 新增、刪除、改名 md：同一個 commit 更新 `docs/README.md`（PDCA 紀錄更新 `docs/pdca/README.md`）。
 - 長文（超過約 300 行）在第一個 `##` 前放 `<!-- toc -->` 和 `<!-- /toc -->`，用 `python3 tools/check-docs.py --toc` 產生，不要手寫目錄。
-- 提交前：`python3 tools/check-docs.py`（連結、索引、舊說法），改了程式再跑 `cd aiops-engine/code && python3 -m pytest -q`。
+- 提交前：`python3 tools/check-docs.py`（連結、索引、舊說法），改了程式再跑 `cd aiops-engine/code && python3 -m pytest -q` 與 `python3 tools/check-layering.py`（分層、循環、同名檔、情境詞）。
 
 ## 工作方式
 

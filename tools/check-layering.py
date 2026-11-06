@@ -43,6 +43,9 @@ IT_WORDS = r"\b(service|route|span|trace|pod|k8s|kubernetes|http)\b"
 FACTORY_WORDS = r"\b(equipment|recipe|fdc|lot|mes|s6f11|oos|wafer)\b"
 WORD_DIRS = ("core", "detector", "investigator")
 WORD_EXCEPTIONS = {"sources/traces.py"}
+# 整個識別字跳過：這兩個等於 YAML key（status.confirm_span、alerts.severity.min_span_critical），是對外契約，
+# 「span」是時間跨度（連續幾個點、連續多久），不是 OTel 的 span
+IDENT_EXCEPTIONS = {"confirm_span", "min_span_critical"}
 NAME_EXCEPTIONS = {"chain.py", "changes.py", "__init__.py", "__main__.py", "config.py", "command.py"}
 
 
@@ -150,7 +153,7 @@ def _identifiers(tree) -> list[str]:
             out.append(node.arg)
         elif isinstance(node, ast.keyword) and node.arg:
             out.append(node.arg)
-    return out
+    return [n for n in out if n not in IDENT_EXCEPTIONS]
 
 
 def check_words():

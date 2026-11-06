@@ -67,6 +67,16 @@ class Registry(unittest.TestCase):
             self.assertEqual(plugin.current().chain(None, {}, [], [], T0, T0), plugin.Chain())
             self.assertIsNone(plugin.current().change_at(None, {}, "h1", T0, T0))
 
+    def test_ingest_hook_default_is_lookup_error(self):
+        """基底與 observability 沒有 ingest：LookupError（api 回 404）；factory／metrics_only 自己讀 ingest.yaml 再對照（api 不 import plugins）。"""
+        for p in (MyPlugin(), plugin.load("observability")):
+            with self.assertRaises(LookupError):
+                p.ingest(None, "x.yaml", "ml", [], T0)
+        with mock.patch("plugins.factory.ingest_rows", return_value=(1, 0)) as ir:
+            self.assertEqual(plugin.load("metrics_only").ingest(None, "configs/factory/ingest.yaml", "ml", [{"a": 1}], T0), (1, 0))
+        self.assertEqual(ir.call_args.args[2:], ("ml", [{"a": 1}], T0))
+        self.assertIn("inputs", ir.call_args.args[1])                   # 設定檔由 plugin 讀（IngestConfig）
+
 
 class Builtins(unittest.TestCase):
     """三個內建各填了什麼（plugins/README.md 的表）。"""

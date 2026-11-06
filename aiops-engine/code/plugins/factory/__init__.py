@@ -5,13 +5,15 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from core.config import load
 from core.plugin import Chain, Plugin as Base
 from investigator.rca import path_sections
 from investigator.rca.report import _dur
 
 from .chain import lot_links
 from .changes import change_at as _change_at
-from .ingest.command import register as _register_ingest
+from .ingest.command import ingest_rows, register as _register_ingest
+from .ingest.config import IngestConfig
 from .paths.command import register as _register_paths
 
 PROFILE = {
@@ -83,3 +85,7 @@ class Plugin(Base):
     def commands(self) -> dict:
         """工廠的 detector 子命令：ingest（ML／FDC 的異常接進 ⑤）、paths-merge（履歷合成）。"""
         return {"ingest": _register_ingest, "paths-merge": _register_paths}
+
+    def ingest(self, es, config_path: str, name: str, rows: list[dict], now) -> tuple[int, int]:
+        """POST /api/anomalies：自己讀 ingest.yaml（IngestConfig 驗），再走跟排程 ingest 同一套對照（ingest/command.ingest_rows）。"""
+        return ingest_rows(es, load(config_path, IngestConfig), name, rows, now)

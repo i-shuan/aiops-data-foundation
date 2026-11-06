@@ -1,6 +1,6 @@
 # 高內聚、低耦合：套件分層、一個功能一個資料夾、plugin 邊界切乾淨（2026-11）
 
-**狀態**：階段 A～C 完成，D 進行中　　**日期**：2026-11-05　　**相關**：分支 `claude/layering`（從 master `31c72f8` 開）；接 [frameworks](2026-11-frameworks.md)、[oop-core](2026-11-oop-core.md)（兩輪都在加介面與框架，沒動套件怎麼切，使用者看完判斷「檔案太散、plugin 沒切乾淨」）
+**狀態**：已完成（A～D；只有單元測試，沒在 k3d 跑）　　**日期**：2026-11-05　　**相關**：分支 `claude/layering`（從 master `31c72f8` 開）；接 [frameworks](2026-11-frameworks.md)、[oop-core](2026-11-oop-core.md)（兩輪都在加介面與框架，沒動套件怎麼切，使用者看完判斷「檔案太散、plugin 沒切乾淨」）
 **模組**：④～⑨ 全部
 
 ## Plan：這一次要達到什麼
@@ -136,11 +136,56 @@
 | 黃金訊號分類表 `CLASSES` → `plugins/observability/profiles.py`；`PROFILES`、`DOMAIN`、`ENTITY_KEYS`、`SCHEDULES` 也進去，`__init__.py` 只剩 Plugin 類別 | 基底 `Plugin.severity_classes=None` 現在真的是「不分類」 |
 | 中立碼的識別字改名：`route_of`→`where_of`、`trace_label`→`path_label`、`SERVICE_RE`→`ENTITY_RE`、`_service_of`→`_entity_of`、`Ctx.service/route`→`entity/where`、`has_traces`→`has_paths`、`sample_trace_ids`→`sample_path_ids`、`confirm_span=`→`confirm_within`、局部 `lot`→`unit`、`span`→`within`／`spread`… | 四個中立字：`entity`（服務／機台）、`unit`（請求／lot）、`path`（trace／履歷）、`where`（API／recipe），寫在 `core/plugin.py` 檔頭。**沒改**：ES 欄位名、文件 key、CLI 旗標（`--service`、`--route`）、YAML key、HTTP 端點 |
 
-### 階段 D
+### 階段 D：收尾（已完成）
 
-（進行中）
+| 檔案 | 改了什麼 | 為何要改 |
+|---|---|---|
+| `core/plugin.py`、`plugins/factory/__init__.py`、`api/app.py` | 新 hook `Plugin.ingest(es, config_path, name, rows, now)`，基底丟 `LookupError`（api 照舊回 404）；factory 實作成自己 `load(config_path, IngestConfig)` 再 `ingest_rows`；`api/app.py` 改呼叫 `plugin.current().ingest(...)`，刪掉對 `plugins.factory` 的兩個 import | 階段 C 的可刪性檢查發現：刪掉 `plugins/factory/` 時 api 起不來，因為 api 直接 import 它。入口層只該透過 plugin 介面拿情境的事 |
+| `tools/check-layering.py` | `IDENT_EXCEPTIONS = {"confirm_span", "min_span_critical"}`：兩個等於 YAML key 的識別字整個跳過 | 這裡的 span 是時間跨度（連續幾個點），不是 OTel span；改 YAML key 要連設定檔與文件一起改，不值得 |
+| `CLAUDE.md` | 結構表的 `aiops-engine/` 改成分層說明（只能往下 import、一個功能一個資料夾、情境專用全在 plugin、中立碼用 `entity`／`unit`／`path`／`where`）；提交前要跑的加 `check-layering.py` | 慣例要跟現況一致，而且要有工具擋 |
+| 未被 pytest 收進的 16 個腳本（`tests/*_e2e.py`、`_run_code.py`…） | 逐句試 import、pyflakes、舊路徵 regex 掃過 | 0 個要改 |
 
 ## Check：測試的目的與結果
+
+`PYTHONUTF8=1 py -m pytest -q` → 769 個通過（開始 769；B 少 1、D 加 1）；`tools/check-layering.py` 五項全 ✓、exit 0；`tools/check-docs.py` 四項 0；`py -W error -c "import api.server, detector.__main__, investigator.__main__, scheduler.__main__, tasks"` 乾淨；`--help` 的子命令數不變（observability 18、factory 13、investigator 5）。沒連真的 ES、沒在 k3d 跑。
+
+| 指標 | 開始 | A 後 | B 後 | C 後 | D 後（最終） |
+|---|---|---|---|---|---|
+| 往上 import（違反分層） | 6 | 0 | 0 | 0 | **0** |
+| 模組層循環 | 8 | 0 | 0 | 0 | **0** |
+| 函式內 import 內部套件 | 41 | 0 | 0 | 0 | **0** |
+| 同名 `.py` | 6 | 6 | 0 | 0 | **0** |
+| 情境詞（識別字，`core`／`detector`／`investigator`） | 19 | — | — | 3 | **0** |
+| 非測試 `.py` 檔數 | 84 | | | | 107 |
+| 非測試總行數 | 12,286 | 12,313 | 12,412 | 12,453 | 12,463 |
+
+| 測試目的（為了確認什麼） | 怎麼測 | 結果 |
+|---|---|---|
+| 分層是真的：下層不認得上層 | `check-layering` 用 AST 解析所有 import（含函式內），對照 `ALLOWED` 表 | 0 違規；6 組雙向相依全解 |
+| 沒有靜態循環 | 模組層 DFS | 0；原本 8 條都繞過 `sources.base`／`es_source`／`stores` |
+| 一個功能一個資料夾、沒有同名檔 | `ls`；工具的 `names` 檢查 | `detector/` 從 31 檔平放變 5 個功能資料夾＋4 檔；`es.py`×3、`rules`／`peer`／`trace`／`similar.py` 各兩份都消失 |
+| 中立碼不認得情境 | 工具數識別字（函式、類別、變數、參數、屬性，拆 snake_case） | 0；字串／註解裡仍有 30 檔（ES 欄位名、CLI 範例、說明），刻意不算 |
+| **plugin 邊界是真的：刪掉一個情境，其餘照跑** | 搬走 `plugins/factory`＋`metrics_only`，跑全套（扣掉 5 個直接 import 它們的測試檔） | 709 過、11 失敗，11 個全是明寫 factory／metrics_only 的（`test_api_endpoints` 4 個設 `AIOPS_PLUGIN=factory`、`test_plugin` 7 個）；`import api.server` 成功 |
+| 反過來刪 `plugins/observability`、`AIOPS_PLUGIN=factory` | 同上（扣掉 12 個直接 import 它的測試檔） | 537 過、35 失敗：26 個是「測試默認 plugin 是 IT」（observability 在、只換環境變數也會壞），只有 9 個真的因為刪掉才壞、全部明寫 observability |
+| 對外契約不變 | `test_cli` 的 31 條排程表字面指令、`test_api_*` 的 bytes 比對、`test_detector_base` 的五種異常文件字面值、`--help` 子命令數 | 全過 |
+| 行為不變 | 既有 769 個測試只改 import 路徑與 mock 目標，斷言不動 | 全過 |
+
+## Act：Check 後沒改善的、還沒解決的
+
+| 沒改善的 | 在什麼情況下發現的 | 影響 | 後續 |
+|---|---|---|---|
+| 檔數 84 → 107、行數 +177 | 算最終指標 | 一個功能一個資料夾會多 `__init__.py`、`config.py`、`command.py`；高內聚不等於檔少。使用者前面問過「程式縮少多少」，這輪也不是來減行數的 | 真正減行數是另外的事：預設值集中刪 153 處 `cfg.get`、檢查種類各一個類別 |
+| `rca/analyze.py`、`queries.py`、`path_sections.py` 留在 `investigator/`，沒進 observability | 階段 C 發現工廠的履歷用同一套「合成一筆的 path」格式 | 它們是中立的（識別字已中立），但「有 path 才有的四段」仍住共用區，由 `report_sections()` 決定要不要用 | 不處理；要搬就得接受 factory 依賴 observability 或複製 250 行 |
+| 測試套件多數默認 plugin 是 IT | 刪 observability 的檢查：26 個測試只換 `AIOPS_PLUGIN=factory` 就壞 | 不是邊界漏洞，但 factory 情境的測試覆蓋薄 | 之後補 factory 情境的 `test_alerts` 對照組 |
+| 字串／註解裡的情境詞 30 檔 | 工具的參考輸出 | ES 欄位名（`al["service"]`）、CLI 旗標、說明文字；是對外契約或文件 | 刻意不算；要收就得改 ES 欄位名與 Grafana 規則，另案 |
+| `configs/` 沒搬進各 plugin | 計畫就不搬 | 設定檔仍依「來源」分（apm／baseline／factory），不是依 plugin 分 | 路徑寫在排程表、chart、CLAUDE.md、大量文件與 e2e；要搬另案 |
+| 階段 A 的兩處離線組合行為差異 | 見階段 A 段落 | 只影響「來源 ES、結果存檔案」的實驗 | 不處理 |
+| 沒連真的 ES、沒在 k3d 跑 | 四個階段都只有單元測試 | 搬過的查詞沒對 ES 跑過 | 合入前在 k3d 跑一輪 rules／detect／peer／alert、從 Grafana 送一筆回饋 |
+
+- **決定**：分層規則寫進 `tools/check-layering.py` 並列入提交前檢查；中立碼的四個字 `entity`／`unit`／`path`／`where` 寫進 `core/plugin.py` 檔頭與 `CLAUDE.md`。
+- **下一輪**：預設值集中到模型、刪 `cfg.get`；檢查種類各一個類別（現在它們有地方放了：`detector/rules/`、`plugins/observability/quality/`）。
+
+## Check（階段 A、B 當時的紀錄）
 
 ### 階段 A
 

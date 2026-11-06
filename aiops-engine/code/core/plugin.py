@@ -22,6 +22,7 @@
   report_sections()  這個情境多出來的報告段 {名: fn(Ctx)}（有 trace／履歷的用 investigator/rca/path_sections）
   commands()         這個情境的 detector 子命令：{名: register(app)}，掛到 typer app（IT 的 peer／quality／chronic／trace-*、
                      工廠的 ingest／paths-merge）
+  ingest(...)        外部推進來的異常列（POST /api/anomalies）怎麼對照、寫進 ⑤；基底沒有（LookupError → 404）
   schedule           預設排程表（chart 的 deployment 依 plugin 選）
 
 門面（原 core/domain.py、core/source.py，已併進來）：source_name()、source_profile(section)；domain(section) 與 entity_label() 等用語函式。
@@ -91,6 +92,11 @@ class Plugin:
         """{子命令名: register(app)}：register 把子命令掛到 detector 的 typer app（app.command(名, help=…)(函式)），
         跟內建子命令同一種形狀（detector/__main__.py 的 COMMANDS）；函式自己讀設定（core.config.load）、呼叫處理函式。"""
         return {}
+
+    def ingest(self, es, config_path: str, name: str, rows: list[dict], now) -> tuple[int, int]:
+        """api 的 POST /api/anomalies：別人推進來的列照 config_path（這個情境的 ingest.yaml）裡叫 name 的 input 對照成異常、寫進 ⑤，
+        回 (寫了幾筆, 略過幾筆)。plugin 自己讀、驗設定檔（api 不認得它的格式）；沒有這個 input 也丟 LookupError。"""
+        raise LookupError("這個 plugin 沒有 ingest")
 
 
 _cache: tuple[str, Plugin] | None = None
