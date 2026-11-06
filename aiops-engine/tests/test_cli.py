@@ -10,12 +10,12 @@ from unittest import mock
 import yaml
 from typer.testing import CliRunner
 
-import aiops.interface.cli.detect as D
-import aiops.interface.cli.rca as I
-import aiops.interface.cli.common as CLI
-import aiops.interface.cli.feedback as FB
-import aiops.service.converge.alert_service as cmd_alert
-import aiops.scenario.factory.commands as cmd_paths
+import interface.cli.detect as D
+import interface.cli.rca as I
+import interface.cli.common as CLI
+import interface.cli.feedback as FB
+import service.converge.alert_service as cmd_alert
+import scenario.factory.commands as cmd_paths
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 CODE = os.path.dirname(HERE)
@@ -68,14 +68,14 @@ def run(prog: str, argv: list[str], rc: int = 0):
 
 
 class ScheduleCommands(unittest.TestCase):
-    """四張排程表裡 detector／investigator 的字面指令（interface/jobs/runner 以子行程 python -m aiops 跑）每一條都還解析得過、到得了處理函式。"""
+    """四張排程表裡 detector／investigator 的字面指令（interface/jobs/runner 以子行程 python -m main 跑）每一條都還解析得過、到得了處理函式。"""
 
     def jobs(self):
         out = []
         for path in sorted(glob.glob(os.path.join(CODE, "configs", "*", "schedule.yaml"))):
             with open(path, encoding="utf-8") as f:
                 for j in yaml.safe_load(f)["jobs"]:
-                    if j["args"][0] == "aiops" and j["args"][1] in ("detector", "investigator"):
+                    if j["args"][0] == "main" and j["args"][1] in ("detector", "investigator"):
                         out.append((os.path.relpath(path, CODE), j["args"][1], [str(a) for a in j["args"][2:]]))
         return out
 

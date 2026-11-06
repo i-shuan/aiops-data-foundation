@@ -24,8 +24,8 @@ import pandas as pd
 import requests
 import yaml
 
-from aiops.interface.cli.detect import main as cli
-from aiops.core.connection import ES
+from interface.cli.detect import main as cli
+from core.connection import ES
 
 CONFIG = os.environ.get("PEER_CONFIG", "configs/baseline/peer.yaml")   # 換別的設定比較用（例如改之前的版本）
 HTTP_INDEX = "metrics-generic.otel-default"

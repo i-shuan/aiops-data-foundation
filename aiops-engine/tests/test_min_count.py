@@ -3,7 +3,7 @@ import unittest
 
 import pandas as pd
 
-from aiops.service.detect.baseline_job import apply_min_count
+from service.detect.baseline_job import apply_min_count
 
 
 class MinCountTest(unittest.TestCase):

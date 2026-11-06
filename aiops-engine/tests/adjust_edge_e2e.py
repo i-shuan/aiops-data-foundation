@@ -25,10 +25,10 @@ import numpy as np
 import pandas as pd
 import yaml
 
-from aiops.interface.cli.detect import main as _cli
-from aiops.core.entity.anomaly import ANOMALY_INDEX, ANOMALY_MAPPING
-from aiops.core.connection import ES
-from aiops.core.entity.baseline import BASELINE_INDEX
+from interface.cli.detect import main as _cli
+from core.entity.anomaly import ANOMALY_INDEX, ANOMALY_MAPPING
+from core.connection import ES
+from core.entity.baseline import BASELINE_INDEX
 
 TZ = "Asia/Taipei"
 MAIN, CAL, LOGS = "aiops-adjtest", "aiops-adjtest-cal", "aiops-adjtest-logs"

@@ -31,8 +31,8 @@ import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
 
-from aiops.core.connection import ES
-from aiops.core.entity.anomaly import ANOMALY_MAPPING
+from core.connection import ES
+from core.entity.anomaly import ANOMALY_MAPPING
 
 CFG = "tests/rca_chain.yaml"
 TRACES = "traces-generic.otel-it"
@@ -163,13 +163,13 @@ def merge_traces() -> None:
     合成情境是幾小時前的時間，要從寫入當下往回合。trace-merge 只合到「現在 − settle_seconds（10 秒）」：剛寫完要先等過這段。"""
     import time
     time.sleep(15)
-    r = subprocess.run([PY, "-X", "utf8", "-m", "aiops", "detector", "trace-merge", "--config", "configs/baseline/trace.yaml", "--window", "30min"],
+    r = subprocess.run([PY, "-X", "utf8", "-m", "main", "detector", "trace-merge", "--config", "configs/baseline/trace.yaml", "--window", "30min"],
                        capture_output=True, text=True, encoding="utf-8", cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     print("  " + (r.stdout.strip().splitlines() or ["trace-merge 沒有輸出"])[-1] + ("" if r.returncode == 0 else f"（rc={r.returncode}：{r.stderr[-300:]}）"))
 
 
 def run_alert(at: datetime) -> subprocess.CompletedProcess:
-    r = subprocess.run([PY, "-X", "utf8", "-m", "aiops", "investigator", "alert", "--config", CFG, "--at", iso(at)], capture_output=True, text=True,
+    r = subprocess.run([PY, "-X", "utf8", "-m", "main", "investigator", "alert", "--config", CFG, "--at", iso(at)], capture_output=True, text=True,
                        encoding="utf-8", env={**os.environ, "LLM_PROVIDER": "template", "PYTHONUTF8": "1"})
     print(f"    $ investigator alert --at {iso(at)}")
     print("    " + r.stdout.strip().replace("\n", "\n    "))

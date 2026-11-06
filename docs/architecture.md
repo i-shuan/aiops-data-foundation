@@ -213,17 +213,17 @@ flowchart TB
 
 ### 4.2 主程式與情境（scenario）
 
-engine 一份程式，情境各是一份資料檔加兩個策略（[scenario/base.py](../aiops-engine/aiops/scenario/base.py) 的 `Scenario`、[scenario/](../aiops-engine/aiops/scenario/README.md)），環境變數 `AIOPS_PLUGIN` 選：`observability`（IT）、`factory`（工廠：ML／FDC 的異常＋履歷）、`metrics_only`（只有指標）；也可以自己寫一個掛上去。
+engine 一份程式，情境各是一份資料檔加兩個策略（[scenario/base.py](../aiops-engine/scenario/base.py) 的 `Scenario`、[scenario/](../aiops-engine/scenario/README.md)），環境變數 `AIOPS_PLUGIN` 選：`observability`（IT）、`factory`（工廠：ML／FDC 的異常＋履歷）、`metrics_only`（只有指標）；也可以自己寫一個掛上去。
 
 | | 主程式（哪個情境都一樣） | 情境（`Scenario` 的欄位與兩個策略） |
 |---|---|---|
 | ④ | 五個模型的數學、`ingest`（別人判好的異常 → ⑤） | — |
 | ⑤ | `aiops-anomalies` 的格式：**這是主程式與情境之間的契約**——異常只要進得了 ⑤（有 `series`、`keys`、`level`、時間），後面全部接得上 | 異常的 `keys` 裡哪個欄位是「對象」（服務／機台）、哪個是「API」（method＋route／recipe） |
 | ⑥ | 同對象時間相連合一件、開件關件、嚴重度分級（廣度＋持續＋換版上限） | 跨對象併件的依據（呼叫關係／履歷前後站／不併）、「換版」是什麼（版號／recipe 變更）、訊號怎麼分類（黃金訊號／參數家族） |
-| ⑦ | 報告的每一段（[investigator/report.py](../aiops-engine/aiops/service/rca/report.py)）、M4 分段、共同點、log 樣式、相似事故 | 報告有哪幾段、順序；索引與欄位的對照；用語（請求／lot、Trace／履歷） |
+| ⑦ | 報告的每一段（[investigator/report.py](../aiops-engine/service/rca/report.py)）、M4 分段、共同點、log 樣式、相似事故 | 報告有哪幾段、順序；索引與欄位的對照；用語（請求／lot、Trace／履歷） |
 | ⑧⑨ | Grafana 通知、回饋、匯出 | 回饋表單的分類表、誤報原因 |
 
-程式是一個套件四層（[docs/pdca/meta/2026-11-target-architecture.md](pdca/meta/2026-11-target-architecture.md)）：`core/`（ES 連線；`entity/` 資料物件帶行為；`repository/` 一個實體一個，唯一懂 ES 的地方）→ `scenario/`（情境的資料檔與兩個策略）→ `service/`（一個階段一個資料夾：`detect/` ②③④⑤、`converge/` ⑥⑧、`rca/` ⑦、`feedback/` ⑨）→ `interface/`（`cli/`、`web/`、`jobs/`）；依賴只能往 `interface → service → scenario → core` 走，`tests/test_layers.py` 鎖著。命令列入口只有一個：`python3 -m aiops <detector|investigator|scheduler|tasks|api> …`（`aiops/__main__.py`）；⑨ 的子命令掛在 `aiops detector` 底下（`interface/cli/feedback.py`）。
+程式是四層（外加葉節點 `schema/`）（[docs/pdca/meta/2026-11-target-architecture.md](pdca/meta/2026-11-target-architecture.md)）：`core/`（ES 連線；`entity/` 資料物件帶行為；`repository/` 一個實體一個，唯一懂 ES 的地方）→ `scenario/`（情境的資料檔與兩個策略）→ `service/`（一個階段一個資料夾：`detect/` ②③④⑤、`converge/` ⑥⑧、`rca/` ⑦、`feedback/` ⑨）→ `interface/`（`cli/`、`web/`、`jobs/`）；依賴只能往 `interface → service → scenario → core` 走，`tests/test_layers.py` 鎖著。命令列入口只有一個：`python3 -m main <detector|investigator|scheduler|tasks|api> …`（`main.py`）；⑨ 的子命令掛在 `main detector` 底下（`interface/cli/feedback.py`）。
 
 擴充點只開「現在真的有兩種以上做法」的地方，沒有的不預先抽；第四種情境（例如網路設備靠拓樸併件）出現時，寫一份 yaml `extends` 內建的、換掉策略就好。`configs/` 不隨情境搬：情境只決定預設排程表，設定檔仍在 `configs/<情境>/`。
 
@@ -274,12 +274,12 @@ K8s 排程頻率見 [aiops-engine/README.md](../aiops-engine/README.md)；Elasti
 | ① 收值 | 公司現有 | 1 | Elastic APM（公司管） | 常駐；metrics 每分鐘 | — | 公司現有 |
 | ② 清資料 | 公司現有 | 1 | `aiops-engine/core/traces.py`（`_apm_span`）、`core/source.py`、`configs/apm/` | 讀進來時 | `tests/test_apm.py`（[apm-source](pdca/meta/2026-11-apm-source.md)） | 🟡 沒有真實 APM 資料 |
 | ③ 存 | 公司現有 | 1 | `elasticsearch/kibana-dev-tools.txt`（只補 `traces-merged-*` 與 key） | — | — | 🟡 公司環境沒實跑 |
-| ④ 判斷 | AIOps | 2 | `aiops-engine/aiops/service/detect/`、`aiops-engine/configs/baseline/*.yaml` | 每 1 分鐘（train 每天） | 單元測試；`synth_e2e`、`adaptive_e2e`、`fine_e2e`（一個 ES） | ✅；K8s CronJob 沒跑過 |
+| ④ 判斷 | AIOps | 2 | `aiops-engine/service/detect/`、`aiops-engine/configs/baseline/*.yaml` | 每 1 分鐘（train 每天） | 單元測試；`synth_e2e`、`adaptive_e2e`、`fine_e2e`（一個 ES） | ✅；K8s CronJob 沒跑過 |
 | ⑤ 異常總表 | AIOps | 2 | `aiops-anomalies` | — | — | ✅ |
-| ⑥ 收斂 | AIOps | 3 | `aiops-engine/aiops/service/converge/`（`merge.py`、`alert_service.py`）、`core/entity/alert.py`；`rca.yaml` 的 `alerts:` | 每 1 分鐘 | `test_alerts.py`、`chain_e2e`；[alert-exit](pdca/phase3-locate/2026-10-alert-exit.md)、[cross-service-aggregation](pdca/phase3-locate/2026-10-cross-service-aggregation.md) | ✅ 同服務合成一件；沿呼叫關係一層 ✅、多層 📝 |
-| ⑦ 根因分析 | AIOps | 3、4 | `aiops-engine/aiops/service/rca/`（`report.py`、`similar.py`、`llm.py`） | 跟 ⑥ 同一次 | `loop_e2e`；`test_similar.py`、`test_llm.py` | ✅；沒有評測集 |
+| ⑥ 收斂 | AIOps | 3 | `aiops-engine/service/converge/`（`merge.py`、`alert_service.py`）、`core/entity/alert.py`；`rca.yaml` 的 `alerts:` | 每 1 分鐘 | `test_alerts.py`、`chain_e2e`；[alert-exit](pdca/phase3-locate/2026-10-alert-exit.md)、[cross-service-aggregation](pdca/phase3-locate/2026-10-cross-service-aggregation.md) | ✅ 同服務合成一件；沿呼叫關係一層 ✅、多層 📝 |
+| ⑦ 根因分析 | AIOps | 3、4 | `aiops-engine/service/rca/`（`report.py`、`similar.py`、`llm.py`） | 跟 ⑥ 同一次 | `loop_e2e`；`test_similar.py`、`test_llm.py` | ✅；沒有評測集 |
 | ⑧ 出口 | AIOps | 3 | `grafana/helmchart/files/*.yaml` | Grafana 每 1 分鐘查 | Grafana 12.2、13.0.7 實測；[rca-demo](pdca/phase3-locate/2026-10-rca-demo.md) | ✅；K8s CronJob 沒跑過 |
-| ⑨ feedback | AIOps | 5 | `aiops-engine/aiops/service/feedback/`（`feedback_service.py`、`backtest.py`、`metrics.py`）、`interface/web/` | api 常駐；suggest、backtest 人跑 | `loop_e2e`；`test_api.py`、`test_feedback.py`、`test_metrics.py` | ✅（模擬資料） |
+| ⑨ feedback | AIOps | 5 | `aiops-engine/service/feedback/`（`feedback_service.py`、`backtest.py`、`metrics.py`）、`interface/web/` | api 常駐；suggest、backtest 人跑 | `loop_e2e`；`test_api.py`、`test_feedback.py`、`test_metrics.py` | ✅（模擬資料） |
 
 - ⑤ 欄位見 [baseline README「異常帶的欄位」](../aiops-engine/configs/baseline/reference.md#異常帶的欄位)；⑥ 哪些異常會開一件、怎麼不重複開見 [rca README「事件整合」](../aiops-engine/configs/rca/README.md#事件整合alert)。
 - ⑧ `aiops-alerts` 帶 `status`、`service`、`dept`、`group`、`severity`、`summary`、`report`、`feedback_url`；`summary` 是 Grafana 的 label，不放會變的字；心跳「AIOps 停了」docker 實測過。
@@ -393,7 +393,7 @@ K8s 排程頻率見 [aiops-engine/README.md](../aiops-engine/README.md)；Elasti
 | 想確認什麼 | 跑哪個 | 需要 |
 |---|---|---|
 | 程式邏輯對（不連 ES） | `cd aiops-engine && python3 -m pytest -q` | 無 |
-| engine 讀得到公司的 APM 資料 | `AIOPS_SOURCE=apm python3 -m aiops detector detect --config configs/apm/series.yaml --window 10m`、`python3 -m aiops detector trace-merge --config configs/apm/trace.yaml`（[configs/apm/README.md](../aiops-engine/configs/apm/README.md)） | 公司 ES 的 engine key |
+| engine 讀得到公司的 APM 資料 | `AIOPS_SOURCE=apm python3 -m main detector detect --config configs/apm/series.yaml --window 10m`、`python3 -m main detector trace-merge --config configs/apm/trace.yaml`（[configs/apm/README.md](../aiops-engine/configs/apm/README.md)） | 公司 ES 的 engine key |
 | 動態基準線抓得到造的異常、誤報多少 | `cd aiops-engine && python3 -m tests.synth_e2e` | 一個 ES |
 | 整個 learning loop 的故事 | `cd aiops-engine && python3 -m tests.loop_e2e` | 一個 ES，約 2 分鐘 |
 | Grafana 一件一則、依 dept | 照 [configs/grafana/README.md](../grafana/README.md) | Grafana 12～13 |

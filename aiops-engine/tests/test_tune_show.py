@@ -4,14 +4,14 @@ import contextlib
 import io
 import unittest
 
-from aiops.core.repository import Repos
-from aiops.scenario import load_scenario
+from core.repository import Repos
+from scenario import load_scenario
 
 SC = load_scenario()
 from argparse import Namespace
 from unittest import mock
 
-import aiops.service.detect.baseline_job as C
+import service.detect.baseline_job as C
 
 CFG = {"interval": "5m", "adjustments_file": None, "calendar_file": None,
        "status": {"confirm_points": 2, "confirm_span": "30m", "instant_z": 15}, "detect": {"z": 5},
@@ -63,8 +63,8 @@ class TuneShow(unittest.TestCase):
 
     def test_values_match_what_detect_uses(self):
         # --show 的值跟 detect 的 score_params／status_params 同一個函式算出來，不會兩套
-        from aiops.service.detect.baseline import DetectOptions
-        from aiops.service.detect.adjustments import load_overrides
+        from service.detect.baseline import DetectOptions
+        from service.detect.adjustments import load_overrides
         ov = load_overrides(Repos(FakeES(), SC), CFG)
         spec, key = CFG["series"][0], {"service": "mes-report-api"}
         self.assertEqual(C.score_params(spec, key, DetectOptions(**CFG["detect"]), ov), (7.0, 0.2))

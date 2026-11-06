@@ -1,6 +1,6 @@
 # 資料來源改成接口＋假資料分開；行事曆抓台灣行事曆（2026-10）
 
-**狀態**：已完成（已合進 master）　　**日期**：2026-10-24　　**相關**：[慢性病清單與行事曆](2026-10-chronic-calendar.md)、[`engine/interfaces/README.md`](../../../aiops-engine/interfaces/README.md)、[`engine/fake-data/README.md`](../../../aiops-engine/fake-data/README.md)
+**狀態**：已完成（已合進 master）　　**日期**：2026-10-24　　**相關**：[慢性病清單與行事曆](2026-10-chronic-calendar.md)、[`engine/interfaces/README.md`](../../../aiops-engine/fake-data/interfaces.md)、[`engine/fake-data/README.md`](../../../aiops-engine/fake-data/README.md)
 **模組**：② 清資料（外部資料來源）
 
 ## Plan：這一次要達到什麼

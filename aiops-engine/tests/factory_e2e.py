@@ -185,9 +185,9 @@ def load(es, data: dict) -> None:
 
 
 def run(keep: bool = False, dump_dir: str | None = None, plugin_name: str = "factory") -> int:
-    from aiops.core.connection import ES
-    from aiops.interface.cli.detect import main as detector
-    from aiops.interface.cli.rca import main as investigator
+    from core.connection import ES
+    from interface.cli.detect import main as detector
+    from interface.cli.rca import main as investigator
     os.environ["AIOPS_PLUGIN"] = plugin_name
     full = plugin_name == "factory"          # 有履歷；metrics_only 沒有
     es = ES()
@@ -235,7 +235,7 @@ def run(keep: bool = False, dump_dir: str | None = None, plugin_name: str = "fac
     if full:
         check("履歷：一個 lot 一筆", paths == len({r['lot_id'] for r in data['mes']}), f"{paths} 筆，MES 有 {len({r['lot_id'] for r in data['mes']})} 個 lot")
     else:
-        from aiops.scenario import load_scenario
+        from scenario import load_scenario
         check("沒有履歷（metrics_only 沒有 paths-merge、沒合成）", paths == 0 and "paths-merge" not in load_scenario().commands,
               f"{paths} 筆；子命令 {list(load_scenario().commands) or '無'}")
     check("接收器：ML＋FDC 全部進異常總表", anoms == len(data["ml"]) + len(data["fdc"]), f"{anoms} 筆（來源 {len(data['ml']) + len(data['fdc'])}）")
@@ -307,7 +307,7 @@ def main(argv=None) -> int:
     p.add_argument("--plugin", default="factory", choices=["factory", "metrics_only"], help="factory（有履歷，預設）或 metrics_only（只有指標）")
     a = p.parse_args(argv)
     if a.clean:
-        from aiops.core.connection import ES
+        from core.connection import ES
         cleanup(ES(), EQUIPMENTS)
         print("清掉了")
         return 0

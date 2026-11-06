@@ -3,10 +3,10 @@ import unittest
 
 import pandas as pd
 
-import aiops.service.detect.quality as Q
-import aiops.core.repository.quality as QR
-from aiops.core.repository import Repos
-from aiops.scenario import load_scenario
+import service.detect.quality as Q
+import core.repository.quality as QR
+from core.repository import Repos
+from scenario import load_scenario
 
 SC = load_scenario()
 

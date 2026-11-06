@@ -3,12 +3,12 @@
 import unittest
 from datetime import datetime, timezone
 
-from aiops.core.repository import Repos
-from aiops.scenario import load_scenario
+from core.repository import Repos
+from scenario import load_scenario
 
 SC = load_scenario()
-import aiops.core.entity.trace as T
-import aiops.service.detect.trace_merge as M
+import core.entity.trace as T
+import service.detect.trace_merge as M
 
 T0 = 1_793_400_000_000.0   # 2026-10-31T00:00:00Z 附近（毫秒）
 

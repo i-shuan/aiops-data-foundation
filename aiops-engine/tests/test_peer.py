@@ -9,7 +9,7 @@ from unittest import mock
 import pandas as pd
 import yaml
 
-import aiops.service.detect.peer as P
+import service.detect.peer as P
 
 
 def pods(values, svc="order-api", **extra):
@@ -98,8 +98,8 @@ class CmdPeerTest(unittest.TestCase):
 
     def run_peer(self, life, values, cfg_extra=None):
         """life：Pod → (起來, 停掉) 相對 END 的分鐘數（停掉 None＝還在）；values：Pod → CPU。回傳被報的 Pod。"""
-        import aiops.service.detect.base as B
-        import aiops.service.detect.peer as C
+        import service.detect.base as B
+        import service.detect.peer as C
 
         def fetch(spec, start, end, interval):
             if spec["value"] == "count":   # 這段時間有資料的 Pod

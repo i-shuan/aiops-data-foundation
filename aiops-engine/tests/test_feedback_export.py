@@ -4,11 +4,11 @@ import os
 import tempfile
 import unittest
 
-from aiops.core.repository import Repos
+from core.repository import Repos
 
 import pandas as pd
 
-import aiops.service.feedback.feedback_service as C
+import service.feedback.feedback_service as C
 
 
 class FakeES:

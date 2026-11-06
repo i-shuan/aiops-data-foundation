@@ -1,5 +1,5 @@
 # 資料來源是 Elastic APM 時的根因分析設定。寫法跟 configs/rca/rca.yaml 一樣；log 的欄位名（service.name、trace.id）由
-# AIOPS_SOURCE=apm 決定（aiops/scenario/data/it_apm.yaml 的 log），不在這裡。
+# AIOPS_SOURCE=apm 決定（scenario/data/it_apm.yaml 的 log），不在這裡。
 indices:
   anomalies: aiops-anomalies
   traces: traces-merged-*                          # trace-merge 從 traces-apm-* 合成的

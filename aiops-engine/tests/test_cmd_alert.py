@@ -4,13 +4,13 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from unittest import mock
 
-import aiops.service.converge.alert_service as C
-from aiops.core.repository import Repos
-from aiops.scenario import load_scenario
+import service.converge.alert_service as C
+from core.repository import Repos
+from scenario import load_scenario
 
 SC = load_scenario()
-from aiops.core.entity.alert import ALERT_MAPPING
-import aiops.scenario.it.chain as CH
+from core.entity.alert import ALERT_MAPPING
+import scenario.it.chain as CH
 
 AL = C.Alert(alert_id="a-1", category="service", service="mes-api", status="open", started_at="2026-10-25T02:00:00+00:00",
              updated_at="2026-10-25T02:12:00+00:00", routes=[], series=["x"], severity="warning", dept="D3120")

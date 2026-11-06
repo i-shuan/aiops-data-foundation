@@ -3,7 +3,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from unittest import mock
 
-import aiops.service.converge.severity as S
+import service.converge.severity as S
 
 T0 = datetime(2026, 11, 3, 13, 0, tzinfo=timezone.utc)
 
@@ -107,9 +107,9 @@ class GradeAlert(unittest.TestCase):
     """cmd_alert.grade_alert：舊異常用 _mget 補齊、只算這件自己服務的、換版查不到不擋。"""
 
     def test_reads_old_anomalies_and_detects_deploy(self):
-        import aiops.service.converge.alert_service as C
-        from aiops.core.repository import Repos
-        from aiops.scenario import load_scenario
+        import service.converge.alert_service as C
+        from core.repository import Repos
+        from scenario import load_scenario
         SC = load_scenario()
         old = [{"_id": f"o{i}", "_source": {"@timestamp": (T0 + timedelta(minutes=i)).isoformat(), "series": "http.error_rate", "keys": {"service": "pay-api", "route": "POST /pay"}}} for i in range(5)]
 

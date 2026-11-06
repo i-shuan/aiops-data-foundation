@@ -280,10 +280,10 @@ Check：`pytest` 764 過、`check-docs` 0 問題、`chain_e2e` 26/26、`factory_
 ### 事後調整二：刪掉五個相容入口資料夾（2026-11-06）
 
 使用者問 `aiops-engine/` 第一層的檔案是不是跟 `aiops/` 重複。實際檢查：`detector/ investigator/ scheduler/ tasks/ api/` 每個只有 `__init__.py` 和 7～17 行的 `__main__.py`（轉呼叫 `aiops.interface.*`），沒有重複的邏輯，但是多餘的一層。
-刪掉，改成單一入口 `aiops/__main__.py`：`python3 -m aiops <detector|investigator|scheduler|tasks|api> …`。同步改：四張排程表的 `args`（第一個字加 `aiops`）、helm 的 `args`（deployment、distributed、`_helpers.tpl` 的 api）、Dockerfile（拿掉五個 COPY，`CMD` 改 `aiops detector --help`）、e2e 腳本的子行程指令、`test_cli`／`test_scheduler`／`test_deploy`／`test_tasks` 的預期值，以及文件和 docstring 裡約 100 處 `python3 -m detector …` → `python3 -m aiops detector …`（PDCA 紀錄的舊指令是當時措辭，不改）。
+刪掉，改成單一入口 `aiops/__main__.py`：`python3 -m main <detector|investigator|scheduler|tasks|api> …`。同步改：四張排程表的 `args`（第一個字加 `aiops`）、helm 的 `args`（deployment、distributed、`_helpers.tpl` 的 api）、Dockerfile（拿掉五個 COPY，`CMD` 改 `aiops detector --help`）、e2e 腳本的子行程指令、`test_cli`／`test_scheduler`／`test_deploy`／`test_tasks` 的預期值，以及文件和 docstring 裡約 100 處 `python3 -m detector …` → `python3 -m main detector …`（PDCA 紀錄的舊指令是當時措辭，不改）。
 子命令名稱（`train`、`detect`、`alert`…）沒變，`interfaces/`、`fake-data/` 是資料與說明文件，不重複，留著。
 部署影響：已部署的環境升版時，chart 與 image 要一起升（舊 chart 的 `args: ["scheduler", …]` 在新 image 找不到 `scheduler` 模組）。
-Check：`pytest` 764 過、`check-docs` 0 問題；`python3 -m aiops`、`aiops detector --help`、`aiops scheduler --list` 手動確認；e2e 見下。
+Check：`pytest` 764 過、`check-docs` 0 問題；`python3 -m main`、`aiops detector --help`、`aiops scheduler --list` 手動確認；e2e 見下。
 
 ## Check：預計要驗證的
 
@@ -308,6 +308,20 @@ Check：`pytest` 764 過、`check-docs` 0 問題；`python3 -m aiops`、`aiops d
 | `loop_e2e` 的 2 個過期斷言 | 改之前就有（`claude/e2e-verify` 分支已修） | 那個分支合回來就沒了 |
 | 分散式模式（`interface/jobs/worker.py`）保留，但這一輪沒對真 broker 跑 `distributed_e2e` | S5 只跑了一隻 pod 模式的三支 e2e | 下次動 jobs/ 時跑 |
 
+## 事後調整三：取消 `aiops/` 這一層
+
+**為什麼**：使用者覺得 `aiops-engine/aiops/` 重複，而且 `configs/`、`interfaces/` 不知道是什麼。這推翻了上面「待你決定」第 1 項（當時建議單一套件 `aiops/`）。
+
+**做了什麼**
+- `aiops/{core,scenario,service,interface}` 直接搬到 `aiops-engine/` 第一層；`aiops/config` 改名 `schema/`（它是設定檔欄位的定義，值在 `configs/`，避免跟 `configs/` 混淆）。
+- 入口 `aiops/__main__.py` → `main.py`，指令變 `python3 -m main <角色> …`；排程表、helm、Dockerfile、e2e、測試的第一個字從 `aiops` 改成 `main`。
+- `ENGINE_VERSION`、`CODE_ROOT`（原本在 `aiops/__init__.py`）移到 `core/env.py`。
+- 情境 yaml 的策略路徑 `aiops.scenario.it.chain:…` 改成 `scenario.it.chain:…`。
+- `interfaces/README.md`（只有說明，沒有程式）改放 `fake-data/interfaces.md`，刪掉 `interfaces/`。
+- `tests/test_layers.py` 改成掃 `schema/ core/ scenario/ service/ interface/` 五個資料夾，依賴規則不變。
+
+**取捨**：頂層名字（`core`、`service`、`schema`…）比較泛，Python 路徑上要是有同名的第三方套件會撞；目前環境沒有。部署時 image 與 chart 要一起升（`args` 第一個字變了）。
+
 ## Act（計畫時）：預期的風險與沒有答案的
 
 | 風險／問題 | 影響 | 打算怎麼處理 |
@@ -321,6 +335,6 @@ Check：`pytest` 764 過、`check-docs` 0 問題；`python3 -m aiops`、`aiops d
 ### 待你決定
 
 1. **單一套件 `aiops/` 還是維持頂層 `core`、`service`…**：我建議 `aiops/`（頂層的 `core`、`api`、`tasks`、`models` 這種名字太泛，容易撞）；缺點是所有 import 都改。
-2. **相容入口留多久**：`python -m detector`／`investigator`／`scheduler`／`tasks`／`api` 留 2 行轉接，排程表與 helm 不用改；要不要之後逐步換成 `python -m aiops …`。
+2. **相容入口留多久**：`python -m detector`／`investigator`／`scheduler`／`tasks`／`api` 留 2 行轉接，排程表與 helm 不用改；要不要之後逐步換成 `python -m main …`。
 3. **要不要保留分散式模式**（api／beat／worker，Celery＋Redis）：`helmchart/templates/distributed.yaml` 在用。留的話 `interface/jobs/worker.py` 保留；不留可以再刪 `tasks/` 與 celery、redis 依賴。
 4. **會不會有第四種情境**：有的話 `Scenario` 的 yaml 加策略名就夠；只有 IT 與工廠兩種的話，`metrics_only` 也可以降成工廠 yaml 的一個開關。

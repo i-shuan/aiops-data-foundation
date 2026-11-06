@@ -45,9 +45,9 @@
 > 另見：[原理](../../../docs/rca/README.md)・[規格](reference.md#trace-每一段的-baseline)・[實測](verification.md#trace-每一段的-baseline)
 
 ```bash
-python3 -m aiops detector trace-collect --config configs/baseline/trace.yaml   # 第一次：補過去 7 天的統計（trace 只留 7 天）
-python3 -m aiops detector trace-train   --config configs/baseline/trace.yaml   # 每天
-python3 -m aiops detector trace-detect  --config configs/baseline/trace.yaml   # 每 5 分鐘（同時累積統計）
+python3 -m main detector trace-collect --config configs/baseline/trace.yaml   # 第一次：補過去 7 天的統計（trace 只留 7 天）
+python3 -m main detector trace-train   --config configs/baseline/trace.yaml   # 每天
+python3 -m main detector trace-detect  --config configs/baseline/trace.yaml   # 每 5 分鐘（同時累積統計）
 ```
 
 ## 規則：狀態變化、離極限多遠
@@ -55,7 +55,7 @@ python3 -m aiops detector trace-detect  --config configs/baseline/trace.yaml   #
 > 另見：[原理](../../../docs/rca/README.md)・[規格](reference.md#規則狀態變化離極限多遠)・[實測](verification.md#規則狀態變化離極限多遠)
 
 ```bash
-python3 -m aiops detector rules --config configs/baseline/rules.yaml      # 每分鐘
+python3 -m main detector rules --config configs/baseline/rules.yaml      # 每分鐘
 ```
 
 ## Pod 同儕橫向比對：同一個服務的 Pod 互相比
@@ -63,7 +63,7 @@ python3 -m aiops detector rules --config configs/baseline/rules.yaml      # 每�
 > 另見：[原理](../../../docs/rca/README.md)・[規格](reference.md#pod-同儕橫向比對同一個服務的-pod-互相比)・[實測](verification.md#pod-同儕橫向比對同一個服務的-pod-互相比)
 
 ```bash
-python3 -m aiops detector peer --config configs/baseline/peer.yaml      # 每分鐘
+python3 -m main detector peer --config configs/baseline/peer.yaml      # 每分鐘
 ```
 
 ## 調整：哪些資料不學、從哪裡重新學、哪些時段放寬
@@ -71,23 +71,23 @@ python3 -m aiops detector peer --config configs/baseline/peer.yaml      # 每分
 > 另見：[原理](../../../docs/rca/README.md)・[規格](reference.md#調整哪些資料不學從哪裡重新學哪些時段放寬)・[實測](verification.md#調整哪些資料不學從哪裡重新學哪些時段放寬)
 
 ```bash
-python3 -m aiops detector adjust add --kind exclude_window --match service=^mes-api$ \
+python3 -m main detector adjust add --kind exclude_window --match service=^mes-api$ \
     --start 2026-10-20T02:00:00+08:00 --end 2026-10-20T05:00:00+08:00 --reason "DB 鎖表事故"
-python3 -m aiops detector adjust add --kind reset_point --match service=^mes-api$ --at 2026-10-22T10:00:00+08:00 \
+python3 -m main detector adjust add --kind reset_point --match service=^mes-api$ --at 2026-10-22T10:00:00+08:00 \
     --source cicd --status proposed --id mes-api-v2 --reason "v2 上線"
-python3 -m aiops detector adjust add --kind recurring_override --match service=^mes-report --series "log\..*" \
+python3 -m main detector adjust add --kind recurring_override --match service=^mes-report --series "log\..*" \
     --cron "0 20 * * *" --duration 4h --days-of-month -1 --z 8 --reason "月底報表批次"
-python3 -m aiops detector adjust list
-python3 -m aiops detector adjust approve --id mes-api-v2 --by bob
-python3 -m aiops detector adjust remove  --id mes-api-v2
+python3 -m main detector adjust list
+python3 -m main detector adjust approve --id mes-api-v2 --by bob
+python3 -m main detector adjust remove  --id mes-api-v2
 ```
 
 例：mes 的錯誤率常誤報，只放寬 mes：
 
 ```bash
-python3 -m aiops detector tune --series http.error_rate --match service=^mes- --z 7 --reason "誤報多" --by 王小明
-python3 -m aiops detector tune --list                                 # 看現在生效的 override
-python3 -m aiops detector tune --series http.error_rate --match service=^mes- --remove   # 還原
+python3 -m main detector tune --series http.error_rate --match service=^mes- --z 7 --reason "誤報多" --by 王小明
+python3 -m main detector tune --list                                 # 看現在生效的 override
+python3 -m main detector tune --series http.error_rate --match service=^mes- --remove   # 還原
 ```
 
 - 寫進 `aiops-tuning`，下一次 `detect` 起 mes 用 `z: 7`，其他服務不變；`series.yaml` 的預設不動。
@@ -96,7 +96,7 @@ python3 -m aiops detector tune --series http.error_rate --match service=^mes- --
 - 要知道某個對象**最終**用的是哪個值、被哪一筆定的（多筆都符合時 `--list` 看不出來）：
 
 ```bash
-python3 -m aiops detector tune --show --series http.error_rate --match service=mes-api
+python3 -m main detector tune --show --series http.error_rate --match service=mes-api
 #   z = 7.0（來自 3f9c…（aiops-tuning 那筆的 _id）：http.error_rate service=^mes-）
 #   min_abs = 0.02（series.yaml 預設）…
 ```
@@ -108,7 +108,7 @@ python3 -m aiops detector tune --show --series http.error_rate --match service=m
 > 另見：[原理](../../../docs/rca/README.md)・[規格](reference.md#慢性病清單行事曆)・[實測](verification.md#慢性病清單行事曆)
 
 ```bash
-python3 -m aiops detector chronic --config configs/baseline/chronic.yaml   # 每週一次（例如週一早上）
+python3 -m main detector chronic --config configs/baseline/chronic.yaml   # 每週一次（例如週一早上）
 ```
 
 ## 門檻怎麼校、誰來調
@@ -118,7 +118,7 @@ python3 -m aiops detector chronic --config configs/baseline/chronic.yaml   # 每
 - 只跟昨天比的檢查（`log_trace_id_drop`、`*_unassigned_share` 的增量、`*_cardinality` 的倍數）第一天沒有比較對象，不會報；要第一天就有用的設 `max_share` 這類絕對上限。`*_cardinality` 第一天只看上限 500 條和「一半以上像 ID」；昨天有資料、只是沒有這個服務的（新服務），倍數照樣從 0 算。
 
 ```bash
-python3 -m aiops detector quality --config configs/baseline/quality.yaml   # 每 10 分鐘
+python3 -m main detector quality --config configs/baseline/quality.yaml   # 每 10 分鐘
 ```
 
 ## 怎麼跑
@@ -131,19 +131,19 @@ export ES_URL=https://<es>:9200
 export ES_API_KEY=<kibana-dev-tools.txt 第 3 段發的 engine key>   # 只能讀資料、寫 aiops-*
 # export ES_CA=/path/to/ca.crt      # ES 用內部 CA 的話
 
-python3 -m aiops detector train  --config configs/baseline/series.yaml   # 每天跑一次（例如凌晨）
-python3 -m aiops detector detect --config configs/baseline/series.yaml --window 10m   # 每 1 分鐘跑一次，看最近 10 分鐘（重跑會覆蓋）
-python3 -m aiops detector tune   --series ... --match ... --resolution 5m   # 調整某些對象的粒度、門檻
-python3 -m aiops detector quality --config configs/baseline/quality.yaml  # 每 10 分鐘，資料品質檢查
-python3 -m aiops detector chronic --config configs/baseline/chronic.yaml  # 每週一次，慢性病清單
+python3 -m main detector train  --config configs/baseline/series.yaml   # 每天跑一次（例如凌晨）
+python3 -m main detector detect --config configs/baseline/series.yaml --window 10m   # 每 1 分鐘跑一次，看最近 10 分鐘（重跑會覆蓋）
+python3 -m main detector tune   --series ... --match ... --resolution 5m   # 調整某些對象的粒度、門檻
+python3 -m main detector quality --config configs/baseline/quality.yaml  # 每 10 分鐘，資料品質檢查
+python3 -m main detector chronic --config configs/baseline/chronic.yaml  # 每週一次，慢性病清單
 ```
 
 正式環境用 K8s 上一隻 pod 的排程器：[aiops-engine/README.md](../../README.md)（rules／detect／alert 每 1 分鐘、train 每天；排程表 `configs/schedule/schedule.yaml`）。單機的 crontab 例子：
 
 ```
-15 3 * * *  cd /opt/aiops && python3 -m aiops detector train  --config configs/baseline/series.yaml >> train.log 2>&1
-* * * * *   cd /opt/aiops && python3 -m aiops detector detect --config configs/baseline/series.yaml >> detect.log 2>&1
-* * * * *   sleep 30; cd /opt/aiops && python3 -m aiops detector detect --config configs/baseline/series.yaml >> detect.log 2>&1
+15 3 * * *  cd /opt/aiops && python3 -m main detector train  --config configs/baseline/series.yaml >> train.log 2>&1
+* * * * *   cd /opt/aiops && python3 -m main detector detect --config configs/baseline/series.yaml >> detect.log 2>&1
+* * * * *   sleep 30; cd /opt/aiops && python3 -m main detector detect --config configs/baseline/series.yaml >> detect.log 2>&1
 # crontab 最細 1 分鐘：要每 30 秒就用兩行（一行延後 30 秒）；正式的排程表是每 1 分鐘 --window 10m
 ```
 

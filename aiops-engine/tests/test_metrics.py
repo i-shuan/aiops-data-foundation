@@ -4,11 +4,11 @@ import unittest
 
 import pandas as pd
 
-import aiops.service.feedback.metrics as M
-from aiops.core.entity.alert import ALERT_INDEX
-from aiops.core.entity.feedback import FEEDBACK_INDEX
-from aiops.core.repository import Repos
-from aiops.scenario import load_scenario
+import service.feedback.metrics as M
+from core.entity.alert import ALERT_INDEX
+from core.entity.feedback import FEEDBACK_INDEX
+from core.repository import Repos
+from scenario import load_scenario
 
 SC = load_scenario()
 

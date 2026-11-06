@@ -4,7 +4,7 @@
 {"resource": {"attributes": …}, "attributes": …, "metrics": {"<名稱>": 值}}，直方圖是 histogram：{"values": […], "counts": […]}，
 sum 另存成 <名稱>_sum）
 灌合成資料，每個案例一個獨立的對象（Pod、節點、consumer group…），再用真的指令跑：
-  python -m aiops detector rules --config configs/baseline/rules.yaml --at <NOW>
+  python -m main detector rules --config configs/baseline/rules.yaml --at <NOW>
 從 aiops-anomalies 看每個案例有沒有被對的規則記下來。
 
 會刪掉、重建：metrics-*.otel-p2rules、aiops-anomalies、aiops-tuning（只能對測試用的 ES 跑）。
@@ -632,7 +632,7 @@ def load():
 
 
 def run_rules(at=NOW, only=None, quiet=True):
-    cmd = [sys.executable, "-X", "utf8", "-m", "aiops", "detector", "rules", "--config", CONFIG, "--at", at.isoformat()]
+    cmd = [sys.executable, "-X", "utf8", "-m", "main", "detector", "rules", "--config", CONFIG, "--at", at.isoformat()]
     if only:
         cmd += ["--only", only]
     env = {**os.environ, "PYTHONUTF8": "1"}
@@ -753,13 +753,13 @@ def check_tuning():
     r = run_rules(only=only)
     check("動態調整", "aiops-tuning 不存在：只跑 rules.yaml、exit 0", r.returncode == 0 and "觸發" in r.stdout,
           r.stdout[-300:] + r.stderr[-300:])
-    from aiops.core.entity.adjustment import TUNING_MAPPING  # noqa: E402  跟 adjust 寫的同一個 mapping
+    from core.entity.adjustment import TUNING_MAPPING  # noqa: E402  跟 adjust 寫的同一個 mapping
     req("PUT", "/aiops-tuning", TUNING_MAPPING)
     tune_doc("p2-rule", "proposed")
     wipe_tuned()
     r = run_rules(only=only)
     check("動態調整", "status proposed：不載入、不觸發", "載入" not in r.stdout and not tuned_fired(), r.stdout[-300:])
-    a = subprocess.run([sys.executable, "-X", "utf8", "-m", "aiops", "detector", "adjust", "approve", "--id", "p2-rule", "--by", "e2e"],
+    a = subprocess.run([sys.executable, "-X", "utf8", "-m", "main", "detector", "adjust", "approve", "--id", "p2-rule", "--by", "e2e"],
                        cwd=ENGINE, capture_output=True, text=True, encoding="utf-8", env={**os.environ, "PYTHONUTF8": "1"})
     print("    $ detector adjust approve --id p2-rule： " + a.stdout.strip()[-120:])
     r = run_rules(only=only, quiet=False)

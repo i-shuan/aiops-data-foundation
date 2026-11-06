@@ -7,75 +7,75 @@ jobs:
     cron: "* * * * *"
     queue: realtime
     timeout: 50
-    args: [aiops, detector, rules, --config, configs/apm/rules.yaml]
+    args: [main, detector, rules, --config, configs/apm/rules.yaml]
     why: 保底的錯誤率 5%、p95 2 秒；老師傅核准的規則也在這裡跑
   - name: detect
     stage: 1
     cron: "* * * * *"
     queue: realtime
     timeout: 50
-    args: [aiops, detector, detect, --config, configs/apm/series.yaml, --window, 10m]
+    args: [main, detector, detect, --config, configs/apm/series.yaml, --window, 10m]
     why: 每分鐘看最近 10 分鐘
   - name: alert
     stage: 1
     cron: "* * * * *"
     queue: alert
     timeout: 600
-    args: [aiops, investigator, alert, --config, configs/apm/rca.yaml]
+    args: [main, investigator, alert, --config, configs/apm/rca.yaml]
     why: 合成一件、根因分析、相似事故、LLM 摘要、心跳
   - name: trace-merge
     stage: 1
     cron: "* * * * *"
     queue: realtime
     timeout: 50
-    args: [aiops, detector, trace-merge, --config, configs/apm/trace.yaml]
+    args: [main, detector, trace-merge, --config, configs/apm/trace.yaml]
     why: traces-apm-* 的 transaction、span → 一個請求一筆（traces-merged）
   - name: train
     stage: 1
     cron: "0 2 * * *"
     queue: batch
     timeout: 3600
-    args: [aiops, detector, train, --config, configs/apm/series.yaml]
+    args: [main, detector, train, --config, configs/apm/series.yaml]
     why: 每天學過去 4 週
   - name: peer
     stage: 2
     cron: "*/5 * * * *"
     queue: realtime
     timeout: 240
-    args: [aiops, detector, peer, --config, configs/apm/peer.yaml]
+    args: [main, detector, peer, --config, configs/apm/peer.yaml]
     why: Pod 同儕橫向比對看最近 10 分鐘
   - name: trace-collect
     stage: 2
     cron: "*/5 * * * *"
     queue: realtime
     timeout: 240
-    args: [aiops, detector, trace-collect, --config, configs/apm/trace.yaml]
+    args: [main, detector, trace-collect, --config, configs/apm/trace.yaml]
     why: trace 每一段的量
   - name: trace-detect
     stage: 2
     cron: "*/5 * * * *"
     queue: realtime
     timeout: 240
-    args: [aiops, detector, trace-detect, --config, configs/apm/trace.yaml, --window, 10m]
+    args: [main, detector, trace-detect, --config, configs/apm/trace.yaml, --window, 10m]
     why: trace 每一段跟 baseline 比
   - name: trace-train
     stage: 2
     cron: "20 2 * * *"
     queue: batch
     timeout: 3600
-    args: [aiops, detector, trace-train, --config, configs/apm/trace.yaml]
+    args: [main, detector, trace-train, --config, configs/apm/trace.yaml]
     why: 每天學 trace 每一段
   - name: prune
     stage: 2
     cron: "30 3 * * *"
     queue: batch
     timeout: 600
-    args: [aiops, detector, prune, --config, configs/baseline/prune.yaml]
+    args: [main, detector, prune, --config, configs/baseline/prune.yaml]
     why: aiops-* 沒有 ILM，超過保留天數的每天清一次（跟來源無關，共用 baseline 的）
   - name: shift
     stage: 2
     cron: "0 4 * * *"
     queue: batch
     timeout: 300
-    args: [aiops, detector, shift, --config, configs/apm/series.yaml]
+    args: [main, detector, shift, --config, configs/apm/series.yaml]
     why: 一階跳變提 reset_point 的建議

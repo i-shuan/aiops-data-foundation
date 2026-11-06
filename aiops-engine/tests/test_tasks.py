@@ -9,9 +9,9 @@ from datetime import datetime, timedelta
 from unittest import mock
 from zoneinfo import ZoneInfo
 
-import aiops.interface.jobs.worker as tasks
-from aiops.interface.jobs.cron import Cron
-from aiops.interface.jobs.runner import QUEUES, Job, default_queue, load_schedule, tick
+import interface.jobs.worker as tasks
+from interface.jobs.cron import Cron
+from interface.jobs.runner import QUEUES, Job, default_queue, load_schedule, tick
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 TPE = ZoneInfo("Asia/Taipei")
@@ -86,20 +86,20 @@ class Enqueue(unittest.TestCase):
             aa.assert_not_called()
 
     def test_enqueue_goes_to_the_jobs_queue_with_expiry(self):
-        j = job("train", "0 2 * * *", args=("aiops", "detector", "train", "--config", "x.yaml"), timeout=3600, retries=2)
+        j = job("train", "0 2 * * *", args=("main", "detector", "train", "--config", "x.yaml"), timeout=3600, retries=2)
         with mock.patch.dict(os.environ, BROKER), mock.patch.object(tasks.run_job, "apply_async") as aa, redirect_stdout(io.StringIO()) as out:
             self.assertTrue(tasks.enqueue(j, at(2026, 10, 31, 2, 0)))
         kw = aa.call_args.kwargs
         self.assertEqual(kw["queue"], "batch")
         self.assertEqual(kw["expires"], at(2026, 11, 1, 1, 59, 55))
-        self.assertEqual(kw["kwargs"], {"name": "train", "args": ["aiops", "detector", "train", "--config", "x.yaml"], "timeout": 3600, "retries": 2})
+        self.assertEqual(kw["kwargs"], {"name": "train", "args": ["main", "detector", "train", "--config", "x.yaml"], "timeout": 3600, "retries": 2})
         self.assertIn("[beat] train", out.getvalue())
 
     def test_beat_tick_only_enqueues(self):
         """tick 給了 run 就只呼叫它：不開執行緒、不管上一次有沒有在跑、不符合 cron 的不丟。"""
         jobs = [job("a", "* * * * *"), job("b", "*/5 * * * *"), job("c", "0 2 * * *")]
         got = []
-        with mock.patch("aiops.interface.jobs.runner.threading.Thread") as th:
+        with mock.patch("interface.jobs.runner.threading.Thread") as th:
             names = tick(jobs, at(2026, 10, 31, 9, 7), run=lambda j, t: got.append((j.name, t)))
         self.assertEqual(names, ["a"])
         self.assertEqual(got, [("a", at(2026, 10, 31, 9, 7))])
@@ -115,7 +115,7 @@ class Enqueue(unittest.TestCase):
         kw = aa.call_args.kwargs
         self.assertEqual(kw["queue"], "alert")
         self.assertEqual(kw["expires"], tasks.TRIGGER_EXPIRES)
-        self.assertEqual(kw["kwargs"]["args"][:3], ["aiops", "investigator", "alert"])
+        self.assertEqual(kw["kwargs"]["args"][:3], ["main", "investigator", "alert"])
 
 
 class RunJobTask(unittest.TestCase):

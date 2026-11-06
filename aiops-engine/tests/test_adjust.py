@@ -4,12 +4,12 @@ import unittest
 import numpy as np
 import pandas as pd
 
-import aiops.service.detect.adjustments as A
-from aiops.core.repository import Repos
-from aiops.scenario import load_scenario
+import service.detect.adjustments as A
+from core.repository import Repos
+from scenario import load_scenario
 
 SC = load_scenario()
-from aiops.service.detect.baseline import override_for
+from service.detect.baseline import override_for
 
 TZ = "Asia/Taipei"
 

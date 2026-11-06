@@ -3,19 +3,19 @@
 import json
 import unittest
 
-from aiops.core.repository import Repos
-from aiops.scenario import load_scenario
+from core.repository import Repos
+from scenario import load_scenario
 
 SC = load_scenario()
 from unittest import mock
 
 import pandas as pd
 
-import aiops.service.rca.llm as LLM
-from aiops.core.entity.adjustment import TUNING_INDEX
-import aiops.service.feedback.suggest as F
-import aiops.service.feedback.suggest as T
-from aiops.service.detect.adjustments import active, problem
+import service.rca.llm as LLM
+from core.entity.adjustment import TUNING_INDEX
+import service.feedback.suggest as F
+import service.feedback.suggest as T
+from service.detect.adjustments import active, problem
 
 ALERT = {"alert_id": "a-1", "service": "mes-api", "series": ["http.latency_p95_s", "http.error_rate"], "title": "mes-api 變慢"}
 GOOD = {"feedback_type": "false_positive", "identified_cause": "scheduled_batch_job", "target_service": "mes-api", "suggested_action": "suppress_during_cron"}

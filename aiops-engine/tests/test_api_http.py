@@ -7,10 +7,10 @@ from unittest import mock
 
 from fastapi.testclient import TestClient
 
-import aiops.interface.web.routes as W
-import aiops.interface.web.dto as D
-import aiops.service.feedback.feedback_service as F
-from aiops.core.entity.feedback import FEEDBACK_INDEX
+import interface.web.routes as W
+import interface.web.dto as D
+import service.feedback.feedback_service as F
+from core.entity.feedback import FEEDBACK_INDEX
 from tests.test_api import ALERT, FakeES
 
 

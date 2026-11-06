@@ -24,9 +24,9 @@ from contextlib import redirect_stdout
 import pandas as pd
 import yaml
 
-from aiops.interface.cli.detect import main as cli
-from aiops.service.detect.quality import quality_hits
-from aiops.core.connection import ES
+from interface.cli.detect import main as cli
+from service.detect.quality import quality_hits
+from core.connection import ES
 
 CFG = "tests/trace_edge.yaml"
 QUALITY = "configs/baseline/quality.yaml"
@@ -514,7 +514,7 @@ def _retry():
     重送不會多一份：trace 的 _id 由 pipeline 用 trace_id-span_id 設、aiops-* 都帶 _id，重複的 create 回 409（bulk() 略過）。"""
     from requests.adapters import HTTPAdapter
     from urllib3.util.retry import Retry
-    import aiops.core.connection as conn
+    import core.connection as conn
     init = conn.ES.__init__
 
     def patched(self, *a, **kw):

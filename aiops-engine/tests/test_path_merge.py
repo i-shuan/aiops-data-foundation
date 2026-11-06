@@ -2,9 +2,9 @@
 import unittest
 from datetime import datetime, timezone
 
-import aiops.core.entity.trace as T
-import aiops.service.rca.analyze as A
-import aiops.scenario.factory.paths as P
+import core.entity.trace as T
+import service.rca.analyze as A
+import scenario.factory.paths as P
 
 NOW = datetime(2026, 11, 4, 6, 0, tzinfo=timezone.utc)
 CFG = {"group": "fab1", "dept_field": "dept",

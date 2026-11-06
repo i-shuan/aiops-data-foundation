@@ -17,7 +17,7 @@
 
 timezone: Asia/Taipei
 
-# 資料從哪來（detector/sources.py；格式、假資料見 interfaces/README.md、fake-data/README.md）。多個來源合在一起，
+# 資料從哪來（detector/sources.py；格式、假資料見 fake-data/interfaces.md、fake-data/README.md）。多個來源合在一起，
 # 某個來源失敗只印警告、不擋訓練。
 sources:
   # 台灣國定假日（https://github.com/ruyut/TaiwanCalendar）：工廠 24×7 不用；只有週休的辦公室系統才打開

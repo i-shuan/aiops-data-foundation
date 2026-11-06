@@ -15,7 +15,7 @@
 #
 # log 的 resource.attributes.*、trace_id 是 alias（component-mappings.json），跟 metrics、trace 同一條路徑。
 # 門檻都是先估的，要等正式環境排程跑 2～4 週再校（configs/baseline/README.md「門檻怎麼校、誰來調」）。
-# 建議每 10 分鐘跑一次：python3 -m aiops detector quality --config configs/baseline/quality.yaml
+# 建議每 10 分鐘跑一次：python3 -m main detector quality --config configs/baseline/quality.yaml
 
 interval: 10m       # 同一個檢查、同一個對象，10 分鐘內只記一筆（重跑不會重複）
 window: 1h

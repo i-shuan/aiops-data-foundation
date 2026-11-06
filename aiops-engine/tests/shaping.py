@@ -21,7 +21,7 @@ import re
 import numpy as np
 import pandas as pd
 
-from aiops.core.repository.series import COLUMNS, fill_zero, to_freq
+from core.repository.series import COLUMNS, fill_zero, to_freq
 
 class ShapeError(ValueError):
     pass

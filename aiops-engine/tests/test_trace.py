@@ -5,12 +5,12 @@ import unittest
 
 import pandas as pd
 
-import aiops.service.detect.trace_stats as T
-from aiops.core.repository import Repos
-from aiops.scenario import load_scenario
+import service.detect.trace_stats as T
+from core.repository import Repos
+from scenario import load_scenario
 
 SC = load_scenario()
-from aiops.service.detect.baseline import DetectOptions, TrainOptions, score, train
+from service.detect.baseline import DetectOptions, TrainOptions, score, train
 
 API = ("mes-api", "GET /lots/{id}")
 
@@ -211,7 +211,7 @@ class HardRuleTest(unittest.TestCase):
 
     def test_target_from_new_db_semconv(self):
         # 新版 DB 語意只有 db.system.name（沒有 server.address）：也要有「→ 對象」，N+1 規則才看得到
-        from aiops.core.entity.trace import to_span
+        from core.entity.trace import to_span
         s = to_span({"@timestamp": "2026-10-10T10:00:00Z", "trace_id": "t", "span_id": "s", "name": "SELECT X",
                      "kind": "Client", "duration": 2_000_000, "attributes": {"db.system.name": "oracle"},
                      "resource": {"attributes": {"service.name": "a"}}})

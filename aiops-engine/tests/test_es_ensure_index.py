@@ -1,8 +1,8 @@
-"""aiops.core.connection.ES.ensure_index：兩個工作同一秒搶建同一個 index（排程器讓 rules、detect、alert 同時起跑），輸的那個收到
+"""core.connection.ES.ensure_index：兩個工作同一秒搶建同一個 index（排程器讓 rules、detect、alert 同時起跑），輸的那個收到
 resource_already_exists_exception 不算錯、改補 mapping；其他 4xx 照樣是錯。用假的 session，不連 ES。"""
 import unittest
 
-from aiops.core.connection import ES
+from core.connection import ES
 
 
 class Resp:

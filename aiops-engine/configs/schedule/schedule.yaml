@@ -1,4 +1,4 @@
-# engine 定期工作的排程表：scheduler（python3 -m aiops scheduler --config configs/schedule/schedule.yaml --stage N）照這張表跑。
+# engine 定期工作的排程表：scheduler（python3 -m main scheduler --config configs/schedule/schedule.yaml --stage N）照這張表跑。
 # 一隻常駐的 pod（aiops-engine/helmchart）取代原本每個指令一個 K8s CronJob；行為一樣：
 #   同一個工作上一次沒跑完就跳過這次、超過 timeout 砍掉、錯過的分鐘不補跑、時區照 timezone、
 #   每天／每週的失敗在同一次內重試 retries 次（每幾分鐘的不重試：下一輪就是重試）。
@@ -15,14 +15,14 @@ jobs:
     cron: "* * * * *"
     queue: realtime
     timeout: 50
-    args: [aiops, detector, rules, --config, configs/baseline/rules.yaml]
+    args: [main, detector, rules, --config, configs/baseline/rules.yaml]
     why: 狀態變化（容器重啟、錯誤率 5%、p95 2 秒保底…）要快；老師傅核准的規則也在這裡跑
   - name: detect
     stage: 1
     cron: "* * * * *"
     queue: realtime
     timeout: 50
-    args: [aiops, detector, detect, --config, configs/baseline/series.yaml, --window, 10m]
+    args: [main, detector, detect, --config, configs/baseline/series.yaml, --window, 10m]
     why: 每分鐘看最近 10 分鐘；同一筆重跑會覆蓋
   # alert：一件新的 = 根因分析（幾秒）＋ LLM（真的模型最多 60 秒逾時）；一輪可能好幾件新的，給 10 分鐘。
   # 沒跑完會擋住下一分鐘的（跳過），所以跑久一點只是晚一點，被砍才是什麼都沒寫（連心跳都沒有）
@@ -31,75 +31,75 @@ jobs:
     cron: "* * * * *"
     queue: alert
     timeout: 600
-    args: [aiops, investigator, alert, --config, configs/rca/rca.yaml]
+    args: [main, investigator, alert, --config, configs/rca/rca.yaml]
     why: 合成一件、根因分析、相似事故、LLM 摘要、心跳
   - name: trace-merge
     stage: 1
     cron: "* * * * *"
     queue: realtime
     timeout: 50
-    args: [aiops, detector, trace-merge, --config, configs/baseline/trace.yaml]
+    args: [main, detector, trace-merge, --config, configs/baseline/trace.yaml]
     why: raw 的每一段 → 一個請求一筆（traces-merged）；根因分析讀合成的那份
   - name: train
     stage: 1
     cron: "0 2 * * *"
     queue: batch
     timeout: 3600
-    args: [aiops, detector, train, --config, configs/baseline/series.yaml]
+    args: [main, detector, train, --config, configs/baseline/series.yaml]
     why: 每天學過去 4 週（要 4Gi 記憶體）
   - name: peer
     stage: 2
     cron: "*/5 * * * *"
     queue: realtime
     timeout: 240
-    args: [aiops, detector, peer, --config, configs/baseline/peer.yaml]
+    args: [main, detector, peer, --config, configs/baseline/peer.yaml]
     why: Pod 同儕橫向比對看最近 10 分鐘
   - name: trace-collect
     stage: 2
     cron: "*/5 * * * *"
     queue: realtime
     timeout: 240
-    args: [aiops, detector, trace-collect, --config, configs/baseline/trace.yaml]
+    args: [main, detector, trace-collect, --config, configs/baseline/trace.yaml]
     why: trace 每一段的量
   - name: trace-detect
     stage: 2
     cron: "*/5 * * * *"
     queue: realtime
     timeout: 240
-    args: [aiops, detector, trace-detect, --config, configs/baseline/trace.yaml, --window, 10m]
+    args: [main, detector, trace-detect, --config, configs/baseline/trace.yaml, --window, 10m]
     why: trace 每一段跟 baseline 比
   - name: quality
     stage: 2
     cron: "*/10 * * * *"
     queue: realtime
     timeout: 500
-    args: [aiops, detector, quality, --config, configs/baseline/quality.yaml]
+    args: [main, detector, quality, --config, configs/baseline/quality.yaml]
     why: 資料品質（第一個月人天天看，先不用它報）
   - name: trace-train
     stage: 2
     cron: "20 2 * * *"
     queue: batch
     timeout: 3600
-    args: [aiops, detector, trace-train, --config, configs/baseline/trace.yaml]
+    args: [main, detector, trace-train, --config, configs/baseline/trace.yaml]
     why: 每天學 trace 每一段
   - name: chronic
     stage: 2
     cron: "0 8 * * 1"
     queue: batch
     timeout: 1800
-    args: [aiops, detector, chronic, --config, configs/baseline/chronic.yaml]
+    args: [main, detector, chronic, --config, configs/baseline/chronic.yaml]
     why: 每週一的慢性病清單，要幾週資料才有意義
   - name: prune
     stage: 2
     cron: "30 3 * * *"
     queue: batch
     timeout: 600
-    args: [aiops, detector, prune, --config, configs/baseline/prune.yaml]
+    args: [main, detector, prune, --config, configs/baseline/prune.yaml]
     why: aiops-anomalies、aiops-trace-segments、已結案的 aiops-alerts 沒有 ILM，超過保留天數的每天清一次（prune.yaml）
   - name: shift
     stage: 2
     cron: "0 4 * * *"
     queue: batch
     timeout: 300
-    args: [aiops, detector, shift, --config, configs/baseline/series.yaml]
+    args: [main, detector, shift, --config, configs/baseline/series.yaml]
     why: 一階跳變（換版後停在新水準、一直報）提 reset_point 的建議（proposed，人核准才生效）；每天看一次最近 24 小時

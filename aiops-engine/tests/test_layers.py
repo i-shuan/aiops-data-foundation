@@ -1,5 +1,5 @@
-"""依賴方向（docs/pdca/meta/2026-11-target-architecture.md）：interface → service → scenario → core；config 是葉節點。
-誰 import 誰只能往右；相容入口（detector/、investigator/、scheduler/、tasks/、api/ 的 __main__）不算。
+"""依賴方向（docs/pdca/meta/2026-11-target-architecture.md）：interface → service → scenario → core；schema 是葉節點。
+誰 import 誰只能往右；main.py（入口）不算。
 函式內的 import 只允許名單上那幾個。索引名只能在 core/（entity、repository）、ES 查詢語法只能在 core/repository/。
 加了反向 import 這裡會紅——讀到這裡的人：先想東西該不該搬，不要改名單。"""
 import ast
@@ -7,12 +7,12 @@ import pathlib
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-PKG = ROOT / "aiops"
-LAYERS = ("config", "core", "scenario", "service", "interface")       # 由下往上
-ALLOWED = {"config": set(), "core": {"config"}, "scenario": {"config", "core"},
-           "service": {"config", "core", "scenario"}, "interface": {"config", "core", "scenario", "service"}}
+PKG = ROOT
+LAYERS = ("schema", "core", "scenario", "service", "interface")       # 由下往上
+ALLOWED = {"schema": set(), "core": {"schema"}, "scenario": {"schema", "core"},
+           "service": {"schema", "core", "scenario"}, "interface": {"schema", "core", "scenario", "service"}}
 # 函式內才 import 的（其他都要在檔頭）：sqlalchemy 是選配、worker 要 broker
-LAZY_OK = {("service/feedback/importer.py", "sqlalchemy"), ("interface/jobs/local.py", "aiops.interface.jobs.worker")}
+LAZY_OK = {("service/feedback/importer.py", "sqlalchemy"), ("interface/jobs/local.py", "interface.jobs.worker")}
 # 索引名的字面值只能在 core/（entity 定義、repository 讀寫）
 INDEX_LITERALS = ("aiops-anomalies", "aiops-alerts", "aiops-incidents", "aiops-feedback", "aiops-tuning", "aiops-baseline",
                   "aiops-trace-segments", "aiops-state", "aiops-chronic")
@@ -21,9 +21,10 @@ KNOWN: set[str] = set()
 
 
 def modules():
-    for p in PKG.rglob("*.py"):
-        if "__pycache__" not in p.parts:
-            yield p.relative_to(PKG), ast.parse(p.read_text(encoding="utf-8"))
+    for layer in LAYERS:
+        for p in (PKG / layer).rglob("*.py"):
+            if "__pycache__" not in p.parts:
+                yield p.relative_to(PKG), ast.parse(p.read_text(encoding="utf-8"))
 
 
 def imported_layers(tree) -> set[str]:
@@ -34,10 +35,9 @@ def imported_layers(tree) -> set[str]:
             mod = n.module
         elif isinstance(n, ast.Import):
             for a in n.names:
-                if a.name.startswith("aiops."):
-                    out.add(a.name.split(".")[1])
-        if mod and mod.startswith("aiops.") and mod != "aiops":
-            out.add(mod.split(".")[1])
+                out.add(a.name.split(".")[0])
+        if mod:
+            out.add(mod.split(".")[0])
     return out & set(LAYERS)
 
 

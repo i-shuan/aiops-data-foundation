@@ -36,7 +36,7 @@ status:
   instant_z: 15
 
 # 使用者自己調：某條序列、某些對象固定粒度或改門檻（match 是正規表示式）。
-# 也可以用指令寫進 aiops-tuning（之後 feedback 也寫那裡）：python3 -m aiops detector tune --series ... --match ... --resolution 5m
+# 也可以用指令寫進 aiops-tuning（之後 feedback 也寫那裡）：python3 -m main detector tune --series ... --match ... --resolution 5m
 # overrides:
 #   - series: http.latency_p95_s
 #     match: {service: "^mes-report"}

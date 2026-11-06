@@ -14,7 +14,7 @@
 #                （各自 replicas、resources；alert 固定 1 份 concurrency 1）、redis（佇列）。train 跟每分鐘的工作分開跑、api 跟排程分開掛
 #
 # 先只寫入、不通知：Grafana 那邊先不設 contact point（或 policies 全送到一個沒人看的 webhook），跑 2～4 週，
-# 用 python3 -m aiops detector metrics --from … --to … 記下基準，再開通知。
+# 用 python3 -m main detector metrics --from … --to … 記下基準，再開通知。
 mode: single
 
 image:
@@ -23,7 +23,7 @@ image:
 
 esUrl: https://elasticsearch.example.internal:9200
 tz: Asia/Taipei
-# 情境（aiops/scenario/README.md）：observability（IT：服務、API、trace）、factory（工廠：ML／FDC 判好的異常、MES 履歷、機台 alarm）、
+# 情境（scenario/README.md）：observability（IT：服務、API、trace）、factory（工廠：ML／FDC 判好的異常、MES 履歷、機台 alarm）、
 # metrics_only（只有 ML／FDC 的異常、沒有履歷）。環境變數 AIOPS_PLUGIN 跟著設，排程表換成那個情境的
 plugin: observability
 # observability 的原始資料是誰寫的：otel（我們的 Collector：metrics-*.otel-*、k8s-*、traces-generic.otel-*）或 apm（Elastic APM：

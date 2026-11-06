@@ -6,14 +6,14 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from aiops.core.entity.incident import INCIDENT_INDEX
-import aiops.service.feedback.importer as IMP
-from aiops.core.repository import Repos
-from aiops.scenario import load_scenario
+from core.entity.incident import INCIDENT_INDEX
+import service.feedback.importer as IMP
+from core.repository import Repos
+from scenario import load_scenario
 
 SC = load_scenario()
-import aiops.service.rca.similar as SIM
-from aiops.interface.cli.rca import main
+import service.rca.similar as SIM
+from interface.cli.rca import main
 
 HERE = Path(__file__).resolve().parent
 ROW = {"title": "Oracle 統計資訊過期", "start": "2026-03-12 02:10", "end": "2026-03-12 03:05", "services": "mes-api,wip-worker",

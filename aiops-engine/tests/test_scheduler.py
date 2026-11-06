@@ -10,8 +10,8 @@ from contextlib import redirect_stdout
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from aiops.interface.jobs.cron import Cron
-from aiops.interface.jobs.runner import Job, load_schedule, run_once, tick
+from interface.jobs.cron import Cron
+from interface.jobs.runner import Job, load_schedule, run_once, tick
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCHEDULE = os.path.join(HERE, "..", "configs", "schedule", "schedule.yaml")
@@ -134,7 +134,7 @@ class ScheduleFileTest(unittest.TestCase):
     def test_alert_timeout_covers_llm_calls(self):
         # 一件新的：LLM 最多 60 秒逾時（core/llm.py）；一輪至少要能處理好幾件，不然被砍什麼都沒寫
         import inspect
-        import aiops.service.rca.llm as LLM
+        import service.rca.llm as LLM
         self.assertIn("timeout=60", inspect.getsource(LLM._call_openai))
         _, jobs = load_schedule(SCHEDULE, 2)
         by = {j.name: j for j in jobs}
@@ -152,7 +152,7 @@ class ScheduleFileTest(unittest.TestCase):
         _, jobs = load_schedule(SCHEDULE, 2)
         for j in jobs:
             self.assertGreater(j.timeout, 0, j.name)
-            self.assertEqual(j.args[0], "aiops", j.name)
+            self.assertEqual(j.args[0], "main", j.name)
             self.assertIn(j.args[1], ("detector", "investigator"), j.name)
             cfg = j.args[j.args.index("--config") + 1]
             self.assertTrue(os.path.isfile(os.path.join(HERE, "..", cfg)), f"{j.name}：{cfg} 不存在")

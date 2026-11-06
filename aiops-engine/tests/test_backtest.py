@@ -1,9 +1,9 @@
 """回測（feedback.cmd_backtest）的結果怎麼呈現；回測本身要 ES 和 baseline，在 e2e 驗（docs/pdca/phase5-learning-loop/2026-10-loop-update.md）。"""
 import unittest
 
-import aiops.service.feedback.backtest as B
-from aiops.core.repository import Repos
-from aiops.core.repository.baseline import BaselineRepository
+import service.feedback.backtest as B
+from core.repository import Repos
+from core.repository.baseline import BaselineRepository
 
 
 class Format(unittest.TestCase):

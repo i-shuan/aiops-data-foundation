@@ -5,17 +5,17 @@ import unittest
 from datetime import datetime, timezone
 from unittest import mock
 
-from aiops.scenario import load_scenario
+from scenario import load_scenario
 
-import aiops.core.entity.trace as T
-import aiops.core.repository.owner as O
-from aiops.core.repository import Repos
-from aiops.scenario import load_scenario
+import core.entity.trace as T
+import core.repository.owner as O
+from core.repository import Repos
+from scenario import load_scenario
 
 SC = load_scenario()
-import aiops.service.detect.trace_merge as M
-from aiops.service.detect._util import value_kind
-from aiops.core.repository.series import _bucket_events, _bucket_value, _value_aggs
+import service.detect.trace_merge as M
+from service.detect._util import value_kind
+from core.repository.series import _bucket_events, _bucket_value, _value_aggs
 
 TX = {"@timestamp": "2026-11-02T01:00:00.000Z", "timestamp.us": 1793581200000000, "processor": {"event": "transaction"},
       "trace": {"id": "t1"}, "transaction": {"id": "tx1", "name": "GET /lots/{id}", "type": "request", "duration": {"us": 300000}, "result": "HTTP 2xx"},

@@ -4,14 +4,14 @@ import unittest
 from datetime import datetime, timezone
 from unittest import mock
 
-from aiops.core.connection import doc_id
-import aiops.interface.web.dto as D
-import aiops.service.feedback.feedback_service as F
-import aiops.interface.web.views as V
-from aiops.core.entity.alert import ALERT_INDEX
-from aiops.core.entity.feedback import FEEDBACK_INDEX
-from aiops.core.entity.incident import INCIDENT_INDEX
-from aiops.core.repository import Repos
+from core.connection import doc_id
+import interface.web.dto as D
+import service.feedback.feedback_service as F
+import interface.web.views as V
+from core.entity.alert import ALERT_INDEX
+from core.entity.feedback import FEEDBACK_INDEX
+from core.entity.incident import INCIDENT_INDEX
+from core.repository import Repos
 
 NOW =datetime(2026, 10, 25, 3, 0, tzinfo=timezone.utc)
 ALERT = {"alert_id": "a-20261025-0200-mes-api", "service": "mes-api", "dept": "D3120", "group": "it", "severity": "critical", "status": "open",

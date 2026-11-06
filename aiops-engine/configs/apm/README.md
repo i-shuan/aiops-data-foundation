@@ -47,11 +47,11 @@ helm upgrade --install aiops aiops-engine/helmchart -n aiops --set source=apm --
 部署前在有 ES 連線的地方跑一次，看每條序列查得到幾筆（0 筆就是索引名或欄位名不對）：
 
 ```bash
-cd aiops-engine && AIOPS_SOURCE=apm ES_URL=https://<es>:9200 ES_API_KEY=<key> python3 -m aiops detector detect --config configs/apm/series.yaml --window 10m
+cd aiops-engine && AIOPS_SOURCE=apm ES_URL=https://<es>:9200 ES_API_KEY=<key> python3 -m main detector detect --config configs/apm/series.yaml --window 10m
 ```
 
 ```bash
-cd aiops-engine && AIOPS_SOURCE=apm ES_URL=https://<es>:9200 ES_API_KEY=<key> python3 -m aiops detector trace-merge --config configs/apm/trace.yaml
+cd aiops-engine && AIOPS_SOURCE=apm ES_URL=https://<es>:9200 ES_API_KEY=<key> python3 -m main detector trace-merge --config configs/apm/trace.yaml
 ```
 
 要對照的欄位（各拿一筆 `GET <索引>/_search?size=1` 看）：
@@ -61,7 +61,7 @@ cd aiops-engine && AIOPS_SOURCE=apm ES_URL=https://<es>:9200 ES_API_KEY=<key> py
 | `metrics-apm.transaction.1m-*` | `transaction.duration.histogram`（histogram、微秒）、`transaction.name`、`transaction.type: request`、`event.outcome`、`service.name`、`service.node.name` | `series.yaml`、`rules.yaml`、`peer.yaml` |
 | `metrics-apm.service_destination.1m-*` | `span.destination.service.resource`、`span.destination.service.response_time.count`／`.sum.us` | `series.yaml` |
 | `traces-apm-*` | `processor.event`、`trace.id`、`transaction.id`／`span.id`、`parent.id`、`*.duration.us`、`event.outcome`、`span.type`、`span.destination.service.resource`、`span.db.statement`、`kubernetes.pod.name`、`labels.*`、`event.ingested` | `core/traces.py` 的 `_apm_span` |
-| `logs-apm.app.*`、`logs-apm.error-*` | `service.name`、`log.level`、`message`／`error.exception.message`、`trace.id`、`processor.event: error` | `aiops/scenario/data/it_apm.yaml` 的 `log` |
+| `logs-apm.app.*`、`logs-apm.error-*` | `service.name`、`log.level`、`message`／`error.exception.message`、`trace.id`、`processor.event: error` | `scenario/data/it_apm.yaml` 的 `log` |
 
 ## 跟 OTel 版差在哪（調門檻時要知道）
 

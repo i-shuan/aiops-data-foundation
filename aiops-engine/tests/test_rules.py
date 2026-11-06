@@ -4,7 +4,7 @@ import unittest
 import pandas as pd
 import yaml
 
-import aiops.service.detect.rules as R
+import service.detect.rules as R
 
 NOW = pd.Timestamp("2026-10-10T10:00:00Z")
 
@@ -184,7 +184,7 @@ class NewTypesTest(unittest.TestCase):
 
     def test_join_fills_denominator(self):
         d = {"metrics": {"usage": 5.0}}
-        from aiops.core.repository.series import _put
+        from core.repository.series import _put
         _put(d, "metrics.db_client_connections_max", 5.0)
         self.assertEqual(d["metrics"]["db_client_connections_max"], 5.0)
         rule = {"type": "ratio", "field": "metrics.usage", "den": ["metrics.db_client_connections_max"], "op": ">=", "threshold": 0.9}
@@ -222,12 +222,12 @@ class ClockOffsetTest(unittest.TestCase):
             "fresh": "40m"}
 
     def test_abs_both_directions(self):
-        import aiops.service.detect.rules as R
+        import service.detect.rules as R
         self.assertEqual(R.sample_value(self.rule, {"metrics": {"ntp.offset": -300_000_000}}), 300_000_000)
         self.assertEqual(R.sample_value({**self.rule, "abs": False}, {"metrics": {"ntp.offset": -300_000_000}}), -300_000_000)
 
     def test_message_in_ms(self):
-        import aiops.service.detect.rules as R
+        import service.detect.rules as R
         msg = R.describe(self.rule, {"key": ("node-1",), "value": 2_500_460_925})
         self.assertIn("2,500 毫秒", msg)
         self.assertIn("100 毫秒", msg)

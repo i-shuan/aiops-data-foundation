@@ -1,16 +1,16 @@
-"""情境（aiops/scenario）：環境變數選哪份、三個內建各填了什麼、客製怎麼給、detector 的子命令與報告段跟著情境。不連 ES。"""
+"""情境（scenario）：環境變數選哪份、三個內建各填了什麼、客製怎麼給、detector 的子命令與報告段跟著情境。不連 ES。"""
 import dataclasses
 import os
 import unittest
 from datetime import datetime, timedelta, timezone
 from unittest import mock
 
-import aiops.scenario.base as SC
-from aiops.core.repository import Repos
-from aiops.core.repository.owner import owner_of
-from aiops.scenario import Chain, Scenario, load_scenario
-import aiops.service.converge.merge as AL
-import aiops.service.rca.report as R
+import scenario.base as SC
+from core.repository import Repos
+from core.repository.owner import owner_of
+from scenario import Chain, Scenario, load_scenario
+import service.converge.merge as AL
+import service.rca.report as R
 
 T0 = datetime(2026, 11, 4, 1, 0, tzinfo=timezone.utc)
 # 客製：拿內建的改幾個欄位（AIOPS_PLUGIN=tests.test_scenario:MINE）
@@ -126,7 +126,7 @@ class DetectorCommands(unittest.TestCase):
         import contextlib
         import io
 
-        from aiops.interface.cli.detect import main
+        from interface.cli.detect import main
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
             self.assertEqual(main(["--help"]), 0)             # typer：--help 回 0，不丟 SystemExit

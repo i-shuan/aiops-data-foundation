@@ -4,8 +4,8 @@ import unittest
 
 import pandas as pd
 
-import aiops.service.detect.adjustments as A
-import aiops.service.detect.chronic as C
+import service.detect.adjustments as A
+import service.detect.chronic as C
 
 TZ = "Asia/Taipei"
 

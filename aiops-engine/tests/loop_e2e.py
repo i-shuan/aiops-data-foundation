@@ -10,7 +10,7 @@
 """
 import json, os, subprocess, sys, tempfile, time, urllib.request
 import numpy as np, pandas as pd
-from aiops.core.connection import ES
+from core.connection import ES
 TZ = "Asia/Taipei"; INDEX = "aiops-synth"; SYNTH = "tests/synth.yaml"; RCA = "tests/rca_loop.yaml"
 D0 = pd.Timestamp("2026-10-05", tz=TZ)            # 週一；前面 4 週是歷史
 # 網頁寫的回饋，時間是寫入當下；metrics 的查詢區間要含「現在」，不然測試日期過了 10/28 就算不到回饋
@@ -22,7 +22,7 @@ fails = []
 def check(name, cond, detail=""):
     print(f"  {'PASS' if cond else 'FAIL'}  {name}" + (f"：{detail}" if detail and not cond else "")); fails.append(name) if not cond else None
 def run(*args, quiet=False):
-    r = subprocess.run([PY, "-m", "aiops", *args], capture_output=True, text=True)
+    r = subprocess.run([PY, "-m", "main", *args], capture_output=True, text=True)
     if not quiet: print("    $ " + " ".join(args)); print("    " + r.stdout.strip().replace("\n", "\n    ")[:1500])
     if r.returncode not in (0,) and "backtest" not in args and "approve" not in args: print("    stderr:", r.stderr[-800:])
     return r
@@ -81,7 +81,7 @@ def main():
     print(f"  {len(df)} 筆")
     print("== 1. train（只用前 4 週）")
     run("detector", "train", "--config", SYNTH, "--end", D0.tz_convert("UTC").strftime("%Y-%m-%dT%H:%M:%SZ"), quiet=True)
-    web = subprocess.Popen([PY, "-m", "aiops", "api"], env={**os.environ, "API_PORT": "18080"}, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+    web = subprocess.Popen([PY, "-m", "main", "api"], env={**os.environ, "API_PORT": "18080"}, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
     try:
         for _ in range(30):
             try: get("/health"); break

@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 
 from pydantic import ValidationError
 
-from aiops.core.entity.alert import ALERT_MAPPING, UNMAPPED_FIELDS, Alert
+from core.entity.alert import ALERT_MAPPING, UNMAPPED_FIELDS, Alert
 
 T0 = datetime(2026, 10, 25, 2, 0, tzinfo=timezone.utc)
 

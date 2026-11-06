@@ -11,10 +11,10 @@ import sys
 import numpy as np
 import pandas as pd
 
-from aiops.interface.cli.detect import main as cli
-from aiops.core.entity.anomaly import ANOMALY_INDEX
-from aiops.core.connection import ES
-from aiops.core.entity.baseline import BASELINE_INDEX
+from interface.cli.detect import main as cli
+from core.entity.anomaly import ANOMALY_INDEX
+from core.connection import ES
+from core.entity.baseline import BASELINE_INDEX
 
 TZ = "Asia/Taipei"
 INDEX = "aiops-synth"
