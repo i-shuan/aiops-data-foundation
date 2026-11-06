@@ -255,7 +255,7 @@ def sec_segments(c: Ctx) -> None:
 
 
 def _slowest(c: Ctx) -> list[dict] | None:
-    return max(c.now_tr.values(), key=lambda t: A.root_of(t)["dur_ms"]) if c.now_tr else None
+    return max(c.now_tr.values(), key=lambda t: T.root_of(t)["dur_ms"]) if c.now_tr else None
 
 
 def sec_slowest(c: Ctx) -> None:
@@ -316,10 +316,10 @@ def sec_changes(c: Ctx) -> None:
 def sec_topology(c: Ctx) -> None:
     if not c.traced:
         return _skip(c, f"這些{c.U}經過的{c.sc.entity}", f"（沒有{c.TRACE}，略過）")
-    edges = A.topology(c.now_tr)
+    edges = T.topology(c.now_tr)
     c.findings["topology"] = [{"caller": e.caller, "callee": e.callee, "calls": e.calls, "errors": e.errors} for e in edges]
     c.heading(f"這些{c.U}經過的{c.sc.entity}")
-    c.out += ["```mermaid", A.mermaid(edges), "```", ""]
+    c.out += ["```mermaid", T.mermaid(edges), "```", ""]
 
 
 def sec_conclusion(c: Ctx) -> None:

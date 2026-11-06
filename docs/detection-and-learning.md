@@ -5,7 +5,7 @@
 
 **這個 repo 沒有強化式學習**：沒有獎勵函數、策略更新、Q-learning、bandit。現有的「學習」都是統計，加上人核准的規則調整；沒有一個是自己試錯、自己更新策略的演算法。[feedback/README.md](feedback/README.md) 定的原則是「AIOps 以統計＋LLM 為主，不自己訓練模型」。
 
-## 異常偵測（④ 判斷，`detector/`）
+## 異常偵測（④ 判斷，`aiops/service/detect/`）
 
 | 方法 | 做法 | 程式 |
 |---|---|---|
@@ -33,7 +33,7 @@
 | case 分類 | 指紋比對（權重手設 4、4、3、2、2、1）、前 3 件以分數投票；`learn_weights` 在 case ≥ 50 件時才學，只印建議 | 投票自動，權重不會自動改 |
 | 嚴重度分級 | 依訊號廣度、持續、換版上限分 critical／high／warning，只通知前兩級 | 自動 |
 
-程式：⑨ 在 [feedback/](../aiops-engine/code/feedback/)（[suggest.py](../aiops-engine/code/aiops/service/feedback/suggest.py)、[cmd_feedback.py](../aiops-engine/code/aiops/service/feedback/feedback_service.py)、[cmd_backtest.py](../aiops-engine/code/aiops/service/feedback/backtest.py)）、[similar.py](../aiops-engine/code/aiops/service/rca/similar.py)、[severity.py](../aiops-engine/code/aiops/service/converge/severity.py)。
+程式：⑨ 在 [aiops/service/feedback/](../aiops-engine/code/aiops/service/feedback/)（[suggest.py](../aiops-engine/code/aiops/service/feedback/suggest.py)、[feedback_service.py](../aiops-engine/code/aiops/service/feedback/feedback_service.py)、[backtest.py](../aiops-engine/code/aiops/service/feedback/backtest.py)）、[similar.py](../aiops-engine/code/aiops/service/rca/similar.py)、[severity.py](../aiops-engine/code/aiops/service/converge/severity.py)。
 
 ## 跟強化式學習差在哪
 

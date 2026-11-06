@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import pandas as pd
 
-from aiops.core.entity.anomaly import RULE_FIELDS  # noqa: F401  規則欄位的 mapping 在 entity；名字留給既有的 import
 from aiops.service.detect.baseline import to_freq
 
 

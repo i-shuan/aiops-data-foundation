@@ -230,6 +230,22 @@ class Titled(unittest.TestCase):
         self.assertTrue(t.rstrip().endswith("資深維運專家（老師傅）回饋：http://fb/feedback?alert=a-1"))
 
 
+class AlertDocUsesScenario(unittest.TestCase):
+    """寫進 ES 前的那份文件：有變的件用情境重寫標題與摘要（S2 以後情境是傳進來的，loop_e2e 抓到過漏傳）。"""
+
+    def test_title_summary_and_links(self):
+        al = C.Alert(alert_id="a-1", category="service", service="mes-api", status="open", started_at=T0, updated_at=T0, severity="high",
+                     anomaly_ids=["x1"], series=["http.error_rate"], routes=[], new=True,
+                     anoms=[{"_id": "x1", "@timestamp": T0.isoformat(), "series": "http.error_rate", "keys": {"service": "mes-api"}, "value": 0.3, "median": 0.02}])
+        doc = C.alert_doc(al, {"report_url": "http://r/{alert_id}", "feedback_url": "http://f/{alert_id}"}, T0 + timedelta(minutes=5),
+                          timezone.utc, set(), load_scenario("observability"))
+        self.assertTrue(doc["title"].startswith("[high] mes-api：http.error_rate 0.3（平常 0.02）"))
+        self.assertEqual(doc["summary"].splitlines()[0], "[high] mes-api：http.error_rate 0.3（平常 0.02）")
+        self.assertEqual((doc["report_url"], doc["feedback_url"], doc["anomaly_count"]), ("http://r/a-1", "http://f/a-1", 1))
+        self.assertEqual(doc["@timestamp"], C.stamp_of(T0 + timedelta(minutes=5)).isoformat())
+        self.assertNotIn("anoms", doc)
+
+
 class StampIsInThePast(unittest.TestCase):
     """docs/pdca/phase3-locate/2026-10-alert-flap.md：覆蓋寫入剛好落在 Grafana 排定評估與送出查詢之間時，
     @timestamp 不能晚於查詢範圍的結束點，不然開著的件會被當成恢復。"""

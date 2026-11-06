@@ -2,6 +2,7 @@
 import unittest
 
 import aiops.service.rca.analyze as A
+import aiops.core.entity.trace as T
 
 
 def span(sid, parent, service, name, start, dur, kind="Server", target=None, error=False, trace="t1", resource=None, attrs=None):
@@ -23,7 +24,7 @@ def request(trace, db_ms, error=False):
 
 class SelfTimeTest(unittest.TestCase):
     def test_waiting_for_child_is_not_self_time(self):
-        st = A.self_times(request("t1", 3000))
+        st = T.self_times(request("t1", 3000))
         self.assertEqual(st["d"], 3000)       # 等 Oracle 的那段
         self.assertEqual(st["c"], 10)         # wip-worker 自己只有 10ms
         self.assertEqual(st["a"], 15)
@@ -31,26 +32,26 @@ class SelfTimeTest(unittest.TestCase):
     def test_overlapping_children_counted_once(self):
         t = [span("p", None, "s", "x", 0, 100), span("c1", "p", "s", "y", 10, 50, kind="Client"),
              span("c2", "p", "s", "z", 30, 50, kind="Client")]   # 平行呼叫：10～80 被佔掉
-        self.assertEqual(A.self_times(t)["p"], 30)
+        self.assertEqual(T.self_times(t)["p"], 30)
 
 
 class CompareTest(unittest.TestCase):
     def test_bottleneck_ranked_first(self):
-        now = A.group_traces([s for i in range(5) for s in request(f"n{i}", 3000)])
-        ref = A.group_traces([s for i in range(5) for s in request(f"r{i}", 30)])
+        now = T.group_traces([s for i in range(5) for s in request(f"n{i}", 3000)])
+        ref = T.group_traces([s for i in range(5) for s in request(f"r{i}", 30)])
         top = A.compare_segments(now, ref)[0]
         self.assertEqual(top.segment, "wip-worker › SELECT LOT_HISTORY → oracle")
         self.assertAlmostEqual(top.delta_ms, 2970)
 
     def test_error_origin_is_deepest_error(self):
-        origins = A.error_origins(request("t1", 30, error=True))
+        origins = T.error_origins(request("t1", 30, error=True))
         self.assertEqual([s["span_id"] for s in origins], ["d"])   # 上面三層只是把錯誤往上傳
 
 
 class TopologyTest(unittest.TestCase):
     def test_edges(self):
-        tr = A.group_traces(request("t1", 30) + request("t2", 40))
-        edges = {(e.caller, e.callee): e.calls for e in A.topology(tr)}
+        tr = T.group_traces(request("t1", 30) + request("t2", 40))
+        edges = {(e.caller, e.callee): e.calls for e in T.topology(tr)}
         self.assertEqual(edges, {("mes-api", "wip-worker"): 2, ("wip-worker", "oracle"): 2})
 
     def test_waterfall_has_every_span(self):
@@ -70,8 +71,8 @@ class CommonalityTest(unittest.TestCase):
 
     def test_slow_requests_all_on_one_pod(self):
         # 慢的 10 個都落在 wip-worker 的 w-bad；平常 3 個 Pod 輪流（各 1/3）
-        now = A.group_traces([s for i in range(10) for s in self.req(f"n{i}", "w-bad")])
-        ref = A.group_traces([s for i in range(12) for s in self.req(f"r{i}", ["w-1", "w-2", "w-bad"][i % 3])])
+        now = T.group_traces([s for i in range(10) for s in self.req(f"n{i}", "w-bad")])
+        ref = T.group_traces([s for i in range(12) for s in self.req(f"r{i}", ["w-1", "w-2", "w-bad"][i % 3])])
         c = A.commonality(now, ref)
         self.assertEqual((c[0].dim, c[0].value, c[0].now, c[0].now_share), ("k8s.pod.name", "wip-worker/w-bad", 10, 1.0))
         self.assertAlmostEqual(c[0].ref_share, 1 / 3)
@@ -81,27 +82,27 @@ class CommonalityTest(unittest.TestCase):
 
     def test_pod_unseen_before_is_flagged_new(self):
         # 換版：慢的請求全在新 Pod，平常那批是舊 Pod（0%）→ 列出來但標「平常沒見過」，不是「這個 Pod 比別的慢」
-        now = A.group_traces([s for i in range(10) for s in self.req(f"n{i}", "w-new")])
-        ref = A.group_traces([s for i in range(10) for s in self.req(f"r{i}", "w-old")])
+        now = T.group_traces([s for i in range(10) for s in self.req(f"n{i}", "w-new")])
+        ref = T.group_traces([s for i in range(10) for s in self.req(f"r{i}", "w-old")])
         c = A.commonality(now, ref)
         self.assertEqual((c[0].value, c[0].ref_share, c[0].is_new), ("wip-worker/w-new", 0.0, True))
 
     def test_single_pod_is_not_a_finding(self):
-        now = A.group_traces([s for i in range(10) for s in self.req(f"n{i}", "w-1")])
-        ref = A.group_traces([s for i in range(10) for s in self.req(f"r{i}", "w-1")])
+        now = T.group_traces([s for i in range(10) for s in self.req(f"n{i}", "w-1")])
+        ref = T.group_traces([s for i in range(10) for s in self.req(f"r{i}", "w-1")])
         self.assertEqual(A.commonality(now, ref), [])
 
     def test_sql_in_common(self):
-        now = A.group_traces([s for i in range(10) for s in self.req(f"n{i}", ["w-1", "w-2"][i % 2], sql="SELECT * FROM LOT_HISTORY")])
-        ref = A.group_traces([s for i in range(10) for s in self.req(f"r{i}", ["w-1", "w-2"][i % 2], sql=["SELECT 1", "SELECT * FROM LOT_HISTORY"][i % 5 == 0])])
+        now = T.group_traces([s for i in range(10) for s in self.req(f"n{i}", ["w-1", "w-2"][i % 2], sql="SELECT * FROM LOT_HISTORY")])
+        ref = T.group_traces([s for i in range(10) for s in self.req(f"r{i}", ["w-1", "w-2"][i % 2], sql=["SELECT 1", "SELECT * FROM LOT_HISTORY"][i % 5 == 0])])
         c = A.commonality(now, ref)
         self.assertEqual((c[0].dim, c[0].value), ("db.statement", "SELECT * FROM LOT_HISTORY"))
         self.assertEqual((c[0].now_share, c[0].ref_share), (1.0, 0.2))
 
     def test_too_few_or_no_reference(self):
-        now = A.group_traces([s for i in range(3) for s in self.req(f"n{i}", "w-bad")])
+        now = T.group_traces([s for i in range(3) for s in self.req(f"n{i}", "w-bad")])
         self.assertEqual(A.commonality(now, {}), [])
-        self.assertEqual(A.commonality(now, A.group_traces(self.req("r", "w-1"))), [])
+        self.assertEqual(A.commonality(now, T.group_traces(self.req("r", "w-1"))), [])
 
 
 class TrendTest(unittest.TestCase):

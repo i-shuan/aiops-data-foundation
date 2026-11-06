@@ -45,7 +45,7 @@ Grafana（⑧）         讀 aiops-alerts 發通知；儀表板讀 alerts、anom
 
 ## aiops-anomalies：一筆異常
 
-寫入：`detector/cmd_baseline.py`（動態基準線學習，每次 detect）、`cmd_rules.py`（靜態臨界值規則）、`cmd_peer.py`（Pod 同儕橫向比對）、`cmd_trace.py`（trace 的基準線與規則）、`cmd_quality.py`（資料品質）。事件整合另外用部分更新補上 `alert_id`。
+寫入：`service/detect/baseline_job.py`（動態基準線學習，每次 detect）、`rules.py`（靜態臨界值規則）、`peer.py`（Pod 同儕橫向比對）、`trace_stats.py`（trace 的基準線與規則）、`quality.py`（資料品質），都經 `core/repository/anomaly.py` 的 `AnomalyRepository.write`。事件整合另外用部分更新補上 `alert_id`。
 
 | 欄位 | 型別 | 說明 |
 |---|---|---|
@@ -66,11 +66,11 @@ Grafana（⑧）         讀 aiops-alerts 發通知；儀表板讀 alerts、anom
 | `p` | double | 卜瓦松的機率 |
 | `dept`、`group` | keyword | 寫入時由 `AnomalyRepository.write` 補（歸屬查 `core/repository/owner.py`）：依 `keys` 裡的 namespace（優先，dept 是 namespace 的 label）或服務，對回 metrics 裡的部門與 group；找不到就是 null、`unassigned` |
 | `alert_id` | keyword | 併進哪一件；事件整合寫回，沒併進去的沒有 |
-| `rule`、`severity`、`message` | keyword、keyword、text | 動態基準線學習的沒有，`rule`、`peer`、`quality` 的有：規則名、嚴重度、給人看的一句話。**這三個欄位不在 `ANOMALY_MAPPING`**，由 `rules`、`peer`、`trace`、`quality` 第一次跑時用 `PUT _mapping` 補進索引（`detector/common.py` 的 `RULE_FIELDS`），所以只跑過 detect 的新索引沒有它們 |
+| `rule`、`severity`、`message` | keyword、keyword、text | 動態基準線學習的沒有，`rule`、`peer`、`quality` 的有：規則名、嚴重度、給人看的一句話。**這三個欄位不在 `ANOMALY_MAPPING`**，由 `rules`、`peer`、`trace`、`quality` 第一次跑時用 `PUT _mapping` 補進索引（`core/entity/anomaly.py` 的 `RULE_FIELDS`，`AnomalyRepository.ensure` 補），所以只跑過 detect 的新索引沒有它們 |
 | `since` | 不索引 | 只有靜態規則有：條件開始成立的時間 |
-| `engine_version` | keyword | 哪一版 engine 寫的（`core/version.py`：環境變數 `ENGINE_VERSION`，chart 填 image tag；本機是 `dev`）。五種寫入都經 `detector/owner.py`，都有 |
+| `engine_version` | keyword | 哪一版 engine 寫的（`aiops.ENGINE_VERSION`：環境變數 `ENGINE_VERSION`，chart 填 image tag；本機是 `dev`）。五種寫入都經 `AnomalyRepository.write`，都有 |
 
-**哪些異常會自己開一件**（`investigator/alerts.py`）：`severity: critical` 的規則、`status: anomaly` 的基準線、資料品質會直接開；`severity: warning` 的規則、同儕橫向比對是弱的，同一個服務在 `close_after` 內有 2 筆以上才開；基準線的 `status: warning` 只併進已開著的件。
+**哪些異常會自己開一件**（`service/converge/merge.py`）：`severity: critical` 的規則、`status: anomaly` 的基準線、資料品質會直接開；`severity: warning` 的規則、同儕橫向比對是弱的，同一個服務在 `close_after` 內有 2 筆以上才開；基準線的 `status: warning` 只併進已開著的件。
 | `detected_at` | date | 偵測程式跑的時間 |
 
 範例（動態基準線學習，小時粒度、卜瓦松）：
@@ -97,7 +97,7 @@ Grafana（⑧）         讀 aiops-alerts 發通知；儀表板讀 alerts、anom
 
 ## aiops-alerts：一件事故（Grafana 通知讀這個）
 
-寫入：`investigator alert`（`aiops-engine/code/investigator/cmd_alert.py`），每 1～2 分鐘跑一次。同一個服務最近的異常合成一件；超過 `close_after`（預設 30 分鐘）沒有新異常就結束（`resolved`）。
+寫入：`investigator alert`（`aiops-engine/code/aiops/service/converge/alert_service.py`），每 1～2 分鐘跑一次。同一個服務最近的異常合成一件；超過 `close_after`（預設 30 分鐘）沒有新異常就結束（`resolved`）。
 
 **`@timestamp` 的意思**：開著的件每輪都改成「這一輪的時間」，結束的件是 `resolved_at`。Grafana 的告警規則只看最近 5 分鐘、`status:open`，所以事件整合停了，所有件都會查不到，要靠心跳規則（見下）。
 
@@ -123,7 +123,7 @@ Grafana（⑧）         讀 aiops-alerts 發通知；儀表板讀 alerts、anom
 | `suggested_category`、`category_confidence` | keyword、double | 告警分類：相似事故（只有確認過的）以分數投票的結果與信心（贏的那類分數 ÷ 全部）；沒有相似的就空。回饋表單預帶這個分類，人改掉就是 `corrected`（[case 只做分類](pdca/meta/2026-11-case-classify.md)） |
 | `llm_summary`、`llm_provider` | text、keyword | LLM 摘要與誰產的：`template`（固定句型，沒設 LLM）、`anthropic`、`openai`；模型回空的或失敗時寫成 `template（<原本的 provider> 回空的）`、`template（<provider> 失敗：…）`。每一句要附依據編號，驗證沒過就沒有摘要（`llm_summary` 空） |
 
-**`findings`**（`investigator/__main__.py` 的 `investigate_full`）：
+**`findings`**（`service/rca/report.py` 的 `investigate_full`）：
 
 | 子欄位 | 內容 |
 |---|---|
@@ -137,7 +137,7 @@ Grafana（⑧）         讀 aiops-alerts 發通知；儀表板讀 alerts、anom
 
 沒有 trace 的環境（例如合成資料），`segments`、`error_origins`、`topology` 是空陣列，報告的 Trace 段會寫「這段時間沒有這個服務的 trace」。
 
-**`similar[]`**（`investigator/similar.py` 的 `search`）：每筆是一件過去的事故，加上為什麼像：
+**`similar[]`**（`service/rca/similar.py` 的 `search`）：每筆是一件過去的事故，加上為什麼像：
 
 | 子欄位 | 內容 |
 |---|---|
@@ -212,7 +212,7 @@ Grafana（⑧）         讀 aiops-alerts 發通知；儀表板讀 alerts、anom
 
 **相似事故檢索只用 `confirmed`、`corrected`**：沒人確認過的、被標誤報的，都不會被當成「過去相似」，也不會被 LLM 引用。
 
-**`fingerprint`** 六組陣列，比對時每組加權（`investigator/similar.py` 的 `WEIGHTS`；低於 4 分不算像，最多取前 3 件；檢索可以排除指定的一件，但事件整合沒有傳：新的一件剛開時它在事故庫裡還是 `auto`，本來就查不到自己）：
+**`fingerprint`** 六組陣列，比對時每組加權（`core/entity/incident.py` 的 `DEFAULT_WEIGHTS`；低於 4 分不算像，最多取前 3 件；檢索可以排除指定的一件，但事件整合沒有傳：新的一件剛開時它在事故庫裡還是 `auto`，本來就查不到自己）：
 
 | 欄位 | 內容 | 權重 |
 |---|---|---|

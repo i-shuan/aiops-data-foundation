@@ -52,12 +52,12 @@ def topology(cfg: dict, args) -> str:
     start = end - _dur(args.window)
     ids = traces.recent_trace_ids(ix, start, end, args.sample)
     tr = T.group_traces(traces.spans(ix, ids, start - timedelta(minutes=5), end + timedelta(minutes=5)))
-    edges = A.topology(tr)
+    edges = T.topology(tr)
     tz = cfg.get("timezone", "Asia/Taipei")
     out = [f"# 服務之間的呼叫關係：{_local(start, tz)}～{_local(end, tz)}（{tz}，最近 {len(tr)} 個請求）", "",
            "| 呼叫方 | 被呼叫 | 次數 | 錯誤 | p95 |", "|---|---|---|---|---|"]
     out += [f"| {e.caller} | {e.callee} | {e.calls} | {e.errors} | {_ms(e.p95())} |" for e in edges]
-    out += ["", "```mermaid", A.mermaid(edges), "```"]
+    out += ["", "```mermaid", T.mermaid(edges), "```"]
     return "\n".join(out)
 
 

@@ -23,7 +23,7 @@ import pandas as pd
 from aiops.core.connection import doc_id
 from aiops.core.entity.incident import Fingerprint
 
-from aiops.core.entity.feedback import FEEDBACK_INDEX, FEEDBACK_MAPPING, RCA_USEFUL, VERDICTS  # noqa: F401  索引、mapping 在 entity；這裡的名字留給既有的 import
+from aiops.core.entity.feedback import VERDICTS
 # identified_cause（core/llm.py 的 CAUSE_CODES）→ 表單的根因分類；規則草稿的 root_cause_category 用。沒列的是 other
 CAUSE_CATEGORY = {"db_slow_query": "db", "db_lock": "db", "db_connection_pool": "db", "network": "network", "dns": "network",
                   "config_change": "config_change", "deploy": "deploy", "external_api": "external", "resource_cpu": "resource",

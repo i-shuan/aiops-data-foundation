@@ -77,7 +77,7 @@ class ApmSpanTest(unittest.TestCase):
 
     def test_merge_builds_the_same_document_as_from_otel(self):
         spans = [T.to_span(d) for d in (TX, HTTP, APP, DB)]
-        index, doc = M.build(spans, datetime(2026, 11, 2, 1, 5, tzinfo=timezone.utc))
+        index, doc = T.merged_doc(spans, datetime(2026, 11, 2, 1, 5, tzinfo=timezone.utc))
         self.assertEqual(index, "traces-merged-it-2026.11.02")     # group 用 labels.group
         self.assertEqual(doc["root"], {"service": "mes-api", "name": "GET /lots/{id}", "kind": "Server", "error": False})
         self.assertEqual([e["span_id"] for e in doc["entries"]], ["tx1"])

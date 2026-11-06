@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from statistics import median
 
 from aiops.core.connection import get_field
-from aiops.core.entity.trace import Edge, error_origins, group_traces, mermaid, root_of, segment, self_times, topology  # noqa: F401  拓樸在 entity；名字留給既有的 import
+from aiops.core.entity.trace import error_origins, root_of, segment, self_times
 
 
 @dataclass

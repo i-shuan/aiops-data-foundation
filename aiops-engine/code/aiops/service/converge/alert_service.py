@@ -218,10 +218,10 @@ def investigate_alert(repo: Repos, cfg: dict, acfg: dict, al: Alert, now: dateti
     al.report_text, al.llm = _with_head(report, llm, similar, cls), llm
 
 
-def alert_doc(al: Alert, acfg: dict, now: datetime, tz: ZoneInfo, relinked: set[str]) -> dict:
+def alert_doc(al: Alert, acfg: dict, now: datetime, tz: ZoneInfo, relinked: set[str], sc) -> dict:
     """要寫進 aiops-alerts 的那份：有變的件重寫標題與摘要；報告全文加回饋連結、連結、筆數、LLM 摘要、@timestamp 補上；to_doc 不寫執行期欄位、時間轉字串。"""
     if al.anoms or al.new or al.rerun or not al.summary or al.alert_id in relinked:
-        al.title, al.summary = AL.headline(al, sc=repo.scenario), AL.summary(al, al.report_text, tz, al.similar, sc=repo.scenario)
+        al.title, al.summary = AL.headline(al, sc=sc), AL.summary(al, al.report_text, tz, al.similar, sc=sc)
     url, furl = acfg.get("report_url"), acfg.get("feedback_url")
     fb = furl.format(alert_id=al.alert_id) if furl else None
     al.report = with_feedback_footer(al.report_text, fb)
@@ -282,7 +282,7 @@ def run(cfg: dict, args, investigate) -> int:
     relinked = AL.link_shared(alerts)
     docs, incidents, tags, new, resolved = [], [], [], 0, 0
     for al in alerts:
-        doc = alert_doc(al, acfg, now, tz, relinked)
+        doc = alert_doc(al, acfg, now, tz, relinked, repo.scenario)
         docs.append((al.alert_id, doc))
         if al.merged_into:
             # 上游那件整件併進下游：它的異常改標下游那件（下游那件這輪有 _anoms，會一起寫）；這筆標 resolved 寫回去，

@@ -259,19 +259,41 @@ aiops-engine/code/
 - cli 沒再拆：S0 已是 `detect.py`（組合根，含情境加的子命令）、`feedback.py`、`rca.py`、`common.py`；`jobs/` 已在 S0 搬好。
 - Check：`pytest` 763 過、16 skipped（web 的測試改成 import `feedback_service`／`dto`／`views`；斷言不變）；`check-docs` 0 問題。
 
+### S5 做了什麼（2026-11-06）
+
+- 刪掉殘餘：空的 `feedback/`、`service/detect/_util.RULE_FIELDS`、`trace_merge.build`、`merge.NS_KEYS`、`suggest.FEEDBACK_*`、`analyze` 的 trace 轉手等「名字留給既有 import」的 re-export（用的人直接 import entity）。
+  相容入口留著（`detector/`、`investigator/`、`scheduler/`、`tasks/`、`api/` 各 2 行；排程表、helm 不用改）。
+- 文件：CLAUDE.md 的結構表改成四層；architecture 4.2 的資料夾段與 §8 的程式路徑；aiops-data-reference、data-storage-reference、detection-and-learning、
+  aiops-engine/README、interfaces/README 的舊路徑；docs/README 拿掉 `models/README` 那列。PDCA 紀錄裡的舊路徑是當時措辭，不回頭改。
+- 對真 ES（容器裡的 8.19.0）跑 e2e 抓到一個單元測試沒蓋到的錯：`alert_service.alert_doc` 用了不在範圍內的 `repo`（S2 把情境改成傳參數時漏傳）；
+  修掉並加 `tests/test_cmd_alert.py::AlertDocUsesScenario`。
+- 現況：`aiops/` 95 個 .py、11,715 行（core 2,416、scenario 777、service 6,368、interface 1,340、config 805）；106 個類別、714 個函式；tests 14,317 行。
+  相對 master：254 個檔案、+5,910／−6,235 行。
+
 ## Check：預計要驗證的
 
 | 測試目的（為了確認什麼） | 怎麼測 | 結果 |
 |---|---|---|
-| 每步行為沒變 | 每步結束 `pytest -q`；基準是現在的 785 過、16 skipped | 未做 |
-| 對真的 ES 與 Grafana 仍然通 | S1、S2、S5 後跑 `loop_e2e`（45/45）、`chain_e2e`（26/26）；Grafana 13.0.7 的規則、webhook、10 個面板查詢 | 未做 |
-| 索引名與 ES DSL 只在 repository | `test_layers` 擴大：`aiops-*` 的字面值與 `"bool"`／`"terms"`／`"query"` 只能出現在 `core/repository/` | 未做 |
-| 依賴方向 | `test_layers`：interface → service → scenario → core | 未做 |
-| 排程與 helm 不用改 | `tests/test_cli.py::ScheduleCommands`：排程表裡每條 `python -m detector …`、`investigator …` 還解析得過 | 未做 |
-| 網頁版與命令列版回饋結果一致 | 同一筆輸入走 `FeedbackService.submit` 與 `feedback add`，比對寫進 ES 的文件 | 未做 |
-| 舊路由相容 | `/feedback`、`/api/feedback`、`/missed`、`/api/missed`、`/rca`、`/api/rca` 的狀態碼與回應 | 未做 |
+| 每步行為沒變 | 每步結束 `pytest -q`；基準是現在的 785 過、16 skipped | ✅ 每步都全綠；最後 764 過、16 skipped（少的是刪掉 file／http 來源、Backend／Store 的測試與舊 plugin 測試，加了 repository、Scenario、alert_doc 的） |
+| 對真的 ES 與 Grafana 仍然通 | S1、S2、S5 後跑 `loop_e2e`（45/45）、`chain_e2e`（26/26）；Grafana 13.0.7 的規則、webhook、10 個面板查詢 | ✅ S5 後對容器裡的 ES 8.19.0：`loop_e2e` 43/45（2 個 FAIL 是改之前就有的過期斷言「過去相似」，`claude/e2e-verify` 分支已修）、`chain_e2e` 26/26、`factory_e2e` 15/15、`--plugin metrics_only` 13/13；S1 之前的 e2e 沒跑（容器裡的 ES 要重起，改在 S5 一次跑）。Grafana 13.0.7：4 個 ES 資料來源 healthy、3 條規則 provisioned、webhook 收到「AIOps 停了」（e2e 之間 alert 沒持續跑，預期）；儀表板這次沒重載 provisioning，面板查詢沒重驗 |
+| 索引名與 ES DSL 只在 repository | `test_layers` 擴大：`aiops-*` 的字面值與 `"bool"`／`"terms"`／`"query"` 只能出現在 `core/repository/` | 🟡 九個 `aiops-*` 索引名的字面值鎖在 `core/`（entity 定義、repository 讀寫）；DSL 關鍵字沒鎖（`"query"` 也出現在 series.yaml 的 filter 設定裡，鎖了會誤殺），改用 grep 確認 service／scenario／interface 沒有 `es.req`／`es.search`／`_search`／`_mget`／`_update` |
+| 依賴方向 | `test_layers`：interface → service → scenario → core | ✅ `KNOWN` 清空，沒有例外；函式內 import 只剩 2 個（sqlalchemy 選配、local 模式才載 worker） |
+| 排程與 helm 不用改 | `tests/test_cli.py::ScheduleCommands`：排程表裡每條 `python -m detector …`、`investigator …` 還解析得過 | ✅ 四張排程表全部解析得過；helm 的 `AIOPS_PLUGIN`／`AIOPS_SOURCE` 名字沒變 |
+| 網頁版與命令列版回饋結果一致 | 同一筆輸入走 `FeedbackService.submit` 與 `feedback add`，比對寫進 ES 的文件 | 🟡 兩邊現在在同一個模組（`feedback_service.py`），走同一個 `Repos.feedback`；文件格式本來就一樣（`_id` 都是 `doc_id("feedback", …)`），但「一件的每筆異常各一筆」（網頁）與「一筆異常一筆」（命令列）仍是兩條路，沒有合成一個函式 |
+| 舊路由相容 | `/feedback`、`/api/feedback`、`/missed`、`/api/missed`、`/rca`、`/api/rca` 的狀態碼與回應 | ✅ `test_api_endpoints`、`test_api_http`、`test_grafana_form` 的斷言沒改一個值，全過；三組路由各只剩一個處理函式 |
 
-## Act：預期的風險與沒有答案的
+## Act：做完之後還沒解決的
+
+| 問題 | 在什麼情況下發現 | 打算 |
+|---|---|---|
+| `alert_doc` 漏傳情境，單元測試沒抓到 | S5 跑 `loop_e2e` 第一輪就炸；`test_cmd_alert` 沒有測 `alert_doc` | 已修、已補測試。教訓：把全域單例改成參數時，grep 每一個被改簽名的函式有沒有單元測試 |
+| Grafana 儀表板沒重載 provisioning | 這次只驗了資料來源、規則、webhook | 下次改 Grafana 相關的東西時一起驗；儀表板的 10 個面板查詢沒動過，風險低 |
+| `baseline_job.py` 461 行沒併進 `baseline.py` | S3 併 `*_job` 時：併了會 860 行 | 留著；train／detect／tune 三條流程之後可以再拆成三個檔 |
+| 網頁版與命令列版的回饋仍是兩條寫入路徑 | S4 | 等老師傅的回饋格式定下來（一件一筆還是一筆異常一筆）再合 |
+| `loop_e2e` 的 2 個過期斷言 | 改之前就有（`claude/e2e-verify` 分支已修） | 那個分支合回來就沒了 |
+| 分散式模式（`interface/jobs/worker.py`）保留，但這一輪沒對真 broker 跑 `distributed_e2e` | S5 只跑了一隻 pod 模式的三支 e2e | 下次動 jobs/ 時跑 |
+
+## Act（計畫時）：預期的風險與沒有答案的
 
 | 風險／問題 | 影響 | 打算怎麼處理 |
 |---|---|---|

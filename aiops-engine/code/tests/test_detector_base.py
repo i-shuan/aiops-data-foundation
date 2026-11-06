@@ -11,8 +11,7 @@ import pandas as pd
 
 import aiops.service.detect.base as B
 from aiops.service.detect.base import Anomaly, Detector
-from aiops.service.detect._util import RULE_FIELDS
-from aiops.core.entity.anomaly import ANOMALY_INDEX, ANOMALY_MAPPING
+from aiops.core.entity.anomaly import ANOMALY_INDEX, ANOMALY_MAPPING, RULE_FIELDS
 from aiops.core.repository import Repos
 from aiops.scenario import load_scenario
 

@@ -44,7 +44,6 @@
 | [../aiops-engine/code/aiops/scenario/README.md](../aiops-engine/code/aiops/scenario/README.md) | 操作 | 情境：`AIOPS_PLUGIN` 選 observability／factory／metrics_only、三份資料檔（yaml）各填了什麼、兩個策略、哪些功能在哪個情境能用、怎麼自己寫一個 | 🟢（三個都有單元測試；factory、metrics_only 假資料 e2e 跑通） |
 | [../aiops-engine/code/configs/factory/README.md](../aiops-engine/code/configs/factory/README.md) | 操作 | 工廠（`AIOPS_PLUGIN=factory`）：ML／FDC 判好的異常接進 ⑤、MES＋S6F11 合成履歷取代 trace、機台 alarm／PM／recipe 變更當 log、前後站併件、誤報匯出給 ML；要給什麼資料、怎麼跑、哪些功能能用 | 🟡（假資料跑通；欄位名是假設） |
 | [../aiops-engine/code/aiops/core/repository/README.md](../aiops-engine/code/aiops/core/repository/README.md) | 規格 | repository 層：一個實體一個，索引名與 ES 查詢只在這裡；`Repos` 怎麼用、每個 repository 管哪個索引 | 🟢 |
-| [../aiops-engine/code/models/README.md](pdca/meta/2026-11-target-architecture.md) | 規格 | 五個模型的標準輸入（欄位、一列是什麼）與主要函式 | 🟢 |
 | [../aiops-engine/code/interfaces/README.md](../aiops-engine/code/interfaces/README.md) | 規格 | 要別人提供的資料的格式 | 🟢 |
 | [../aiops-engine/code/fake-data/README.md](../aiops-engine/code/fake-data/README.md) | 規格 | 假資料（只為了讓程式現在能跑、能測） | 🟢 |
 
@@ -67,7 +66,7 @@
 | 我要… | 看這些 |
 |---|---|
 | **懂為什麼這樣設計**（原理） | [architecture.md](architecture.md)、[rca](rca/README.md)・[feedback](feedback/README.md) 的 README（各自也含規格、操作、案例章節） |
-| **做一件事**（操作） | [部署](deploy-how-to.md)、[troubleshooting.md](troubleshooting.md)、[接 Elastic APM 的資料](../aiops-engine/code/configs/apm/README.md)、[選 plugin／自己寫一個](../aiops-engine/code/aiops/scenario/README.md)、[工廠怎麼接](../aiops-engine/code/configs/factory/README.md)、[baseline 怎麼跑](../aiops-engine/code/configs/baseline/README.md)、[在 ES 補設定](../elasticsearch/kibana-dev-tools.txt) |
+| **做一件事**（操作） | [部署](deploy-how-to.md)、[troubleshooting.md](troubleshooting.md)、[接 Elastic APM 的資料](../aiops-engine/code/configs/apm/README.md)、[選情境／自己寫一份](../aiops-engine/code/aiops/scenario/README.md)、[工廠怎麼接](../aiops-engine/code/configs/factory/README.md)、[baseline 怎麼跑](../aiops-engine/code/configs/baseline/README.md)、[在 ES 補設定](../elasticsearch/kibana-dev-tools.txt) |
 | **查欄位、參數、現況**（規格） | [aiops-data-reference.md](aiops-data-reference.md)、[data-storage-reference.md](data-storage-reference.md)、[baseline 規格](../aiops-engine/code/configs/baseline/reference.md) |
 | **看實例**（案例） | [baseline 實測](../aiops-engine/code/configs/baseline/verification.md)、[範例報告](../aiops-engine/code/configs/rca/example-report.md)；故障案例的歸納在 [rca/README.md](rca/README.md) |
 

@@ -24,7 +24,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 
 from aiops.core.entity.alert import SEVERITY, Alert  # noqa: F401  SEVERITY 給 alert_service 用
-from aiops.core.entity.anomaly import NODE_KEYS, NS_KEYS, entity_of as _entity_of  # noqa: F401  名字留給既有的 import
+from aiops.core.entity.anomaly import entity_of as _entity_of
 from aiops.scenario import Scenario, load_scenario
 
 _ts = Alert._ts

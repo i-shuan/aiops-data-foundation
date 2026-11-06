@@ -13,7 +13,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 from aiops.core.connection import time_range
-from aiops.core.entity.trace import MERGED_PREFIX, Trace, is_entry, merged_doc as build  # noqa: F401  合成的文件格式在 entity；名字留給既有的 import
+from aiops.core.entity.trace import Trace
 
 STATE_ID = "trace-merge"
 

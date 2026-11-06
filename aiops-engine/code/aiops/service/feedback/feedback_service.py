@@ -14,7 +14,7 @@ import aiops.service.rca.llm as LLM
 from aiops import CODE_ROOT
 from aiops.config.loader import load_config
 from aiops.core.connection import ES, doc_id
-from aiops.core.entity.feedback import RCA_USEFUL
+from aiops.core.entity.feedback import RCA_USEFUL, VERDICTS
 from aiops.core.entity.incident import Incident
 from aiops.core.repository import Repos
 from aiops.scenario import load_scenario
@@ -314,7 +314,7 @@ def feedback_add(cfg: dict, args) -> int:
     """值班對一筆異常（或漏報）的判斷：真的／誤報／根因錯／漏報；--text 一句話讓系統抽。"""
     repo, now = _connect(), _now(None)
     if not args.verdict and not args.text:
-        print(f"要給 --verdict（{'、'.join(F.VERDICTS)}），或 --text 一句話讓系統抽")
+        print(f"要給 --verdict（{'、'.join(VERDICTS)}），或 --text 一句話讓系統抽")
         return 2
     doc = {"@timestamp": now.isoformat(), "note": args.note, "by": args.by, "incident_id": args.incident, "correct_root_cause": args.root_cause}
     rc = _target(repo, cfg, args, doc)
@@ -332,9 +332,9 @@ def feedback_add(cfg: dict, args) -> int:
     # 讓它決定 verdict 會寫錯資料；退路抽的只存在 extract 裡給人看
     from_model = bool(ext and ext["ok"] and not ext["provider"].startswith("template"))
     verdict = args.verdict or (ext["fields"]["feedback_type"] if from_model else None)
-    if verdict not in F.VERDICTS:
+    if verdict not in VERDICTS:
         why = ("（一句話是關鍵字退路抽的，不拿來當 verdict）" if ext and ext["ok"] else "（一句話沒抽出 feedback_type）") if args.text and not args.verdict else ""
-        print(f"--verdict 要是 {'、'.join(F.VERDICTS)}{why}")
+        print(f"--verdict 要是 {'、'.join(VERDICTS)}{why}")
         return 2
     doc["verdict"] = verdict
     doc = {k: v for k, v in doc.items() if v not in (None, "")}
