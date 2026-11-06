@@ -9,9 +9,9 @@ from datetime import datetime, timedelta
 from unittest import mock
 from zoneinfo import ZoneInfo
 
-import tasks
-from scheduler.cron import Cron
-from scheduler.runner import QUEUES, Job, default_queue, load_schedule, tick
+import aiops.interface.jobs.worker as tasks
+from aiops.interface.jobs.cron import Cron
+from aiops.interface.jobs.runner import QUEUES, Job, default_queue, load_schedule, tick
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 TPE = ZoneInfo("Asia/Taipei")
@@ -99,7 +99,7 @@ class Enqueue(unittest.TestCase):
         """tick 給了 run 就只呼叫它：不開執行緒、不管上一次有沒有在跑、不符合 cron 的不丟。"""
         jobs = [job("a", "* * * * *"), job("b", "*/5 * * * *"), job("c", "0 2 * * *")]
         got = []
-        with mock.patch("scheduler.runner.threading.Thread") as th:
+        with mock.patch("aiops.interface.jobs.runner.threading.Thread") as th:
             names = tick(jobs, at(2026, 10, 31, 9, 7), run=lambda j, t: got.append((j.name, t)))
         self.assertEqual(names, ["a"])
         self.assertEqual(got, [("a", at(2026, 10, 31, 9, 7))])

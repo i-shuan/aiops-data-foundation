@@ -23,7 +23,7 @@ from datetime import datetime, timedelta, timezone
 
 import redis
 
-from core.es import ES
+from aiops.core.connection import ES
 
 PY = sys.executable
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -95,10 +95,10 @@ def main() -> int:
 
     try:
         print("== 1. 起 beat、三個 worker、api（跟 chart 的 distributed 一樣的指令）")
-        start("beat", "scheduler", "--config", "configs/factory/schedule.yaml", "--stage", "2", "--enqueue", "--alive-file", os.path.join(OUT, "beat-alive"))
+        start("beat", "aiops.interface.jobs", "--config", "configs/factory/schedule.yaml", "--stage", "2", "--enqueue", "--alive-file", os.path.join(OUT, "beat-alive"))
         for q, c in (("realtime", "2"), ("alert", "1"), ("batch", "1")):
-            start(f"worker-{q}", "tasks", "worker", "--queue", q, "--concurrency", c)
-        start("api", "api")
+            start(f"worker-{q}", "aiops.interface.jobs.worker", "worker", "--queue", q, "--concurrency", c)
+        start("aiops.interface.web", "aiops.interface.web")
         check("api 起來了（/health）", wait_for(_health, 30))
         print("== 2. 等 beat 丟兩輪（約 2 分鐘）：工作進對的佇列、worker 真的跑了、佇列不堆積")
         beat = wait_for(lambda: ("[beat] alert" in log_of("beat") and "[beat] ingest" in log_of("beat")) and log_of("beat"), 150)

@@ -4,7 +4,7 @@ import os
 import unittest
 from unittest import mock
 
-from core import version as V
+import aiops as V
 
 
 class EngineVersion(unittest.TestCase):

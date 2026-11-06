@@ -1,8 +1,8 @@
 """異常總表的歸屬（core.owner）與寫入（sources.write_anomalies）：依 namespace、服務對回 dept、group。"""
 import unittest
 
-from core import owner as O
-from sources import write_anomalies
+import aiops.core.repository.owner as O
+from aiops.core.repository import write_anomalies
 
 
 def bucket(key, dept, group):
@@ -66,8 +66,8 @@ class WriteAnomalies(unittest.TestCase):
 
     def test_every_doc_carries_engine_version(self):
         # 五種寫入（baseline、規則、peer、quality、trace）都走這裡，所以在這裡補就等於每筆都有；欄位也要在 mapping（dynamic false）
-        from core.version import ENGINE_VERSION
-        from core.anomaly import ANOMALY_MAPPING
+        from aiops import ENGINE_VERSION
+        from aiops.core.entity.anomaly import ANOMALY_MAPPING
         class Fake:
             def __init__(self): self.written = None
             def req(self, *a, **k): return {}

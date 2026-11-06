@@ -6,8 +6,8 @@ import unittest
 
 import yaml
 
-from core.config import KINDS, ConfigError, load_config, validate
-from core.config_models import MODELS
+from aiops.config.loader import KINDS, ConfigError, load_config, validate
+from aiops.config.models import MODELS
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 CODE = os.path.join(HERE, "..")
@@ -114,7 +114,7 @@ class BadConfigsAreCaught(unittest.TestCase):
 
     def test_schedule_goes_through_loader(self):
         """scheduler/runner.load_schedule 用 load_config：排程表的鍵打錯在這裡就擋。"""
-        from scheduler.runner import load_schedule
+        from aiops.interface.jobs.runner import load_schedule
         path = self._write("schedule.yaml", "timezone: Asia/Taipei\njobs:\n  - name: a\n    cron: '* * * * *'\n    args: [detector, rules]\n    timeout: 50\n    retry: 1\n")
         with self.assertRaises(ConfigError) as cm:
             load_schedule(path, 2)

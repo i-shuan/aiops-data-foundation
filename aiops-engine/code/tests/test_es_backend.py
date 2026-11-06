@@ -5,13 +5,13 @@ import unittest
 
 import pandas as pd
 
-import sources
-from core.version import ENGINE_VERSION
-from sources import write_anomalies
-from detector import rules as R
-from detector import es as DE
-from investigator import similar as SIM
-from sources.base import as_backend
+import aiops.core.repository as sources
+from aiops import ENGINE_VERSION
+from aiops.core.repository import write_anomalies
+import aiops.service.detect.rules as R
+import aiops.service.detect.es_facade as DE
+import aiops.service.rca.similar as SIM
+from aiops.core.repository.base import as_backend
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 CODE = os.path.dirname(HERE)
@@ -124,7 +124,7 @@ class NoTypeBranches(unittest.TestCase):
     def test_no_is_backend_or_hasattr_es_left(self):
         """重構的重點：程式裡不再有「傳進來的是不是 Backend」的分支。"""
         bad = []
-        for pkg in ("detector", "investigator", "core", "plugins", "sources", "api"):
+        for pkg in ("detector", "investigator", "core", "plugins", "aiops.core.repository", "aiops.interface.web"):
             for root, _, files in os.walk(os.path.join(CODE, pkg)):
                 for fn in files:
                     if fn.endswith(".py"):

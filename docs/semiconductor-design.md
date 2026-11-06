@@ -1,6 +1,6 @@
 # 半導體（FDC）：沒有 trace id 時怎麼做 AIOps
 
-> **類型：原理 Explanation**　目前的設計見 [architecture.md](architecture.md)・五個模型的輸入規格見 [models/README.md](../aiops-engine/code/models/README.md)・資料怎麼餵進來見 [sources/README.md](../aiops-engine/code/sources/README.md)
+> **類型：原理 Explanation**　目前的設計見 [architecture.md](architecture.md)・五個模型的輸入規格見 [models/README.md](pdca/meta/2026-11-target-architecture.md)・資料怎麼餵進來見 [sources/README.md](../aiops-engine/code/aiops/core/repository/README.md)
 > 🟡 部分實作：工廠版 engine（`configs/factory/`）已用假資料整條跑通，怎麼跑、要給什麼資料見 [configs/factory/README.md](../aiops-engine/code/configs/factory/README.md)；沒有 MES 歷程、FDC 的欄位樣本，欄位名是假設，拿到樣本要重對。現況見文末。
 
 目前的設計是一般服務（Web API、worker、Kafka、DB）：靠 Elastic APM 的 trace id 把「一個請求經過哪幾段」串起來。半導體的 FDC（Fault Detection and Classification）沒有 trace id，但有同樣功能的鍵：**lot（或 wafer）的加工路徑**。這份說明路徑怎麼取代 trace、五個模型各要改什麼、跟目前設計差在哪。
@@ -87,7 +87,7 @@
 
 ## 現況（2026-11）
 
-廠方的異常由 ML 團隊的模型（異常跳點）和 FDC 鳴叫系統判，所以**沒有照上表做 M1～M3**，改成 engine 從 ⑤ 開始接；其餘照對照表做了第一版（[configs/factory/README.md](../aiops-engine/code/configs/factory/README.md)、[PDCA](pdca/meta/2026-11-factory-engine.md)）。工廠是 engine 的一個 plugin（`AIOPS_PLUGIN=factory`），沒有 MES 履歷時用 `metrics_only`（只有異常、log、事故前的變更，不併前後站；[plugins/README.md](../aiops-engine/code/plugins/README.md)、[PDCA](pdca/meta/2026-11-plugin-architecture.md)）：
+廠方的異常由 ML 團隊的模型（異常跳點）和 FDC 鳴叫系統判，所以**沒有照上表做 M1～M3**，改成 engine 從 ⑤ 開始接；其餘照對照表做了第一版（[configs/factory/README.md](../aiops-engine/code/configs/factory/README.md)、[PDCA](pdca/meta/2026-11-factory-engine.md)）。工廠是 engine 的一個 plugin（`AIOPS_PLUGIN=factory`），沒有 MES 履歷時用 `metrics_only`（只有異常、log、事故前的變更，不併前後站；[plugins/README.md](../aiops-engine/code/aiops/scenario/README.md)、[PDCA](pdca/meta/2026-11-plugin-architecture.md)）：
 
 | 對照表的項目 | 做了 | 沒做 |
 |---|---|---|

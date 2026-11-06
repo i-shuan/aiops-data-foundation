@@ -8,7 +8,7 @@ from unittest import mock
 import pandas as pd
 import yaml
 
-from detector import cmd_prune as P
+import aiops.service.detect.prune as P
 
 NOW = pd.Timestamp("2026-11-01T03:30:00Z")
 CFG = {"timezone": "Asia/Taipei", "indices": [

@@ -4,7 +4,7 @@ import unittest
 import pandas as pd
 import yaml
 
-from detector import rules as R
+import aiops.service.detect.rules as R
 
 NOW = pd.Timestamp("2026-10-10T10:00:00Z")
 
@@ -51,7 +51,7 @@ class HoldTest(unittest.TestCase):
     rule = {"type": "compare", "field": "metrics.available", "other": "metrics.desired", "op": ">=", "threshold": 1, "for": "3m"}
 
     def series(self, available):
-        return {("ns", "api"): pts(*available, field="metrics.available", extra=[{"desired": 2}] * len(available))}
+        return {("ns", "aiops.interface.web"): pts(*available, field="metrics.available", extra=[{"desired": 2}] * len(available))}
 
     def test_short_dip_during_rollout_ignored(self):
         self.assertEqual(R.evaluate(self.rule, self.series([2, 2, 2, 2, 1, 1]), NOW), [])   # 只少了 30 秒
@@ -221,12 +221,12 @@ class ClockOffsetTest(unittest.TestCase):
             "fresh": "40m"}
 
     def test_abs_both_directions(self):
-        from detector import rules as R
+        import aiops.service.detect.rules as R
         self.assertEqual(R.sample_value(self.rule, {"metrics": {"ntp.offset": -300_000_000}}), 300_000_000)
         self.assertEqual(R.sample_value({**self.rule, "abs": False}, {"metrics": {"ntp.offset": -300_000_000}}), -300_000_000)
 
     def test_message_in_ms(self):
-        from detector import rules as R
+        import aiops.service.detect.rules as R
         msg = R.describe(self.rule, {"key": ("node-1",), "value": 2_500_460_925})
         self.assertIn("2,500 毫秒", msg)
         self.assertIn("100 毫秒", msg)

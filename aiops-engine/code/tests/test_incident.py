@@ -7,10 +7,10 @@ from datetime import datetime, timezone
 
 from pydantic import ValidationError
 
-from core.alert import Alert
-from core.incident import INCIDENT_MAPPING, UNMAPPED_FIELDS, Fingerprint, Incident
-from feedback import importer as IMP
-from investigator import similar as SIM
+from aiops.core.entity.alert import Alert
+from aiops.core.entity.incident import INCIDENT_MAPPING, UNMAPPED_FIELDS, Fingerprint, Incident
+import aiops.service.feedback.importer as IMP
+import aiops.service.rca.similar as SIM
 
 ALERT = {"alert_id": "a-1", "service": "mes-api", "routes": ["GET /lots/{id}"], "series": ["http.latency_p95_s"]}
 FINDINGS = {"segments": [{"segment": "mes-api › wip-worker › Oracle SELECT lots 123", "delta_ms": 900.0, "now_ms": 1000, "ref_ms": 100},

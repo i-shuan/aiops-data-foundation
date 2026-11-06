@@ -11,9 +11,9 @@ import sys
 import numpy as np
 import pandas as pd
 
-from detector.__main__ import main as cli
-from core.anomaly import ANOMALY_INDEX
-from detector.es import BASELINE_INDEX, ES
+from aiops.interface.cli.detect import main as cli
+from aiops.core.entity.anomaly import ANOMALY_INDEX
+from aiops.service.detect.es_facade import BASELINE_INDEX, ES
 
 TZ = "Asia/Taipei"
 INDEX = "aiops-synth"

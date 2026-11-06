@@ -4,8 +4,8 @@ import unittest
 from datetime import datetime, timezone
 from unittest import mock
 
-from core.es import doc_id
-from api import app as A
+from aiops.core.connection import doc_id
+import aiops.interface.web.app as A
 
 NOW =datetime(2026, 10, 25, 3, 0, tzinfo=timezone.utc)
 ALERT = {"alert_id": "a-20261025-0200-mes-api", "service": "mes-api", "dept": "D3120", "group": "it", "severity": "critical", "status": "open",

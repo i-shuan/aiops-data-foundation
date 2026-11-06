@@ -213,14 +213,14 @@ flowchart TB
 
 ### 4.2 主程式與 plugin
 
-engine 一份程式，情境各是一個 plugin（[core/plugin.py](../aiops-engine/code/core/plugin.py)、[plugins/](../aiops-engine/code/plugins/README.md)），環境變數 `AIOPS_PLUGIN` 選：`observability`（IT）、`factory`（工廠：ML／FDC 的異常＋履歷）、`metrics_only`（只有指標）；也可以自己寫一個掛上去。
+engine 一份程式，情境各是一個 plugin（[core/plugin.py](../aiops-engine/code/aiops/scenario/base.py)、[plugins/](../aiops-engine/code/aiops/scenario/README.md)），環境變數 `AIOPS_PLUGIN` 選：`observability`（IT）、`factory`（工廠：ML／FDC 的異常＋履歷）、`metrics_only`（只有指標）；也可以自己寫一個掛上去。
 
 | | 主程式（哪個情境都一樣） | plugin（情境不同就不同） |
 |---|---|---|
 | ④ | 五個模型的數學、`ingest`（別人判好的異常 → ⑤） | — |
 | ⑤ | `aiops-anomalies` 的格式：**這是主程式與 plugin 之間的契約**——異常只要進得了 ⑤（有 `series`、`keys`、`level`、時間），後面全部接得上 | 異常的 `keys` 裡哪個欄位是「對象」（服務／機台）、哪個是「API」（method＋route／recipe） |
 | ⑥ | 同對象時間相連合一件、開件關件、嚴重度分級（廣度＋持續＋換版上限） | 跨對象併件的依據（呼叫關係／履歷前後站／不併）、「換版」是什麼（版號／recipe 變更）、訊號怎麼分類（黃金訊號／參數家族） |
-| ⑦ | 報告的每一段（[investigator/report.py](../aiops-engine/code/investigator/report.py)）、M4 分段、共同點、log 樣式、相似事故 | 報告有哪幾段、順序；索引與欄位的對照；用語（請求／lot、Trace／履歷） |
+| ⑦ | 報告的每一段（[investigator/report.py](../aiops-engine/code/aiops/service/rca/report.py)）、M4 分段、共同點、log 樣式、相似事故 | 報告有哪幾段、順序；索引與欄位的對照；用語（請求／lot、Trace／履歷） |
 | ⑧⑨ | Grafana 通知、回饋、匯出 | 回饋表單的分類表、誤報原因 |
 
 程式的資料夾照模組切（[docs/pdca/meta/2026-11-clean-code.md](pdca/meta/2026-11-clean-code.md)）：`detector/` ②③④⑤、`investigator/` ⑥⑦⑧、`feedback/` ⑨；兩個階段以上都碰的東西在 `core/`（連線、設定、plugin 擴充點、命令列共用的轉接、`aiops-incidents`／`aiops-tuning` 的契約）；`sources/` 是資料來源與結果存放的介面；`api/`、`scheduler/`、`tasks/`、`plugins/`、`models/`（門面）在最上層。命令列名稱沒變：⑨ 的子命令還是掛在 `python3 -m detector` 底下（`feedback/cli.py`），`detector/__main__.py` 只是入口。

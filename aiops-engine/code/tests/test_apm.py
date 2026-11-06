@@ -5,14 +5,16 @@ import unittest
 from datetime import datetime, timezone
 from unittest import mock
 
-from core import source, traces as T
-import sources
-from core import owner as O
-from detector import trace_merge as M
-from sources import write_anomalies
-from detector.es import value_kind
-from sources.es_source import _bucket_events, _bucket_value, _value_aggs
-from investigator import es as E
+import aiops.scenario.source as source
+
+import aiops.core.entity.trace as T
+import aiops.core.repository as sources
+import aiops.core.repository.owner as O
+import aiops.service.detect.trace_merge as M
+from aiops.core.repository import write_anomalies
+from aiops.service.detect.es_facade import value_kind
+from aiops.core.repository.series import _bucket_events, _bucket_value, _value_aggs
+import aiops.core.repository.rca_queries as E
 
 TX = {"@timestamp": "2026-11-02T01:00:00.000Z", "timestamp.us": 1793581200000000, "processor": {"event": "transaction"},
       "trace": {"id": "t1"}, "transaction": {"id": "tx1", "name": "GET /lots/{id}", "type": "request", "duration": {"us": 300000}, "result": "HTTP 2xx"},
@@ -118,7 +120,7 @@ class ApmQueryTest(unittest.TestCase):
         es = self.FakeES([])
         ids = M.updated_trace_ids(es, "traces-apm-*", datetime(2026, 11, 2, tzinfo=timezone.utc), datetime(2026, 11, 2, 0, 1, tzinfo=timezone.utc))
         self.assertEqual(ids, ["t1"])
-        self.assertEqual(es.bodies[0][1]["aggs"]["t"]["composite"]["sources"], [{"id": {"terms": {"field": "trace.id"}}}])
+        self.assertEqual(es.bodies[0][1]["aggs"]["t"]["composite"]["aiops.core.repository"], [{"id": {"terms": {"field": "trace.id"}}}])
 
 
 class ScaleAndDivTest(unittest.TestCase):

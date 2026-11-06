@@ -11,11 +11,12 @@ from unittest import mock
 import numpy as np
 import pandas as pd
 
-import sources
-from detector import cmd_baseline as C
-from detector import cmd_peer, cmd_rules
-from detector import es as DE
-from sources import stores
+import aiops.core.repository as sources
+import aiops.service.detect.baseline_job as C
+import aiops.service.detect.peer_job as cmd_peer
+import aiops.service.detect.rules_job as cmd_rules
+import aiops.service.detect.es_facade as DE
+import aiops.core.repository.stores as stores
 
 T0 = pd.Timestamp("2026-10-05T00:00:00Z")      # 週一
 BY, KEYS = ["service.name", "transaction.name"], ["service", "route"]
@@ -160,7 +161,7 @@ class RulesPeerSimilarOnBackend(unittest.TestCase):
         self.assertEqual([d["keys"]["pod"] for _, d in be.store.docs("aiops-anomalies")], ["d"])
 
     def test_similar_from_backend_incidents(self):
-        from investigator import similar as SIM
+        import aiops.service.rca.similar as SIM
         fp = {"services": ["mes-api"], "routes": [], "series": ["http.error_rate"], "slow_segments": ["mes-api › SELECT WIP → oracle"],
               "error_origins": [], "patterns": []}
         inc = [("i-db", {"status": "confirmed", "title": "連線池耗盡", "root_cause_category": "db",

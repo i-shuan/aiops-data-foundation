@@ -4,7 +4,7 @@ import unittest
 import numpy as np
 import pandas as pd
 
-from detector.model import (TrainOptions, effective_for, group_of, mark_status, mask_thin, override_for,
+from aiops.service.detect.baseline import (TrainOptions, effective_for, group_of, mark_status, mask_thin, override_for,
                                   pick_resolution, resolutions_from, score, score_poisson, train, train_groups)
 
 
@@ -130,7 +130,7 @@ if __name__ == "__main__":
 class ResolutionTest(unittest.TestCase):
     """pick_resolution：依每個時間窗的事件數選粒度。"""
 
-    def volume(self, per_5m: float, days: int = 7, svc: str = "api") -> pd.DataFrame:
+    def volume(self, per_5m: float, days: int = 7, svc: str = "aiops.interface.web") -> pd.DataFrame:
         ts = pd.date_range("2026-09-07", periods=days * 288, freq="5min", tz="UTC")
         rng = np.random.default_rng(0)
         return pd.DataFrame({"svc": svc, "ts": ts, "n": rng.poisson(per_5m, len(ts)).astype(float)})
@@ -168,7 +168,7 @@ class ResolutionTest(unittest.TestCase):
     def test_hourly_points_fall_back_to_hour_level(self):
         # 1 小時一點、4 週：同星期幾 × 同小時只有 4 個值（< 6）→ 退到每天同一小時
         ts = pd.date_range("2026-09-07", periods=28 * 24, freq="1h", tz=TZ)
-        h = pd.DataFrame({"svc": "api", "ts": ts.tz_convert("UTC"), "value": 10.0 + np.arange(len(ts)) % 3})
+        h = pd.DataFrame({"svc": "aiops.interface.web", "ts": ts.tz_convert("UTC"), "value": 10.0 + np.arange(len(ts)) % 3})
         b = train(h, ["svc"], TrainOptions(timezone=TZ))
         self.assertTrue((b["level"] == "hour").all())
 
@@ -343,7 +343,7 @@ class BucketFloorTest(unittest.TestCase):
         return ts, pd.DataFrame({"svc": "x", "ts": ts, "value": v})
 
     def test_floor_is_half_the_bucket_of_the_median(self):
-        from detector.model import bucket_floor
+        from aiops.service.detect.baseline import bucket_floor
         got = bucket_floor(np.array([0.175, 0.0375, 0.003, 12.0, np.nan]), B)
         self.assertTrue(np.allclose(got, [0.075, 0.0125, 0.0025, 1.25, 0.0025]))   # 0.1～0.25；0.025～0.05；0～0.005；超過 10 用最後一格；NaN 當 0
 

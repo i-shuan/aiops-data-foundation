@@ -3,9 +3,9 @@
 import unittest
 from datetime import datetime, timezone
 
-import sources
-from core import traces as T
-from detector import trace_merge as M
+import aiops.core.repository as sources
+import aiops.core.entity.trace as T
+import aiops.service.detect.trace_merge as M
 
 T0 = 1_793_400_000_000.0   # 2026-10-31T00:00:00Z 附近（毫秒）
 

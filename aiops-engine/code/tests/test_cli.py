@@ -10,13 +10,13 @@ from unittest import mock
 import yaml
 from typer.testing import CliRunner
 
-import detector.__main__ as D
-import investigator.__main__ as I
-from core import cli as CLI
-from core import plugin
-from feedback import cli as FB
-from investigator import cmd_alert
-from plugins.factory import cmd_paths
+import aiops.interface.cli.detect as D
+import aiops.interface.cli.rca as I
+import aiops.interface.cli.common as CLI
+import aiops.scenario.base as plugin
+import aiops.interface.cli.feedback as FB
+import aiops.service.converge.alert_service as cmd_alert
+import aiops.scenario.factory.commands as cmd_paths
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 CODE = os.path.dirname(HERE)

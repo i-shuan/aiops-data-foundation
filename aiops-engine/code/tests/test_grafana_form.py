@@ -6,8 +6,8 @@ from unittest import mock
 
 from fastapi.testclient import TestClient
 
-from api import server as W
-from api import app as A
+import aiops.interface.web.routes as W
+import aiops.interface.web.app as A
 from tests.test_api import ALERT, FakeES
 
 HERE = os.path.dirname(os.path.abspath(__file__))

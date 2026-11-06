@@ -1,7 +1,7 @@
 """相似事故檢索（investigator.similar）：指紋、為什麼像、檢索、留一法評測。假的 ES，不用連線。"""
 import unittest
 
-from investigator import similar as SIM
+import aiops.service.rca.similar as SIM
 
 
 class FakeES:

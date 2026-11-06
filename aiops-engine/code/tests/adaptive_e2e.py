@@ -16,9 +16,9 @@ import numpy as np
 import pandas as pd
 import yaml
 
-from detector.__main__ import main as cli
-from core.anomaly import ANOMALY_INDEX
-from detector.es import BASELINE_INDEX, ES
+from aiops.interface.cli.detect import main as cli
+from aiops.core.entity.anomaly import ANOMALY_INDEX
+from aiops.service.detect.es_facade import BASELINE_INDEX, ES
 
 TZ = "Asia/Taipei"
 INDEX = "aiops-adaptive"
@@ -62,7 +62,7 @@ def make() -> pd.DataFrame:
             if k == 0 or (api == NEW_API and t < TODAY):
                 continue
             lat = rng.gamma(2.0, 50.0, k) * (3.0 if bad else 1.0)   # 平均 100ms、個別請求從 10ms 到 300ms 都有
-            rows.append({"@timestamp": t.isoformat(), "api": api, "requests": int(k), "latency_ms": float(lat.mean())})
+            rows.append({"@timestamp": t.isoformat(), "aiops.interface.web": api, "requests": int(k), "latency_ms": float(lat.mean())})
     return pd.DataFrame(rows)
 
 
@@ -75,7 +75,7 @@ def run(es: ES, config: str, label: str) -> set:
     cli(["detect", "--config", config, "--window", "1D", "--at", (TODAY + pd.Timedelta(days=1)).tz_convert("UTC").isoformat()])
     es.req("POST", f"/{ANOMALY_INDEX}/_refresh")
     hits = es.req("POST", f"/{ANOMALY_INDEX}/_search", {"size": 2000, "query": {"prefix": {"series": "adaptive."}}})["hits"]["hits"]
-    return {(h["_source"]["series"], h["_source"]["keys"].get("api") or h["_source"]["keys"].get("equipment"),
+    return {(h["_source"]["series"], h["_source"]["keys"].get("aiops.interface.web") or h["_source"]["keys"].get("equipment"),
              pd.Timestamp(h["_source"]["@timestamp"]).tz_convert(TZ).strftime("%H:%M"),
              h["_source"].get("resolution"), h["_source"].get("confidence")) for h in hits}
 
@@ -113,7 +113,7 @@ def main() -> int:
     es = ES()
     es.req("DELETE", f"/{INDEX}", ok=(200, 404))
     es.req("PUT", f"/{INDEX}", {"mappings": {"properties": {
-        "@timestamp": {"type": "date"}, "api": {"type": "keyword"}, "requests": {"type": "long"}, "latency_ms": {"type": "double"}}}})
+        "@timestamp": {"type": "date"}, "aiops.interface.web": {"type": "keyword"}, "requests": {"type": "long"}, "latency_ms": {"type": "double"}}}})
     df = make()
     for i in range(0, len(df), 5000):
         lines = []

@@ -9,10 +9,10 @@ from unittest import mock
 
 import pandas as pd
 
-from detector import base as B
-from detector.base import Anomaly, Detector
-from detector.common import RULE_FIELDS
-from core.anomaly import ANOMALY_INDEX, ANOMALY_MAPPING
+import aiops.service.detect.base as B
+from aiops.service.detect.base import Anomaly, Detector
+from aiops.service.detect._util import RULE_FIELDS
+from aiops.core.entity.anomaly import ANOMALY_INDEX, ANOMALY_MAPPING
 
 SLOT = pd.Timestamp("2026-11-05T10:03:00Z")
 DET = "2026-11-05T10:03:07+00:00"
@@ -84,7 +84,7 @@ class ToDoc(unittest.TestCase):
         self.assertTrue(a.to_doc()["detected_at"].startswith("20"))     # 沒給就是現在
 
     def test_default_id(self):
-        from core.es import doc_id
+        from aiops.core.connection import doc_id
         a = Anomaly(ts=SLOT, series="rule.x", keys={"a": 1}, value=1, level="rule")
         self.assertEqual(a.id(), doc_id("rule.x", {"a": 1}, SLOT))
 

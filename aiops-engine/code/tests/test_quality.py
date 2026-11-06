@@ -3,7 +3,7 @@ import unittest
 
 import pandas as pd
 
-from detector import quality as Q
+import aiops.service.detect.quality as Q
 
 
 class LooksLikeId(unittest.TestCase):

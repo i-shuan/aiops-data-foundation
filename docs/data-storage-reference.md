@@ -28,7 +28,7 @@ AIOps 與 Grafana 的資料各存在哪裡、誰寫、多久一次、會不會�
 | `aiops-state` | `trace-merge` 合到哪個時間（就一筆） | `detector trace-merge`，每分鐘 | 每次覆蓋同一筆 |
 | `aiops-log-stats` | log 長期統計：每 5 分鐘 × 每個服務 × level × error.type 的筆數 | ES 的 transform，不是 engine | **會**，ILM 400 天 |
 
-欄位細節：`aiops-anomalies`、`aiops-alerts`、`aiops-incidents`、`aiops-feedback`、`aiops-tuning` 見 [aiops-data-reference.md](aiops-data-reference.md)；`aiops-baseline`、`aiops-trace-segments`、`aiops-state` 的 mapping 在 [detector/es.py](../aiops-engine/code/detector/es.py)、[detector/trace.py](../aiops-engine/code/detector/trace.py)、[detector/trace_merge.py](../aiops-engine/code/detector/trace_merge.py)。誰在什麼時候跑見 [schedule.yaml](../aiops-engine/code/configs/schedule/schedule.yaml)。
+欄位細節：`aiops-anomalies`、`aiops-alerts`、`aiops-incidents`、`aiops-feedback`、`aiops-tuning` 見 [aiops-data-reference.md](aiops-data-reference.md)；`aiops-baseline`、`aiops-trace-segments`、`aiops-state` 的 mapping 在 [detector/es.py](../aiops-engine/code/aiops/service/detect/es_facade.py)、[detector/trace.py](../aiops-engine/code/aiops/service/detect/trace_stats.py)、[detector/trace_merge.py](../aiops-engine/code/aiops/service/detect/trace_merge.py)。誰在什麼時候跑見 [schedule.yaml](../aiops-engine/code/configs/schedule/schedule.yaml)。
 
 ## ES：收進來的原始資料
 
@@ -76,7 +76,7 @@ APM 寫的三種資料 engine 只讀，保留天數不在這個 repo 管；`trac
 - **寫進去之後誰用**：`aiops-incidents` 的 `confirmed`、`corrected` 給相似事故檢索（自動開的 `auto` 事故不會拿來教人）；`aiops-feedback` 給 `feedback summary`、`feedback suggest`、`metrics`；`aiops-tuning` 的建議給 `adjust list`、回測、核准。
 - **寫入用的是回饋網頁自己的 ES key，不是使用者的**：所以沒有登入也寫得進去；`by` 是自己填的名字，空的記成 `anonymous`，同一個人可以填多次，系統不知道是誰。
 - **抽取失敗不影響回饋本身**：LLM 掛了或格式不對，只存原文（`extract.ok: false`）；建議寫不進去也一樣，回應多一個 `tuning_error`。
-- 程式在 [api/app.py](../aiops-engine/code/api/app.py) 的 `submit`、`submit_missed`；欄位對照見 [grafana/README.md](../grafana/README.md#回饋表單預設用-engine-api-的網頁要在-grafana-裡直接填才裝外掛)。
+- 程式在 [api/app.py](../aiops-engine/code/aiops/interface/web/app.py) 的 `submit`、`submit_missed`；欄位對照見 [grafana/README.md](../grafana/README.md#回饋表單預設用-engine-api-的網頁要在-grafana-裡直接填才裝外掛)。
 
 ## Grafana 自己存什麼
 

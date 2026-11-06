@@ -5,11 +5,11 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from unittest import mock
 
-from core import domain as D
-from core import plugin
-from investigator import alerts as AL
-from investigator import severity as S
-from plugins.factory import chain as FAC
+import aiops.scenario.domain as D
+import aiops.scenario.base as plugin
+import aiops.service.converge.merge as AL
+import aiops.service.converge.severity as S
+import aiops.scenario.factory.chain as FAC
 
 T0 = datetime(2026, 11, 4, 1, 0, tzinfo=timezone.utc)
 GAP = timedelta(hours=2)

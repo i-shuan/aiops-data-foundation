@@ -31,8 +31,8 @@ import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
 
-from core.es import ES
-from core.anomaly import ANOMALY_MAPPING
+from aiops.core.connection import ES
+from aiops.core.entity.anomaly import ANOMALY_MAPPING
 
 CFG = "tests/rca_chain.yaml"
 TRACES = "traces-generic.otel-it"

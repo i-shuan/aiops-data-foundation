@@ -3,9 +3,9 @@ import unittest
 
 import pandas as pd
 
-from feedback import cmd_backtest as B
-from feedback import suggest as F
-from detector.adjust import in_schedule
+import aiops.service.feedback.backtest as B
+import aiops.service.feedback.suggest as F
+from aiops.service.detect.adjustments import in_schedule
 
 TZ = "Asia/Taipei"
 T = F.target_of({"service": "mes-report", "route": "/close"})

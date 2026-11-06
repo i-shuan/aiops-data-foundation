@@ -6,10 +6,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from core.incident import INCIDENT_INDEX
-from feedback import importer as IMP
-from investigator import similar as SIM
-from investigator.__main__ import main
+from aiops.core.entity.incident import INCIDENT_INDEX
+import aiops.service.feedback.importer as IMP
+import aiops.service.rca.similar as SIM
+from aiops.interface.cli.rca import main
 
 HERE = Path(__file__).resolve().parent
 ROW = {"title": "Oracle 統計資訊過期", "start": "2026-03-12 02:10", "end": "2026-03-12 03:05", "services": "mes-api,wip-worker",

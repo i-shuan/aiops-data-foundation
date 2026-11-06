@@ -4,8 +4,8 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from unittest import mock
 
-from investigator import cmd_alert as C
-from plugins.observability import chain as CH
+import aiops.service.converge.alert_service as C
+import aiops.scenario.it.chain as CH
 
 AL = C.Alert(alert_id="a-1", category="service", service="mes-api", status="open", started_at="2026-10-25T02:00:00+00:00",
              updated_at="2026-10-25T02:12:00+00:00", routes=[], series=["x"], severity="warning", dept="D3120")

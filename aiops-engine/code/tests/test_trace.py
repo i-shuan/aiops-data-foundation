@@ -5,8 +5,8 @@ import unittest
 
 import pandas as pd
 
-from detector import trace as T
-from detector.model import DetectOptions, TrainOptions, score, train
+import aiops.service.detect.trace_stats as T
+from aiops.service.detect.baseline import DetectOptions, TrainOptions, score, train
 
 API = ("mes-api", "GET /lots/{id}")
 
@@ -207,7 +207,7 @@ class HardRuleTest(unittest.TestCase):
 
     def test_target_from_new_db_semconv(self):
         # 新版 DB 語意只有 db.system.name（沒有 server.address）：也要有「→ 對象」，N+1 規則才看得到
-        from core.traces import to_span
+        from aiops.core.entity.trace import to_span
         s = to_span({"@timestamp": "2026-10-10T10:00:00Z", "trace_id": "t", "span_id": "s", "name": "SELECT X",
                      "kind": "Client", "duration": 2_000_000, "attributes": {"db.system.name": "oracle"},
                      "resource": {"attributes": {"service.name": "a"}}})
@@ -278,7 +278,7 @@ class SampleEntriesMergedTest(unittest.TestCase):
         self.assertEqual(index, "traces-merged-*")
         e = body["aggs"]["n"]["aggs"]["e"]
         self.assertEqual(body["aggs"]["n"]["nested"], {"path": "entries"})
-        self.assertEqual(e["composite"]["sources"][2], {"ts": {"histogram": {"field": "entries.start_ms", "interval": 300000}}})
+        self.assertEqual(e["composite"]["aiops.core.repository"][2], {"ts": {"histogram": {"field": "entries.start_ms", "interval": 300000}}})
         self.assertEqual(e["aggs"]["t"]["top_hits"]["size"], 20)
         rng = body["query"]["bool"]["filter"][0]["range"]["@timestamp"]
         self.assertEqual((rng["gte"], rng["lt"]), ("2026-11-01T09:55:00+00:00", "2026-11-01T10:15:00+00:00"))   # 兩邊各放寬 5 分鐘

@@ -3,8 +3,8 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from core.alert import Alert
-from investigator import alerts as AL
+from aiops.core.entity.alert import Alert
+import aiops.service.converge.merge as AL
 
 T0 = datetime(2026, 10, 25, 2, 0, tzinfo=timezone.utc)
 GAP = timedelta(minutes=30)

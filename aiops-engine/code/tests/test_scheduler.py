@@ -10,8 +10,8 @@ from contextlib import redirect_stdout
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from scheduler.cron import Cron
-from scheduler.runner import Job, load_schedule, run_once, tick
+from aiops.interface.jobs.cron import Cron
+from aiops.interface.jobs.runner import Job, load_schedule, run_once, tick
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCHEDULE = os.path.join(HERE, "..", "configs", "schedule", "schedule.yaml")
@@ -134,7 +134,7 @@ class ScheduleFileTest(unittest.TestCase):
     def test_alert_timeout_covers_llm_calls(self):
         # 一件新的：LLM 最多 60 秒逾時（core/llm.py）；一輪至少要能處理好幾件，不然被砍什麼都沒寫
         import inspect
-        from core import llm as LLM
+        import aiops.service.rca.llm as LLM
         self.assertIn("timeout=60", inspect.getsource(LLM._call_openai))
         _, jobs = load_schedule(SCHEDULE, 2)
         by = {j.name: j for j in jobs}

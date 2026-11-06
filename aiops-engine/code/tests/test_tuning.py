@@ -5,8 +5,8 @@ import unittest
 import pandas as pd
 from pydantic import ValidationError
 
-from core.tuning import TUNING_MAPPING, Adjustment, validated
-from feedback import suggest as F
+from aiops.core.entity.adjustment import TUNING_MAPPING, Adjustment, validated
+import aiops.service.feedback.suggest as F
 
 
 class Validated(unittest.TestCase):

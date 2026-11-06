@@ -16,9 +16,9 @@ import sys
 import numpy as np
 import pandas as pd
 
-from detector.__main__ import main as cli
-from core.anomaly import ANOMALY_INDEX
-from detector.es import BASELINE_INDEX, ES
+from aiops.interface.cli.detect import main as cli
+from aiops.core.entity.anomaly import ANOMALY_INDEX
+from aiops.service.detect.es_facade import BASELINE_INDEX, ES
 
 TZ = "Asia/Taipei"
 INDEX = "aiops-fine"
@@ -42,7 +42,7 @@ def make() -> list[dict]:
             if k == 0:
                 continue
             lat = rng.gamma(2.0, 50.0, k).mean() * (3.0 if api == "busy-api" and t in bad else 1.0)
-            rows.append({"@timestamp": t.isoformat(), "api": api, "requests": int(k), "latency_ms": float(lat)})
+            rows.append({"@timestamp": t.isoformat(), "aiops.interface.web": api, "requests": int(k), "latency_ms": float(lat)})
     return rows
 
 
@@ -63,7 +63,7 @@ def main() -> int:
     es = ES()
     es.req("DELETE", f"/{INDEX}", ok=(200, 404))
     es.req("PUT", f"/{INDEX}", {"mappings": {"properties": {
-        "@timestamp": {"type": "date"}, "api": {"type": "keyword"}, "requests": {"type": "long"}, "latency_ms": {"type": "double"}}}})
+        "@timestamp": {"type": "date"}, "aiops.interface.web": {"type": "keyword"}, "requests": {"type": "long"}, "latency_ms": {"type": "double"}}}})
     rows = make()
     for i in range(0, len(rows), 10000):
         lines = []
@@ -84,7 +84,7 @@ def main() -> int:
     detect_s = (pd.Timestamp.now() - t).total_seconds()
     es.req("POST", f"/{ANOMALY_INDEX}/_refresh")
     hits = es.req("POST", f"/{ANOMALY_INDEX}/_search", {"size": 2000, "query": {"prefix": {"series": "fine."}}})["hits"]["hits"]
-    got = {(h["_source"]["series"], h["_source"]["keys"]["api"],
+    got = {(h["_source"]["series"], h["_source"]["keys"]["aiops.interface.web"],
             pd.Timestamp(h["_source"]["@timestamp"]).tz_convert(TZ).strftime("%H:%M:%S")): h["_source"]["status"] for h in hits}
 
     t0 = TODAY + pd.Timedelta(SUSTAINED[1])

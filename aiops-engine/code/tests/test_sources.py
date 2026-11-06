@@ -6,8 +6,8 @@ import unittest
 
 import pandas as pd
 
-from detector import adjust as A
-from detector import sources as S
+import aiops.service.detect.adjustments as A
+import aiops.service.detect.providers as S
 
 NOW = pd.Timestamp("2026-10-24T00:00:00Z")
 
@@ -115,7 +115,7 @@ class TaiwanCalendar(unittest.TestCase):
 
     def test_default_years_this_and_next(self):
         calls = []
-        entries, _ = S.load_calendar({"sources": [{"provider": "taiwan", "cache_dir": None}]},
+        entries, _ = S.load_calendar({"aiops.core.repository": [{"provider": "taiwan", "cache_dir": None}]},
                                      fetch=fetcher({}, calls), now=NOW)
         self.assertEqual([c.rsplit("/", 1)[1] for c in calls], ["2026.json", "2027.json"])
         self.assertEqual(entries, [])
@@ -135,7 +135,7 @@ class LoadCalendar(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             f = self.write(d, "c.json", {"calendar": [{"date": "2099-01-01", "name": "假"}]})
             cfg = {"timezone": "Asia/Taipei", "calendar": [{"date": "2026-11-11", "name": "活動"}],
-                   "sources": [{"provider": "file", "path": f}, {"provider": "http", "url": "http://x/c.json", "cache_dir": None},
+                   "aiops.core.repository": [{"provider": "file", "path": f}, {"provider": "http", "url": "http://x/c.json", "cache_dir": None},
                                {"provider": "taiwan", "years": [2026], "cache_dir": None}]}
             http = {"http://x/c.json": [{"date": "2030-01-01", "name": "http"}]}   # 直接回傳陣列也可以
 
@@ -148,14 +148,14 @@ class LoadCalendar(unittest.TestCase):
     def test_failing_source_does_not_break_others(self):
         with tempfile.TemporaryDirectory() as d:
             f = self.write(d, "c.json", {"calendar": [{"date": "2099-01-01", "name": "假"}]})
-            cfg = {"sources": [{"provider": "file", "path": os.path.join(d, "nope.json")},
+            cfg = {"aiops.core.repository": [{"provider": "file", "path": os.path.join(d, "nope.json")},
                                {"provider": "bogus"}, {"provider": "file", "path": f}]}
             entries, _ = S.load_calendar(cfg)
             self.assertEqual([e["name"] for e in entries], ["假"])
 
     def test_source_scope_applies_to_each_entry(self):
         # 台灣行事曆的每一天沒有 match：來源寫 match 才不會把 24×7 的服務一起吞掉（2026-10-adjust-schedule-verify.md）
-        cfg = {"sources": [{"provider": "taiwan", "years": [2026], "cache_dir": None,
+        cfg = {"aiops.core.repository": [{"provider": "taiwan", "years": [2026], "cache_dir": None,
                             "match": {"service": "^office$"}, "series": "http\\..*"}],
                "calendar": [{"date": "2026-11-01", "name": "UPS", "type": "maintenance"}]}
         entries, _ = S.load_calendar(cfg, fetch=lambda url, headers=None, timeout=20: YEAR_2026, now=NOW)
@@ -166,7 +166,7 @@ class LoadCalendar(unittest.TestCase):
         key = {"service": "fab"}
         self.assertFalse(any(A.match_keys(key, a["match"]) for a in adjs if a.get("match")))
         # 那一筆自己寫的優先
-        entries, _ = S.load_calendar({"sources": [{"provider": "file", "path": self.write_tmp(), "detect": True}]})
+        entries, _ = S.load_calendar({"aiops.core.repository": [{"provider": "file", "path": self.write_tmp(), "detect": True}]})
         self.assertEqual([e["detect"] for e in entries], [True, False])
 
     def write_tmp(self):
@@ -177,7 +177,7 @@ class LoadCalendar(unittest.TestCase):
 
     def test_disabled_source_skipped(self):
         calls = []
-        S.load_calendar({"sources": [{"provider": "taiwan", "enabled": False}]}, fetch=fetcher({}, calls), now=NOW)
+        S.load_calendar({"aiops.core.repository": [{"provider": "taiwan", "enabled": False}]}, fetch=fetcher({}, calls), now=NOW)
         self.assertEqual(calls, [])
 
     def test_adjust_load_reads_calendar_file(self):
@@ -199,7 +199,7 @@ class HttpProviderCache(unittest.TestCase):
     def test_http_source_is_cached(self):
         with tempfile.TemporaryDirectory() as d:
             calls = []
-            cfg = {"sources": [{"provider": "http", "url": "http://x/c.json", "cache_dir": d}]}
+            cfg = {"aiops.core.repository": [{"provider": "http", "url": "http://x/c.json", "cache_dir": d}]}
 
             def fetch(url, headers=None, timeout=20):
                 calls.append(url)
@@ -228,7 +228,7 @@ class LoadOwners(unittest.TestCase):
         here = os.path.dirname(os.path.dirname(__file__))
         with open(os.path.join(here, "fake-data", "owners.json"), encoding="utf-8") as f:
             owners = json.load(f)["owners"]
-        from detector.chronic import owner_of
+        from aiops.service.detect.chronic import owner_of
         self.assertEqual(owner_of({"resource.attributes.service.name": "mes-api"}, owners), "【假】MES 團隊")
         self.assertIsNone(owner_of({"service": "other"}, owners))
         with open(os.path.join(here, "fake-data", "calendar.json"), encoding="utf-8") as f:

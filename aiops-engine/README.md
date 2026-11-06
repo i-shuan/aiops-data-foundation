@@ -4,7 +4,7 @@
 
 | 資料夾 | 內容 |
 |---|---|
-| `code/` | 一個 Python 專案：`core/`（共用：ES、trace、LLM）、`detector/`（動態基準線學習、規則、Pod 同儕比對、資料品質、回饋、回測、量化）、`investigator/`（事件整合、根因分析、相似事故、告警）、[`api/`](code/api/__init__.py)（沒有頁面的薄 API：ML／FDC 推異常、重跑根因、Grafana 表單的後端；備用回饋網頁）、`scheduler/`（排程器；`--enqueue` 是 beat）、[`tasks/`](code/tasks/__init__.py)（佇列：Celery＋Redis，worker）、[`sources/`](code/sources/README.md)（資料來源：ES 以外的檔案、HTTP、程式給的 DataFrame 也能餵）、[`models/`](code/models/README.md)（五個模型的輸入規格，import 就能用）、`configs/`（[baseline](code/configs/baseline/README.md)、[rca](code/configs/rca/README.md)、[schedule](code/configs/schedule/schedule.yaml)）、`interfaces/`、`fake-data/`、`tests/`、`Dockerfile`（一個 image 裝全部，`ENTRYPOINT python3 -m`，`args` 給套件名和指令） |
+| `code/` | 一個 Python 專案：`core/`（共用：ES、trace、LLM）、`detector/`（動態基準線學習、規則、Pod 同儕比對、資料品質、回饋、回測、量化）、`investigator/`（事件整合、根因分析、相似事故、告警）、[`api/`](code/api/__init__.py)（沒有頁面的薄 API：ML／FDC 推異常、重跑根因、Grafana 表單的後端；備用回饋網頁）、`scheduler/`（排程器；`--enqueue` 是 beat）、[`tasks/`](code/tasks/__init__.py)（佇列：Celery＋Redis，worker）、[`sources/`](code/aiops/core/repository/README.md)（資料來源：ES 以外的檔案、HTTP、程式給的 DataFrame 也能餵）、[`models/`](../docs/pdca/meta/2026-11-target-architecture.md)（五個模型的輸入規格，import 就能用）、`configs/`（[baseline](code/configs/baseline/README.md)、[rca](code/configs/rca/README.md)、[schedule](code/configs/schedule/schedule.yaml)）、`interfaces/`、`fake-data/`、`tests/`、`Dockerfile`（一個 image 裝全部，`ENTRYPOINT python3 -m`，`args` 給套件名和指令） |
 | `helmchart/` | 一個 image、一份 values，`mode` 選：**`single`** 一隻 pod 兩個 container（`scheduler` 自己跑定期工作、`api`）；**`distributed`** Superset 式：`aiops-api`、`aiops-beat`（只丟工作）、`aiops-worker-realtime／alert／batch`、`aiops-redis`。Service `aiops-api:8080` |
 
 本機跑：`cd aiops-engine/code && python3 -m detector <指令>`、`python3 -m investigator investigate`；單元測試 `python3 -m pytest -q`。
@@ -25,7 +25,7 @@ kubectl -n aiops logs deploy/aiops-engine -c scheduler -f | grep '\[scheduler\]'
 
 - `rca.yaml` 的 `alerts.feedback_url`、`report_url` 填 api 的網址（Service `aiops-api:8080`；要讓人從公司網路點得到再加 Ingress）。
 - 分散模式：`--set mode=distributed`（下一節）；ML／FDC 要推異常進來時再 `--set api.token=<隨機字串>`（寫在 `values-local.yaml`）。
-- 情境（plugin）：預設 `observability`（IT）；工廠 `--set plugin=factory`，只有 ML／FDC 指標 `--set plugin=metrics_only`（[code/plugins/README.md](code/plugins/README.md)）。各裝一個 release、各自一隻 pod。
+- 情境（plugin）：預設 `observability`（IT）；工廠 `--set plugin=factory`，只有 ML／FDC 指標 `--set plugin=metrics_only`（[code/plugins/README.md](code/aiops/scenario/README.md)）。各裝一個 release、各自一隻 pod。
 - 資料來源（observability 才看）：預設讀我們 Collector 寫的 OTel 格式。公司 ES 裡是 Elastic APM 的資料（`traces-apm-*`、`logs-apm.*`、`metrics-apm.*`）時 `--set source=apm`，設定檔與怎麼接見 [code/configs/apm/README.md](code/configs/apm/README.md)。
 - LLM：`values.yaml` 的 `llm.provider`（`template` 不叫模型）、`llm.model`（空的用程式預設 openai `gpt-4o-mini`、anthropic `claude-sonnet-4-5`）、`llm.baseUrl`（內網閘道，不含 `/v1`）放 ConfigMap `aiops-env`；`llm.apiKey` 由 chart 建成 Secret `aiops-llm`。**key 只寫在 `values-local.yaml`**（`.gitignore` 擋掉），`values.yaml` 永遠留空。改了重跑 helm，pod 會自己重啟（`checksum/env`）。
 - 設定檔要跟 image 裡的不一樣：`--set-file configOverrides.baseline.series=aiops-engine/code/configs/baseline/series.yaml`（掛在 `/app/configs/baseline/series.yaml`）；排程表是 `configOverrides.schedule.schedule`。

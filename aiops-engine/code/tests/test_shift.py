@@ -5,7 +5,7 @@ import unittest
 import numpy as np
 import pandas as pd
 
-from detector import cmd_shift as S
+import aiops.service.detect.shift as S
 
 TZ = "Asia/Taipei"
 
@@ -59,7 +59,7 @@ class Proposal(unittest.TestCase):
         self.assertEqual(d["match"], {"service": "^mes\\.api$", "route": "^/lots/\\{id\\}$"})   # 完全符合、跳脫
         self.assertEqual(d["series"], "http\\.latency_p95_s")
         self.assertIn("重新學", d["reason"])
-        from detector.adjust import match_keys
+        from aiops.service.detect.adjustments import match_keys
         self.assertTrue(match_keys({"service": "mes.api", "route": "/lots/{id}"}, d["match"]))
         self.assertFalse(match_keys({"service": "mesXapi", "route": "/lots/{id}"}, d["match"]))
 

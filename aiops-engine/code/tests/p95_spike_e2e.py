@@ -24,7 +24,7 @@ from datetime import timedelta
 import pandas as pd
 import requests
 
-from investigator import alerts as AL
+import aiops.service.converge.merge as AL
 
 ES_URL = os.environ["ES_URL"].rstrip("/")
 AUTH = tuple(os.environ["ES_AUTH"].split(":", 1)) if os.environ.get("ES_AUTH") else None

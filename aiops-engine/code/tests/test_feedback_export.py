@@ -6,7 +6,7 @@ import unittest
 
 import pandas as pd
 
-from feedback import cmd_feedback as C
+import aiops.service.feedback.feedback_service as C
 
 
 class FakeES:

@@ -10,10 +10,10 @@ from unittest import mock
 
 from fastapi.testclient import TestClient
 
-import tasks
-from api import server as W
-from api import app as A
-from investigator import cmd_alert as C
+import aiops.interface.jobs.worker as tasks
+import aiops.interface.web.routes as W
+import aiops.interface.web.app as A
+import aiops.service.converge.alert_service as C
 from tests.test_api import ALERT, FakeES
 
 TOKEN = {"AIOPS_API_TOKEN": "s3cret", "AIOPS_PLUGIN": "factory", tasks.BROKER_ENV: "redis://fake:6379/0"}
@@ -69,7 +69,7 @@ class Http(unittest.TestCase):
 
     def test_anomalies_written_via_ingest_mapping_and_alert_queued(self):
         written = []
-        with mock.patch.dict(os.environ, TOKEN), mock.patch("detector.cmd_ingest.write_anomalies", side_effect=lambda es, docs: written.extend(docs)), \
+        with mock.patch.dict(os.environ, TOKEN), mock.patch("aiops.scenario.factory.ingest_job.write_anomalies", side_effect=lambda es, docs: written.extend(docs)), \
              mock.patch.object(tasks.run_job, "apply_async") as aa:
             code, r = self.call("POST", "/api/anomalies", {"input": "ml", "rows": self.ROWS}, {"Authorization": "Bearer s3cret"})
         self.assertEqual(code, 200, r)
@@ -95,7 +95,7 @@ class Http(unittest.TestCase):
             self.assertIn("沒有 ingest", r["error"])
 
     def test_anomalies_without_broker_still_write(self):
-        with mock.patch.dict(os.environ, {**TOKEN, tasks.BROKER_ENV: ""}), mock.patch("detector.cmd_ingest.write_anomalies"), \
+        with mock.patch.dict(os.environ, {**TOKEN, tasks.BROKER_ENV: ""}), mock.patch("aiops.scenario.factory.ingest_job.write_anomalies"), \
              mock.patch.object(tasks.run_job, "apply_async") as aa:
             code, r = self.call("POST", "/api/anomalies", {"input": "ml", "rows": self.ROWS}, {"Authorization": "Bearer s3cret"})
         self.assertEqual((code, r["written"], r["alert_queued"]), (200, 1, False))   # 一隻 pod 的模式：寫進 ES，下一分鐘排程接手
@@ -235,7 +235,7 @@ class EntryStatsWithoutIndex(unittest.TestCase):
     """工廠版剛上線、lot-paths-* 還不存在：ES 回空結果、沒有 aggregations。不能讓整份根因報告變「失敗：'aggregations'」（K8s 實裝時發現）。"""
 
     def test_missing_index_counts_as_no_requests(self):
-        from investigator import es as E
+        import aiops.core.repository.rca_queries as E
         fake = mock.Mock()
         fake.search.return_value = {"took": 0, "hits": {"total": {"value": 0}, "hits": []}}
         got = E.entry_stats(fake, "lot-paths-*", "K8S-01", None, datetime(2026, 11, 5, 1, tzinfo=timezone.utc), datetime(2026, 11, 5, 2, tzinfo=timezone.utc))

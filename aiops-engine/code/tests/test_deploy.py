@@ -33,32 +33,32 @@ class EngineChart(unittest.TestCase):
         self.assertEqual(sorted(k.split("/")[0] for k in self.docs), ["ConfigMap", "Deployment", "Secret", "Secret", "Service"])
         dep = self.docs["Deployment/aiops-engine"]["spec"]
         self.assertEqual((dep["replicas"], dep["strategy"]["type"]), (1, "Recreate"))
-        self.assertEqual(sorted(containers(self.docs)), ["api", "scheduler"])
-        self.assertNotIn("--enqueue", containers(self.docs)["scheduler"]["args"])          # single：排程器自己跑
+        self.assertEqual(sorted(containers(self.docs)), ["aiops.interface.web", "aiops.interface.jobs"])
+        self.assertNotIn("--enqueue", containers(self.docs)["aiops.interface.jobs"]["args"])          # single：排程器自己跑
         self.assertNotIn("AIOPS_BROKER_URL", self.docs["ConfigMap/aiops-env"]["data"])     # 沒有佇列
 
     def test_scheduler_runs_stage1_by_default_and_stage2_on_demand(self):
-        args = containers(self.docs)["scheduler"]["args"]
-        self.assertEqual(args[:3], ["scheduler", "--config", "configs/schedule/schedule.yaml"])
+        args = containers(self.docs)["aiops.interface.jobs"]["args"]
+        self.assertEqual(args[:3], ["aiops.interface.jobs", "--config", "configs/schedule/schedule.yaml"])
         self.assertEqual(args[args.index("--stage") + 1], "1")
-        self.assertEqual(containers(render("--set", "scheduler.stage=2"))["scheduler"]["args"][4], "2")
+        self.assertEqual(containers(render("--set", "aiops.interface.jobs.stage=2"))["aiops.interface.jobs"]["args"][4], "2")
 
     def test_scheduler_liveness_watches_alive_file(self):
-        c = containers(self.docs)["scheduler"]
+        c = containers(self.docs)["aiops.interface.jobs"]
         self.assertIn("/tmp/scheduler-alive", c["args"])
         self.assertIn("/tmp/scheduler-alive", " ".join(c["livenessProbe"]["exec"]["command"]))
         self.assertIn({"name": "tmp", "mountPath": "/tmp"}, c["volumeMounts"])
 
     def test_memory_covers_train_and_api_is_separate(self):
         c = containers(self.docs)
-        self.assertEqual(c["scheduler"]["resources"]["limits"]["memory"], "6Gi")
-        self.assertEqual(c["api"]["resources"]["limits"]["memory"], "512Mi")
-        self.assertEqual(c["api"]["livenessProbe"]["httpGet"]["path"], "/health")
-        self.assertEqual(c["api"]["args"], ["api"])
-        self.assertIn({"name": "API_PORT", "value": "8080"}, c["api"]["env"])
+        self.assertEqual(c["aiops.interface.jobs"]["resources"]["limits"]["memory"], "6Gi")
+        self.assertEqual(c["aiops.interface.web"]["resources"]["limits"]["memory"], "512Mi")
+        self.assertEqual(c["aiops.interface.web"]["livenessProbe"]["httpGet"]["path"], "/health")
+        self.assertEqual(c["aiops.interface.web"]["args"], ["aiops.interface.web"])
+        self.assertIn({"name": "API_PORT", "value": "8080"}, c["aiops.interface.web"]["env"])
         self.assertEqual(self.docs["Service/aiops-api"]["spec"]["ports"][0]["port"], 8080)
         self.assertEqual(self.docs["Secret/aiops-api"]["stringData"], {"AIOPS_API_TOKEN": ""})
-        self.assertEqual(render("--set", "api.token=abc")["Secret/aiops-api"]["stringData"]["AIOPS_API_TOKEN"], "abc")
+        self.assertEqual(render("--set", "aiops.interface.web.token=abc")["Secret/aiops-api"]["stringData"]["AIOPS_API_TOKEN"], "abc")
 
     def test_engine_version_is_the_image_tag(self):
         # 每筆異常帶的 engine_version（core/version.py）要跟跑的 image 是同一個 tag，兩個 container 都從 aiops-env 拿
@@ -69,8 +69,8 @@ class EngineChart(unittest.TestCase):
             self.assertIn({"configMapRef": {"name": "aiops-env"}}, c["envFrom"])
 
     def test_api_can_be_turned_off(self):
-        docs = render("--set", "api.enabled=false")
-        self.assertEqual(list(containers(docs)), ["scheduler"])
+        docs = render("--set", "aiops.interface.web.enabled=false")
+        self.assertEqual(list(containers(docs)), ["aiops.interface.jobs"])
         self.assertNotIn("Service/aiops-api", docs)
 
     def test_bad_mode_fails(self):
@@ -83,7 +83,7 @@ class EngineChart(unittest.TestCase):
         for name, c in containers(docs).items():
             mount = next(m for m in c["volumeMounts"] if m["name"] == "configs")
             self.assertEqual((mount["mountPath"], mount["subPath"]), ("/app/configs/schedule/schedule.yaml", "schedule__schedule.yaml"), name)
-        self.assertEqual([m["name"] for m in containers(self.docs)["scheduler"]["volumeMounts"]], ["tmp"])
+        self.assertEqual([m["name"] for m in containers(self.docs)["aiops.interface.jobs"]["volumeMounts"]], ["tmp"])
 
 
 @unittest.skipUnless(shutil.which("helm"), "要 helm")
@@ -102,7 +102,7 @@ class DistributedChart(unittest.TestCase):
 
     def test_beat_only_enqueues_and_is_single(self):
         beat = containers(self.docs, "aiops-beat")["beat"]
-        self.assertEqual(beat["args"][:3], ["scheduler", "--config", "configs/schedule/schedule.yaml"])
+        self.assertEqual(beat["args"][:3], ["aiops.interface.jobs", "--config", "configs/schedule/schedule.yaml"])
         self.assertIn("--enqueue", beat["args"])
         self.assertIn("/tmp/scheduler-alive", " ".join(beat["livenessProbe"]["exec"]["command"]))
         dep = self.docs["Deployment/aiops-beat"]["spec"]
@@ -112,7 +112,7 @@ class DistributedChart(unittest.TestCase):
     def test_workers_per_queue(self):
         for q, conc in (("realtime", "2"), ("alert", "1"), ("batch", "1")):
             w = containers(self.docs, f"aiops-worker-{q}")["worker"]
-            self.assertEqual(w["args"], ["tasks", "worker", "--queue", q, "--concurrency", conc], q)
+            self.assertEqual(w["args"], ["aiops.interface.jobs.worker", "worker", "--queue", q, "--concurrency", conc], q)
             self.assertIn({"configMapRef": {"name": "aiops-env"}}, w["envFrom"])
         self.assertEqual(containers(self.docs, "aiops-worker-batch")["worker"]["resources"]["limits"]["memory"], "6Gi")   # train 在這
         self.assertEqual(self.docs["Deployment/aiops-worker-alert"]["spec"]["strategy"]["type"], "Recreate")
@@ -132,7 +132,7 @@ class DistributedChart(unittest.TestCase):
 
     def test_api_service_points_at_api_pods(self):
         self.assertEqual(self.docs["Service/aiops-api"]["spec"]["selector"], {"app.kubernetes.io/name": "aiops-api"})
-        self.assertEqual(render("--set", "mode=distributed", "--set", "api.replicas=2")["Deployment/aiops-api"]["spec"]["replicas"], 2)
+        self.assertEqual(render("--set", "mode=distributed", "--set", "aiops.interface.web.replicas=2")["Deployment/aiops-api"]["spec"]["replicas"], 2)
 
     def test_plugin_picks_schedule_for_beat(self):
         beat = containers(render("--set", "mode=distributed", "--set", "plugin=factory"), "aiops-beat")["beat"]

@@ -5,12 +5,12 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from unittest import mock
 
-from core import domain as D
-from core import plugin
-from core import source
-from core import owner as O
-from investigator import alerts as AL
-from investigator import report as R
+import aiops.scenario.domain as D
+import aiops.scenario.base as plugin
+import aiops.scenario.source as source
+import aiops.core.repository.owner as O
+import aiops.service.converge.merge as AL
+import aiops.service.rca.report as R
 
 T0 = datetime(2026, 11, 4, 1, 0, tzinfo=timezone.utc)
 
@@ -129,7 +129,7 @@ class DetectorCommands(unittest.TestCase):
         import contextlib
         import io
 
-        from detector.__main__ import main
+        from aiops.interface.cli.detect import main
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
             self.assertEqual(main(["--help"]), 0)             # typer：--help 回 0，不丟 SystemExit

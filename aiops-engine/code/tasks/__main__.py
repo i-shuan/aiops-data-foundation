@@ -1,9 +1,8 @@
-"""python3 -m tasks worker --queue <realtime|alert|batch> [--concurrency N]（說明在 tasks/__init__.py）。"""
-from __future__ import annotations
-
+"""相容入口：python3 -m tasks worker --queue <realtime|alert|batch> [--concurrency N]（helm 的 args: ["tasks", "worker", …]）
+轉給 aiops.interface.jobs.worker。"""
 import sys
 
-from . import worker_main
+from aiops.interface.jobs.worker import worker_main
 
 
 def main(argv=None) -> int:
