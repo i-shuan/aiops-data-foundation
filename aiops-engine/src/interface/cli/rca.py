@@ -27,9 +27,9 @@ from datetime import timedelta
 import typer
 
 import detect.store.trace as T
-from shared.schema.loader import load_config
-from shared.connection import ES
-from shared.repos import Repos
+from shared.scenario.config import load_config
+from shared.infra.es import ES
+from shared.infra.repos import Repos
 from shared.scenario import load_scenario
 
 import incident.rca_analyzer as A

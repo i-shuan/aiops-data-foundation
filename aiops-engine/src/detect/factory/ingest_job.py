@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import pandas as pd
 
-from shared.connection import ES
-from shared.repos import Repos
+from shared.infra.es import ES
+from shared.infra.repos import Repos
 from shared.scenario import load_scenario
 
 import detect.factory.ingest as I
-from shared.clock import now_ts as _now
+from shared.infra.clock import now_ts as _now
 
 INGEST_FIELDS = {"source": {"type": "keyword"}, "source_id": {"type": "keyword"}, "status": {"type": "keyword"}}
 

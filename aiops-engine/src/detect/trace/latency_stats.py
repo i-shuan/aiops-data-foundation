@@ -20,10 +20,10 @@ from dataclasses import dataclass
 
 import pandas as pd
 
-from shared.connection import ES, doc_id
+from shared.infra.es import ES, doc_id
 from detect.store.trace import group_traces, segment, self_times
 from detect.store.anomaly import Anomaly
-from shared.repos import Repos
+from shared.infra.repos import Repos
 from shared.scenario import load_scenario
 import detect.series_ops.manual_adjust as A
 from detect.series_ops.manual_adjust import data_adjustments

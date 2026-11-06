@@ -6,10 +6,10 @@ import dataclasses
 import numpy as np
 import pandas as pd
 
-from shared.connection import ES, doc_id
-from shared.clock import stamp_of
+from shared.infra.es import ES, doc_id
+from shared.infra.clock import stamp_of
 from detect.store.anomaly import Anomaly
-from shared.repos import Repos
+from shared.infra.repos import Repos
 from shared.scenario import load_scenario
 import detect.series_ops.manual_adjust as A
 from detect.strategy.dynamic_baseline import (CONFIDENCE, RESOLUTIONS, DetectOptions, TrainOptions, effective_for, mask_thin, pick_resolution, score, group_of, mark_status, override_for, resolutions_from, score_poisson, train, train_groups)

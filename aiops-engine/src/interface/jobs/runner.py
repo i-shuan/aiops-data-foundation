@@ -16,7 +16,7 @@ from datetime import datetime, timedelta
 from typing import Callable
 from zoneinfo import ZoneInfo
 
-from shared.schema.loader import load_config
+from shared.scenario.config import load_config
 
 
 from interface.jobs.cron import Cron

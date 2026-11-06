@@ -3,7 +3,7 @@ status proposed 的是建議，adjust approve 才生效。"""
 from __future__ import annotations
 
 from learn.store.models import TUNING_INDEX, TUNING_MAPPING, validated
-from shared.repository import Repository
+from shared.infra.es import Repository
 
 
 class TuningRepository(Repository):

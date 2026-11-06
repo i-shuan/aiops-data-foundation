@@ -19,7 +19,7 @@ import re
 
 import requests
 
-from shared.incident_doc import classify
+from shared.types.incident import classify
 
 CITE = re.compile(r"\[([A-Z]\d+)\]")
 PROMPT = """你是工廠 IT 維運的值班助理。根據下面的輸入包，用繁體中文寫 3～5 句話：最可能的原因（只能從 segments、error_origins、new_patterns 推）、影響（哪些服務、API、多久）、建議先查哪一段。

@@ -16,8 +16,8 @@ import re
 import numpy as np
 import pandas as pd
 
-from shared.connection import ES, doc_id
-from shared.repos import Repos
+from shared.infra.es import ES, doc_id
+from shared.infra.repos import Repos
 from shared.scenario import load_scenario
 import detect.series_ops.manual_adjust as A
 from detect.utils import _now

@@ -2,7 +2,7 @@
 
 > **類型：操作 How-To**　原理與對照見 [docs/semiconductor-design.md](../../../docs/semiconductor-design.md)・紀錄 [docs/pdca/meta/2026-11-factory-engine.md](../../../docs/pdca/meta/2026-11-factory-engine.md)・情境怎麼選、三個內建差在哪見 [shared/scenario/README.md](../../src/shared/scenario/README.md)・IT 的設定在 [configs/apm/](../apm/README.md)
 
-同一份 engine、`factory` 情境（[shared/scenario/data/factory.yaml](../../src/shared/scenario/data/factory.yaml)、[detect/factory/](../../src/detect/factory/ingest.py)）、另一套設定、另外部署。工廠的異常由 ML 團隊的模型（異常跳點）和 FDC 鳴叫系統判，engine **不自己判 FDC 感測值**，從 ⑤ 異常總表開始接：
+同一份 engine、`factory` 情境（[shared/scenario/factory.yaml](../../src/shared/scenario/factory.yaml)、[detect/factory/](../../src/detect/factory/ingest.py)）、另一套設定、另外部署。工廠的異常由 ML 團隊的模型（異常跳點）和 FDC 鳴叫系統判，engine **不自己判 FDC 感測值**，從 ⑤ 異常總表開始接：
 收斂成一件（同機台；後站的異常依 lot 履歷併進前站）→ 根因分析（慢在哪一站哪個 chamber、壞 lot 的共同點、機台 alarm、事故前的 PM／recipe 變更）→ 通知 → 老師傅回饋 → 誤報匯出給 ML 團隊。
 
 **欄位名全是假設**（沒有 ML 輸出、FDC、MES、EAP 的樣本）：拿到樣本只改各 yaml 裡 `fields`／`keys` 的右邊，程式不動。

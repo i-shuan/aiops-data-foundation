@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 
 import detect.series_ops.manual_adjust as A
-from shared.repos import Repos
+from shared.infra.repos import Repos
 from shared.scenario import load_scenario
 
 SC = load_scenario()

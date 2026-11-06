@@ -19,9 +19,9 @@ from zoneinfo import ZoneInfo
 from typing import Callable
 
 import detect.store.trace as T
-from shared.connection import ES
+from shared.infra.es import ES
 from detect.store.anomaly import entity_value
-from shared.repos import Repos
+from shared.infra.repos import Repos
 from shared.scenario import load_scenario
 
 import incident.rca_analyzer as A

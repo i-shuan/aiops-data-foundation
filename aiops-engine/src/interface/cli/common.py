@@ -7,7 +7,7 @@ from typing import Callable
 
 import typer
 
-from shared.schema.loader import load_config
+from shared.scenario.config import load_config
 
 SERIES = "configs/baseline/series.yaml"
 Opt = typer.Option

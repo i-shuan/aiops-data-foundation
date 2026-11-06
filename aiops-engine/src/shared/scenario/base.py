@@ -1,10 +1,10 @@
-"""情境（Scenario）：engine 一份程式，IT 可觀測性、全套工廠、只有指標各是一份資料檔（data/*.yaml）加兩個策略。
+"""情境（Scenario）：engine 一份程式，IT 可觀測性、全套工廠、只有指標各是一份資料檔（同資料夾的 *.yaml）加兩個策略。
 主程式不認得 factory、lot、equipment 這些字，只看 Scenario 的欄位；在組合根（cli／web／jobs 的入口、Repos）載入一次、往下傳。
 
   環境變數 AIOPS_PLUGIN：observability（預設；再用 AIOPS_SOURCE 選 otel／apm）、factory、metrics_only，
   或「套件.模組:名字」指到一個 Scenario 實例（客製：dataclasses.replace(load_scenario("factory"), …)），或一份 yaml 的路徑。
 
-一份情境有什麼（跟 data/*.yaml 的欄位一樣）：
+一份情境有什麼（跟同資料夾 *.yaml 的欄位一樣）：
   source           原始資料格式（otel／apm／factory）：trace 的 schema、owner／log 的欄位對照跟著它
   owner、log       歸屬查哪個索引哪幾個欄位；log 的欄位名（detect/store/owner_repo.py、log.py）
   entity、unit、trace、new_value_hint、categories、fp_reasons、checked   用語與回饋表單的分類表（報告、LLM 範本、網頁）
@@ -27,7 +27,7 @@ import yaml
 ENV = "AIOPS_PLUGIN"
 SOURCE_ENV = "AIOPS_SOURCE"
 DEFAULT = "observability"
-DATA = Path(__file__).resolve().parent / "data"
+DATA = Path(__file__).resolve().parent
 BUILTIN = {"observability": {"otel": "it_otel", "apm": "it_apm"}, "factory": "factory", "metrics_only": "metrics_only"}
 
 

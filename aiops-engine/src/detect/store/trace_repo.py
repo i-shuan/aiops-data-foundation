@@ -9,9 +9,9 @@ from datetime import datetime, timedelta
 
 import pandas as pd
 
-from shared.connection import time_range
+from shared.infra.es import time_range
 from detect.store.trace import _APM_FIELDS, _SPAN_FIELDS, from_merged, is_merged, schema_of, to_span, trace_id_field
-from shared.repository import Repository
+from shared.infra.es import Repository
 
 
 # ── 入口的查詢（merged）──

@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 import re
 from dataclasses import dataclass, field
 
-from shared.connection import get_field
+from shared.infra.es import get_field
 
 _SPAN_FIELDS = ["@timestamp", "trace_id", "span_id", "parent_span_id", "name", "kind", "duration", "status.code", "links",
                 "resource.attributes", "attributes"]

@@ -6,7 +6,7 @@ import unittest
 import pandas as pd
 
 import detect.trace.latency_stats as T
-from shared.repos import Repos
+from shared.infra.repos import Repos
 from shared.scenario import load_scenario
 
 SC = load_scenario()

@@ -8,11 +8,11 @@ from argparse import Namespace
 import pandas as pd
 import typer
 
-from shared.schema.loader import load_config
-from shared.connection import ES, get_field
-from shared.repos import Repos
+from shared.scenario.config import load_config
+from shared.infra.es import ES, get_field
+from shared.infra.repos import Repos
 from shared.scenario import load_scenario
-from shared.clock import now_ts as _now
+from shared.infra.clock import now_ts as _now
 
 import detect.trace.path_builder as P
 
@@ -50,7 +50,7 @@ def run(repo, cfg: dict, now: pd.Timestamp, window: pd.Timedelta) -> int:
 
 
 def register(app: typer.Typer) -> None:
-    """掛成 detector 的子命令（shared/scenario/data/factory.yaml 的 commands）。"""
+    """掛成 detector 的子命令（shared/scenario/factory.yaml 的 commands）。"""
     app.command("paths-merge", help="工廠：MES 進出站＋S6F11 機台事件 → 一個 lot 一筆履歷 lot-paths-*（plugins/factory/paths.py）")(paths_merge)
 
 

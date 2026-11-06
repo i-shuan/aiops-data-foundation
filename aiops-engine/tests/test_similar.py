@@ -2,7 +2,7 @@
 import unittest
 
 import llm.similar as SIM
-from shared.repos import Repos
+from shared.infra.repos import Repos
 from shared.scenario import load_scenario
 
 SC = load_scenario()

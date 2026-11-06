@@ -31,7 +31,7 @@ import re
 import numpy as np
 import pandas as pd
 
-from shared.schema.loader import load_config
+from shared.scenario.config import load_config
 from detect.reference_data import load_calendar
 
 KINDS = ("override", "exclude_window", "reset_point", "recurring_override")

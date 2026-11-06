@@ -17,7 +17,7 @@ from typing import Any, ClassVar, Literal
 
 from pydantic import Field, field_serializer, field_validator
 
-from shared.document import Doc
+from shared.infra.es import Doc
 
 INCIDENT_INDEX = "aiops-incidents"
 

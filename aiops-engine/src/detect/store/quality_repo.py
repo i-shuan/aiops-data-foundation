@@ -3,8 +3,8 @@ from __future__ import annotations
 
 import pandas as pd
 
-from shared.connection import time_range
-from shared.repository import Repository
+from shared.infra.es import time_range
+from shared.infra.es import Repository
 
 
 def check_keys(check: dict) -> list[str]:

@@ -8,7 +8,7 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from statistics import median
 
-from shared.connection import get_field
+from shared.infra.es import get_field
 from detect.store.trace import error_origins, root_of, segment, self_times
 
 

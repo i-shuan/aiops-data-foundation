@@ -3,7 +3,7 @@
 import json
 import unittest
 
-from shared.repos import Repos
+from shared.infra.repos import Repos
 from shared.scenario import load_scenario
 
 SC = load_scenario()

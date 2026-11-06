@@ -11,12 +11,12 @@ from datetime import datetime, timezone
 import pandas as pd
 
 import llm.summary as LLM
-from shared.env import CODE_ROOT
-from shared.schema.loader import load_config
-from shared.connection import ES, doc_id
+from shared.infra.env import CODE_ROOT
+from shared.scenario.config import load_config
+from shared.infra.es import ES, doc_id
 from learn.store.models import RCA_USEFUL, VERDICTS
-from shared.incident_doc import Incident
-from shared.repos import Repos
+from shared.types.incident import Incident
+from shared.infra.repos import Repos
 from shared.scenario import load_scenario
 import detect.series_ops.manual_adjust as A
 from detect.series_ops.manual_adjust import load_adjustments

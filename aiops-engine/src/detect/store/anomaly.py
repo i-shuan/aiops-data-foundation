@@ -7,7 +7,7 @@ from dataclasses import dataclass
 
 import pandas as pd
 
-from shared.connection import doc_id
+from shared.infra.es import doc_id
 
 ANOMALY_INDEX = "aiops-anomalies"
 KEYS_MAPPING = {"type": "flattened"}     # 序列的 keys（對象）：欄位隨序列設定而變，用 flattened

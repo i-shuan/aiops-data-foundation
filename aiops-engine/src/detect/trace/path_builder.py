@@ -29,7 +29,7 @@ from datetime import datetime, timezone
 
 import pandas as pd
 
-from shared.connection import get_field
+from shared.infra.es import get_field
 from detect.store.trace import Trace
 
 PATHS_PREFIX = "lot-paths"

@@ -9,7 +9,7 @@ from typing import Any, Literal
 
 from pydantic import ConfigDict
 
-from shared.document import Doc
+from shared.infra.es import Doc
 
 TUNING_INDEX = "aiops-tuning"
 

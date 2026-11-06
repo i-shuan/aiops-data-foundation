@@ -30,7 +30,7 @@ from datetime import datetime, timezone
 
 import pandas as pd
 
-from shared.connection import doc_id, get_field
+from shared.infra.es import doc_id, get_field
 
 LEVELS = ("ml", "fdc", "external")
 _FIELD = re.compile(r"\{([^{}]+)\}")

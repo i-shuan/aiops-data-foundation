@@ -11,10 +11,10 @@ from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 import llm.summary as LLM
-from shared.connection import ES
+from shared.infra.es import ES
 from incident.store.models import Alert, stamp_of
-from shared.incident_doc import Incident
-from shared.repos import Repos
+from shared.types.incident import Incident
+from shared.infra.repos import Repos
 from shared.scenario import Chain, load_scenario
 from shared.scenario import load_scenario
 

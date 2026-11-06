@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import pandas as pd
 
-from shared.connection import ES
-from shared.repos import Repos
+from shared.infra.es import ES
+from shared.infra.repos import Repos
 from shared.scenario import load_scenario
 from detect.utils import _now
 

@@ -11,7 +11,7 @@
 """
 from __future__ import annotations
 
-from shared.incident_doc import DEFAULT_WEIGHTS as WEIGHTS, Fingerprint, Incident, classify, describe_class, seg_name  # noqa: F401
+from shared.types.incident import DEFAULT_WEIGHTS as WEIGHTS, Fingerprint, Incident, classify, describe_class, seg_name  # noqa: F401
 MIN_SCORE = 4.0        # 低於這個分數不算像：至少一個強特徵、或兩三個弱特徵
 TOP_K = 3
 # 跟 ES 要幾件候選再自己重算分數：ES 的 _score（boost）跟 explain 的算法不一樣（series 這裡是 min(交集,3) 倍、ES 只算一次），

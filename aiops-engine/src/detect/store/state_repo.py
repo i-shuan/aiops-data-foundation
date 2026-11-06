@@ -1,7 +1,7 @@
 """排程工作的進度（aiops-state）：例如 trace-merge 上次合到哪。"""
 from __future__ import annotations
 
-from shared.repository import Repository
+from shared.infra.es import Repository
 
 STATE_INDEX = "aiops-state"
 STATE_MAPPING = {"mappings": {"dynamic": False, "properties": {"last": {"type": "date"}, "updated_at": {"type": "date"}}}}

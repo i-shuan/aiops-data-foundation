@@ -24,9 +24,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from shared.connection import ES, doc_id
-from shared.incident_doc import INCIDENT_INDEX, Fingerprint, Incident
-from shared.repos import Repos
+from shared.infra.es import ES, doc_id
+from shared.types.incident import INCIDENT_INDEX, Fingerprint, Incident
+from shared.infra.repos import Repos
 from shared.scenario import load_scenario
 from detect.series_ops.manual_adjust import local_iso
 

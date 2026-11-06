@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from shared.repository import Repository
+from shared.infra.es import Repository
 
 
 class ChangeRepository(Repository):

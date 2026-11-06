@@ -21,8 +21,8 @@ import interface.web.dto as D
 import interface.web.views as V
 import detect.factory.ingest_job as ING
 import learn.feedback_service as F
-from shared.schema.loader import load_config
-from shared.repos import Repos
+from shared.scenario.config import load_config
+from shared.infra.repos import Repos
 from shared.scenario import load_scenario
 
 state = SimpleNamespace(es=None, repo=None)    # ES 連線的單一注入點：main() 放 ES()，測試放假的（set_es）；repo 是它上面的 repository

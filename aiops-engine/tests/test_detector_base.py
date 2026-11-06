@@ -12,7 +12,7 @@ import pandas as pd
 import detect.base as B
 from detect.base import Anomaly, Detector
 from detect.store.anomaly import ANOMALY_INDEX, ANOMALY_MAPPING, RULE_FIELDS
-from shared.repos import Repos
+from shared.infra.repos import Repos
 from shared.scenario import load_scenario
 
 SC = load_scenario()
@@ -87,7 +87,7 @@ class ToDoc(unittest.TestCase):
         self.assertTrue(a.to_doc()["detected_at"].startswith("20"))     # 沒給就是現在
 
     def test_default_id(self):
-        from shared.connection import doc_id
+        from shared.infra.es import doc_id
         a = Anomaly(ts=SLOT, series="rule.x", keys={"a": 1}, value=1, level="rule")
         self.assertEqual(a.id(), doc_id("rule.x", {"a": 1}, SLOT))
 

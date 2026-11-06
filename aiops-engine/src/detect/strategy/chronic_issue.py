@@ -20,8 +20,8 @@ import pandas as pd
 
 
 from detect.series_ops.manual_adjust import match_keys
-from shared.connection import ES, doc_id
-from shared.repos import Repos
+from shared.infra.es import ES, doc_id
+from shared.infra.repos import Repos
 from shared.scenario import load_scenario
 from detect.utils import _now, _v
 from detect.reference_data import load_owners

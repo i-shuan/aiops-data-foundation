@@ -37,7 +37,7 @@ import operator
 import numpy as np
 import pandas as pd
 
-from shared.connection import get_field
+from shared.infra.es import get_field
 from detect.store.anomaly import Anomaly
 from detect.base import Detector
 from detect.utils import _freq

@@ -223,7 +223,7 @@ engine 一份程式，情境各是一份資料檔加兩個策略（[shared/scena
 | ⑦ | 報告的每一段（[investigator/report.py](../aiops-engine/src/incident/rca_report.py)）、M4 分段、共同點、log 樣式、相似事故 | 報告有哪幾段、順序；索引與欄位的對照；用語（請求／lot、Trace／履歷） |
 | ⑧⑨ | Grafana 通知、回饋、匯出 | 回饋表單的分類表、誤報原因 |
 
-程式是一個功能一個資料夾（[docs/pdca/meta/2026-11-feature-folders.md](pdca/meta/2026-11-feature-folders.md)）：`detect/`（②③④⑤ 異常分析）、`llm/`（LLM 摘要與過去相似事故）、`incident/`（⑥⑦⑧ 告警與根因）、`learn/`（⑨ 學習迴圈）、`interface/`（`cli/`、`web/`、`jobs/`），底下是 `shared/`（ES 連線、時間、情境、設定 schema、`Repos`）；`detect/`、`incident/`、`learn/` 各有 `store/` 放自己的資料物件與 ES 讀寫（唯一懂 ES 的地方）。依賴只能往 `interface → learn → incident → llm → detect → shared` 走，`tests/test_layers.py` 鎖著。命令列入口只有一個：`python3 -m main <detector|investigator|scheduler|tasks|api> …`（`main.py`）；⑨ 的子命令掛在 `main detector` 底下（`interface/cli/feedback.py`）。
+程式是一個功能一個資料夾（[docs/pdca/meta/2026-11-feature-folders.md](pdca/meta/2026-11-feature-folders.md)）：`detect/`（②③④⑤ 異常分析）、`llm/`（LLM 摘要與過去相似事故）、`incident/`（⑥⑦⑧ 告警與根因）、`learn/`（⑨ 學習迴圈）、`interface/`（`cli/`、`web/`、`jobs/`），底下是 `shared/`（`infra/` ES 連線、時間、`Repos`；`types/` 事故與指紋；`scenario/` 情境與設定檔欄位定義）；`detect/`、`incident/`、`learn/` 各有 `store/` 放自己的資料物件與 ES 讀寫（唯一懂 ES 的地方）。依賴只能往 `interface → learn → incident → llm → detect → shared` 走，`tests/test_layers.py` 鎖著。命令列入口只有一個：`python3 -m main <detector|investigator|scheduler|tasks|api> …`（`main.py`）；⑨ 的子命令掛在 `main detector` 底下（`interface/cli/feedback.py`）。
 
 擴充點只開「現在真的有兩種以上做法」的地方，沒有的不預先抽；第四種情境（例如網路設備靠拓樸併件）出現時，寫一份 yaml `extends` 內建的、換掉策略就好。`configs/` 不隨情境搬：情境只決定預設排程表，設定檔仍在 `configs/<情境>/`。
 

@@ -7,7 +7,7 @@ import sys
 import uvicorn
 
 import interface.jobs.worker as tasks
-from shared.connection import ES
+from shared.infra.es import ES
 
 from interface.web.routes import app, set_es, state    # noqa: F401  uvicorn api.__main__:app、舊的 import 路徑都還找得到
 

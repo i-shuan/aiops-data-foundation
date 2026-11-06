@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from shared.clock import duration
+from shared.infra.clock import duration
 from shared.scenario.base import Chain
 
 

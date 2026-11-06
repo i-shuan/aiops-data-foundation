@@ -12,7 +12,7 @@
 |---|---|
 | `aiops-anomalies` | `aiops-engine/src/detect/store/anomaly.py` 的 `ANOMALY_MAPPING`（欄位的唯一定義是同一檔的 `Anomaly`） |
 | `aiops-alerts` | `aiops-engine/src/incident/store/models.py` 的 `ALERT_MAPPING`（欄位的唯一定義是同一檔的 `Alert`；事件整合在手上的就是這個物件，`to_doc()` 寫、`from_doc()` 讀） |
-| `aiops-incidents` | `aiops-engine/src/shared/incident_doc.py` 的 `INCIDENT_MAPPING`（欄位的唯一定義是同一檔的 `Incident`、`Fingerprint` 模型，寫入一律 `to_doc()`） |
+| `aiops-incidents` | `aiops-engine/src/shared/types/incident.py` 的 `INCIDENT_MAPPING`（欄位的唯一定義是同一檔的 `Incident`、`Fingerprint` 模型，寫入一律 `to_doc()`） |
 | `aiops-feedback` | `aiops-engine/feedback/suggest.py` 的 `FEEDBACK_MAPPING` |
 | `aiops-tuning` | `aiops-engine/src/learn/store/models.py` 的 `TUNING_MAPPING`（⑨ 寫、④ 讀，所以放 `core/`）；寫進去前過同一檔的 `Adjustment`（`validated`） |
 
@@ -192,7 +192,7 @@ Grafana（⑧）         讀 aiops-alerts 發通知；儀表板讀 alerts、anom
 
 ## aiops-incidents：事故庫（相似事故檢索的資料池）
 
-欄位定義在 `aiops-engine/src/shared/incident_doc.py` 的 `Incident`（指紋是 `Fingerprint`）；四條寫入路徑都建模型再 `to_doc()`，下表是它的欄位說明。
+欄位定義在 `aiops-engine/src/shared/types/incident.py` 的 `Incident`（指紋是 `Fingerprint`）；四條寫入路徑都建模型再 `to_doc()`，下表是它的欄位說明。
 
 三種寫入：事件整合每一輪只要這件有新異常併進來、新開或結束，就寫一次（`status: auto`；用 scripted upsert，**只更新還是 `auto` 的，人處理過的一個欄位都不動**）；資深維運專家在回饋表單送出後，回饋網頁（`aiops-engine/src/learn/feedback_service.py`）更新同一筆；也可以人用 `python3 -m main detector incident add／resolve` 補登一件（`status: open`，結束時 `resolved`）。
 
@@ -212,7 +212,7 @@ Grafana（⑧）         讀 aiops-alerts 發通知；儀表板讀 alerts、anom
 
 **相似事故檢索只用 `confirmed`、`corrected`**：沒人確認過的、被標誤報的，都不會被當成「過去相似」，也不會被 LLM 引用。
 
-**`fingerprint`** 六組陣列，比對時每組加權（`shared/incident_doc.py` 的 `DEFAULT_WEIGHTS`；低於 4 分不算像，最多取前 3 件；檢索可以排除指定的一件，但事件整合沒有傳：新的一件剛開時它在事故庫裡還是 `auto`，本來就查不到自己）：
+**`fingerprint`** 六組陣列，比對時每組加權（`shared/types/incident.py` 的 `DEFAULT_WEIGHTS`；低於 4 分不算像，最多取前 3 件；檢索可以排除指定的一件，但事件整合沒有傳：新的一件剛開時它在事故庫裡還是 `auto`，本來就查不到自己）：
 
 | 欄位 | 內容 | 權重 |
 |---|---|---|

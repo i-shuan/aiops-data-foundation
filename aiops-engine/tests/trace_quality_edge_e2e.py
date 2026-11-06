@@ -26,7 +26,7 @@ import yaml
 
 from interface.cli.detect import main as cli
 from detect.series_ops.quality_check import quality_hits
-from shared.connection import ES
+from shared.infra.es import ES
 
 CFG = "tests/trace_edge.yaml"
 QUALITY = "configs/baseline/quality.yaml"
@@ -514,7 +514,7 @@ def _retry():
     重送不會多一份：trace 的 _id 由 pipeline 用 trace_id-span_id 設、aiops-* 都帶 _id，重複的 create 回 409（bulk() 略過）。"""
     from requests.adapters import HTTPAdapter
     from urllib3.util.retry import Retry
-    import shared.connection as conn
+    import shared.infra.es as conn
     init = conn.ES.__init__
 
     def patched(self, *a, **kw):

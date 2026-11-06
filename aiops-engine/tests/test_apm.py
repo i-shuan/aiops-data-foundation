@@ -9,7 +9,7 @@ from shared.scenario import load_scenario
 
 import detect.store.trace as T
 import detect.store.owner_repo as O
-from shared.repos import Repos
+from shared.infra.repos import Repos
 from shared.scenario import load_scenario
 
 SC = load_scenario()

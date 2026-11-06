@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from learn.store.models import FEEDBACK_INDEX, FEEDBACK_MAPPING
-from shared.repository import Repository
+from shared.infra.es import Repository
 
 TERMS_CHUNK = 1000   # 一次 terms 查幾個 alert_id：查詢字串別太長
 

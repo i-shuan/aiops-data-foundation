@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 from unittest import mock
 
 import incident.alert_service as C
-from shared.repos import Repos
+from shared.infra.repos import Repos
 from shared.scenario import load_scenario
 
 SC = load_scenario()

@@ -10,7 +10,7 @@
 """
 from __future__ import annotations
 
-from shared.env import CODE_ROOT
+from shared.infra.env import CODE_ROOT
 
 import argparse
 import os

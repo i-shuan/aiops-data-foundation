@@ -3,8 +3,8 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from shared.incident_doc import INCIDENT_INDEX, INCIDENT_MAPPING, Fingerprint
-from shared.repository import Repository
+from shared.types.incident import INCIDENT_INDEX, INCIDENT_MAPPING, Fingerprint
+from shared.infra.es import Repository
 
 _GUARD = ("if (ctx._source.status == null || ctx._source.status == 'auto') { ctx._source.putAll(params.doc) } else { ctx.op = 'none' }")
 

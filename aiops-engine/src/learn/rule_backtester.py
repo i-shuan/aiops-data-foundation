@@ -24,8 +24,8 @@ import detect.strategy.threshold_rule as R
 from detect.series_ops.manual_adjust import load_adjustments
 from detect.detect_service import detect_series
 from detect.utils import _freq, _now, keys_of
-from shared.connection import ES
-from shared.repos import Repos
+from shared.infra.es import ES
+from shared.infra.repos import Repos
 from shared.scenario import load_scenario
 from detect.strategy.dynamic_baseline import DetectOptions
 import learn.param_suggester as F

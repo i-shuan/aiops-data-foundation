@@ -2,13 +2,17 @@
 
 > **類型：規格 Reference**　為什麼這樣分層見 [docs/architecture.md](../../../docs/architecture.md)、計畫見 [docs/pdca/meta/2026-11-target-architecture.md](../../../docs/pdca/meta/2026-11-target-architecture.md)
 
-`shared/` 放 ES 連線（`connection.py`）、時間（`clock.py`）、執行環境（`env.py`）、文件基底（`document.py`）、事故與指紋的資料物件（`incident_doc.py`）、repository 基底（`repository.py`）、情境（`scenario/`）、設定 schema（`shared/schema/`）。它不依賴任何功能資料夾（`tests/test_layers.py` 鎖著）。
+`shared/` 是各功能共用的底層，分三個資料夾，它不依賴任何功能資料夾（`tests/test_layers.py` 鎖著）：
+
+- `infra/`：`env.py`（引擎版本、專案根目錄）、`clock.py`（時間長度、「現在」、`stamp_of`）、`es.py`（ES 連線、寫進 ES 的文件的基底 `Doc`、repository 基底 `Repository`）、`repos.py`（`Repos`）。
+- `types/`：`incident.py`——事故與指紋的資料物件，`llm/`（過去相似）與 `incident/`（告警）都用它，放在任一邊都會循環。
+- `scenario/`：`base.py`（`Scenario`、`load_scenario()`）、`*.yaml`（四份情境資料檔）、`config.py`（設定檔欄位的 pydantic 模型與 `load_config`）。
 
 索引名只出現在各功能資料夾的 `store/` 與 `shared/`。每個功能的 repository 放在自己的 `store/`（`detect/store/`、`incident/store/`、`learn/store/`），上層透過 `Repos` 拿：
 
 ```python
-from shared.connection import ES
-from shared.repos import Repos
+from shared.infra.es import ES
+from shared.infra.repos import Repos
 
 repo = Repos(ES())                       # 指令開頭；測試給假 ES（只要有 req／search／bulk_index／ensure_index），或 tests/fakes.MemoryRepos 不連 ES
 repo.alerts.open()                       # ⑥ 開著的件（Alert 模型）
@@ -35,8 +39,8 @@ repo.series.fetch(spec, start, end, "5m")   # 原始資料 → 一條序列（ke
 | `housekeeping` | `detect/store/housekeeping_repo.py` | 設定給 | count／delete_by_query（prune）、put_index_template |
 | （函式） | `detect/store/owner_repo.py` | 設定給 | `load_owners`、`owner_of`：異常的 dept／group（AnomalyRepository.write 用） |
 
-- mapping 跟著實體：`detect/store/{anomaly,baseline}.py`、`incident/store/models.py`、`shared/incident_doc.py`、`learn/store/models.py`；只有 repository 自己用的索引（segments、state、chronic）mapping 放在 repository 檔裡。
-- 共用的翻頁（search_after、composite）、_mget、_update、_bulk update 在 `shared/repository.py` 的 `Repository`。
+- mapping 跟著實體：`detect/store/{anomaly,baseline}.py`、`incident/store/models.py`、`shared/types/incident.py`、`learn/store/models.py`；只有 repository 自己用的索引（segments、state、chronic）mapping 放在 repository 檔裡。
+- 共用的翻頁（search_after、composite）、_mget、_update、_bulk update 在 `shared/infra/es.py` 的 `Repository`。
 - 不連 ES 的測試：`tests/fakes.MemoryRepos`（原始資料給 DataFrame，整形在 `tests/shaping.py`，語意跟 ES 端的 aggregation 一樣，`tests/test_shape.py`、`test_values.py` 對過）。
 
-- `Repos` 的屬性名對 repository 的名稱表在 `shared/repos.py`（`REGISTRY`），第一次取用才載入，所以 `shared/` 不靜態依賴任何功能；新增 repository：檔案放功能的 `store/`，在 `REGISTRY` 加一行。
+- `Repos` 的屬性名對 repository 的名稱表在 `shared/infra/repos.py`（`REGISTRY`），第一次取用才載入，所以 `shared/` 不靜態依賴任何功能；新增 repository：檔案放功能的 `store/`，在 `REGISTRY` 加一行。

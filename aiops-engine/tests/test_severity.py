@@ -108,7 +108,7 @@ class GradeAlert(unittest.TestCase):
 
     def test_reads_old_anomalies_and_detects_deploy(self):
         import incident.alert_service as C
-        from shared.repos import Repos
+        from shared.infra.repos import Repos
         from shared.scenario import load_scenario
         SC = load_scenario()
         old = [{"_id": f"o{i}", "_source": {"@timestamp": (T0 + timedelta(minutes=i)).isoformat(), "series": "http.error_rate", "keys": {"service": "pay-api", "route": "POST /pay"}}} for i in range(5)]

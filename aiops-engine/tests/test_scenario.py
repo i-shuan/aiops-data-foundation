@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 from unittest import mock
 
 import shared.scenario.base as SC
-from shared.repos import Repos
+from shared.infra.repos import Repos
 from detect.store.owner_repo import owner_of
 from shared.scenario import Chain, Scenario, load_scenario
 import incident.alert_grouper as AL

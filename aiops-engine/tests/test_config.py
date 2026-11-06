@@ -6,8 +6,8 @@ import unittest
 
 import yaml
 
-from shared.schema.loader import KINDS, ConfigError, load_config, validate
-from shared.schema.models import MODELS
+from shared.scenario.config import KINDS, ConfigError, load_config, validate
+from shared.scenario.config import MODELS
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 CODE = os.path.join(HERE, "..")

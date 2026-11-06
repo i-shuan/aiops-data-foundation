@@ -20,15 +20,15 @@ from collections import Counter
 
 import pandas as pd
 
-from shared.connection import doc_id
-from shared.incident_doc import Fingerprint
+from shared.infra.es import doc_id
+from shared.types.incident import Fingerprint
 
 from learn.store.models import VERDICTS
 # identified_cause（llm/summary.py 的 CAUSE_CODES）→ 表單的根因分類；規則草稿的 root_cause_category 用。沒列的是 other
 CAUSE_CATEGORY = {"db_slow_query": "db", "db_lock": "db", "db_connection_pool": "db", "network": "network", "dns": "network",
                   "config_change": "config_change", "deploy": "deploy", "external_api": "external", "resource_cpu": "resource",
                   "resource_memory": "resource", "disk_full": "resource", "bug": "bug", "data_volume": "data", "dirty_data": "data"}
-# INCIDENT_MAPPING、status 的意思搬到 shared/incident_doc.py（跟 Incident 模型放一起）；這裡 re-export 讓舊的 import 還能用
+# INCIDENT_MAPPING、status 的意思搬到 shared/types/incident.py（跟 Incident 模型放一起）；這裡 re-export 讓舊的 import 還能用
 
 
 def target_of(keys: dict | None) -> str:

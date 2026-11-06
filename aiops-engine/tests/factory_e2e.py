@@ -23,7 +23,7 @@ from datetime import timedelta
 
 import pandas as pd
 
-os.environ.setdefault("AIOPS_PLUGIN", "factory")       # shared/scenario/data/factory.yaml：機台、recipe、履歷、recipe 變更當換版
+os.environ.setdefault("AIOPS_PLUGIN", "factory")       # shared/scenario/factory.yaml：機台、recipe、履歷、recipe 變更當換版
 
 TZ = "Asia/Taipei"
 TODAY = pd.Timestamp("2026-11-04", tz=TZ)
@@ -185,7 +185,7 @@ def load(es, data: dict) -> None:
 
 
 def run(keep: bool = False, dump_dir: str | None = None, plugin_name: str = "factory") -> int:
-    from shared.connection import ES
+    from shared.infra.es import ES
     from interface.cli.detect import main as detector
     from interface.cli.rca import main as investigator
     os.environ["AIOPS_PLUGIN"] = plugin_name
@@ -307,7 +307,7 @@ def main(argv=None) -> int:
     p.add_argument("--plugin", default="factory", choices=["factory", "metrics_only"], help="factory（有履歷，預設）或 metrics_only（只有指標）")
     a = p.parse_args(argv)
     if a.clean:
-        from shared.connection import ES
+        from shared.infra.es import ES
         cleanup(ES(), EQUIPMENTS)
         print("清掉了")
         return 0
