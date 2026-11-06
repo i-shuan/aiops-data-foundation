@@ -25,6 +25,40 @@
 
 本機跑：`cd aiops-engine && python3 -m main detector <指令>`、`python3 -m main investigator investigate`；單元測試 `python3 -m pytest -q`。
 
+## 程式結構（`src/`）
+
+依賴只能往下：`interface → learn → incident → llm → detect → shared`（`tests/test_layers.py` 鎖著）。每個功能的資料物件與 ES 讀寫放自己的 `store/`。
+
+```
+src/
+├─ interface/     對外的入口
+│  ├─ cli/        common · detect · feedback · rca · fab
+│  ├─ web/        routes · dto · views · __main__ · templates/(feedback、missed、report.html)
+│  └─ jobs/       runner · local · worker · cron · sleep
+├─ learn/         ⑨ 學習迴圈
+│  ├─ feedback_service · tuning_service · param_suggester
+│  ├─ rule_backtester · evaluation_metrics · history_importer
+│  └─ store/      models · feedback_repo · tuning_repo
+├─ incident/      ⑥⑦⑧ 告警與根因
+│  ├─ alert_service · alert_grouper · alert_severity
+│  ├─ rca_analyzer · rca_report
+│  ├─ strategy/   it_topology · it_deployment · fab_process_flow · fab_recipe_change
+│  └─ store/      models · alert_repo · incident_repo · change_repo · log_repo
+├─ llm/           summary（LLM 摘要）· similar（過去相似事故）
+├─ detect/        ②③④⑤ 異常分析
+│  ├─ base · detect_service · housekeeping · reference_data · utils
+│  ├─ strategy/   threshold_rule · peer_compare · dynamic_baseline · chronic_issue
+│  ├─ series_ops/ quality_check · level_shift · manual_adjust
+│  ├─ trace/      span_merge · latency_stats · path_builder · path_service
+│  ├─ fab_ingest/ ingest · ingest_service
+│  └─ store/      models · anomaly／baseline／chronic／housekeeping／owner／
+│                 quality／segment／series／state／trace 的 *_repo
+└─ shared/        共用底層
+   ├─ infra/      env · clock · es · repos
+   ├─ types/      incident
+   └─ scenario/   base · config · factory／it_apm／it_otel／metrics_only.yaml
+```
+
 ## 怎麼上
 
 ```bash

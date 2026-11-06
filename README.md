@@ -70,10 +70,18 @@ docs/
 一個部署元件一個資料夾，裡面固定 `README.md`（怎麼部署）、程式與設定檔、`helmchart/`（Helm chart）；`grafana/`、`elasticsearch/` 的程式與設定檔放在 `code/`，`aiops-engine/` 直接放在資料夾裡。
 
 ```
-elasticsearch/   kibana-dev-tools.txt（貼進 Kibana Dev Tools 的一份檔）
-grafana/         code/（規則、contact point、policy、儀表板、外掛說明）  helmchart/（Grafana＋initContainer 裝外掛＋provisioning）
-aiops-engine/    code/（Python、configs、Dockerfile）                  helmchart/（mode：一隻 pod，或 api＋beat＋worker＋redis）
-docs/  tools/
+repo/
+├─ CLAUDE.md  README.md  sonar-project.properties
+├─ elasticsearch/   kibana-dev-tools.txt          ③ 貼進 Kibana Dev Tools 的設定
+├─ grafana/         README.md  code/  helmchart/  ⑧ 通知、儀表板、回饋表單
+├─ tools/           check-docs.py                 文件檢查（連結、索引、舊說法、類型）
+├─ docs/            原理、案例、PDCA 紀錄
+└─ aiops-engine/                                  ④～⑨ AIOps 核心（src/ 裡的結構見它的 README.md）
+   ├─ main.py  Dockerfile  requirements.txt  README.md
+   ├─ src/        Python 程式：interface、learn、incident、llm、detect、shared
+   ├─ configs/    設定檔的實際值（apm、baseline、factory、metrics_only、rca、schedule）
+   ├─ helmchart/  mode：一隻 pod，或 api＋beat＋worker＋redis
+   ├─ tests/  fake-data/
 ```
 
 | 資料夾 | 模組 | 內容 |
