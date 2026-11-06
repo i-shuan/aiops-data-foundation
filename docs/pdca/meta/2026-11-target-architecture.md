@@ -1,6 +1,6 @@
 # 目標架構：core／scenario／service／interface 四層，與逐檔搬遷表（2026-11）
 
-**狀態**：計畫（還沒動 code，等使用者確認）　　**日期**：2026-11-06　　**相關**：分支 `claude/target-architecture`（從 master `58fa7ce` 開）；承接 [clean-code](2026-11-clean-code.md) 沒解決的結構問題
+**狀態**：已完成（S0～S5 做完，之後的調整記在文末；已合進 master）　　**日期**：2026-11-06　　**相關**：分支 `claude/target-architecture`（從 master `58fa7ce` 開）；承接 [clean-code](2026-11-clean-code.md) 沒解決的結構問題
 **模組**：②～⑨（程式結構，不改任何階段的行為）
 
 <!-- toc -->
