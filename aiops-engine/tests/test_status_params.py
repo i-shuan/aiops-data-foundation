@@ -3,7 +3,7 @@ import unittest
 
 import pandas as pd
 
-from service.detect.baseline_job import status_params, with_status
+from detect.baseline_job import status_params, with_status
 
 CFG = {"status": {"confirm_points": 2, "confirm_span": "30m", "instant_z": 15}}
 

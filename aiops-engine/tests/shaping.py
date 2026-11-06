@@ -1,5 +1,5 @@
 """測試用的記憶體版資料來源：原始列（DataFrame，一列一個事件或一個預先統計好的點）＋序列定義 → 模型的標準輸入，
-跟 ES 端的 aggregation（core/repository/series.py 的 _value_aggs、_bucket_value、_bucket_events）同一套定義的 pandas 實作，
+跟 ES 端的 aggregation（detect/store/series_repo.py 的 _value_aggs、_bucket_value、_bucket_events）同一套定義的 pandas 實作，
 同一批資料兩邊算出來要一樣（test_shape、test_values）。tests/fakes.MemoryRepos 用它把 DataFrame 當成 ES 的索引。
 
 原始列的欄位名用 ES 的點號路徑（service.name、event.outcome、transaction.duration.histogram）。
@@ -21,7 +21,7 @@ import re
 import numpy as np
 import pandas as pd
 
-from core.repository.series import COLUMNS, fill_zero, to_freq
+from detect.store.series_repo import COLUMNS, fill_zero, to_freq
 
 class ShapeError(ValueError):
     pass

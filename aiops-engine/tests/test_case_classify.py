@@ -6,11 +6,11 @@ import unittest
 
 import pandas as pd
 
-import service.feedback.suggest as F
+import learn.suggest as F
 import interface.web.dto as D
 import interface.web.views as V
-import service.feedback.importer as IMP
-import service.rca.similar as SIM
+import learn.importer as IMP
+import llm.similar as SIM
 
 
 def fp(svc="mes-api", seg="mes-api › SELECT WIP → oracle", series=("http.error_rate",), route="GET /lots"):

@@ -4,12 +4,12 @@ from unittest import mock
 
 import pandas as pd
 
-import service.feedback.backtest as B
-from core.repository import Repos
-from scenario import load_scenario
+import learn.backtest as B
+from shared.repos import Repos
+from shared.scenario import load_scenario
 
 SC = load_scenario()
-from core.repository.baseline import BaselineRepository
+from detect.store.baseline_repo import BaselineRepository
 
 NOW = pd.Timestamp("2026-11-03T00:00:00Z")
 CFG = {"series": [{"name": "http.error_rate", "by": ["service", "route"], "min_count": 3}], "train": {"timezone": "Asia/Taipei"}, "interval": "1m"}

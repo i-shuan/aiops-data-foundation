@@ -1,4 +1,4 @@
-"""測試用、不連 ES 的 Repos（跟 core.repository.Repos 同樣的屬性與方法）：
+"""測試用、不連 ES 的 Repos（跟 shared.repos.Repos 同樣的屬性與方法）：
 原始資料是 {index pattern: DataFrame}（整形在 tests/shaping.py，語意跟 ES 端的 aggregation 一樣），aiops-* 的文件存在 dict。
 
     repo = MemoryRepos({"metrics-apm.transaction.1m-*": df})
@@ -12,16 +12,16 @@ import json
 
 import pandas as pd
 
-from core.env import ENGINE_VERSION
-from core.entity.alert import ALERT_INDEX, Alert
-from core.entity.anomaly import ANOMALY_INDEX
-from core.entity.baseline import BASELINE_COLUMNS, BASELINE_INDEX, GROUP_COLUMNS, RENAMED
-from core.entity.feedback import FEEDBACK_INDEX
-from core.entity.incident import INCIDENT_INDEX
-from core.entity.adjustment import TUNING_INDEX, validated
-from core.repository.segment import SEGMENT_INDEX
-from core.repository.state import STATE_INDEX
-from scenario import load_scenario
+from shared.env import ENGINE_VERSION
+from incident.store.alert import ALERT_INDEX, Alert
+from detect.store.anomaly import ANOMALY_INDEX
+from detect.store.baseline import BASELINE_COLUMNS, BASELINE_INDEX, GROUP_COLUMNS, RENAMED
+from learn.store.feedback import FEEDBACK_INDEX
+from shared.incident import INCIDENT_INDEX
+from learn.store.adjustment import TUNING_INDEX, validated
+from detect.store.segment_repo import SEGMENT_INDEX
+from detect.store.state_repo import STATE_INDEX
+from shared.scenario import load_scenario
 import tests.shaping as shape
 
 

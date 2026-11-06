@@ -15,7 +15,7 @@
   python3 -m main investigator import-incidents configs/rca/incidents-example.csv [--tz Asia/Taipei] [--dry-run]
 
 investigate 照「Metrics 發現異常 → Trace 縮小到哪一段 → Log 找出原因」的順序查，印出一份 Markdown 報告；報告有哪幾段由 plugin 決定
-（service/rca/report.py、Scenario.sections）。--out 另存成檔案。
+（incident/report.py、Scenario.sections）。--out 另存成檔案。
 命令列用 typer（跟 detector 一樣）：@app.command 的函式把參數裝成 argparse.Namespace、用 core.config.load_config 讀 rca.yaml，再交給處理函式。
 """
 from __future__ import annotations
@@ -26,17 +26,17 @@ from datetime import timedelta
 
 import typer
 
-import core.entity.trace as T
-from schema.loader import load_config
-from core.connection import ES
-from core.repository import Repos
-from scenario import load_scenario
+import detect.store.trace as T
+from shared.schema.loader import load_config
+from shared.connection import ES
+from shared.repos import Repos
+from shared.scenario import load_scenario
 
-import service.rca.analyze as A
-import service.converge.alert_service as cmd_alert
-import service.rca.similar as SIM
-import service.feedback.importer as IMP
-from service.rca.report import _dur, _local, _ms, _ts, investigate_full  # noqa: F401  舊的 import 路徑還有人用
+import incident.analyze as A
+import incident.alert_service as cmd_alert
+import llm.similar as SIM
+import learn.importer as IMP
+from incident.report import _dur, _local, _ms, _ts, investigate_full  # noqa: F401  舊的 import 路徑還有人用
 
 app = typer.Typer(add_completion=False, rich_markup_mode=None, pretty_exceptions_enable=False)
 Opt = typer.Option

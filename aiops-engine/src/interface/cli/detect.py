@@ -12,7 +12,7 @@
   python3 -m main detector feedback pending|add|list|summary|suggest|export   值班回饋（真的／誤報／根因錯／漏報）；export 匯出給 ML 團隊
   python3 -m main detector incident add|list|resolve                   事故紀錄
   python3 -m main detector ingest --config configs/factory/ingest.yaml [--window 10m] [--at …]     別人判好的異常（ML、FDC）接進 ⑤
-  （情境加的子命令只在那個情境下才有：AIOPS_PLUGIN=factory 多 paths-merge；scenario/data/factory.yaml 的 commands；scenario/README.md）
+  （情境加的子命令只在那個情境下才有：AIOPS_PLUGIN=factory 多 paths-merge；shared/scenario/data/factory.yaml 的 commands；shared/scenario/README.md）
 
 命令列用 typer：每個子命令是一個函式，參數就是命令列參數；@command 登記進 COMMANDS，main() 建 app 時連同
 feedback/cli.py（⑨：feedback、incident、adjust、backtest、metrics）和 Scenario.commands 一起掛上（三邊同一種形狀：{子命令名: register(app)}）。
@@ -43,19 +43,19 @@ from typing import Callable, List
 
 import typer
 
-from scenario import load_scenario
+from shared.scenario import load_scenario
 from interface.cli.common import SERIES, Opt, registry, run
 import interface.cli.feedback as feedback_cli
 
-from service.detect.baseline_job import cmd_train, cmd_tune, cmd_detect
-from service.detect.chronic import cmd_chronic
-from service.detect.prune import cmd_prune
-from service.detect.shift import cmd_shift
-from service.detect.trace_stats import cmd_trace_collect, cmd_trace_train, cmd_trace_detect, cmd_trace_merge
-from service.detect.rules import cmd_rules
-from service.detect.peer import cmd_peer
-from service.detect.quality import cmd_quality
-from scenario.factory.ingest_job import cmd_ingest
+from detect.baseline_job import cmd_train, cmd_tune, cmd_detect
+from detect.chronic import cmd_chronic
+from detect.prune import cmd_prune
+from detect.shift import cmd_shift
+from detect.trace_stats import cmd_trace_collect, cmd_trace_train, cmd_trace_detect, cmd_trace_merge
+from detect.rules import cmd_rules
+from detect.peer import cmd_peer
+from detect.quality import cmd_quality
+from detect.factory.ingest_job import cmd_ingest
 
 COMMANDS: dict[str, Callable[[typer.Typer], None]] = {}      # 內建子命令：名字 → register(app)；feedback.cli.COMMANDS、plugin.commands() 同一種形狀
 command = registry(COMMANDS)

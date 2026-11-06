@@ -3,12 +3,12 @@
 import unittest
 from datetime import datetime, timezone
 
-from core.repository import Repos
-from scenario import load_scenario
+from shared.repos import Repos
+from shared.scenario import load_scenario
 
 SC = load_scenario()
-import core.entity.trace as T
-import service.detect.trace_merge as M
+import detect.store.trace as T
+import detect.trace_merge as M
 
 T0 = 1_793_400_000_000.0   # 2026-10-31T00:00:00Z 附近（毫秒）
 

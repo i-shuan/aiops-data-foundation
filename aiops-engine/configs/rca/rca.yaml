@@ -30,7 +30,7 @@ alerts:
   rca_retry_after: 2m             #   隔多久重跑一次
   rca_retry_max: 5                #   最多跑幾次（含第一次）；服務本來就沒埋點的，不會永遠重跑
   similar: true                   # 附上老師傅確認過的相似事故（investigator/similar.py）
-  llm: true                       # LLM 摘要（core/llm.py）：provider 由環境變數 LLM_PROVIDER 決定（template 不叫模型）；下面可以蓋過
+  llm: true                       # LLM 摘要（llm/summary.py）：provider 由環境變數 LLM_PROVIDER 決定（template 不叫模型）；下面可以蓋過
   # llm_provider: template
   chain: true                     # 跨服務（一層）：下游出事連帶上游異常時只開一件、留下游；呼叫關係從這段時間的 trace 算
   chain_sample: 100               # 算呼叫關係時每個服務取最近幾個請求的 trace

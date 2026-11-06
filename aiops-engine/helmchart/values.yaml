@@ -23,7 +23,7 @@ image:
 
 esUrl: https://elasticsearch.example.internal:9200
 tz: Asia/Taipei
-# 情境（scenario/README.md）：observability（IT：服務、API、trace）、factory（工廠：ML／FDC 判好的異常、MES 履歷、機台 alarm）、
+# 情境（shared/scenario/README.md）：observability（IT：服務、API、trace）、factory（工廠：ML／FDC 判好的異常、MES 履歷、機台 alarm）、
 # metrics_only（只有 ML／FDC 的異常、沒有履歷）。環境變數 AIOPS_PLUGIN 跟著設，排程表換成那個情境的
 plugin: observability
 # observability 的原始資料是誰寫的：otel（我們的 Collector：metrics-*.otel-*、k8s-*、traces-generic.otel-*）或 apm（Elastic APM：
@@ -32,7 +32,7 @@ source: otel
 secret: aiops-secrets          # ES_API_KEY
 esApiKey: ""                   # 部署時給：chart 建上面這個 Secret；空的就不建、沿用手動建的
 
-# LLM 摘要（core/llm.py）。provider、model、baseUrl 放 ConfigMap aiops-env；apiKey 由 chart 建成 Secret aiops-llm。
+# LLM 摘要（llm/summary.py）。provider、model、baseUrl 放 ConfigMap aiops-env；apiKey 由 chart 建成 Secret aiops-llm。
 # apiKey 這裡永遠留空：真的 key 寫在 values-local.yaml（.gitignore 擋掉），helm 加 -f values-local.yaml
 llm:
   provider: template           # template（不叫模型）／openai／anthropic

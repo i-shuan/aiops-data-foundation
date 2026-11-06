@@ -4,7 +4,7 @@
 
 | 資料夾 | 內容 |
 |---|---|
-| `src/` | Python 程式，五個資料夾 `schema/`、`core/`、`scenario/`、`service/`、`interface/`，依賴只能往下：`interface/`（`cli/` 命令列、`web/` API 與回饋網頁、`jobs/` 排程器與佇列 worker）→ `service/`（`detect/` ②③④⑤、`converge/` ⑥⑧、`rca/` ⑦、`feedback/` ⑨）→ `scenario/`（情境：`data/*.yaml` 加 IT／工廠兩個策略，[說明](src/scenario/README.md)）→ `core/`（`entity/` 資料物件、[`repository/`](src/core/repository/README.md) 唯一懂 ES 的地方）；`schema/` 是設定檔的欄位定義（型別、預設值、檢查），值在 `configs/` |
+| `src/` | Python 程式，一個功能一個資料夾，依賴只能往左：`interface/`（`cli/` 命令列、`web/` API 與回饋網頁、`jobs/` 排程器與佇列 worker）→ `learn/`（⑨ 學習迴圈：回饋、建議、回測、調整、事故匯入）→ `incident/`（⑥⑦⑧ 告警與根因：收斂、告警、嚴重度、根因分析、報告）→ `llm/`（LLM 摘要、過去相似事故的檢索）→ `detect/`（②③④⑤ 異常分析：規則、同儕比對、基準線、品質、慢性病、trace、工廠的 ingest）→ `shared/`（ES 連線、時間、[情境](src/shared/scenario/README.md)、設定 `schema/`、[`Repos`](src/shared/README.md)）；`detect/`、`incident/`、`learn/` 各有 `store/`，放自己的資料物件和 ES 讀寫。`shared/schema/` 是設定檔欄位的定義（型別、預設值、檢查），值在 `configs/` |
 | `configs/` | 各情境的設定檔（[baseline](configs/baseline/README.md)、[rca](configs/rca/README.md)、[schedule](configs/schedule/schedule.yaml)、`apm/`、`factory/`、`metrics_only/`） |
 | `tests/` | 單元測試與 e2e（e2e 要測試用的 ES） |
 | `Dockerfile`、`requirements.txt` | 一個 image 裝全部，`ENTRYPOINT python3 -m`，`args` 給套件名和指令 |
@@ -30,7 +30,7 @@ kubectl -n aiops logs deploy/aiops-engine -c scheduler -f | grep '\[scheduler\]'
 
 - `rca.yaml` 的 `alerts.feedback_url`、`report_url` 填 api 的網址（Service `aiops-api:8080`；要讓人從公司網路點得到再加 Ingress）。
 - 分散模式：`--set mode=distributed`（下一節）；ML／FDC 要推異常進來時再 `--set api.token=<隨機字串>`（寫在 `values-local.yaml`）。
-- 情境：預設 `observability`（IT）；工廠 `--set plugin=factory`，只有 ML／FDC 指標 `--set plugin=metrics_only`（[scenario/README.md](src/scenario/README.md)）。各裝一個 release、各自一隻 pod。
+- 情境：預設 `observability`（IT）；工廠 `--set plugin=factory`，只有 ML／FDC 指標 `--set plugin=metrics_only`（[shared/scenario/README.md](src/shared/scenario/README.md)）。各裝一個 release、各自一隻 pod。
 - 資料來源（observability 才看）：預設讀我們 Collector 寫的 OTel 格式。公司 ES 裡是 Elastic APM 的資料（`traces-apm-*`、`logs-apm.*`、`metrics-apm.*`）時 `--set source=apm`，設定檔與怎麼接見 [configs/apm/README.md](configs/apm/README.md)。
 - LLM：`values.yaml` 的 `llm.provider`（`template` 不叫模型）、`llm.model`（空的用程式預設 openai `gpt-4o-mini`、anthropic `claude-sonnet-4-5`）、`llm.baseUrl`（內網閘道，不含 `/v1`）放 ConfigMap `aiops-env`；`llm.apiKey` 由 chart 建成 Secret `aiops-llm`。**key 只寫在 `values-local.yaml`**（`.gitignore` 擋掉），`values.yaml` 永遠留空。改了重跑 helm，pod 會自己重啟（`checksum/env`）。
 - 設定檔要跟 image 裡的不一樣：`--set-file configOverrides.baseline.series=aiops-engine/configs/baseline/series.yaml`（掛在 `/app/configs/baseline/series.yaml`）；排程表是 `configOverrides.schedule.schedule`。

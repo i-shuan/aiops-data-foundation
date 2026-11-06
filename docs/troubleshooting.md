@@ -23,7 +23,7 @@
 |---|---|---|
 | 規則狀態 Error，ES 回 400 | Grafana 的 terms 預設用 `_term` 排序，ES 不認得（實測 9.5；8.19 也已不支援 `_term`） | 每個 terms 都寫 `orderBy: _count`（`grafana/code/alert-rules.yaml` 已寫） |
 | data source 測試回 403 | Grafana 會先打 `GET /` 看版本 | key 要有 cluster `monitor` 權限（`kibana-dev-tools.txt` 第 4 段的 Grafana 唯讀 key 已給） |
-| 同一件事每分鐘收到「舊的 resolved＋新的 firing」 | `summary` 是告警的 label，內容一變就是另一則 | engine 寫的 summary 不放「持續 N 分鐘」「等 N 項異常」這種每分鐘會變的字（`aiops-engine/src/service/converge/merge.py`） |
+| 同一件事每分鐘收到「舊的 resolved＋新的 firing」 | `summary` 是告警的 label，內容一變就是另一則 | engine 寫的 summary 不放「持續 N 分鐘」「等 N 項異常」這種每分鐘會變的字（`aiops-engine/src/incident/merge.py`） |
 | 件還開著，Grafana 卻發 resolved，之後又 firing | 一件只有一筆、每輪覆蓋；Grafana 的查詢範圍到「排定的評估時間」為止，查詢晚幾秒才送出。覆蓋剛好落在這幾秒之間時，`@timestamp` 晚於範圍結束點，查到 0 筆 | engine 寫開著的件和心跳時，`@timestamp` 往前 1 分鐘（`cmd_alert.STAMP_LAG`）。驗證：`e2e/pipeline/run-alert-flap.py` |
 | ES 連不上時收到 `DatasourceError`，不是「AIOps 停了」，而且一次兩則 | 規則 `execErrState: Error` 時 Grafana 發自己的 DatasourceError；兩條規則各發一則 | 要它也叫「AIOps 停了」就把心跳規則改 `execErrState: Alerting`；事件規則的 DatasourceError 用 notification policy 靜音（還沒改，要跟管 Grafana 的人定） |
 | 儀表板查 `_exists_:report` 永遠沒資料 | `aiops-alerts` 的 `report` 是 `index: false` | 用 `category:service` 篩 |

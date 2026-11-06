@@ -1,6 +1,6 @@
 # 半導體（FDC）：沒有 trace id 時怎麼做 AIOps
 
-> **類型：原理 Explanation**　目前的設計見 [architecture.md](architecture.md)・五個模型的輸入規格見 [models/README.md](pdca/meta/2026-11-target-architecture.md)・資料怎麼餵進來見 [sources/README.md](../aiops-engine/src/core/repository/README.md)
+> **類型：原理 Explanation**　目前的設計見 [architecture.md](architecture.md)・五個模型的輸入規格見 [models/README.md](pdca/meta/2026-11-target-architecture.md)・資料怎麼餵進來見 [sources/README.md](../aiops-engine/src/shared/README.md)
 > 🟡 部分實作：工廠版 engine（`configs/factory/`）已用假資料整條跑通，怎麼跑、要給什麼資料見 [configs/factory/README.md](../aiops-engine/configs/factory/README.md)；沒有 MES 歷程、FDC 的欄位樣本，欄位名是假設，拿到樣本要重對。現況見文末。
 
 目前的設計是一般服務（Web API、worker、Kafka、DB）：靠 Elastic APM 的 trace id 把「一個請求經過哪幾段」串起來。半導體的 FDC（Fault Detection and Classification）沒有 trace id，但有同樣功能的鍵：**lot（或 wafer）的加工路徑**。這份說明路徑怎麼取代 trace、五個模型各要改什麼、跟目前設計差在哪。
@@ -49,7 +49,7 @@
 | M1 動態基準線學習 | 一條序列（服務 × API）依「同星期幾 × 同小時」取中位數與 MAD，粒度 1 分鐘到 1 小時 | 一條序列是（機台、chamber、recipe、step、感測參數）；一個 run 一個值（均值、峰值、斜率）；時間週期不重要，**製程狀態才重要**（距上次 PM 的 run 數、前一個 lot 的 recipe） | 分組鍵從「時段」換成「製程條件」：`train` 的時段欄換成條件欄；`n` 是 run 數；PM 之後重置基準線（現有的 `reset_point`） |
 | M2 Pod 同儕橫向比對 | 同服務的 Pod 互比 | **chamber matching**：同型機台、同 recipe 的 chamber 互比 | `group` = 機型 + recipe，`member` = chamber；`min_peers` 要看廠裡同型機台有幾台 |
 | M3 靜態臨界值規則 | 錯誤率 5%、p95 2 秒 | SPC／管制界限：超出 spec、連續 N 點同側、趨勢（Western Electric、Nelson 規則）、alarm 次數 | `slope`、`total`、`window` 型已有；連續 N 點同側要新增 type |
-| M4 trace 分段 | 每個請求每一段自己花的時間，出事時跟平常比 | 每個 lot 每一步的加工時間／參數，壞 lot 跟好 lot 比 | `core/traces` 的 span 格式不變；寫路徑合成器產生 span |
+| M4 trace 分段 | 每個請求每一段自己花的時間，出事時跟平常比 | 每個 lot 每一步的加工時間／參數，壞 lot 跟好 lot 比 | `detect/store/trace` 的 span 格式不變；寫路徑合成器產生 span |
 | M5 相似事故分類 | 指紋：服務、API、慢的段、錯的源頭、log 樣式、指標 | 指紋：機台、chamber、recipe、step、FDC 參數組合、alarm 代碼 | 指紋欄位對應換掉；投票邏輯不變 |
 
 ### 事件整合與 RCA graph
@@ -87,7 +87,7 @@
 
 ## 現況（2026-11）
 
-廠方的異常由 ML 團隊的模型（異常跳點）和 FDC 鳴叫系統判，所以**沒有照上表做 M1～M3**，改成 engine 從 ⑤ 開始接；其餘照對照表做了第一版（[configs/factory/README.md](../aiops-engine/configs/factory/README.md)、[PDCA](pdca/meta/2026-11-factory-engine.md)）。工廠是 engine 的一個 plugin（`AIOPS_PLUGIN=factory`），沒有 MES 履歷時用 `metrics_only`（只有異常、log、事故前的變更，不併前後站；[plugins/README.md](../aiops-engine/src/scenario/README.md)、[PDCA](pdca/meta/2026-11-plugin-architecture.md)）：
+廠方的異常由 ML 團隊的模型（異常跳點）和 FDC 鳴叫系統判，所以**沒有照上表做 M1～M3**，改成 engine 從 ⑤ 開始接；其餘照對照表做了第一版（[configs/factory/README.md](../aiops-engine/configs/factory/README.md)、[PDCA](pdca/meta/2026-11-factory-engine.md)）。工廠是 engine 的一個 plugin（`AIOPS_PLUGIN=factory`），沒有 MES 履歷時用 `metrics_only`（只有異常、log、事故前的變更，不併前後站；[plugins/README.md](../aiops-engine/src/shared/scenario/README.md)、[PDCA](pdca/meta/2026-11-plugin-architecture.md)）：
 
 | 對照表的項目 | 做了 | 沒做 |
 |---|---|---|

@@ -6,8 +6,8 @@ import unittest
 from argparse import Namespace
 from unittest import mock
 
-import service.detect.baseline_job as C
-from core.entity.alert import ALERT_INDEX, ALERT_MAPPING
+import detect.baseline_job as C
+from incident.store.alert import ALERT_INDEX, ALERT_MAPPING
 
 CFG = {"interval": "5m", "adjustments_file": None, "calendar_file": None, "detect": {"z": 5}, "status": {"confirm_points": 2},
        "series": [{"name": "a.cpu", "index": "m", "by": ["service"], "value": {"avg": "v"}},

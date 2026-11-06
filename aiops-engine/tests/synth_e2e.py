@@ -12,9 +12,9 @@ import numpy as np
 import pandas as pd
 
 from interface.cli.detect import main as cli
-from core.entity.anomaly import ANOMALY_INDEX
-from core.connection import ES
-from core.entity.baseline import BASELINE_INDEX
+from detect.store.anomaly import ANOMALY_INDEX
+from shared.connection import ES
+from detect.store.baseline import BASELINE_INDEX
 
 TZ = "Asia/Taipei"
 INDEX = "aiops-synth"

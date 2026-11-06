@@ -132,9 +132,9 @@ class ScheduleFileTest(unittest.TestCase):
         self.assertEqual(len(all_jobs), 13)
 
     def test_alert_timeout_covers_llm_calls(self):
-        # 一件新的：LLM 最多 60 秒逾時（core/llm.py）；一輪至少要能處理好幾件，不然被砍什麼都沒寫
+        # 一件新的：LLM 最多 60 秒逾時（llm/summary.py）；一輪至少要能處理好幾件，不然被砍什麼都沒寫
         import inspect
-        import service.rca.llm as LLM
+        import llm.summary as LLM
         self.assertIn("timeout=60", inspect.getsource(LLM._call_openai))
         _, jobs = load_schedule(SCHEDULE, 2)
         by = {j.name: j for j in jobs}

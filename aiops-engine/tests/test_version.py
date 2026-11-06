@@ -4,7 +4,7 @@ import os
 import unittest
 from unittest import mock
 
-import core.env as V
+import shared.env as V
 
 
 class EngineVersion(unittest.TestCase):

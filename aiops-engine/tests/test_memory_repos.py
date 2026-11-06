@@ -8,9 +8,9 @@ from unittest import mock
 import numpy as np
 import pandas as pd
 
-import service.detect.baseline_job as C
-import service.detect.peer as cmd_peer
-import service.detect.rules as cmd_rules
+import detect.baseline_job as C
+import detect.peer as cmd_peer
+import detect.rules as cmd_rules
 from tests.fakes import MemoryRepos
 
 T0 = pd.Timestamp("2026-10-05T00:00:00Z")      # 週一
@@ -91,7 +91,7 @@ class RulesPeerSimilarOnMemory(unittest.TestCase):
         self.assertEqual([d["keys"]["pod"] for _, d in be.docs("aiops-anomalies")], ["d"])
 
     def test_similar_from_backend_incidents(self):
-        import service.rca.similar as SIM
+        import llm.similar as SIM
         fp = {"services": ["mes-api"], "routes": [], "series": ["http.error_rate"], "slow_segments": ["mes-api › SELECT WIP → oracle"],
               "error_origins": [], "patterns": []}
         inc = [("i-db", {"status": "confirmed", "title": "連線池耗盡", "root_cause_category": "db",

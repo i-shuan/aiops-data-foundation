@@ -18,7 +18,7 @@ from collections import Counter
 
 import yaml
 
-import service.rca.llm as LLM
+import llm.summary as LLM
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 CORPUS = os.path.join(HERE, "feedback_corpus.yaml")

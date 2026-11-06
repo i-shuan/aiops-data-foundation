@@ -4,11 +4,11 @@ import os
 import tempfile
 import unittest
 
-from core.repository import Repos
+from shared.repos import Repos
 
 import pandas as pd
 
-import service.feedback.feedback_service as C
+import learn.feedback_service as C
 
 
 class FakeES:

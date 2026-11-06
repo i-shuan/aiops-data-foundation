@@ -6,13 +6,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from core.entity.incident import INCIDENT_INDEX
-import service.feedback.importer as IMP
-from core.repository import Repos
-from scenario import load_scenario
+from shared.incident import INCIDENT_INDEX
+import learn.importer as IMP
+from shared.repos import Repos
+from shared.scenario import load_scenario
 
 SC = load_scenario()
-import service.rca.similar as SIM
+import llm.similar as SIM
 from interface.cli.rca import main
 
 HERE = Path(__file__).resolve().parent

@@ -10,7 +10,7 @@
 """
 from __future__ import annotations
 
-from core.env import CODE_ROOT
+from shared.env import CODE_ROOT
 
 import argparse
 import os
@@ -19,7 +19,7 @@ from datetime import datetime, timedelta, timezone
 
 from celery import Celery
 
-from scenario import load_scenario
+from shared.scenario import load_scenario
 from interface.jobs.cron import Cron
 from interface.jobs.runner import Job, load_schedule, run_once
 

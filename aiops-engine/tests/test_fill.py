@@ -1,9 +1,9 @@
-"""core/repository/series.fill_zero 的單元測試：補 0 的規則，不需要 ES。"""
+"""detect/store/series_repo.fill_zero 的單元測試：補 0 的規則，不需要 ES。"""
 import unittest
 
 import pandas as pd
 
-from core.repository.series import fill_zero as _fill_zero
+from detect.store.series_repo import fill_zero as _fill_zero
 
 T0 = pd.Timestamp("2026-10-01T00:00:00Z")
 
@@ -51,14 +51,14 @@ class AddSilentTest(unittest.TestCase):
     base = pd.DataFrame({"svc": ["a", "b"]})
 
     def test_fills_zero_only_while_collection_alive(self):
-        from service.detect.baseline_job import _add_silent
+        from detect.baseline_job import _add_silent
         cur = pd.DataFrame({"svc": ["a"] * 2, "ts": [ts(0), ts(5)], "value": [3.0, 3.0], "n": [3.0, 3.0]})
         out = _add_silent(cur, self.base, ["svc"], T0, ts(15), "5m", alive=lambda: pd.DatetimeIndex([ts(0), ts(5)]))
         self.assertEqual(sorted(out[out["svc"] == "b"]["ts"]), [ts(0), ts(5)])   # 10 分收集系統停了：不補
 
     def test_whole_window_in_outage_adds_nothing(self):
         # 收集系統整段停了（detect 看的 30 分鐘都沒資料）：不能把每個服務都補 0、報成「停掉」
-        from service.detect.baseline_job import _add_silent
+        from detect.baseline_job import _add_silent
         empty = pd.DataFrame(columns=["svc", "ts", "value", "n"])
         out = _add_silent(empty, self.base, ["svc"], T0, ts(30), "5m", alive=lambda: pd.DatetimeIndex([]))
         self.assertTrue(out.empty)

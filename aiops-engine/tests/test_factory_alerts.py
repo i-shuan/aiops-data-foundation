@@ -1,15 +1,15 @@
 """工廠 plugin 的事件整合與嚴重度（docs/pdca/meta/2026-11-factory-engine.md）：對象是機台、API 是 recipe、前後站從履歷找、
-嚴重度依參數家族、recipe 變更當換版。不連 ES。整個模組在 AIOPS_PLUGIN=factory 下跑（scenario/data/factory.yaml）。"""
+嚴重度依參數家族、recipe 變更當換版。不連 ES。整個模組在 AIOPS_PLUGIN=factory 下跑（shared/scenario/data/factory.yaml）。"""
 import os
 import unittest
 from datetime import datetime, timedelta, timezone
 from unittest import mock
 
-from scenario import load_scenario
-import scenario.base as SC
-import service.converge.merge as AL
-import service.converge.severity as S
-import scenario.factory.chain as FAC
+from shared.scenario import load_scenario
+import shared.scenario.base as SC
+import incident.merge as AL
+import incident.severity as S
+import incident.strategy.factory_chain as FAC
 
 T0 = datetime(2026, 11, 4, 1, 0, tzinfo=timezone.utc)
 GAP = timedelta(hours=2)

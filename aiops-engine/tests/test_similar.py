@@ -1,9 +1,9 @@
 """相似事故檢索（investigator.similar）：指紋、為什麼像、檢索、留一法評測。假的 ES，不用連線。"""
 import unittest
 
-import service.rca.similar as SIM
-from core.repository import Repos
-from scenario import load_scenario
+import llm.similar as SIM
+from shared.repos import Repos
+from shared.scenario import load_scenario
 
 SC = load_scenario()
 

@@ -4,11 +4,11 @@ import unittest
 
 import pandas as pd
 
-import service.feedback.metrics as M
-from core.entity.alert import ALERT_INDEX
-from core.entity.feedback import FEEDBACK_INDEX
-from core.repository import Repos
-from scenario import load_scenario
+import learn.metrics as M
+from incident.store.alert import ALERT_INDEX
+from learn.store.feedback import FEEDBACK_INDEX
+from shared.repos import Repos
+from shared.scenario import load_scenario
 
 SC = load_scenario()
 

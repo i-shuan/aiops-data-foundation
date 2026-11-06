@@ -1,5 +1,5 @@
-"""HTTP 這一層：FastAPI 的 app（uvicorn 跑，入口 __main__.py）。邏輯在 service/feedback/feedback_service（回饋、漏報、重跑、清單）與
-scenario/factory/ingest_job（推異常進 ⑤）；資料形狀在 dto.py、HTML 在 views.py。端點清單在 __init__.py。
+"""HTTP 這一層：FastAPI 的 app（uvicorn 跑，入口 __main__.py）。邏輯在 learn/feedback_service（回饋、漏報、重跑、清單）與
+detect/factory/ingest_job（推異常進 ⑤）；資料形狀在 dto.py、HTML 在 views.py。端點清單在 __init__.py。
 同一個動作一條處理函式：/feedback＋/api/feedback、/missed＋/api/missed、/rca＋/api/rca 各一個，依路徑（/api/ 開頭）決定回 JSON 還是 HTML。
 路徑、方法、狀態碼、回應內容、Content-Type 跟原本 http.server 版一樣（Grafana 儀表板直接打這些 URL）：
 JSON 一律 dto.to_json 的 bytes 原樣回、不走 FastAPI 的序列化；表單用 parse_qs 自己讀、不裝 python-multipart；
@@ -19,11 +19,11 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 import interface.jobs.worker as tasks
 import interface.web.dto as D
 import interface.web.views as V
-import scenario.factory.ingest_job as ING
-import service.feedback.feedback_service as F
-from schema.loader import load_config
-from core.repository import Repos
-from scenario import load_scenario
+import detect.factory.ingest_job as ING
+import learn.feedback_service as F
+from shared.schema.loader import load_config
+from shared.repos import Repos
+from shared.scenario import load_scenario
 
 state = SimpleNamespace(es=None, repo=None)    # ES 連線的單一注入點：main() 放 ES()，測試放假的（set_es）；repo 是它上面的 repository
 HTML, JSON, TEXT = "text/html; charset=utf-8", "application/json", "text/plain; charset=utf-8"

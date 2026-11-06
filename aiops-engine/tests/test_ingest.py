@@ -2,7 +2,7 @@
 import unittest
 from datetime import datetime, timezone
 
-import scenario.factory.ingest as I
+import detect.factory.ingest as I
 
 NOW = datetime(2026, 11, 4, 6, 0, tzinfo=timezone.utc)
 ML = {"name": "ml", "index": "factory-ml-anomalies-*", "id_field": "run_id", "series": "fdc.{parameter}",

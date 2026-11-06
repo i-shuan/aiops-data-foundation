@@ -4,7 +4,7 @@ import unittest
 
 import pandas as pd
 
-import service.feedback.suggest as F
+import learn.suggest as F
 
 T0 = pd.Timestamp("2026-11-02T12:00:00Z")   # 週一 20:00 台北
 TARGET = F.target_of({"service": "wip-worker", "route": "GET /wip/{lot}"})
@@ -79,7 +79,7 @@ class Table(unittest.TestCase):
         self.assertEqual(sugs[0].get("min_abs"), 0.24)                # z 壓得掉也不放寬 z：本來就慢是 min_abs 的事
 
     def test_min_count_override_is_applied_per_target(self):
-        from service.detect.baseline_job import apply_min_count
+        from detect.baseline_job import apply_min_count
         s = pd.DataFrame({"service": ["a", "b"], "route": ["r", "r"], "value": [0.1, 0.1], "n": [30, 30], "anomaly": [True, True]})
         ov = [{"kind": "override", "series": "http\\.error_rate", "match": {"service": "^a$"}, "min_count": 4, "status": "active"}]
         out = apply_min_count(s, {"name": "http.error_rate", "min_count": 3}, ["service", "route"], ov)
@@ -88,6 +88,6 @@ class Table(unittest.TestCase):
 
 class BacktestGate(unittest.TestCase):
     def test_no_reduction_is_not_recommended(self):
-        import service.feedback.backtest as B
+        import learn.backtest as B
         src = open(B.__file__, encoding="utf-8").read()
         self.assertIn("一筆都沒少", src)

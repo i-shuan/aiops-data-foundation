@@ -1,9 +1,9 @@
-"""異常總表的歸屬（core/repository/owner.py）與寫入（AnomalyRepository.write）：依 namespace、服務對回 dept、group。"""
+"""異常總表的歸屬（detect/store/owner_repo.py）與寫入（AnomalyRepository.write）：依 namespace、服務對回 dept、group。"""
 import unittest
 
-import core.repository.owner as O
-from core.repository import Repos
-from scenario import load_scenario
+import detect.store.owner_repo as O
+from shared.repos import Repos
+from shared.scenario import load_scenario
 
 IT = load_scenario("observability")
 
@@ -69,8 +69,8 @@ class WriteAnomalies(unittest.TestCase):
 
     def test_every_doc_carries_engine_version(self):
         # 五種寫入（baseline、規則、peer、quality、trace）都走這裡，所以在這裡補就等於每筆都有；欄位也要在 mapping（dynamic false）
-        from core.env import ENGINE_VERSION
-        from core.entity.anomaly import ANOMALY_MAPPING
+        from shared.env import ENGINE_VERSION
+        from detect.store.anomaly import ANOMALY_MAPPING
         class Fake:
             def __init__(self): self.written = None
             def req(self, *a, **k): return {}

@@ -5,12 +5,12 @@ from __future__ import annotations
 import json
 import os
 
-from core.env import CODE_ROOT
-from core.entity.feedback import RCA_USEFUL as _RCA_USEFUL
-from core.entity.incident import classify
+from shared.env import CODE_ROOT
+from learn.store.feedback import RCA_USEFUL as _RCA_USEFUL
+from shared.incident import classify
 from interface.jobs.runner import load_schedule
-from scenario import Scenario
-from service.feedback.feedback_service import RCA_QUESTIONS as _RCA_QUESTIONS, SERIES_NAMES, TIMEZONE, WEB_VERDICTS  # noqa: F401  給 views、測試用
+from shared.scenario import Scenario
+from learn.feedback_service import RCA_QUESTIONS as _RCA_QUESTIONS, SERIES_NAMES, TIMEZONE, WEB_VERDICTS  # noqa: F401  給 views、測試用
 
 MISSED_FIELDS = ("series", "service", "at", "by", "note", "route", "pod")    # 漏報表單的元素 id（Grafana 預填的 key 要對到這些）
 VERDICTS = dict(zip(WEB_VERDICTS, ("真的", "誤報", "真的，但根因報錯了")))     # 表單的選項與顯示文字

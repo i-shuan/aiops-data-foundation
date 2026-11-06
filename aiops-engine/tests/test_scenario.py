@@ -5,12 +5,12 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from unittest import mock
 
-import scenario.base as SC
-from core.repository import Repos
-from core.repository.owner import owner_of
-from scenario import Chain, Scenario, load_scenario
-import service.converge.merge as AL
-import service.rca.report as R
+import shared.scenario.base as SC
+from shared.repos import Repos
+from detect.store.owner_repo import owner_of
+from shared.scenario import Chain, Scenario, load_scenario
+import incident.merge as AL
+import incident.report as R
 
 T0 = datetime(2026, 11, 4, 1, 0, tzinfo=timezone.utc)
 # 客製：拿內建的改幾個欄位（AIOPS_PLUGIN=tests.test_scenario:MINE）
@@ -60,7 +60,7 @@ class Loading(unittest.TestCase):
 
 
 class Builtins(unittest.TestCase):
-    """三個內建各填了什麼（scenario/README.md 的表）。"""
+    """三個內建各填了什麼（shared/scenario/README.md 的表）。"""
 
     def test_observability(self):
         sc = load_scenario("observability")

@@ -13,7 +13,7 @@
 
 ### `similar-eval` 怎麼算（留一法 recall@3）
 
-[similar.py](../../../aiops-engine/src/service/rca/similar.py) 的 `evaluate`：
+[similar.py](../../../aiops-engine/src/llm/similar.py) 的 `evaluate`：
 
 1. 從 `aiops-incidents` 取 `status` 是 `confirmed`／`corrected`、**有 `root_cause_category`、有 `fingerprint`** 的全部 N 件。
 2. 每一件輪流當「新的」：用它的指紋查其他 N−1 件（`must_not ids` 排除自己），`search` 留分數 ≥ 4 的前 3 件。

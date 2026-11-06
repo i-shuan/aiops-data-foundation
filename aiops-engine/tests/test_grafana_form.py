@@ -8,11 +8,11 @@ from fastapi.testclient import TestClient
 
 import interface.web.routes as W
 import interface.web.dto as D
-import service.feedback.feedback_service as F
-from scenario import load_scenario
+import learn.feedback_service as F
+from shared.scenario import load_scenario
 
 SC = load_scenario()
-from core.entity.feedback import FEEDBACK_INDEX
+from learn.store.feedback import FEEDBACK_INDEX
 from tests.test_api import ALERT, FakeES
 
 HERE = os.path.dirname(os.path.abspath(__file__))

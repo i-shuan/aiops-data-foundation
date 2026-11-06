@@ -1,4 +1,4 @@
-"""core/incident.py：Fingerprint／Incident 的 to_doc() 跟改成類別之前（master 31c72f8）四條寫入路徑手寫的 dict 比；欄位跟 INCIDENT_MAPPING、
+"""shared/incident.py：Fingerprint／Incident 的 to_doc() 跟改成類別之前（master 31c72f8）四條寫入路徑手寫的 dict 比；欄位跟 INCIDENT_MAPPING、
 similar.WEIGHTS 對得上；欄位名打錯、status 給錯會擋；from_doc 讀舊文件（缺欄位、多欄位、型別不對）不炸。不連 ES。
 
 期望值是改之前用同樣輸入跑 similar.fingerprint／importer.normalize／cmd_alert._incident_doc 存下來的（docs/pdca/meta/2026-11-vo-models.md Check）。"""
@@ -7,10 +7,10 @@ from datetime import datetime, timezone
 
 from pydantic import ValidationError
 
-from core.entity.alert import Alert
-from core.entity.incident import INCIDENT_MAPPING, UNMAPPED_FIELDS, Fingerprint, Incident
-import service.feedback.importer as IMP
-import service.rca.similar as SIM
+from incident.store.alert import Alert
+from shared.incident import INCIDENT_MAPPING, UNMAPPED_FIELDS, Fingerprint, Incident
+import learn.importer as IMP
+import llm.similar as SIM
 
 ALERT = {"alert_id": "a-1", "service": "mes-api", "routes": ["GET /lots/{id}"], "series": ["http.latency_p95_s"]}
 FINDINGS = {"segments": [{"segment": "mes-api › wip-worker › Oracle SELECT lots 123", "delta_ms": 900.0, "now_ms": 1000, "ref_ms": 100},

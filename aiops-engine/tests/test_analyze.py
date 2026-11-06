@@ -1,8 +1,8 @@
 """analyze 的單元測試，不需要 ES。"""
 import unittest
 
-import service.rca.analyze as A
-import core.entity.trace as T
+import incident.analyze as A
+import detect.store.trace as T
 
 
 def span(sid, parent, service, name, start, dur, kind="Server", target=None, error=False, trace="t1", resource=None, attrs=None):

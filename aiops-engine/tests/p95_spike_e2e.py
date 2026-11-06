@@ -24,7 +24,7 @@ from datetime import timedelta
 import pandas as pd
 import requests
 
-import service.converge.merge as AL
+import incident.merge as AL
 
 ES_URL = os.environ["ES_URL"].rstrip("/")
 AUTH = tuple(os.environ["ES_AUTH"].split(":", 1)) if os.environ.get("ES_AUTH") else None

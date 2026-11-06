@@ -60,8 +60,8 @@ cd aiops-engine && AIOPS_SOURCE=apm ES_URL=https://<es>:9200 ES_API_KEY=<key> py
 |---|---|---|
 | `metrics-apm.transaction.1m-*` | `transaction.duration.histogram`（histogram、微秒）、`transaction.name`、`transaction.type: request`、`event.outcome`、`service.name`、`service.node.name` | `series.yaml`、`rules.yaml`、`peer.yaml` |
 | `metrics-apm.service_destination.1m-*` | `span.destination.service.resource`、`span.destination.service.response_time.count`／`.sum.us` | `series.yaml` |
-| `traces-apm-*` | `processor.event`、`trace.id`、`transaction.id`／`span.id`、`parent.id`、`*.duration.us`、`event.outcome`、`span.type`、`span.destination.service.resource`、`span.db.statement`、`kubernetes.pod.name`、`labels.*`、`event.ingested` | `core/traces.py` 的 `_apm_span` |
-| `logs-apm.app.*`、`logs-apm.error-*` | `service.name`、`log.level`、`message`／`error.exception.message`、`trace.id`、`processor.event: error` | `scenario/data/it_apm.yaml` 的 `log` |
+| `traces-apm-*` | `processor.event`、`trace.id`、`transaction.id`／`span.id`、`parent.id`、`*.duration.us`、`event.outcome`、`span.type`、`span.destination.service.resource`、`span.db.statement`、`kubernetes.pod.name`、`labels.*`、`event.ingested` | `detect/store/trace.py` 的 `_apm_span` |
+| `logs-apm.app.*`、`logs-apm.error-*` | `service.name`、`log.level`、`message`／`error.exception.message`、`trace.id`、`processor.event: error` | `shared/scenario/data/it_apm.yaml` 的 `log` |
 
 ## 跟 OTel 版差在哪（調門檻時要知道）
 

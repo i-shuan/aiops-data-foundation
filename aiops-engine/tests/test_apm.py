@@ -5,17 +5,17 @@ import unittest
 from datetime import datetime, timezone
 from unittest import mock
 
-from scenario import load_scenario
+from shared.scenario import load_scenario
 
-import core.entity.trace as T
-import core.repository.owner as O
-from core.repository import Repos
-from scenario import load_scenario
+import detect.store.trace as T
+import detect.store.owner_repo as O
+from shared.repos import Repos
+from shared.scenario import load_scenario
 
 SC = load_scenario()
-import service.detect.trace_merge as M
-from service.detect._util import value_kind
-from core.repository.series import _bucket_events, _bucket_value, _value_aggs
+import detect.trace_merge as M
+from detect._util import value_kind
+from detect.store.series_repo import _bucket_events, _bucket_value, _value_aggs
 
 TX = {"@timestamp": "2026-11-02T01:00:00.000Z", "timestamp.us": 1793581200000000, "processor": {"event": "transaction"},
       "trace": {"id": "t1"}, "transaction": {"id": "tx1", "name": "GET /lots/{id}", "type": "request", "duration": {"us": 300000}, "result": "HTTP 2xx"},

@@ -11,6 +11,6 @@ python3 -m main api  （環境變數 ES_URL、ES_API_KEY；API_PORT 預設 8080�
                                     和 aiops-incidents（確認 → status confirmed；根因錯 → corrected；誤報 → false_positive）
   GET  /report?alert=<alert_id>     根因報告全文
   GET  /health
-HTTP 層是 FastAPI（routes.py），uvicorn 跑；邏輯在 service/feedback/feedback_service.py，資料形狀在 dto.py，HTML 模板在 views/；路徑、狀態碼、回應格式跟原本 http.server 版一樣（Grafana 直接打這些 URL）。
+HTTP 層是 FastAPI（routes.py），uvicorn 跑；邏輯在 learn/feedback_service.py，資料形狀在 dto.py，HTML 模板在 views/；路徑、狀態碼、回應格式跟原本 http.server 版一樣（Grafana 直接打這些 URL）。
 身分先用表單裡填的名字（通知管道本身已經認得人）。
 """

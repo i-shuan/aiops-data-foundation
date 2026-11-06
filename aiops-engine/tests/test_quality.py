@@ -3,10 +3,10 @@ import unittest
 
 import pandas as pd
 
-import service.detect.quality as Q
-import core.repository.quality as QR
-from core.repository import Repos
-from scenario import load_scenario
+import detect.quality as Q
+import detect.store.quality_repo as QR
+from shared.repos import Repos
+from shared.scenario import load_scenario
 
 SC = load_scenario()
 

@@ -3,9 +3,9 @@ import unittest
 
 import pandas as pd
 
-import service.feedback.backtest as B
-import service.feedback.suggest as F
-from service.detect.adjustments import in_schedule
+import learn.backtest as B
+import learn.suggest as F
+from detect.adjustments import in_schedule
 
 TZ = "Asia/Taipei"
 T = F.target_of({"service": "mes-report", "route": "/close"})
