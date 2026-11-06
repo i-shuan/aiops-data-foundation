@@ -6,6 +6,10 @@ from unittest import mock
 
 from aiops.core.connection import doc_id
 import aiops.interface.web.app as A
+from aiops.core.entity.alert import ALERT_INDEX
+from aiops.core.entity.feedback import FEEDBACK_INDEX
+from aiops.core.entity.incident import INCIDENT_INDEX
+from aiops.core.repository import Repos
 
 NOW =datetime(2026, 10, 25, 3, 0, tzinfo=timezone.utc)
 ALERT = {"alert_id": "a-20261025-0200-mes-api", "service": "mes-api", "dept": "D3120", "group": "it", "severity": "critical", "status": "open",
@@ -24,7 +28,7 @@ class FakeES:
         self.updates = []      # (index, id, body)
 
     def req(self, method, path, body=None, ok=(200, 201)):
-        if path.startswith(f"/{A.ALERT_INDEX}/_doc/"):
+        if path.startswith(f"/{ALERT_INDEX}/_doc/"):
             _id = path.rsplit("/", 1)[1]
             return {"found": _id in self.alerts, "_source": self.alerts.get(_id)}
         if "_mget" in path:
@@ -34,8 +38,8 @@ class FakeES:
             return {}
         if path.endswith("_refresh"):
             return {}
-        if method == "PUT" and path.startswith(f"/{A.FEEDBACK_INDEX}/_doc/"):     # 漏報：單筆 PUT，_id 在路徑裡
-            self.written.setdefault(A.FEEDBACK_INDEX, {})[path.rsplit("/", 1)[1].split("?")[0]] = body
+        if method == "PUT" and path.startswith(f"/{FEEDBACK_INDEX}/_doc/"):     # 漏報：單筆 PUT，_id 在路徑裡
+            self.written.setdefault(FEEDBACK_INDEX, {})[path.rsplit("/", 1)[1].split("?")[0]] = body
             return {}
         if method == "PUT" and path.startswith("/aiops-tuning/_doc/"):    # 一句話抽出來的建議（proposed）
             self.written.setdefault("aiops-tuning", {})[path.split("/")[3].split("?")[0]] = body
@@ -77,46 +81,46 @@ class Submit(unittest.TestCase):
         self.es = FakeES()
 
     def test_true_positive_writes_feedback_per_anomaly_and_confirms_incident(self):
-        r = A.submit(self.es, {"alert_id": ALERT["alert_id"], "verdict": "true_positive", "by": "老王", "root_cause_category": "db",
+        r = A.submit(Repos(self.es), {"alert_id": ALERT["alert_id"], "verdict": "true_positive", "by": "老王", "root_cause_category": "db",
                                "root_cause": "統計資訊過期", "action": "重跑 analyze", "how_detected": "只有 lots 慢",
                                "checked": ["Oracle AWR / 慢查詢", ""], "improve": "加一條 Oracle 的規則"}, NOW)
         self.assertEqual(r, {"feedback": 2, "incident": "confirmed", "by": "老王"})
-        fb = list(self.es.written[A.FEEDBACK_INDEX].values())
+        fb = list(self.es.written[FEEDBACK_INDEX].values())
         self.assertEqual(sorted(f["anomaly_id"] for f in fb), ["x1", "x2"])     # 不存在的 gone 不寫
         self.assertTrue(all(f["alert_id"] == ALERT["alert_id"] and f["verdict"] == "true_positive" for f in fb))
         self.assertEqual(fb[0]["series"], "http.latency_p95_s")
         (index, _id, body), = self.es.updates
-        self.assertEqual((index, _id), (A.INCIDENT_INDEX, ALERT["alert_id"]))
+        self.assertEqual((index, _id), (INCIDENT_INDEX, ALERT["alert_id"]))
         doc = body["doc"]
         self.assertEqual((doc["status"], doc["root_cause_category"], doc["how_detected"], doc["checked"], doc["confirmed_by"]),
                          ("confirmed", "db", "只有 lots 慢", ["Oracle AWR / 慢查詢"], "老王"))
         self.assertEqual(body["upsert"]["services"], ["mes-api"])     # 事故還沒開出來時也能補一筆
-        self.assertEqual(self.es.ensured, [A.FEEDBACK_INDEX, A.INCIDENT_INDEX])   # 先用正式的 mapping 建 index
+        self.assertEqual(self.es.ensured, [FEEDBACK_INDEX, INCIDENT_INDEX])   # 先用正式的 mapping 建 index
 
     def test_false_positive_keeps_reason_and_does_not_store_root_cause(self):
-        r = A.submit(self.es, {"alert_id": ALERT["alert_id"], "verdict": "false_positive", "by": "amy", "fp_reason": "batch",
+        r = A.submit(Repos(self.es), {"alert_id": ALERT["alert_id"], "verdict": "false_positive", "by": "amy", "fp_reason": "batch",
                                "fp_reason_text": "月底結帳", "root_cause": "不該存"}, NOW)
         self.assertEqual(r["incident"], "false_positive")
-        fb = list(self.es.written[A.FEEDBACK_INDEX].values())
+        fb = list(self.es.written[FEEDBACK_INDEX].values())
         self.assertEqual((fb[0]["fp_reason"], fb[0]["note"]), ("batch", "月底結帳"))
         self.assertNotIn("root_cause", self.es.updates[0][2]["doc"])
 
     def test_wrong_root_cause_records_correct_one(self):
-        A.submit(self.es, {"alert_id": ALERT["alert_id"], "verdict": "wrong_root_cause", "by": "amy", "root_cause": "其實是網路", "root_cause_category": "network"}, NOW)
-        fb = list(self.es.written[A.FEEDBACK_INDEX].values())
+        A.submit(Repos(self.es), {"alert_id": ALERT["alert_id"], "verdict": "wrong_root_cause", "by": "amy", "root_cause": "其實是網路", "root_cause_category": "network"}, NOW)
+        fb = list(self.es.written[FEEDBACK_INDEX].values())
         self.assertEqual(fb[0]["correct_root_cause"], "其實是網路")
         self.assertEqual(self.es.updates[0][2]["doc"]["status"], "corrected")
 
     def test_anomalies_gone_still_one_feedback_row(self):
         self.es.anoms = {}
-        r = A.submit(self.es, {"alert_id": ALERT["alert_id"], "verdict": "true_positive", "by": "amy"}, NOW)
+        r = A.submit(Repos(self.es), {"alert_id": ALERT["alert_id"], "verdict": "true_positive", "by": "amy"}, NOW)
         self.assertEqual(r["feedback"], 1)
 
     def test_bad_input(self):
         with self.assertRaises(KeyError):
-            A.submit(self.es, {"alert_id": "nope", "verdict": "true_positive"}, NOW)
+            A.submit(Repos(self.es), {"alert_id": "nope", "verdict": "true_positive"}, NOW)
         with self.assertRaises(ValueError):
-            A.submit(self.es, {"alert_id": ALERT["alert_id"], "verdict": "maybe"}, NOW)
+            A.submit(Repos(self.es), {"alert_id": ALERT["alert_id"], "verdict": "maybe"}, NOW)
         self.assertEqual(self.es.written, {})
 
 
@@ -127,19 +131,19 @@ class SubmitMissed(unittest.TestCase):
         self.form = {"series": "http.latency_p95_s", "service": "mes-api", "at": "2026-10-25 10:00", "by": "老王", "note": "lots 查詢全逾時"}
 
     def test_naive_time_is_taipei_and_id_matches_cli(self):
-        r = A.submit_missed(self.es, self.form, NOW)
+        r = A.submit_missed(Repos(self.es), self.form, NOW)
         self.assertEqual(r, {"feedback": 1, "verdict": "missed", "series": "http.latency_p95_s", "service": "mes-api", "by": "老王"})
-        (_id, doc), = self.es.written[A.FEEDBACK_INDEX].items()
+        (_id, doc), = self.es.written[FEEDBACK_INDEX].items()
         self.assertEqual(doc["anomaly_at"], "2026-10-25T10:00:00+08:00")     # 沒寫時區 → 當工廠當地時間，跟指令一樣
         self.assertEqual((doc["verdict"], doc["series"], doc["keys"], doc["by"], doc["note"]),
                          ("missed", "http.latency_p95_s", {"service": "mes-api"}, "老王", "lots 查詢全逾時"))
         self.assertNotIn("anomaly_id", doc)
         self.assertEqual(_id, doc_id("feedback", ["http.latency_p95_s", {"service": "mes-api"}, "2026-10-25T10:00:00+08:00"], "老王"))   # cmd_feedback.py 的算法
-        self.assertEqual(self.es.ensured[0], A.FEEDBACK_INDEX)      # 先用正式的 mapping 建 index
+        self.assertEqual(self.es.ensured[0], FEEDBACK_INDEX)      # 先用正式的 mapping 建 index
 
     def test_tz_aware_time_kept_and_optional_keys(self):
-        A.submit_missed(self.es, {**self.form, "at": "2026-10-25T02:00:00.000Z", "route": "/api/lots", "pod": "", "by": ""}, NOW)
-        (doc,) = self.es.written[A.FEEDBACK_INDEX].values()
+        A.submit_missed(Repos(self.es), {**self.form, "at": "2026-10-25T02:00:00.000Z", "route": "/api/lots", "pod": "", "by": ""}, NOW)
+        (doc,) = self.es.written[FEEDBACK_INDEX].values()
         self.assertEqual(doc["anomaly_at"], "2026-10-25T02:00:00+00:00")     # Grafana 的 datetime 元素送的是 UTC ISO
         self.assertEqual(doc["keys"], {"service": "mes-api", "route": "/api/lots"})   # 空的 pod 不進 keys
         self.assertEqual(doc["by"], "anonymous")
@@ -152,7 +156,7 @@ class SubmitMissed(unittest.TestCase):
         for bad, msg in (({"series": ""}, "series 要是"), ({"series": "nope.series"}, "http.latency_p95_s"), ({"service": " "}, "service 要填"),
                          ({"at": ""}, "at 要填"), ({"at": "昨天"}, "at 看不懂")):
             with self.assertRaises(ValueError, msg=bad) as cm:
-                A.submit_missed(self.es, {**self.form, **bad}, NOW)
+                A.submit_missed(Repos(self.es), {**self.form, **bad}, NOW)
             self.assertIn(msg, str(cm.exception))
         self.assertEqual(self.es.written, {})
 class FreeTextAndRatings(unittest.TestCase):
@@ -169,13 +173,13 @@ class FreeTextAndRatings(unittest.TestCase):
         self.env.stop()
 
     def submit(self, **extra):
-        return A.submit(self.es, {"alert_id": ALERT["alert_id"], "verdict": "false_positive", "by": "amy", "fp_reason": "batch", **extra}, NOW)
+        return A.submit(Repos(self.es), {"alert_id": ALERT["alert_id"], "verdict": "false_positive", "by": "amy", "fp_reason": "batch", **extra}, NOW)
 
     def test_text_extracted_stored_and_tuning_proposed(self):
         r = self.submit(feedback_text=self.TEXT, rca_cause_useful="yes", rca_action_useful="no")
         self.assertEqual(r["extract"]["suggested_action"], "suppress_during_cron")
         self.assertTrue(r["extract"]["ok"] and r["tuning_id"])
-        for fb in self.es.written[A.FEEDBACK_INDEX].values():        # 一件的每筆異常各一筆，都帶原文、抽取結果、兩題、建議 id
+        for fb in self.es.written[FEEDBACK_INDEX].values():        # 一件的每筆異常各一筆，都帶原文、抽取結果、兩題、建議 id
             self.assertEqual(fb["feedback_text"], self.TEXT)
             self.assertEqual(fb["extract"]["identified_cause"], "scheduled_batch_job")
             self.assertEqual((fb["rca_cause_useful"], fb["rca_action_useful"], fb["tuning_id"]), ("yes", "no", r["tuning_id"]))
@@ -188,7 +192,7 @@ class FreeTextAndRatings(unittest.TestCase):
         self.assertEqual(tun["by"], "amy")
 
     def test_action_none_writes_no_tuning(self):
-        r = A.submit(self.es, {"alert_id": ALERT["alert_id"], "verdict": "true_positive", "by": "amy", "feedback_text": "這件是真的，但不用調，處理完了。"}, NOW)
+        r = A.submit(Repos(self.es), {"alert_id": ALERT["alert_id"], "verdict": "true_positive", "by": "amy", "feedback_text": "這件是真的，但不用調，處理完了。"}, NOW)
         self.assertTrue(r["extract"]["ok"])
         self.assertIsNone(r["tuning_id"])
         self.assertNotIn("aiops-tuning", self.es.written)
@@ -198,7 +202,7 @@ class FreeTextAndRatings(unittest.TestCase):
             r = self.submit(feedback_text=self.TEXT)
         self.assertEqual(r["incident"], "false_positive")                # 回饋照寫
         self.assertIsNone(r["tuning_id"])
-        fb = next(iter(self.es.written[A.FEEDBACK_INDEX].values()))
+        fb = next(iter(self.es.written[FEEDBACK_INDEX].values()))
         self.assertEqual((fb["feedback_text"], fb["extract"]["ok"], fb["extract"]["reason"]), (self.TEXT, False, "回的不是 JSON"))
         self.assertNotIn("feedback_type", fb["extract"])
         self.assertNotIn("aiops-tuning", self.es.written)
@@ -213,7 +217,7 @@ class FreeTextAndRatings(unittest.TestCase):
     def test_no_text_response_unchanged_and_bad_rating_ignored(self):
         r = self.submit(rca_cause_useful="maybe")
         self.assertEqual(r, {"feedback": 2, "incident": "false_positive", "by": "amy"})
-        fb = next(iter(self.es.written[A.FEEDBACK_INDEX].values()))
+        fb = next(iter(self.es.written[FEEDBACK_INDEX].values()))
         self.assertNotIn("rca_cause_useful", fb)
         self.assertNotIn("feedback_text", fb)
 

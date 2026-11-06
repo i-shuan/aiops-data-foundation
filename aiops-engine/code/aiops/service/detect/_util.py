@@ -1,8 +1,9 @@
-"""detector 各指令共用的小工具（時間、頻率、keys、寫異常總表時補的欄位）。"""
+"""detector 各指令共用的小工具（時間、頻率、keys、序列值的種類）。"""
 from __future__ import annotations
 
 import pandas as pd
 
+from aiops.core.entity.anomaly import RULE_FIELDS  # noqa: F401  規則欄位的 mapping 在 entity；名字留給既有的 import
 from aiops.service.detect.baseline import to_freq
 
 
@@ -19,4 +20,17 @@ def _v(x):
     """DataFrame 合併後空的欄位是 NaN，ES 不收：轉成 None。"""
     return None if isinstance(x, float) and pd.isna(x) else x
 
-RULE_FIELDS = {"severity": {"type": "keyword"}, "message": {"type": "text"}, "rule": {"type": "keyword"}}
+
+def value_kind(spec: dict) -> str:
+    """count：值本身就是事件數（筆數、請求數）；rate：比例或百分位，事件數是底下的請求數；
+    gauge：量測值（CPU、記憶體），不看事件數。預先統計好的筆數（例如 {sum: requests}）設 events: value。"""
+    if spec.get("events") == "value":
+        return "count"
+    if isinstance(spec.get("events"), dict):   # 預先統計好的資料：事件數在另一個欄位（例如 {sum: requests}）
+        return spec.get("kind", "rate")
+    value = spec["value"]
+    if value == "count":
+        return "count"
+    (kind, _), = value.items()
+    return {"hist_count": "count", "ratio": "rate", "hist_ratio": "rate", "hist_ratio_above": "rate", "percentile": "rate",
+            "div": "rate"}.get(kind, "gauge")

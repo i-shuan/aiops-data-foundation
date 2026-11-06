@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 
 import aiops.service.detect.adjustments as A
+from aiops.core.repository import Repos
 from aiops.service.detect.baseline import override_for
 
 TZ = "Asia/Taipei"
@@ -73,11 +74,11 @@ class Robust(unittest.TestCase):
         good = {"_id": "g", "_source": {"kind": "override", "series": "x", "z": 7}}
         bad = {"_id": "b", "_source": {"kind": "exclude_window", "start": "2026-10-01"}}
         cfg = {"adjustments_file": "", "calendar_file": "", "overrides": [{"series": "y", "z": 9}]}
-        self.assertEqual([a.get("id") for a in A.load(FakeES([good, bad]), "aiops-tuning", cfg)], [None, "g"])
-        got = A.load(FakeES(err=RuntimeError("400 index_closed_exception")), "aiops-tuning", cfg)
+        self.assertEqual([a.get("id") for a in A.load(Repos(FakeES([good, bad])), cfg)], [None, "g"])
+        got = A.load(Repos(FakeES(err=RuntimeError("400 index_closed_exception"))), cfg)
         self.assertEqual(got, cfg["overrides"])          # 只剩設定檔的
         import requests
-        self.assertEqual(A.load(FakeES(err=requests.ConnectionError("down")), "aiops-tuning", cfg), cfg["overrides"])
+        self.assertEqual(A.load(Repos(FakeES(err=requests.ConnectionError("down"))), cfg), cfg["overrides"])
 
 
 class LocalTime(unittest.TestCase):
@@ -106,7 +107,7 @@ class LocalTime(unittest.TestCase):
             class NoES:
                 def req(self, *a, **k):
                     raise RuntimeError("no es")
-            got = A.load(NoES(), "aiops-tuning", {"adjustments_file": p, "calendar_file": None})
+            got = A.load(Repos(NoES()), {"adjustments_file": p, "calendar_file": None})
         self.assertEqual(pd.Timestamp(got[0]["reset_at"]), pd.Timestamp("2026-09-25T02:00:00Z"))
 
 

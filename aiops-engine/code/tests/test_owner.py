@@ -1,8 +1,8 @@
-"""異常總表的歸屬（core.owner）與寫入（sources.write_anomalies）：依 namespace、服務對回 dept、group。"""
+"""異常總表的歸屬（core/repository/owner.py）與寫入（AnomalyRepository.write）：依 namespace、服務對回 dept、group。"""
 import unittest
 
 import aiops.core.repository.owner as O
-from aiops.core.repository import write_anomalies
+from aiops.core.repository import Repos
 
 
 def bucket(key, dept, group):
@@ -60,7 +60,7 @@ class WriteAnomalies(unittest.TestCase):
             def bulk_index(self, index, docs): self.written = (index, docs)
         es = Fake()
         docs = [("a", {"keys": {"namespace": "mes-prod"}}), ("b", {"keys": {"node": "n1"}})]
-        write_anomalies(es, docs)
+        Repos(es).anomalies.write(docs)
         self.assertEqual(es.written[0], "aiops-anomalies")
         self.assertEqual([(d["dept"], d["group"]) for _, d in es.written[1]], [("D3120", "it"), (None, "unassigned")])
 
@@ -73,14 +73,14 @@ class WriteAnomalies(unittest.TestCase):
             def req(self, *a, **k): return {}
             def bulk_index(self, index, docs): self.written = docs
         es = Fake()
-        write_anomalies(es, [("a", {"keys": {"service": "x"}}), ("b", {"keys": {}})])
+        Repos(es).anomalies.write([("a", {"keys": {"service": "x"}}), ("b", {"keys": {}})])
         self.assertEqual([d["engine_version"] for _, d in es.written], [ENGINE_VERSION, ENGINE_VERSION])
         self.assertEqual(ANOMALY_MAPPING["mappings"]["properties"]["engine_version"], {"type": "keyword"})
 
     def test_empty_does_not_query(self):
         class Boom:
             def req(self, *a, **k): raise AssertionError("不該查")
-        write_anomalies(Boom(), [])
+        Repos(Boom()).anomalies.write([])
 
 
 if __name__ == "__main__":

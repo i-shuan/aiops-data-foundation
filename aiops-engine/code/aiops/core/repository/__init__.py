@@ -1,45 +1,51 @@
-"""資料來源介面：設定檔寫資料從哪來，指令和模型不用改（docs/pdca/meta/2026-11-model-modules.md）。
+"""repository 層：索引名與 ES 的查詢只出現在這裡；service 透過 Repos 拿各實體的 repository。
 
-設定檔（series.yaml、peer.yaml、rules.yaml、trace.yaml…）最上層：
-
-  source:                 # 沒寫＝ES（ESBackend：aggregation 在 ES 端算）
-    kind: file            # file、http、es
-    format: events        # events（一列一個事件）或 series（已整好：keys + ts + value [+ n]）
-    files: {metrics-apm.transaction.1m-*: data/tx.csv}
-  store:                  # 結果（baseline、異常、調整）放哪；source 不是 es 時預設 file（.aiops-store/）
-    kind: file
-    dir: .aiops-store
-
-程式直接呼叫：sources.MemoryBackend({"metrics-*": df})，把它當 es 傳給 detector 的指令，或自己 .series(spec, …) 餵 models/。
-手上是 core.es.ES（或假 ES）時 as_backend(es) 包成 ESBackend；detector/es.py 等讀寫函式開頭就是這麼做的。
+    repo = Repos(ES())          # 指令開頭；測試給假 ES（只要有 req／search／bulk_index／ensure_index），或 tests/fakes.MemoryRepos 不連 ES
+    repo.alerts.open()          # ⑥ 開著的件
+    repo.anomalies.write(docs)  # ⑤ 寫異常（補 engine_version、歸屬）
+    repo.series.fetch(spec, start, end, "5m")   # 原始資料 → 一條序列
 """
 from __future__ import annotations
 
-from aiops.core.repository.base import Backend, Store, as_backend, write_anomalies
-from aiops.core.repository.series import ESBackend, ESSourceBackend
-from aiops.core.repository.rows import FileBackend, HttpBackend, MemoryBackend, RowsBackend, load_file
-from aiops.core.repository.shape import ShapeError, points_from_rows, series_from_rows
-from aiops.core.repository.stores import ESStore, FileStore, MemoryStore, open_store
+from aiops.core.repository._base import Repository
+from aiops.core.repository.alert import AlertRepository
+from aiops.core.repository.anomaly import AnomalyRepository
+from aiops.core.repository.baseline import BaselineRepository
+from aiops.core.repository.change import ChangeRepository
+from aiops.core.repository.chronic import ChronicRepository
+from aiops.core.repository.feedback import FeedbackRepository
+from aiops.core.repository.housekeeping import HousekeepingRepository
+from aiops.core.repository.incident import IncidentRepository
+from aiops.core.repository.log import LogRepository
+from aiops.core.repository.quality import QualityRepository
+from aiops.core.repository.segment import SegmentRepository
+from aiops.core.repository.series import SeriesRepository, fill_zero
+from aiops.core.repository.state import StateRepository
+from aiops.core.repository.trace import TraceRepository
+from aiops.core.repository.tuning import TuningRepository
 
-__all__ = ["Backend", "Store", "as_backend", "ESBackend", "ESSourceBackend", "FileBackend", "HttpBackend", "MemoryBackend", "RowsBackend",
-           "load_file", "ShapeError", "points_from_rows", "series_from_rows", "ESStore", "FileStore", "MemoryStore", "open_store",
-           "open_backend"]
+__all__ = ["Repos", "Repository", "AlertRepository", "AnomalyRepository", "BaselineRepository", "ChangeRepository", "ChronicRepository",
+           "FeedbackRepository", "HousekeepingRepository", "IncidentRepository", "LogRepository", "QualityRepository", "SegmentRepository",
+           "SeriesRepository", "StateRepository", "TraceRepository", "TuningRepository", "fill_zero"]
 
 
-def open_backend(cfg: dict, es_factory) -> Backend:
-    """指令開頭呼叫：依設定檔的 source／store 決定給哪個 Backend；沒寫 source 就是 ESBackend（讀寫都是 ES）。
-    es_factory 是建 ES 連線的函式（指令傳自己模組裡的 ES，測試才蓋得掉），只在真的要連 ES 時才呼叫。"""
-    src = dict(cfg.get("source") or {})
-    st = dict(cfg.get("store") or {})
-    kind = src.pop("kind", "es")
-    if kind == "es" and st.get("kind", "es") == "es":
-        return ESBackend(es_factory())
-    store = open_store(st, es_factory, default="file" if kind != "es" else "memory")
-    if kind == "es":
-        return ESSourceBackend(es_factory(), store)
-    fmt = src.pop("format", "events")
-    if kind == "file":
-        return FileBackend(src.get("files"), fmt, store, src.get("spans"))
-    if kind == "http":
-        return HttpBackend(src.get("url"), src.get("urls"), fmt, store, src.get("headers"), src.get("timeout", 60))
-    raise ValueError(f"source.kind 只能是 es、file、http，不是 {kind!r}（程式裡直接給 DataFrame 用 sources.MemoryBackend）")
+class Repos:
+    """一條連線上全部實體的 repository。es 是 core.connection.ES（或測試的假 ES）。"""
+
+    def __init__(self, es):
+        self.es = es
+        self.alerts = AlertRepository(es)
+        self.anomalies = AnomalyRepository(es)
+        self.baseline = BaselineRepository(es)
+        self.change = ChangeRepository(es)
+        self.chronic = ChronicRepository(es)
+        self.feedback = FeedbackRepository(es)
+        self.housekeeping = HousekeepingRepository(es)
+        self.incidents = IncidentRepository(es)
+        self.logs = LogRepository(es)
+        self.quality = QualityRepository(es)
+        self.segments = SegmentRepository(es)
+        self.series = SeriesRepository(es)
+        self.state = StateRepository(es)
+        self.traces = TraceRepository(es)
+        self.tuning = TuningRepository(es)

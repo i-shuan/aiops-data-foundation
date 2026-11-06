@@ -32,8 +32,6 @@ import numpy as np
 import pandas as pd
 
 from aiops.config.loader import load_config
-from aiops.core.entity.adjustment import TUNING_INDEX
-from aiops.core.repository.base import as_backend
 from aiops.service.detect.providers import load_calendar
 
 KINDS = ("override", "exclude_window", "reset_point", "recurring_override")
@@ -304,9 +302,8 @@ def calendar_adjustments(entries: list[dict], tz: str = "Asia/Taipei") -> list[d
 
 # ── 讀 ──
 
-def load(es, index: str, cfg: dict) -> list[dict]:
-    """設定檔（adjustments_file、series.yaml 的 overrides）＋ Store 的 aiops-tuning（index 固定是它，參數留給既有呼叫），全部 kind。
-    同 id 後面蓋前面。"""
+def load(repo, cfg: dict) -> list[dict]:
+    """設定檔（adjustments_file、series.yaml 的 overrides）＋ aiops-tuning（repo.tuning），全部 kind。同 id 後面蓋前面。"""
 
     out = list(cfg.get("overrides") or [])
     tz = cfg.get("train", {}).get("timezone", "Asia/Taipei")
@@ -317,7 +314,7 @@ def load(es, index: str, cfg: dict) -> list[dict]:
     if cal and os.path.exists(cal):
         entries, tz = load_calendar(load_config(cal, "calendar"))
         out += calendar_adjustments(entries, tz or cfg.get("train", {}).get("timezone", "Asia/Taipei"))
-    out += as_backend(es).adjustments()   # ES 讀不到時 Store 印一行、回 []：這一輪只用設定檔的
+    out += repo.tuning.all()   # ES 讀不到時印一行、回 []：這一輪只用設定檔的
     by_id = {}
     for a in out:
         by_id[a.get("id") or id(a)] = a
@@ -383,16 +380,16 @@ def describe(a: dict) -> str:
 
 # ── 從 aiops-tuning 讀生效中的調整（以前在 detector/tuning.py；寫入在 feedback/）──
 
-def load_adjustments(es, cfg: dict) -> list[dict]:
+def load_adjustments(repo, cfg: dict) -> list[dict]:
     """全部調整（四種 kind）：設定檔（overrides、adjustments_file）＋ aiops-tuning（tune、adjust 指令、learning loop 提的）。"""
-    return load(es, TUNING_INDEX, cfg)
+    return load(repo, cfg)
 
 
-def load_overrides(es, cfg: dict, now=None) -> list[dict]:
+def load_overrides(repo, cfg: dict, now=None) -> list[dict]:
     """粒度、z、min_abs、confirm_points、instant_z 的調整（kind: override；舊資料沒有 kind 也是），生效中的，後面蓋前面。"""
-    return active(load_adjustments(es, cfg), now if now is not None else pd.Timestamp.now(tz="UTC"), kinds=("override",))
+    return active(load_adjustments(repo, cfg), now if now is not None else pd.Timestamp.now(tz="UTC"), kinds=("override",))
 
 
-def data_adjustments(es, cfg: dict, now) -> list[dict]:
+def data_adjustments(repo, cfg: dict, now) -> list[dict]:
     """排除時段、重置點、週期放寬，生效中的。"""
-    return active(load_adjustments(es, cfg), now, kinds=("exclude_window", "reset_point", "recurring_override"))
+    return active(load_adjustments(repo, cfg), now, kinds=("exclude_window", "reset_point", "recurring_override"))

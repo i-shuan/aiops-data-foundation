@@ -5,6 +5,8 @@ from datetime import datetime, timedelta, timezone
 from unittest import mock
 
 import aiops.service.converge.alert_service as C
+from aiops.core.repository import Repos
+from aiops.core.entity.alert import ALERT_MAPPING
 import aiops.scenario.it.chain as CH
 
 AL = C.Alert(alert_id="a-1", category="service", service="mes-api", status="open", started_at="2026-10-25T02:00:00+00:00",
@@ -33,17 +35,17 @@ class CallEdges(unittest.TestCase):
     def test_edges_between_candidate_services_only(self):
         ids = {"mes-api": ["t1"], "wip-worker": ["t1"], "mes-report": ["t2"]}
         asked = []
-        with mock.patch.object(CH.E, "service_trace_ids", side_effect=lambda es, ix, s, a, b, n: (asked.append(s), ids.get(s, []))[1]), \
-             mock.patch.object(CH, "as_backend", return_value=mock.Mock(spans=mock.Mock(return_value=self.SPANS))) as be:
-            edges = CH.call_edges("es", {"indices": {"traces": "traces-*"}}, {"mes-api", "wip-worker", "mes-report"}, T0, T0 + timedelta(hours=1), per=50)
+        traces = mock.Mock(service_trace_ids=mock.Mock(side_effect=lambda ix, s, a, b, n: (asked.append(s), ids.get(s, []))[1]),
+                           spans=mock.Mock(return_value=self.SPANS))
+        edges = CH.call_edges(mock.Mock(traces=traces), {"indices": {"traces": "traces-*"}}, {"mes-api", "wip-worker", "mes-report"}, T0, T0 + timedelta(hours=1), per=50)
         self.assertEqual(edges, {("mes-api", "wip-worker")})       # oracle 不是候選服務；mes-report 沒人呼叫、也沒呼叫誰
         self.assertEqual(sorted(asked), ["mes-api", "mes-report", "wip-worker"])
-        self.assertEqual(be.return_value.spans.call_args[0][1], ["t1", "t2"])     # 同一個 trace 只讀一次
+        self.assertEqual(traces.spans.call_args[0][1], ["t1", "t2"])     # 同一個 trace 只讀一次
 
     def test_fewer_than_two_services_or_no_traces(self):
-        self.assertEqual(CH.call_edges("es", {}, {"mes-api"}, T0, T0), set())
-        with mock.patch.object(CH.E, "service_trace_ids", return_value=[]):
-            self.assertEqual(CH.call_edges("es", {"indices": {"traces": "traces-*"}}, {"mes-api", "wip-worker"}, T0, T0), set())
+        self.assertEqual(CH.call_edges(mock.Mock(), {}, {"mes-api"}, T0, T0), set())
+        repo = mock.Mock(traces=mock.Mock(service_trace_ids=mock.Mock(return_value=[])))
+        self.assertEqual(CH.call_edges(repo, {"indices": {"traces": "traces-*"}}, {"mes-api", "wip-worker"}, T0, T0), set())
 
 
 class IncidentKeepsDownstreamOnly(unittest.TestCase):
@@ -56,7 +58,7 @@ class IncidentKeepsDownstreamOnly(unittest.TestCase):
         inc = C.Incident.from_alert(al, doc, None)
         self.assertEqual((inc.services, inc.upstream_services), (["wip-worker"], ["mes-api"]))
         for f in ("upstream_services", "merged_into"):
-            self.assertEqual(C.ALERT_MAPPING["mappings"]["properties"][f], {"type": "keyword"})
+            self.assertEqual(ALERT_MAPPING["mappings"]["properties"][f], {"type": "keyword"})
 
 
 class LlmDoesNotBlock(unittest.TestCase):
@@ -105,25 +107,25 @@ class FakeES:
 class IncidentsAreNotOverwritten(unittest.TestCase):
     def test_bulk_update_with_status_guard(self):
         es = FakeES({"errors": False, "items": [{"update": {"_id": "a-1", "result": "noop"}}, {"update": {"_id": "a-2", "result": "created"}}]})
-        n = C.write_incidents(es, [("a-1", {"status": "auto", "title": "x"}), ("a-2", {"status": "auto", "title": "y"})])
+        n = Repos(es).incidents.upsert_auto([("a-1", {"status": "auto", "title": "x"}), ("a-2", {"status": "auto", "title": "y"})])
         self.assertEqual(n, 1)
         lines = [json.loads(l) for l in es.s.sent.strip().split("\n")]
-        self.assertEqual(lines[0], {"update": {"_index": C.INCIDENT_INDEX, "_id": "a-1"}})
+        self.assertEqual(lines[0], {"update": {"_index": "aiops-incidents", "_id": "a-1"}})
         body = lines[1]
         # 判斷和寫入在 ES 裡一次做：狀態不是 auto 就 ctx.op = 'none'，一個欄位都不動；不存在就 upsert
         self.assertIn("ctx._source.status == 'auto'", body["script"]["source"])
         self.assertIn("ctx.op = 'none'", body["script"]["source"])
         self.assertEqual(body["script"]["params"]["doc"], {"status": "auto", "title": "x"})
         self.assertEqual(body["upsert"], {"status": "auto", "title": "x"})
-        self.assertEqual(es.ensured, [C.INCIDENT_INDEX])
+        self.assertEqual(es.ensured, ["aiops-incidents"])
 
     def test_bulk_error_raises(self):
         es = FakeES({"errors": True, "items": [{"update": {"_id": "a-1", "error": {"reason": "bad script"}}}]})
         with self.assertRaises(RuntimeError):
-            C.write_incidents(es, [("a-1", {"status": "auto"})])
+            Repos(es).incidents.upsert_auto([("a-1", {"status": "auto"})])
 
     def test_empty(self):
-        self.assertEqual(C.write_incidents(FakeES({}), []), 0)
+        self.assertEqual(Repos(FakeES({})).incidents.upsert_auto([]), 0)
 
 
 class AnomaliesCarryAlertId(unittest.TestCase):
@@ -131,7 +133,7 @@ class AnomaliesCarryAlertId(unittest.TestCase):
 
     def test_bulk_update_alert_id(self):
         es = FakeES({"errors": False, "items": [{"update": {"_id": "x1", "result": "updated"}}, {"update": {"_id": "x2", "result": "noop"}}]})
-        n = C.tag_anomalies(es, "aiops-anomalies", [("x1", "a-1"), ("x2", "a-1")])
+        n = Repos(es).anomalies.tag_alert([("x1", "a-1"), ("x2", "a-1")])
         self.assertEqual(n, 2)
         lines = [json.loads(l) for l in es.s.sent.strip().split("\n")]
         self.assertEqual(lines[0], {"update": {"_index": "aiops-anomalies", "_id": "x1"}})
@@ -142,16 +144,16 @@ class AnomaliesCarryAlertId(unittest.TestCase):
         # 保留期過了、異常已刪：那一筆 document_missing，其他照寫，不擋這一輪
         es = FakeES({"errors": True, "items": [{"update": {"_id": "x1", "error": {"type": "document_missing_exception"}}},
                                                {"update": {"_id": "x2", "result": "updated"}}]})
-        self.assertEqual(C.tag_anomalies(es, "aiops-anomalies", [("x1", "a-1"), ("x2", "a-1")]), 1)
+        self.assertEqual(Repos(es).anomalies.tag_alert([("x1", "a-1"), ("x2", "a-1")]), 1)
 
     def test_other_error_raises(self):
         es = FakeES({"errors": True, "items": [{"update": {"_id": "x1", "error": {"type": "index_closed_exception"}}}]})
         with self.assertRaises(RuntimeError):
-            C.tag_anomalies(es, "aiops-anomalies", [("x1", "a-1")])
+            Repos(es).anomalies.tag_alert([("x1", "a-1")])
 
     def test_empty(self):
         es = FakeES({})
-        self.assertEqual(C.tag_anomalies(es, "aiops-anomalies", []), 0)
+        self.assertEqual(Repos(es).anomalies.tag_alert([]), 0)
         self.assertEqual(es.ensured, [])
 
 

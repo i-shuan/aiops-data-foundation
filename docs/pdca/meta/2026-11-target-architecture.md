@@ -207,6 +207,20 @@ aiops-engine/code/
 | **S4 interface** | `feedback_service` 收回 `api.submit`；表單改模板；路由收斂；cli 拆檔；`jobs/` 搬家 | `api/app.py` 消失；網頁版與命令列版回饋走同一個 `FeedbackService` |
 | **S5 刪除與收尾** | 刪 `sources/`、`models/`、`detector/es.py`、各相容殼；`python -m detector` 等入口留 2 行相容；更新 CLAUDE.md、architecture 4.2、aiops-data-reference、各 README 的路徑；PDCA Do／Check／Act | `check-docs` 0 問題；全測試與兩支 e2e 過 |
 
+### S1 做了什麼（2026-11-06）
+
+- `core/repository/` 一個實體一個：`_base.py`（`Repository`：ensure、翻頁 `_scan`／`_composite`、`_mget`、`_put`／`_patch`／`_delete`、`bulk`、`_bulk_update`）、
+  `alert`、`incident`、`tuning`、`feedback`、`anomaly`（write 補 engine_version 與歸屬、tag_alert）、`baseline`、`segment`、`state`、`chronic`、
+  `series`（原本 `sources/es_source.py` 的序列、points、rows 查詢；`fill_zero` 留在這裡）、`trace`（span、合成、入口統計、抽樣；原 `rca_queries.py` 的 trace 部分）、
+  `log`（原 `rca_queries.py` 的 log 部分＋慢性病的每日筆數）、`change`（IT 版號第一次出現、工廠變更紀錄最近一筆）、`quality`（品質檢查的 composite 統計）、
+  `housekeeping`（prune 的 count／delete_by_query、index template）。`Repos(es)` 一條連線上全部的 repository，指令開頭 `Repos(ES())`。
+- service／scenario／interface 不再有 `es.req`／`es.search`／索引名：函式簽名的 `es` 全改成 `repo`；`Detector` 的 `self.es` → `self.repo`，`cmd_*` 的 `backend=` → `repo=`。
+- mapping 跟著實體：新增 `core/entity/baseline.py`、`core/entity/feedback.py`（原本在 `service/detect/es_facade.py`、`service/feedback/suggest.py`）；`RULE_FIELDS` 搬到 `core/entity/anomaly.py`。
+- 刪掉：`core/repository/{base,stores,rows,shape,rca_queries}.py`（Backend／Store／file／http 來源）、`service/detect/es_facade.py`、config 的 `source:`／`store:` 模型；
+  pandas 版整形搬成 `tests/shaping.py`，`tests/fakes.MemoryRepos` 是不連 ES 的 Repos（`test_memory_repos.py` 用它跑 train→detect、rules、peer、相似事故）。
+- `test_layers`：`INDEX_LITERALS` 填齊九個 `aiops-*` 索引（字面值只能在 `core/`）；`KNOWN` 的 `rca_queries.py` 換成 `log.py`（S2 清 `source.profile`）。
+- Check：`pytest` 762 過、16 skipped（刪了 test_es_backend 與 file／http 的測試，加了 repository 的）；`check-docs` 0 問題。對真 ES 的 `loop_e2e`／`chain_e2e` 留到 S2 之後一起跑（容器裡的 ES 要重新起）。
+
 ## Check：預計要驗證的
 
 | 測試目的（為了確認什麼） | 怎麼測 | 結果 |

@@ -7,7 +7,7 @@ from argparse import Namespace
 from unittest import mock
 
 import aiops.service.detect.baseline_job as C
-from aiops.service.converge.alert_service import ALERT_INDEX, ALERT_MAPPING
+from aiops.core.entity.alert import ALERT_INDEX, ALERT_MAPPING
 
 CFG = {"interval": "5m", "adjustments_file": None, "calendar_file": None, "detect": {"z": 5}, "status": {"confirm_points": 2},
        "series": [{"name": "a.cpu", "index": "m", "by": ["service"], "value": {"avg": "v"}},
@@ -23,6 +23,9 @@ class FakeES:
 
     def ensure_index(self, name, body):
         self.ensured.append((name, body))
+
+    def search(self, index, body):
+        return self.req("POST", f"/{index}/_search", body)
 
     def req(self, method, path, body=None, ok=None):
         if path.startswith("/aiops-baseline/_search"):

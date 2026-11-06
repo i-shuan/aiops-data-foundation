@@ -18,7 +18,6 @@ import json
 
 import pandas as pd
 
-from aiops.core.connection import ES, time_range
 
 from aiops.service.detect.adjustments import match_keys
 
@@ -53,49 +52,3 @@ def describe(source: dict, row: dict, keys: list[str], days: int) -> str:
     who = "、".join("（無）" if pd.isna(row[k]) else str(row[k]) for k in keys)   # None、NaN 都是「無」
     return (f"{source.get('title', source['name'])}：{who}，{days} 天裡 {int(row['days'])} 天有，"
             f"有的那幾天每天約 {row['per_day']:.0f} 筆，共 {int(row['total'])} 筆")
-
-
-# ── 查詢 ──
-
-def fetch_log_daily(es: ES, src: dict, start, end, tz: str) -> pd.DataFrame:
-    """每個對象每天幾筆：composite（by 的欄位 + 每天，當地時間），自動翻頁。"""
-    keys = src.get("keys") or [f.split(".")[-1] for f in src["by"]]
-    f = [time_range(start, end)] + ([src["filter"]] if src.get("filter") else [])
-    sources = [{k: {"terms": {"field": fld, "missing_bucket": True}}} for k, fld in zip(keys, src["by"])]
-    sources.append({"day": {"date_histogram": {"field": "@timestamp", "calendar_interval": "1d", "time_zone": tz}}})
-    rows, after = [], None
-    while True:
-        comp = {"size": 1000, "sources": sources, **({"after": after} if after else {})}
-        g = es.search(src["index"], {"size": 0, "query": {"bool": {"filter": f}},
-                                     "aggs": {"g": {"composite": comp}}}).get("aggregations", {}).get("g", {})
-        for b in g.get("buckets", []):
-            k = dict(b["key"])
-            rows.append({**{x: k[x] for x in keys}, "count": b["doc_count"],
-                         "day": pd.Timestamp(k["day"], unit="ms", tz="UTC").tz_convert(tz).date()})
-        after = g.get("after_key")
-        if not after or not g.get("buckets"):
-            return pd.DataFrame(rows, columns=keys + ["day", "count"])
-
-
-def fetch_anomaly_daily(es: ES, index: str, src: dict, start, end, tz: str) -> pd.DataFrame:
-    """aiops-anomalies 裡 level 在 levels 的，每條（series）、每個對象（keys）每天幾筆。
-    keys 是 flattened，聚合拿不到組合，所以讀出來在這裡數（一週的規則觸發量不大）。"""
-    f = [time_range(start, end), {"terms": {"level": src.get("levels", ["rule", "peer"])}}]
-    if src.get("series"):
-        f.append({"regexp": {"series": src["series"]}})
-    rows, after = [], None
-    while True:
-        body = {"size": 5000, "_source": ["@timestamp", "series", "keys"], "query": {"bool": {"filter": f}},
-                "sort": [{"@timestamp": "asc"}, {"_doc": "asc"}]}
-        if after:
-            body["search_after"] = after
-        hits = es.search(index, body).get("hits", {}).get("hits", [])
-        for h in hits:
-            s = h["_source"]
-            rows.append({"series": s["series"], "target": json.dumps(s.get("keys") or {}, sort_keys=True, ensure_ascii=False),
-                         "day": pd.Timestamp(s["@timestamp"]).tz_convert(tz).date(), "count": 1})
-        if len(hits) < 5000:
-            break
-        after = hits[-1]["sort"]
-    df = pd.DataFrame(rows, columns=["series", "target", "day", "count"])
-    return df.groupby(["series", "target", "day"], as_index=False)["count"].sum() if not df.empty else df

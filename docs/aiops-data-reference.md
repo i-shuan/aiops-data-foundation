@@ -64,7 +64,7 @@ Grafana（⑧）         讀 aiops-alerts 發通知；儀表板讀 alerts、anom
 | `status` | keyword | 只有動態基準線學習的有：`anomaly`（可以單獨開一件）或 `warning`（只跳一次，不開新的，只併進同服務已經開著的件）。`rule`、`peer`、`quality` 沒有這個欄位，看 `severity`（見下） |
 | `streak` | integer | 連續幾點 |
 | `p` | double | 卜瓦松的機率 |
-| `dept`、`group` | keyword | 寫入時由 `sources` 的 `Backend.write_anomalies` 補（歸屬查 `core/owner.py`）：依 `keys` 裡的 namespace（優先，dept 是 namespace 的 label）或服務，對回 metrics 裡的部門與 group；找不到就是 null、`unassigned` |
+| `dept`、`group` | keyword | 寫入時由 `AnomalyRepository.write` 補（歸屬查 `core/repository/owner.py`）：依 `keys` 裡的 namespace（優先，dept 是 namespace 的 label）或服務，對回 metrics 裡的部門與 group；找不到就是 null、`unassigned` |
 | `alert_id` | keyword | 併進哪一件；事件整合寫回，沒併進去的沒有 |
 | `rule`、`severity`、`message` | keyword、keyword、text | 動態基準線學習的沒有，`rule`、`peer`、`quality` 的有：規則名、嚴重度、給人看的一句話。**這三個欄位不在 `ANOMALY_MAPPING`**，由 `rules`、`peer`、`trace`、`quality` 第一次跑時用 `PUT _mapping` 補進索引（`detector/common.py` 的 `RULE_FIELDS`），所以只跑過 detect 的新索引沒有它們 |
 | `since` | 不索引 | 只有靜態規則有：條件開始成立的時間 |

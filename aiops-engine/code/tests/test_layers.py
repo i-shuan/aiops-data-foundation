@@ -1,6 +1,6 @@
 """依賴方向（docs/pdca/meta/2026-11-target-architecture.md）：interface → service → scenario → core；config 是葉節點。
 誰 import 誰只能往右；相容入口（detector/、investigator/、scheduler/、tasks/、api/ 的 __main__）不算。
-函式內的 import 只允許名單上那幾個。索引名與 ES 查詢語法只能在 core/repository/（S1 一個實體一個打開）。
+函式內的 import 只允許名單上那幾個。索引名只能在 core/（entity、repository）、ES 查詢語法只能在 core/repository/。
 加了反向 import 這裡會紅——讀到這裡的人：先想東西該不該搬，不要改名單。"""
 import ast
 import pathlib
@@ -12,12 +12,12 @@ LAYERS = ("config", "core", "scenario", "service", "interface")       # 由下�
 ALLOWED = {"config": set(), "core": {"config"}, "scenario": {"config", "core"},
            "service": {"config", "core", "scenario"}, "interface": {"config", "core", "scenario", "service"}}
 # 函式內才 import 的（其他都要在檔頭）：sqlalchemy 是選配、worker 要 broker
-LAZY_OK = {("service/feedback/importer.py", "sqlalchemy"), ("interface/jobs/local.py", "aiops.interface.jobs.worker"),
-           ("core/repository/base.py", "aiops.core.repository.series")}      # S1 拆掉 base 後這條會消失
-# 索引名的字面值只能在 core/repository/（S1 每做完一個實體就把它加進來）
-INDEX_LITERALS = ()
+LAZY_OK = {("service/feedback/importer.py", "sqlalchemy"), ("interface/jobs/local.py", "aiops.interface.jobs.worker")}
+# 索引名的字面值只能在 core/（entity 定義、repository 讀寫）
+INDEX_LITERALS = ("aiops-anomalies", "aiops-alerts", "aiops-incidents", "aiops-feedback", "aiops-tuning", "aiops-baseline",
+                  "aiops-trace-segments", "aiops-state", "aiops-chronic")
 # 還沒清掉的反向依賴（S0 搬完的現況；S1 拆 repository、S2 做 Scenario 時逐條刪，刪光這個集合就空了）
-KNOWN = {"core/repository/owner.py → ['scenario']", "core/repository/rca_queries.py → ['scenario']", "core/entity/trace.py → ['scenario']",
+KNOWN = {"core/repository/owner.py → ['scenario']", "core/repository/log.py → ['scenario']", "core/entity/trace.py → ['scenario']",
          "scenario/it/chain.py → ['service']", "scenario/it/__init__.py → ['service']", "scenario/factory/paths.py → ['service']",
          "scenario/factory/__init__.py → ['service']", "scenario/factory/commands.py → ['service']", "scenario/factory/ingest_job.py → ['service']"}
 
@@ -71,7 +71,7 @@ class Layers(unittest.TestCase):
     def test_index_literals_only_in_repository(self):
         for name in INDEX_LITERALS:
             where = [str(rel) for rel, tree in modules() for n in ast.walk(tree) if isinstance(n, ast.Constant) and n.value == name]
-            self.assertEqual([w for w in where if not w.startswith("core/repository/")], [], f"{name} 的字面值只能在 core/repository/：{where}")
+            self.assertEqual([w for w in where if not w.startswith("core/")], [], f"{name} 的字面值只能在 core/：{where}")
 
 
 if __name__ == "__main__":

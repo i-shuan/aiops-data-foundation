@@ -6,21 +6,19 @@ import dataclasses
 import numpy as np
 import pandas as pd
 
-from aiops.core.entity.alert import ALERT_INDEX, ALERT_MAPPING, stamp_of
-from aiops.core.entity.anomaly import ANOMALY_INDEX, ANOMALY_MAPPING, Anomaly
-from aiops.service.detect.es_facade import (BASELINE_INDEX, BASELINE_MAPPING, ES, alive_times, doc_id, fetch, load_baseline,
-                 load_group_baselines, value_kind)
+from aiops.core.connection import ES, doc_id
+from aiops.core.entity.alert import stamp_of
+from aiops.core.entity.anomaly import Anomaly
+from aiops.core.repository import Repos
 import aiops.service.detect.adjustments as A
 from aiops.service.detect.baseline import (CONFIDENCE, RESOLUTIONS, DetectOptions, TrainOptions, effective_for, mask_thin, pick_resolution, score, group_of, mark_status, override_for, resolutions_from, score_poisson, train, train_groups)
-from aiops.service.detect._util import _freq, _now, _v, keys_of
-from aiops.core.repository import as_backend, open_backend, write_anomalies
-from aiops.core.entity.adjustment import TUNING_INDEX, TUNING_MAPPING, validated
+from aiops.service.detect._util import _freq, _now, _v, keys_of, value_kind
 from aiops.service.detect.adjustments import data_adjustments, load_overrides
 
 
-def save_baseline(es, name: str, by: list[str], b: pd.DataFrame, start, end, had_data: bool = False) -> None:
+def save_baseline(repo: Repos, name: str, by: list[str], b: pd.DataFrame, start, end, had_data: bool = False) -> None:
     """寫進 aiops-baseline，再刪掉這條序列上一次訓練留下、這次沒有的（例如改了粒度、或 4 週內都沒出現的 API）。
-    had_data：這次有查到資料（只是不夠學）。ES 查不到任何資料時不刪，保留舊的。寫與刪由 Store 做（memory、file、es）。"""
+    had_data：這次有查到資料（只是不夠學）。ES 查不到任何資料時不刪，保留舊的。"""
     trained_at = pd.Timestamp.now(tz="UTC").isoformat()
     docs = []
     for r in b.to_dict("records"):
@@ -32,7 +30,7 @@ def save_baseline(es, name: str, by: list[str], b: pd.DataFrame, start, end, had
             "resolution": _v(r.get("resolution")), "method": _v(r.get("baseline_method")) or "mad",
             "baseline_source": f"group:{group}" if group else "self", "events": _v(r.get("events")),
             "trained_at": trained_at, "history_from": start.isoformat(), "history_to": end.isoformat()}))
-    as_backend(es).save_baseline(name, docs, trained_at, had_data)
+    repo.baseline.save(name, docs, trained_at, had_data)
 
 def train_summary(name: str, by: list[str], hist: pd.DataFrame, b: pd.DataFrame) -> str:
     n_series = hist.groupby(by, dropna=False).ngroups if not hist.empty else 0
@@ -78,18 +76,18 @@ def series_resolutions(cfg: dict, spec: dict, hist: pd.DataFrame, keys: list[str
                           coverage=ad.get("coverage", 0.3))
     return res
 
-def _keep_upgraded(es, docs: list) -> None:
+def _keep_upgraded(repo: Repos, docs: list) -> None:
     """不降級：同一個時間窗上一輪已經判成 anomaly（當時看得到前一個時間窗），這一輪查的範圍沒包含前一個時間窗、
     只能判成 warning 時，保留 anomaly。"""
     ids = [i for i, d in docs if d["status"] == "warning"]
     if not ids:
         return
-    was = as_backend(es).anomaly_status(ids)
+    was = repo.anomalies.status_of(ids)
     for i, d in docs:
         if i in was:
             d["status"], d["streak"] = "anomaly", was[i].get("streak", d.get("streak"))
 
-def save_anomalies(es, name: str, by: list[str], s: pd.DataFrame, direction: str, tz: str,
+def save_anomalies(repo: Repos, name: str, by: list[str], s: pd.DataFrame, direction: str, tz: str,
                    resolution: str | None = None, note: str = "") -> int:
     """把 score 的結果裡異常的點寫進 aiops-anomalies，印出最嚴重的 5 個。回傳異常數。
 
@@ -112,8 +110,8 @@ def save_anomalies(es, name: str, by: list[str], s: pd.DataFrame, direction: str
                     p=r["p"] if "p" in r else None)
         docs.append((a.id(), a.to_doc()))    # 文件欄位只定義在 base.Anomaly；a.id() == doc_id(name, keys, ts)
     if docs:
-        _keep_upgraded(es, docs)
-        write_anomalies(es, docs)
+        _keep_upgraded(repo, docs)
+        repo.anomalies.write(docs)
     res = f"（{resolution} 一點{note}）" if resolution else ""
     n_warn = sum(d["status"] == "warning" for _, d in docs)
     print(f"  {name}{res}：{s.groupby(by, dropna=False).ngroups} 條序列、{len(s)} 個點，"
@@ -126,10 +124,9 @@ def save_anomalies(es, name: str, by: list[str], s: pd.DataFrame, direction: str
               f"{'' if d['status'] == 'anomaly' else '  ← warning（跳一次，還沒連續）'}")
     return len(docs)
 
-def cmd_train(cfg: dict, args, backend=None) -> int:
-    # 設定檔沒寫 source 就是 ES；寫了 file／http 就是那個來源（讀）＋ store（寫）；程式直接給 DataFrame 時傳 backend=sources.MemoryBackend(…)
-    es = backend or open_backend(cfg, ES)
-    es.ensure_index(BASELINE_INDEX, BASELINE_MAPPING)
+def cmd_train(cfg: dict, args, repo: Repos | None = None) -> int:
+    repo = repo or Repos(ES())   # 測試給記憶體版的 repo（tests/fakes.py）
+    repo.baseline.ensure()
     interval = cfg.get("interval", "5m")
     end = _now(args.end).floor(_freq(interval))
     start = end - pd.Timedelta(weeks=args.weeks or cfg.get("history_weeks", 4))
@@ -138,8 +135,8 @@ def cmd_train(cfg: dict, args, backend=None) -> int:
     fine_start = max(start, end - pd.Timedelta(fh[:-1] + "D" if fh.endswith("d") else fh))
     fine = lambda r: pd.Timedelta(_freq(r)) < pd.Timedelta("5min")
     topts = TrainOptions(**cfg.get("train", {}))
-    overrides = load_overrides(es, cfg, end)    # 有沒有過期以這次 train 的時間點判斷（跟排除時段、重置點一樣）
-    adjs = data_adjustments(es, cfg, end)
+    overrides = load_overrides(repo, cfg, end)    # 有沒有過期以這次 train 的時間點判斷（跟排除時段、重置點一樣）
+    adjs = data_adjustments(repo, cfg, end)
     print(f"學習區間 {start.tz_convert(topts.timezone):%Y-%m-%d %H:%M} ～ {end.tz_convert(topts.timezone):%Y-%m-%d %H:%M}"
           f"（{topts.timezone}，{interval} 一點；5 分鐘以下的粒度學最近 {cfg.get('fine_history', '14d')}）")
     if adjs:
@@ -148,7 +145,7 @@ def cmd_train(cfg: dict, args, backend=None) -> int:
         keys = keys_of(spec)
         # 排除時段、重置點之前、要排除的週期時段：這些點不學（adjust.py）
         hist_start = fine_start if fine(interval) else start
-        hist = fetch(es, spec, hist_start, end, interval)
+        hist = repo.series.fetch(spec, hist_start, end, interval)
         had_data = not hist.empty
         hist, dropped = A.train_filter(hist, keys, spec["name"], adjs, topts.timezone)
         excluded = lambda df: A.train_filter(df, keys, spec["name"], adjs, topts.timezone)[0]
@@ -157,7 +154,7 @@ def cmd_train(cfg: dict, args, backend=None) -> int:
         for r, ks in res.dropna(subset=["resolution"]).groupby("resolution"):
             r_start = fine_start if fine(r) else start
             # 百分位不能從細的合併，粗的要重查
-            h = hist if (r == interval and r_start == hist_start) else excluded(fetch(es, spec, r_start, end, r))
+            h = hist if (r == interval and r_start == hist_start) else excluded(repo.series.fetch(spec, r_start, end, r))
             h = h.merge(ks[keys], on=keys)
             if (me := min_events(cfg, spec)) is not None:
                 h = mask_thin(h, me)
@@ -169,7 +166,7 @@ def cmd_train(cfg: dict, args, backend=None) -> int:
         # 很稀少的筆數（最粗的粒度也大多是 0）：改用卜瓦松，學每個時段的平均次數
         coarsest = (cfg.get("adaptive") or {}).get("resolutions", RESOLUTIONS)[-1]
         if not sparse.empty and value_kind(spec) == "count":
-            h = excluded(fetch(es, spec, start, end, coarsest)).merge(sparse[keys], on=keys)
+            h = excluded(repo.series.fetch(spec, start, end, coarsest)).merge(sparse[keys], on=keys)
             t = train(h, keys, topts, method="poisson") if not h.empty else pd.DataFrame()
             if not t.empty:
                 parts.append(t.merge(sparse[keys + ["events"]], on=keys).assign(resolution=coarsest))
@@ -183,7 +180,7 @@ def cmd_train(cfg: dict, args, backend=None) -> int:
             # 從成員自己的 baseline 算出每組的 baseline，存在同一個 index，給沒有自己 baseline 的序列借
             gb = train_groups(b, keys, cfg["groups"], cfg.get("borrowing", {}).get("min_members", 3)).assign(
                 resolution=borrow_resolution(cfg))
-        save_baseline(es, spec["name"], keys, pd.concat([b, gb], ignore_index=True), start, end, had_data=had_data)
+        save_baseline(repo, spec["name"], keys, pd.concat([b, gb], ignore_index=True), start, end, had_data=had_data)
         print(train_summary(spec["name"], keys, hist, b))
         if dropped:
             print(f"    排除 {dropped} 個點（排除時段、重置點之前、要排除的週期時段）")
@@ -270,13 +267,10 @@ def with_status(cfg: dict, s: pd.DataFrame, keys: list[str], step: str, start, s
 def cmd_tune(cfg: dict, args) -> int:
     """寫一筆調整進 aiops-tuning（同一條序列＋同一組 match 會覆蓋）；--remove 刪掉；--list 列出；
     --show 看某條序列、某個對象最終生效的值與來源（多筆都符合時後面蓋前面，不然看不出是哪一筆定的）。"""
-    es = open_backend(cfg, ES)
-    if es.store.kind != "es" and not (args.list or args.show):
-        print(f"tune 要寫 aiops-tuning，store 是 {es.store.kind}（不是 ES）：直接改 series.yaml 的 overrides")
-        return 2
-    es.ensure_index(TUNING_INDEX, TUNING_MAPPING)
+    repo = Repos(ES())
+    repo.tuning.ensure()
     if args.list:
-        for o in load_overrides(es, cfg):
+        for o in load_overrides(repo, cfg):
             print(A.describe(o))
         return 0
     match = dict(m.split("=", 1) for m in (args.match or []))
@@ -289,18 +283,18 @@ def cmd_tune(cfg: dict, args) -> int:
             print(f"series.yaml 沒有這條序列：{args.series}")
             return 2
         print(f"{args.series} {match} 現在生效的值：")
-        for line in effective_lines(cfg, spec, match, load_overrides(es, cfg)):
+        for line in effective_lines(cfg, spec, match, load_overrides(repo, cfg)):
             print(line)
         return 0
     _id = doc_id("tune", args.series, match)
     if args.remove:
-        es.req("DELETE", f"/{TUNING_INDEX}/_doc/{_id}?refresh=true", ok=(200, 404))
+        repo.tuning.delete(_id)
         print(f"已刪除：{args.series} {match}")
         return 0
     doc = {"kind": "override", "series": args.series, "match": match, "resolution": args.resolution, "z": args.z, "min_abs": args.min_abs,
            "confirm_points": args.confirm_points, "instant_z": args.instant_z,
            "reason": args.reason, "by": args.by, "at": pd.Timestamp.now(tz="UTC").isoformat()}
-    es.req("PUT", f"/{TUNING_INDEX}/_doc/{_id}?refresh=true", validated({k: v for k, v in doc.items() if v is not None}))
+    repo.tuning.put(_id, {k: v for k, v in doc.items() if v is not None})
     print(f"已調整：{args.series} {match} → " + "，".join(f"{k}={doc[k]}" for k in ("resolution", "z", "min_abs", "confirm_points", "instant_z") if doc[k] is not None)
           + "（粒度下次 train 生效；z、min_abs、confirm_points、instant_z 下次 detect 生效）")
     return 0
@@ -343,16 +337,16 @@ def borrow_resolution(cfg: dict) -> str:
     """借來的 baseline 用多粗的粒度判斷：預設最粗的（本來就是可信度低的判斷，用粗一點的窗比較穩）。"""
     return cfg.get("borrowing", {}).get("resolution") or (cfg.get("adaptive") or {}).get("resolutions", RESOLUTIONS)[-1]
 
-def detect_borrowed(es, cfg: dict, spec: dict, own: pd.DataFrame, now, window, dopts, tz, adjs=()) -> int:
+def detect_borrowed(repo: Repos, cfg: dict, spec: dict, own: pd.DataFrame, now, window, dopts, tz, adjs=()) -> int:
     """沒有自己 baseline 的序列（新 API、量太少）：借第一個符合、而且有組 baseline 的組來判斷，門檻調高。"""
     keys = keys_of(spec)
-    gb = load_group_baselines(es, spec["name"])
+    gb = repo.baseline.load_group(spec["name"])
     if gb.empty:
         return 0
     r = borrow_resolution(cfg)
     end_r = now.floor(_freq(r))
     start_r = end_r - max(window, pd.Timedelta(_freq(r)))
-    cur = fetch(es, spec, start_r - pd.Timedelta(_freq(r)), end_r, r)
+    cur = repo.series.fetch(spec, start_r - pd.Timedelta(_freq(r)), end_r, r)
     if cur.empty:
         return 0
     if not own.empty:
@@ -377,10 +371,10 @@ def detect_borrowed(es, cfg: dict, spec: dict, own: pd.DataFrame, now, window, d
     s, _ = A.detect_filter(s, keys, spec["name"], list(adjs), tz)
     s = with_status(cfg, s.merge(pick, on=keys, how="left"), keys, r, start_r, spec)
     s["baseline_source"] = "group:" + s["group"].astype(str)
-    return save_anomalies(es, spec["name"], keys, s.drop(columns="group"), spec.get("direction", "both"), tz, resolution=r,
+    return save_anomalies(repo, spec["name"], keys, s.drop(columns="group"), spec.get("direction", "both"), tz, resolution=r,
                           note=f"，借 {'、'.join(sorted(pick['group'].unique()))} 的 baseline，z 門檻 {bz.z:g}")
 
-def detect_series(es, cfg: dict, spec: dict, base: pd.DataFrame, now, window: pd.Timedelta, dopts, tz, overrides, adjs,
+def detect_series(repo: Repos, cfg: dict, spec: dict, base: pd.DataFrame, now, window: pd.Timedelta, dopts, tz, overrides, adjs,
                   quiet: bool = False) -> list[tuple[str, pd.DataFrame]]:
     """一條序列、每種粒度各算一次：回傳 [(粒度, 打完分、標好 status 的 DataFrame)]，不寫 ES。
     cmd_detect 拿去存；backtest（cmd_backtest.py）拿去比「現行設定 vs 建議的設定」。"""
@@ -396,12 +390,12 @@ def detect_series(es, cfg: dict, spec: dict, base: pd.DataFrame, now, window: pd
         start_r = end_r - max(window, pd.Timedelta(_freq(r)))
         # 多查前一個時間窗：判斷「連續」要知道前一個有沒有超標
         prev_r = start_r - pd.Timedelta(_freq(r))
-        cur = fetch(es, spec, prev_r, end_r, r)
+        cur = repo.series.fetch(spec, prev_r, end_r, r)
         ks = b[keys].drop_duplicates()
         cur = cur.merge(ks, on=keys) if not cur.empty else cur
         if value_kind(spec) == "count" or spec.get("fill_zero"):
             cur = _add_silent(cur, b, keys, prev_r, end_r, r,
-                              alive=lambda: alive_times(es, spec, prev_r, end_r, r))
+                              alive=lambda: repo.series.alive_times(spec, prev_r, end_r, r))
         if (me := min_events(cfg, spec)) is not None and not cur.empty:
             cur = mask_thin(cur, me)
         if cur.empty:
@@ -422,23 +416,23 @@ def detect_series(es, cfg: dict, spec: dict, base: pd.DataFrame, now, window: pd
     return out
 
 
-def write_detect_status(es, now: pd.Timestamp, missing: list[str]) -> None:
+def write_detect_status(repo: Repos, now: pd.Timestamp, missing: list[str]) -> None:
     """每輪寫一筆 _id detect-status 進 aiops-alerts，跟 investigator alert 的心跳同一個形狀（status ok，不是一件事；
     事件整合、儀表板、metrics 都只拿 status open／category service 的，不會把它當成一件）。
     missing_baseline 是這輪沒有 baseline 的序列數。aiops-baseline 掉了（ES 重建、index 被刪）時 detect 只印一行就跳過，
     動態基準線這一路靜默停擺，aiops-heartbeat 看不到；Grafana 的 aiops-baseline-missing 規則查 missing_baseline > 0 送平台
     （grafana/helmchart/files/alert-rules.yaml、docs/pdca/meta/2026-10-open-issues.md 第 7 節）。"""
-    es.ensure_index(ALERT_INDEX, ALERT_MAPPING)    # 既有 index 補 missing_baseline 欄位（dynamic false；ensure_index 會 PUT _mapping）
-    es.bulk_index(ALERT_INDEX, [("detect-status", {
+    repo.alerts.ensure()    # 既有 index 補 missing_baseline 欄位（dynamic false；ensure 會 PUT _mapping）
+    repo.alerts.bulk([("detect-status", {
         "@timestamp": stamp_of(now).isoformat(), "alert_id": "detect-status", "category": "status", "status": "ok",
         "service": "aiops", "group": "unassigned", "title": "detector detect 狀態",
         "started_at": now.isoformat(), "updated_at": now.isoformat(),
         "anomaly_ids": [], "series": list(missing), "routes": [], "anomaly_count": 0, "missing_baseline": len(missing)})])
 
 
-def cmd_detect(cfg: dict, args, backend=None) -> int:
-    es = backend or open_backend(cfg, ES)
-    es.ensure_index(ANOMALY_INDEX, ANOMALY_MAPPING)
+def cmd_detect(cfg: dict, args, repo: Repos | None = None) -> int:
+    repo = repo or Repos(ES())
+    repo.anomalies.ensure()
     interval = cfg.get("interval", "5m")
     now = _now(args.at)
     # 最後一段可能還沒收齊（筆數會偏低，看起來像「驟降」），所以只看已經結束的時段
@@ -446,21 +440,21 @@ def cmd_detect(cfg: dict, args, backend=None) -> int:
     start = end - pd.Timedelta(args.window)
     tz = cfg.get("train", {}).get("timezone", "Asia/Taipei")
     dopts = DetectOptions(**cfg.get("detect", {}))
-    overrides = load_overrides(es, cfg, now)   # --at 回放時以 --at 判斷有沒有過期（跟排除時段、重置點、backtest 一樣）
-    adjs = data_adjustments(es, cfg, now)
+    overrides = load_overrides(repo, cfg, now)   # --at 回放時以 --at 判斷有沒有過期（跟排除時段、重置點、backtest 一樣）
+    adjs = data_adjustments(repo, cfg, now)
     total, missing = 0, []
     print(f"偵測區間 {start.tz_convert(tz):%Y-%m-%d %H:%M} ～ {end.tz_convert(tz):%Y-%m-%d %H:%M}（{tz}）")
     for spec in cfg["series"]:
         keys = keys_of(spec)
-        base = load_baseline(es, spec["name"], keys)
+        base = repo.baseline.load(spec["name"], keys)
         if spec.get("borrow") and cfg.get("groups"):
-            total += detect_borrowed(es, cfg, spec, base, now, pd.Timedelta(args.window), dopts, tz, adjs)
+            total += detect_borrowed(repo, cfg, spec, base, now, pd.Timedelta(args.window), dopts, tz, adjs)
         if base.empty:
             print(f"  {spec['name']}：沒有 baseline，先跑 train")
             missing.append(spec["name"])
             continue
-        for r, s in detect_series(es, cfg, spec, base, now, pd.Timedelta(args.window), dopts, tz, overrides, adjs):
-            total += save_anomalies(es, spec["name"], keys, s, spec.get("direction", "both"), tz, resolution=r)
-    write_detect_status(es, now, missing)
+        for r, s in detect_series(repo, cfg, spec, base, now, pd.Timedelta(args.window), dopts, tz, overrides, adjs):
+            total += save_anomalies(repo, spec["name"], keys, s, spec.get("direction", "both"), tz, resolution=r)
+    write_detect_status(repo, now, missing)
     print(f"共 {total} 個異常" + (f"；{len(missing)} 條序列沒有 baseline（已寫 detect-status）" if missing else ""))
     return 0

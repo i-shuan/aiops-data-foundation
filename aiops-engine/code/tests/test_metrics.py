@@ -5,6 +5,9 @@ import unittest
 import pandas as pd
 
 import aiops.service.feedback.metrics as M
+from aiops.core.entity.alert import ALERT_INDEX
+from aiops.core.entity.feedback import FEEDBACK_INDEX
+from aiops.core.repository import Repos
 
 T = pd.Timestamp("2026-10-01T00:00:00Z")
 
@@ -14,6 +17,9 @@ class FakeES:
     def __init__(self, hits_by_index: dict | None = None):
         self.calls = []
         self.hits = hits_by_index or {}
+
+    def search(self, index, body):
+        return self.req("POST", f"/{index}/_search", body)
 
     def req(self, method, path, body=None, **kw):
         index = path.split("/")[1]
@@ -41,7 +47,7 @@ class LoadPeriod(unittest.TestCase):
     END = T + pd.Timedelta(days=7)
 
     def feedback_calls(self, es):
-        return [b for _, idx, b in es.calls if idx == M.F.FEEDBACK_INDEX]
+        return [b for _, idx, b in es.calls if idx == FEEDBACK_INDEX]
 
     def test_feedback_by_alert_ids_and_missed_by_time(self):
         alerts = [alert(0), alert(1), alert(2, cat="heartbeat")]
@@ -50,8 +56,8 @@ class LoadPeriod(unittest.TestCase):
 
         def feedback(body):
             return [late] if _terms_ids(body) is not None else [missed]
-        es = FakeES({M.ALERT_INDEX: alerts, M.F.FEEDBACK_INDEX: feedback})
-        p = M.load_period(es, T, self.END)
+        es = FakeES({ALERT_INDEX: alerts, FEEDBACK_INDEX: feedback})
+        p = M.load_period(Repos(es), T, self.END)
         calls = self.feedback_calls(es)
         self.assertEqual(len(calls), 2)
         # (a) 回饋查詢：terms alert_id，正好是這段載入的告警（含非 service 類，過濾在 compute）
@@ -70,15 +76,15 @@ class LoadPeriod(unittest.TestCase):
         self.assertEqual((m["alerts"], m["reviewed"], m["false_positive"], m["missed"]), (2, 1, 1, 1))
 
     def test_chunking_over_1000_ids(self):
-        es = FakeES({M.ALERT_INDEX: [alert(i) for i in range(1001)]})
-        M.load_period(es, T, self.END)
+        es = FakeES({ALERT_INDEX: [alert(i) for i in range(1001)]})
+        M.load_period(Repos(es), T, self.END)
         chunks = [_terms_ids(b) for b in self.feedback_calls(es) if _terms_ids(b) is not None]
         self.assertEqual(sorted(len(c) for c in chunks), [1, 1000])
         self.assertEqual(sorted(i for c in chunks for i in c), sorted(f"a{i}" for i in range(1001)))
 
     def test_no_alerts_still_queries_missed(self):
         es = FakeES()
-        p = M.load_period(es, T, self.END)
+        p = M.load_period(Repos(es), T, self.END)
         self.assertEqual([_terms_ids(b) for b in self.feedback_calls(es)], [None])   # 沒告警就不送空的 terms
         self.assertEqual(p["feedback"], [])
 

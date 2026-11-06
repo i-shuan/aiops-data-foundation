@@ -8,47 +8,22 @@ from __future__ import annotations
 
 import pandas as pd
 
-from aiops.core.entity.alert import ALERT_INDEX
-from aiops.core.entity.incident import INCIDENT_INDEX
-from aiops.service.detect.es_facade import ES
+from aiops.core.connection import ES
+from aiops.core.repository import Repos
 import aiops.service.feedback.suggest as F
 
 
 
-def _all(es, index: str, body: dict) -> list[dict]:
-    out, after = [], None
-    while True:
-        b = {**body, "size": 5000, "sort": [{"@timestamp": "asc"}, {"_doc": "asc"}]}
-        if after:
-            b["search_after"] = after
-        hits = es.req("POST", f"/{index}/_search?ignore_unavailable=true", b).get("hits", {}).get("hits", [])
-        out += [{**h["_source"], "_id": h["_id"]} for h in hits]
-        if len(hits) < 5000:
-            return out
-        after = hits[-1]["sort"]
-
-
-TERMS_CHUNK = 1000   # 一次 terms 查幾個 alert_id：查詢字串別太長
-
-
-def load_feedback(es, alert_ids: list[str], start, end) -> list[dict]:
+def load_feedback(repo, alert_ids: list[str], start, end) -> list[dict]:
     """這段的回饋＝「這段告警的回饋」（照 alert_id，不管回饋什麼時候給的：段結束後才標的也算、段內標前一段告警的不算）
     ＋「漏報」（沒有 alert_id，只能照回饋自己的時間）。"""
-    ids = sorted({i for i in alert_ids if i})
-    out = []
-    for i in range(0, len(ids), TERMS_CHUNK):
-        out += _all(es, F.FEEDBACK_INDEX, {"query": {"bool": {"filter": [{"terms": {"alert_id": ids[i:i + TERMS_CHUNK]}}]}}})
-    out += _all(es, F.FEEDBACK_INDEX, {"query": {"bool": {
-        "filter": [{"term": {"verdict": "missed"}}, {"range": {"@timestamp": {"gte": start.isoformat(), "lt": end.isoformat()}}}],
-        "must_not": [{"exists": {"field": "alert_id"}}]}}})
-    return out
+    return repo.feedback.by_alert_ids(alert_ids) + repo.feedback.missed_since(start, end, without_alert=True)
 
 
-def load_period(es, start, end) -> dict:
-    rng = lambda f: {"range": {f: {"gte": start.isoformat(), "lt": end.isoformat()}}}
-    alerts = _all(es, ALERT_INDEX, {"query": {"bool": {"filter": [rng("started_at")]}}})
-    feedback = load_feedback(es, [a.get("alert_id") for a in alerts], start, end)
-    incidents = _all(es, INCIDENT_INDEX, {"query": {"bool": {"filter": [rng("start")]}}})
+def load_period(repo, start, end) -> dict:
+    alerts = repo.alerts.started_between(start, end)
+    feedback = load_feedback(repo, [a.get("alert_id") for a in alerts], start, end)
+    incidents = repo.incidents.started_between(start, end)
     return {"alerts": alerts, "feedback": feedback, "incidents": incidents, "start": start, "end": end}
 
 
@@ -124,11 +99,11 @@ def format_metrics(m: dict, label: str, m2: dict | None = None, label2: str = ""
 
 
 def cmd_metrics(cfg: dict, args) -> int:
-    es = ES()
+    repo = Repos(ES())
     tz = cfg.get("train", {}).get("timezone", "Asia/Taipei")
     start, end = pd.Timestamp(args.start, tz=tz), pd.Timestamp(args.end, tz=tz)
-    m = compute(load_period(es, start, end))
-    m2 = compute(load_period(es, pd.Timestamp(args.cstart, tz=tz), pd.Timestamp(args.cend, tz=tz))) if args.cstart and args.cend else None
+    m = compute(load_period(repo, start, end))
+    m2 = compute(load_period(repo, pd.Timestamp(args.cstart, tz=tz), pd.Timestamp(args.cend, tz=tz))) if args.cstart and args.cend else None
     text = "\n".join(format_metrics(m, f"{args.start}～{args.end}", m2, f"{args.cstart}～{args.cend}" if m2 else ""))
     print(text)
     if args.out:

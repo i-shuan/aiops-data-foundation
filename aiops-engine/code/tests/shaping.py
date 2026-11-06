@@ -1,7 +1,6 @@
-"""萬用資料處理器：原始列（DataFrame，一列一個事件或一個預先統計好的點）＋序列定義 → 五個模型的標準輸入。
-
-跟 ES 端的 aggregation（sources/es_source.py 的 _value_aggs、_bucket_value、_bucket_events）是同一套定義的 pandas 實作，
-同一批資料兩邊算出來要一樣（docs/pdca/meta/2026-11-model-modules.md 的 Check）。
+"""測試用的記憶體版資料來源：原始列（DataFrame，一列一個事件或一個預先統計好的點）＋序列定義 → 模型的標準輸入，
+跟 ES 端的 aggregation（core/repository/series.py 的 _value_aggs、_bucket_value、_bucket_events）同一套定義的 pandas 實作，
+同一批資料兩邊算出來要一樣（test_shape、test_values）。tests/fakes.MemoryRepos 用它把 DataFrame 當成 ES 的索引。
 
 原始列的欄位名用 ES 的點號路徑（service.name、event.outcome、transaction.duration.histogram）。
 直方圖欄位可以是一格 {"values": […], "counts": […]}，或攤成 <欄位>.values、<欄位>.counts 兩欄（json_normalize 的結果）。
@@ -22,15 +21,10 @@ import re
 import numpy as np
 import pandas as pd
 
-COLUMNS = ["ts", "value", "n"]
-
+from aiops.core.repository.series import COLUMNS, fill_zero, to_freq
 
 class ShapeError(ValueError):
     pass
-
-
-def to_freq(interval: str) -> str:
-    return interval[:-1] + "min" if interval.endswith("m") else interval
 
 
 # ── filter（ES query DSL 的子集）──
@@ -303,32 +297,6 @@ def alive_from_rows(rows: pd.DataFrame, time_field: str, start, end, interval: s
     if df.empty:
         return pd.DatetimeIndex([], tz="UTC")
     return pd.DatetimeIndex(df["ts"].dt.floor(to_freq(interval)).unique())
-
-
-def fill_zero(df: pd.DataFrame, by: list[str], start, end, interval, alive=None) -> pd.DataFrame:
-    """筆數類的序列：沒資料的時段補 0。但兩種情況當成「不知道」（NaN）：
-    1. 這條序列第一次出現之前：服務還沒上線，不是「平常是 0」。
-    2. 收集系統本身停了的時段：alive 是有資料的時段（整個 index、不加 filter）；沒給就用這次查到的資料。
-    （原本在 detector/es.py；ES 與這裡共用。）"""
-    if df.empty:
-        return df
-    freq = to_freq(interval)
-    grid = pd.date_range(start.floor(freq), end, freq=freq, inclusive="left")
-    alive = pd.Index(df["ts"].unique()) if alive is None else pd.Index(alive).union(pd.Index(df["ts"].unique()))
-    out = []
-    for key_vals, g in df.groupby(by, sort=False):
-        key_vals = key_vals if isinstance(key_vals, tuple) else (key_vals,)
-        s = g.set_index("ts")["value"].reindex(grid)
-        n = g.set_index("ts")["n"].reindex(grid) if "n" in g else pd.Series(None, index=grid, dtype=float)
-        known = (grid >= g["ts"].min()) & grid.isin(alive)
-        fill = known & s.isna()
-        s[fill] = 0.0
-        n[fill] = 0.0
-        part = pd.DataFrame({"ts": s.index, "value": s.to_numpy(), "n": n.to_numpy()})
-        for f, v in zip(by, key_vals):
-            part[f] = v
-        out.append(part)
-    return pd.concat(out, ignore_index=True)[by + COLUMNS]
 
 
 # ── events → points（規則）──

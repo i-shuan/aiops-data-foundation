@@ -5,7 +5,6 @@ import pandas as pd
 
 from aiops.core.entity.anomaly import Anomaly
 from aiops.service.detect.base import Detector
-from aiops.service.detect.es_facade import fetch
 import aiops.service.detect.peer as P
 from aiops.service.detect._util import _freq, keys_of
 
@@ -29,23 +28,23 @@ class PeerDetector(Detector):
         return cfg["checks"]
 
     def evaluate(self, c: dict) -> list[Anomaly]:
-        cfg, es, start, end, warmup = self.cfg, self.es, self.start, self.now, self.warmup
+        cfg, fetch, start, end, warmup = self.cfg, self.repo.series.fetch, self.start, self.now, self.warmup
         keys = keys_of(c)
         group, member = keys[:-1], keys[-1]
-        cur = fetch(es, c, start, end, None)
+        cur = fetch(c, start, end, None)
         # 只比現在還在的 Pod：最近 fresh（預設 2 分鐘）內還有資料的。換版、縮容刪掉的 Pod 不算同儕
-        alive = fetch(es, P.count_spec(c), end - pd.Timedelta(_freq(cfg.get("fresh", "2m"))), end, None)
+        alive = fetch(P.count_spec(c), end - pd.Timedelta(_freq(cfg.get("fresh", "2m"))), end, None)
         cur = cur.merge(alive[keys], on=keys) if not cur.empty and not alive.empty else cur.iloc[0:0]
         # 剛起來的 Pod 不比（warmup）：起來前幾分鐘 JIT、載入、heap 還在長，CPU 偏高、記憶體偏低，會誤報自己或舊 Pod。
         # 在 window 開頭到 end - warmup 之間就有資料的，才算暖機完
         n_young = 0
         if warmup is not None and not cur.empty:
-            old = fetch(es, P.count_spec(c), start, end - warmup, None)
+            old = fetch(P.count_spec(c), start, end - warmup, None)
             before = len(cur)
             cur = cur.merge(old[keys], on=keys) if not old.empty else cur.iloc[0:0]
             n_young = before - len(cur)
         if c.get("min_volume") and (vs := P.volume_spec(c)) is not None and not cur.empty:
-            vol = fetch(es, vs, start, end, None).rename(columns={"value": "volume"})
+            vol = fetch(vs, start, end, None).rename(columns={"value": "volume"})
             cur = cur.merge(vol[keys + ["volume"]], on=keys, how="left")
             cur = cur[cur["volume"].fillna(0) >= c["min_volume"]]
         res = P.compare(cur, group, member, direction=c.get("direction", "up"), z=cfg.get("z", 5.0),
@@ -65,5 +64,5 @@ class PeerDetector(Detector):
         print(self.note)
 
 
-def cmd_peer(cfg: dict, args, backend=None) -> int:
-    return PeerDetector(cfg, args, backend).run()
+def cmd_peer(cfg: dict, args, repo=None) -> int:
+    return PeerDetector(cfg, args, repo).run()

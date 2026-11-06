@@ -16,11 +16,10 @@ import re
 import numpy as np
 import pandas as pd
 
-from aiops.core.entity.anomaly import ANOMALY_INDEX
-from aiops.service.detect.es_facade import ES, doc_id
+from aiops.core.connection import ES, doc_id
+from aiops.core.repository import Repos
 import aiops.service.detect.adjustments as A
 from aiops.service.detect._util import _now
-from aiops.core.entity.adjustment import TUNING_INDEX, TUNING_MAPPING, validated
 from aiops.service.detect.adjustments import load_adjustments
 
 DEFAULTS = {"window": "24h", "min_points": 20, "min_share": 0.9, "max_spread": 0.3}
@@ -63,38 +62,25 @@ def proposal(s: dict, tz: str) -> dict:
                       f"像是換版後停在新位置，建議從 {since:%m-%d %H:%M} 重新學。核准前先確認那時候有沒有換版或調整"}
 
 
-def _rows(es: ES, start: pd.Timestamp, end: pd.Timestamp) -> pd.DataFrame:
-    rows, after = [], None
-    while True:
-        body = {"size": 5000, "_source": ["@timestamp", "series", "keys", "value", "median", "status", "level"],
-                "query": {"bool": {"filter": [{"range": {"@timestamp": {"gte": start.isoformat(), "lt": end.isoformat()}}},
-                                              {"exists": {"field": "median"}}]}},
-                "sort": [{"@timestamp": "asc"}, {"_doc": "asc"}]}
-        if after:
-            body["search_after"] = after
-        hits = es.req("POST", f"/{ANOMALY_INDEX}/_search?ignore_unavailable=true", body).get("hits", {}).get("hits", [])
-        for h in hits:
-            s = h["_source"]
-            if s.get("level") == "rule":
-                continue
-            rows.append({"series": s["series"], "target": json.dumps(s.get("keys") or {}, sort_keys=True, ensure_ascii=False),
-                         "ts": pd.Timestamp(s["@timestamp"]), "value": s.get("value"), "median": s.get("median")})
-        if len(hits) < 5000:
-            break
-        after = hits[-1]["sort"]
+def _rows(repo: Repos, start: pd.Timestamp, end: pd.Timestamp) -> pd.DataFrame:
+    """動態基準線判的異常（有 median、不是規則）：series、target、ts、value、median。"""
+    rows = [{"series": s["series"], "target": json.dumps(s.get("keys") or {}, sort_keys=True, ensure_ascii=False),
+             "ts": pd.Timestamp(s["@timestamp"]), "value": s.get("value"), "median": s.get("median")}
+            for s in repo.anomalies.between(start, end, ["@timestamp", "series", "keys", "value", "median", "status", "level"], with_median=True)
+            if s.get("level") != "rule"]
     return pd.DataFrame(rows, columns=["series", "target", "ts", "value", "median"])
 
 
 def cmd_shift(cfg: dict, args) -> int:
-    es = ES()
-    es.ensure_index(TUNING_INDEX, TUNING_MAPPING)
+    repo = Repos(ES())
+    repo.tuning.ensure()
     opts = {**DEFAULTS, **(cfg.get("shift") or {})}
     tz = cfg.get("train", {}).get("timezone", cfg.get("timezone", "Asia/Taipei"))
     now = _now(args.at)
     start = now - pd.Timedelta(opts["window"])
-    found = find_shifts(_rows(es, start, now), min_points=int(opts["min_points"]), min_share=float(opts["min_share"]),
+    found = find_shifts(_rows(repo, start, now), min_points=int(opts["min_points"]), min_share=float(opts["min_share"]),
                         max_spread=float(opts["max_spread"]))
-    existing = {(a.get("series"), json.dumps(a.get("match"), sort_keys=True)) for a in load_adjustments(es, cfg)
+    existing = {(a.get("series"), json.dumps(a.get("match"), sort_keys=True)) for a in load_adjustments(repo, cfg)
                 if a.get("kind") == "reset_point"}
     n = 0
     for s in found:
@@ -103,11 +89,11 @@ def cmd_shift(cfg: dict, args) -> int:
             print(f"  已經有 reset_point：{s['series']} {s['keys']}")
             continue
         _id = doc_id("shift", doc["series"], doc["match"])
-        if es.req("GET", f"/{TUNING_INDEX}/_doc/{_id}", ok=(200, 404)).get("found"):
+        if repo.tuning.exists(_id):
             print(f"  建議已經提過：{s['series']} {s['keys']}（{_id}）")
             continue
         doc.update({"at": now.isoformat(), "by": "shift"})
-        es.req("PUT", f"/{TUNING_INDEX}/_doc/{_id}?refresh=true", validated(doc))
+        repo.tuning.put(_id, doc)
         print(f"  建議 {_id}：{A.describe(doc)}")
         n += 1
     print(f"{now.tz_convert(tz):%m-%d %H:%M}：看最近 {opts['window']}，{len(found)} 條序列像一階跳變，提了 {n} 筆 reset_point（proposed，adjust approve 才生效）")

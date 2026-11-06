@@ -19,30 +19,23 @@ import re
 import numpy as np
 import pandas as pd
 
-from aiops.core.entity.incident import INCIDENT_INDEX
-from aiops.core.entity.adjustment import TUNING_INDEX
 import aiops.service.detect.adjustments as A
 import aiops.service.detect.rules as R
 from aiops.service.detect.adjustments import load_adjustments
 from aiops.service.detect.baseline_job import detect_series
 from aiops.service.detect._util import _freq, _now, keys_of
-from aiops.service.detect.es_facade import ES, fetch, load_baseline
+from aiops.core.connection import ES
+from aiops.core.repository import Repos
 from aiops.service.detect.baseline import DetectOptions
 import aiops.service.feedback.suggest as F
 
 
-def _confirmed_incidents(es, since) -> list[dict]:
-    hits = es.req("POST", f"/{INCIDENT_INDEX}/_search?ignore_unavailable=true", {
-        "size": 1000, "query": {"bool": {"filter": [{"terms": {"status": ["confirmed", "corrected", "resolved"]}},
-                                                    {"range": {"start": {"gte": since.isoformat()}}}]}}}).get("hits", {}).get("hits", [])
-    return [{"id": h["_id"], **h["_source"]} for h in hits if h["_source"].get("services")]
+def _confirmed_incidents(repo, since) -> list[dict]:
+    return [{"id": i, **src} for i, src in repo.incidents.find(("confirmed", "corrected", "resolved"), since=since) if src.get("services")]
 
 
-def _missed(es, since) -> list[dict]:
-    hits = es.req("POST", f"/{F.FEEDBACK_INDEX}/_search?ignore_unavailable=true", {
-        "size": 1000, "query": {"bool": {"filter": [{"term": {"verdict": "missed"}}, {"range": {"@timestamp": {"gte": since.isoformat()}}}]}}}
-    ).get("hits", {}).get("hits", [])
-    return [h["_source"] for h in hits if h["_source"].get("anomaly_at")]
+def _missed(repo, since) -> list[dict]:
+    return [m for m in repo.feedback.missed_since(since) if m.get("anomaly_at")]
 
 
 def _ts(x, tz: str) -> pd.Timestamp:
@@ -62,7 +55,7 @@ def caught(df: pd.DataFrame, services, start, end, tz: str = "UTC") -> bool:
 
 
 class _CachedES:
-    """回測期間包住 ES：before／after 讀的是同一批原始資料（detect_series 裡的 fetch、alive_times），只有門檻不同，
+    """回測期間包住 ES 連線：before／after 讀的是同一批原始資料（detect_series 裡的 fetch、alive_times），只有門檻不同，
     同一個查詢只打 ES 一次（GET／POST 的 _search 照 method、path、body 記住）。寫入（PUT、DELETE、_update、bulk_index）不快取、直接送。"""
     def __init__(self, es):
         self._es, self._cache = es, {}
@@ -122,7 +115,7 @@ def _scope_hits(df: pd.DataFrame, proposals: list[dict], tz: str) -> int:
 KINDS_DATA = ("exclude_window", "reset_point", "recurring_override")
 
 
-def _detect_all(es, cfg: dict, specs: list[dict], bases: dict, days, now, dopts, tz: str, adjs_all: list[dict], quiet: bool) -> pd.DataFrame:
+def _detect_all(repo, cfg: dict, specs: list[dict], bases: dict, days, now, dopts, tz: str, adjs_all: list[dict], quiet: bool) -> pd.DataFrame:
     """用一套調整（override＋排除時段等）把每條序列每天重跑一次 detect_series，回全部 status anomaly 的點（附序列名、服務、keys）。"""
     ov = [a for a in adjs_all if (a.get("kind") or "override") == "override"]
     adjs = [a for a in adjs_all if a.get("kind") in KINDS_DATA]
@@ -133,7 +126,7 @@ def _detect_all(es, cfg: dict, specs: list[dict], bases: dict, days, now, dopts,
             continue
         for d in days:
             day_end = min(d + pd.Timedelta(days=1), now)
-            for r, s in detect_series(es, cfg, spec, base, day_end, day_end - d, dopts, tz, ov, adjs, quiet=quiet):
+            for r, s in detect_series(repo, cfg, spec, base, day_end, day_end - d, dopts, tz, ov, adjs, quiet=quiet):
                 if s.empty:
                     continue
                 s = s[s["status"] == "anomaly"]
@@ -143,14 +136,14 @@ def _detect_all(es, cfg: dict, specs: list[dict], bases: dict, days, now, dopts,
     return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(columns=["ts", "_series", "_svc", "_keys"])
 
 
-def _judge(es, cfg: dict, before: pd.DataFrame, after: pd.DataFrame, proposals: list[dict], since, weeks: int, tz: str) -> dict:
+def _judge(repo, cfg: dict, before: pd.DataFrame, after: pd.DataFrame, proposals: list[dict], since, weeks: int, tz: str) -> dict:
     """比「現在的設定」與「加上建議」兩次的結果：告警少幾個、已確認事故還抓不抓得到、漏報有沒有抓到 → verdict 與理由。"""
     incidents = []
-    for inc in _confirmed_incidents(es, since):
+    for inc in _confirmed_incidents(repo, since):
         b, a = caught(before, inc.get("services"), inc["start"], inc["end"], tz), caught(after, inc.get("services"), inc["start"], inc["end"], tz)
         incidents.append({"id": inc["id"], "title": inc.get("title"), "services": inc.get("services"), "before": b, "after": a})
     missed = []
-    for m in _missed(es, since):
+    for m in _missed(repo, since):
         t = _ts(m["anomaly_at"], tz)
         svc = (m.get("keys") or {}).get("service") or (m.get("keys") or {}).get("resource.attributes.service.name")
         missed.append({"series": m.get("series"), "service": svc, "at": m["anomaly_at"],
@@ -194,18 +187,18 @@ def _ablation(res: dict, proposals: list[dict], before: pd.DataFrame, cur_active
         res["reason"] += f"；{n_red} 筆拿掉也一樣（多餘）：{'、'.join(k for k, v in abl.items() if v == 'redundant')}"
 
 
-def run_backtest(es, cfg: dict, proposal, weeks: int, now=None, quiet: bool = True, ablate: bool = True) -> dict:
+def run_backtest(repo, cfg: dict, proposal, weeks: int, now=None, quiet: bool = True, ablate: bool = True) -> dict:
     """proposal：一筆建議（dict），或同一個對象的一組建議（list）——一組一起測，有效才逐筆剔除看哪筆多餘
     （docs/pdca/meta/2026-11-backtest-group.md）。
     回傳 {"verdict": effective／ineffective／unknown／harmful／worse, "recommended", "reason", "anomalies_before", "anomalies_after",
     "scope_hits", "incidents": [...], "incidents_caught_before/after", "missed_caught_after", "ablation": {id: redundant／necessary}}。
     每天一段（window 1D）跑 detect_series（_detect_all），每套設定各一次；比較在 _judge。"""
-    es = _CachedES(es)   # 幾套設定讀同一批資料，只查一次；呼叫端（cmd_backtest）寫回時用的還是真的 es
+    repo = Repos(_CachedES(repo.es))   # 幾套設定讀同一批資料，只查一次；呼叫端（cmd_backtest）寫回時用的還是真的連線
     proposals = list(proposal) if isinstance(proposal, list) else [proposal]
     now = now or _now(None)
     tz = cfg.get("train", {}).get("timezone", "Asia/Taipei")
     dopts = DetectOptions(**cfg.get("detect", {}))
-    cur_active = A.active(load_adjustments(es, cfg), now)
+    cur_active = A.active(load_adjustments(repo, cfg), now)
     only_override = all((p.get("kind") or "override") == "override" for p in proposals)
     specs = [s for s in cfg["series"] if any(re.fullmatch(p.get("series") or ".*", s["name"]) for p in proposals)] if only_override \
         else list(cfg["series"])
@@ -213,9 +206,9 @@ def run_backtest(es, cfg: dict, proposal, weeks: int, now=None, quiet: bool = Tr
         return {"verdict": "unknown", "recommended": False, "reason": f"沒有序列符合 {[p.get('series') for p in proposals]}"}
     since = now - pd.Timedelta(weeks=weeks)
     days = pd.date_range(since.floor("D"), now.floor("D"), freq="D")
-    bases = {s["name"]: load_baseline(es, s["name"], keys_of(s)) for s in specs}
-    detect = lambda adjs: _detect_all(es, cfg, specs, bases, days, now, dopts, tz, adjs, quiet)
-    judge = lambda before, after: _judge(es, cfg, before, after, proposals, since, weeks, tz)
+    bases = {s["name"]: repo.baseline.load(s["name"], keys_of(s)) for s in specs}
+    detect = lambda adjs: _detect_all(repo, cfg, specs, bases, days, now, dopts, tz, adjs, quiet)
+    judge = lambda before, after: _judge(repo, cfg, before, after, proposals, since, weeks, tz)
     before = detect(cur_active)
     after = detect(cur_active + [{**p, "status": "active"} for p in proposals])
     res = {"weeks": weeks, "series": [s["name"] for s in specs], "at": now.isoformat(), "group": [p.get("id") for p in proposals] if len(proposals) > 1 else None,
@@ -264,16 +257,15 @@ def rule_backtest_result(df: pd.DataFrame, rule: dict, incidents: list[dict], we
     return res
 
 
-def run_rule_backtest(es, cfg: dict, proposal: dict, weeks: int, now=None) -> dict:
+def run_rule_backtest(repo, cfg: dict, proposal: dict, weeks: int, now=None) -> dict:
     draft = {k: v for k, v in (proposal.get("rule_draft") or {}).items() if not k.startswith("_")}
     if not isinstance(draft.get("threshold"), (int, float)):
         return {"kind": "rule_suggestion", "recommended": False, "reason": "這條規則算不出門檻，不能回測（見 rule_draft._note）"}
     now = now or _now(None)
     tz = cfg.get("train", {}).get("timezone", "Asia/Taipei")
     ids = list(proposal.get("incident_ids") or [])
-    got = es.req("POST", f"/{INCIDENT_INDEX}/_mget", {"ids": ids}).get("docs", []) if ids else []
-    incidents = [{"id": g["_id"], **g["_source"]} for g in got if g.get("found") and g["_source"].get("start")]
-    df = fetch(es, draft, now - pd.Timedelta(weeks=weeks), now, draft.get("lookback", "5m"))   # ES 的 fixed_interval 要 5m，不是 pandas 的 5min
+    incidents = [i for i in repo.incidents.get_many(ids) if i.get("start")] if ids else []
+    df = repo.series.fetch(draft, now - pd.Timedelta(weeks=weeks), now, draft.get("lookback", "5m"))   # ES 的 fixed_interval 要 5m，不是 pandas 的 5min
     return rule_backtest_result(df, draft, incidents, weeks, tz)
 
 
@@ -288,43 +280,41 @@ def format_backtest(r: dict) -> str:
     return f"{head}：{'建議核准' if r['recommended'] else '不建議'}（{r['reason']}）{abl}"
 
 
-def siblings(es, prop: dict) -> list[dict]:
+def siblings(repo, prop: dict) -> list[dict]:
     """同一個對象（同序列、同 match）、還是 proposed 的其他建議：同一批誤報提的幾個動作要一起測。"""
-    hits = es.req("POST", f"/{TUNING_INDEX}/_search", {"size": 50, "query": {"bool": {"filter": [{"term": {"status": "proposed"}}]}}},
-                  ok=(200, 404)).get("hits", {}).get("hits", [])
     same = lambda s: s.get("series") == prop.get("series") and json.dumps(s.get("match"), sort_keys=True) == json.dumps(prop.get("match"), sort_keys=True)
-    return [{**h["_source"], "id": h["_id"]} for h in hits if h["_id"] != prop.get("id") and same(h["_source"]) and h["_source"].get("kind") != "rule_suggestion"]
+    return [s for s in repo.tuning.proposed() if s["id"] != prop.get("id") and same(s) and s.get("kind") != "rule_suggestion"]
 
 
 def cmd_backtest(cfg: dict, args) -> int:
-    es = ES()
+    repo = Repos(ES())
     ids = args.id if isinstance(args.id, list) else [args.id]
     props = []
     for i in ids:
-        got = es.req("GET", f"/{TUNING_INDEX}/_doc/{i}", ok=(200, 404))
-        if not got.get("found"):
+        got = repo.tuning.get(i)
+        if got is None:
             print(f"找不到 {i}（adjust list 看得到）")
             return 2
-        props.append({**got["_source"], "id": i})
+        props.append({**got, "id": i})
     if getattr(args, "group", False):
         for p in list(props):
-            props += [s for s in siblings(es, p) if s["id"] not in {q["id"] for q in props}]
+            props += [s for s in siblings(repo, p) if s["id"] not in {q["id"] for q in props}]
     for p in props:
         print(f"建議：{A.describe(p)}")
     now = _now(args.at)
     if len(props) == 1 and props[0].get("kind") == "rule_suggestion":
-        r = run_rule_backtest(es, cfg, props[0], args.weeks, now)
+        r = run_rule_backtest(repo, cfg, props[0], args.weeks, now)
     else:
         if any(p.get("kind") == "rule_suggestion" for p in props):
             print("規則建議要單獨回測（rule_suggestion 不能跟門檻的建議一組）")
             return 2
-        r = run_backtest(es, cfg, props if len(props) > 1 else props[0], args.weeks, now, quiet=not args.verbose)
+        r = run_backtest(repo, cfg, props if len(props) > 1 else props[0], args.weeks, now, quiet=not args.verbose)
     print(format_backtest(r))
     for p in props:
         mine = dict(r)
         if r.get("ablation") and r["ablation"].get(p["id"]) == "redundant":
             mine = {**r, "recommended": False, "reason": f"整組有效但這筆多餘（拿掉也一樣）；{r['reason']}"}
-        es.req("POST", f"/{TUNING_INDEX}/_update/{p['id']}?refresh=true", {"doc": {"backtest": mine}})
+        repo.tuning.patch(p["id"], {"backtest": mine})
     ok = [p["id"] for p in props if r.get("recommended") and (r.get("ablation") or {}).get(p["id"]) != "redundant"]
     print("已寫回這些建議的 backtest 欄位（adjust list 看得到）" + (f"；核准：{'  '.join('adjust approve --id ' + i for i in ok)}" if ok else "；沒有要核准的"))
     return 0

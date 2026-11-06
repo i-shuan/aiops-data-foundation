@@ -5,23 +5,27 @@ import json
 
 import pandas as pd
 
-from aiops.core.entity.anomaly import ANOMALY_INDEX
-from aiops.service.detect.es_facade import ES, doc_id
+from aiops.core.connection import ES, doc_id
+from aiops.core.repository import Repos
 import aiops.service.detect.chronic as C
 from aiops.service.detect._util import _now, _v
 from aiops.service.detect.providers import load_owners
 
 
-CHRONIC_INDEX = "aiops-chronic"
+def anomaly_daily(repo: Repos, src: dict, start, end, tz: str) -> pd.DataFrame:
+    """aiops-anomalies 裡 level 在 levels 的，每條（series）、每個對象（keys）每天幾筆。
+    keys 是 flattened，聚合拿不到組合，所以讀出來在這裡數（一週的規則觸發量不大）。"""
+    rows = [{"series": s["series"], "target": json.dumps(s.get("keys") or {}, sort_keys=True, ensure_ascii=False),
+             "day": pd.Timestamp(s["@timestamp"]).tz_convert(tz).date(), "count": 1}
+            for s in repo.anomalies.between(start, end, ["@timestamp", "series", "keys"], levels=src.get("levels", ["rule", "peer"]),
+                                            series_regex=src.get("series"))]
+    df = pd.DataFrame(rows, columns=["series", "target", "day", "count"])
+    return df.groupby(["series", "target", "day"], as_index=False)["count"].sum() if not df.empty else df
 
-CHRONIC_MAPPING = {"mappings": {"dynamic": False, "properties": {
-    "@timestamp": {"type": "date"}, "week": {"type": "keyword"}, "source": {"type": "keyword"}, "rank": {"type": "integer"},
-    "keys": {"type": "flattened"}, "days": {"type": "integer"}, "total": {"type": "long"}, "per_day": {"type": "double"},
-    "first_day": {"type": "date"}, "last_day": {"type": "date"}, "owner": {"type": "keyword"}, "message": {"type": "text"}}}}
 
 def cmd_chronic(cfg: dict, args) -> int:
-    es = ES()
-    es.ensure_index(CHRONIC_INDEX, CHRONIC_MAPPING)
+    repo = Repos(ES())
+    repo.chronic.ensure()
     tz = cfg.get("timezone", "Asia/Taipei")
     now = _now(args.at)
     days = cfg.get("days", 7)
@@ -34,10 +38,10 @@ def cmd_chronic(cfg: dict, args) -> int:
                        f"{days} 天裡至少 {cfg.get('min_days', 6)} 天有）", ""]
     for src in cfg["sources"]:
         if src["type"] == "log":
-            daily = C.fetch_log_daily(es, src, start, end, tz)
             keys = src.get("keys") or [f.split(".")[-1] for f in src["by"]]
+            daily = repo.logs.daily_counts(src["index"], src["by"], keys, start, end, tz, src.get("filter"))
         elif src["type"] == "anomalies":
-            daily = C.fetch_anomaly_daily(es, ANOMALY_INDEX, src, start, end, tz)
+            daily = anomaly_daily(repo, src, start, end, tz)
             keys = ["series", "target"]
         else:
             raise ValueError(f"不認得的來源種類：{src['type']}")
@@ -63,7 +67,6 @@ def cmd_chronic(cfg: dict, args) -> int:
                 "first_day": str(r["first_day"]), "last_day": str(r["last_day"]), "owner": owner, "message": msg}))
             lines.append(f"| {rank} | {who} | {int(r['days'])} | {r['per_day']:.0f} | {int(r['total'])} | {owner} |")
         lines.append("")
-    if docs:
-        es.bulk_index(CHRONIC_INDEX, docs)
+    repo.chronic.bulk(docs)
     print("\n".join(lines))
     return 0

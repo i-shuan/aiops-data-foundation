@@ -35,7 +35,7 @@ class HistRatioAbove(unittest.TestCase):
         self.assertIsNone(_bucket_value(v, {"v": {"values": {"2.0": None}}, "n": {"value": 0}}))
 
     def test_is_a_rate_with_request_count_as_events(self):
-        from aiops.service.detect.es_facade import value_kind
+        from aiops.service.detect._util import value_kind
         from aiops.core.repository.series import _bucket_events
         spec = {"value": {"hist_ratio_above": {"field": F, "gt": 2.0}}}
         self.assertEqual(value_kind(spec), "rate")

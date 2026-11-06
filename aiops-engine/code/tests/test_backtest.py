@@ -2,6 +2,8 @@
 import unittest
 
 import aiops.service.feedback.backtest as B
+from aiops.core.repository import Repos
+from aiops.core.repository.baseline import BaselineRepository
 
 
 class Format(unittest.TestCase):
@@ -107,12 +109,12 @@ class CachedES(unittest.TestCase):
         now = pd.Timestamp("2026-10-10T00:00:00Z")
         with mock.patch.object(B, "detect_series", fake_detect), \
              mock.patch.object(B, "load_adjustments", lambda es, cfg: []), \
-             mock.patch.object(B, "load_baseline", lambda es, name, keys: pd.DataFrame({"service": ["mes-api"]})), \
+             mock.patch.object(BaselineRepository, "load", lambda self, name, keys: pd.DataFrame({"service": ["mes-api"]})), \
              mock.patch.object(B, "_confirmed_incidents", lambda es, since: []), \
              mock.patch.object(B, "_missed", lambda es, since: []):
-            r = B.run_backtest(self.raw, cfg, {"series": "x", "kind": "override", "z": 6}, weeks=1, now=now)
+            r = B.run_backtest(Repos(self.raw), cfg, {"series": "x", "kind": "override", "z": 6}, weeks=1, now=now)
         self.assertEqual(len(seen), 2 * 8)        # 兩套設定 × 8 天（含頭尾）
         self.assertTrue(all(s is seen[0] for s in seen))
-        self.assertIsInstance(seen[0], B._CachedES)
-        self.assertIs(seen[0]._es, self.raw)
+        self.assertIsInstance(seen[0].es, B._CachedES)       # repo 包著快取的連線
+        self.assertIs(seen[0].es._es, self.raw)
         self.assertEqual((r["anomalies_before"], r["anomalies_after"]), (0, 0))

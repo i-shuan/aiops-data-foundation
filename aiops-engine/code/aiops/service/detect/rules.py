@@ -38,8 +38,6 @@ import numpy as np
 import pandas as pd
 
 from aiops.core.connection import get_field
-from aiops.core.repository.base import as_backend
-from aiops.core.repository.series import _put  # noqa: F401  join 補分母的寫法搬去 ES 來源；名字留給既有的 import
 
 OPS = {">=": operator.ge, ">": operator.gt, "<=": operator.le, "<": operator.lt, "==": operator.eq, "!=": operator.ne}
 
@@ -187,11 +185,6 @@ def evaluate(rule: dict, series: dict[tuple, list[tuple[pd.Timestamp, dict]]], n
                 and ok >= rule.get("min_ratio", 1.0) * len(recent):
             out.append({"key": key, "value": recent[-1][1], "since": recent[0][0], "last": pts[-1][1]})
     return out
-
-
-def fetch(es, rule: dict, start: pd.Timestamp, end: pd.Timestamp) -> dict[tuple, list[tuple[pd.Timestamp, dict]]]:
-    """{序列的 key: [(時間, 文件), …]}。ES 的查詢（含 join 補分母）在 sources/es_source.py；檔案、HTTP、記憶體來源是 sources/shape.points_from_rows。"""
-    return as_backend(es).points(rule, start, end)
 
 
 def evaluate_window(rule: dict, df: pd.DataFrame, since: pd.Timestamp) -> list[dict]:

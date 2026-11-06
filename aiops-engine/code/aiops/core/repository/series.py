@@ -1,6 +1,8 @@
-"""原始資料在 ES 的 Backend：ESSourceBackend（讀 ES，結果寫別的 Store：離線實驗）、ESBackend（讀寫都是 ES：設定沒寫 source 的預設）。
-查詢就是原本 detector/es.py、detector/rules.py、core/traces.py、detector/cmd_ingest.py 裡打 ES 的那幾段，搬來當方法；aggregation 在 ES 端算。
-es 是 core.es.ES，或測試裡只有 req／search 的假 ES（base.as_backend 包進來）。"""
+"""原始資料（metrics、log、trace 的索引，由序列、規則的設定給）→ 模型的標準輸入，aggregation 在 ES 端算：
+  series   keys… + ts + value + n        一條序列在一個時間窗的值；n 是底下的事件數（動態基準線、window 型規則、同儕比對用 interval=None）
+  points   {key 元組: [(ts, doc), …]}    一個對象一個時間點的原始文件（value／compare／ratio／increase／slope 型規則）
+  rows     [{欄位: 值}, …]               來源的原始列（ingest 讀 ML／FDC 判好的異常、工廠 paths-merge 讀 MES）
+"""
 from __future__ import annotations
 
 from collections import defaultdict
@@ -8,15 +10,16 @@ from collections import defaultdict
 import pandas as pd
 
 from aiops.core.connection import get_field, time_range
-from aiops.core.entity.trace import _APM_FIELDS, _SPAN_FIELDS, from_merged, schema_of, to_span
-from aiops.core.repository.base import Backend, Store
-from aiops.core.repository.shape import fill_zero
-from aiops.core.repository.stores import ESStore
+from aiops.core.repository._base import Repository
 
-_SEARCH = "_search?ignore_unavailable=true&allow_no_indices=true"
+COLUMNS = ["ts", "value", "n"]
 
 
-# ── 序列的 value 寫法 → ES aggregation；回來的 bucket → 值、事件數（sources/shape.py 的 pandas 版跟它是同一套定義）──
+def to_freq(interval: str) -> str:
+    return interval[:-1] + "min" if interval.endswith("m") else interval
+
+
+# ── 序列的 value 寫法 → ES aggregation；回來的 bucket → 值、事件數 ──
 
 def _value_aggs(value, scale: float = 1.0) -> dict:
     """value 的寫法：
@@ -95,7 +98,7 @@ def _bucket_value(value, b: dict, scale: float = 1.0):
 
 
 def _bucket_events(value, b: dict):
-    """這個時間窗裡底下的事件數：選粒度用（detector.model.pick_resolution）。量測值是 None。"""
+    """這個時間窗裡底下的事件數：選粒度用（detect/baseline.pick_resolution）。量測值是 None。"""
     if value == "count":
         return float(b["doc_count"])
     (kind, _), = value.items()
@@ -115,27 +118,39 @@ def _put(d: dict, dotted: str, v) -> None:
     d.setdefault(head, {})[rest] = v   # metrics.<名稱>：名稱裡的點不拆開，跟 ES 的 _source 一樣
 
 
-class ESSourceBackend(Backend):
-    """原始資料在 ES、結果寫 store（file／memory：例如離線實驗；ESBackend 給 ESStore 就是全 ES）。"""
-    kind = "es"
+def fill_zero(df: pd.DataFrame, by: list[str], start, end, interval, alive=None) -> pd.DataFrame:
+    """筆數類的序列：沒資料的時段補 0。但兩種情況當成「不知道」（NaN）：
+    1. 這條序列第一次出現之前：服務還沒上線，不是「平常是 0」。
+    2. 收集系統本身停了的時段：alive 是有資料的時段（整個 index、不加 filter）；沒給就用這次查到的資料。"""
+    if df.empty:
+        return df
+    freq = to_freq(interval)
+    grid = pd.date_range(start.floor(freq), end, freq=freq, inclusive="left")
+    alive = pd.Index(df["ts"].unique()) if alive is None else pd.Index(alive).union(pd.Index(df["ts"].unique()))
+    out = []
+    for key_vals, g in df.groupby(by, sort=False):
+        key_vals = key_vals if isinstance(key_vals, tuple) else (key_vals,)
+        s = g.set_index("ts")["value"].reindex(grid)
+        n = g.set_index("ts")["n"].reindex(grid) if "n" in g else pd.Series(None, index=grid, dtype=float)
+        known = (grid >= g["ts"].min()) & grid.isin(alive)
+        fill = known & s.isna()
+        s[fill] = 0.0
+        n[fill] = 0.0
+        part = pd.DataFrame({"ts": s.index, "value": s.to_numpy(), "n": n.to_numpy()})
+        for f, v in zip(by, key_vals):
+            part[f] = v
+        out.append(part)
+    return pd.concat(out, ignore_index=True)[by + COLUMNS]
 
-    def __init__(self, es, store: Store):
-        self.es, self.store = es, store
 
-    def raw_search(self, index, body):
-        return self.es.search(index, body)
+class SeriesRepository(Repository):
+    # ── series（動態基準線、同儕比對、window 型規則）──
+    def fetch(self, spec: dict, start: pd.Timestamp, end: pd.Timestamp, interval: str | None) -> pd.DataFrame:
+        """一條序列定義（series.yaml 的一筆：index、by、filter、value、keys、scale、events、fill_zero）在 [start, end) 的資料，
+        依 by 欄位和 interval 切好（composite aggregation 翻頁）。interval 是 None 時整段算一個值（ts 是 end），同儕比對用。
 
-    def raw_req(self, method, path, body=None, ok=None):
-        return self.es.req(method, path, body, **({"ok": ok} if ok else {}))
-
-    # ── series（M1、M2、M3 window）──
-    def series(self, spec, start, end, interval):
-        """把一條序列定義在 [start, end) 的資料，依 by 欄位和 interval 切好（composite aggregation 翻頁）。interval 是 None 時整段算一個值
-        （ts 是 end），Pod 同儕橫向比對（peer.py）用：每個 Pod 最近 10 分鐘的錯誤率、p95。
-
-        回傳欄位：by 的每個欄位（有 keys 時改成 keys 的名字）+ ts + value + n（底下的事件數，見 detector.es._bucket_events；events: value 時就是 value）。
-        筆數類（count、或 fill_zero: true）沒有資料的時段補 0：沒有請求就是 0，不是「不知道」。這也是為什麼資料不能缺，缺了會被學成「平常會掉到 0」。
-        同一個指標不同語言名字不同的問題在收值端改名解決（docs/pdca/phase1-collect/2026-10-field-unify.md），這裡不分語言各查一次。"""
+        回傳欄位：by 的每個欄位（有 keys 時改成 keys 的名字）+ ts + value + n（底下的事件數；events: value 時就是 value）。
+        筆數類（count、或 fill_zero: true）沒有資料的時段補 0：沒有請求就是 0，不是「不知道」。這也是為什麼資料不能缺，缺了會被學成「平常會掉到 0」。"""
         by = spec["by"]
         tf = spec.get("time_field", "@timestamp")
         filters = [{"range": {tf: {"gte": start.isoformat(), "lt": end.isoformat()}}}]
@@ -148,24 +163,16 @@ class ESSourceBackend(Backend):
         aggs = _value_aggs(spec["value"], scale)
         if isinstance(spec.get("events"), dict):
             aggs["n"] = _value_aggs(spec["events"])["v"]
-        body = {"size": 0, "query": {"bool": {"filter": filters}},
-                "aggs": {"s": {"composite": {"size": 5000, "sources": sources}, "aggs": aggs}}}
-        rows, after = [], None
-        while True:
-            if after:
-                body["aggs"]["s"]["composite"]["after"] = after
-            agg = self.es.req("POST", f"/{spec['index']}/{_SEARCH}", body).get("aggregations", {}).get("s", {})
-            for b in agg.get("buckets", []):
-                row = {f: b["key"][f"k{i}"] for i, f in enumerate(by)}
-                row["ts"] = pd.Timestamp(b["key"]["ts"], unit="ms", tz="UTC") if interval else end
-                row["value"] = _bucket_value(spec["value"], b, scale)
-                ev = spec.get("events")
-                row["n"] = row["value"] if ev == "value" else b["n"]["value"] if isinstance(ev, dict) else _bucket_events(spec["value"], b)
-                rows.append(row)
-            after = agg.get("after_key")
-            if not after:
-                break
-        df = pd.DataFrame(rows, columns=by + ["ts", "value", "n"])
+        body = {"size": 0, "query": {"bool": {"filter": filters}}, "aggs": {"s": {"composite": {"size": 5000, "sources": sources}, "aggs": aggs}}}
+        rows = []
+        for b in self._composite(body, ("s",), spec["index"]):
+            row = {f: b["key"][f"k{i}"] for i, f in enumerate(by)}
+            row["ts"] = pd.Timestamp(b["key"]["ts"], unit="ms", tz="UTC") if interval else end
+            row["value"] = _bucket_value(spec["value"], b, scale)
+            ev = spec.get("events")
+            row["n"] = row["value"] if ev == "value" else b["n"]["value"] if isinstance(ev, dict) else _bucket_events(spec["value"], b)
+            rows.append(row)
+        df = pd.DataFrame(rows, columns=by + COLUMNS)
         if interval and (spec["value"] == "count" or spec.get("fill_zero")) and not df.empty:
             # 有 filter 的序列（例如只數 error log）不能拿自己的資料判斷收集系統有沒有在跑：沒有任何服務出錯的時段
             # 會被當成「不知道」，稀少的錯誤數就只剩有錯的時段可學，平常被學高
@@ -175,29 +182,21 @@ class ESSourceBackend(Backend):
             df = df.rename(columns=dict(zip(by, spec["keys"])))
         return df
 
-    def alive_times(self, spec, start, end, interval):
+    def alive_times(self, spec: dict, start: pd.Timestamp, end: pd.Timestamp, interval: str) -> pd.DatetimeIndex:
         """收集系統有在送資料的時間窗：這條序列的 index、不加序列自己的 filter，任何一筆資料就算。
         整個 index 都沒有資料的時段＝收集系統停了（「不知道」），不是零流量。"""
         tf = spec.get("time_field", "@timestamp")
         body = {"size": 0, "query": {"bool": {"filter": [{"range": {tf: {"gte": start.isoformat(), "lt": end.isoformat()}}}]}},
                 "aggs": {"t": {"composite": {"size": 10000, "sources": [{"ts": {"date_histogram": {"field": tf, "fixed_interval": interval}}}]}}}}
-        out, after = [], None
-        while True:
-            if after:
-                body["aggs"]["t"]["composite"]["after"] = after
-            agg = self.es.req("POST", f"/{spec['index']}/{_SEARCH}", body).get("aggregations", {}).get("t", {})
-            out += [b["key"]["ts"] for b in agg.get("buckets", [])]
-            after = agg.get("after_key")
-            if not after:
-                break
+        out = [b["key"]["ts"] for b in self._composite(body, ("t",), spec["index"])]
         return pd.DatetimeIndex(pd.to_datetime(out, unit="ms", utc=True))
 
-    # ── points（M3 靜態臨界值規則）──
-    def points(self, rule, start, end):
+    # ── points（靜態臨界值規則）──
+    def points(self, rule: dict, start: pd.Timestamp, end: pd.Timestamp) -> dict[tuple, list[tuple[pd.Timestamp, dict]]]:
+        """{序列的 key: [(時間, 文件), …]}。join：分母在另一種文件，依「同一個對象、同一個時間點」補進來。"""
         # exists：直方圖的 sum 這種子欄位不能拿來過濾「有沒有」，要用直方圖本身（例如 metrics.jvm_gc_duration_seconds）
         out = self._points(rule["index"], rule["field"], rule.get("filter", []), rule, start, end, rule.get("exists"))
         if rule.get("join"):
-            # 分母在另一種文件：依「同一個對象、同一個時間點」補進來
             j = rule["join"]
             other = self._points(rule["index"], j["field"], j.get("filter", []), rule, start, end)
             lookup = {(k, t): get_field(d, j["field"]) for k, pts in other.items() for t, d in pts}
@@ -212,101 +211,29 @@ class ESSourceBackend(Backend):
         keep = rule["by"] + rule.get("context", [])
         q = {"bool": {"filter": [time_range(start, end), {"exists": {"field": exists or field}}, *filters]}}
         out: dict[tuple, list] = defaultdict(list)
-        after = None
-        while True:
-            body = {"size": 5000, "_source": ["@timestamp", *fields, *keep], "query": q,
-                    "sort": [{"@timestamp": "asc"}, {"_doc": "asc"}]}
-            if after:
-                body["search_after"] = after
-            hits = self.es.search(index, body)["hits"]["hits"]
-            for h in hits:
-                d = h["_source"]
-                key = tuple(get_field(d, f) for f in rule["by"])
-                ts = d["@timestamp"]
-                ts = pd.Timestamp(ts, unit="ms", tz="UTC") if isinstance(ts, (int, float)) else pd.Timestamp(ts)
-                out[key].append((ts, d))
-            if len(hits) < 5000:
-                break
-            after = hits[-1]["sort"]
-        return out
-
-    # ── spans（M4、根因分析）──
-    def spans(self, index, trace_ids, start, end):
-        """把這些 trace 的所有 span 讀回來（含其他服務的）。呼叫端把時間放寬，跨過邊界的請求也讀得完整。
-        三種 index（core.traces.schema_of）回同一種 span 格式。"""
-        out = []
-        schema = schema_of(index)
-        for i in range(0, len(trace_ids), 500):
-            ids = trace_ids[i:i + 500]
-            if schema == "merged":
-                body = {"size": 500, "query": {"bool": {"filter": [time_range(start, end), {"terms": {"trace_id": ids}}]}}}
-                for h in self.es.search(index, body)["hits"]["hits"]:
-                    out += from_merged(h["_source"])
-                continue
-            # APM 的 transaction 沒有 span.id，分頁的次要排序只能用 _doc；同一毫秒的文件跨頁可能重複，最後依 span_id 去重
-            src, sort, tid = ((_APM_FIELDS, [{"@timestamp": "asc"}, {"_doc": "asc"}], "trace.id") if schema == "apm"
-                              else (_SPAN_FIELDS, [{"@timestamp": "asc"}, {"span_id": "asc"}], "trace_id"))
-            after, seen = None, set()
-            while True:
-                body = {"size": 5000, "_source": src, "sort": sort,
-                        "query": {"bool": {"filter": [time_range(start, end), {"terms": {tid: ids}}]}}}
-                if after:
-                    body["search_after"] = after
-                hits = self.es.search(index, body)["hits"]["hits"]
-                for h in hits:
-                    s = to_span(h["_source"])
-                    if s["span_id"] not in seen:
-                        seen.add(s["span_id"])
-                        out.append(s)
-                if len(hits) < 5000:
-                    break
-                after = hits[-1]["sort"]
-        return out
-
-    def spans_by_id(self, index, span_ids, start, end):
-        """用 span_id 讀回 span（例如 link 指到的、另一個 trace 裡的生產者）。"""
-        out = {}
-        want = set(span_ids)
-        schema = schema_of(index)
-        for i in range(0, len(span_ids), 1000):
-            chunk = span_ids[i:i + 1000]
-            if schema == "merged":
-                body = {"size": 1000, "query": {"bool": {"filter": [time_range(start, end),
-                                                                     {"nested": {"path": "spans", "query": {"terms": {"spans.span_id": chunk}}}}]}}}
-                for h in self.es.search(index, body)["hits"]["hits"]:
-                    out.update({s["span_id"]: s for s in from_merged(h["_source"]) if s["span_id"] in want})
-            elif schema == "apm":   # transaction 的 id 在 transaction.id，span 的在 span.id
-                body = {"size": 1000, "_source": _APM_FIELDS,
-                        "query": {"bool": {"filter": [time_range(start, end)],
-                                           "should": [{"terms": {"span.id": chunk}}, {"terms": {"transaction.id": chunk}}], "minimum_should_match": 1}}}
-                out.update({s["span_id"]: s for s in (to_span(h["_source"]) for h in self.es.search(index, body)["hits"]["hits"]) if s["span_id"] in want})
-            else:
-                body = {"size": 1000, "_source": _SPAN_FIELDS,
-                        "query": {"bool": {"filter": [time_range(start, end), {"terms": {"span_id": chunk}}]}}}
-                out.update({h["_source"]["span_id"]: to_span(h["_source"]) for h in self.es.search(index, body)["hits"]["hits"]})
+        for h in self._scan({"_source": ["@timestamp", *fields, *keep], "query": q}, index):
+            d = h["_source"]
+            key = tuple(get_field(d, f) for f in rule["by"])
+            ts = d["@timestamp"]
+            ts = pd.Timestamp(ts, unit="ms", tz="UTC") if isinstance(ts, (int, float)) else pd.Timestamp(ts)
+            out[key].append((ts, d))
         return out
 
     # ── rows（ingest、paths-merge）──
-    def source_rows(self, inp, start, end):
-        """每列多帶 _source_doc_id（ES 的 _id）：ingest 算異常 _id 用。"""
+    def rows(self, inp: dict, start: pd.Timestamp, end: pd.Timestamp) -> list[dict]:
+        """inp（index、time_field、filter）在 [start, end) 的原始列；每列多帶 _source_doc_id（ES 的 _id）：ingest 算異常 _id 用。"""
         tf = inp.get("time_field", "@timestamp")
         filters = [{"range": {tf: {"gte": start.isoformat(), "lt": end.isoformat()}}}]
         if inp.get("filter"):
             filters.append(inp["filter"])
-        out, after = [], None
-        while True:
-            body = {"size": 5000, "query": {"bool": {"filter": filters}}, "sort": [{tf: "asc"}, {"_doc": "asc"}]}
-            if after:
-                body["search_after"] = after
-            hits = self.es.req("POST", f"/{inp['index']}/{_SEARCH}", body).get("hits", {}).get("hits", [])
-            out += [{**h["_source"], "_source_doc_id": h["_id"]} for h in hits]
-            if len(hits) < 5000:
-                return out
-            after = hits[-1]["sort"]
+        return [{**h["_source"], "_source_doc_id": h["_id"]}
+                for h in self._scan({"query": {"bool": {"filter": filters}}}, inp["index"], sort=[{tf: "asc"}, {"_doc": "asc"}])]
 
-
-class ESBackend(ESSourceBackend):
-    """讀寫都是 ES：設定沒寫 source（或 source、store 都是 es）時 open_backend 給的；as_backend 把 core.es.ES 包成這個。"""
-
-    def __init__(self, es):
-        super().__init__(es, ESStore(es))
+    def rows_where(self, inp: dict, field: str, values: list[str]) -> list[dict]:
+        """inp 的索引裡 field 在 values 的全部列（不限時間；工廠的履歷要一個 lot 全部的站），依 time_field 排。"""
+        tf = inp.get("time_field", "@timestamp")
+        out, vals = [], sorted(values)
+        for i in range(0, len(vals), 1000):
+            body = {"query": {"bool": {"filter": [{"terms": {field: vals[i:i + 1000]}}]}}}
+            out += [h["_source"] for h in self._scan(body, inp["index"], size=10000, sort=[{tf: "asc"}, {"_doc": "asc"}])]
+        return out

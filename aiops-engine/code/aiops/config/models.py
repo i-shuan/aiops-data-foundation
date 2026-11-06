@@ -41,24 +41,6 @@ def _same_length(keys, by, what: str = "keys") -> None:
 
 # ── 共用的小段 ──
 
-class Source(Strict):
-    """資料從哪來（sources/）：沒寫＝ES。"""
-    kind: Literal["es", "file", "http"] | None = None
-    format: Literal["events", "series"] | None = None
-    files: dict[str, str] | None = None
-    spans: str | None = None
-    url: str | None = None
-    urls: dict[str, str] | None = None
-    headers: dict[str, str] | None = None
-    timeout: NonNeg | None = None
-
-
-class Store(Strict):
-    """結果（baseline、異常、調整）放哪（sources/stores.py）。"""
-    kind: Literal["memory", "file", "es"] | None = None
-    dir: str | None = None
-
-
 class Train(Strict):
     """detector/model.TrainOptions(**cfg["train"])：欄位要跟 dataclass 一樣。"""
     timezone: str | None = None
@@ -222,8 +204,6 @@ class SeriesConfig(Strict):
     shift: Shift | None = None
     adjustments_file: str | None = None
     calendar_file: str | None = None
-    source: Source | None = None
-    store: Store | None = None
     series: list[Series] | None = None
 
 
@@ -282,8 +262,6 @@ class Rule(Strict):
 class RulesConfig(Strict):
     interval: Dur | None = None
     lookback: Dur | None = None
-    source: Source | None = None
-    store: Store | None = None
     rules: list[Rule] | None = None
 
 
@@ -322,8 +300,6 @@ class PeerConfig(Strict):
     min_peers: PosInt | None = None
     fresh: Dur | None = None
     warmup: Dur | None = None
-    source: Source | None = None
-    store: Store | None = None
     checks: list[PeerCheck] | None = None
 
 
@@ -381,8 +357,6 @@ class QualityConfig(Strict):
     interval: Dur | None = None
     window: Dur | None = None
     ref_offset: Dur | None = None
-    source: Source | None = None
-    store: Store | None = None
     checks: list[QualityCheck] | None = None
 
 
@@ -425,8 +399,6 @@ class TraceConfig(Strict):
     detect: Detect | None = None
     status: Status | None = None
     metrics: TraceMetrics | None = None
-    source: Source | None = None
-    store: Store | None = None
 
 
 # ── rca.yaml ──
@@ -649,8 +621,6 @@ class Input(Strict):
 
 class IngestConfig(Strict):
     timezone: str | None = None
-    source: Source | None = None
-    store: Store | None = None
     inputs: list[Input] | None = None
 
 
@@ -702,8 +672,6 @@ class PathsConfig(Strict):
     group: str | None = None
     group_field: str | None = None
     dept_field: str | None = None
-    source: Source | None = None
-    store: Store | None = None
     mes: Mes | None = None
     events: Events | None = None
 

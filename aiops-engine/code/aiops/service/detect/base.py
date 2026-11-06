@@ -1,7 +1,7 @@
-"""偵測指令的骨架（Detector）；它產生的 Anomaly 定義在 core/anomaly.py。
+"""偵測指令的骨架（Detector）；它產生的 Anomaly 定義在 core/entity/anomaly.py。
 
-rules、peer、quality 的流程一樣：開 backend → 補 index/mapping → 算這一輪的時間 → `--only` 過濾 → 每個檢查算出異常、印一行
-→ 一次 write_anomalies → 印總結。差別只在「檢查從哪來」「怎麼算」「時間格怎麼取」，各自覆寫那幾個 hook。
+rules、peer、quality 的流程一樣：連線 → 補 index/mapping → 算這一輪的時間 → `--only` 過濾 → 每個檢查算出異常、印一行
+→ 一次寫進異常總表 → 印總結。差別只在「檢查從哪來」「怎麼算」「時間格怎麼取」，各自覆寫那幾個 hook。
 trace 的三種偵測與 baseline 的 save_anomalies 流程不同，只用 Anomaly.to_doc()。
 """
 from __future__ import annotations
@@ -10,10 +10,10 @@ from abc import ABC, abstractmethod
 
 import pandas as pd
 
-from aiops.core.entity.anomaly import ANOMALY_INDEX, ANOMALY_MAPPING, Anomaly  # noqa: F401  Anomaly：子類別從這裡拿（偵測指令的輸入）
-from aiops.service.detect.es_facade import ES
-from aiops.service.detect._util import RULE_FIELDS, _freq, _now
-from aiops.core.repository import open_backend, write_anomalies
+from aiops.core.connection import ES
+from aiops.core.entity.anomaly import Anomaly
+from aiops.core.repository import Repos
+from aiops.service.detect._util import _freq, _now
 
 
 class Detector(ABC):
@@ -24,26 +24,23 @@ class Detector(ABC):
     """
 
     level: str                       # 寫進異常的 level
-    index, mapping = ANOMALY_INDEX, ANOMALY_MAPPING
     interval_default = "1m"          # stamp() 取整的粒度：cfg.interval 沒寫時用這個
 
-    def __init__(self, cfg: dict, args, backend=None):
-        self.cfg, self.args, self.backend = cfg, args, backend
+    def __init__(self, cfg: dict, args, repo: Repos | None = None):
+        self.cfg, self.args, self.repo = cfg, args, repo
         self.names = set(args.only.split(",")) if getattr(args, "only", None) else None
-        self.es = None
         self.now = self.slot = None
         self.docs: list[tuple[str, dict]] = []
         self.checked = self.fired = 0
         self.failed: list[str] = []
 
     # ── hooks ──
-    def connect(self):
-        """設定檔沒寫 source 就是 ES；程式直接給 backend 時用它。"""
-        return self.backend or open_backend(self.cfg, ES)
+    def connect(self) -> Repos:
+        """程式直接給 repo（測試的記憶體版）時用它，否則連 ES。"""
+        return self.repo or Repos(ES())
 
     def prepare(self) -> None:
-        self.es.ensure_index(self.index, self.mapping)
-        self.es.req("PUT", f"/{self.index}/_mapping", {"properties": RULE_FIELDS})   # 舊的 index 補上規則用的欄位
+        self.repo.anomalies.ensure()   # 舊的 index 補上規則用的欄位
 
     def stamp(self) -> pd.Timestamp:
         """這一輪異常的 @timestamp：now 取整到 interval。"""
@@ -70,7 +67,7 @@ class Detector(ABC):
         return a.id()
 
     def write(self, docs: list[tuple[str, dict]]) -> None:
-        write_anomalies(self.es, docs)
+        self.repo.anomalies.write(docs)
 
     def summary(self) -> str:
         return f"{self.slot.tz_convert('Asia/Taipei'):%m-%d %H:%M}：{self.checked} 個檢查，觸發 {self.fired} 個"
@@ -80,7 +77,7 @@ class Detector(ABC):
 
     # ── template ──
     def run(self) -> int:
-        self.es = self.connect()
+        self.repo = self.connect()
         self.prepare()
         self.now = _now(self.args.at)
         self.slot = self.stamp()

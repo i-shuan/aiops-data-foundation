@@ -2,6 +2,8 @@
 import contextlib
 import io
 import unittest
+
+from tests.fakes import MemoryRepos
 from unittest import mock
 
 import pandas as pd
@@ -99,7 +101,7 @@ class CmdPeerTest(unittest.TestCase):
         import aiops.service.detect.base as B
         import aiops.service.detect.peer_job as C
 
-        def fetch(es, spec, start, end, interval):
+        def fetch(spec, start, end, interval):
             if spec["value"] == "count":   # 這段時間有資料的 Pod
                 rows = [p for p, (b, d) in life.items()
                         if self.END + pd.Timedelta(minutes=b) < end and (d is None or self.END + pd.Timedelta(minutes=d) > start)]
@@ -108,21 +110,17 @@ class CmdPeerTest(unittest.TestCase):
             return pd.DataFrame({"ns": ["n"] * len(rows), "deploy": ["d"] * len(rows), "pod": rows,
                                  "value": [values[p] for p in rows]})
 
-        class FakeES:
-            def ensure_index(self, *a): pass
-            def req(self, *a, **k): return {}
-
         written = []
+        repo = MemoryRepos()
+        repo.series.fetch = fetch
         cfg = {"window": "10m", "fresh": "2m", "min_peers": 3, **(cfg_extra or {}), "checks": [
             {"name": "peer.pod_cpu", "title": "CPU 高", "index": "x", "by": ["ns", "deploy", "pod"],
              "value": {"avg": "cpu"}, "direction": "up", "min_abs": 0.2, "min_ratio": 3}]}
         args = type("A", (), {"at": self.END.isoformat(), "only": None})()
         # 開連線、寫異常在 Detector 基底（detector/base.py）；查資料在 cmd_peer 自己
-        with mock.patch.object(B, "ES", FakeES), mock.patch.object(C, "fetch", fetch), \
-                mock.patch.object(B, "write_anomalies", lambda es, docs: written.extend(docs)), \
-                contextlib.redirect_stdout(io.StringIO()):
-            C.cmd_peer(cfg, args)
-        return sorted(d["keys"]["pod"] for _, d in written)
+        with contextlib.redirect_stdout(io.StringIO()):
+            C.cmd_peer(cfg, args, repo)
+        return sorted(d["keys"]["pod"] for _, d in repo.docs("aiops-anomalies"))
 
     def test_young_pod_not_compared(self):
         # 3 個舊的＋1 個 1 分鐘前剛起來（CPU 還是 1 核）：沒有 warmup 會報新的；warmup 5m 不報

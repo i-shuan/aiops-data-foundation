@@ -3,7 +3,7 @@
 import unittest
 from datetime import datetime, timezone
 
-import aiops.core.repository as sources
+from aiops.core.repository import Repos
 import aiops.core.entity.trace as T
 import aiops.service.detect.trace_merge as M
 
@@ -87,7 +87,7 @@ class ReadersTest(unittest.TestCase):
     def test_spans_of_merged_index_expands_documents(self):
         _, doc = M.build(a_trace(), datetime.now(timezone.utc))
         es = self.FakeES([{"_id": "t1", "_source": doc}])
-        spans = sources.as_backend(es).spans("traces-merged-*", ["t1"], datetime(2026, 10, 30, tzinfo=timezone.utc), datetime(2026, 11, 1, tzinfo=timezone.utc))
+        spans = Repos(es).traces.spans("traces-merged-*", ["t1"], datetime(2026, 10, 30, tzinfo=timezone.utc), datetime(2026, 11, 1, tzinfo=timezone.utc))
         self.assertEqual(len(spans), 4)
         index, body = es.bodies[0]
         self.assertEqual(index, "traces-merged-*")
@@ -96,7 +96,7 @@ class ReadersTest(unittest.TestCase):
     def test_spans_by_id_uses_nested_query(self):
         _, doc = M.build(a_trace(), datetime.now(timezone.utc))
         es = self.FakeES([{"_id": "t1", "_source": doc}])
-        got = sources.as_backend(es).spans_by_id("traces-merged-*", ["c"], datetime(2026, 10, 30, tzinfo=timezone.utc), datetime(2026, 11, 1, tzinfo=timezone.utc))
+        got = Repos(es).traces.spans_by_id("traces-merged-*", ["c"], datetime(2026, 10, 30, tzinfo=timezone.utc), datetime(2026, 11, 1, tzinfo=timezone.utc))
         self.assertEqual(list(got), ["c"])
         self.assertEqual(got["c"]["service"], "wip-worker")
         body = es.bodies[0][1]

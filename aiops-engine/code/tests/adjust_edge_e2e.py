@@ -27,7 +27,8 @@ import yaml
 
 from aiops.interface.cli.detect import main as _cli
 from aiops.core.entity.anomaly import ANOMALY_INDEX, ANOMALY_MAPPING
-from aiops.service.detect.es_facade import BASELINE_INDEX, ES
+from aiops.core.connection import ES
+from aiops.core.entity.baseline import BASELINE_INDEX
 
 TZ = "Asia/Taipei"
 MAIN, CAL, LOGS = "aiops-adjtest", "aiops-adjtest-cal", "aiops-adjtest-logs"

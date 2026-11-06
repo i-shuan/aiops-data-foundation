@@ -48,7 +48,7 @@ cd aiops-engine/code && ES_URL=http://localhost:19200 ES_AUTH=elastic:changeme-t
 1. ES 開一把 key：讀上表的索引，寫 `aiops-*`、`lot-paths-*`，加 cluster 權限 `manage_index_templates`（`paths-merge` 自己放 `lot-paths` 的 index template；沒權限就請管理員用 [plugins/factory/paths.py](../../aiops/scenario/factory/paths.py) 的 `PATHS_TEMPLATE` 放一次）。
 2. 改三份 yaml 的欄位名、索引名；`ingest.yaml` 的 `status`／`severity` 對應表照 ML、FDC 的實際值填。
 3. 部署：`helm upgrade --install aiops-factory aiops-engine/helmchart -n aiops-factory --set plugin=factory …`（跟 IT 分開的 namespace 與 ES；同一個 ES 要分 `aiops-*` 前綴的話還沒做，見 PDCA 的 Act）。
-4. 離線先試：yaml 最上層加 `source: {kind: file, format: events, files: {factory-ml-anomalies-*: data/ml.ndjson}}`、`store: {kind: file, dir: .aiops-store}`，`ingest`、`paths-merge` 不用 ES；`alert`（事件整合、根因分析）仍要 ES。
+4. 離線先試：`tests/factory_e2e.py` 把假的 ML 異常、MES、事件寫進一個測試用的 ES，整條鏈（`ingest`、`paths-merge`、`alert`）跑一遍。
 
 ## 哪些功能在工廠版能用
 

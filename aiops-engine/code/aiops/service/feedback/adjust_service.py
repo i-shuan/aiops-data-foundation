@@ -5,19 +5,19 @@ from __future__ import annotations
 
 import pandas as pd
 
-from aiops.core.entity.adjustment import TUNING_INDEX, TUNING_MAPPING, validated
+from aiops.core.connection import ES, doc_id
+from aiops.core.repository import Repos
 import aiops.service.detect.adjustments as A
 from aiops.service.detect.adjustments import load_adjustments
-from aiops.service.detect.es_facade import ES, doc_id
 
 # add 每種 kind 必填的參數
 REQUIRED = {"exclude_window": ("start", "end"), "reset_point": ("at",), "recurring_override": ("cron", "duration")}
 
 
-def _connect() -> ES:
-    es = ES()
-    es.ensure_index(TUNING_INDEX, TUNING_MAPPING)
-    return es
+def _connect() -> Repos:
+    repo = Repos(ES())
+    repo.tuning.ensure()
+    return repo
 
 
 def adjust_list(cfg: dict, args) -> int:
@@ -32,7 +32,7 @@ def adjust_remove(cfg: dict, args) -> int:
     if not args.id:
         print("要給 --id（adjust list 看得到）")
         return 2
-    _connect().req("DELETE", f"/{TUNING_INDEX}/_doc/{args.id}?refresh=true", ok=(200, 404))
+    _connect().tuning.delete(args.id)
     print(f"已刪除：{args.id}")
     return 0
 
@@ -58,14 +58,13 @@ def adjust_approve(cfg: dict, args) -> int:
     if not args.id:
         print("要給 --id（adjust list 看得到）")
         return 2
-    es = _connect()
-    src = es.req("GET", f"/{TUNING_INDEX}/_doc/{args.id}", ok=(200, 404)).get("_source") or {}
+    tuning = _connect().tuning
+    src = tuning.get(args.id) or {}
     why = _approve_blocked(src, args.id, bool(getattr(args, "force", False)))
     if why:
         print(why)
         return 2
-    es.req("POST", f"/{TUNING_INDEX}/_update/{args.id}?refresh=true",
-           {"doc": {"status": "active", "approved_by": args.by, "approved_at": pd.Timestamp.now(tz="UTC").isoformat()}})
+    tuning.patch(args.id, {"status": "active", "approved_by": args.by, "approved_at": pd.Timestamp.now(tz="UTC").isoformat()})
     bt = src.get("backtest")
     if src.get("kind") == "rule_suggestion":
         print(f"已核准：{args.id}（規則 {src['rule_draft']['name']}，下一次 detector rules 就會載入）")
@@ -105,9 +104,9 @@ def adjust_add(cfg: dict, args) -> int:
         print(fields)
         return 2
     doc.update(fields)
-    doc = validated({k: v for k, v in doc.items() if v not in (None, {}, [])} | {"match": match})
+    doc = {k: v for k, v in doc.items() if v not in (None, {}, [])} | {"match": match}
     _id = args.id or doc_id(args.kind, args.series, match, doc.get("start"), doc.get("reset_at"), doc.get("schedule"))
-    _connect().req("PUT", f"/{TUNING_INDEX}/_doc/{_id}?refresh=true", doc)
+    _connect().tuning.put(_id, doc)
     print(f"已寫入 {_id}：{A.describe(doc)}")
     if doc["status"] == "proposed":
         print("  status 是 proposed，要 adjust approve --id 之後才生效")

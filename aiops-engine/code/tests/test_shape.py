@@ -1,10 +1,10 @@
-"""sources/shape.py：原始列 → 標準輸入，語意要跟 ES 端的 aggregation 一樣（docs/pdca/meta/2026-11-model-modules.md）。不連 ES。"""
+"""tests/shaping.py（記憶體版來源的整形）：原始列 → 標準輸入，語意要跟 ES 端的 aggregation 一樣（docs/pdca/meta/2026-11-model-modules.md）。不連 ES。"""
 import unittest
 
 import numpy as np
 import pandas as pd
 
-import aiops.core.repository.shape as S
+import tests.shaping as S
 
 T0 = pd.Timestamp("2026-11-02T00:00:00Z")
 

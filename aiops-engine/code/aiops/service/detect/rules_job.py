@@ -6,17 +6,16 @@ import pandas as pd
 from aiops.core.connection import get_field
 from aiops.core.entity.anomaly import Anomaly
 from aiops.service.detect.base import Detector
-from aiops.service.detect.es_facade import ES, fetch
 import aiops.service.detect.rules as R
 from aiops.service.detect._util import _freq
 import aiops.service.detect.adjustments as A
 
 
-def approved_rules(es: ES, cfg: dict, now: pd.Timestamp | None = None) -> list[dict]:
+def approved_rules(repo, cfg: dict, now: pd.Timestamp | None = None) -> list[dict]:
     """老師傅核准的「升級成規則」（aiops-tuning 的 rule_suggestion，status active、expires_at 還沒到、門檻是數字）：
     跟 rules.yaml 的一起跑。now 是這一輪的時間（--at），過期用它比。"""
     try:
-        adjs = A.load_adjustments(es, cfg)   # 經模組取，測試才 mock 得到
+        adjs = A.load_adjustments(repo, cfg)   # 經模組取，測試才 mock 得到
     except Exception as e:
         print(f"  讀 aiops-tuning 的規則失敗（{e}），只跑 rules.yaml 的")
         return []
@@ -38,7 +37,7 @@ class RulesDetector(Detector):
     level = "rule"
 
     def checks(self) -> list[dict]:
-        extra = approved_rules(self.es, self.cfg, self.now)
+        extra = approved_rules(self.repo, self.cfg, self.now)
         if extra:
             print(f"  從 aiops-tuning 載入 {len(extra)} 條核准的規則：{'、'.join(r['name'] for r in extra)}")
         self.rules = list(self.cfg["rules"]) + extra
@@ -48,9 +47,9 @@ class RulesDetector(Detector):
         now = self.now
         start = now - pd.Timedelta(_freq(rule.get("lookback") or self.cfg.get("lookback", "10m")))
         if rule["type"] == "window":   # 整段算一個值（錯誤率、p95）：跟 series.yaml 同一套查法
-            hits = R.evaluate_window(rule, fetch(self.es, rule, start, now, None), start)
+            hits = R.evaluate_window(rule, self.repo.series.fetch(rule, start, now, None), start)
         else:
-            hits = R.evaluate(rule, R.fetch(self.es, rule, start, now), now)
+            hits = R.evaluate(rule, self.repo.series.points(rule, start, now), now)
         out = []
         for h in hits:
             keys = {f: v for f, v in zip(rule["by"], h["key"])}
@@ -71,5 +70,5 @@ class RulesDetector(Detector):
                 + (f"，{len(self.failed)} 條失敗：{'、'.join(self.failed)}" if self.failed else ""))
 
 
-def cmd_rules(cfg: dict, args, backend=None) -> int:
-    return RulesDetector(cfg, args, backend).run()
+def cmd_rules(cfg: dict, args, repo=None) -> int:
+    return RulesDetector(cfg, args, repo).run()

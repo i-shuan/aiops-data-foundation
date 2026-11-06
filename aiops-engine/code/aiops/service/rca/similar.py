@@ -12,7 +12,6 @@
 from __future__ import annotations
 
 from aiops.core.entity.incident import DEFAULT_WEIGHTS as WEIGHTS, Fingerprint, Incident, classify, describe_class, seg_name  # noqa: F401
-from aiops.core.repository.base import as_backend
 MIN_SCORE = 4.0        # 低於這個分數不算像：至少一個強特徵、或兩三個弱特徵
 TOP_K = 3
 # 跟 ES 要幾件候選再自己重算分數：ES 的 _score（boost）跟 explain 的算法不一樣（series 這裡是 min(交集,3) 倍、ES 只算一次），
@@ -71,14 +70,14 @@ def confirmed_only(candidates: list[tuple[str, dict]], exclude_id: str | None = 
     return [(i, s) for i, s in candidates if s.get("status") in CONFIRMED and i != exclude_id]
 
 
-def search(es, fp: Fingerprint | dict, exclude_id: str | None = None, k: int = TOP_K, min_score: float = MIN_SCORE, size: int = CANDIDATES,
+def search(repo, fp: Fingerprint | dict, exclude_id: str | None = None, k: int = TOP_K, min_score: float = MIN_SCORE, size: int = CANDIDATES,
            weights: dict | None = None) -> list[dict]:
     """最像的 k 件（分數 ≥ min_score）。回傳給報告用的欄位＋為什麼像。size：跟 ES 要幾件候選（見 CANDIDATES）。
-    候選從 Store 拿（ES 用 query 先篩前 size 件；檔案、記憶體給全部已確認的），分數一樣用 rank 算。"""
+    候選由 repo.incidents.similar 給（ES 用指紋的 query 先篩前 size 件），分數一樣用 rank 算。"""
     fp = Fingerprint.of(fp)
     if fp.empty:
         return []
-    return rank(fp, as_backend(es).similar_incidents(fp, CONFIRMED, exclude_id, size), k, min_score, weights)
+    return rank(fp, repo.incidents.similar(fp, CONFIRMED, exclude_id, size), k, min_score, weights)
 
 
 def format_similar(items: list[dict], tz_label: str = "", cls: dict | None = None) -> list[str]:
@@ -96,9 +95,9 @@ def format_similar(items: list[dict], tz_label: str = "", cls: dict | None = Non
     return lines
 
 
-def _confirmed_cases(es) -> list[tuple[str, dict]]:
+def _confirmed_cases(repo) -> list[tuple[str, dict]]:
     """已確認、有根因分類、有指紋的事故（留一法的樣本）。"""
-    return as_backend(es).incidents(CONFIRMED, having=("root_cause_category", "fingerprint"))
+    return repo.incidents.find(CONFIRMED, having=("root_cause_category", "fingerprint"))
 
 
 def evaluate_cases(cases: list[tuple[str, dict]], k: int = TOP_K, min_score: float = MIN_SCORE, weights: dict | None = None) -> dict:
@@ -118,9 +117,9 @@ def evaluate_cases(cases: list[tuple[str, dict]], k: int = TOP_K, min_score: flo
     return {"n": n, "hit": hit, "recall": (hit / n) if n else None, "correct": right, "accuracy": (right / n) if n else None, "rows": rows}
 
 
-def evaluate(es, k: int = TOP_K, min_score: float = MIN_SCORE, weights: dict | None = None) -> dict:
+def evaluate(repo, k: int = TOP_K, min_score: float = MIN_SCORE, weights: dict | None = None) -> dict:
     """留一法：每件已確認、有根因分類的事故輪流當「新的」（recall@k 與分類準確率，見 evaluate_cases）。"""
-    return evaluate_cases(_confirmed_cases(es), k, min_score, weights)
+    return evaluate_cases(_confirmed_cases(repo), k, min_score, weights)
 
 
 MIN_CASES_TO_LEARN = 50

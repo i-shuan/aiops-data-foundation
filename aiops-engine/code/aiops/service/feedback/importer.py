@@ -25,7 +25,8 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from aiops.core.connection import ES, doc_id
-from aiops.core.entity.incident import INCIDENT_INDEX, INCIDENT_MAPPING, Fingerprint, Incident
+from aiops.core.entity.incident import INCIDENT_INDEX, Fingerprint, Incident
+from aiops.core.repository import Repos
 from aiops.service.detect.adjustments import local_iso
 
 REQUIRED = ("title", "start", "end", "services", "root_cause_category", "root_cause", "action", "how_detected", "checked")
@@ -151,16 +152,16 @@ def parse(path: "str | Path | DbRows", tz: str = DEFAULT_TZ, now: datetime | Non
     return docs, skipped
 
 
-def write(es: ES, docs: list[tuple[str, dict]]) -> int:
+def write(repo, docs: list[tuple[str, dict]]) -> int:
     """index（不是 update）：匯入的檔案是這幾件的真相，重匯就覆蓋，包括回饋網頁後來改過的欄位。"""
     if not docs:
         return 0
-    es.ensure_index(INCIDENT_INDEX, INCIDENT_MAPPING)
-    es.bulk_index(INCIDENT_INDEX, docs)
+    repo.incidents.ensure()
+    repo.incidents.bulk(docs)
     return len(docs)
 
 
-def run(path: "str | DbRows", tz: str = DEFAULT_TZ, dry_run: bool = False, es: ES | None = None) -> int:
+def run(path: "str | DbRows", tz: str = DEFAULT_TZ, dry_run: bool = False, repo=None) -> int:
     if isinstance(path, DbRows):
         print(f"從資料庫讀：{path}")
     docs, skipped = parse(path, tz)
@@ -173,6 +174,6 @@ def run(path: "str | DbRows", tz: str = DEFAULT_TZ, dry_run: bool = False, es: E
     if dry_run:
         print(f"檢查完：{len(docs)} 筆可匯入、{len(skipped)} 筆略過（共 {total} 筆；--dry-run 沒有寫入）")
         return 0 if docs or not total else 1
-    n = write(es or ES(), docs)
+    n = write(repo or Repos(ES()), docs)
     print(f"匯入 {n} 筆、略過 {len(skipped)} 筆（共 {total} 筆）→ {INCIDENT_INDEX}（status confirmed、source import）")
     return 0

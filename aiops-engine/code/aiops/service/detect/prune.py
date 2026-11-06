@@ -8,7 +8,8 @@ from __future__ import annotations
 
 import pandas as pd
 
-from aiops.service.detect.es_facade import ES
+from aiops.core.connection import ES
+from aiops.core.repository import Repos
 from aiops.service.detect._util import _now
 
 
@@ -29,19 +30,17 @@ def plan(cfg: dict, now: pd.Timestamp) -> list[dict]:
 
 
 def cmd_prune(cfg: dict, args) -> int:
-    es = ES()
+    hk = Repos(ES()).housekeeping
     now = _now(args.at)
     dry = bool(getattr(args, "dry_run", False))
     total = 0
     for p in plan(cfg, now):
-        q = {"query": p["query"]}
-        n = es.req("POST", f"/{p['index']}/_count?ignore_unavailable=true&allow_no_indices=true", q).get("count", 0)
+        n = hk.count(p["index"], p["query"])
         if dry or not n:
             print(f"  {p['index']}：{p['time_field']} 早於 {p['cutoff'][:16]}（保留 {p['keep_days']:g} 天）的有 {n} 筆" + ("，沒刪（--dry-run）" if dry and n else ""))
             total += n
             continue
-        r = es.req("POST", f"/{p['index']}/_delete_by_query?conflicts=proceed&ignore_unavailable=true&allow_no_indices=true"
-                           f"&slices=auto&wait_for_completion=true&refresh=true", q)   # refresh：刪完馬上查得到，下一輪不會重算
+        r = hk.delete_by_query(p["index"], p["query"])
         deleted = int(r.get("deleted", 0))
         total += deleted
         print(f"  {p['index']}：刪了 {deleted} 筆（{p['time_field']} 早於 {p['cutoff'][:16]}，保留 {p['keep_days']:g} 天）"

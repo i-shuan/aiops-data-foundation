@@ -9,6 +9,7 @@ import aiops.scenario.domain as D
 import aiops.scenario.base as plugin
 import aiops.scenario.source as source
 import aiops.core.repository.owner as O
+from aiops.core.repository import Repos
 import aiops.service.converge.merge as AL
 import aiops.service.rca.report as R
 
@@ -108,12 +109,12 @@ class Builtins(unittest.TestCase):
                 seen["index"], seen["body"] = index, body
                 hit = {"@timestamp": "2026-11-04T00:30:00+00:00"} if index.startswith("chg") else {"trace_id": "L1", "spans": []}
                 return {"hits": {"hits": [{"_source": hit}]}}
-        dep = p.change_at(ES(), {"alerts": {"deploy_index": "chg-*"}}, "ETCH-01", T0 - timedelta(hours=1), T0)
+        dep = p.change_at(Repos(ES()), {"alerts": {"deploy_index": "chg-*"}}, "ETCH-01", T0 - timedelta(hours=1), T0)
         self.assertEqual((seen["index"], dep), ("chg-*", datetime(2026, 11, 4, 0, 30, tzinfo=timezone.utc)))
         self.assertEqual(seen["body"]["query"]["bool"]["filter"][0], {"term": {"equipment_id": "ETCH-01"}})
         self.assertEqual(seen["body"]["query"]["bool"]["filter"][2], {"term": {"event_type": "recipe_change"}})
         anoms = [{"_id": "a", "@timestamp": T0.isoformat(), "keys": {"equipment": "METRO-01", "lot": "L1"}}]
-        ch = p.chain(ES(), {"indices": {"traces": "lot-paths-*"}, "alerts": {"paths_lookback": "2d"}}, anoms, [], T0 - timedelta(hours=1), T0)
+        ch = p.chain(Repos(ES()), {"indices": {"traces": "lot-paths-*"}, "alerts": {"paths_lookback": "2d"}}, anoms, [], T0 - timedelta(hours=1), T0)
         self.assertEqual(seen["index"], "lot-paths-*")
         self.assertEqual(seen["body"]["query"]["bool"]["filter"][0]["range"]["@timestamp"]["gte"], (T0 - timedelta(days=2)).isoformat())
         self.assertEqual((ch.calls, ch.links), (set(), {}))   # 履歷裡沒有站 → 沒有前站
@@ -157,12 +158,15 @@ class ReportSections(unittest.TestCase):
         anoms = [{"_id": "a1", "@timestamp": T0.isoformat(), "series": "fdc.pressure", "value": 12.0, "median": 9.0, "z": 6.0,
                   "status": "anomaly", "keys": {"equipment": "ETCH-01", "recipe": "REC-1"}}]
         stats = {"requests": requests, "errors": 0, "p50_ms": 1.0, "p95_ms": 2.0}
-        with mock.patch.object(R.E, "ES", return_value="es"), mock.patch.object(R.E, "anomalies", return_value=anoms), \
-             mock.patch.object(R.E, "entry_stats", return_value=stats), mock.patch.object(R.E, "sample_trace_ids", return_value=[]), \
-             mock.patch.object(R, "as_backend", return_value=mock.Mock(spans=mock.Mock(return_value=[]))), \
-             mock.patch.object(R.E, "problem_logs", side_effect=lambda es, ix, s, a, b: list(logs) if a == T0 else []), \
-             mock.patch.object(R.E, "change_logs", return_value=[{"ts": T0.isoformat(), "service": "ETCH-01", "message": "PM done"}]), \
-             mock.patch.object(R.E, "logs_of_traces", return_value=[]):
+        repo = mock.Mock()
+        repo.anomalies.between.return_value = anoms
+        repo.traces.entry_stats.return_value = stats
+        repo.traces.sample_trace_ids.return_value = []
+        repo.traces.spans.return_value = []
+        repo.logs.problems.side_effect = lambda ix, s, a, b: list(logs) if a == T0 else []
+        repo.logs.changes.return_value = [{"ts": T0.isoformat(), "service": "ETCH-01", "message": "PM done"}]
+        repo.logs.of_traces.return_value = []
+        with mock.patch.object(R, "Repos", return_value=repo), mock.patch.object(R, "ES", return_value=None):
             return R.investigate_full(cfg, Namespace(service="ETCH-01", route=None, start=T0.isoformat(), end=(T0 + timedelta(hours=1)).isoformat(),
                                                      at=None, window=None), sections)
 

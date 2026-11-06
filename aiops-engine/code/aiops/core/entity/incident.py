@@ -111,7 +111,7 @@ class Fingerprint(Doc):
 
     def es_query(self, exclude_id: str | None = None, size: int = 200, statuses: tuple[str, ...] = ("confirmed", "corrected"),
                  weights: dict | None = None) -> dict:
-        """ES 的候選查詢（sources/stores.py ESStore.similar_incidents 用）：status 過濾＋六組各一個 should（boost 只影響 ES 端排前 size 件；
+        """ES 的候選查詢（core/repository/incident.py IncidentRepository.similar 用）：status 過濾＋六組各一個 should（boost 只影響 ES 端排前 size 件；
         分數還是 investigator.similar.explain 自己算）。"""
         should = []
         for field, w in (weights or DEFAULT_WEIGHTS).items():

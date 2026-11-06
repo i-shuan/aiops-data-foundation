@@ -39,7 +39,9 @@ from aiops.interface.cli.detect import main as cli
 from aiops.service.detect.baseline_job import detect_series
 from aiops.service.detect._util import keys_of
 from aiops.core.entity.anomaly import ANOMALY_INDEX
-from aiops.service.detect.es_facade import BASELINE_INDEX, ES, load_baseline
+from aiops.core.connection import ES
+from aiops.core.entity.baseline import BASELINE_INDEX
+from aiops.core.repository import Repos
 from aiops.service.detect.baseline import DetectOptions
 from aiops.core.entity.adjustment import TUNING_INDEX
 from aiops.service.detect.adjustments import data_adjustments, load_overrides
@@ -400,14 +402,15 @@ def scored_points(config: str, es: ES, now: pd.Timestamp, window: str, services:
         cfg = yaml.safe_load(f)
     tz = cfg["train"]["timezone"]
     dopts = DetectOptions(**cfg.get("detect", {}))
-    overrides, adjs = load_overrides(es, cfg, now), data_adjustments(es, cfg, now)
+    repo = Repos(es)
+    overrides, adjs = load_overrides(repo, cfg, now), data_adjustments(repo, cfg, now)
     out = []
     for spec in cfg["series"]:
         keys = keys_of(spec)
-        base = load_baseline(es, spec["name"], keys)
+        base = repo.baseline.load(spec["name"], keys)
         if base.empty:
             continue
-        for r, s in detect_series(es, cfg, spec, base, now, pd.Timedelta(window), dopts, tz, overrides, adjs, quiet=True):
+        for r, s in detect_series(repo, cfg, spec, base, now, pd.Timedelta(window), dopts, tz, overrides, adjs, quiet=True):
             if s.empty:
                 continue
             svc = s[keys[0]].astype(str)
@@ -419,17 +422,13 @@ def scored_points(config: str, es: ES, now: pd.Timestamp, window: str, services:
 
 def old_fill_lambda(es: ES, config: str) -> float:
     """修正前的 _fill_zero（alive 只看這條序列自己查到的資料）學出來的 svc-logs log.errors λ：沒有任何 error 的小時變成「不知道」。"""
-    import aiops.service.detect.es_facade as DE
     from aiops.service.detect.baseline import TrainOptions, train as mtrain
     with open(config, encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
     spec = next(s for s in cfg["series"] if s["name"].endswith("log.errors"))
-    orig = DE.alive_times
-    DE.alive_times = lambda *a, **k: None
-    try:
-        h = DE.fetch(es, spec, T_END - pd.Timedelta(weeks=4), T_END, "1h")
-    finally:
-        DE.alive_times = orig
+    series = Repos(es).series
+    series.alive_times = lambda *a, **k: None
+    h = series.fetch(spec, T_END - pd.Timedelta(weeks=4), T_END, "1h")
     t = mtrain(h, keys_of(spec), TrainOptions(**cfg["train"]), method="poisson")
     return float(t["median"].median()) if not t.empty else float("nan")
 

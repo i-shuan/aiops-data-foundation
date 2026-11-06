@@ -2,6 +2,7 @@
 import unittest
 
 import aiops.service.rca.similar as SIM
+from aiops.core.repository import Repos
 
 
 class FakeES:
@@ -84,21 +85,21 @@ class Search(unittest.TestCase):
         })
 
     def test_only_confirmed_and_above_min_score(self):
-        got = SIM.search(self.es, self.fp)
+        got = SIM.search(Repos(self.es), self.fp)
         self.assertEqual([g["incident_id"] for g in got], ["i-db"])
         self.assertEqual(got[0]["root_cause"], "db 的根因")
         self.assertTrue(got[0]["why"])
 
     def test_exclude_self(self):
-        self.assertEqual(SIM.search(self.es, self.fp, exclude_id="i-db"), [])
+        self.assertEqual(SIM.search(Repos(self.es), self.fp, exclude_id="i-db"), [])
 
     def test_empty_fingerprint_returns_nothing(self):
-        self.assertEqual(SIM.search(self.es, {"services": [], "routes": []}), [])
+        self.assertEqual(SIM.search(Repos(self.es), {"services": [], "routes": []}), [])
 
     def test_evaluate_leave_one_out(self):
         # 加一件跟 i-db 同根因、同指紋的：i-db 查得到它、它查得到 i-db → 兩件都命中；i-net、i-other 沒有同類的 → 沒命中
         self.es.docs["i-db2"] = incident("db", self.fp)
-        r = SIM.evaluate(self.es)
+        r = SIM.evaluate(Repos(self.es))
         self.assertEqual(r["n"], 4)
         self.assertEqual(r["hit"], 2)
         self.assertAlmostEqual(r["recall"], 0.5)
@@ -110,15 +111,15 @@ class Search(unittest.TestCase):
         docs = {f"i-weak{i}": incident("network", only_svc) for i in range(25)}
         docs["i-best"] = incident("db", self.fp)
         es = FakeES(docs)
-        self.assertEqual([g["incident_id"] for g in SIM.search(es, self.fp)], ["i-best"])
+        self.assertEqual([g["incident_id"] for g in SIM.search(Repos(es), self.fp)], ["i-best"])
         self.assertEqual(es.bodies[-1]["size"], SIM.CANDIDATES)
         self.assertGreaterEqual(SIM.CANDIDATES, 26)
         # 以前的 20 件就會漏掉；size 可以指定
-        self.assertEqual(SIM.search(es, self.fp, size=20), [])
+        self.assertEqual(SIM.search(Repos(es), self.fp, size=20), [])
         self.assertEqual(es.bodies[-1]["size"], 20)
 
     def test_format(self):
-        lines = SIM.format_similar(SIM.search(self.es, self.fp))
+        lines = SIM.format_similar(SIM.search(Repos(self.es), self.fp))
         text = "\n".join(lines)
         # case 只做分類：段落標題是分類，清單只有日期、分類、標題、為什麼像；不列當時的根因、處置
         self.assertTrue(lines[0].startswith("## 分類（依過去相似的 case）：像 db 類"), lines[0])

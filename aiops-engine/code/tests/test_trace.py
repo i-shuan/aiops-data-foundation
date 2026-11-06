@@ -6,6 +6,7 @@ import unittest
 import pandas as pd
 
 import aiops.service.detect.trace_stats as T
+from aiops.core.repository import Repos
 from aiops.service.detect.baseline import DetectOptions, TrainOptions, score, train
 
 API = ("mes-api", "GET /lots/{id}")
@@ -270,8 +271,8 @@ class SampleEntriesMergedTest(unittest.TestCase):
     def test_merged_sampling(self):
         es = self.FakeES()
         start, end = pd.Timestamp("2026-11-01T10:00:00Z"), pd.Timestamp("2026-11-01T10:10:00Z")
-        got = T.sample_entries(es, "traces-merged-*", start, end, "5m", 20)
-        self.assertEqual([(s.bucket.isoformat(), s.trace_id, s.span_id) for s in got],
+        got = Repos(es).traces.sample_entries("traces-merged-*", start, end, "5m", 20)
+        self.assertEqual([(b.isoformat(), t, sp) for b, t, sp in got],
                          [("2026-11-01T10:00:00+00:00", "trace-a", "span-a"), ("2026-11-01T10:00:00+00:00", "trace-b", "span-b"),
                           ("2026-11-01T10:05:00+00:00", "trace-c", "span-c")])
         index, body = es.bodies[0]
@@ -290,6 +291,6 @@ class SampleEntriesMergedTest(unittest.TestCase):
                 self.body = body
                 return {"aggregations": {"e": {"buckets": []}}}
         es = RawES()
-        T.sample_entries(es, "traces-generic.otel-*", pd.Timestamp("2026-11-01T10:00:00Z"), pd.Timestamp("2026-11-01T10:10:00Z"), "5m", 20)
+        Repos(es).traces.sample_entries("traces-generic.otel-*", pd.Timestamp("2026-11-01T10:00:00Z"), pd.Timestamp("2026-11-01T10:10:00Z"), "5m", 20)
         self.assertIn("composite", es.body["aggs"]["e"])
         self.assertNotIn("n", es.body["aggs"])

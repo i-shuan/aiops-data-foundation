@@ -6,19 +6,16 @@ Grafana 讀 aiops-alerts 發通知（grafana/helmchart/files/）：status open �
 """
 from __future__ import annotations
 
-import json
-
 from argparse import Namespace
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 import aiops.service.rca.llm as LLM
 import aiops.scenario.base as plugin
-from aiops.core.entity.alert import ALERT_INDEX, ALERT_MAPPING, Alert, stamp_of
-from aiops.core.entity.anomaly import ANOMALY_MAPPING
 from aiops.core.connection import ES
-from aiops.core.entity.incident import INCIDENT_INDEX, INCIDENT_MAPPING, Incident
-from aiops.core.repository.base import as_backend
+from aiops.core.entity.alert import Alert, stamp_of
+from aiops.core.entity.incident import Incident
+from aiops.core.repository import Repos
 
 import aiops.service.converge.merge as AL
 import aiops.service.converge.severity as SEV
@@ -31,21 +28,7 @@ def _dur(s: str) -> timedelta:
     return timedelta(**{{"s": "seconds", "m": "minutes", "h": "hours", "d": "days"}[s[-1]]: int(s[:-1])})
 
 
-def _anomalies(es: ES, index: str, start: datetime, end: datetime) -> list[dict]:
-    out, after = [], None
-    while True:
-        body = {"size": 5000, "query": {"range": {"@timestamp": {"gte": start.isoformat(), "lt": end.isoformat()}}},
-                "sort": [{"@timestamp": "asc"}, {"_doc": "asc"}]}
-        if after:
-            body["search_after"] = after
-        hits = es.search(index, body)["hits"]["hits"]
-        out += [{**h["_source"], "_id": h["_id"]} for h in hits]
-        if len(hits) < 5000:
-            return out
-        after = hits[-1]["sort"]
-
-
-def grade_alert(es: ES, cfg: dict, al: Alert, now: datetime) -> None:
+def grade_alert(repo: Repos, cfg: dict, al: Alert, now: datetime) -> None:
     """這件的嚴重度：訊號廣度＋持續時間＋換版上限（investigator/severity.py）。要全部異常（不只這一輪的）才算得出持續。
     訊號怎麼分類（IT 黃金訊號／工廠參數家族）、哪些 level 的 critical 直接算 critical、「換版」是什麼（版號／recipe 變更）由 plugin 給預設，
     cfg 的 alerts.severity.classes、alerts.critical_levels 可覆蓋（core/plugin.py）。"""
@@ -59,8 +42,8 @@ def grade_alert(es: ES, cfg: dict, al: Alert, now: datetime) -> None:
     missing = [i for i in al.anomaly_ids if i not in have]
     if missing:
         try:
-            got = es.req("POST", f"/{cfg['indices']['anomalies']}/_mget?_source_includes=@timestamp,series,keys,severity,level", {"ids": missing}).get("docs", [])
-            have.update({d["_id"]: {**d["_source"], "_id": d["_id"]} for d in got if d.get("found")})
+            got = repo.anomalies.get_many(missing, ["@timestamp", "series", "keys", "severity", "level"])
+            have.update({i: {**d, "_id": i} for i, d in got.items()})
         except Exception as e:  # noqa: BLE001  讀不到就只用這一輪的：寧可低估持續，不擋告警
             print(f"  讀不到 {al.alert_id} 的舊異常（{type(e).__name__}），持續時間只看這一輪")
     anoms = list(have.values())
@@ -69,9 +52,7 @@ def grade_alert(es: ES, cfg: dict, al: Alert, now: datetime) -> None:
     if acfg.get("deploy_grace", True):
         try:
             since = al.started_at - timedelta(minutes=opts.deploy_grace)
-            be = as_backend(es)
-            if be.kind == "es":   # 換版紀錄只有 ES 有（plugin 的 change_at 直接查 ES）
-                dep = pg.change_at(be.es, cfg, al.service, since, now)
+            dep = pg.change_at(repo, cfg, al.service, since, now)
         except Exception as e:  # noqa: BLE001
             print(f"  查不到 {al.service} 的換版時間（{type(e).__name__}）")
     golden = [a for a in own if SEV.signal_class(a.get("series"), classes) not in ("traffic", "other")]
@@ -84,18 +65,6 @@ def grade_alert(es: ES, cfg: dict, al: Alert, now: datetime) -> None:
     al.severity, al.severity_why = g["severity"], g["why"]
     if dep is not None:
         al.deploy_at = dep
-
-
-def _open_alerts(es: ES) -> list[Alert]:
-    hits = es.search(ALERT_INDEX, {"size": 10000, "query": {"term": {"status": "open"}}})["hits"]["hits"]
-    return [Alert.from_doc(h["_source"]) for h in hits]
-
-
-def _done_ids(es: ES, since: datetime) -> set:
-    """最近結束的件裡的異常 id：重跑時這些異常不再開新的一件。"""
-    body = {"size": 10000, "_source": ["anomaly_ids"], "query": {"bool": {"filter": [
-        {"term": {"status": "resolved"}}, {"range": {"resolved_at": {"gte": since.isoformat()}}}]}}}
-    return {i for h in es.search(ALERT_INDEX, body)["hits"]["hits"] for i in h["_source"].get("anomaly_ids") or []}
 
 
 def with_feedback_footer(report: str | None, feedback_url: str | None) -> str | None:
@@ -139,46 +108,6 @@ def llm_summary(al: Alert, findings: dict | None, similar: list[dict], acfg: dic
     return llm
 
 
-def write_incidents(es: ES, incidents: list[tuple[str, dict]]) -> int:
-    """事故：只更新還是 auto 的；已被老師傅確認的（confirmed、corrected、false_positive…）一個欄位都不動。
-    用 ES 的 scripted upsert 一次做完判斷和寫入（原子），不是先讀再寫：讀和寫之間老師傅送出回饋也不會被蓋掉。"""
-    if not incidents:
-        return 0
-    es.ensure_index(INCIDENT_INDEX, INCIDENT_MAPPING)
-    script = {"lang": "painless", "params": {},
-              "source": "if (ctx._source.status == null || ctx._source.status == 'auto') { ctx._source.putAll(params.doc) } else { ctx.op = 'none' }"}
-    lines = []
-    for _id, doc in incidents:
-        lines.append(json.dumps({"update": {"_index": INCIDENT_INDEX, "_id": _id}}))
-        lines.append(json.dumps({"script": {**script, "params": {"doc": doc}}, "upsert": doc}, default=str))
-    r = es.s.post(f"{es.url}/_bulk?refresh=wait_for", data="\n".join(lines) + "\n", headers={"Content-Type": "application/x-ndjson"}, timeout=300)
-    body = r.json()
-    if r.status_code != 200 or body.get("errors"):
-        bad = [it for it in body.get("items", []) if it["update"].get("error")][:3]
-        raise RuntimeError(f"寫入 {INCIDENT_INDEX} 失敗：{r.status_code} {bad or r.text[:500]}")
-    return sum(1 for it in body.get("items", []) if it["update"].get("result") in ("created", "updated"))
-
-
-def tag_anomalies(es: ES, index: str, tags: list[tuple[str, str]]) -> int:
-    """把 alert_id 寫回這件併進來的每筆異常（aiops-anomalies）：儀表板用 alert_id:"<這件>" 就撈得到這件的異常，
-    規則觸發的（沒有 status）也撈得到，不用靠時間範圍猜。tags：(異常 _id, alert_id)。
-    異常已被清掉（保留期過了）的那幾筆略過，不擋這一輪。"""
-    if not tags:
-        return 0
-    es.ensure_index(index, ANOMALY_MAPPING)    # mapping 是 dynamic false：舊 index 要補 alert_id 欄位，不然查不到
-    lines = []
-    for _id, aid in tags:
-        lines.append(json.dumps({"update": {"_index": index, "_id": _id}}))
-        lines.append(json.dumps({"doc": {"alert_id": aid}}))
-    r = es.s.post(f"{es.url}/_bulk?refresh=wait_for", data="\n".join(lines) + "\n", headers={"Content-Type": "application/x-ndjson"}, timeout=300)
-    body = r.json()
-    items = body.get("items", [])
-    bad = [it for it in items if it["update"].get("error") and it["update"]["error"].get("type") != "document_missing_exception"]
-    if r.status_code != 200 or bad:
-        raise RuntimeError(f"寫入 {index} 的 alert_id 失敗：{r.status_code} {bad[:3] or r.text[:500]}")
-    return sum(1 for it in items if it["update"].get("result") in ("updated", "noop"))
-
-
 def has_trace(findings: dict | None) -> bool:
     """根因分析有沒有看到這個服務的 trace：findings.requests.requests > 0。沒有 findings（分析失敗）算沒有。"""
     return bool(((findings or {}).get("requests") or {}).get("requests"))
@@ -209,23 +138,23 @@ def wants_rerun(al: Alert, now: datetime, acfg: dict) -> tuple[bool, bool]:
     return wants and (needs_rerun(al, now, acfg) or forced), wants and forced
 
 
-def _chain(es: ES, cfg: dict, acfg: dict, anoms: list[dict], open_alerts: list[Alert], start: datetime, now: datetime) -> plugin.Chain:
+def _chain(repo: Repos, cfg: dict, acfg: dict, anoms: list[dict], open_alerts: list[Alert], start: datetime, now: datetime) -> plugin.Chain:
     """跨對象（一層）要不要併、依什麼併，由 plugin 決定（IT：trace 的呼叫關係；工廠：履歷的前後站；只有指標：不併）。
     查失敗只是這一輪不併跨對象，不擋告警。"""
     if not acfg.get("chain", True):
         return plugin.Chain()
     try:
-        return plugin.current().chain(es, cfg, anoms, open_alerts, start, now)
+        return plugin.current().chain(repo, cfg, anoms, open_alerts, start, now)
     except Exception as e:  # noqa: BLE001
         print(f"  跨對象的關聯查不到（{type(e).__name__}: {str(e)[:80]}），這一輪不併跨對象")
         return plugin.Chain()
 
 
-def enrich(es: ES, cfg: dict, al: Alert, now: datetime) -> None:
+def enrich(repo: Repos, cfg: dict, al: Alert, now: datetime) -> None:
     """這一件補歸屬（dept、group）與嚴重度。"""
     al.dept, al.group = AL.owner(al) if al.anoms else (al.dept, al.group or "unassigned")
     if al.category == "service" and not al.merged_into:
-        grade_alert(es, cfg, al, now)
+        grade_alert(repo, cfg, al, now)
 
 
 def _rca(cfg: dict, acfg: dict, al: Alert, interval: timedelta, investigate) -> tuple[str, dict | None]:
@@ -240,12 +169,12 @@ def _rca(cfg: dict, acfg: dict, al: Alert, interval: timedelta, investigate) -> 
         return f"根因分析失敗：{e}", None
 
 
-def _similar(es: ES, acfg: dict, al: Alert, findings: dict | None) -> list[dict]:
+def _similar(repo: Repos, acfg: dict, al: Alert, findings: dict | None) -> list[dict]:
     """相似事故（老師傅確認過的）；查失敗當沒有。"""
     if not acfg.get("similar", True):
         return []
     try:
-        return SIM.search(es, SIM.fingerprint(al, findings), weights=acfg.get("similar_weights"))
+        return SIM.search(repo, SIM.fingerprint(al, findings), weights=acfg.get("similar_weights"))
     except Exception as e:  # noqa: BLE001
         print(f"  相似事故檢索失敗：{e}")
         return []
@@ -257,7 +186,7 @@ def _with_head(report: str | None, llm: dict | None, similar: list[dict], cls: d
     return "\n".join(head) + "\n" + report if head and report else report
 
 
-def investigate_alert(es: ES, cfg: dict, acfg: dict, al: Alert, now: datetime, interval: timedelta, investigate) -> None:
+def investigate_alert(repo: Repos, cfg: dict, acfg: dict, al: Alert, now: datetime, interval: timedelta, investigate) -> None:
     """新開的件、沒報告的件、要重跑的件：根因分析 → 相似事故分類 → LLM 摘要（只加註）。
     結果放 al.report_text、al.llm（這一輪用，不寫 ES）、al.findings、al.similar、al.suggested_category（寫進 ES）。"""
     report, llm = al.report, None
@@ -278,7 +207,7 @@ def investigate_alert(es: ES, cfg: dict, acfg: dict, al: Alert, now: datetime, i
         al.rerun = True
         al.llm_summary = None      # 舊的摘要是「沒有 trace」時寫的（可能說 trace 沒變慢），換掉
         print(f"  🔁 {al.alert_id}：{'人要求' if forced else 'trace 到了，'}重跑根因分析（第 {al.rca_attempts} 次）")
-    similar = _similar(es, acfg, al, findings)
+    similar = _similar(repo, acfg, al, findings)
     # case 只做分類：像哪一類＋信心，寫進告警；報告、摘要不列 case 的處置
     cls = SIM.classify(similar)
     al.suggested_category = cls["category"] if cls else None
@@ -331,22 +260,22 @@ def announce(al: Alert, doc: dict) -> str | None:
 def run(cfg: dict, args, investigate) -> int:
     """一輪：讀開著的件與最近的異常 → 併成件（alerts.merge）→ 每件補歸屬、嚴重度、根因分析 → 寫回 aiops-alerts、異常標 alert_id、開事故。
     investigate：根因分析的函式（investigator.__main__.investigate_full），傳進來避免循環 import。"""
-    es = ES()
-    es.ensure_index(ALERT_INDEX, ALERT_MAPPING)
+    repo = Repos(ES())
+    repo.alerts.ensure()
     acfg = cfg.get("alerts", {})
     tz = ZoneInfo(cfg.get("timezone", "Asia/Taipei"))
     now = datetime.fromisoformat(args.at.replace("Z", "+00:00")) if args.at else datetime.now(timezone.utc)
     close_after, lookback = _dur(acfg.get("close_after", "30m")), _dur(acfg.get("lookback", "2h"))
     interval = _dur(cfg.get("interval", "5m"))
-    open_alerts = _open_alerts(es)
+    open_alerts = repo.alerts.open()
     oldest = min([a.updated_at for a in open_alerts], default=now)
     start = min(now - lookback, oldest - close_after)
-    anoms = _anomalies(es, cfg["indices"]["anomalies"], start, now)
-    chain = _chain(es, cfg, acfg, anoms, open_alerts, start, now)
-    alerts = AL.merge(open_alerts, anoms, now, close_after, _done_ids(es, start - close_after), chain.calls, chain.links)
+    anoms = repo.anomalies.between(start, now)
+    chain = _chain(repo, cfg, acfg, anoms, open_alerts, start, now)
+    alerts = AL.merge(open_alerts, anoms, now, close_after, repo.alerts.resolved_anomaly_ids(start - close_after), chain.calls, chain.links)
     for al in alerts:
-        enrich(es, cfg, al, now)
-        investigate_alert(es, cfg, acfg, al, now, interval, investigate)
+        enrich(repo, cfg, al, now)
+        investigate_alert(repo, cfg, acfg, al, now, interval, investigate)
     # 開著的件之間：卡同一個外部依賴（同一個 Oracle）的互相標同源（不合併）；有變的件摘要重寫
     relinked = AL.link_shared(alerts)
     docs, incidents, tags, new, resolved = [], [], [], 0, 0
@@ -369,9 +298,9 @@ def run(cfg: dict, args, investigate) -> int:
         new += outcome == "new"
         resolved += outcome == "resolved"
     docs.append(heartbeat_doc(now))
-    tag_anomalies(es, cfg["indices"]["anomalies"], tags)   # 先寫回異常、再寫件：件寫失敗下一輪會重做；反過來這些異常就永遠沒標到
-    es.bulk_index(ALERT_INDEX, docs)
-    write_incidents(es, incidents)    # 已被老師傅確認的不覆蓋（原子，不是先讀再寫）
+    repo.anomalies.tag_alert(tags)   # 先寫回異常、再寫件：件寫失敗下一輪會重做；反過來這些異常就永遠沒標到
+    repo.alerts.bulk(docs)
+    repo.incidents.upsert_auto(incidents)    # 已被老師傅確認的不覆蓋（原子，不是先讀再寫）
     still = sum(1 for _, d in docs if d["status"] == "open")
     print(f"{now.astimezone(tz):%m-%d %H:%M}：新開 {new} 件、結束 {resolved} 件、進行中 {still} 件")
     return 0

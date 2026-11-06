@@ -28,11 +28,11 @@ import typer
 
 import aiops.core.entity.trace as T
 from aiops.config.loader import load_config
-from aiops.core.repository.base import as_backend
+from aiops.core.connection import ES
+from aiops.core.repository import Repos
 
 import aiops.service.rca.analyze as A
 import aiops.service.converge.alert_service as cmd_alert
-import aiops.core.repository.rca_queries as E
 import aiops.service.rca.similar as SIM
 import aiops.service.feedback.importer as IMP
 from aiops.service.rca.report import _dur, _local, _ms, _ts, investigate_full  # noqa: F401  舊的 import 路徑還有人用
@@ -46,11 +46,11 @@ def investigate(cfg: dict, args) -> str:
 
 
 def topology(cfg: dict, args) -> str:
-    es = E.ES()
+    traces, ix = Repos(ES()).traces, cfg["indices"]["traces"]
     end = _ts(args.at)
     start = end - _dur(args.window)
-    ids = E.recent_trace_ids(es, cfg["indices"]["traces"], start, end, args.sample)
-    tr = T.group_traces(as_backend(es).spans(cfg["indices"]["traces"], ids, start - timedelta(minutes=5), end + timedelta(minutes=5)))
+    ids = traces.recent_trace_ids(ix, start, end, args.sample)
+    tr = T.group_traces(traces.spans(ix, ids, start - timedelta(minutes=5), end + timedelta(minutes=5)))
     edges = A.topology(tr)
     tz = cfg.get("timezone", "Asia/Taipei")
     out = [f"# 服務之間的呼叫關係：{_local(start, tz)}～{_local(end, tz)}（{tz}，最近 {len(tr)} 個請求）", "",
@@ -61,9 +61,9 @@ def topology(cfg: dict, args) -> str:
 
 
 def similar_eval(cfg: dict, args) -> int:
-    es = E.ES()
+    repo = Repos(ES())
     weights = (cfg.get("alerts") or {}).get("similar_weights")
-    r = SIM.evaluate(es, weights=weights)
+    r = SIM.evaluate(repo, weights=weights)
     for row in r["rows"]:
         pred = f"→ 分類 {row['predicted']}（{row['confidence']:.0%}）" if row["predicted"] else "→ 沒有相似的、不分類"
         print(f"  {'✓' if row['correct'] else '✗'} {row['id'][:24]:<24} [{row['category']}] {row['title'] or ''}  {pred}")
@@ -73,7 +73,7 @@ def similar_eval(cfg: dict, args) -> int:
     else:
         print("沒有已確認、有根因分類的事故")
     if args.learn_weights:
-        got = SIM.learn_weights(SIM._confirmed_cases(es), start=weights)
+        got = SIM.learn_weights(SIM._confirmed_cases(repo), start=weights)
         if not got["ok"]:
             print(got["reason"])
         else:

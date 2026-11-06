@@ -43,7 +43,7 @@
 | [../aiops-engine/code/configs/apm/README.md](../aiops-engine/code/configs/apm/README.md) | 操作 | 用 Elastic APM 的資料跑 engine（收值就是這個）：哪些功能能用、ES role、template、`source: apm`、欄位對照 | 🟡（未在真實 APM 資料上跑過） |
 | [../aiops-engine/code/plugins/README.md](../aiops-engine/code/aiops/scenario/README.md) | 操作 | plugin：`AIOPS_PLUGIN` 選 observability／factory／metrics_only、三個內建各填了哪些擴充點、哪些功能在哪個 plugin 能用、怎麼自己寫一個 | 🟢（三個都有單元測試；factory、metrics_only 假資料 e2e 跑通） |
 | [../aiops-engine/code/configs/factory/README.md](../aiops-engine/code/configs/factory/README.md) | 操作 | 工廠（`AIOPS_PLUGIN=factory`）：ML／FDC 判好的異常接進 ⑤、MES＋S6F11 合成履歷取代 trace、機台 alarm／PM／recipe 變更當 log、前後站併件、誤報匯出給 ML；要給什麼資料、怎麼跑、哪些功能能用 | 🟡（假資料跑通；欄位名是假設） |
-| [../aiops-engine/code/sources/README.md](../aiops-engine/code/aiops/core/repository/README.md) | 操作 | 資料來源：ES 以外（檔案、HTTP、程式給 DataFrame）也能跑 train／detect／peer／rules；`source:`、`store:` 怎麼寫、跟 ES 算得一不一樣 | 🟢 |
+| [../aiops-engine/code/aiops/core/repository/README.md](../aiops-engine/code/aiops/core/repository/README.md) | 規格 | repository 層：一個實體一個，索引名與 ES 查詢只在這裡；`Repos` 怎麼用、每個 repository 管哪個索引 | 🟢 |
 | [../aiops-engine/code/models/README.md](pdca/meta/2026-11-target-architecture.md) | 規格 | 五個模型的標準輸入（欄位、一列是什麼）與主要函式 | 🟢 |
 | [../aiops-engine/code/interfaces/README.md](../aiops-engine/code/interfaces/README.md) | 規格 | 要別人提供的資料的格式 | 🟢 |
 | [../aiops-engine/code/fake-data/README.md](../aiops-engine/code/fake-data/README.md) | 規格 | 假資料（只為了讓程式現在能跑、能測） | 🟢 |

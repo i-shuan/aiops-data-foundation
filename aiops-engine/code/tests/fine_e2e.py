@@ -18,7 +18,8 @@ import pandas as pd
 
 from aiops.interface.cli.detect import main as cli
 from aiops.core.entity.anomaly import ANOMALY_INDEX
-from aiops.service.detect.es_facade import BASELINE_INDEX, ES
+from aiops.core.connection import ES
+from aiops.core.entity.baseline import BASELINE_INDEX
 
 TZ = "Asia/Taipei"
 INDEX = "aiops-fine"

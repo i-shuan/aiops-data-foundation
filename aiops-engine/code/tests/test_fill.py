@@ -1,9 +1,9 @@
-"""es._fill_zero 的單元測試：補 0 的規則，不需要 ES。"""
+"""core/repository/series.fill_zero 的單元測試：補 0 的規則，不需要 ES。"""
 import unittest
 
 import pandas as pd
 
-from aiops.service.detect.es_facade import _fill_zero
+from aiops.core.repository.series import fill_zero as _fill_zero
 
 T0 = pd.Timestamp("2026-10-01T00:00:00Z")
 

@@ -1,72 +1,38 @@
-# 資料來源：ES 以外的資料也能跑 train／detect／peer／rules
+# core/repository：索引的讀寫，一個實體一個
 
-> **類型：操作 How-To**　五個模型的輸入規格見 [models/README.md](../../../../../docs/pdca/meta/2026-11-target-architecture.md)・為什麼這樣切見 [docs/pdca/meta/2026-11-model-modules.md](../../../../../docs/pdca/meta/2026-11-model-modules.md)
+> **類型：規格 Reference**　為什麼這樣分層見 [docs/architecture.md](../../../../../docs/architecture.md)、計畫見 [docs/pdca/meta/2026-11-target-architecture.md](../../../../../docs/pdca/meta/2026-11-target-architecture.md)
 
-設定檔（`series.yaml`、`peer.yaml`、`rules.yaml`…）最上層加 `source:`、`store:`，指令和模型不用改。沒寫就是現在的 ES（`ESBackend`，跟 file／http／memory 一樣是 `Backend` 的實作；程式裡拿到 `core.es.ES` 時用 `sources.as_backend(es)` 包起來）。
+索引名與 ES 的查詢語法只出現在這一層（`tests/test_layers.py` 鎖著）。service 透過 `Repos` 拿各實體的 repository：
 
-| 情況 | 怎麼做 |
-|---|---|
-| 資料在 ES（現況） | 什麼都不加 |
-| 資料是檔案（CSV、Parquet、NDJSON、JSON） | `source: {kind: file, format: events, files: {<index>: <路徑>}}`，結果放 `store: {kind: file, dir: .aiops-store}` |
-| 資料在別的系統，有 HTTP API | `source: {kind: http, format: events, url: "https://…?index={index}&start={start}&end={end}"}` |
-| 別的 Python 程式手上有 DataFrame | `be = sources.MemoryBackend({"<index>": df})`，傳給指令 `detector.cmd_baseline.cmd_train(cfg, args, backend=be)`，或自己 `be.series(spec, …)` 餵 `models/` |
-| 資料在 ES、結果不要寫 ES（離線實驗） | 只加 `store: {kind: file, dir: …}` |
+```python
+from aiops.core.connection import ES
+from aiops.core.repository import Repos
 
-## 檔案來源
-
-```yaml
-source:
-  kind: file
-  format: events                       # 一列一個事件（請求、log、一個時間點的量測值）
-  files:
-    metrics-apm.transaction.1m-*: data/tx.csv          # key 是序列寫的 index（可含 *）
-    metrics-apm.service_destination.1m-*: data/dest.parquet
-  spans: data/spans.ndjson             # 選填：M4 用的 span（core/traces 的格式）
-store:
-  kind: file
-  dir: .aiops-store                    # 每個 aiops-* index 一個 .ndjson；train 寫的 baseline 下次 detect 讀得到
+repo = Repos(ES())                       # 指令開頭；測試給假 ES（只要有 req／search／bulk_index／ensure_index），或 tests/fakes.MemoryRepos 不連 ES
+repo.alerts.open()                       # ⑥ 開著的件（Alert 模型）
+repo.anomalies.write(docs)               # ⑤ 寫異常：補 engine_version、dept／group
+repo.series.fetch(spec, start, end, "5m")   # 原始資料 → 一條序列（keys + ts + value + n）
 ```
 
-```bash
-cd aiops-engine/code && python3 -m detector train --config my-series.yaml --end 2026-11-02T00:00:00Z
-```
+| 屬性 | 檔案 | 索引 | 給誰用 |
+|---|---|---|---|
+| `anomalies` | `anomaly.py` | `aiops-anomalies` | ④ 五種偵測寫、⑤⑥⑨ 讀（between、get_many、status_of、tag_alert） |
+| `alerts` | `alert.py` | `aiops-alerts` | ⑥ alert 每輪（open、resolved_anomaly_ids、bulk）、⑧ 網頁（get、list、request_rca）、detect-status |
+| `incidents` | `incident.py` | `aiops-incidents` | ⑥ upsert_auto（只更新 auto 的）、⑦ similar／find（相似事故）、⑨ patch／put／recent |
+| `tuning` | `tuning.py` | `aiops-tuning` | 調整：all（讀不到回 []）、proposed、get／exists、put（過 Adjustment 模型）、patch、delete |
+| `feedback` | `feedback.py` | `aiops-feedback` | ⑨ since、missed_since、by_alert_ids、put、bulk |
+| `baseline` | `baseline.py` | `aiops-baseline` | 動態基準線 load、load_group、save（寫完刪舊的） |
+| `segments` | `segment.py` | `aiops-trace-segments` | trace 每段的統計 |
+| `state` | `state.py` | `aiops-state` | 排程工作的進度（trace-merge 合到哪） |
+| `chronic` | `chronic.py` | `aiops-chronic` | 慢性病清單 |
+| `series` | `series.py` | 設定給（metrics、log 的索引） | 原始資料 → `fetch`（序列）、`alive_times`、`points`（規則）、`rows`／`rows_where`（ingest、paths-merge）；`value` 的寫法 → ES aggregation 在這裡 |
+| `traces` | `trace.py` | 設定給（raw、merged、lot-paths） | spans、spans_by_id、updated_trace_ids、write_merged、merged_docs、entry_stats、sample_trace_ids、recent／service_trace_ids、sample_entries |
+| `logs` | `log.py` | 設定給 | of_traces、changes、problems、daily_counts；欄位名依場景的 log 對照 |
+| `change` | `change.py` | 設定給 | 換版：version_first_seen（IT）、latest（工廠的變更紀錄） |
+| `quality` | `quality.py` | check 給 | 品質檢查讀的統計：cardinality、missing、counts、count、lag |
+| `housekeeping` | `housekeeping.py` | 設定給 | count／delete_by_query（prune）、put_index_template |
+| （函式） | `owner.py` | 設定給 | `load_owners`、`owner_of`：異常的 dept／group（AnomalyRepository.write 用） |
 
-```bash
-cd aiops-engine/code && python3 -m detector detect --config my-series.yaml --at 2026-11-02T10:00:00Z --window 2h
-```
-
-- 欄位名用 ES 的點號路徑（`service.name`、`event.outcome`、`transaction.duration.us`）；JSON 的巢狀物件會自動攤平。
-- 時間欄位預設 `@timestamp`（序列可用 `time_field` 改），ISO 字串或毫秒數。
-- 直方圖欄位（APM 1 分鐘指標的 `transaction.duration.histogram`）一格 `{"values": […], "counts": […]}`，或攤成 `.values`、`.counts` 兩欄。
-- `format: series`：列已經是標準輸入（`keys` 或 `by` 的欄位 + `ts` + `value` [+ `n`]），只做時間窗、改名、合併、補 0；同一窗多列時筆數類相加、其餘依 `n` 加權平均。
-- 每個檔讀一次留在記憶體：幾十萬列可以，再大就先切時間或改用 ES。
-
-## HTTP 來源
-
-```yaml
-source:
-  kind: http
-  format: events
-  url: https://api.example.internal/rows?index={index}&start={start}&end={end}    # 回 JSON 陣列或 {"rows": […]}
-  headers: {Authorization: Bearer …}
-  timeout: 60
-```
-
-`{start}`、`{end}` 是 ISO 時間。也可以每個 index 一個網址：`urls: {metrics-apm.transaction.1m-*: https://…}`。每次查詢都打一次（detect 每分鐘跑）。
-
-## `value` 的寫法與 ES 算得一不一樣
-
-`events` 格式的 `value` 寫法跟 [series.yaml](../../../configs/baseline/reference.md) 一樣，在 pandas 算（[shape.py](shape.py)）。跟 ES 比過（同一批合成列，見 PDCA 的 Check）：
-
-| value | 一樣？ |
-|---|---|
-| `count`、`ratio`、`sum`／`avg`／`max`／`min`、`div`、`percentile`（一列一個事件）、`hist_count`、`hist_ratio` | 完全一樣 |
-| `percentile` 在直方圖欄位 | ES 是近似（TDigest），差約 2% 內 |
-| `hist_ratio_above` | ES 在桶之間內插、這裡整格算一邊，差到 9%（門檻剛好落在某一格時） |
-
-`filter` 支援 `term`、`terms`、`range`、`exists`、`prefix`、`wildcard`、`match`、`match_all`、`bool`；其他寫法會報錯說不支援。
-
-## 做不到的
-
-- `trace-merge`（讀 raw trace 合成一筆）、根因分析的 log 比對、`tune`／`adjust` 寫 `aiops-tuning`、回饋網頁：只有 ES。`store` 不是 ES 時 `tune` 會拒絕，請直接改 `series.yaml` 的 `overrides`。
-- 檔案、記憶體來源沒有 dept／group 的資料可查：異常全部 `unassigned`。
+- mapping 跟著實體：`core/entity/{anomaly,alert,incident,adjustment,feedback,baseline}.py`；只有 repository 自己用的索引（segments、state、chronic）mapping 放在 repository 檔裡。
+- 共用的翻頁（search_after、composite）、_mget、_update、_bulk update 在 `_base.py` 的 `Repository`。
+- 不連 ES 的測試：`tests/fakes.MemoryRepos`（原始資料給 DataFrame，整形在 `tests/shaping.py`，語意跟 ES 端的 aggregation 一樣，`tests/test_shape.py`、`test_values.py` 對過）。

@@ -20,19 +20,9 @@ from dataclasses import dataclass
 
 import pandas as pd
 
-from aiops.core.connection import ES, doc_id, time_range
-from aiops.core.entity.trace import group_traces, is_merged, segment, self_times
-from aiops.core.repository.base import as_backend
+from aiops.core.connection import doc_id
+from aiops.core.entity.trace import group_traces, segment, self_times
 
-SEGMENT_INDEX = "aiops-trace-segments"
-SEGMENT_MAPPING = {"mappings": {"dynamic": False, "properties": {
-    "@timestamp": {"type": "date"}, "kind": {"type": "keyword"},
-    "entry": {"properties": {"service": {"type": "keyword"}, "name": {"type": "keyword"}}},
-    "segment": {"type": "keyword"}, "requests": {"type": "integer"},
-    "calls": {"type": "double"}, "time_ms": {"type": "double"}, "error_rate": {"type": "double"},
-    "swallowed_rate": {"type": "double"}, "exception_type": {"type": "keyword"},
-    "caller": {"type": "keyword"}, "callee": {"type": "keyword"}, "skew_ms": {"type": "double"},
-}}}
 KEYS = ["entry.service", "entry.name", "segment"]
 COLUMNS = ["ts", *KEYS, "requests", "calls", "time_ms", "error_rate", "swallowed_rate", "exception_type"]
 METRICS = ("calls", "time_ms", "error_rate", "swallowed_rate")
@@ -209,93 +199,22 @@ def swallowed(cur: pd.DataFrame, min_rate: float) -> pd.DataFrame:
     return cur[cur["swallowed_rate"] >= min_rate]
 
 
-# ── 讀寫 ES ──
+# ── 讀寫（repo.traces 抽樣、讀 span；repo.segments 存統計）──
 
-def sample_entries(es: ES, index: str, start: pd.Timestamp, end: pd.Timestamp, interval: str, per_bucket: int,
-                   policy: str | None = None) -> list[Sampled]:
-    """每個時段、每個入口（服務的 Server span、訊息消費者的 Consumer span、沒有上一層的 span）抽 per_bucket 個請求。
-    依隨機的 id 排序取前幾個，等於隨機抽。index 是合成一個請求一筆的 traces-merged-* 時走 _sample_entries_merged（入口用合成時算好的 entries）；
-    raw（traces-*.otel-*，每一段一筆）照舊，給寫 raw 的測試用。
-    policy：以前尾端取樣時只抽 random 那份；現在 100% 收、不取樣，trace.yaml 不設這個，全部都抽。沒有標記的照樣抽。"""
-    if is_merged(index):
-        return _sample_entries_merged(es, index, start, end, interval, per_bucket)
-    sources = [{"svc": {"terms": {"field": "resource.attributes.service.name"}}},
-               {"name": {"terms": {"field": "name"}}},
-               {"ts": {"date_histogram": {"field": "@timestamp", "fixed_interval": interval}}}]
-    # 入口：HTTP 請求（Server）、訊息消費者（Consumer），以及「沒有上一層的 span」：
-    # .NET 自動埋點的 Kafka 消費者處理訊息時查 DB，那個 DB 的 span 沒有上一層、自成一個 trace（串不回訊息），
-    # 也當成入口算，至少看得到「這個服務查 DB 變慢、出錯」（docs/trace/README.md 場景四）
-    entry = {"bool": {"should": [{"terms": {"kind": ["Server", "Consumer"]}},
-                                 {"bool": {"must_not": {"exists": {"field": "parent_span_id"}}}}], "minimum_should_match": 1}}
-    filters = [time_range(start, end), entry]
-    if policy:
-        f = "scope.attributes.tailsampling.policy"
-        filters.append({"bool": {"should": [{"term": {f: policy}}, {"bool": {"must_not": {"exists": {"field": f}}}}]}})
-    body = {"size": 0, "query": {"bool": {"filter": filters}},
-            "aggs": {"e": {"composite": {"size": 1000, "sources": sources},
-                           "aggs": {"t": {"top_hits": {"size": per_bucket, "sort": [{"trace_id": "asc"}],
-                                                       "_source": ["trace_id", "span_id"]}}}}}}
-    out, after = [], None
-    while True:
-        if after:
-            body["aggs"]["e"]["composite"]["after"] = after
-        agg = es.search(index, body).get("aggregations", {}).get("e", {})
-        for b in agg.get("buckets", []):
-            ts = pd.Timestamp(b["key"]["ts"], unit="ms", tz="UTC")
-            out += [Sampled(ts, h["_source"]["trace_id"], h["_source"]["span_id"]) for h in b["t"]["hits"]["hits"]]
-        after = agg.get("after_key")
-        if not after:
-            break
-    return out
-
-
-def _sample_entries_merged(es: ES, index: str, start: pd.Timestamp, end: pd.Timestamp, interval: str, per_bucket: int) -> list[Sampled]:
-    """merged：一筆是一個請求，entries 是合成時算好的入口（nested）。nested → composite（服務 × API × 時段）→ top_hits：
-    hit 的 _id 是整筆的 _id（= trace_id）、_source 是那個入口的 span_id；依 span_id 排序（隨機的 16 進位）等於隨機抽。
-    時段用入口自己的 start_ms 切（nested 裡拿不到整筆的 @timestamp）；查詢的時間範圍兩邊各放寬 5 分鐘，再只留 [start, end) 的時段。"""
-    step_ms = int(pd.Timedelta(interval if interval.endswith("in") else interval.replace("m", "min")).total_seconds() * 1000)
-    pad = pd.Timedelta(minutes=5)
-    sources = [{"svc": {"terms": {"field": "entries.service"}}},
-               {"name": {"terms": {"field": "entries.name"}}},
-               {"ts": {"histogram": {"field": "entries.start_ms", "interval": step_ms}}}]
-    body = {"size": 0, "query": {"bool": {"filter": [time_range(start - pad, end + pad)]}},
-            "aggs": {"n": {"nested": {"path": "entries"},
-                           "aggs": {"e": {"composite": {"size": 1000, "sources": sources},
-                                          "aggs": {"t": {"top_hits": {"size": per_bucket, "sort": [{"entries.span_id": "asc"}],
-                                                                      "_source": ["entries.span_id"]}}}}}}}}
-    lo, hi = start.value // 10**6, end.value // 10**6
-    out, after = [], None
-    while True:
-        if after:
-            body["aggs"]["n"]["aggs"]["e"]["composite"]["after"] = after
-        agg = es.search(index, body).get("aggregations", {}).get("n", {}).get("e", {})
-        for b in agg.get("buckets", []):
-            ms = int(b["key"]["ts"])
-            if not (lo <= ms < hi):
-                continue
-            ts = pd.Timestamp(ms, unit="ms", tz="UTC")
-            out += [Sampled(ts, h["_id"], h["_source"]["span_id"]) for h in b["t"]["hits"]["hits"]]
-        after = agg.get("after_key")
-        if not after:
-            break
-    return out
-
-
-def collect(es: ES, cfg: dict, start: pd.Timestamp, end: pd.Timestamp) -> tuple[pd.DataFrame, list[dict]]:
+def collect(repo, cfg: dict, start: pd.Timestamp, end: pd.Timestamp) -> tuple[pd.DataFrame, list[dict]]:
     """[start, end) 每個時段抽樣、算好，寫進 aiops-trace-segments（同一個時段重算會覆蓋，不會重複）。"""
-    interval = cfg.get("interval", "5m")
-    samples = sample_entries(es, cfg["traces_index"], start, end, interval, cfg.get("sample_per_bucket", 100),
-                             cfg.get("sample_policy"))
+    interval, ix = cfg.get("interval", "5m"), cfg["traces_index"]
+    samples = [Sampled(*s) for s in repo.traces.sample_entries(ix, start, end, interval, cfg.get("sample_per_bucket", 100), cfg.get("sample_policy"))]
     if not samples:
         return pd.DataFrame(columns=COLUMNS), []
     pad = pd.Timedelta(minutes=5)
-    traces = group_traces(as_backend(es).spans(cfg["traces_index"], sorted({s.trace_id for s in samples}), start - pad, end + pad))
+    traces = group_traces(repo.traces.spans(ix, sorted({s.trace_id for s in samples}), start - pad, end + pad))
     # 消費者用 link 指到的生產者在別的 trace 裡，另外讀回來（尾端取樣時那個 trace 可能沒被留下，就算不出排隊時間）
     want = {sid for t in traces.values() for sp in t if sp["kind"] == "Consumer" for sid in sp.get("links") or []}
-    linked = as_backend(es).spans_by_id(cfg["traces_index"], sorted(want), start - pad, end + pad) if want else {}
+    linked = repo.traces.spans_by_id(ix, sorted(want), start - pad, end + pad) if want else {}
     df, skews = summarize(samples, traces, cfg.get("clock_skew_ms", 500), linked)
     df = fill_missing_segments(df)
-    es.ensure_index(SEGMENT_INDEX, SEGMENT_MAPPING)
+    repo.segments.ensure()
     docs = [(doc_id("seg", r["ts"], r["entry.service"], r["entry.name"], r["segment"]),
              {"@timestamp": r["ts"].isoformat(), "kind": "segment", "entry": {"service": r["entry.service"], "name": r["entry.name"]},
               "segment": r["segment"], "requests": int(r["requests"]), **{m: float(r[m]) for m in METRICS},
@@ -304,25 +223,12 @@ def collect(es: ES, cfg: dict, start: pd.Timestamp, end: pd.Timestamp) -> tuple[
     docs += [(doc_id("skew", r["ts"], r["caller"], r["callee"]),
               {"@timestamp": r["ts"].isoformat(), "kind": "clock_skew", "caller": r["caller"], "callee": r["callee"],
                "skew_ms": r["skew_ms"]}) for r in skews]
-    if docs:
-        es.bulk_index(SEGMENT_INDEX, docs)
+    repo.segments.bulk(docs)
     return df, skews
 
 
-def load_segments(es: ES, start: pd.Timestamp, end: pd.Timestamp) -> pd.DataFrame:
-    rows, after = [], None
-    while True:
-        body = {"size": 10000, "sort": [{"@timestamp": "asc"}, {"_doc": "asc"}],
-                "query": {"bool": {"filter": [time_range(start, end), {"term": {"kind": "segment"}}]}}}
-        if after:
-            body["search_after"] = after
-        hits = es.search(SEGMENT_INDEX, body)["hits"]["hits"]
-        for h in hits:
-            s = h["_source"]
-            rows.append({"ts": pd.Timestamp(s["@timestamp"]), "entry.service": s["entry"]["service"],
-                         "entry.name": s["entry"]["name"], "segment": s["segment"], "requests": s["requests"],
-                         **{m: s.get(m, 0.0) for m in METRICS}})   # 舊的統計沒有 swallowed_rate
-        if len(hits) < 10000:
-            break
-        after = hits[-1]["sort"]
+def load_segments(repo, start: pd.Timestamp, end: pd.Timestamp) -> pd.DataFrame:
+    rows = [{"ts": pd.Timestamp(s["@timestamp"]), "entry.service": s["entry"]["service"], "entry.name": s["entry"]["name"],
+             "segment": s["segment"], "requests": s["requests"], **{m: s.get(m, 0.0) for m in METRICS}}   # 舊的統計沒有 swallowed_rate
+            for s in repo.segments.segments(start, end)]
     return pd.DataFrame(rows, columns=["ts", *KEYS, "requests", *METRICS])

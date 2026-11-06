@@ -16,13 +16,14 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 import aiops.interface.jobs.worker as tasks
 import aiops.interface.web.app as A
+from aiops.core.repository import Repos
 
-state = SimpleNamespace(es=None)    # ES 連線的單一注入點：main() 放 ES()，測試放假的（set_es）
+state = SimpleNamespace(es=None, repo=None)    # ES 連線的單一注入點：main() 放 ES()，測試放假的（set_es）；repo 是它上面的 repository
 HTML, JSON, TEXT = "text/html; charset=utf-8", "application/json", "text/plain; charset=utf-8"
 
 
 def set_es(es) -> None:
-    state.es = es
+    state.es, state.repo = es, Repos(es)
 
 
 def _cors_origins() -> set[str]:
@@ -99,7 +100,7 @@ def health():
 @app.get("/api/alert")    # Grafana 表單的預填（initial request）：一層的 JSON，key 對到表單元素的 id
 def api_alert(request: Request):
     q = _query(request)
-    alert = A.load_alert(state.es, q.get("alert", ""))
+    alert = A.load_alert(state.repo, q.get("alert", ""))
     if not alert:
         return _send(404, A.to_json({"error": f"找不到告警 {q.get('alert')}"}), JSON)
     return _send(200, A.to_json(A.form_json(A.form_data(alert))), JSON)
@@ -114,7 +115,7 @@ def api_missed_form():
 def api_alerts(request: Request):
     q = _query(request)
     try:
-        return _send(200, A.to_json(A.list_alerts(state.es, q.get("status", "open"), int(q.get("size", "50")))), JSON)
+        return _send(200, A.to_json(A.list_alerts(state.repo, q.get("status", "open"), int(q.get("size", "50")))), JSON)
     except ValueError as e:
         return _send(400, A.to_json({"error": str(e)}), JSON)
 
@@ -128,7 +129,7 @@ def missed_page():
 @app.get("/report")
 def feedback_page(request: Request):
     q = _query(request)
-    alert = A.load_alert(state.es, q.get("alert", ""))
+    alert = A.load_alert(state.repo, q.get("alert", ""))
     if not alert:
         return _send(404, f"找不到告警 {q.get('alert')}".encode(), TEXT)
     if request.url.path == "/report":
@@ -148,7 +149,7 @@ def _anomalies(request: Request, raw: bytes) -> Response:
     if not ok:
         return _send(401, A.to_json({"error": why}), JSON)
     try:
-        got = A.ingest(state.es, json.loads(raw or b"{}"))
+        got = A.ingest(state.repo, json.loads(raw or b"{}"))
     except LookupError as e:
         return _send(404, A.to_json({"error": str(e)}), JSON)
     except (KeyError, ValueError, TypeError) as e:
@@ -167,7 +168,7 @@ async def api_rca(request: Request):
 
 def _api_rca(raw: bytes) -> Response:
     try:
-        got = A.request_rca(state.es, json.loads(raw or b"{}").get("alert_id", ""))
+        got = A.request_rca(state.repo, json.loads(raw or b"{}").get("alert_id", ""))
     except LookupError as e:
         return _send(404, A.to_json({"error": str(e)}), JSON)
     except ValueError as e:
@@ -187,7 +188,7 @@ async def missed_submit(request: Request):
 def _missed_submit(raw: bytes) -> Response:
     form = _form(raw)
     try:
-        return _send(200, A.render_missed(done=A.submit_missed(state.es, form)).encode())
+        return _send(200, A.render_missed(done=A.submit_missed(state.repo, form)).encode())
     except (KeyError, ValueError) as e:
         return _send(400, A.render_missed(error=str(e), form=form).encode())
     except Exception as e:
@@ -204,7 +205,7 @@ def _rca_submit(raw: bytes) -> Response:
     form = _form(raw)
     aid = form.get("alert_id", "")
     try:
-        A.request_rca(state.es, aid)
+        A.request_rca(state.repo, aid)
         notice = "已排進佇列，幾秒到一分鐘後重新整理這頁，報告會換新。" if tasks.trigger("alert") else "已記下，下一分鐘的 alert 會重跑，之後重新整理這頁。"
     except LookupError as e:
         return _send(404, str(e).encode(), TEXT)
@@ -224,7 +225,7 @@ async def api_missed(request: Request):
 
 def _api_missed(raw: bytes) -> Response:
     try:
-        return _send(200, A.to_json(A.submit_missed(state.es, json.loads(raw or b"{}"))), JSON)
+        return _send(200, A.to_json(A.submit_missed(state.repo, json.loads(raw or b"{}"))), JSON)
     except (KeyError, ValueError) as e:
         return _send(400, A.to_json({"error": str(e)}), JSON)
     except Exception as e:
@@ -245,11 +246,11 @@ def _feedback_submit(request: Request, raw: bytes) -> Response:
     else:
         form = _form(raw, lists=("checked",))
     try:
-        done = A.submit(state.es, form)
+        done = A.submit(state.repo, form)
     except (KeyError, ValueError) as e:
         if is_api:
             return _send(400, A.to_json({"error": str(e)}), JSON)
-        alert = A.load_alert(state.es, form.get("alert_id", ""))
+        alert = A.load_alert(state.repo, form.get("alert_id", ""))
         return _send(400, A.render_form(A.form_data(alert), error=str(e), full=form.get("full") == "1").encode() if alert else str(e).encode())
     except Exception as e:    # ES 掛了、連不上：要回一頁說「沒存成功，請再送一次」，不能把連線關掉讓人猜
         msg = f"沒有存成功（{type(e).__name__}：{str(e)[:120]}）。請稍後再送一次；重送不會重複記錄。"
@@ -257,11 +258,11 @@ def _feedback_submit(request: Request, raw: bytes) -> Response:
         if is_api:
             return _send(503, A.to_json({"error": msg}), JSON)
         try:
-            alert = A.load_alert(state.es, form.get("alert_id", ""))
+            alert = A.load_alert(state.repo, form.get("alert_id", ""))
         except Exception:
             alert = None
         return _send(503, A.render_form(A.form_data(alert), error=msg, full=form.get("full") == "1").encode() if alert else msg.encode())
     if is_api:
         return _send(200, A.to_json(done), JSON)
-    alert = A.load_alert(state.es, form["alert_id"])
+    alert = A.load_alert(state.repo, form["alert_id"])
     return _send(200, A.render_form(A.form_data(alert), done=done, full=form.get("full") == "1").encode())

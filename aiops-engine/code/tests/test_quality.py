@@ -4,6 +4,8 @@ import unittest
 import pandas as pd
 
 import aiops.service.detect.quality as Q
+import aiops.core.repository.quality as QR
+from aiops.core.repository import Repos
 
 
 class LooksLikeId(unittest.TestCase):
@@ -185,7 +187,7 @@ class MissingBucket(unittest.TestCase):
     """composite 的 missing_bucket（例如 log 沒有 namespace）：key 要是 None，不能變成 NaN。"""
 
     def test_none_key_stays_none(self):
-        df = Q._frame([{"namespace": None, "docs": 200}, {"namespace": "mes", "docs": 10}], ["namespace", "docs"])
+        df = QR._frame([{"namespace": None, "docs": 200}, {"namespace": "mes", "docs": 10}], ["namespace", "docs"])
         self.assertIsNone(df.to_dict("records")[0]["namespace"])
 
     def test_message_names_the_missing_key(self):
@@ -195,8 +197,8 @@ class MissingBucket(unittest.TestCase):
 
     def test_stopped_with_none_key(self):
         # 沒有服務名的那組之前、最近都有資料：不是停了
-        before = Q._frame([{"service": None, "docs": 100}, {"service": "a", "docs": 100}], ["service", "docs"])
-        recent = Q._frame([{"service": None, "docs": 5}, {"service": "a", "docs": 5}], ["service", "docs"])
+        before = QR._frame([{"service": None, "docs": 100}, {"service": "a", "docs": 100}], ["service", "docs"])
+        recent = QR._frame([{"service": None, "docs": 5}, {"service": "a", "docs": 5}], ["service", "docs"])
         self.assertEqual(Q.eval_stopped(before, recent, ["service"]), [])
 
 
@@ -217,7 +219,7 @@ class MissingQuery(unittest.TestCase):
 
     def aggs(self, check):
         es = FakeES()
-        df = Q.fetch_missing(es, {"name": "x", "index": "k8s-*", "by": ["ns"], "keys": ["namespace"], **check},
+        df = Repos(es).quality.missing({"name": "x", "index": "k8s-*", "by": ["ns"], "keys": ["namespace"], **check},
                              self.T - pd.Timedelta("1h"), self.T)
         self.assertEqual(list(df.columns), ["namespace", "docs"] + [f"missing:{f}" for f in check["fields"]])
         return es.bodies[0]["aggs"]["g"]["aggs"]
@@ -260,7 +262,7 @@ class Config(unittest.TestCase):
             for f in self.REQUIRED[c["type"]]:
                 self.assertIn(f, c, c["name"])
             if c.get("by"):
-                self.assertEqual(len(Q._keys(c)), len(c["by"]), c["name"])
+                self.assertEqual(len(Q.check_keys(c)), len(c["by"]), c["name"])
         for n in ["quality.trace_name_cardinality", "quality.trace_stopped", "quality.metrics_missing_service"]:
             self.assertIn(n, names)
         # service.name 被 Collector 補成 container 名稱的也要算缺（e2e B6a：沒有 service label 的 Pod）

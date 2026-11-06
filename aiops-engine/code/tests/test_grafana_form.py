@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 
 import aiops.interface.web.routes as W
 import aiops.interface.web.app as A
+from aiops.core.entity.feedback import FEEDBACK_INDEX
 from tests.test_api import ALERT, FakeES
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -152,7 +153,7 @@ class Cors(unittest.TestCase):
         self.assertTrue(r["extract"]["ok"])
         self.assertTrue(r["tuning_id"])
         es = W.state.es
-        fb = next(iter(es.written[A.FEEDBACK_INDEX].values()))
+        fb = next(iter(es.written[FEEDBACK_INDEX].values()))
         self.assertEqual((fb["rca_cause_useful"], fb["rca_action_useful"], fb["tuning_id"]), ("yes", "not_seen", r["tuning_id"]))
         self.assertEqual(es.written["aiops-tuning"][r["tuning_id"]]["status"], "proposed")
 

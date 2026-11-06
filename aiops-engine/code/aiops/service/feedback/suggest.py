@@ -22,26 +22,8 @@ import pandas as pd
 
 from aiops.core.connection import doc_id
 from aiops.core.entity.incident import Fingerprint
-from aiops.core.entity.adjustment import TUNING_INDEX, TUNING_MAPPING, validated
 
-FEEDBACK_INDEX = "aiops-feedback"
-VERDICTS = ("true_positive", "false_positive", "wrong_root_cause", "missed")
-
-FEEDBACK_MAPPING = {"mappings": {"dynamic": False, "properties": {
-    "@timestamp": {"type": "date"}, "anomaly_id": {"type": "keyword"}, "anomaly_at": {"type": "date"},
-    "series": {"type": "keyword"}, "keys": {"type": "flattened"}, "verdict": {"type": "keyword"},
-    "incident_id": {"type": "keyword"}, "correct_root_cause": {"type": "text"}, "note": {"type": "text"},
-    "by": {"type": "keyword"}, "alert_id": {"type": "keyword"}, "alert_started_at": {"type": "date"},
-    "fp_reason": {"type": "keyword"},
-    # 自由文字＋LLM 抽出來的四欄（docs/pdca/phase5-learning-loop/2026-10-feedback-nl-extract.md）；extract.ok false 就只有原文
-    "feedback_text": {"type": "text"},
-    "extract": {"properties": {"ok": {"type": "boolean"}, "provider": {"type": "keyword"}, "reason": {"type": "text"},
-                               "feedback_type": {"type": "keyword"}, "identified_cause": {"type": "keyword"},
-                               "target_service": {"type": "keyword"}, "suggested_action": {"type": "keyword"}}},
-    "tuning_id": {"type": "keyword"},      # 抽取結果寫進 aiops-tuning 的那一筆（proposed）
-    # 採納率的兩題：可能根因／建議的排查動作有沒有參考價值（yes、no、not_seen）
-    "rca_cause_useful": {"type": "keyword"}, "rca_action_useful": {"type": "keyword"}}}}
-RCA_USEFUL = ("yes", "no", "not_seen")
+from aiops.core.entity.feedback import FEEDBACK_INDEX, FEEDBACK_MAPPING, RCA_USEFUL, VERDICTS  # noqa: F401  索引、mapping 在 entity；這裡的名字留給既有的 import
 # identified_cause（core/llm.py 的 CAUSE_CODES）→ 表單的根因分類；規則草稿的 root_cause_category 用。沒列的是 other
 CAUSE_CATEGORY = {"db_slow_query": "db", "db_lock": "db", "db_connection_pool": "db", "network": "network", "dns": "network",
                   "config_change": "config_change", "deploy": "deploy", "external_api": "external", "resource_cpu": "resource",
@@ -380,7 +362,7 @@ def format_summary(s: dict, days: int) -> list[str]:
 
 # ── 寫 aiops-tuning ──
 
-def propose_from_text(es, fields: dict, alert: dict, text: str, by: str | None, now, current_z: float = 5.0) -> str | None:
+def propose_from_text(repo, fields: dict, alert: dict, text: str, by: str | None, now, current_z: float = 5.0) -> str | None:
     """回饋文字抽出來的四欄對得到調整種類就寫一筆 aiops-tuning（feedback.suggest_from_text；proposed、source feedback、reason 帶原文），
     回傳 id；suggested_action 是 none 回 None。同一個人對同一件、同一種 kind 再送會覆蓋，不重複。不自動生效（adjust approve 才會）。"""
     sug = suggest_from_text(fields, alert, text, current_z)
@@ -389,6 +371,6 @@ def propose_from_text(es, fields: dict, alert: dict, text: str, by: str | None, 
     sug = {k: v for k, v in sug.items() if v not in (None, "", [])}
     sug.update({"at": now.isoformat(), "by": by or "feedback"})
     _id = doc_id("feedback-text", alert.get("alert_id"), by or "", sug["kind"])
-    es.ensure_index(TUNING_INDEX, TUNING_MAPPING)
-    es.req("PUT", f"/{TUNING_INDEX}/_doc/{_id}?refresh=true", validated(sug))
+    repo.tuning.ensure()
+    repo.tuning.put(_id, sug)
     return _id

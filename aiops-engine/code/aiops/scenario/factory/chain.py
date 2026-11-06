@@ -42,21 +42,14 @@ def links_from_docs(anomalies: list[dict], docs: dict[str, dict]) -> dict[str, l
     return out
 
 
-def lot_docs(es, index: str, lots: set[str], start: datetime, end: datetime) -> dict[str, dict]:
+def lot_docs(repo, index: str, lots: set[str], start: datetime, end: datetime) -> dict[str, dict]:
     """這些 lot 的履歷文件（_id = lot id）。時間用履歷的 @timestamp（lot 開始的時間）往前框，lot 跑好幾天也框得到。"""
-    if not lots:
-        return {}
-    out, ids = {}, sorted(lots)
-    for i in range(0, len(ids), 500):
-        body = {"size": 500, "query": {"bool": {"filter": [time_range(start, end), {"terms": {"trace_id": ids[i:i + 500]}}]}}}
-        for h in es.search(index, body).get("hits", {}).get("hits", []):
-            out[h["_source"]["trace_id"]] = h["_source"]
-    return out
+    return repo.traces.merged_docs(index, sorted(lots), start, end) if lots else {}
 
 
-def lot_links(es, index: str, anomalies: list[dict], now: datetime, lookback: timedelta = timedelta(days=3)) -> dict[str, list[tuple[str, datetime]]]:
+def lot_links(repo, index: str, anomalies: list[dict], now: datetime, lookback: timedelta = timedelta(days=3)) -> dict[str, list[tuple[str, datetime]]]:
     """事件整合用：這一輪帶 lot 的異常 → 前後站（見 links_from_docs）。履歷查不到的 lot 就沒有連結，不擋這一輪。"""
     lots = {str(a["keys"]["lot"]) for a in anomalies if (a.get("keys") or {}).get("lot") is not None and a["keys"].get("equipment")}
     if not lots:
         return {}
-    return links_from_docs(anomalies, lot_docs(es, index, lots, now - lookback, now + timedelta(minutes=5)))
+    return links_from_docs(anomalies, lot_docs(repo, index, lots, now - lookback, now + timedelta(minutes=5)))

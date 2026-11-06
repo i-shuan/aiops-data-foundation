@@ -108,6 +108,7 @@ class GradeAlert(unittest.TestCase):
 
     def test_reads_old_anomalies_and_detects_deploy(self):
         import aiops.service.converge.alert_service as C
+        from aiops.core.repository import Repos
         old = [{"_id": f"o{i}", "_source": {"@timestamp": (T0 + timedelta(minutes=i)).isoformat(), "series": "http.error_rate", "keys": {"service": "pay-api", "route": "POST /pay"}}} for i in range(5)]
 
         class FakeES:
@@ -125,12 +126,12 @@ class GradeAlert(unittest.TestCase):
                      anomaly_ids=[o["_id"] for o in old] + [n["_id"] for n in new], series=["http.error_rate", "http.latency_p95_s"], routes=[], new=False,
                      anoms=new)
         cfg = {"indices": {"anomalies": "aiops-anomalies"}, "alerts": {}}
-        C.grade_alert(es, cfg, al, T0 + timedelta(minutes=7))
+        C.grade_alert(Repos(es), cfg, al, T0 + timedelta(minutes=7))
         self.assertEqual(es.ids, [o["_id"] for o in old])                       # 只補這一輪沒有的
         self.assertEqual((al.severity, al.deploy_at), ("warning", T0 - timedelta(minutes=2)))   # 2 類 → 本該 high；異常都在換版後 8 分鐘內 → warning
         self.assertIn("原本 high", al.severity_why)
         # 異常繼續到換版後 20 分鐘：沒收斂 → high
         al.anoms = new + [{"_id": "n9", "@timestamp": (T0 + timedelta(minutes=18)).isoformat(), "series": "http.latency_p95_s", "keys": {"service": "pay-api"}}]
         al.anomaly_ids.append("n9")
-        C.grade_alert(es, cfg, al, T0 + timedelta(minutes=19))
+        C.grade_alert(Repos(es), cfg, al, T0 + timedelta(minutes=19))
         self.assertEqual(al.severity, "high")

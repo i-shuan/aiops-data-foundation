@@ -2,6 +2,8 @@
 不叫真的模型；解析率用 tests/feedback_extract_eval.py 量。docs/pdca/phase5-learning-loop/2026-10-feedback-nl-extract.md。"""
 import json
 import unittest
+
+from aiops.core.repository import Repos
 from unittest import mock
 
 import pandas as pd
@@ -165,14 +167,14 @@ class MapToTuning(unittest.TestCase):
                 return {}
         es = ES()
         now = pd.Timestamp("2026-10-29T01:00:00Z")
-        _id = T.propose_from_text(es, GOOD, ALERT, self.TEXT, "amy", now)
+        _id = T.propose_from_text(Repos(es), GOOD, ALERT, self.TEXT, "amy", now)
         self.assertEqual(es.ensured, TUNING_INDEX)
         (path, body), = es.put.items()
         self.assertEqual(path, f"/{TUNING_INDEX}/_doc/{_id}?refresh=true")
         self.assertEqual((body["status"], body["by"], body["at"], body["kind"]), ("proposed", "amy", now.isoformat(), "recurring_override"))
-        self.assertEqual(T.propose_from_text(es, GOOD, ALERT, self.TEXT, "amy", now), _id)              # 同一人、同一件、同一種：覆蓋不重複
-        self.assertNotEqual(T.propose_from_text(es, GOOD, ALERT, self.TEXT, "bob", now), _id)
-        self.assertIsNone(T.propose_from_text(es, {**GOOD, "suggested_action": "none"}, ALERT, self.TEXT, "amy", now))
+        self.assertEqual(T.propose_from_text(Repos(es), GOOD, ALERT, self.TEXT, "amy", now), _id)              # 同一人、同一件、同一種：覆蓋不重複
+        self.assertNotEqual(T.propose_from_text(Repos(es), GOOD, ALERT, self.TEXT, "bob", now), _id)
+        self.assertIsNone(T.propose_from_text(Repos(es), {**GOOD, "suggested_action": "none"}, ALERT, self.TEXT, "amy", now))
 
 
 if __name__ == "__main__":

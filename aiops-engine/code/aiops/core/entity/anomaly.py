@@ -1,5 +1,5 @@
 """④⑤ aiops-anomalies 的契約：index 名、mapping、Anomaly（寫進去的一筆）。
-誰寫：detector/（baseline、rules、peer、quality、trace、ingest，都經 sources 的 Backend.write_anomalies）；誰讀：investigator/（併件）、feedback/（回饋、回測、量化）。
+誰寫：detector/（baseline、rules、peer、quality、trace、ingest，都經 core/repository/anomaly.py 的 AnomalyRepository.write）；誰讀：investigator/（併件）、feedback/（回饋、回測、量化）。
 寫的人和讀的人在不同階段，所以放 core/（docs/pdca/meta/2026-11-clean-code.md）。"""
 from __future__ import annotations
 
@@ -21,10 +21,12 @@ ANOMALY_MAPPING = {"mappings": {"dynamic": False, "properties": {
     "status": {"type": "keyword"}, "streak": {"type": "integer"},
     "dept": {"type": "keyword"}, "group": {"type": "keyword"},
     "alert_id": {"type": "keyword"},   # 併進哪一件（investigator alert 寫回；儀表板依它撈這件的異常）
-    # 哪一版 engine 產生的（core/version.py；sources 的 Backend.write_anomalies 補）。放在這裡而不是 RULE_FIELDS：index 是 dynamic false，
+    # 哪一版 engine 產生的（aiops.ENGINE_VERSION；AnomalyRepository.write 補）。放在這裡而不是 RULE_FIELDS：index 是 dynamic false，
     # 但 ensure_index 對既有 index 也會 PUT _mapping 把這份 properties 補上，detect、rules、peer、quality、trace 每輪都呼叫，不用另外補
     "engine_version": {"type": "keyword"},
 }}}
+# 規則、同儕、品質、trace 的偵測多寫的三個欄位（既有索引由 AnomalyRepository.ensure 補上）
+RULE_FIELDS = {"severity": {"type": "keyword"}, "message": {"type": "text"}, "rule": {"type": "keyword"}}
 
 
 @dataclass
@@ -54,7 +56,7 @@ class Anomaly:
     confidence      baseline                  high／medium／low
     status          baseline                  anomaly／warning（連續幾點才算；cmd_baseline.with_status）
     streak、p       baseline（有才寫）        連續第幾個、卜瓦松的機率
-    不在這裡：dept、group、engine_version 由 sources 的 Backend.write_anomalies 補（core/owner.py 查歸屬）；alert_id 由 investigator 併件時寫回。
+    不在這裡：dept、group、engine_version 由 AnomalyRepository.write 補（core/repository/owner.py 查歸屬）；alert_id 由 investigator 併件時寫回。
     """
     ts: pd.Timestamp
     series: str

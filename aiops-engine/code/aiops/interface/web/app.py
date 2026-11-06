@@ -18,14 +18,12 @@ import aiops.scenario.base as plugin
 import aiops.service.rca.llm as LLM
 from aiops.config.loader import load_config
 from aiops.core.connection import doc_id
-from aiops.core.entity.alert import ALERT_INDEX
-from aiops.core.entity.incident import INCIDENT_INDEX, INCIDENT_MAPPING, Incident, classify
+from aiops.core.entity.feedback import FEEDBACK_INDEX, RCA_USEFUL as _RCA_USEFUL
+from aiops.core.entity.incident import Incident, classify
 import aiops.service.feedback.suggest as T
-from aiops.service.feedback.suggest import FEEDBACK_MAPPING, RCA_USEFUL as _RCA_USEFUL
 from aiops.scenario.factory.ingest_job import ingest_rows
 from aiops.interface.jobs.runner import load_schedule
 
-FEEDBACK_INDEX = "aiops-feedback"
 _ready = set()
 # 漏報表單的序列選單、時區：跟 detector 讀同一份 series.yaml（image 裡 configs/ 跟套件放在一起，路徑一樣）
 _SERIES_CFG = load_config(str(CODE_ROOT / "configs/baseline/series.yaml"), "series")
@@ -43,9 +41,8 @@ CHECKED = domain.checked()
 FP_REASONS = domain.fp_reasons()
 
 
-def load_alert(es, alert_id: str) -> dict | None:
-    got = es.req("GET", f"/{ALERT_INDEX}/_doc/{alert_id}", ok=(200, 404))
-    return got.get("_source") if got.get("found") else None
+def load_alert(repo, alert_id: str) -> dict | None:
+    return repo.alerts.get(alert_id)
 
 
 def form_data(alert: dict) -> dict:
@@ -77,12 +74,12 @@ def form_json(d: dict) -> dict:
             "root_cause_category": d.get("suggested_category") or ""}
 
 
-def _ensure(es) -> None:
+def _ensure(repo) -> None:
     """index 要先用正式的 mapping 建（不然第一筆寫進去 ES 會自己猜型別，之後 feedback suggest 的 mapping 就合不上）；每個連線只做一次。"""
-    if id(es) not in _ready:
-        es.ensure_index(FEEDBACK_INDEX, FEEDBACK_MAPPING)
-        es.ensure_index(INCIDENT_INDEX, INCIDENT_MAPPING)
-        _ready.add(id(es))
+    if id(repo.es) not in _ready:
+        repo.feedback.ensure()
+        repo.incidents.ensure()
+        _ready.add(id(repo.es))
 
 
 def _feedback_base(form: dict, alert: dict, verdict: str, by: str, now: datetime) -> dict:
@@ -98,7 +95,7 @@ def _feedback_base(form: dict, alert: dict, verdict: str, by: str, now: datetime
     return base
 
 
-def _extract_text(es, text: str, alert: dict, by: str, now: datetime, base: dict) -> tuple[str | None, str | None]:
+def _extract_text(repo, text: str, alert: dict, by: str, now: datetime, base: dict) -> tuple[str | None, str | None]:
     """一句自然語言 → LLM 抽成四欄（core.llm.extract_feedback）；驗不過就只存原文。對得到調整種類就先寫一筆 proposed 的 aiops-tuning。
     回 (tuning_id, tuning_error)：建議寫不進去（ES 權限、mapping）不能讓回饋本身失敗。"""
     ext = LLM.extract_feedback(text, alert)
@@ -107,7 +104,7 @@ def _extract_text(es, text: str, alert: dict, by: str, now: datetime, base: dict
     if not ext["ok"]:
         return None, None
     try:
-        tuning_id = T.propose_from_text(es, ext["fields"], alert, text, by, now)
+        tuning_id = T.propose_from_text(repo, ext["fields"], alert, text, by, now)
     except Exception as e:    # noqa: BLE001
         sys.stderr.write(f"feedback tuning proposal failed: {e!r}\n")
         return None, f"{type(e).__name__}：{str(e)[:120]}"
@@ -115,18 +112,15 @@ def _extract_text(es, text: str, alert: dict, by: str, now: datetime, base: dict
     return tuning_id, None
 
 
-def _feedback_docs(es, alert: dict, base: dict, by: str) -> list[tuple[str, dict]]:
+def _feedback_docs(repo, alert: dict, base: dict, by: str) -> list[tuple[str, dict]]:
     """一件的每筆異常各一筆回饋：現有的 feedback summary／suggest 是依異常（series＋對象）算的，才對得起來。
     異常已經不在了（過期）：至少留一筆對這件的。"""
     ids = alert.get("anomaly_ids") or []
-    got = es.req("POST", "/aiops-anomalies/_mget?_source_includes=@timestamp,series,keys", {"ids": ids[:200]}).get("docs", []) if ids else []
+    got = repo.anomalies.get_many(ids[:200], ["@timestamp", "series", "keys"]) if ids else {}
     docs = []
-    for g in got:
-        if not g.get("found"):
-            continue
-        src = g["_source"]
-        d = {**base, "anomaly_id": g["_id"], "anomaly_at": src.get("@timestamp"), "series": src.get("series"), "keys": src.get("keys") or {}}
-        docs.append((doc_id("feedback", g["_id"], by), d))
+    for aid, src in got.items():
+        d = {**base, "anomaly_id": aid, "anomaly_at": src.get("@timestamp"), "series": src.get("series"), "keys": src.get("keys") or {}}
+        docs.append((doc_id("feedback", aid, by), d))
     if not docs:
         docs.append((doc_id("feedback", alert["alert_id"], by), {**base, "series": (alert.get("series") or ["?"])[0], "keys": {"service": alert.get("service")}}))
     return docs
@@ -143,39 +137,39 @@ def _incident_patch(form: dict, verdict: str, by: str, now: datetime) -> dict:
     return {k: v for k, v in inc.items() if v is not None}
 
 
-def _upsert_incident(es, alert: dict, inc: dict, now: datetime) -> None:
+def _upsert_incident(repo, alert: dict, inc: dict, now: datetime) -> None:
     """事故可能還沒被 alert 開出來（例如回饋得很快）：用 upsert 補一筆最小的。
     不再另外 _refresh：bulk_index 已經 refresh=wait_for；最小權限的 key 沒有 maintenance，多打這一下會 403，資料存好了卻回「沒有存成功」。"""
     ids = alert.get("anomaly_ids") or []
     seed = Incident(**{"@timestamp": now.isoformat()}, alert_id=alert["alert_id"], title=alert.get("title"), start=alert.get("started_at"),
                     end=alert.get("resolved_at") or alert.get("updated_at"), services=[alert.get("service")], severity=alert.get("severity"),
                     dept=alert.get("dept"), group=alert.get("group"), anomaly_ids=ids[:Incident.MAX_ANOMALY_IDS], **inc).to_doc()
-    es.req("POST", f"/{INCIDENT_INDEX}/_update/{alert['alert_id']}?refresh=true", {"doc": inc, "upsert": seed})
+    repo.incidents.patch(alert["alert_id"], inc, upsert=seed)
 
 
-def submit(es, form: dict, now: datetime | None = None) -> dict:
+def submit(repo, form: dict, now: datetime | None = None) -> dict:
     """form：verdict、by、root_cause_category、root_cause、action、how_detected、checked（list）、improve、fp_reason、note、
     feedback_text（一句自然語言，選填）、rca_cause_useful、rca_action_useful（yes／no／not_seen，選填）。
     回傳 {"feedback": 寫了幾筆, "incident": 狀態, "by"}；有給 feedback_text 時多 "extract"（抽出來的四欄＋ok、provider、reason）
     和 "tuning_id"（寫進 aiops-tuning 的建議 id；suggested_action 是 none、或沒抽到就是 None）。
     抽取失敗不影響寫入：只存原文（extract.ok false）；寫建議失敗也不影響回饋本身（tuning_error）。"""
     now = now or datetime.now(timezone.utc)
-    alert = load_alert(es, form["alert_id"])
+    alert = load_alert(repo, form["alert_id"])
     if not alert:
         raise KeyError(f"找不到告警 {form['alert_id']}")
     verdict = form["verdict"]
     if verdict not in VERDICTS:
         raise ValueError(f"verdict 要是 {'、'.join(VERDICTS)}")
     by = (form.get("by") or "").strip() or "anonymous"
-    _ensure(es)
+    _ensure(repo)
     base = _feedback_base(form, alert, verdict, by, now)
     text = (form.get("feedback_text") or "").strip()
-    tuning_id, tuning_error = _extract_text(es, text, alert, by, now, base) if text else (None, None)
+    tuning_id, tuning_error = _extract_text(repo, text, alert, by, now, base) if text else (None, None)
     base = {k: v for k, v in base.items() if v not in (None, "")}
-    docs = _feedback_docs(es, alert, base, by)
-    es.bulk_index(FEEDBACK_INDEX, docs)
+    docs = _feedback_docs(repo, alert, base, by)
+    repo.feedback.bulk(docs)
     inc = _incident_patch(form, verdict, by, now)
-    _upsert_incident(es, alert, inc, now)
+    _upsert_incident(repo, alert, inc, now)
     out = {"feedback": len(docs), "incident": inc["status"], "by": by}
     if text:
         out.update({"extract": base.get("extract"), "tuning_id": tuning_id, **({"tuning_error": tuning_error} if tuning_error else {})})
@@ -187,7 +181,7 @@ def missed_form_json() -> dict:
     return {k: "" for k in MISSED_FIELDS}
 
 
-def submit_missed(es, form: dict, now: datetime | None = None) -> dict:
+def submit_missed(repo, form: dict, now: datetime | None = None) -> dict:
     """漏報（該報卻沒報）：沒有 alert_id、沒有 anomaly_id，寫一筆 verdict: missed。
     form：series（series.yaml 裡的名字）、service、at（ISO 或 YYYY-MM-DD HH:MM；沒時區當 Asia/Taipei）、by、note、route／pod（選填，進 keys）。
     文件格式、_id 跟指令 feedback add --verdict missed 一樣（cmd_feedback.py），同一個人對同一條再送會覆蓋、不重複。"""
@@ -213,12 +207,9 @@ def submit_missed(es, form: dict, now: datetime | None = None) -> dict:
            "anomaly_at": (at.tz_localize(TIMEZONE) if at.tzinfo is None else at).isoformat(), "by": by,
            "note": (form.get("note") or "").strip() or None}
     doc = {k: v for k, v in doc.items() if v not in (None, "")}
-    if id(es) not in _ready:
-        es.ensure_index(FEEDBACK_INDEX, FEEDBACK_MAPPING)
-        es.ensure_index(INCIDENT_INDEX, INCIDENT_MAPPING)
-        _ready.add(id(es))
+    _ensure(repo)
     _id = doc_id("feedback", [doc["series"], doc["keys"], doc["anomaly_at"]], by)
-    es.req("PUT", f"/{FEEDBACK_INDEX}/_doc/{_id}?refresh=true", doc)
+    repo.feedback.put(_id, doc)
     return {"feedback": 1, "verdict": "missed", "series": series, "service": service, "by": by}
 
 
@@ -344,7 +335,7 @@ def ingest_config_path() -> str | None:
     return str(here / job.args[job.args.index("--config") + 1])
 
 
-def ingest(es, body: dict, now: datetime | None = None) -> dict:
+def ingest(repo, body: dict, now: datetime | None = None) -> dict:
     """{"input": "ml", "rows": [...]} → 照 ingest.yaml 裡叫 input 的對照轉成異常、寫進 aiops-anomalies。
     rows 的欄位跟那個 input 的索引裡一樣（time_field、keys、value…）。回 {"input", "written", "skipped"}。
     沒有 ingest.yaml、沒有這個 input → LookupError（404）；body 不對 → ValueError（400）。"""
@@ -357,30 +348,25 @@ def ingest(es, body: dict, now: datetime | None = None) -> dict:
     if not path:
         raise LookupError("這個 plugin 沒有 ingest（排程表沒有 ingest 工作、也沒設 AIOPS_INGEST_CONFIG）")
     cfg = load_config(path, "ingest")
-    written, skipped = ingest_rows(es, cfg, str(name), rows, pd.Timestamp(now or datetime.now(timezone.utc)))
+    written, skipped = ingest_rows(repo, cfg, str(name), rows, pd.Timestamp(now or datetime.now(timezone.utc)))
     return {"input": name, "written": written, "skipped": skipped}
 
 
-def request_rca(es, alert_id: str, now: datetime | None = None) -> dict:
+def request_rca(repo, alert_id: str, now: datetime | None = None) -> dict:
     """在開著的那件上標 rca_requested：下一輪 investigator alert 看到就強制重跑根因分析（含相似事故、LLM、摘要，跟新開件同一條路），
     跑完把標記拿掉。結束的件不重跑（ValueError → 409）；沒有這件 LookupError → 404。"""
-    alert = load_alert(es, alert_id)
+    alert = load_alert(repo, alert_id)
     if not alert:
         raise LookupError(f"找不到告警 {alert_id}")
     if alert.get("status") != "open":
         raise ValueError(f"這件已經結束（{alert.get('status')}），不重跑；要看舊報告用 /report?alert={alert_id}")
     at = (now or datetime.now(timezone.utc)).isoformat()
-    es.req("POST", f"/{ALERT_INDEX}/_update/{alert_id}?refresh=true", {"doc": {"rca_requested": True, "rca_requested_at": at}})
+    repo.alerts.request_rca(alert_id, at)
     return {"alert_id": alert_id, "requested_at": at}
 
 
-def list_alerts(es, status: str = "open", size: int = 50) -> list[dict]:
+def list_alerts(repo, status: str = "open", size: int = 50) -> list[dict]:
     """件的清單（新的在前），不含報告全文。status：open／resolved／all。"""
     if status not in ("open", "resolved", "all"):
         raise ValueError("status 要是 open、resolved 或 all")
-    size = max(1, min(int(size), 500))
-    q = {"match_all": {}} if status == "all" else {"term": {"status": status}}
-    fields = ["alert_id", "service", "title", "summary", "severity", "status", "dept", "group", "started_at", "updated_at", "resolved_at",
-              "anomaly_count", "series", "upstream_services", "suggested_category", "category_confidence", "report_url", "feedback_url"]
-    hits = es.search(ALERT_INDEX, {"size": size, "_source": fields, "query": q, "sort": [{"updated_at": "desc"}]})["hits"]["hits"]
-    return [h["_source"] for h in hits]
+    return repo.alerts.list(status, max(1, min(int(size), 500)))

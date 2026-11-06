@@ -62,16 +62,16 @@ class Plugin(Base):
         """「哪支 API」是哪個 recipe（履歷裡站的 name 就是 recipe，根因分析用它挑 lot）。"""
         return str(keys["recipe"]) if keys.get("recipe") else None
 
-    def chain(self, es, cfg, anomalies, open_alerts, start, now) -> Chain:
+    def chain(self, repo, cfg, anomalies, open_alerts, start, now) -> Chain:
         """前後站：這一輪帶 lot 的異常 → 從履歷找這批 lot 之前經過哪幾站（plugins/factory/chain.py）。"""
 
         acfg = cfg.get("alerts", {})
-        return Chain(links=lot_links(es, cfg["indices"]["traces"], anomalies, now, _dur(str(acfg.get("paths_lookback", "3d")))))
+        return Chain(links=lot_links(repo, cfg["indices"]["traces"], anomalies, now, _dur(str(acfg.get("paths_lookback", "3d")))))
 
-    def change_at(self, es, cfg, entity, since, now) -> datetime | None:
+    def change_at(self, repo, cfg, entity, since, now) -> datetime | None:
         """recipe 變更紀錄當換版（plugins/factory/changes.py）。"""
         acfg = cfg.get("alerts", {})
-        return change_at(es, acfg.get("deploy_index", "eqp-logs-*"), acfg.get("deploy_entity_field", "equipment_id"), entity,
+        return change_at(repo, acfg.get("deploy_index", "eqp-logs-*"), acfg.get("deploy_entity_field", "equipment_id"), entity,
                          since, now, acfg.get("deploy_time_field", "@timestamp"), acfg.get("deploy_filter", {"term": {"event_type": "recipe_change"}}))
 
     def commands(self) -> dict:

@@ -4,6 +4,8 @@ import os
 import tempfile
 import unittest
 
+from aiops.core.repository import Repos
+
 import pandas as pd
 
 import aiops.service.feedback.feedback_service as C
@@ -12,6 +14,9 @@ import aiops.service.feedback.feedback_service as C
 class FakeES:
     def __init__(self, feedback, anomalies):
         self.feedback, self.anomalies = feedback, anomalies
+
+    def search(self, index, body):
+        return self.req("POST", f"/{index}/_search", body)
 
     def req(self, method, path, body=None, ok=None):
         if "aiops-feedback/_search" in path:
@@ -31,7 +36,7 @@ AN = {"x1": {"@timestamp": "2026-11-04T06:00:00Z", "series": "fdc.pressure", "ke
 
 class Export(unittest.TestCase):
     def test_rows_join_feedback_with_anomaly(self):
-        rows = C.export_rows(FakeES(FB, AN), 28, pd.Timestamp("2026-11-04T08:00:00Z"))
+        rows = C.export_rows(Repos(FakeES(FB, AN)), 28, pd.Timestamp("2026-11-04T08:00:00Z"))
         self.assertEqual(len(rows), 3)
         r = rows[0]
         self.assertEqual((r["verdict"], r["fp_reason"], r["source"], r["source_id"], r["series"], r["keys"]["lot"]), ("false_positive", "pm_just_done", "ml", "R1", "fdc.pressure", "LOT-1"))
@@ -40,7 +45,7 @@ class Export(unittest.TestCase):
         self.assertIsNone(rows[2]["source_id"])
 
     def test_write_ndjson_and_csv(self):
-        rows = C.export_rows(FakeES(FB, AN), 28, pd.Timestamp("2026-11-04T08:00:00Z"))
+        rows = C.export_rows(Repos(FakeES(FB, AN)), 28, pd.Timestamp("2026-11-04T08:00:00Z"))
         with tempfile.TemporaryDirectory() as d:
             p = C.write_export(rows, os.path.join(d, "fp.ndjson"))
             lines = [json.loads(l) for l in open(p, encoding="utf-8")]

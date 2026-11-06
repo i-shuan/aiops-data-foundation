@@ -13,6 +13,7 @@ import aiops.service.detect.base as B
 from aiops.service.detect.base import Anomaly, Detector
 from aiops.service.detect._util import RULE_FIELDS
 from aiops.core.entity.anomaly import ANOMALY_INDEX, ANOMALY_MAPPING
+from aiops.core.repository import Repos
 
 SLOT = pd.Timestamp("2026-11-05T10:03:00Z")
 DET = "2026-11-05T10:03:07+00:00"
@@ -91,7 +92,7 @@ class ToDoc(unittest.TestCase):
 
 class MappingConsistency(unittest.TestCase):
     """Anomaly 是異常文件唯一的定義處：mapping 的欄位（owner／investigator 補的除外）都要在 dataclass 裡，to_doc 的鍵都要有地方放。"""
-    ADDED_LATER = {"dept", "group", "engine_version", "alert_id"}      # owner.write_anomalies、investigator 併件補的
+    ADDED_LATER = {"dept", "group", "engine_version", "alert_id"}      # AnomalyRepository.write、investigator 併件補的
 
     def test_dataclass_covers_mapping(self):
         fields = {"@timestamp" if f.name == "ts" else f.name for f in dataclasses.fields(Anomaly)}
@@ -109,24 +110,27 @@ class MappingConsistency(unittest.TestCase):
         self.assertEqual({"@timestamp" if f.name == "ts" else f.name for f in dataclasses.fields(Anomaly)}, keys)
 
 
-class FakeBackend:
+class FakeES:
     def __init__(self):
-        self.calls = []
+        self.calls, self.written = [], []
 
     def ensure_index(self, name, body):
         self.calls.append(("ensure_index", name))
 
     def req(self, method, path, body=None, ok=None):
         self.calls.append(("req", method, path))
-        return {}
+        return {"aggregations": {}}
+
+    def bulk_index(self, index, docs):
+        self.written.extend(docs)
 
 
 class Toy(Detector):
     """兩個檢查，各回一個異常；evaluate 到名字是 bad 的就丟例外。"""
     level = "toy"
 
-    def __init__(self, cfg, args, backend=None, log=None):
-        super().__init__(cfg, args, backend)
+    def __init__(self, cfg, args, repo=None, log=None):
+        super().__init__(cfg, args, repo)
         self.log = log if log is not None else []
 
     def prepare(self):
@@ -156,13 +160,12 @@ class Tolerant(Toy):
 
 
 def run(cls, checks, only=None):
-    be, written, log = FakeBackend(), [], []
+    be, log = FakeES(), []
     cfg = {"interval": "1m", "checks": [{"name": n} for n in checks]}
     args = Namespace(at="2026-11-05T10:03:20Z", only=only)
-    with mock.patch.object(B, "write_anomalies", lambda es, docs: written.extend(docs)), \
-            contextlib.redirect_stdout(io.StringIO()) as out:
-        rc = cls(cfg, args, be, log).run()
-    return rc, be, written, log, out.getvalue()
+    with contextlib.redirect_stdout(io.StringIO()) as out:
+        rc = cls(cfg, args, Repos(be), log).run()
+    return rc, be, be.written, log, out.getvalue()
 
 
 class Template(unittest.TestCase):
@@ -171,7 +174,7 @@ class Template(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertEqual(log, ["prepare", "checks", "evaluate:a", "evaluate:b", "write:2"])
         # prepare：補 index、補 RULE_FIELDS
-        self.assertEqual(be.calls, [("ensure_index", ANOMALY_INDEX), ("req", "PUT", f"/{ANOMALY_INDEX}/_mapping")])
+        self.assertEqual(be.calls[:2], [("ensure_index", ANOMALY_INDEX), ("req", "PUT", f"/{ANOMALY_INDEX}/_mapping")])
         self.assertEqual([d["series"] for _, d in written], ["a", "b"])
         self.assertEqual(written[0][1]["@timestamp"], "2026-11-05T10:03:00+00:00")       # now 取整到 interval
         self.assertEqual(written[0][0], Anomaly(ts=SLOT, series="a", keys={"k": "a"}, value=1, level="toy").id())

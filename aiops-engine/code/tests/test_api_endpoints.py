@@ -69,7 +69,7 @@ class Http(unittest.TestCase):
 
     def test_anomalies_written_via_ingest_mapping_and_alert_queued(self):
         written = []
-        with mock.patch.dict(os.environ, TOKEN), mock.patch("aiops.scenario.factory.ingest_job.write_anomalies", side_effect=lambda es, docs: written.extend(docs)), \
+        with mock.patch.dict(os.environ, TOKEN), mock.patch("aiops.core.repository.anomaly.AnomalyRepository.write", side_effect=lambda docs: written.extend(docs)), \
              mock.patch.object(tasks.run_job, "apply_async") as aa:
             code, r = self.call("POST", "/api/anomalies", {"input": "ml", "rows": self.ROWS}, {"Authorization": "Bearer s3cret"})
         self.assertEqual(code, 200, r)
@@ -95,7 +95,7 @@ class Http(unittest.TestCase):
             self.assertIn("沒有 ingest", r["error"])
 
     def test_anomalies_without_broker_still_write(self):
-        with mock.patch.dict(os.environ, {**TOKEN, tasks.BROKER_ENV: ""}), mock.patch("aiops.scenario.factory.ingest_job.write_anomalies"), \
+        with mock.patch.dict(os.environ, {**TOKEN, tasks.BROKER_ENV: ""}), mock.patch("aiops.core.repository.anomaly.AnomalyRepository.write"), \
              mock.patch.object(tasks.run_job, "apply_async") as aa:
             code, r = self.call("POST", "/api/anomalies", {"input": "ml", "rows": self.ROWS}, {"Authorization": "Bearer s3cret"})
         self.assertEqual((code, r["written"], r["alert_queued"]), (200, 1, False))   # 一隻 pod 的模式：寫進 ES，下一分鐘排程接手
@@ -108,7 +108,7 @@ class Http(unittest.TestCase):
         self.assertEqual(code, 200, r)
         self.assertTrue(r["queued"])
         index, _id, body = self.es.updates[-1]
-        self.assertEqual((index, _id), (A.ALERT_INDEX, ALERT["alert_id"]))
+        self.assertEqual((index, _id), ("aiops-alerts", ALERT["alert_id"]))
         self.assertTrue(body["doc"]["rca_requested"])
         self.assertEqual(aa.call_args.kwargs["queue"], "alert")
 
@@ -235,8 +235,8 @@ class EntryStatsWithoutIndex(unittest.TestCase):
     """工廠版剛上線、lot-paths-* 還不存在：ES 回空結果、沒有 aggregations。不能讓整份根因報告變「失敗：'aggregations'」（K8s 實裝時發現）。"""
 
     def test_missing_index_counts_as_no_requests(self):
-        import aiops.core.repository.rca_queries as E
+        from aiops.core.repository import Repos
         fake = mock.Mock()
         fake.search.return_value = {"took": 0, "hits": {"total": {"value": 0}, "hits": []}}
-        got = E.entry_stats(fake, "lot-paths-*", "K8S-01", None, datetime(2026, 11, 5, 1, tzinfo=timezone.utc), datetime(2026, 11, 5, 2, tzinfo=timezone.utc))
+        got = Repos(fake).traces.entry_stats("lot-paths-*", "K8S-01", None, datetime(2026, 11, 5, 1, tzinfo=timezone.utc), datetime(2026, 11, 5, 2, tzinfo=timezone.utc))
         self.assertEqual(got, {"requests": 0, "errors": 0, "p50_ms": 0, "p95_ms": 0})

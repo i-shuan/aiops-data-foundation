@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 
 import aiops.interface.web.routes as W
 import aiops.interface.web.app as A
+from aiops.core.entity.feedback import FEEDBACK_INDEX
 from tests.test_api import ALERT, FakeES
 
 
@@ -63,7 +64,7 @@ class Http(unittest.TestCase):
             st, body = self.post("/api/missed", json.dumps({"series": "http.latency_p95_s", "service": "mes-api", "at": "2026-10-25 10:00", "by": "amy"}).encode(), "application/json")
         self.assertEqual(st, 200)
         self.assertEqual(json.loads(body)["verdict"], "missed")
-        self.assertTrue(any(d.get("verdict") == "missed" for d in W.state.es.written[A.FEEDBACK_INDEX].values()))
+        self.assertTrue(any(d.get("verdict") == "missed" for d in W.state.es.written[FEEDBACK_INDEX].values()))
 
     def test_missed_es_down_is_503_with_message(self):
         with mock.patch.object(W.state.es, "req", side_effect=RuntimeError("PUT → 503")), mock.patch.object(A, "_ready", {id(W.state.es)}):

@@ -5,6 +5,8 @@ from unittest import mock
 import pandas as pd
 
 import aiops.service.feedback.backtest as B
+from aiops.core.repository import Repos
+from aiops.core.repository.baseline import BaselineRepository
 
 NOW = pd.Timestamp("2026-11-03T00:00:00Z")
 CFG = {"series": [{"name": "http.error_rate", "by": ["service", "route"], "min_count": 3}], "train": {"timezone": "Asia/Taipei"}, "interval": "1m"}
@@ -33,10 +35,10 @@ class Group(unittest.TestCase):
     def run_bt(self, proposals, effects, incidents=(), missed=()):
         with mock.patch.object(B, "detect_series", fake_detect_factory(effects)), \
              mock.patch.object(B, "load_adjustments", lambda es, cfg: []), \
-             mock.patch.object(B, "load_baseline", lambda es, name, keys: pd.DataFrame({"service": ["x"]})), \
+             mock.patch.object(BaselineRepository, "load", lambda self, name, keys: pd.DataFrame({"service": ["x"]})), \
              mock.patch.object(B, "_confirmed_incidents", lambda es, since: list(incidents)), \
              mock.patch.object(B, "_missed", lambda es, since: list(missed)):
-            return B.run_backtest(object(), CFG, proposals, weeks=1, now=NOW)
+            return B.run_backtest(Repos(object()), CFG, proposals, weeks=1, now=NOW)
 
     MUTE = {"id": "mute", "kind": "recurring_override", "series": "http\\.error_rate", "match": {"service": "^wip\\-worker$"},
             "schedule": {"cron": "0 20 * * 1", "duration": "1h"}, "effect": {"mute": True}, "tag": "mute"}
@@ -59,10 +61,10 @@ class Group(unittest.TestCase):
             tags = {a.get("tag") for a in overrides}
             return [("1m", RAW.drop(index=[3, 4, 5]) if {"abs", "cnt"} <= tags else RAW)]
         with mock.patch.object(B, "detect_series", fake), mock.patch.object(B, "load_adjustments", lambda es, cfg: []), \
-             mock.patch.object(B, "load_baseline", lambda es, name, keys: pd.DataFrame({"service": ["x"]})), \
+             mock.patch.object(BaselineRepository, "load", lambda self, name, keys: pd.DataFrame({"service": ["x"]})), \
              mock.patch.object(B, "_confirmed_incidents", lambda es, since: []), mock.patch.object(B, "_missed", lambda es, since: []):
-            alone = B.run_backtest(object(), CFG, self.MIN_ABS, weeks=1, now=NOW)
-            group = B.run_backtest(object(), CFG, [self.MIN_ABS, self.MIN_COUNT], weeks=1, now=NOW)
+            alone = B.run_backtest(Repos(object()), CFG, self.MIN_ABS, weeks=1, now=NOW)
+            group = B.run_backtest(Repos(object()), CFG, [self.MIN_ABS, self.MIN_COUNT], weeks=1, now=NOW)
         self.assertEqual(alone["verdict"], "ineffective")
         self.assertEqual((group["verdict"], group["anomalies_after"]), ("effective", 3))
         self.assertEqual(group["ablation"], {"abs": "necessary", "cnt": "necessary"})
