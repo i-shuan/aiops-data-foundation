@@ -13,7 +13,7 @@ from zoneinfo import ZoneInfo
 import llm.summary as LLM
 from shared.connection import ES
 from incident.store.alert import Alert, stamp_of
-from shared.incident import Incident
+from shared.incident_doc import Incident
 from shared.repos import Repos
 from shared.scenario import Chain, load_scenario
 from shared.scenario import load_scenario

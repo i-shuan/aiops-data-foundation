@@ -7,7 +7,7 @@ import os
 
 from shared.env import CODE_ROOT
 from learn.store.feedback import RCA_USEFUL as _RCA_USEFUL
-from shared.incident import classify
+from shared.incident_doc import classify
 from interface.jobs.runner import load_schedule
 from shared.scenario import Scenario
 from learn.feedback_service import RCA_QUESTIONS as _RCA_QUESTIONS, SERIES_NAMES, TIMEZONE, WEB_VERDICTS  # noqa: F401  給 views、測試用

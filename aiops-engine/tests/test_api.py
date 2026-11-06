@@ -10,7 +10,7 @@ import learn.feedback_service as F
 import interface.web.views as V
 from incident.store.alert import ALERT_INDEX
 from learn.store.feedback import FEEDBACK_INDEX
-from shared.incident import INCIDENT_INDEX
+from shared.incident_doc import INCIDENT_INDEX
 from shared.repos import Repos
 
 NOW =datetime(2026, 10, 25, 3, 0, tzinfo=timezone.utc)

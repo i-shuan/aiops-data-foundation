@@ -1,4 +1,4 @@
-"""shared/incident.py：Fingerprint／Incident 的 to_doc() 跟改成類別之前（master 31c72f8）四條寫入路徑手寫的 dict 比；欄位跟 INCIDENT_MAPPING、
+"""shared/incident_doc.py：Fingerprint／Incident 的 to_doc() 跟改成類別之前（master 31c72f8）四條寫入路徑手寫的 dict 比；欄位跟 INCIDENT_MAPPING、
 similar.WEIGHTS 對得上；欄位名打錯、status 給錯會擋；from_doc 讀舊文件（缺欄位、多欄位、型別不對）不炸。不連 ES。
 
 期望值是改之前用同樣輸入跑 similar.fingerprint／importer.normalize／cmd_alert._incident_doc 存下來的（docs/pdca/meta/2026-11-vo-models.md Check）。"""
@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from pydantic import ValidationError
 
 from incident.store.alert import Alert
-from shared.incident import INCIDENT_MAPPING, UNMAPPED_FIELDS, Fingerprint, Incident
+from shared.incident_doc import INCIDENT_MAPPING, UNMAPPED_FIELDS, Fingerprint, Incident
 import learn.importer as IMP
 import llm.similar as SIM
 

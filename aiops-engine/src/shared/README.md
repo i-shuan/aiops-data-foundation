@@ -2,7 +2,7 @@
 
 > **類型：規格 Reference**　為什麼這樣分層見 [docs/architecture.md](../../../docs/architecture.md)、計畫見 [docs/pdca/meta/2026-11-target-architecture.md](../../../docs/pdca/meta/2026-11-target-architecture.md)
 
-`shared/` 放 ES 連線（`connection.py`）、時間（`clock.py`）、執行環境（`env.py`）、文件基底（`document.py`）、事故與指紋的資料物件（`incident.py`）、repository 基底（`repository.py`）、情境（`scenario/`）、設定 schema（`shared/schema/`）。它不依賴任何功能資料夾（`tests/test_layers.py` 鎖著）。
+`shared/` 放 ES 連線（`connection.py`）、時間（`clock.py`）、執行環境（`env.py`）、文件基底（`document.py`）、事故與指紋的資料物件（`incident_doc.py`）、repository 基底（`repository.py`）、情境（`scenario/`）、設定 schema（`shared/schema/`）。它不依賴任何功能資料夾（`tests/test_layers.py` 鎖著）。
 
 索引名只出現在各功能資料夾的 `store/` 與 `shared/`。每個功能的 repository 放在自己的 `store/`（`detect/store/`、`incident/store/`、`learn/store/`），上層透過 `Repos` 拿：
 
@@ -35,7 +35,7 @@ repo.series.fetch(spec, start, end, "5m")   # 原始資料 → 一條序列（ke
 | `housekeeping` | `detect/store/housekeeping_repo.py` | 設定給 | count／delete_by_query（prune）、put_index_template |
 | （函式） | `detect/store/owner_repo.py` | 設定給 | `load_owners`、`owner_of`：異常的 dept／group（AnomalyRepository.write 用） |
 
-- mapping 跟著實體：`detect/store/{anomaly,baseline}.py`、`incident/store/alert.py`、`shared/incident.py`、`learn/store/{adjustment,feedback}.py`；只有 repository 自己用的索引（segments、state、chronic）mapping 放在 repository 檔裡。
+- mapping 跟著實體：`detect/store/{anomaly,baseline}.py`、`incident/store/alert.py`、`shared/incident_doc.py`、`learn/store/{adjustment,feedback}.py`；只有 repository 自己用的索引（segments、state、chronic）mapping 放在 repository 檔裡。
 - 共用的翻頁（search_after、composite）、_mget、_update、_bulk update 在 `shared/repository.py` 的 `Repository`。
 - 不連 ES 的測試：`tests/fakes.MemoryRepos`（原始資料給 DataFrame，整形在 `tests/shaping.py`，語意跟 ES 端的 aggregation 一樣，`tests/test_shape.py`、`test_values.py` 對過）。
 

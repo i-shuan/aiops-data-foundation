@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from shared.incident import INCIDENT_INDEX
+from shared.incident_doc import INCIDENT_INDEX
 import learn.importer as IMP
 from shared.repos import Repos
 from shared.scenario import load_scenario

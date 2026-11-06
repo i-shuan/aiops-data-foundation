@@ -21,14 +21,14 @@
 
 - **依賴方向**：`interface → learn → incident → llm → detect → shared`，只能往右。`tests/test_layers.py` 照這個順序鎖；索引名只能在 `*/store/`、ES 查詢語法只能在 `*/store/*_repo.py` 與 `shared/repository.py`。
 - **要先決定的三件事**
-  1. `Incident`／`Fingerprint`／`classify` 放 `shared/`：`llm/`（過去相似）要用它，`incident/`（告警）又要用 `llm/`，放在任一邊都會循環。
+  1. `Incident`／`Fingerprint`／`classify` 放 `shared/incident_doc.py`（名字不叫 `incident.py`，免得跟 `incident/` 資料夾重名）：`llm/`（過去相似）要用它，`incident/`（告警）又要用 `llm/`，放在任一邊都會循環。
   2. `Repos`（一條連線全部 repository）放 `shared/repos.py`，用名稱表**第一次取用才載入**各功能的 repository，所以 `shared/` 不靜態依賴任何功能。
   3. `stamp_of`（`@timestamp` 往前寫 1 分鐘）從 entity alert 搬到 `shared/clock.py`，因為 `detect/` 的狀態心跳也用它。
 - **風險**：改全部 import 與約 75 個測試對 `Repos`、`mock.patch` 字串；情境 yaml 裡的策略路徑字串；文件裡的檔案路徑。靠 `pytest`、`check-docs`、`test_layers` 與 e2e 抓漏。
 
 ## Do
 
-- `git mv` 加腳本改 import（147 個檔）：`core/{connection,clock,env}`→`shared/`、`core/entity/base`→`shared/document.py`、`core/entity/incident`→`shared/incident.py`、`core/repository/_base`→`shared/repository.py`、`scenario/base`＋`data/`→`shared/scenario/`、`schema/`→`shared/schema/`；`service/detect/*`→`detect/`；`service/converge/*` 與 `service/rca/{analyze,report}`→`incident/`；`service/rca/{llm,similar}`→`llm/{summary,similar}.py`；`service/feedback/*`→`learn/`；entity 與 repository 分到各功能的 `store/`（repository 檔名加 `_repo`）；`scenario/{it,factory}/{chain,change}`→`incident/strategy/{it,factory}_{chain,change}.py`；`scenario/factory/{ingest,ingest_job,paths,commands}`→`detect/factory/`。
+- `git mv` 加腳本改 import（147 個檔）：`core/{connection,clock,env}`→`shared/`、`core/entity/base`→`shared/document.py`、`core/entity/incident`→`shared/incident_doc.py`、`core/repository/_base`→`shared/repository.py`、`scenario/base`＋`data/`→`shared/scenario/`、`schema/`→`shared/schema/`；`service/detect/*`→`detect/`；`service/converge/*` 與 `service/rca/{analyze,report}`→`incident/`；`service/rca/{llm,similar}`→`llm/{summary,similar}.py`；`service/feedback/*`→`learn/`；entity 與 repository 分到各功能的 `store/`（repository 檔名加 `_repo`）；`scenario/{it,factory}/{chain,change}`→`incident/strategy/{it,factory}_{chain,change}.py`；`scenario/factory/{ingest,ingest_job,paths,commands}`→`detect/factory/`。
 - `Repos` 改成 `shared/repos.py`：名稱表＋第一次取用才用 `importlib` 載入，所以 `shared/` 沒有靜態 import 任何功能；呼叫端只是 import 路徑變（`from shared.repos import Repos`）。
 - `stamp_of`、`STAMP_LAG` 搬到 `shared/clock.py`（`detect/` 的狀態心跳也用，放在 alert 會變成 detect 依賴 incident）；`incident/store/alert.py` 仍 re-export。
 - `tests/test_layers.py` 改成新順序（`shared < detect < llm < incident < learn < interface`），索引名字面值只能在 `*/store/` 與 `shared/`；新增 `test_scans_something`——搬完第一次跑時舊名單掃不到任何檔，三個測試是空轉通過的。

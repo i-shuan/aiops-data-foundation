@@ -18,7 +18,7 @@ from pydantic import Field, field_validator
 from detect.store.anomaly import entity_of
 from shared.document import Doc
 from shared.clock import STAMP_LAG, stamp_of  # noqa: F401
-from shared.incident import classify, describe_class
+from shared.incident_doc import classify, describe_class
 
 ALERT_INDEX = "aiops-alerts"
 # stamp_of、STAMP_LAG 在 shared/clock.py（detect 的狀態心跳也用）；這裡 import 進來，舊的引用不用改

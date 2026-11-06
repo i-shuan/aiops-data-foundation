@@ -25,7 +25,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from shared.connection import ES, doc_id
-from shared.incident import INCIDENT_INDEX, Fingerprint, Incident
+from shared.incident_doc import INCIDENT_INDEX, Fingerprint, Incident
 from shared.repos import Repos
 from shared.scenario import load_scenario
 from detect.adjustments import local_iso

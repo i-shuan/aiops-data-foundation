@@ -15,7 +15,7 @@ from shared.env import CODE_ROOT
 from shared.schema.loader import load_config
 from shared.connection import ES, doc_id
 from learn.store.feedback import RCA_USEFUL, VERDICTS
-from shared.incident import Incident
+from shared.incident_doc import Incident
 from shared.repos import Repos
 from shared.scenario import load_scenario
 import detect.adjustments as A
