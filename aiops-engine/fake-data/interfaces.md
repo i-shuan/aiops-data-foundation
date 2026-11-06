@@ -51,7 +51,7 @@
 | `detect` | `false`（預設）：不學也不報；`true`：只是不學，照常判斷 |
 
 - `timezone` 不寫就用 `train.timezone`。
-- 每一筆變成一筆 `exclude_window`（[detector/adjust.py](../service/detect/adjustments.py)），`adjust list` 看得到。
+- 每一筆變成一筆 `exclude_window`（[detector/adjust.py](../src/service/detect/adjustments.py)），`adjust list` 看得到。
 - 也可以直接回傳陣列（不包 `calendar`）。
 
 ## 換成真的來源

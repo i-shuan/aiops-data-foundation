@@ -1,6 +1,6 @@
 # 情境（scenario）：選一個，或自己寫一份
 
-> **類型：操作 How-To**　原理（為什麼拆成主程式＋情境、擴充點怎麼挑）見 [docs/architecture.md §4.2](../../docs/architecture.md)・紀錄 [docs/pdca/meta/2026-11-plugin-architecture.md](../../docs/pdca/meta/2026-11-plugin-architecture.md)、[docs/pdca/meta/2026-11-target-architecture.md](../../docs/pdca/meta/2026-11-target-architecture.md)
+> **類型：操作 How-To**　原理（為什麼拆成主程式＋情境、擴充點怎麼挑）見 [docs/architecture.md §4.2](../../../docs/architecture.md)・紀錄 [docs/pdca/meta/2026-11-plugin-architecture.md](../../../docs/pdca/meta/2026-11-plugin-architecture.md)、[docs/pdca/meta/2026-11-target-architecture.md](../../../docs/pdca/meta/2026-11-target-architecture.md)
 
 engine 一份程式；「IT 可觀測性」「全套工廠」「只有指標」各是一份資料檔（[data/](data/)）加兩個策略，環境變數 `AIOPS_PLUGIN` 選。
 主程式（`core/`、`service/`、`interface/`）只看 [base.py](base.py) 的 `Scenario` 欄位，不認得 `factory`、`lot`、`equipment` 這些字；
@@ -10,8 +10,8 @@ engine 一份程式；「IT 可觀測性」「全套工廠」「只有指標」�
 
 | `AIOPS_PLUGIN` | 什麼情境 | 資料檔 | 設定檔 | chart |
 |---|---|---|---|---|
-| `observability`（預設） | IT：對象是服務、API 是 method＋route、trace 的呼叫關係決定誰連帶誰、版號第一次出現當換版。原始資料再用 `AIOPS_SOURCE` 選 `otel`／`apm` | `it_otel.yaml`、`it_apm.yaml` | `configs/schedule/`、`configs/baseline/`、`configs/rca/`；apm 用 [configs/apm/](../configs/apm/README.md) | `--set plugin=observability [--set source=apm]` |
-| `factory` | 工廠：對象是機台、API 是 recipe、ML／FDC 判好的異常接進 ⑤、MES＋S6F11 合成履歷取代 trace、後站依 lot 併進前站、recipe 變更當換版、嚴重度依參數家族 | `factory.yaml` | [configs/factory/](../configs/factory/README.md) | `--set plugin=factory` |
+| `observability`（預設） | IT：對象是服務、API 是 method＋route、trace 的呼叫關係決定誰連帶誰、版號第一次出現當換版。原始資料再用 `AIOPS_SOURCE` 選 `otel`／`apm` | `it_otel.yaml`、`it_apm.yaml` | `configs/schedule/`、`configs/baseline/`、`configs/rca/`；apm 用 [configs/apm/](../../configs/apm/README.md) | `--set plugin=observability [--set source=apm]` |
+| `factory` | 工廠：對象是機台、API 是 recipe、ML／FDC 判好的異常接進 ⑤、MES＋S6F11 合成履歷取代 trace、後站依 lot 併進前站、recipe 變更當換版、嚴重度依參數家族 | `factory.yaml` | [configs/factory/](../../configs/factory/README.md) | `--set plugin=factory` |
 | `metrics_only` | 只有 ML／FDC 的異常、**沒有履歷**：同機台一件、不併跨機台、報告只有異常／log／事故前的變更 | `metrics_only.yaml`（`extends: factory`） | `configs/metrics_only/`（`ingest.yaml` 跟 factory 共用） | `--set plugin=metrics_only` |
 | `<路徑>.yaml` | 客製：一份自己的資料檔（可 `extends` 內建的） | 自己放 | 自己放 | `--set plugin=/path/x.yaml` |
 | `套件.模組:名字` | 客製：程式裡的 `Scenario` 實例（下節） | — | 自己放 | `--set plugin=套件.模組:名字` |
@@ -68,10 +68,10 @@ change: null
 - `sections` 只能從 [service/rca/report.py](../service/rca/report.py) 的 `SECTIONS` 挑；要 trace 的段在沒有 trace 時自己寫一行略過，不用你管。
 - `commands` 是 `{子命令名: "套件.模組:register"}`，`register(app)` 用 `app.command("子命令名", help=…)` 掛一個 typer 函式；函式自己 `load_config(config, kind)`、組 `argparse.Namespace` 再呼叫處理函式 `(cfg, args) -> int`（寫法見 [factory/commands.py](factory/commands.py)）。內建子命令也是同一種形狀。
 - 策略是「可呼叫物件」：`chain(repo, cfg, anomalies, open_alerts, start, now) -> Chain`、`change(repo, cfg, entity, since, now) -> datetime | None`；要查 ES 走 `repo.traces`、`repo.change`（[core/repository/README.md](../core/repository/README.md)），不要自己打查詢。
-- 單元測試：`AIOPS_PLUGIN` 用 `mock.patch.dict(os.environ, …)` 包，每次 `load_scenario()` 都重讀；寫法見 [tests/test_scenario.py](../tests/test_scenario.py)。
+- 單元測試：`AIOPS_PLUGIN` 用 `mock.patch.dict(os.environ, …)` 包，每次 `load_scenario()` 都重讀；寫法見 [tests/test_scenario.py](../../tests/test_scenario.py)。
 
 ## 怎麼驗
 
 - `python -m pytest -q tests/test_scenario.py`：預設、env 選、yaml 的 `extends`、客製 dotted path、三個內建各填了什麼、子命令跟著情境、報告段跟著情境（沒 trace 時 log 段照跑、不炸）。
-- `python -m tests.factory_e2e`（有履歷，15 項）、`python -m tests.factory_e2e --plugin metrics_only`（沒履歷，13 項）：都要有測試 ES（[configs/factory/README.md](../configs/factory/README.md)）。
+- `python -m tests.factory_e2e`（有履歷，15 項）、`python -m tests.factory_e2e --plugin metrics_only`（沒履歷，13 項）：都要有測試 ES（[configs/factory/README.md](../../configs/factory/README.md)）。
 - `helm template x aiops-engine/helmchart --set plugin=<名>`：`AIOPS_PLUGIN` 進 env、排程表對；不認得的名字 render 失敗。

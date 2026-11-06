@@ -1,6 +1,6 @@
 # core/repository：索引的讀寫，一個實體一個
 
-> **類型：規格 Reference**　為什麼這樣分層見 [docs/architecture.md](../../../docs/architecture.md)、計畫見 [docs/pdca/meta/2026-11-target-architecture.md](../../../docs/pdca/meta/2026-11-target-architecture.md)
+> **類型：規格 Reference**　為什麼這樣分層見 [docs/architecture.md](../../../../docs/architecture.md)、計畫見 [docs/pdca/meta/2026-11-target-architecture.md](../../../../docs/pdca/meta/2026-11-target-architecture.md)
 
 索引名與 ES 的查詢語法只出現在這一層（`tests/test_layers.py` 鎖著）。service 透過 `Repos` 拿各實體的 repository：
 

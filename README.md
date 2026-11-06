@@ -80,7 +80,7 @@ docs/  tools/
 |---|---|---|
 | `elasticsearch/` | ③ | 在公司 ES 上補的東西：一份貼進 Kibana Dev Tools 的檔（`traces-merged-*` 的 ILM 與 template、engine 與 Grafana 的 key、選用的 snapshot）。不部署 ES、不碰 APM 的索引 |
 | `grafana/` | ⑧ | 讀 `aiops-alerts` 依部門發通知、儀表板、回饋表單外掛 |
-| `aiops-engine/` | ④～⑨ | AIOps 分析核心：Python 程式 `schema/`（設定欄位定義）、`core/`（ES 連線、資料物件、repository）、`scenario/` 情境；`service/` 偵測、收斂、根因分析、回饋；`interface/` 命令列、API、排程器與 worker），指令一律 `python3 -m main <detector|investigator|scheduler|tasks|api> …`；`configs/`（`apm/` Elastic APM 版、`baseline/` `rca/` `schedule/` OTel 版） |
+| `aiops-engine/` | ④～⑨ | AIOps 分析核心：Python 程式在 `src/`：`schema/`（設定欄位定義）、`core/`（ES 連線、資料物件、repository）、`scenario/` 情境；`service/` 偵測、收斂、根因分析、回饋；`interface/` 命令列、API、排程器與 worker），指令一律 `python3 -m main <detector|investigator|scheduler|tasks|api> …`；`configs/`（`apm/` Elastic APM 版、`baseline/` `rca/` `schedule/` OTel 版） |
 | `docs/` | — | 設計文件、規劃、`docs/pdca/` 每一輪的紀錄 |
 
 Python 的執行位置在 `aiops-engine/`：`cd aiops-engine && python3 -m main detector <指令>`、`python3 -m main investigator investigate`。

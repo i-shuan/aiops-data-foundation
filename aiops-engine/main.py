@@ -1,4 +1,4 @@
-"""python3 -m main <角色> …：engine 唯一的命令列入口（Dockerfile 的 ENTRYPOINT 是 python3 -m，排程表、helm 的 args 第一個字都是 aiops）。
+"""python3 -m main <角色> …：engine 唯一的命令列入口（Dockerfile 的 ENTRYPOINT 是 python3 -m，排程表、helm 的 args 第一個字都是 main；程式在 src/，這裡先把它加進 import 路徑）。
 
   python3 -m main detector     <子命令> …   ②③④⑤ 偵測、⑨ 回饋、調整、回測、量化（interface/cli/detect.py）
   python3 -m main investigator <子命令> …   ⑥⑦ 事件整合、根因分析（interface/cli/rca.py）
@@ -9,6 +9,9 @@
 from __future__ import annotations
 
 import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))   # 程式在 src/；從 aiops-engine/ 跑，不用設 PYTHONPATH
 
 from interface.cli.detect import main as detector
 from interface.cli.rca import main as investigator

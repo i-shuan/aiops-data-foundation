@@ -10,11 +10,11 @@
 
 | 索引 | mapping 在哪 |
 |---|---|
-| `aiops-anomalies` | `aiops-engine/core/anomaly.py` 的 `ANOMALY_MAPPING`（欄位的唯一定義是同一檔的 `Anomaly`） |
-| `aiops-alerts` | `aiops-engine/core/alert.py` 的 `ALERT_MAPPING`（欄位的唯一定義是同一檔的 `Alert`；事件整合在手上的就是這個物件，`to_doc()` 寫、`from_doc()` 讀） |
-| `aiops-incidents` | `aiops-engine/core/incident.py` 的 `INCIDENT_MAPPING`（欄位的唯一定義是同一檔的 `Incident`、`Fingerprint` 模型，寫入一律 `to_doc()`） |
+| `aiops-anomalies` | `aiops-engine/src/core/anomaly.py` 的 `ANOMALY_MAPPING`（欄位的唯一定義是同一檔的 `Anomaly`） |
+| `aiops-alerts` | `aiops-engine/src/core/alert.py` 的 `ALERT_MAPPING`（欄位的唯一定義是同一檔的 `Alert`；事件整合在手上的就是這個物件，`to_doc()` 寫、`from_doc()` 讀） |
+| `aiops-incidents` | `aiops-engine/src/core/incident.py` 的 `INCIDENT_MAPPING`（欄位的唯一定義是同一檔的 `Incident`、`Fingerprint` 模型，寫入一律 `to_doc()`） |
 | `aiops-feedback` | `aiops-engine/feedback/suggest.py` 的 `FEEDBACK_MAPPING` |
-| `aiops-tuning` | `aiops-engine/core/tuning.py` 的 `TUNING_MAPPING`（⑨ 寫、④ 讀，所以放 `core/`）；寫進去前過同一檔的 `Adjustment`（`validated`） |
+| `aiops-tuning` | `aiops-engine/src/core/tuning.py` 的 `TUNING_MAPPING`（⑨ 寫、④ 讀，所以放 `core/`）；寫進去前過同一檔的 `Adjustment`（`validated`） |
 
 五個索引的 mapping 都是 `dynamic: false`：**沒列在 mapping 的欄位，會留在 `_source`（Grafana 面板讀得到、顯示得出來），但不能拿來篩選或聚合。**
 
@@ -97,7 +97,7 @@ Grafana（⑧）         讀 aiops-alerts 發通知；儀表板讀 alerts、anom
 
 ## aiops-alerts：一件事故（Grafana 通知讀這個）
 
-寫入：`investigator alert`（`aiops-engine/service/converge/alert_service.py`），每 1～2 分鐘跑一次。同一個服務最近的異常合成一件；超過 `close_after`（預設 30 分鐘）沒有新異常就結束（`resolved`）。
+寫入：`investigator alert`（`aiops-engine/src/service/converge/alert_service.py`），每 1～2 分鐘跑一次。同一個服務最近的異常合成一件；超過 `close_after`（預設 30 分鐘）沒有新異常就結束（`resolved`）。
 
 **`@timestamp` 的意思**：開著的件每輪都改成「這一輪的時間」，結束的件是 `resolved_at`。Grafana 的告警規則只看最近 5 分鐘、`status:open`，所以事件整合停了，所有件都會查不到，要靠心跳規則（見下）。
 
@@ -106,14 +106,14 @@ Grafana（⑧）         讀 aiops-alerts 發通知；儀表板讀 alerts、anom
 | `alert_id` | keyword | 同時是 `_id`；格式 `a-<開始日期>-<開始時分>-<服務>`（服務名的特殊字元換成 `_`） |
 | `category` | keyword | 這件歸在誰身上：`service`（服務，優先）、`namespace`、`node`（異常的 `keys` 裡沒有服務時依序退到這兩個）、`other`（都沒有，名稱用序列名）、`data_quality`（資料品質，`alert_id` 結尾多 `-dq`）、`heartbeat`（心跳）、`status`（detect 狀態，見下）。**只有 `service` 會跑根因分析、寫進 `aiops-incidents`、顯示在事故清單面板** |
 | `service`、`status` | keyword | `service` 欄位放的是上一列那個類別的名稱（服務名、namespace、節點名…）；`status` 是 `open`、`resolved` |
-| `severity` | keyword | `critical`、`high`、`warning`：代表要不要吵人，不是偏離幾倍。critical：靜態規則 critical，或 ≥ 3 類黃金訊號（latency、errors、downstream、saturation）同時異常且不是單點；high：2 類，或 1 類但持續（≥ 10 分鐘、最後 15 分鐘窗 ≥ 80% 有異常）或好幾條都跳；warning：其餘。換版後 10 分鐘內的異常上限 warning。Grafana 只通知 critical、high（[investigator/severity.py](../aiops-engine/service/converge/severity.py)） |
+| `severity` | keyword | `critical`、`high`、`warning`：代表要不要吵人，不是偏離幾倍。critical：靜態規則 critical，或 ≥ 3 類黃金訊號（latency、errors、downstream、saturation）同時異常且不是單點；high：2 類，或 1 類但持續（≥ 10 分鐘、最後 15 分鐘窗 ≥ 80% 有異常）或好幾條都跳；warning：其餘。換版後 10 分鐘內的異常上限 warning。Grafana 只通知 critical、high（[investigator/severity.py](../aiops-engine/src/service/converge/severity.py)） |
 | `severity_why` | text（不索引） | 嚴重度怎麼來的一句話（幾類、跨幾分鐘、換版上限） |
 | `deploy_at` | date | 這個服務最近一次換版（`service.version` 第一次出現的時間）；查不到就沒有 |
 | `dept`、`group` | keyword | 通知依 `dept` 分送；沒有 dept 的送平台 |
 | `started_at`、`updated_at`、`resolved_at` | date | 事故起訖 |
 | `anomaly_ids`、`anomaly_count` | keyword、integer | 併進來的異常（指到 `aiops-anomalies` 的 `_id`），一件最多記 500 筆 |
 | `series`、`routes` | keyword | 涉及的指標、路由（工廠版的「路由」是 recipe） |
-| `lots` | keyword | 工廠版：這件牽涉哪些 lot（異常的 `keys.lot`，最多 500 筆）；前後站併件時「那件已經有這批 lot」的前站優先（[investigator/alerts.py](../aiops-engine/service/converge/merge.py) 的 `links`） |
+| `lots` | keyword | 工廠版：這件牽涉哪些 lot（異常的 `keys.lot`，最多 500 筆）；前後站併件時「那件已經有這批 lot」的前站優先（[investigator/alerts.py](../aiops-engine/src/service/converge/merge.py) 的 `links`） |
 | `title`、`summary` | keyword | 通知用的標題與摘要。**存成 keyword**：Grafana 告警只能把「分組欄位的值」帶成 label，內容一變就是另一則（舊的 resolved、新的 firing），所以摘要不放持續時間、筆數 |
 | `report` | text（不索引） | 根因報告全文（Markdown）；有相似事故與 LLM 摘要時放在最前面 |
 | `report_at` | date | 跑根因分析的時間（新開的一件跑一次；之後只有還沒有報告時才補跑） |
@@ -192,9 +192,9 @@ Grafana（⑧）         讀 aiops-alerts 發通知；儀表板讀 alerts、anom
 
 ## aiops-incidents：事故庫（相似事故檢索的資料池）
 
-欄位定義在 `aiops-engine/core/incident.py` 的 `Incident`（指紋是 `Fingerprint`）；四條寫入路徑都建模型再 `to_doc()`，下表是它的欄位說明。
+欄位定義在 `aiops-engine/src/core/incident.py` 的 `Incident`（指紋是 `Fingerprint`）；四條寫入路徑都建模型再 `to_doc()`，下表是它的欄位說明。
 
-三種寫入：事件整合每一輪只要這件有新異常併進來、新開或結束，就寫一次（`status: auto`；用 scripted upsert，**只更新還是 `auto` 的，人處理過的一個欄位都不動**）；資深維運專家在回饋表單送出後，回饋網頁（`aiops-engine/service/feedback/feedback_service.py`）更新同一筆；也可以人用 `python3 -m main detector incident add／resolve` 補登一件（`status: open`，結束時 `resolved`）。
+三種寫入：事件整合每一輪只要這件有新異常併進來、新開或結束，就寫一次（`status: auto`；用 scripted upsert，**只更新還是 `auto` 的，人處理過的一個欄位都不動**）；資深維運專家在回饋表單送出後，回饋網頁（`aiops-engine/src/service/feedback/feedback_service.py`）更新同一筆；也可以人用 `python3 -m main detector incident add／resolve` 補登一件（`status: open`，結束時 `resolved`）。
 
 | 欄位 | 型別 | 誰寫 | 說明 |
 |---|---|---|---|

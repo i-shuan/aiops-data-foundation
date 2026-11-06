@@ -322,6 +322,12 @@ Check：`pytest` 764 過、`check-docs` 0 問題；`python3 -m main`、`aiops de
 
 **取捨**：頂層名字（`core`、`service`、`schema`…）比較泛，Python 路徑上要是有同名的第三方套件會撞；目前環境沒有。部署時 image 與 chart 要一起升（`args` 第一個字變了）。
 
+## 事後調整四：五個程式資料夾收進 `src/`
+
+**為什麼**：取消 `aiops/` 後，`schema/ core/ scenario/ service/ interface/` 跟 `configs/ tests/ helmchart/ fake-data/` 混在 `aiops-engine/` 第一層，使用者覺得散。
+
+**做了什麼**：五個資料夾搬進 `aiops-engine/src/`；`main.py` 留在 `aiops-engine/` 第一層，開頭把 `src/` 加進 `sys.path`，所以從 `aiops-engine/` 跑 `python3 -m main …` 不用設 `PYTHONPATH`，排程器開的子行程（cwd 是 `aiops-engine/`，`configs/…` 相對路徑才找得到）也一樣；`tests/__init__.py` 做同樣的事；`core/env.py` 的 `CODE_ROOT` 仍指 `aiops-engine/`；Dockerfile 一行 `COPY src/ src/`；`test_layers.py` 改掃 `src/`。import 寫法不變（`from core.xxx import …`）。
+
 ## Act（計畫時）：預期的風險與沒有答案的
 
 | 風險／問題 | 影響 | 打算怎麼處理 |

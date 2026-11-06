@@ -7,7 +7,7 @@ import pathlib
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-PKG = ROOT
+PKG = ROOT / "src"
 LAYERS = ("schema", "core", "scenario", "service", "interface")       # 由下往上
 ALLOWED = {"schema": set(), "core": {"schema"}, "scenario": {"schema", "core"},
            "service": {"schema", "core", "scenario"}, "interface": {"schema", "core", "scenario", "service"}}
