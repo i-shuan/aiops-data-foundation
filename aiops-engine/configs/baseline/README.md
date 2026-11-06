@@ -1,8 +1,8 @@
 # AIOps baseline：怎麼跑、怎麼調
 
-> **類型：操作 How-To**　同主題：[原理](../../../../docs/rca/README.md)・[規格](reference.md)・[實測](verification.md)
+> **類型：操作 How-To**　同主題：[原理](../../../docs/rca/README.md)・[規格](reference.md)・[實測](verification.md)
 
-這份只寫怎麼做：怎麼跑 train／detect／rules／peer／quality／chronic／trace、怎麼調整、怎麼驗證。為什麼這樣設計見 [rca/README.md](../../../../docs/rca/README.md)，參數與欄位見 [reference.md](reference.md)，實測結果見 [verification.md](verification.md)。
+這份只寫怎麼做：怎麼跑 train／detect／rules／peer／quality／chronic／trace、怎麼調整、怎麼驗證。為什麼這樣設計見 [rca/README.md](../../../docs/rca/README.md)，參數與欄位見 [reference.md](reference.md)，實測結果見 [verification.md](verification.md)。
 
 **目錄**
 
@@ -22,7 +22,7 @@
 
 ## 加一條要學的序列
 
-> 另見：[原理](../../../../docs/rca/README.md)・[規格](reference.md#做什麼)
+> 另見：[原理](../../../docs/rca/README.md)・[規格](reference.md#做什麼)
 
 要加序列，在 `series.yaml` 加一段就好，不用改程式。
 
@@ -42,7 +42,7 @@
 
 ## trace 每一段的 baseline
 
-> 另見：[原理](../../../../docs/rca/README.md)・[規格](reference.md#trace-每一段的-baseline)・[實測](verification.md#trace-每一段的-baseline)
+> 另見：[原理](../../../docs/rca/README.md)・[規格](reference.md#trace-每一段的-baseline)・[實測](verification.md#trace-每一段的-baseline)
 
 ```bash
 python3 -m detector trace-collect --config configs/baseline/trace.yaml   # 第一次：補過去 7 天的統計（trace 只留 7 天）
@@ -52,7 +52,7 @@ python3 -m detector trace-detect  --config configs/baseline/trace.yaml   # 每 5
 
 ## 規則：狀態變化、離極限多遠
 
-> 另見：[原理](../../../../docs/rca/README.md)・[規格](reference.md#規則狀態變化離極限多遠)・[實測](verification.md#規則狀態變化離極限多遠)
+> 另見：[原理](../../../docs/rca/README.md)・[規格](reference.md#規則狀態變化離極限多遠)・[實測](verification.md#規則狀態變化離極限多遠)
 
 ```bash
 python3 -m detector rules --config configs/baseline/rules.yaml      # 每分鐘
@@ -60,7 +60,7 @@ python3 -m detector rules --config configs/baseline/rules.yaml      # 每分鐘
 
 ## Pod 同儕橫向比對：同一個服務的 Pod 互相比
 
-> 另見：[原理](../../../../docs/rca/README.md)・[規格](reference.md#pod-同儕橫向比對同一個服務的-pod-互相比)・[實測](verification.md#pod-同儕橫向比對同一個服務的-pod-互相比)
+> 另見：[原理](../../../docs/rca/README.md)・[規格](reference.md#pod-同儕橫向比對同一個服務的-pod-互相比)・[實測](verification.md#pod-同儕橫向比對同一個服務的-pod-互相比)
 
 ```bash
 python3 -m detector peer --config configs/baseline/peer.yaml      # 每分鐘
@@ -68,7 +68,7 @@ python3 -m detector peer --config configs/baseline/peer.yaml      # 每分鐘
 
 ## 調整：哪些資料不學、從哪裡重新學、哪些時段放寬
 
-> 另見：[原理](../../../../docs/rca/README.md)・[規格](reference.md#調整哪些資料不學從哪裡重新學哪些時段放寬)・[實測](verification.md#調整哪些資料不學從哪裡重新學哪些時段放寬)
+> 另見：[原理](../../../docs/rca/README.md)・[規格](reference.md#調整哪些資料不學從哪裡重新學哪些時段放寬)・[實測](verification.md#調整哪些資料不學從哪裡重新學哪些時段放寬)
 
 ```bash
 python3 -m detector adjust add --kind exclude_window --match service=^mes-api$ \
@@ -105,7 +105,7 @@ python3 -m detector tune --show --series http.error_rate --match service=mes-api
 
 ## 慢性病清單、行事曆
 
-> 另見：[原理](../../../../docs/rca/README.md)・[規格](reference.md#慢性病清單行事曆)・[實測](verification.md#慢性病清單行事曆)
+> 另見：[原理](../../../docs/rca/README.md)・[規格](reference.md#慢性病清單行事曆)・[實測](verification.md#慢性病清單行事曆)
 
 ```bash
 python3 -m detector chronic --config configs/baseline/chronic.yaml   # 每週一次（例如週一早上）
@@ -138,7 +138,7 @@ python3 -m detector quality --config configs/baseline/quality.yaml  # 每 10 分
 python3 -m detector chronic --config configs/baseline/chronic.yaml  # 每週一次，慢性病清單
 ```
 
-正式環境用 K8s 上一隻 pod 的排程器：[aiops-engine/README.md](../../../README.md)（rules／detect／alert 每 1 分鐘、train 每天；排程表 `configs/schedule/schedule.yaml`）。單機的 crontab 例子：
+正式環境用 K8s 上一隻 pod 的排程器：[aiops-engine/README.md](../../README.md)（rules／detect／alert 每 1 分鐘、train 每天；排程表 `configs/schedule/schedule.yaml`）。單機的 crontab 例子：
 
 ```
 15 3 * * *  cd /opt/aiops && python3 -m detector train  --config configs/baseline/series.yaml >> train.log 2>&1

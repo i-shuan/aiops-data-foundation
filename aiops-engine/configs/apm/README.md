@@ -1,6 +1,6 @@
 # 用 Elastic APM 的資料跑 aiops-engine
 
-> **類型：操作 How-To**　同主題：[原理](../../../../docs/rca/README.md)・[baseline 怎麼跑](../baseline/README.md)・[規格](../baseline/reference.md)・[紀錄](../../../../docs/pdca/meta/2026-11-apm-source.md)
+> **類型：操作 How-To**　同主題：[原理](../../../docs/rca/README.md)・[baseline 怎麼跑](../baseline/README.md)・[規格](../baseline/reference.md)・[紀錄](../../../docs/pdca/meta/2026-11-apm-source.md)
 
 公司的 ES 已經有 Elastic APM（Fleet 的 `apm` integration）收的資料，**不改 Collector、不改 ES 現有索引**，engine 直接讀。
 這個資料夾是 APM 版的設定檔；寫法跟 `configs/baseline/`、`configs/rca/` 一樣，只是索引、欄位換成 APM 的。
@@ -29,29 +29,29 @@
 engine 要**讀** APM 的三種資料，**寫**自己的 `aiops-*` 和 `traces-merged-*`（只有寫沒有讀跑不起來；`aiops-*` 的索引名是 `aiops-anomalies`、`aiops-alerts`…，沒有連字號後綴，所以 pattern 用 `aiops-*`）。
 `traces-merged-*` 一天一個 index，mapping 要 nested，得先放 template。
 
-兩件事都在 [elasticsearch/kibana-dev-tools.txt](../../../../elasticsearch/kibana-dev-tools.txt)：整份貼進 Kibana Dev Tools，第 1、2 段是 ILM 與 template，第 3 段發 engine 的 key（回傳的 `encoded` 就是 `ES_API_KEY`）。全部是新增，不碰現有索引。
+兩件事都在 [elasticsearch/kibana-dev-tools.txt](../../../elasticsearch/kibana-dev-tools.txt)：整份貼進 Kibana Dev Tools，第 1、2 段是 ILM 與 template，第 3 段發 engine 的 key（回傳的 `encoded` 就是 `ES_API_KEY`）。全部是新增，不碰現有索引。
 
 ### 3. 部署：`source: apm`
 
-[helmchart](../../../helmchart/values.yaml) 的 `source` 設 `apm`：環境變數 `AIOPS_SOURCE=apm`（程式裡寫死的那幾個欄位名換成 APM 的：dept／group
+[helmchart](../../helmchart/values.yaml) 的 `source` 設 `apm`：環境變數 `AIOPS_SOURCE=apm`（程式裡寫死的那幾個欄位名換成 APM 的：dept／group
 查 `metrics-apm.transaction.1m-*` 的 `labels.*`、根因分析讀 log 用 `service.name`、`trace.id`），排程表換成 [schedule.yaml](schedule.yaml)（指令同，設定檔指到這個資料夾）。
 
 ```bash
 helm upgrade --install aiops aiops-engine/helmchart -n aiops --set source=apm --set esUrl=https://<es>:9200 -f aiops-engine/helmchart/values-local.yaml
 ```
 
-其餘（Secret、LLM、回饋網頁）跟 [aiops-engine/README.md](../../../README.md) 一樣。
+其餘（Secret、LLM、回饋網頁）跟 [aiops-engine/README.md](../../README.md) 一樣。
 
 ### 4. 先確認資料對得上
 
 部署前在有 ES 連線的地方跑一次，看每條序列查得到幾筆（0 筆就是索引名或欄位名不對）：
 
 ```bash
-cd aiops-engine/code && AIOPS_SOURCE=apm ES_URL=https://<es>:9200 ES_API_KEY=<key> python3 -m detector detect --config configs/apm/series.yaml --window 10m
+cd aiops-engine && AIOPS_SOURCE=apm ES_URL=https://<es>:9200 ES_API_KEY=<key> python3 -m detector detect --config configs/apm/series.yaml --window 10m
 ```
 
 ```bash
-cd aiops-engine/code && AIOPS_SOURCE=apm ES_URL=https://<es>:9200 ES_API_KEY=<key> python3 -m detector trace-merge --config configs/apm/trace.yaml
+cd aiops-engine && AIOPS_SOURCE=apm ES_URL=https://<es>:9200 ES_API_KEY=<key> python3 -m detector trace-merge --config configs/apm/trace.yaml
 ```
 
 要對照的欄位（各拿一筆 `GET <索引>/_search?size=1` 看）：

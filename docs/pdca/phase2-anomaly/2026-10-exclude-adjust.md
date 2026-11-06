@@ -1,6 +1,6 @@
 # 排除已知干擾：排除時段、重置點、週期放寬（2026-10）
 
-**狀態**：已完成（已合進 master）；沒排程　　**日期**：2026-10-23　　**相關**：PR #7、[baseline 定義的原則與限制](../../../aiops-engine/code/configs/baseline/reference.md#定義的原則與限制)、[餵給 baseline 之前](../../../aiops-engine/code/configs/baseline/reference.md#餵給-baseline-之前擋了什麼還缺什麼)
+**狀態**：已完成（已合進 master）；沒排程　　**日期**：2026-10-23　　**相關**：PR #7、[baseline 定義的原則與限制](../../../aiops-engine/configs/baseline/reference.md#定義的原則與限制)、[餵給 baseline 之前](../../../aiops-engine/configs/baseline/reference.md#餵給-baseline-之前擋了什麼還缺什麼)
 **模組**：② 清資料（餵給 ④ 判斷之前）
 
 ## Plan：這一次要達到什麼
@@ -81,4 +81,4 @@
 | [⑧] `proposed` 沒人核准就永遠不生效，也沒有提醒 | 推論（`approve` 才改 status，沒有通知） | 建議可能被忘記 | 告警出口做好後，列出待核准的建議 |
 | [④⑨] 沒有排程；CI/CD 換版時不會自動寫 `reset_point` | — | 換版要人記得標 | 串 CI/CD、值班回饋 |
 | 別名表要隨新序列維護 | 實作時：序列各用不同欄位名稱 | 新序列用新欄位名稱時 `match` 對不到 | 加序列時檢查 `ALIASES` |
-| [④] 限制 2（指標不夠）、4（`groups` 沒定義）沒處理 | 見 [baseline 定義的原則與限制](../../../aiops-engine/code/configs/baseline/reference.md#定義的原則與限制) | — | 待排 |
+| [④] 限制 2（指標不夠）、4（`groups` 沒定義）沒處理 | 見 [baseline 定義的原則與限制](../../../aiops-engine/configs/baseline/reference.md#定義的原則與限制) | — | 待排 |

@@ -1,8 +1,8 @@
 # baseline 規格：序列、狀態、參數、規則、欄位
 
-> **類型：規格 Reference**　同主題：[原理](../../../../docs/rca/README.md)・[操作](README.md)・[實測](verification.md)
+> **類型：規格 Reference**　同主題：[原理](../../../docs/rca/README.md)・[操作](README.md)・[實測](verification.md)
 
-要查「這個參數是什麼、這條規則看什麼、欄位長怎樣」看這份。為什麼這樣設計見 [rca/README.md](../../../../docs/rca/README.md)，怎麼跑、怎麼調見 [README.md](README.md)，實測結果見 [verification.md](verification.md)。
+要查「這個參數是什麼、這條規則看什麼、欄位長怎樣」看這份。為什麼這樣設計見 [rca/README.md](../../../docs/rca/README.md)，怎麼跑、怎麼調見 [README.md](README.md)，實測結果見 [verification.md](verification.md)。
 
 **目錄**
 
@@ -30,7 +30,7 @@
 
 ## 做什麼
 
-> 另見：[原理](../../../../docs/rca/README.md)・[操作](reference.md#做什麼)
+> 另見：[原理](../../../docs/rca/README.md)・[操作](reference.md#做什麼)
 
 學哪些序列寫在 [series.yaml](series.yaml)，目前是每個服務的核心指標：
 
@@ -48,7 +48,7 @@
 
 ## 學出來長什麼樣子
 
-> 另見：[原理](../../../../docs/rca/README.md)
+> 另見：[原理](../../../docs/rca/README.md)
 
 ### 什麼時候開始、多久訓練一次
 
@@ -73,7 +73,7 @@
 
 - **不用另外存狀態**：每次偵測多查前一個時間窗，從資料重算「連續第幾個」（`streak` 欄位），程式重啟也一樣。
 - **不降級**：上一輪已判成 anomaly 的時間窗，這一輪就算查的範圍沒包含它的前一個時間窗，也維持 anomaly。
-- 設定在 `series.yaml` 的 `status: {confirm_points: 2, confirm_span: 30m, instant_z: 15}`。每條序列可以自己設 `confirm_points`、`instant_z`（`http.latency_p95_s` 設 `null`：不直接 anomaly；寫 0 會讓每個超標點都直接 anomaly）；`tune --confirm-points 1 --instant-z 10` 可以再依對象調（寫進 `aiops-tuning`，之後回饋的建議也能調）。優先順序：對象 > 序列 > 全域（[pdca/phase2-anomaly/2026-10-instant-anomaly.md](../../../../docs/pdca/phase2-anomaly/2026-10-instant-anomaly.md)）。
+- 設定在 `series.yaml` 的 `status: {confirm_points: 2, confirm_span: 30m, instant_z: 15}`。每條序列可以自己設 `confirm_points`、`instant_z`（`http.latency_p95_s` 設 `null`：不直接 anomaly；寫 0 會讓每個超標點都直接 anomaly）；`tune --confirm-points 1 --instant-z 10` 可以再依對象調（寫進 `aiops-tuning`，之後回饋的建議也能調）。優先順序：對象 > 序列 > 全域（[pdca/phase2-anomaly/2026-10-instant-anomaly.md](../../../docs/pdca/phase2-anomaly/2026-10-instant-anomaly.md)）。
 - 規則（`rules.yaml`）另外用 `for`（要持續多久）處理；重啟、Pod Failed 這類 critical 規則一次就算，不等。
 
 ### 定義的原則與限制
@@ -85,14 +85,14 @@
 | 比一週長的週期（月底、季底批次） | 168 格只涵蓋一週 | 月底誤報 | `recurring_override` |
 | 指標不夠：沒有 p99、慢請求比例、往外呼叫耗時 | `series.yaml` 只有 7 條序列 | 只有 p95，看不到尾端 | 待排：加序列（改設定，不改公式） |
 | 借同組實際不會發生 | `series.yaml` 的 `groups` 是註解掉的範例，沒有 `groups` 就不借 | 新 API 沒有 baseline 可比 | 要依公司服務命名定義 `groups`（要別人配合） |
-| p95 從直方圖算，值落在桶中點 | MAD＝0，σ 只剩中位數的 5%；多兩個請求跨到下一格 z 約 23 | 已設 `instant_z: null`（跨一格只算 warning、連續 2 窗才 anomaly）：合成資料一週 p95 anomaly 3.52% → 0.93%，但 warning 2.67% → 5.26%，超標的點數沒變 | 跨一格 z 仍大；待改程式（σ 至少半個桶寬），[threshold-tune](../../../../docs/pdca/phase2-anomaly/2026-10-baseline-threshold-tune.md) |
-| 錯誤率一個 5xx 就到門檻 | `min_events` 20、`min_abs` 5%、`confirm_points` 1 | 合成資料一週 0.34% 的點報 anomaly（`min_events.rate` 100 試過：降到 0，但錯誤率、p95 變 5 分鐘一點，已退回） | 待改程式：至少 N 個 5xx 才判斷，[threshold-tune](../../../../docs/pdca/phase2-anomaly/2026-10-baseline-threshold-tune.md) |
+| p95 從直方圖算，值落在桶中點 | MAD＝0，σ 只剩中位數的 5%；多兩個請求跨到下一格 z 約 23 | 已設 `instant_z: null`（跨一格只算 warning、連續 2 窗才 anomaly）：合成資料一週 p95 anomaly 3.52% → 0.93%，但 warning 2.67% → 5.26%，超標的點數沒變 | 跨一格 z 仍大；待改程式（σ 至少半個桶寬），[threshold-tune](../../../docs/pdca/phase2-anomaly/2026-10-baseline-threshold-tune.md) |
+| 錯誤率一個 5xx 就到門檻 | `min_events` 20、`min_abs` 5%、`confirm_points` 1 | 合成資料一週 0.34% 的點報 anomaly（`min_events.rate` 100 試過：降到 0，但錯誤率、p95 變 5 分鐘一點，已退回） | 待改程式：至少 N 個 5xx 才判斷，[threshold-tune](../../../docs/pdca/phase2-anomaly/2026-10-baseline-threshold-tune.md) |
 | `hour` 層混平日與週末 | 每天同一小時不分星期幾 | 某個週一收集中斷後兩週，週一那幾小時流量掉九成只有 z −4；剛上線 3 天週一會 warning | 待評估：hour 層分平日／週末 |
 | 尖峰不對齊整點 | 168 格以整點切；08:45 起的尖峰只佔 8 點那格的四分之一 | 每個平日 08:45～09:00 報 anomaly | `recurring_override`；或待評估邊界比相鄰時段 |
 
 ## 自動調整：粒度、低頻事件、借用 baseline
 
-> 另見：[原理](../../../../docs/rca/README.md)
+> 另見：[原理](../../../docs/rca/README.md)
 
 > 狀態：(1)(2)(3) 都做好了，`adaptive_e2e` 驗證過（見「驗證」）。設定在 `series.yaml` 的 `adaptive`、`groups`、`borrowing`。
 
@@ -125,7 +125,7 @@
 | 使用者設定 | `series.yaml` 的 `overrides`（`series` 可用正規表示式、`match` 依 keys 比對） | 粒度：下次 train；z、min_abs：下次 detect |
 | 指令 | `python3 -m detector tune --series http.latency_p95_s --match service=^mes-report --resolution 5m --z 7 --reason 誤報多 --by 王小明`，寫進 `aiops-tuning`（`--list` 列出、`--remove` 刪掉） | 同上 |
 | 查生效值 | `python3 -m detector tune --show --series http.latency_p95_s --match service=mes-report-api`（`--match` 給對象的實際值，不是正規表示式）：印 `resolution`、`z`、`min_abs`、`confirm_points`、`instant_z` 各自現在的值與來源（`aiops-tuning` 的 id、`series.yaml overrides#<第幾筆>`、或 `series.yaml 預設`）。值跟 detect 用的同一個函式算，不會兩套 | 不寫入 |
-| feedback（📝） | 之後的 feedback 流程寫同一個 `aiops-tuning`：同一條序列誤報累積多次 → 建議粒度往粗一級或調高 z，回測通過才寫入（見 [docs/feedback/README.md「對了怎麼強化、錯了怎麼 feedback」](../../../../docs/feedback/README.md)） | 同上 |
+| feedback（📝） | 之後的 feedback 流程寫同一個 `aiops-tuning`：同一條序列誤報累積多次 → 建議粒度往粗一級或調高 z，回測通過才寫入（見 [docs/feedback/README.md「對了怎麼強化、錯了怎麼 feedback」](../../../docs/feedback/README.md)） | 同上 |
 
 套用順序：自動選 → `series.yaml` 的 `overrides`（檔案順序）→ `adjustments.yaml` → `aiops-tuning`（依 `at` 由舊到新），同一欄位後面的蓋前面的，不同欄位各自生效；不看 `match` 寫得多細（較晚寫的寬鬆調整會蓋掉較早的精細調整）。每筆調整記 `reason`、`by`、`at`，查得到誰、為什麼、什麼時候改的。
 
@@ -193,7 +193,7 @@ series:
 
 ## trace 每一段的 baseline
 
-> 另見：[原理](../../../../docs/rca/README.md)・[操作](reference.md#trace-每一段的-baseline)・[實測](verification.md#trace-每一段的-baseline)
+> 另見：[原理](../../../docs/rca/README.md)・[操作](reference.md#trace-每一段的-baseline)・[實測](verification.md#trace-每一段的-baseline)
 
 | 數字 | 意思 | 抓什麼 |
 |---|---|---|
@@ -218,7 +218,7 @@ series:
 
 ## 規則：狀態變化、離極限多遠
 
-> 另見：[原理](../../../../docs/rca/README.md)・[操作](reference.md#規則狀態變化離極限多遠)・[實測](verification.md#規則狀態變化離極限多遠)
+> 另見：[原理](../../../docs/rca/README.md)・[操作](reference.md#規則狀態變化離極限多遠)・[實測](verification.md#規則狀態變化離極限多遠)
 
 | 規則 | 看什麼 | 觸發 | 嚴重度 |
 |---|---|---|---|
@@ -250,7 +250,7 @@ series:
 
 ## Pod 同儕橫向比對：同一個服務的 Pod 互相比
 
-> 另見：[原理](../../../../docs/rca/README.md)・[操作](reference.md#pod-同儕橫向比對同一個服務的-pod-互相比)・[實測](verification.md#pod-同儕橫向比對同一個服務的-pod-互相比)
+> 另見：[原理](../../../docs/rca/README.md)・[操作](reference.md#pod-同儕橫向比對同一個服務的-pod-互相比)・[實測](verification.md#pod-同儕橫向比對同一個服務的-pod-互相比)
 
 | 檢查 | 每個 Pod 算什麼（最近 10 分鐘） | 分組 | 觸發（跟其他 Pod 的中位數比） |
 |---|---|---|---|
@@ -278,7 +278,7 @@ series:
 
 ## 餵給 baseline 之前：擋了什麼、還缺什麼
 
-> 另見：[原理](../../../../docs/rca/README.md)
+> 另見：[原理](../../../docs/rca/README.md)
 
 | 層 | 擋什麼 | 在哪 |
 |---|---|---|
@@ -303,7 +303,7 @@ series:
 
 ## 調整：哪些資料不學、從哪裡重新學、哪些時段放寬
 
-> 另見：[原理](../../../../docs/rca/README.md)・[操作](reference.md#調整哪些資料不學從哪裡重新學哪些時段放寬)・[實測](verification.md#調整哪些資料不學從哪裡重新學哪些時段放寬)
+> 另見：[原理](../../../docs/rca/README.md)・[操作](reference.md#調整哪些資料不學從哪裡重新學哪些時段放寬)・[實測](verification.md#調整哪些資料不學從哪裡重新學哪些時段放寬)
 
 | kind | 用途 | train | detect |
 |---|---|---|---|
@@ -319,7 +319,7 @@ series:
 
 ## 事故紀錄與值班回饋
 
-> 另見：[原理](../../../../docs/rca/README.md)・[實測](verification.md#事故紀錄與值班回饋)
+> 另見：[原理](../../../docs/rca/README.md)・[實測](verification.md#事故紀錄與值班回饋)
 
 | 指令 | 做什麼 |
 |---|---|
@@ -330,7 +330,7 @@ series:
 | `backtest --id <建議> --weeks 4` | 改門檻前先回測：用「現行」和「現行＋這筆建議」各重跑過去 N 週的 detect（不寫 ES），比告警少幾個、已確認的事故（`aiops-incidents` confirmed／corrected／resolved）還抓不抓得到、漏報抓到沒；少抓一件已確認的事故就「不建議」。`rule_suggestion` 另算：過去 N 週每 5 分鐘（規則的 `lookback`）一點算規則的值，提這條規則的事故都要抓到、事故以外平均每週多報不超過 1 次（估的）才「建議」。結果寫回建議的 `backtest` 欄位，`adjust list` 看得到 |
 | `adjust approve --id … --by …` | override、`recurring_override`、`rule_suggestion` **沒回測、或回測不建議的不能核准**（要跳過用 `--force`）；記 `approved_by`、`approved_at` |
 | `metrics --from … --to … [--compare-from … --compare-to …]` | 量化：件數（每天、依 dept）、有回饋的比例、誤報率、根因錯的比例、漏報、從告警到第一筆回饋的中位時間、老師傅確認的事故數、「怎麼看出來的」有填的比例；兩段並排就是「學之前 vs 學之後」。只印 Markdown（`--out` 存檔），畫圖交給 Grafana |
-| `python3 -m api` | 老師傅的回饋網頁（通知裡的連結）：一鍵真的／誤報／根因錯，多填根因分類、根因、處置、**怎麼看出來的**、查了哪裡、下次怎麼更快、兩題評分、**一句話**（LLM 抽成四欄，同 `feedback add --text`）；寫 `aiops-feedback`（一件的每筆異常各一筆）和 `aiops-incidents`（`confirmed`／`corrected`／`false_positive`）。Grafana 裡的表單欄位對照見 [configs/grafana/README.md](../../../../grafana/README.md#回饋表單預設用-engine-api-的網頁要在-grafana-裡直接填才裝外掛) |
+| `python3 -m api` | 老師傅的回饋網頁（通知裡的連結）：一鍵真的／誤報／根因錯，多填根因分類、根因、處置、**怎麼看出來的**、查了哪裡、下次怎麼更快、兩題評分、**一句話**（LLM 抽成四欄，同 `feedback add --text`）；寫 `aiops-feedback`（一件的每筆異常各一筆）和 `aiops-incidents`（`confirmed`／`corrected`／`false_positive`）。Grafana 裡的表單欄位對照見 [configs/grafana/README.md](../../../grafana/README.md#回饋表單預設用-engine-api-的網頁要在-grafana-裡直接填才裝外掛) |
 
 一句話抽出來的 `suggested_action` 對到的調整（都 `status: proposed`、`source: feedback`、`reason` 帶原文；`adjust approve` 才生效）：
 
@@ -349,7 +349,7 @@ series:
 
 ## 慢性病清單、行事曆
 
-> 另見：[原理](../../../../docs/rca/README.md)・[操作](reference.md#慢性病清單行事曆)・[實測](verification.md#慢性病清單行事曆)
+> 另見：[原理](../../../docs/rca/README.md)・[操作](reference.md#慢性病清單行事曆)・[實測](verification.md#慢性病清單行事曆)
 
 | 來源 | 看什麼 | 算慢性病 |
 |---|---|---|
@@ -364,7 +364,7 @@ series:
 
 ## 資料品質檢查：資料本身怪不怪
 
-> 另見：[原理](../../../../docs/rca/README.md)
+> 另見：[原理](../../../docs/rca/README.md)
 
 | 檢查 | 看什麼 | 觸發 |
 |---|---|---|

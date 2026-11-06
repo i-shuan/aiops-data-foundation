@@ -9,8 +9,8 @@ import unittest
 import yaml
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-CHART = os.path.join(HERE, "..", "..", "helmchart")
-GRAFANA = os.path.join(HERE, "..", "..", "..", "grafana")
+CHART = os.path.join(HERE, "..", "helmchart")
+GRAFANA = os.path.join(HERE, "..", "..", "grafana")
 
 
 def render(*args) -> dict[str, dict]:

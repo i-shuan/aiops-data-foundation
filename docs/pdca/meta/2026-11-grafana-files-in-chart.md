@@ -18,7 +18,7 @@
 | `grafana/helmchart/values.yaml` | 拿掉 `provisioning.*`，加 `feedbackUrl` | 同上 |
 | `grafana/helmchart/files/dashboards/aiops-rca.json` | 「事故」變數的查詢從物件改成字串；事故清單標題寫明「一列 = 一件事故」、欄位改中文、「合併的異常筆數」 | Grafana 13 不吃物件型的變數查詢（console：missing metrics and aggregations）；讓人看得出一列是多筆異常合成的一件 |
 | `grafana/code/build-official-values.py`、`grafana/values-official.yaml`、`grafana/.gitlab-ci.yml` | 來源改讀 `helmchart/files/`，重新產生 values；CI 的觸發路徑加上 `helmchart/files/` | 官方 chart 那條路也要吃同一份檔 |
-| `aiops-engine/code/tests/test_grafana_form.py` 與三處註解、`sonar-project.properties` | 路徑改成 `helmchart/files/` | 檔搬了 |
+| `aiops-engine/tests/test_grafana_form.py` 與三處註解、`sonar-project.properties` | 路徑改成 `helmchart/files/` | 檔搬了 |
 | `grafana/README.md`、`docs/deploy-how-to.md`、`docs/architecture.md`、`docs/data-storage-reference.md`、`grafana/code/INSTALL-form-plugin.md`、`aiops-engine/README.md` | 路徑與部署指令改成一行 helm；回饋網址改寫 `--set feedbackUrl` | 文件跟著現況 |
 | `docs/pdca/meta/2026-10-open-issues.md` | 一個指向已搬檔案的連結改純文字 | 紀錄是當時的措辭，只修連結 |
 

@@ -1,6 +1,6 @@
 # trace 段異常與資料品質檢查：邊緣情境（2026-10）
 
-**狀態**：已完成；兩個行為變更已決定維持（2026-10-29）　　**日期**：2026-10-28　　**相關**：分支 `worktree-agent-a5ab9d5cee4d2a7de`（從 `14a12ed`）；[baseline README「trace 每一段」](../../../aiops-engine/code/configs/baseline/reference.md#trace-每一段的-baseline)、[「資料品質檢查」](../../../aiops-engine/code/configs/baseline/reference.md#資料品質檢查資料本身怪不怪)、[data-quality-check](2026-10-data-quality-check.md)
+**狀態**：已完成；兩個行為變更已決定維持（2026-10-29）　　**日期**：2026-10-28　　**相關**：分支 `worktree-agent-a5ab9d5cee4d2a7de`（從 `14a12ed`）；[baseline README「trace 每一段」](../../../aiops-engine/configs/baseline/reference.md#trace-每一段的-baseline)、[「資料品質檢查」](../../../aiops-engine/configs/baseline/reference.md#資料品質檢查資料本身怪不怪)、[data-quality-check](2026-10-data-quality-check.md)
 **模組**：② 清資料、④ 判斷
 
 ## Plan：這一次要達到什麼

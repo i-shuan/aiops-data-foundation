@@ -41,7 +41,7 @@ config 是葉節點：每一層都可以讀，它不 import 別人
 ### 二、目標樹（單一套件 `aiops/`）
 
 ```
-aiops-engine/code/
+aiops-engine/
 ├── aiops/
 │   ├── config/                 設定（pydantic）：loader.py（原 core/config.py）、models/（原 config_models.py 716 行按設定種類拆開）
 │   ├── core/
@@ -269,6 +269,13 @@ aiops-engine/code/
   修掉並加 `tests/test_cmd_alert.py::AlertDocUsesScenario`。
 - 現況：`aiops/` 95 個 .py、11,715 行（core 2,416、scenario 777、service 6,368、interface 1,340、config 805）；106 個類別、714 個函式；tests 14,317 行。
   相對 master：254 個檔案、+5,910／−6,235 行。
+
+### 事後調整：拿掉 `aiops-engine/code/` 這一層（2026-11-06）
+
+使用者回報 `aiops-engine/code/aiops/` 讀起來混亂（資料夾裡又一個 aiops）。把 `code/` 這層拿掉：`Dockerfile`、`requirements.txt`、`configs/`、`tests/`、`helmchart/` 與 Python 套件 `aiops/` 現在都直接在 `aiops-engine/` 底下（`git mv`，歷史保留）。
+改了 55 份 md 的連結與路徑文字（用腳本依檔案搬家前後的位置重算相對連結，PDCA 紀錄裡的舊路徑文字也一併更新，因為 `check-docs` 要求連結不能斷）、測試裡的相對深度（`test_deploy`、`test_grafana_form`）、sonar、`.gitignore`、`tools/check-docs.py`、helm values 的註解。
+`grafana/`、`elasticsearch/` 的 `code/` 沒動（那是它們自己的結構）。Python 套件名 `aiops` 沒改（改了所有 import 都要動）。
+Check：`pytest` 764 過、`check-docs` 0 問題、`chain_e2e` 26/26、`factory_e2e` 15/15（都在新位置 `aiops-engine/` 底下跑）。沒實際 `docker build`（Dockerfile 的 COPY 路徑沒變，因為 build context 本來就是 code/ 那一層）。
 
 ## Check：預計要驗證的
 

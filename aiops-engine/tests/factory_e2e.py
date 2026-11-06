@@ -8,7 +8,7 @@
 期望：ETCH-01 一件 critical（FDC OOS），METRO-01 的異常併進它（upstream_services）；報告慢在 ETCH-01 › CH-B、共同點 chamber CH-B、
       alarm 新樣式、事故前的 PM；CVD-01 一件 warning（換版）；LITHO-01 沒有件。
 
-執行（在 aiops-engine/code 底下，要有測試 ES）：
+執行（在 aiops-engine 底下，要有測試 ES）：
   ES_URL=http://localhost:19200 ES_AUTH=elastic:changeme-test-only python -m tests.factory_e2e [--plugin factory|metrics_only] [--dump 資料夾]
 會建立／覆蓋 *-synth 的來源索引、eqp-master，寫 aiops-anomalies（source ml／fdc）、aiops-alerts（這 5 台機台的件）、lot-paths-fab1-*。
 --plugin metrics_only：同一批假資料但**不給履歷**（不跑 paths-merge、configs/metrics_only/rca.yaml）：ETCH-01 仍要開 critical、報告只有異常／log／

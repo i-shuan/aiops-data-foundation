@@ -12,7 +12,7 @@
 | 出口 | ⑥ 同服務合成一件，Grafana 依部門分送 | `aiops-alerts` |
 | 紀錄 | 告警一開就建一筆 `auto`（帶指紋）；老師傅在回饋網頁確認後改 `confirmed`，存根因分類、處置、怎麼看出來的、查了哪裡 | `aiops-incidents` |
 | 回饋 | Grafana 的回饋表單（後端是 engine 的 `api`；通知裡有連結）或指令；記哪一筆、為什麼 | `aiops-feedback` |
-| 調整 | [`series.yaml`](../../aiops-engine/code/configs/baseline/series.yaml) 的 `overrides`，或 [`tune` 指令](../../aiops-engine/code/configs/baseline/README.md#使用者feedback-調整)（程式 [`cmd_baseline.py`](../../aiops-engine/code/aiops/service/detect/baseline_job.py)、寫進哪個索引見 [`core/tuning.py`](../../aiops-engine/code/aiops/core/entity/adjustment.py)）；記原因、誰、何時 | `aiops-tuning`（欄位見 [`adjust.py`](../../aiops-engine/code/aiops/service/detect/adjustments.py) 的 `TUNING_MAPPING`） |
+| 調整 | [`series.yaml`](../../aiops-engine/configs/baseline/series.yaml) 的 `overrides`，或 [`tune` 指令](../../aiops-engine/configs/baseline/README.md#使用者feedback-調整)（程式 [`cmd_baseline.py`](../../aiops-engine/aiops/service/detect/baseline_job.py)、寫進哪個索引見 [`core/tuning.py`](../../aiops-engine/aiops/core/entity/adjustment.py)）；記原因、誰、何時 | `aiops-tuning`（欄位見 [`adjust.py`](../../aiops-engine/aiops/service/detect/adjustments.py) 的 `TUNING_MAPPING`） |
 
 ### 回饋結果與用法
 
@@ -39,11 +39,11 @@
 
 ### 調整：調什麼、怎麼調、哪些能調
 
-調整不改統計公式（168 個時段的中位數與 MAD），只改輸入與參數。調整寫進 `aiops-tuning`（也能寫在設定檔），`train`、`detect` 下一輪讀到就生效。`kind` 與來源的定義在 [adjust.py](../../aiops-engine/code/aiops/service/detect/adjustments.py)，指令選項在 [__main__.py](../../aiops-engine/code/detector/__main__.py)，範例在 [baseline README](../../aiops-engine/code/configs/baseline/README.md#調整哪些資料不學從哪裡重新學哪些時段放寬)。
+調整不改統計公式（168 個時段的中位數與 MAD），只改輸入與參數。調整寫進 `aiops-tuning`（也能寫在設定檔），`train`、`detect` 下一輪讀到就生效。`kind` 與來源的定義在 [adjust.py](../../aiops-engine/aiops/service/detect/adjustments.py)，指令選項在 [__main__.py](../../aiops-engine/detector/__main__.py)，範例在 [baseline README](../../aiops-engine/configs/baseline/README.md#調整哪些資料不學從哪裡重新學哪些時段放寬)。
 
 | 要調什麼 | 什麼情況 | 怎麼調 | `kind` |
 |---|---|---|---|
-| 某條序列、某些對象的 `z`、`min_abs`、粒度 `resolution`、`confirm_points`、`instant_z` | 誤報多就放寬，漏報就調低；API 本來就跳動大 | `python3 -m detector tune --series … --match service=^mes- --z 7 --reason …`，或 [series.yaml](../../aiops-engine/code/configs/baseline/series.yaml) 的 `overrides` | `override` |
+| 某條序列、某些對象的 `z`、`min_abs`、粒度 `resolution`、`confirm_points`、`instant_z` | 誤報多就放寬，漏報就調低；API 本來就跳動大 | `python3 -m detector tune --series … --match service=^mes- --z 7 --reason …`，或 [series.yaml](../../aiops-engine/configs/baseline/series.yaml) 的 `overrides` | `override` |
 | 某段時間的資料不學 | 事故、維護、壓測 | `adjust add --kind exclude_window --start … --end …`；加 `--apply-to train,detect` 連這段也不報 | `exclude_window` |
 | 某個時間點以前的歷史不學 | 換版、架構調整 | `adjust add --kind reset_point --at …`；之後 24 小時（`--warmup`）不判斷 | `reset_point` |
 | 週期性時段放寬 | 月底報表批次 | `adjust add --kind recurring_override --cron "0 20 * * *" --duration 4h --days-of-month -1 --z 8`；`--mute` 這段不報 | `recurring_override` |
@@ -51,7 +51,7 @@
 
 - `--match` 的對象用正規表示式，欄位可用別名（`service`、`namespace`、`pod`）。
 - 同一個對象有多處設定時，對象 > 序列 > `series.yaml`；來源有設定檔與 ES，同 `id` 後寫的蓋前面。
-- 人用 `tune`、`adjust` 寫的預設直接生效。`feedback suggest` 寫的是 `status: proposed`，不生效。誤報的建議依特徵查表（[feedback/suggest.py](../../aiops-engine/code/aiops/service/feedback/suggest.py) 的 `fp_features`、`suggest_for_false_positives`）：
+- 人用 `tune`、`adjust` 寫的預設直接生效。`feedback suggest` 寫的是 `status: proposed`，不生效。誤報的建議依特徵查表（[feedback/suggest.py](../../aiops-engine/aiops/service/feedback/suggest.py) 的 `fp_features`、`suggest_for_false_positives`）：
 
   | 時段固定 | `z` 放寬壓得掉 | 動作 |
   |---|---|---|
@@ -66,8 +66,8 @@
 
 不能用這些指令調的：
 - 統計公式本身。
-- [rules.yaml](../../aiops-engine/code/configs/baseline/rules.yaml) 現有規則的門檻：改 yaml；回饋只能新增 `rule_suggestion`。
-- `quality`：不讀 `aiops-tuning`，改 [quality.yaml](../../aiops-engine/code/configs/baseline/quality.yaml)。
+- [rules.yaml](../../aiops-engine/configs/baseline/rules.yaml) 現有規則的門檻：改 yaml；回饋只能新增 `rule_suggestion`。
+- `quality`：不讀 `aiops-tuning`，改 [quality.yaml](../../aiops-engine/configs/baseline/quality.yaml)。
 
 > 回饋表單送出後資料怎麼流、寫進哪幾個索引：[data-storage-reference.md](../data-storage-reference.md#回饋表單的資料流)。
 

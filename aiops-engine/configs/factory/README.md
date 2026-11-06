@@ -1,6 +1,6 @@
 # 工廠（半導體）：用 ML／FDC 的異常與生產履歷跑 aiops-engine
 
-> **類型：操作 How-To**　原理與對照見 [docs/semiconductor-design.md](../../../../docs/semiconductor-design.md)・紀錄 [docs/pdca/meta/2026-11-factory-engine.md](../../../../docs/pdca/meta/2026-11-factory-engine.md)・情境怎麼選、三個內建差在哪見 [scenario/README.md](../../aiops/scenario/README.md)・IT 的設定在 [configs/apm/](../apm/README.md)
+> **類型：操作 How-To**　原理與對照見 [docs/semiconductor-design.md](../../../docs/semiconductor-design.md)・紀錄 [docs/pdca/meta/2026-11-factory-engine.md](../../../docs/pdca/meta/2026-11-factory-engine.md)・情境怎麼選、三個內建差在哪見 [scenario/README.md](../../aiops/scenario/README.md)・IT 的設定在 [configs/apm/](../apm/README.md)
 
 同一份 engine、`factory` 情境（[scenario/data/factory.yaml](../../aiops/scenario/data/factory.yaml)、[scenario/factory/](../../aiops/scenario/factory/__init__.py)）、另一套設定、另外部署。工廠的異常由 ML 團隊的模型（異常跳點）和 FDC 鳴叫系統判，engine **不自己判 FDC 感測值**，從 ⑤ 異常總表開始接：
 收斂成一件（同機台；後站的異常依 lot 履歷併進前站）→ 根因分析（慢在哪一站哪個 chamber、壞 lot 的共同點、機台 alarm、事故前的 PM／recipe 變更）→ 通知 → 老師傅回饋 → 誤報匯出給 ML 團隊。
@@ -38,7 +38,7 @@
 ### 假資料整條跑一遍（不用等廠方資料）
 
 ```bash
-cd aiops-engine/code && ES_URL=http://localhost:19200 ES_AUTH=elastic:changeme-test-only python -m tests.factory_e2e
+cd aiops-engine && ES_URL=http://localhost:19200 ES_AUTH=elastic:changeme-test-only python -m tests.factory_e2e
 ```
 
 [tests/factory_e2e.py](../../tests/factory_e2e.py) 造 7 天、728 個 lot 的 MES 與 S6F11、兩個事故（ETCH-01 CH-B 壓力漂移連帶 METRO-01 量測偏；CVD-01 換 recipe 後震盪）寫進 `*-synth` 索引，跑 `paths-merge` → `ingest` → `alert` → `feedback add`／`export`，印出 15 項檢查。`--plugin metrics_only` 用同一批假資料但不給履歷（13 項：ETCH-01 仍 critical、報告只有異常／log／PM、METRO-01 自己開一件）。`--dump <資料夾>` 把假資料另存成 NDJSON，`--clean` 清掉。結果寫在共用的 `aiops-anomalies`（`source` 欄位是 ml／fdc）、`aiops-alerts`（service 是那 5 台機台）、`lot-paths-fab1-*`。
@@ -64,7 +64,7 @@ cd aiops-engine/code && ES_URL=http://localhost:19200 ES_AUTH=elastic:changeme-t
 | ⑦ 分類（M5） | ✅ 表換了 | 半導體分類：equipment、process_drift、recipe、material、metrology、pm_related、operator、other；要先有確認過的 case |
 | ⑧ 通知 | ✅ | 同一份 Grafana；`dept` 來自機台主檔；Grafana 的回饋表單選項還是 IT 版的（見 Act） |
 | ⑨ 回饋 | ⚠️ | 老師傅確認、誤報照常記；**調不到 ML 的門檻**，`detector feedback export --out fp.ndjson` 匯出（回饋＋異常的 run_id、對象、值、分數）給 ML 團隊重訓；`feedback suggest` 的放寬建議對 ml／fdc 的序列沒有意義 |
-| chamber matching（M2）、RCA graph | ❌ 沒做 | 見 [semiconductor-design.md](../../../../docs/semiconductor-design.md) 的順序 |
+| chamber matching（M2）、RCA graph | ❌ 沒做 | 見 [semiconductor-design.md](../../../docs/semiconductor-design.md) 的順序 |
 
 ## 怎麼驗
 

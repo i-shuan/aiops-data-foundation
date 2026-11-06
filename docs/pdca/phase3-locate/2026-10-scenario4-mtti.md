@@ -89,7 +89,7 @@ MTTI 預期：情境 4 每個請求都失敗、吞吐不變（延遲是模擬的
 | 選項 | 改什麼 | 縮多少 | 副作用 |
 |---|---|---|---|
 | A tick 間隔 60 → 30 秒 | demo：`loop <分鐘> 30`、`TICK_EVERY=30`。正式環境：CronJob 最小 1 分鐘，要改成常駐 loop（Deployment）或一個 Job 裡跑兩輪 | 平均 15 秒、最多 30 秒 | rules 每輪掃全部規則、查 ES 一次，負載加倍；`interval: 1m` 的去重不受影響 |
-| B 正式環境 rules、alert 連著跑 | `aiops-engine/code/deploy/cronjobs.yaml` 兩個 CronJob 都是 `* * * * *`，同一分鐘誰先跑不保證，alert 先跑就多等 1 分鐘；改成一個 Job 依序跑（demo 的 `tick` 就是這樣） | 平均 30 秒、最多 1 分鐘 | 無；只改 aiops-engine/code/deploy |
+| B 正式環境 rules、alert 連著跑 | `aiops-engine/deploy/cronjobs.yaml` 兩個 CronJob 都是 `* * * * *`，同一分鐘誰先跑不保證，alert 先跑就多等 1 分鐘；改成一個 Job 依序跑（demo 的 `tick` 就是這樣） | 平均 30 秒、最多 1 分鐘 | 無；只改 aiops-engine/deploy |
 | C Collector 抓取 30 → 15 秒 | `node.yaml` prometheus `scrape_interval` | 平均 7～8 秒 | metrics 寫入量加倍；本次不碰 Collector |
 | D `http.error_rate_floor` 的窗 5m → 2m（`lookback`） | `rules.yaml` | 情境 1 約 1 分 20 秒（推論：9t ≥ 5% × (240 − 84t) → t ≥ 0.9 分鐘）；情境 4 幾乎不變 | 母體變小、誤報變多：2 分鐘 20 個請求錯 1 個就 5%，`min_events` 要一起調；**偵測門檻，不動** |
 | E 錯誤率門檻 5% → 2% | `rules.yaml` `threshold` | 情境 1 約 1 分 10 秒（推論：t ≥ 1.1 分鐘） | 誤報變多；**偵測門檻，不動** |

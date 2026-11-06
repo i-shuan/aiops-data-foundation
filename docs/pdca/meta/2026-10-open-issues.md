@@ -15,7 +15,7 @@
 
 ## Check：測試的目的與結果
 
-無。以下數字與行為，除註明外，都來自 [schedule.yaml](../../../aiops-engine/code/configs/schedule/schedule.yaml)、[series.yaml](../../../aiops-engine/code/configs/baseline/series.yaml)、[alerts.py](../../../aiops-engine/code/aiops/service/converge/merge.py)、[tuning.py](../../../aiops-engine/code/aiops/core/entity/adjustment.py)、[rca/README.md](../../rca/README.md)。
+無。以下數字與行為，除註明外，都來自 [schedule.yaml](../../../aiops-engine/configs/schedule/schedule.yaml)、[series.yaml](../../../aiops-engine/configs/baseline/series.yaml)、[alerts.py](../../../aiops-engine/aiops/service/converge/merge.py)、[tuning.py](../../../aiops-engine/aiops/core/entity/adjustment.py)、[rca/README.md](../../rca/README.md)。
 
 ## Act：沒解決的，在什麼情況下發現的
 
@@ -91,7 +91,7 @@
 | 長期有效的 override 沒有「畢業」 | 不會升級成 `series.yaml` 的預設值；`aiops-tuning` 沒有備份機制，ES 重建就消失 | 半自動：生效超過 N 天，產生 PR 草稿，人審後合併再刪 DB 那筆 |
 | 過期的調整不會清 | `expires_at` 過期後不再生效，但文件留著 | 未決定 |
 | 看不到最終生效值 | 同時有多筆符合時（後面蓋前面），沒有指令查「這個服務現在用的 z 是多少、來自哪一筆」 | 已做：`tune --show --series … --match service=…` 印每個參數的生效值與來源（已合入 master；[PDCA](../phase5-learning-loop/2026-11-open-issues-batch.md)） |
-| `match` 是正規表示式 | 寫太寬會誤傷其他服務；套用順序是自動選 → `overrides` → `adjustments.yaml` → `aiops-tuning`（依 `at` 由舊到新），不看 `match` 多細，較晚寫的寬鬆調整會蓋掉較早的精細調整（[reference.md](../../../aiops-engine/code/configs/baseline/reference.md#使用者feedback-調整)） | 調整前用 `--list`、`backtest`；是否改成「精細的優先」未決定 |
+| `match` 是正規表示式 | 寫太寬會誤傷其他服務；套用順序是自動選 → `overrides` → `adjustments.yaml` → `aiops-tuning`（依 `at` 由舊到新），不看 `match` 多細，較晚寫的寬鬆調整會蓋掉較早的精細調整（[reference.md](../../../aiops-engine/configs/baseline/reference.md#使用者feedback-調整)） | 調整前用 `--list`、`backtest`；是否改成「精細的優先」未決定 |
 
 ### 6. 根因分析的限制
 
@@ -152,13 +152,13 @@
 
 | 項目 | 現況 | 來源 |
 |---|---|---|
-| Pod 同儕比對在 3 個 Pod、年紀不同時抓不到記憶體洩漏 | 已做（A2）：z 的門檻依其他 Pod 數分級（`peer.yaml` 的 `z_by_peers: {2: 3, 3: 4, 4: 4}`），其他只剩 2 個值時它們之間的差距沒統計意義，靠 `min_abs`、`min_ratio` 擋；10/31 那個案例（420 vs 251、163 MB，z 3.3）合成資料抓到。斜率另做成規則 `container.memory_leak`（30 分鐘 Theil–Sen 斜率、三段低點墊高、≤ 6 小時到上限），不放進同儕比對。HPA 擴容後老 Pod 被誤報成洩漏（`warmup` 5 分鐘蓋不住 heap 長大）沒動，推論未驗（[PDCA](../phase2-anomaly/2026-11-peer-z-and-slope.md)） | run-peer-e2e.sh、[peer.yaml](../../../aiops-engine/code/configs/baseline/peer.yaml) |
+| Pod 同儕比對在 3 個 Pod、年紀不同時抓不到記憶體洩漏 | 已做（A2）：z 的門檻依其他 Pod 數分級（`peer.yaml` 的 `z_by_peers: {2: 3, 3: 4, 4: 4}`），其他只剩 2 個值時它們之間的差距沒統計意義，靠 `min_abs`、`min_ratio` 擋；10/31 那個案例（420 vs 251、163 MB，z 3.3）合成資料抓到。斜率另做成規則 `container.memory_leak`（30 分鐘 Theil–Sen 斜率、三段低點墊高、≤ 6 小時到上限），不放進同儕比對。HPA 擴容後老 Pod 被誤報成洩漏（`warmup` 5 分鐘蓋不住 heap 長大）沒動，推論未驗（[PDCA](../phase2-anomaly/2026-11-peer-z-and-slope.md)） | run-peer-e2e.sh、[peer.yaml](../../../aiops-engine/configs/baseline/peer.yaml) |
 | p95 誤報超過目標 | 已做：p95 的 σ 下限加半個桶寬（`series.yaml` 的 `buckets`，OTel 預設邊界）。一週合成資料 anomaly 0.530% → 0.068%、warning 1.97% → 0.008%，兩項都達標；p95 在 svc-peak、svc-season、svc-spike 都降到 0。**代價**：p95 只跨一格的變慢（175ms → 375ms）不再是 anomaly，最多 warning，只靠靜態規則抓，漏報沒量（[PDCA](../phase2-anomaly/2026-11-baseline-false-alarm.md)） | [baseline-threshold-tune](../phase2-anomaly/2026-10-baseline-threshold-tune.md) |
 | 錯誤率 1 個 5xx 就到門檻 | 已做：`min_count: 3`，這個時間窗至少 3 個 5xx 才算異常（3 是估的）。錯誤率 anomaly 205 → 18（[PDCA](../phase2-anomaly/2026-11-baseline-false-alarm.md)） | 同上 |
 | 只有一部分請求變慢時 trace 段沒報 | 每點改抽 100 個後，合成資料上 10% 請求多 2 秒報得出來；慢的比例更低時仍報不出來，看 p90 或慢請求比例還沒做（[PDCA](../phase2-anomaly/2026-11-trace-sample-100.md)） | [troubleshooting.md](../../troubleshooting.md) |
 | `trace.yaml` 的 `sample_per_bucket` 20 要不要調到 100 | 已改成 100。耗時：測試資料上一輪 0.3～0.5 秒（20 時 0.1 秒，排程時限 240 秒）；偵測：20 時 trace 那段 14 過 3 失敗，50 與 100 都 17 項全過，選 100 餘裕較大。100 是 ES `top_hits` 的預設上限。正式環境 API 多時的耗時沒量（[PDCA](../phase2-anomaly/2026-11-trace-sample-100.md)） | 同上 |
 | 三成 Pod 沒有服務 label 沒報（B6a） | pipeline 沒 label 時 `service.name` 退回 container 名稱 `app`，欄位不算缺，檢查看不到；master 也一樣，與 trace 合併無關。已做：`missing` 檢查加 `missing_if_equals`（等於 `k8s.container.name` 也算缺），只有單元測試、Painless 沒對真 ES 跑、e2e B6a 等叢集空了再跑（已合入 master；[PDCA](../phase5-learning-loop/2026-11-open-issues-batch.md)） | 同上 |
-| 每筆異常沒記是哪一版產生的 | 已做：每筆異常帶 `engine_version`（chart 的 `image.tag`，本機是 `dev`）（已合入 master；[PDCA](../phase5-learning-loop/2026-11-open-issues-batch.md)） | [baseline/reference.md](../../../aiops-engine/code/configs/baseline/reference.md) |
+| 每筆異常沒記是哪一版產生的 | 已做：每筆異常帶 `engine_version`（chart 的 `image.tag`，本機是 `dev`）（已合入 master；[PDCA](../phase5-learning-loop/2026-11-open-issues-batch.md)） | [baseline/reference.md](../../../aiops-engine/configs/baseline/reference.md) |
 | `suggest` 只調 `z` | 已做：誤報累積時依時間與偏差選週期放寬（`recurring_override`）、`min_abs` 或 z；不提粒度（改粒度要重新 train，回測比不了）（[PDCA](../phase5-learning-loop/2026-11-suggest-and-rule-backtest.md)） | 同上 |
 | 規則核准前沒有回測 | 已做：`backtest` 能跑 `rule_suggestion`，`adjust approve` 對規則也要求回測（[PDCA](../phase5-learning-loop/2026-11-suggest-and-rule-backtest.md)） | 同上 |
 
@@ -170,7 +170,7 @@
 | Grafana 回饋表單是陽春版（**決定：先不改**） | 表單放在 Grafana 的儀表板裡（Business Forms 外掛 6.3.1）。基本的回饋表單 2026-10-26 在真的 Grafana（12.2、13.0.7）上跑過（截圖 [grafana-form.png](../../feedback/grafana-form.png)）。**之後才加的部分沒在真的 Grafana 畫面上驗過**：兩題評分、一句話、漏報面板（`datetime` 元素型別是照外掛文件寫的）；目前的測試 Grafana 沒裝外掛、也沒載這張儀表板。部署時要照 [grafana/README.md](../../../grafana/README.md) 做：儀表板 JSON 的四個網址 `http://localhost:18080` 換成值班人員瀏覽器連得到的回饋服務位址，回饋服務設 `FEEDBACK_CORS_ORIGIN`（`feedback.corsOrigin`，已支援）。沒有登入、回饋沒有身分 | [grafana/README.md](../../../grafana/README.md)、aiops-feedback.json（當時在 grafana/code/dashboards/） |
 | 漏報沒有網頁入口 | 已做：Grafana 回饋儀表板加第二個表單面板，送 `feedback_web` 的 `/api/missed`，文件格式同指令；不另做網頁（使用者決定）；Grafana 上沒實載（已合入 master；[PDCA](../phase5-learning-loop/2026-11-open-issues-batch.md)） | 同上 |
 | 沒有評測集 | 相似事故在沒有 trace 時，只靠「同服務＋同指標」剛好壓在門檻上 | 同上 |
-| 舊事故單匯入 `aiops-incidents` 的格式沒寫 | 已做：`investigator import-incidents`（CSV／JSON，格式見 [configs/rca/README.md](../../../aiops-engine/code/configs/rca/README.md)）；合成 20 筆 recall@3 50%，等真實事故單（[PDCA](../phase4-rca-llm/2026-10-incident-import.md)） | 同上 |
+| 舊事故單匯入 `aiops-incidents` 的格式沒寫 | 已做：`investigator import-incidents`（CSV／JSON，格式見 [configs/rca/README.md](../../../aiops-engine/configs/rca/README.md)）；合成 20 筆 recall@3 50%，等真實事故單（[PDCA](../phase4-rca-llm/2026-10-incident-import.md)） | 同上 |
 | code-review 剩三項沒動 | 已做：metrics 的回饋改依這段告警的 `alert_id` 載入（漏報仍依時間）、回測用快取代理只讀一次 ES、相似事故候選 20 → 200（已合入 master；[PDCA](../phase5-learning-loop/2026-11-open-issues-batch.md)） | 同上 |
 
 #### 9.4 資料與 log

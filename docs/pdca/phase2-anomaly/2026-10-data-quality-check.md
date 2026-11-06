@@ -1,6 +1,6 @@
 # 資料品質檢查（2026-10）
 
-**狀態**：已完成（已合進 master）；沒排程　　**日期**：2026-10-23　　**相關**：PR #6、[餵給 baseline 之前](../../../aiops-engine/code/configs/baseline/reference.md#餵給-baseline-之前擋了什麼還缺什麼)
+**狀態**：已完成（已合進 master）；沒排程　　**日期**：2026-10-23　　**相關**：PR #6、[餵給 baseline 之前](../../../aiops-engine/configs/baseline/reference.md#餵給-baseline-之前擋了什麼還缺什麼)
 **模組**：② 清資料（餵給 ④ 判斷之前）
 
 ## Plan：這一次要達到什麼

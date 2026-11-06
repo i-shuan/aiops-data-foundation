@@ -1,6 +1,6 @@
 # 工廠版 engine：復用程式、另一套設定，ML 的異常接進 ⑤、生產履歷取代 trace（2026-11）
 
-**狀態**：已完成（第一版，假資料）　　**日期**：2026-11-04　　**相關**：分支 `claude/factory-engine`（接在 `claude/semiconductor-design` 後）；設計 [semiconductor-design.md](../../semiconductor-design.md)；操作 [configs/factory/README.md](../../../aiops-engine/code/configs/factory/README.md)
+**狀態**：已完成（第一版，假資料）　　**日期**：2026-11-04　　**相關**：分支 `claude/factory-engine`（接在 `claude/semiconductor-design` 後）；設計 [semiconductor-design.md](../../semiconductor-design.md)；操作 [configs/factory/README.md](../../../aiops-engine/configs/factory/README.md)
 **模組**：④⑤⑥⑦⑨
 
 ## Plan：這一次要達到什麼

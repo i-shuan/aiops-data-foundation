@@ -1,4 +1,4 @@
-"""用法（在 aiops-engine/code 底下）：
+"""用法（在 aiops-engine 底下）：
 
   python3 -m scheduler --config configs/schedule/schedule.yaml [--stage 1] [--alive-file /tmp/scheduler-alive]
       常駐：每分鐘照排程表跑該跑的工作。--stage 2 連第二階段的也開。
@@ -24,7 +24,7 @@ from datetime import datetime
 
 from aiops.interface.jobs.runner import load_schedule, run_once, serve
 
-HERE = str(CODE_ROOT)   # aiops-engine/code：子行程在這裡跑，configs/ 才找得到
+HERE = str(CODE_ROOT)   # aiops-engine：子行程在這裡跑，configs/ 才找得到
 
 
 def main(argv=None) -> int:

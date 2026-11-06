@@ -15,15 +15,15 @@
 
 | 檔案 | 改了什麼 | 為何要改 |
 |---|---|---|
-| `aiops-engine/code/investigator/alerts.py` | `merge` 多收 `calls={(上游, 下游)}`；上游異常併進下游開著的件、下游開件時收攏上游已開的件（`_fold`）；件多 `upstream_services`、被收攏的多 `merged_into`；`headline`／`summary` 加「；連帶上游 A」；`owner`、標題的「最嚴重那筆」只看下游自己的異常（`_own`）；新 `rca_route` | 併件規則集中在一個純函式，單元測試不用 ES。dept 跟標題若混進上游的異常，件會送錯部門、標題寫到上游的指標。上游的 API 若拿去查下游的 trace 會查空 |
-| `aiops-engine/code/investigator/cmd_alert.py` | 新 `call_edges`：有件開著或這次有異常的服務，每個取最近 `chain_sample` 個請求的 trace，`analyze.topology` 算邊、只留兩端都是候選服務的；查失敗印一行、這輪不併跨服務。`ALERT_MAPPING` 加 `upstream_services`、`merged_into`。被收攏的件：不再把異常標成它、它的事故改 `status: merged`。根因分析的 API 改用 `AL.rca_route` | 重用現有的 span 解析與拓撲，不另寫一套；trace 查不到不能擋告警。被收攏的件若照舊寫回 `alert_id`，同一筆異常會被兩件搶；它開的 `auto` 事故留著會被「同根因 3 次」算進去 |
-| `aiops-engine/code/investigator/es.py` | 新 `service_trace_ids`：某服務最近 n 個 Server span 的 `trace_id` | `recent_trace_ids` 只取 root span、不分服務；兩個服務同時出事時只取最新的 N 筆可能全是其中一個的 |
-| `aiops-engine/code/configs/rca/rca.yaml` | `alerts.chain: true`、`chain_sample: 100` | 可以關；每輪多查幾個服務的 trace，量要能調 |
-| `aiops-engine/code/tests/test_alerts.py`、`test_cmd_alert.py` | 跨服務 13 個情境（併、反序收攏、跨輪、不併、方向、多層只一層、`rca_route`、dept／標題、重跑、資料品質）；`call_edges` 用假 span 驗邊、`_incident_doc` 的 `services` 只有下游 | 見 Check |
-| `aiops-engine/code/tests/chain_e2e.py`、`tests/rca_chain.yaml` | 自己的 ES：合成 trace（cs-portal → cs-mes-api → cs-wip-worker → oracle；cs-report 獨立）＋異常，跑 `investigator alert --at`，量聚合率與誤併率 | KPI 要有量法與腳本；預期先寫在檔頭 |
-| `aiops-engine/code/configs/rca/README.md`、`docs/troubleshooting.md`、`docs/rca/README.md`、`docs/architecture-reference.md` | 併件條件與欄位的表、前提多一列（trace context 要傳到下游）、三條症狀、收斂第 3 層狀態 | 規格跟程式放一起；原理文件只改狀態 |
+| `aiops-engine/investigator/alerts.py` | `merge` 多收 `calls={(上游, 下游)}`；上游異常併進下游開著的件、下游開件時收攏上游已開的件（`_fold`）；件多 `upstream_services`、被收攏的多 `merged_into`；`headline`／`summary` 加「；連帶上游 A」；`owner`、標題的「最嚴重那筆」只看下游自己的異常（`_own`）；新 `rca_route` | 併件規則集中在一個純函式，單元測試不用 ES。dept 跟標題若混進上游的異常，件會送錯部門、標題寫到上游的指標。上游的 API 若拿去查下游的 trace 會查空 |
+| `aiops-engine/investigator/cmd_alert.py` | 新 `call_edges`：有件開著或這次有異常的服務，每個取最近 `chain_sample` 個請求的 trace，`analyze.topology` 算邊、只留兩端都是候選服務的；查失敗印一行、這輪不併跨服務。`ALERT_MAPPING` 加 `upstream_services`、`merged_into`。被收攏的件：不再把異常標成它、它的事故改 `status: merged`。根因分析的 API 改用 `AL.rca_route` | 重用現有的 span 解析與拓撲，不另寫一套；trace 查不到不能擋告警。被收攏的件若照舊寫回 `alert_id`，同一筆異常會被兩件搶；它開的 `auto` 事故留著會被「同根因 3 次」算進去 |
+| `aiops-engine/investigator/es.py` | 新 `service_trace_ids`：某服務最近 n 個 Server span 的 `trace_id` | `recent_trace_ids` 只取 root span、不分服務；兩個服務同時出事時只取最新的 N 筆可能全是其中一個的 |
+| `aiops-engine/configs/rca/rca.yaml` | `alerts.chain: true`、`chain_sample: 100` | 可以關；每輪多查幾個服務的 trace，量要能調 |
+| `aiops-engine/tests/test_alerts.py`、`test_cmd_alert.py` | 跨服務 13 個情境（併、反序收攏、跨輪、不併、方向、多層只一層、`rca_route`、dept／標題、重跑、資料品質）；`call_edges` 用假 span 驗邊、`_incident_doc` 的 `services` 只有下游 | 見 Check |
+| `aiops-engine/tests/chain_e2e.py`、`tests/rca_chain.yaml` | 自己的 ES：合成 trace（cs-portal → cs-mes-api → cs-wip-worker → oracle；cs-report 獨立）＋異常，跑 `investigator alert --at`，量聚合率與誤併率 | KPI 要有量法與腳本；預期先寫在檔頭 |
+| `aiops-engine/configs/rca/README.md`、`docs/troubleshooting.md`、`docs/rca/README.md`、`docs/architecture-reference.md` | 併件條件與欄位的表、前提多一列（trace context 要傳到下游）、三條症狀、收斂第 3 層狀態 | 規格跟程式放一起；原理文件只改狀態 |
 
-### 併件條件（規格在 [rca README](../../../aiops-engine/code/configs/rca/README.md#事件整合alert)）
+### 併件條件（規格在 [rca README](../../../aiops-engine/configs/rca/README.md#事件整合alert)）
 
 | 情況 | 結果 |
 |---|---|

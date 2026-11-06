@@ -19,7 +19,7 @@ AIOps 與 Grafana 的資料各存在哪裡、誰寫、多久一次、會不會�
 | 索引 | 存什麼 | 誰寫、多久一次 | 會不會自己消失 |
 |---|---|---|---|
 | `aiops-baseline` | 動態基準線：每條序列 × 星期幾 × 小時的中位數、MAD、p05、p95 | `detector train`，每天 02:00 | **被取代**：先寫新的，再刪這次沒有的舊版（改了粒度、4 週內沒出現的 API）；ES 查不到任何資料時不刪 |
-| `aiops-trace-segments` | trace 每一段的統計：每個 API × 每一段 × 每 5 分鐘的呼叫次數、耗時、錯誤率、吞例外比例；另有時鐘差 | `detector trace-collect`，每 5 分鐘 | `detector prune` 每天刪超過 **90 天**的（[prune.yaml](../aiops-engine/code/configs/baseline/prune.yaml)） |
+| `aiops-trace-segments` | trace 每一段的統計：每個 API × 每一段 × 每 5 分鐘的呼叫次數、耗時、錯誤率、吞例外比例；另有時鐘差 | `detector trace-collect`，每 5 分鐘 | `detector prune` 每天刪超過 **90 天**的（[prune.yaml](../aiops-engine/configs/baseline/prune.yaml)） |
 | `aiops-anomalies` | 異常總表：每個異常一筆（序列、對象、值、平常值、z、status） | `detect`（每分鐘）、`rules`（每分鐘）、`peer`、`trace-detect`、`quality` | `detector prune` 每天刪超過 **90 天**的；同一個對象同一時槽的 `_id` 固定，重跑是覆蓋 |
 | `aiops-alerts` | 事故（一件一筆）：標題、摘要、**RCA 報告全文**、LLM 摘要、相似事故、連帶的上游服務；另有 `heartbeat`、`detect-status` 兩筆狀態 | `investigator alert`，每分鐘；開著的件每輪覆蓋同一筆 | `detector prune` 每天刪**結案超過 180 天**的；開著的件、心跳、`detect-status` 不刪。每天的 snapshot 也帶它 |
 | `aiops-incidents` | 事故庫：老師傅確認過的事故、根因分類、怎麼看出來的、指紋 | 回饋網頁、`incident` 指令、`import-incidents` | **不會**，刻意不刪；有貼 snapshot 才有備份（[kibana-dev-tools.txt](../elasticsearch/kibana-dev-tools.txt) 第 5 段） |
@@ -28,7 +28,7 @@ AIOps 與 Grafana 的資料各存在哪裡、誰寫、多久一次、會不會�
 | `aiops-state` | `trace-merge` 合到哪個時間（就一筆） | `detector trace-merge`，每分鐘 | 每次覆蓋同一筆 |
 | `aiops-log-stats` | log 長期統計：每 5 分鐘 × 每個服務 × level × error.type 的筆數 | ES 的 transform，不是 engine | **會**，ILM 400 天 |
 
-欄位細節：`aiops-anomalies`、`aiops-alerts`、`aiops-incidents`、`aiops-feedback`、`aiops-tuning` 見 [aiops-data-reference.md](aiops-data-reference.md)；`aiops-baseline` 的 mapping 在 [core/entity/baseline.py](../aiops-engine/code/aiops/core/entity/baseline.py)；`aiops-trace-segments`、`aiops-state` 的在 [core/repository/segment.py](../aiops-engine/code/aiops/core/repository/segment.py)、[core/repository/state.py](../aiops-engine/code/aiops/core/repository/state.py)。誰在什麼時候跑見 [schedule.yaml](../aiops-engine/code/configs/schedule/schedule.yaml)。
+欄位細節：`aiops-anomalies`、`aiops-alerts`、`aiops-incidents`、`aiops-feedback`、`aiops-tuning` 見 [aiops-data-reference.md](aiops-data-reference.md)；`aiops-baseline` 的 mapping 在 [core/entity/baseline.py](../aiops-engine/aiops/core/entity/baseline.py)；`aiops-trace-segments`、`aiops-state` 的在 [core/repository/segment.py](../aiops-engine/aiops/core/repository/segment.py)、[core/repository/state.py](../aiops-engine/aiops/core/repository/state.py)。誰在什麼時候跑見 [schedule.yaml](../aiops-engine/configs/schedule/schedule.yaml)。
 
 ## ES：收進來的原始資料
 
@@ -76,7 +76,7 @@ APM 寫的三種資料 engine 只讀，保留天數不在這個 repo 管；`trac
 - **寫進去之後誰用**：`aiops-incidents` 的 `confirmed`、`corrected` 給相似事故檢索（自動開的 `auto` 事故不會拿來教人）；`aiops-feedback` 給 `feedback summary`、`feedback suggest`、`metrics`；`aiops-tuning` 的建議給 `adjust list`、回測、核准。
 - **寫入用的是回饋網頁自己的 ES key，不是使用者的**：所以沒有登入也寫得進去；`by` 是自己填的名字，空的記成 `anonymous`，同一個人可以填多次，系統不知道是誰。
 - **抽取失敗不影響回饋本身**：LLM 掛了或格式不對，只存原文（`extract.ok: false`）；建議寫不進去也一樣，回應多一個 `tuning_error`。
-- 程式在 [service/feedback/feedback_service.py](../aiops-engine/code/aiops/service/feedback/feedback_service.py) 的 `submit`、`submit_missed`（網頁與命令列共用同一個 service；HTTP 層在 [interface/web/routes.py](../aiops-engine/code/aiops/interface/web/routes.py)）；欄位對照見 [grafana/README.md](../grafana/README.md#回饋表單預設用-engine-api-的網頁要在-grafana-裡直接填才裝外掛)。
+- 程式在 [service/feedback/feedback_service.py](../aiops-engine/aiops/service/feedback/feedback_service.py) 的 `submit`、`submit_missed`（網頁與命令列共用同一個 service；HTTP 層在 [interface/web/routes.py](../aiops-engine/aiops/interface/web/routes.py)）；欄位對照見 [grafana/README.md](../grafana/README.md#回饋表單預設用-engine-api-的網頁要在-grafana-裡直接填才裝外掛)。
 
 ## Grafana 自己存什麼
 
@@ -97,7 +97,7 @@ APM 寫的三種資料 engine 只讀，保留天數不在這個 repo 管；`trac
 | 項目 | 現況 |
 |---|---|
 | `aiops-feedback`、`aiops-incidents`、`aiops-tuning`（人工判斷） | 不自動刪；有貼 [kibana-dev-tools.txt](../elasticsearch/kibana-dev-tools.txt) 第 5 段才有每天一次的 snapshot、留 30 天（SLM `aiops-daily`，也帶 `aiops-baseline`、`aiops-alerts`）。**儲存庫由管 ES 的人決定**，沒貼就沒有備份。還原指令在同一段 |
-| `aiops-anomalies`、`aiops-trace-segments`、結案的 `aiops-alerts` | 排程 `prune` 每天 03:30 刪超過 90／90／180 天的（[prune.yaml](../aiops-engine/code/configs/baseline/prune.yaml)，天數是估的）。異常刪了之後，事故的 `anomaly_ids` 對不到的那幾筆，回饋退回「一件一筆」，其他不受影響 |
+| `aiops-anomalies`、`aiops-trace-segments`、結案的 `aiops-alerts` | 排程 `prune` 每天 03:30 刪超過 90／90／180 天的（[prune.yaml](../aiops-engine/configs/baseline/prune.yaml)，天數是估的）。異常刪了之後，事故的 `anomaly_ids` 對不到的那幾筆，回饋退回「一件一筆」，其他不受影響 |
 | `aiops-baseline` | 每天重寫的衍生資料；snapshot 有帶，還原後不用重 train。重建 ES 沒還原的話要手動跑一次 `train`，否則等隔天 02:00（期間基準線這一路停擺，Grafana 的 `aiops-baseline-missing` 會響） |
 
 測試叢集 2026-11-01 的大小（`aiops-alerts` 32 筆 1 MB、`aiops-anomalies` 157 筆 0.5 MB、`aiops-baseline` 1,512 筆 0.5 MB、`aiops-trace-segments` 3,431 筆 1.2 MB）只是量級參考，不代表正式環境。

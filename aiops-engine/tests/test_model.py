@@ -1,4 +1,4 @@
-"""model.py 的單元測試，不需要 ES。執行：cd aiops-engine/code && python3 -m unittest discover -s tests -t ."""
+"""model.py 的單元測試，不需要 ES。執行：cd aiops-engine && python3 -m unittest discover -s tests -t ."""
 import unittest
 
 import numpy as np

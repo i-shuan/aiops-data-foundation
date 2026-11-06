@@ -1,6 +1,6 @@
 # 根因分析讀哪裡
 indices:
-  anomalies: aiops-anomalies      # aiops-engine/code/configs/baseline 的 detect 寫的
+  anomalies: aiops-anomalies      # aiops-engine/configs/baseline 的 detect 寫的
   traces: traces-merged-*      # 一個請求一筆（detector trace-merge 合成）；raw 的每一段一筆只留 2 天
   logs: k8s-*
 timezone: Asia/Taipei             # 報告裡的時間
@@ -34,5 +34,5 @@ alerts:
   # llm_provider: template
   chain: true                     # 跨服務（一層）：下游出事連帶上游異常時只開一件、留下游；呼叫關係從這段時間的 trace 算
   chain_sample: 100               # 算呼叫關係時每個服務取最近幾個請求的 trace
-  # feedback_url: http://aiops-api.aiops.svc:8080/feedback?alert={alert_id}   # 備用回饋網頁（aiops-engine/code/api）；通知裡的連結
+  # feedback_url: http://aiops-api.aiops.svc:8080/feedback?alert={alert_id}   # 備用回饋網頁（aiops-engine/api）；通知裡的連結
   # report_url: http://aiops-api.aiops.svc:8080/report?alert={alert_id}       # 報告全文

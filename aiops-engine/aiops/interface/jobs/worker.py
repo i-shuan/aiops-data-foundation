@@ -27,7 +27,7 @@ BROKER_ENV = "AIOPS_BROKER_URL"
 QUEUES = ("realtime", "alert", "batch")
 DEFAULT_QUEUE = "realtime"
 TRIGGER_EXPIRES = 300            # api 丟的 alert：5 分鐘內沒被跑到就丟掉（beat 每分鐘還會丟新的）
-HERE = str(CODE_ROOT)   # aiops-engine/code：子行程在這裡跑，configs/ 才找得到
+HERE = str(CODE_ROOT)   # aiops-engine：子行程在這裡跑，configs/ 才找得到
 
 
 def broker_url() -> str | None:

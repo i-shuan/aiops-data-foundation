@@ -2,9 +2,9 @@
 
 一句話：**baseline 發現某個服務異常之後，自動照「Metrics 發現異常 → Trace 縮小到哪一段 → Log 找出原因」查一遍，產出一份給人確認的報告。**
 
-這是 [docs/rca/README.md](../../../../docs/rca/README.md) 六個步驟裡的 2～4 步（合併、定位、找原因）。不需要 AI 模型：都是查詢加統計。
+這是 [docs/rca/README.md](../../../docs/rca/README.md) 六個步驟裡的 2～4 步（合併、定位、找原因）。不需要 AI 模型：都是查詢加統計。
 
-原理（三種資料各回答什麼、怎麼判斷慢在哪一段、為什麼用一批慢 trace 找共同瓶頸）見 [docs/rca/README.md](../../../../docs/rca/README.md)。這份只寫怎麼跑、預設值、報告長什麼樣子、限制、怎麼驗。
+原理（三種資料各回答什麼、怎麼判斷慢在哪一段、為什麼用一批慢 trace 找共同瓶頸）見 [docs/rca/README.md](../../../docs/rca/README.md)。這份只寫怎麼跑、預設值、報告長什麼樣子、限制、怎麼驗。
 
 ## 預設值
 
@@ -65,17 +65,17 @@ API_PORT=8080 python3 -m api
 - **同源標記（不合併）**：每件從根因結果取「卡在哪個外部依賴」（慢的那幾段、錯誤源頭那幾段 `→` 後面的對象，例如 `oracle`，存 `dependencies`）；開著的、不同服務的件卡在同一個依賴，互相記 `related_alerts`、`shared_dependency`，摘要多一行「可能同源：a-… 也卡在 oracle」。對象是另一件開著的件的服務時不算（那是上下游，上面的跨服務處理）。不合併成一件：是不同服務各自的件（部門、處置不同），只提示很可能同一個源頭。
 - **哪些會開一件**：critical 規則、baseline 連續才算的 `anomaly`、資料品質；warning 規則和Pod 同儕橫向比對要同一個服務 2 筆以上；只跳一次的 baseline `warning` 只併進已經開著的那件。
 - **一件的嚴重度**（[investigator/severity.py](../../aiops/service/converge/severity.py)）：併完之後算，代表要不要吵人。`critical`：靜態規則 critical，或 ≥ 3 類黃金訊號（延遲、錯誤、往外呼叫、飽和）同時異常且不是單點；`high`：2 類，或 1 類但持續（≥ 10 分鐘、最後 15 分鐘窗 ≥ 80% 的分鐘有異常）或好幾條序列都跳；`warning`：單點、單一序列。廣度算「幾類」不是「幾條」（3 支 API 的錯誤率都跳仍是 1 類），流量不算，一類至少 2 筆。換版（`service.version` 變了）後 10 分鐘內的異常上限 `warning`，過了還有就照常評。參數在 `alerts.severity`（`window`、`min_coverage`、`min_duration`、`min_span_critical`、`min_points_per_class`、`deploy_grace`）。Grafana 只通知 critical、high（`policies.yaml` 把 warning 靜音）。
-- **送給誰看 dept**：每一件帶 `dept`、`group`（取它的異常的，異常寫入時已補上）；資料品質一律 `group: unassigned`（送平台）。Grafana 依 `dept` 分送，設定範例在 [configs/grafana](../../../../grafana/README.md)。
+- **送給誰看 dept**：每一件帶 `dept`、`group`（取它的異常的，異常寫入時已補上）；資料品質一律 `group: unassigned`（送平台）。Grafana 依 `dept` 分送，設定範例在 [configs/grafana](../../../grafana/README.md)。
 - 新的那件跑一次 `investigate`：結論寫進 `summary`（Grafana 通知帶這個）、全文存 `report`；結構化結果存 `findings`（慢在哪一段、錯從哪開始、新 log 樣式），也拿來算這件的**指紋**，寫一筆 `aiops-incidents`（`status: auto`）。
 - **告警分類**（`alerts.similar`，[investigator/similar.py](../../aiops/service/rca/similar.py)）：用指紋（服務、API、慢的那段、錯的源頭、異常的指標組合、新 log 樣式）去 `aiops-incidents` 找老師傅**確認過的**（`confirmed`、`corrected`）最像的 3 件，以分數投票說這件**像哪一類**（db、network、config_change…）＋信心，寫進 `suggested_category`、`category_confidence`；報告最前面一段只列分類和那幾件的日期、分類、標題、**為什麼像**。**不列當時的根因、處置**：程式換版後指紋還對得上、根因可能已經不是那個，根因請看定位（慢在哪一段）。分數不到 4（至少一個強特徵：同一段變慢、同一個錯誤源頭；或同服務＋同指標）就不附、不分類。用 ES 的欄位比對、自己算分，不用向量，看得出為什麼像。通知摘要多一行「分類：像 db 類…」。權重可用 `alerts.similar_weights` 蓋過（`similar-eval --learn-weights` 在 case ≥ 50 件時會建議）。
 - **LLM 摘要**（`alerts.llm`，[core/llm.py](../../aiops/service/rca/llm.py)）：報告最前面三到五句（原因、影響、建議先做什麼），每句結尾附依據的 id（`[A1]` 異常、`[S1]` 慢的那段、`[E1]` 錯誤源頭、`[L1]` log 樣式、`[I1]` 過去事故）；引用了不存在的 id、或有一句沒依據，**整段不顯示**（程式檢查）。模型掛了退回固定句型（`template`），報告照出。provider 用環境變數 `LLM_PROVIDER`（`template`／`anthropic`／`openai`）或 `alerts.llm_provider` 蓋過；`template` 不叫模型，沒有模型也能跑。`openai` 實測過（`LLM_API_KEY`、`LLM_CHAT_MODEL`，可選 `OPENAI_BASE_URL`）：一件 5～8 秒；`anthropic` 只寫了沒跑過。
 - **回饋連結**：`alerts.feedback_url`、`report_url`（含 `{alert_id}`）寫進每一件，Grafana 通知帶著；指到 [api](../../api/__init__.py)。設了 `feedback_url` 時 `report` 全文最後一行也是回饋網址（Grafana 表格點眼睛看全文，看完就是回饋入口）；回饋頁加 `&full=1` 會把全文放在表單上面。
-- **回饋的一句話抽取**（`core.llm.extract_feedback`，同一個 `LLM_PROVIDER`）：值班在表單寫一句自然語言（「這是每月初的批次匯出報表，屬於預期內負載」），抽成 `feedback_type`（false_positive／true_positive／wrong_root_cause）、`identified_cause`（短代號，如 `scheduled_batch_job`）、`target_service`（預設告警的服務，文字點名別的才覆蓋）、`suggested_action`（`suppress_during_cron`／`widen_threshold`／`add_rule`／`none`）。模型回的要過格式檢查，不過就只存原文；對得到調整種類的寫一筆 `aiops-tuning`（`status: proposed`、`source: feedback`、`reason` 帶原文），**人核准才生效**。解析率用 `python3 -m tests.feedback_extract_eval` 量（26 句語料 `tests/feedback_corpus.yaml`；[pdca/phase5-learning-loop/2026-10-feedback-nl-extract.md](../../../../docs/pdca/phase5-learning-loop/2026-10-feedback-nl-extract.md)）。
+- **回饋的一句話抽取**（`core.llm.extract_feedback`，同一個 `LLM_PROVIDER`）：值班在表單寫一句自然語言（「這是每月初的批次匯出報表，屬於預期內負載」），抽成 `feedback_type`（false_positive／true_positive／wrong_root_cause）、`identified_cause`（短代號，如 `scheduled_batch_job`）、`target_service`（預設告警的服務，文字點名別的才覆蓋）、`suggested_action`（`suppress_during_cron`／`widen_threshold`／`add_rule`／`none`）。模型回的要過格式檢查，不過就只存原文；對得到調整種類的寫一筆 `aiops-tuning`（`status: proposed`、`source: feedback`、`reason` 帶原文），**人核准才生效**。解析率用 `python3 -m tests.feedback_extract_eval` 量（26 句語料 `tests/feedback_corpus.yaml`；[pdca/phase5-learning-loop/2026-10-feedback-nl-extract.md](../../../docs/pdca/phase5-learning-loop/2026-10-feedback-nl-extract.md)）。
 - 重跑不會重複：已經在某一件裡的異常、最近結束的件裡的異常都不會再開一次。停了一陣子才跑時，已經過去的件只記錄（`resolved`），不算新開、不會通知。
 
 #### 過去相似怎麼算分（例）
 
-指紋六組的權重見 [aiops-data-reference.md](../../../../docs/aiops-data-reference.md#aiops-incidents事故庫相似事故檢索的資料池)：慢的那段 4、錯誤源頭 4、服務 3、API 2、新 log 樣式 2、指標 1（每個相同的指標加 1，最多算 3 個）。有交集就加一次權重，總分 ≥ 4 才算像，取最高的 3 件。
+指紋六組的權重見 [aiops-data-reference.md](../../../docs/aiops-data-reference.md#aiops-incidents事故庫相似事故檢索的資料池)：慢的那段 4、錯誤源頭 4、服務 3、API 2、新 log 樣式 2、指標 1（每個相同的指標加 1，最多算 3 個）。有交集就加一次權重，總分 ≥ 4 才算像，取最高的 3 件。
 
 新的一件：`mes-api` 的 `GET /lots/{id}` 變慢又出錯，慢的那段和錯誤源頭都是 `wip-worker › SELECT LOT_HISTORY → oracle`，新出現 `Connection pool timeout…` 的 log，指標是 `http.latency_p95_s`、`http.error_rate`。
 
@@ -200,7 +200,7 @@ rca-mes-api › GET /lots/{id}                       |████████�
 - **請求數**：第 2 節的請求數來自 merged（100% 收，但只有已合成的、1～2 分鐘前的）；真正的量看 metrics。
 - **只看最慢的請求**：每次比較 200～300 個請求，夠找出「哪一段變了」，不是統計所有請求。
 - **只比一週前**：一週前也出事，或一週前沒資料又剛好出事前就開始變壞，比較結果會失真。報告第 2 節寫了用哪一段當「平常」。
-- **log 樣式是簡單的規則**：把數字、IP、ID 換成記號。訊息格式差很多的（例如帶整段 SQL），同一種錯誤可能被分成好幾種。之後換成 log 樣式字典（[docs/rca/README.md](../../../../docs/rca/README.md) 的「集合」baseline）。
+- **log 樣式是簡單的規則**：把數字、IP、ID 換成記號。訊息格式差很多的（例如帶整段 SQL），同一種錯誤可能被分成好幾種。之後換成 log 樣式字典（[docs/rca/README.md](../../../docs/rca/README.md) 的「集合」baseline）。
 - **一次一個服務**：`investigate` 不指定服務時，好幾個服務同時異常挑偏離最大的那個。事件整合只沿呼叫關係併一層（直接呼叫者）：A→B→C 三個一起出事是兩件（C 連帶 B；A 自己一件）。
 
 ## 驗證
@@ -209,6 +209,6 @@ rca-mes-api › GET /lots/{id}                       |████████�
 python3 -m unittest discover -s tests -t .                  # 在 aiops 底下；單元測試，不需要 ES
 ```
 
-`loop_e2e`（2026-10-25，docker 的 ES 9.5.5、模擬資料，見 [architecture.md「產品主線 8 步」](../../../../docs/architecture.md#9-產品主線-8-步)）：第 1 次事故 → 回饋網頁確認 → 第 2 次同樣症狀的報告附上第 1 件（為什麼像、當時的根因、處置、怎麼看出來的）、LLM 摘要（template）每句附依據；`similar-eval` 3/3；誤報 3 次 → 建議 → 回測 → 核准 → 不再報。
+`loop_e2e`（2026-10-25，docker 的 ES 9.5.5、模擬資料，見 [architecture.md「產品主線 8 步」](../../../docs/architecture.md#9-產品主線-8-步)）：第 1 次事故 → 回饋網頁確認 → 第 2 次同樣症狀的報告附上第 1 件（為什麼像、當時的根因、處置、怎麼看出來的）、LLM 摘要（template）每句附依據；`similar-eval` 3/3；誤報 3 次 → 建議 → 回測 → 核准 → 不再報。
 
 `run-rca-e2e.sh`：兩個模擬服務走自建 Collector → ES，正常 7 分鐘、事故 5 分鐘，再模擬 baseline 記到一筆延遲異常，**不指定服務**跑 investigate，檢查 11 項：從異常找到服務與 API、瓶頸、錯誤源頭、新的 log 樣式、log 依 trace_id 串到兩個服務、關係圖。

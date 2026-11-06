@@ -1,7 +1,7 @@
 """跨服務事件聚合（一層父子關係）的端到端測試（docs/pdca/phase3-locate/2026-10-cross-service-aggregation.md）。
 
 需要自己的 ES（跑過 telemetry/scripts/elasticsearch-setup.sh）。不要對共用 cluster 跑：會刪 cs- 開頭服務的 trace、異常、告警、事故。
-  ES_URL=http://127.0.0.1:31511 ES_AUTH=x:x python -X utf8 -m tests.chain_e2e      （在 aiops-engine/code/ 底下；LLM 固定 template）
+  ES_URL=http://127.0.0.1:31511 ES_AUTH=x:x python -X utf8 -m tests.chain_e2e      （在 aiops-engine/ 底下；LLM 固定 template）
 可重跑：每次先刪 cs- 開頭的資料，時間以「現在」為準重新產生。約 3 分鐘，每項印 PASS／FAIL。
 
 合成 trace 直接寫進 traces-generic.otel-it（跟 Collector 寫出來的形狀一樣，不經 Collector），再跑一次 detector trace-merge 合成

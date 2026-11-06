@@ -10,7 +10,7 @@
 暴衝後每分鐘跑一輪 detector rules --at <那一輪>，每輪把累積的規則異常餵給 alerts.merge，看哪一輪開出一件。
 
 會建／清：資料流 metrics-generic.otel-p95spike、aiops-anomalies 裡這兩個服務的規則異常（只能對測試用的 ES 跑）。
-  ES_URL=http://127.0.0.1:19200 ES_AUTH=elastic:<password> python -X utf8 -m tests.p95_spike_e2e      （在 aiops-engine/code 底下）
+  ES_URL=http://127.0.0.1:19200 ES_AUTH=elastic:<password> python -X utf8 -m tests.p95_spike_e2e      （在 aiops-engine 底下）
 約 1 分鐘。每項印 PASS／FAIL；有 FAIL 時 exit 1。
 """
 from __future__ import annotations

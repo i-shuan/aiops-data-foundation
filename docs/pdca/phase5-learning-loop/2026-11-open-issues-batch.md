@@ -38,7 +38,7 @@
 
 ## Check：測試的目的與結果
 
-全部只有單元測試與 `helm template`，沒有連 ES、沒有載進 Grafana（es-test 叢集被 HA 測試佔著）。`cd aiops-engine/code && PYTHONUTF8=1 py -m pytest -q`：404 個通過；`tools/check-docs.py` 四項 0 個問題。
+全部只有單元測試與 `helm template`，沒有連 ES、沒有載進 Grafana（es-test 叢集被 HA 測試佔著）。`cd aiops-engine && PYTHONUTF8=1 py -m pytest -q`：404 個通過；`tools/check-docs.py` 四項 0 個問題。
 
 | 測試目的（為了確認什麼） | 怎麼測 | 結果 |
 |---|---|---|

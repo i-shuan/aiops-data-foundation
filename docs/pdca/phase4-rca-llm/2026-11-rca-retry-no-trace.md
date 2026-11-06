@@ -1,6 +1,6 @@
 # 根因分析：沒有 trace 的件自動重跑（2026-11）
 
-**狀態**：已完成　　**日期**：2026-11-01　　**相關**：分支 `claude/rca-retry-no-trace`；[aiops-engine/code/configs/rca/rca.yaml](../../../aiops-engine/code/configs/rca/rca.yaml)
+**狀態**：已完成　　**日期**：2026-11-01　　**相關**：分支 `claude/rca-retry-no-trace`；[aiops-engine/configs/rca/rca.yaml](../../../aiops-engine/configs/rca/rca.yaml)
 **模組**：⑥ 收斂、⑦ 根因分析
 
 ## Plan：這一次要達到什麼

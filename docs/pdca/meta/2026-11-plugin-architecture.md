@@ -1,6 +1,6 @@
 # engine 改成「主程式＋plugin」：可觀測性、全套工廠、只有指標各一個 plugin（2026-11）
 
-**狀態**：已完成　　**日期**：2026-11-04　　**相關**：分支 `claude/plugin-architecture`（接在 `claude/factory-engine` 後）；操作 [plugins/README.md](../../../aiops-engine/code/aiops/scenario/README.md)；原理 [architecture.md §4.2](../../architecture.md)
+**狀態**：已完成　　**日期**：2026-11-04　　**相關**：分支 `claude/plugin-architecture`（接在 `claude/factory-engine` 後）；操作 [plugins/README.md](../../../aiops-engine/aiops/scenario/README.md)；原理 [architecture.md §4.2](../../architecture.md)
 **模組**：④⑥⑦⑨
 
 ## Plan：這一次要達到什麼

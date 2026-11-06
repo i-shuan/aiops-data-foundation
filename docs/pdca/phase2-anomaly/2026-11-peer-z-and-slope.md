@@ -1,6 +1,6 @@
 # Pod 同儕橫向比對的 z 依其他 Pod 數分級；記憶體趨勢規則（照這個速度幾小時內到上限）（2026-11）
 
-**狀態**：已完成　　**日期**：2026-11-01　　**相關**：分支 `claude/peer-z-and-slope`；來源 [open-issues 9.2「3 個 Pod、年紀不同時抓不到記憶體洩漏」](../meta/2026-10-open-issues.md)、[baseline reference「還沒加：趨勢」](../../../aiops-engine/code/configs/baseline/reference.md)
+**狀態**：已完成　　**日期**：2026-11-01　　**相關**：分支 `claude/peer-z-and-slope`；來源 [open-issues 9.2「3 個 Pod、年紀不同時抓不到記憶體洩漏」](../meta/2026-10-open-issues.md)、[baseline reference「還沒加：趨勢」](../../../aiops-engine/configs/baseline/reference.md)
 **模組**：④ 判斷（Pod 同儕橫向比對、靜態臨界值規則）
 
 ## Plan：這一次要達到什麼

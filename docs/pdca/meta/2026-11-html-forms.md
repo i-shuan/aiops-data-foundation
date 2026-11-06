@@ -19,9 +19,9 @@
 | `grafana/helmchart/templates/grafana.yaml`、`values.yaml` | 拿掉 `plugin.source`／`plugin.parts`、`plugin-zip` volume；`plugin.enabled` 預設 `false` | 外掛選用 |
 | `grafana/helmchart/templates/configmaps.yaml` | `files/dashboards/forms/*.json` 只有 `plugin.enabled` 才載入 | 沒外掛時外掛面板會顯示錯誤 |
 | `grafana/helmchart/files/dashboards/aiops-feedback.json`（新內容）、`forms/aiops-feedback-forms.json`（原檔搬家，uid `aiops-feedback-forms`） | 預設儀表板：一個 HTML 文字面板，三個連結（回饋表單 `&full=1`、報告全文、回報漏報），網址由 chart 的 `feedbackUrl` 取代 | uid 不變，通知裡的 `feedback` 連結不用改 |
-| `aiops-engine/code/api/app.py` | `render_form` 開著的件最上面加「重跑根因分析」表單、`notice` 提示；新 `render_missed` | 外掛版有的三件事，網頁版都要有 |
-| `aiops-engine/code/api/__main__.py` | `GET /missed`、`POST /missed`（form）、`POST /rca`（form → `request_rca`＋丟 alert → 303 轉回回饋頁帶提示） | 同上 |
-| `aiops-engine/code/investigator/es.py` | `entry_stats`：回應沒有 `aggregations`（索引還不存在）就當作 0 個請求 | K8s 實測時發現：工廠版剛上線、`lot-paths-*` 還沒有，整份根因報告變「根因分析失敗：'aggregations'」 |
+| `aiops-engine/api/app.py` | `render_form` 開著的件最上面加「重跑根因分析」表單、`notice` 提示；新 `render_missed` | 外掛版有的三件事，網頁版都要有 |
+| `aiops-engine/api/__main__.py` | `GET /missed`、`POST /missed`（form）、`POST /rca`（form → `request_rca`＋丟 alert → 303 轉回回饋頁帶提示） | 同上 |
+| `aiops-engine/investigator/es.py` | `entry_stats`：回應沒有 `aggregations`（索引還不存在）就當作 0 個請求 | K8s 實測時發現：工廠版剛上線、`lot-paths-*` 還沒有，整份根因報告變「根因分析失敗：'aggregations'」 |
 | 測試：`test_api_endpoints.py`（`HtmlPages` 5 個、`EntryStatsWithoutIndex` 1 個）、`test_deploy.py`（預設沒有 initContainer、只有連結版儀表板；外掛開才多 forms）、`test_api.py`、`test_grafana_form.py`（指到 forms/） | | |
 | 文件：`grafana/README.md`、`docs/deploy-how-to.md`、`docs/feedback/README.md`、`docs/data-storage-reference.md`、`aiops-engine/README.md`、`docs/README.md`、`alert-rules.yaml` 註解、舊 PDCA 一處死連結 | 預設網頁、外掛選用、社群 chart 那條路拿掉 | |
 

@@ -4,7 +4,7 @@
 
 根因分析只有兩步需要統計或模型：找出偏離（動態基準線學習）、從候選裡排出可能原因；串 metrics、trace、log 靠共同欄位與查詢，不靠模型。
 
-baseline 的操作、規格、實測見 [aiops-engine/code/configs/baseline/](../../aiops-engine/code/configs/baseline/README.md)；根因分析見 [aiops-engine/code/configs/rca/](../../aiops-engine/code/configs/rca/README.md)。
+baseline 的操作、規格、實測見 [aiops-engine/configs/baseline/](../../aiops-engine/configs/baseline/README.md)；根因分析見 [aiops-engine/configs/rca/](../../aiops-engine/configs/rca/README.md)。
 
 ## 六步與 AI 的位置
 
@@ -63,7 +63,7 @@ metrics 決定何時告警，trace 指出哪一段，log 給證據。基準線�
 | 併件 | 現在這批異常屬於哪一件 | 服務、時間、呼叫關係 |
 | 指紋 | 這一件像過去哪一類 case | 慢的那段、錯的源頭、服務、API、log 樣式、指標；有交集就加權重，總分 ≥ 4 才算像 |
 
-完整流程：異常 → 依服務、時間、呼叫關係併成一件 → 對這一件做 trace 定位、log 佐證 → 算這一件的指紋 → 比過去 case，以分數投票出「像哪一類」（case 只做分類，不給根因、處置）。程式在 [investigator/alerts.py](../../aiops-engine/code/aiops/service/converge/merge.py)（併件）、[investigator/similar.py](../../aiops-engine/code/aiops/service/rca/similar.py)（指紋與分類）。
+完整流程：異常 → 依服務、時間、呼叫關係併成一件 → 對這一件做 trace 定位、log 佐證 → 算這一件的指紋 → 比過去 case，以分數投票出「像哪一類」（case 只做分類，不給根因、處置）。程式在 [investigator/alerts.py](../../aiops-engine/aiops/service/converge/merge.py)（併件）、[investigator/similar.py](../../aiops-engine/aiops/service/rca/similar.py)（指紋與分類）。
 
 ## 動態基準線學習怎麼判斷
 
@@ -109,7 +109,7 @@ metrics 決定何時告警，trace 指出哪一段，log 給證據。基準線�
 | 做法 | 對應案例數 | 現況 |
 |---|---|---|
 | A. trace 每一段 | 6（N+1、重試風暴、冷門服務、行鎖、快取穿透、時鐘） | ✅ k3s 實測 4 個案例抓到，正常流量 0 誤報；時鐘不同步只有單元測試 |
-| B. 慢請求的共同點（Pod、版本、`lot.id`、SQL） | 4 | ✅ 報告第 3 節之後：出事時那批最慢的請求 vs 平常那批，哪個值集中（[configs/rca](../../aiops-engine/code/configs/rca/README.md)）；只有單元測試 |
+| B. 慢請求的共同點（Pod、版本、`lot.id`、SQL） | 4 | ✅ 報告第 3 節之後：出事時那批最慢的請求 vs 平常那批，哪個值集中（[configs/rca](../../aiops-engine/configs/rca/README.md)）；只有單元測試 |
 | C. Pod 同儕橫向比對 | 4 | ✅ k3s 實測錯誤率、延遲、記憶體、CPU 抓到 |
 | D. metrics 補齊（p99、JVM、連線池、執行緒池、MQ lag） | 6 | ⚠️ 有流量、錯誤率、p95、CPU、記憶體；p99 ❌ |
 | E. 靜態臨界值規則（飽和度） | 磁碟、連線池、GC 等 | ✅ 如 `node.disk_full`、`db.pool_exhausted` |
@@ -137,7 +137,7 @@ metrics 決定何時告警，trace 指出哪一段，log 給證據。基準線�
 
 - 資料少時看不出來，資料多了才變慢，所以測試正常、上線才出事。
 - 每次查詢本身都快，p95 可能還在正常範圍；變的是同一個請求裡資料庫那一段的**呼叫次數**（1 次變上百次）。
-- 偵測靠 trace 每一段：`trace.segment.calls` 學每段平常呼叫幾次，`trace.segment.repeated` 用固定門檻（同一個請求同一個往外呼叫 ≥ 20 次）；規格見 [baseline/reference.md](../../aiops-engine/code/configs/baseline/reference.md)，實測（wip-worker 每個請求查 100 次，該段 200ms，平常 33ms）見 [verification.md](../../aiops-engine/code/configs/baseline/verification.md)。
+- 偵測靠 trace 每一段：`trace.segment.calls` 學每段平常呼叫幾次，`trace.segment.repeated` 用固定門檻（同一個請求同一個往外呼叫 ≥ 20 次）；規格見 [baseline/reference.md](../../aiops-engine/configs/baseline/reference.md)，實測（wip-worker 每個請求查 100 次，該段 200ms，平常 33ms）見 [verification.md](../../aiops-engine/configs/baseline/verification.md)。
 - 從上線第一天就有的 N+1，baseline 會學成平常，所以才要固定門檻；天天觸發沒人修的，進慢性病清單。
 
 ## 現況

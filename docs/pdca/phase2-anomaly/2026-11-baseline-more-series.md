@@ -1,6 +1,6 @@
 # 動態基準線補序列：p99、慢請求比例、往外呼叫耗時；一階跳變提 reset_point（2026-11）
 
-**狀態**：已完成　　**日期**：2026-11-01　　**相關**：分支 `claude/baseline-more-series`；來源 [open-issues 9.5 ④](../meta/2026-10-open-issues.md)、[baseline reference「限制」](../../../aiops-engine/code/configs/baseline/reference.md)
+**狀態**：已完成　　**日期**：2026-11-01　　**相關**：分支 `claude/baseline-more-series`；來源 [open-issues 9.5 ④](../meta/2026-10-open-issues.md)、[baseline reference「限制」](../../../aiops-engine/configs/baseline/reference.md)
 **模組**：④ 判斷（動態基準線學習）
 
 ## Plan：這一次要達到什麼

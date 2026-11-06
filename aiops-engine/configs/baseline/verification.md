@@ -1,8 +1,8 @@
 # baseline 實測與驗證結果
 
-> **類型：案例 Cases**　同主題：[原理](../../../../docs/rca/README.md)・[規格](reference.md)・[操作](README.md)
+> **類型：案例 Cases**　同主題：[原理](../../../docs/rca/README.md)・[規格](reference.md)・[操作](README.md)
 
-各功能實際跑出來的結果：測資、預期、實測。做法見 [README.md](README.md)，規格見 [reference.md](reference.md)，原理見 [rca/README.md](../../../../docs/rca/README.md)。
+各功能實際跑出來的結果：測資、預期、實測。做法見 [README.md](README.md)，規格見 [reference.md](reference.md)，原理見 [rca/README.md](../../../docs/rca/README.md)。
 
 **目錄**
 
@@ -20,7 +20,7 @@
 
 ## trace 每一段的 baseline
 
-> 另見：[原理](../../../../docs/rca/README.md)・[規格](reference.md#trace-每一段的-baseline)・[操作](reference.md#trace-每一段的-baseline)
+> 另見：[原理](../../../docs/rca/README.md)・[規格](reference.md#trace-每一段的-baseline)・[操作](reference.md#trace-每一段的-baseline)
 
 **實測**（`e2e/k8s/run-trace-baseline-e2e.sh`，兩個模擬服務走自建 Collector → ES；e2e/ 與 Collector 已刪，在 git 歷史；測試用 1 分鐘一點、學 20 分鐘）：
 
@@ -38,21 +38,21 @@
 
 單元測試（`tests/test_trace.py`）在記憶體裡模擬 4 週、每小時 20 個請求，同樣 4 個案例都抓到、正常 5 次 0 誤報。
 
-邊緣情境（`tests/trace_quality_edge_e2e.py`，自己的 ES 灌合成 trace，照正式規則做尾端取樣）見 [trace-quality-verify](../../../../docs/pdca/phase2-anomaly/2026-10-trace-quality-verify.md)：
+邊緣情境（`tests/trace_quality_edge_e2e.py`，自己的 ES 灌合成 trace，照正式規則做尾端取樣）見 [trace-quality-verify](../../../docs/pdca/phase2-anomaly/2026-10-trace-quality-verify.md)：
 - 只讀 random：錯誤率 4.3%（真實 4.0%）；混進全留的那份是 34.6%。
 - 抓不到的：只有 10% 請求慢 2 秒；每 5 分鐘不到 100 個請求的 API 學不到。
 
 ## 規則：狀態變化、離極限多遠
 
-> 另見：[原理](../../../../docs/rca/README.md)・[規格](reference.md#規則狀態變化離極限多遠)・[操作](reference.md#規則狀態變化離極限多遠)
+> 另見：[原理](../../../docs/rca/README.md)・[規格](reference.md#規則狀態變化離極限多遠)・[操作](reference.md#規則狀態變化離極限多遠)
 
-四個領域的案例與實測見各 PDCA 紀錄（[docs/pdca/](../../../../docs/pdca/README.md)）。
+四個領域的案例與實測見各 PDCA 紀錄（[docs/pdca/](../../../docs/pdca/README.md)）。
 
-`container.memory_leak`（趨勢）：合成資料 8 個案例（30 分鐘 500 → 800、上限 1000 → 0.33 小時後到：報；GC 鋸齒但低點墊高：報；純鋸齒、上限很遠、新容器只有 10 分鐘、沒設上限、單點飆高、Pod 已刪除：不報），`tests/rules_edge_e2e.py` 對測試 ES 全過；真的洩漏程式沒跑過（[phase2-anomaly/2026-11-peer-z-and-slope.md](../../../../docs/pdca/phase2-anomaly/2026-11-peer-z-and-slope.md)）。
+`container.memory_leak`（趨勢）：合成資料 8 個案例（30 分鐘 500 → 800、上限 1000 → 0.33 小時後到：報；GC 鋸齒但低點墊高：報；純鋸齒、上限很遠、新容器只有 10 分鐘、沒設上限、單點飆高、Pod 已刪除：不報），`tests/rules_edge_e2e.py` 對測試 ES 全過；真的洩漏程式沒跑過（[phase2-anomaly/2026-11-peer-z-and-slope.md](../../../docs/pdca/phase2-anomaly/2026-11-peer-z-and-slope.md)）。
 
 ## Pod 同儕橫向比對：同一個服務的 Pod 互相比
 
-> 另見：[原理](../../../../docs/rca/README.md)・[規格](reference.md#pod-同儕橫向比對同一個服務的-pod-互相比)・[操作](reference.md#pod-同儕橫向比對同一個服務的-pod-互相比)
+> 另見：[原理](../../../docs/rca/README.md)・[規格](reference.md#pod-同儕橫向比對同一個服務的-pod-互相比)・[操作](reference.md#pod-同儕橫向比對同一個服務的-pod-互相比)
 
 **實測**（`e2e/k8s/run-peer-e2e.sh`，2026-10-10，全部通過；e2e/ 已隨自建收值刪除，在 git 歷史）：真的 .NET 應用（自動埋點）開 3 個副本，每次只弄壞一個。
 
@@ -63,13 +63,13 @@
 | 記憶體洩漏 | 一個 Pod 每個請求 32KB 放進不會清的 list | 第 5 分鐘：**294MB**（其他 163MB） | 不報 |
 | 無窮迴圈 | 一個 Pod 裡有程式佔滿 1 核 | 第 3 分鐘：CPU **0.65 核**（其他 0.21 核，10 分鐘平均） | 不報 |
 
-副本數 1～5、Pod 換掉、擴縮容、全壞、同名服務的邊緣情境：[phase2-anomaly/2026-10-peer-verify.md](../../../../docs/pdca/phase2-anomaly/2026-10-peer-verify.md)。2026-10-31 真 cluster 上 3 個 Pod 年紀不同（新的 163 MB、舊的 251 MB）、一個洩漏到 420 MB 時 z 只有 3.3 沒報；改成其他 2 個 Pod 時 z 門檻 3（`z_by_peers`）後，合成資料 `pe-ages3` 抓到（412 MB，z 3.1），其餘 19 個情境不變（[phase2-anomaly/2026-11-peer-z-and-slope.md](../../../../docs/pdca/phase2-anomaly/2026-11-peer-z-and-slope.md)）。
+副本數 1～5、Pod 換掉、擴縮容、全壞、同名服務的邊緣情境：[phase2-anomaly/2026-10-peer-verify.md](../../../docs/pdca/phase2-anomaly/2026-10-peer-verify.md)。2026-10-31 真 cluster 上 3 個 Pod 年紀不同（新的 163 MB、舊的 251 MB）、一個洩漏到 420 MB 時 z 只有 3.3 沒報；改成其他 2 個 Pod 時 z 門檻 3（`z_by_peers`）後，合成資料 `pe-ages3` 抓到（412 MB，z 3.1），其餘 19 個情境不變（[phase2-anomaly/2026-11-peer-z-and-slope.md](../../../docs/pdca/phase2-anomaly/2026-11-peer-z-and-slope.md)）。
 
 同一段時間整個服務的錯誤率是 **9%**（3 個 Pod 裡 1 個壞）。這次服務平常是 0%，跟平常比（baseline）也會報，但只知道「服務錯誤率高」、不知道是哪個 Pod；Pod 越多稀釋越多：10 個 Pod 壞 1 個大約剩 1%，就低於 baseline 的門檻（多 5 個百分點）了。
 
 ## 調整：哪些資料不學、從哪裡重新學、哪些時段放寬
 
-> 另見：[原理](../../../../docs/rca/README.md)・[規格](reference.md#調整哪些資料不學從哪裡重新學哪些時段放寬)・[操作](reference.md#調整哪些資料不學從哪裡重新學哪些時段放寬)
+> 另見：[原理](../../../docs/rca/README.md)・[規格](reference.md#調整哪些資料不學從哪裡重新學哪些時段放寬)・[操作](reference.md#調整哪些資料不學從哪裡重新學哪些時段放寬)
 
 **實測**（2026-10-23，ES 9.5.5，log 8 天）：
 
@@ -82,7 +82,7 @@
 
 ## 事故紀錄與值班回饋
 
-> 另見：[原理](../../../../docs/rca/README.md)・[規格](reference.md#事故紀錄與值班回饋)
+> 另見：[原理](../../../docs/rca/README.md)・[規格](reference.md#事故紀錄與值班回饋)
 
 **測資與結果**（2026-10-24，ES 9.5.5；14 筆異常：同一個對象 6 次、另一條路由 1 次、錯誤率 4 次＋1 個 warning、log 1 次、規則 1 次）：
 
@@ -100,11 +100,11 @@
 | 事故 `--exclude-training` | ✅ proposed 時 `train` 不排除；`approve` 後排除那段（7,200 點）；沒列服務的建議是全部 |
 | 缺參數、不存在的 id、錯的 verdict | ✅ 清楚的錯誤訊息，不寫入 |
 
-**2026-10-25 補的**（docker ES、模擬資料實測，見 [pdca/phase5-learning-loop/2026-10-loop-update.md](../../../../docs/pdca/phase5-learning-loop/2026-10-loop-update.md)、[2026-10-expert-feedback.md](../../../../docs/pdca/phase5-learning-loop/2026-10-expert-feedback.md)）：回饋網頁；誤報 3 次 → 建議 → `backtest`（告警 3 → 1、已確認事故不受影響）→ `approve` → 同樣的批次不再報；同根因 3 次 → 規則草稿；漏報 → 降 z 的建議；`metrics` 兩段並排。
+**2026-10-25 補的**（docker ES、模擬資料實測，見 [pdca/phase5-learning-loop/2026-10-loop-update.md](../../../docs/pdca/phase5-learning-loop/2026-10-loop-update.md)、[2026-10-expert-feedback.md](../../../docs/pdca/phase5-learning-loop/2026-10-expert-feedback.md)）：回饋網頁；誤報 3 次 → 建議 → `backtest`（告警 3 → 1、已確認事故不受影響）→ `approve` → 同樣的批次不再報；同根因 3 次 → 規則草稿；漏報 → 降 z 的建議；`metrics` 兩段並排。
 
 ## 慢性病清單、行事曆
 
-> 另見：[原理](../../../../docs/rca/README.md)・[規格](reference.md#慢性病清單行事曆)・[操作](reference.md#慢性病清單行事曆)
+> 另見：[原理](../../../docs/rca/README.md)・[規格](reference.md#慢性病清單行事曆)・[操作](reference.md#慢性病清單行事曆)
 
 **實測**（2026-10-24，ES 9.5.5）：
 
@@ -120,7 +120,7 @@
 
 ## 資料品質檢查：資料本身怪不怪
 
-> 另見：[原理](../../../../docs/rca/README.md)・[規格](reference.md#資料品質檢查資料本身怪不怪)
+> 另見：[原理](../../../docs/rca/README.md)・[規格](reference.md#資料品質檢查資料本身怪不怪)
 
 ### 門檻怎麼校、誰來調
 
@@ -138,7 +138,7 @@
 
 沒驗證：正式環境的量下查詢要多久（`cardinality` 是近似值，3,000 以下準確）。
 
-邊緣情境（新的三個檢查、第一天、failure store、缺 namespace）見 [trace-quality-verify](../../../../docs/pdca/phase2-anomaly/2026-10-trace-quality-verify.md)。抓不到的一種：Pod 沒有 `app.kubernetes.io/name` 時，log pipeline 用 container 名稱當服務名，`log_missing_identity` 不算它缺。
+邊緣情境（新的三個檢查、第一天、failure store、缺 namespace）見 [trace-quality-verify](../../../docs/pdca/phase2-anomaly/2026-10-trace-quality-verify.md)。抓不到的一種：Pod 沒有 `app.kubernetes.io/name` 時，log pipeline 用 container 名稱當服務名，`log_missing_identity` 不算它缺。
 
 ## 驗證
 

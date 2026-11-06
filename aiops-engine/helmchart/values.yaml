@@ -1,10 +1,10 @@
 # 部署前要先有：
-#   1. image：cd aiops-engine/code && docker build -t <nexus>/aiops-engine:<tag> .（下面 image 換成實際路徑）
+#   1. image：cd aiops-engine && docker build -t <nexus>/aiops-engine:<tag> .（下面 image 換成實際路徑）
 #   2. Secret（手動建，不進 git）：
 #        kubectl -n aiops create secret generic aiops-secrets \
 #          --from-literal=ES_API_KEY=<elasticsearch/kibana-dev-tools.txt 第 3 段發的 engine key>
 #   3. esUrl 改成實際值；LLM 的設定在下面 llm、API 的 token 在 api.token（key 寫在不進 git 的 values-local.yaml，部署時 -f 帶進來）
-#   4. 設定檔要跟 image 裡的不一樣時用 configOverrides（--set-file configOverrides.baseline.series=aiops-engine/code/configs/baseline/series.yaml；
+#   4. 設定檔要跟 image 裡的不一樣時用 configOverrides（--set-file configOverrides.baseline.series=aiops-engine/configs/baseline/series.yaml；
 #      排程表是 configOverrides.schedule.schedule）
 #
 # 一個 image、一份 values：mode 決定裝成什麼樣（docs/pdca/meta/2026-11-api-beat-worker.md；畫面全在 Grafana，grafana/）：
@@ -23,11 +23,11 @@ image:
 
 esUrl: https://elasticsearch.example.internal:9200
 tz: Asia/Taipei
-# 情境（code/aiops/scenario/README.md）：observability（IT：服務、API、trace）、factory（工廠：ML／FDC 判好的異常、MES 履歷、機台 alarm）、
+# 情境（aiops/scenario/README.md）：observability（IT：服務、API、trace）、factory（工廠：ML／FDC 判好的異常、MES 履歷、機台 alarm）、
 # metrics_only（只有 ML／FDC 的異常、沒有履歷）。環境變數 AIOPS_PLUGIN 跟著設，排程表換成那個情境的
 plugin: observability
 # observability 的原始資料是誰寫的：otel（我們的 Collector：metrics-*.otel-*、k8s-*、traces-generic.otel-*）或 apm（Elastic APM：
-# metrics-apm.*、logs-apm.*、traces-apm-*；設定檔 code/configs/apm/，怎麼接見那個資料夾的 README.md）。其他 plugin 不看這個
+# metrics-apm.*、logs-apm.*、traces-apm-*；設定檔 configs/apm/，怎麼接見那個資料夾的 README.md）。其他 plugin 不看這個
 source: otel
 secret: aiops-secrets          # ES_API_KEY
 esApiKey: ""                   # 部署時給：chart 建上面這個 Secret；空的就不建、沿用手動建的
@@ -43,7 +43,7 @@ llm:
 configOverrides: {}            # {baseline: {series: <內容>}} → 掛在 /app/configs/baseline/series.yaml 蓋掉 image 裡的
 
 # 排程：single 的排程器、distributed 的 beat 共用這段。第一階段只開 stage 1 的 4 個（rules、detect、alert、train）；跑穩、看過一輪誤報再
-# stage: 2 開其他。排程表（頻率、逾時、重試、佇列）在 code/configs/<plugin>/schedule.yaml，不在這裡。
+# stage: 2 開其他。排程表（頻率、逾時、重試、佇列）在 configs/<plugin>/schedule.yaml，不在這裡。
 scheduler:
   stage: 1
   resources:                   # single：工作都在這個 container 裡跑，train 要 4Gi；distributed 的 beat 只丟工作，用 beatResources

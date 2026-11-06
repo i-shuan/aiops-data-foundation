@@ -13,9 +13,9 @@
 
 | 檔案 | 改了什麼 | 為何要改 |
 |---|---|---|
-| `aiops-engine/code/configs/baseline/trace.yaml` | `sample_per_bucket` 20 → 100，註解寫上限與原因 | 見 Check。100 是 ES `top_hits` 的預設上限（`index.max_inner_result_window`），200 時 ES 直接回 400 |
-| `aiops-engine/code/detector/trace.py` | 設定沒寫時的預設 20 → 100 | 跟設定檔一致 |
-| `aiops-engine/code/tests/trace_edge.yaml` | 20 → 100 | 這份註明「跟 trace.yaml 一樣」 |
+| `aiops-engine/configs/baseline/trace.yaml` | `sample_per_bucket` 20 → 100，註解寫上限與原因 | 見 Check。100 是 ES `top_hits` 的預設上限（`index.max_inner_result_window`），200 時 ES 直接回 400 |
+| `aiops-engine/detector/trace.py` | 設定沒寫時的預設 20 → 100 | 跟設定檔一致 |
+| `aiops-engine/tests/trace_edge.yaml` | 20 → 100 | 這份註明「跟 trace.yaml 一樣」 |
 | `docs/troubleshooting.md` | 「只有一部分請求變慢」那列改寫 | 跟著設定 |
 
 ## Check：測試的目的與結果

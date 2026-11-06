@@ -38,11 +38,11 @@ docs/
   pdca/              現況與待辦（依 PDCA 分）、每一輪紀錄、TEMPLATE.md
 ```
 
-要部署看 [docs/deploy-how-to.md](docs/deploy-how-to.md)。閱讀順序：[architecture.md](docs/architecture.md) → [aiops-engine/code/configs/apm/README.md](aiops-engine/code/configs/apm/README.md)（怎麼接 Elastic APM 的資料）→ 各主題。
+要部署看 [docs/deploy-how-to.md](docs/deploy-how-to.md)。閱讀順序：[architecture.md](docs/architecture.md) → [aiops-engine/configs/apm/README.md](aiops-engine/configs/apm/README.md)（怎麼接 Elastic APM 的資料）→ 各主題。
 
 | 資料夾 | 主文件 |
 |---|---|
-| **rca** | [rca/README.md](docs/rca/README.md)：根因分析六步、三種資料怎麼串、動態基準線學習、15 個故障案例；程式：[aiops-engine/code/configs/baseline](aiops-engine/code/configs/baseline/README.md)、[aiops-engine/code/configs/rca](aiops-engine/code/configs/rca/README.md)（[報告範例](aiops-engine/code/configs/rca/example-report.md)） |
+| **rca** | [rca/README.md](docs/rca/README.md)：根因分析六步、三種資料怎麼串、動態基準線學習、15 個故障案例；程式：[aiops-engine/configs/baseline](aiops-engine/configs/baseline/README.md)、[aiops-engine/configs/rca](aiops-engine/configs/rca/README.md)（[報告範例](aiops-engine/configs/rca/example-report.md)） |
 | **feedback** | [feedback/README.md](docs/feedback/README.md)：閉環、LLMOps 的定案、LLM 與 token |
 
 ## 已經定案的
@@ -67,7 +67,7 @@ docs/
 
 ## 目錄
 
-一個部署元件一個資料夾，裡面固定 `README.md`（怎麼部署）、`code/`（程式與設定檔）、`helmchart/`（Helm chart）。
+一個部署元件一個資料夾，裡面固定 `README.md`（怎麼部署）、程式與設定檔、`helmchart/`（Helm chart）；`grafana/`、`elasticsearch/` 的程式與設定檔放在 `code/`，`aiops-engine/` 直接放在資料夾裡（Python 套件是 `aiops-engine/aiops/`）。
 
 ```
 elasticsearch/   kibana-dev-tools.txt（貼進 Kibana Dev Tools 的一份檔）
@@ -83,4 +83,4 @@ docs/  tools/
 | `aiops-engine/` | ④～⑨ | AIOps 分析核心：`core/`（ES、trace、LLM）、`detector/`（動態基準線學習、規則、回饋、回測、量化）、`investigator/`（根因分析、事件整合、相似事故）、`api/`（薄 API：推異常、重跑根因、回饋表單後端）、`scheduler/`（排程器／beat）、`tasks/`（佇列 worker）、`configs/`（`apm/` Elastic APM 版、`baseline/` `rca/` `schedule/` OTel 版） |
 | `docs/` | — | 設計文件、規劃、`docs/pdca/` 每一輪的紀錄 |
 
-Python 的執行位置在 `aiops-engine/code/`：`cd aiops-engine/code && python3 -m detector <指令>`、`python3 -m investigator investigate`。
+Python 的執行位置在 `aiops-engine/`：`cd aiops-engine && python3 -m detector <指令>`、`python3 -m investigator investigate`。
