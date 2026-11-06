@@ -63,12 +63,12 @@ command = registry(COMMANDS)
 
 @command("train")
 def train(config: str = Opt(...), weeks: int | None = Opt(None), end: str | None = Opt(None)) -> int:
-    return run(cmd_train, "series", locals())
+    return run(cmd_train, "series", config=config, weeks=weeks, end=end)
 
 
 @command("detect")
 def detect(config: str = Opt(...), window: str = Opt("30min"), at: str | None = Opt(None)) -> int:
-    return run(cmd_detect, "series", locals())
+    return run(cmd_detect, "series", config=config, window=window, at=at)
 
 
 @command("tune", help="調整某條序列、某些對象的粒度、z、min_abs（寫進 aiops-tuning）")
@@ -85,71 +85,71 @@ def tune(config: str = Opt(SERIES),
          remove: bool = Opt(False, "--remove"),
          list_: bool = Opt(False, "--list"),
          show: bool = Opt(False, "--show", help="看最終生效的值與來源：--series 給 series.yaml 的名稱、--match 給對象的實際值（例如 service=mes-api），不寫入")) -> int:
-    return run(cmd_tune, "series", locals())
+    return run(cmd_tune, "series", config=config, series=series, match=match, resolution=resolution, z=z, min_abs=min_abs, confirm_points=confirm_points, instant_z=instant_z, reason=reason, by=by, remove=remove, list_=list_, show=show)
 
 
 @command("trace-collect")
 def trace_collect(config: str = Opt(...), start: str | None = Opt(None), end: str | None = Opt(None)) -> int:
-    return run(cmd_trace_collect, "trace", locals())
+    return run(cmd_trace_collect, "trace", config=config, start=start, end=end)
 
 
 @command("trace-train")
 def trace_train(config: str = Opt(...), history: str | None = Opt(None, help="學多久的資料，例如 4w、2h（預設 history_weeks）"),
                 end: str | None = Opt(None)) -> int:
-    return run(cmd_trace_train, "trace", locals())
+    return run(cmd_trace_train, "trace", config=config, history=history, end=end)
 
 
 @command("trace-detect")
 def trace_detect(config: str = Opt(...), window: str = Opt("30min"), at: str | None = Opt(None)) -> int:
-    return run(cmd_trace_detect, "trace", locals())
+    return run(cmd_trace_detect, "trace", config=config, window=window, at=at)
 
 
 @command("trace-merge")
 def trace_merge(config: str = Opt(...), window: str = Opt("3min", help="第一次（沒有上次合到哪的紀錄）往前合多久"),
                 at: str | None = Opt(None)) -> int:
-    return run(cmd_trace_merge, "trace", locals())
+    return run(cmd_trace_merge, "trace", config=config, window=window, at=at)
 
 
 @command("rules")
 def rules(config: str = Opt(...), at: str | None = Opt(None, help="回測：拿過去某個時間點當成現在"),
           only: str | None = Opt(None, help="只跑這幾條（逗號分開）")) -> int:
-    return run(cmd_rules, "rules", locals())
+    return run(cmd_rules, "rules", config=config, at=at, only=only)
 
 
 @command("peer")
 def peer(config: str = Opt(...), at: str | None = Opt(None, help="回測：拿過去某個時間點當成現在"),
          only: str | None = Opt(None, help="只跑這幾個（逗號分開）")) -> int:
-    return run(cmd_peer, "peer", locals())
+    return run(cmd_peer, "peer", config=config, at=at, only=only)
 
 
 @command("chronic", help="慢性病清單：天天噴錯、沒人修的（每週）")
 def chronic(config: str = Opt(...), at: str | None = Opt(None, help="回測：拿過去某個時間點當成現在")) -> int:
-    return run(cmd_chronic, "chronic", locals())
+    return run(cmd_chronic, "chronic", config=config, at=at)
 
 
 @command("quality")
 def quality(config: str = Opt(...), at: str | None = Opt(None, help="回測：拿過去某個時間點當成現在"),
             only: str | None = Opt(None, help="只跑這幾個（逗號分開）")) -> int:
-    return run(cmd_quality, "quality", locals())
+    return run(cmd_quality, "quality", config=config, at=at, only=only)
 
 
 @command("prune", help="aiops-anomalies、aiops-trace-segments、已結案的 aiops-alerts 超過保留天數的文件清掉（每天）")
 def prune(config: str = Opt(...), at: str | None = Opt(None, help="拿某個時間點當成現在"),
           dry_run: bool = Opt(False, "--dry-run", help="只印會刪幾筆，不刪")) -> int:
-    return run(cmd_prune, "prune", locals())
+    return run(cmd_prune, "prune", config=config, at=at, dry_run=dry_run)
 
 
 @command("shift", help="一階跳變：最近一天幾乎每點都往同一邊超標、新水準很穩的序列，提 reset_point（proposed）")
 def shift(config: str = Opt(..., help="series.yaml（可加 shift: {window, min_points, min_share, max_spread}）"),
           at: str | None = Opt(None, help="拿某個時間點當成現在")) -> int:
-    return run(cmd_shift, "series", locals())
+    return run(cmd_shift, "series", config=config, at=at)
 
 
 @command("ingest", help="別人判好的異常（ML 的異常跳點、FDC 鳴叫）→ aiops-anomalies（detector/ingest.py）")
 def ingest(config: str = Opt(..., help="configs/factory/ingest.yaml"),
            window: str = Opt("10m", help="看最近多久的來源列（預設 10m；_id 依來源識別碼，重讀不重複）"),
            at: str | None = Opt(None, help="拿某個時間點當成現在")) -> int:
-    return run(cmd_ingest, "ingest", locals())
+    return run(cmd_ingest, "ingest", config=config, window=window, at=at)
 
 
 def build_app() -> typer.Typer:

@@ -123,6 +123,81 @@ def _fold(up: dict, down: dict, now: datetime) -> None:
         up["status"], up["resolved_at"], up["merged_into"], up["_anoms"] = "resolved", now, down["alert_id"], []
 
 
+def _open_copy(al: dict) -> dict:
+    """開著的件複製一份再改（列表欄位各自一份，不動 ES 讀回來的那份）。"""
+    return {**al, "anomaly_ids": list(al.get("anomaly_ids") or []), "series": list(al.get("series") or []), "routes": list(al.get("routes") or []),
+            "lots": list(al.get("lots") or []), "upstream_services": list(al.get("upstream_services") or [])}
+
+
+def _call_graph(calls) -> tuple[dict[str, set[str]], dict[str, set[str]]]:
+    """{(上游, 下游)} → (每個服務直接呼叫的下游, 每個服務的直接上游)。"""
+    down_of: dict[str, set[str]] = {}
+    up_of: dict[str, set[str]] = {}
+    for u, d in calls:
+        if u != d:
+            down_of.setdefault(u, set()).add(d)
+            up_of.setdefault(d, set()).add(u)
+    return down_of, up_of
+
+
+def _downstream_alert(svc: str, t: datetime, by_ent: dict, down_of: dict, close_after: timedelta) -> dict | None:
+    """svc 直接呼叫的下游裡，有開著的件、時間重疊的那件（有好幾件取開始時間最近的）。"""
+    cands = []
+    for d in down_of.get(svc, ()):
+        al = by_ent.get(("service", d))
+        if not al:
+            continue
+        joined = svc in al["upstream_services"]
+        if joined and t - _ts(al["updated_at"]) <= close_after and t >= _ts(al["started_at"]) - close_after:
+            cands.append((timedelta(0), al))                      # 已經連帶過：照同服務的規則
+        elif not joined and abs(t - _ts(al["started_at"])) <= close_after:
+            cands.append((abs(t - _ts(al["started_at"])), al))    # 第一次：離下游那件開始不到 close_after
+    return min(cands, key=lambda c: c[0])[1] if cands else None
+
+
+def _upstream_station(a: dict, ent: tuple, links: dict, by_ent: dict, close_after: timedelta) -> dict | None:
+    """工廠：這批 lot 經過的前站有開著的件 → 併進前站那件。先找「那件已經有這批 lot」的前站（lot 在前站就異常了，最有力）；
+    沒有就取離它最近、而且 lot 在前站的時間落在那件範圍內（前後各 close_after）的前站。"""
+    lot = str((a.get("keys") or {}).get("lot"))
+    cands = [(name, at, by_ent.get(("service", name))) for name, at in links[a["_id"]] if name != ent[1]]
+    cands = [(n_, at, c) for n_, at, c in cands if c]
+    al = next((c for _, _, c in cands if lot in (c.get("lots") or [])), None)
+    if al is None:
+        al = next((c for _, at, c in cands if _ts(c["started_at"]) - close_after <= _ts(at) <= _ts(c["updated_at"]) + close_after), None)
+    return al
+
+
+def _open_new(ent: tuple, a: dict, kind: str, pending: dict, close_after: timedelta) -> dict | None:
+    """這筆異常要不要開新的一件：open 直接開（連同之前 pending 的 weak）；weak 要同對象 close_after 內有 2 筆以上；attach 不開。"""
+    if kind == "attach":
+        return None
+    t = _ts(a["@timestamp"])
+    if kind == "weak":
+        pend = [p for p in pending.get(ent, []) if t - _ts(p["@timestamp"]) <= close_after] + [a]
+        pending[ent] = pend
+        if len(pend) < 2:
+            return None
+        first, rest = pend[0], pend
+    else:
+        first, rest = a, [*pending.pop(ent, []), a]
+    al = _new(*ent, first)
+    for p in sorted(rest, key=lambda p: _ts(p["@timestamp"])):
+        _attach(al, p)
+    pending.pop(ent, None)
+    return al
+
+
+def _fold_upstreams(ent: tuple, al: dict, up_of: dict, by_ent: dict, out: dict, now: datetime, close_after: timedelta) -> None:
+    """下游開新的一件時：直接呼叫它的上游已經有一件、同時開始 → 上游那件整件併進來。"""
+    for u in sorted(up_of.get(ent[1], ())):
+        up = by_ent.get(("service", u))
+        if up and not up["upstream_services"] and abs(_ts(up["started_at"]) - _ts(al["started_at"])) <= close_after:
+            _fold(up, al, now)
+            del by_ent[("service", u)]
+            if up.get("_new"):
+                del out[up["alert_id"]]
+
+
 def merge(open_alerts: list[dict], anomalies: list[dict], now: datetime, close_after: timedelta,
           done_ids: set | frozenset = frozenset(), calls: set | frozenset = frozenset(),
           links: dict[str, list[tuple[str, datetime]]] | None = None) -> list[dict]:
@@ -134,35 +209,11 @@ def merge(open_alerts: list[dict], anomalies: list[dict], now: datetime, close_a
       併進前站那件、記 upstream_services（跟 IT 的「上游併進下游」同一個欄位：被併進去的那一方）；自己已經有件就照同對象的規則。
     回傳這次要寫回的件：新開的（_new）、有更新的、這次結束的（resolved，含被併進下游的 merged_into），以及其他還開著的（更新心跳）。"""
     links = links or {}
-    by_ent = {(al["category"], al["service"]): {**al, "anomaly_ids": list(al.get("anomaly_ids") or []),
-                                                 "series": list(al.get("series") or []), "routes": list(al.get("routes") or []),
-                                                 "lots": list(al.get("lots") or []),
-                                                 "upstream_services": list(al.get("upstream_services") or [])}
-              for al in open_alerts}
-    down_of: dict[str, set[str]] = {}
-    up_of: dict[str, set[str]] = {}
-    for u, d in calls:
-        if u != d:
-            down_of.setdefault(u, set()).add(d)
-            up_of.setdefault(d, set()).add(u)
+    by_ent = {(al["category"], al["service"]): _open_copy(al) for al in open_alerts}
+    down_of, up_of = _call_graph(calls)
     seen = {i for al in by_ent.values() for i in al["anomaly_ids"]} | set(done_ids)
     pending: dict[tuple, list[dict]] = {}
     out: dict[str, dict] = {al["alert_id"]: al for al in by_ent.values()}
-
-    def downstream_alert(svc: str, t: datetime) -> dict | None:
-        """svc 直接呼叫的下游裡，有開著的件、時間重疊的那件（有好幾件取開始時間最近的）。"""
-        cands = []
-        for d in down_of.get(svc, ()):
-            al = by_ent.get(("service", d))
-            if not al:
-                continue
-            joined = svc in al["upstream_services"]
-            if joined and t - _ts(al["updated_at"]) <= close_after and t >= _ts(al["started_at"]) - close_after:
-                cands.append((timedelta(0), al))                      # 已經連帶過：照同服務的規則
-            elif not joined and abs(t - _ts(al["started_at"])) <= close_after:
-                cands.append((abs(t - _ts(al["started_at"])), al))    # 第一次：離下游那件開始不到 close_after
-        return min(cands, key=lambda c: c[0])[1] if cands else None
-
     for a in sorted(anomalies, key=lambda a: _ts(a["@timestamp"])):
         if a["_id"] in seen:
             continue
@@ -179,42 +230,18 @@ def merge(open_alerts: list[dict], anomalies: list[dict], now: datetime, close_a
             _attach(al, a)
             continue
         if ent[0] == "service":
-            al = downstream_alert(ent[1], t)
+            al = _downstream_alert(ent[1], t, by_ent, down_of, close_after)
             if al is None and a["_id"] in links:
-                # 工廠：這批 lot 經過的前站有開著的件 → 併進前站那件。先找「那件已經有這批 lot」的前站（lot 在前站就異常了，最有力）；
-                # 沒有就取離它最近、而且 lot 在前站的時間落在那件範圖內（前後各 close_after）的前站
-                lot = str((a.get("keys") or {}).get("lot"))
-                cands = [(name, at, by_ent.get(("service", name))) for name, at in links[a["_id"]] if name != ent[1]]
-                cands = [(n_, at, c) for n_, at, c in cands if c]
-                al = next((c for _, _, c in cands if lot in (c.get("lots") or [])), None)
-                if al is None:
-                    al = next((c for _, at, c in cands if _ts(c["started_at"]) - close_after <= _ts(at) <= _ts(c["updated_at"]) + close_after), None)
-            if al:                                             # 上游的異常：併進下游那件
+                al = _upstream_station(a, ent, links, by_ent, close_after)
+            if al:                                             # 上游（或前站）的異常：併進下游那件
                 _attach(al, a)
                 _join(al, ent[1])
                 continue
-        if k == "attach":
+        al = _open_new(ent, a, k, pending, close_after)
+        if al is None:
             continue
-        if k == "weak":
-            pend = [p for p in pending.get(ent, []) if t - _ts(p["@timestamp"]) <= close_after] + [a]
-            pending[ent] = pend
-            if len(pend) < 2:
-                continue
-            first, rest = pend[0], pend
-        else:
-            first, rest = a, [*pending.pop(ent, []), a]
-        al = _new(*ent, first)
-        for p in sorted(rest, key=lambda p: _ts(p["@timestamp"])):
-            _attach(al, p)
-        pending.pop(ent, None)
-        if ent[0] == "service":                                # 直接呼叫它的上游已經有一件、同時開始：整件併進來
-            for u in sorted(up_of.get(ent[1], ())):
-                up = by_ent.get(("service", u))
-                if up and not up["upstream_services"] and abs(_ts(up["started_at"]) - _ts(al["started_at"])) <= close_after:
-                    _fold(up, al, now)
-                    del by_ent[("service", u)]
-                    if up.get("_new"):
-                        del out[up["alert_id"]]
+        if ent[0] == "service":
+            _fold_upstreams(ent, al, up_of, by_ent, out, now, close_after)
         by_ent[ent] = al
         out[al["alert_id"]] = al
     for al in by_ent.values():

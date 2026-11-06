@@ -253,8 +253,128 @@ def wants_rerun(al: dict, now: datetime, acfg: dict) -> tuple[bool, bool]:
     return wants and (needs_rerun(al, now, acfg) or forced), wants and forced
 
 
+def _chain(es: ES, cfg: dict, acfg: dict, anoms: list[dict], open_alerts: list[dict], start: datetime, now: datetime) -> plugin.Chain:
+    """跨對象（一層）要不要併、依什麼併，由 plugin 決定（IT：trace 的呼叫關係；工廠：履歷的前後站；只有指標：不併）。
+    查失敗只是這一輪不併跨對象，不擋告警。"""
+    if not acfg.get("chain", True):
+        return plugin.Chain()
+    try:
+        return plugin.current().chain(es, cfg, anoms, open_alerts, start, now)
+    except Exception as e:  # noqa: BLE001
+        print(f"  跨對象的關聯查不到（{type(e).__name__}: {str(e)[:80]}），這一輪不併跨對象")
+        return plugin.Chain()
+
+
+def enrich(es: ES, cfg: dict, al: dict, now: datetime) -> None:
+    """這一件補歸屬（dept、group）與嚴重度。"""
+    al["dept"], al["group"] = AL.owner(al) if al.get("_anoms") else (al.get("dept"), al.get("group") or "unassigned")
+    if al["category"] == "service" and not al.get("merged_into"):
+        grade_alert(es, cfg, al, now)
+
+
+def _rca(cfg: dict, acfg: dict, al: dict, interval: timedelta, investigate) -> tuple[str, dict | None]:
+    """跑一次根因分析：時間是這件的開始到最後一筆異常再往後一個 interval；只有一支 API 時只查那支
+    （連帶進來的上游的 API 不算：根因分析以這件的服務＝下游跑）。
+    rca_lead：根因分析的窗往前多看（工廠：ML 在 run 結束才報，出事的 run 是 started_at 之前就開始的；IT 是 0）。失敗不擋這一件。"""
+    try:
+        return investigate(cfg, Namespace(service=al["service"], route=AL.rca_route(al),
+                                          start=(AL._ts(al["started_at"]) - _dur(acfg.get("rca_lead", "0s"))).isoformat(),
+                                          end=(AL._ts(al["updated_at"]) + interval).isoformat(), at=None, window=None))
+    except Exception as e:   # noqa: BLE001
+        return f"根因分析失敗：{e}", None
+
+
+def _similar(es: ES, acfg: dict, al: dict, findings: dict | None) -> list[dict]:
+    """相似事故（老師傅確認過的）；查失敗當沒有。"""
+    if not acfg.get("similar", True):
+        return []
+    try:
+        return SIM.search(es, SIM.fingerprint(al, findings), weights=acfg.get("similar_weights"))
+    except Exception as e:  # noqa: BLE001
+        print(f"  相似事故檢索失敗：{e}")
+        return []
+
+
+def _with_head(report: str | None, llm: dict | None, similar: list[dict], cls: dict | None) -> str | None:
+    """報告最前面：LLM 摘要（引言）＋相似事故的分類。"""
+    head = ([f"> {l}" for l in llm["text"].splitlines()] + [""] if llm and llm["ok"] else []) + SIM.format_similar(similar, cls=cls)
+    return "\n".join(head) + "\n" + report if head and report else report
+
+
+def investigate_alert(es: ES, cfg: dict, acfg: dict, al: dict, now: datetime, interval: timedelta, investigate) -> None:
+    """新開的件、沒報告的件、要重跑的件：根因分析 → 相似事故分類 → LLM 摘要（只加註）。
+    結果放 al["_report"]、al["_llm"]（這一輪用）、al["findings"]、al["similar"]、al["suggested_category"]（寫進 ES）。"""
+    report, llm = al.get("report"), None
+    rerun, forced = wants_rerun(al, now, acfg)   # forced：人按了「重跑根因分析」（api POST /api/rca）
+    fresh = (al.get("_new") or not report) and acfg.get("rca", True) and al["category"] == "service" and al["status"] == "open"
+    if not (fresh or rerun):
+        al["_report"], al["_llm"] = report, llm
+        return
+    report, findings = _rca(cfg, acfg, al, interval, investigate)
+    al["report_at"] = now
+    al["rca_attempts"] = attempts(al) + 1
+    if rerun and not forced and not has_trace(findings):
+        # 重跑了還是沒有 trace：不覆蓋舊的報告、不再叫模型，只記下又試了一次（下一輪再看）
+        print(f"  ⏳ {al['alert_id']}：trace 還沒就緒（第 {al['rca_attempts']} 次），先不換報告")
+        al["_report"], al["_llm"] = al.get("report"), None
+        return
+    if rerun:
+        al["_rerun"] = True
+        al["llm_summary"] = None      # 舊的摘要是「沒有 trace」時寫的（可能說 trace 沒變慢），換掉
+        print(f"  🔁 {al['alert_id']}：{'人要求' if forced else 'trace 到了，'}重跑根因分析（第 {al['rca_attempts']} 次）")
+    similar = _similar(es, acfg, al, findings)
+    # case 只做分類：像哪一類＋信心，寫進告警；報告、摘要不列 case 的處置
+    cls = SIM.classify(similar)
+    al["suggested_category"] = cls["category"] if cls else None
+    al["category_confidence"] = cls["confidence"] if cls else None
+    llm = llm_summary(al, findings, similar, acfg)
+    al["findings"], al["similar"] = findings, similar
+    al["_report"], al["_llm"] = _with_head(report, llm, similar, cls), llm
+
+
+def alert_doc(al: dict, acfg: dict, now: datetime, tz: ZoneInfo, relinked: set[str]) -> dict:
+    """要寫進 aiops-alerts 的那份：有變的件重寫標題與摘要；加報告全文、連結、根因分析結果、LLM 摘要；底線開頭的執行期欄位不寫；時間轉字串。"""
+    report, findings, similar, llm = al["_report"], al.get("findings"), al.get("similar") or [], al.get("_llm")
+    if al.get("_anoms") or al.get("_new") or al.get("_rerun") or not al.get("summary") or al["alert_id"] in relinked:
+        al["title"], al["summary"] = AL.headline(al), AL.summary(al, report, tz, similar)
+    url, furl = acfg.get("report_url"), acfg.get("feedback_url")
+    doc = {k: v for k, v in al.items() if not k.startswith("_")}
+    fb = furl.format(alert_id=al["alert_id"]) if furl else None
+    doc.update({"report": with_feedback_footer(report, fb), "report_url": url.format(alert_id=al["alert_id"]) if url else None,
+                "feedback_url": fb,
+                "anomaly_count": len(al["anomaly_ids"]), "findings": findings, "similar": similar,
+                "llm_summary": (llm or {}).get("text") or al.get("llm_summary"), "llm_provider": (llm or {}).get("provider") or al.get("llm_provider"),
+                "@timestamp": (al["resolved_at"] if al["status"] == "resolved" else stamp_of(now))})
+    doc["report_titled"] = titled(doc.get("title"), doc.get("report"), doc.get("llm_summary"))
+    return {k: (v.isoformat() if isinstance(v, datetime) else v) for k, v in doc.items()}
+
+
+def heartbeat_doc(now: datetime) -> tuple[str, dict]:
+    """每次跑都寫一筆（不是一件事，status ok；Grafana 查 status:open 不會抓到）。
+    aiops-alerts 10 分鐘沒有任何寫入 → Grafana 的「AIOps 停了」規則送平台（configs/grafana/alert-rules.yaml）。"""
+    return ("heartbeat", {"@timestamp": stamp_of(now).isoformat(), "alert_id": "heartbeat", "category": "heartbeat", "status": "ok",
+                          "service": "aiops", "title": "investigator alert 心跳", "group": "unassigned", "started_at": now.isoformat(),
+                          "updated_at": now.isoformat(), "anomaly_ids": [], "series": [], "routes": [], "anomaly_count": 0})
+
+
+def announce(al: dict, doc: dict) -> str | None:
+    """印這一件這一輪怎麼了；回 "new"／"resolved" 給統計，其他 None。"""
+    if al.get("_new") and al["status"] == "resolved":   # 已經過去的（例如這支停了一陣子才跑）：記下來，不算新開、不通知
+        print(f"  ⏺ 已經過去的：{doc['title']}")
+    elif al.get("_new"):
+        print(f"  🆕 {doc['title']}（{doc['dept'] or '—'}／{doc['group']}）")
+        return "new"
+    elif al["status"] == "resolved":
+        print(f"  ✅ 結束：{doc['title']}")
+        return "resolved"
+    elif al.get("_upgraded"):
+        print(f"  ⬆️ {doc['title']}")
+    return None
+
+
 def run(cfg: dict, args, investigate) -> int:
-    """investigate：根因分析的函式（investigator.__main__.investigate_full），傳進來避免循環 import。"""
+    """一輪：讀開著的件與最近的異常 → 併成件（alerts.merge）→ 每件補歸屬、嚴重度、根因分析 → 寫回 aiops-alerts、異常標 alert_id、開事故。
+    investigate：根因分析的函式（investigator.__main__.investigate_full），傳進來避免循環 import。"""
     es = ES()
     es.ensure_index(ALERT_INDEX, ALERT_MAPPING)
     acfg = cfg.get("alerts", {})
@@ -266,76 +386,16 @@ def run(cfg: dict, args, investigate) -> int:
     oldest = min([datetime.fromisoformat(str(a["updated_at"]).replace("Z", "+00:00")) for a in open_alerts], default=now)
     start = min(now - lookback, oldest - close_after)
     anoms = _anomalies(es, cfg["indices"]["anomalies"], start, now)
-    # 跨對象（一層）要不要併、依什麼併，由 plugin 決定（IT：trace 的呼叫關係；工廠：履歷的前後站；只有指標：不併）。
-    # 查失敗只是這一輪不併跨對象，不擋告警
-    chain = plugin.Chain()
-    if acfg.get("chain", True):
-        try:
-            chain = plugin.current().chain(es, cfg, anoms, open_alerts, start, now)
-        except Exception as e:  # noqa: BLE001
-            print(f"  跨對象的關聯查不到（{type(e).__name__}: {str(e)[:80]}），這一輪不併跨對象")
+    chain = _chain(es, cfg, acfg, anoms, open_alerts, start, now)
     alerts = AL.merge(open_alerts, anoms, now, close_after, _done_ids(es, start - close_after), chain.calls, chain.links)
-    docs, incidents, tags, new, resolved = [], [], [], 0, 0
     for al in alerts:
-        al["dept"], al["group"] = AL.owner(al) if al.get("_anoms") else (al.get("dept"), al.get("group") or "unassigned")
-        if al["category"] == "service" and not al.get("merged_into"):
-            grade_alert(es, cfg, al, now)
-        report, findings, similar, llm = al.get("report"), al.get("findings"), al.get("similar") or [], None
-        rerun, forced = wants_rerun(al, now, acfg)   # forced：人按了「重跑根因分析」（api POST /api/rca）
-        if ((al.get("_new") or not report) and acfg.get("rca", True) and al["category"] == "service" and al["status"] == "open") or rerun:
-            # 新的一件跑一次根因分析：時間是這件的開始到最後一筆異常再往後一個 interval；只有一支 API 時只查那支
-            # （連帶進來的上游的 API 不算：根因分析以這件的服務＝下游跑）
-            route = AL.rca_route(al)
-            # rca_lead：根因分析的窗往前多看（工廠：ML 在 run 結束才報，出事的 run 是 started_at 之前就開始的；IT 是 0）
-            try:
-                report, findings = investigate(cfg, Namespace(service=al["service"], route=route,
-                                                              start=(AL._ts(al["started_at"]) - _dur(acfg.get("rca_lead", "0s"))).isoformat(),
-                                                              end=(AL._ts(al["updated_at"]) + interval).isoformat(), at=None, window=None))
-            except Exception as e:   # 根因分析失敗不擋這一件
-                report, findings = f"根因分析失敗：{e}", None
-            al["report_at"] = now
-            al["rca_attempts"] = attempts(al) + 1
-            if rerun and not forced and not has_trace(findings):
-                # 重跑了還是沒有 trace：不覆蓋舊的報告、不再叫模型，只記下又試了一次（下一輪再看）
-                print(f"  ⏳ {al['alert_id']}：trace 還沒就緒（第 {al['rca_attempts']} 次），先不換報告")
-                al["_report"], al["_llm"] = al.get("report"), None
-                continue
-            if rerun:
-                al["_rerun"] = True
-                al["llm_summary"] = None      # 舊的摘要是「沒有 trace」時寫的（可能說 trace 沒變慢），換掉
-                print(f"  🔁 {al['alert_id']}：{'人要求' if forced else 'trace 到了，'}重跑根因分析（第 {al['rca_attempts']} 次）")
-            # 相似事故（老師傅確認過的）→ 附在報告最前面；LLM 摘要（只加註）
-            try:
-                similar = SIM.search(es, SIM.fingerprint(al, findings), weights=acfg.get("similar_weights")) if acfg.get("similar", True) else []
-            except Exception as e:
-                similar = []
-                print(f"  相似事故檢索失敗：{e}")
-            # case 只做分類：像哪一類＋信心，寫進告警；報告、摘要不列 case 的處置
-            cls = SIM.classify(similar)
-            al["suggested_category"] = cls["category"] if cls else None
-            al["category_confidence"] = cls["confidence"] if cls else None
-            llm = llm_summary(al, findings, similar, acfg)
-            head = ([f"> {l}" for l in llm["text"].splitlines()] + [""] if llm and llm["ok"] else []) + SIM.format_similar(similar, cls=cls)
-            if head and report:
-                report = "\n".join(head) + "\n" + report
-            al["findings"], al["similar"] = findings, similar
-        al["_report"], al["_llm"] = report, llm
+        enrich(es, cfg, al, now)
+        investigate_alert(es, cfg, acfg, al, now, interval, investigate)
     # 開著的件之間：卡同一個外部依賴（同一個 Oracle）的互相標同源（不合併）；有變的件摘要重寫
     relinked = AL.link_shared(alerts)
+    docs, incidents, tags, new, resolved = [], [], [], 0, 0
     for al in alerts:
-        report, findings, similar, llm = al["_report"], al.get("findings"), al.get("similar") or [], al.get("_llm")
-        if al.get("_anoms") or al.get("_new") or al.get("_rerun") or not al.get("summary") or al["alert_id"] in relinked:
-            al["title"], al["summary"] = AL.headline(al), AL.summary(al, report, tz, similar)
-        url, furl = acfg.get("report_url"), acfg.get("feedback_url")
-        doc = {k: v for k, v in al.items() if not k.startswith("_")}
-        fb = furl.format(alert_id=al["alert_id"]) if furl else None
-        doc.update({"report": with_feedback_footer(report, fb), "report_url": url.format(alert_id=al["alert_id"]) if url else None,
-                    "feedback_url": fb,
-                    "anomaly_count": len(al["anomaly_ids"]), "findings": findings, "similar": similar,
-                    "llm_summary": (llm or {}).get("text") or al.get("llm_summary"), "llm_provider": (llm or {}).get("provider") or al.get("llm_provider"),
-                    "@timestamp": (al["resolved_at"] if al["status"] == "resolved" else stamp_of(now))})
-        doc["report_titled"] = titled(doc.get("title"), doc.get("report"), doc.get("llm_summary"))
-        doc = {k: (v.isoformat() if isinstance(v, datetime) else v) for k, v in doc.items()}
+        doc = alert_doc(al, acfg, now, tz, relinked)
         docs.append((al["alert_id"], doc))
         if al.get("merged_into"):
             # 上游那件整件併進下游：它的異常改標下游那件（下游那件這輪有 _anoms，會一起寫）；這筆標 resolved 寫回去，
@@ -348,22 +408,11 @@ def run(cfg: dict, args, investigate) -> int:
             # 這輪有異常併進來、或這輪結束的件：把 alert_id 寫回它的每筆異常（連同之前併的：改版前就開著的件，結束時補得到）
             tags += [(i, al["alert_id"]) for i in dict.fromkeys([a["_id"] for a in al.get("_anoms") or []] + al["anomaly_ids"])]
         if al["category"] == "service" and (al.get("_new") or al.get("_anoms") or al.get("_rerun") or al["status"] == "resolved"):
-            incidents.append((al["alert_id"], Incident.from_alert(al, doc, findings).to_doc()))
-        if al.get("_new") and al["status"] == "resolved":   # 已經過去的（例如這支停了一陣子才跑）：記下來，不算新開、不通知
-            print(f"  ⏺ 已經過去的：{doc['title']}")
-        elif al.get("_new"):
-            new += 1
-            print(f"  🆕 {doc['title']}（{doc['dept'] or '—'}／{doc['group']}）")
-        elif al["status"] == "resolved":
-            resolved += 1
-            print(f"  ✅ 結束：{doc['title']}")
-        elif al.get("_upgraded"):
-            print(f"  ⬆️ {doc['title']}")
-    # 心跳：每次跑都寫一筆（不是一件事，status ok；Grafana 查 status:open 不會抓到）。
-    # aiops-alerts 10 分鐘沒有任何寫入 → Grafana 的「AIOps 停了」規則送平台（configs/grafana/alert-rules.yaml）
-    docs.append(("heartbeat", {"@timestamp": stamp_of(now).isoformat(), "alert_id": "heartbeat", "category": "heartbeat", "status": "ok",
-                               "service": "aiops", "title": "investigator alert 心跳", "group": "unassigned", "started_at": now.isoformat(),
-                               "updated_at": now.isoformat(), "anomaly_ids": [], "series": [], "routes": [], "anomaly_count": 0}))
+            incidents.append((al["alert_id"], Incident.from_alert(al, doc, al.get("findings")).to_doc()))
+        outcome = announce(al, doc)
+        new += outcome == "new"
+        resolved += outcome == "resolved"
+    docs.append(heartbeat_doc(now))
     tag_anomalies(es, cfg["indices"]["anomalies"], tags)   # 先寫回異常、再寫件：件寫失敗下一輪會重做；反過來這些異常就永遠沒標到
     es.bulk_index(ALERT_INDEX, docs)
     write_incidents(es, incidents)    # 已被老師傅確認的不覆蓋（原子，不是先讀再寫）

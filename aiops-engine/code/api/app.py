@@ -71,6 +71,82 @@ def form_json(d: dict) -> dict:
             "root_cause_category": d.get("suggested_category") or ""}
 
 
+def _ensure(es) -> None:
+    """index 要先用正式的 mapping 建（不然第一筆寫進去 ES 會自己猜型別，之後 feedback suggest 的 mapping 就合不上）；每個連線只做一次。"""
+    if id(es) not in _ready:
+        es.ensure_index(FEEDBACK_INDEX, FEEDBACK_MAPPING)
+        es.ensure_index(INCIDENT_INDEX, INCIDENT_MAPPING)
+        _ready.add(id(es))
+
+
+def _feedback_base(form: dict, alert: dict, verdict: str, by: str, now: datetime) -> dict:
+    """一筆回饋共同的欄位（每筆異常各一筆時複製這份）。"""
+    base = {"@timestamp": now.isoformat(), "verdict": verdict, "by": by, "alert_id": alert["alert_id"],
+            "alert_started_at": alert.get("started_at"), "incident_id": alert["alert_id"],
+            "note": (form.get("note") or form.get("fp_reason_text") or "").strip() or None,
+            "fp_reason": form.get("fp_reason") if verdict == "false_positive" else None,
+            "correct_root_cause": form.get("root_cause") if verdict == "wrong_root_cause" else None}
+    for q, _ in RCA_QUESTIONS:
+        if form.get(q) in _RCA_USEFUL:
+            base[q] = form[q]
+    return base
+
+
+def _extract_text(es, text: str, alert: dict, by: str, now: datetime, base: dict) -> tuple[str | None, str | None]:
+    """一句自然語言 → LLM 抽成四欄（core.llm.extract_feedback）；驗不過就只存原文。對得到調整種類就先寫一筆 proposed 的 aiops-tuning。
+    回 (tuning_id, tuning_error)：建議寫不進去（ES 權限、mapping）不能讓回饋本身失敗。"""
+    ext = LLM.extract_feedback(text, alert)
+    base["feedback_text"] = text
+    base["extract"] = {k: v for k, v in {**(ext["fields"] or {}), "ok": ext["ok"], "provider": ext["provider"], "reason": ext["reason"]}.items() if v not in (None, "")}
+    if not ext["ok"]:
+        return None, None
+    try:
+        tuning_id = T.propose_from_text(es, ext["fields"], alert, text, by, now)
+    except Exception as e:    # noqa: BLE001
+        sys.stderr.write(f"feedback tuning proposal failed: {e!r}\n")
+        return None, f"{type(e).__name__}：{str(e)[:120]}"
+    base["tuning_id"] = tuning_id
+    return tuning_id, None
+
+
+def _feedback_docs(es, alert: dict, base: dict, by: str) -> list[tuple[str, dict]]:
+    """一件的每筆異常各一筆回饋：現有的 feedback summary／suggest 是依異常（series＋對象）算的，才對得起來。
+    異常已經不在了（過期）：至少留一筆對這件的。"""
+    ids = alert.get("anomaly_ids") or []
+    got = es.req("POST", "/aiops-anomalies/_mget?_source_includes=@timestamp,series,keys", {"ids": ids[:200]}).get("docs", []) if ids else []
+    docs = []
+    for g in got:
+        if not g.get("found"):
+            continue
+        src = g["_source"]
+        d = {**base, "anomaly_id": g["_id"], "anomaly_at": src.get("@timestamp"), "series": src.get("series"), "keys": src.get("keys") or {}}
+        docs.append((doc_id("feedback", g["_id"], by), d))
+    if not docs:
+        docs.append((doc_id("feedback", alert["alert_id"], by), {**base, "series": (alert.get("series") or ["?"])[0], "keys": {"service": alert.get("service")}}))
+    return docs
+
+
+def _incident_patch(form: dict, verdict: str, by: str, now: datetime) -> dict:
+    """事故要改的欄位：確認／更正／誤報；誤報不填根因那幾欄。"""
+    status = {"true_positive": "confirmed", "wrong_root_cause": "corrected", "false_positive": "false_positive"}[verdict]
+    inc = {"status": status, "confirmed_at": now.isoformat(), "confirmed_by": by, "by": by}
+    if verdict != "false_positive":
+        inc.update({"root_cause_category": form.get("root_cause_category") or None, "root_cause": (form.get("root_cause") or "").strip() or None,
+                    "action": (form.get("action") or "").strip() or None, "how_detected": (form.get("how_detected") or "").strip() or None,
+                    "checked": [c for c in (form.get("checked") or []) if c] or None, "improve": (form.get("improve") or "").strip() or None})
+    return {k: v for k, v in inc.items() if v is not None}
+
+
+def _upsert_incident(es, alert: dict, inc: dict, now: datetime) -> None:
+    """事故可能還沒被 alert 開出來（例如回饋得很快）：用 upsert 補一筆最小的。
+    不再另外 _refresh：bulk_index 已經 refresh=wait_for；最小權限的 key 沒有 maintenance，多打這一下會 403，資料存好了卻回「沒有存成功」。"""
+    ids = alert.get("anomaly_ids") or []
+    seed = Incident(**{"@timestamp": now.isoformat()}, alert_id=alert["alert_id"], title=alert.get("title"), start=alert.get("started_at"),
+                    end=alert.get("resolved_at") or alert.get("updated_at"), services=[alert.get("service")], severity=alert.get("severity"),
+                    dept=alert.get("dept"), group=alert.get("group"), anomaly_ids=ids[:Incident.MAX_ANOMALY_IDS], **inc).to_doc()
+    es.req("POST", f"/{INCIDENT_INDEX}/_update/{alert['alert_id']}?refresh=true", {"doc": inc, "upsert": seed})
+
+
 def submit(es, form: dict, now: datetime | None = None) -> dict:
     """form：verdict、by、root_cause_category、root_cause、action、how_detected、checked（list）、improve、fp_reason、note、
     feedback_text（一句自然語言，選填）、rca_cause_useful、rca_action_useful（yes／no／not_seen，選填）。
@@ -85,60 +161,16 @@ def submit(es, form: dict, now: datetime | None = None) -> dict:
     if verdict not in VERDICTS:
         raise ValueError(f"verdict 要是 {'、'.join(VERDICTS)}")
     by = (form.get("by") or "").strip() or "anonymous"
-    if id(es) not in _ready:    # index 要先用正式的 mapping 建（不然第一筆寫進去 ES 會自己猜型別，之後 feedback suggest 的 mapping 就合不上）
-        es.ensure_index(FEEDBACK_INDEX, FEEDBACK_MAPPING)
-        es.ensure_index(INCIDENT_INDEX, INCIDENT_MAPPING)
-        _ready.add(id(es))
-    base = {"@timestamp": now.isoformat(), "verdict": verdict, "by": by, "alert_id": alert["alert_id"],
-            "alert_started_at": alert.get("started_at"), "incident_id": alert["alert_id"],
-            "note": (form.get("note") or form.get("fp_reason_text") or "").strip() or None,
-            "fp_reason": form.get("fp_reason") if verdict == "false_positive" else None,
-            "correct_root_cause": form.get("root_cause") if verdict == "wrong_root_cause" else None}
-    for q, _ in RCA_QUESTIONS:
-        if form.get(q) in _RCA_USEFUL:
-            base[q] = form[q]
-    # 一句自然語言 → LLM 抽成四欄（core.llm.extract_feedback）；驗不過就只存原文。對得到調整種類就先寫一筆 proposed 的 aiops-tuning
-    text, ext, tuning_id, tuning_error = (form.get("feedback_text") or "").strip(), None, None, None
-    if text:
-        ext = LLM.extract_feedback(text, alert)
-        base["feedback_text"] = text
-        base["extract"] = {k: v for k, v in {**(ext["fields"] or {}), "ok": ext["ok"], "provider": ext["provider"], "reason": ext["reason"]}.items() if v not in (None, "")}
-        if ext["ok"]:
-            try:
-                tuning_id = T.propose_from_text(es, ext["fields"], alert, text, by, now)
-            except Exception as e:    # noqa: BLE001  建議寫不進去（ES 權限、mapping）不能讓回饋本身失敗
-                tuning_error = f"{type(e).__name__}：{str(e)[:120]}"
-                sys.stderr.write(f"feedback tuning proposal failed: {e!r}\n")
-            base["tuning_id"] = tuning_id
+    _ensure(es)
+    base = _feedback_base(form, alert, verdict, by, now)
+    text = (form.get("feedback_text") or "").strip()
+    tuning_id, tuning_error = _extract_text(es, text, alert, by, now, base) if text else (None, None)
     base = {k: v for k, v in base.items() if v not in (None, "")}
-    # 一件的每筆異常各一筆回饋：現有的 feedback summary／suggest 是依異常（series＋對象）算的，才對得起來
-    ids = alert.get("anomaly_ids") or []
-    got = es.req("POST", "/aiops-anomalies/_mget?_source_includes=@timestamp,series,keys", {"ids": ids[:200]}).get("docs", []) if ids else []
-    docs = []
-    for g in got:
-        if not g.get("found"):
-            continue
-        src = g["_source"]
-        d = {**base, "anomaly_id": g["_id"], "anomaly_at": src.get("@timestamp"), "series": src.get("series"), "keys": src.get("keys") or {}}
-        docs.append((doc_id("feedback", g["_id"], by), d))
-    if not docs:    # 異常已經不在了（過期）：至少留一筆對這件的
-        docs.append((doc_id("feedback", alert["alert_id"], by), {**base, "series": (alert.get("series") or ["?"])[0], "keys": {"service": alert.get("service")}}))
+    docs = _feedback_docs(es, alert, base, by)
     es.bulk_index(FEEDBACK_INDEX, docs)
-    # 事故：確認 / 更正 / 誤報
-    status = {"true_positive": "confirmed", "wrong_root_cause": "corrected", "false_positive": "false_positive"}[verdict]
-    inc = {"status": status, "confirmed_at": now.isoformat(), "confirmed_by": by, "by": by}
-    if verdict != "false_positive":
-        inc.update({"root_cause_category": form.get("root_cause_category") or None, "root_cause": (form.get("root_cause") or "").strip() or None,
-                    "action": (form.get("action") or "").strip() or None, "how_detected": (form.get("how_detected") or "").strip() or None,
-                    "checked": [c for c in (form.get("checked") or []) if c] or None, "improve": (form.get("improve") or "").strip() or None})
-    inc = {k: v for k, v in inc.items() if v is not None}
-    # 事故可能還沒被 alert 開出來（例如回饋得很快）：用 upsert 補一筆最小的
-    seed = Incident(**{"@timestamp": now.isoformat()}, alert_id=alert["alert_id"], title=alert.get("title"), start=alert.get("started_at"),
-                    end=alert.get("resolved_at") or alert.get("updated_at"), services=[alert.get("service")], severity=alert.get("severity"),
-                    dept=alert.get("dept"), group=alert.get("group"), anomaly_ids=ids[:Incident.MAX_ANOMALY_IDS], **inc).to_doc()
-    es.req("POST", f"/{INCIDENT_INDEX}/_update/{alert['alert_id']}?refresh=true", {"doc": inc, "upsert": seed})
-    # 不再另外 _refresh：bulk_index 已經 refresh=wait_for；最小權限的 key 沒有 maintenance，多打這一下會 403，資料存好了卻回「沒有存成功」
-    out = {"feedback": len(docs), "incident": status, "by": by}
+    inc = _incident_patch(form, verdict, by, now)
+    _upsert_incident(es, alert, inc, now)
+    out = {"feedback": len(docs), "incident": inc["status"], "by": by}
     if text:
         out.update({"extract": base.get("extract"), "tuning_id": tuning_id, **({"tuning_error": tuning_error} if tuning_error else {})})
     return out
