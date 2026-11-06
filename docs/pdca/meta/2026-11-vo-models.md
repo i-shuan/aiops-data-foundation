@@ -1,6 +1,6 @@
 # 資料物件化（VO）：把在函式之間流動的 dict 改成有型別的類別（2026-11）
 
-**狀態**：進行中（步驟 1 `Fingerprint`、`Incident` 做完；步驟 2～6 沒做）　　**日期**：2026-11-06　　**相關**：分支 `claude/vo-models`（從 master `31c72f8` 開）；接 [oop-core](2026-11-oop-core.md)（只做了 `Anomaly`）
+**狀態**：已完成步驟 1（`Fingerprint`、`Incident`）；步驟 2～6 由 [clean-code](2026-11-clean-code.md) 接手（`Anomaly` 搬 core、`Alert`、`Adjustment` 在它的 D；`Span`／`Findings` 不做，理由在那份 Plan）　　**日期**：2026-11-06　　**相關**：分支 `claude/vo-models`（從 master `31c72f8` 開）；接 [oop-core](2026-11-oop-core.md)（只做了 `Anomaly`）
 **模組**：④ 判斷、⑤ 異常總表、⑥ 收斂、⑦ 根因分析、⑧ 出口、⑨ feedback
 
 ## Plan：這一次要達到什麼
