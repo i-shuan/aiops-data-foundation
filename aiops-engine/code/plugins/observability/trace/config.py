@@ -1,4 +1,4 @@
-"""trace.yaml 的設定模型（trace 分段的 baseline 與合成；引擎在 detector/trace.py、trace_merge.py、cmd_trace.py，階段 C 搬進來）。"""
+"""trace.yaml 的設定模型（trace 分段的 baseline 與合成；引擎在 trace.py、trace_merge.py、command.py）。"""
 from __future__ import annotations
 
 from core.config import Dur, Direction, NonNeg, PosInt, Ratio, Strict
@@ -21,7 +21,7 @@ class MetricRule(Strict):
 
 
 class TraceMetrics(Strict):
-    """detector/trace.METRICS 四種數字各自怎麼判。"""
+    """trace.METRICS 四種數字各自怎麼判。"""
     calls: MetricRule | None = None
     time_ms: MetricRule | None = None
     error_rate: MetricRule | None = None

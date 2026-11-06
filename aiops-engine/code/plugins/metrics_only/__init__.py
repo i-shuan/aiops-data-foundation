@@ -18,5 +18,8 @@ class Plugin(Factory):
     def chain(self, es, cfg, anomalies, open_alerts, start, now) -> Chain:
         return Chain()
 
+    def report_sections(self) -> dict:
+        return {}                                  # 沒有履歷：沒有 path 的那四段
+
     def commands(self) -> dict:
         return {"ingest": _register_ingest}

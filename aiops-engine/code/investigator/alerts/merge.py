@@ -63,9 +63,10 @@ def kind_of(a: dict) -> str:
     return "attach" if a.get("status") == "warning" else "open"   # baseline、trace baseline
 
 
-def route_of(keys: dict) -> str | None:
-    """「哪支 API」：IT 是 trace 入口的名稱或 method＋route，工廠是 recipe（plugin 決定；根因分析挑樣本也用它）。"""
-    return plugin.current().route_of(keys or {})
+def where_of(keys: dict) -> str | None:
+    """異常在「哪裡」：IT 是哪支 API（trace 入口的名稱或 method＋route），工廠是哪個 recipe（plugin 決定；根因分析只查那一支也用它）。
+    寫進件的 routes 欄位（名字是契約）。"""
+    return plugin.current().where_of(keys or {})
 
 
 def alert_id(cat: str, name: str, started: datetime) -> str:
@@ -87,12 +88,12 @@ def _attach(al: dict, a: dict) -> None:
         al["anomaly_ids"].append(a["_id"])
     if a.get("series") and a["series"] not in al["series"]:
         al["series"].append(a["series"])
-    r = route_of(a.get("keys") or {})
-    if r and r not in al["routes"]:
-        al["routes"].append(r)
-    lot = (a.get("keys") or {}).get("lot")
-    if lot is not None and str(lot) not in al.setdefault("lots", []) and len(al["lots"]) < MAX_IDS:
-        al["lots"].append(str(lot))
+    w = where_of(a.get("keys") or {})
+    if w and w not in al["routes"]:
+        al["routes"].append(w)
+    unit = (a.get("keys") or {}).get("lot")           # 異常帶的單位 id（工廠的 lot；IT 沒有）：件的 lots 欄位，前後站併件看它
+    if unit is not None and str(unit) not in al.setdefault("lots", []) and len(al["lots"]) < MAX_IDS:
+        al["lots"].append(str(unit))
     sev = a.get("severity") or "warning"
     if SEVERITY.get(sev, 1) > SEVERITY.get(al["severity"], 1):
         al["severity"], al["_upgraded"] = sev, not al.get("_new")
@@ -185,10 +186,10 @@ def merge(open_alerts: list[dict], anomalies: list[dict], now: datetime, close_a
             if al is None and a["_id"] in links:
                 # 工廠：這批 lot 經過的前站有開著的件 → 併進前站那件。先找「那件已經有這批 lot」的前站（lot 在前站就異常了，最有力）；
                 # 沒有就取離它最近、而且 lot 在前站的時間落在那件範圖內（前後各 close_after）的前站
-                lot = str((a.get("keys") or {}).get("lot"))
+                unit = str((a.get("keys") or {}).get("lot"))
                 cands = [(name, at, by_ent.get(("service", name))) for name, at in links[a["_id"]] if name != ent[1]]
                 cands = [(n_, at, c) for n_, at, c in cands if c]
-                al = next((c for _, _, c in cands if lot in (c.get("lots") or [])), None)
+                al = next((c for _, _, c in cands if unit in (c.get("lots") or [])), None)
                 if al is None:
                     al = next((c for _, at, c in cands if _ts(c["started_at"]) - close_after <= _ts(at) <= _ts(c["updated_at"]) + close_after), None)
             if al:                                             # 上游的異常：併進下游那件
@@ -232,11 +233,11 @@ def _own(al: dict) -> list[dict]:
     return own or anoms
 
 
-def rca_route(al: dict) -> str | None:
-    """根因分析只查一支 API 的條件：這件自己服務的異常只有一支 API。連帶進來的上游的 API 不算（下游沒有那支，查了會是空的）。"""
+def rca_where(al: dict) -> str | None:
+    """根因分析只查「一個地方」（一支 API／一個 recipe）的條件：這件自己對象的異常只在一個地方。連帶進來的上游的不算（下游沒有那支，查了會是空的）。"""
     if not al.get("upstream_services"):
         return al["routes"][0] if len(al["routes"]) == 1 else None
-    own = {route_of(a.get("keys") or {}) for a in _own(al)} - {None}
+    own = {where_of(a.get("keys") or {}) for a in _own(al)} - {None}
     return next(iter(own)) if len(own) == 1 else None
 
 

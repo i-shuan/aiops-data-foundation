@@ -69,7 +69,7 @@ class Http(unittest.TestCase):
 
     def test_anomalies_written_via_ingest_mapping_and_alert_queued(self):
         written = []
-        with mock.patch.dict(os.environ, TOKEN), mock.patch("detector.cmd_ingest.write_anomalies", side_effect=lambda es, docs: written.extend(docs)), \
+        with mock.patch.dict(os.environ, TOKEN), mock.patch("plugins.factory.ingest.command.write_anomalies", side_effect=lambda es, docs: written.extend(docs)), \
              mock.patch.object(tasks.run_job, "apply_async") as aa:
             code, r = self.call("POST", "/api/anomalies", {"input": "ml", "rows": self.ROWS}, {"Authorization": "Bearer s3cret"})
         self.assertEqual(code, 200, r)
@@ -95,7 +95,7 @@ class Http(unittest.TestCase):
             self.assertIn("沒有 ingest", r["error"])
 
     def test_anomalies_without_broker_still_write(self):
-        with mock.patch.dict(os.environ, {**TOKEN, tasks.BROKER_ENV: ""}), mock.patch("detector.cmd_ingest.write_anomalies"), \
+        with mock.patch.dict(os.environ, {**TOKEN, tasks.BROKER_ENV: ""}), mock.patch("plugins.factory.ingest.command.write_anomalies"), \
              mock.patch.object(tasks.run_job, "apply_async") as aa:
             code, r = self.call("POST", "/api/anomalies", {"input": "ml", "rows": self.ROWS}, {"Authorization": "Bearer s3cret"})
         self.assertEqual((code, r["written"], r["alert_queued"]), (200, 1, False))   # 一隻 pod 的模式：寫進 ES，下一分鐘排程接手

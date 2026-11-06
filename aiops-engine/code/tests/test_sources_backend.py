@@ -14,7 +14,7 @@ import pandas as pd
 import sources
 from detector.baseline import detect as C
 from detector.baseline import train as TR
-from detector import cmd_peer
+from plugins.observability.peer import command as cmd_peer
 from detector.rules import command as cmd_rules
 from sources import schema as DE
 from sources import stores

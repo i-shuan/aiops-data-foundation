@@ -1,4 +1,4 @@
-# trace 每一段的 baseline（detector/trace.py）：每個 API 的每個請求，呼叫每一段幾次、花多久、出錯比例。
+# trace 每一段的 baseline（plugins/observability/trace/trace.py）：每個 API 的每個請求，呼叫每一段幾次、花多久、出錯比例。
 # 對應的案例見 docs/rca/README.md：N+1、重試風暴、快取穿透（次數）；拖累、熱點鎖（時間）。
 traces_index: traces-merged-*         # 合成一個請求一筆（engine 每分鐘 trace-merge 寫的，留 7 天）：入口用合成時算好的 entries。寫 raw 的測試用 traces-*.otel-* 也可以
 interval: 5m              # 每 5 分鐘一個點

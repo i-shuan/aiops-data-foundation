@@ -1,4 +1,4 @@
-"""peer.yaml 的設定模型（Pod 同儕橫向比對；引擎在 detector/peer.py、cmd_peer.py，階段 C 搬進來）。"""
+"""peer.yaml 的設定模型（Pod 同儕橫向比對；引擎在 peer.py、command.py）。"""
 from __future__ import annotations
 
 from pydantic import model_validator
@@ -8,7 +8,7 @@ from sources.config import Source, Store
 
 
 class PeerCheck(Strict):
-    """一個同儕比對（detector/peer.py、cmd_peer.py）：查法跟序列一樣，多了 min_volume、max_peer_median。"""
+    """一個同儕比對（peer.py、command.py）：查法跟序列一樣，多了 min_volume、max_peer_median。"""
     name: str
     index: str
     by: list[str]

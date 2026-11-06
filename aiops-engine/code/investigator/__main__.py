@@ -17,6 +17,7 @@
 investigate 照「Metrics 發現異常 → Trace 縮小到哪一段 → Log 找出原因」的順序查，印出一份 Markdown 報告；報告有哪幾段由 plugin 決定
 （investigator/rca/report.py、core/plugin.py）。--out 另存成檔案。
 命令列用 typer（跟 detector 一樣）：@app.command 的函式把參數裝成 argparse.Namespace、用 core.config.load（investigator/rca/config.py 的 RcaConfig）讀 rca.yaml，再交給處理函式。
+旗標字串（--service、--route）是對外契約；Python 參數名用中立的 entity、where，旗標明寫在 Opt 裡。
 """
 from __future__ import annotations
 
@@ -26,6 +27,7 @@ from datetime import timedelta
 
 import typer
 
+from core import plugin
 from core.config import load
 from sources import spans_of
 from sources import traces as T
@@ -48,11 +50,11 @@ def topology(cfg: dict, args) -> str:
     es = E.ES()
     end = _ts(args.at)
     start = end - _dur(args.window)
-    ids = E.recent_trace_ids(es, cfg["indices"]["traces"], start, end, args.sample)
+    ids = E.recent_path_ids(es, cfg["indices"]["traces"], start, end, args.sample)
     tr = T.group_traces(spans_of(es, cfg["indices"]["traces"], ids, start - timedelta(minutes=5), end + timedelta(minutes=5)))
     edges = A.topology(tr)
     tz = cfg.get("timezone", "Asia/Taipei")
-    out = [f"# 服務之間的呼叫關係：{_local(start, tz)}～{_local(end, tz)}（{tz}，最近 {len(tr)} 個請求）", "",
+    out = [f"# {plugin.entity_label()}之間的呼叫關係：{_local(start, tz)}～{_local(end, tz)}（{tz}，最近 {len(tr)} 個{plugin.unit_text().strip()}）", "",
            "| 呼叫方 | 被呼叫 | 次數 | 錯誤 | p95 |", "|---|---|---|---|---|"]
     out += [f"| {e.caller} | {e.callee} | {e.calls} | {e.errors} | {_ms(e.p95())} |" for e in edges]
     out += ["", "```mermaid", A.mermaid(edges), "```"]
@@ -107,8 +109,9 @@ def _report(text: str, out: str | None) -> int:
 
 
 @app.command("investigate")
-def investigate_cmd(config: str = Opt(...), service: str | None = Opt(None),
-                    route: str | None = Opt(None, help="API，trace 裡 Server span 的名稱，例如 \"GET /lots/{id}\""),
+def investigate_cmd(config: str = Opt(...),
+                    entity: str | None = Opt(None, "--service", help="哪個對象（服務／機台）；不給就挑這段時間 ⑤ 最嚴重的"),
+                    where: str | None = Opt(None, "--route", help="API，trace 裡 Server span 的名稱，例如 \"GET /lots/{id}\"（工廠：recipe）"),
                     start: str | None = Opt(None), end: str | None = Opt(None),
                     at: str | None = Opt(None, help="不給 --start/--end 時：查到這個時間為止（預設現在）"),
                     window: str = Opt("30m"), out: str | None = Opt(None)) -> int:

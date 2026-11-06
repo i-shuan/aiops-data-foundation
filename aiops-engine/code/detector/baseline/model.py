@@ -313,12 +313,12 @@ def train_groups(own: pd.DataFrame, keys: list[str], groups: list[dict], min_mem
 
 
 def mark_status(scored: pd.DataFrame, keys: list[str], step: str, confirm_points: int = 2,
-                confirm_span: str = "30m", instant_z: float | None = None) -> pd.DataFrame:
+                confirm_within: str = "30m", instant_z: float | None = None) -> pd.DataFrame:
     """超標的點分兩級（不用另外存狀態：每次偵測從資料重算，重啟也一樣）：
 
       warning：超標，但前一個時間窗沒有超標（跳一下，先觀察）
       anomaly：同一條序列、同一個方向，連續超標 confirm_points 個時間窗；
-               或連續超標的時間合計 ≥ confirm_span（1 小時一點的序列，一個點就是一小時，不用等兩小時）；
+               或連續超標的時間合計 ≥ confirm_within（series.yaml 的 confirm_span；1 小時一點的序列，一個點就是一小時，不用等兩小時）；
                或偏離 |z| ≥ instant_z（偏太多就不用等：擋沒想到的暴衝）
     中間只要有一個時間窗正常（或沒資料），就從頭算。confirm_points 1 就是一次就算（錯誤率這種一跳就是出事的序列）。
 
@@ -330,7 +330,7 @@ def mark_status(scored: pd.DataFrame, keys: list[str], step: str, confirm_points
     if out.empty:
         return out
     dt = pd.Timedelta(to_freq(step))
-    need = min(confirm_points, max(1, int(np.ceil(pd.Timedelta(to_freq(confirm_span)) / dt))))
+    need = min(confirm_points, max(1, int(np.ceil(pd.Timedelta(to_freq(confirm_within)) / dt))))
     out = out.sort_values("ts").reset_index(drop=True)
     sign = np.sign(out["value"].astype(float) - out["median"].astype(float))
     for _, idx in out.groupby(keys, sort=False, dropna=False).groups.items():

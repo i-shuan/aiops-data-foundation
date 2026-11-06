@@ -219,7 +219,7 @@ engine 一份程式，情境各是一個 plugin（[core/plugin.py](../aiops-engi
 | ④ | 五個模型的數學、`ingest`（別人判好的異常 → ⑤） | — |
 | ⑤ | `aiops-anomalies` 的格式：**這是主程式與 plugin 之間的契約**——異常只要進得了 ⑤（有 `series`、`keys`、`level`、時間），後面全部接得上 | 異常的 `keys` 裡哪個欄位是「對象」（服務／機台）、哪個是「API」（method＋route／recipe） |
 | ⑥ | 同對象時間相連合一件、開件關件、嚴重度分級（廣度＋持續＋換版上限） | 跨對象併件的依據（呼叫關係／履歷前後站／不併）、「換版」是什麼（版號／recipe 變更）、訊號怎麼分類（黃金訊號／參數家族） |
-| ⑦ | 報告的每一段（[investigator/rca/report.py](../aiops-engine/code/investigator/rca/report.py)）、M4 分段、共同點、log 樣式、相似事故 | 報告有哪幾段、順序；索引與欄位的對照；用語（請求／lot、Trace／履歷） |
+| ⑦ | 報告的框架與中立四段（[investigator/rca/report.py](../aiops-engine/code/investigator/rca/report.py)）、有 trace／履歷才有的四段（[path_sections.py](../aiops-engine/code/investigator/rca/path_sections.py)）、M4 分段、共同點、log 樣式、相似事故 | 報告有哪幾段、順序（`sections`、`report_sections()`）；索引與欄位的對照；用語（請求／lot、Trace／履歷） |
 | ⑧⑨ | Grafana 通知、回饋、匯出 | 回饋表單的分類表、誤報原因 |
 
 擴充點只開「現在真的有兩種以上做法」的地方，沒有的不預先抽；第四種情境（例如網路設備靠拓樸併件）出現時，繼承一個內建 plugin 覆寫那幾個就好。`configs/` 不隨 plugin 搬：plugin 只決定預設排程表，設定檔仍在 `configs/<情境>/`。
@@ -273,10 +273,10 @@ K8s 排程頻率見 [aiops-engine/README.md](../aiops-engine/README.md)；Elasti
 | ③ 存 | 公司現有 | 1 | `elasticsearch/kibana-dev-tools.txt`（只補 `traces-merged-*` 與 key） | — | — | 🟡 公司環境沒實跑 |
 | ④ 判斷 | AIOps | 2 | `aiops-engine/code/detector/`、`aiops-engine/code/configs/baseline/*.yaml` | 每 1 分鐘（train 每天） | 單元測試；`synth_e2e`、`adaptive_e2e`、`fine_e2e`（一個 ES） | ✅；K8s CronJob 沒跑過 |
 | ⑤ 異常總表 | AIOps | 2 | `aiops-anomalies` | — | — | ✅ |
-| ⑥ 收斂 | AIOps | 3 | `aiops-engine/code/investigator/alerts/merge.py`、`cmd_alert.py`；`rca.yaml` 的 `alerts:` | 每 1 分鐘 | `test_alerts.py`、`chain_e2e`；[alert-exit](pdca/phase3-locate/2026-10-alert-exit.md)、[cross-service-aggregation](pdca/phase3-locate/2026-10-cross-service-aggregation.md) | ✅ 同服務合成一件；沿呼叫關係一層 ✅、多層 📝 |
-| ⑦ 根因分析 | AIOps | 3、4 | `aiops-engine/code/investigator/`（`__main__.py`、`similar.py`）、`aiops-engine/code/core/llm.py` | 跟 ⑥ 同一次 | `loop_e2e`；`test_similar.py`、`test_llm.py` | ✅；沒有評測集 |
+| ⑥ 收斂 | AIOps | 3 | `aiops-engine/code/investigator/alerts/merge.py`、`command.py`；`rca.yaml` 的 `alerts:` | 每 1 分鐘 | `test_alerts.py`、`chain_e2e`；[alert-exit](pdca/phase3-locate/2026-10-alert-exit.md)、[cross-service-aggregation](pdca/phase3-locate/2026-10-cross-service-aggregation.md) | ✅ 同服務合成一件；沿呼叫關係一層 ✅、多層 📝 |
+| ⑦ 根因分析 | AIOps | 3、4 | `aiops-engine/code/investigator/`（`__main__.py`、`rca/`、`similar/similar.py`）、`aiops-engine/code/core/llm.py` | 跟 ⑥ 同一次 | `loop_e2e`；`test_similar.py`、`test_llm.py` | ✅；沒有評測集 |
 | ⑧ 出口 | AIOps | 3 | `grafana/helmchart/files/*.yaml` | Grafana 每 1 分鐘查 | Grafana 12.2、13.0.7 實測；[rca-demo](pdca/phase3-locate/2026-10-rca-demo.md) | ✅；K8s CronJob 沒跑過 |
-| ⑨ feedback | AIOps | 5 | `aiops-engine/code/api/`、`cmd_feedback.py`、`cmd_backtest.py`、`cmd_metrics.py` | api 常駐；suggest、backtest 人跑 | `loop_e2e`；`test_api.py`、`test_feedback.py`、`test_metrics.py` | ✅（模擬資料） |
+| ⑨ feedback | AIOps | 5 | `aiops-engine/code/api/`、`detector/feedback/command.py`、`adjust/backtest.py`、`feedback/metrics.py` | api 常駐；suggest、backtest 人跑 | `loop_e2e`；`test_api.py`、`test_feedback.py`、`test_metrics.py` | ✅（模擬資料） |
 
 - ⑤ 欄位見 [baseline README「異常帶的欄位」](../aiops-engine/code/configs/baseline/reference.md#異常帶的欄位)；⑥ 哪些異常會開一件、怎麼不重複開見 [rca README「事件整合」](../aiops-engine/code/configs/rca/README.md#事件整合alert)。
 - ⑧ `aiops-alerts` 帶 `status`、`service`、`dept`、`group`、`severity`、`summary`、`report`、`feedback_url`；`summary` 是 Grafana 的 label，不放會變的字；心跳「AIOps 停了」docker 實測過。

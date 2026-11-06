@@ -4,7 +4,8 @@ import unittest
 import numpy as np
 import pandas as pd
 
-from detector import peer, trace
+from plugins.observability.peer import peer
+from plugins.observability.trace import trace
 from detector.baseline import model as baseline
 from detector.rules import engine as rules
 from investigator.rca import analyze

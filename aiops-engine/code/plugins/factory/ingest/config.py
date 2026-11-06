@@ -1,4 +1,4 @@
-"""ingest.yaml 的設定模型（別人判好的異常接進 ⑤；引擎在 detector/ingest.py、cmd_ingest.py，階段 C 搬進來）。"""
+"""ingest.yaml 的設定模型（別人判好的異常接進 ⑤；引擎在 ingest.py、command.py）。"""
 from __future__ import annotations
 
 from typing import Any, Literal
@@ -15,7 +15,7 @@ class Pick(Strict):
 
 
 class Input(Strict):
-    """一個外部來源（detector/ingest.py）；validate() 另外擋 name／index／series／keys 缺的。"""
+    """一個外部來源（ingest.py）；validate() 另外擋 name／index／series／keys 缺的。"""
     name: str
     index: str
     series: str

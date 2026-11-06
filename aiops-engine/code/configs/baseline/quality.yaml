@@ -1,4 +1,4 @@
-# 資料品質檢查（detector/quality.py）：餵給 baseline 之前，先看資料本身怪不怪。不用學、不用歷史。
+# 資料品質檢查（plugins/observability/quality/quality.py）：餵給 baseline 之前，先看資料本身怪不怪。不用學、不用歷史。
 # 每個檢查看最近 window，跟 ref_offset 之前同一個時段比（預設 24 小時前：避開上下班、夜間批次的週期）。
 #
 # type：

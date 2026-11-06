@@ -48,7 +48,7 @@ class Entity(unittest.TestCase):
     def test_equipment_is_the_entity_and_recipe_is_the_route(self):
         a = anom("ETCH-01", 0)
         self.assertEqual(AL.entity_of(a), ("service", "ETCH-01"))
-        self.assertEqual(AL.route_of(a["keys"]), "REC-1")
+        self.assertEqual(AL.where_of(a["keys"]), "REC-1")
         self.assertEqual(AL.kind_of(a), "open")
         self.assertEqual(AL.kind_of(anom("ETCH-01", 0, status="warning")), "attach")   # ML 的 weak 只併進開著的件
 
@@ -124,7 +124,7 @@ class SeverityClasses(unittest.TestCase):
         self.assertEqual(S.signal_class("fdc.temperature", self.CLASSES), "temperature")
         self.assertEqual(S.signal_class("fdc.cd_bias", self.CLASSES), "metrology")
         self.assertEqual(S.signal_class("fdc.flow", self.CLASSES), "other")
-        self.assertEqual(S.signal_class("fdc.pressure"), "other")             # 內建的 IT 分類不認得 FDC 參數
+        self.assertEqual(S.signal_class("fdc.pressure"), "other")             # 沒給分類表就不分類
         self.assertIsNone(S.parse_classes(None))
         self.assertEqual(S.parse_classes([{"name": "a", "patterns": ["x"]}]), (("a", ("x",)),))
 

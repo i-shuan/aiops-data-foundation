@@ -1,4 +1,4 @@
-# 工廠版 ④ 接收器（detector ingest，程式 detector/ingest.py）：ML 團隊判好的異常跳點、FDC 鳴叫 → aiops-anomalies。
+# 工廠版 ④ 接收器（detector ingest，程式 plugins/factory/ingest/ingest.py）：ML 團隊判好的異常跳點、FDC 鳴叫 → aiops-anomalies。
 # engine 不自己判 FDC 感測值。右邊的欄位名全是假設（沒有 ML 輸出、FDC 的樣本），拿到樣本換右邊；左邊的 keys 名字
 # （equipment、chamber、recipe、step、lot、parameter）是後面收斂、根因分析認的，不要改。
 # 離線跑假資料：最上層加 source: {kind: file, format: events, files: {factory-ml-anomalies-*: data/ml.ndjson, …}} 與 store: {kind: file, dir: …}。

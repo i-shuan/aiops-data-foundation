@@ -11,7 +11,7 @@ import typer
 from core.config import load
 from core.es_client import ES, get_field
 from core.timeutil import _now
-from detector.cmd_ingest import read_rows
+from plugins.factory.ingest.command import read_rows
 from sources import as_backend, open_backend
 
 from . import build as P

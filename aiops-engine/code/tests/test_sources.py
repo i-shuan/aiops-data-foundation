@@ -228,7 +228,7 @@ class LoadOwners(unittest.TestCase):
         here = os.path.dirname(os.path.dirname(__file__))
         with open(os.path.join(here, "fake-data", "owners.json"), encoding="utf-8") as f:
             owners = json.load(f)["owners"]
-        from detector.chronic import owner_of
+        from plugins.observability.chronic.chronic import owner_of
         self.assertEqual(owner_of({"resource.attributes.service.name": "mes-api"}, owners), "【假】MES 團隊")
         self.assertIsNone(owner_of({"service": "other"}, owners))
         with open(os.path.join(here, "fake-data", "calendar.json"), encoding="utf-8") as f:

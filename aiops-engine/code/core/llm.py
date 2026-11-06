@@ -198,7 +198,7 @@ CAUSE_CODES = ("scheduled_batch_job", "load_test", "deploy", "config_change", "d
                "data_volume", "dirty_data", "low_traffic", "known_slow", "traffic_spike", "cache_miss", "kafka_lag",
                "certificate_expired", "unknown")
 CAUSE_RE = re.compile(r"^[a-z][a-z0-9_]{1,39}$")
-SERVICE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$")
+ENTITY_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$")
 EXTRACT_FIELDS = ("feedback_type", "identified_cause", "target_service", "suggested_action")
 
 EXTRACT_PROMPT = """你是工廠 IT 維運的值班助理。值班對一件告警寫了一句回饋（繁體中文或英文），請抽成 JSON，只輸出一個 JSON 物件、不要別的字。
@@ -256,7 +256,7 @@ def validate_extraction(obj, alert: dict | None = None) -> tuple[dict | None, st
     if not CAUSE_RE.match(cause):
         return None, f"identified_cause 不是短代號：{str(obj['identified_cause'])[:40]}"
     svc = str(obj["target_service"] or "").strip() or str((alert or {}).get("service") or "").strip()
-    if not svc or not SERVICE_RE.match(svc):
+    if not svc or not ENTITY_RE.match(svc):
         return None, f"target_service 不像服務名：{svc[:40]}"
     return {"feedback_type": ft, "identified_cause": cause, "target_service": svc, "suggested_action": act}, ""
 

@@ -168,10 +168,10 @@ class Attributes(unittest.TestCase):
     def test_incident_lists(self):
         a, _ = run("detector", ["incident", "add", "--title", "t", "--start", "s", "--end", "e", "--service", "a", "--service", "b",
                                 "--anomaly", "x", "--root-cause", "db", "--action-taken", "重啟", "--exclude-training"])
-        self.assertEqual((a.action, a.service, a.anomaly), ("add", ["a", "b"], ["x"]))
+        self.assertEqual((a.action, a.entity, a.anomaly), ("add", ["a", "b"], ["x"]))   # --service → entity
         self.assertEqual((a.root_cause, a.action_taken, a.exclude_training, a.id, a.severity), ("db", "重啟", True, None, None))
         a, _ = run("detector", ["incident", "resolve", "--id", "i1"])
-        self.assertEqual((a.action, a.id, a.service, a.anomaly), ("resolve", "i1", None, None))
+        self.assertEqual((a.action, a.id, a.entity, a.anomaly), ("resolve", "i1", None, None))
 
     def test_metrics_from_to_and_backtest_ids(self):
         a, _ = run("detector", ["metrics", "--from", "2026-10-01", "--to", "2026-10-08", "--compare-from", "2026-09-01", "--compare-to", "2026-09-08"])
@@ -193,7 +193,7 @@ class Attributes(unittest.TestCase):
              mock.patch.object(I, "load", lambda p, m: {"model": m.__name__}), contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(I.main(["investigate", "--config", "r.yaml", "--service", "mes-api", "--route", "GET /lots/{id}", "--window", "1h"]), 0)
         a = seen["args"]
-        self.assertEqual((a.service, a.route, a.window, a.start, a.end, a.at, a.out), ("mes-api", "GET /lots/{id}", "1h", None, None, None, None))
+        self.assertEqual((a.entity, a.where, a.window, a.start, a.end, a.at, a.out), ("mes-api", "GET /lots/{id}", "1h", None, None, None, None))   # 旗標仍是 --service／--route
         with mock.patch.object(I, "topology", lambda cfg, args: seen.setdefault("topo", (cfg, args)) and "拓撲"), \
              mock.patch.object(I, "load", lambda p, m: {"model": m.__name__}), contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(I.main(["topology", "--config", "r.yaml"]), 0)

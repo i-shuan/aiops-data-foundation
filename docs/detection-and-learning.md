@@ -14,8 +14,8 @@
 | 粒度自選 | 每條序列從 1m 到 1h 挑事件數夠的最細窗 | `pick_resolution` |
 | 借組基準線 | 新 API、量少的序列借同類成員的基準線，門檻調高 | `train_groups` |
 | 靜態臨界值規則 (Static Threshold Rules) | 狀態變化、錯誤率 5%、p95 2 秒、趨勢（Theil–Sen 斜率）、累計增量 | [rules.py](../aiops-engine/code/detector/rules/engine.py) |
-| Pod 同儕橫向比對 (Peer Comparison) | 同服務的 Pod 互比，用其他 Pod 的中位數與 MAD | [peer.py](../aiops-engine/code/detector/peer.py) |
-| trace 每一段的基準線 | 每個請求每一段自己的時間，出事時跟平常比 | [trace.py](../aiops-engine/code/detector/trace.py) |
+| Pod 同儕橫向比對 (Peer Comparison) | 同服務的 Pod 互比，用其他 Pod 的中位數與 MAD | [peer.py](../aiops-engine/code/plugins/observability/peer/peer.py) |
+| trace 每一段的基準線 | 每個請求每一段自己的時間，出事時跟平常比 | [trace.py](../aiops-engine/code/plugins/observability/trace/trace.py) |
 | 排除時段、重置點 | 行事曆、假日、維護窗不學、不判斷 | [adjust.py](../aiops-engine/code/detector/adjust/adjust.py) |
 
 全部是統計方法（中位數、MAD、卜瓦松、秩統計），沒有訓練任何模型。

@@ -93,7 +93,7 @@ class _CachedES:
         return getattr(self._es, name)
 
 
-def _service_of(row: dict, keys: list[str]):
+def _entity_of(row: dict, keys: list[str]):
     for f in ("service", "resource.attributes.service.name", "entry.service"):
         if f in keys and row.get(f) is not None:
             return str(row[f])
@@ -156,7 +156,7 @@ def run_backtest(es, cfg: dict, proposal, weeks: int, now=None, quiet: bool = Tr
                         continue
                     s = s[s["status"] == "anomaly"]
                     if not s.empty:
-                        frames.append(s.assign(_series=spec["name"], _svc=[_service_of(x, keys) for x in s[keys].to_dict("records")],
+                        frames.append(s.assign(_series=spec["name"], _svc=[_entity_of(x, keys) for x in s[keys].to_dict("records")],
                                                _keys=s[keys].to_dict("records")))
         return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(columns=["ts", "_series", "_svc", "_keys"])
 

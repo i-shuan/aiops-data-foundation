@@ -25,7 +25,7 @@ import pandas as pd
 import yaml
 
 from detector.__main__ import main as cli
-from detector.cmd_quality import quality_hits
+from plugins.observability.quality.command import quality_hits
 from core.es_client import ES
 
 CFG = "tests/trace_edge.yaml"

@@ -1,6 +1,6 @@
 # 高內聚、低耦合：套件分層、一個功能一個資料夾、plugin 邊界切乾淨（2026-11）
 
-**狀態**：階段 A、B 完成，C～D 進行中　　**日期**：2026-11-05　　**相關**：分支 `claude/layering`（從 master `31c72f8` 開）；接 [frameworks](2026-11-frameworks.md)、[oop-core](2026-11-oop-core.md)（兩輪都在加介面與框架，沒動套件怎麼切，使用者看完判斷「檔案太散、plugin 沒切乾淨」）
+**狀態**：階段 A～C 完成，D 進行中　　**日期**：2026-11-05　　**相關**：分支 `claude/layering`（從 master `31c72f8` 開）；接 [frameworks](2026-11-frameworks.md)、[oop-core](2026-11-oop-core.md)（兩輪都在加介面與框架，沒動套件怎麼切，使用者看完判斷「檔案太散、plugin 沒切乾淨」）
 **模組**：④～⑨ 全部
 
 ## Plan：這一次要達到什麼
@@ -124,9 +124,21 @@
 
 文件：`Dockerfile` 刪 `COPY models/`；`CLAUDE.md` 結構表刪 `models/` 一項；`aiops-engine/README.md`、`docs/README.md`、`sources/README.md`、`plugins/README.md`、`docs/semiconductor-design.md` 的路徑與連結對齊；PDCA 紀錄只改壞掉的連結目標。
 
-### 階段 C～D
+### 階段 C：plugin 邊界（已完成）
 
-（尚未開始）
+照對照表搬（全部 `git mv`）：peer／quality／chronic／trace／trace_merge 進 `plugins/observability/<功能>/`，ingest 進 `plugins/factory/ingest/`；`cmd_*` 併進各功能的 `command.py`（引擎＋`cmd_*`＋typer 包裝同一檔）。跟對照表不同、要知道的：
+
+| 不同 | 為什麼 |
+|---|---|
+| `rca/analyze.py`、`rca/queries.py` **沒搬**進 observability，識別字改中立；只有 `service_trace_ids` 搬去 observability 的 `chain.py` | 工廠現在就用同一套：履歷由同一種「合成一筆的 path」格式表示，`compare_segments` 比壞 lot／好 lot。搬進 observability 會讓 factory 依賴 observability（對稱刪除就壞），或複製約 250 行 |
+| `rca/report.py` 只剩框架與中立四段（anomalies、logs、changes、conclusion）；有 path 才有的四段（entries、segments、slowest、topology）放 **`rca/path_sections.py`**，識別字中立；`Plugin.report_sections()` 回 `{段名: 函式}`，observability 與 factory 都回它、metrics_only 回 `{}` | 段落本來就是 plugin 的 `sections` hook，只是函式住在共用區 |
+| `trace_merge.build`／`is_entry` → `sources/traces.merged_doc`／`is_entry` | IT 的 trace-merge 與工廠的 paths-merge 共用同一個合成格式，放資料層才不會讓 factory 依賴 observability |
+| 黃金訊號分類表 `CLASSES` → `plugins/observability/profiles.py`；`PROFILES`、`DOMAIN`、`ENTITY_KEYS`、`SCHEDULES` 也進去，`__init__.py` 只剩 Plugin 類別 | 基底 `Plugin.severity_classes=None` 現在真的是「不分類」 |
+| 中立碼的識別字改名：`route_of`→`where_of`、`trace_label`→`path_label`、`SERVICE_RE`→`ENTITY_RE`、`_service_of`→`_entity_of`、`Ctx.service/route`→`entity/where`、`has_traces`→`has_paths`、`sample_trace_ids`→`sample_path_ids`、`confirm_span=`→`confirm_within`、局部 `lot`→`unit`、`span`→`within`／`spread`… | 四個中立字：`entity`（服務／機台）、`unit`（請求／lot）、`path`（trace／履歷）、`where`（API／recipe），寫在 `core/plugin.py` 檔頭。**沒改**：ES 欄位名、文件 key、CLI 旗標（`--service`、`--route`）、YAML key、HTTP 端點 |
+
+### 階段 D
+
+（進行中）
 
 ## Check：測試的目的與結果
 

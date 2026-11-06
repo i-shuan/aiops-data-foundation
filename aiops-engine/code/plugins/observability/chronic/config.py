@@ -1,4 +1,4 @@
-"""chronic.yaml 的設定模型（慢性病清單；引擎在 detector/chronic.py、cmd_chronic.py，階段 C 搬進來）。"""
+"""chronic.yaml 的設定模型（慢性病清單；引擎在 chronic.py、command.py）。"""
 from __future__ import annotations
 
 from typing import Any, Literal

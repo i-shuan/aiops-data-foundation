@@ -6,6 +6,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from core.plugin import Chain, Plugin as Base
+from investigator.rca import path_sections
 from investigator.rca.report import _dur
 
 from .chain import lot_links
@@ -48,9 +49,10 @@ SEVERITY_CLASSES = {
 
 class Plugin(Base):
     name = "factory"
-    entity_keys = ("equipment",)                          # detector/ingest.py 寫的 keys.equipment；一台機台一件
+    entity_keys = ("equipment",)                          # plugins/factory/ingest 寫的 keys.equipment；一台機台一件
     critical_levels = ("rule", "peer", "quality", "fdc")  # FDC 的 OOS 鳴叫（severity critical）直接讓這件 critical
     severity_classes = SEVERITY_CLASSES
+    sections = ("anomalies", "entries", "segments", "slowest", "logs", "changes", "topology", "conclusion")
     schedule = "configs/factory/schedule.yaml"
 
     def source_profile(self) -> dict:
@@ -59,9 +61,13 @@ class Plugin(Base):
     def domain(self) -> dict:
         return DOMAIN
 
-    def route_of(self, keys: dict) -> str | None:
-        """「哪支 API」是哪個 recipe（履歷裡站的 name 就是 recipe，根因分析用它挑 lot）。"""
+    def where_of(self, keys: dict) -> str | None:
+        """「在哪裡」是哪個 recipe（履歷裡站的 name 就是 recipe，根因分析用它挑 lot）。"""
         return str(keys["recipe"]) if keys.get("recipe") else None
+
+    def report_sections(self) -> dict:
+        """有履歷（格式同 trace）：報告多 entries／segments／slowest／topology 四段，跟 IT 同一套。"""
+        return path_sections.SECTIONS
 
     def chain(self, es, cfg, anomalies, open_alerts, start, now) -> Chain:
         """前後站：這一輪帶 lot 的異常 → 從履歷找這批 lot 之前經過哪幾站（plugins/factory/chain.py）。"""

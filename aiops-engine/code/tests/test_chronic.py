@@ -5,7 +5,7 @@ import unittest
 import pandas as pd
 
 from detector.adjust import adjust as A
-from detector import chronic as C
+from plugins.observability.chronic import chronic as C
 
 TZ = "Asia/Taipei"
 

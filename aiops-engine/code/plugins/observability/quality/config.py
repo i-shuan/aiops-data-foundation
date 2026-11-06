@@ -1,4 +1,4 @@
-"""quality.yaml 的設定模型（資料品質檢查；引擎在 detector/quality.py、cmd_quality.py，階段 C 搬進來）。"""
+"""quality.yaml 的設定模型（資料品質檢查；引擎在 quality.py、command.py）。"""
 from __future__ import annotations
 
 from typing import Literal
@@ -10,7 +10,7 @@ from sources.config import Source, Store
 
 
 class QualityCheck(Strict):
-    """一個資料品質檢查（detector/quality.py 檔頭）。type 不同用的欄位不同，這裡全列。"""
+    """一個資料品質檢查（quality.py 檔頭）。type 不同用的欄位不同，這裡全列。"""
     name: str
     type: Literal["cardinality", "missing", "stopped", "share", "lag", "present"]
     index: str

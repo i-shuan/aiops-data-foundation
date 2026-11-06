@@ -7,7 +7,7 @@ from unittest import mock
 import pandas as pd
 import yaml
 
-from detector import peer as P
+from plugins.observability.peer import peer as P
 
 
 def pods(values, svc="order-api", **extra):
@@ -96,7 +96,8 @@ class CmdPeerTest(unittest.TestCase):
 
     def run_peer(self, life, values, cfg_extra=None):
         """life：Pod → (起來, 停掉) 相對 END 的分鐘數（停掉 None＝還在）；values：Pod → CPU。回傳被報的 Pod。"""
-        from detector import cmd_peer as C, detector as B
+        from detector import detector as B
+        from plugins.observability.peer import command as C
 
         def fetch(es, spec, start, end, interval):
             if spec["value"] == "count":   # 這段時間有資料的 Pod

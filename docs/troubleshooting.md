@@ -33,7 +33,7 @@
 
 | 症狀 | 原因 | 做法 |
 |---|---|---|
-| 根因報告「最慢那個請求的 log」少了幾行 | log 的 `@timestamp` 是應用時間，時鐘偏或請求結束後才寫，離 span 十幾分鐘 | `logs_of_traces` 已前後多放 30 分鐘；更多的看 `quality.log_clock_skew` |
+| 根因報告「最慢那個請求的 log」少了幾行 | log 的 `@timestamp` 是應用時間，時鐘偏或請求結束後才寫，離 span 十幾分鐘 | `logs_of_paths` 已前後多放 30 分鐘；更多的看 `quality.log_clock_skew` |
 | 下游（DB 連線池）跟上游（前端 API）同時出事，`aiops-alerts` 開了兩件 | 這段時間的 trace 算不出「上游呼叫下游」：trace context 沒傳到下游、trace 的 `service.name` 跟異常的服務名不同、`alerts.chain` 關了；或兩件開始時間差超過 `close_after` | `investigator topology --window 2h` 看有沒有那條邊；alert 的輸出有「呼叫關係查不到」就是查 trace 失敗（[rca README](../aiops-engine/code/configs/rca/README.md#事件整合alert)） |
 | 上游那件「恢復」、同時下游開了新的一件（連帶上游） | 上游先被偵測到、下游晚一輪：下游開件時把上游那件整件併進來（`merged_into`） | 正常；看下游那件就好。要避免就縮短偵測延遲（規則窗、排程間隔） |
 | A→B→C 三個一起出事，開成兩件 | 事件整合只併一層（直接呼叫者）：C 連帶 B，A 自己一件 | 已知限制（[cross-service-aggregation](pdca/phase3-locate/2026-10-cross-service-aggregation.md) Act） |

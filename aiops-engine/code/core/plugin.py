@@ -6,18 +6,20 @@
   AIOPS_PLUGIN=metrics_only     只有 ML／FDC 判好的指標、沒有履歷：不併跨機台、報告略過履歷那幾節
   AIOPS_PLUGIN=套件.模組:類別    客製：繼承 Plugin（或任一內建 plugin）覆寫要改的那幾個
 
-主程式（core／detector／investigator／api）只透過 current() 問 plugin，不認得 factory、lot、equipment 這些字。
+主程式（core／detector／investigator／api）只透過 current() 問 plugin，不認得 factory、lot、equipment 這些字；
+中立的程式裡「對象」叫 entity（服務／機台）、一個「單位」叫 unit（請求／lot）、把單位串起來的叫 path（trace／履歷）、「在哪裡」叫 where（哪支 API／哪個 recipe）。
 擴充點只開「現在真的有兩種以上做法」的地方：
 
   source_profile()   索引、欄位名的對照（owner 歸屬查哪裡、log 的欄位）        detector/owner.py、investigator/rca/queries.py
   domain()           用語、回饋表單的分類表                                       這個檔底下的門面函式、api 的回饋表單、報告
   entity_keys        異常 keys 裡哪個欄位是「對象」（服務／機台）                 investigator/alerts/merge.py、detector/owner.py
-  route_of(keys)     「哪支 API」（IT 是 method＋route；工廠是 recipe）            alerts.route_of、根因分析挑 lot
+  where_of(keys)     「在哪裡」（IT 是哪支 API：method＋route；工廠是哪個 recipe）    alerts/merge.where_of、根因分析只查那一支
   chain(...)         跨對象併件的依據（呼叫關係／履歷前後站／不併）              investigator/alerts/command.py → merge.merge
   change_at(...)     「換版」時間（版號第一次出現／變更紀錄最近一筆／沒有）      alerts/command.grade_alert → severity 的上限
-  severity_classes   嚴重度的訊號分類預設（IT 黃金訊號／工廠參數家族）           cfg 的 alerts.severity.classes 可覆蓋
+  severity_classes   嚴重度的訊號分類（IT 黃金訊號／工廠參數家族；None＝不分類）    cfg 的 alerts.severity.classes 可覆蓋
   critical_levels    哪些 level 的 critical 異常直接讓這件 critical
-  sections           根因分析報告有哪幾段、順序（investigator/rca/report.py 的 SECTIONS）
+  sections           根因分析報告有哪幾段、順序（investigator/rca/report.py 的中立四段＋report_sections() 加的）
+  report_sections()  這個情境多出來的報告段 {名: fn(Ctx)}（有 trace／履歷的用 investigator/rca/path_sections）
   commands()         這個情境的 detector 子命令：{名: register(app)}，掛到 typer app（IT 的 peer／quality／chronic／trace-*、
                      工廠的 ingest／paths-merge）
   schedule           預設排程表（chart 的 deployment 依 plugin 選）
@@ -51,12 +53,12 @@ class Chain:
 
 
 class Plugin:
-    """基底：什麼都不併、沒有換版、沒有額外命令。內建的三個在 plugins/。"""
+    """基底：什麼都不併、沒有換版、沒有額外命令、報告只有中立四段。內建的三個在 plugins/。"""
     name: str = "base"
     entity_keys: tuple[str, ...] = ("service",)
     critical_levels: tuple[str, ...] = ("rule", "peer", "quality")
-    severity_classes: dict | list | None = None          # None＝investigator/severity.CLASSES（IT 黃金訊號）
-    sections: tuple[str, ...] = ("anomalies", "entries", "segments", "slowest", "logs", "changes", "topology", "conclusion")
+    severity_classes: dict | list | None = None          # None＝不分類（每條序列都是 other、廣度 0）；內建的各給自己的表
+    sections: tuple[str, ...] = ("anomalies", "logs", "changes", "conclusion")
     schedule: str = "configs/schedule/schedule.yaml"
 
     def source_profile(self) -> dict:
@@ -71,7 +73,8 @@ class Plugin:
         """entity／unit／trace／new_value_hint／categories／fp_reasons／checked：見 plugins/observability 的 DOMAIN。"""
         raise NotImplementedError
 
-    def route_of(self, keys: dict) -> str | None:
+    def where_of(self, keys: dict) -> str | None:
+        """異常在「哪裡」：IT 是哪支 API、工廠是哪個 recipe；None＝不分。"""
         return None
 
     def chain(self, es, cfg: dict, anomalies: list[dict], open_alerts: list[dict], start: datetime, now: datetime) -> Chain:
@@ -79,6 +82,10 @@ class Plugin:
 
     def change_at(self, es, cfg: dict, entity: str, since: datetime, now: datetime) -> datetime | None:
         return None
+
+    def report_sections(self) -> dict[str, Callable]:
+        """{段名: fn(Ctx)}：這個情境多出來的報告段，跟 investigator/rca/report.py 的中立四段合在一起、照 sections 的順序組。"""
+        return {}
 
     def commands(self) -> dict[str, Callable]:
         """{子命令名: register(app)}：register 把子命令掛到 detector 的 typer app（app.command(名, help=…)(函式)），
@@ -177,8 +184,8 @@ def unit_text() -> str:
     return f" {u} " if u.isascii() else u
 
 
-def trace_label() -> str:
-    """把一個單位串起來的那份資料叫什麼：Trace／履歷。"""
+def path_label() -> str:
+    """把一個單位串起來的那份資料（path）叫什麼：Trace／履歷。domain 的 key 仍叫 trace。"""
     return domain("trace")
 
 

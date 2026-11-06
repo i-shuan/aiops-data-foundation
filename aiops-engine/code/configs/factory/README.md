@@ -11,7 +11,7 @@
 
 | 檔 | 程式 | 做什麼 |
 |---|---|---|
-| [ingest.yaml](ingest.yaml) | `detector ingest`（[ingest.py](../../detector/ingest.py)） | ML 的異常跳點、FDC 鳴叫 → `aiops-anomalies`：`keys` 是 equipment、chamber、recipe、step、lot、parameter；`series` 是 `fdc.<參數>`；`level` 是 `ml`／`fdc`；ML 的 strong／weak 對到 anomaly／warning；FDC 的 OOS 是 critical |
+| [ingest.yaml](ingest.yaml) | `detector ingest`（[ingest.py](../../plugins/factory/ingest/ingest.py)） | ML 的異常跳點、FDC 鳴叫 → `aiops-anomalies`：`keys` 是 equipment、chamber、recipe、step、lot、parameter；`series` 是 `fdc.<參數>`；`level` 是 `ml`／`fdc`；ML 的 strong／weak 對到 anomaly／warning；FDC 的 OOS 是 critical |
 | [paths.yaml](paths.yaml) | `detector paths-merge`（[plugins/factory/paths/build.py](../../plugins/factory/paths/build.py)；只有 `factory` plugin 有這個子命令） | MES 進出站＋S6F11 機台事件 → 一個 lot 一筆 `lot-paths-<group>-<日期>`，格式跟 `traces-merged-*` 一樣：一站一段（service 是機台、name 是 recipe、耗時是進站到出站、hold／scrap 算錯），站裡的 chamber 加工段掛在底下 |
 | [rca.yaml](rca.yaml) | `investigator alert`／`investigate` | 索引（履歷 `lot-paths-*`、log `eqp-logs-*`）與時間尺度（`close_after` 2h、滑動窗 2h、`entry_lag` 12h）；`changes` 讓報告多一段「事故前的變更」。「對象是機台、API 是 recipe、前後站從履歷找、recipe 變更當換版、嚴重度依參數家族」是 plugin 給的，要改才寫進 `alerts` |
 | [schedule.yaml](schedule.yaml) | `scheduler` | 每分鐘 `ingest`、`alert`；每 5 分鐘 `paths-merge`；每天 `prune`。沒有 train／detect／rules／peer／trace-* |

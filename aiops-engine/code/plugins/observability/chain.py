@@ -3,10 +3,18 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
+from core.es_client import time_range
 from sources import spans_of
 from sources import traces as T
 from investigator.rca import analyze as A
 from investigator.rca import queries as E
+
+
+def service_trace_ids(es, index: str, service: str, start: datetime, end: datetime, n: int, lag: timedelta = timedelta(0)) -> list[str]:
+    """這個服務最近收到的 n 個請求（Server span）的 trace_id。"""
+    hits = es.search(index, {"size": n, "_source": ["trace_id"], "sort": [{"@timestamp": "desc"}],
+                             "query": {"bool": {"filter": [time_range(start - lag, end), *E.entry_filter(service, None, start, end)]}}})["hits"]["hits"]
+    return list(dict.fromkeys(h["_source"]["trace_id"] for h in hits))
 
 
 def call_edges(es, cfg: dict, services: set[str], start: datetime, end: datetime, per: int = 100) -> set[tuple[str, str]]:
@@ -18,7 +26,7 @@ def call_edges(es, cfg: dict, services: set[str], start: datetime, end: datetime
     ix, pad = cfg["indices"]["traces"], timedelta(minutes=5)
     ids: list[str] = []
     for s in sorted(services):
-        ids += E.service_trace_ids(es, ix, s, start, end, per)
+        ids += service_trace_ids(es, ix, s, start, end, per)
     ids = list(dict.fromkeys(ids))
     if not ids:
         return set()

@@ -106,16 +106,16 @@ def with_status(cfg: dict, s: pd.DataFrame, keys: list[str], step: str, start, s
     """超標的點分 warning（跳一次）／anomaly（連續、或偏太多）。只回傳 start 之後的點：start 之前那一個時間窗是多查的，
     用來知道「前一個時間窗有沒有超標」，不重寫（它在上一輪已經判斷過）。
     「連續幾次才算」「偏多少不用等」依序列、依對象（status_params），同一組設定的對象一起算。"""
-    span = cfg.get("status", {}).get("confirm_span", "30m")
+    within = cfg.get("status", {}).get("confirm_span", "30m")
     if s.empty:
-        return mark_status(s, keys, step, 2, span)
+        return mark_status(s, keys, step, 2, within)
     ks = s[keys].drop_duplicates()
     params = [status_params(cfg, spec, k, overrides) for k in ks.to_dict("records")]
     ks = ks.assign(_cp=[p[0] for p in params], _iz=[p[1] if p[1] is not None else np.nan for p in params])
     parts = []
     for (cp, iz), g in ks.groupby(["_cp", "_iz"], dropna=False):
         part = s.merge(g[keys], on=keys)
-        parts.append(mark_status(part, keys, step, int(cp), span, None if pd.isna(iz) else float(iz)))
+        parts.append(mark_status(part, keys, step, int(cp), within, None if pd.isna(iz) else float(iz)))
     out = pd.concat(parts, ignore_index=True)
     return out[out["ts"] >= start]
 

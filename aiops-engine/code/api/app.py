@@ -16,9 +16,9 @@ from core.config import load
 from core.es_client import doc_id
 from detector.adjust import tuning as T
 from detector.baseline.config import SeriesConfig
-from detector.cmd_ingest import ingest_rows
 from detector.feedback.feedback import RCA_USEFUL as _RCA_USEFUL
 from investigator.similar.similar import classify
+from plugins.factory.ingest.command import ingest_rows
 from plugins.factory.ingest.config import IngestConfig
 from scheduler.runner import load_schedule
 from sources.schema import ALERT_INDEX, FEEDBACK_INDEX, FEEDBACK_MAPPING, INCIDENT_INDEX, INCIDENT_MAPPING

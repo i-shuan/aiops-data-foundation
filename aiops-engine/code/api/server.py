@@ -139,7 +139,7 @@ def feedback_page(request: Request):
 
 # ── POST：先 await 讀 body，再丟 threadpool 跑（ES 是同步的，不能卡住 event loop；原本是一個請求一條執行緒）──
 
-@app.post("/api/anomalies")    # ML／FDC 推異常進 ⑤（detector/ingest.py 同一套對照），有佇列就立刻丟 alert
+@app.post("/api/anomalies")    # ML／FDC 推異常進 ⑤（plugins/factory/ingest 同一套對照），有佇列就立刻丟 alert
 async def api_anomalies(request: Request):
     return await run_in_threadpool(_anomalies, request, await request.body())
 

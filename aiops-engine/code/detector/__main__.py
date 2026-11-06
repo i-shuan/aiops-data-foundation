@@ -19,6 +19,7 @@
 plugin.commands() 一起掛上（兩邊同一種形狀：{子命令名: register(app)}）。函式只把參數裝成 argparse.Namespace、
 用 core.config.load 讀設定，再交給各功能的 cmd_*(cfg, args)（detector/cli.py 的 run）。
 可以給好幾個值的參數（--match、--service、--anomaly、--id）要重複寫：--match service=a --match route=b。
+旗標字串是對外契約（排程表、文件都寫 --service）；Python 參數名用中立的 entity，旗標明寫在 Opt 裡。
 
 train ：讀過去 N 週的資料，每條序列、每個時段學出中位數與波動範圍，寫進 ES 的 aiops-baseline。
 detect：讀最近一段時間的資料，跟 baseline 比，超出範圍的寫進 aiops-anomalies，並印出來。
@@ -173,7 +174,7 @@ def metrics(config: str = Opt(SERIES),
 def incident(action: Literal["add", "list", "resolve"] = typer.Argument(...),
              config: str = Opt(SERIES), id_: str | None = Opt(None, "--id"),
              title: str | None = Opt(None), start: str | None = Opt(None), end: str | None = Opt(None),
-             service: List[str] | None = Opt(None, help="影響的服務（--service a --service b）"),
+             entity: List[str] | None = Opt(None, "--service", help="影響的服務（--service a --service b）"),
              severity: str | None = Opt(None, help="例如 sev1、sev2"),
              root_cause: str | None = Opt(None), action_taken: str | None = Opt(None, help="處置"),
              anomaly: List[str] | None = Opt(None, help="相關的異常 id"), by: str | None = Opt(None),

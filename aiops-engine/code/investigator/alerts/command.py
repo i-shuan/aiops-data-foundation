@@ -76,7 +76,7 @@ def grade_alert(es: ES, cfg: dict, al: dict, now: datetime) -> None:
             print(f"  查不到 {al['service']} 的換版時間（{type(e).__name__}）")
     golden = [a for a in own if SEV.signal_class(a.get("series"), classes) not in ("traffic", "other")]
     g = SEV.grade([a.get("series") for a in own], [AL._ts(a["@timestamp"]) for a in own],
-                  members=len({(a.get("series"), AL.route_of(a.get("keys") or {})) for a in golden}),
+                  members=len({(a.get("series"), AL.where_of(a.get("keys") or {})) for a in golden}),
                   rule_critical=any(a.get("severity") == "critical" and a.get("level") in critical_levels for a in own),
                   now=now, deploy_at=dep, opts=opts, classes=classes)
     if g["severity"] != al.get("severity"):
@@ -189,8 +189,8 @@ def tag_anomalies(es: ES, index: str, tags: list[tuple[str, str]]) -> int:
     return sum(1 for it in items if it["update"].get("result") in ("updated", "noop"))
 
 
-def has_trace(findings: dict | None) -> bool:
-    """根因分析有沒有看到這個服務的 trace：findings.requests.requests > 0。沒有 findings（分析失敗）算沒有。"""
+def has_paths(findings: dict | None) -> bool:
+    """根因分析有沒有看到這個對象的 path（trace／履歷）：findings.requests.requests > 0。沒有 findings（分析失敗）算沒有。"""
     return bool(((findings or {}).get("requests") or {}).get("requests"))
 
 
@@ -204,7 +204,7 @@ def needs_rerun(al: dict, now: datetime, acfg: dict) -> bool:
     最多 rca_retry_max 次（服務本來就沒埋點的，不會永遠重跑）。報告已經有 trace、或重跑次數用完就不再跑。"""
     if not acfg.get("rca_retry", True) or al.get("_new") or not al.get("report"):
         return False
-    if has_trace(al.get("findings")) or attempts(al) >= int(acfg.get("rca_retry_max", 5)):
+    if has_paths(al.get("findings")) or attempts(al) >= int(acfg.get("rca_retry_max", 5)):
         return False
     at = al.get("report_at")
     return at is None or now - AL._ts(at) >= _dur(acfg.get("rca_retry_after", "2m"))
@@ -221,7 +221,7 @@ def wants_rerun(al: dict, now: datetime, acfg: dict) -> tuple[bool, bool]:
 
 
 def run(cfg: dict, args, investigate) -> int:
-    """investigate：根因分析的函式（investigator.__main__.investigate_full），傳進來避免循環 import。"""
+    """investigate：根因分析的函式（investigator.rca.report.investigate_full），傳進來避免循環 import。"""
     es = ES()
     es.ensure_index(ALERT_INDEX, ALERT_MAPPING)
     acfg = cfg.get("alerts", {})
@@ -252,17 +252,17 @@ def run(cfg: dict, args, investigate) -> int:
         if ((al.get("_new") or not report) and acfg.get("rca", True) and al["category"] == "service" and al["status"] == "open") or rerun:
             # 新的一件跑一次根因分析：時間是這件的開始到最後一筆異常再往後一個 interval；只有一支 API 時只查那支
             # （連帶進來的上游的 API 不算：根因分析以這件的服務＝下游跑）
-            route = AL.rca_route(al)
+            where = AL.rca_where(al)
             # rca_lead：根因分析的窗往前多看（工廠：ML 在 run 結束才報，出事的 run 是 started_at 之前就開始的；IT 是 0）
             try:
-                report, findings = investigate(cfg, Namespace(service=al["service"], route=route,
+                report, findings = investigate(cfg, Namespace(entity=al["service"], where=where,
                                                               start=(AL._ts(al["started_at"]) - _dur(acfg.get("rca_lead", "0s"))).isoformat(),
                                                               end=(AL._ts(al["updated_at"]) + interval).isoformat(), at=None, window=None))
             except Exception as e:   # 根因分析失敗不擋這一件
                 report, findings = f"根因分析失敗：{e}", None
             al["report_at"] = now
             al["rca_attempts"] = attempts(al) + 1
-            if rerun and not forced and not has_trace(findings):
+            if rerun and not forced and not has_paths(findings):
                 # 重跑了還是沒有 trace：不覆蓋舊的報告、不再叫模型，只記下又試了一次（下一輪再看）
                 print(f"  ⏳ {al['alert_id']}：trace 還沒就緒（第 {al['rca_attempts']} 次），先不換報告")
                 al["_report"], al["_llm"] = al.get("report"), None

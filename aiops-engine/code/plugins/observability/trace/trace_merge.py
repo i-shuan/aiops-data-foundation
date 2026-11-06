@@ -4,8 +4,7 @@ Collector 把每一段原樣寫進 traces-generic.otel-<group>（只留 2 天）
   1. 找這一段時間有新 span 進來的 trace（raw 文件的 event.ingested 由 pipeline traces-otel 蓋）
   2. 讀回這些 trace 全部的 span（含更早到的）
   3. 合成一筆 upsert：晚到的 span 讓那個 trace 再被合一次、整份覆蓋，所以合得完整；重跑不會重複
-文件：上層是摘要（入口、總耗時、有沒有錯、經過哪些服務），`spans` 是每一段（nested，欄位跟 sources.traces 的 span 一樣），
-`entries` 是入口（Server、Consumer、沒有上一層的 span），讓「依服務／API 挑請求」不用展開 spans。
+文件格式在 sources.traces.merged_doc（上層是摘要、`spans` 每一段、`entries` 入口），工廠的履歷（plugins/factory/paths）用同一個函式。
 docs/pdca/phase1-collect/2026-10-trace-merge.md。
 """
 from __future__ import annotations
@@ -14,45 +13,12 @@ from datetime import datetime, timedelta, timezone
 
 from core.es_client import ES, time_range
 from sources import spans_of
-from sources.traces import group_traces, root_of, trace_id_field
+from sources.traces import group_traces, merged_doc, trace_id_field
 
 STATE_INDEX = "aiops-state"
 STATE_ID = "trace-merge"
 STATE_MAPPING = {"mappings": {"dynamic": False, "properties": {"last": {"type": "date"}, "updated_at": {"type": "date"}}}}
 MERGED_PREFIX = "traces-merged"
-
-
-def is_entry(s: dict, ids: set[str]) -> bool:
-    """入口：HTTP 請求（Server）、訊息消費者（Consumer）、沒有上一層的 span（.NET 自動埋點的 Kafka 消費者查 DB 那段自成一個 trace）。"""
-    return s["kind"] in ("Server", "Consumer") or not s.get("parent") or s["parent"] not in ids
-
-
-def build(spans: list[dict], merged_at: datetime, prefix: str = MERGED_PREFIX) -> tuple[str, dict]:
-    """同一個 trace 的 span（sources.traces 的格式）→ (index 名稱, 文件)。index 依 group 與根 span 的日期（UTC）分。
-    prefix：index 名的前綴；工廠的履歷用 lot-paths（plugins/factory/paths/build.py），文件格式一樣。"""
-    root = root_of(spans)
-    ids = {s["span_id"] for s in spans}
-    start = datetime.fromtimestamp(root["start_ms"] / 1000, timezone.utc)
-    end_ms = max(s["start_ms"] + s["dur_ms"] for s in spans)
-    res = root.get("resource") or {}
-    group = res.get("group") or res.get("data_stream.namespace") or "unassigned"
-    doc = {
-        "@timestamp": start.isoformat(), "trace_id": root["trace_id"], "group": group, "dept": res.get("dept"),
-        "root": {"service": root["service"], "name": root["name"], "kind": root["kind"], "error": bool(root["error"])},
-        "duration_ms": round(max(root["dur_ms"], end_ms - root["start_ms"]), 3),
-        "error": any(s["error"] for s in spans),
-        "services": sorted({s["service"] for s in spans}),
-        "span_count": len(spans),
-        "merged_at": merged_at.isoformat(),
-        "entries": [{"span_id": s["span_id"], "service": s["service"], "name": s["name"], "kind": s["kind"],
-                     "start_ms": s["start_ms"], "duration_ms": s["dur_ms"], "error": bool(s["error"])}
-                    for s in spans if is_entry(s, ids)],
-        "spans": [{"span_id": s["span_id"], "parent": s.get("parent"), "service": s["service"], "name": s["name"], "kind": s["kind"],
-                   "target": s.get("target"), "start_ms": s["start_ms"], "dur_ms": s["dur_ms"], "error": bool(s["error"]),
-                   "exception": s.get("exception"), "links": s.get("links") or [], "attrs": s.get("attrs") or {},
-                   "resource": s.get("resource") or {}} for s in sorted(spans, key=lambda x: (x["start_ms"], x["span_id"]))],
-    }
-    return f"{prefix}-{group}-{start:%Y.%m.%d}", doc
 
 
 def updated_trace_ids(es: ES, raw_index: str, since: datetime, until: datetime) -> list[str]:
@@ -81,7 +47,7 @@ def merge(es: ES, cfg: dict, since: datetime, until: datetime, now: datetime | N
     spans = spans_of(es, raw, ids, until - timedelta(days=2), until + timedelta(minutes=5))
     docs: dict[str, list[tuple[str, dict]]] = {}
     for tid, tspans in group_traces(spans).items():
-        index, doc = build(tspans, now)
+        index, doc = merged_doc(tspans, now, MERGED_PREFIX)
         docs.setdefault(index, []).append((tid, doc))
     for index, batch in docs.items():
         es.bulk_index(index, batch)

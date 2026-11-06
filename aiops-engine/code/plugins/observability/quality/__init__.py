@@ -1,1 +1,1 @@
-"""資料品質檢查（IT）：config.py、command.py；引擎階段 C 從 detector/quality.py 搬進來。"""
+"""資料品質檢查（IT）：quality.py 查與判、command.py 接 Detector 與 typer、config.py 設定模型。"""

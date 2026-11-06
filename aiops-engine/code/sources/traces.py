@@ -16,7 +16,7 @@ span 的格式（to_span 從 raw 的 ES 文件轉成這樣；from_merged 從合�
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timezone
 
 from core import plugin
 from core.es_client import get_field
@@ -193,3 +193,38 @@ def root_of(trace: list[dict]) -> dict:
     ids = {s["span_id"] for s in trace}
     roots = [s for s in trace if not s.get("parent") or s["parent"] not in ids]
     return min(roots, key=lambda s: s["start_ms"]) if roots else trace[0]
+
+
+def is_entry(s: dict, ids: set[str]) -> bool:
+    """入口：HTTP 請求（Server）、訊息消費者（Consumer）、沒有上一層的 span（.NET 自動埋點的 Kafka 消費者查 DB 那段自成一個 trace）。"""
+    return s["kind"] in ("Server", "Consumer") or not s.get("parent") or s["parent"] not in ids
+
+
+def merged_doc(spans: list[dict], merged_at: datetime, prefix: str = "traces-merged") -> tuple[str, dict]:
+    """合成一筆：同一個 trace 的 span（to_span 的格式）→ (index 名稱, 文件)。index 依 group 與根 span 的日期（UTC）分。
+    上層是摘要（入口、總耗時、有沒有錯、經過哪些服務），`spans` 是每一段（nested），`entries` 是入口（Server、Consumer、沒有上一層的 span），
+    讓「依服務／API 挑請求」不用展開 spans。prefix：index 名的前綴；IT 的 trace-merge 用 traces-merged、工廠的履歷用 lot-paths
+    （plugins/factory/paths/build.py），文件格式一樣，from_merged 讀得回來。"""
+    root = root_of(spans)
+    ids = {s["span_id"] for s in spans}
+    start = datetime.fromtimestamp(root["start_ms"] / 1000, timezone.utc)
+    end_ms = max(s["start_ms"] + s["dur_ms"] for s in spans)
+    res = root.get("resource") or {}
+    group = res.get("group") or res.get("data_stream.namespace") or "unassigned"
+    doc = {
+        "@timestamp": start.isoformat(), "trace_id": root["trace_id"], "group": group, "dept": res.get("dept"),
+        "root": {"service": root["service"], "name": root["name"], "kind": root["kind"], "error": bool(root["error"])},
+        "duration_ms": round(max(root["dur_ms"], end_ms - root["start_ms"]), 3),
+        "error": any(s["error"] for s in spans),
+        "services": sorted({s["service"] for s in spans}),
+        "span_count": len(spans),
+        "merged_at": merged_at.isoformat(),
+        "entries": [{"span_id": s["span_id"], "service": s["service"], "name": s["name"], "kind": s["kind"],
+                     "start_ms": s["start_ms"], "duration_ms": s["dur_ms"], "error": bool(s["error"])}
+                    for s in spans if is_entry(s, ids)],
+        "spans": [{"span_id": s["span_id"], "parent": s.get("parent"), "service": s["service"], "name": s["name"], "kind": s["kind"],
+                   "target": s.get("target"), "start_ms": s["start_ms"], "dur_ms": s["dur_ms"], "error": bool(s["error"]),
+                   "exception": s.get("exception"), "links": s.get("links") or [], "attrs": s.get("attrs") or {},
+                   "resource": s.get("resource") or {}} for s in sorted(spans, key=lambda x: (x["start_ms"], x["span_id"]))],
+    }
+    return f"{prefix}-{group}-{start:%Y.%m.%d}", doc

@@ -323,13 +323,13 @@ class CrossService(unittest.TestCase):
         down = anom("wip-worker", 0, level="rule", severity="critical", series="rule.db.pool_timeout", keys={"service": "wip-worker"})
         al = AL.merge([], [down, anom("mes-api", 1)], T0 + timedelta(minutes=2), GAP, calls=self.CALLS)[0]
         self.assertEqual(al["routes"], ["GET /lots/{id}"])
-        self.assertIsNone(AL.rca_route(al))
+        self.assertIsNone(AL.rca_where(al))
         own = anom("wip-worker", 0, keys={"entry.service": "wip-worker", "entry.name": "GET /wip"})
         al = AL.merge([], [own, anom("mes-api", 1)], T0 + timedelta(minutes=2), GAP, calls=self.CALLS)[0]
         self.assertEqual(sorted(al["routes"]), ["GET /lots/{id}", "GET /wip"])
-        self.assertEqual(AL.rca_route(al), "GET /wip")
+        self.assertEqual(AL.rca_where(al), "GET /wip")
         plain = AL.merge([], [anom("wip-worker", 0)], T0 + timedelta(minutes=1), GAP)[0]
-        self.assertEqual(AL.rca_route(plain), "GET /lots/{id}")        # 沒有連帶：照舊看 routes
+        self.assertEqual(AL.rca_where(plain), "GET /lots/{id}")        # 沒有連帶：照舊看 routes
 
     def test_owner_and_headline_prefer_downstream(self):
         # 上游的異常比較多、dept 不同：件還是送下游的 dept；標題寫下游自己最嚴重的那筆

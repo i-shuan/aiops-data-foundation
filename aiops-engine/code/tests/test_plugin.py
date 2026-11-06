@@ -8,6 +8,7 @@ from unittest import mock
 from core import plugin
 from detector import owner as O
 from investigator.alerts import merge as AL
+from investigator.rca import path_sections as PS
 from investigator.rca import report as R
 
 T0 = datetime(2026, 11, 4, 1, 0, tzinfo=timezone.utc)
@@ -72,13 +73,13 @@ class Builtins(unittest.TestCase):
 
     def test_observability(self):
         p = plugin.load("observability")
-        self.assertEqual(p.route_of({"method": "GET", "route": "/a"}), "GET /a")
-        self.assertEqual(p.route_of({"entry.name": "GET /x"}), "GET /x")
-        self.assertEqual(p.route_of({"route": "GET /api"}), "GET /api")        # APM 的 transaction.name
-        self.assertIsNone(p.route_of({"recipe": "R"}))
+        self.assertEqual(p.where_of({"method": "GET", "route": "/a"}), "GET /a")
+        self.assertEqual(p.where_of({"entry.name": "GET /x"}), "GET /x")
+        self.assertEqual(p.where_of({"route": "GET /api"}), "GET /api")        # APM 的 transaction.name
+        self.assertIsNone(p.where_of({"recipe": "R"}))
         self.assertIn("service", p.entity_keys)
         self.assertNotIn("equipment", p.entity_keys)
-        self.assertIsNone(p.severity_classes)
+        self.assertIn("latency", p.severity_classes)                     # 黃金訊號在 plugin，不在 investigator
         self.assertEqual(sorted(p.commands()), ["chronic", "peer", "quality", "trace-collect", "trace-detect", "trace-merge", "trace-train"])   # IT 專用的子命令由 plugin 掛
         self.assertIn("segments", p.sections)
 
@@ -86,7 +87,7 @@ class Builtins(unittest.TestCase):
         f, m = plugin.load("factory"), plugin.load("metrics_only")
         for p in (f, m):
             self.assertEqual(p.entity_keys, ("equipment",))
-            self.assertEqual(p.route_of({"recipe": "REC-1", "method": "GET", "route": "/a"}), "REC-1")
+            self.assertEqual(p.where_of({"recipe": "REC-1", "method": "GET", "route": "/a"}), "REC-1")
             self.assertIn("fdc", p.critical_levels)
             self.assertIn("pressure", p.severity_classes)
             self.assertEqual(p.source_profile()["owner"]["index"], "eqp-master")
@@ -156,12 +157,12 @@ class ReportSections(unittest.TestCase):
                   "status": "anomaly", "keys": {"equipment": "ETCH-01", "recipe": "REC-1"}}]
         stats = {"requests": requests, "errors": 0, "p50_ms": 1.0, "p95_ms": 2.0}
         with mock.patch.object(R.E, "ES", return_value="es"), mock.patch.object(R.E, "anomalies", return_value=anoms), \
-             mock.patch.object(R.E, "entry_stats", return_value=stats), mock.patch.object(R.E, "sample_trace_ids", return_value=[]), \
-             mock.patch.object(R, "spans_of", return_value=[]), \
+             mock.patch.object(R.E, "entry_stats", return_value=stats), mock.patch.object(R.E, "sample_path_ids", return_value=[]), \
+             mock.patch.object(PS, "spans_of", return_value=[]), \
              mock.patch.object(R.E, "problem_logs", side_effect=lambda es, ix, s, a, b: list(logs) if a == T0 else []), \
              mock.patch.object(R.E, "change_logs", return_value=[{"ts": T0.isoformat(), "service": "ETCH-01", "message": "PM done"}]), \
-             mock.patch.object(R.E, "logs_of_traces", return_value=[]):
-            return R.investigate_full(cfg, Namespace(service="ETCH-01", route=None, start=T0.isoformat(), end=(T0 + timedelta(hours=1)).isoformat(),
+             mock.patch.object(R.E, "logs_of_paths", return_value=[]):
+            return R.investigate_full(cfg, Namespace(entity="ETCH-01", where=None, start=T0.isoformat(), end=(T0 + timedelta(hours=1)).isoformat(),
                                                      at=None, window=None), sections)
 
     def test_metrics_only_sections(self):
@@ -189,7 +190,7 @@ class ReportSections(unittest.TestCase):
         self.assertIn("（沒有履歷，略過）", md)
         self.assertIn("## 5. Log", md)                         # 以前沒 trace 就 return，log 看不到；現在照跑
         self.assertIn("## 6. 事故前 12h 內的變更", md)
-        self.assertEqual(f["requests"]["requests"], 0)         # cmd_alert.has_trace 看這個決定要不要重跑
+        self.assertEqual(f["requests"]["requests"], 0)         # alerts/command.has_paths 看這個決定要不要重跑
         self.assertEqual(f["segments"], [])
 
     def test_unknown_section_rejected(self):

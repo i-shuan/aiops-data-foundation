@@ -1,4 +1,4 @@
-# 資料來源是 Elastic APM 時的 Pod 同儕橫向比對（detector/peer.py）。寫法跟 configs/baseline/peer.yaml 一樣。
+# 資料來源是 Elastic APM 時的 Pod 同儕橫向比對（plugins/observability/peer/peer.py）。寫法跟 configs/baseline/peer.yaml 一樣。
 # 「哪一個 Pod」用 service.node.name：APM agent 每個實例都有（預設是容器 ID，K8s 上 agent 會填 pod 名）；
 # kubernetes.pod.name 要 agent 拿得到 K8s metadata 才有，不一定每個服務都有。
 # CPU、記憶體的比對要 metrics-apm.app.*（agent 的 system metrics），公司的資料流沒有，沒列。

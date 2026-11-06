@@ -1,5 +1,5 @@
-"""根因分析的計算，不碰 ES：比較出事時和平常、畫瀑布圖、畫服務之間的呼叫關係、把 log 歸成樣式。
-span 的格式與「每一段自己的時間」見 sources.traces。
+"""根因分析的計算，不碰 ES：比較出事時和平常、畫瀑布圖、畫對象之間誰呼叫誰（IT 的服務／工廠的前後站）、把 log 歸成樣式。
+一個 path（trace／履歷）是一串 span（sources.traces 的格式）；「每一段自己的時間」見 sources.traces。IT 與工廠的 path 存同一種格式，所以這裡不分情境。
 """
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from statistics import median
 
+from core import plugin
 from core.es_client import get_field
 from sources.traces import error_origins, group_traces, root_of, segment, self_times  # noqa: F401  給 __main__ 用
 
@@ -27,9 +28,9 @@ class SegmentDiff:
         return self.now_ms - self.ref_ms
 
 
-def _per_segment(traces: dict[str, list[dict]]):
+def _per_segment(paths: dict[str, list[dict]]):
     total, calls, errs = defaultdict(float), defaultdict(int), defaultdict(int)
-    for t in traces.values():
+    for t in paths.values():
         st = self_times(t)
         for s in t:
             seg = segment(s)
@@ -37,7 +38,7 @@ def _per_segment(traces: dict[str, list[dict]]):
             calls[seg] += 1
         for seg in {segment(s) for s in error_origins(t)}:
             errs[seg] += 1
-    n = max(len(traces), 1)
+    n = max(len(paths), 1)
     return {k: v / n for k, v in total.items()}, {k: v / n for k, v in calls.items()}, errs
 
 
@@ -50,15 +51,15 @@ def compare_segments(now: dict[str, list[dict]], ref: dict[str, list[dict]]) -> 
     return sorted(out, key=lambda d: d.delta_ms, reverse=True)
 
 
-def waterfall(trace: list[dict], width: int = 40) -> list[str]:
-    """瀑布圖（文字版）：每一段一行，依開始時間排，縮排表示誰呼叫誰，長條是在整個請求裡的位置和長度。"""
-    root = root_of(trace)
+def waterfall(path: list[dict], width: int = 40) -> list[str]:
+    """瀑布圖（文字版）：每一段一行，依開始時間排，縮排表示誰呼叫誰，長條是在整個單位裡的位置和長度。"""
+    root = root_of(path)
     t0, total = root["start_ms"], max(root["dur_ms"], 1e-9)
     by_parent: dict[str | None, list[dict]] = defaultdict(list)
-    for s in trace:
+    for s in path:
         if s is not root:
             by_parent[s.get("parent")].append(s)
-    st = self_times(trace)
+    st = self_times(path)
     lines = []
 
     def walk(s, depth):
@@ -88,10 +89,10 @@ class Edge:
         return d[min(len(d) - 1, int(0.95 * len(d)))] if d else 0.0
 
 
-def topology(traces: dict[str, list[dict]]) -> list[Edge]:
-    """從 trace 畫出服務之間誰呼叫誰：
-    - 子 span 的服務跟父 span 不同 → 父的服務呼叫子的服務（例如 mes-api → wip-worker）
-    - 往外呼叫、底下沒有別的服務接（資料庫、外部 API）→ 服務呼叫那個對象（例如 wip-worker → oracle）
+def topology(paths: dict[str, list[dict]]) -> list[Edge]:
+    """從 path 畫出對象之間誰呼叫誰（IT：服務；工廠：前後站）：
+    - 子 span 的對象跟父 span 不同 → 父的對象呼叫子的（例如 mes-api → wip-worker）
+    - 往外呼叫、底下沒有別的對象接（資料庫、外部 API）→ 對象呼叫那個目標（例如 wip-worker → oracle）
     """
     edges: dict[tuple[str, str], Edge] = {}
 
@@ -101,7 +102,7 @@ def topology(traces: dict[str, list[dict]]) -> list[Edge]:
         e.errors += bool(s["error"])
         e.durations.append(s["dur_ms"])
 
-    for t in traces.values():
+    for t in paths.values():
         by_id = {s["span_id"]: s for s in t}
         has_child = {s["parent"] for s in t if s.get("parent")}
         for s in t:
@@ -142,7 +143,7 @@ def log_pattern(message: str) -> str:
 
 @dataclass
 class PatternDiff:
-    service: str
+    entity: str        # 哪個對象的 log（log 列的 service 欄）
     pattern: str
     now: int
     ref: int
@@ -187,10 +188,10 @@ class Common:
         return self.ref_share == 0
 
 
-def _dims_of(trace: list[dict], res_keys, attr_keys) -> set[tuple[str, str]]:
-    """一個請求帶的 (看什麼, 值)：resource（Pod、版本、節點）每個 span 的都看、值帶服務名；attributes（業務 ID、SQL）看每個 span。"""
+def _dims_of(path: list[dict], res_keys, attr_keys) -> set[tuple[str, str]]:
+    """一個單位帶的 (看什麼, 值)：resource（Pod、版本、節點）每個 span 的都看、值帶對象名；attributes（業務 ID、SQL）看每個 span。"""
     out = set()
-    for s in trace:
+    for s in path:
         res, attrs = s.get("resource") or {}, s.get("attrs") or {}
         for k in res_keys:
             v = get_field(res, k)
@@ -204,10 +205,11 @@ def _dims_of(trace: list[dict], res_keys, attr_keys) -> set[tuple[str, str]]:
 
 
 def commonality(now: dict[str, list[dict]], ref: dict[str, list[dict]], *, res_keys=("k8s.pod.name", "service.version", "k8s.node.name"),
-                attr_keys=("lot.id", "db.statement"), min_share: float = 0.6, min_lift: float = 2.0, min_traces: int = 5) -> list[Common]:
-    """慢的請求有什麼共同點：出事時抽的那批（最慢的）vs 平常那批，哪個值在慢的裡面占 ≥ min_share、而且是平常的 ≥ min_lift 倍。
-    只有 1 個 Pod 的服務，Pod 這一項兩邊都 100%，不會被列；沒有平常那批就不算（分不出是集中還是本來就只有一個值）。"""
-    if len(now) < min_traces or not ref:
+                attr_keys=("lot.id", "db.statement"), min_share: float = 0.6, min_lift: float = 2.0, min_paths: int = 5) -> list[Common]:
+    """慢的單位有什麼共同點：出事時抽的那批（最慢的）vs 平常那批，哪個值在慢的裡面占 ≥ min_share、而且是平常的 ≥ min_lift 倍。
+    只有 1 個 Pod 的服務，Pod 這一項兩邊都 100%，不會被列；沒有平常那批就不算（分不出是集中還是本來就只有一個值）。
+    min_paths：rca.yaml 的 commonality.min_traces。"""
+    if len(now) < min_paths or not ref:
         return []
     cn, cr = Counter(), Counter()
     for t in now.values():
@@ -244,15 +246,15 @@ def classify_trend(p95s: list[float], now_p95: float) -> dict:
     return out
 
 
-def describe_trend(trend: dict, span_label: str, fmt) -> str:
-    """給報告、結論用的一句話。span_label：例如「1 小時」。"""
+def describe_trend(trend: dict, period_label: str, fmt) -> str:
+    """給報告、結論用的一句話。period_label：例如「1 小時」。"""
     vals = trend.get("p95_ms") or []
     seq = "、".join(fmt(v) for v in vals)
     k = trend.get("kind")
     if k == "gradual":
-        return f"出事前 {span_label}的 p95 一路往上（{seq}）→ **慢慢惡化**：像容量不夠、洩漏、資料量長大，不是一下壞的"
+        return f"出事前 {period_label}的 p95 一路往上（{seq}）→ **慢慢惡化**：像容量不夠、洩漏、資料量長大，不是一下壞的"
     if k == "sudden":
-        return f"出事前 {span_label}的 p95 都在 {fmt(median(vals))} 左右（{seq}），出事時 {fmt(trend['now_p95_ms'])} → **突然**：像換版、改設定、依賴掛掉"
+        return f"出事前 {period_label}的 p95 都在 {fmt(median(vals))} 左右（{seq}），出事時 {fmt(trend['now_p95_ms'])} → **突然**：像換版、改設定、依賴掛掉"
     if k == "mixed":
-        return f"出事前 {span_label}的 p95 起伏（{seq}），看不出是突然還是慢慢惡化"
-    return f"出事前 {span_label}的 trace 不夠（{seq or '沒有'}），看不出趨勢"
+        return f"出事前 {period_label}的 p95 起伏（{seq}），看不出是突然還是慢慢惡化"
+    return f"出事前 {period_label}的{plugin.path_label()}不夠（{seq or '沒有'}），看不出趨勢"

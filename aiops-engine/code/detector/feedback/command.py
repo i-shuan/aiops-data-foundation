@@ -325,7 +325,7 @@ def cmd_incident(cfg: dict, args) -> int:
     tz = cfg.get("train", {}).get("timezone", "Asia/Taipei")
     local = lambda x: (pd.Timestamp(x).tz_localize(tz) if pd.Timestamp(x).tzinfo is None else pd.Timestamp(x)).isoformat()   # 沒寫時區的當台北時間
     doc = {"@timestamp": now.isoformat(), "title": args.title, "start": local(args.start),
-           "end": local(args.end), "services": args.service or [], "severity": args.severity,
+           "end": local(args.end), "services": args.entity or [], "severity": args.severity,
            "status": "open", "root_cause": args.root_cause, "action": args.action_taken, "by": args.by,
            "anomaly_ids": args.anomaly or []}
     doc = {k: v for k, v in doc.items() if v not in (None, "", [])}

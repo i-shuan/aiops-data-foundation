@@ -1,4 +1,4 @@
-# 跟兄弟比（同儕比較）：同一個服務的 Pod 互相比，抓「只有一個 Pod 壞掉」（detector/peer.py）。
+# 跟兄弟比（同儕比較）：同一個服務的 Pod 互相比，抓「只有一個 Pod 壞掉」（plugins/observability/peer/peer.py）。
 # 不用歷史、不用學；每次看最近 window 這段時間，每個 Pod 算一個值，跟同組其他 Pod 的中位數比。
 #
 # 每個檢查：

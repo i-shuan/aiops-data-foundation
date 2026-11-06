@@ -8,7 +8,8 @@ from unittest import mock
 from core import plugin
 from sources import spans_by_id, spans_of
 from sources import traces as T
-from detector import owner as O, trace_merge as M
+from detector import owner as O
+from plugins.observability.trace import trace_merge as M
 from sources.es_aggs import _bucket_events, _bucket_value, _value_aggs, value_kind
 from investigator.rca import queries as E
 
@@ -72,7 +73,7 @@ class ApmSpanTest(unittest.TestCase):
 
     def test_merge_builds_the_same_document_as_from_otel(self):
         spans = [T.to_span(d) for d in (TX, HTTP, APP, DB)]
-        index, doc = M.build(spans, datetime(2026, 11, 2, 1, 5, tzinfo=timezone.utc))
+        index, doc = T.merged_doc(spans, datetime(2026, 11, 2, 1, 5, tzinfo=timezone.utc))
         self.assertEqual(index, "traces-merged-it-2026.11.02")     # group 用 labels.group
         self.assertEqual(doc["root"], {"service": "mes-api", "name": "GET /lots/{id}", "kind": "Server", "error": False})
         self.assertEqual([e["span_id"] for e in doc["entries"]], ["tx1"])
@@ -213,14 +214,14 @@ class SourceProfileTest(unittest.TestCase):
         self.assertEqual([l["message"] for l in logs], ["Connection pool timeout", "ORA-12170: TNS:Connect timeout"])
         self.assertEqual(logs[0]["trace_id"], "t1")
 
-    def test_logs_of_traces_apm_uses_trace_dot_id(self):
+    def test_logs_of_paths_apm_uses_trace_dot_id(self):
         class Fake:
             def search(self, index, body):
                 self.body = body
                 return {"hits": {"hits": []}}
         es = Fake()
         with mock.patch.dict(os.environ, {"AIOPS_SOURCE": "apm"}):
-            E.logs_of_traces(es, "logs-apm.app.*", ["t1"], datetime(2026, 11, 2, tzinfo=timezone.utc), datetime(2026, 11, 2, 1, tzinfo=timezone.utc))
+            E.logs_of_paths(es, "logs-apm.app.*", ["t1"], datetime(2026, 11, 2, tzinfo=timezone.utc), datetime(2026, 11, 2, 1, tzinfo=timezone.utc))
         self.assertIn({"terms": {"trace.id": ["t1"]}}, es.body["query"]["bool"]["filter"])
         self.assertIn("error.exception.message", es.body["fields"])
 

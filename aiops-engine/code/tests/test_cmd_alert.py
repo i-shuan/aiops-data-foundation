@@ -33,7 +33,7 @@ class CallEdges(unittest.TestCase):
     def test_edges_between_candidate_services_only(self):
         ids = {"mes-api": ["t1"], "wip-worker": ["t1"], "mes-report": ["t2"]}
         asked = []
-        with mock.patch.object(CH.E, "service_trace_ids", side_effect=lambda es, ix, s, a, b, n: (asked.append(s), ids.get(s, []))[1]), \
+        with mock.patch.object(CH, "service_trace_ids", side_effect=lambda es, ix, s, a, b, n: (asked.append(s), ids.get(s, []))[1]), \
              mock.patch.object(CH, "spans_of", return_value=self.SPANS) as spans_of:
             edges = CH.call_edges("es", {"indices": {"traces": "traces-*"}}, {"mes-api", "wip-worker", "mes-report"}, T0, T0 + timedelta(hours=1), per=50)
         self.assertEqual(edges, {("mes-api", "wip-worker")})       # oracle 不是候選服務；mes-report 沒人呼叫、也沒呼叫誰
@@ -42,7 +42,7 @@ class CallEdges(unittest.TestCase):
 
     def test_fewer_than_two_services_or_no_traces(self):
         self.assertEqual(CH.call_edges("es", {}, {"mes-api"}, T0, T0), set())
-        with mock.patch.object(CH.E, "service_trace_ids", return_value=[]):
+        with mock.patch.object(CH, "service_trace_ids", return_value=[]):
             self.assertEqual(CH.call_edges("es", {"indices": {"traces": "traces-*"}}, {"mes-api", "wip-worker"}, T0, T0), set())
 
 
@@ -175,7 +175,7 @@ class RerunWithoutTrace(unittest.TestCase):
     def test_too_soon_after_last_try(self):
         self.assertFalse(C.needs_rerun(self.al(report_at=(self.NOW - timedelta(seconds=60)).isoformat()), self.NOW, self.ACFG))
 
-    def test_has_trace_no_rerun(self):
+    def test_has_paths_no_rerun(self):
         self.assertFalse(C.needs_rerun(self.al(findings={"requests": {"requests": 120}}), self.NOW, self.ACFG))
 
     def test_stops_after_max_attempts(self):

@@ -1,11 +1,11 @@
-"""trace 合成一筆（detector/trace_merge.py）：文件長什麼樣、入口怎麼挑、index 依 group 與日期、從合成的讀回來跟原本一樣。
+"""trace 合成一筆（sources/traces.merged_doc、plugins/observability/trace/trace_merge.py）：文件長什麼樣、入口怎麼挑、index 依 group 與日期、從合成的讀回來跟原本一樣。
 不連 ES（docs/pdca/phase1-collect/2026-10-trace-merge.md）。"""
 import unittest
 from datetime import datetime, timezone
 
 from sources import spans_by_id, spans_of
 from sources import traces as T
-from detector import trace_merge as M
+from plugins.observability.trace import trace_merge as M
 
 T0 = 1_793_400_000_000.0   # 2026-10-31T00:00:00Z 附近（毫秒）
 
@@ -25,7 +25,7 @@ def a_trace():
 
 class BuildTest(unittest.TestCase):
     def test_summary_and_index(self):
-        index, doc = M.build(a_trace(), datetime(2026, 10, 31, 1, 0, tzinfo=timezone.utc))
+        index, doc = T.merged_doc(a_trace(), datetime(2026, 10, 31, 1, 0, tzinfo=timezone.utc))
         self.assertEqual(index, f"traces-merged-it-{datetime.fromtimestamp(T0 / 1000, timezone.utc):%Y.%m.%d}")
         self.assertEqual(doc["trace_id"], "t1")
         self.assertEqual((doc["group"], doc["dept"]), ("it", "D3120"))
@@ -39,20 +39,20 @@ class BuildTest(unittest.TestCase):
     def test_entries_are_server_consumer_and_parentless(self):
         spans = a_trace() + [span("e", None, "worker", "SELECT X", "Client", 40, 5, target="pg"),   # 沒有上一層：也算入口
                              span("f", "a", "mes-api", "consume", "Consumer", 50, 5)]
-        _, doc = M.build(spans, datetime.now(timezone.utc))
+        _, doc = T.merged_doc(spans, datetime.now(timezone.utc))
         self.assertEqual(sorted(e["span_id"] for e in doc["entries"]), ["a", "c", "e", "f"])
         e = next(x for x in doc["entries"] if x["span_id"] == "c")
         self.assertEqual((e["service"], e["name"], e["kind"], e["duration_ms"], e["error"]), ("wip-worker", "GET /wip", "Server", 200, False))
 
     def test_duration_covers_children_that_end_later(self):
         spans = [span("a", None, "s", "GET /x", "Server", 0, 100), span("b", "a", "s", "bg", "Internal", 50, 200)]
-        _, doc = M.build(spans, datetime.now(timezone.utc))
+        _, doc = T.merged_doc(spans, datetime.now(timezone.utc))
         self.assertEqual(doc["duration_ms"], 250)
 
     def test_group_falls_back_to_unassigned(self):
         s = span("a", None, "s", "GET /x", "Server", 0, 1)
         s["resource"] = {"service.name": "s"}
-        index, doc = M.build([s], datetime.now(timezone.utc))
+        index, doc = T.merged_doc([s], datetime.now(timezone.utc))
         self.assertTrue(index.startswith("traces-merged-unassigned-"))
         self.assertIsNone(doc["dept"])
 
@@ -60,7 +60,7 @@ class BuildTest(unittest.TestCase):
 class RoundTripTest(unittest.TestCase):
     def test_from_merged_gives_back_the_same_spans(self):
         spans = a_trace()
-        _, doc = M.build(spans, datetime.now(timezone.utc))
+        _, doc = T.merged_doc(spans, datetime.now(timezone.utc))
         back = T.from_merged(doc)
         self.assertEqual(len(back), 4)
         for orig, got in zip(sorted(spans, key=lambda s: s["start_ms"]), back):
@@ -85,7 +85,7 @@ class ReadersTest(unittest.TestCase):
             return {"hits": {"hits": self.hits, "total": {"value": len(self.hits)}}, "aggregations": {}}
 
     def test_spans_of_merged_index_expands_documents(self):
-        _, doc = M.build(a_trace(), datetime.now(timezone.utc))
+        _, doc = T.merged_doc(a_trace(), datetime.now(timezone.utc))
         es = self.FakeES([{"_id": "t1", "_source": doc}])
         spans = spans_of(es, "traces-merged-*", ["t1"], datetime(2026, 10, 30, tzinfo=timezone.utc), datetime(2026, 11, 1, tzinfo=timezone.utc))
         self.assertEqual(len(spans), 4)
@@ -94,7 +94,7 @@ class ReadersTest(unittest.TestCase):
         self.assertIn({"terms": {"trace_id": ["t1"]}}, body["query"]["bool"]["filter"])
 
     def test_spans_by_id_uses_nested_query(self):
-        _, doc = M.build(a_trace(), datetime.now(timezone.utc))
+        _, doc = T.merged_doc(a_trace(), datetime.now(timezone.utc))
         es = self.FakeES([{"_id": "t1", "_source": doc}])
         got = spans_by_id(es, "traces-merged-*", ["c"], datetime(2026, 10, 30, tzinfo=timezone.utc), datetime(2026, 11, 1, tzinfo=timezone.utc))
         self.assertEqual(list(got), ["c"])
