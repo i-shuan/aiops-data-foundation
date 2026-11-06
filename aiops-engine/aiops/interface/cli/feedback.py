@@ -1,4 +1,4 @@
-"""⑨ 的命令列（掛在 python3 -m detector 底下，名字跟以前一樣）：
+"""⑨ 的命令列（掛在 python3 -m aiops detector 底下，名字跟以前一樣）：
   feedback pending|add|list|summary|suggest|export    值班回饋
   incident add|list|resolve                           事故紀錄
   adjust add|list|approve|remove                      排除時段、重置點、週期放寬

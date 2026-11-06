@@ -124,7 +124,7 @@ def _timezone(cfg: dict) -> str:
     return cfg.get("train", {}).get("timezone", "Asia/Taipei")
 
 
-# ── feedback 的六個子命令：每個一個函式，(cfg, args) 進、回傳碼出（feedback/cli.py 掛成 python3 -m detector feedback <子命令>）──
+# ── feedback 的六個子命令：每個一個函式，(cfg, args) 進、回傳碼出（feedback/cli.py 掛成 python3 -m aiops detector feedback <子命令>）──
 
 def feedback_export(cfg: dict, args) -> int:
     """回饋＋異常合成一列匯出（NDJSON／CSV），給 ML 團隊重訓（工廠版）。"""

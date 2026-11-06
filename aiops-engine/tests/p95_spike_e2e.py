@@ -104,7 +104,7 @@ def load():
 
 
 def run_rules(at: pd.Timestamp):
-    cmd = [sys.executable, "-X", "utf8", "-m", "detector", "rules", "--config", CONFIG, "--at", at.isoformat(), "--only", RULE]
+    cmd = [sys.executable, "-X", "utf8", "-m", "aiops", "detector", "rules", "--config", CONFIG, "--at", at.isoformat(), "--only", RULE]
     r = subprocess.run(cmd, cwd=ENGINE, capture_output=True, text=True, encoding="utf-8", env={**os.environ, "PYTHONUTF8": "1"})
     if r.returncode != 0:
         print(r.stdout[-600:], r.stderr[-600:])

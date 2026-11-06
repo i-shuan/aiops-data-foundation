@@ -39,11 +39,11 @@
 
 ### 調整：調什麼、怎麼調、哪些能調
 
-調整不改統計公式（168 個時段的中位數與 MAD），只改輸入與參數。調整寫進 `aiops-tuning`（也能寫在設定檔），`train`、`detect` 下一輪讀到就生效。`kind` 與來源的定義在 [adjust.py](../../aiops-engine/aiops/service/detect/adjustments.py)，指令選項在 [__main__.py](../../aiops-engine/detector/__main__.py)，範例在 [baseline README](../../aiops-engine/configs/baseline/README.md#調整哪些資料不學從哪裡重新學哪些時段放寬)。
+調整不改統計公式（168 個時段的中位數與 MAD），只改輸入與參數。調整寫進 `aiops-tuning`（也能寫在設定檔），`train`、`detect` 下一輪讀到就生效。`kind` 與來源的定義在 [adjust.py](../../aiops-engine/aiops/service/detect/adjustments.py)，指令選項在 [__main__.py](../../aiops-engine/aiops/interface/cli/detect.py)，範例在 [baseline README](../../aiops-engine/configs/baseline/README.md#調整哪些資料不學從哪裡重新學哪些時段放寬)。
 
 | 要調什麼 | 什麼情況 | 怎麼調 | `kind` |
 |---|---|---|---|
-| 某條序列、某些對象的 `z`、`min_abs`、粒度 `resolution`、`confirm_points`、`instant_z` | 誤報多就放寬，漏報就調低；API 本來就跳動大 | `python3 -m detector tune --series … --match service=^mes- --z 7 --reason …`，或 [series.yaml](../../aiops-engine/configs/baseline/series.yaml) 的 `overrides` | `override` |
+| 某條序列、某些對象的 `z`、`min_abs`、粒度 `resolution`、`confirm_points`、`instant_z` | 誤報多就放寬，漏報就調低；API 本來就跳動大 | `python3 -m aiops detector tune --series … --match service=^mes- --z 7 --reason …`，或 [series.yaml](../../aiops-engine/configs/baseline/series.yaml) 的 `overrides` | `override` |
 | 某段時間的資料不學 | 事故、維護、壓測 | `adjust add --kind exclude_window --start … --end …`；加 `--apply-to train,detect` 連這段也不報 | `exclude_window` |
 | 某個時間點以前的歷史不學 | 換版、架構調整 | `adjust add --kind reset_point --at …`；之後 24 小時（`--warmup`）不判斷 | `reset_point` |
 | 週期性時段放寬 | 月底報表批次 | `adjust add --kind recurring_override --cron "0 20 * * *" --duration 4h --days-of-month -1 --z 8`；`--mute` 這段不報 | `recurring_override` |
@@ -82,7 +82,7 @@
 | 回饋網頁（預設） | engine api 的 `GET /feedback?alert=<alert_id>&full=1`：先看根因全文、再填；Grafana 儀表板 `aiops-feedback`、通知的 `feedback` 連結都指到這裡；開著的件最上面有「重跑根因分析」（`POST /rca`） | `aiops-feedback`、`aiops-incidents`（重跑：`aiops-alerts` 的報告換新） |
 | 漏報網頁（預設） | `GET /missed`、`POST /missed`：選序列、填服務、時間、署名；寫的文件、`_id` 跟指令 `feedback add --verdict missed` 一樣 | `aiops-feedback` |
 | Grafana 外掛表單（選用） | 儀表板 `aiops-feedback-forms`（chart `plugin.enabled: true` 才載入），Business Forms 外掛 6.3.1；預填 `GET /api/alert`、送出 `POST /api/feedback`；漏報面板 `POST /api/missed`；重跑面板 `POST /api/rca`；要設 `API_CORS_ORIGIN` | 同上 |
-| 指令 | `python3 -m detector` 的 `feedback`（`add`、`pending`、`list`、`summary`、`suggest`）、`incident`（`add`、`list`、`resolve`）、`backtest`、`adjust`（`approve`）、`metrics`；漏報用 `feedback add --verdict missed --series … --match service=… --at …` | `aiops-feedback`、`aiops-incidents`、`aiops-tuning` |
+| 指令 | `python3 -m aiops detector` 的 `feedback`（`add`、`pending`、`list`、`summary`、`suggest`）、`incident`（`add`、`list`、`resolve`）、`backtest`、`adjust`（`approve`）、`metrics`；漏報用 `feedback add --verdict missed --series … --match service=… --at …` | `aiops-feedback`、`aiops-incidents`、`aiops-tuning` |
 
 ### 跟 aiops-* 索引的欄位的關係
 

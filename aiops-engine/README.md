@@ -8,11 +8,11 @@
 | `configs/` | 各情境的設定檔（[baseline](configs/baseline/README.md)、[rca](configs/rca/README.md)、[schedule](configs/schedule/schedule.yaml)、`apm/`、`factory/`、`metrics_only/`） |
 | `tests/` | 單元測試與 e2e（e2e 要測試用的 ES） |
 | `Dockerfile`、`requirements.txt` | 一個 image 裝全部，`ENTRYPOINT python3 -m`，`args` 給套件名和指令 |
-| `detector/`、`investigator/`、`scheduler/`、`tasks/`、`api/` | 各只有 2 行的相容入口（排程表、helm 的 `python3 -m detector …` 不用改），真正的程式都在 `aiops/` |
+| 入口 | 只有一個：`python3 -m aiops <detector\|investigator\|scheduler\|tasks\|api> …`（[aiops/__main__.py](aiops/__main__.py)）；排程表（`configs/*/schedule.yaml`）和 helm 的 `args` 第一個字都是 `aiops` |
 | `interfaces/`、`fake-data/` | 要別人提供的資料的格式說明、假資料 |
 | `helmchart/` | 一個 image、一份 values，`mode` 選：**`single`** 一隻 pod 兩個 container（`scheduler` 自己跑定期工作、`api`）；**`distributed`** Superset 式：`aiops-api`、`aiops-beat`（只丟工作）、`aiops-worker-realtime／alert／batch`、`aiops-redis`。Service `aiops-api:8080` |
 
-本機跑：`cd aiops-engine && python3 -m detector <指令>`、`python3 -m investigator investigate`；單元測試 `python3 -m pytest -q`。
+本機跑：`cd aiops-engine && python3 -m aiops detector <指令>`、`python3 -m aiops investigator investigate`；單元測試 `python3 -m pytest -q`。
 
 ## 怎麼上
 
@@ -35,7 +35,7 @@ kubectl -n aiops logs deploy/aiops-engine -c scheduler -f | grep '\[scheduler\]'
 - LLM：`values.yaml` 的 `llm.provider`（`template` 不叫模型）、`llm.model`（空的用程式預設 openai `gpt-4o-mini`、anthropic `claude-sonnet-4-5`）、`llm.baseUrl`（內網閘道，不含 `/v1`）放 ConfigMap `aiops-env`；`llm.apiKey` 由 chart 建成 Secret `aiops-llm`。**key 只寫在 `values-local.yaml`**（`.gitignore` 擋掉），`values.yaml` 永遠留空。改了重跑 helm，pod 會自己重啟（`checksum/env`）。
 - 設定檔要跟 image 裡的不一樣：`--set-file configOverrides.baseline.series=aiops-engine/configs/baseline/series.yaml`（掛在 `/app/configs/baseline/series.yaml`）；排程表是 `configOverrides.schedule.schedule`。
 - **換 ES key 要重啟 pod**（`kubectl -n aiops rollout restart deploy/aiops-engine`）：環境變數是 pod 起來時讀的，不像以前每個 CronJob 每分鐘重讀。
-- 手動跑一次某個工作（例如剛部署要先有 baseline）：`kubectl -n aiops exec deploy/aiops-engine -c scheduler -- python3 -m scheduler --config configs/schedule/schedule.yaml --run train`。
+- 手動跑一次某個工作（例如剛部署要先有 baseline）：`kubectl -n aiops exec deploy/aiops-engine -c scheduler -- python3 -m aiops scheduler --config configs/schedule/schedule.yaml --run train`。
 
 ## 部署模式：一隻 pod，或 api／beat／worker
 
@@ -59,7 +59,7 @@ kubectl -n aiops logs deploy/aiops-worker-alert -f | grep '\[scheduler\]'  # 工
 
 佇列三個（`schedule.yaml` 每個工作的 `queue`）：`realtime` 每幾分鐘的（rules、detect、trace-merge、ingest、peer、trace-*、quality、paths-merge）、`alert` 收斂＋根因（**固定 1 份、concurrency 1**，chart 擋著：兩筆異常同時進來才不會各開一件）、`batch` 每天／每週的（train 4Gi、trace-train、chronic、prune、shift）。`alert` 跑太慢只會晚一點，不會重複開件。
 
-## API（`python3 -m api`，Service `aiops-api`）
+## API（`python3 -m aiops api`，Service `aiops-api`）
 
 畫面全在 Grafana（[grafana/](../grafana/README.md)），api 只收請求。端點清單在 [aiops/interface/web/__init__.py](aiops/interface/web/__init__.py)：
 
@@ -75,7 +75,7 @@ kubectl -n aiops logs deploy/aiops-worker-alert -f | grep '\[scheduler\]'  # 工
 
 ## 排程：第一階段只開 4 個
 
-排程器（`python3 -m scheduler`）每分鐘醒來一次，照 [`configs/schedule/schedule.yaml`](configs/schedule/schedule.yaml) 把該跑的工作各開一個子行程（`python3 -m <args>`；分散模式加 `--enqueue` 就只丟進佇列）。行為跟原本的 K8s CronJob 一樣：同一個工作上一次沒跑完就跳過這次、超過 `timeout` 砍掉、錯過的分鐘不補跑、時區 Asia/Taipei、每天／每週的失敗在同一次內重試 2 次（每幾分鐘的不重試，下一輪就是重試）。一個工作卡住不影響別的（各自一條執行緒）。
+排程器（`python3 -m aiops scheduler`）每分鐘醒來一次，照 [`configs/schedule/schedule.yaml`](configs/schedule/schedule.yaml) 把該跑的工作各開一個子行程（`python3 -m <args>`；分散模式加 `--enqueue` 就只丟進佇列）。行為跟原本的 K8s CronJob 一樣：同一個工作上一次沒跑完就跳過這次、超過 `timeout` 砍掉、錯過的分鐘不補跑、時區 Asia/Taipei、每天／每週的失敗在同一次內重試 2 次（每幾分鐘的不重試，下一輪就是重試）。一個工作卡住不影響別的（各自一條執行緒）。
 
 能跑通「告警 → 回饋 → 調門檻」這一圈的最少集合是 4 個；偵測來源少，第一個月誤報來了容易知道是哪裡出的。四個在真實資料上跑穩、看過一輪誤報，再 `--set scheduler.stage=2` 開其他 6 個（建議順序：quality → peer → trace 三個 → chronic）。
 
@@ -113,7 +113,7 @@ kubectl -n aiops logs deploy/aiops-worker-alert -f | grep '\[scheduler\]'  # 工
 
 ## 先只寫入、不通知
 
-上線前 2～4 週 Grafana 先不接 contact point（或全部送到沒人看的 webhook），讓它跑、累積 `aiops-alerts`、`aiops-feedback`。期間用 `python3 -m detector metrics --from … --to …` 記下基準（每天幾件、誤報率），再開通知。
+上線前 2～4 週 Grafana 先不接 contact point（或全部送到沒人看的 webhook），讓它跑、累積 `aiops-alerts`、`aiops-feedback`。期間用 `python3 -m aiops detector metrics --from … --to …` 記下基準（每天幾件、誤報率），再開通知。
 
 ## 驗證過的
 

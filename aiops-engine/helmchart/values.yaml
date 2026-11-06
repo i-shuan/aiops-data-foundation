@@ -14,7 +14,7 @@
 #                （各自 replicas、resources；alert 固定 1 份 concurrency 1）、redis（佇列）。train 跟每分鐘的工作分開跑、api 跟排程分開掛
 #
 # 先只寫入、不通知：Grafana 那邊先不設 contact point（或 policies 全送到一個沒人看的 webhook），跑 2～4 週，
-# 用 python3 -m detector metrics --from … --to … 記下基準，再開通知。
+# 用 python3 -m aiops detector metrics --from … --to … 記下基準，再開通知。
 mode: single
 
 image:

@@ -277,6 +277,14 @@ aiops-engine/
 `grafana/`、`elasticsearch/` 的 `code/` 沒動（那是它們自己的結構）。Python 套件名 `aiops` 沒改（改了所有 import 都要動）。
 Check：`pytest` 764 過、`check-docs` 0 問題、`chain_e2e` 26/26、`factory_e2e` 15/15（都在新位置 `aiops-engine/` 底下跑）。沒實際 `docker build`（Dockerfile 的 COPY 路徑沒變，因為 build context 本來就是 code/ 那一層）。
 
+### 事後調整二：刪掉五個相容入口資料夾（2026-11-06）
+
+使用者問 `aiops-engine/` 第一層的檔案是不是跟 `aiops/` 重複。實際檢查：`detector/ investigator/ scheduler/ tasks/ api/` 每個只有 `__init__.py` 和 7～17 行的 `__main__.py`（轉呼叫 `aiops.interface.*`），沒有重複的邏輯，但是多餘的一層。
+刪掉，改成單一入口 `aiops/__main__.py`：`python3 -m aiops <detector|investigator|scheduler|tasks|api> …`。同步改：四張排程表的 `args`（第一個字加 `aiops`）、helm 的 `args`（deployment、distributed、`_helpers.tpl` 的 api）、Dockerfile（拿掉五個 COPY，`CMD` 改 `aiops detector --help`）、e2e 腳本的子行程指令、`test_cli`／`test_scheduler`／`test_deploy`／`test_tasks` 的預期值，以及文件和 docstring 裡約 100 處 `python3 -m detector …` → `python3 -m aiops detector …`（PDCA 紀錄的舊指令是當時措辭，不改）。
+子命令名稱（`train`、`detect`、`alert`…）沒變，`interfaces/`、`fake-data/` 是資料與說明文件，不重複，留著。
+部署影響：已部署的環境升版時，chart 與 image 要一起升（舊 chart 的 `args: ["scheduler", …]` 在新 image 找不到 `scheduler` 模組）。
+Check：`pytest` 764 過、`check-docs` 0 問題；`python3 -m aiops`、`aiops detector --help`、`aiops scheduler --list` 手動確認；e2e 見下。
+
 ## Check：預計要驗證的
 
 | 測試目的（為了確認什麼） | 怎麼測 | 結果 |

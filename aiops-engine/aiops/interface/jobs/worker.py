@@ -1,9 +1,9 @@
 """佇列（Celery）：beat 把排程表的工作丟進來、api 把 alert 丟進來，worker 拿去跑（docs/pdca/meta/2026-11-api-beat-worker.md）。
 
 角色跟 Superset 一樣：
-  beat    python3 -m scheduler --config … --enqueue        每分鐘照排程表丟工作，自己不跑；只能 1 份
-  worker  python3 -m tasks worker --queue realtime [-c 2]  從一個佇列拿工作跑；可以多份（alert 佇列固定 1 份、concurrency 1）
-  api     python3 -m api                                   POST /api/anomalies、/api/rca 後丟一個 alert 工作
+  beat    python3 -m aiops scheduler --config … --enqueue        每分鐘照排程表丟工作，自己不跑；只能 1 份
+  worker  python3 -m aiops tasks worker --queue realtime [-c 2]  從一個佇列拿工作跑；可以多份（alert 佇列固定 1 份、concurrency 1）
+  api     python3 -m aiops api                                   POST /api/anomalies、/api/rca 後丟一個 alert 工作
 佇列：realtime（每幾分鐘的）、alert（收斂，單一消費者）、batch（每天、每週的；吃資源）。工作本身就是「開子行程跑 python3 -m <args>」
 （scheduler.runner.run_once），detector／investigator 的子命令一行不用改。
 環境變數 AIOPS_BROKER_URL（redis://aiops-redis:6379/0）；沒設就是一隻 pod 的模式，enqueue／trigger 不做事、回 False。
@@ -89,7 +89,7 @@ def trigger(name: str, stage: int = 2) -> bool:
 
 
 def worker_main(argv: list[str]) -> int:
-    """python3 -m tasks worker --queue realtime [--concurrency 2]：起一個只吃那個佇列的 worker。
+    """python3 -m aiops tasks worker --queue realtime [--concurrency 2]：起一個只吃那個佇列的 worker。
     pool 用 threads：工作是等子行程，不吃 Python 的 CPU；Windows 也能跑。"""
     p = argparse.ArgumentParser(prog="tasks worker")
     p.add_argument("--queue", "-Q", default=DEFAULT_QUEUE, choices=QUEUES)

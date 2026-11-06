@@ -1,18 +1,18 @@
 """用法（在 aiops 底下）：
 
   # 從 baseline 找到的異常開始（最近 30 分鐘裡最嚴重的那個服務）
-  python3 -m investigator investigate --config configs/rca/rca.yaml
+  python3 -m aiops investigator investigate --config configs/rca/rca.yaml
   # 指定服務、API、時間
-  python3 -m investigator investigate --config configs/rca/rca.yaml --service mes-api --route "GET /lots/{id}" \\
+  python3 -m aiops investigator investigate --config configs/rca/rca.yaml --service mes-api --route "GET /lots/{id}" \\
       --start 2026-10-10T02:00:00Z --end 2026-10-10T02:15:00Z
   # 服務之間的呼叫關係
-  python3 -m investigator topology --config configs/rca/rca.yaml --window 1h
+  python3 -m aiops investigator topology --config configs/rca/rca.yaml --window 1h
   # 事件整合：最近的異常合成一件、新的那件跑根因分析，寫 aiops-alerts（Grafana 讀它發通知）。每 1～2 分鐘跑一次
-  python3 -m investigator alert --config configs/rca/rca.yaml [--at …]
+  python3 -m aiops investigator alert --config configs/rca/rca.yaml [--at …]
   # 相似事故檢索的評測（留一法 recall@3）
-  python3 -m investigator similar-eval --config configs/rca/rca.yaml
+  python3 -m aiops investigator similar-eval --config configs/rca/rca.yaml
   # 歷史事故單匯入（CSV 或 JSON，欄位＝aiops-incidents；--dry-run 只檢查不寫）
-  python3 -m investigator import-incidents configs/rca/incidents-example.csv [--tz Asia/Taipei] [--dry-run]
+  python3 -m aiops investigator import-incidents configs/rca/incidents-example.csv [--tz Asia/Taipei] [--dry-run]
 
 investigate 照「Metrics 發現異常 → Trace 縮小到哪一段 → Log 找出原因」的順序查，印出一份 Markdown 報告；報告有哪幾段由 plugin 決定
 （service/rca/report.py、Scenario.sections）。--out 另存成檔案。

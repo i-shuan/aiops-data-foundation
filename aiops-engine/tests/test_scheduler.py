@@ -152,7 +152,8 @@ class ScheduleFileTest(unittest.TestCase):
         _, jobs = load_schedule(SCHEDULE, 2)
         for j in jobs:
             self.assertGreater(j.timeout, 0, j.name)
-            self.assertIn(j.args[0], ("detector", "investigator"), j.name)
+            self.assertEqual(j.args[0], "aiops", j.name)
+            self.assertIn(j.args[1], ("detector", "investigator"), j.name)
             cfg = j.args[j.args.index("--config") + 1]
             self.assertTrue(os.path.isfile(os.path.join(HERE, "..", cfg)), f"{j.name}：{cfg} 不存在")
 

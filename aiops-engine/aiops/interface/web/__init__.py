@@ -1,7 +1,7 @@
 """engine 的 API（沒有頁面的薄 API，畫面在 Grafana；docs/pdca/meta/2026-11-api-beat-worker.md）＋老師傅回饋的備用網頁
 （docs/pdca/phase5-learning-loop/2026-10-expert-feedback.md；Grafana 的 Business Forms 外掛裝不起來時用）。
 
-python3 -m api  （環境變數 ES_URL、ES_API_KEY；API_PORT 預設 8080；API_CORS_ORIGIN 允許哪些網頁打 /api/*；AIOPS_API_TOKEN 寫入類端點的 token）
+python3 -m aiops api  （環境變數 ES_URL、ES_API_KEY；API_PORT 預設 8080；API_CORS_ORIGIN 允許哪些網頁打 /api/*；AIOPS_API_TOKEN 寫入類端點的 token）
   POST /api/anomalies   {"input": "ml", "rows": [...]}：ML／FDC 把判好的異常推進 ⑤（跟 detector ingest 同一套對照，configs/<plugin>/ingest.yaml 的 inputs）；
                         要 Authorization: Bearer <AIOPS_API_TOKEN>；有佇列（AIOPS_BROKER_URL）就立刻丟一個 alert 工作、幾秒內開件
   POST /api/rca         {"alert_id": "..."}：在開著的那件上標 rca_requested，下一輪 alert 強制重跑根因分析（Grafana 的「重跑根因分析」按鈕打它）

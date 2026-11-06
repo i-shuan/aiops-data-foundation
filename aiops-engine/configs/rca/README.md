@@ -25,28 +25,28 @@ export ES_URL=https://<es>:9200
 export ES_API_KEY=<baseline 的 key>      # kibana-dev-tools.txt 第 3 段發的 engine key：能讀 log、trace、aiops-*
 
 # 從 baseline 找到的異常開始：最近 30 分鐘裡最嚴重的那個服務
-python3 -m investigator investigate --config configs/rca/rca.yaml
+python3 -m aiops investigator investigate --config configs/rca/rca.yaml
 
 # 指定服務、API、時間
-python3 -m investigator investigate --config configs/rca/rca.yaml --service mes-api --route "GET /lots/{id}" \
+python3 -m aiops investigator investigate --config configs/rca/rca.yaml --service mes-api --route "GET /lots/{id}" \
     --start 2026-10-10T02:00:00Z --end 2026-10-10T02:15:00Z --out report.md
 
 # 服務之間的呼叫關係（最近 1 小時、最近 2,000 個請求）
-python3 -m investigator topology --config configs/rca/rca.yaml --window 1h
+python3 -m aiops investigator topology --config configs/rca/rca.yaml --window 1h
 
 # 事件整合：最近的異常依服務合成一件、新的那件跑一次根因分析＋相似事故＋LLM 摘要，寫 aiops-alerts（Grafana 讀它發通知）
 # 要定期跑，建議每 1～2 分鐘（rules、detect 之後）；排程見 deploy/
-python3 -m investigator alert --config configs/rca/rca.yaml
+python3 -m aiops investigator alert --config configs/rca/rca.yaml
 
 # 相似事故檢索的評測：留一法 recall@3（每件已確認的事故輪流當新的，同一個根因分類有沒有排進前 3）
-python3 -m investigator similar-eval --config configs/rca/rca.yaml
+python3 -m aiops investigator similar-eval --config configs/rca/rca.yaml
 
 # 歷史事故單匯入 aiops-incidents（CSV 或 JSON；--dry-run 只檢查哪幾筆會略過、不寫）；格式見下面「匯入歷史事故單」
-python3 -m investigator import-incidents configs/rca/incidents-example.csv --dry-run
-python3 -m investigator import-incidents <你的事故單.csv>
+python3 -m aiops investigator import-incidents configs/rca/incidents-example.csv --dry-run
+python3 -m aiops investigator import-incidents <你的事故單.csv>
 
 # 老師傅的回饋入口（通知裡的連結點進來填；寫 aiops-feedback、aiops-incidents）
-API_PORT=8080 python3 -m api
+API_PORT=8080 python3 -m aiops api
 ```
 
 ### 事件整合（`alert`）
@@ -69,7 +69,7 @@ API_PORT=8080 python3 -m api
 - 新的那件跑一次 `investigate`：結論寫進 `summary`（Grafana 通知帶這個）、全文存 `report`；結構化結果存 `findings`（慢在哪一段、錯從哪開始、新 log 樣式），也拿來算這件的**指紋**，寫一筆 `aiops-incidents`（`status: auto`）。
 - **告警分類**（`alerts.similar`，[investigator/similar.py](../../aiops/service/rca/similar.py)）：用指紋（服務、API、慢的那段、錯的源頭、異常的指標組合、新 log 樣式）去 `aiops-incidents` 找老師傅**確認過的**（`confirmed`、`corrected`）最像的 3 件，以分數投票說這件**像哪一類**（db、network、config_change…）＋信心，寫進 `suggested_category`、`category_confidence`；報告最前面一段只列分類和那幾件的日期、分類、標題、**為什麼像**。**不列當時的根因、處置**：程式換版後指紋還對得上、根因可能已經不是那個，根因請看定位（慢在哪一段）。分數不到 4（至少一個強特徵：同一段變慢、同一個錯誤源頭；或同服務＋同指標）就不附、不分類。用 ES 的欄位比對、自己算分，不用向量，看得出為什麼像。通知摘要多一行「分類：像 db 類…」。權重可用 `alerts.similar_weights` 蓋過（`similar-eval --learn-weights` 在 case ≥ 50 件時會建議）。
 - **LLM 摘要**（`alerts.llm`，[core/llm.py](../../aiops/service/rca/llm.py)）：報告最前面三到五句（原因、影響、建議先做什麼），每句結尾附依據的 id（`[A1]` 異常、`[S1]` 慢的那段、`[E1]` 錯誤源頭、`[L1]` log 樣式、`[I1]` 過去事故）；引用了不存在的 id、或有一句沒依據，**整段不顯示**（程式檢查）。模型掛了退回固定句型（`template`），報告照出。provider 用環境變數 `LLM_PROVIDER`（`template`／`anthropic`／`openai`）或 `alerts.llm_provider` 蓋過；`template` 不叫模型，沒有模型也能跑。`openai` 實測過（`LLM_API_KEY`、`LLM_CHAT_MODEL`，可選 `OPENAI_BASE_URL`）：一件 5～8 秒；`anthropic` 只寫了沒跑過。
-- **回饋連結**：`alerts.feedback_url`、`report_url`（含 `{alert_id}`）寫進每一件，Grafana 通知帶著；指到 [api](../../api/__init__.py)。設了 `feedback_url` 時 `report` 全文最後一行也是回饋網址（Grafana 表格點眼睛看全文，看完就是回饋入口）；回饋頁加 `&full=1` 會把全文放在表單上面。
+- **回饋連結**：`alerts.feedback_url`、`report_url`（含 `{alert_id}`）寫進每一件，Grafana 通知帶著；指到 [api](../../aiops/interface/web/__init__.py)。設了 `feedback_url` 時 `report` 全文最後一行也是回饋網址（Grafana 表格點眼睛看全文，看完就是回饋入口）；回饋頁加 `&full=1` 會把全文放在表單上面。
 - **回饋的一句話抽取**（`core.llm.extract_feedback`，同一個 `LLM_PROVIDER`）：值班在表單寫一句自然語言（「這是每月初的批次匯出報表，屬於預期內負載」），抽成 `feedback_type`（false_positive／true_positive／wrong_root_cause）、`identified_cause`（短代號，如 `scheduled_batch_job`）、`target_service`（預設告警的服務，文字點名別的才覆蓋）、`suggested_action`（`suppress_during_cron`／`widen_threshold`／`add_rule`／`none`）。模型回的要過格式檢查，不過就只存原文；對得到調整種類的寫一筆 `aiops-tuning`（`status: proposed`、`source: feedback`、`reason` 帶原文），**人核准才生效**。解析率用 `python3 -m tests.feedback_extract_eval` 量（26 句語料 `tests/feedback_corpus.yaml`；[pdca/phase5-learning-loop/2026-10-feedback-nl-extract.md](../../../docs/pdca/phase5-learning-loop/2026-10-feedback-nl-extract.md)）。
 - 重跑不會重複：已經在某一件裡的異常、最近結束的件裡的異常都不會再開一次。停了一陣子才跑時，已經過去的件只記錄（`resolved`），不算新開、不會通知。
 
@@ -114,15 +114,15 @@ helm upgrade --install aiops aiops-engine/helmchart -n aiops --set llmProvider=o
 告警分類只拿老師傅確認過的事故投票；系統剛上線時知識庫是空的，先把過去的事故單匯進來。範例 [incidents-example.csv](incidents-example.csv)（10 筆製造業 IT 常見的事故，照格式填）。
 
 ```bash
-python3 -m investigator import-incidents incidents.csv --dry-run    # 先檢查：印出第幾筆缺什麼，不寫
-python3 -m investigator import-incidents incidents.csv              # 寫進 aiops-incidents；印出匯入幾筆、略過幾筆
-python3 -m investigator similar-eval --config configs/rca/rca.yaml  # 匯完量一次：分類準確率、recall@3
+python3 -m aiops investigator import-incidents incidents.csv --dry-run    # 先檢查：印出第幾筆缺什麼，不寫
+python3 -m aiops investigator import-incidents incidents.csv              # 寫進 aiops-incidents；印出匯入幾筆、略過幾筆
+python3 -m aiops investigator similar-eval --config configs/rca/rca.yaml  # 匯完量一次：分類準確率、recall@3
 ```
 
 事故單在資料庫時直接讀（SQL 的欄位別名要跟 CSV 的欄位名一樣；sqlite 不用裝東西，其他要 `pip install sqlalchemy` 和驅動）：
 
 ```bash
-python3 -m investigator import-incidents --db 'postgresql://aiops:${INCIDENTS_DB_PW}@db.example.internal/itsm' --sql "SELECT subject AS title, opened_at AS start, closed_at AS end, services, category AS root_cause_category, root_cause, action, how_detected, checked FROM incidents WHERE closed_at > now() - interval '2 years'"
+python3 -m aiops investigator import-incidents --db 'postgresql://aiops:${INCIDENTS_DB_PW}@db.example.internal/itsm' --sql "SELECT subject AS title, opened_at AS start, closed_at AS end, services, category AS root_cause_category, root_cause, action, how_detected, checked FROM incidents WHERE closed_at > now() - interval '2 years'"
 ```
 
 要定期匯（每天讓分類器多幾票）：`rca.yaml` 加 `incidents_db: {url: …, sql: …}`，排程表加一個 job 跑 `investigator import-incidents --config configs/apm/rca.yaml`；密碼用 `${環境變數}` 寫在 URL 裡，由 Secret 帶進 pod。

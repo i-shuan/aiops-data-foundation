@@ -22,7 +22,7 @@ fails = []
 def check(name, cond, detail=""):
     print(f"  {'PASS' if cond else 'FAIL'}  {name}" + (f"：{detail}" if detail and not cond else "")); fails.append(name) if not cond else None
 def run(*args, quiet=False):
-    r = subprocess.run([PY, "-m", *args], capture_output=True, text=True)
+    r = subprocess.run([PY, "-m", "aiops", *args], capture_output=True, text=True)
     if not quiet: print("    $ " + " ".join(args)); print("    " + r.stdout.strip().replace("\n", "\n    ")[:1500])
     if r.returncode not in (0,) and "backtest" not in args and "approve" not in args: print("    stderr:", r.stderr[-800:])
     return r
@@ -81,7 +81,7 @@ def main():
     print(f"  {len(df)} 筆")
     print("== 1. train（只用前 4 週）")
     run("detector", "train", "--config", SYNTH, "--end", D0.tz_convert("UTC").strftime("%Y-%m-%dT%H:%M:%SZ"), quiet=True)
-    web = subprocess.Popen([PY, "-m", "api"], env={**os.environ, "API_PORT": "18080"}, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+    web = subprocess.Popen([PY, "-m", "aiops", "api"], env={**os.environ, "API_PORT": "18080"}, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
     try:
         for _ in range(30):
             try: get("/health"); break

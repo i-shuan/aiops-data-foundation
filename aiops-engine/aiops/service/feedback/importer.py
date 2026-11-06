@@ -1,7 +1,7 @@
 """歷史事故單匯入（docs/pdca/phase4-rca-llm/2026-10-incident-import.md）。
 
-  python3 -m investigator import-incidents <csv 或 json> [--tz Asia/Taipei] [--dry-run]
-  python3 -m investigator import-incidents --db 'postgresql://user:${PW}@host/db' --sql "SELECT subject AS title, … FROM incidents"
+  python3 -m aiops investigator import-incidents <csv 或 json> [--tz Asia/Taipei] [--dry-run]
+  python3 -m aiops investigator import-incidents --db 'postgresql://user:${PW}@host/db' --sql "SELECT subject AS title, … FROM incidents"
   （或 rca.yaml 寫 incidents_db: {url, sql}，排程定期匯：docs/pdca/meta/2026-11-case-classify.md）
 
 一列一件，欄位就是 aiops-incidents 的（title、start、end、services、root_cause_category、root_cause、action、how_detected、checked；

@@ -223,7 +223,7 @@ engine 一份程式，情境各是一份資料檔加兩個策略（[scenario/bas
 | ⑦ | 報告的每一段（[investigator/report.py](../aiops-engine/aiops/service/rca/report.py)）、M4 分段、共同點、log 樣式、相似事故 | 報告有哪幾段、順序；索引與欄位的對照；用語（請求／lot、Trace／履歷） |
 | ⑧⑨ | Grafana 通知、回饋、匯出 | 回饋表單的分類表、誤報原因 |
 
-程式是一個套件四層（[docs/pdca/meta/2026-11-target-architecture.md](pdca/meta/2026-11-target-architecture.md)）：`core/`（ES 連線；`entity/` 資料物件帶行為；`repository/` 一個實體一個，唯一懂 ES 的地方）→ `scenario/`（情境的資料檔與兩個策略）→ `service/`（一個階段一個資料夾：`detect/` ②③④⑤、`converge/` ⑥⑧、`rca/` ⑦、`feedback/` ⑨）→ `interface/`（`cli/`、`web/`、`jobs/`）；依賴只能往 `interface → service → scenario → core` 走，`tests/test_layers.py` 鎖著。命令列名稱沒變：⑨ 的子命令還是掛在 `python3 -m detector` 底下（`interface/cli/feedback.py`），`detector/__main__.py` 只是 2 行相容入口。
+程式是一個套件四層（[docs/pdca/meta/2026-11-target-architecture.md](pdca/meta/2026-11-target-architecture.md)）：`core/`（ES 連線；`entity/` 資料物件帶行為；`repository/` 一個實體一個，唯一懂 ES 的地方）→ `scenario/`（情境的資料檔與兩個策略）→ `service/`（一個階段一個資料夾：`detect/` ②③④⑤、`converge/` ⑥⑧、`rca/` ⑦、`feedback/` ⑨）→ `interface/`（`cli/`、`web/`、`jobs/`）；依賴只能往 `interface → service → scenario → core` 走，`tests/test_layers.py` 鎖著。命令列入口只有一個：`python3 -m aiops <detector|investigator|scheduler|tasks|api> …`（`aiops/__main__.py`）；⑨ 的子命令掛在 `aiops detector` 底下（`interface/cli/feedback.py`）。
 
 擴充點只開「現在真的有兩種以上做法」的地方，沒有的不預先抽；第四種情境（例如網路設備靠拓樸併件）出現時，寫一份 yaml `extends` 內建的、換掉策略就好。`configs/` 不隨情境搬：情境只決定預設排程表，設定檔仍在 `configs/<情境>/`。
 
@@ -393,7 +393,7 @@ K8s 排程頻率見 [aiops-engine/README.md](../aiops-engine/README.md)；Elasti
 | 想確認什麼 | 跑哪個 | 需要 |
 |---|---|---|
 | 程式邏輯對（不連 ES） | `cd aiops-engine && python3 -m pytest -q` | 無 |
-| engine 讀得到公司的 APM 資料 | `AIOPS_SOURCE=apm python3 -m detector detect --config configs/apm/series.yaml --window 10m`、`python3 -m detector trace-merge --config configs/apm/trace.yaml`（[configs/apm/README.md](../aiops-engine/configs/apm/README.md)） | 公司 ES 的 engine key |
+| engine 讀得到公司的 APM 資料 | `AIOPS_SOURCE=apm python3 -m aiops detector detect --config configs/apm/series.yaml --window 10m`、`python3 -m aiops detector trace-merge --config configs/apm/trace.yaml`（[configs/apm/README.md](../aiops-engine/configs/apm/README.md)） | 公司 ES 的 engine key |
 | 動態基準線抓得到造的異常、誤報多少 | `cd aiops-engine && python3 -m tests.synth_e2e` | 一個 ES |
 | 整個 learning loop 的故事 | `cd aiops-engine && python3 -m tests.loop_e2e` | 一個 ES，約 2 分鐘 |
 | Grafana 一件一則、依 dept | 照 [configs/grafana/README.md](../grafana/README.md) | Grafana 12～13 |

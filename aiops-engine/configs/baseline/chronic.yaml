@@ -1,5 +1,5 @@
 # 慢性病清單（detector/chronic.py）：天天噴錯、沒人修的。baseline 會把它們學成平常、永遠不報，所以另外列出來讓人修。
-# 每週跑一次（例如週一早上）：python3 -m detector chronic --config configs/baseline/chronic.yaml
+# 每週跑一次（例如週一早上）：python3 -m aiops detector chronic --config configs/baseline/chronic.yaml
 # 結果寫 aiops-chronic（每週一份），並印成報告；修掉的下週自然消失。
 
 days: 7          # 看最近幾天

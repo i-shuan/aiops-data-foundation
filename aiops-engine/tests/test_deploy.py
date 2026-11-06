@@ -39,9 +39,9 @@ class EngineChart(unittest.TestCase):
 
     def test_scheduler_runs_stage1_by_default_and_stage2_on_demand(self):
         args = containers(self.docs)["scheduler"]["args"]
-        self.assertEqual(args[:3], ["scheduler", "--config", "configs/schedule/schedule.yaml"])
+        self.assertEqual(args[:4], ["aiops", "scheduler", "--config", "configs/schedule/schedule.yaml"])
         self.assertEqual(args[args.index("--stage") + 1], "1")
-        self.assertEqual(containers(render("--set", "scheduler.stage=2"))["scheduler"]["args"][4], "2")
+        self.assertEqual(containers(render("--set", "scheduler.stage=2"))["scheduler"]["args"][5], "2")
 
     def test_scheduler_liveness_watches_alive_file(self):
         c = containers(self.docs)["scheduler"]
@@ -54,7 +54,7 @@ class EngineChart(unittest.TestCase):
         self.assertEqual(c["scheduler"]["resources"]["limits"]["memory"], "6Gi")
         self.assertEqual(c["api"]["resources"]["limits"]["memory"], "512Mi")
         self.assertEqual(c["api"]["livenessProbe"]["httpGet"]["path"], "/health")
-        self.assertEqual(c["api"]["args"], ["api"])
+        self.assertEqual(c["api"]["args"], ["aiops", "api"])
         self.assertIn({"name": "API_PORT", "value": "8080"}, c["api"]["env"])
         self.assertEqual(self.docs["Service/aiops-api"]["spec"]["ports"][0]["port"], 8080)
         self.assertEqual(self.docs["Secret/aiops-api"]["stringData"], {"AIOPS_API_TOKEN": ""})
@@ -102,7 +102,7 @@ class DistributedChart(unittest.TestCase):
 
     def test_beat_only_enqueues_and_is_single(self):
         beat = containers(self.docs, "aiops-beat")["beat"]
-        self.assertEqual(beat["args"][:3], ["scheduler", "--config", "configs/schedule/schedule.yaml"])
+        self.assertEqual(beat["args"][:4], ["aiops", "scheduler", "--config", "configs/schedule/schedule.yaml"])
         self.assertIn("--enqueue", beat["args"])
         self.assertIn("/tmp/scheduler-alive", " ".join(beat["livenessProbe"]["exec"]["command"]))
         dep = self.docs["Deployment/aiops-beat"]["spec"]
@@ -112,7 +112,7 @@ class DistributedChart(unittest.TestCase):
     def test_workers_per_queue(self):
         for q, conc in (("realtime", "2"), ("alert", "1"), ("batch", "1")):
             w = containers(self.docs, f"aiops-worker-{q}")["worker"]
-            self.assertEqual(w["args"], ["tasks", "worker", "--queue", q, "--concurrency", conc], q)
+            self.assertEqual(w["args"], ["aiops", "tasks", "worker", "--queue", q, "--concurrency", conc], q)
             self.assertIn({"configMapRef": {"name": "aiops-env"}}, w["envFrom"])
         self.assertEqual(containers(self.docs, "aiops-worker-batch")["worker"]["resources"]["limits"]["memory"], "6Gi")   # train 在這
         self.assertEqual(self.docs["Deployment/aiops-worker-alert"]["spec"]["strategy"]["type"], "Recreate")

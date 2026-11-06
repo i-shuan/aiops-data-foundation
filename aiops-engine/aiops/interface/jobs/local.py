@@ -1,12 +1,12 @@
 """用法（在 aiops-engine 底下）：
 
-  python3 -m scheduler --config configs/schedule/schedule.yaml [--stage 1] [--alive-file /tmp/scheduler-alive]
+  python3 -m aiops scheduler --config configs/schedule/schedule.yaml [--stage 1] [--alive-file /tmp/scheduler-alive]
       常駐：每分鐘照排程表跑該跑的工作。--stage 2 連第二階段的也開。
-  python3 -m scheduler --config … --run train
+  python3 -m aiops scheduler --config … --run train
       手動跑一次某個工作（含重試），跑完就結束；exit code 是成功與否。常駐的那個不知道這次（不會互擋），手動跑要自己確認沒在跑。
-  python3 -m scheduler --config … --list
+  python3 -m aiops scheduler --config … --list
       列出會跑的工作與 cron。
-  python3 -m scheduler --config … --enqueue
+  python3 -m aiops scheduler --config … --enqueue
       beat（分散模式，tasks/）：每分鐘照排程表把該跑的工作丟進佇列（AIOPS_BROKER_URL），自己不跑；worker 另外起。只能 1 份。
 
 SIGTERM／SIGINT：不再排新的，等還在跑的結束（pod 的 terminationGracePeriodSeconds 要夠長）。

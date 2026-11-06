@@ -123,8 +123,8 @@
 | 從哪裡調 | 怎麼調 | 什麼時候生效 |
 |---|---|---|
 | 使用者設定 | `series.yaml` 的 `overrides`（`series` 可用正規表示式、`match` 依 keys 比對） | 粒度：下次 train；z、min_abs：下次 detect |
-| 指令 | `python3 -m detector tune --series http.latency_p95_s --match service=^mes-report --resolution 5m --z 7 --reason 誤報多 --by 王小明`，寫進 `aiops-tuning`（`--list` 列出、`--remove` 刪掉） | 同上 |
-| 查生效值 | `python3 -m detector tune --show --series http.latency_p95_s --match service=mes-report-api`（`--match` 給對象的實際值，不是正規表示式）：印 `resolution`、`z`、`min_abs`、`confirm_points`、`instant_z` 各自現在的值與來源（`aiops-tuning` 的 id、`series.yaml overrides#<第幾筆>`、或 `series.yaml 預設`）。值跟 detect 用的同一個函式算，不會兩套 | 不寫入 |
+| 指令 | `python3 -m aiops detector tune --series http.latency_p95_s --match service=^mes-report --resolution 5m --z 7 --reason 誤報多 --by 王小明`，寫進 `aiops-tuning`（`--list` 列出、`--remove` 刪掉） | 同上 |
+| 查生效值 | `python3 -m aiops detector tune --show --series http.latency_p95_s --match service=mes-report-api`（`--match` 給對象的實際值，不是正規表示式）：印 `resolution`、`z`、`min_abs`、`confirm_points`、`instant_z` 各自現在的值與來源（`aiops-tuning` 的 id、`series.yaml overrides#<第幾筆>`、或 `series.yaml 預設`）。值跟 detect 用的同一個函式算，不會兩套 | 不寫入 |
 | feedback（📝） | 之後的 feedback 流程寫同一個 `aiops-tuning`：同一條序列誤報累積多次 → 建議粒度往粗一級或調高 z，回測通過才寫入（見 [docs/feedback/README.md「對了怎麼強化、錯了怎麼 feedback」](../../../docs/feedback/README.md)） | 同上 |
 
 套用順序：自動選 → `series.yaml` 的 `overrides`（檔案順序）→ `adjustments.yaml` → `aiops-tuning`（依 `at` 由舊到新），同一欄位後面的蓋前面的，不同欄位各自生效；不看 `match` 寫得多細（較晚寫的寬鬆調整會蓋掉較早的精細調整）。每筆調整記 `reason`、`by`、`at`，查得到誰、為什麼、什麼時候改的。
@@ -330,7 +330,7 @@ series:
 | `backtest --id <建議> --weeks 4` | 改門檻前先回測：用「現行」和「現行＋這筆建議」各重跑過去 N 週的 detect（不寫 ES），比告警少幾個、已確認的事故（`aiops-incidents` confirmed／corrected／resolved）還抓不抓得到、漏報抓到沒；少抓一件已確認的事故就「不建議」。`rule_suggestion` 另算：過去 N 週每 5 分鐘（規則的 `lookback`）一點算規則的值，提這條規則的事故都要抓到、事故以外平均每週多報不超過 1 次（估的）才「建議」。結果寫回建議的 `backtest` 欄位，`adjust list` 看得到 |
 | `adjust approve --id … --by …` | override、`recurring_override`、`rule_suggestion` **沒回測、或回測不建議的不能核准**（要跳過用 `--force`）；記 `approved_by`、`approved_at` |
 | `metrics --from … --to … [--compare-from … --compare-to …]` | 量化：件數（每天、依 dept）、有回饋的比例、誤報率、根因錯的比例、漏報、從告警到第一筆回饋的中位時間、老師傅確認的事故數、「怎麼看出來的」有填的比例；兩段並排就是「學之前 vs 學之後」。只印 Markdown（`--out` 存檔），畫圖交給 Grafana |
-| `python3 -m api` | 老師傅的回饋網頁（通知裡的連結）：一鍵真的／誤報／根因錯，多填根因分類、根因、處置、**怎麼看出來的**、查了哪裡、下次怎麼更快、兩題評分、**一句話**（LLM 抽成四欄，同 `feedback add --text`）；寫 `aiops-feedback`（一件的每筆異常各一筆）和 `aiops-incidents`（`confirmed`／`corrected`／`false_positive`）。Grafana 裡的表單欄位對照見 [configs/grafana/README.md](../../../grafana/README.md#回饋表單預設用-engine-api-的網頁要在-grafana-裡直接填才裝外掛) |
+| `python3 -m aiops api` | 老師傅的回饋網頁（通知裡的連結）：一鍵真的／誤報／根因錯，多填根因分類、根因、處置、**怎麼看出來的**、查了哪裡、下次怎麼更快、兩題評分、**一句話**（LLM 抽成四欄，同 `feedback add --text`）；寫 `aiops-feedback`（一件的每筆異常各一筆）和 `aiops-incidents`（`confirmed`／`corrected`／`false_positive`）。Grafana 裡的表單欄位對照見 [configs/grafana/README.md](../../../grafana/README.md#回饋表單預設用-engine-api-的網頁要在-grafana-裡直接填才裝外掛) |
 
 一句話抽出來的 `suggested_action` 對到的調整（都 `status: proposed`、`source: feedback`、`reason` 帶原文；`adjust approve` 才生效）：
 

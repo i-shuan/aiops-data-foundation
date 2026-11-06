@@ -1,17 +1,17 @@
 """用法（在 engine 底下；每個指令的程式在 detector/cmd_*.py，這裡只有參數與分派）：
 
-  python3 -m detector train  --config configs/baseline/series.yaml [--weeks 4] [--end 2026-10-10T00:00:00Z]
-  python3 -m detector detect --config configs/baseline/series.yaml [--window 30m] [--at 2026-10-10T08:00:00Z]
-  python3 -m detector tune   --series http.latency_p95_s --match service=mes-api --resolution 5m --reason 誤報多
-  python3 -m detector adjust add --kind exclude_window --match service=mes-api --start … --end … --reason 事故
-  python3 -m detector adjust list | approve --id … | remove --id …
-  python3 -m detector rules  --config configs/baseline/rules.yaml  [--at …] [--only 規則,…]
-  python3 -m detector peer   --config configs/baseline/peer.yaml   [--at …] [--only 檢查,…]
-  python3 -m detector quality --config configs/baseline/quality.yaml [--at …] [--only 檢查,…]
-  python3 -m detector chronic --config configs/baseline/chronic.yaml [--at …]
-  python3 -m detector feedback pending|add|list|summary|suggest|export   值班回饋（真的／誤報／根因錯／漏報）；export 匯出給 ML 團隊
-  python3 -m detector incident add|list|resolve                   事故紀錄
-  python3 -m detector ingest --config configs/factory/ingest.yaml [--window 10m] [--at …]     別人判好的異常（ML、FDC）接進 ⑤
+  python3 -m aiops detector train  --config configs/baseline/series.yaml [--weeks 4] [--end 2026-10-10T00:00:00Z]
+  python3 -m aiops detector detect --config configs/baseline/series.yaml [--window 30m] [--at 2026-10-10T08:00:00Z]
+  python3 -m aiops detector tune   --series http.latency_p95_s --match service=mes-api --resolution 5m --reason 誤報多
+  python3 -m aiops detector adjust add --kind exclude_window --match service=mes-api --start … --end … --reason 事故
+  python3 -m aiops detector adjust list | approve --id … | remove --id …
+  python3 -m aiops detector rules  --config configs/baseline/rules.yaml  [--at …] [--only 規則,…]
+  python3 -m aiops detector peer   --config configs/baseline/peer.yaml   [--at …] [--only 檢查,…]
+  python3 -m aiops detector quality --config configs/baseline/quality.yaml [--at …] [--only 檢查,…]
+  python3 -m aiops detector chronic --config configs/baseline/chronic.yaml [--at …]
+  python3 -m aiops detector feedback pending|add|list|summary|suggest|export   值班回饋（真的／誤報／根因錯／漏報）；export 匯出給 ML 團隊
+  python3 -m aiops detector incident add|list|resolve                   事故紀錄
+  python3 -m aiops detector ingest --config configs/factory/ingest.yaml [--window 10m] [--at …]     別人判好的異常（ML、FDC）接進 ⑤
   （情境加的子命令只在那個情境下才有：AIOPS_PLUGIN=factory 多 paths-merge；scenario/data/factory.yaml 的 commands；scenario/README.md）
 
 命令列用 typer：每個子命令是一個函式，參數就是命令列參數；@command 登記進 COMMANDS，main() 建 app 時連同

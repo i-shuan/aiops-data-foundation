@@ -60,7 +60,7 @@ spec:
       containers:
         - name: beat
           image: {{ include "aiops.image" . }}
-          args: ["scheduler", "--config", {{ $schedule | quote }}, "--stage", {{ .Values.scheduler.stage | quote }}, "--enqueue", "--alive-file", "/tmp/scheduler-alive"]
+          args: ["aiops", "scheduler", "--config", {{ $schedule | quote }}, "--stage", {{ .Values.scheduler.stage | quote }}, "--enqueue", "--alive-file", "/tmp/scheduler-alive"]
           {{- include "aiops.envFrom" . | nindent 10 }}
           livenessProbe:
             exec:
@@ -107,7 +107,7 @@ spec:
       containers:
         - name: worker
           image: {{ include "aiops.image" $ }}
-          args: ["tasks", "worker", "--queue", {{ $queue | quote }}, "--concurrency", {{ $w.concurrency | default 1 | quote }}]
+          args: ["aiops", "tasks", "worker", "--queue", {{ $queue | quote }}, "--concurrency", {{ $w.concurrency | default 1 | quote }}]
           {{- include "aiops.envFrom" $ | nindent 10 }}
           resources:
             {{- toYaml $w.resources | nindent 12 }}

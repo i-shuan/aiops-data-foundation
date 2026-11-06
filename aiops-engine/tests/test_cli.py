@@ -68,15 +68,15 @@ def run(prog: str, argv: list[str], rc: int = 0):
 
 
 class ScheduleCommands(unittest.TestCase):
-    """四張排程表裡 detector／investigator 的字面指令（scheduler.runner 以子行程 python -m 跑）每一條都還解析得過、到得了處理函式。"""
+    """四張排程表裡 detector／investigator 的字面指令（interface/jobs/runner 以子行程 python -m aiops 跑）每一條都還解析得過、到得了處理函式。"""
 
     def jobs(self):
         out = []
         for path in sorted(glob.glob(os.path.join(CODE, "configs", "*", "schedule.yaml"))):
             with open(path, encoding="utf-8") as f:
                 for j in yaml.safe_load(f)["jobs"]:
-                    if j["args"][0] in ("detector", "investigator"):
-                        out.append((os.path.relpath(path, CODE), j["args"][0], [str(a) for a in j["args"][1:]]))
+                    if j["args"][0] == "aiops" and j["args"][1] in ("detector", "investigator"):
+                        out.append((os.path.relpath(path, CODE), j["args"][1], [str(a) for a in j["args"][2:]]))
         return out
 
     def test_every_scheduled_command_parses(self):

@@ -1,5 +1,5 @@
 # 規則：狀態變化、離極限多遠（detector/rules.py）。不用學、不用歷史。
-# 每分鐘跑一次：python3 -m detector rules --config configs/baseline/rules.yaml
+# 每分鐘跑一次：python3 -m aiops detector rules --config configs/baseline/rules.yaml
 # 觸發的寫進 aiops-anomalies（series = rule.<name>，level = rule，另有 severity、message）。
 #
 # 門檻是常見的起始值，依現場的誤報、漏報再調。

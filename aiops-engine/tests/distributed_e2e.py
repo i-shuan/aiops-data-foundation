@@ -47,7 +47,7 @@ def check(name, cond, detail=""):
 def start(name, *args):
     os.makedirs(OUT, exist_ok=True)
     f = open(os.path.join(OUT, f"{name}.log"), "w", encoding="utf-8")
-    procs[name] = subprocess.Popen([PY, "-X", "utf8", "-m", *args], cwd=HERE, env=ENV, stdout=f, stderr=subprocess.STDOUT,
+    procs[name] = subprocess.Popen([PY, "-X", "utf8", "-m", "aiops", *args], cwd=HERE, env=ENV, stdout=f, stderr=subprocess.STDOUT,
                                    creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
     return procs[name]
 

@@ -86,13 +86,13 @@ class Enqueue(unittest.TestCase):
             aa.assert_not_called()
 
     def test_enqueue_goes_to_the_jobs_queue_with_expiry(self):
-        j = job("train", "0 2 * * *", args=("detector", "train", "--config", "x.yaml"), timeout=3600, retries=2)
+        j = job("train", "0 2 * * *", args=("aiops", "detector", "train", "--config", "x.yaml"), timeout=3600, retries=2)
         with mock.patch.dict(os.environ, BROKER), mock.patch.object(tasks.run_job, "apply_async") as aa, redirect_stdout(io.StringIO()) as out:
             self.assertTrue(tasks.enqueue(j, at(2026, 10, 31, 2, 0)))
         kw = aa.call_args.kwargs
         self.assertEqual(kw["queue"], "batch")
         self.assertEqual(kw["expires"], at(2026, 11, 1, 1, 59, 55))
-        self.assertEqual(kw["kwargs"], {"name": "train", "args": ["detector", "train", "--config", "x.yaml"], "timeout": 3600, "retries": 2})
+        self.assertEqual(kw["kwargs"], {"name": "train", "args": ["aiops", "detector", "train", "--config", "x.yaml"], "timeout": 3600, "retries": 2})
         self.assertIn("[beat] train", out.getvalue())
 
     def test_beat_tick_only_enqueues(self):
@@ -115,7 +115,7 @@ class Enqueue(unittest.TestCase):
         kw = aa.call_args.kwargs
         self.assertEqual(kw["queue"], "alert")
         self.assertEqual(kw["expires"], tasks.TRIGGER_EXPIRES)
-        self.assertEqual(kw["kwargs"]["args"][:2], ["investigator", "alert"])
+        self.assertEqual(kw["kwargs"]["args"][:3], ["aiops", "investigator", "alert"])
 
 
 class RunJobTask(unittest.TestCase):
