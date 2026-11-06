@@ -136,7 +136,7 @@ class DistributedChart(unittest.TestCase):
 
     def test_plugin_picks_schedule_for_beat(self):
         beat = containers(render("--set", "mode=distributed", "--set", "plugin=factory"), "aiops-beat")["beat"]
-        self.assertEqual(beat["args"][2], "configs/factory/schedule.yaml")
+        self.assertEqual(beat["args"][3], "configs/factory/schedule.yaml")
 
     def test_config_override_mounts_in_every_role(self):
         docs = render("--set", "mode=distributed", "--set", "configOverrides.schedule.schedule=timezone: UTC")

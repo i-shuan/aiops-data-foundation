@@ -39,10 +39,14 @@ kind: ConfigMap
 metadata:
   name: grafana-dashboards
 data:
-  {{- /* 儀表板裡寫死的 engine api 網址（http://localhost:18080）換成 values 的 feedbackUrl */}}
+  {{- /* 儀表板裡寫死的 engine api 網址（http://localhost:18080）換成 values 的 feedbackUrl。
+         沒開 embedFeedback：連 iframe 一起拿掉，面板只留一排連結（檔裡的高度是這個）；開了就把高度拉到放得下表單。Grafana 13 的消毒只洗掉 style、留著 iframe，留著它會在面板上縮成預設的一小塊（300×150）。 */}}
   {{- range $path, $_ := .Files.Glob "files/dashboards/*.json" }}
+  {{- $body := $.Files.Get $path | replace "http://localhost:18080" $.Values.feedbackUrl }}
+  {{- if not $.Values.embedFeedback }}{{- $body = regexReplaceAll "<iframe[^>]*></iframe>" $body "" }}
+  {{- else if eq (base $path) "aiops-feedback.json" }}{{- $body = replace "\"h\": 4," "\"h\": 34," $body }}{{- end }}
   {{ base $path }}: |
-{{ $.Files.Get $path | replace "http://localhost:18080" $.Values.feedbackUrl | indent 4 }}
+{{ $body | indent 4 }}
   {{- end }}
   {{- /* 外掛表單版（Business Forms）只有 plugin.enabled 才載入；預設的 aiops-feedback.json 是連到 engine api 的 HTML 頁 */}}
   {{- if .Values.plugin.enabled }}
