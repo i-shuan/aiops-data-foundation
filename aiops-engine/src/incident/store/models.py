@@ -15,7 +15,7 @@ from typing import ClassVar, Literal
 
 from pydantic import Field, field_validator
 
-from detect.store.anomaly import entity_of
+from detect.store.models import entity_of
 from shared.infra.es import Doc
 from shared.infra.clock import STAMP_LAG, stamp_of  # noqa: F401
 from shared.types.incident import classify, describe_class

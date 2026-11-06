@@ -21,8 +21,8 @@ from dataclasses import dataclass
 import pandas as pd
 
 from shared.infra.es import ES, doc_id
-from detect.store.trace import group_traces, segment, self_times
-from detect.store.anomaly import Anomaly
+from detect.store.models import group_traces, segment, self_times
+from detect.store.models import Anomaly
 from shared.infra.repos import Repos
 from shared.scenario import load_scenario
 import detect.series_ops.manual_adjust as A

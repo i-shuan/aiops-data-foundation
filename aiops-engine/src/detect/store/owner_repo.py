@@ -9,7 +9,7 @@ APM 是 agent 設的 labels.dept、labels.group）；異常算出來寫回 aiops
 """
 from __future__ import annotations
 
-from detect.store.anomaly import NS_KEYS
+from detect.store.models import NS_KEYS
 
 OWNER_DAYS = 2
 UNASSIGNED = "unassigned"

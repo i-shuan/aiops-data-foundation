@@ -26,7 +26,7 @@ from datetime import timedelta
 
 import typer
 
-import detect.store.trace as T
+import detect.store.models as T
 from shared.scenario.config import load_config
 from shared.infra.es import ES
 from shared.infra.repos import Repos

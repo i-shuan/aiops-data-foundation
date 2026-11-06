@@ -1,5 +1,5 @@
 """trace：raw（traces-*.otel-*、traces-apm-*，每一段一筆）與合成一個請求一筆的 traces-merged-*（trace-merge 寫；工廠的履歷 lot-paths-* 格式一樣）。
-索引名由設定給（cfg.indices.traces、trace.yaml 的 traces_index），三種格式（detect/store/trace.schema_of）回同一種 span。
+索引名由設定給（cfg.indices.traces、trace.yaml 的 traces_index），三種格式（detect/store/models.schema_of）回同一種 span。
 
 「某個服務收到的請求」用 merged 的 nested entries（入口 span：服務、API、耗時、有沒有錯）挑，不用展開 spans。
 """
@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 import pandas as pd
 
 from shared.infra.es import time_range
-from detect.store.trace import _APM_FIELDS, _SPAN_FIELDS, from_merged, is_merged, schema_of, to_span, trace_id_field
+from detect.store.models import _APM_FIELDS, _SPAN_FIELDS, from_merged, is_merged, schema_of, to_span, trace_id_field
 from shared.infra.es import Repository
 
 

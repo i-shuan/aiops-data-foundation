@@ -14,8 +14,8 @@ import pandas as pd
 
 from shared.infra.env import ENGINE_VERSION
 from incident.store.models import ALERT_INDEX, Alert
-from detect.store.anomaly import ANOMALY_INDEX
-from detect.store.baseline import BASELINE_COLUMNS, BASELINE_INDEX, GROUP_COLUMNS, RENAMED
+from detect.store.models import ANOMALY_INDEX
+from detect.store.models import BASELINE_COLUMNS, BASELINE_INDEX, GROUP_COLUMNS, RENAMED
 from learn.store.models import FEEDBACK_INDEX
 from shared.types.incident import INCIDENT_INDEX
 from learn.store.models import TUNING_INDEX, validated

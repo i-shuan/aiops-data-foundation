@@ -3,8 +3,8 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
-import detect.store.trace as T
-from detect.store.anomaly import entity_of
+import detect.store.models as T
+from detect.store.models import entity_of
 from shared.scenario.base import Chain
 
 

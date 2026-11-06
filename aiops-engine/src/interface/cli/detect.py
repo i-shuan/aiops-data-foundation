@@ -49,13 +49,13 @@ import interface.cli.feedback as feedback_cli
 
 from detect.detect_service import cmd_train, cmd_tune, cmd_detect
 from detect.strategy.chronic_issue import cmd_chronic
-from detect.retention import cmd_prune
+from detect.housekeeping import cmd_prune
 from detect.series_ops.level_shift import cmd_shift
 from detect.trace.latency_stats import cmd_trace_collect, cmd_trace_train, cmd_trace_detect, cmd_trace_merge
 from detect.strategy.threshold_rule import cmd_rules
 from detect.strategy.peer_compare import cmd_peer
 from detect.series_ops.quality_check import cmd_quality
-from detect.factory.ingest_job import cmd_ingest
+from interface.cli.fab import cmd_ingest
 
 COMMANDS: dict[str, Callable[[typer.Typer], None]] = {}      # 內建子命令：名字 → register(app)；feedback.cli.COMMANDS、plugin.commands() 同一種形狀
 command = registry(COMMANDS)

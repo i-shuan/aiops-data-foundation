@@ -4,13 +4,24 @@
 
 | 資料夾 | 內容 |
 |---|---|
-| `src/` | Python 程式，一個功能一個資料夾，依賴只能往左：`interface/`（`cli/` 命令列、`web/` API 與回饋網頁、`jobs/` 排程器與佇列 worker）→ `learn/`（⑨ 學習迴圈：`feedback_service` 回饋、`tuning_service` 調整、`param_suggester` 建議、`rule_backtester` 回測、`evaluation_metrics` 指標、`history_importer` 事故單匯入）→ `incident/`（⑥⑦⑧ 告警與根因：`alert_service` 主流程、`alert_grouper` 併件、`alert_severity` 嚴重度、`rca_analyzer`／`rca_report` 根因分析與報告）→ `llm/`（LLM 摘要、過去相似事故的檢索）→ `detect/`（②③④⑤ 異常分析：`strategy/` 判斷方法、`series_ops/` 前處理與修正、`trace/`、`factory/` 工廠的 ingest）→ `shared/`（`infra/` ES 連線與 [`Repos`](src/shared/README.md)、`types/` 事故與指紋、[`scenario/`](src/shared/scenario/README.md) 情境與設定檔欄位定義）；`detect/`、`incident/`、`learn/` 各有 `store/`，放自己的資料物件和 ES 讀寫。`shared/scenario/config.py` 是設定檔欄位的定義（型別、預設值、檢查），值在 `configs/` |
+| `src/` | Python 程式，一個功能一個資料夾，依賴只能往左：`interface/`（`cli/` 命令列、`web/` API 與回饋網頁、`jobs/` 排程器與佇列 worker）→ `learn/`（⑨ 學習迴圈：`feedback_service` 回饋、`tuning_service` 調整、`param_suggester` 建議、`rule_backtester` 回測、`evaluation_metrics` 指標、`history_importer` 事故單匯入）→ `incident/`（⑥⑦⑧ 告警與根因：`alert_service` 主流程、`alert_grouper` 併件、`alert_severity` 嚴重度、`rca_analyzer`／`rca_report` 根因分析與報告）→ `llm/`（LLM 摘要、過去相似事故的檢索）→ `detect/`（②③④⑤ 異常分析：`strategy/` 判斷方法、`series_ops/` 前處理與修正、`trace/`、`fab_ingest/` 工廠接 ML／FDC 的異常）→ `shared/`（`infra/` ES 連線與 [`Repos`](src/shared/README.md)、`types/` 事故與指紋、[`scenario/`](src/shared/scenario/README.md) 情境與設定檔欄位定義）；`detect/`、`incident/`、`learn/` 各有 `store/`，放自己的資料物件和 ES 讀寫。`shared/scenario/config.py` 是設定檔欄位的定義（型別、預設值、檢查），值在 `configs/` |
 | `configs/` | 各情境的設定檔（[baseline](configs/baseline/README.md)、[rca](configs/rca/README.md)、[schedule](configs/schedule/schedule.yaml)、`apm/`、`factory/`、`metrics_only/`） |
 | `tests/` | 單元測試與 e2e（e2e 要測試用的 ES） |
 | `Dockerfile`、`requirements.txt` | 一個 image 裝全部，`ENTRYPOINT python3 -m`，`args` 給套件名和指令 |
 | 入口 | 只有一個：`python3 -m main <detector\|investigator\|scheduler\|tasks\|api> …`（[main.py](main.py)）；排程表（`configs/*/schedule.yaml`）和 helm 的 `args` 第一個字都是 `main` |
 | `fake-data/` | 要別人提供的資料（負責人、行事曆）的格式說明 [interfaces.md](fake-data/interfaces.md)，加範例用的假資料 |
 | `helmchart/` | 一個 image、一份 values，`mode` 選：**`single`** 一隻 pod 兩個 container（`scheduler` 自己跑定期工作、`api`）；**`distributed`** Superset 式：`aiops-api`、`aiops-beat`（只丟工作）、`aiops-worker-realtime／alert／batch`、`aiops-redis`。Service `aiops-api:8080` |
+
+**情境名與設定資料夾怎麼對**（兩邊名字不是一對一，因為選法不同）：
+
+| 選什麼 | 情境資料檔（`src/shared/scenario/`） | 設定資料夾（`configs/`） |
+|---|---|---|
+| `AIOPS_PLUGIN=observability`（預設）、`AIOPS_SOURCE=otel`（預設） | `it_otel.yaml` | `baseline/`、`rca/`、`schedule/` |
+| `AIOPS_PLUGIN=observability`、`AIOPS_SOURCE=apm` | `it_apm.yaml` | `apm/` |
+| `AIOPS_PLUGIN=factory` | `factory.yaml` | `factory/` |
+| `AIOPS_PLUGIN=metrics_only` | `metrics_only.yaml` | `metrics_only/` |
+
+情境資料檔是程式內建的預設（欄位對照、策略、報告段）；`configs/` 是各情境實際跑的參數與排程表，部署時可用 chart 的 `configOverrides` 蓋掉。
 
 本機跑：`cd aiops-engine && python3 -m main detector <指令>`、`python3 -m main investigator investigate`；單元測試 `python3 -m pytest -q`。
 

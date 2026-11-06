@@ -18,9 +18,9 @@ from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 from typing import Callable
 
-import detect.store.trace as T
+import detect.store.models as T
 from shared.infra.es import ES
-from detect.store.anomaly import entity_value
+from detect.store.models import entity_value
 from shared.infra.repos import Repos
 from shared.scenario import load_scenario
 

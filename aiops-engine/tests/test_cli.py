@@ -15,7 +15,7 @@ import interface.cli.rca as I
 import interface.cli.common as CLI
 import interface.cli.feedback as FB
 import incident.alert_service as cmd_alert
-import detect.factory.commands as cmd_paths
+import interface.cli.fab as cmd_paths
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 CODE = os.path.dirname(HERE)

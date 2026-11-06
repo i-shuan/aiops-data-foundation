@@ -11,7 +11,7 @@ import pandas as pd
 
 import detect.base as B
 from detect.base import Anomaly, Detector
-from detect.store.anomaly import ANOMALY_INDEX, ANOMALY_MAPPING, RULE_FIELDS
+from detect.store.models import ANOMALY_INDEX, ANOMALY_MAPPING, RULE_FIELDS
 from shared.infra.repos import Repos
 from shared.scenario import load_scenario
 

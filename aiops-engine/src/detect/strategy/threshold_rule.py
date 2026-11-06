@@ -38,7 +38,7 @@ import numpy as np
 import pandas as pd
 
 from shared.infra.es import get_field
-from detect.store.anomaly import Anomaly
+from detect.store.models import Anomaly
 from detect.base import Detector
 from detect.utils import _freq
 import detect.series_ops.manual_adjust as A

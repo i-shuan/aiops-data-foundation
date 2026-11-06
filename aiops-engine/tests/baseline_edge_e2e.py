@@ -38,9 +38,9 @@ import yaml
 from interface.cli.detect import main as cli
 from detect.detect_service import detect_series
 from detect.utils import keys_of
-from detect.store.anomaly import ANOMALY_INDEX
+from detect.store.models import ANOMALY_INDEX
 from shared.infra.es import ES
-from detect.store.baseline import BASELINE_INDEX
+from detect.store.models import BASELINE_INDEX
 from shared.infra.repos import Repos
 from detect.strategy.dynamic_baseline import DetectOptions
 from learn.store.models import TUNING_INDEX

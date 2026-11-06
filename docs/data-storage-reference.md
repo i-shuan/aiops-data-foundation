@@ -28,7 +28,7 @@ AIOps 與 Grafana 的資料各存在哪裡、誰寫、多久一次、會不會�
 | `aiops-state` | `trace-merge` 合到哪個時間（就一筆） | `detector trace-merge`，每分鐘 | 每次覆蓋同一筆 |
 | `aiops-log-stats` | log 長期統計：每 5 分鐘 × 每個服務 × level × error.type 的筆數 | ES 的 transform，不是 engine | **會**，ILM 400 天 |
 
-欄位細節：`aiops-anomalies`、`aiops-alerts`、`aiops-incidents`、`aiops-feedback`、`aiops-tuning` 見 [aiops-data-reference.md](aiops-data-reference.md)；`aiops-baseline` 的 mapping 在 [detect/store/baseline.py](../aiops-engine/src/detect/store/baseline.py)；`aiops-trace-segments`、`aiops-state` 的在 [detect/store/segment_repo.py](../aiops-engine/src/detect/store/segment_repo.py)、[detect/store/state_repo.py](../aiops-engine/src/detect/store/state_repo.py)。誰在什麼時候跑見 [schedule.yaml](../aiops-engine/configs/schedule/schedule.yaml)。
+欄位細節：`aiops-anomalies`、`aiops-alerts`、`aiops-incidents`、`aiops-feedback`、`aiops-tuning` 見 [aiops-data-reference.md](aiops-data-reference.md)；`aiops-baseline` 的 mapping 在 [detect/store/models.py](../aiops-engine/src/detect/store/models.py)；`aiops-trace-segments`、`aiops-state` 的在 [detect/store/segment_repo.py](../aiops-engine/src/detect/store/segment_repo.py)、[detect/store/state_repo.py](../aiops-engine/src/detect/store/state_repo.py)。誰在什麼時候跑見 [schedule.yaml](../aiops-engine/configs/schedule/schedule.yaml)。
 
 ## ES：收進來的原始資料
 

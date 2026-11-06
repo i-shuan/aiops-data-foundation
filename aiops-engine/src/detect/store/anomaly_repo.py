@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from shared.infra.env import ENGINE_VERSION
-from detect.store.anomaly import ANOMALY_INDEX, ANOMALY_MAPPING, RULE_FIELDS
+from detect.store.models import ANOMALY_INDEX, ANOMALY_MAPPING, RULE_FIELDS
 from shared.infra.es import Repository
 from detect.store.owner_repo import load_owners, owner_of
 

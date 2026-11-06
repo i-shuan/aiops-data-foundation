@@ -8,7 +8,7 @@ import pandas as pd
 
 from shared.infra.es import ES, doc_id
 from shared.infra.clock import stamp_of
-from detect.store.anomaly import Anomaly
+from detect.store.models import Anomaly
 from shared.infra.repos import Repos
 from shared.scenario import load_scenario
 import detect.series_ops.manual_adjust as A

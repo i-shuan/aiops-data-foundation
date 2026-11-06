@@ -2,7 +2,7 @@
 import unittest
 from datetime import datetime, timezone
 
-import detect.store.trace as T
+import detect.store.models as T
 import incident.rca_analyzer as A
 import detect.trace.path_builder as P
 

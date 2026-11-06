@@ -30,7 +30,7 @@ from datetime import datetime, timezone
 import pandas as pd
 
 from shared.infra.es import get_field
-from detect.store.trace import Trace
+from detect.store.models import Trace
 
 PATHS_PREFIX = "lot-paths"
 ROOT_SERVICE = "lot"
@@ -74,7 +74,7 @@ def _attrs(row: dict, names) -> dict:
 
 
 def build_lot(lot: str, steps: list[dict], events: list[dict], cfg: dict, now: datetime | None = None) -> list[dict]:
-    """一個 lot 的 MES 站（steps）與機台事件（events）→ span 清單（detect/store/trace 的格式）。
+    """一個 lot 的 MES 站（steps）與機台事件（events）→ span 清單（detect/store/models 的格式）。
     站依進站時間排；還沒出站的站用 now 當結束。機台事件掛到同機台、時間落在那一站裡的站底下；對不到站的事件丟掉。"""
     now = now or datetime.now(timezone.utc)
     mf, ef = cfg["mes"]["fields"], (cfg.get("events") or {}).get("fields") or {}

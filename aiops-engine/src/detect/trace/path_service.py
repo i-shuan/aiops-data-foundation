@@ -1,20 +1,12 @@
-"""paths-merge（工廠情境加的 detector 子命令）：MES 進出站＋S6F11 → 一個 lot 一筆（lot-paths-*；plugins/factory/paths.py）。
-排程器每 5 分鐘跑：最近 --window（預設 1 天）內有進站或出站的 lot 全部重合成一次、整份覆蓋（_id = lot id），
-所以晚到的站、剛出站的時間都會補上，重跑不重複。"""
+"""paths-merge 的計算（工廠情境）：MES 進出站＋S6F11 → 一個 lot 一筆（lot-paths-*；合成在 detect/trace/path_builder.py）。
+最近 --window（預設 1 天）內有進站或出站的 lot 全部重合成一次、整份覆蓋（_id = lot id），
+所以晚到的站、剛出站的時間都會補上，重跑不重複。命令列在 interface/cli/fab.py，排程器每 5 分鐘跑。"""
 from __future__ import annotations
 
-from argparse import Namespace
-
 import pandas as pd
-import typer
-
-from shared.scenario.config import load_config
-from shared.infra.es import ES, get_field
-from shared.infra.repos import Repos
-from shared.scenario import load_scenario
-from shared.infra.clock import now_ts as _now
 
 import detect.trace.path_builder as P
+from shared.infra.es import get_field
 
 
 def _lot_ids(rows: list[dict], lot_field: str) -> set[str]:
@@ -47,22 +39,3 @@ def run(repo, cfg: dict, now: pd.Timestamp, window: pd.Timedelta) -> int:
     except Exception as e:  # noqa: BLE001  沒有 manage_index_templates 權限：template 要請 ES 管理員放（configs/factory/README.md）
         print(f"  放不了 index template {P.PATHS_PREFIX}（{type(e).__name__}）；若索引還沒建，nested 查詢會失敗")
     return repo.traces.write_merged(docs)
-
-
-def register(app: typer.Typer) -> None:
-    """掛成 detector 的子命令（shared/scenario/factory.yaml 的 commands）。"""
-    app.command("paths-merge", help="工廠：MES 進出站＋S6F11 機台事件 → 一個 lot 一筆履歷 lot-paths-*（plugins/factory/paths.py）")(paths_merge)
-
-
-def paths_merge(config: str = typer.Option(..., help="configs/factory/paths.yaml"),
-                window: str = typer.Option("1d", help="最近多久有進站／出站的 lot 重合成（預設 1d）"),
-                at: str | None = typer.Option(None, help="拿某個時間點當成現在")) -> int:
-    return cmd_paths_merge(load_config(config, "paths"), Namespace(config=config, window=window, at=at))
-
-
-def cmd_paths_merge(cfg: dict, args) -> int:
-    now = _now(args.at)
-    n = run(Repos(ES(), load_scenario()), cfg, now, pd.Timedelta(args.window))
-    tz = cfg.get("timezone", "Asia/Taipei")
-    print(f"{now.tz_convert(tz):%m-%d %H:%M}：paths-merge 最近 {args.window} 有動的 lot，合了 {n} 個")
-    return 0

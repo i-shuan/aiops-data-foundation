@@ -1,15 +1,12 @@
-"""ingest：讀 ML／FDC 判好的異常，轉成 aiops-anomalies（detect/factory/ingest.py）。排程器每分鐘跑，看最近 --window（預設 10 分鐘）；
+"""ingest：讀 ML／FDC 判好的異常，轉成 aiops-anomalies（detect/fab_ingest/ingest.py）。排程器每分鐘跑，看最近 --window（預設 10 分鐘）；
 _id 由來源的識別碼算，重讀不重複。來源的原始列由 repo.series.rows 給（ES 直接查索引）。"""
 from __future__ import annotations
 
 import pandas as pd
 
-from shared.infra.es import ES
 from shared.infra.repos import Repos
-from shared.scenario import load_scenario
 
-import detect.factory.ingest as I
-from shared.infra.clock import now_ts as _now
+import detect.fab_ingest.ingest as I
 
 INGEST_FIELDS = {"source": {"type": "keyword"}, "source_id": {"type": "keyword"}, "status": {"type": "keyword"}}
 
@@ -61,13 +58,3 @@ def run(repo: Repos, cfg: dict, now: pd.Timestamp, window: pd.Timedelta) -> dict
         repo.anomalies.write(docs)
         out[inp["name"]] = (len(docs), skipped)
     return out
-
-
-def cmd_ingest(cfg: dict, args) -> int:
-    now = _now(args.at)
-    tz = cfg.get("timezone", "Asia/Taipei")
-    got = run(Repos(ES(), load_scenario()), cfg, now, pd.Timedelta(args.window))
-    for name, (n, skipped) in got.items():
-        print(f"  {name}：{n} 筆異常" + (f"（略過 {skipped} 筆：沒有時間、對象或值）" if skipped else ""))
-    print(f"{now.tz_convert(tz):%m-%d %H:%M}：接收 {sum(n for n, _ in got.values())} 筆（最近 {args.window}）")
-    return 0

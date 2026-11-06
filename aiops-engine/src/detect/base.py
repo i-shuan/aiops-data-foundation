@@ -1,4 +1,4 @@
-"""偵測指令的骨架（Detector）；它產生的 Anomaly 定義在 detect/store/anomaly.py。
+"""偵測指令的骨架（Detector）；它產生的 Anomaly 定義在 detect/store/models.py。
 
 rules、peer、quality 的流程一樣：連線 → 補 index/mapping → 算這一輪的時間 → `--only` 過濾 → 每個檢查算出異常、印一行
 → 一次寫進異常總表 → 印總結。差別只在「檢查從哪來」「怎麼算」「時間格怎麼取」，各自覆寫那幾個 hook。
@@ -11,7 +11,7 @@ from abc import ABC, abstractmethod
 import pandas as pd
 
 from shared.infra.es import ES
-from detect.store.anomaly import Anomaly
+from detect.store.models import Anomaly
 from shared.infra.repos import Repos
 from shared.scenario import load_scenario
 from detect.utils import _freq, _now

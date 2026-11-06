@@ -1,4 +1,4 @@
-"""HTML 頁面（Grafana 的 Business Forms 外掛裝不起來時的備用網頁）：模板在 views/*.html（jinja2，自動跳脫），這裡只組模板要的資料。"""
+"""HTML 頁面（Grafana 的 Business Forms 外掛裝不起來時的備用網頁）：模板在 templates/*.html（jinja2，自動跳脫），這裡只組模板要的資料。"""
 from __future__ import annotations
 
 from pathlib import Path
@@ -10,7 +10,7 @@ from interface.web.dto import RCA_QUESTIONS, RCA_USEFUL, SERIES_NAMES, TIMEZONE,
 from shared.scenario import Scenario, load_scenario
 
 TEXT_HINT = "選填。一句話說這件怎麼回事，系統會抽成結構化欄位、提一筆待審核的調整建議；例：「這是每月初的批次匯出報表，屬於預期內負載」"
-_env = Environment(loader=FileSystemLoader(str(Path(__file__).resolve().parent / "views")), autoescape=True, trim_blocks=True, lstrip_blocks=True)
+_env = Environment(loader=FileSystemLoader(str(Path(__file__).resolve().parent / "templates")), autoescape=True, trim_blocks=True, lstrip_blocks=True)
 
 
 def render_form(d: dict, done: dict | None = None, error: str | None = None, full: bool = False, notice: str | None = None,

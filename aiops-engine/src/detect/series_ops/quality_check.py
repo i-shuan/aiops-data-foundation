@@ -26,7 +26,7 @@ import re
 import pandas as pd
 
 from detect.store.quality_repo import check_keys  # noqa: F401  讀統計在 repository；keys 的算法兩邊共用
-from detect.store.anomaly import Anomaly
+from detect.store.models import Anomaly
 from detect.base import Detector
 from detect.utils import _freq, _v
 

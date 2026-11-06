@@ -44,7 +44,7 @@ domain:
     - [other, 其他]
   checked: [FDC 趨勢圖, 機台 alarm, PM／維修紀錄, recipe 版本與參數, chamber 互比, "量測結果（CD、厚度、良率）", 材料批號, 前站機台, EAP／通訊 log]
 
-entity_keys: [equipment]                 # detect/factory/ingest.py 寫的 keys.equipment；一台機台一件
+entity_keys: [equipment]                 # detect/fab_ingest/ingest.py 寫的 keys.equipment；一台機台一件
 route: recipe
 chain: {strategy: "incident.strategy.fab_process_flow:LotLinks"}       # 前後站：這一輪帶 lot 的異常 → 從履歷找這批 lot 之前經過哪幾站
 change: {strategy: "incident.strategy.fab_recipe_change:LatestChange"} # recipe 變更紀錄當換版
@@ -59,4 +59,4 @@ severity_classes:                        # 序列名 → 參數家族；幾個�
   alarm: [alarm, oos]
 sections: [anomalies, entries, segments, slowest, logs, changes, topology, conclusion]
 commands:
-  paths-merge: "detect.factory.commands:register"        # MES 進出站＋S6F11 → 一個 lot 一筆履歷 lot-paths-*
+  paths-merge: "interface.cli.fab:register"        # MES 進出站＋S6F11 → 一個 lot 一筆履歷 lot-paths-*

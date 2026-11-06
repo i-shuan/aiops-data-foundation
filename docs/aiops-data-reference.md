@@ -10,7 +10,7 @@
 
 | 索引 | mapping 在哪 |
 |---|---|
-| `aiops-anomalies` | `aiops-engine/src/detect/store/anomaly.py` 的 `ANOMALY_MAPPING`（欄位的唯一定義是同一檔的 `Anomaly`） |
+| `aiops-anomalies` | `aiops-engine/src/detect/store/models.py` 的 `ANOMALY_MAPPING`（欄位的唯一定義是同一檔的 `Anomaly`） |
 | `aiops-alerts` | `aiops-engine/src/incident/store/models.py` 的 `ALERT_MAPPING`（欄位的唯一定義是同一檔的 `Alert`；事件整合在手上的就是這個物件，`to_doc()` 寫、`from_doc()` 讀） |
 | `aiops-incidents` | `aiops-engine/src/shared/types/incident.py` 的 `INCIDENT_MAPPING`（欄位的唯一定義是同一檔的 `Incident`、`Fingerprint` 模型，寫入一律 `to_doc()`） |
 | `aiops-feedback` | `aiops-engine/feedback/suggest.py` 的 `FEEDBACK_MAPPING` |
@@ -66,7 +66,7 @@ Grafana（⑧）         讀 aiops-alerts 發通知；儀表板讀 alerts、anom
 | `p` | double | 卜瓦松的機率 |
 | `dept`、`group` | keyword | 寫入時由 `AnomalyRepository.write` 補（歸屬查 `detect/store/owner_repo.py`）：依 `keys` 裡的 namespace（優先，dept 是 namespace 的 label）或服務，對回 metrics 裡的部門與 group；找不到就是 null、`unassigned` |
 | `alert_id` | keyword | 併進哪一件；事件整合寫回，沒併進去的沒有 |
-| `rule`、`severity`、`message` | keyword、keyword、text | 動態基準線學習的沒有，`rule`、`peer`、`quality` 的有：規則名、嚴重度、給人看的一句話。**這三個欄位不在 `ANOMALY_MAPPING`**，由 `rules`、`peer`、`trace`、`quality` 第一次跑時用 `PUT _mapping` 補進索引（`detect/store/anomaly.py` 的 `RULE_FIELDS`，`AnomalyRepository.ensure` 補），所以只跑過 detect 的新索引沒有它們 |
+| `rule`、`severity`、`message` | keyword、keyword、text | 動態基準線學習的沒有，`rule`、`peer`、`quality` 的有：規則名、嚴重度、給人看的一句話。**這三個欄位不在 `ANOMALY_MAPPING`**，由 `rules`、`peer`、`trace`、`quality` 第一次跑時用 `PUT _mapping` 補進索引（`detect/store/models.py` 的 `RULE_FIELDS`，`AnomalyRepository.ensure` 補），所以只跑過 detect 的新索引沒有它們 |
 | `since` | 不索引 | 只有靜態規則有：條件開始成立的時間 |
 | `engine_version` | keyword | 哪一版 engine 寫的（`aiops.ENGINE_VERSION`：環境變數 `ENGINE_VERSION`，chart 填 image tag；本機是 `dev`）。五種寫入都經 `AnomalyRepository.write`，都有 |
 

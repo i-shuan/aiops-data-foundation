@@ -2,7 +2,7 @@
 
 > **類型：操作 How-To**　原理與對照見 [docs/semiconductor-design.md](../../../docs/semiconductor-design.md)・紀錄 [docs/pdca/meta/2026-11-factory-engine.md](../../../docs/pdca/meta/2026-11-factory-engine.md)・情境怎麼選、三個內建差在哪見 [shared/scenario/README.md](../../src/shared/scenario/README.md)・IT 的設定在 [configs/apm/](../apm/README.md)
 
-同一份 engine、`factory` 情境（[shared/scenario/factory.yaml](../../src/shared/scenario/factory.yaml)、[detect/factory/](../../src/detect/factory/ingest.py)）、另一套設定、另外部署。工廠的異常由 ML 團隊的模型（異常跳點）和 FDC 鳴叫系統判，engine **不自己判 FDC 感測值**，從 ⑤ 異常總表開始接：
+同一份 engine、`factory` 情境（[shared/scenario/factory.yaml](../../src/shared/scenario/factory.yaml)、[detect/fab_ingest/](../../src/detect/fab_ingest/ingest.py)）、另一套設定、另外部署。工廠的異常由 ML 團隊的模型（異常跳點）和 FDC 鳴叫系統判，engine **不自己判 FDC 感測值**，從 ⑤ 異常總表開始接：
 收斂成一件（同機台；後站的異常依 lot 履歷併進前站）→ 根因分析（慢在哪一站哪個 chamber、壞 lot 的共同點、機台 alarm、事故前的 PM／recipe 變更）→ 通知 → 老師傅回饋 → 誤報匯出給 ML 團隊。
 
 **欄位名全是假設**（沒有 ML 輸出、FDC、MES、EAP 的樣本）：拿到樣本只改各 yaml 裡 `fields`／`keys` 的右邊，程式不動。
@@ -11,7 +11,7 @@
 
 | 檔 | 程式 | 做什麼 |
 |---|---|---|
-| [ingest.yaml](ingest.yaml) | `detector ingest`（[ingest.py](../../src/detect/factory/ingest.py)） | ML 的異常跳點、FDC 鳴叫 → `aiops-anomalies`：`keys` 是 equipment、chamber、recipe、step、lot、parameter；`series` 是 `fdc.<參數>`；`level` 是 `ml`／`fdc`；ML 的 strong／weak 對到 anomaly／warning；FDC 的 OOS 是 critical |
+| [ingest.yaml](ingest.yaml) | `detector ingest`（[ingest.py](../../src/detect/fab_ingest/ingest.py)） | ML 的異常跳點、FDC 鳴叫 → `aiops-anomalies`：`keys` 是 equipment、chamber、recipe、step、lot、parameter；`series` 是 `fdc.<參數>`；`level` 是 `ml`／`fdc`；ML 的 strong／weak 對到 anomaly／warning；FDC 的 OOS 是 critical |
 | [paths.yaml](paths.yaml) | `detector paths-merge`（[detect/trace/path_builder.py](../../src/detect/trace/path_builder.py)；只有 `factory` 情境有這個子命令） | MES 進出站＋S6F11 機台事件 → 一個 lot 一筆 `lot-paths-<group>-<日期>`，格式跟 `traces-merged-*` 一樣：一站一段（service 是機台、name 是 recipe、耗時是進站到出站、hold／scrap 算錯），站裡的 chamber 加工段掛在底下 |
 | [rca.yaml](rca.yaml) | `investigator alert`／`investigate` | 索引（履歷 `lot-paths-*`、log `eqp-logs-*`）與時間尺度（`close_after` 2h、滑動窗 2h、`entry_lag` 12h）；`changes` 讓報告多一段「事故前的變更」。「對象是機台、API 是 recipe、前後站從履歷找、recipe 變更當換版、嚴重度依參數家族」是 plugin 給的，要改才寫進 `alerts` |
 | [schedule.yaml](schedule.yaml) | `scheduler` | 每分鐘 `ingest`、`alert`；每 5 分鐘 `paths-merge`；每天 `prune`。沒有 train／detect／rules／peer／trace-* |

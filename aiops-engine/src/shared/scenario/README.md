@@ -30,7 +30,7 @@ engine 一份程式；「IT 可觀測性」「全套工廠」「只有指標」�
 | `severity_classes` 嚴重度的訊號分類 | `null`＝內建黃金訊號（延遲、錯誤、往外呼叫、飽和） | 參數家族（pressure、temperature、flow、power、time、metrology、alarm） | 同 | `incident/alert_severity` |
 | `critical_levels` | rule、peer、quality | ＋fdc | 同 | 同上 |
 | `sections` 報告有哪幾段 | anomalies、entries、segments、slowest、logs、changes、topology、conclusion | 同 | anomalies、logs、changes、conclusion | `incident/rca_report` |
-| `commands` 多出來的 detector 子命令 | — | `paths-merge`（[detect/factory/commands.py](../../detect/factory/commands.py)） | — | `interface/cli/detect` |
+| `commands` 多出來的 detector 子命令 | — | `paths-merge`（[interface/cli/fab.py](../../interface/cli/fab.py)） | — | `interface/cli/detect` |
 | `schedule` 預設排程表 | `configs/schedule/`（apm：`configs/apm/`） | `configs/factory/schedule.yaml` | `configs/metrics_only/schedule.yaml` | `interface/jobs`、api 的 ingest |
 
 cfg 可以覆蓋情境的預設：`alerts.critical_levels`、`alerts.severity.classes`、`alerts.chain: false`、換版的索引（`alerts.deploy_index` 等）。報告的 `changes` 段要 cfg 有 `changes.query` 才出。
@@ -66,7 +66,7 @@ change: null
 - `owner` 要有 `index`、`namespace`、`service`、`dept`、`group`（主檔沒有時間欄位加 `static: true`）；`log` 要有 `service`、`level`、`trace_id`、`message`（list）、`problem_levels`、`problem_query`。
 - `domain.categories`、`fp_reasons` 是 `[代碼, 顯示文字]` 的清單，最後一項要是 `other`；`checked` 是常查的地方。
 - `sections` 只能從 [incident/rca_report.py](../../incident/rca_report.py) 的 `SECTIONS` 挑；要 trace 的段在沒有 trace 時自己寫一行略過，不用你管。
-- `commands` 是 `{子命令名: "套件.模組:register"}`，`register(app)` 用 `app.command("子命令名", help=…)` 掛一個 typer 函式；函式自己 `load_config(config, kind)`、組 `argparse.Namespace` 再呼叫處理函式 `(cfg, args) -> int`（寫法見 [detect/factory/commands.py](../../detect/factory/commands.py)）。內建子命令也是同一種形狀。
+- `commands` 是 `{子命令名: "套件.模組:register"}`，`register(app)` 用 `app.command("子命令名", help=…)` 掛一個 typer 函式；函式自己 `load_config(config, kind)`、組 `argparse.Namespace` 再呼叫處理函式 `(cfg, args) -> int`（寫法見 [interface/cli/fab.py](../../interface/cli/fab.py)）。內建子命令也是同一種形狀。
 - 策略是「可呼叫物件」：`chain(repo, cfg, anomalies, open_alerts, start, now) -> Chain`、`change(repo, cfg, entity, since, now) -> datetime | None`；要查 ES 走 `repo.traces`、`repo.change`（[shared/README.md](../README.md)），不要自己打查詢。
 - 單元測試：`AIOPS_PLUGIN` 用 `mock.patch.dict(os.environ, …)` 包，每次 `load_scenario()` 都重讀；寫法見 [tests/test_scenario.py](../../../tests/test_scenario.py)。
 

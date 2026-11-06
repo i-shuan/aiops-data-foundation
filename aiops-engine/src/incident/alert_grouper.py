@@ -24,14 +24,14 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 
 from incident.store.models import SEVERITY, Alert  # noqa: F401  SEVERITY 給 alert_service 用
-from detect.store.anomaly import entity_of as _entity_of
+from detect.store.models import entity_of as _entity_of
 from shared.scenario import Scenario, load_scenario
 
 _ts = Alert._ts
 
 
 def entity_of(a: dict, sc: Scenario | None = None) -> tuple[str, str]:
-    """(類別, 名稱)：這筆異常歸到哪一件（detect/store/anomaly.entity_of；對象的 key 由情境給）。sc 沒給就依環境變數載入。"""
+    """(類別, 名稱)：這筆異常歸到哪一件（detect/store/models.entity_of；對象的 key 由情境給）。sc 沒給就依環境變數載入。"""
     return _entity_of(a, (sc or load_scenario()).entity_keys)
 
 

@@ -26,9 +26,9 @@ import pandas as pd
 import yaml
 
 from interface.cli.detect import main as _cli
-from detect.store.anomaly import ANOMALY_INDEX, ANOMALY_MAPPING
+from detect.store.models import ANOMALY_INDEX, ANOMALY_MAPPING
 from shared.infra.es import ES
-from detect.store.baseline import BASELINE_INDEX
+from detect.store.models import BASELINE_INDEX
 
 TZ = "Asia/Taipei"
 MAIN, CAL, LOGS = "aiops-adjtest", "aiops-adjtest-cal", "aiops-adjtest-logs"

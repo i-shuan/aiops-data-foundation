@@ -7,7 +7,7 @@ from unittest import mock
 
 from shared.scenario import load_scenario
 
-import detect.store.trace as T
+import detect.store.models as T
 import detect.store.owner_repo as O
 from shared.infra.repos import Repos
 from shared.scenario import load_scenario

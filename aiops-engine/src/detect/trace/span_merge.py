@@ -13,7 +13,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 from shared.infra.es import time_range
-from detect.store.trace import Trace
+from detect.store.models import Trace
 
 STATE_ID = "trace-merge"
 
