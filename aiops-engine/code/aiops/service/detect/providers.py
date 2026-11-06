@@ -157,7 +157,7 @@ def load_calendar(cfg: dict, *, fetch=_http_json, now: pd.Timestamp | None = Non
     來源可以寫 match、series、detect，套到它的每一筆：台灣行事曆的每一天沒有 match，不限定的話假日那天
     所有服務（含 24×7 的工廠）都不學、不判斷，假日當天真的故障也被吞掉；週休的辦公室系統要寫 match 限定。"""
     entries = list(cfg.get("calendar") or [])
-    for src in cfg.get("aiops.core.repository") or []:
+    for src in cfg.get("sources") or []:
         if src.get("enabled") is False:
             continue
         p = src["provider"]

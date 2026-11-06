@@ -187,7 +187,7 @@ def _composite(es: ES, index: str, query: dict, keys: list[str], fields: list[st
     sources = [{k: {"terms": {"field": f, "missing_bucket": True}}} for k, f in zip(keys, fields)]
     rows, after = [], None
     while True:
-        comp = {"size": size, "aiops.core.repository": sources, **({"after": after} if after else {})}
+        comp = {"size": size, "sources": sources, **({"after": after} if after else {})}
         body = {"size": 0, "query": query, "aggs": {"g": {"composite": comp, "aggs": aggs}}}
         g = es.search(index, body).get("aggregations", {}).get("g", {})
         for b in g.get("buckets", []):

@@ -149,7 +149,7 @@ class ESSourceBackend(Backend):
         if isinstance(spec.get("events"), dict):
             aggs["n"] = _value_aggs(spec["events"])["v"]
         body = {"size": 0, "query": {"bool": {"filter": filters}},
-                "aggs": {"s": {"composite": {"size": 5000, "aiops.core.repository": sources}, "aggs": aggs}}}
+                "aggs": {"s": {"composite": {"size": 5000, "sources": sources}, "aggs": aggs}}}
         rows, after = [], None
         while True:
             if after:
@@ -180,7 +180,7 @@ class ESSourceBackend(Backend):
         整個 index 都沒有資料的時段＝收集系統停了（「不知道」），不是零流量。"""
         tf = spec.get("time_field", "@timestamp")
         body = {"size": 0, "query": {"bool": {"filter": [{"range": {tf: {"gte": start.isoformat(), "lt": end.isoformat()}}}]}},
-                "aggs": {"t": {"composite": {"size": 10000, "aiops.core.repository": [{"ts": {"date_histogram": {"field": tf, "fixed_interval": interval}}}]}}}}
+                "aggs": {"t": {"composite": {"size": 10000, "sources": [{"ts": {"date_histogram": {"field": tf, "fixed_interval": interval}}}]}}}}
         out, after = [], None
         while True:
             if after:

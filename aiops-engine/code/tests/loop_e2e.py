@@ -81,7 +81,7 @@ def main():
     print(f"  {len(df)} 筆")
     print("== 1. train（只用前 4 週）")
     run("detector", "train", "--config", SYNTH, "--end", D0.tz_convert("UTC").strftime("%Y-%m-%dT%H:%M:%SZ"), quiet=True)
-    web = subprocess.Popen([PY, "-m", "aiops.interface.web"], env={**os.environ, "API_PORT": "18080"}, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+    web = subprocess.Popen([PY, "-m", "api"], env={**os.environ, "API_PORT": "18080"}, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
     try:
         for _ in range(30):
             try: get("/health"); break

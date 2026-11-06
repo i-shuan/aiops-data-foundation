@@ -270,8 +270,8 @@ def test_calendar(es: ES, tmp: str) -> None:
                "match": {"service": "^fab$"}}] + \
              [{"date": d, "name": "測試活動", "type": "event", "match": {"service": "^office$"}, "detect": True} for d in EVENTS]
     scoped = write_yaml(os.path.join(tmp, "cal-scoped.yaml"), {"timezone": TZ, "calendar": inline,
-                                                                "aiops.core.repository": [{**tw, "match": {"service": "^office$"}}]})
-    unscoped = write_yaml(os.path.join(tmp, "cal-unscoped.yaml"), {"timezone": TZ, "calendar": inline, "aiops.core.repository": [tw]})
+                                                                "sources": [{**tw, "match": {"service": "^office$"}}]})
+    unscoped = write_yaml(os.path.join(tmp, "cal-unscoped.yaml"), {"timezone": TZ, "calendar": inline, "sources": [tw]})
     series = [{"name": "adjtest.cal.requests", "index": CAL, "by": ["service"], "value": {"sum": "requests"},
                "fill_zero": True, "direction": "both", "min_abs": 10},
               {"name": "adjtest.cal.errors", "index": CAL, "by": ["service"], "value": {"sum": "errors"},
@@ -376,7 +376,7 @@ def test_chronic(es: ES, tmp: str) -> None:
            {"query": {"terms": {"week": ["2026-W41", "2026-W42"]}}}, ok=(200, 404))
     cfg = write_yaml(os.path.join(tmp, "chronic.yaml"), {
         "days": 7, "min_days": 6, "top": 10, "timezone": TZ,
-        "aiops.core.repository": [{"name": "chronic.log_errors", "title": "天天有錯誤 log", "type": "log", "index": LOGS,
+        "sources": [{"name": "chronic.log_errors", "title": "天天有錯誤 log", "type": "log", "index": LOGS,
                      "filter": {"terms": {"log.level": ["error", "fatal"]}},
                      "by": ["resource.attributes.service.name", "error.type"], "keys": ["service", "error_type"], "min_per_day": 20},
                     {"name": "chronic.anomalies", "title": "天天觸發的規則", "type": "anomalies", "levels": ["rule", "peer"],

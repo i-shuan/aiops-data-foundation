@@ -278,7 +278,7 @@ class SampleEntriesMergedTest(unittest.TestCase):
         self.assertEqual(index, "traces-merged-*")
         e = body["aggs"]["n"]["aggs"]["e"]
         self.assertEqual(body["aggs"]["n"]["nested"], {"path": "entries"})
-        self.assertEqual(e["composite"]["aiops.core.repository"][2], {"ts": {"histogram": {"field": "entries.start_ms", "interval": 300000}}})
+        self.assertEqual(e["composite"]["sources"][2], {"ts": {"histogram": {"field": "entries.start_ms", "interval": 300000}}})
         self.assertEqual(e["aggs"]["t"]["top_hits"]["size"], 20)
         rng = body["query"]["bool"]["filter"][0]["range"]["@timestamp"]
         self.assertEqual((rng["gte"], rng["lt"]), ("2026-11-01T09:55:00+00:00", "2026-11-01T10:15:00+00:00"))   # 兩邊各放寬 5 分鐘

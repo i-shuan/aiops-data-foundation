@@ -28,7 +28,7 @@ HERE = str(CODE_ROOT)   # aiops-engine/code：子行程在這裡跑，configs/ �
 
 
 def main(argv=None) -> int:
-    p = argparse.ArgumentParser(prog="aiops.interface.jobs")
+    p = argparse.ArgumentParser(prog="scheduler")
     p.add_argument("--config", default="configs/schedule/schedule.yaml")
     p.add_argument("--stage", type=int, default=int(os.environ.get("SCHEDULE_STAGE", "1")), help="開到第幾階段（預設 1；環境變數 SCHEDULE_STAGE）")
     p.add_argument("--alive-file", default=os.environ.get("SCHEDULE_ALIVE_FILE"), help="每分鐘更新一次的檔（liveness probe 用）")

@@ -232,7 +232,7 @@ def sample_entries(es: ES, index: str, start: pd.Timestamp, end: pd.Timestamp, i
         f = "scope.attributes.tailsampling.policy"
         filters.append({"bool": {"should": [{"term": {f: policy}}, {"bool": {"must_not": {"exists": {"field": f}}}}]}})
     body = {"size": 0, "query": {"bool": {"filter": filters}},
-            "aggs": {"e": {"composite": {"size": 1000, "aiops.core.repository": sources},
+            "aggs": {"e": {"composite": {"size": 1000, "sources": sources},
                            "aggs": {"t": {"top_hits": {"size": per_bucket, "sort": [{"trace_id": "asc"}],
                                                        "_source": ["trace_id", "span_id"]}}}}}}
     out, after = [], None
@@ -260,7 +260,7 @@ def _sample_entries_merged(es: ES, index: str, start: pd.Timestamp, end: pd.Time
                {"ts": {"histogram": {"field": "entries.start_ms", "interval": step_ms}}}]
     body = {"size": 0, "query": {"bool": {"filter": [time_range(start - pad, end + pad)]}},
             "aggs": {"n": {"nested": {"path": "entries"},
-                           "aggs": {"e": {"composite": {"size": 1000, "aiops.core.repository": sources},
+                           "aggs": {"e": {"composite": {"size": 1000, "sources": sources},
                                           "aggs": {"t": {"top_hits": {"size": per_bucket, "sort": [{"entries.span_id": "asc"}],
                                                                       "_source": ["entries.span_id"]}}}}}}}}
     lo, hi = start.value // 10**6, end.value // 10**6

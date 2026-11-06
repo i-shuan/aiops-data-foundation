@@ -51,7 +51,7 @@ class HoldTest(unittest.TestCase):
     rule = {"type": "compare", "field": "metrics.available", "other": "metrics.desired", "op": ">=", "threshold": 1, "for": "3m"}
 
     def series(self, available):
-        return {("ns", "aiops.interface.web"): pts(*available, field="metrics.available", extra=[{"desired": 2}] * len(available))}
+        return {("ns", "api"): pts(*available, field="metrics.available", extra=[{"desired": 2}] * len(available))}
 
     def test_short_dip_during_rollout_ignored(self):
         self.assertEqual(R.evaluate(self.rule, self.series([2, 2, 2, 2, 1, 1]), NOW), [])   # 只少了 30 秒

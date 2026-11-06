@@ -124,7 +124,7 @@ class NoTypeBranches(unittest.TestCase):
     def test_no_is_backend_or_hasattr_es_left(self):
         """重構的重點：程式裡不再有「傳進來的是不是 Backend」的分支。"""
         bad = []
-        for pkg in ("detector", "investigator", "core", "plugins", "aiops.core.repository", "aiops.interface.web"):
+        for pkg in ("detector", "investigator", "core", "plugins", "sources", "api"):
             for root, _, files in os.walk(os.path.join(CODE, pkg)):
                 for fn in files:
                     if fn.endswith(".py"):

@@ -32,7 +32,7 @@ def cmd_chronic(cfg: dict, args) -> int:
     owners = load_owners(cfg)
     docs, lines = [], [f"# 慢性病清單 {week}（{start.tz_convert(tz):%m/%d}～{(end - pd.Timedelta(days=1)).tz_convert(tz):%m/%d}，"
                        f"{days} 天裡至少 {cfg.get('min_days', 6)} 天有）", ""]
-    for src in cfg["aiops.core.repository"]:
+    for src in cfg["sources"]:
         if src["type"] == "log":
             daily = C.fetch_log_daily(es, src, start, end, tz)
             keys = src.get("keys") or [f.split(".")[-1] for f in src["by"]]

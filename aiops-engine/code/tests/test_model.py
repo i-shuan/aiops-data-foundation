@@ -130,7 +130,7 @@ if __name__ == "__main__":
 class ResolutionTest(unittest.TestCase):
     """pick_resolution：依每個時間窗的事件數選粒度。"""
 
-    def volume(self, per_5m: float, days: int = 7, svc: str = "aiops.interface.web") -> pd.DataFrame:
+    def volume(self, per_5m: float, days: int = 7, svc: str = "api") -> pd.DataFrame:
         ts = pd.date_range("2026-09-07", periods=days * 288, freq="5min", tz="UTC")
         rng = np.random.default_rng(0)
         return pd.DataFrame({"svc": svc, "ts": ts, "n": rng.poisson(per_5m, len(ts)).astype(float)})
@@ -168,7 +168,7 @@ class ResolutionTest(unittest.TestCase):
     def test_hourly_points_fall_back_to_hour_level(self):
         # 1 小時一點、4 週：同星期幾 × 同小時只有 4 個值（< 6）→ 退到每天同一小時
         ts = pd.date_range("2026-09-07", periods=28 * 24, freq="1h", tz=TZ)
-        h = pd.DataFrame({"svc": "aiops.interface.web", "ts": ts.tz_convert("UTC"), "value": 10.0 + np.arange(len(ts)) % 3})
+        h = pd.DataFrame({"svc": "api", "ts": ts.tz_convert("UTC"), "value": 10.0 + np.arange(len(ts)) % 3})
         b = train(h, ["svc"], TrainOptions(timezone=TZ))
         self.assertTrue((b["level"] == "hour").all())
 

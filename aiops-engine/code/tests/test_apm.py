@@ -120,7 +120,7 @@ class ApmQueryTest(unittest.TestCase):
         es = self.FakeES([])
         ids = M.updated_trace_ids(es, "traces-apm-*", datetime(2026, 11, 2, tzinfo=timezone.utc), datetime(2026, 11, 2, 0, 1, tzinfo=timezone.utc))
         self.assertEqual(ids, ["t1"])
-        self.assertEqual(es.bodies[0][1]["aggs"]["t"]["composite"]["aiops.core.repository"], [{"id": {"terms": {"field": "trace.id"}}}])
+        self.assertEqual(es.bodies[0][1]["aggs"]["t"]["composite"]["sources"], [{"id": {"terms": {"field": "trace.id"}}}])
 
 
 class ScaleAndDivTest(unittest.TestCase):

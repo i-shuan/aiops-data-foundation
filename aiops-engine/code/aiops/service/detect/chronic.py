@@ -65,7 +65,7 @@ def fetch_log_daily(es: ES, src: dict, start, end, tz: str) -> pd.DataFrame:
     sources.append({"day": {"date_histogram": {"field": "@timestamp", "calendar_interval": "1d", "time_zone": tz}}})
     rows, after = [], None
     while True:
-        comp = {"size": 1000, "aiops.core.repository": sources, **({"after": after} if after else {})}
+        comp = {"size": 1000, "sources": sources, **({"after": after} if after else {})}
         g = es.search(src["index"], {"size": 0, "query": {"bool": {"filter": f}},
                                      "aggs": {"g": {"composite": comp}}}).get("aggregations", {}).get("g", {})
         for b in g.get("buckets", []):
