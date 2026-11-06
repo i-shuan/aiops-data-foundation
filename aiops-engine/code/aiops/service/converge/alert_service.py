@@ -11,11 +11,12 @@ from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 import aiops.service.rca.llm as LLM
-import aiops.scenario.base as plugin
 from aiops.core.connection import ES
 from aiops.core.entity.alert import Alert, stamp_of
 from aiops.core.entity.incident import Incident
 from aiops.core.repository import Repos
+from aiops.scenario import Chain, load_scenario
+from aiops.scenario import load_scenario
 
 import aiops.service.converge.merge as AL
 import aiops.service.converge.severity as SEV
@@ -30,14 +31,14 @@ def _dur(s: str) -> timedelta:
 
 def grade_alert(repo: Repos, cfg: dict, al: Alert, now: datetime) -> None:
     """這件的嚴重度：訊號廣度＋持續時間＋換版上限（investigator/severity.py）。要全部異常（不只這一輪的）才算得出持續。
-    訊號怎麼分類（IT 黃金訊號／工廠參數家族）、哪些 level 的 critical 直接算 critical、「換版」是什麼（版號／recipe 變更）由 plugin 給預設，
-    cfg 的 alerts.severity.classes、alerts.critical_levels 可覆蓋（core/plugin.py）。"""
-    pg = plugin.current()
+    訊號怎麼分類（IT 黃金訊號／工廠參數家族）、哪些 level 的 critical 直接算 critical、「換版」是什麼（版號／recipe 變更）由情境給預設，
+    cfg 的 alerts.severity.classes、alerts.critical_levels 可覆蓋。"""
+    sc = repo.scenario
     acfg = cfg.get("alerts", {})
     sev_cfg = dict(acfg.get("severity") or {})
-    classes = SEV.parse_classes(sev_cfg.pop("classes", None) or pg.severity_classes)
+    classes = SEV.parse_classes(sev_cfg.pop("classes", None) or sc.severity_classes)
     opts = SEV.GradeOptions(**sev_cfg)
-    critical_levels = set(acfg.get("critical_levels") or pg.critical_levels)
+    critical_levels = set(acfg.get("critical_levels") or sc.critical_levels)
     have = {a["_id"]: a for a in al.anoms}
     missing = [i for i in al.anomaly_ids if i not in have]
     if missing:
@@ -47,17 +48,17 @@ def grade_alert(repo: Repos, cfg: dict, al: Alert, now: datetime) -> None:
         except Exception as e:  # noqa: BLE001  讀不到就只用這一輪的：寧可低估持續，不擋告警
             print(f"  讀不到 {al.alert_id} 的舊異常（{type(e).__name__}），持續時間只看這一輪")
     anoms = list(have.values())
-    own = [a for a in anoms if AL.entity_of(a)[1] == al.service] or anoms
+    own = [a for a in anoms if AL.entity_of(a, sc)[1] == al.service] or anoms
     dep = None
     if acfg.get("deploy_grace", True):
         try:
             since = al.started_at - timedelta(minutes=opts.deploy_grace)
-            dep = pg.change_at(repo, cfg, al.service, since, now)
+            dep = sc.change(repo, cfg, al.service, since, now)
         except Exception as e:  # noqa: BLE001
             print(f"  查不到 {al.service} 的換版時間（{type(e).__name__}）")
     golden = [a for a in own if SEV.signal_class(a.get("series"), classes) not in ("traffic", "other")]
     g = SEV.grade([a.get("series") for a in own], [AL._ts(a["@timestamp"]) for a in own],
-                  members=len({(a.get("series"), AL.route_of(a.get("keys") or {})) for a in golden}),
+                  members=len({(a.get("series"), sc.route_of(a.get("keys") or {})) for a in golden}),
                   rule_critical=any(a.get("severity") == "critical" and a.get("level") in critical_levels for a in own),
                   now=now, deploy_at=dep, opts=opts, classes=classes)
     if g["severity"] != al.severity:
@@ -92,13 +93,13 @@ def titled(title: str | None, report: str | None, llm: str | None = None) -> str
     return "\n\n".join(parts)
 
 
-def llm_summary(al: Alert, findings: dict | None, similar: list[dict], acfg: dict) -> dict | None:
+def llm_summary(al: Alert, findings: dict | None, similar: list[dict], acfg: dict, unit: str = "請求") -> dict | None:
     """LLM 摘要：只加註、不擋告警。輸入包裡有 NaN、模型掛了、程式有 bug，都只是這件沒有摘要，這一輪照寫。"""
     if not acfg.get("llm", True):
         return None
     try:
         pack = LLM.build_pack({**al.to_doc(), "minutes": int((al.updated_at - al.started_at).total_seconds() // 60)},
-                              findings, similar)
+                              findings, similar, unit=unit)
         llm = LLM.summarize(pack, acfg.get("llm_provider"))
     except Exception as e:
         print(f"  LLM 摘要失敗（{type(e).__name__}: {str(e)[:80]}），這件沒有摘要")
@@ -138,31 +139,31 @@ def wants_rerun(al: Alert, now: datetime, acfg: dict) -> tuple[bool, bool]:
     return wants and (needs_rerun(al, now, acfg) or forced), wants and forced
 
 
-def _chain(repo: Repos, cfg: dict, acfg: dict, anoms: list[dict], open_alerts: list[Alert], start: datetime, now: datetime) -> plugin.Chain:
-    """跨對象（一層）要不要併、依什麼併，由 plugin 決定（IT：trace 的呼叫關係；工廠：履歷的前後站；只有指標：不併）。
+def _chain(repo: Repos, cfg: dict, acfg: dict, anoms: list[dict], open_alerts: list[Alert], start: datetime, now: datetime) -> Chain:
+    """跨對象（一層）要不要併、依什麼併，由情境決定（IT：trace 的呼叫關係；工廠：履歷的前後站；只有指標：不併）。
     查失敗只是這一輪不併跨對象，不擋告警。"""
     if not acfg.get("chain", True):
-        return plugin.Chain()
+        return Chain()
     try:
-        return plugin.current().chain(repo, cfg, anoms, open_alerts, start, now)
+        return repo.scenario.chain(repo, cfg, anoms, open_alerts, start, now)
     except Exception as e:  # noqa: BLE001
         print(f"  跨對象的關聯查不到（{type(e).__name__}: {str(e)[:80]}），這一輪不併跨對象")
-        return plugin.Chain()
+        return Chain()
 
 
 def enrich(repo: Repos, cfg: dict, al: Alert, now: datetime) -> None:
     """這一件補歸屬（dept、group）與嚴重度。"""
-    al.dept, al.group = AL.owner(al) if al.anoms else (al.dept, al.group or "unassigned")
+    al.dept, al.group = AL.owner(al, repo.scenario) if al.anoms else (al.dept, al.group or "unassigned")
     if al.category == "service" and not al.merged_into:
         grade_alert(repo, cfg, al, now)
 
 
-def _rca(cfg: dict, acfg: dict, al: Alert, interval: timedelta, investigate) -> tuple[str, dict | None]:
+def _rca(repo: Repos, cfg: dict, acfg: dict, al: Alert, interval: timedelta, investigate) -> tuple[str, dict | None]:
     """跑一次根因分析：時間是這件的開始到最後一筆異常再往後一個 interval；只有一支 API 時只查那支
     （連帶進來的上游的 API 不算：根因分析以這件的服務＝下游跑）。
     rca_lead：根因分析的窗往前多看（工廠：ML 在 run 結束才報，出事的 run 是 started_at 之前就開始的；IT 是 0）。失敗不擋這一件。"""
     try:
-        return investigate(cfg, Namespace(service=al.service, route=AL.rca_route(al),
+        return investigate(cfg, Namespace(service=al.service, route=AL.rca_route(al, repo.scenario),
                                           start=(al.started_at - _dur(acfg.get("rca_lead", "0s"))).isoformat(),
                                           end=(al.updated_at + interval).isoformat(), at=None, window=None))
     except Exception as e:   # noqa: BLE001
@@ -195,7 +196,7 @@ def investigate_alert(repo: Repos, cfg: dict, acfg: dict, al: Alert, now: dateti
     if not (fresh or rerun):
         al.report_text, al.llm = report, llm
         return
-    report, findings = _rca(cfg, acfg, al, interval, investigate)
+    report, findings = _rca(repo, cfg, acfg, al, interval, investigate)
     al.report_at = now
     al.rca_attempts = attempts(al) + 1
     if rerun and not forced and not has_trace(findings):
@@ -212,7 +213,7 @@ def investigate_alert(repo: Repos, cfg: dict, acfg: dict, al: Alert, now: dateti
     cls = SIM.classify(similar)
     al.suggested_category = cls["category"] if cls else None
     al.category_confidence = cls["confidence"] if cls else None
-    llm = llm_summary(al, findings, similar, acfg)
+    llm = llm_summary(al, findings, similar, acfg, repo.scenario.unit_text())
     al.findings, al.similar = findings, similar
     al.report_text, al.llm = _with_head(report, llm, similar, cls), llm
 
@@ -220,7 +221,7 @@ def investigate_alert(repo: Repos, cfg: dict, acfg: dict, al: Alert, now: dateti
 def alert_doc(al: Alert, acfg: dict, now: datetime, tz: ZoneInfo, relinked: set[str]) -> dict:
     """要寫進 aiops-alerts 的那份：有變的件重寫標題與摘要；報告全文加回饋連結、連結、筆數、LLM 摘要、@timestamp 補上；to_doc 不寫執行期欄位、時間轉字串。"""
     if al.anoms or al.new or al.rerun or not al.summary or al.alert_id in relinked:
-        al.title, al.summary = AL.headline(al), AL.summary(al, al.report_text, tz, al.similar)
+        al.title, al.summary = AL.headline(al, sc=repo.scenario), AL.summary(al, al.report_text, tz, al.similar, sc=repo.scenario)
     url, furl = acfg.get("report_url"), acfg.get("feedback_url")
     fb = furl.format(alert_id=al.alert_id) if furl else None
     al.report = with_feedback_footer(al.report_text, fb)
@@ -260,7 +261,7 @@ def announce(al: Alert, doc: dict) -> str | None:
 def run(cfg: dict, args, investigate) -> int:
     """一輪：讀開著的件與最近的異常 → 併成件（alerts.merge）→ 每件補歸屬、嚴重度、根因分析 → 寫回 aiops-alerts、異常標 alert_id、開事故。
     investigate：根因分析的函式（investigator.__main__.investigate_full），傳進來避免循環 import。"""
-    repo = Repos(ES())
+    repo = Repos(ES(), load_scenario())
     repo.alerts.ensure()
     acfg = cfg.get("alerts", {})
     tz = ZoneInfo(cfg.get("timezone", "Asia/Taipei"))
@@ -272,7 +273,8 @@ def run(cfg: dict, args, investigate) -> int:
     start = min(now - lookback, oldest - close_after)
     anoms = repo.anomalies.between(start, now)
     chain = _chain(repo, cfg, acfg, anoms, open_alerts, start, now)
-    alerts = AL.merge(open_alerts, anoms, now, close_after, repo.alerts.resolved_anomaly_ids(start - close_after), chain.calls, chain.links)
+    alerts = AL.merge(open_alerts, anoms, now, close_after, repo.alerts.resolved_anomaly_ids(start - close_after), chain.calls, chain.links,
+                      scenario=repo.scenario)
     for al in alerts:
         enrich(repo, cfg, al, now)
         investigate_alert(repo, cfg, acfg, al, now, interval, investigate)

@@ -7,6 +7,7 @@ import pandas as pd
 
 from aiops.core.connection import ES, doc_id
 from aiops.core.repository import Repos
+from aiops.scenario import load_scenario
 import aiops.service.detect.adjustments as A
 from aiops.service.detect.adjustments import load_adjustments
 
@@ -15,7 +16,7 @@ REQUIRED = {"exclude_window": ("start", "end"), "reset_point": ("at",), "recurri
 
 
 def _connect() -> Repos:
-    repo = Repos(ES())
+    repo = Repos(ES(), load_scenario())
     repo.tuning.ensure()
     return repo
 

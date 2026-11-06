@@ -14,9 +14,11 @@ span 的格式（to_span 從 raw 的 ES 文件轉成這樣；from_merged 從合�
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timezone
 
-import aiops.scenario.source as source
+import re
+from dataclasses import dataclass, field
+
 from aiops.core.connection import get_field
 
 _SPAN_FIELDS = ["@timestamp", "trace_id", "span_id", "parent_span_id", "name", "kind", "duration", "status.code", "links",
@@ -31,12 +33,12 @@ _APM_FIELDS = {"includes": ["@timestamp", "timestamp.us", "processor.event", "tr
 MERGED_LIKE = ("traces-merged", "lot-paths")   # engine 合成、一個請求（一個 lot）一筆的索引；lot-paths 是工廠的履歷（plugins/factory/paths.py）
 
 
-def schema_of(index: str) -> str:
-    """merged（engine 合成的：traces-merged-*、lot-paths-*）、apm（Elastic APM 的 traces-apm-*；AIOPS_SOURCE=apm 時其他 raw 索引也當 APM）、
-    otel（Collector 寫的 raw）。"""
+def schema_of(index: str, source: str = "otel") -> str:
+    """merged（engine 合成的：traces-merged-*、lot-paths-*）、apm（Elastic APM 的 traces-apm-*；原始資料格式 source 是 apm 時其他 raw 索引也當 APM）、
+    otel（Collector 寫的 raw）。source 是場景的原始資料格式（Scenario.source）。"""
     if any(m in index for m in MERGED_LIKE):
         return "merged"
-    if "apm" in index or source.name() == "apm":
+    if "apm" in index or source == "apm":
         return "apm"
     return "otel"
 
@@ -45,8 +47,8 @@ def is_merged(index: str) -> bool:
     return schema_of(index) == "merged"
 
 
-def trace_id_field(index: str) -> str:
-    return "trace.id" if schema_of(index) == "apm" else "trace_id"
+def trace_id_field(index: str, source: str = "otel") -> str:
+    return "trace.id" if schema_of(index, source) == "apm" else "trace_id"
 
 
 def _duration_ms(v) -> float:
@@ -191,3 +193,93 @@ def root_of(trace: list[dict]) -> dict:
     ids = {s["span_id"] for s in trace}
     roots = [s for s in trace if not s.get("parent") or s["parent"] not in ids]
     return min(roots, key=lambda s: s["start_ms"]) if roots else trace[0]
+
+
+# ── 服務之間誰呼叫誰（根因分析的拓樸、IT 併件的依據）──
+
+@dataclass
+class Edge:
+    caller: str
+    callee: str
+    calls: int = 0
+    errors: int = 0
+    durations: list[float] = field(default_factory=list)
+
+    def p95(self) -> float:
+        d = sorted(self.durations)
+        return d[min(len(d) - 1, int(0.95 * len(d)))] if d else 0.0
+
+
+def topology(traces: dict[str, list[dict]]) -> list[Edge]:
+    """從 trace 畫出服務之間誰呼叫誰：
+    - 子 span 的服務跟父 span 不同 → 父的服務呼叫子的服務（例如 mes-api → wip-worker）
+    - 往外呼叫、底下沒有別的服務接（資料庫、外部 API）→ 服務呼叫那個對象（例如 wip-worker → oracle）
+    """
+    edges: dict[tuple[str, str], Edge] = {}
+
+    def add(a, b, s):
+        e = edges.setdefault((a, b), Edge(a, b))
+        e.calls += 1
+        e.errors += bool(s["error"])
+        e.durations.append(s["dur_ms"])
+
+    for t in traces.values():
+        by_id = {s["span_id"]: s for s in t}
+        has_child = {s["parent"] for s in t if s.get("parent")}
+        for s in t:
+            p = by_id.get(s.get("parent"))
+            if p and p["service"] != s["service"]:
+                add(p["service"], s["service"], s)
+            elif s["kind"] == "Client" and s.get("target") and s["span_id"] not in has_child:
+                add(s["service"], s["target"], s)
+    return sorted(edges.values(), key=lambda e: (e.caller, e.callee))
+
+
+def mermaid(edges: list[Edge]) -> str:
+    """給 Markdown 用的關係圖（GitHub、Kibana 的 Markdown 都看得懂 mermaid）。"""
+    def node(n):
+        return re.sub(r"[^A-Za-z0-9_]", "_", n)
+    lines = ["graph LR"]
+    for e in edges:
+        err = f"，錯誤 {e.errors}" if e.errors else ""
+        lines.append(f'  {node(e.caller)}["{e.caller}"] -->|"{e.calls} 次，p95 {e.p95():.0f} ms{err}"| {node(e.callee)}["{e.callee}"]')
+    return "\n".join(lines)
+
+
+# ── 一個 trace 合成一筆（traces-merged-*、工廠的 lot-paths-*）──
+
+MERGED_PREFIX = "traces-merged"
+
+
+def is_entry(s: dict, ids: set[str]) -> bool:
+    """入口：HTTP 請求（Server）、訊息消費者（Consumer）、沒有上一層的 span（.NET 自動埋點的 Kafka 消費者查 DB 那段自成一個 trace）。"""
+    return s["kind"] in ("Server", "Consumer") or not s.get("parent") or s["parent"] not in ids
+
+
+def merged_doc(spans: list[dict], merged_at: datetime, prefix: str = MERGED_PREFIX) -> tuple[str, dict]:
+    """同一個 trace 的 span → (index 名稱, 文件)。index 依 group 與根 span 的日期（UTC）分。
+    文件：上層是摘要（入口、總耗時、有沒有錯、經過哪些服務），spans 是每一段（nested），entries 是入口，讓「依服務／API 挑請求」不用展開 spans。
+    prefix：index 名的前綴；工廠的履歷用 lot-paths（scenario/factory/paths.py），文件格式一樣。"""
+    root = root_of(spans)
+    ids = {s["span_id"] for s in spans}
+    start = datetime.fromtimestamp(root["start_ms"] / 1000, timezone.utc)
+    end_ms = max(s["start_ms"] + s["dur_ms"] for s in spans)
+    res = root.get("resource") or {}
+    group = res.get("group") or res.get("data_stream.namespace") or "unassigned"
+    doc = {
+        "@timestamp": start.isoformat(), "trace_id": root["trace_id"], "group": group, "dept": res.get("dept"),
+        "root": {"service": root["service"], "name": root["name"], "kind": root["kind"], "error": bool(root["error"])},
+        "duration_ms": round(max(root["dur_ms"], end_ms - root["start_ms"]), 3),
+        "error": any(s["error"] for s in spans),
+        "services": sorted({s["service"] for s in spans}),
+        "span_count": len(spans),
+        "merged_at": merged_at.isoformat(),
+        "entries": [{"span_id": s["span_id"], "service": s["service"], "name": s["name"], "kind": s["kind"],
+                     "start_ms": s["start_ms"], "duration_ms": s["dur_ms"], "error": bool(s["error"])}
+                    for s in spans if is_entry(s, ids)],
+        "spans": [{"span_id": s["span_id"], "parent": s.get("parent"), "service": s["service"], "name": s["name"], "kind": s["kind"],
+                   "target": s.get("target"), "start_ms": s["start_ms"], "dur_ms": s["dur_ms"], "error": bool(s["error"]),
+                   "exception": s.get("exception"), "links": s.get("links") or [], "attrs": s.get("attrs") or {},
+                   "resource": s.get("resource") or {}} for s in sorted(spans, key=lambda x: (x["start_ms"], x["span_id"]))],
+    }
+    return f"{prefix}-{group}-{start:%Y.%m.%d}", doc

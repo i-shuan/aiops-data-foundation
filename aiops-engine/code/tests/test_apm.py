@@ -5,11 +5,14 @@ import unittest
 from datetime import datetime, timezone
 from unittest import mock
 
-import aiops.scenario.source as source
+from aiops.scenario import load_scenario
 
 import aiops.core.entity.trace as T
 import aiops.core.repository.owner as O
 from aiops.core.repository import Repos
+from aiops.scenario import load_scenario
+
+SC = load_scenario()
 import aiops.service.detect.trace_merge as M
 from aiops.service.detect._util import value_kind
 from aiops.core.repository.series import _bucket_events, _bucket_value, _value_aggs
@@ -100,7 +103,7 @@ class ApmQueryTest(unittest.TestCase):
 
     def test_spans_of_queries_trace_id_and_dedupes(self):
         es = self.FakeES([TX, DB, DB])
-        got = Repos(es).traces.spans("traces-apm-*", ["t1"], datetime(2026, 11, 1, tzinfo=timezone.utc), datetime(2026, 11, 3, tzinfo=timezone.utc))
+        got = Repos(es, load_scenario()).traces.spans("traces-apm-*", ["t1"], datetime(2026, 11, 1, tzinfo=timezone.utc), datetime(2026, 11, 3, tzinfo=timezone.utc))
         self.assertEqual(sorted(s["span_id"] for s in got), ["s1", "tx1"])      # 同一毫秒跨頁重複的只留一個
         body = es.bodies[0][1]
         self.assertIn({"terms": {"trace.id": ["t1"]}}, body["query"]["bool"]["filter"])
@@ -109,14 +112,14 @@ class ApmQueryTest(unittest.TestCase):
 
     def test_spans_by_id_matches_span_or_transaction_id(self):
         es = self.FakeES([TX, DB])
-        got = Repos(es).traces.spans_by_id("traces-apm-*", ["tx1"], datetime(2026, 11, 1, tzinfo=timezone.utc), datetime(2026, 11, 3, tzinfo=timezone.utc))
+        got = Repos(es, load_scenario()).traces.spans_by_id("traces-apm-*", ["tx1"], datetime(2026, 11, 1, tzinfo=timezone.utc), datetime(2026, 11, 3, tzinfo=timezone.utc))
         self.assertEqual(list(got), ["tx1"])
         should = es.bodies[0][1]["query"]["bool"]["should"]
         self.assertEqual(should, [{"terms": {"span.id": ["tx1"]}}, {"terms": {"transaction.id": ["tx1"]}}])
 
     def test_updated_trace_ids_aggregates_on_trace_dot_id(self):
         es = self.FakeES([])
-        ids = Repos(es).traces.updated_trace_ids("traces-apm-*", datetime(2026, 11, 2, tzinfo=timezone.utc), datetime(2026, 11, 2, 0, 1, tzinfo=timezone.utc))
+        ids = Repos(es, load_scenario()).traces.updated_trace_ids("traces-apm-*", datetime(2026, 11, 2, tzinfo=timezone.utc), datetime(2026, 11, 2, 0, 1, tzinfo=timezone.utc))
         self.assertEqual(ids, ["t1"])
         self.assertEqual(es.bodies[0][1]["aggs"]["t"]["composite"]["sources"], [{"id": {"terms": {"field": "trace.id"}}}])
 
@@ -163,10 +166,10 @@ class SourceProfileTest(unittest.TestCase):
     def test_default_is_otel_and_unknown_rejected(self):
         with mock.patch.dict(os.environ, {}, clear=False):
             os.environ.pop("AIOPS_SOURCE", None)
-            self.assertEqual(source.name(), "otel")
+            self.assertEqual(load_scenario().source, "otel")
         with mock.patch.dict(os.environ, {"AIOPS_SOURCE": "zipkin"}):
             with self.assertRaises(ValueError):
-                source.name()
+                load_scenario()
 
     def test_owner_query_uses_apm_fields(self):
         class Fake:
@@ -177,7 +180,7 @@ class SourceProfileTest(unittest.TestCase):
             def bulk_index(self, index, docs): self.written = docs
         es = Fake()
         with mock.patch.dict(os.environ, {"AIOPS_SOURCE": "apm"}):
-            Repos(es).anomalies.write([("a", {"keys": {"service": "mes-api", "route": "GET /lots/{id}"}})])
+            Repos(es, load_scenario()).anomalies.write([("a", {"keys": {"service": "mes-api", "route": "GET /lots/{id}"}})])
         path, body = es.calls[0]
         self.assertTrue(path.startswith("/metrics-apm.transaction.1m-*/_search"))
         self.assertEqual(body["aggs"]["svc"]["terms"]["field"], "service.name")
@@ -191,7 +194,7 @@ class SourceProfileTest(unittest.TestCase):
                 return {}
         es = Fake()
         with mock.patch.dict(os.environ, {"AIOPS_SOURCE": "otel"}):
-            O.load_owners(es)
+            O.load_owners(es, load_scenario().owner)
         self.assertTrue(es.path.startswith("/metrics-*.otel-*/"))
         self.assertEqual(es.body["aggs"]["ns"]["terms"]["field"], "resource.attributes.k8s.namespace.name")
 
@@ -206,7 +209,7 @@ class SourceProfileTest(unittest.TestCase):
                                 "error.exception.message": ["ORA-12170: TNS:Connect timeout"]}}]}}
         es = Fake()
         with mock.patch.dict(os.environ, {"AIOPS_SOURCE": "apm"}):
-            logs = Repos(es).logs.problems("logs-apm.app.*,logs-apm.error-*", ["mes-api"], datetime(2026, 11, 2, tzinfo=timezone.utc), datetime(2026, 11, 2, 1, tzinfo=timezone.utc))
+            logs = Repos(es, load_scenario()).logs.problems("logs-apm.app.*,logs-apm.error-*", ["mes-api"], datetime(2026, 11, 2, tzinfo=timezone.utc), datetime(2026, 11, 2, 1, tzinfo=timezone.utc))
         f = es.body["query"]["bool"]["filter"]
         self.assertIn({"terms": {"service.name": ["mes-api"]}}, f)
         which = f[2]["bool"]["should"]
@@ -222,7 +225,7 @@ class SourceProfileTest(unittest.TestCase):
                 return {"hits": {"hits": []}}
         es = Fake()
         with mock.patch.dict(os.environ, {"AIOPS_SOURCE": "apm"}):
-            Repos(es).logs.of_traces("logs-apm.app.*", ["t1"], datetime(2026, 11, 2, tzinfo=timezone.utc), datetime(2026, 11, 2, 1, tzinfo=timezone.utc))
+            Repos(es, load_scenario()).logs.of_traces("logs-apm.app.*", ["t1"], datetime(2026, 11, 2, tzinfo=timezone.utc), datetime(2026, 11, 2, 1, tzinfo=timezone.utc))
         self.assertIn({"terms": {"trace.id": ["t1"]}}, es.body["query"]["bool"]["filter"])
         self.assertIn("error.exception.message", es.body["fields"])
 
@@ -233,7 +236,7 @@ class SourceProfileTest(unittest.TestCase):
                 return {"hits": {"hits": []}}
         es = Fake()
         with mock.patch.dict(os.environ, {"AIOPS_SOURCE": "otel"}):
-            Repos(es).logs.problems("k8s-*", ["a"], datetime(2026, 11, 2, tzinfo=timezone.utc), datetime(2026, 11, 2, 1, tzinfo=timezone.utc))
+            Repos(es, load_scenario()).logs.problems("k8s-*", ["a"], datetime(2026, 11, 2, tzinfo=timezone.utc), datetime(2026, 11, 2, 1, tzinfo=timezone.utc))
         self.assertEqual(es.body["fields"], ["@timestamp", "resource.attributes.service.name", "log.level", "trace_id", "message"])
         self.assertEqual(es.body["query"]["bool"]["filter"][2], {"terms": {"log.level": ["warn", "error", "fatal"]}})
 

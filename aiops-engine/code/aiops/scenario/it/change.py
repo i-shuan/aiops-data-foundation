@@ -10,3 +10,11 @@ def deploy_at(repo, service: str, since: datetime, now: datetime, index: str = "
     firsts = repo.change.version_first_seen(index, service, since, now, field)
     new = [t for t in firsts[1:] if t >= since]     # 最早的那個版本不算
     return max(new) if new else None
+
+
+class VersionFirstSeen:
+    """cfg 的 alerts.deploy_index、alerts.version_field 可改查哪個索引、哪個欄位。"""
+
+    def __call__(self, repo, cfg: dict, entity: str, since: datetime, now: datetime) -> datetime | None:
+        acfg = cfg.get("alerts", {})
+        return deploy_at(repo, entity, since, now, acfg.get("deploy_index", "metrics-apm.transaction.1m-*"), acfg.get("version_field", "service.version"))

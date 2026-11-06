@@ -12,10 +12,10 @@
   python3 -m detector feedback pending|add|list|summary|suggest|export   值班回饋（真的／誤報／根因錯／漏報）；export 匯出給 ML 團隊
   python3 -m detector incident add|list|resolve                   事故紀錄
   python3 -m detector ingest --config configs/factory/ingest.yaml [--window 10m] [--at …]     別人判好的異常（ML、FDC）接進 ⑤
-  （plugin 加的子命令只在那個 plugin 下才有：AIOPS_PLUGIN=factory 多 paths-merge；core/plugin.py、plugins/README.md）
+  （情境加的子命令只在那個情境下才有：AIOPS_PLUGIN=factory 多 paths-merge；scenario/data/factory.yaml 的 commands；scenario/README.md）
 
 命令列用 typer：每個子命令是一個函式，參數就是命令列參數；@command 登記進 COMMANDS，main() 建 app 時連同
-feedback/cli.py（⑨：feedback、incident、adjust、backtest、metrics）和 plugin.commands() 一起掛上（三邊同一種形狀：{子命令名: register(app)}）。
+feedback/cli.py（⑨：feedback、incident、adjust、backtest、metrics）和 Scenario.commands 一起掛上（三邊同一種形狀：{子命令名: register(app)}）。
 函式只把參數裝成 argparse.Namespace、用 core.config.load_config 讀設定，再交給 cmd_*(cfg, args)（core/cli.py 的 run）。
 這個檔是入口（組合根）：它可以 import feedback/，feedback/ 不會 import 它。
 可以給好幾個值的參數（--match、--service、--anomaly、--id）要重複寫：--match service=a --match route=b。
@@ -43,7 +43,7 @@ from typing import Callable, List
 
 import typer
 
-import aiops.scenario.base as plugin
+from aiops.scenario import load_scenario
 from aiops.interface.cli.common import SERIES, Opt, registry, run
 import aiops.interface.cli.feedback as feedback_cli
 
@@ -153,9 +153,9 @@ def ingest(config: str = Opt(..., help="configs/factory/ingest.yaml"),
 
 
 def build_app() -> typer.Typer:
-    """detector 的子命令＋⑨ 的（feedback/cli.py）＋現在這個 plugin 多出來的（例如工廠的 paths-merge）。每次 main 重建：測試會換 AIOPS_PLUGIN。"""
+    """detector 的子命令＋⑨ 的（feedback/cli.py）＋現在這個情境多出來的（例如工廠的 paths-merge）。每次 main 重建：測試會換 AIOPS_PLUGIN。"""
     app = typer.Typer(add_completion=False, rich_markup_mode=None, pretty_exceptions_enable=False)
-    for register in {**COMMANDS, **feedback_cli.COMMANDS, **plugin.current().commands()}.values():
+    for register in {**COMMANDS, **feedback_cli.COMMANDS, **load_scenario().commands}.values():
         register(app)
     return app
 

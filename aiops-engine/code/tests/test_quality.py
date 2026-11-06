@@ -6,6 +6,9 @@ import pandas as pd
 import aiops.service.detect.quality as Q
 import aiops.core.repository.quality as QR
 from aiops.core.repository import Repos
+from aiops.scenario import load_scenario
+
+SC = load_scenario()
 
 
 class LooksLikeId(unittest.TestCase):
@@ -219,7 +222,7 @@ class MissingQuery(unittest.TestCase):
 
     def aggs(self, check):
         es = FakeES()
-        df = Repos(es).quality.missing({"name": "x", "index": "k8s-*", "by": ["ns"], "keys": ["namespace"], **check},
+        df = Repos(es, SC).quality.missing({"name": "x", "index": "k8s-*", "by": ["ns"], "keys": ["namespace"], **check},
                              self.T - pd.Timedelta("1h"), self.T)
         self.assertEqual(list(df.columns), ["namespace", "docs"] + [f"missing:{f}" for f in check["fields"]])
         return es.bodies[0]["aggs"]["g"]["aggs"]

@@ -21,6 +21,7 @@ from aiops.core.entity.incident import INCIDENT_INDEX
 from aiops.core.entity.adjustment import TUNING_INDEX, validated
 from aiops.core.repository.segment import SEGMENT_INDEX
 from aiops.core.repository.state import STATE_INDEX
+from aiops.scenario import load_scenario
 import tests.shaping as shape
 
 
@@ -267,11 +268,12 @@ class MemoryState(_Docs):
 
 
 class MemoryRepos:
-    """跟 Repos 同樣的屬性。frames：{index pattern: DataFrame}；incidents：[(id, 文件)] 預先放進 aiops-incidents。"""
+    """跟 Repos 同樣的屬性。frames：{index pattern: DataFrame}；incidents：[(id, 文件)] 預先放進 aiops-incidents；scenario 沒給就依環境變數。"""
     es = None
 
     def __init__(self, frames: dict[str, pd.DataFrame] | None = None, fmt: str = "events", spans: list[dict] | None = None,
-                 incidents: list[tuple[str, dict]] | None = None):
+                 incidents: list[tuple[str, dict]] | None = None, scenario=None):
+        self.scenario = scenario or load_scenario()
         self.data: dict[str, dict[str, dict]] = {}
         self.series = MemorySeries(frames, fmt)
         self.anomalies = MemoryAnomalies(self.data)

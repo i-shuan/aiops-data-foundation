@@ -13,8 +13,8 @@ class Repository:
     INDEX: str = ""
     MAPPING: dict = {}
 
-    def __init__(self, es):
-        self.es = es
+    def __init__(self, es, scenario=None):
+        self.es, self.scenario = es, scenario
 
     # ── 索引 ──
     def ensure(self, index: str | None = None, mapping: dict | None = None) -> None:

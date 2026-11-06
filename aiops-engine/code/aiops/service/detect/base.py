@@ -13,6 +13,7 @@ import pandas as pd
 from aiops.core.connection import ES
 from aiops.core.entity.anomaly import Anomaly
 from aiops.core.repository import Repos
+from aiops.scenario import load_scenario
 from aiops.service.detect._util import _freq, _now
 
 
@@ -37,7 +38,7 @@ class Detector(ABC):
     # ── hooks ──
     def connect(self) -> Repos:
         """程式直接給 repo（測試的記憶體版）時用它，否則連 ES。"""
-        return self.repo or Repos(ES())
+        return self.repo or Repos(ES(), load_scenario())
 
     def prepare(self) -> None:
         self.repo.anomalies.ensure()   # 舊的 index 補上規則用的欄位

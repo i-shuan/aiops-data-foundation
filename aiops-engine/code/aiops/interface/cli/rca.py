@@ -15,7 +15,7 @@
   python3 -m investigator import-incidents configs/rca/incidents-example.csv [--tz Asia/Taipei] [--dry-run]
 
 investigate 照「Metrics 發現異常 → Trace 縮小到哪一段 → Log 找出原因」的順序查，印出一份 Markdown 報告；報告有哪幾段由 plugin 決定
-（investigator/report.py、core/plugin.py）。--out 另存成檔案。
+（service/rca/report.py、Scenario.sections）。--out 另存成檔案。
 命令列用 typer（跟 detector 一樣）：@app.command 的函式把參數裝成 argparse.Namespace、用 core.config.load_config 讀 rca.yaml，再交給處理函式。
 """
 from __future__ import annotations
@@ -30,6 +30,7 @@ import aiops.core.entity.trace as T
 from aiops.config.loader import load_config
 from aiops.core.connection import ES
 from aiops.core.repository import Repos
+from aiops.scenario import load_scenario
 
 import aiops.service.rca.analyze as A
 import aiops.service.converge.alert_service as cmd_alert
@@ -46,7 +47,7 @@ def investigate(cfg: dict, args) -> str:
 
 
 def topology(cfg: dict, args) -> str:
-    traces, ix = Repos(ES()).traces, cfg["indices"]["traces"]
+    traces, ix = Repos(ES(), load_scenario()).traces, cfg["indices"]["traces"]
     end = _ts(args.at)
     start = end - _dur(args.window)
     ids = traces.recent_trace_ids(ix, start, end, args.sample)
@@ -61,7 +62,7 @@ def topology(cfg: dict, args) -> str:
 
 
 def similar_eval(cfg: dict, args) -> int:
-    repo = Repos(ES())
+    repo = Repos(ES(), load_scenario())
     weights = (cfg.get("alerts") or {}).get("similar_weights")
     r = SIM.evaluate(repo, weights=weights)
     for row in r["rows"]:

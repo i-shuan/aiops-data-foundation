@@ -1,13 +1,14 @@
 """工廠的併件依據：前後站（docs/pdca/meta/2026-11-factory-engine.md）。
-後站看到的異常（量測 CD 偏、良率掉）是前站做壞的。從履歷（lot-paths-*，plugins/factory/paths.py）查這批 lot 在出事機台之前
+後站看到的異常（量測 CD 偏、良率掉）是前站做壞的。從履歷（lot-paths-*，scenario/factory/paths.py）查這批 lot 在出事機台之前
 經過哪幾站、幾點在那站，事件整合（investigator/alerts.merge 的 links）把它併進前站那件、根因分析以前站跑。
-IT 是從 trace 算「誰呼叫誰」（plugins/observability/chain.py）；工廠沒有呼叫關係，但有 lot 的路徑，鍵是 lot id。
+IT 是從 trace 算「誰呼叫誰」（scenario/it/chain.py）；工廠沒有呼叫關係，但有 lot 的路徑，鍵是 lot id。
 """
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from aiops.core.connection import time_range
+from aiops.core.clock import duration
+from aiops.scenario.base import Chain
 
 
 def _ms_to_dt(ms: float) -> datetime:
@@ -53,3 +54,11 @@ def lot_links(repo, index: str, anomalies: list[dict], now: datetime, lookback: 
     if not lots:
         return {}
     return links_from_docs(anomalies, lot_docs(repo, index, lots, now - lookback, now + timedelta(minutes=5)))
+
+
+class LotLinks:
+    """前後站：這一輪帶 lot 的異常 → 從履歷（cfg.indices.traces）找這批 lot 之前經過哪幾站；cfg 的 alerts.paths_lookback 是往前找多久。"""
+
+    def __call__(self, repo, cfg: dict, anomalies: list[dict], open_alerts: list, start: datetime, now: datetime) -> Chain:
+        acfg = cfg.get("alerts", {})
+        return Chain(links=lot_links(repo, cfg["indices"]["traces"], anomalies, now, duration(str(acfg.get("paths_lookback", "3d")))))

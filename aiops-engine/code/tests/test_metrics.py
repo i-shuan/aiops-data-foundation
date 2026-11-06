@@ -8,6 +8,9 @@ import aiops.service.feedback.metrics as M
 from aiops.core.entity.alert import ALERT_INDEX
 from aiops.core.entity.feedback import FEEDBACK_INDEX
 from aiops.core.repository import Repos
+from aiops.scenario import load_scenario
+
+SC = load_scenario()
 
 T = pd.Timestamp("2026-10-01T00:00:00Z")
 
@@ -57,7 +60,7 @@ class LoadPeriod(unittest.TestCase):
         def feedback(body):
             return [late] if _terms_ids(body) is not None else [missed]
         es = FakeES({ALERT_INDEX: alerts, FEEDBACK_INDEX: feedback})
-        p = M.load_period(Repos(es), T, self.END)
+        p = M.load_period(Repos(es, SC), T, self.END)
         calls = self.feedback_calls(es)
         self.assertEqual(len(calls), 2)
         # (a) 回饋查詢：terms alert_id，正好是這段載入的告警（含非 service 類，過濾在 compute）
@@ -77,14 +80,14 @@ class LoadPeriod(unittest.TestCase):
 
     def test_chunking_over_1000_ids(self):
         es = FakeES({ALERT_INDEX: [alert(i) for i in range(1001)]})
-        M.load_period(Repos(es), T, self.END)
+        M.load_period(Repos(es, SC), T, self.END)
         chunks = [_terms_ids(b) for b in self.feedback_calls(es) if _terms_ids(b) is not None]
         self.assertEqual(sorted(len(c) for c in chunks), [1, 1000])
         self.assertEqual(sorted(i for c in chunks for i in c), sorted(f"a{i}" for i in range(1001)))
 
     def test_no_alerts_still_queries_missed(self):
         es = FakeES()
-        p = M.load_period(Repos(es), T, self.END)
+        p = M.load_period(Repos(es, SC), T, self.END)
         self.assertEqual([_terms_ids(b) for b in self.feedback_calls(es)], [None])   # 沒告警就不送空的 terms
         self.assertEqual(p["feedback"], [])
 

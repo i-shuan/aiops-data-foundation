@@ -6,6 +6,9 @@ import pandas as pd
 
 import aiops.service.detect.adjustments as A
 from aiops.core.repository import Repos
+from aiops.scenario import load_scenario
+
+SC = load_scenario()
 from aiops.service.detect.baseline import override_for
 
 TZ = "Asia/Taipei"
@@ -107,7 +110,7 @@ class LocalTime(unittest.TestCase):
             class NoES:
                 def req(self, *a, **k):
                     raise RuntimeError("no es")
-            got = A.load(Repos(NoES()), {"adjustments_file": p, "calendar_file": None})
+            got = A.load(Repos(NoES(), SC), {"adjustments_file": p, "calendar_file": None})
         self.assertEqual(pd.Timestamp(got[0]["reset_at"]), pd.Timestamp("2026-09-25T02:00:00Z"))
 
 

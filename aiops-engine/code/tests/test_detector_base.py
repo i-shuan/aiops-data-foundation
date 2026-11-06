@@ -14,6 +14,9 @@ from aiops.service.detect.base import Anomaly, Detector
 from aiops.service.detect._util import RULE_FIELDS
 from aiops.core.entity.anomaly import ANOMALY_INDEX, ANOMALY_MAPPING
 from aiops.core.repository import Repos
+from aiops.scenario import load_scenario
+
+SC = load_scenario()
 
 SLOT = pd.Timestamp("2026-11-05T10:03:00Z")
 DET = "2026-11-05T10:03:07+00:00"
@@ -164,7 +167,7 @@ def run(cls, checks, only=None):
     cfg = {"interval": "1m", "checks": [{"name": n} for n in checks]}
     args = Namespace(at="2026-11-05T10:03:20Z", only=only)
     with contextlib.redirect_stdout(io.StringIO()) as out:
-        rc = cls(cfg, args, Repos(be), log).run()
+        rc = cls(cfg, args, Repos(be, SC), log).run()
     return rc, be, be.written, log, out.getvalue()
 
 

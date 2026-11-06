@@ -6,6 +6,9 @@ from unittest import mock
 
 import aiops.service.converge.alert_service as C
 from aiops.core.repository import Repos
+from aiops.scenario import load_scenario
+
+SC = load_scenario()
 from aiops.core.entity.alert import ALERT_MAPPING
 import aiops.scenario.it.chain as CH
 
@@ -107,7 +110,7 @@ class FakeES:
 class IncidentsAreNotOverwritten(unittest.TestCase):
     def test_bulk_update_with_status_guard(self):
         es = FakeES({"errors": False, "items": [{"update": {"_id": "a-1", "result": "noop"}}, {"update": {"_id": "a-2", "result": "created"}}]})
-        n = Repos(es).incidents.upsert_auto([("a-1", {"status": "auto", "title": "x"}), ("a-2", {"status": "auto", "title": "y"})])
+        n = Repos(es, SC).incidents.upsert_auto([("a-1", {"status": "auto", "title": "x"}), ("a-2", {"status": "auto", "title": "y"})])
         self.assertEqual(n, 1)
         lines = [json.loads(l) for l in es.s.sent.strip().split("\n")]
         self.assertEqual(lines[0], {"update": {"_index": "aiops-incidents", "_id": "a-1"}})
@@ -122,7 +125,7 @@ class IncidentsAreNotOverwritten(unittest.TestCase):
     def test_bulk_error_raises(self):
         es = FakeES({"errors": True, "items": [{"update": {"_id": "a-1", "error": {"reason": "bad script"}}}]})
         with self.assertRaises(RuntimeError):
-            Repos(es).incidents.upsert_auto([("a-1", {"status": "auto"})])
+            Repos(es, SC).incidents.upsert_auto([("a-1", {"status": "auto"})])
 
     def test_empty(self):
         self.assertEqual(Repos(FakeES({})).incidents.upsert_auto([]), 0)
@@ -133,7 +136,7 @@ class AnomaliesCarryAlertId(unittest.TestCase):
 
     def test_bulk_update_alert_id(self):
         es = FakeES({"errors": False, "items": [{"update": {"_id": "x1", "result": "updated"}}, {"update": {"_id": "x2", "result": "noop"}}]})
-        n = Repos(es).anomalies.tag_alert([("x1", "a-1"), ("x2", "a-1")])
+        n = Repos(es, SC).anomalies.tag_alert([("x1", "a-1"), ("x2", "a-1")])
         self.assertEqual(n, 2)
         lines = [json.loads(l) for l in es.s.sent.strip().split("\n")]
         self.assertEqual(lines[0], {"update": {"_index": "aiops-anomalies", "_id": "x1"}})
@@ -144,16 +147,16 @@ class AnomaliesCarryAlertId(unittest.TestCase):
         # 保留期過了、異常已刪：那一筆 document_missing，其他照寫，不擋這一輪
         es = FakeES({"errors": True, "items": [{"update": {"_id": "x1", "error": {"type": "document_missing_exception"}}},
                                                {"update": {"_id": "x2", "result": "updated"}}]})
-        self.assertEqual(Repos(es).anomalies.tag_alert([("x1", "a-1"), ("x2", "a-1")]), 1)
+        self.assertEqual(Repos(es, SC).anomalies.tag_alert([("x1", "a-1"), ("x2", "a-1")]), 1)
 
     def test_other_error_raises(self):
         es = FakeES({"errors": True, "items": [{"update": {"_id": "x1", "error": {"type": "index_closed_exception"}}}]})
         with self.assertRaises(RuntimeError):
-            Repos(es).anomalies.tag_alert([("x1", "a-1")])
+            Repos(es, SC).anomalies.tag_alert([("x1", "a-1")])
 
     def test_empty(self):
         es = FakeES({})
-        self.assertEqual(Repos(es).anomalies.tag_alert([]), 0)
+        self.assertEqual(Repos(es, SC).anomalies.tag_alert([]), 0)
         self.assertEqual(es.ensured, [])
 
 

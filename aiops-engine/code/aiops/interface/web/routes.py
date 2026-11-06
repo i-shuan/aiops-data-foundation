@@ -17,13 +17,14 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 import aiops.interface.jobs.worker as tasks
 import aiops.interface.web.app as A
 from aiops.core.repository import Repos
+from aiops.scenario import load_scenario
 
 state = SimpleNamespace(es=None, repo=None)    # ES 連線的單一注入點：main() 放 ES()，測試放假的（set_es）；repo 是它上面的 repository
 HTML, JSON, TEXT = "text/html; charset=utf-8", "application/json", "text/plain; charset=utf-8"
 
 
 def set_es(es) -> None:
-    state.es, state.repo = es, Repos(es)
+    state.es, state.repo = es, Repos(es, load_scenario())
 
 
 def _cors_origins() -> set[str]:
@@ -134,7 +135,7 @@ def feedback_page(request: Request):
         return _send(404, f"找不到告警 {q.get('alert')}".encode(), TEXT)
     if request.url.path == "/report":
         return _send(200, A.render_report(alert).encode())
-    return _send(200, A.render_form(A.form_data(alert), full=q.get("full") == "1", notice=q.get("notice")).encode())
+    return _send(200, A.render_form(A.form_data(alert), full=q.get("full") == "1", notice=q.get("notice"), sc=state.repo.scenario).encode())
 
 
 # ── POST：先 await 讀 body，再丟 threadpool 跑（ES 是同步的，不能卡住 event loop；原本是一個請求一條執行緒）──
@@ -251,7 +252,7 @@ def _feedback_submit(request: Request, raw: bytes) -> Response:
         if is_api:
             return _send(400, A.to_json({"error": str(e)}), JSON)
         alert = A.load_alert(state.repo, form.get("alert_id", ""))
-        return _send(400, A.render_form(A.form_data(alert), error=str(e), full=form.get("full") == "1").encode() if alert else str(e).encode())
+        return _send(400, A.render_form(A.form_data(alert), error=str(e), full=form.get("full") == "1", sc=state.repo.scenario).encode() if alert else str(e).encode())
     except Exception as e:    # ES 掛了、連不上：要回一頁說「沒存成功，請再送一次」，不能把連線關掉讓人猜
         msg = f"沒有存成功（{type(e).__name__}：{str(e)[:120]}）。請稍後再送一次；重送不會重複記錄。"
         sys.stderr.write(f"feedback submit failed: {e!r}\n")
@@ -261,8 +262,8 @@ def _feedback_submit(request: Request, raw: bytes) -> Response:
             alert = A.load_alert(state.repo, form.get("alert_id", ""))
         except Exception:
             alert = None
-        return _send(503, A.render_form(A.form_data(alert), error=msg, full=form.get("full") == "1").encode() if alert else msg.encode())
+        return _send(503, A.render_form(A.form_data(alert), error=msg, full=form.get("full") == "1", sc=state.repo.scenario).encode() if alert else msg.encode())
     if is_api:
         return _send(200, A.to_json(done), JSON)
     alert = A.load_alert(state.repo, form["alert_id"])
-    return _send(200, A.render_form(A.form_data(alert), done=done, full=form.get("full") == "1").encode())
+    return _send(200, A.render_form(A.form_data(alert), done=done, full=form.get("full") == "1", sc=state.repo.scenario).encode())

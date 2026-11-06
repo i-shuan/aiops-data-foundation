@@ -8,6 +8,9 @@ import pandas as pd
 
 import aiops.service.detect.adjustments as A
 from aiops.core.repository import Repos
+from aiops.scenario import load_scenario
+
+SC = load_scenario()
 import aiops.service.detect.providers as S
 
 NOW = pd.Timestamp("2026-10-24T00:00:00Z")
@@ -192,7 +195,7 @@ class LoadCalendar(unittest.TestCase):
             class NoES:
                 def req(self, *a, **k):
                     raise RuntimeError("no es")
-            got = A.load(Repos(NoES()), {"calendar_file": cal, "adjustments_file": None})
+            got = A.load(Repos(NoES(), SC), {"calendar_file": cal, "adjustments_file": None})
             self.assertEqual([(a["kind"], a["source"]) for a in got], [("exclude_window", "calendar")])
 
 

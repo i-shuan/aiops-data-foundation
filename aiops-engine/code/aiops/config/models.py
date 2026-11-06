@@ -444,7 +444,7 @@ class SeverityCfg(Strict):
 
 
 class Alerts(Strict):
-    """事件整合（investigator/cmd_alert.py）＋ plugin 讀的換版、前後站設定（plugins/*/__init__.py）。"""
+    """事件整合（service/converge/alert_service.py）＋ 情境策略讀的換版、前後站設定（scenario/it、scenario/factory）。"""
     close_after: Dur | None = None
     lookback: Dur | None = None
     severity: SeverityCfg | None = None

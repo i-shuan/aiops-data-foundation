@@ -12,9 +12,7 @@ from pathlib import Path
 
 import pandas as pd
 
-import aiops.scenario.domain as domain
-
-import aiops.scenario.base as plugin
+from aiops.scenario import Scenario, load_scenario
 import aiops.service.rca.llm as LLM
 from aiops.config.loader import load_config
 from aiops.core.connection import doc_id
@@ -35,10 +33,7 @@ VERDICTS = {"true_positive": "真的", "false_positive": "誤報", "wrong_root_c
 RCA_USEFUL = [(v, t) for v, t in zip(_RCA_USEFUL, ("是", "否", "沒看"))]
 RCA_QUESTIONS = [("rca_cause_useful", "可能根因有參考價值？"), ("rca_action_useful", "建議的排查動作有參考價值？")]
 TEXT_HINT = "選填。一句話說這件怎麼回事，系統會抽成結構化欄位、提一筆待審核的調整建議；例：「這是每月初的批次匯出報表，屬於預期內負載」"
-# 根因分類、常查的地方、誤報原因依 plugin（AIOPS_PLUGIN；core/domain.py 是門面）。Grafana 的表單（aiops-feedback.json）是 IT 的選項
-CATEGORIES = domain.categories()
-CHECKED = domain.checked()
-FP_REASONS = domain.fp_reasons()
+# 根因分類、常查的地方、誤報原因依情境（render_form 的 sc；Grafana 的表單 aiops-feedback.json 是 IT 的選項）
 
 
 def load_alert(repo, alert_id: str) -> dict | None:
@@ -217,9 +212,11 @@ def _opt(options, selected=None):
     return "".join(f'<option value="{html.escape(v)}"{" selected" if v == selected else ""}>{html.escape(t)}</option>' for v, t in options)
 
 
-def render_form(d: dict, done: dict | None = None, error: str | None = None, full: bool = False, notice: str | None = None) -> str:
+def render_form(d: dict, done: dict | None = None, error: str | None = None, full: bool = False, notice: str | None = None,
+                sc: Scenario | None = None) -> str:
     """full：根因分析全文直接放在表單上面（從 Grafana 的連結點進來：先看全文、最下面填回饋，不用另開一頁）。
-    notice：重跑根因分析之後的提示（POST /rca 轉回來時帶）。開著的件最上面有「重跑根因分析」。"""
+    notice：重跑根因分析之後的提示（POST /rca 轉回來時帶）。開著的件最上面有「重跑根因分析」。sc：分類表、常查的地方、誤報原因。"""
+    sc = sc or load_scenario()
     e = html.escape
     sim = "".join(f"<li><b>{e((s.get('start') or '')[:16])}</b> [{e(s.get('root_cause_category') or '—')}] {e(s.get('title') or '')}"
                   f"<br><small>為什麼像：{e('；'.join(s.get('why') or []))}</small></li>"
@@ -238,7 +235,7 @@ def render_form(d: dict, done: dict | None = None, error: str | None = None, ful
     notice_html = f'<p class="ok">{e(notice)}</p>' if notice else ""
     msg = (f'<p class="ok">已記錄：{e(VERDICTS.get(done["incident"], done["incident"]))}（{done["feedback"]} 筆回饋，{e(done["by"])}）。謝謝，這會讓下一次更準。{extra}</p>' if done
            else f'<p class="err">{e(error)}</p>' if error else "")
-    checked = "".join(f'<label class="chk"><input type="checkbox" name="checked" value="{e(c)}"> {e(c)}</label>' for c in CHECKED)
+    checked = "".join(f'<label class="chk"><input type="checkbox" name="checked" value="{e(c)}"> {e(c)}</label>' for c in sc.checked)
     rca = "".join(f'<div class="v"><label>{e(q)}</label><br>' + "".join(f'<label><input type="radio" name="{k}" value="{v}"> {t}</label>' for v, t in RCA_USEFUL) + "</div>"
                   for k, q in RCA_QUESTIONS)
     return f"""<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><title>回饋：{e(d['service'] or '')}</title>
@@ -265,10 +262,10 @@ input[type=text],textarea,select{{width:100%;padding:6px;font-size:15px}}textare
 {"".join(f'<label><input type="radio" name="verdict" value="{v}" required onclick="document.getElementById(\'detail\').style.display=(this.value==\'false_positive\')?\'none\':\'block\';document.getElementById(\'fp\').style.display=(this.value==\'false_positive\')?\'block\':\'none\'"> {t}</label>' for v, t in VERDICTS.items())}
 </div>
 <label>一句話說這件怎麼回事 <span class="hint">（{e(TEXT_HINT)}）</span><textarea name="feedback_text"></textarea></label>
-<div id="fp" style="display:none"><label>為什麼不是問題 <select name="fp_reason">{_opt(FP_REASONS)}</select></label>
+<div id="fp" style="display:none"><label>為什麼不是問題 <select name="fp_reason">{_opt(sc.fp_reasons)}</select></label>
 <label>補充 <span class="hint">（選填）</span><input type="text" name="fp_reason_text"></label></div>
 <div id="detail">
-<label>根因分類 {cat_hint}<select name="root_cause_category">{_opt([("", "—")] + CATEGORIES, d.get("suggested_category"))}</select></label>
+<label>根因分類 {cat_hint}<select name="root_cause_category">{_opt([("", "—")] + list(sc.categories), d.get("suggested_category"))}</select></label>
 <label>根因（一句話） <input type="text" name="root_cause" placeholder="例：Oracle 統計資訊過期，SELECT lots 走錯執行計畫"></label>
 <label>處置（做了什麼讓它恢復） <span class="hint">（選填）</span><input type="text" name="action" placeholder="例：重跑 analyze，10 分鐘後恢復"></label>
 <label>怎麼看出來的：看到什麼現象讓你想到是這個原因 <span class="hint">（這是最值錢的，請寫）</span>
@@ -322,13 +319,13 @@ def to_json(x) -> bytes:
 
 # ── 外部推異常進 ⑤、重跑根因、件的清單（docs/pdca/meta/2026-11-api-beat-worker.md）──
 
-def ingest_config_path() -> str | None:
-    """POST /api/anomalies 用哪份 ingest.yaml：AIOPS_INGEST_CONFIG，沒設就從這個 plugin 的排程表找 ingest 工作的 --config。
+def ingest_config_path(sc: Scenario) -> str | None:
+    """POST /api/anomalies 用哪份 ingest.yaml：AIOPS_INGEST_CONFIG，沒設就從這個情境的排程表找 ingest 工作的 --config。
     排程表沒有 ingest（observability 自己判，沒有外部來源）回 None。"""
     if os.environ.get("AIOPS_INGEST_CONFIG"):
         return os.environ["AIOPS_INGEST_CONFIG"]
     here = CODE_ROOT
-    _, jobs = load_schedule(str(here / plugin.current().schedule), stage=2)
+    _, jobs = load_schedule(str(here / sc.schedule), stage=2)
     job = next((j for j in jobs if j.name == "ingest"), None)
     if job is None or "--config" not in job.args:
         return None
@@ -344,9 +341,9 @@ def ingest(repo, body: dict, now: datetime | None = None) -> dict:
         raise ValueError('要 {"input": "<ingest.yaml 的 inputs 名>", "rows": [ {...}, ... ]}')
     if not all(isinstance(r, dict) for r in rows):
         raise ValueError("rows 每一筆要是物件")
-    path = ingest_config_path()
+    path = ingest_config_path(repo.scenario)
     if not path:
-        raise LookupError("這個 plugin 沒有 ingest（排程表沒有 ingest 工作、也沒設 AIOPS_INGEST_CONFIG）")
+        raise LookupError("這個情境沒有 ingest（排程表沒有 ingest 工作、也沒設 AIOPS_INGEST_CONFIG）")
     cfg = load_config(path, "ingest")
     written, skipped = ingest_rows(repo, cfg, str(name), rows, pd.Timestamp(now or datetime.now(timezone.utc)))
     return {"input": name, "written": written, "skipped": skipped}

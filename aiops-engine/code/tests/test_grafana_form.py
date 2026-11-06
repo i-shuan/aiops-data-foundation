@@ -8,6 +8,9 @@ from fastapi.testclient import TestClient
 
 import aiops.interface.web.routes as W
 import aiops.interface.web.app as A
+from aiops.scenario import load_scenario
+
+SC = load_scenario()
 from aiops.core.entity.feedback import FEEDBACK_INDEX
 from tests.test_api import ALERT, FakeES
 
@@ -35,9 +38,9 @@ class Dashboard(unittest.TestCase):
     def test_options_match_service_choices(self):
         el = {e["id"]: e for e in self.opts["elements"]}
         self.assertEqual({o["value"] for o in el["verdict"]["options"]}, set(A.VERDICTS))
-        self.assertEqual({o["value"] for o in el["root_cause_category"]["options"]}, {v for v, _ in A.CATEGORIES})
-        self.assertEqual({o["value"] for o in el["checked"]["options"]}, set(A.CHECKED))
-        self.assertEqual({o["value"] for o in el["fp_reason"]["options"]}, {v for v, _ in A.FP_REASONS})
+        self.assertEqual({o["value"] for o in el["root_cause_category"]["options"]}, {v for v, _ in SC.categories})
+        self.assertEqual({o["value"] for o in el["checked"]["options"]}, set(SC.checked))
+        self.assertEqual({o["value"] for o in el["fp_reason"]["options"]}, {v for v, _ in SC.fp_reasons})
         # 採納率的兩題：選項跟服務一樣（yes／no／not_seen）、永遠顯示（不看 verdict）；一句話是 textarea
         for q, _ in A.RCA_QUESTIONS:
             self.assertEqual([o["value"] for o in el[q]["options"]], [v for v, _ in A.RCA_USEFUL])

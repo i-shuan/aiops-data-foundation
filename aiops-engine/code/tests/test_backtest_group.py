@@ -6,6 +6,9 @@ import pandas as pd
 
 import aiops.service.feedback.backtest as B
 from aiops.core.repository import Repos
+from aiops.scenario import load_scenario
+
+SC = load_scenario()
 from aiops.core.repository.baseline import BaselineRepository
 
 NOW = pd.Timestamp("2026-11-03T00:00:00Z")
@@ -38,7 +41,7 @@ class Group(unittest.TestCase):
              mock.patch.object(BaselineRepository, "load", lambda self, name, keys: pd.DataFrame({"service": ["x"]})), \
              mock.patch.object(B, "_confirmed_incidents", lambda es, since: list(incidents)), \
              mock.patch.object(B, "_missed", lambda es, since: list(missed)):
-            return B.run_backtest(Repos(object()), CFG, proposals, weeks=1, now=NOW)
+            return B.run_backtest(Repos(object(), SC), CFG, proposals, weeks=1, now=NOW)
 
     MUTE = {"id": "mute", "kind": "recurring_override", "series": "http\\.error_rate", "match": {"service": "^wip\\-worker$"},
             "schedule": {"cron": "0 20 * * 1", "duration": "1h"}, "effect": {"mute": True}, "tag": "mute"}
@@ -63,8 +66,8 @@ class Group(unittest.TestCase):
         with mock.patch.object(B, "detect_series", fake), mock.patch.object(B, "load_adjustments", lambda es, cfg: []), \
              mock.patch.object(BaselineRepository, "load", lambda self, name, keys: pd.DataFrame({"service": ["x"]})), \
              mock.patch.object(B, "_confirmed_incidents", lambda es, since: []), mock.patch.object(B, "_missed", lambda es, since: []):
-            alone = B.run_backtest(Repos(object()), CFG, self.MIN_ABS, weeks=1, now=NOW)
-            group = B.run_backtest(Repos(object()), CFG, [self.MIN_ABS, self.MIN_COUNT], weeks=1, now=NOW)
+            alone = B.run_backtest(Repos(object(), SC), CFG, self.MIN_ABS, weeks=1, now=NOW)
+            group = B.run_backtest(Repos(object(), SC), CFG, [self.MIN_ABS, self.MIN_COUNT], weeks=1, now=NOW)
         self.assertEqual(alone["verdict"], "ineffective")
         self.assertEqual((group["verdict"], group["anomalies_after"]), ("effective", 3))
         self.assertEqual(group["ablation"], {"abs": "necessary", "cnt": "necessary"})

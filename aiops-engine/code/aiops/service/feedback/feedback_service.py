@@ -8,10 +8,10 @@ from collections import Counter
 import pandas as pd
 
 import aiops.service.rca.llm as LLM
-import aiops.scenario.base as plugin
 from aiops.core.connection import ES, doc_id
 from aiops.core.entity.incident import Incident
 from aiops.core.repository import Repos
+from aiops.scenario import load_scenario
 import aiops.service.detect.adjustments as A
 from aiops.service.detect.adjustments import load_adjustments
 from aiops.service.detect._util import _now
@@ -49,13 +49,14 @@ def _anomaly_details(repo, ids: list[str]) -> list[dict]:
 
 
 def _deploy_before(repo, fps: list[dict], grace_min: int = 10):
-    """這些誤報的對象在它們之前 grace_min 分鐘內有沒有換版（plugin 的 change_at：IT 看版號、工廠看 recipe 變更）；查不到就 None。"""
-    svc = next((v for f in fps for k in plugin.current().entity_keys if (v := (f.get("keys") or {}).get(k))), None)
+    """這些誤報的對象在它們之前 grace_min 分鐘內有沒有換版（情境的 change 策略：IT 看版號、工廠看 recipe 變更）；查不到就 None。"""
+    sc = repo.scenario
+    svc = next((v for f in fps for k in sc.entity_keys if (v := (f.get("keys") or {}).get(k))), None)
     ats = [pd.Timestamp(f["at"]) for f in fps if f.get("at")]
     if not svc or not ats:
         return None
     try:
-        return plugin.current().change_at(repo, {}, str(svc), (min(ats) - pd.Timedelta(minutes=grace_min)).to_pydatetime(),
+        return sc.change(repo, {}, str(svc), (min(ats) - pd.Timedelta(minutes=grace_min)).to_pydatetime(),
                                           (max(ats) + pd.Timedelta(minutes=1)).to_pydatetime())
     except Exception:  # noqa: BLE001  沒有 service.version、來源不是 ES：當作沒換版
         return None
@@ -108,7 +109,7 @@ def write_export(rows: list[dict], out: str | None) -> str:
 
 
 def _connect() -> Repos:
-    repo = Repos(ES())
+    repo = Repos(ES(), load_scenario())
     repo.feedback.ensure()
     return repo
 
@@ -342,7 +343,7 @@ def feedback_add(cfg: dict, args) -> int:
 # ── incident 的三個子命令 ──
 
 def _incidents() -> Repos:
-    repo = Repos(ES())
+    repo = Repos(ES(), load_scenario())
     repo.incidents.ensure()
     return repo
 

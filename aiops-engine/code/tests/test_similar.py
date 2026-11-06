@@ -3,6 +3,9 @@ import unittest
 
 import aiops.service.rca.similar as SIM
 from aiops.core.repository import Repos
+from aiops.scenario import load_scenario
+
+SC = load_scenario()
 
 
 class FakeES:
@@ -111,11 +114,11 @@ class Search(unittest.TestCase):
         docs = {f"i-weak{i}": incident("network", only_svc) for i in range(25)}
         docs["i-best"] = incident("db", self.fp)
         es = FakeES(docs)
-        self.assertEqual([g["incident_id"] for g in SIM.search(Repos(es), self.fp)], ["i-best"])
+        self.assertEqual([g["incident_id"] for g in SIM.search(Repos(es, SC), self.fp)], ["i-best"])
         self.assertEqual(es.bodies[-1]["size"], SIM.CANDIDATES)
         self.assertGreaterEqual(SIM.CANDIDATES, 26)
         # 以前的 20 件就會漏掉；size 可以指定
-        self.assertEqual(SIM.search(Repos(es), self.fp, size=20), [])
+        self.assertEqual(SIM.search(Repos(es, SC), self.fp, size=20), [])
         self.assertEqual(es.bodies[-1]["size"], 20)
 
     def test_format(self):

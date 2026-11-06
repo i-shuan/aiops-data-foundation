@@ -19,7 +19,7 @@ from datetime import datetime, timedelta, timezone
 
 from celery import Celery
 
-import aiops.scenario.base as plugin
+from aiops.scenario import load_scenario
 from aiops.interface.jobs.cron import Cron
 from aiops.interface.jobs.runner import Job, load_schedule, run_once
 
@@ -78,10 +78,10 @@ def enqueue(job, at: datetime, expires: datetime | int | None = None) -> bool:
 
 
 def trigger(name: str, stage: int = 2) -> bool:
-    """api 用：照這個 plugin 的排程表丟一個叫 name 的工作（例如 alert）。沒設 broker、或排程表沒這個工作回 False。"""
+    """api 用：照這個情境的排程表丟一個叫 name 的工作（例如 alert）。沒設 broker、或排程表沒這個工作回 False。"""
     if not configured():
         return False
-    _, jobs = load_schedule(os.path.join(HERE, plugin.current().schedule), stage)
+    _, jobs = load_schedule(os.path.join(HERE, load_scenario().schedule), stage)
     job = next((j for j in jobs if j.name == name), None)
     if job is None:
         return False

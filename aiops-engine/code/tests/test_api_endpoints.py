@@ -44,7 +44,12 @@ class Http(unittest.TestCase):
 
     def setUp(self):
         self.es = ES()
-        W.set_es(self.es)
+        self.use("factory")
+
+    def use(self, plugin: str) -> None:
+        """情境在 set_es 時載入（跟 api.__main__ 一樣，不是每個請求重讀環境變數）。"""
+        with mock.patch.dict(os.environ, {"AIOPS_PLUGIN": plugin}):
+            W.set_es(self.es)
 
     def call(self, method, path, body=None, headers=None):
         data = json.dumps(body).encode() if body is not None else None
@@ -89,6 +94,7 @@ class Http(unittest.TestCase):
             code, r = self.call("POST", "/api/anomalies", {"input": "nope", "rows": []}, h)
             self.assertEqual(code, 404)
             self.assertIn("ml", r["error"])
+        self.use("observability")
         with mock.patch.dict(os.environ, {**TOKEN, "AIOPS_PLUGIN": "observability"}), mock.patch.object(tasks.run_job, "apply_async"):
             code, r = self.call("POST", "/api/anomalies", {"input": "ml", "rows": []}, {"Authorization": "Bearer s3cret"})
             self.assertEqual(code, 404)                                  # IT 自己判，排程表沒有 ingest
@@ -179,7 +185,12 @@ class HtmlPages(unittest.TestCase):
 
     def setUp(self):
         self.es = ES()
-        W.set_es(self.es)
+        self.use("factory")
+
+    def use(self, plugin: str) -> None:
+        """情境在 set_es 時載入（跟 api.__main__ 一樣，不是每個請求重讀環境變數）。"""
+        with mock.patch.dict(os.environ, {"AIOPS_PLUGIN": plugin}):
+            W.set_es(self.es)
 
     def post_form(self, path, data):
         r = self.c.post(path, content=urllib.parse.urlencode(data).encode(), headers={"Content-Type": "application/x-www-form-urlencoded"})
@@ -236,7 +247,9 @@ class EntryStatsWithoutIndex(unittest.TestCase):
 
     def test_missing_index_counts_as_no_requests(self):
         from aiops.core.repository import Repos
+        from aiops.scenario import load_scenario
+        SC = load_scenario()
         fake = mock.Mock()
         fake.search.return_value = {"took": 0, "hits": {"total": {"value": 0}, "hits": []}}
-        got = Repos(fake).traces.entry_stats("lot-paths-*", "K8S-01", None, datetime(2026, 11, 5, 1, tzinfo=timezone.utc), datetime(2026, 11, 5, 2, tzinfo=timezone.utc))
+        got = Repos(fake, SC).traces.entry_stats("lot-paths-*", "K8S-01", None, datetime(2026, 11, 5, 1, tzinfo=timezone.utc), datetime(2026, 11, 5, 2, tzinfo=timezone.utc))
         self.assertEqual(got, {"requests": 0, "errors": 0, "p50_ms": 0, "p95_ms": 0})

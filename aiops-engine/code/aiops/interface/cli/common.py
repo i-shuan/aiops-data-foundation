@@ -1,5 +1,5 @@
 """命令列共用的三樣：登記子命令的裝飾器（registry）、typer 參數 → Namespace → cmd_*(cfg, args) 的轉接（run）、typer.Option 的短名（Opt）。
-detector/__main__.py、feedback/cli.py、plugin 的子命令都用這一套，三邊登記出來的形狀一樣：{子命令名: register(app)}。"""
+interface/cli/detect.py、feedback.py、情境加的子命令都用這一套，三邊登記出來的形狀一樣：{子命令名: register(app)}。"""
 from __future__ import annotations
 
 from argparse import Namespace

@@ -6,9 +6,10 @@ import pandas as pd
 
 from aiops.core.connection import ES
 from aiops.core.repository import Repos
+from aiops.scenario import load_scenario
 
 import aiops.scenario.factory.ingest as I
-from aiops.service.detect._util import _now
+from aiops.core.clock import now_ts as _now
 
 INGEST_FIELDS = {"source": {"type": "keyword"}, "source_id": {"type": "keyword"}, "status": {"type": "keyword"}}
 
@@ -50,7 +51,7 @@ def run(repo: Repos, cfg: dict, now: pd.Timestamp, window: pd.Timedelta) -> dict
 def cmd_ingest(cfg: dict, args) -> int:
     now = _now(args.at)
     tz = cfg.get("timezone", "Asia/Taipei")
-    got = run(Repos(ES()), cfg, now, pd.Timedelta(args.window))
+    got = run(Repos(ES(), load_scenario()), cfg, now, pd.Timedelta(args.window))
     for name, (n, skipped) in got.items():
         print(f"  {name}：{n} 筆異常" + (f"（略過 {skipped} 筆：沒有時間、對象或值）" if skipped else ""))
     print(f"{now.tz_convert(tz):%m-%d %H:%M}：接收 {sum(n for n, _ in got.values())} 筆（最近 {args.window}）")

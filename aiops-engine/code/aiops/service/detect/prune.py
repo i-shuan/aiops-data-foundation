@@ -10,6 +10,7 @@ import pandas as pd
 
 from aiops.core.connection import ES
 from aiops.core.repository import Repos
+from aiops.scenario import load_scenario
 from aiops.service.detect._util import _now
 
 
@@ -30,7 +31,7 @@ def plan(cfg: dict, now: pd.Timestamp) -> list[dict]:
 
 
 def cmd_prune(cfg: dict, args) -> int:
-    hk = Repos(ES()).housekeeping
+    hk = Repos(ES(), load_scenario()).housekeeping
     now = _now(args.at)
     dry = bool(getattr(args, "dry_run", False))
     total = 0

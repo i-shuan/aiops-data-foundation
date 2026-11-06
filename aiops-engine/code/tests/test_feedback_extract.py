@@ -4,6 +4,9 @@ import json
 import unittest
 
 from aiops.core.repository import Repos
+from aiops.scenario import load_scenario
+
+SC = load_scenario()
 from unittest import mock
 
 import pandas as pd
@@ -167,14 +170,14 @@ class MapToTuning(unittest.TestCase):
                 return {}
         es = ES()
         now = pd.Timestamp("2026-10-29T01:00:00Z")
-        _id = T.propose_from_text(Repos(es), GOOD, ALERT, self.TEXT, "amy", now)
+        _id = T.propose_from_text(Repos(es, SC), GOOD, ALERT, self.TEXT, "amy", now)
         self.assertEqual(es.ensured, TUNING_INDEX)
         (path, body), = es.put.items()
         self.assertEqual(path, f"/{TUNING_INDEX}/_doc/{_id}?refresh=true")
         self.assertEqual((body["status"], body["by"], body["at"], body["kind"]), ("proposed", "amy", now.isoformat(), "recurring_override"))
-        self.assertEqual(T.propose_from_text(Repos(es), GOOD, ALERT, self.TEXT, "amy", now), _id)              # 同一人、同一件、同一種：覆蓋不重複
-        self.assertNotEqual(T.propose_from_text(Repos(es), GOOD, ALERT, self.TEXT, "bob", now), _id)
-        self.assertIsNone(T.propose_from_text(Repos(es), {**GOOD, "suggested_action": "none"}, ALERT, self.TEXT, "amy", now))
+        self.assertEqual(T.propose_from_text(Repos(es, SC), GOOD, ALERT, self.TEXT, "amy", now), _id)              # 同一人、同一件、同一種：覆蓋不重複
+        self.assertNotEqual(T.propose_from_text(Repos(es, SC), GOOD, ALERT, self.TEXT, "bob", now), _id)
+        self.assertIsNone(T.propose_from_text(Repos(es, SC), {**GOOD, "suggested_action": "none"}, ALERT, self.TEXT, "amy", now))
 
 
 if __name__ == "__main__":

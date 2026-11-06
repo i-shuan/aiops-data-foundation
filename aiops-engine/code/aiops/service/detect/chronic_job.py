@@ -7,6 +7,7 @@ import pandas as pd
 
 from aiops.core.connection import ES, doc_id
 from aiops.core.repository import Repos
+from aiops.scenario import load_scenario
 import aiops.service.detect.chronic as C
 from aiops.service.detect._util import _now, _v
 from aiops.service.detect.providers import load_owners
@@ -24,7 +25,7 @@ def anomaly_daily(repo: Repos, src: dict, start, end, tz: str) -> pd.DataFrame:
 
 
 def cmd_chronic(cfg: dict, args) -> int:
-    repo = Repos(ES())
+    repo = Repos(ES(), load_scenario())
     repo.chronic.ensure()
     tz = cfg.get("timezone", "Asia/Taipei")
     now = _now(args.at)

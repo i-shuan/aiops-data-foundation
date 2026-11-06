@@ -26,6 +26,7 @@ from aiops.service.detect.baseline_job import detect_series
 from aiops.service.detect._util import _freq, _now, keys_of
 from aiops.core.connection import ES
 from aiops.core.repository import Repos
+from aiops.scenario import load_scenario
 from aiops.service.detect.baseline import DetectOptions
 import aiops.service.feedback.suggest as F
 
@@ -287,7 +288,7 @@ def siblings(repo, prop: dict) -> list[dict]:
 
 
 def cmd_backtest(cfg: dict, args) -> int:
-    repo = Repos(ES())
+    repo = Repos(ES(), load_scenario())
     ids = args.id if isinstance(args.id, list) else [args.id]
     props = []
     for i in ids:

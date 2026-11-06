@@ -10,6 +10,7 @@ from aiops.core.connection import ES, doc_id
 from aiops.core.entity.alert import stamp_of
 from aiops.core.entity.anomaly import Anomaly
 from aiops.core.repository import Repos
+from aiops.scenario import load_scenario
 import aiops.service.detect.adjustments as A
 from aiops.service.detect.baseline import (CONFIDENCE, RESOLUTIONS, DetectOptions, TrainOptions, effective_for, mask_thin, pick_resolution, score, group_of, mark_status, override_for, resolutions_from, score_poisson, train, train_groups)
 from aiops.service.detect._util import _freq, _now, _v, keys_of, value_kind
@@ -125,7 +126,7 @@ def save_anomalies(repo: Repos, name: str, by: list[str], s: pd.DataFrame, direc
     return len(docs)
 
 def cmd_train(cfg: dict, args, repo: Repos | None = None) -> int:
-    repo = repo or Repos(ES())   # 測試給記憶體版的 repo（tests/fakes.py）
+    repo = repo or Repos(ES(), load_scenario())   # 測試給記憶體版的 repo（tests/fakes.py）
     repo.baseline.ensure()
     interval = cfg.get("interval", "5m")
     end = _now(args.end).floor(_freq(interval))
@@ -267,7 +268,7 @@ def with_status(cfg: dict, s: pd.DataFrame, keys: list[str], step: str, start, s
 def cmd_tune(cfg: dict, args) -> int:
     """寫一筆調整進 aiops-tuning（同一條序列＋同一組 match 會覆蓋）；--remove 刪掉；--list 列出；
     --show 看某條序列、某個對象最終生效的值與來源（多筆都符合時後面蓋前面，不然看不出是哪一筆定的）。"""
-    repo = Repos(ES())
+    repo = Repos(ES(), load_scenario())
     repo.tuning.ensure()
     if args.list:
         for o in load_overrides(repo, cfg):
@@ -431,7 +432,7 @@ def write_detect_status(repo: Repos, now: pd.Timestamp, missing: list[str]) -> N
 
 
 def cmd_detect(cfg: dict, args, repo: Repos | None = None) -> int:
-    repo = repo or Repos(ES())
+    repo = repo or Repos(ES(), load_scenario())
     repo.anomalies.ensure()
     interval = cfg.get("interval", "5m")
     now = _now(args.at)

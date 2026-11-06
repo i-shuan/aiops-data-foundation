@@ -106,3 +106,29 @@ class Anomaly:
             if getattr(self, f) is not None:
                 d[f] = getattr(self, f)
         return d
+
+
+# ── 一筆異常歸到哪一件：keys 裡哪個欄位是「對象」由場景給（Scenario.entity_keys）；namespace、節點是共通的 fallback ──
+NS_KEYS = ("resource.attributes.k8s.namespace.name", "k8s.namespace.name", "namespace", "kubernetes.namespace")
+NODE_KEYS = ("resource.attributes.k8s.node.name", "k8s.node.name", "node")
+
+
+def entity_of(a: dict, entity_keys: tuple[str, ...]) -> tuple[str, str]:
+    """(類別, 名稱)：這筆異常歸到哪一件。對象（服務／機台）優先；沒有的用 namespace、再用節點；資料品質另外一類（送平台）。"""
+    keys = a.get("keys") or {}
+    cat = "data_quality" if a.get("level") == "quality" else "service"
+    for kind, fields in (("service", entity_keys), ("namespace", NS_KEYS), ("node", NODE_KEYS)):
+        for f in fields:
+            if keys.get(f):
+                return (cat if kind == "service" or cat == "data_quality" else kind), str(keys[f])
+    if cat == "data_quality" and keys:
+        return cat, "、".join(str(v) for v in keys.values())
+    return cat if cat == "data_quality" else "other", a.get("series", "?")
+
+
+def entity_value(keys: dict | None, entity_keys: tuple[str, ...]) -> str | None:
+    """keys 裡的對象名稱（服務／機台）；沒有回 None。"""
+    for k in entity_keys:
+        if (keys or {}).get(k):
+            return str(keys[k])
+    return None

@@ -52,7 +52,7 @@ class TraceRepository(Repository):
     def spans(self, index: str, trace_ids: list[str], start, end) -> list[dict]:
         """這些 trace 的所有 span（含其他服務的）。呼叫端把時間放寬，跨過邊界的請求也讀得完整。"""
         out = []
-        schema = schema_of(index)
+        schema = schema_of(index, self.scenario.source)
         for i in range(0, len(trace_ids), 500):
             ids = trace_ids[i:i + 500]
             if schema == "merged":
@@ -74,7 +74,7 @@ class TraceRepository(Repository):
 
     def spans_by_id(self, index: str, span_ids: list[str], start, end) -> dict[str, dict]:
         """用 span_id 讀回 span（例如 link 指到的、另一個 trace 裡的生產者）。"""
-        out, want, schema = {}, set(span_ids), schema_of(index)
+        out, want, schema = {}, set(span_ids), schema_of(index, self.scenario.source)
         for i in range(0, len(span_ids), 1000):
             chunk = span_ids[i:i + 1000]
             if schema == "merged":
@@ -96,7 +96,7 @@ class TraceRepository(Repository):
     def updated_trace_ids(self, raw_index: str, since: datetime, until: datetime) -> list[str]:
         """這段時間（依 event.ingested）有 span 進來的 trace。event.ingested 我們的 pipeline traces-otel 蓋、APM 的 Fleet pipeline 也蓋。"""
         body = {"size": 0, "query": {"range": {"event.ingested": {"gte": since.isoformat(), "lt": until.isoformat()}}},
-                "aggs": {"t": {"composite": {"size": 2000, "sources": [{"id": {"terms": {"field": trace_id_field(raw_index)}}}]}}}}
+                "aggs": {"t": {"composite": {"size": 2000, "sources": [{"id": {"terms": {"field": trace_id_field(raw_index, self.scenario.source)}}}]}}}}
         return [b["key"]["id"] for b in self._composite(body, ("t",), raw_index)]
 
     def write_merged(self, docs: dict[str, list[tuple[str, dict]]]) -> int:

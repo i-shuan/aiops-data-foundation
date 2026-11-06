@@ -19,7 +19,6 @@ import re
 
 import requests
 
-import aiops.scenario.domain as D
 from aiops.core.entity.incident import classify
 
 CITE = re.compile(r"\[([A-Z]\d+)\]")
@@ -47,7 +46,7 @@ def _r(x):
     return None if v is None else round(v)
 
 
-def build_pack(alert: dict, findings: dict | None, similar: list[dict]) -> dict:
+def build_pack(alert: dict, findings: dict | None, similar: list[dict], unit: str = "請求") -> dict:
     """輸入包：每個項目一個 id。"""
     f = findings or {}
     items = {}
@@ -56,7 +55,7 @@ def build_pack(alert: dict, findings: dict | None, similar: list[dict]) -> dict:
     pack = {"alert": {"id": "T1", "alert_id": alert.get("alert_id"), "service": alert.get("service"), "severity": alert.get("severity"),
                       "started_at": str(alert.get("started_at") or "")[:16], "minutes": alert.get("minutes"),
                       "routes": alert.get("routes") or [], "dept": alert.get("dept")},
-            "anomalies": [], "segments": [], "error_origins": [], "new_patterns": [], "similar": []}
+            "anomalies": [], "segments": [], "error_origins": [], "new_patterns": [], "similar": [], "unit": unit}
     items["T1"] = alert
     for i, a in enumerate(f.get("anomalies") or [], 1):
         k = f"A{i}"; items[k] = a
@@ -106,14 +105,14 @@ def validate(text: str, pack: dict) -> tuple[bool, str]:
 
 def template(pack: dict) -> str:
     """不叫模型的固定句型：從輸入包組 3～5 句，每句帶依據。"""
-    a, out = pack["alert"], []
+    a, out, unit = pack["alert"], [], pack.get("unit", "請求")
     seg, err, sim, pats, anoms = pack["segments"], pack["error_origins"], pack["similar"], pack["new_patterns"], pack["anomalies"]
     slow = seg[0] if seg and (seg[0]["extra_ms"] or 0) > 0 else None      # 第一段沒變慢（可能還變快）就不算「慢在哪」
     if slow:
-        out.append(f"{a['service']} 變慢，主要多在 {slow['segment']}：每個{D.unit_text()}多花約 {slow['extra_ms']} 毫秒（平常 {slow['usual_ms']} 毫秒）[{slow['id']}]。")
+        out.append(f"{a['service']} 變慢，主要多在 {slow['segment']}：每個{unit}多花約 {slow['extra_ms']} 毫秒（平常 {slow['usual_ms']} 毫秒）[{slow['id']}]。")
     if err:
         e = err[0]
-        out.append(f"錯誤最早出在 {e['segment']}（{e['requests_with_error']} 個{D.unit_text().rstrip()}，平常 {e['usual']}）[{e['id']}]。")
+        out.append(f"錯誤最早出在 {e['segment']}（{e['requests_with_error']} 個{unit.rstrip()}，平常 {e['usual']}）[{e['id']}]。")
     if anoms and not (slow or err):
         x = anoms[0]
         usual = f"，平常 {x['usual']:.4g}" if x.get("usual") is not None else ""

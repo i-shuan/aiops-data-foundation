@@ -1,107 +1,99 @@
-"""主程式＋plugin（core/plugin.py、docs/pdca/meta/2026-11-plugin-architecture.md）：選哪個、門面等價、三個內建各填了什麼、
-detector 的子命令跟著 plugin、報告段清單跟著 plugin。不連 ES。"""
+"""情境（aiops/scenario）：環境變數選哪份、三個內建各填了什麼、客製怎麼給、detector 的子命令與報告段跟著情境。不連 ES。"""
+import dataclasses
 import os
 import unittest
 from datetime import datetime, timedelta, timezone
 from unittest import mock
 
-import aiops.scenario.domain as D
-import aiops.scenario.base as plugin
-import aiops.scenario.source as source
-import aiops.core.repository.owner as O
+import aiops.scenario.base as SC
 from aiops.core.repository import Repos
+from aiops.core.repository.owner import owner_of
+from aiops.scenario import Chain, Scenario, load_scenario
 import aiops.service.converge.merge as AL
 import aiops.service.rca.report as R
 
 T0 = datetime(2026, 11, 4, 1, 0, tzinfo=timezone.utc)
+# 客製：拿內建的改幾個欄位（AIOPS_PLUGIN=tests.test_scenario:MINE）
+MINE = dataclasses.replace(load_scenario("observability"), name="mine", entity="主機", unit="工單", entity_keys=("host",),
+                           owner={"index": "x"}, chain=SC.NoChain(), change=SC.NoChange())
 
 
 def env(**kw):
     return mock.patch.dict(os.environ, {k: v for k, v in kw.items() if v is not None})
 
 
-class MyPlugin(plugin.Plugin):
-    """客製 plugin：繼承、只改幾個。"""
-    name = "mine"
-    entity_keys = ("host",)
-
-    def source_profile(self):
-        return {"owner": {"index": "x"}, "log": {}}
-
-    def domain(self):
-        return {"entity": "主機", "unit": "工單", "trace": "流程", "new_value_hint": "", "categories": [("other", "其他")],
-                "fp_reasons": [("other", "其他")], "checked": ["x"]}
-
-
-class Registry(unittest.TestCase):
-    def tearDown(self):
-        plugin.reset()
-
+class Loading(unittest.TestCase):
     def test_default_is_observability_otel(self):
         with env():
             os.environ.pop("AIOPS_PLUGIN", None)
             os.environ.pop("AIOPS_SOURCE", None)
-            self.assertEqual(plugin.current().name, "observability")
-            self.assertEqual(source.name(), "otel")
-            self.assertEqual(D.entity_label(), "服務")
-            self.assertEqual(plugin.current().schedule, "configs/schedule/schedule.yaml")
+            sc = load_scenario()
+        self.assertEqual((sc.name, sc.source, sc.entity, sc.schedule), ("observability", "otel", "服務", "configs/schedule/schedule.yaml"))
 
-    def test_env_selects_and_switch_is_live(self):
+    def test_env_selects(self):
         with env(AIOPS_PLUGIN="factory"):
-            self.assertEqual((plugin.current().name, source.name(), D.unit_label()), ("factory", "factory", "lot"))
+            sc = load_scenario()
+            self.assertEqual((sc.name, sc.source, sc.unit), ("factory", "factory", "lot"))
         with env(AIOPS_PLUGIN="metrics_only"):
-            self.assertEqual(plugin.current().name, "metrics_only")
-            self.assertEqual(plugin.current().sections, ("anomalies", "logs", "changes", "conclusion"))
+            self.assertEqual(load_scenario().sections, ("anomalies", "logs", "changes", "conclusion"))
         with env(AIOPS_PLUGIN="observability", AIOPS_SOURCE="apm"):
-            self.assertEqual((source.name(), plugin.current().schedule), ("apm", "configs/apm/schedule.yaml"))
+            sc = load_scenario()
+            self.assertEqual((sc.source, sc.schedule), ("apm", "configs/apm/schedule.yaml"))
+            self.assertEqual(sc.owner["service"], "service.name")
+            self.assertEqual(sc.entity_keys, load_scenario("observability").entity_keys)     # extends：沒改的欄位跟 it_otel 一樣
 
     def test_unknown_name_and_bad_path(self):
-        for bad in ("mars", "no.such.module:Plugin", "tests.test_plugin:Nope", "tests.test_plugin:T0"):
+        for bad in ("mars", "no.such.module:X", "tests.test_scenario:Nope", "tests.test_scenario:T0"):
             with env(AIOPS_PLUGIN=bad), self.assertRaises(ValueError, msg=bad):
-                plugin.current()
+                load_scenario()
+        with env(AIOPS_PLUGIN="observability", AIOPS_SOURCE="zipkin"), self.assertRaises(ValueError):
+            load_scenario()
 
-    def test_custom_plugin_by_dotted_path(self):
-        with env(AIOPS_PLUGIN="tests.test_plugin:MyPlugin"):
-            self.assertEqual(plugin.current().name, "mine")
-            self.assertEqual(D.entity_label(), "主機")
-            self.assertEqual(AL.entity_of({"keys": {"host": "h1"}, "series": "s"}), ("service", "h1"))
-            self.assertEqual(O.owner_of({"host": "h1"}, {("svc", "h1"): ("D1", "G1")}), ("D1", "G1"))
-            self.assertEqual(plugin.current().chain(None, {}, [], [], T0, T0), plugin.Chain())
-            self.assertIsNone(plugin.current().change_at(None, {}, "h1", T0, T0))
+    def test_custom_by_dotted_path(self):
+        with env(AIOPS_PLUGIN="tests.test_scenario:MINE"):
+            sc = load_scenario()
+            self.assertEqual((sc.name, sc.entity), ("mine", "主機"))
+            self.assertEqual(AL.entity_of({"keys": {"host": "h1"}, "series": "s"}, sc), ("service", "h1"))
+            self.assertEqual(owner_of({"host": "h1"}, {("svc", "h1"): ("D1", "G1")}, sc.entity_keys), ("D1", "G1"))
+            self.assertEqual(sc.chain(None, {}, [], [], T0, T0), Chain())
+            self.assertIsNone(sc.change(None, {}, "h1", T0, T0))
 
 
 class Builtins(unittest.TestCase):
-    """三個內建各填了什麼（plugins/README.md 的表）。"""
+    """三個內建各填了什麼（scenario/README.md 的表）。"""
 
     def test_observability(self):
-        p = plugin.load("observability")
-        self.assertEqual(p.route_of({"method": "GET", "route": "/a"}), "GET /a")
-        self.assertEqual(p.route_of({"entry.name": "GET /x"}), "GET /x")
-        self.assertEqual(p.route_of({"route": "GET /api"}), "GET /api")        # APM 的 transaction.name
-        self.assertIsNone(p.route_of({"recipe": "R"}))
-        self.assertIn("service", p.entity_keys)
-        self.assertNotIn("equipment", p.entity_keys)
-        self.assertIsNone(p.severity_classes)
-        self.assertEqual(p.commands(), {})
-        self.assertIn("segments", p.sections)
+        sc = load_scenario("observability")
+        self.assertEqual(sc.route_of({"method": "GET", "route": "/a"}), "GET /a")
+        self.assertEqual(sc.route_of({"entry.name": "GET /x"}), "GET /x")
+        self.assertEqual(sc.route_of({"route": "GET /api"}), "GET /api")        # APM 的 transaction.name
+        self.assertIsNone(sc.route_of({"recipe": "R"}))
+        self.assertIn("service", sc.entity_keys)
+        self.assertNotIn("equipment", sc.entity_keys)
+        self.assertIsNone(sc.severity_classes)
+        self.assertEqual(sc.commands, {})
+        self.assertIn("segments", sc.sections)
+        self.assertEqual(sc.unit_text(), "請求")
 
     def test_factory_and_metrics_only(self):
-        f, m = plugin.load("factory"), plugin.load("metrics_only")
-        for p in (f, m):
-            self.assertEqual(p.entity_keys, ("equipment",))
-            self.assertEqual(p.route_of({"recipe": "REC-1", "method": "GET", "route": "/a"}), "REC-1")
-            self.assertIn("fdc", p.critical_levels)
-            self.assertIn("pressure", p.severity_classes)
-            self.assertEqual(p.source_profile()["owner"]["index"], "eqp-master")
-        self.assertEqual(list(f.commands()), ["paths-merge"])
-        self.assertEqual(m.commands(), {})
+        f, m = load_scenario("factory"), load_scenario("metrics_only")
+        for sc in (f, m):
+            self.assertEqual(sc.entity_keys, ("equipment",))
+            self.assertEqual(sc.route_of({"recipe": "REC-1", "method": "GET", "route": "/a"}), "REC-1")
+            self.assertIn("fdc", sc.critical_levels)
+            self.assertIn("pressure", sc.severity_classes)
+            self.assertEqual(sc.owner["index"], "eqp-master")
+            self.assertEqual(sc.unit_text(), " lot ")
+        self.assertEqual(list(f.commands), ["paths-merge"])
+        self.assertEqual(m.commands, {})
         self.assertIn("segments", f.sections)
         self.assertNotIn("segments", m.sections)
-        self.assertEqual(m.chain(None, {}, [], [], T0, T0), plugin.Chain())
+        self.assertEqual(m.chain(None, {}, [], [], T0, T0), Chain())
+        self.assertEqual(m.name, "metrics_only")
 
     def test_factory_chain_and_change_read_cfg(self):
-        """factory 的 chain／change_at 從 cfg 拿索引、看不到就用預設；真正的查詢在 chain.py／changes.py（test_factory_alerts 測）。"""
-        p = plugin.load("factory")
+        """factory 的 chain／change 從 cfg 拿索引、看不到就用預設；真正的查詢在 scenario/factory（test_factory_alerts 測）。"""
+        sc = load_scenario("factory")
         seen = {}
 
         class ES:
@@ -109,22 +101,26 @@ class Builtins(unittest.TestCase):
                 seen["index"], seen["body"] = index, body
                 hit = {"@timestamp": "2026-11-04T00:30:00+00:00"} if index.startswith("chg") else {"trace_id": "L1", "spans": []}
                 return {"hits": {"hits": [{"_source": hit}]}}
-        dep = p.change_at(Repos(ES()), {"alerts": {"deploy_index": "chg-*"}}, "ETCH-01", T0 - timedelta(hours=1), T0)
+        repo = Repos(ES(), sc)
+        dep = sc.change(repo, {"alerts": {"deploy_index": "chg-*"}}, "ETCH-01", T0 - timedelta(hours=1), T0)
         self.assertEqual((seen["index"], dep), ("chg-*", datetime(2026, 11, 4, 0, 30, tzinfo=timezone.utc)))
         self.assertEqual(seen["body"]["query"]["bool"]["filter"][0], {"term": {"equipment_id": "ETCH-01"}})
         self.assertEqual(seen["body"]["query"]["bool"]["filter"][2], {"term": {"event_type": "recipe_change"}})
         anoms = [{"_id": "a", "@timestamp": T0.isoformat(), "keys": {"equipment": "METRO-01", "lot": "L1"}}]
-        ch = p.chain(Repos(ES()), {"indices": {"traces": "lot-paths-*"}, "alerts": {"paths_lookback": "2d"}}, anoms, [], T0 - timedelta(hours=1), T0)
+        ch = sc.chain(repo, {"indices": {"traces": "lot-paths-*"}, "alerts": {"paths_lookback": "2d"}}, anoms, [], T0 - timedelta(hours=1), T0)
         self.assertEqual(seen["index"], "lot-paths-*")
         self.assertEqual(seen["body"]["query"]["bool"]["filter"][0]["range"]["@timestamp"]["gte"], (T0 - timedelta(days=2)).isoformat())
         self.assertEqual((ch.calls, ch.links), (set(), {}))   # 履歷裡沒有站 → 沒有前站
 
+    def test_scenario_is_a_frozen_value(self):
+        sc = load_scenario("factory")
+        with self.assertRaises(dataclasses.FrozenInstanceError):
+            sc.name = "x"
+        self.assertIsInstance(sc, Scenario)
+
 
 class DetectorCommands(unittest.TestCase):
-    """plugin 多出來的子命令只在那個 plugin 下才有。"""
-
-    def tearDown(self):
-        plugin.reset()
+    """情境多出來的子命令只在那個情境下才有。"""
 
     def _help(self):
         import contextlib
@@ -146,10 +142,7 @@ class DetectorCommands(unittest.TestCase):
 
 
 class ReportSections(unittest.TestCase):
-    """報告段跟著 plugin；沒有 trace 時要 trace 的段寫「略過」、log 段照跑、不炸（docs/pdca/meta/2026-11-plugin-architecture.md）。"""
-
-    def tearDown(self):
-        plugin.reset()
+    """報告段跟著情境；沒有 trace 時要 trace 的段寫「略過」、log 段照跑、不炸（docs/pdca/meta/2026-11-plugin-architecture.md）。"""
 
     def _run(self, sections, *, requests=0, logs=()):
         from argparse import Namespace
@@ -159,6 +152,7 @@ class ReportSections(unittest.TestCase):
                   "status": "anomaly", "keys": {"equipment": "ETCH-01", "recipe": "REC-1"}}]
         stats = {"requests": requests, "errors": 0, "p50_ms": 1.0, "p95_ms": 2.0}
         repo = mock.Mock()
+        repo.scenario = load_scenario()
         repo.anomalies.between.return_value = anoms
         repo.traces.entry_stats.return_value = stats
         repo.traces.sample_trace_ids.return_value = []
@@ -181,7 +175,7 @@ class ReportSections(unittest.TestCase):
         self.assertNotIn("慢在哪一段", md)
         self.assertIn("ALID 2041", md)
         self.assertEqual(f["changes"][0]["message"], "PM done")
-        self.assertIsNone(f["requests"])                      # 沒看 trace，不是「看了沒有」：cmd_alert 不會為它重跑
+        self.assertIsNone(f["requests"])                      # 沒看 trace，不是「看了沒有」：alert 不會為它重跑
         self.assertEqual(f["anomalies"][0]["series"], "fdc.pressure")
         with env(AIOPS_PLUGIN="metrics_only"):                 # 什麼線索都沒有時，結論說清楚這個設定看不到哪一段
             md, _ = self._run(None)
@@ -195,7 +189,7 @@ class ReportSections(unittest.TestCase):
         self.assertIn("（沒有履歷，略過）", md)
         self.assertIn("## 5. Log", md)                         # 以前沒 trace 就 return，log 看不到；現在照跑
         self.assertIn("## 6. 事故前 12h 內的變更", md)
-        self.assertEqual(f["requests"]["requests"], 0)         # cmd_alert.has_trace 看這個決定要不要重跑
+        self.assertEqual(f["requests"]["requests"], 0)         # alert_service.has_trace 看這個決定要不要重跑
         self.assertEqual(f["segments"], [])
 
     def test_unknown_section_rejected(self):

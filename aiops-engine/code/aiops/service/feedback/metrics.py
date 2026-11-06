@@ -10,6 +10,7 @@ import pandas as pd
 
 from aiops.core.connection import ES
 from aiops.core.repository import Repos
+from aiops.scenario import load_scenario
 import aiops.service.feedback.suggest as F
 
 
@@ -99,7 +100,7 @@ def format_metrics(m: dict, label: str, m2: dict | None = None, label2: str = ""
 
 
 def cmd_metrics(cfg: dict, args) -> int:
-    repo = Repos(ES())
+    repo = Repos(ES(), load_scenario())
     tz = cfg.get("train", {}).get("timezone", "Asia/Taipei")
     start, end = pd.Timestamp(args.start, tz=tz), pd.Timestamp(args.end, tz=tz)
     m = compute(load_period(repo, start, end))

@@ -1,4 +1,4 @@
-"""paths-merge（工廠 plugin 加的 detector 子命令）：MES 進出站＋S6F11 → 一個 lot 一筆（lot-paths-*；plugins/factory/paths.py）。
+"""paths-merge（工廠情境加的 detector 子命令）：MES 進出站＋S6F11 → 一個 lot 一筆（lot-paths-*；plugins/factory/paths.py）。
 排程器每 5 分鐘跑：最近 --window（預設 1 天）內有進站或出站的 lot 全部重合成一次、整份覆蓋（_id = lot id），
 所以晚到的站、剛出站的時間都會補上，重跑不重複。"""
 from __future__ import annotations
@@ -11,7 +11,8 @@ import typer
 from aiops.config.loader import load_config
 from aiops.core.connection import ES, get_field
 from aiops.core.repository import Repos
-from aiops.service.detect._util import _now
+from aiops.scenario import load_scenario
+from aiops.core.clock import now_ts as _now
 
 import aiops.scenario.factory.paths as P
 
@@ -49,7 +50,7 @@ def run(repo, cfg: dict, now: pd.Timestamp, window: pd.Timedelta) -> int:
 
 
 def register(app: typer.Typer) -> None:
-    """掛成 detector 的子命令（core/plugin.Plugin.commands）。"""
+    """掛成 detector 的子命令（scenario/data/factory.yaml 的 commands）。"""
     app.command("paths-merge", help="工廠：MES 進出站＋S6F11 機台事件 → 一個 lot 一筆履歷 lot-paths-*（plugins/factory/paths.py）")(paths_merge)
 
 
@@ -61,7 +62,7 @@ def paths_merge(config: str = typer.Option(..., help="configs/factory/paths.yaml
 
 def cmd_paths_merge(cfg: dict, args) -> int:
     now = _now(args.at)
-    n = run(Repos(ES()), cfg, now, pd.Timedelta(args.window))
+    n = run(Repos(ES(), load_scenario()), cfg, now, pd.Timedelta(args.window))
     tz = cfg.get("timezone", "Asia/Taipei")
     print(f"{now.tz_convert(tz):%m-%d %H:%M}：paths-merge 最近 {args.window} 有動的 lot，合了 {n} 個")
     return 0

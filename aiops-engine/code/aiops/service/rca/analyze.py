@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from statistics import median
 
 from aiops.core.connection import get_field
-from aiops.core.entity.trace import error_origins, group_traces, root_of, segment, self_times  # noqa: F401  給 __main__ 用
+from aiops.core.entity.trace import Edge, error_origins, group_traces, mermaid, root_of, segment, self_times, topology  # noqa: F401  拓樸在 entity；名字留給既有的 import
 
 
 @dataclass
@@ -73,55 +73,6 @@ def waterfall(trace: list[dict], width: int = 40) -> list[str]:
 
     walk(root, 0)
     return lines
-
-
-@dataclass
-class Edge:
-    caller: str
-    callee: str
-    calls: int = 0
-    errors: int = 0
-    durations: list[float] = field(default_factory=list)
-
-    def p95(self) -> float:
-        d = sorted(self.durations)
-        return d[min(len(d) - 1, int(0.95 * len(d)))] if d else 0.0
-
-
-def topology(traces: dict[str, list[dict]]) -> list[Edge]:
-    """從 trace 畫出服務之間誰呼叫誰：
-    - 子 span 的服務跟父 span 不同 → 父的服務呼叫子的服務（例如 mes-api → wip-worker）
-    - 往外呼叫、底下沒有別的服務接（資料庫、外部 API）→ 服務呼叫那個對象（例如 wip-worker → oracle）
-    """
-    edges: dict[tuple[str, str], Edge] = {}
-
-    def add(a, b, s):
-        e = edges.setdefault((a, b), Edge(a, b))
-        e.calls += 1
-        e.errors += bool(s["error"])
-        e.durations.append(s["dur_ms"])
-
-    for t in traces.values():
-        by_id = {s["span_id"]: s for s in t}
-        has_child = {s["parent"] for s in t if s.get("parent")}
-        for s in t:
-            p = by_id.get(s.get("parent"))
-            if p and p["service"] != s["service"]:
-                add(p["service"], s["service"], s)
-            elif s["kind"] == "Client" and s.get("target") and s["span_id"] not in has_child:
-                add(s["service"], s["target"], s)
-    return sorted(edges.values(), key=lambda e: (e.caller, e.callee))
-
-
-def mermaid(edges: list[Edge]) -> str:
-    """給 Markdown 用的關係圖（GitHub、Kibana 的 Markdown 都看得懂 mermaid）。"""
-    def node(n):
-        return re.sub(r"[^A-Za-z0-9_]", "_", n)
-    lines = ["graph LR"]
-    for e in edges:
-        err = f"，錯誤 {e.errors}" if e.errors else ""
-        lines.append(f'  {node(e.caller)}["{e.caller}"] -->|"{e.calls} 次，p95 {e.p95():.0f} ms{err}"| {node(e.callee)}["{e.callee}"]')
-    return "\n".join(lines)
 
 
 _PATTERNS = [

@@ -18,6 +18,7 @@ import pandas as pd
 
 from aiops.core.connection import ES, doc_id
 from aiops.core.repository import Repos
+from aiops.scenario import load_scenario
 import aiops.service.detect.adjustments as A
 from aiops.service.detect._util import _now
 from aiops.service.detect.adjustments import load_adjustments
@@ -72,7 +73,7 @@ def _rows(repo: Repos, start: pd.Timestamp, end: pd.Timestamp) -> pd.DataFrame:
 
 
 def cmd_shift(cfg: dict, args) -> int:
-    repo = Repos(ES())
+    repo = Repos(ES(), load_scenario())
     repo.tuning.ensure()
     opts = {**DEFAULTS, **(cfg.get("shift") or {})}
     tz = cfg.get("train", {}).get("timezone", cfg.get("timezone", "Asia/Taipei"))

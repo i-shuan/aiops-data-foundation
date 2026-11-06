@@ -27,6 +27,7 @@ from zoneinfo import ZoneInfo
 from aiops.core.connection import ES, doc_id
 from aiops.core.entity.incident import INCIDENT_INDEX, Fingerprint, Incident
 from aiops.core.repository import Repos
+from aiops.scenario import load_scenario
 from aiops.service.detect.adjustments import local_iso
 
 REQUIRED = ("title", "start", "end", "services", "root_cause_category", "root_cause", "action", "how_detected", "checked")
@@ -174,6 +175,6 @@ def run(path: "str | DbRows", tz: str = DEFAULT_TZ, dry_run: bool = False, repo=
     if dry_run:
         print(f"檢查完：{len(docs)} 筆可匯入、{len(skipped)} 筆略過（共 {total} 筆；--dry-run 沒有寫入）")
         return 0 if docs or not total else 1
-    n = write(repo or Repos(ES()), docs)
+    n = write(repo or Repos(ES(), load_scenario()), docs)
     print(f"匯入 {n} 筆、略過 {len(skipped)} 筆（共 {total} 筆）→ {INCIDENT_INDEX}（status confirmed、source import）")
     return 0

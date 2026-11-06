@@ -1,12 +1,12 @@
 """工廠 plugin 的事件整合與嚴重度（docs/pdca/meta/2026-11-factory-engine.md）：對象是機台、API 是 recipe、前後站從履歷找、
-嚴重度依參數家族、recipe 變更當換版。不連 ES。整個模組在 AIOPS_PLUGIN=factory 下跑（core/plugin.py）。"""
+嚴重度依參數家族、recipe 變更當換版。不連 ES。整個模組在 AIOPS_PLUGIN=factory 下跑（scenario/data/factory.yaml）。"""
 import os
 import unittest
 from datetime import datetime, timedelta, timezone
 from unittest import mock
 
-import aiops.scenario.domain as D
-import aiops.scenario.base as plugin
+from aiops.scenario import load_scenario
+import aiops.scenario.base as SC
 import aiops.service.converge.merge as AL
 import aiops.service.converge.severity as S
 import aiops.scenario.factory.chain as FAC
@@ -23,7 +23,6 @@ def setUpModule():
 
 def tearDownModule():
     _env.stop()
-    plugin.reset()
 
 
 def anom(eq, minute, *, series="fdc.pressure", lot="LOT-1", status="anomaly", severity="high", level="ml", recipe="REC-1", **extra):
@@ -145,18 +144,18 @@ class SeverityClasses(unittest.TestCase):
 
 class Domain(unittest.TestCase):
     def test_factory_domain_tables(self):
-        self.assertEqual(D.entity_label(), "機台")
-        self.assertEqual(D.unit_label(), "lot")
-        self.assertIn("equipment", D.category_codes())
-        self.assertIn(("pm_just_done", "剛做完 PM，暖機中"), D.fp_reasons())
+        sc = load_scenario()
+        self.assertEqual((sc.entity, sc.unit), ("機台", "lot"))
+        self.assertIn("equipment", sc.category_codes())
+        self.assertIn(("pm_just_done", "剛做完 PM，暖機中"), sc.fp_reasons)
         with mock.patch.dict(os.environ, {"AIOPS_PLUGIN": "observability"}):
-            self.assertEqual(D.category_codes(), ("db", "network", "config_change", "deploy", "external", "resource", "bug", "data", "other"))
+            self.assertEqual(load_scenario().category_codes(), ("db", "network", "config_change", "deploy", "external", "resource", "bug", "data", "other"))
         with mock.patch.dict(os.environ, {"AIOPS_PLUGIN": "mars"}), self.assertRaises(ValueError):
-            D.name()
+            load_scenario()
 
-    def test_every_builtin_plugin_has_other_category(self):
-        for name in plugin.BUILTIN:
-            d = plugin.load(name).domain()
-            self.assertEqual(d["categories"][-1][0], "other", name)
-            self.assertEqual(d["fp_reasons"][-1][0], "other", name)
-            self.assertTrue(d["checked"], name)
+    def test_every_builtin_scenario_has_other_category(self):
+        for name in SC.BUILTIN:
+            sc = load_scenario(name)
+            self.assertEqual(sc.categories[-1][0], "other", name)
+            self.assertEqual(sc.fp_reasons[-1][0], "other", name)
+            self.assertTrue(sc.checked, name)

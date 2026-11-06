@@ -1,4 +1,4 @@
-"""根因分析報告：一段一段（Section）組起來，哪幾段、什麼順序由 plugin 決定（core/plugin.py 的 sections）。
+"""根因分析報告：一段一段（Section）組起來，哪幾段、什麼順序由情境決定（Scenario.sections）。
 
   anomalies   Metrics：這段時間這個對象的異常（⑤ aiops-anomalies）
   entries     Trace／履歷：這個對象收到的單位數、p95、趨勢；順便取樣慢的單位與平常的單位（後面幾段用）。沒有 trace 時只記一行，後面要 trace 的段各自略過
@@ -18,11 +18,11 @@ from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 from typing import Callable
 
-import aiops.scenario.domain as D
-import aiops.scenario.base as plugin
 import aiops.core.entity.trace as T
 from aiops.core.connection import ES
+from aiops.core.entity.anomaly import entity_value
 from aiops.core.repository import Repos
+from aiops.scenario import load_scenario
 
 import aiops.service.rca.analyze as A
 
@@ -58,17 +58,9 @@ def _delta(v: float) -> str:
     return ("+" if v >= 0 else "-") + _ms(abs(v))
 
 
-def _svc_of(keys: dict) -> str | None:
-    """異常是哪個對象（服務／機台）：keys 裡哪幾個欄位算，由 plugin 決定（跟事件整合 alerts.entity_of 同一套）。"""
-    for k in plugin.current().entity_keys:
-        if keys.get(k):
-            return str(keys[k])
-    return None
-
-
-def _route_of(keys: dict) -> str | None:
-    """哪支 API（IT：trace 裡 Server span 的名稱；工廠：recipe）。plugin 決定。"""
-    return plugin.current().route_of(keys)
+def _svc_of(keys: dict, sc) -> str | None:
+    """異常是哪個對象（服務／機台）：keys 裡哪幾個欄位算，由情境決定（跟事件整合 entity_of 同一套）。"""
+    return entity_value(keys, sc.entity_keys)
 
 
 def _trust(r: dict) -> str:
@@ -84,14 +76,15 @@ def _trust(r: dict) -> str:
 def pick_from_anomalies(repo: Repos, cfg, start, end):
     """沒指定對象：從 ⑤ 的異常裡，挑這段時間最嚴重的對象（偏離倍數最大），時間範圍取它異常的那段。
     異常帶著 API（method、route；工廠是 recipe）的話，也只查那支。"""
+    sc = repo.scenario
     rows = repo.anomalies.between(start, end, size=1000)
-    # warning（只跳一次、或即時檢查的）不觸發根因分析；沒有 status 的是規則、跟兄弟比，照算
-    rows = [r for r in rows if _svc_of(r.get("keys") or {}) and r.get("status", "anomaly") == "anomaly"]
+    # warning（只跳一次、或即時檢查的）不觸發根因分析；沒有 status 的是規則、同儕比對，照算
+    rows = [r for r in rows if _svc_of(r.get("keys") or {}, sc) and r.get("status", "anomaly") == "anomaly"]
     if not rows:
         return None
     top = max(rows, key=lambda r: abs(r.get("z") or 0))
-    svc, route = _svc_of(top["keys"]), _route_of(top["keys"])
-    mine = [r for r in rows if _svc_of(r["keys"]) == svc]
+    svc, route = _svc_of(top["keys"], sc), sc.route_of(top["keys"])
+    mine = [r for r in rows if _svc_of(r["keys"], sc) == svc]
     t = sorted(_ts(r["@timestamp"]) for r in mine)
     # 異常的時間是那 5 分鐘的開始，所以查到最後一個異常再往後 5 分鐘
     return svc, route, t[0], t[-1] + _dur(cfg.get("interval", "5m")), mine
@@ -101,17 +94,17 @@ def pick_from_anomalies(repo: Repos, cfg, start, end):
 
 class Ctx:
     def __init__(self, repo: Repos, cfg: dict, service: str, route: str | None, start: datetime, end: datetime, found: list[dict]):
-        self.repo, self.cfg, self.ix = repo, cfg, cfg["indices"]
+        self.repo, self.sc, self.cfg, self.ix = repo, repo.scenario, cfg, cfg["indices"]
         self.service, self.route, self.start, self.end, self.found = service, route, start, end, found
         self.tz = cfg.get("timezone", "Asia/Taipei")
         self.n = cfg.get("sample", 200)
         self.lag = _dur(str(cfg.get("entry_lag", "0s")))     # 入口比文件時間晚最多多久（工廠的履歷：lot 開始到到這一站；IT 是 0）
-        self.U, self.TRACE = D.unit_text(), D.trace_label()  # 一個「請求」還是一個「 lot 」；trace 還是履歷
+        self.U, self.TRACE = self.sc.unit_text(), self.sc.trace  # 一個「請求」還是一個「 lot 」；trace 還是履歷
         self.what = f"{service}" + (f"（{route}）" if route else "")
         self.ref_start: datetime | None = None
         self.ref_end: datetime | None = None
         self.ref_label = ""
-        self.has_traces: bool | None = None                   # None＝沒看（這個 plugin 沒有 entries 段）
+        self.has_traces: bool | None = None                   # None＝沒看（這個情境沒有 entries 段）
         self.now_tr: dict[str, list[dict]] = {}
         self.ref_tr: dict[str, list[dict]] = {}
         self.diffs: list = []
@@ -149,7 +142,7 @@ def _skip(c: Ctx, title: str, why: str) -> None:
 
 def pick_reference(c: Ctx, need_traces: bool) -> None:
     """「平常」是哪一段：一週前同一段時間；那時候沒資料（例如服務剛上線）就用出事前那一段（同樣長，空 ref_gap 避開剛開始變壞的時候）。
-    要 trace 的 plugin 看那段有沒有請求來挑；只有指標的沒得挑，就用一週前。"""
+    要 trace 的情境看那段有沒有請求來挑；只有指標的沒得挑，就用一週前。"""
     cfg = c.cfg
     back, length, gap = _dur(cfg.get("compare_with", "7d")), c.end - c.start, _dur(cfg.get("ref_gap", "10m"))
     cands = ((c.start - back, c.end - back, f"{cfg.get('compare_with', '7d')} 前同一段時間"),
@@ -184,7 +177,7 @@ def sec_anomalies(c: Ctx) -> None:
         if any(r.get("confidence") == "low" for r in found):
             c.out += ["", "> 可信度 low：用的是不分時段、或借同類 API 的 baseline（不是自己的歷史），先確認是不是真的變了。"]
     else:
-        c.out.append(f"這段時間 ⑤ 沒有記到這個{D.entity_label()}的異常（直接指定{D.entity_label()}查）。")
+        c.out.append(f"這段時間 ⑤ 沒有記到這個{c.sc.entity}的異常（直接指定{c.sc.entity}查）。")
     c.out.append("")
 
 
@@ -192,11 +185,11 @@ def sec_entries(c: Ctx) -> None:
     """這個對象收到的單位：數量、錯誤、p50／p95 跟平常比；出事前的趨勢；取樣最慢的那批與平常的那批。"""
     tr, ix, U, TRACE = c.repo.traces, c.ix, c.U, c.TRACE
     now = tr.entry_stats(ix["traces"], c.service, c.route, c.start, c.end, c.lag)
-    c.heading(f"{TRACE}：這個{D.entity_label()}收到的{U}")
+    c.heading(f"{TRACE}：這個{c.sc.entity}收到的{U}")
     c.findings["requests"] = now
     if not now["requests"]:
         c.has_traces = False
-        c.out += [f"這段時間沒有這個{D.entity_label()}的{TRACE}（沒埋點、名稱不對、或{TRACE}還沒合成完；合成晚 1～2 分鐘）。"
+        c.out += [f"這段時間沒有這個{c.sc.entity}的{TRACE}（沒埋點、名稱不對、或{TRACE}還沒合成完；合成晚 1～2 分鐘）。"
                   f"先從 log 找；沒有{TRACE}的件系統會自動重跑報告（每 2 分鐘、最多 5 次）。", ""]
         return
     c.has_traces = True
@@ -286,7 +279,7 @@ def sec_logs(c: Ctx) -> None:
     c.findings["new_patterns"] = [{"service": p.service, "pattern": p.pattern[:200], "now": p.now, "ref": p.ref, "is_new": bool(p.is_new),
                                    "example": p.example.splitlines()[0][:200]} for p in pats[:8]]
     if pats:
-        c.out += [f"| {D.entity_label()} | 樣式 | 現在 | 平常 | 例子 |", "|---|---|---|---|---|"]
+        c.out += [f"| {c.sc.entity} | 樣式 | 現在 | 平常 | 例子 |", "|---|---|---|---|---|"]
         for p in pats[:8]:
             ex = p.example.splitlines()[0][:120].replace("|", "\\|")
             c.out.append(f"| {p.service} | {'🆕 ' if p.is_new else ''}`{p.pattern[:80].replace('|', '/')}` | {p.now} | {p.ref} | {ex} |")
@@ -298,7 +291,7 @@ def sec_logs(c: Ctx) -> None:
         idl = "lot id" if U.strip() == "lot" else "trace_id"
         c.out += ["", f"最慢那個{U}的 log（依 {idl} 撈出來，{len(lines)} 行）：", "", "```"]
         c.out += [f"{l['ts']}  {l['service']:<14} {str(l['level'] or ''):<5}  {l['message'].splitlines()[0][:150]}" for l in lines[:20]] \
-            or [f"（沒有：這幾個{D.entity_label()}的 log 沒寫 {idl}？）"]
+            or [f"（沒有：這幾個{c.sc.entity}的 log 沒寫 {idl}？）"]
         c.out.append("```")
     c.out.append("")
 
@@ -322,10 +315,10 @@ def sec_changes(c: Ctx) -> None:
 
 def sec_topology(c: Ctx) -> None:
     if not c.traced:
-        return _skip(c, f"這些{c.U}經過的{D.entity_label()}", f"（沒有{c.TRACE}，略過）")
+        return _skip(c, f"這些{c.U}經過的{c.sc.entity}", f"（沒有{c.TRACE}，略過）")
     edges = A.topology(c.now_tr)
     c.findings["topology"] = [{"caller": e.caller, "callee": e.callee, "calls": e.calls, "errors": e.errors} for e in edges]
-    c.heading(f"這些{c.U}經過的{D.entity_label()}")
+    c.heading(f"這些{c.U}經過的{c.sc.entity}")
     c.out += ["```mermaid", A.mermaid(edges), "```", ""]
 
 
@@ -343,7 +336,7 @@ def sec_conclusion(c: Ctx) -> None:
     if c.commons:
         x = c.commons[0]
         if x.is_new:
-            c.out.append(f"- 慢的{U} {x.now_share:.0%} 都在平常沒見過的 {x.dim} `{x.value}`：平常那批完全沒有這個值（{D.new_value_hint()}），先確認那時有沒有換。")
+            c.out.append(f"- 慢的{U} {x.now_share:.0%} 都在平常沒見過的 {x.dim} `{x.value}`：平常那批完全沒有這個值（{c.sc.new_value_hint}），先確認那時有沒有換。")
         else:
             c.out.append(f"- 慢的{U} {x.now_share:.0%} 都是 {x.dim} = `{x.value}`（平常 {x.ref_share:.0%}）：問題可能只在它身上。")
     if c.trend.get("kind") in ("gradual", "sudden"):
@@ -370,9 +363,9 @@ TRACE_SECTIONS = ("entries", "segments", "slowest", "topology")
 def investigate_full(cfg: dict, args, sections: tuple[str, ...] | None = None) -> tuple[str, dict]:
     """回傳 (Markdown 報告, findings)。findings 是結構化的結果：異常、慢在哪一段、錯從哪開始、新 log 樣式、呼叫關係，
     給事件整合存進 aiops-alerts、相似事故檢索（investigator/similar.py）和 LLM 摘要（core/llm.py）用。
-    sections 不給就用 plugin 的（core/plugin.py）。"""
-    repo = Repos(ES())
-    names = tuple(sections or plugin.current().sections)
+    sections 不給就用情境的（Scenario.sections）。"""
+    repo = Repos(ES(), load_scenario())
+    names = tuple(sections or repo.scenario.sections)
     unknown = [s for s in names if s not in SECTIONS]
     if unknown:
         raise ValueError(f"不認得的報告段：{unknown}；有 {list(SECTIONS)}")
@@ -388,10 +381,10 @@ def investigate_full(cfg: dict, args, sections: tuple[str, ...] | None = None) -
         if not picked:
             empty = {"service": None, "route": None, "anomalies": [], "segments": [], "error_origins": [], "new_patterns": [],
                      "topology": [], "requests": None, "ref_label": None, "trend": None, "commonality": [], "changes": []}
-            return f"{_local(start, tz)}～{_local(end, tz)} 沒有 ⑤ 的異常。要查特定{D.entity_label()}的話用 --service。", empty
+            return f"{_local(start, tz)}～{_local(end, tz)} 沒有 ⑤ 的異常。要查特定{repo.scenario.entity}的話用 --service。", empty
         service, route, start, end, found = picked
     else:
-        found = repo.anomalies.between(start, end, size=1000, service=service, service_keys=plugin.current().entity_keys)
+        found = repo.anomalies.between(start, end, size=1000, service=service, service_keys=repo.scenario.entity_keys)
     c = Ctx(repo, cfg, service, route, start, end, found)
     pick_reference(c, need_traces=any(s in names for s in TRACE_SECTIONS))
     c.out = [f"# 根因分析：{c.what}，{_local(start, tz)}～{_local(end, tz)}（{tz}）", ""]

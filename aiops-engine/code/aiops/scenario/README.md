@@ -1,39 +1,41 @@
-# plugin：選一個情境，或自己寫一個
+# 情境（scenario）：選一個，或自己寫一份
 
-> **類型：操作 How-To**　原理（為什麼拆成主程式＋plugin、擴充點怎麼挑）見 [docs/architecture.md §4.2](../../../../docs/architecture.md)・紀錄 [docs/pdca/meta/2026-11-plugin-architecture.md](../../../../docs/pdca/meta/2026-11-plugin-architecture.md)
+> **類型：操作 How-To**　原理（為什麼拆成主程式＋情境、擴充點怎麼挑）見 [docs/architecture.md §4.2](../../../../docs/architecture.md)・紀錄 [docs/pdca/meta/2026-11-plugin-architecture.md](../../../../docs/pdca/meta/2026-11-plugin-architecture.md)、[docs/pdca/meta/2026-11-target-architecture.md](../../../../docs/pdca/meta/2026-11-target-architecture.md)
 
-engine 一份程式；「IT 可觀測性」「全套工廠」「只有指標」各是一個 plugin，環境變數 `AIOPS_PLUGIN` 選。主程式（`core/`、`detector/`、`investigator/`、`api/`）只透過 [core/plugin.py](base.py) 的 `current()` 問 plugin，不認得 `factory`、`lot`、`equipment` 這些字。
+engine 一份程式；「IT 可觀測性」「全套工廠」「只有指標」各是一份資料檔（[data/](data/)）加兩個策略，環境變數 `AIOPS_PLUGIN` 選。
+主程式（`core/`、`service/`、`interface/`）只看 [base.py](base.py) 的 `Scenario` 欄位，不認得 `factory`、`lot`、`equipment` 這些字；
+情境在組合根載入一次（`load_scenario()`：cli／web／jobs 的入口、`Repos(ES(), load_scenario())`），往下傳，沒有全域狀態。
 
 ## 選哪個
 
-| `AIOPS_PLUGIN` | 什麼情境 | 設定檔 | chart |
-|---|---|---|---|
-| `observability`（預設） | IT：對象是服務、API 是 method＋route、trace 的呼叫關係決定誰連帶誰、版號第一次出現當換版。原始資料再用 `AIOPS_SOURCE` 選 `otel`／`apm` | `configs/schedule/`、`configs/baseline/`、`configs/rca/`；apm 用 [configs/apm/](../../configs/apm/README.md) | `--set plugin=observability [--set source=apm]` |
-| `factory` | 工廠：對象是機台、API 是 recipe、ML／FDC 判好的異常接進 ⑤、MES＋S6F11 合成履歷取代 trace、後站依 lot 併進前站、recipe 變更當換版、嚴重度依參數家族 | [configs/factory/](../../configs/factory/README.md) | `--set plugin=factory` |
-| `metrics_only` | 只有 ML／FDC 的異常、**沒有履歷**：同機台一件、不併跨機台、報告只有異常／log／事故前的變更 | `configs/metrics_only/`（`ingest.yaml` 跟 factory 共用） | `--set plugin=metrics_only` |
-| `套件.模組:類別` | 客製（下節） | 自己放 | `--set plugin=套件.模組:類別` |
+| `AIOPS_PLUGIN` | 什麼情境 | 資料檔 | 設定檔 | chart |
+|---|---|---|---|---|
+| `observability`（預設） | IT：對象是服務、API 是 method＋route、trace 的呼叫關係決定誰連帶誰、版號第一次出現當換版。原始資料再用 `AIOPS_SOURCE` 選 `otel`／`apm` | `it_otel.yaml`、`it_apm.yaml` | `configs/schedule/`、`configs/baseline/`、`configs/rca/`；apm 用 [configs/apm/](../../configs/apm/README.md) | `--set plugin=observability [--set source=apm]` |
+| `factory` | 工廠：對象是機台、API 是 recipe、ML／FDC 判好的異常接進 ⑤、MES＋S6F11 合成履歷取代 trace、後站依 lot 併進前站、recipe 變更當換版、嚴重度依參數家族 | `factory.yaml` | [configs/factory/](../../configs/factory/README.md) | `--set plugin=factory` |
+| `metrics_only` | 只有 ML／FDC 的異常、**沒有履歷**：同機台一件、不併跨機台、報告只有異常／log／事故前的變更 | `metrics_only.yaml`（`extends: factory`） | `configs/metrics_only/`（`ingest.yaml` 跟 factory 共用） | `--set plugin=metrics_only` |
+| `<路徑>.yaml` | 客製：一份自己的資料檔（可 `extends` 內建的） | 自己放 | 自己放 | `--set plugin=/path/x.yaml` |
+| `套件.模組:名字` | 客製：程式裡的 `Scenario` 實例（下節） | — | 自己放 | `--set plugin=套件.模組:名字` |
 
-`AIOPS_DOMAIN` 已經不用了（用語、分類表跟著 plugin）。
+## 一份情境有什麼
 
-## 三個內建各填了什麼
+| 欄位 | observability | factory | metrics_only（extends factory） | 誰用 |
+|---|---|---|---|---|
+| `source` 原始資料格式 | `otel`／`apm` | `factory` | 同 | trace 的 schema（`core/entity/trace.schema_of`） |
+| `owner`、`log` 索引與欄位對照 | 依 `AIOPS_SOURCE` | `eqp-master`（機台主檔）、`eqp-logs-*` | 同 | `core/repository/owner.py`、`log.py` |
+| `domain` 用語、分類表（entity、unit、trace、new_value_hint、categories、fp_reasons、checked） | 服務／請求／Trace；db、network、deploy… | 機台／lot／履歷；equipment、process_drift、recipe… | 同 | 報告、LLM 範本、回饋網頁 |
+| `entity_keys` 對象在 keys 的哪個欄位 | `service`、`entry.service`、`service.name`… | `equipment` | 同 | 事件整合、歸屬、根因分析 |
+| `route` 「哪支 API」怎麼算 | `http`（`entry.name`、method＋route、APM 的 `route`） | `recipe` | 同 | 事件整合、根因分析挑樣本 |
+| `chain` 跨對象併件的策略 | [it/chain.py](it/chain.py) `CallEdges`（trace 的呼叫關係） | [factory/chain.py](factory/chain.py) `LotLinks`（履歷的前後站） | `null`（不併） | `service/converge/alert_service` |
+| `change` 「換版」的策略 | [it/change.py](it/change.py) `VersionFirstSeen` | [factory/change.py](factory/change.py) `LatestChange`（recipe 變更紀錄） | 同 factory | 嚴重度的換版上限、誤報建議 |
+| `severity_classes` 嚴重度的訊號分類 | `null`＝內建黃金訊號（延遲、錯誤、往外呼叫、飽和） | 參數家族（pressure、temperature、flow、power、time、metrology、alarm） | 同 | `service/converge/severity` |
+| `critical_levels` | rule、peer、quality | ＋fdc | 同 | 同上 |
+| `sections` 報告有哪幾段 | anomalies、entries、segments、slowest、logs、changes、topology、conclusion | 同 | anomalies、logs、changes、conclusion | `service/rca/report` |
+| `commands` 多出來的 detector 子命令 | — | `paths-merge`（[factory/commands.py](factory/commands.py)） | — | `interface/cli/detect` |
+| `schedule` 預設排程表 | `configs/schedule/`（apm：`configs/apm/`） | `configs/factory/schedule.yaml` | `configs/metrics_only/schedule.yaml` | `interface/jobs`、api 的 ingest |
 
-| 擴充點 | observability | factory | metrics_only（繼承 factory） |
-|---|---|---|---|
-| `source_profile()` 索引、欄位對照 | 依 `AIOPS_SOURCE`：otel／apm | `eqp-master`（機台主檔）、`eqp-logs-*` | 同 factory |
-| `domain()` 用語、分類表 | 服務／請求／Trace；db、network、deploy… | 機台／lot／履歷；equipment、process_drift、recipe… | 同 factory |
-| `entity_keys` 對象在 keys 的哪個欄位 | `service`、`entry.service`、`service.name`… | `equipment` | 同 |
-| `route_of()` 「哪支 API」 | `entry.name`、method＋route、APM 的 `route` | `recipe` | 同 |
-| `chain()` 跨對象併件的依據 | trace 的呼叫關係（`call_edges`） | 履歷的前後站（`lot_links`） | 不併 |
-| `change_at()` 「換版」 | 版號第一次出現（`deploy_at`） | recipe 變更紀錄最近一筆 | 同 factory |
-| `severity_classes` 嚴重度的訊號分類 | 內建黃金訊號（延遲、錯誤、往外呼叫、飽和） | 參數家族（pressure、temperature、flow、power、time、metrology、alarm） | 同 |
-| `critical_levels` | rule、peer、quality | ＋fdc | 同 |
-| `sections` 報告有哪幾段 | anomalies、entries、segments、slowest、logs、changes、topology、conclusion | 同 | anomalies、logs、changes、conclusion |
-| `commands()` 多出來的 detector 子命令 | — | `paths-merge` | — |
-| `schedule` 預設排程表 | `configs/schedule/`（apm：`configs/apm/`） | `configs/factory/schedule.yaml` | `configs/metrics_only/schedule.yaml` |
+cfg 可以覆蓋情境的預設：`alerts.critical_levels`、`alerts.severity.classes`、`alerts.chain: false`、換版的索引（`alerts.deploy_index` 等）。報告的 `changes` 段要 cfg 有 `changes.query` 才出。
 
-cfg 可以覆蓋 plugin 的預設：`alerts.critical_levels`、`alerts.severity.classes`、`alerts.chain: false`、換版的索引（`alerts.deploy_index` 等）。報告的 `changes` 段要 cfg 有 `changes.query` 才出。
-
-## 哪些功能在哪個 plugin 能用
+## 哪些功能在哪個情境能用
 
 | 功能 | observability | factory | metrics_only |
 |---|---|---|---|
@@ -45,35 +47,31 @@ cfg 可以覆蓋 plugin 的預設：`alerts.critical_levels`、`alerts.severity.
 | ⑦ 相似事故分類（M5） | ✅ | ✅ | ✅ |
 | ⑧⑨ 通知、回饋、匯出 | ✅ | ✅ | ✅ |
 
-## 自己寫一個
+## 自己寫一份
 
-繼承 `core.plugin.Plugin`（或任一內建），覆寫要改的那幾個，放在 `aiops-engine/code` 底下 import 得到的地方：
+最省事：一份 yaml，`extends` 一個內建的、只寫要改的欄位，`AIOPS_PLUGIN=/path/network.yaml`：
 
-```python
-# myplugins/network.py
-from core.plugin import Chain, Plugin as Base
-from plugins.observability import Plugin as Observability
-
-class Plugin(Observability):
-    name = "network"
-    entity_keys = ("device",)                       # 異常的 keys 裡哪個是對象
-
-    def route_of(self, keys):
-        return keys.get("interface")
-
-    def chain(self, es, cfg, anomalies, open_alerts, start, now):
-        return Chain(calls={(up, down) for up, down in topology_edges(es, cfg)})   # 誰連帶誰：{(上游, 下游)}
+```yaml
+extends: it_otel
+name: network
+domain: {entity: 設備, unit: 封包, trace: 路徑, new_value_hint: 新韌體}
+entity_keys: [device]                                 # 異常的 keys 裡哪個是對象
+route: none
+chain: {strategy: "myplugins.network:TopologyEdges"}  # 自己的策略：可呼叫物件 (repo, cfg, anomalies, open_alerts, start, now) -> Chain
+change: null
 ```
 
-`AIOPS_PLUGIN=myplugins.network:Plugin`，chart `--set plugin=myplugins.network:Plugin`（image 要含那個套件；排程表 chart 只認三個內建的名字，客製的用 `configOverrides` 掛自己的排程表）。
+或在程式裡組一個 `Scenario`（`dataclasses.replace(load_scenario("observability"), …)`），`AIOPS_PLUGIN=myplugins.network:SCENARIO`（image 要含那個套件；排程表 chart 只認三個內建的名字，客製的用 `configOverrides` 掛自己的排程表）。
 
-- `source_profile()` 要回 `{"owner": {...}, "log": {...}}`（欄位見 [plugins/observability/__init__.py](it/__init__.py) 的 `PROFILES`）；`domain()` 要有 `entity`、`unit`、`trace`、`new_value_hint`、`categories`、`fp_reasons`、`checked`，`categories`、`fp_reasons` 最後一項是 `other`。
-- `sections` 只能從 [investigator/report.py](../service/rca/report.py) 的 `SECTIONS` 挑；要 trace 的段在沒有 trace 時自己寫一行略過，不用你管。
-- `commands()` 回 `{"子命令名": register}`，`register(app)` 用 `app.command("子命令名", help=…)` 掛一個 typer 函式；函式自己 `load_config(config, kind)`、組 `argparse.Namespace` 再呼叫處理函式 `(cfg, args) -> int`（寫法見 [plugins/factory/cmd_paths.py](factory/commands.py)）。內建子命令也是同一種形狀。
-- 單元測試：`AIOPS_PLUGIN` 用 `mock.patch.dict(os.environ, …)` 包，`core.plugin.current()` 看到環境變數變了會自己換；寫法見 [tests/test_plugin.py](../../tests/test_plugin.py)。
+- `owner` 要有 `index`、`namespace`、`service`、`dept`、`group`（主檔沒有時間欄位加 `static: true`）；`log` 要有 `service`、`level`、`trace_id`、`message`（list）、`problem_levels`、`problem_query`。
+- `domain.categories`、`fp_reasons` 是 `[代碼, 顯示文字]` 的清單，最後一項要是 `other`；`checked` 是常查的地方。
+- `sections` 只能從 [service/rca/report.py](../service/rca/report.py) 的 `SECTIONS` 挑；要 trace 的段在沒有 trace 時自己寫一行略過，不用你管。
+- `commands` 是 `{子命令名: "套件.模組:register"}`，`register(app)` 用 `app.command("子命令名", help=…)` 掛一個 typer 函式；函式自己 `load_config(config, kind)`、組 `argparse.Namespace` 再呼叫處理函式 `(cfg, args) -> int`（寫法見 [factory/commands.py](factory/commands.py)）。內建子命令也是同一種形狀。
+- 策略是「可呼叫物件」：`chain(repo, cfg, anomalies, open_alerts, start, now) -> Chain`、`change(repo, cfg, entity, since, now) -> datetime | None`；要查 ES 走 `repo.traces`、`repo.change`（[core/repository/README.md](../core/repository/README.md)），不要自己打查詢。
+- 單元測試：`AIOPS_PLUGIN` 用 `mock.patch.dict(os.environ, …)` 包，每次 `load_scenario()` 都重讀；寫法見 [tests/test_scenario.py](../../tests/test_scenario.py)。
 
 ## 怎麼驗
 
-- `python -m pytest -q tests/test_plugin.py`：預設、env 選、客製 dotted path、三個內建各填了什麼、子命令跟著 plugin、報告段跟著 plugin（沒 trace 時 log 段照跑、不炸）。
+- `python -m pytest -q tests/test_scenario.py`：預設、env 選、yaml 的 `extends`、客製 dotted path、三個內建各填了什麼、子命令跟著情境、報告段跟著情境（沒 trace 時 log 段照跑、不炸）。
 - `python -m tests.factory_e2e`（有履歷，15 項）、`python -m tests.factory_e2e --plugin metrics_only`（沒履歷，13 項）：都要有測試 ES（[configs/factory/README.md](../../configs/factory/README.md)）。
 - `helm template x aiops-engine/helmchart --set plugin=<名>`：`AIOPS_PLUGIN` 進 env、排程表對；不認得的名字 render 失敗。

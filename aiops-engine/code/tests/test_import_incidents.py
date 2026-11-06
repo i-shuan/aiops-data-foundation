@@ -9,6 +9,9 @@ from pathlib import Path
 from aiops.core.entity.incident import INCIDENT_INDEX
 import aiops.service.feedback.importer as IMP
 from aiops.core.repository import Repos
+from aiops.scenario import load_scenario
+
+SC = load_scenario()
 import aiops.service.rca.similar as SIM
 from aiops.interface.cli.rca import main
 
@@ -158,14 +161,14 @@ class WriteAndSearch(unittest.TestCase):
     def test_write_ensures_mapping_and_bulk_indexes(self):
         es = FakeES()
         docs, _ = IMP.parse(HERE.parent / "configs/rca/incidents-example.csv")
-        self.assertEqual(IMP.write(Repos(es), docs), 10)
+        self.assertEqual(IMP.write(Repos(es, SC), docs), 10)
         (name, body), = es.ensured
         self.assertEqual(name, INCIDENT_INDEX)
         self.assertIn("source", body["mappings"]["properties"])
         (index, items), = es.indexed
         self.assertEqual(index, INCIDENT_INDEX)
         self.assertEqual(len(items), 10)
-        self.assertEqual(IMP.write(Repos(es), []), 0)
+        self.assertEqual(IMP.write(Repos(es, SC), []), 0)
 
     def test_imported_doc_is_found_by_similar_search(self):
         """匯入的文件形狀要能被 similar.search 拿到：status confirmed、fingerprint 跟自動的同一個形狀。"""
@@ -174,7 +177,7 @@ class WriteAndSearch(unittest.TestCase):
         es = SimES(dict(docs))
         fp = SIM.fingerprint({"service": "wip-worker", "routes": ["GET /lots/{id}"], "series": ["http.latency_p95_s"]},
                              {"segments": [{"segment": "wip-worker › Oracle SELECT LOT_HISTORY", "delta_ms": 900}]})
-        got = SIM.search(Repos(es), fp)
+        got = SIM.search(Repos(es, SC), fp)
         self.assertTrue(got)
         self.assertEqual(got[0]["root_cause_category"], "db")
         self.assertIn("同一段變慢（wip-worker › Oracle SELECT LOT_HISTORY）", got[0]["why"])

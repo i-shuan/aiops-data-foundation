@@ -221,6 +221,23 @@ aiops-engine/code/
 - `test_layers`：`INDEX_LITERALS` 填齊九個 `aiops-*` 索引（字面值只能在 `core/`）；`KNOWN` 的 `rca_queries.py` 換成 `log.py`（S2 清 `source.profile`）。
 - Check：`pytest` 762 過、16 skipped（刪了 test_es_backend 與 file／http 的測試，加了 repository 的）；`check-docs` 0 問題。對真 ES 的 `loop_e2e`／`chain_e2e` 留到 S2 之後一起跑（容器裡的 ES 要重新起）。
 
+### S2 做了什麼（2026-11-06）
+
+- `scenario/base.py`：`Scenario` 是 frozen dataclass（source、owner／log 對照、用語與分類表、entity_keys、route、chain／change 兩個策略、
+  severity_classes、critical_levels、sections、schedule、commands）；`load_scenario(spec)` 讀 `scenario/data/*.yaml`（`extends` 可疊：`it_apm` 疊 `it_otel`、
+  `metrics_only` 疊 `factory`），環境變數 `AIOPS_PLUGIN`／`AIOPS_SOURCE` 的名字不變（helm 不用改）；客製給一份 yaml 的路徑或「套件.模組:名字」的 `Scenario` 實例。
+- 策略是可呼叫物件：`scenario/it/chain.py` `CallEdges`、`it/change.py` `VersionFirstSeen`、`factory/chain.py` `LotLinks`、`factory/change.py` `LatestChange`；
+  `NoChain`／`NoChange` 在 base。`route` 只有 http／recipe／none 三種算法，放 base。
+- 刪掉全域單例：`plugin.current()`、`scenario/domain.py`、`scenario/source.py`、三個 `Plugin` 類別、`metrics_only/` 套件。情境在組合根載入
+  （`Repos(ES(), load_scenario())`、cli 的 `build_app`、web 的 `set_es`、jobs 的 `trigger`）往下傳：`Repos.scenario` → repository（owner／log 對照、trace schema），
+  service 從 `repo.scenario` 拿；`merge`／`owner`／`headline`／`summary`／`rca_route` 多一個 `sc` 參數（沒給才 `load_scenario()`，給測試用）；`llm.build_pack` 的 `unit` 進 pack。
+- core 不再 import scenario：`entity/anomaly.py` 多 `NS_KEYS`／`NODE_KEYS`／`entity_of(a, entity_keys)`／`entity_value`；`entity/trace.py` 多 `Edge`／`topology`／`mermaid`
+  （原 `service/rca/analyze.py`）與 `is_entry`／`merged_doc`（原 `service/detect/trace_merge.build`），`schema_of(index, source)`；`core/clock.py`（duration、now_ts、parse_ts）。
+  scenario 也不再 import service（`_dur`、`_now`、`topology`、`build`、`merge.entity_of` 都改用 core 的）。
+- `test_layers` 的 `KNOWN` 清空：四層方向現在沒有例外。
+- Check：`pytest` 763 過、16 skipped（`test_plugin.py` 換成 `test_scenario.py`；`test_apm`、`test_owner`、`test_factory_alerts`、`test_api_endpoints` 改成明確給 Scenario）；
+  `check-docs` 0 問題；scenario/README、architecture 4.2、configs 的註解改成情境的說法。
+
 ## Check：預計要驗證的
 
 | 測試目的（為了確認什麼） | 怎麼測 | 結果 |

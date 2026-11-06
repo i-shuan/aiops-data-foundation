@@ -16,10 +16,8 @@ LAZY_OK = {("service/feedback/importer.py", "sqlalchemy"), ("interface/jobs/loca
 # 索引名的字面值只能在 core/（entity 定義、repository 讀寫）
 INDEX_LITERALS = ("aiops-anomalies", "aiops-alerts", "aiops-incidents", "aiops-feedback", "aiops-tuning", "aiops-baseline",
                   "aiops-trace-segments", "aiops-state", "aiops-chronic")
-# 還沒清掉的反向依賴（S0 搬完的現況；S1 拆 repository、S2 做 Scenario 時逐條刪，刪光這個集合就空了）
-KNOWN = {"core/repository/owner.py → ['scenario']", "core/repository/log.py → ['scenario']", "core/entity/trace.py → ['scenario']",
-         "scenario/it/chain.py → ['service']", "scenario/it/__init__.py → ['service']", "scenario/factory/paths.py → ['service']",
-         "scenario/factory/__init__.py → ['service']", "scenario/factory/commands.py → ['service']", "scenario/factory/ingest_job.py → ['service']"}
+# 還沒清掉的反向依賴：S2 之後是空的，加了反向 import 這裡會紅
+KNOWN: set[str] = set()
 
 
 def modules():

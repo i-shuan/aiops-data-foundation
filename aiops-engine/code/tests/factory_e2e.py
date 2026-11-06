@@ -23,7 +23,7 @@ from datetime import timedelta
 
 import pandas as pd
 
-os.environ.setdefault("AIOPS_PLUGIN", "factory")       # core/plugin.py：機台、recipe、履歷、recipe 變更當換版
+os.environ.setdefault("AIOPS_PLUGIN", "factory")       # scenario/data/factory.yaml：機台、recipe、履歷、recipe 變更當換版
 
 TZ = "Asia/Taipei"
 TODAY = pd.Timestamp("2026-11-04", tz=TZ)
@@ -235,9 +235,9 @@ def run(keep: bool = False, dump_dir: str | None = None, plugin_name: str = "fac
     if full:
         check("履歷：一個 lot 一筆", paths == len({r['lot_id'] for r in data['mes']}), f"{paths} 筆，MES 有 {len({r['lot_id'] for r in data['mes']})} 個 lot")
     else:
-        import aiops.scenario.base as plugin
-        check("沒有履歷（metrics_only 沒有 paths-merge、沒合成）", paths == 0 and "paths-merge" not in plugin.current().commands(),
-              f"{paths} 筆；子命令 {list(plugin.current().commands()) or '無'}")
+        from aiops.scenario import load_scenario
+        check("沒有履歷（metrics_only 沒有 paths-merge、沒合成）", paths == 0 and "paths-merge" not in load_scenario().commands,
+              f"{paths} 筆；子命令 {list(load_scenario().commands) or '無'}")
     check("接收器：ML＋FDC 全部進異常總表", anoms == len(data["ml"]) + len(data["fdc"]), f"{anoms} 筆（來源 {len(data['ml']) + len(data['fdc'])}）")
     e = alerts.get("ETCH-01")
     check("ETCH-01 開一件", e is not None and e["status"] == "open", (e or {}).get("title"))

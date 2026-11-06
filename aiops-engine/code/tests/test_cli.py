@@ -13,7 +13,6 @@ from typer.testing import CliRunner
 import aiops.interface.cli.detect as D
 import aiops.interface.cli.rca as I
 import aiops.interface.cli.common as CLI
-import aiops.scenario.base as plugin
 import aiops.interface.cli.feedback as FB
 import aiops.service.converge.alert_service as cmd_alert
 import aiops.scenario.factory.commands as cmd_paths
@@ -70,9 +69,6 @@ def run(prog: str, argv: list[str], rc: int = 0):
 
 class ScheduleCommands(unittest.TestCase):
     """四張排程表裡 detector／investigator 的字面指令（scheduler.runner 以子行程 python -m 跑）每一條都還解析得過、到得了處理函式。"""
-
-    def tearDown(self):
-        plugin.reset()
 
     def jobs(self):
         out = []
@@ -194,9 +190,6 @@ class Attributes(unittest.TestCase):
 
 
 class Errors(unittest.TestCase):
-    def tearDown(self):
-        plugin.reset()
-
     def test_bogus_returns_2_without_raising(self):
         with contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(D.main(["bogus"]), 2)
@@ -211,7 +204,6 @@ class Errors(unittest.TestCase):
             self.assertIn(name, r.output)
         self.assertNotIn("paths-merge", r.output)
         with env(AIOPS_PLUGIN="factory"):
-            plugin.reset()
             r = CliRunner().invoke(D.build_app(), ["--help"])
             self.assertIn("paths-merge", r.output)
             r = CliRunner().invoke(D.build_app(), ["paths-merge", "--help"])

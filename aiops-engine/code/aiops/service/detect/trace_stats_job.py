@@ -6,6 +6,7 @@ import pandas as pd
 from aiops.core.connection import ES, doc_id
 from aiops.core.entity.anomaly import Anomaly
 from aiops.core.repository import Repos
+from aiops.scenario import load_scenario
 import aiops.service.detect.adjustments as A
 import aiops.service.detect.trace_stats as T
 from aiops.service.detect.baseline import DetectOptions, TrainOptions, score, train
@@ -20,7 +21,7 @@ def _metric_frame(df: pd.DataFrame, m: str) -> pd.DataFrame:
 
 def cmd_trace_merge(cfg: dict, args) -> int:
     """raw（每一段一筆）→ 一個請求一筆（traces-merged-<group>-<日期>）。排程器每分鐘跑；從上次合到的時間接著合，中斷很久會分段補（最多 2 天）。"""
-    repo = Repos(ES())
+    repo = Repos(ES(), load_scenario())
     at = _now(args.at).to_pydatetime()
     since, until, n = M.run(repo, cfg, at, pd.Timedelta(args.window).to_pytimedelta())
     print(f"trace-merge {since:%H:%M:%S}～{until:%H:%M:%S}：合了 {n} 個 trace")
@@ -29,7 +30,7 @@ def cmd_trace_merge(cfg: dict, args) -> int:
 
 def cmd_trace_collect(cfg: dict, args) -> int:
     """補過去的統計（trace 原文只留 7 天，最多補 7 天），或手動重算某一段。平常由 trace-detect 每 5 分鐘順便做。"""
-    repo = Repos(ES())
+    repo = Repos(ES(), load_scenario())
     freq = _freq(cfg.get("interval", "5m"))
     end = _now(args.end).floor(freq)
     start = pd.Timestamp(args.start) if args.start else end - pd.Timedelta(days=7)
@@ -44,7 +45,7 @@ def cmd_trace_collect(cfg: dict, args) -> int:
     return 0
 
 def cmd_trace_train(cfg: dict, args) -> int:
-    repo = Repos(ES())
+    repo = Repos(ES(), load_scenario())
     repo.baseline.ensure()
     freq = _freq(cfg.get("interval", "5m"))
     end = _now(args.end).floor(freq)
@@ -64,7 +65,7 @@ def cmd_trace_train(cfg: dict, args) -> int:
 
 def cmd_trace_detect(cfg: dict, args) -> int:
     """算最近一段時間每個 API 每一段的統計（同時寫進 aiops-trace-segments，之後 train 用），跟 baseline 比。"""
-    repo = Repos(ES())
+    repo = Repos(ES(), load_scenario())
     repo.anomalies.ensure()
     freq = _freq(cfg.get("interval", "5m"))
     end = _now(args.at).floor(freq)
