@@ -83,7 +83,8 @@ POST _security/api_key
 }
 
 
-# ── 4. Grafana 的唯讀 key：只讀 AIOps 寫的四個索引 ──
+# ── 4. Grafana 的唯讀 key：AIOps 寫的四個索引，加 APM 的三種資料（整合儀表板 aiops-overview 的上半） ──
+# APM 的 trace、log 帶 SQL 與例外訊息；不想讓 Grafana 讀到，就拿掉下面 names 裡的三個 APM pattern（整合儀表板的上半會變成 403，其餘儀表板照常）。
 # 回傳的 "encoded" 就是 GRAFANA_ES_API_KEY（Secret grafana-env）。cluster monitor：Grafana 會先打 GET / 看版本，沒有它 data source 測試回 403。
 POST _security/api_key
 {
@@ -92,7 +93,7 @@ POST _security/api_key
     "grafana-aiops": {
       "cluster": ["monitor"],
       "indices": [
-        {"names": ["aiops-alerts", "aiops-anomalies", "aiops-tuning", "aiops-feedback"], "privileges": ["read", "view_index_metadata"]}
+        {"names": ["aiops-alerts", "aiops-anomalies", "aiops-tuning", "aiops-feedback", "metrics-apm.transaction.1m-*", "traces-apm-*", "logs-apm.*"], "privileges": ["read", "view_index_metadata"]}
       ]
     }
   }

@@ -1,0 +1,870 @@
+{
+  "uid": "aiops-overview",
+  "title": "AIOps 總覽：metrics → trace → log → AI 根因",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": false,
+  "timezone": "Asia/Taipei",
+  "refresh": "",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "tags": [
+    "aiops",
+    "apm"
+  ],
+  "description": "公司 Elastic APM 的 metrics、trace、log（上半）接 AIOps 合成的事故與根因（下半）。資料來源與欄位：aiops-engine/configs/apm/README.md。",
+  "templating": {
+    "list": [
+      {
+        "name": "service",
+        "label": "服務",
+        "type": "query",
+        "datasource": {
+          "type": "elasticsearch",
+          "uid": "apm-metrics"
+        },
+        "refresh": 2,
+        "sort": 1,
+        "includeAll": true,
+        "multi": true,
+        "query": "{\"find\": \"terms\", \"field\": \"service.name\", \"size\": 50}",
+        "definition": "{\"find\": \"terms\", \"field\": \"service.name\", \"size\": 50}",
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        }
+      },
+      {
+        "name": "alert",
+        "label": "事故",
+        "type": "query",
+        "datasource": {
+          "type": "elasticsearch",
+          "uid": "aiops-alerts"
+        },
+        "refresh": 2,
+        "sort": 2,
+        "includeAll": false,
+        "query": "{\"find\": \"terms\", \"field\": \"alert_id\", \"query\": \"category:service\", \"size\": 100}",
+        "current": {},
+        "definition": "{\"find\": \"terms\", \"field\": \"alert_id\", \"query\": \"category:service\", \"size\": 100}"
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "① Metrics：每支 API 的 p95 延遲（APM 的每分鐘直方圖）",
+      "description": "metrics-apm.transaction.1m-*：apm-server 每分鐘算好的直方圖（transaction.duration.histogram，微秒）。引擎的 p95 規則（超過 2 秒）讀的是同一份資料。",
+      "datasource": {
+        "type": "elasticsearch",
+        "uid": "apm-metrics"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "elasticsearch",
+            "uid": "apm-metrics"
+          },
+          "query": "service.name:$service AND metricset.name:transaction AND transaction.type:request",
+          "alias": "",
+          "metrics": [
+            {
+              "id": "1",
+              "type": "percentiles",
+              "field": "transaction.duration.histogram",
+              "settings": {
+                "percents": [
+                  "95"
+                ]
+              }
+            }
+          ],
+          "bucketAggs": [
+            {
+              "id": "3",
+              "type": "terms",
+              "field": "transaction.name",
+              "settings": {
+                "size": "6",
+                "order": "desc",
+                "orderBy": "_term",
+                "min_doc_count": "1"
+              }
+            },
+            {
+              "id": "2",
+              "type": "date_histogram",
+              "field": "@timestamp",
+              "settings": {
+                "interval": "auto",
+                "min_doc_count": "0"
+              }
+            }
+          ],
+          "timeField": "@timestamp"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "spanNulls": true,
+            "fillOpacity": 10,
+            "showPoints": "never"
+          },
+          "unit": "µs"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "② Trace：請求數，依結果（failure 是失敗）",
+      "description": "traces-apm-*：processor.event 是 transaction 的文件，一筆一個請求（取樣到的）。失敗的比例上升，就是上面延遲變高的那段時間。",
+      "datasource": {
+        "type": "elasticsearch",
+        "uid": "apm-traces"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "elasticsearch",
+            "uid": "apm-traces"
+          },
+          "query": "service.name:$service AND processor.event:transaction",
+          "alias": "",
+          "metrics": [
+            {
+              "id": "1",
+              "type": "count"
+            }
+          ],
+          "bucketAggs": [
+            {
+              "id": "3",
+              "type": "terms",
+              "field": "event.outcome",
+              "settings": {
+                "size": "3",
+                "order": "desc",
+                "orderBy": "_count",
+                "min_doc_count": "1"
+              }
+            },
+            {
+              "id": "2",
+              "type": "date_histogram",
+              "field": "@timestamp",
+              "settings": {
+                "interval": "auto",
+                "min_doc_count": "0"
+              }
+            }
+          ],
+          "timeField": "@timestamp"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "bars",
+            "lineWidth": 1,
+            "spanNulls": true,
+            "fillOpacity": 60,
+            "showPoints": "never",
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "③ Trace：每一段自己花的平均時間（DB、下游呼叫）",
+      "description": "traces-apm-*：processor.event 是 span 的文件，依 span.name 分。哪一段（例如 SELECT LOT_HISTORY）變長，慢就慢在那裡。",
+      "datasource": {
+        "type": "elasticsearch",
+        "uid": "apm-traces"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 8,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "elasticsearch",
+            "uid": "apm-traces"
+          },
+          "query": "service.name:$service AND processor.event:span",
+          "alias": "",
+          "metrics": [
+            {
+              "id": "1",
+              "type": "avg",
+              "field": "span.duration.us"
+            }
+          ],
+          "bucketAggs": [
+            {
+              "id": "3",
+              "type": "terms",
+              "field": "span.name",
+              "settings": {
+                "size": "6",
+                "order": "desc",
+                "orderBy": "_term",
+                "min_doc_count": "1"
+              }
+            },
+            {
+              "id": "2",
+              "type": "date_histogram",
+              "field": "@timestamp",
+              "settings": {
+                "interval": "auto",
+                "min_doc_count": "0"
+              }
+            }
+          ],
+          "timeField": "@timestamp"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "spanNulls": true,
+            "fillOpacity": 10,
+            "showPoints": "never"
+          },
+          "unit": "µs"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 4,
+      "type": "table",
+      "title": "③ Trace：最慢的請求（拿 trace.id 去下面的 log 找）",
+      "description": "耗時超過 1 秒的 transaction，新的在前；trace.id 貼到下面 ④ 的搜尋框，就是這個請求的 log。",
+      "datasource": {
+        "type": "elasticsearch",
+        "uid": "apm-traces"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 8,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "elasticsearch",
+            "uid": "apm-traces"
+          },
+          "query": "service.name:$service AND processor.event:transaction AND transaction.duration.us:>=1000000",
+          "alias": "",
+          "metrics": [
+            {
+              "id": "1",
+              "type": "raw_data",
+              "settings": {
+                "size": "30"
+              }
+            }
+          ],
+          "bucketAggs": [],
+          "timeField": "@timestamp"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "transaction.duration.us"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "µs"
+              }
+            ]
+          }
+        ]
+      },
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "includeByName": {
+              "@timestamp": true,
+              "service.name": true,
+              "transaction.name": true,
+              "transaction.duration.us": true,
+              "event.outcome": true,
+              "trace.id": true
+            },
+            "indexByName": {
+              "@timestamp": 0,
+              "service.name": 1,
+              "transaction.name": 2,
+              "transaction.duration.us": 3,
+              "event.outcome": 4,
+              "trace.id": 5
+            },
+            "renameByName": {}
+          }
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "logs",
+      "title": "④ Log：APM 回報的例外，每一筆帶 trace.id（跟 ③ 的 trace 對得起來）",
+      "description": "logs-apm.*：agent 回報的例外（processor.event: error），有開 log shipping 的服務還有一般 log。",
+      "datasource": {
+        "type": "elasticsearch",
+        "uid": "apm-logs"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 16,
+        "w": 24,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "elasticsearch",
+            "uid": "apm-logs"
+          },
+          "query": "service.name:$service",
+          "alias": "",
+          "metrics": [
+            {
+              "id": "1",
+              "type": "logs",
+              "settings": {
+                "limit": "100"
+              }
+            }
+          ],
+          "bucketAggs": [],
+          "timeField": "@timestamp"
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "wrapLogMessage": true,
+        "sortOrder": "Descending",
+        "enableLogDetails": true,
+        "dedupStrategy": "none"
+      }
+    },
+    {
+      "id": 6,
+      "type": "table",
+      "title": "⑤ AIOps：合成的事件（一列一件；上面選一件，下面看摘要與根因全文）",
+      "description": "engine 每分鐘把同一個服務、時間相連的異常合成一件事故（aiops-alerts 一筆）。「合併的異常筆數」是這件合進來幾筆異常（aiops-anomalies）；30 分鐘沒有新異常就結案。上面選一件，下面看它的 LLM 摘要、相似事故與根因報告。",
+      "datasource": {
+        "type": "elasticsearch",
+        "uid": "aiops-alerts"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 24,
+        "w": 24,
+        "h": 7
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "elasticsearch",
+            "uid": "aiops-alerts"
+          },
+          "query": "category:service",
+          "alias": "",
+          "metrics": [
+            {
+              "id": "1",
+              "type": "raw_data",
+              "settings": {
+                "size": "50"
+              }
+            }
+          ],
+          "bucketAggs": [],
+          "timeField": "@timestamp"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "includeByName": {
+              "started_at": true,
+              "status": true,
+              "severity": true,
+              "service": true,
+              "dept": true,
+              "anomaly_count": true,
+              "title": true
+            },
+            "indexByName": {
+              "started_at": 0,
+              "status": 1,
+              "severity": 2,
+              "service": 3,
+              "dept": 4,
+              "anomaly_count": 5,
+              "title": 6
+            },
+            "renameByName": {
+              "started_at": "開始時間",
+              "status": "狀態",
+              "severity": "嚴重度",
+              "service": "服務",
+              "dept": "部門",
+              "anomaly_count": "合併的異常筆數",
+              "title": "標題"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "fields": {},
+            "sort": [
+              {
+                "field": "started_at",
+                "desc": true
+              }
+            ]
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "started_at"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 170
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "status"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 80
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "severity"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 90
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "service"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 110
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "dept"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 80
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "anomaly_count"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 130
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "lg"
+      }
+    },
+    {
+      "id": 7,
+      "type": "table",
+      "title": "LLM 摘要（每句附依據；驗不過退回模板）",
+      "description": "依據 id：T=trace 段、A=異常、S=統計、E=例外、L=log 樣式、I=過去相似事故",
+      "datasource": {
+        "type": "elasticsearch",
+        "uid": "aiops-alerts"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 31,
+        "w": 12,
+        "h": 7
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "elasticsearch",
+            "uid": "aiops-alerts"
+          },
+          "query": "alert_id:\"$alert\"",
+          "alias": "",
+          "metrics": [
+            {
+              "id": "1",
+              "type": "raw_data",
+              "settings": {
+                "size": "1"
+              }
+            }
+          ],
+          "bucketAggs": [],
+          "timeField": "@timestamp"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "includeByName": {
+              "llm_provider": true,
+              "llm_summary": true
+            },
+            "indexByName": {
+              "llm_provider": 0,
+              "llm_summary": 1
+            },
+            "renameByName": {}
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "llm_summary"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "auto",
+                  "wrapText": true
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "llm_provider"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 90
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "lg"
+      }
+    },
+    {
+      "id": 8,
+      "type": "table",
+      "title": "過去相似事故（RAG：只檢索老師傅確認過的）與通知摘要",
+      "description": "",
+      "datasource": {
+        "type": "elasticsearch",
+        "uid": "aiops-alerts"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 31,
+        "w": 12,
+        "h": 7
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "elasticsearch",
+            "uid": "aiops-alerts"
+          },
+          "query": "alert_id:\"$alert\"",
+          "alias": "",
+          "metrics": [
+            {
+              "id": "1",
+              "type": "raw_data",
+              "settings": {
+                "size": "1"
+              }
+            }
+          ],
+          "bucketAggs": [],
+          "timeField": "@timestamp"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "includeByName": {
+              "summary": true
+            },
+            "indexByName": {
+              "summary": 0
+            },
+            "renameByName": {}
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "summary"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "auto",
+                  "wrapText": true
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "lg"
+      }
+    },
+    {
+      "id": 9,
+      "type": "table",
+      "title": "⑥ AIOps：根因分析報告全文（metrics 異常 → trace 哪一段 → 那一段的 log）",
+      "description": "",
+      "datasource": {
+        "type": "elasticsearch",
+        "uid": "aiops-alerts"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 38,
+        "w": 24,
+        "h": 16
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "elasticsearch",
+            "uid": "aiops-alerts"
+          },
+          "query": "alert_id:\"$alert\"",
+          "alias": "",
+          "metrics": [
+            {
+              "id": "1",
+              "type": "raw_data",
+              "settings": {
+                "size": "1"
+              }
+            }
+          ],
+          "bucketAggs": [],
+          "timeField": "@timestamp"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "includeByName": {
+              "report": true
+            },
+            "indexByName": {
+              "report": 0
+            },
+            "renameByName": {}
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "report"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "auto",
+                  "wrapText": true
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "lg"
+      }
+    }
+  ]
+}
