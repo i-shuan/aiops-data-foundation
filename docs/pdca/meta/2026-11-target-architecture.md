@@ -238,6 +238,16 @@ aiops-engine/code/
 - Check：`pytest` 763 過、16 skipped（`test_plugin.py` 換成 `test_scenario.py`；`test_apm`、`test_owner`、`test_factory_alerts`、`test_api_endpoints` 改成明確給 Scenario）；
   `check-docs` 0 問題；scenario/README、architecture 4.2、configs 的註解改成情境的說法。
 
+### S3 做了什麼（2026-11-06）
+
+- `core/entity/alert.py`：併件時動一件屬性的行為搬成 `Alert` 的方法——`open_for`（新開一件）、`attach`（異常併進來；route 由情境算好傳進來）、
+  `join_upstream`、`fold_into`（上游整件併進下游）、`close`、`own_anomalies`、`rca_route`、`owner`、`headline`、`conclusion`、`make_summary`；`SEVERITY` 一起搬。
+  `service/converge/merge.py` 只剩「哪筆異常歸哪件」的演算法（345 → 239 行）；`owner`／`headline`／`summary`／`rca_route` 留轉手函式給 alert_service 與測試。
+- `core/entity/trace.py`：`Trace` 類別（`group`、`root`、`self_times`、`error_origins`、`to_merged_doc`、`edges`）；trace-merge、工廠的履歷合成、IT 的併件依據改用它。
+- service 內部併檔：`rules_job`→`rules.py`、`peer_job`→`peer.py`、`quality_job`→`quality.py`、`chronic_job`→`chronic.py`、`trace_stats_job`→`trace_stats.py`
+  （計算與 Detector 子類別、指令同一檔）；`baseline_job` 留著（baseline.py 是模型，併了 860 行太大）。
+- Check：`pytest` 763 過、16 skipped；`check-docs` 0 問題。
+
 ## Check：預計要驗證的
 
 | 測試目的（為了確認什麼） | 怎麼測 | 結果 |

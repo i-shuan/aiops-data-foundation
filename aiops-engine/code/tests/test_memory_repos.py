@@ -9,8 +9,8 @@ import numpy as np
 import pandas as pd
 
 import aiops.service.detect.baseline_job as C
-import aiops.service.detect.peer_job as cmd_peer
-import aiops.service.detect.rules_job as cmd_rules
+import aiops.service.detect.peer as cmd_peer
+import aiops.service.detect.rules as cmd_rules
 from tests.fakes import MemoryRepos
 
 T0 = pd.Timestamp("2026-10-05T00:00:00Z")      # 週一

@@ -17,24 +17,17 @@
   - 只看直接呼叫（一層）：A→B→C 時 B 併進 C，A 不併進 C；已經帶 upstream_services 的件不會再被併進別件。
   - 沒有呼叫關係、或時間不重疊：照舊各開一件。
 
-這裡只做計算（單元測試用）；讀寫 ES、跑根因分析在 cmd_alert.py。
+這裡只做「哪筆異常歸哪件」的演算法（單元測試用）；動一件屬性的在 core/entity/alert.Alert；讀寫 ES、跑根因分析在 alert_service.py。
 """
 from __future__ import annotations
 
-import re
-from collections import Counter
 from datetime import datetime, timedelta
 
-from aiops.core.entity.alert import Alert
+from aiops.core.entity.alert import SEVERITY, Alert  # noqa: F401  SEVERITY 給 alert_service 用
 from aiops.core.entity.anomaly import NODE_KEYS, NS_KEYS, entity_of as _entity_of  # noqa: F401  名字留給既有的 import
-from aiops.core.entity.incident import classify, describe_class
 from aiops.scenario import Scenario, load_scenario
-SEVERITY = {"warning": 1, "high": 2, "critical": 3}   # 一件最後的嚴重度由 severity.grade 算（訊號廣度＋持續＋換版上限）；這裡只是異常自己帶的
-MAX_IDS = Alert.MAX_IDS   # 一件最多記幾筆異常 id
 
-
-def _ts(s) -> datetime:
-    return s if isinstance(s, datetime) else datetime.fromisoformat(str(s).replace("Z", "+00:00"))
+_ts = Alert._ts
 
 
 def entity_of(a: dict, sc: Scenario | None = None) -> tuple[str, str]:
@@ -55,61 +48,6 @@ def kind_of(a: dict) -> str:
 def route_of(keys: dict | None, sc: Scenario | None = None) -> str | None:
     """「哪支 API」：IT 是 trace 入口的名稱或 method＋route，工廠是 recipe（情境決定；根因分析挑樣本也用它）。"""
     return (sc or load_scenario()).route_of(keys or {})
-
-
-def alert_id(cat: str, name: str, started: datetime) -> str:
-    return f"a-{started:%Y%m%d-%H%M}-{re.sub(r'[^0-9A-Za-z_.-]+', '_', name)}" + ("-dq" if cat == "data_quality" else "")
-
-
-def _new(cat: str, name: str, first: dict) -> Alert:
-    t = _ts(first["@timestamp"])
-    return Alert(alert_id=alert_id(cat, name, t), category=cat, service=name, status="open", started_at=t, updated_at=t, resolved_at=None,
-                 anomaly_ids=[], series=[], routes=[], lots=[], upstream_services=[], severity="warning", anoms=[], new=True)
-
-
-def _attach(al: Alert, a: dict, sc: Scenario) -> None:
-    t = _ts(a["@timestamp"])
-    al.updated_at = max(al.updated_at, t)
-    al.started_at = min(al.started_at, t)
-    if len(al.anomaly_ids) < MAX_IDS:
-        al.anomaly_ids.append(a["_id"])
-    if a.get("series") and a["series"] not in al.series:
-        al.series.append(a["series"])
-    r = sc.route_of(a.get("keys") or {})
-    if r and r not in al.routes:
-        al.routes.append(r)
-    lot = (a.get("keys") or {}).get("lot")
-    if lot is not None and str(lot) not in al.lots and len(al.lots) < MAX_IDS:
-        al.lots.append(str(lot))
-    sev = a.get("severity") or "warning"
-    if SEVERITY.get(sev, 1) > SEVERITY.get(al.severity, 1):
-        al.severity, al.upgraded = sev, not al.new
-    al.anoms.append(a)
-
-
-def _join(al: Alert, upstream: str) -> None:
-    """記下「這件連帶了哪個上游服務」。"""
-    if upstream not in al.upstream_services:
-        al.upstream_services.append(upstream)
-
-
-def _fold(up: Alert, down: Alert, now: datetime) -> None:
-    """上游那件（up）整件併進下游那件（down）：異常 id、序列、API、嚴重度、這一輪的異常都搬過去。
-    up 是上一輪已寫進 ES 的：標 resolved、merged_into（cmd_alert 照寫回去，但不再把它的異常標成它、不寫事故）。"""
-    for i in up.anomaly_ids:
-        if i not in down.anomaly_ids and len(down.anomaly_ids) < MAX_IDS:
-            down.anomaly_ids.append(i)
-    down.series += [s for s in up.series if s not in down.series]
-    down.routes += [r for r in up.routes if r not in down.routes]
-    down.lots += [l for l in up.lots if l not in down.lots][:max(0, MAX_IDS - len(down.lots))]
-    if SEVERITY.get(up.severity, 1) > SEVERITY.get(down.severity, 1):
-        down.severity = up.severity
-    down.started_at = min(down.started_at, up.started_at)
-    down.updated_at = max(down.updated_at, up.updated_at)
-    down.anoms += up.anoms
-    _join(down, up.service)
-    if not up.new:
-        up.status, up.resolved_at, up.merged_into, up.anoms = "resolved", now, down.alert_id, []
 
 
 def _open_copy(al) -> Alert:
@@ -168,9 +106,9 @@ def _open_new(ent: tuple, a: dict, kind: str, pending: dict, close_after: timede
         first, rest = pend[0], pend
     else:
         first, rest = a, [*pending.pop(ent, []), a]
-    al = _new(*ent, first)
+    al = Alert.open_for(*ent, first)
     for p in sorted(rest, key=lambda p: _ts(p["@timestamp"])):
-        _attach(al, p, sc)
+        al.attach(p, sc.route_of(p.get("keys")))
     pending.pop(ent, None)
     return al
 
@@ -180,7 +118,7 @@ def _fold_upstreams(ent: tuple, al: Alert, up_of: dict, by_ent: dict, out: dict,
     for u in sorted(up_of.get(ent[1], ())):
         up = by_ent.get(("service", u))
         if up and not up.upstream_services and abs(up.started_at - al.started_at) <= close_after:
-            _fold(up, al, now)
+            up.fold_into(al, now)
             del by_ent[("service", u)]
             if up.new:
                 del out[up.alert_id]
@@ -210,21 +148,21 @@ def merge(open_alerts: list, anomalies: list[dict], now: datetime, close_after: 
         ent, t, k = entity_of(a, sc), _ts(a["@timestamp"]), kind_of(a)
         al = by_ent.get(ent)
         if al and t - al.updated_at > close_after:      # 隔太久：舊的那件結束，這筆當新的看
-            al.status, al.resolved_at = "resolved", al.updated_at + close_after
+            al.close(al.updated_at + close_after)
             del by_ent[ent]
             al = None
         if al and t < al.started_at - close_after:   # 比這件開始還早很多：屬於更早的那件，不併
             continue
         if al:
-            _attach(al, a, sc)
+            al.attach(a, sc.route_of(a.get("keys")))
             continue
         if ent[0] == "service":
             al = _downstream_alert(ent[1], t, by_ent, down_of, close_after)
             if al is None and a["_id"] in links:
                 al = _upstream_station(a, ent, links, by_ent, close_after)
             if al:                                             # 上游（或前站）的異常：併進下游那件
-                _attach(al, a, sc)
-                _join(al, ent[1])
+                al.attach(a, sc.route_of(a.get("keys")))
+                al.join_upstream(ent[1])
                 continue
         al = _open_new(ent, a, k, pending, close_after, sc)
         if al is None:
@@ -235,35 +173,21 @@ def merge(open_alerts: list, anomalies: list[dict], now: datetime, close_after: 
         out[al.alert_id] = al
     for al in by_ent.values():
         if now - al.updated_at > close_after:
-            al.status, al.resolved_at = "resolved", now
+            al.close(now)
     return list(out.values())
 
 
 def _own(al: Alert, sc: Scenario | None = None) -> list[dict]:
-    """這一輪的異常裡，屬於這件自己服務的（連帶進來的上游不算）；一筆都沒有就全部。"""
-    anoms, sc = al.anoms, sc or load_scenario()
-    own = [a for a in anoms if entity_of(a, sc) == (al.category, al.service)]
-    return own or anoms
+    return al.own_anomalies((sc or load_scenario()).entity_keys)
 
 
 def rca_route(al: Alert, sc: Scenario | None = None) -> str | None:
-    """根因分析只查一支 API 的條件：這件自己服務的異常只有一支 API。連帶進來的上游的 API 不算（下游沒有那支，查了會是空的）。"""
-    if not al.upstream_services:
-        return al.routes[0] if len(al.routes) == 1 else None
     sc = sc or load_scenario()
-    own = {sc.route_of(a.get("keys") or {}) for a in _own(al, sc)} - {None}
-    return next(iter(own)) if len(own) == 1 else None
+    return al.rca_route(sc.route_of, sc.entity_keys)
 
 
 def owner(al: Alert, sc: Scenario | None = None) -> tuple[str | None, str]:
-    """這件的 dept、group：取它的異常裡最多的（異常寫入時已補上，core/repository/owner.py）；連帶的上游不算（根因在下游，送下游的部門）。
-    資料品質一律送平台。"""
-    if al.category == "data_quality":
-        return None, "unassigned"
-    anoms = _own(al, sc)
-    dept = Counter(a["dept"] for a in anoms if a.get("dept")).most_common(1)
-    group = Counter(a["group"] for a in anoms if a.get("group")).most_common(1)
-    return (dept[0][0] if dept else al.dept), (group[0][0] if group else al.group or "unassigned")
+    return al.owner((sc or load_scenario()).entity_keys)
 
 
 def dependencies(findings: dict | None) -> list[str]:
@@ -306,40 +230,11 @@ def link_shared(alerts: list[Alert]) -> set[str]:
 
 
 def headline(al: Alert, count: bool = True, sc: Scenario | None = None) -> str:
-    """一行標題：嚴重度、服務、最嚴重的那筆（自己服務的優先）、共幾項；連帶了上游就加在最後。"""
-    top = max(_own(al, sc), key=lambda a: (SEVERITY.get(a.get("severity") or "warning", 1), abs(a.get("z") or 0)), default=None)
-    what = ""
-    if top:
-        msg = top.get("message")
-        if msg:
-            what = msg.split("：", 1)[0] if "：" in msg else msg
-        else:
-            med = f"（平常 {top['median']:.4g}）" if top.get("median") is not None else ""
-            what = f"{top.get('series')} {top.get('value', 0):.4g}{med}"
-    n = len(al.anomaly_ids)
-    up = al.upstream_services
-    return (f"[{al.severity}] {al.service}：{what}" + (f" 等 {n} 項異常" if count and n > 1 else "")
-            + (f"；連帶上游 {'、'.join(up)}" if up else ""))
+    return al.headline((sc or load_scenario()).entity_keys, count)
 
 
-def conclusion(report: str) -> list[str]:
-    """根因報告「結論」那一段的條列（investigate 的輸出）。"""
-    m = re.search(r"^## 結論[^\n]*\n(.*)", report or "", re.S | re.M)
-    return [l[2:].strip() for l in (m.group(1).splitlines() if m else []) if l.startswith("- ")]
+conclusion = Alert.conclusion
 
 
 def summary(al: Alert, report: str | None, tz, similar: list[dict] | None = None, sc: Scenario | None = None) -> str:
-    """通知用的摘要。Grafana 把它當 label（alert-rules.yaml 的 terms summary）：內容一變，Grafana 就當成另一則告警
-    （舊的 resolved、新的 firing），所以不放每分鐘都會變的東西——「持續 N 分鐘」、「等 N 項異常」都不放
-    （Grafana 自己會顯示從什麼時候開始；筆數在 title 和 anomaly_count）。只在根因結論、相似事故、連帶的上游加進來時才變。"""
-    start = al.started_at.astimezone(tz)
-    lines = [headline(al, count=False, sc=sc), f"從 {start:%m-%d %H:%M} 開始；異常：{'、'.join(al.series[:6])}"]
-    concl = conclusion(report or "")
-    if concl:
-        lines.append("根因分析：" + "；".join(re.sub(r"\*\*", "", c) for c in concl[:3]))
-    if al.shared_dependency and al.related_alerts:
-        lines.append(f"可能同源：{'、'.join(al.related_alerts[:3])} 也卡在 {'、'.join(al.shared_dependency[:3])}")
-    if similar:
-        # case 只做分類：通知裡只說像哪一類、為什麼像，不給當時的處置（docs/pdca/meta/2026-11-case-classify.md）
-        lines.append(f"分類：{describe_class(classify(similar))}；最像 {(similar[0].get('start') or '')[:10]}（{'；'.join(similar[0]['why'][:2])}）")
-    return "\n".join(lines)
+    return al.make_summary(report, tz, similar, (sc or load_scenario()).entity_keys)

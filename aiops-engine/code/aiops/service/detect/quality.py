@@ -26,6 +26,9 @@ import re
 import pandas as pd
 
 from aiops.core.repository.quality import check_keys  # noqa: F401  讀統計在 repository；keys 的算法兩邊共用
+from aiops.core.entity.anomaly import Anomaly
+from aiops.service.detect.base import Detector
+from aiops.service.detect._util import _freq, _v
 
 # 路徑裡「像是 ID」的一段：純數字、UUID、8 碼以上的 hex、混了數字的長字串（例如訂單號 A20261023001）
 _ID_SEGMENT = re.compile(
@@ -168,3 +171,58 @@ def describe(check: dict, hit: dict) -> str:
     if hit.get("examples"):
         msg += f"（例如 {', '.join(hit['examples'])}）"
     return msg
+
+
+def quality_hits(q, c: dict, now, window, ref_offset) -> list[dict]:
+    """跑一個檢查，回傳觸發的對象（eval_* 的結果）。q 是 repo.quality（讀統計）。"""
+    start, rs, re_ = now - window, now - window - ref_offset, now - ref_offset
+    keys, t = check_keys(c), c["type"]
+    if t == "cardinality":
+        return eval_cardinality(q.cardinality(c, start, now, c.get("sample_values", 500)), q.cardinality(c, rs, re_, 0), keys,
+                                  max_values=c.get("max_values"), ratio=c.get("ratio", 3.0),
+                                  min_increase=c.get("min_increase", 50), id_share_min=c.get("id_share", 0.5))
+    if t == "missing":
+        return eval_missing(q.missing(c, start, now), q.missing(c, rs, re_), keys, c["fields"],
+                              min_docs=c.get("min_docs", 100), max_missing=c.get("max_missing"),
+                              max_increase=c.get("max_increase"))
+    if t == "stopped":
+        silent = pd.Timedelta(_freq(c.get("silent", "10m")))
+        lookback = pd.Timedelta(_freq(c.get("lookback", "1h")))
+        return eval_stopped(q.counts(c, now - lookback, now - silent), q.counts(c, now - silent, now),
+                              keys, min_docs=c.get("min_docs", 10))
+    if t == "present":
+        return eval_present(q.counts(c, start, now), keys, min_docs=c.get("min_docs", 1))
+    if t == "share":
+        return eval_share(q.count(c["part_index"], c, start, now), q.count(c["index"], c, start, now),
+                            q.count(c["part_index"], c, rs, re_), q.count(c["index"], c, rs, re_),
+                            min_docs=c.get("min_docs", 100), max_share=c.get("max_share"),
+                            min_increase=c.get("min_increase", 0.1))
+    if t == "lag":
+        return eval_lag(q.lag(c, start, now), keys, stat=c.get("stat", "p95"),
+                          max_seconds=c.get("max_seconds", 60), min_docs=c.get("min_docs", 50),
+                          absolute=c.get("absolute", False))
+    raise ValueError(f"不認得的檢查種類：{t}")
+
+
+class QualityDetector(Detector):
+    level = "quality"
+    interval_default = "10m"
+
+    def checks(self) -> list[dict]:
+        self.ref_offset = pd.Timedelta(_freq(self.cfg.get("ref_offset", "24h")))
+        return self.cfg["checks"]
+
+    def evaluate(self, c: dict) -> list[Anomaly]:
+        window = pd.Timedelta(_freq(c.get("window", self.cfg.get("window", "1h"))))
+        out = []
+        for h in quality_hits(self.repo.quality, c, self.now, window, self.ref_offset):
+            keys = {**{k: v for k, v in h["key"].items() if _v(v) is not None},   # NaN 寫進 ES 會整批被拒
+                    **({"field": h["field"]} if "field" in h else {})}
+            out.append(Anomaly(ts=self.slot, series=c["name"], rule=c["name"], keys=keys, value=h["value"],
+                               median=_v(h.get("ref")), level=self.level, direction="up",
+                               severity=c.get("severity", "warning"), message=describe(c, h)))
+        return out
+
+
+def cmd_quality(cfg: dict, args, repo=None) -> int:
+    return QualityDetector(cfg, args, repo).run()

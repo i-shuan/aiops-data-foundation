@@ -2,7 +2,7 @@
 import unittest
 from unittest import mock
 
-import aiops.service.detect.rules_job as C
+import aiops.service.detect.rules as C
 
 DRAFT = {"name": "mes-api.db.recurring", "type": "window", "lookback": "5m", "index": "x", "filter": {}, "by": ["service"], "value": {"avg": "v"},
          "op": ">=", "threshold": 2.4, "_note": "說明", "_source": {"peaks": [1]}}

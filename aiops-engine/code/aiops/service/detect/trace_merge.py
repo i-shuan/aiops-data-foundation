@@ -13,7 +13,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 from aiops.core.connection import time_range
-from aiops.core.entity.trace import MERGED_PREFIX, group_traces, is_entry, merged_doc as build  # noqa: F401  合成的文件格式在 entity；名字留給既有的 import
+from aiops.core.entity.trace import MERGED_PREFIX, Trace, is_entry, merged_doc as build  # noqa: F401  合成的文件格式在 entity；名字留給既有的 import
 
 STATE_ID = "trace-merge"
 
@@ -28,8 +28,8 @@ def merge(repo, cfg: dict, since: datetime, until: datetime, now: datetime | Non
         return 0
     spans = repo.traces.spans(raw, ids, until - timedelta(days=2), until + timedelta(minutes=5))
     docs: dict[str, list[tuple[str, dict]]] = {}
-    for tid, tspans in group_traces(spans).items():
-        index, doc = build(tspans, now)
+    for tid, t in Trace.group(spans).items():
+        index, doc = t.to_merged_doc(now)
         docs.setdefault(index, []).append((tid, doc))
     return repo.traces.write_merged(docs)
 

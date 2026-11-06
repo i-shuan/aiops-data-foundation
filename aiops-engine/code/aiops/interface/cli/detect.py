@@ -48,13 +48,13 @@ from aiops.interface.cli.common import SERIES, Opt, registry, run
 import aiops.interface.cli.feedback as feedback_cli
 
 from aiops.service.detect.baseline_job import cmd_train, cmd_tune, cmd_detect
-from aiops.service.detect.chronic_job import cmd_chronic
+from aiops.service.detect.chronic import cmd_chronic
 from aiops.service.detect.prune import cmd_prune
 from aiops.service.detect.shift import cmd_shift
-from aiops.service.detect.trace_stats_job import cmd_trace_collect, cmd_trace_train, cmd_trace_detect, cmd_trace_merge
-from aiops.service.detect.rules_job import cmd_rules
-from aiops.service.detect.peer_job import cmd_peer
-from aiops.service.detect.quality_job import cmd_quality
+from aiops.service.detect.trace_stats import cmd_trace_collect, cmd_trace_train, cmd_trace_detect, cmd_trace_merge
+from aiops.service.detect.rules import cmd_rules
+from aiops.service.detect.peer import cmd_peer
+from aiops.service.detect.quality import cmd_quality
 from aiops.scenario.factory.ingest_job import cmd_ingest
 
 COMMANDS: dict[str, Callable[[typer.Typer], None]] = {}      # 內建子命令：名字 → register(app)；feedback.cli.COMMANDS、plugin.commands() 同一種形狀

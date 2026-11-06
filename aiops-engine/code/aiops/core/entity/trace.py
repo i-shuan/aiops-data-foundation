@@ -283,3 +283,36 @@ def merged_doc(spans: list[dict], merged_at: datetime, prefix: str = MERGED_PREF
                    "resource": s.get("resource") or {}} for s in sorted(spans, key=lambda x: (x["start_ms"], x["span_id"]))],
     }
     return f"{prefix}-{group}-{start:%Y.%m.%d}", doc
+
+
+class Trace:
+    """一個 trace（同 trace_id 的 span，core 的 span 格式）。span 本身還是 dict：讀回來的量大、各處都是 dict 的寫法；
+    這個類別把「一個 trace 怎麼算」收在一起：根 span、每段自己花的時間、錯誤源頭、合成一筆、好幾個 trace 的拓樸。"""
+
+    def __init__(self, spans: list[dict]):
+        self.spans = spans
+
+    @classmethod
+    def group(cls, spans: list[dict]) -> dict[str, "Trace"]:
+        return {tid: cls(ss) for tid, ss in group_traces(spans).items()}
+
+    @property
+    def trace_id(self) -> str:
+        return self.spans[0]["trace_id"]
+
+    def root(self) -> dict:
+        return root_of(self.spans)
+
+    def self_times(self) -> dict[str, float]:
+        return self_times(self.spans)
+
+    def error_origins(self) -> list[dict]:
+        return error_origins(self.spans)
+
+    def to_merged_doc(self, merged_at: datetime, prefix: str = MERGED_PREFIX) -> tuple[str, dict]:
+        return merged_doc(self.spans, merged_at, prefix)
+
+    @staticmethod
+    def edges(traces) -> list[Edge]:
+        """好幾個 trace（Trace 或 span 清單）之間服務誰呼叫誰。"""
+        return topology({k: (t.spans if isinstance(t, Trace) else t) for k, t in dict(traces).items()})

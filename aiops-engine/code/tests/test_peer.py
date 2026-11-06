@@ -99,7 +99,7 @@ class CmdPeerTest(unittest.TestCase):
     def run_peer(self, life, values, cfg_extra=None):
         """life：Pod → (起來, 停掉) 相對 END 的分鐘數（停掉 None＝還在）；values：Pod → CPU。回傳被報的 Pod。"""
         import aiops.service.detect.base as B
-        import aiops.service.detect.peer_job as C
+        import aiops.service.detect.peer as C
 
         def fetch(spec, start, end, interval):
             if spec["value"] == "count":   # 這段時間有資料的 Pod

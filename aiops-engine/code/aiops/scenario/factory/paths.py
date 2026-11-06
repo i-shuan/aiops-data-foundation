@@ -30,7 +30,7 @@ from datetime import datetime, timezone
 import pandas as pd
 
 from aiops.core.connection import get_field
-from aiops.core.entity.trace import merged_doc as build
+from aiops.core.entity.trace import Trace
 
 PATHS_PREFIX = "lot-paths"
 ROOT_SERVICE = "lot"
@@ -169,6 +169,6 @@ def build_docs(mes_rows: list[dict], event_rows: list[dict], cfg: dict, now: dat
         spans = build_lot(lot, steps, evs.get(lot, []), cfg, now)
         if not spans:
             continue
-        index, doc = build(spans, now, prefix=PATHS_PREFIX)
+        index, doc = Trace(spans).to_merged_doc(now, prefix=PATHS_PREFIX)
         docs.setdefault(index, []).append((lot, doc))
     return docs

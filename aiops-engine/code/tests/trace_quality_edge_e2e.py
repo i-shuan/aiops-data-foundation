@@ -25,7 +25,7 @@ import pandas as pd
 import yaml
 
 from aiops.interface.cli.detect import main as cli
-from aiops.service.detect.quality_job import quality_hits
+from aiops.service.detect.quality import quality_hits
 from aiops.core.connection import ES
 
 CFG = "tests/trace_edge.yaml"

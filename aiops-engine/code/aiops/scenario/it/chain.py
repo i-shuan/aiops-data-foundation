@@ -21,7 +21,7 @@ def call_edges(repo, cfg: dict, services: set[str], start: datetime, end: dateti
     ids = list(dict.fromkeys(ids))
     if not ids:
         return set()
-    edges = T.topology(T.group_traces(repo.traces.spans(ix, ids, start - pad, end + pad)))
+    edges = T.Trace.edges(T.Trace.group(repo.traces.spans(ix, ids, start - pad, end + pad)))
     return {(e.caller, e.callee) for e in edges if e.caller in services and e.callee in services and e.caller != e.callee}
 
 
