@@ -7,7 +7,8 @@ import unittest
 import pandas as pd
 
 import aiops.service.feedback.suggest as F
-import aiops.interface.web.app as A
+import aiops.interface.web.dto as D
+import aiops.interface.web.views as V
 import aiops.service.feedback.importer as IMP
 import aiops.service.rca.similar as SIM
 
@@ -80,13 +81,13 @@ class FormPrefill(unittest.TestCase):
                           "title": "lots 變慢", "score": 9.0, "why": ["同服務（mes-api）"]}]}
 
     def test_suggested_category_prefilled_and_no_action_shown(self):
-        d = A.form_data({**self.ALERT, "suggested_category": "db", "category_confidence": 1.0})
+        d = D.form_data({**self.ALERT, "suggested_category": "db", "category_confidence": 1.0})
         self.assertEqual(d["suggested_category"], "db")
-        j = A.form_json(d)
+        j = D.form_json(d)
         self.assertEqual(j["root_cause_category"], "db")                       # Grafana 表單那格的 id
         self.assertIn("[db] lots 變慢｜為什麼像：同服務（mes-api）", j["similar"])
         self.assertNotIn("重跑 analyze", j["similar"])
-        html = A.render_form(d)
+        html = V.render_form(d)
         self.assertIn('<option value="db" selected', html)
         self.assertIn("預帶 db", html)
         sim_section = html.split("過去相似的事故")[1].split("</ul>")[0]
@@ -94,9 +95,9 @@ class FormPrefill(unittest.TestCase):
         self.assertNotIn("重跑 analyze", sim_section)           # 「處置」欄位的範例字還在表單裡，但 case 的處置不給
 
     def test_old_alert_without_field_is_classified_on_the_fly(self):
-        d = A.form_data(self.ALERT)
+        d = D.form_data(self.ALERT)
         self.assertEqual(d["suggested_category"], "db")
-        self.assertEqual(A.form_json(A.form_data({**self.ALERT, "similar": []}))["root_cause_category"], "")
+        self.assertEqual(D.form_json(D.form_data({**self.ALERT, "similar": []}))["root_cause_category"], "")
 
 
 class DbImport(unittest.TestCase):

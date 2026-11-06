@@ -7,7 +7,8 @@ from unittest import mock
 from fastapi.testclient import TestClient
 
 import aiops.interface.web.routes as W
-import aiops.interface.web.app as A
+import aiops.interface.web.dto as D
+import aiops.service.feedback.feedback_service as F
 from aiops.scenario import load_scenario
 
 SC = load_scenario()
@@ -32,18 +33,18 @@ class Dashboard(unittest.TestCase):
         ids = {e["id"] for e in self.opts["elements"]}
         self.assertEqual(ids - SUBMIT_FIELDS - DISPLAY_FIELDS, set(), "表單多了服務不認得的欄位")
         self.assertTrue({"alert_id", "verdict", "by", "how_detected", "root_cause_category"} <= ids)
-        prefill = set(A.form_json(A.form_data(ALERT)))
+        prefill = set(D.form_json(D.form_data(ALERT)))
         self.assertTrue(DISPLAY_FIELDS | {"alert_id"} <= prefill, "預填要有表單顯示的欄位")
 
     def test_options_match_service_choices(self):
         el = {e["id"]: e for e in self.opts["elements"]}
-        self.assertEqual({o["value"] for o in el["verdict"]["options"]}, set(A.VERDICTS))
+        self.assertEqual({o["value"] for o in el["verdict"]["options"]}, set(D.VERDICTS))
         self.assertEqual({o["value"] for o in el["root_cause_category"]["options"]}, {v for v, _ in SC.categories})
         self.assertEqual({o["value"] for o in el["checked"]["options"]}, set(SC.checked))
         self.assertEqual({o["value"] for o in el["fp_reason"]["options"]}, {v for v, _ in SC.fp_reasons})
         # 採納率的兩題：選項跟服務一樣（yes／no／not_seen）、永遠顯示（不看 verdict）；一句話是 textarea
-        for q, _ in A.RCA_QUESTIONS:
-            self.assertEqual([o["value"] for o in el[q]["options"]], [v for v, _ in A.RCA_USEFUL])
+        for q, _ in D.RCA_QUESTIONS:
+            self.assertEqual([o["value"] for o in el[q]["options"]], [v for v, _ in D.RCA_USEFUL])
             self.assertEqual(el[q]["showIf"], "")
         self.assertEqual(el["feedback_text"]["type"], "textarea")
         self.assertEqual(el["feedback_text"]["showIf"], "")
@@ -77,13 +78,13 @@ class MissedPanel(unittest.TestCase):
 
     def test_element_ids_match_missed_form(self):
         ids = [e["id"] for e in self.opts["elements"]]
-        self.assertEqual(set(ids), set(A.missed_form_json()), "元素 id 要跟 /api/missed-form 回的 key 一樣")
+        self.assertEqual(set(ids), set(D.missed_form_json()), "元素 id 要跟 /api/missed-form 回的 key 一樣")
         self.assertEqual(len(ids), len(set(ids)))
         self.assertEqual([e["uid"] for e in self.opts["elements"]], ids)
 
     def test_series_options_match_series_yaml(self):
         el = {e["id"]: e for e in self.opts["elements"]}
-        self.assertEqual([o["value"] for o in el["series"]["options"]], A.SERIES_NAMES)
+        self.assertEqual([o["value"] for o in el["series"]["options"]], F.SERIES_NAMES)
         self.assertFalse(el["series"]["allowCustomValue"])
         self.assertEqual(el["at"]["type"], "datetime")
 
@@ -148,7 +149,7 @@ class Cors(unittest.TestCase):
         # Grafana 表單送出的 JSON 多了一句話和兩題：回應帶抽出來的四欄和建議的 id；沒有模型時走 template
         form = {"alert_id": ALERT["alert_id"], "verdict": "false_positive", "by": "amy", "fp_reason": "batch",
                 "feedback_text": "這是每月初的批次匯出報表，屬於預期內負載。", "rca_cause_useful": "yes", "rca_action_useful": "not_seen"}
-        with mock.patch.dict(os.environ, {"LLM_PROVIDER": "template"}), mock.patch.object(A, "_ready", set()):
+        with mock.patch.dict(os.environ, {"LLM_PROVIDER": "template"}), mock.patch.object(F, "_ready", set()):
             st, _, body = self.req("/api/feedback", method="POST", body=json.dumps(form).encode(), ctype="application/json")
         self.assertEqual(st, 200, body)
         r = json.loads(body)

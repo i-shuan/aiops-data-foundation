@@ -5,7 +5,9 @@ from datetime import datetime, timezone
 from unittest import mock
 
 from aiops.core.connection import doc_id
-import aiops.interface.web.app as A
+import aiops.interface.web.dto as D
+import aiops.service.feedback.feedback_service as F
+import aiops.interface.web.views as V
 from aiops.core.entity.alert import ALERT_INDEX
 from aiops.core.entity.feedback import FEEDBACK_INDEX
 from aiops.core.entity.incident import INCIDENT_INDEX
@@ -55,25 +57,25 @@ class FakeES:
 
 class FormData(unittest.TestCase):
     def test_prefill(self):
-        d = A.form_data(ALERT)
+        d = D.form_data(ALERT)
         self.assertEqual(d["alert_id"], ALERT["alert_id"])
         self.assertEqual(len(d["similar"]), 1)
-        html = A.render_form(d)
+        html = V.render_form(d)
         for s in ("mes-api 變慢", "統計資訊過期", "怎麼看出來的", 'name="root_cause_category"', 'value="db"', "AI 摘要", "/report?alert="):
             self.assertIn(s, html)
 
     def test_report_page(self):
-        self.assertIn("# 報告", A.render_report(ALERT))
+        self.assertIn("# 報告", V.render_report(ALERT))
 
     def test_full_puts_report_above_the_form(self):
         # Grafana 抽屜：根因全文在上、老師傅回饋表單在最下面，送出後還是 full（hidden 欄位帶著）
-        html = A.render_form(A.form_data(ALERT), full=True)
+        html = V.render_form(D.form_data(ALERT), full=True)
         self.assertLess(html.index("根因分析全文"), html.index("# 報告"))
         self.assertLess(html.index("# 報告"), html.index("老師傅）回饋"))
         self.assertLess(html.index("老師傅）回饋"), html.index('<form method="post" action="/feedback"'))
         self.assertIn('name="full" value="1"', html)
         self.assertNotIn("/report?alert=", html)
-        self.assertNotIn("根因分析全文", A.render_form(A.form_data(ALERT)))
+        self.assertNotIn("根因分析全文", V.render_form(D.form_data(ALERT)))
 
 
 class Submit(unittest.TestCase):
@@ -81,7 +83,7 @@ class Submit(unittest.TestCase):
         self.es = FakeES()
 
     def test_true_positive_writes_feedback_per_anomaly_and_confirms_incident(self):
-        r = A.submit(Repos(self.es), {"alert_id": ALERT["alert_id"], "verdict": "true_positive", "by": "老王", "root_cause_category": "db",
+        r = F.submit(Repos(self.es), {"alert_id": ALERT["alert_id"], "verdict": "true_positive", "by": "老王", "root_cause_category": "db",
                                "root_cause": "統計資訊過期", "action": "重跑 analyze", "how_detected": "只有 lots 慢",
                                "checked": ["Oracle AWR / 慢查詢", ""], "improve": "加一條 Oracle 的規則"}, NOW)
         self.assertEqual(r, {"feedback": 2, "incident": "confirmed", "by": "老王"})
@@ -98,7 +100,7 @@ class Submit(unittest.TestCase):
         self.assertEqual(self.es.ensured, [FEEDBACK_INDEX, INCIDENT_INDEX])   # 先用正式的 mapping 建 index
 
     def test_false_positive_keeps_reason_and_does_not_store_root_cause(self):
-        r = A.submit(Repos(self.es), {"alert_id": ALERT["alert_id"], "verdict": "false_positive", "by": "amy", "fp_reason": "batch",
+        r = F.submit(Repos(self.es), {"alert_id": ALERT["alert_id"], "verdict": "false_positive", "by": "amy", "fp_reason": "batch",
                                "fp_reason_text": "月底結帳", "root_cause": "不該存"}, NOW)
         self.assertEqual(r["incident"], "false_positive")
         fb = list(self.es.written[FEEDBACK_INDEX].values())
@@ -106,21 +108,21 @@ class Submit(unittest.TestCase):
         self.assertNotIn("root_cause", self.es.updates[0][2]["doc"])
 
     def test_wrong_root_cause_records_correct_one(self):
-        A.submit(Repos(self.es), {"alert_id": ALERT["alert_id"], "verdict": "wrong_root_cause", "by": "amy", "root_cause": "其實是網路", "root_cause_category": "network"}, NOW)
+        F.submit(Repos(self.es), {"alert_id": ALERT["alert_id"], "verdict": "wrong_root_cause", "by": "amy", "root_cause": "其實是網路", "root_cause_category": "network"}, NOW)
         fb = list(self.es.written[FEEDBACK_INDEX].values())
         self.assertEqual(fb[0]["correct_root_cause"], "其實是網路")
         self.assertEqual(self.es.updates[0][2]["doc"]["status"], "corrected")
 
     def test_anomalies_gone_still_one_feedback_row(self):
         self.es.anoms = {}
-        r = A.submit(Repos(self.es), {"alert_id": ALERT["alert_id"], "verdict": "true_positive", "by": "amy"}, NOW)
+        r = F.submit(Repos(self.es), {"alert_id": ALERT["alert_id"], "verdict": "true_positive", "by": "amy"}, NOW)
         self.assertEqual(r["feedback"], 1)
 
     def test_bad_input(self):
         with self.assertRaises(KeyError):
-            A.submit(Repos(self.es), {"alert_id": "nope", "verdict": "true_positive"}, NOW)
+            F.submit(Repos(self.es), {"alert_id": "nope", "verdict": "true_positive"}, NOW)
         with self.assertRaises(ValueError):
-            A.submit(Repos(self.es), {"alert_id": ALERT["alert_id"], "verdict": "maybe"}, NOW)
+            F.submit(Repos(self.es), {"alert_id": ALERT["alert_id"], "verdict": "maybe"}, NOW)
         self.assertEqual(self.es.written, {})
 
 
@@ -131,7 +133,7 @@ class SubmitMissed(unittest.TestCase):
         self.form = {"series": "http.latency_p95_s", "service": "mes-api", "at": "2026-10-25 10:00", "by": "老王", "note": "lots 查詢全逾時"}
 
     def test_naive_time_is_taipei_and_id_matches_cli(self):
-        r = A.submit_missed(Repos(self.es), self.form, NOW)
+        r = F.submit_missed(Repos(self.es), self.form, NOW)
         self.assertEqual(r, {"feedback": 1, "verdict": "missed", "series": "http.latency_p95_s", "service": "mes-api", "by": "老王"})
         (_id, doc), = self.es.written[FEEDBACK_INDEX].items()
         self.assertEqual(doc["anomaly_at"], "2026-10-25T10:00:00+08:00")     # 沒寫時區 → 當工廠當地時間，跟指令一樣
@@ -142,21 +144,21 @@ class SubmitMissed(unittest.TestCase):
         self.assertEqual(self.es.ensured[0], FEEDBACK_INDEX)      # 先用正式的 mapping 建 index
 
     def test_tz_aware_time_kept_and_optional_keys(self):
-        A.submit_missed(Repos(self.es), {**self.form, "at": "2026-10-25T02:00:00.000Z", "route": "/api/lots", "pod": "", "by": ""}, NOW)
+        F.submit_missed(Repos(self.es), {**self.form, "at": "2026-10-25T02:00:00.000Z", "route": "/api/lots", "pod": "", "by": ""}, NOW)
         (doc,) = self.es.written[FEEDBACK_INDEX].values()
         self.assertEqual(doc["anomaly_at"], "2026-10-25T02:00:00+00:00")     # Grafana 的 datetime 元素送的是 UTC ISO
         self.assertEqual(doc["keys"], {"service": "mes-api", "route": "/api/lots"})   # 空的 pod 不進 keys
         self.assertEqual(doc["by"], "anonymous")
 
     def test_series_comes_from_series_yaml(self):
-        self.assertIn("http.latency_p95_s", A.SERIES_NAMES)
-        self.assertTrue(len(A.SERIES_NAMES) >= 5)
+        self.assertIn("http.latency_p95_s", F.SERIES_NAMES)
+        self.assertTrue(len(F.SERIES_NAMES) >= 5)
 
     def test_bad_input(self):
         for bad, msg in (({"series": ""}, "series 要是"), ({"series": "nope.series"}, "http.latency_p95_s"), ({"service": " "}, "service 要填"),
                          ({"at": ""}, "at 要填"), ({"at": "昨天"}, "at 看不懂")):
             with self.assertRaises(ValueError, msg=bad) as cm:
-                A.submit_missed(Repos(self.es), {**self.form, **bad}, NOW)
+                F.submit_missed(Repos(self.es), {**self.form, **bad}, NOW)
             self.assertIn(msg, str(cm.exception))
         self.assertEqual(self.es.written, {})
 class FreeTextAndRatings(unittest.TestCase):
@@ -173,7 +175,7 @@ class FreeTextAndRatings(unittest.TestCase):
         self.env.stop()
 
     def submit(self, **extra):
-        return A.submit(Repos(self.es), {"alert_id": ALERT["alert_id"], "verdict": "false_positive", "by": "amy", "fp_reason": "batch", **extra}, NOW)
+        return F.submit(Repos(self.es), {"alert_id": ALERT["alert_id"], "verdict": "false_positive", "by": "amy", "fp_reason": "batch", **extra}, NOW)
 
     def test_text_extracted_stored_and_tuning_proposed(self):
         r = self.submit(feedback_text=self.TEXT, rca_cause_useful="yes", rca_action_useful="no")
@@ -192,13 +194,13 @@ class FreeTextAndRatings(unittest.TestCase):
         self.assertEqual(tun["by"], "amy")
 
     def test_action_none_writes_no_tuning(self):
-        r = A.submit(Repos(self.es), {"alert_id": ALERT["alert_id"], "verdict": "true_positive", "by": "amy", "feedback_text": "這件是真的，但不用調，處理完了。"}, NOW)
+        r = F.submit(Repos(self.es), {"alert_id": ALERT["alert_id"], "verdict": "true_positive", "by": "amy", "feedback_text": "這件是真的，但不用調，處理完了。"}, NOW)
         self.assertTrue(r["extract"]["ok"])
         self.assertIsNone(r["tuning_id"])
         self.assertNotIn("aiops-tuning", self.es.written)
 
     def test_extraction_failure_keeps_text_only(self):
-        with mock.patch.object(A.LLM, "extract_feedback", return_value={"ok": False, "fields": None, "provider": "openai", "reason": "回的不是 JSON", "raw": "x"}):
+        with mock.patch.object(F.LLM, "extract_feedback", return_value={"ok": False, "fields": None, "provider": "openai", "reason": "回的不是 JSON", "raw": "x"}):
             r = self.submit(feedback_text=self.TEXT)
         self.assertEqual(r["incident"], "false_positive")                # 回饋照寫
         self.assertIsNone(r["tuning_id"])
@@ -208,7 +210,7 @@ class FreeTextAndRatings(unittest.TestCase):
         self.assertNotIn("aiops-tuning", self.es.written)
 
     def test_tuning_write_failure_does_not_fail_feedback(self):
-        with mock.patch.object(A.T, "propose_from_text", side_effect=RuntimeError("PUT /aiops-tuning → 403")):
+        with mock.patch.object(F, "propose_from_text", side_effect=RuntimeError("PUT /aiops-tuning → 403")):
             r = self.submit(feedback_text=self.TEXT)
         self.assertEqual(r["feedback"], 2)
         self.assertIsNone(r["tuning_id"])
@@ -222,10 +224,10 @@ class FreeTextAndRatings(unittest.TestCase):
         self.assertNotIn("feedback_text", fb)
 
     def test_form_has_text_and_ratings(self):
-        html = A.render_form(A.form_data(ALERT))
+        html = V.render_form(D.form_data(ALERT))
         for s in ('name="feedback_text"', 'name="rca_cause_useful"', 'name="rca_action_useful"', 'value="not_seen"', "可能根因有參考價值", "建議的排查動作有參考價值"):
             self.assertIn(s, html)
-        done = A.render_form(A.form_data(ALERT), done={"feedback": 2, "incident": "false_positive", "by": "amy",
+        done = V.render_form(D.form_data(ALERT), done={"feedback": 2, "incident": "false_positive", "by": "amy",
                                                         "extract": {"ok": True, "suggested_action": "suppress_during_cron"}, "tuning_id": "t1"})
         self.assertIn("調整建議（待審核，id t1）", done)
 

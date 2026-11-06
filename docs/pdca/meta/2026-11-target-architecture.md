@@ -248,6 +248,17 @@ aiops-engine/code/
   （計算與 Detector 子類別、指令同一檔）；`baseline_job` 留著（baseline.py 是模型，併了 860 行太大）。
 - Check：`pytest` 763 過、16 skipped；`check-docs` 0 問題。
 
+### S4 做了什麼（2026-11-06）
+
+- `interface/web/app.py`（369 行）消失，拆成四處：① `submit`／`submit_missed`／`request_rca`／`list_alerts` 與 helper → `service/feedback/feedback_service.py`
+  （網頁版、Grafana 表單、命令列版現在同一個 service）；② HTML → `interface/web/views.py` ＋ `views/feedback.html`、`missed.html`、`report.html`（jinja2 模板、自動跳脫；
+  `requirements.txt` 加 `jinja2>=3.1`）；③ 資料形狀 → `interface/web/dto.py`（`form_data`、`form_json`、`missed_form_json`、`to_json`、表單元素 id、`ingest_config_path`）；
+  ④ 推異常進 ⑤ 的 body 檢查與寫入 → `scenario/factory/ingest_job.ingest_api`。
+- `routes.py`：同一個動作一條處理函式——`/feedback`＋`/api/feedback`、`/missed`＋`/api/missed`、`/rca`＋`/api/rca` 各一個，依路徑是否 `/api/` 開頭決定回 JSON 還是 HTML；
+  路徑、狀態碼、回應格式都沒變（Grafana 直接打這些 URL）。
+- cli 沒再拆：S0 已是 `detect.py`（組合根，含情境加的子命令）、`feedback.py`、`rca.py`、`common.py`；`jobs/` 已在 S0 搬好。
+- Check：`pytest` 763 過、16 skipped（web 的測試改成 import `feedback_service`／`dto`／`views`；斷言不變）；`check-docs` 0 問題。
+
 ## Check：預計要驗證的
 
 | 測試目的（為了確認什麼） | 怎麼測 | 結果 |

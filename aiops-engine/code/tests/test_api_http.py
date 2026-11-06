@@ -8,7 +8,8 @@ from unittest import mock
 from fastapi.testclient import TestClient
 
 import aiops.interface.web.routes as W
-import aiops.interface.web.app as A
+import aiops.interface.web.dto as D
+import aiops.service.feedback.feedback_service as F
 from aiops.core.entity.feedback import FEEDBACK_INDEX
 from tests.test_api import ALERT, FakeES
 
@@ -30,14 +31,14 @@ class Http(unittest.TestCase):
         return r.status_code, r.text
 
     def test_api_returns_503_with_message(self):
-        with mock.patch.object(A, "_ready", set()):
+        with mock.patch.object(F, "_ready", set()):
             st, body = self.post("/api/feedback", json.dumps({"alert_id": ALERT["alert_id"], "verdict": "true_positive", "by": "amy"}).encode(), "application/json")
         self.assertEqual(st, 503)
         self.assertIn("沒有存成功", json.loads(body)["error"])
         self.assertIn("重送不會重複", json.loads(body)["error"])
 
     def test_form_returns_page_with_error(self):
-        with mock.patch.object(A, "_ready", set()):
+        with mock.patch.object(F, "_ready", set()):
             st, body = self.post("/feedback", f"alert_id={ALERT['alert_id']}&verdict=true_positive&by=amy".encode(), "application/x-www-form-urlencoded")
         self.assertEqual(st, 503)
         self.assertIn("沒有存成功", body)
@@ -54,27 +55,27 @@ class Http(unittest.TestCase):
     def test_missed_form_is_flat_empty_json(self):
         r = self.c.get("/api/missed-form")
         self.assertEqual(r.status_code, 200)
-        self.assertEqual(json.loads(r.content), {k: "" for k in A.MISSED_FIELDS})
+        self.assertEqual(json.loads(r.content), {k: "" for k in D.MISSED_FIELDS})
 
     def test_missed_bad_series_is_400_good_is_200(self):
         st, body = self.post("/api/missed", json.dumps({"series": "nope", "service": "mes-api", "at": "2026-10-25 10:00"}).encode(), "application/json")
         self.assertEqual(st, 400)
         self.assertIn("series 要是", json.loads(body)["error"])
-        with mock.patch.object(A, "_ready", set()):     # BrokenES 只壞 bulk_index；漏報走單筆 PUT，寫得進去
+        with mock.patch.object(F, "_ready", set()):     # BrokenES 只壞 bulk_index；漏報走單筆 PUT，寫得進去
             st, body = self.post("/api/missed", json.dumps({"series": "http.latency_p95_s", "service": "mes-api", "at": "2026-10-25 10:00", "by": "amy"}).encode(), "application/json")
         self.assertEqual(st, 200)
         self.assertEqual(json.loads(body)["verdict"], "missed")
         self.assertTrue(any(d.get("verdict") == "missed" for d in W.state.es.written[FEEDBACK_INDEX].values()))
 
     def test_missed_es_down_is_503_with_message(self):
-        with mock.patch.object(W.state.es, "req", side_effect=RuntimeError("PUT → 503")), mock.patch.object(A, "_ready", {id(W.state.es)}):
+        with mock.patch.object(W.state.es, "req", side_effect=RuntimeError("PUT → 503")), mock.patch.object(F, "_ready", {id(W.state.es)}):
             st, body = self.post("/api/missed", json.dumps({"series": "http.latency_p95_s", "service": "mes-api", "at": "2026-10-25 10:00"}).encode(), "application/json")
         self.assertEqual(st, 503)
         self.assertIn("沒有存成功", json.loads(body)["error"])
 
 
 class Wire(unittest.TestCase):
-    """跟 http.server 版一樣的線上格式：JSON 是 A.to_json 的 bytes 原樣、表單的 checked 是 list、沒有的路／方法不對回 404 not found。"""
+    """跟 http.server 版一樣的線上格式：JSON 是 D.to_json 的 bytes 原樣、表單的 checked 是 list、沒有的路／方法不對回 404 not found。"""
     @classmethod
     def setUpClass(cls):
         cls.c = TestClient(W.app)
@@ -87,14 +88,14 @@ class Wire(unittest.TestCase):
         r = self.c.get(f"/api/alert?alert={ALERT['alert_id']}")
         self.assertEqual(r.status_code, 200)
         self.assertEqual(r.headers["content-type"], "application/json")
-        self.assertEqual(r.content, A.to_json(A.form_json(A.form_data(ALERT))))     # ensure_ascii=False：中文不會被轉成 \uXXXX
+        self.assertEqual(r.content, D.to_json(D.form_json(D.form_data(ALERT))))     # ensure_ascii=False：中文不會被轉成 \uXXXX
         self.assertIn("變慢".encode(), r.content)
         r = self.c.get("/api/alert?alert=nope")
-        self.assertEqual((r.status_code, r.content), (404, A.to_json({"error": "找不到告警 nope"})))
+        self.assertEqual((r.status_code, r.content), (404, D.to_json({"error": "找不到告警 nope"})))
 
     def test_form_checked_reaches_submit_as_list(self):
         data = [("alert_id", ALERT["alert_id"]), ("verdict", "true_positive"), ("by", "amy"), ("checked", "Oracle AWR / 慢查詢"), ("checked", "K8s events")]
-        with mock.patch.object(A, "submit", return_value={"feedback": 2, "incident": "confirmed", "by": "amy"}) as sub:
+        with mock.patch.object(F, "submit", return_value={"feedback": 2, "incident": "confirmed", "by": "amy"}) as sub:
             r = self.c.post("/feedback", content=urllib.parse.urlencode(data).encode(), headers={"Content-Type": "application/x-www-form-urlencoded"})
         self.assertEqual(r.status_code, 200)
         self.assertEqual(r.headers["content-type"], "text/html; charset=utf-8")

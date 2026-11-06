@@ -1,4 +1,4 @@
-"""python3 -m api：用 uvicorn 跑 server.py 的 FastAPI app（helm chart 的 args: ["api"]）。路由、CORS、ES 的注入點都在 server.py。"""
+"""python3 -m api：用 uvicorn 跑 routes.py 的 FastAPI app（helm chart 的 args: ["api"]）。路由、CORS、ES 的注入點都在 routes.py。"""
 from __future__ import annotations
 
 import os

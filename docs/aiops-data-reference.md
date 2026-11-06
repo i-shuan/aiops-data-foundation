@@ -238,7 +238,7 @@ Grafana（⑧）         讀 aiops-alerts 發通知；儀表板讀 alerts、anom
 
 ## aiops-feedback：回饋
 
-寫入：回饋網頁（`api/app.py`）；命令列 `python3 -m detector feedback add` 也能寫（四種判定值都可以，漏報只能用命令列）。**一件事故的每筆異常各寫一筆**（現有的 `feedback summary`、`suggest` 是依「序列＋對象」算的，才對得起來）。
+寫入：回饋網頁（`interface/web/routes.py` → `service/feedback/feedback_service.submit`）；命令列 `python3 -m detector feedback add` 也能寫（四種判定值都可以，漏報只能用命令列）。**一件事故的每筆異常各寫一筆**（現有的 `feedback summary`、`suggest` 是依「序列＋對象」算的，才對得起來）。
 
 | 欄位 | 型別 | 說明 |
 |---|---|---|

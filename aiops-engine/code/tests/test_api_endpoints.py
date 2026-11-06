@@ -1,3 +1,4 @@
+from aiops.core.entity.feedback import FEEDBACK_INDEX
 """api 的三個新端點（docs/pdca/meta/2026-11-api-beat-worker.md）：POST /api/anomalies（token、走 ingest.yaml 的對照、寫 ⑤、丟 alert）、
 POST /api/rca（標 rca_requested、結束的件不重跑、丟 alert）、GET /api/alerts；以及 alert 看到 rca_requested 會強制重跑、把標記拿掉。
 假的 ES、apply_async 用 mock 接住；HTTP 用 FastAPI 的 TestClient，不開 socket。"""
@@ -12,7 +13,6 @@ from fastapi.testclient import TestClient
 
 import aiops.interface.jobs.worker as tasks
 import aiops.interface.web.routes as W
-import aiops.interface.web.app as A
 import aiops.service.converge.alert_service as C
 from tests.test_api import ALERT, FakeES
 
@@ -233,7 +233,7 @@ class HtmlPages(unittest.TestCase):
         code, _, page = self.post_form("/missed", {"series": "http.error_rate", "service": "mes-api", "at": "2026-11-05 10:05", "by": "amy"})
         self.assertEqual(code, 200, page)
         self.assertIn("已記錄漏報", page)
-        (doc,) = self.es.written[A.FEEDBACK_INDEX].values()
+        (doc,) = self.es.written[FEEDBACK_INDEX].values()
         self.assertEqual((doc["verdict"], doc["series"], doc["keys"]["service"], doc["by"]), ("missed", "http.error_rate", "mes-api", "amy"))
 
     def test_missed_bad_input_keeps_what_was_typed(self):

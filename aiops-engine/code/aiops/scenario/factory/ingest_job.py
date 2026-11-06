@@ -33,6 +33,21 @@ def ingest_rows(repo: Repos, cfg: dict, name: str, rows: list[dict], now: pd.Tim
     return len(docs), skipped
 
 
+def ingest_api(repo: Repos, body: dict, cfg: dict | None, now: pd.Timestamp | None = None) -> dict:
+    """POST /api/anomalies：{"input": "ml", "rows": [...]} → 照 ingest.yaml 裡叫 input 的對照轉成異常、寫進 aiops-anomalies。
+    rows 的欄位跟那個 input 的索引裡一樣（time_field、keys、value…）。回 {"input", "written", "skipped"}。
+    cfg 是 ingest.yaml 的內容（None＝這個情境沒有 ingest → LookupError）；沒有這個 input → LookupError；body 不對 → ValueError。"""
+    name, rows = body.get("input"), body.get("rows")
+    if not name or not isinstance(rows, list):
+        raise ValueError('要 {"input": "<ingest.yaml 的 inputs 名>", "rows": [ {...}, ... ]}')
+    if not all(isinstance(r, dict) for r in rows):
+        raise ValueError("rows 每一筆要是物件")
+    if cfg is None:
+        raise LookupError("這個情境沒有 ingest（排程表沒有 ingest 工作、也沒設 AIOPS_INGEST_CONFIG）")
+    written, skipped = ingest_rows(repo, cfg, str(name), rows, now or pd.Timestamp.now(tz="UTC"))
+    return {"input": name, "written": written, "skipped": skipped}
+
+
 def run(repo: Repos, cfg: dict, now: pd.Timestamp, window: pd.Timedelta) -> dict[str, tuple[int, int]]:
     """每個 input 讀 [now − window, now) 的列、轉成異常、寫進 aiops-anomalies。回傳 {來源名: (寫了幾筆, 略過幾筆)}。"""
     try:

@@ -1,14 +1,20 @@
-"""⑨ 值班回饋 feedback（pending、add、list、summary、suggest、export）與事故紀錄 incident（add、list、resolve）；計算在 feedback/suggest.py。"""
+"""⑨ 值班回饋：命令列的 feedback（pending、add、list、summary、suggest、export）、事故紀錄 incident（add、list、resolve），
+與網頁／Grafana 表單走的 submit（一件的回饋）、submit_missed（漏報）、request_rca（重跑根因分析）、list_alerts；計算在 suggest.py。
+HTTP 層（interface/web）只做收參數、挑回 HTML 還是 JSON。"""
 from __future__ import annotations
 
 import json
 import sys
 from collections import Counter
+from datetime import datetime, timezone
 
 import pandas as pd
 
 import aiops.service.rca.llm as LLM
+from aiops import CODE_ROOT
+from aiops.config.loader import load_config
 from aiops.core.connection import ES, doc_id
+from aiops.core.entity.feedback import RCA_USEFUL
 from aiops.core.entity.incident import Incident
 from aiops.core.repository import Repos
 from aiops.scenario import load_scenario
@@ -386,3 +392,165 @@ def incident_add(cfg: dict, args) -> int:
             print(f"  建議 {sid}：{A.describe(sug)}")
         print("  status 是 proposed，用 adjust approve --id … 核准後，下次 train 才不學這段")
     return 0
+
+
+# ── 網頁版／Grafana 表單走的（interface/web/routes.py 呼叫；跟命令列版寫同一種文件）──
+
+# 漏報表單的序列選單、時區：跟 detector 讀同一份 series.yaml（image 裡 configs/ 跟套件放在一起，路徵一樣）
+_SERIES_CFG = load_config(str(CODE_ROOT / "configs/baseline/series.yaml"), "series")
+SERIES_NAMES = [s["name"] for s in _SERIES_CFG["series"]]
+TIMEZONE = _SERIES_CFG.get("train", {}).get("timezone", "Asia/Taipei")
+WEB_VERDICTS = ("true_positive", "false_positive", "wrong_root_cause")     # 表單能選的（漏報走 submit_missed）
+RCA_QUESTIONS = ("rca_cause_useful", "rca_action_useful")                  # 採納率的兩題（docs/pdca/phase5-learning-loop/2026-10-feedback-nl-extract.md）
+_ready: set[int] = set()   # 哪些連線已經確認過 index（每個連線一次）
+
+
+def _ensure(repo: Repos) -> None:
+    """index 要先用正式的 mapping 建（不然第一筆寫進去 ES 會自己猜型別，之後 feedback suggest 的 mapping 就合不上）；每個連線只做一次。"""
+    if id(repo.es) not in _ready:
+        repo.feedback.ensure()
+        repo.incidents.ensure()
+        _ready.add(id(repo.es))
+
+
+def _feedback_base(form: dict, alert: dict, verdict: str, by: str, now: datetime) -> dict:
+    """一筆回饋共同的欄位（每筆異常各一筆時複製這份）。"""
+    base = {"@timestamp": now.isoformat(), "verdict": verdict, "by": by, "alert_id": alert["alert_id"],
+            "alert_started_at": alert.get("started_at"), "incident_id": alert["alert_id"],
+            "note": (form.get("note") or form.get("fp_reason_text") or "").strip() or None,
+            "fp_reason": form.get("fp_reason") if verdict == "false_positive" else None,
+            "correct_root_cause": form.get("root_cause") if verdict == "wrong_root_cause" else None}
+    for q in RCA_QUESTIONS:
+        if form.get(q) in RCA_USEFUL:
+            base[q] = form[q]
+    return base
+
+
+def _extract_text(repo: Repos, text: str, alert: dict, by: str, now: datetime, base: dict) -> tuple[str | None, str | None]:
+    """一句自然語言 → LLM 抽成四欄（service/rca/llm.extract_feedback）；驗不過就只存原文。對得到調整種類就先寫一筆 proposed 的 aiops-tuning。
+    回 (tuning_id, tuning_error)：建議寫不進去（ES 權限、mapping）不能讓回饋本身失敗。"""
+    ext = LLM.extract_feedback(text, alert)
+    base["feedback_text"] = text
+    base["extract"] = {k: v for k, v in {**(ext["fields"] or {}), "ok": ext["ok"], "provider": ext["provider"], "reason": ext["reason"]}.items() if v not in (None, "")}
+    if not ext["ok"]:
+        return None, None
+    try:
+        tuning_id = propose_from_text(repo, ext["fields"], alert, text, by, now)
+    except Exception as e:    # noqa: BLE001
+        sys.stderr.write(f"feedback tuning proposal failed: {e!r}\n")
+        return None, f"{type(e).__name__}：{str(e)[:120]}"
+    base["tuning_id"] = tuning_id
+    return tuning_id, None
+
+
+def _feedback_docs(repo: Repos, alert: dict, base: dict, by: str) -> list[tuple[str, dict]]:
+    """一件的每筆異常各一筆回饋：現有的 feedback summary／suggest 是依異常（series＋對象）算的，才對得起來。
+    異常已經不在了（過期）：至少留一筆對這件的。"""
+    ids = alert.get("anomaly_ids") or []
+    got = repo.anomalies.get_many(ids[:200], ["@timestamp", "series", "keys"]) if ids else {}
+    docs = [(doc_id("feedback", aid, by), {**base, "anomaly_id": aid, "anomaly_at": src.get("@timestamp"), "series": src.get("series"), "keys": src.get("keys") or {}})
+            for aid, src in got.items()]
+    if not docs:
+        docs.append((doc_id("feedback", alert["alert_id"], by), {**base, "series": (alert.get("series") or ["?"])[0], "keys": {"service": alert.get("service")}}))
+    return docs
+
+
+def _incident_patch(form: dict, verdict: str, by: str, now: datetime) -> dict:
+    """事故要改的欄位：確認／更正／誤報；誤報不填根因那幾欄。"""
+    status = {"true_positive": "confirmed", "wrong_root_cause": "corrected", "false_positive": "false_positive"}[verdict]
+    inc = {"status": status, "confirmed_at": now.isoformat(), "confirmed_by": by, "by": by}
+    if verdict != "false_positive":
+        inc.update({"root_cause_category": form.get("root_cause_category") or None, "root_cause": (form.get("root_cause") or "").strip() or None,
+                    "action": (form.get("action") or "").strip() or None, "how_detected": (form.get("how_detected") or "").strip() or None,
+                    "checked": [c for c in (form.get("checked") or []) if c] or None, "improve": (form.get("improve") or "").strip() or None})
+    return {k: v for k, v in inc.items() if v is not None}
+
+
+def _upsert_incident(repo: Repos, alert: dict, inc: dict, now: datetime) -> None:
+    """事故可能還沒被 alert 開出來（例如回饋得很快）：用 upsert 補一筆最小的。"""
+    ids = alert.get("anomaly_ids") or []
+    seed = Incident(**{"@timestamp": now.isoformat()}, alert_id=alert["alert_id"], title=alert.get("title"), start=alert.get("started_at"),
+                    end=alert.get("resolved_at") or alert.get("updated_at"), services=[alert.get("service")], severity=alert.get("severity"),
+                    dept=alert.get("dept"), group=alert.get("group"), anomaly_ids=ids[:Incident.MAX_ANOMALY_IDS], **inc).to_doc()
+    repo.incidents.patch(alert["alert_id"], inc, upsert=seed)
+
+
+def submit(repo: Repos, form: dict, now: datetime | None = None) -> dict:
+    """一件的回饋。form：alert_id、verdict、by、root_cause_category、root_cause、action、how_detected、checked（list）、improve、fp_reason、note、
+    feedback_text（一句自然語言，選填）、rca_cause_useful、rca_action_useful（yes／no／not_seen，選填）。
+    回傳 {"feedback": 寫了幾筆, "incident": 狀態, "by"}；有給 feedback_text 時多 "extract"（抽出來的四欄＋ok、provider、reason）
+    和 "tuning_id"（寫進 aiops-tuning 的建議 id；suggested_action 是 none、或沒抽到就是 None）。
+    抽取失敗不影響寫入：只存原文（extract.ok false）；寫建議失敗也不影響回饋本身（tuning_error）。
+    找不到這件 → KeyError；verdict 不對 → ValueError。"""
+    now = now or datetime.now(timezone.utc)
+    alert = repo.alerts.get(form["alert_id"])
+    if not alert:
+        raise KeyError(f"找不到告警 {form['alert_id']}")
+    verdict = form["verdict"]
+    if verdict not in WEB_VERDICTS:
+        raise ValueError(f"verdict 要是 {'、'.join(WEB_VERDICTS)}")
+    by = (form.get("by") or "").strip() or "anonymous"
+    _ensure(repo)
+    base = _feedback_base(form, alert, verdict, by, now)
+    text = (form.get("feedback_text") or "").strip()
+    tuning_id, tuning_error = _extract_text(repo, text, alert, by, now, base) if text else (None, None)
+    base = {k: v for k, v in base.items() if v not in (None, "")}
+    docs = _feedback_docs(repo, alert, base, by)
+    repo.feedback.bulk(docs)
+    inc = _incident_patch(form, verdict, by, now)
+    _upsert_incident(repo, alert, inc, now)
+    out = {"feedback": len(docs), "incident": inc["status"], "by": by}
+    if text:
+        out.update({"extract": base.get("extract"), "tuning_id": tuning_id, **({"tuning_error": tuning_error} if tuning_error else {})})
+    return out
+
+
+def submit_missed(repo: Repos, form: dict, now: datetime | None = None) -> dict:
+    """漏報（該報卻沒報）：沒有 alert_id、沒有 anomaly_id，寫一筆 verdict: missed。
+    form：series（series.yaml 裡的名字）、service、at（ISO 或 YYYY-MM-DD HH:MM；沒時區當 series.yaml 的時區）、by、note、route／pod（選填，進 keys）。
+    文件格式、_id 跟命令列 feedback add --verdict missed 一樣，同一個人對同一條再送會覆蓋、不重複。參數不對 → ValueError。"""
+    now = now or datetime.now(timezone.utc)
+    series = (form.get("series") or "").strip()
+    if series not in SERIES_NAMES:
+        raise ValueError(f"series 要是 {'、'.join(SERIES_NAMES)}")
+    service = (form.get("service") or "").strip()
+    if not service:
+        raise ValueError("service 要填（哪個服務該報卻沒報）")
+    raw_at = (form.get("at") or "").strip()
+    if not raw_at:
+        raise ValueError("at 要填（什麼時候該報：2026-10-25 10:00）")
+    try:
+        at = pd.Timestamp(raw_at)
+    except (ValueError, TypeError) as e:
+        raise ValueError(f"at 看不懂（{raw_at}）：寫 2026-10-25 10:00 或 ISO 格式") from e
+    if pd.isna(at):
+        raise ValueError("at 要填（什麼時候該報：2026-10-25 10:00）")
+    by = (form.get("by") or "").strip() or "anonymous"
+    keys = {"service": service, **{k: (form.get(k) or "").strip() for k in ("route", "pod") if (form.get(k) or "").strip()}}
+    doc = {"@timestamp": now.isoformat(), "verdict": "missed", "series": series, "keys": keys,
+           "anomaly_at": (at.tz_localize(TIMEZONE) if at.tzinfo is None else at).isoformat(), "by": by,
+           "note": (form.get("note") or "").strip() or None}
+    doc = {k: v for k, v in doc.items() if v not in (None, "")}
+    _ensure(repo)
+    repo.feedback.put(doc_id("feedback", [doc["series"], doc["keys"], doc["anomaly_at"]], by), doc)
+    return {"feedback": 1, "verdict": "missed", "series": series, "service": service, "by": by}
+
+
+def request_rca(repo: Repos, alert_id: str, now: datetime | None = None) -> dict:
+    """在開著的那件上標 rca_requested：下一輪 alert 看到就強制重跑根因分析（含相似事故、LLM、摘要，跟新開件同一條路），跑完把標記拿掉。
+    結束的件不重跑（ValueError → 409）；沒有這件 LookupError → 404。"""
+    alert = repo.alerts.get(alert_id)
+    if not alert:
+        raise LookupError(f"找不到告警 {alert_id}")
+    if alert.get("status") != "open":
+        raise ValueError(f"這件已經結束（{alert.get('status')}），不重跑；要看舊報告用 /report?alert={alert_id}")
+    at = (now or datetime.now(timezone.utc)).isoformat()
+    repo.alerts.request_rca(alert_id, at)
+    return {"alert_id": alert_id, "requested_at": at}
+
+
+def list_alerts(repo: Repos, status: str = "open", size: int = 50) -> list[dict]:
+    """件的清單（新的在前），不含報告全文。status：open／resolved／all。"""
+    if status not in ("open", "resolved", "all"):
+        raise ValueError("status 要是 open、resolved 或 all")
+    return repo.alerts.list(status, max(1, min(int(size), 500)))
