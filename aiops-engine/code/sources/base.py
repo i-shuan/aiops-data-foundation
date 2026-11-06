@@ -18,6 +18,8 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
+from core.version import ENGINE_VERSION
+
 import pandas as pd
 
 
@@ -130,6 +132,10 @@ class Backend(ABC):
         return self.store.adjustments()
 
     def write_anomalies(self, docs) -> None:
+        """寫進異常總表。每筆帶 engine_version（core/version.py）：五種偵測都從這裡寫，「每筆異常都要有」的欄位只補在這一處；
+        dept、group 由 Store 補（ES 查 core/owner.py；檔案、記憶體來源沒有歸屬可查，全部 unassigned）。"""
+        for _, d in docs:
+            d["engine_version"] = ENGINE_VERSION
         self.store.write_anomalies(docs)
 
     def incidents(self, statuses: tuple[str, ...], exclude_id: str | None = None, having: tuple[str, ...] = ()) -> list[tuple[str, dict]]:
@@ -147,3 +153,10 @@ def as_backend(x) -> Backend:
         raise TypeError(f"要 sources.Backend 或 core.es.ES，不是 {type(x).__name__}")
     from .es_source import ESBackend   # rows／es_source import 這裡，所以在這裡才 import
     return ESBackend(x)
+
+
+def write_anomalies(es, docs: list) -> None:
+    """偵測指令寫異常總表的入口：es 是 Backend 或 core.es.ES。docs：(_id, 文件)。空的不碰 ES。"""
+    if not docs:
+        return
+    as_backend(es).write_anomalies(docs)

@@ -17,11 +17,16 @@ from __future__ import annotations
 
 import csv
 import json
+import os
+import re
+import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from core.es import ES, doc_id
 from core.incident import INCIDENT_INDEX, INCIDENT_MAPPING, Fingerprint, Incident
+from detector.adjust import local_iso
 
 REQUIRED = ("title", "start", "end", "services", "root_cause_category", "root_cause", "action", "how_detected", "checked")
 OPTIONAL = ("by", "note")
@@ -36,16 +41,13 @@ class DbRows:
     url 是 SQLAlchemy 的；sqlite:/// 不用裝 SQLAlchemy（標準庫）。url 裡的 ${VAR} 用環境變數換掉（密碼不寫進設定檔）。"""
 
     def __init__(self, url: str, sql: str):
-        import os
         self.url, self.sql = os.path.expandvars(url), sql
 
     def __str__(self):
-        import re
         return re.sub(r"://([^:/@]+):[^@]*@", r"://\1:***@", self.url)   # 印出來時遮密碼
 
     def rows(self) -> list[dict]:
         if self.url.startswith("sqlite:///"):
-            import sqlite3
             con = sqlite3.connect(self.url[len("sqlite:///"):])
             con.row_factory = sqlite3.Row
             try:
@@ -97,7 +99,6 @@ def _text(v) -> str | None:
 
 def _time(v, tz: str) -> str | None:
     """沒寫時區的當 tz 的當地時間。看不懂回 None（呼叫端當成缺欄位）。"""
-    from detector.adjust import local_iso
     s = _text(v)
     if not s:
         return None
@@ -120,7 +121,6 @@ def normalize(row: dict, n: int, tz: str = DEFAULT_TZ, now: datetime | None = No
         return None, f"end（{end}）早於 start（{start}）"
     now = now or datetime.now(timezone.utc)
     services = sorted(set(split_list(row["services"])))
-    from zoneinfo import ZoneInfo
     day = datetime.fromisoformat(start).astimezone(ZoneInfo(tz)).strftime("%Y%m%d")    # 事故日期用當地日期
     by = _text(row.get("by"))
     inc = Incident(**{"@timestamp": now.isoformat()}, title=_text(row["title"]), start=start, end=end, services=services,

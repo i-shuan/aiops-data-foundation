@@ -13,7 +13,8 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 from core.es import ES, time_range
-from core.traces import group_traces, root_of, spans_of, trace_id_field
+from core.traces import group_traces, root_of, trace_id_field
+from sources.base import as_backend
 
 STATE_INDEX = "aiops-state"
 STATE_ID = "trace-merge"
@@ -77,7 +78,7 @@ def merge(es: ES, cfg: dict, since: datetime, until: datetime, now: datetime | N
     ids = updated_trace_ids(es, raw, since, until)
     if not ids:
         return 0
-    spans = spans_of(es, raw, ids, until - timedelta(days=2), until + timedelta(minutes=5))
+    spans = as_backend(es).spans(raw, ids, until - timedelta(days=2), until + timedelta(minutes=5))
     docs: dict[str, list[tuple[str, dict]]] = {}
     for tid, tspans in group_traces(spans).items():
         index, doc = build(tspans, now)

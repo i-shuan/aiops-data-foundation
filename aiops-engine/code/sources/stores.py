@@ -8,9 +8,13 @@ import os
 
 import pandas as pd
 
+from core.anomaly import ANOMALY_INDEX
+from core.incident import INCIDENT_INDEX, Fingerprint
+from core.owner import load_owners, owner_of
+from core.tuning import TUNING_INDEX
 from .base import Store
 
-BASELINE_INDEX, ANOMALY_INDEX, TUNING_INDEX, INCIDENT_INDEX = "aiops-baseline", "aiops-anomalies", "aiops-tuning", "aiops-incidents"
+BASELINE_INDEX = "aiops-baseline"
 # baseline 讀回來的欄位（detector/es.py 從這裡 import）。method 存成 baseline_method：序列的 keys 也可能有 method（HTTP method），會撞名
 BASELINE_COLUMNS = ("dow", "hour", "level", "median", "mad", "resolution", "baseline_method", "baseline_source", "trained_at")
 _RENAMED = {"baseline_method": "method"}
@@ -163,10 +167,9 @@ class ESStore(Store):
         return [{"id": h["_id"], **h["_source"]} for h in hits]
 
     def write_anomalies(self, docs):
-        """每筆依 keys 裡的 namespace／服務對回 dept、group（detector/owner.py）。"""
+        """每筆依 keys 裡的 namespace／服務對回 dept、group（core/owner.py）。"""
         if not docs:
             return
-        from detector.owner import load_owners, owner_of
         owners = load_owners(self.es)
         for _, d in docs:
             d["dept"], d["group"] = owner_of(d.get("keys"), owners)
@@ -180,9 +183,8 @@ class ESStore(Store):
         return [(h["_id"], h["_source"]) for h in hits]
 
     def similar_incidents(self, fp, statuses, exclude_id=None, size=200):
-        """ES 用指紋的 bool／terms 先篩出前 size 件（investigator.similar.query），分數還是 rank 自己算。"""
-        from investigator.similar import query
-        hits = self.es.search(INCIDENT_INDEX, query(fp, exclude_id, size, statuses)).get("hits", {}).get("hits", [])
+        """ES 用指紋的 bool／terms 先篩出前 size 件（Fingerprint.es_query），分數還是 investigator.similar.rank 自己算。"""
+        hits = self.es.search(INCIDENT_INDEX, Fingerprint.of(fp).es_query(exclude_id, size, statuses)).get("hits", {}).get("hits", [])
         return [(h["_id"], h["_source"]) for h in hits]
 
 

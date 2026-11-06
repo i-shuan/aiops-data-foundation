@@ -6,8 +6,12 @@ from datetime import datetime, timezone
 from unittest import mock
 
 from core import source, traces as T
-from detector import owner as O, trace_merge as M
-from detector.es import _bucket_events, _bucket_value, _value_aggs, value_kind
+import sources
+from core import owner as O
+from detector import trace_merge as M
+from sources import write_anomalies
+from detector.es import value_kind
+from sources.es_source import _bucket_events, _bucket_value, _value_aggs
 from investigator import es as E
 
 TX = {"@timestamp": "2026-11-02T01:00:00.000Z", "timestamp.us": 1793581200000000, "processor": {"event": "transaction"},
@@ -96,7 +100,7 @@ class ApmQueryTest(unittest.TestCase):
 
     def test_spans_of_queries_trace_id_and_dedupes(self):
         es = self.FakeES([TX, DB, DB])
-        got = T.spans_of(es, "traces-apm-*", ["t1"], datetime(2026, 11, 1, tzinfo=timezone.utc), datetime(2026, 11, 3, tzinfo=timezone.utc))
+        got = sources.as_backend(es).spans("traces-apm-*", ["t1"], datetime(2026, 11, 1, tzinfo=timezone.utc), datetime(2026, 11, 3, tzinfo=timezone.utc))
         self.assertEqual(sorted(s["span_id"] for s in got), ["s1", "tx1"])      # 同一毫秒跨頁重複的只留一個
         body = es.bodies[0][1]
         self.assertIn({"terms": {"trace.id": ["t1"]}}, body["query"]["bool"]["filter"])
@@ -105,7 +109,7 @@ class ApmQueryTest(unittest.TestCase):
 
     def test_spans_by_id_matches_span_or_transaction_id(self):
         es = self.FakeES([TX, DB])
-        got = T.spans_by_id(es, "traces-apm-*", ["tx1"], datetime(2026, 11, 1, tzinfo=timezone.utc), datetime(2026, 11, 3, tzinfo=timezone.utc))
+        got = sources.as_backend(es).spans_by_id("traces-apm-*", ["tx1"], datetime(2026, 11, 1, tzinfo=timezone.utc), datetime(2026, 11, 3, tzinfo=timezone.utc))
         self.assertEqual(list(got), ["tx1"])
         should = es.bodies[0][1]["query"]["bool"]["should"]
         self.assertEqual(should, [{"terms": {"span.id": ["tx1"]}}, {"terms": {"transaction.id": ["tx1"]}}])
@@ -173,7 +177,7 @@ class SourceProfileTest(unittest.TestCase):
             def bulk_index(self, index, docs): self.written = docs
         es = Fake()
         with mock.patch.dict(os.environ, {"AIOPS_SOURCE": "apm"}):
-            O.write_anomalies(es, [("a", {"keys": {"service": "mes-api", "route": "GET /lots/{id}"}})])
+            write_anomalies(es, [("a", {"keys": {"service": "mes-api", "route": "GET /lots/{id}"}})])
         path, body = es.calls[0]
         self.assertTrue(path.startswith("/metrics-apm.transaction.1m-*/_search"))
         self.assertEqual(body["aggs"]["svc"]["terms"]["field"], "service.name")

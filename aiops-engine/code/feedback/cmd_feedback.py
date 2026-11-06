@@ -2,15 +2,18 @@
 from __future__ import annotations
 
 import json
+import sys
 from collections import Counter
 
 import pandas as pd
 
 from core import llm as LLM
+from core import plugin
 from core.incident import INCIDENT_INDEX, INCIDENT_MAPPING, Incident
 from core.tuning import TUNING_INDEX, TUNING_MAPPING
 from detector import adjust as A
-from detector.es import ANOMALY_INDEX, ES, doc_id
+from core.anomaly import ANOMALY_INDEX
+from detector.es import ES, doc_id
 from detector.adjust import load_adjustments
 from detector.common import _now
 from detector.model import DetectOptions
@@ -65,7 +68,6 @@ def _anomaly_details(es, ids: list[str]) -> list[dict]:
 
 def _deploy_before(es, fps: list[dict], grace_min: int = 10):
     """這些誤報的對象在它們之前 grace_min 分鐘內有沒有換版（plugin 的 change_at：IT 看版號、工廠看 recipe 變更）；查不到就 None。"""
-    from core import plugin
     svc = next((v for f in fps for k in plugin.current().entity_keys if (v := (f.get("keys") or {}).get(k))), None)
     ats = [pd.Timestamp(f["at"]) for f in fps if f.get("at")]
     if not svc or not ats:
@@ -118,7 +120,6 @@ def export_rows(es, days: int, now) -> list[dict]:
 
 def write_export(rows: list[dict], out: str | None) -> str:
     """寫 .ndjson（keys 保留巢狀）或 .csv（keys 攤成 key.<名> 欄）；out 空的印到 stdout（NDJSON）。回傳寫到哪。"""
-    import sys
     if out and out.lower().endswith(".csv"):
         flat = [{**{k: v for k, v in r.items() if k != "keys"}, **{f"key.{k}": v for k, v in (r.get("keys") or {}).items()}} for r in rows]
         pd.DataFrame(flat).to_csv(out, index=False, encoding="utf-8-sig")

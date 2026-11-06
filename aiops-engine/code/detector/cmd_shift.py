@@ -16,7 +16,8 @@ import re
 import numpy as np
 import pandas as pd
 
-from .es import ANOMALY_INDEX, ES, doc_id
+from core.anomaly import ANOMALY_INDEX
+from .es import ES, doc_id
 from . import adjust as A
 from .common import _now
 from core.tuning import TUNING_INDEX, TUNING_MAPPING

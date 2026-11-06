@@ -32,7 +32,7 @@ import sys
 from datetime import datetime, timedelta, timezone
 
 from core.es import ES
-from detector.es import ANOMALY_MAPPING
+from core.anomaly import ANOMALY_MAPPING
 
 CFG = "tests/rca_chain.yaml"
 TRACES = "traces-generic.otel-it"

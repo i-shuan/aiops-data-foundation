@@ -25,10 +25,16 @@ metrics 的 resource.attributes.service.name、trace 的 entry.service。
 from __future__ import annotations
 
 import calendar
+import os
 import re
 
 import numpy as np
 import pandas as pd
+
+from core.config import load_config
+from core.tuning import TUNING_INDEX
+from sources.base import as_backend
+from .sources import load_calendar
 
 KINDS = ("override", "exclude_window", "reset_point", "recurring_override")
 DEFAULT_WARMUP = "24h"   # reset_point 之後多久內不判斷
@@ -301,9 +307,7 @@ def calendar_adjustments(entries: list[dict], tz: str = "Asia/Taipei") -> list[d
 def load(es, index: str, cfg: dict) -> list[dict]:
     """設定檔（adjustments_file、series.yaml 的 overrides）＋ Store 的 aiops-tuning（index 固定是它，參數留給既有呼叫），全部 kind。
     同 id 後面蓋前面。"""
-    import os
 
-    from core.config import load_config
     out = list(cfg.get("overrides") or [])
     tz = cfg.get("train", {}).get("timezone", "Asia/Taipei")
     path = cfg.get("adjustments_file", "configs/baseline/adjustments.yaml")
@@ -311,10 +315,8 @@ def load(es, index: str, cfg: dict) -> list[dict]:
         out += [localize(a, tz) for a in load_config(path, "adjustments").get("adjustments") or []]
     cal = cfg.get("calendar_file", "configs/baseline/calendar.yaml")
     if cal and os.path.exists(cal):
-        from .sources import load_calendar
         entries, tz = load_calendar(load_config(cal, "calendar"))
         out += calendar_adjustments(entries, tz or cfg.get("train", {}).get("timezone", "Asia/Taipei"))
-    from sources.base import as_backend
     out += as_backend(es).adjustments()   # ES 讀不到時 Store 印一行、回 []：這一輪只用設定檔的
     by_id = {}
     for a in out:
@@ -383,7 +385,6 @@ def describe(a: dict) -> str:
 
 def load_adjustments(es, cfg: dict) -> list[dict]:
     """全部調整（四種 kind）：設定檔（overrides、adjustments_file）＋ aiops-tuning（tune、adjust 指令、learning loop 提的）。"""
-    from core.tuning import TUNING_INDEX
     return load(es, TUNING_INDEX, cfg)
 
 

@@ -185,7 +185,7 @@ series:
 | `method` | `mad`（中位數＋MAD）／`poisson` |
 | `level` | dow_hour / hour / all / group |
 | `baseline_source` | `self` 或 `group:<組名>` |
-| `dept`、`group` | 這筆異常屬於哪個部門、哪個 group（告警依它分送、人只看自己部門的）。寫入時依 keys 裡的 namespace（優先）或服務，對回資料裡的 `resource.attributes.dept`、`.group`；對不到的 `dept` 空、`group` 是 `unassigned`（跟 Collector 對沒有 dept 的處理一樣）。程式 `detector/owner.py` |
+| `dept`、`group` | 這筆異常屬於哪個部門、哪個 group（告警依它分送、人只看自己部門的）。寫入時依 keys 裡的 namespace（優先）或服務，對回資料裡的 `resource.attributes.dept`、`.group`；對不到的 `dept` 空、`group` 是 `unassigned`（跟 Collector 對沒有 dept 的處理一樣）。程式 `core/owner.py`（查歸屬）、`sources/base.py` 的 `Backend.write_anomalies`（寫入時補） |
 | `confidence` | dow_hour → high；hour → medium；all、借來的 → low |
 | `engine_version` | 哪一版 engine 寫的：chart 把 image tag 放進環境變數 `ENGINE_VERSION`（`core/version.py`），本機跑是 `dev`。規則、peer、quality、trace 的異常也有（都從 `detector/owner.py` 寫） |
 
@@ -390,6 +390,6 @@ series:
 | `aiops-baseline` | `series`、`keys`（例如 `keys.service.name`）、`dow`（0 = 週一）、`hour`、`level`、`median`、`mad`、`p05`、`p95`、`n`、`trained_at` |
 | `aiops-anomalies` | `@timestamp`、`series`、`keys`、`value`、`median`、`expected_low`／`expected_high`（正常範圍）、`z`（偏離幾倍）、`level`、`direction`、`dept`、`group`、`alert_id`（併進哪一件；`investigator alert` 併件時寫回，Grafana 的「這件事故的異常」依它撈） |
 
-異常文件全部欄位的定義（誰寫、什麼意思）只有一處：程式 `detector/base.py` 的 `Anomaly`；上面的 [異常帶的欄位](#異常帶的欄位) 是 baseline 多記的那幾個。
+異常文件全部欄位的定義（誰寫、什麼意思）只有一處：程式 `core/anomaly.py` 的 `Anomaly`；上面的 [異常帶的欄位](#異常帶的欄位) 是 baseline 多記的那幾個。
 
 在 Kibana 建一個 `aiops-anomalies` 的 data view，就能依 `series`、`keys` 看哪個服務、哪個時間點異常。

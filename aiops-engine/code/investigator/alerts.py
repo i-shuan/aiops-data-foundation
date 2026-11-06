@@ -26,6 +26,7 @@ from collections import Counter
 from datetime import datetime, timedelta
 
 from core import plugin
+from core.incident import classify, describe_class
 
 # 異常的 keys 裡哪個欄位是「對象」（一件的主體：服務／機台）由 plugin 決定（core/plugin.py 的 entity_keys）；namespace、節點是共通的 fallback
 NS_KEYS = ("resource.attributes.k8s.namespace.name", "k8s.namespace.name", "namespace", "kubernetes.namespace")
@@ -351,6 +352,5 @@ def summary(al: dict, report: str | None, tz, similar: list[dict] | None = None)
         lines.append(f"可能同源：{'、'.join(al['related_alerts'][:3])} 也卡在 {'、'.join(al['shared_dependency'][:3])}")
     if similar:
         # case 只做分類：通知裡只說像哪一類、為什麼像，不給當時的處置（docs/pdca/meta/2026-11-case-classify.md）
-        from .similar import classify, describe_class
         lines.append(f"分類：{describe_class(classify(similar))}；最像 {(similar[0].get('start') or '')[:10]}（{'；'.join(similar[0]['why'][:2])}）")
     return "\n".join(lines)

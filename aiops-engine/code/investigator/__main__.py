@@ -28,10 +28,13 @@ import typer
 
 from core import traces as T
 from core.config import load_config
+from sources.base import as_backend
 
 from . import analyze as A
 from . import cmd_alert
 from . import es as E
+from . import similar as SIM
+from feedback import importer as IMP
 from .report import _dur, _local, _ms, _ts, investigate_full  # noqa: F401  舊的 import 路徑還有人用
 
 app = typer.Typer(add_completion=False, rich_markup_mode=None, pretty_exceptions_enable=False)
@@ -47,7 +50,7 @@ def topology(cfg: dict, args) -> str:
     end = _ts(args.at)
     start = end - _dur(args.window)
     ids = E.recent_trace_ids(es, cfg["indices"]["traces"], start, end, args.sample)
-    tr = T.group_traces(T.spans_of(es, cfg["indices"]["traces"], ids, start - timedelta(minutes=5), end + timedelta(minutes=5)))
+    tr = T.group_traces(as_backend(es).spans(cfg["indices"]["traces"], ids, start - timedelta(minutes=5), end + timedelta(minutes=5)))
     edges = A.topology(tr)
     tz = cfg.get("timezone", "Asia/Taipei")
     out = [f"# 服務之間的呼叫關係：{_local(start, tz)}～{_local(end, tz)}（{tz}，最近 {len(tr)} 個請求）", "",
@@ -58,7 +61,6 @@ def topology(cfg: dict, args) -> str:
 
 
 def similar_eval(cfg: dict, args) -> int:
-    from . import similar as SIM
     es = E.ES()
     weights = (cfg.get("alerts") or {}).get("similar_weights")
     r = SIM.evaluate(es, weights=weights)
@@ -81,7 +83,6 @@ def similar_eval(cfg: dict, args) -> int:
 
 
 def import_incidents(cfg: dict, args) -> int:
-    from feedback import importer as IMP
     db = cfg.get("incidents_db") or {}
     url, sql = args.db or db.get("url"), args.sql or db.get("sql")
     tz = args.tz or cfg.get("timezone") or IMP.DEFAULT_TZ

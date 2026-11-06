@@ -6,11 +6,14 @@ index 的對應：設定裡的 key 是 series.yaml 寫的 index（可以含 *）
 from __future__ import annotations
 
 import fnmatch
+import json
 import os
 from abc import abstractmethod
 
 import pandas as pd
+import requests
 
+from core.incident import INCIDENT_INDEX
 from . import shape
 from .base import Backend, Store
 from .stores import MemoryStore
@@ -80,7 +83,7 @@ class MemoryBackend(RowsBackend):
         super().__init__(store, fmt, spans)
         self.frames = dict(frames)
         if incidents:
-            self.store.bulk_index("aiops-incidents", incidents)
+            self.store.bulk_index(INCIDENT_INDEX, incidents)
 
     def rows(self, index, start, end):
         parts = pick(self.frames, index, "memory 來源")
@@ -96,11 +99,9 @@ def load_file(path: str) -> pd.DataFrame:
     if ext == ".parquet":
         return pd.read_parquet(path)
     if ext in (".ndjson", ".jsonl"):
-        import json
         with open(path, encoding="utf-8") as f:
             return shape.rows_from_records([json.loads(l) for l in f if l.strip()])
     if ext == ".json":
-        import json
         with open(path, encoding="utf-8") as f:
             return shape.rows_from_records(json.load(f))
     raise ValueError(f"不認得的檔案格式 {path}（支援 .csv、.parquet、.ndjson、.jsonl、.json）")
@@ -153,7 +154,6 @@ class HttpBackend(RowsBackend):
         self._fetch = fetch or self._http
 
     def _http(self, url: str):
-        import requests
         r = requests.get(url, headers=self.headers, timeout=self.timeout)
         r.raise_for_status()
         return r.json()

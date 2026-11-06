@@ -38,7 +38,8 @@ import yaml
 from detector.__main__ import main as cli
 from detector.cmd_baseline import detect_series
 from detector.common import keys_of
-from detector.es import ANOMALY_INDEX, BASELINE_INDEX, ES, load_baseline
+from core.anomaly import ANOMALY_INDEX
+from detector.es import BASELINE_INDEX, ES, load_baseline
 from detector.model import DetectOptions
 from core.tuning import TUNING_INDEX
 from detector.adjust import data_adjustments, load_overrides

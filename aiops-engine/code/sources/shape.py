@@ -1,6 +1,6 @@
 """萬用資料處理器：原始列（DataFrame，一列一個事件或一個預先統計好的點）＋序列定義 → 五個模型的標準輸入。
 
-跟 ES 端的 aggregation（detector/es.py 的 _value_aggs、_bucket_value、_bucket_events）是同一套定義的 pandas 實作，
+跟 ES 端的 aggregation（sources/es_source.py 的 _value_aggs、_bucket_value、_bucket_events）是同一套定義的 pandas 實作，
 同一批資料兩邊算出來要一樣（docs/pdca/meta/2026-11-model-modules.md 的 Check）。
 
 原始列的欄位名用 ES 的點號路徑（service.name、event.outcome、transaction.duration.histogram）。
@@ -168,7 +168,7 @@ def _weighted_percentile(values: np.ndarray, counts: np.ndarray, pct: float) -> 
 # ── events → series ──
 
 def _agg(g: pd.DataFrame, value, scale: float, name: str, hist) -> tuple[float | None, float | None]:
-    """一個 (對象, 時間窗) 的列 → (value, n)。語意同 detector/es._bucket_value、_bucket_events。"""
+    """一個 (對象, 時間窗) 的列 → (value, n)。語意同 es_source._bucket_value、_bucket_events。"""
     doc_count = float(len(g))
     if value == "count":
         return doc_count, doc_count

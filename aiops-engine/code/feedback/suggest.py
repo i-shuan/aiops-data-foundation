@@ -13,13 +13,18 @@ Check：事故紀錄、值班回饋、誤報統計（docs/feedback/README.md、d
 """
 from __future__ import annotations
 
+import calendar
 import json
 import re
+from collections import Counter
 
 import pandas as pd
 
-FEEDBACK_INDEX = "aiops-feedback"
+from core.es import doc_id
 from core.incident import Fingerprint
+from core.tuning import TUNING_INDEX, TUNING_MAPPING
+
+FEEDBACK_INDEX = "aiops-feedback"
 VERDICTS = ("true_positive", "false_positive", "wrong_root_cause", "missed")
 
 FEEDBACK_MAPPING = {"mappings": {"dynamic": False, "properties": {
@@ -128,8 +133,6 @@ def _slot(fps: list[dict], tz: str, min_share: float, min_n: int = 3):
     """誤報是不是集中在同一個時段：先看「每月最後一天的同一個小時」，再看「同一個星期幾的同一個小時」。
     回傳 (schedule, 說明) 或 None。schedule 是 recurring_override 的格式（cron 當地時間、duration、days_of_month）。
     min_n：至少幾筆才看得出時段（老師傅已經說是批次時可以 1 筆）。"""
-    import calendar
-    from collections import Counter
     local = [pd.Timestamp(f["at"]).tz_convert(tz) for f in fps if f.get("at")]
     if len(local) < max(1, min_n):
         return None
@@ -162,7 +165,6 @@ def fp_features(fps: list[dict], *, current_z: float = 5.0, factor: float = 1.4,
       low_volume    量太少：每筆符合的事件數（值 × 事件數）都 ≤ 5
       after_deploy  每一筆都在換版後 deploy_grace_min 分鐘內
       max_dev、max_hits  偏差最大值、符合的事件數最大值（給 min_abs、min_count 用）"""
-    from collections import Counter
     reason = Counter(r for r in (reasons or []) if r and r != "other").most_common(1)
     reason = reason[0][0] if reason else None
     slot = _slot(fps, tz, min_share, min_n=1 if reason in REASON_SLOT else 3)
@@ -263,7 +265,6 @@ def suggest_rules(incidents: list[dict], min_recurring: int = 3, anomalies_of: d
     門檻從那幾件事故的延遲峰值算（rule_threshold）；規則的查法直接用那條 baseline 序列的定義（同 index、欄位、切法），只多「只看這個服務」。
     人 adjust approve 之後 detector rules 自動載入（cmd_rules），不用改 rules.yaml。算不出門檻的草稿 threshold 是 None，不能核准。
     anomalies_of：{事故 id: [{series, value, keys}]}（事故 anomaly_ids 對到的異常）；series_specs：series.yaml 的 series。"""
-    from collections import Counter
     by: dict[tuple, list[dict]] = {}
     for inc in incidents:
         for svc in inc.get("services") or []:
@@ -382,8 +383,6 @@ def format_summary(s: dict, days: int) -> list[str]:
 def propose_from_text(es, fields: dict, alert: dict, text: str, by: str | None, now, current_z: float = 5.0) -> str | None:
     """回饋文字抽出來的四欄對得到調整種類就寫一筆 aiops-tuning（feedback.suggest_from_text；proposed、source feedback、reason 帶原文），
     回傳 id；suggested_action 是 none 回 None。同一個人對同一件、同一種 kind 再送會覆蓋，不重複。不自動生效（adjust approve 才會）。"""
-    from core.es import doc_id
-    from core.tuning import TUNING_INDEX, TUNING_MAPPING
     sug = suggest_from_text(fields, alert, text, current_z)
     if not sug:
         return None

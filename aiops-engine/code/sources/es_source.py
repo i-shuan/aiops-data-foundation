@@ -8,11 +8,106 @@ from collections import defaultdict
 import pandas as pd
 
 from core.es import get_field, time_range
+from core.traces import _APM_FIELDS, _SPAN_FIELDS, from_merged, schema_of, to_span
 from .base import Backend, Store
 from .shape import fill_zero
 from .stores import ESStore
 
 _SEARCH = "_search?ignore_unavailable=true&allow_no_indices=true"
+
+
+# ── 序列的 value 寫法 → ES aggregation；回來的 bucket → 值、事件數（sources/shape.py 的 pandas 版跟它是同一套定義）──
+
+def _value_aggs(value, scale: float = 1.0) -> dict:
+    """value 的寫法：
+      count                                 每段時間的筆數
+      {sum|avg|max|min: <欄位>}              該欄位的總和、平均…
+      {percentile: {field: <欄位>, percent: 95}}
+      {ratio: <query>}                      符合 query 的筆數 ÷ 總筆數（例如錯誤率）
+      {div: {num: <欄位>|{field, query}, den: <欄位>}}
+                                            兩個欄位的總和相除（例如 APM 預先統計的往外呼叫：耗時總和 ÷ 次數＝平均耗時；
+                                            num 加 query 就是「符合的次數 ÷ 全部次數」）；事件數是 den 的總和
+    直方圖欄位（例如應用的 http.server.request.duration）：
+      {hist_count: <欄位>}                   直方圖裡的次數總和（例如請求數）
+      {hist_ratio: {field: <欄位>, query: <query>}}
+                                            符合 query 的次數 ÷ 總次數（例如狀態碼 5xx 的比例）
+      {hist_ratio_above: {field: <欄位>, gt: <值>}}
+                                            直方圖裡超過 gt 的次數比例（例如超過 2 秒的請求比例）：ES 的 percentile_ranks
+                                            給「≤ gt 的百分比」，1 − 它就是；值在桶之間時 ES 會內插
+      {percentile: ...} 也可以用在直方圖欄位（例如延遲 p95）
+    scale：序列的 `scale`，資料的單位 × scale ＝ 序列的單位（APM 存微秒、序列要秒就是 1e-6）。有單位的值（percentile、
+      sum／avg／max／min、div）乘上去，門檻（hist_ratio_above 的 gt）除回去；比例、次數沒有單位，不動。
+    """
+    if value == "count":
+        return {}
+    (kind, arg), = value.items()
+    if kind in ("sum", "avg", "max", "min"):
+        return {"v": {kind: {"field": arg}}}
+    if kind == "hist_count":
+        return {"v": {"value_count": {"field": arg}}}
+    if kind == "hist_ratio":
+        n = {"value_count": {"field": arg["field"]}}
+        return {"v": n, "num": {"filter": arg["query"], "aggs": {"v": n}}}
+    if kind == "percentile":
+        return {"v": {"percentiles": {"field": arg["field"], "percents": [arg["percent"]]}},
+                "n": {"value_count": {"field": arg["field"]}}}
+    if kind == "hist_ratio_above":
+        return {"v": {"percentile_ranks": {"field": arg["field"], "values": [arg["gt"] / scale]}},
+                "n": {"value_count": {"field": arg["field"]}}}
+    if kind == "ratio":
+        return {"num": {"filter": arg}}
+    if kind == "div":
+        num = arg["num"] if isinstance(arg["num"], dict) else {"field": arg["num"]}
+        s = {"sum": {"field": num["field"]}}
+        return {"den": {"sum": {"field": arg["den"]}},
+                "num": {"filter": num["query"], "aggs": {"v": s}} if num.get("query") else s}
+    raise ValueError(f"不認得的 value：{value}")
+
+
+def _bucket_value(value, b: dict, scale: float = 1.0):
+    if value == "count":
+        return float(b["doc_count"])
+    (kind, _), = value.items()
+    if kind == "ratio":
+        return b["num"]["doc_count"] / b["doc_count"] if b["doc_count"] else None
+    if kind == "hist_count":     # 次數，沒有單位
+        return b["v"]["value"]
+    if kind == "hist_ratio":
+        total = b["v"]["value"]
+        return b["num"]["v"]["value"] / total if total else None
+    if kind == "percentile":
+        vals = b["v"]["values"]
+        v = next(iter(vals.values()))
+        return None if v is None else v * scale
+    if kind == "hist_ratio_above":
+        if not b["n"]["value"]:
+            return None
+        rank = next(iter(b["v"]["values"].values()))      # ≤ gt 的百分比（0～100）
+        return None if rank is None else max(0.0, 1.0 - rank / 100.0)
+    if kind == "div":
+        den = b["den"]["value"]
+        if not den:
+            return None
+        num = b["num"]["v"]["value"] if "v" in b["num"] else b["num"]["value"]
+        return (num or 0) / den * scale
+    v = b["v"]["value"]
+    return None if v is None else v * scale
+
+
+def _bucket_events(value, b: dict):
+    """這個時間窗裡底下的事件數：選粒度用（detector.model.pick_resolution）。量測值是 None。"""
+    if value == "count":
+        return float(b["doc_count"])
+    (kind, _), = value.items()
+    if kind in ("hist_count", "hist_ratio"):
+        return b["v"]["value"]
+    if kind == "ratio":
+        return float(b["doc_count"])
+    if kind in ("percentile", "hist_ratio_above"):
+        return b["n"]["value"]
+    if kind == "div":
+        return b["den"]["value"]
+    return None
 
 
 def _put(d: dict, dotted: str, v) -> None:
@@ -41,7 +136,6 @@ class ESSourceBackend(Backend):
         回傳欄位：by 的每個欄位（有 keys 時改成 keys 的名字）+ ts + value + n（底下的事件數，見 detector.es._bucket_events；events: value 時就是 value）。
         筆數類（count、或 fill_zero: true）沒有資料的時段補 0：沒有請求就是 0，不是「不知道」。這也是為什麼資料不能缺，缺了會被學成「平常會掉到 0」。
         同一個指標不同語言名字不同的問題在收值端改名解決（docs/pdca/phase1-collect/2026-10-field-unify.md），這裡不分語言各查一次。"""
-        from detector.es import _bucket_events, _bucket_value, _value_aggs   # detector.es import sources，所以在這裡才 import
         by = spec["by"]
         tf = spec.get("time_field", "@timestamp")
         filters = [{"range": {tf: {"gte": start.isoformat(), "lt": end.isoformat()}}}]
@@ -140,7 +234,6 @@ class ESSourceBackend(Backend):
     def spans(self, index, trace_ids, start, end):
         """把這些 trace 的所有 span 讀回來（含其他服務的）。呼叫端把時間放寬，跨過邊界的請求也讀得完整。
         三種 index（core.traces.schema_of）回同一種 span 格式。"""
-        from core.traces import _APM_FIELDS, _SPAN_FIELDS, from_merged, schema_of, to_span
         out = []
         schema = schema_of(index)
         for i in range(0, len(trace_ids), 500):
@@ -172,7 +265,6 @@ class ESSourceBackend(Backend):
 
     def spans_by_id(self, index, span_ids, start, end):
         """用 span_id 讀回 span（例如 link 指到的、另一個 trace 裡的生產者）。"""
-        from core.traces import _APM_FIELDS, _SPAN_FIELDS, from_merged, schema_of, to_span
         out = {}
         want = set(span_ids)
         schema = schema_of(index)

@@ -10,11 +10,16 @@
 """
 from __future__ import annotations
 
+import argparse
 import os
 import sys
 from datetime import datetime, timedelta, timezone
 
 from celery import Celery
+
+from core import plugin
+from scheduler.cron import Cron
+from scheduler.runner import Job, load_schedule, run_once
 
 BROKER_ENV = "AIOPS_BROKER_URL"
 QUEUES = ("realtime", "alert", "batch")
@@ -48,8 +53,6 @@ app.conf.update(
 @app.task(name="aiops.run_job", ignore_result=True)
 def run_job(name: str, args: list[str], timeout: int = 300, retries: int = 0) -> bool:
     """跑一個排程表的工作：python3 -m <args>，逾時砍掉，失敗重試 retries 次。跟排程器自己跑完全一樣（scheduler.runner.run_once）。"""
-    from scheduler.cron import Cron
-    from scheduler.runner import Job, run_once
     job = Job(name=name, cron=Cron("* * * * *"), args=[str(a) for a in args], timeout=int(timeout), retries=int(retries))
     return run_once(job, datetime.now(timezone.utc), cwd=HERE)
 
@@ -76,8 +79,6 @@ def trigger(name: str, stage: int = 2) -> bool:
     """api 用：照這個 plugin 的排程表丟一個叫 name 的工作（例如 alert）。沒設 broker、或排程表沒這個工作回 False。"""
     if not configured():
         return False
-    from core import plugin
-    from scheduler.runner import load_schedule
     _, jobs = load_schedule(os.path.join(HERE, plugin.current().schedule), stage)
     job = next((j for j in jobs if j.name == name), None)
     if job is None:
@@ -88,7 +89,6 @@ def trigger(name: str, stage: int = 2) -> bool:
 def worker_main(argv: list[str]) -> int:
     """python3 -m tasks worker --queue realtime [--concurrency 2]：起一個只吃那個佇列的 worker。
     pool 用 threads：工作是等子行程，不吃 Python 的 CPU；Windows 也能跑。"""
-    import argparse
     p = argparse.ArgumentParser(prog="tasks worker")
     p.add_argument("--queue", "-Q", default=DEFAULT_QUEUE, choices=QUEUES)
     p.add_argument("--concurrency", "-c", type=int, default=1)

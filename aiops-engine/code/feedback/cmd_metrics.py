@@ -8,11 +8,11 @@ from __future__ import annotations
 
 import pandas as pd
 
+from core.alert import ALERT_INDEX
 from core.incident import INCIDENT_INDEX
 from detector.es import ES
 from . import suggest as F
 
-ALERT_INDEX = "aiops-alerts"
 
 
 def _all(es, index: str, body: dict) -> list[dict]:

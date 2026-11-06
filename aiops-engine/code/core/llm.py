@@ -19,6 +19,9 @@ import re
 
 import requests
 
+from . import domain as D
+from .incident import classify
+
 CITE = re.compile(r"\[([A-Z]\d+)\]")
 PROMPT = """你是工廠 IT 維運的值班助理。根據下面的輸入包，用繁體中文寫 3～5 句話：最可能的原因（只能從 segments、error_origins、new_patterns 推）、影響（哪些服務、API、多久）、建議先查哪一段。
 過去的 case（similar、classification）只用來說「這件像哪一類」，不要照抄它們的處置當建議；程式可能已經換版，舊的處置不一定對。
@@ -74,7 +77,6 @@ def build_pack(alert: dict, findings: dict | None, similar: list[dict]) -> dict:
         pack["similar"].append({"id": k, "when": (s.get("start") or "")[:16], "root_cause_category": s.get("root_cause_category"),
                                 "why_similar": s.get("why")})
     if similar:
-        from investigator.similar import classify
         cls = classify(similar)
         pack["classification"] = {"category": cls["category"], "confidence": cls["confidence"], "votes": cls["votes"]} if cls else None
     # trace 還沒就緒：根因分析查過、但這個服務這段時間沒有任何 trace（trace 合成晚 1～2 分鐘）。沒查過（findings 是 None）不算
@@ -108,11 +110,9 @@ def template(pack: dict) -> str:
     seg, err, sim, pats, anoms = pack["segments"], pack["error_origins"], pack["similar"], pack["new_patterns"], pack["anomalies"]
     slow = seg[0] if seg and (seg[0]["extra_ms"] or 0) > 0 else None      # 第一段沒變慢（可能還變快）就不算「慢在哪」
     if slow:
-        from core import domain as D
         out.append(f"{a['service']} 變慢，主要多在 {slow['segment']}：每個{D.unit_text()}多花約 {slow['extra_ms']} 毫秒（平常 {slow['usual_ms']} 毫秒）[{slow['id']}]。")
     if err:
         e = err[0]
-        from core import domain as D
         out.append(f"錯誤最早出在 {e['segment']}（{e['requests_with_error']} 個{D.unit_text().rstrip()}，平常 {e['usual']}）[{e['id']}]。")
     if anoms and not (slow or err):
         x = anoms[0]

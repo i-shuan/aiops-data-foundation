@@ -40,6 +40,9 @@ INCIDENT_MAPPING = {"mappings": {"dynamic": False, "properties": {
                                    "patterns": {"type": "text"}}}}}}
 # 有寫進 _source、但沒進 mapping 的欄位（dynamic false：存得下、查不到）。要查就得加進 mapping 並重建索引，這一輪不動。
 UNMAPPED_FIELDS = ("upstream_services", "merged_into")
+# 相似事故檢索的比對權重（先估的）：同一段變慢、同一個錯誤源頭最有鑑別力；同服務其次；指標組合、log 樣式較弱。
+# 鍵就是 Fingerprint 的六個欄位；rca.yaml 的 similar_weights 或 learn_weights 學出來的可以蓋掉（investigator/similar.py）
+DEFAULT_WEIGHTS = {"slow_segments": 4.0, "error_origins": 4.0, "services": 3.0, "routes": 2.0, "patterns": 2.0, "series": 1.0}
 
 
 def seg_name(segment: str | None) -> str:
@@ -120,6 +123,24 @@ class Fingerprint(Doc):
                    slow_segments=[seg_name(s) for s in _as_list(slow_segments)][:cls.MAX_SEGMENTS],
                    error_origins=[seg_name(s) for s in _as_list(error_origins)][:cls.MAX_SEGMENTS],
                    patterns=[p[:cls.PATTERN_LEN] for p in _as_list(patterns)][:cls.MAX_PATTERNS])
+
+    def es_query(self, exclude_id: str | None = None, size: int = 200, statuses: tuple[str, ...] = ("confirmed", "corrected"),
+                 weights: dict | None = None) -> dict:
+        """ES 的候選查詢（sources/stores.py ESStore.similar_incidents 用）：status 過濾＋六組各一個 should（boost 只影響 ES 端排前 size 件；
+        分數還是 investigator.similar.explain 自己算）。"""
+        should = []
+        for field, w in (weights or DEFAULT_WEIGHTS).items():
+            vals = self.get(field)
+            if not vals:
+                continue
+            if field == "patterns":
+                should += [{"match": {"fingerprint.patterns": {"query": v, "boost": w}}} for v in vals]
+            else:
+                should.append({"terms": {f"fingerprint.{field}": vals, "boost": w}})
+        q = {"bool": {"filter": [{"terms": {"status": list(statuses)}}], "should": should, "minimum_should_match": 1}}
+        if exclude_id:
+            q["bool"]["must_not"] = [{"ids": {"values": [exclude_id]}}]
+        return {"size": size, "query": q}
 
     @classmethod
     def from_alert(cls, alert: dict, findings: dict | None) -> "Fingerprint":
@@ -219,3 +240,29 @@ class Incident(Doc):
                       "upstream_services": list(al.get("upstream_services") or []), "status": "auto",
                       "dept": doc.get("dept"), "group": doc.get("group"), "anomaly_ids": al["anomaly_ids"][:cls.MAX_ANOMALY_IDS],
                       "detected_at": doc["started_at"], "fingerprint": Fingerprint.from_alert(al, findings), **override})
+
+
+# ── 相似事故 → 像哪一類（case 只用來分類，不給處置：docs/pdca/meta/2026-11-case-classify.md）──
+
+def classify(ranked: list[dict]) -> dict | None:
+    """rank／search 的結果 → {"category", "confidence", "votes", "n", "based_on"}；沒有像的 case 就 None（不猜）。
+    每件以分數投給它的 root_cause_category；信心 = 贏的那類分數 ÷ 全部分數。沒有分類的 case 不投票。"""
+    votes: dict[str, float] = {}
+    for it in ranked:
+        cat = it.get("root_cause_category")
+        if cat:
+            votes[cat] = votes.get(cat, 0.0) + float(it.get("score") or 0)
+    if not votes:
+        return None
+    total = sum(votes.values())
+    cat = max(votes, key=lambda c: (votes[c], c))
+    return {"category": cat, "confidence": round(votes[cat] / total, 2) if total else 0.0,
+            "votes": {c: round(v, 1) for c, v in sorted(votes.items(), key=lambda x: -x[1])}, "n": len(ranked),
+            "based_on": [it.get("incident_id") for it in ranked]}
+
+
+def describe_class(cls: dict | None) -> str:
+    """一句話：「像 db 類（3 件相似的 case 裡 db 佔 67%）」；沒有就「沒有相似的過去 case，不分類」。"""
+    if not cls:
+        return "沒有相似的過去 case，不分類"
+    return f"像 {cls['category']} 類（{cls['n']} 件相似的 case 裡 {cls['category']} 佔 {cls['confidence']:.0%}）"

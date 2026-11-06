@@ -15,7 +15,7 @@
 """
 from __future__ import annotations
 
-from .base import Backend, Store, as_backend
+from .base import Backend, Store, as_backend, write_anomalies
 from .es_source import ESBackend, ESSourceBackend
 from .rows import FileBackend, HttpBackend, MemoryBackend, RowsBackend, load_file
 from .shape import ShapeError, points_from_rows, series_from_rows

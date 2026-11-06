@@ -12,7 +12,7 @@ import pandas as pd
 from detector import base as B
 from detector.base import Anomaly, Detector
 from detector.common import RULE_FIELDS
-from detector.es import ANOMALY_INDEX, ANOMALY_MAPPING
+from core.anomaly import ANOMALY_INDEX, ANOMALY_MAPPING
 
 SLOT = pd.Timestamp("2026-11-05T10:03:00Z")
 DET = "2026-11-05T10:03:07+00:00"

@@ -11,10 +11,8 @@
 """
 from __future__ import annotations
 
-from core.incident import INCIDENT_INDEX, Fingerprint, Incident, seg_name  # noqa: F401  INCIDENT_INDEX 讓舊的 import 還能用
-
-# 比對權重（先估的）：同一段變慢、同一個錯誤源頭最有鑑別力；同服務其次；指標組合、log 樣式較弱
-WEIGHTS = {"slow_segments": 4.0, "error_origins": 4.0, "services": 3.0, "routes": 2.0, "patterns": 2.0, "series": 1.0}
+from core.incident import DEFAULT_WEIGHTS as WEIGHTS, Fingerprint, Incident, classify, describe_class, seg_name  # noqa: F401
+from sources.base import as_backend
 MIN_SCORE = 4.0        # 低於這個分數不算像：至少一個強特徵、或兩三個弱特徵
 TOP_K = 3
 # 跟 ES 要幾件候選再自己重算分數：ES 的 _score（boost）跟 explain 的算法不一樣（series 這裡是 min(交集,3) 倍、ES 只算一次），
@@ -29,24 +27,6 @@ _seg_name = seg_name   # 舊名字（importer 以前從這裡 import）
 def fingerprint(alert: dict, findings: dict | None) -> Fingerprint:
     """一件事的指紋（core.incident.Fingerprint）：存進 aiops-incidents.fingerprint（to_doc），也拿來查。"""
     return Fingerprint.from_alert(alert, findings)
-
-
-def query(fp: Fingerprint | dict, exclude_id: str | None = None, size: int = CANDIDATES, statuses: tuple[str, ...] = CONFIRMED) -> dict:
-    """ES 的候選查詢（sources/stores.py ESStore.similar_incidents 用）：status 過濾＋指紋各欄位的 should（boost 只影響 ES 端排前 size 件）。"""
-    fp = Fingerprint.of(fp)
-    should = []
-    for field, w in WEIGHTS.items():
-        vals = fp.get(field)
-        if not vals:
-            continue
-        if field == "patterns":
-            should += [{"match": {"fingerprint.patterns": {"query": v, "boost": w}}} for v in vals]
-        else:
-            should.append({"terms": {f"fingerprint.{field}": vals, "boost": w}})
-    q = {"bool": {"filter": [{"terms": {"status": list(statuses)}}], "should": should, "minimum_should_match": 1}}
-    if exclude_id:
-        q["bool"]["must_not"] = [{"ids": {"values": [exclude_id]}}]
-    return {"size": size, "query": q}
 
 
 def explain(fp: Fingerprint | dict, other: dict, weights: dict | None = None) -> tuple[float, list[str]]:
@@ -98,34 +78,7 @@ def search(es, fp: Fingerprint | dict, exclude_id: str | None = None, k: int = T
     fp = Fingerprint.of(fp)
     if fp.empty:
         return []
-    from sources.base import as_backend
     return rank(fp, as_backend(es).similar_incidents(fp, CONFIRMED, exclude_id, size), k, min_score, weights)
-
-
-# ── 分類：case 只用來說「這件像哪一類」（docs/pdca/meta/2026-11-case-classify.md）──
-
-def classify(ranked: list[dict]) -> dict | None:
-    """rank／search 的結果 → {"category", "confidence", "votes", "n", "based_on"}；沒有像的 case 就 None（不猜）。
-    每件以分數投給它的 root_cause_category；信心 = 贏的那類分數 ÷ 全部分數。沒有分類的 case 不投票。"""
-    votes: dict[str, float] = {}
-    for it in ranked:
-        cat = it.get("root_cause_category")
-        if cat:
-            votes[cat] = votes.get(cat, 0.0) + float(it.get("score") or 0)
-    if not votes:
-        return None
-    total = sum(votes.values())
-    cat = max(votes, key=lambda c: (votes[c], c))
-    return {"category": cat, "confidence": round(votes[cat] / total, 2) if total else 0.0,
-            "votes": {c: round(v, 1) for c, v in sorted(votes.items(), key=lambda x: -x[1])}, "n": len(ranked),
-            "based_on": [it.get("incident_id") for it in ranked]}
-
-
-def describe_class(cls: dict | None) -> str:
-    """一句話：「像 db 類（3 件相似的 case 裡 db 佔 67%）」；沒有就「沒有相似的過去 case，不分類」。"""
-    if not cls:
-        return "沒有相似的過去 case，不分類"
-    return f"像 {cls['category']} 類（{cls['n']} 件相似的 case 裡 {cls['category']} 佔 {cls['confidence']:.0%}）"
 
 
 def format_similar(items: list[dict], tz_label: str = "", cls: dict | None = None) -> list[str]:
@@ -145,7 +98,6 @@ def format_similar(items: list[dict], tz_label: str = "", cls: dict | None = Non
 
 def _confirmed_cases(es) -> list[tuple[str, dict]]:
     """已確認、有根因分類、有指紋的事故（留一法的樣本）。"""
-    from sources.base import as_backend
     return as_backend(es).incidents(CONFIRMED, having=("root_cause_category", "fingerprint"))
 
 

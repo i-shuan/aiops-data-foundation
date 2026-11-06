@@ -4,19 +4,19 @@ from __future__ import annotations
 import pandas as pd
 
 from core.es import get_field
-from .base import Anomaly, Detector
+from core.anomaly import Anomaly
+from .base import Detector
 from .es import ES, fetch
 from . import rules as R
 from .common import _freq
+from . import adjust as A
 
 
 def approved_rules(es: ES, cfg: dict, now: pd.Timestamp | None = None) -> list[dict]:
     """老師傅核准的「升級成規則」（aiops-tuning 的 rule_suggestion，status active、expires_at 還沒到、門檻是數字）：
     跟 rules.yaml 的一起跑。now 是這一輪的時間（--at），過期用它比。"""
-    from . import adjust as A
-    from .adjust import load_adjustments
     try:
-        adjs = load_adjustments(es, cfg)
+        adjs = A.load_adjustments(es, cfg)   # 經模組取，測試才 mock 得到
     except Exception as e:
         print(f"  讀 aiops-tuning 的規則失敗（{e}），只跑 rules.yaml 的")
         return []
