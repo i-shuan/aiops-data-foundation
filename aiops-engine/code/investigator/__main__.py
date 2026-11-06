@@ -111,26 +111,26 @@ def investigate_cmd(config: str = Opt(...), service: str | None = Opt(None),
                     start: str | None = Opt(None), end: str | None = Opt(None),
                     at: str | None = Opt(None, help="不給 --start/--end 時：查到這個時間為止（預設現在）"),
                     window: str = Opt("30m"), out: str | None = Opt(None)) -> int:
-    args = Namespace(**locals())
+    args = Namespace(config=config, service=service, route=route, start=start, end=end, at=at, window=window, out=out)
     return _report(investigate(load_config(config, "rca"), args), out)
 
 
 @app.command("topology")
 def topology_cmd(config: str = Opt(...), at: str | None = Opt(None), window: str = Opt("1h"), sample: int = Opt(2000),
                  out: str | None = Opt(None)) -> int:
-    args = Namespace(**locals())
+    args = Namespace(config=config, at=at, window=window, sample=sample, out=out)
     return _report(topology(load_config(config, "rca"), args), out)
 
 
 @app.command("alert", help="異常合成一件、新的那件跑根因分析，寫 aiops-alerts（Grafana 讀它發通知）")
 def alert_cmd(config: str = Opt(...), at: str | None = Opt(None, help="回測：拿這個時間當成「現在」")) -> int:
-    return cmd_alert.run(load_config(config, "rca"), Namespace(**locals()), investigate_full)
+    return cmd_alert.run(load_config(config, "rca"), Namespace(config=config, at=at), investigate_full)
 
 
 @app.command("similar-eval", help="告警分類的評測：留一法分類準確率與 recall@3（同一個根因分類有沒有排進前 3）")
 def similar_eval_cmd(config: str = Opt(...),
                      learn_weights: bool = Opt(False, "--learn-weights", help="case ≥ 50 件時用留一法準確率學特徵權重，印出來（不自動寫入）")) -> int:
-    return similar_eval(load_config(config, "rca"), Namespace(**locals()))
+    return similar_eval(load_config(config, "rca"), Namespace(config=config, learn_weights=learn_weights))
 
 
 @app.command("import-incidents", help="歷史事故單匯入 aiops-incidents（status confirmed、source import），告警分類馬上用得到")
@@ -141,7 +141,7 @@ def import_incidents_cmd(file: str | None = typer.Argument(None, help="CSV 或 J
                          config: str | None = Opt(None, help="選填：拿 timezone 當沒寫時區的時間的時區；incidents_db: {url, sql} 可以放這裡代替 --db、--sql"),
                          tz: str | None = Opt(None, help="沒寫時區的時間當哪裡的時間（預設 Asia/Taipei，或 --config 的 timezone）"),
                          dry_run: bool = Opt(False, "--dry-run", help="只解析、印出哪幾筆會略過，不寫 ES")) -> int:
-    args = Namespace(**locals())
+    args = Namespace(file=file, db=db, sql=sql, config=config, tz=tz, dry_run=dry_run)
     return import_incidents(load_config(config, "rca") if config else {}, args)
 
 

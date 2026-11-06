@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 
 from pydantic import ValidationError
 
+from core.alert import Alert
 from core.incident import INCIDENT_MAPPING, UNMAPPED_FIELDS, Fingerprint, Incident
 from feedback import importer as IMP
 from investigator import similar as SIM
@@ -94,8 +95,8 @@ class IncidentGolden(unittest.TestCase):
         self.assertEqual(IMP.normalize({**ROW, "end": "2026-01-01"}, 1, now=NOW),
                          (None, "end（2026-01-01T00:00:00+08:00）早於 start（2026-03-12T02:10:00+08:00）"))
 
-    AL = {"alert_id": "a-1", "service": "wip-worker", "upstream_services": ["mes-api"], "severity": "critical",
-          "anomaly_ids": ["x1", "x2"], "routes": [], "series": [], "merged_into": "a-9"}
+    AL = Alert(alert_id="a-1", category="service", service="wip-worker", status="open", started_at=NOW, updated_at=NOW,
+               upstream_services=["mes-api"], severity="critical", anomaly_ids=["x1", "x2"], routes=[], series=[], merged_into="a-9")
     DOC = {"@timestamp": "t", "started_at": "s", "updated_at": "u", "title": "x", "dept": None, "group": "g"}
 
     def test_auto_incident(self):
@@ -115,7 +116,7 @@ class IncidentGolden(unittest.TestCase):
         self.assertEqual(got["anomaly_ids"], ["x1", "x2"])
 
     def test_anomaly_ids_capped(self):
-        al = {**self.AL, "anomaly_ids": [str(i) for i in range(500)]}
+        al = self.AL.model_copy(update={"anomaly_ids": [str(i) for i in range(500)]})
         self.assertEqual(len(Incident.from_alert(al, self.DOC, None).anomaly_ids), Incident.MAX_ANOMALY_IDS)
 
     def test_manual_incident_drops_blank(self):

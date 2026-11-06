@@ -10,7 +10,7 @@ import pandas as pd
 from core import llm as LLM
 from core import plugin
 from core.incident import INCIDENT_INDEX, INCIDENT_MAPPING, Incident
-from core.tuning import TUNING_INDEX, TUNING_MAPPING
+from core.tuning import TUNING_INDEX, TUNING_MAPPING, validated
 from detector import adjust as A
 from core.anomaly import ANOMALY_INDEX
 from detector.es import ES, doc_id
@@ -202,7 +202,7 @@ def _propose(es, _id: str, sug: dict, now, text: str) -> None:
     """寫一筆建議（status 由 suggest_* 給，都是 proposed）並印出來。"""
     sug.update({"at": now.isoformat(), "by": "feedback"})
     es.ensure_index(TUNING_INDEX, TUNING_MAPPING)
-    es.req("PUT", f"/{TUNING_INDEX}/_doc/{_id}?refresh=true", sug)
+    es.req("PUT", f"/{TUNING_INDEX}/_doc/{_id}?refresh=true", validated(sug))
     print(f"  建議 {_id}{text}")
 
 
@@ -414,7 +414,7 @@ def incident_add(cfg: dict, args) -> int:
         es.ensure_index(TUNING_INDEX, TUNING_MAPPING)
         for sug in F.suggest_exclude({**doc, "id": _id}):
             sid = doc_id("incident-exclude", _id, sug.get("match"))
-            es.req("PUT", f"/{TUNING_INDEX}/_doc/{sid}?refresh=true", {**sug, "at": now.isoformat(), "by": args.by or "incident"})
+            es.req("PUT", f"/{TUNING_INDEX}/_doc/{sid}?refresh=true", validated({**sug, "at": now.isoformat(), "by": args.by or "incident"}))
             print(f"  建議 {sid}：{A.describe(sug)}")
         print("  status 是 proposed，用 adjust approve --id … 核准後，下次 train 才不學這段")
     return 0

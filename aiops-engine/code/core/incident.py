@@ -7,7 +7,7 @@ feedback/cmd_feedback cmd_incident；回饋網頁 upsert 的種子：api/app）�
 指紋（Fingerprint）是相似事故檢索的比對依據（investigator/similar.py）：六組 keyword 陣列。從告警＋根因分析算（from_alert）、
 從匯入的一列算（normalized）都走同一套正規化：段名去數字、慢的段與錯誤源頭最多 3 個、log 樣式截 120 字最多 5 個。
 
-跟 detector/base.py 的 Anomaly 同一個做法：模型是唯一定義處，INCIDENT_MAPPING 要跟它一致（tests/test_incident.py 會對）。
+跟 core/anomaly.py 的 Anomaly、core/alert.py 的 Alert 同一個做法（基底 core/doc.py）：模型是唯一定義處，INCIDENT_MAPPING 要跟它一致（tests/test_incident.py 會對）。
 時間欄位目前都是 ISO 字串（三條寫入路徑拿到的本來就是字串），這一輪不轉 datetime。
 """
 from __future__ import annotations
@@ -15,7 +15,9 @@ from __future__ import annotations
 import re
 from typing import Any, ClassVar, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
+from pydantic import Field, field_serializer, field_validator
+
+from .doc import Doc
 
 INCIDENT_INDEX = "aiops-incidents"
 
@@ -57,23 +59,6 @@ def _as_list(v) -> list[str]:
     if isinstance(v, (list, tuple, set)):
         return [str(x) for x in v if x is not None]
     return [str(v)]
-
-
-class Doc(BaseModel):
-    """寫進 ES 的文件共同的做法：建構時多出來的鍵就是錯（打錯欄位名立刻擋）；to_doc 不寫 None；from_doc 讀舊文件寬鬆。"""
-    model_config = ConfigDict(extra="forbid", populate_by_name=True, validate_assignment=True)
-
-    @classmethod
-    def from_doc(cls, d: dict | None):
-        """ES 的 _source → 物件。不認得的鍵忽略（舊文件、別的程式多寫的），缺的給預設值。"""
-        d = d or {}
-        names = {f.alias or n for n, f in cls.model_fields.items()} | set(cls.model_fields)
-        return cls.model_validate({k: v for k, v in d.items() if k in names})
-
-    def to_doc(self) -> dict:
-        """寫進 ES 的 dict：欄位名用 ES 的（@timestamp）；只寫建構時有給的欄位（沒碰的預設值不寫，匯入的事故不會多出 anomaly_ids: []），
-        給了但是 None 的也不寫；給了空陣列照寫。from_doc 讀進來再 to_doc 會跟原文件一樣。"""
-        return self.model_dump(by_alias=True, exclude_none=True, exclude_unset=True)
 
 
 class Fingerprint(Doc):
@@ -143,16 +128,17 @@ class Fingerprint(Doc):
         return {"size": size, "query": q}
 
     @classmethod
-    def from_alert(cls, alert: dict, findings: dict | None) -> "Fingerprint":
-        """告警（aiops-alerts 的 service、routes、series）＋根因分析的結果（segments、error_origins、new_patterns）→ 指紋。
+    def from_alert(cls, alert, findings: dict | None) -> "Fingerprint":
+        """告警（core.alert.Alert，或 aiops-alerts 文件的 dict：service、routes、series）＋根因分析的結果（segments、error_origins、new_patterns）→ 指紋。
         服務：告警的服務＋最慢三段的第一個服務；API、指標：告警的，沒有才用根因分析的；慢的段只算真的變慢的（delta_ms > 0）。"""
         f = findings or {}
-        services = [alert.get("service")] if alert.get("service") else []
+        get = alert.get if isinstance(alert, dict) else (lambda k: getattr(alert, k, None))
+        services = [get("service")] if get("service") else []
         services += [s.split(" › ")[0] for s in (d["segment"] for d in f.get("segments", [])[:cls.MAX_SEGMENTS])]
         return cls.normalized(
             services=services,
-            routes=alert.get("routes") or ([f["route"]] if f.get("route") else []),
-            series=alert.get("series") or [a["series"] for a in f.get("anomalies", []) if a.get("series")],
+            routes=get("routes") or ([f["route"]] if f.get("route") else []),
+            series=get("series") or [a["series"] for a in f.get("anomalies", []) if a.get("series")],
             slow_segments=[d["segment"] for d in f.get("segments", []) if d.get("delta_ms", 0) > 0],
             error_origins=[d["segment"] for d in f.get("error_origins", [])],
             patterns=[p["pattern"] for p in f.get("new_patterns", []) if p.get("is_new")])
@@ -230,15 +216,15 @@ class Incident(Doc):
         return v.to_doc() if v is not None else None
 
     @classmethod
-    def from_alert(cls, al: dict, doc: dict, findings: dict | None, **override) -> "Incident":
+    def from_alert(cls, al, doc: dict, findings: dict | None, **override) -> "Incident":
         """事件整合自動開的事故（status auto）：回饋表單確認後變 confirmed，才會被相似事故檢索拿來用。
-        al 是這一輪算好的一件（investigator/alerts.py）、doc 是要寫進 aiops-alerts 的那份（時間已是字串）。
+        al 是這一輪算好的一件（core.alert.Alert）、doc 是它要寫進 aiops-alerts 的那份（al.to_doc() 加上報告等，時間已是字串）。
         services 只放這件自己的服務（根因在下游；feedback 的規則建議依 services 寫 match）；連帶的上游另外記 upstream_services。
         override：併進下游時給 status="merged", merged_into=…。"""
-        return cls(**{"@timestamp": doc["@timestamp"], "alert_id": al["alert_id"], "title": doc.get("title"), "start": doc["started_at"],
-                      "end": doc.get("resolved_at") or doc["updated_at"], "services": [al["service"]], "severity": al["severity"],
-                      "upstream_services": list(al.get("upstream_services") or []), "status": "auto",
-                      "dept": doc.get("dept"), "group": doc.get("group"), "anomaly_ids": al["anomaly_ids"][:cls.MAX_ANOMALY_IDS],
+        return cls(**{"@timestamp": doc["@timestamp"], "alert_id": al.alert_id, "title": doc.get("title"), "start": doc["started_at"],
+                      "end": doc.get("resolved_at") or doc["updated_at"], "services": [al.service], "severity": al.severity,
+                      "upstream_services": list(al.upstream_services), "status": "auto",
+                      "dept": doc.get("dept"), "group": doc.get("group"), "anomaly_ids": al.anomaly_ids[:cls.MAX_ANOMALY_IDS],
                       "detected_at": doc["started_at"], "fingerprint": Fingerprint.from_alert(al, findings), **override})
 
 

@@ -7,8 +7,8 @@ from unittest import mock
 from investigator import cmd_alert as C
 from plugins.observability import chain as CH
 
-AL = {"alert_id": "a-1", "service": "mes-api", "started_at": "2026-10-25T02:00:00+00:00", "updated_at": "2026-10-25T02:12:00+00:00",
-      "routes": [], "series": ["x"], "severity": "warning", "dept": "D3120"}
+AL = C.Alert(alert_id="a-1", category="service", service="mes-api", status="open", started_at="2026-10-25T02:00:00+00:00",
+             updated_at="2026-10-25T02:12:00+00:00", routes=[], series=["x"], severity="warning", dept="D3120")
 T0 = datetime(2026, 10, 25, 2, 0, tzinfo=timezone.utc)
 
 
@@ -50,8 +50,8 @@ class IncidentKeepsDownstreamOnly(unittest.TestCase):
     """連帶的上游不進事故的 services（feedback 的規則建議依 services 寫 match，根因在下游）；另外記 upstream_services。"""
 
     def test_services_and_upstream(self):
-        al = {"alert_id": "a-1", "service": "wip-worker", "upstream_services": ["mes-api"], "severity": "critical",
-              "anomaly_ids": ["x1", "x2"], "routes": [], "series": []}
+        al = C.Alert(alert_id="a-1", category="service", service="wip-worker", status="open", started_at=T0, updated_at=T0,
+                     upstream_services=["mes-api"], severity="critical", anomaly_ids=["x1", "x2"], routes=[], series=[])
         doc = {"@timestamp": "t", "started_at": "s", "updated_at": "u", "title": "x", "dept": None, "group": "g"}
         inc = C.Incident.from_alert(al, doc, None)
         self.assertEqual((inc.services, inc.upstream_services), (["wip-worker"], ["mes-api"]))
@@ -165,9 +165,10 @@ class RerunWithoutTrace(unittest.TestCase):
     ACFG = {"rca_retry_after": "2m", "rca_retry_max": 5}
 
     def al(self, **kw):
-        base = {"report": "# 報告", "findings": {"requests": {"requests": 0}}, "report_at": (self.NOW - timedelta(minutes=3)).isoformat(),
+        base = {"alert_id": "a", "category": "service", "service": "s", "status": "open", "started_at": self.NOW, "updated_at": self.NOW,
+                "report": "# 報告", "findings": {"requests": {"requests": 0}}, "report_at": (self.NOW - timedelta(minutes=3)).isoformat(),
                 "rca_attempts": 1}
-        return {**base, **kw}
+        return C.Alert(**{**base, **kw})
 
     def test_no_trace_and_old_enough_reruns(self):
         self.assertTrue(C.needs_rerun(self.al(), self.NOW, self.ACFG))
@@ -183,16 +184,15 @@ class RerunWithoutTrace(unittest.TestCase):
         self.assertTrue(C.needs_rerun(self.al(rca_attempts=4), self.NOW, self.ACFG))
 
     def test_new_alert_or_no_report_is_not_a_rerun(self):
-        self.assertFalse(C.needs_rerun(self.al(_new=True), self.NOW, self.ACFG))      # 新的一件走原本的第一次分析
+        self.assertFalse(C.needs_rerun(self.al(new=True), self.NOW, self.ACFG))       # 新的一件走原本的第一次分析
         self.assertFalse(C.needs_rerun(self.al(report=None), self.NOW, self.ACFG))
 
     def test_failed_analysis_counts_as_no_trace(self):
         self.assertTrue(C.needs_rerun(self.al(findings=None), self.NOW, self.ACFG))   # 分析失敗（沒有 findings）也重試
 
     def test_old_alert_without_counter_counts_as_one_attempt(self):
-        a = self.al(); del a["rca_attempts"]
-        self.assertEqual(C.attempts(a), 1)
-        self.assertEqual(C.attempts({}), 0)
+        self.assertEqual(C.attempts(self.al(rca_attempts=None)), 1)
+        self.assertEqual(C.attempts(self.al(rca_attempts=None, report=None)), 0)
 
     def test_can_be_turned_off(self):
         self.assertFalse(C.needs_rerun(self.al(), self.NOW, {**self.ACFG, "rca_retry": False}))

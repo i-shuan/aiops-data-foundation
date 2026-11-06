@@ -121,16 +121,16 @@ class GradeAlert(unittest.TestCase):
                     {"key": "1.5.0", "first": {"value": (T0 - timedelta(minutes=2)).timestamp() * 1000}}]}}}
         es = FakeES()
         new = [{"_id": f"n{i}", "@timestamp": (T0 + timedelta(minutes=i)).isoformat(), "series": "http.latency_p95_s", "keys": {"service": "pay-api"}} for i in (5, 6)]
-        al = {"alert_id": "a", "category": "service", "service": "pay-api", "status": "open", "severity": "warning", "started_at": T0, "updated_at": T0 + timedelta(minutes=6),
-              "anomaly_ids": [o["_id"] for o in old] + [n["_id"] for n in new], "series": ["http.error_rate", "http.latency_p95_s"], "routes": [], "_new": False,
-              "_anoms": new}
+        al = C.Alert(alert_id="a", category="service", service="pay-api", status="open", severity="warning", started_at=T0, updated_at=T0 + timedelta(minutes=6),
+                     anomaly_ids=[o["_id"] for o in old] + [n["_id"] for n in new], series=["http.error_rate", "http.latency_p95_s"], routes=[], new=False,
+                     anoms=new)
         cfg = {"indices": {"anomalies": "aiops-anomalies"}, "alerts": {}}
         C.grade_alert(es, cfg, al, T0 + timedelta(minutes=7))
         self.assertEqual(es.ids, [o["_id"] for o in old])                       # 只補這一輪沒有的
-        self.assertEqual((al["severity"], al.get("deploy_at")), ("warning", T0 - timedelta(minutes=2)))   # 2 類 → 本該 high；異常都在換版後 8 分鐘內 → warning
-        self.assertIn("原本 high", al["severity_why"])
+        self.assertEqual((al.severity, al.deploy_at), ("warning", T0 - timedelta(minutes=2)))   # 2 類 → 本該 high；異常都在換版後 8 分鐘內 → warning
+        self.assertIn("原本 high", al.severity_why)
         # 異常繼續到換版後 20 分鐘：沒收斂 → high
-        al["_anoms"] = new + [{"_id": "n9", "@timestamp": (T0 + timedelta(minutes=18)).isoformat(), "series": "http.latency_p95_s", "keys": {"service": "pay-api"}}]
-        al["anomaly_ids"].append("n9")
+        al.anoms = new + [{"_id": "n9", "@timestamp": (T0 + timedelta(minutes=18)).isoformat(), "series": "http.latency_p95_s", "keys": {"service": "pay-api"}}]
+        al.anomaly_ids.append("n9")
         C.grade_alert(es, cfg, al, T0 + timedelta(minutes=19))
-        self.assertEqual(al["severity"], "high")
+        self.assertEqual(al.severity, "high")

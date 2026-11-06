@@ -22,7 +22,7 @@ import pandas as pd
 
 from core.es import doc_id
 from core.incident import Fingerprint
-from core.tuning import TUNING_INDEX, TUNING_MAPPING
+from core.tuning import TUNING_INDEX, TUNING_MAPPING, validated
 
 FEEDBACK_INDEX = "aiops-feedback"
 VERDICTS = ("true_positive", "false_positive", "wrong_root_cause", "missed")
@@ -390,5 +390,5 @@ def propose_from_text(es, fields: dict, alert: dict, text: str, by: str | None, 
     sug.update({"at": now.isoformat(), "by": by or "feedback"})
     _id = doc_id("feedback-text", alert.get("alert_id"), by or "", sug["kind"])
     es.ensure_index(TUNING_INDEX, TUNING_MAPPING)
-    es.req("PUT", f"/{TUNING_INDEX}/_doc/{_id}?refresh=true", sug)
+    es.req("PUT", f"/{TUNING_INDEX}/_doc/{_id}?refresh=true", validated(sug))
     return _id

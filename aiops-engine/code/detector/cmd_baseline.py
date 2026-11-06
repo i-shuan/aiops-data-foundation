@@ -14,7 +14,7 @@ from . import adjust as A
 from .model import (CONFIDENCE, RESOLUTIONS, DetectOptions, TrainOptions, effective_for, mask_thin, pick_resolution, score, group_of, mark_status, override_for, resolutions_from, score_poisson, train, train_groups)
 from .common import _freq, _now, _v, keys_of
 from sources import as_backend, open_backend, write_anomalies
-from core.tuning import TUNING_INDEX, TUNING_MAPPING
+from core.tuning import TUNING_INDEX, TUNING_MAPPING, validated
 from .adjust import data_adjustments, load_overrides
 
 
@@ -300,7 +300,7 @@ def cmd_tune(cfg: dict, args) -> int:
     doc = {"kind": "override", "series": args.series, "match": match, "resolution": args.resolution, "z": args.z, "min_abs": args.min_abs,
            "confirm_points": args.confirm_points, "instant_z": args.instant_z,
            "reason": args.reason, "by": args.by, "at": pd.Timestamp.now(tz="UTC").isoformat()}
-    es.req("PUT", f"/{TUNING_INDEX}/_doc/{_id}?refresh=true", {k: v for k, v in doc.items() if v is not None})
+    es.req("PUT", f"/{TUNING_INDEX}/_doc/{_id}?refresh=true", validated({k: v for k, v in doc.items() if v is not None}))
     print(f"已調整：{args.series} {match} → " + "，".join(f"{k}={doc[k]}" for k in ("resolution", "z", "min_abs", "confirm_points", "instant_z") if doc[k] is not None)
           + "（粒度下次 train 生效；z、min_abs、confirm_points、instant_z 下次 detect 生效）")
     return 0

@@ -20,7 +20,7 @@ from core.anomaly import ANOMALY_INDEX
 from .es import ES, doc_id
 from . import adjust as A
 from .common import _now
-from core.tuning import TUNING_INDEX, TUNING_MAPPING
+from core.tuning import TUNING_INDEX, TUNING_MAPPING, validated
 from .adjust import load_adjustments
 
 DEFAULTS = {"window": "24h", "min_points": 20, "min_share": 0.9, "max_spread": 0.3}
@@ -107,7 +107,7 @@ def cmd_shift(cfg: dict, args) -> int:
             print(f"  建議已經提過：{s['series']} {s['keys']}（{_id}）")
             continue
         doc.update({"at": now.isoformat(), "by": "shift"})
-        es.req("PUT", f"/{TUNING_INDEX}/_doc/{_id}?refresh=true", doc)
+        es.req("PUT", f"/{TUNING_INDEX}/_doc/{_id}?refresh=true", validated(doc))
         print(f"  建議 {_id}：{A.describe(doc)}")
         n += 1
     print(f"{now.tz_convert(tz):%m-%d %H:%M}：看最近 {opts['window']}，{len(found)} 條序列像一階跳變，提了 {n} 筆 reset_point（proposed，adjust approve 才生效）")

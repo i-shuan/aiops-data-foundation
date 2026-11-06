@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from core.tuning import TUNING_INDEX, TUNING_MAPPING
+from core.tuning import TUNING_INDEX, TUNING_MAPPING, validated
 from detector import adjust as A
 from detector.adjust import load_adjustments
 from detector.es import ES, doc_id
@@ -105,7 +105,7 @@ def adjust_add(cfg: dict, args) -> int:
         print(fields)
         return 2
     doc.update(fields)
-    doc = {k: v for k, v in doc.items() if v not in (None, {}, [])} | {"match": match}
+    doc = validated({k: v for k, v in doc.items() if v not in (None, {}, [])} | {"match": match})
     _id = args.id or doc_id(args.kind, args.series, match, doc.get("start"), doc.get("reset_at"), doc.get("schedule"))
     _connect().req("PUT", f"/{TUNING_INDEX}/_doc/{_id}?refresh=true", doc)
     print(f"已寫入 {_id}：{A.describe(doc)}")

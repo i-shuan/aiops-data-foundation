@@ -91,7 +91,7 @@ class Plugin(Base):
         """跨服務（一層）：這段時間 trace 裡「誰呼叫誰」，只看有件開著、或這次有異常的服務。"""
 
         acfg = cfg.get("alerts", {})
-        svcs = {al["service"] for al in open_alerts if al.get("category") == "service"}
+        svcs = {al.service for al in open_alerts if al.category == "service"}
         svcs |= {ent[1] for ent in map(AL.entity_of, anomalies) if ent[0] == "service"}
         return Chain(calls=call_edges(es, cfg, svcs, start, now, int(acfg.get("chain_sample", 100))))
 
