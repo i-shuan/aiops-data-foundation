@@ -18,6 +18,7 @@
 - [4. 核心處理模組職責 (Core Components ①～⑨)](#4-核心處理模組職責-core-components-①⑨)
   - [4.1 平台層與 AIOps 層的分界](#41-平台層與-aiops-層的分界)
   - [4.2 主程式與 plugin](#42-主程式與-plugin)
+  - [4.3 部署角色：api／beat／worker（Superset 式）](#43-部署角色apibeatworkersuperset-式)
 - [5. 資料關聯與根因定位機制 (Correlation & RCA)](#5-資料關聯與根因定位機制-correlation--rca)
 - [6. 各 phase 一句話](#6-各-phase-一句話)
 - [7. 各模組：程式、驗證、狀態](#7-各模組程式驗證狀態)
