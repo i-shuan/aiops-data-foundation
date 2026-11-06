@@ -1,7 +1,7 @@
-"""異常總表的歸屬：dept、group（告警要依部門分送，docs/pdca/phase2-anomaly/2026-10-anomaly-owner.md）。
+"""⑤ 異常總表的歸屬：dept、group（告警要依部門分送，docs/pdca/phase2-anomaly/2026-10-anomaly-owner.md）。
 
 資料本身早就有（Collector 讀 namespace 的 dept label、算出 group，metrics／trace 在 resource.attributes.dept、.group；
-APM 是 agent 設的 labels.dept、labels.group）；異常算出來寫回 aiops-anomalies 時沒帶，這裡補上：
+APM 是 agent 設的 labels.dept、labels.group）；異常算出來寫回 aiops-anomalies 時沒帶，sources 的 ESStore.write_anomalies 用這裡的函式補上：
   1. 每次執行去 metrics 查一次「namespace → dept、group」「服務 → dept、group」（最近 OWNER_DAYS 天）；
      查哪個索引、哪幾個欄位依資料來源（core/source.py 的 owner）
   2. 每筆異常依 keys 裡的 namespace（優先，dept 是 namespace 的 label）或服務對回去
@@ -9,8 +9,7 @@ APM 是 agent 設的 labels.dept、labels.group）；異常算出來寫回 aiops
 """
 from __future__ import annotations
 
-from core import plugin, source
-from core.version import ENGINE_VERSION
+from . import plugin, source
 
 OWNER_DAYS = 2
 UNASSIGNED = "unassigned"
@@ -53,15 +52,3 @@ def owner_of(keys: dict, owners: dict) -> tuple[str | None, str]:
                 if group or dept:
                     return dept, group or UNASSIGNED
     return None, UNASSIGNED
-
-
-def write_anomalies(es, docs: list) -> None:
-    """寫進異常總表，每筆帶上 dept、group、engine_version。docs：(_id, 文件)。
-    baseline、規則、peer、quality、trace 都從這裡寫，所以「每筆異常都要有」的欄位只補在這一處：engine_version 在這裡補，
-    dept、group 由 Store 補（ES 查 load_owners／owner_of；檔案、記憶體來源沒有歸屬可查，全部 unassigned）。"""
-    if not docs:
-        return
-    from sources.base import as_backend
-    for _, d in docs:
-        d["engine_version"] = ENGINE_VERSION
-    as_backend(es).write_anomalies(docs)

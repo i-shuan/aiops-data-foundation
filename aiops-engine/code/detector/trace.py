@@ -21,7 +21,8 @@ from dataclasses import dataclass
 import pandas as pd
 
 from core.es import ES, doc_id, time_range
-from core.traces import group_traces, is_merged, segment, self_times, spans_by_id, spans_of
+from core.traces import group_traces, is_merged, segment, self_times
+from sources.base import as_backend
 
 SEGMENT_INDEX = "aiops-trace-segments"
 SEGMENT_MAPPING = {"mappings": {"dynamic": False, "properties": {
@@ -288,10 +289,10 @@ def collect(es: ES, cfg: dict, start: pd.Timestamp, end: pd.Timestamp) -> tuple[
     if not samples:
         return pd.DataFrame(columns=COLUMNS), []
     pad = pd.Timedelta(minutes=5)
-    traces = group_traces(spans_of(es, cfg["traces_index"], sorted({s.trace_id for s in samples}), start - pad, end + pad))
+    traces = group_traces(as_backend(es).spans(cfg["traces_index"], sorted({s.trace_id for s in samples}), start - pad, end + pad))
     # 消費者用 link 指到的生產者在別的 trace 裡，另外讀回來（尾端取樣時那個 trace 可能沒被留下，就算不出排隊時間）
     want = {sid for t in traces.values() for sp in t if sp["kind"] == "Consumer" for sid in sp.get("links") or []}
-    linked = spans_by_id(es, cfg["traces_index"], sorted(want), start - pad, end + pad) if want else {}
+    linked = as_backend(es).spans_by_id(cfg["traces_index"], sorted(want), start - pad, end + pad) if want else {}
     df, skews = summarize(samples, traces, cfg.get("clock_skew_ms", 500), linked)
     df = fill_missing_segments(df)
     es.ensure_index(SEGMENT_INDEX, SEGMENT_MAPPING)

@@ -26,7 +26,8 @@ import pandas as pd
 import yaml
 
 from detector.__main__ import main as _cli
-from detector.es import ANOMALY_INDEX, ANOMALY_MAPPING, BASELINE_INDEX, ES
+from core.anomaly import ANOMALY_INDEX, ANOMALY_MAPPING
+from detector.es import BASELINE_INDEX, ES
 
 TZ = "Asia/Taipei"
 MAIN, CAL, LOGS = "aiops-adjtest", "aiops-adjtest-cal", "aiops-adjtest-logs"

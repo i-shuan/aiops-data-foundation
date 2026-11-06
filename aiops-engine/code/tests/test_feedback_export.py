@@ -1,4 +1,4 @@
-"""feedback export（detector/cmd_feedback.py）：回饋＋異常合成一列，給 ML 團隊重訓。假的 ES。"""
+"""feedback export（feedback/cmd_feedback.py）：回饋＋異常合成一列，給 ML 團隊重訓。假的 ES。"""
 import json
 import os
 import tempfile
@@ -6,7 +6,7 @@ import unittest
 
 import pandas as pd
 
-from detector import cmd_feedback as C
+from feedback import cmd_feedback as C
 
 
 class FakeES:

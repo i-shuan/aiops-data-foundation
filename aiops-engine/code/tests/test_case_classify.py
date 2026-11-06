@@ -6,9 +6,9 @@ import unittest
 
 import pandas as pd
 
-from detector import feedback as F
+from feedback import suggest as F
 from api import app as A
-from investigator import importer as IMP
+from feedback import importer as IMP
 from investigator import similar as SIM
 
 

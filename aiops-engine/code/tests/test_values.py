@@ -1,7 +1,7 @@
 """es._value_aggs／_bucket_value 的單元測試：直方圖的請求數、錯誤率，不需要 ES。"""
 import unittest
 
-from detector.es import _bucket_value, _value_aggs
+from sources.es_source import _bucket_value, _value_aggs
 
 F = "metrics.http.server.request.duration"
 
@@ -35,7 +35,8 @@ class HistRatioAbove(unittest.TestCase):
         self.assertIsNone(_bucket_value(v, {"v": {"values": {"2.0": None}}, "n": {"value": 0}}))
 
     def test_is_a_rate_with_request_count_as_events(self):
-        from detector.es import _bucket_events, value_kind
+        from detector.es import value_kind
+        from sources.es_source import _bucket_events
         spec = {"value": {"hist_ratio_above": {"field": F, "gt": 2.0}}}
         self.assertEqual(value_kind(spec), "rate")
         self.assertEqual(_bucket_events(spec["value"], {"n": {"value": 400}}), 400)

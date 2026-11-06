@@ -7,6 +7,10 @@ import os
 from datetime import datetime
 
 from core.plugin import Chain, Plugin as Base
+from investigator import alerts as AL
+
+from .chain import call_edges
+from .changes import deploy_at
 
 SOURCE_ENV = "AIOPS_SOURCE"
 
@@ -85,15 +89,12 @@ class Plugin(Base):
 
     def chain(self, es, cfg, anomalies, open_alerts, start, now) -> Chain:
         """跨服務（一層）：這段時間 trace 裡「誰呼叫誰」，只看有件開著、或這次有異常的服務。"""
-        from investigator import alerts as AL
 
-        from .chain import call_edges
         acfg = cfg.get("alerts", {})
-        svcs = {al["service"] for al in open_alerts if al.get("category") == "service"}
+        svcs = {al.service for al in open_alerts if al.category == "service"}
         svcs |= {ent[1] for ent in map(AL.entity_of, anomalies) if ent[0] == "service"}
         return Chain(calls=call_edges(es, cfg, svcs, start, now, int(acfg.get("chain_sample", 100))))
 
     def change_at(self, es, cfg, entity, since, now) -> datetime | None:
-        from .changes import deploy_at
         acfg = cfg.get("alerts", {})
         return deploy_at(es, entity, since, now, acfg.get("deploy_index", "metrics-apm.transaction.1m-*"), acfg.get("version_field", "service.version"))

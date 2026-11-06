@@ -11,11 +11,8 @@
 """
 from __future__ import annotations
 
-import re
-
-INCIDENT_INDEX = "aiops-incidents"
-# 比對權重（先估的）：同一段變慢、同一個錯誤源頭最有鑑別力；同服務其次；指標組合、log 樣式較弱
-WEIGHTS = {"slow_segments": 4.0, "error_origins": 4.0, "services": 3.0, "routes": 2.0, "patterns": 2.0, "series": 1.0}
+from core.incident import DEFAULT_WEIGHTS as WEIGHTS, Fingerprint, Incident, classify, describe_class, seg_name  # noqa: F401
+from sources.base import as_backend
 MIN_SCORE = 4.0        # 低於這個分數不算像：至少一個強特徵、或兩三個弱特徵
 TOP_K = 3
 # 跟 ES 要幾件候選再自己重算分數：ES 的 _score（boost）跟 explain 的算法不一樣（series 這裡是 min(交集,3) 倍、ES 只算一次），
@@ -24,52 +21,23 @@ CANDIDATES = 200
 CONFIRMED = ("confirmed", "corrected")
 
 
-def _seg_name(segment: str) -> str:
-    """段的名字去掉數字（SQL 裡的 id、批號），同一種呼叫才對得起來。"""
-    return re.sub(r"\d+", "#", segment or "").strip()
+_seg_name = seg_name   # 舊名字（importer 以前從這裡 import）
 
 
-def fingerprint(alert: dict, findings: dict | None) -> dict:
-    """一件事的指紋：全部是 keyword 陣列，存進 aiops-incidents.fingerprint，也拿來查。"""
-    f = findings or {}
-    services = [alert.get("service")] if alert.get("service") else []
-    services += [s.split(" › ")[0] for s in (d["segment"] for d in f.get("segments", [])[:3])]
-    return {
-        "services": sorted({s for s in services if s}),
-        "routes": sorted(set(alert.get("routes") or ([f["route"]] if f.get("route") else []))),
-        "series": sorted(set(alert.get("series") or [a["series"] for a in f.get("anomalies", []) if a.get("series")])),
-        "slow_segments": [_seg_name(d["segment"]) for d in f.get("segments", []) if d.get("delta_ms", 0) > 0][:3],
-        "error_origins": [_seg_name(d["segment"]) for d in f.get("error_origins", [])][:3],
-        "patterns": [p["pattern"][:120] for p in f.get("new_patterns", []) if p.get("is_new")][:5],
-    }
+def fingerprint(alert: dict, findings: dict | None) -> Fingerprint:
+    """一件事的指紋（core.incident.Fingerprint）：存進 aiops-incidents.fingerprint（to_doc），也拿來查。"""
+    return Fingerprint.from_alert(alert, findings)
 
 
-def query(fp: dict, exclude_id: str | None = None, size: int = CANDIDATES, statuses: tuple[str, ...] = CONFIRMED) -> dict:
-    """ES 的候選查詢（sources/stores.py ESStore.similar_incidents 用）：status 過濾＋指紋各欄位的 should（boost 只影響 ES 端排前 size 件）。"""
-    should = []
-    for field, w in WEIGHTS.items():
-        vals = fp.get(field) or []
-        if not vals:
-            continue
-        if field == "patterns":
-            should += [{"match": {"fingerprint.patterns": {"query": v, "boost": w}}} for v in vals]
-        else:
-            should.append({"terms": {f"fingerprint.{field}": vals, "boost": w}})
-    q = {"bool": {"filter": [{"terms": {"status": list(statuses)}}], "should": should, "minimum_should_match": 1}}
-    if exclude_id:
-        q["bool"]["must_not"] = [{"ids": {"values": [exclude_id]}}]
-    return {"size": size, "query": q}
-
-
-def explain(fp: dict, other: dict, weights: dict | None = None) -> tuple[float, list[str]]:
+def explain(fp: Fingerprint | dict, other: dict, weights: dict | None = None) -> tuple[float, list[str]]:
     """自己算分數（不用 ES 的 _score，才解釋得出為什麼像）：每個欄位有交集就加權重，並寫出交集的內容。
-    weights：rca.yaml 的 similar_weights 或 learn_weights 學出來的；沒給用 WEIGHTS。"""
-    ofp = other.get("fingerprint") or {}
+    other 是候選事故的文件（dict）；weights：rca.yaml 的 similar_weights 或 learn_weights 學出來的；沒給用 WEIGHTS。"""
+    fp, ofp = Fingerprint.of(fp), Fingerprint.of(other.get("fingerprint"))
     score, why = 0.0, []
     labels = {"services": "同服務", "routes": "同一支 API", "slow_segments": "同一段變慢", "error_origins": "錯誤源頭相同",
               "patterns": "同樣的新 log 樣式", "series": "同樣的指標異常"}
     for field, w in (weights or WEIGHTS).items():
-        mine, theirs = set(fp.get(field) or []), set(ofp.get(field) or [])
+        mine, theirs = set(fp.get(field)), set(ofp.get(field))
         hit = mine & theirs
         if hit:
             score += w * (1 if field != "series" else min(len(hit), 3))
@@ -77,21 +45,24 @@ def explain(fp: dict, other: dict, weights: dict | None = None) -> tuple[float, 
     return score, why
 
 
-def rank(fp: dict, candidates: list[tuple[str, dict]], k: int = TOP_K, min_score: float = MIN_SCORE,
+def rank(fp: Fingerprint | dict, candidates: list[tuple[str, dict]], k: int = TOP_K, min_score: float = MIN_SCORE,
          weights: dict | None = None) -> list[dict]:
     """M5 的核心（不碰 ES）：候選事故 [(id, 文件), …] 各自算分數（explain），留 ≥ min_score 的前 k 件，附為什麼像。
-    候選要先只留老師傅確認過的（status 在 CONFIRMED）：ES 的 query 已經過濾；自己準備候選時用 confirmed_only。"""
-    if not any(fp.get(f) for f in WEIGHTS):
+    候選要先只留老師傅確認過的（status 在 CONFIRMED）：ES 的 query 已經過濾；自己準備候選時用 confirmed_only。
+    候選文件用 Incident.from_doc 讀（舊文件缺欄位給預設值）。"""
+    fp = Fingerprint.of(fp)
+    if fp.empty:
         return []
     out = []
     for _id, s in candidates:
         score, why = explain(fp, s, weights)
         if score < min_score:
             continue
-        out.append({"incident_id": _id, "score": score, "why": why, "title": s.get("title"), "start": s.get("start"),
-                    "services": s.get("services"), "root_cause_category": s.get("root_cause_category"), "root_cause": s.get("root_cause"),
-                    "action": s.get("action"), "how_detected": s.get("how_detected"), "checked": s.get("checked"), "by": s.get("by"),
-                    "status": s.get("status")})
+        inc = Incident.from_doc(s)
+        out.append({"incident_id": _id, "score": score, "why": why, "title": inc.title, "start": inc.start,
+                    "services": inc.services, "root_cause_category": inc.root_cause_category, "root_cause": inc.root_cause,
+                    "action": inc.action, "how_detected": inc.how_detected, "checked": inc.checked, "by": inc.by,
+                    "status": inc.status})
     out.sort(key=lambda x: (-x["score"], x.get("start") or ""))
     return out[:k]
 
@@ -100,40 +71,14 @@ def confirmed_only(candidates: list[tuple[str, dict]], exclude_id: str | None = 
     return [(i, s) for i, s in candidates if s.get("status") in CONFIRMED and i != exclude_id]
 
 
-def search(es, fp: dict, exclude_id: str | None = None, k: int = TOP_K, min_score: float = MIN_SCORE, size: int = CANDIDATES,
+def search(es, fp: Fingerprint | dict, exclude_id: str | None = None, k: int = TOP_K, min_score: float = MIN_SCORE, size: int = CANDIDATES,
            weights: dict | None = None) -> list[dict]:
     """最像的 k 件（分數 ≥ min_score）。回傳給報告用的欄位＋為什麼像。size：跟 ES 要幾件候選（見 CANDIDATES）。
     候選從 Store 拿（ES 用 query 先篩前 size 件；檔案、記憶體給全部已確認的），分數一樣用 rank 算。"""
-    if not any(fp.get(f) for f in WEIGHTS):
+    fp = Fingerprint.of(fp)
+    if fp.empty:
         return []
-    from sources.base import as_backend
     return rank(fp, as_backend(es).similar_incidents(fp, CONFIRMED, exclude_id, size), k, min_score, weights)
-
-
-# ── 分類：case 只用來說「這件像哪一類」（docs/pdca/meta/2026-11-case-classify.md）──
-
-def classify(ranked: list[dict]) -> dict | None:
-    """rank／search 的結果 → {"category", "confidence", "votes", "n", "based_on"}；沒有像的 case 就 None（不猜）。
-    每件以分數投給它的 root_cause_category；信心 = 贏的那類分數 ÷ 全部分數。沒有分類的 case 不投票。"""
-    votes: dict[str, float] = {}
-    for it in ranked:
-        cat = it.get("root_cause_category")
-        if cat:
-            votes[cat] = votes.get(cat, 0.0) + float(it.get("score") or 0)
-    if not votes:
-        return None
-    total = sum(votes.values())
-    cat = max(votes, key=lambda c: (votes[c], c))
-    return {"category": cat, "confidence": round(votes[cat] / total, 2) if total else 0.0,
-            "votes": {c: round(v, 1) for c, v in sorted(votes.items(), key=lambda x: -x[1])}, "n": len(ranked),
-            "based_on": [it.get("incident_id") for it in ranked]}
-
-
-def describe_class(cls: dict | None) -> str:
-    """一句話：「像 db 類（3 件相似的 case 裡 db 佔 67%）」；沒有就「沒有相似的過去 case，不分類」。"""
-    if not cls:
-        return "沒有相似的過去 case，不分類"
-    return f"像 {cls['category']} 類（{cls['n']} 件相似的 case 裡 {cls['category']} 佔 {cls['confidence']:.0%}）"
 
 
 def format_similar(items: list[dict], tz_label: str = "", cls: dict | None = None) -> list[str]:
@@ -153,7 +98,6 @@ def format_similar(items: list[dict], tz_label: str = "", cls: dict | None = Non
 
 def _confirmed_cases(es) -> list[tuple[str, dict]]:
     """已確認、有根因分類、有指紋的事故（留一法的樣本）。"""
-    from sources.base import as_backend
     return as_backend(es).incidents(CONFIRMED, having=("root_cause_category", "fingerprint"))
 
 

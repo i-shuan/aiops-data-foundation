@@ -18,10 +18,13 @@
 from __future__ import annotations
 
 import math
+import re
 from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
+
+from .adjust import match_keys
 
 MAD_TO_SIGMA = 1.4826  # 常態分布下 MAD 換成標準差的係數
 
@@ -281,7 +284,6 @@ def score_poisson(current: pd.DataFrame, baseline: pd.DataFrame, keys: list[str]
 
 def group_of(key: dict, groups: list[dict]) -> list[str]:
     """這條序列屬於哪些組（依設定的順序，由細到粗）。match 的每個欄位都要符合（正規表示式，re.search）。"""
-    import re
     return [g["name"] for g in groups
             if all(key.get(f) is not None and re.search(pat, str(key[f])) for f, pat in g["match"].items())]
 
@@ -361,18 +363,11 @@ def resolutions_from(resolutions, min_resolution: str | None) -> list[str]:
     return [r for r in resolutions if pd.Timedelta(to_freq(r)) >= floor]
 
 
-def match_keys(key: dict, match: dict | None) -> bool:
-    """match 的每個欄位都要符合（正規表示式，re.search；欄位可以用別名，見 adjust.ALIASES）；沒有 match 就是全部。"""
-    from .adjust import match_keys as _match
-    return _match(key, match)
-
-
 OVERRIDE_FIELDS = ("resolution", "z", "min_abs", "confirm_points", "instant_z", "min_count")
 
 
 def _matching_overrides(series: str, key: dict, overrides: list[dict]):
     """符合這條序列、這個對象的 override，依原本的順序（後面的蓋前面的）。"""
-    import re
     for o in overrides:
         if (o.get("kind") or "override") != "override":   # 排除時段、重置點、週期放寬由 adjust.py 處理
             continue

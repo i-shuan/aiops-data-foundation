@@ -1,4 +1,4 @@
-"""歷史事故單匯入（investigator.importer）：CSV／JSON 解析、缺欄位略過、指紋去重、時區、寫入的樣子。假的 ES，不用連線。"""
+"""歷史事故單匯入（feedback.importer）：CSV／JSON 解析、缺欄位略過、指紋去重、時區、寫入的樣子。假的 ES，不用連線。"""
 import contextlib
 import io
 import json
@@ -6,7 +6,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from investigator import importer as IMP
+from core.incident import INCIDENT_INDEX
+from feedback import importer as IMP
 from investigator import similar as SIM
 from investigator.__main__ import main
 
@@ -158,10 +159,10 @@ class WriteAndSearch(unittest.TestCase):
         docs, _ = IMP.parse(HERE.parent / "configs/rca/incidents-example.csv")
         self.assertEqual(IMP.write(es, docs), 10)
         (name, body), = es.ensured
-        self.assertEqual(name, SIM.INCIDENT_INDEX)
+        self.assertEqual(name, INCIDENT_INDEX)
         self.assertIn("source", body["mappings"]["properties"])
         (index, items), = es.indexed
-        self.assertEqual(index, SIM.INCIDENT_INDEX)
+        self.assertEqual(index, INCIDENT_INDEX)
         self.assertEqual(len(items), 10)
         self.assertEqual(IMP.write(es, []), 0)
 

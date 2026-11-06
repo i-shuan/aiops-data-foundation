@@ -15,9 +15,11 @@ from __future__ import annotations
 
 import re
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 from typing import Callable
 
 from core import domain as D
+from sources.base import as_backend
 from core import plugin
 from core import traces as T
 
@@ -42,7 +44,6 @@ def _ts(s: str | None) -> datetime:
 
 
 def _local(t: datetime, tz: str) -> str:
-    from zoneinfo import ZoneInfo
     return t.astimezone(ZoneInfo(tz)).strftime("%m-%d %H:%M")
 
 
@@ -215,10 +216,10 @@ def sec_entries(c: Ctx) -> None:
     c.span_label = f"{int(tw.total_seconds() * tn // 60)} 分鐘"
     c.out += [A.describe_trend(c.trend, c.span_label, _ms), ""]
     now_ids = E.sample_trace_ids(es, ix["traces"], c.service, c.route, c.start, c.end, c.n, slowest=True, lag=c.lag)
-    c.now_tr = T.group_traces(T.spans_of(es, ix["traces"], now_ids, c.start - PAD - c.lag, c.end + PAD))
+    c.now_tr = T.group_traces(as_backend(es).spans(ix["traces"], now_ids, c.start - PAD - c.lag, c.end + PAD))
     if c.ref_start:
         ref_ids = E.sample_trace_ids(es, ix["traces"], c.service, c.route, c.ref_start, c.ref_end, c.n, slowest=False, lag=c.lag)
-        c.ref_tr = T.group_traces(T.spans_of(es, ix["traces"], ref_ids, c.ref_start - PAD - c.lag, c.ref_end + PAD))
+        c.ref_tr = T.group_traces(as_backend(es).spans(ix["traces"], ref_ids, c.ref_start - PAD - c.lag, c.ref_end + PAD))
 
 
 def sec_segments(c: Ctx) -> None:

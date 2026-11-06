@@ -12,7 +12,7 @@
 | 出口 | ⑥ 同服務合成一件，Grafana 依部門分送 | `aiops-alerts` |
 | 紀錄 | 告警一開就建一筆 `auto`（帶指紋）；老師傅在回饋網頁確認後改 `confirmed`，存根因分類、處置、怎麼看出來的、查了哪裡 | `aiops-incidents` |
 | 回饋 | Grafana 的回饋表單（後端是 engine 的 `api`；通知裡有連結）或指令；記哪一筆、為什麼 | `aiops-feedback` |
-| 調整 | [`series.yaml`](../../aiops-engine/code/configs/baseline/series.yaml) 的 `overrides`，或 [`tune` 指令](../../aiops-engine/code/configs/baseline/README.md#使用者feedback-調整)（程式 [`cmd_baseline.py`](../../aiops-engine/code/detector/cmd_baseline.py)）；記原因、誰、何時 | `aiops-tuning`（欄位見 [`tuning.py`](../../aiops-engine/code/detector/tuning.py) 的 `TUNING_MAPPING`） |
+| 調整 | [`series.yaml`](../../aiops-engine/code/configs/baseline/series.yaml) 的 `overrides`，或 [`tune` 指令](../../aiops-engine/code/configs/baseline/README.md#使用者feedback-調整)（程式 [`cmd_baseline.py`](../../aiops-engine/code/detector/cmd_baseline.py)、寫進哪個索引見 [`core/tuning.py`](../../aiops-engine/code/core/tuning.py)）；記原因、誰、何時 | `aiops-tuning`（欄位見 [`adjust.py`](../../aiops-engine/code/detector/adjust.py) 的 `TUNING_MAPPING`） |
 
 ### 回饋結果與用法
 
@@ -51,7 +51,7 @@
 
 - `--match` 的對象用正規表示式，欄位可用別名（`service`、`namespace`、`pod`）。
 - 同一個對象有多處設定時，對象 > 序列 > `series.yaml`；來源有設定檔與 ES，同 `id` 後寫的蓋前面。
-- 人用 `tune`、`adjust` 寫的預設直接生效。`feedback suggest` 寫的是 `status: proposed`，不生效。誤報的建議依特徵查表（[feedback.py](../../aiops-engine/code/detector/feedback.py) 的 `fp_features`、`suggest_for_false_positives`）：
+- 人用 `tune`、`adjust` 寫的預設直接生效。`feedback suggest` 寫的是 `status: proposed`，不生效。誤報的建議依特徵查表（[feedback/suggest.py](../../aiops-engine/code/feedback/suggest.py) 的 `fp_features`、`suggest_for_false_positives`）：
 
   | 時段固定 | `z` 放寬壓得掉 | 動作 |
   |---|---|---|

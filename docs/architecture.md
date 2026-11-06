@@ -222,6 +222,8 @@ engine 一份程式，情境各是一個 plugin（[core/plugin.py](../aiops-engi
 | ⑦ | 報告的每一段（[investigator/report.py](../aiops-engine/code/investigator/report.py)）、M4 分段、共同點、log 樣式、相似事故 | 報告有哪幾段、順序；索引與欄位的對照；用語（請求／lot、Trace／履歷） |
 | ⑧⑨ | Grafana 通知、回饋、匯出 | 回饋表單的分類表、誤報原因 |
 
+程式的資料夾照模組切（[docs/pdca/meta/2026-11-clean-code.md](pdca/meta/2026-11-clean-code.md)）：`detector/` ②③④⑤、`investigator/` ⑥⑦⑧、`feedback/` ⑨；兩個階段以上都碰的東西在 `core/`（連線、設定、plugin 擴充點、命令列共用的轉接、`aiops-incidents`／`aiops-tuning` 的契約）；`sources/` 是資料來源與結果存放的介面；`api/`、`scheduler/`、`tasks/`、`plugins/`、`models/`（門面）在最上層。命令列名稱沒變：⑨ 的子命令還是掛在 `python3 -m detector` 底下（`feedback/cli.py`），`detector/__main__.py` 只是入口。
+
 擴充點只開「現在真的有兩種以上做法」的地方，沒有的不預先抽；第四種情境（例如網路設備靠拓樸併件）出現時，繼承一個內建 plugin 覆寫那幾個就好。`configs/` 不隨 plugin 搬：plugin 只決定預設排程表，設定檔仍在 `configs/<情境>/`。
 
 ### 4.3 部署角色：api／beat／worker（Superset 式）

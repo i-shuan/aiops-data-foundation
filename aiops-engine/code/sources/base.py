@@ -18,6 +18,8 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
+from core.version import ENGINE_VERSION
+
 import pandas as pd
 
 
@@ -61,8 +63,9 @@ class Store(ABC):
     def incidents(self, statuses: tuple[str, ...], exclude_id: str | None = None, having: tuple[str, ...] = ()) -> list[tuple[str, dict]]:
         """aiops-incidents 裡 status 在 statuses、having 的欄位都有值的（M5 的候選、留一法評測）。"""
 
-    def similar_incidents(self, fp: dict, statuses: tuple[str, ...], exclude_id: str | None = None, size: int = 200) -> list[tuple[str, dict]]:
-        """跟指紋 fp 可能像的候選（分數一律由 investigator.similar.rank 自己算）。預設就是全部 statuses 的；ES 用指紋先篩、只要前 size 件。"""
+    def similar_incidents(self, fp, statuses: tuple[str, ...], exclude_id: str | None = None, size: int = 200) -> list[tuple[str, dict]]:
+        """跟指紋 fp（core.incident.Fingerprint 或同形狀的 dict）可能像的候選（分數一律由 investigator.similar.rank 自己算）。
+        預設就是全部 statuses 的；ES 用指紋先篩、只要前 size 件。"""
         return self.incidents(statuses, exclude_id)
 
 
@@ -129,12 +132,16 @@ class Backend(ABC):
         return self.store.adjustments()
 
     def write_anomalies(self, docs) -> None:
+        """寫進異常總表。每筆帶 engine_version（core/version.py）：五種偵測都從這裡寫，「每筆異常都要有」的欄位只補在這一處；
+        dept、group 由 Store 補（ES 查 core/owner.py；檔案、記憶體來源沒有歸屬可查，全部 unassigned）。"""
+        for _, d in docs:
+            d["engine_version"] = ENGINE_VERSION
         self.store.write_anomalies(docs)
 
     def incidents(self, statuses: tuple[str, ...], exclude_id: str | None = None, having: tuple[str, ...] = ()) -> list[tuple[str, dict]]:
         return self.store.incidents(statuses, exclude_id, having)
 
-    def similar_incidents(self, fp: dict, statuses: tuple[str, ...], exclude_id: str | None = None, size: int = 200) -> list[tuple[str, dict]]:
+    def similar_incidents(self, fp, statuses: tuple[str, ...], exclude_id: str | None = None, size: int = 200) -> list[tuple[str, dict]]:
         return self.store.similar_incidents(fp, statuses, exclude_id, size)
 
 
@@ -146,3 +153,10 @@ def as_backend(x) -> Backend:
         raise TypeError(f"要 sources.Backend 或 core.es.ES，不是 {type(x).__name__}")
     from .es_source import ESBackend   # rows／es_source import 這裡，所以在這裡才 import
     return ESBackend(x)
+
+
+def write_anomalies(es, docs: list) -> None:
+    """偵測指令寫異常總表的入口：es 是 Backend 或 core.es.ES。docs：(_id, 文件)。空的不碰 ES。"""
+    if not docs:
+        return
+    as_backend(es).write_anomalies(docs)

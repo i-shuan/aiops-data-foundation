@@ -1,4 +1,5 @@
-"""Check：事故紀錄、值班回饋、誤報統計（docs/feedback/README.md、docs/pdca/README.md 的 Check）。
+"""⑨ 回饋 → 建議：誤報統計、放寬門檻／排除時段／升級成規則的建議、回饋文字對到調整種類（原 detector/feedback.py）。
+Check：事故紀錄、值班回饋、誤報統計（docs/feedback/README.md、docs/pdca/README.md 的 Check）。
 
 先只收集、不自動生效：
   事故 aiops-incidents   每次事故記時間、影響的服務、根因、處置；可選擇同時提一筆「這段不學」（proposed，人核准才生效）
@@ -12,13 +13,18 @@
 """
 from __future__ import annotations
 
+import calendar
 import json
 import re
+from collections import Counter
 
 import pandas as pd
 
+from core.es import doc_id
+from core.incident import Fingerprint
+from core.tuning import TUNING_INDEX, TUNING_MAPPING, validated
+
 FEEDBACK_INDEX = "aiops-feedback"
-INCIDENT_INDEX = "aiops-incidents"
 VERDICTS = ("true_positive", "false_positive", "wrong_root_cause", "missed")
 
 FEEDBACK_MAPPING = {"mappings": {"dynamic": False, "properties": {
@@ -40,23 +46,7 @@ RCA_USEFUL = ("yes", "no", "not_seen")
 CAUSE_CATEGORY = {"db_slow_query": "db", "db_lock": "db", "db_connection_pool": "db", "network": "network", "dns": "network",
                   "config_change": "config_change", "deploy": "deploy", "external_api": "external", "resource_cpu": "resource",
                   "resource_memory": "resource", "disk_full": "resource", "bug": "bug", "data_volume": "data", "dirty_data": "data"}
-# status：open／resolved（人補登的）、auto（事件整合自動開的，還沒人看）、confirmed（老師傅標真的）、corrected（真的但根因改過）
-# 相似事故檢索只用 confirmed、corrected（investigator/similar.py）。根因分類表在 plugin（core/domain.categories）
-INCIDENT_MAPPING = {"mappings": {"dynamic": False, "properties": {
-    "@timestamp": {"type": "date"}, "title": {"type": "text"}, "start": {"type": "date"}, "end": {"type": "date"},
-    "services": {"type": "keyword"}, "severity": {"type": "keyword"}, "status": {"type": "keyword"},
-    "root_cause": {"type": "text"}, "action": {"type": "text"}, "anomaly_ids": {"type": "keyword"},
-    "detected_at": {"type": "date"}, "resolved_at": {"type": "date"}, "by": {"type": "keyword"},
-    # 老師傅的經驗（docs/pdca/phase5-learning-loop/2026-10-expert-feedback.md）
-    "alert_id": {"type": "keyword"}, "dept": {"type": "keyword"}, "group": {"type": "keyword"},
-    "root_cause_category": {"type": "keyword"}, "how_detected": {"type": "text"}, "checked": {"type": "keyword"},
-    "improve": {"type": "text"}, "confirmed_at": {"type": "date"}, "confirmed_by": {"type": "keyword"},
-    # 歷史事故單匯入（investigator/importer.py）：source import；note 是匯入檔的備註
-    "source": {"type": "keyword"}, "note": {"type": "text"},
-    # 指紋：相似事故檢索用（investigator/similar.py）
-    "fingerprint": {"properties": {"services": {"type": "keyword"}, "routes": {"type": "keyword"}, "series": {"type": "keyword"},
-                                   "slow_segments": {"type": "keyword"}, "error_origins": {"type": "keyword"},
-                                   "patterns": {"type": "text"}}}}}}
+# INCIDENT_MAPPING、status 的意思搬到 core/incident.py（跟 Incident 模型放一起）；這裡 re-export 讓舊的 import 還能用
 
 
 def target_of(keys: dict | None) -> str:
@@ -143,8 +133,6 @@ def _slot(fps: list[dict], tz: str, min_share: float, min_n: int = 3):
     """誤報是不是集中在同一個時段：先看「每月最後一天的同一個小時」，再看「同一個星期幾的同一個小時」。
     回傳 (schedule, 說明) 或 None。schedule 是 recurring_override 的格式（cron 當地時間、duration、days_of_month）。
     min_n：至少幾筆才看得出時段（老師傅已經說是批次時可以 1 筆）。"""
-    import calendar
-    from collections import Counter
     local = [pd.Timestamp(f["at"]).tz_convert(tz) for f in fps if f.get("at")]
     if len(local) < max(1, min_n):
         return None
@@ -177,7 +165,6 @@ def fp_features(fps: list[dict], *, current_z: float = 5.0, factor: float = 1.4,
       low_volume    量太少：每筆符合的事件數（值 × 事件數）都 ≤ 5
       after_deploy  每一筆都在換版後 deploy_grace_min 分鐘內
       max_dev、max_hits  偏差最大值、符合的事件數最大值（給 min_abs、min_count 用）"""
-    from collections import Counter
     reason = Counter(r for r in (reasons or []) if r and r != "other").most_common(1)
     reason = reason[0][0] if reason else None
     slot = _slot(fps, tz, min_share, min_n=1 if reason in REASON_SLOT else 3)
@@ -278,7 +265,6 @@ def suggest_rules(incidents: list[dict], min_recurring: int = 3, anomalies_of: d
     門檻從那幾件事故的延遲峰值算（rule_threshold）；規則的查法直接用那條 baseline 序列的定義（同 index、欄位、切法），只多「只看這個服務」。
     人 adjust approve 之後 detector rules 自動載入（cmd_rules），不用改 rules.yaml。算不出門檻的草稿 threshold 是 None，不能核准。
     anomalies_of：{事故 id: [{series, value, keys}]}（事故 anomaly_ids 對到的異常）；series_specs：series.yaml 的 series。"""
-    from collections import Counter
     by: dict[tuple, list[dict]] = {}
     for inc in incidents:
         for svc in inc.get("services") or []:
@@ -287,8 +273,9 @@ def suggest_rules(incidents: list[dict], min_recurring: int = 3, anomalies_of: d
     for (svc, cat), incs in by.items():
         if len(incs) < min_recurring:
             continue
-        segs = Counter(s for i in incs for s in ((i.get("fingerprint") or {}).get("slow_segments") or []))
-        errs = Counter(s for i in incs for s in ((i.get("fingerprint") or {}).get("error_origins") or []))
+        fps = [Fingerprint.of(i.get("fingerprint")) for i in incs]
+        segs = Counter(s for fp in fps for s in fp.slow_segments)
+        errs = Counter(s for fp in fps for s in fp.error_origins)
         where = (segs or errs).most_common(1)[0][0] if (segs or errs) else None
         threshold, series, peaks, routes = rule_threshold(incs, anomalies_of)
         spec = next((s for s in (series_specs or []) if s.get("name") == series), None) or {
@@ -389,3 +376,19 @@ def format_summary(s: dict, days: int) -> list[str]:
         lines += [f"- {r['series']}：{r['target']}" for r in s["missed"].to_dict("records")]
         lines.append("")
     return lines
+
+
+# ── 寫 aiops-tuning ──
+
+def propose_from_text(es, fields: dict, alert: dict, text: str, by: str | None, now, current_z: float = 5.0) -> str | None:
+    """回饋文字抽出來的四欄對得到調整種類就寫一筆 aiops-tuning（feedback.suggest_from_text；proposed、source feedback、reason 帶原文），
+    回傳 id；suggested_action 是 none 回 None。同一個人對同一件、同一種 kind 再送會覆蓋，不重複。不自動生效（adjust approve 才會）。"""
+    sug = suggest_from_text(fields, alert, text, current_z)
+    if not sug:
+        return None
+    sug = {k: v for k, v in sug.items() if v not in (None, "", [])}
+    sug.update({"at": now.isoformat(), "by": by or "feedback"})
+    _id = doc_id("feedback-text", alert.get("alert_id"), by or "", sug["kind"])
+    es.ensure_index(TUNING_INDEX, TUNING_MAPPING)
+    es.req("PUT", f"/{TUNING_INDEX}/_doc/{_id}?refresh=true", validated(sug))
+    return _id

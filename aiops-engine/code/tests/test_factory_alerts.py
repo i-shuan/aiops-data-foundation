@@ -56,7 +56,7 @@ class Entity(unittest.TestCase):
     def test_same_equipment_one_alert_with_lots(self):
         out = AL.merge([], [anom("ETCH-01", 0, lot="LOT-1"), anom("ETCH-01", 30, lot="LOT-2", series="fdc.rf_power")], T0 + GAP, GAP)
         self.assertEqual(len(out), 1)
-        self.assertEqual((out[0]["service"], out[0]["lots"], out[0]["routes"]), ("ETCH-01", ["LOT-1", "LOT-2"], ["REC-1"]))
+        self.assertEqual((out[0].service, out[0].lots, out[0].routes), ("ETCH-01", ["LOT-1", "LOT-2"], ["REC-1"]))
 
 
 class LotLinks(unittest.TestCase):
@@ -84,37 +84,37 @@ class LotLinks(unittest.TestCase):
         cvd = anom("CVD-01", 85, lot="LOT-9", series="fdc.temperature")
         metro = anom("METRO-01", 115, lot="LOT-1", series="fdc.cd_bias")
         links = FAC.links_from_docs([metro], self.DOCS)
-        out = {al["service"]: al for al in AL.merge([], [etch, cvd, metro], T0 + timedelta(minutes=120), GAP, links=links)}
+        out = {al.service: al for al in AL.merge([], [etch, cvd, metro], T0 + timedelta(minutes=120), GAP, links=links)}
         self.assertEqual(set(out), {"ETCH-01", "CVD-01"})
-        self.assertEqual(out["ETCH-01"]["upstream_services"], ["METRO-01"])
-        self.assertIn(metro["_id"], out["ETCH-01"]["anomaly_ids"])
-        self.assertEqual(out["CVD-01"]["upstream_services"], [])
+        self.assertEqual(out["ETCH-01"].upstream_services, ["METRO-01"])
+        self.assertIn(metro["_id"], out["ETCH-01"].anomaly_ids)
+        self.assertEqual(out["CVD-01"].upstream_services, [])
 
     def test_falls_back_to_nearest_station_whose_alert_covers_the_time(self):
         """沒有哪件已經有這批 lot：取最近、而且 lot 在那站的時間落在那件範圍內的前站。"""
         cvd = anom("CVD-01", 85, lot="LOT-9", series="fdc.temperature")
         metro = anom("METRO-01", 115, lot="LOT-1", series="fdc.cd_bias")
         links = FAC.links_from_docs([metro], self.DOCS)
-        out = {al["service"]: al for al in AL.merge([], [cvd, metro], T0 + timedelta(minutes=120), GAP, links=links)}
+        out = {al.service: al for al in AL.merge([], [cvd, metro], T0 + timedelta(minutes=120), GAP, links=links)}
         self.assertEqual(list(out), ["CVD-01"])
-        self.assertEqual(out["CVD-01"]["upstream_services"], ["METRO-01"])
+        self.assertEqual(out["CVD-01"].upstream_services, ["METRO-01"])
 
     def test_own_open_alert_wins_over_links(self):
         metro_before = anom("METRO-01", 100, lot="LOT-7", series="fdc.cd_bias")
         etch = anom("ETCH-01", 30, lot="LOT-1")
         metro = anom("METRO-01", 115, lot="LOT-1", series="fdc.cd_bias")
         links = FAC.links_from_docs([metro], self.DOCS)
-        out = {al["service"]: al for al in AL.merge([], [etch, metro_before, metro], T0 + timedelta(minutes=120), GAP, links=links)}
-        self.assertEqual(out["METRO-01"]["anomaly_ids"], [metro_before["_id"], metro["_id"]])
-        self.assertEqual(out["ETCH-01"]["upstream_services"], [])
+        out = {al.service: al for al in AL.merge([], [etch, metro_before, metro], T0 + timedelta(minutes=120), GAP, links=links)}
+        self.assertEqual(out["METRO-01"].anomaly_ids, [metro_before["_id"], metro["_id"]])
+        self.assertEqual(out["ETCH-01"].upstream_services, [])
 
     def test_time_outside_window_does_not_join(self):
         etch = anom("ETCH-01", -600, lot="LOT-5")                           # 10 小時前就結束的件
         metro = anom("METRO-01", 115, lot="LOT-1", series="fdc.cd_bias")
         links = FAC.links_from_docs([metro], self.DOCS)
-        out = {al["service"]: al for al in AL.merge([], [etch, metro], T0 + timedelta(minutes=120), GAP, links=links)}
+        out = {al.service: al for al in AL.merge([], [etch, metro], T0 + timedelta(minutes=120), GAP, links=links)}
         self.assertIn("METRO-01", out)
-        self.assertEqual(out["ETCH-01"]["upstream_services"], [])
+        self.assertEqual(out["ETCH-01"].upstream_services, [])
 
 
 class SeverityClasses(unittest.TestCase):

@@ -42,6 +42,7 @@ ALERT = {"alert_id": "a-1", "service": "mes-api", "routes": ["GET /lots/{id}"], 
 
 
 def incident(cat, fp, status="confirmed", **kw):
+    fp = SIM.Fingerprint.of(fp).to_doc()   # 存進 ES 的是 dict
     return {"status": status, "root_cause_category": cat, "fingerprint": fp, "title": f"{cat} 事故", "start": "2026-09-12T02:00:00+00:00",
             "services": fp.get("services"), "root_cause": f"{cat} 的根因", "action": "重跑 analyze", "how_detected": "看 Oracle 段", **kw}
 
@@ -49,22 +50,22 @@ def incident(cat, fp, status="confirmed", **kw):
 class Fingerprint(unittest.TestCase):
     def test_fields_and_number_stripping(self):
         fp = SIM.fingerprint(ALERT, findings(err="wip-worker › Kafka produce"))
-        self.assertEqual(fp["services"], ["mes-api"])
-        self.assertEqual(fp["routes"], ["GET /lots/{id}"])
+        self.assertEqual(fp.services, ["mes-api"])
+        self.assertEqual(fp.routes, ["GET /lots/{id}"])
         # SQL 裡的數字去掉，同一種呼叫才對得起來
-        self.assertEqual(fp["slow_segments"], ["mes-api › wip-worker › Oracle SELECT lots #"])
-        self.assertEqual(fp["error_origins"], ["wip-worker › Kafka produce"])
+        self.assertEqual(fp.slow_segments, ["mes-api › wip-worker › Oracle SELECT lots #"])
+        self.assertEqual(fp.error_origins, ["wip-worker › Kafka produce"])
 
     def test_no_findings(self):
         fp = SIM.fingerprint(ALERT, None)
-        self.assertEqual((fp["slow_segments"], fp["error_origins"], fp["patterns"]), ([], [], []))
-        self.assertEqual(fp["series"], ["http.latency_p95_s"])
+        self.assertEqual((fp.slow_segments, fp.error_origins, fp.patterns), ([], [], []))
+        self.assertEqual(fp.series, ["http.latency_p95_s"])
 
 
 class Explain(unittest.TestCase):
     def test_why_lists_only_shared_fields(self):
         mine = SIM.fingerprint(ALERT, findings())
-        other = {"fingerprint": {**mine, "routes": ["POST /other"]}}
+        other = {"fingerprint": {**mine.to_doc(), "routes": ["POST /other"]}}
         score, why = SIM.explain(mine, other)
         self.assertIn("同一段變慢（mes-api › wip-worker › Oracle SELECT lots #）", why)
         self.assertIn("同服務（mes-api）", why)

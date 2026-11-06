@@ -12,7 +12,9 @@ from typer.testing import CliRunner
 
 import detector.__main__ as D
 import investigator.__main__ as I
+from core import cli as CLI
 from core import plugin
+from feedback import cli as FB
 from investigator import cmd_alert
 from plugins.factory import cmd_paths
 
@@ -22,8 +24,11 @@ CODE = os.path.dirname(HERE)
 # 子命令 → (處理函式所在的模組, 屬性名, load_config 的 kind)
 HANDLERS = {
     "train": (D, "cmd_train", "series"), "detect": (D, "cmd_detect", "series"), "tune": (D, "cmd_tune", "series"),
-    "backtest": (D, "cmd_backtest", "series"), "adjust": (D, "cmd_adjust", "series"), "shift": (D, "cmd_shift", "series"),
-    "metrics": (D, "cmd_metrics", "series"), "feedback": (D, "cmd_feedback", "series"), "incident": (D, "cmd_incident", "series"),
+    "backtest": (FB, "cmd_backtest", "series"), "shift": (D, "cmd_shift", "series"), "metrics": (FB, "cmd_metrics", "series"),
+    # 有子命令的（feedback／incident／adjust）：key 是「命令 子命令」，各自一個處理函式
+    **{f"feedback {a}": (FB, f"feedback_{a}", "series") for a in ("pending", "add", "list", "summary", "suggest", "export")},
+    **{f"incident {a}": (FB, f"incident_{a}", "series") for a in ("add", "list", "resolve")},
+    **{f"adjust {a}": (FB, f"adjust_{a}", "series") for a in ("add", "list", "approve", "remove")},
     "rules": (D, "cmd_rules", "rules"), "peer": (D, "cmd_peer", "peer"), "quality": (D, "cmd_quality", "quality"),
     "trace-collect": (D, "cmd_trace_collect", "trace"), "trace-train": (D, "cmd_trace_train", "trace"),
     "trace-detect": (D, "cmd_trace_detect", "trace"), "trace-merge": (D, "cmd_trace_merge", "trace"),
@@ -39,8 +44,10 @@ def env(**kw):
 
 def run(prog: str, argv: list[str], rc: int = 0):
     """跑一次，回 (處理函式拿到的 args, load_config 收到的 (path, kind))。處理函式回 0。"""
-    cmd = next(a for a in argv if not a.startswith("-"))
-    mod, name, kind = HANDLERS[cmd]
+    words = [a for a in argv if not a.startswith("-")]
+    cmd = " ".join(words[:2]) if " ".join(words[:2]) in HANDLERS else words[0]
+    # 只給了有子命令的命令（["feedback"]）、或子命令打錯：隨便接一個它的處理函式，反正到不了
+    mod, name, kind = HANDLERS.get(cmd) or next(h for k, h in HANDLERS.items() if k.split(" ")[0] == words[0])
     seen = {}
 
     def handler(cfg, args, *rest):
@@ -51,7 +58,7 @@ def run(prog: str, argv: list[str], rc: int = 0):
         seen["load"] = (path, k)
         return {}
     main = D.main if prog == "detector" else I.main
-    with mock.patch.object(mod, name, handler), mock.patch.object(D, "load_config", load), \
+    with mock.patch.object(mod, name, handler), mock.patch.object(CLI, "load_config", load), \
          mock.patch.object(I, "load_config", load), mock.patch.object(cmd_paths, "load_config", load), \
          contextlib.redirect_stdout(io.StringIO()):
         got = main(argv)
@@ -122,34 +129,41 @@ class Attributes(unittest.TestCase):
     def test_adjust_positional_action_and_choices(self):
         a, _ = run("detector", ["adjust", "add", "--kind", "exclude_window", "--match", "service=^mes$", "--start", "2026-10-01T00:00:00Z",
                                 "--end", "2026-10-01T01:00:00Z", "--reason", "事故"])
-        self.assertEqual((a.action, a.kind, a.match), ("add", "exclude_window", ["service=^mes$"]))
-        self.assertEqual((a.apply_to, a.status, a.source, a.train, a.mute, a.force, a.id), ("train", "active", "manual", None, False, False, None))
+        self.assertEqual((a.kind, a.match), ("exclude_window", ["service=^mes$"]))
+        self.assertEqual((a.apply_to, a.status, a.source, a.train, a.mute, a.id), ("train", "active", "manual", None, False, None))
+        self.assertFalse(hasattr(a, "force"))          # add 沒有 --force：每個子命令只有自己的參數
         a, _ = run("detector", ["adjust", "approve", "--id", "p1", "--force", "--by", "amy"])
-        self.assertEqual((a.action, a.id, a.force, a.by), ("approve", "p1", True, "amy"))
+        self.assertEqual((a.id, a.force, a.by), ("p1", True, "amy"))
         a, _ = run("detector", ["adjust", "add", "--kind", "recurring_override", "--cron", "0 20 * * *", "--duration", "4h",
                                 "--days-of-month", "-1", "--z", "6", "--mute", "--train", "exclude", "--status", "proposed"])
         self.assertEqual((a.kind, a.cron, a.duration, a.days_of_month, a.z, a.mute, a.train, a.status),
                          ("recurring_override", "0 20 * * *", "4h", "-1", 6.0, True, "exclude", "proposed"))
-        for bad in (["adjust", "zzz"], ["adjust", "add", "--kind", "nope"], ["adjust", "add", "--status", "maybe"], ["adjust"]):
+        for bad in (["adjust", "zzz"], ["adjust", "add", "--kind", "nope"], ["adjust", "add", "--status", "maybe"], ["adjust"],
+                    ["adjust", "approve"], ["adjust", "remove"]):          # approve／remove 的 --id 必填
             with self.subTest(bad=bad):
                 run("detector", bad, rc=2)
 
     def test_feedback_missed(self):
         a, _ = run("detector", ["feedback", "add", "--verdict", "missed", "--series", "s", "--match", "service=x", "--at", "2026-10-01T00:00:00Z"])
-        self.assertEqual((a.action, a.verdict, a.series, a.match, a.at), ("add", "missed", "s", ["service=x"], "2026-10-01T00:00:00Z"))
-        self.assertEqual((a.days, a.limit, a.min_false_positive, a.min_recurring), (28, 50, 1, 3))
-        self.assertEqual((a.anomaly, a.note, a.by, a.incident, a.alert, a.text, a.root_cause, a.out), (None,) * 8)
-        a, _ = run("detector", ["feedback", "export", "--days", "1", "--out", "x.csv", "--min-false-positive", "2"])
-        self.assertEqual((a.action, a.days, a.out, a.min_false_positive), ("export", 1, "x.csv", 2))
-        run("detector", ["feedback", "nope"], rc=2)
+        self.assertEqual((a.verdict, a.series, a.match, a.at), ("missed", "s", ["service=x"], "2026-10-01T00:00:00Z"))
+        self.assertEqual((a.anomaly, a.note, a.by, a.incident, a.alert, a.text, a.root_cause), (None,) * 7)
+        a, _ = run("detector", ["feedback", "export", "--days", "1", "--out", "x.csv"])
+        self.assertEqual((a.days, a.out), (1, "x.csv"))
+        a, _ = run("detector", ["feedback", "suggest"])
+        self.assertEqual((a.days, a.min_false_positive, a.min_recurring), (28, 1, 3))
+        a, _ = run("detector", ["feedback", "pending", "--limit", "5"])
+        self.assertEqual((a.days, a.limit, a.series), (28, 5, None))
+        for bad in (["feedback", "nope"], ["feedback"], ["feedback", "export", "--min-false-positive", "2"]):   # export 沒有這個選項
+            run("detector", bad, rc=2)
 
     def test_incident_lists(self):
         a, _ = run("detector", ["incident", "add", "--title", "t", "--start", "s", "--end", "e", "--service", "a", "--service", "b",
                                 "--anomaly", "x", "--root-cause", "db", "--action-taken", "重啟", "--exclude-training"])
-        self.assertEqual((a.action, a.service, a.anomaly), ("add", ["a", "b"], ["x"]))
+        self.assertEqual((a.service, a.anomaly), (["a", "b"], ["x"]))
         self.assertEqual((a.root_cause, a.action_taken, a.exclude_training, a.id, a.severity), ("db", "重啟", True, None, None))
         a, _ = run("detector", ["incident", "resolve", "--id", "i1"])
-        self.assertEqual((a.action, a.id, a.service, a.anomaly), ("resolve", "i1", None, None))
+        self.assertEqual((a.id, a.root_cause, a.action_taken), ("i1", None, None))
+        run("detector", ["incident", "resolve"], rc=2)                                 # --id 必填
 
     def test_metrics_from_to_and_backtest_ids(self):
         a, _ = run("detector", ["metrics", "--from", "2026-10-01", "--to", "2026-10-08", "--compare-from", "2026-09-01", "--compare-to", "2026-09-08"])

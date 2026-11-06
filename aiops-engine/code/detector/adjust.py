@@ -25,10 +25,16 @@ metrics 的 resource.attributes.service.name、trace 的 entry.service。
 from __future__ import annotations
 
 import calendar
+import os
 import re
 
 import numpy as np
 import pandas as pd
+
+from core.config import load_config
+from core.tuning import TUNING_INDEX
+from sources.base import as_backend
+from .sources import load_calendar
 
 KINDS = ("override", "exclude_window", "reset_point", "recurring_override")
 DEFAULT_WARMUP = "24h"   # reset_point 之後多久內不判斷
@@ -301,9 +307,7 @@ def calendar_adjustments(entries: list[dict], tz: str = "Asia/Taipei") -> list[d
 def load(es, index: str, cfg: dict) -> list[dict]:
     """設定檔（adjustments_file、series.yaml 的 overrides）＋ Store 的 aiops-tuning（index 固定是它，參數留給既有呼叫），全部 kind。
     同 id 後面蓋前面。"""
-    import os
 
-    from core.config import load_config
     out = list(cfg.get("overrides") or [])
     tz = cfg.get("train", {}).get("timezone", "Asia/Taipei")
     path = cfg.get("adjustments_file", "configs/baseline/adjustments.yaml")
@@ -311,10 +315,8 @@ def load(es, index: str, cfg: dict) -> list[dict]:
         out += [localize(a, tz) for a in load_config(path, "adjustments").get("adjustments") or []]
     cal = cfg.get("calendar_file", "configs/baseline/calendar.yaml")
     if cal and os.path.exists(cal):
-        from .sources import load_calendar
         entries, tz = load_calendar(load_config(cal, "calendar"))
         out += calendar_adjustments(entries, tz or cfg.get("train", {}).get("timezone", "Asia/Taipei"))
-    from sources.base import as_backend
     out += as_backend(es).adjustments()   # ES 讀不到時 Store 印一行、回 []：這一輪只用設定檔的
     by_id = {}
     for a in out:
@@ -377,3 +379,20 @@ def describe(a: dict) -> str:
             "rule_suggestion": lambda: f"升級成規則：{a.get('service')} / {a.get('root_cause_category')}（{len(a.get('incident_ids') or [])} 件）"}[k]()
     return (f"[{a.get('status') or 'active'}] {k} {a.get('series') or '.*'} {who}：{what}"
             f"（{a.get('source') or 'manual'}；{a.get('reason') or ''}）")
+
+
+# ── 從 aiops-tuning 讀生效中的調整（以前在 detector/tuning.py；寫入在 feedback/）──
+
+def load_adjustments(es, cfg: dict) -> list[dict]:
+    """全部調整（四種 kind）：設定檔（overrides、adjustments_file）＋ aiops-tuning（tune、adjust 指令、learning loop 提的）。"""
+    return load(es, TUNING_INDEX, cfg)
+
+
+def load_overrides(es, cfg: dict, now=None) -> list[dict]:
+    """粒度、z、min_abs、confirm_points、instant_z 的調整（kind: override；舊資料沒有 kind 也是），生效中的，後面蓋前面。"""
+    return active(load_adjustments(es, cfg), now if now is not None else pd.Timestamp.now(tz="UTC"), kinds=("override",))
+
+
+def data_adjustments(es, cfg: dict, now) -> list[dict]:
+    """排除時段、重置點、週期放寬，生效中的。"""
+    return active(load_adjustments(es, cfg), now, kinds=("exclude_window", "reset_point", "recurring_override"))

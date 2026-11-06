@@ -16,6 +16,8 @@ from datetime import datetime, timedelta
 from typing import Callable
 from zoneinfo import ZoneInfo
 
+from core.config import load_config
+
 
 from .cron import Cron
 
@@ -56,7 +58,6 @@ class Job:
 
 def load_schedule(path: str, stage: int) -> tuple[ZoneInfo, list[Job]]:
     """stage：開到第幾階段（1 只開 stage 1 的；2 全開）。排程表先過 core/config 的驗證（鍵打錯在這裡就擋）。"""
-    from core.config import load_config
     cfg = load_config(path, "schedule")
     tz = ZoneInfo(str(cfg.get("timezone", "UTC")))
     jobs = [Job.from_dict(d) for d in cfg.get("jobs", [])]

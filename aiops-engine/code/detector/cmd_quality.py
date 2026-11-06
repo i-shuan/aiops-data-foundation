@@ -3,7 +3,8 @@ from __future__ import annotations
 
 import pandas as pd
 
-from .base import Anomaly, Detector
+from core.anomaly import Anomaly
+from .base import Detector
 from . import quality as Q
 from .common import _freq, _v
 

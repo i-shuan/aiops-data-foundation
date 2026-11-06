@@ -1,10 +1,10 @@
-"""量化（detector.cmd_metrics）：每天幾件、有回饋的比例、誤報率、從告警到回饋多久、經驗有沒有留下來。純計算，不連 ES；
+"""量化（feedback.cmd_metrics）：每天幾件、有回饋的比例、誤報率、從告警到回饋多久、經驗有沒有留下來。純計算，不連 ES；
 載入（load_period）用假的 ES 記下送出的查詢。"""
 import unittest
 
 import pandas as pd
 
-from detector import cmd_metrics as M
+from feedback import cmd_metrics as M
 
 T = pd.Timestamp("2026-10-01T00:00:00Z")
 

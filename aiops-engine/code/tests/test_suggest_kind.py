@@ -3,8 +3,8 @@ import unittest
 
 import pandas as pd
 
-from detector import cmd_backtest as B
-from detector import feedback as F
+from feedback import cmd_backtest as B
+from feedback import suggest as F
 from detector.adjust import in_schedule
 
 TZ = "Asia/Taipei"

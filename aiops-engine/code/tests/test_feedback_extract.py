@@ -1,4 +1,4 @@
-"""回饋的自然語言抽取（core.llm.extract_feedback）與對到調整種類（detector.feedback.suggest_from_text、tuning.propose_from_text）。
+"""回饋的自然語言抽取（core.llm.extract_feedback）與對到調整種類（feedback.suggest.suggest_from_text、tuning.propose_from_text）。
 不叫真的模型；解析率用 tests/feedback_extract_eval.py 量。docs/pdca/phase5-learning-loop/2026-10-feedback-nl-extract.md。"""
 import json
 import unittest
@@ -7,8 +7,9 @@ from unittest import mock
 import pandas as pd
 
 from core import llm as LLM
-from detector import feedback as F
-from detector import tuning as T
+from core.tuning import TUNING_INDEX
+from feedback import suggest as F
+from feedback import suggest as T
 from detector.adjust import active, problem
 
 ALERT = {"alert_id": "a-1", "service": "mes-api", "series": ["http.latency_p95_s", "http.error_rate"], "title": "mes-api 變慢"}
@@ -165,9 +166,9 @@ class MapToTuning(unittest.TestCase):
         es = ES()
         now = pd.Timestamp("2026-10-29T01:00:00Z")
         _id = T.propose_from_text(es, GOOD, ALERT, self.TEXT, "amy", now)
-        self.assertEqual(es.ensured, T.TUNING_INDEX)
+        self.assertEqual(es.ensured, TUNING_INDEX)
         (path, body), = es.put.items()
-        self.assertEqual(path, f"/{T.TUNING_INDEX}/_doc/{_id}?refresh=true")
+        self.assertEqual(path, f"/{TUNING_INDEX}/_doc/{_id}?refresh=true")
         self.assertEqual((body["status"], body["by"], body["at"], body["kind"]), ("proposed", "amy", now.isoformat(), "recurring_override"))
         self.assertEqual(T.propose_from_text(es, GOOD, ALERT, self.TEXT, "amy", now), _id)              # 同一人、同一件、同一種：覆蓋不重複
         self.assertNotEqual(T.propose_from_text(es, GOOD, ALERT, self.TEXT, "bob", now), _id)

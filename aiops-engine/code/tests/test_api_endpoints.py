@@ -148,22 +148,26 @@ class AlertHonoursRcaRequest(unittest.TestCase):
     BASE = {**ALERT, "category": "service", "report": "舊報告", "findings": {"requests": {"requests": 0}},
             "report_at": "2026-10-25T02:00:00+00:00", "rca_attempts": 5}      # 沒 trace、自動重試已用完：平常不會再跑
 
+    def al(self, **kw):
+        return C.Alert.from_doc({**self.BASE, **kw})
+
     def test_requested_reruns_and_clears_flag(self):
-        al = {**self.BASE, "rca_requested": True, "rca_requested_at": "2026-10-25T02:29:00+00:00"}
+        al = self.al(rca_requested=True, rca_requested_at="2026-10-25T02:29:00+00:00")
         self.assertEqual(C.wants_rerun(al, self.NOW, {"rca_retry": False}), (True, True))
-        self.assertNotIn("rca_requested", al)
-        self.assertNotIn("rca_requested_at", al)
+        self.assertIsNone(al.rca_requested)
+        self.assertNotIn("rca_requested", al.to_doc())                          # 標記不寫回去
+        self.assertNotIn("rca_requested_at", al.to_doc())
 
     def test_not_requested_follows_auto_rule(self):
-        self.assertEqual(C.wants_rerun(dict(self.BASE), self.NOW, {"rca_retry": False}), (False, False))
-        fresh = {**self.BASE, "rca_attempts": 1}                                # 自動重試：沒 trace、隔 2 分鐘以上、次數沒用完
+        self.assertEqual(C.wants_rerun(self.al(), self.NOW, {"rca_retry": False}), (False, False))
+        fresh = self.al(rca_attempts=1)                                          # 自動重試：沒 trace、隔 2 分鐘以上、次數沒用完
         self.assertEqual(C.wants_rerun(fresh, self.NOW, {}), (True, False))
 
     def test_resolved_or_rca_off_never_reruns(self):
-        al = {**self.BASE, "status": "resolved", "rca_requested": True}
+        al = self.al(status="resolved", rca_requested=True)
         self.assertEqual(C.wants_rerun(al, self.NOW, {}), (False, False))
-        self.assertNotIn("rca_requested", al)                                   # 標記還是拿掉，不留在文件裡
-        self.assertEqual(C.wants_rerun({**self.BASE, "rca_requested": True}, self.NOW, {"rca": False}), (False, False))
+        self.assertNotIn("rca_requested", al.to_doc())                          # 標記還是拿掉，不留在文件裡
+        self.assertEqual(C.wants_rerun(self.al(rca_requested=True), self.NOW, {"rca": False}), (False, False))
 
 
 class HtmlPages(unittest.TestCase):

@@ -19,18 +19,20 @@ import re
 import numpy as np
 import pandas as pd
 
-from .cmd_baseline import detect_series
-from .es import ES, fetch, load_baseline
-from .model import DetectOptions
-from . import adjust as A
-from . import feedback as F
-from . import rules as R
-from .common import _freq, _now, keys_of
-from .tuning import TUNING_INDEX, load_adjustments
+from core.incident import INCIDENT_INDEX
+from core.tuning import TUNING_INDEX
+from detector import adjust as A
+from detector import rules as R
+from detector.adjust import load_adjustments
+from detector.cmd_baseline import detect_series
+from detector.common import _freq, _now, keys_of
+from detector.es import ES, fetch, load_baseline
+from detector.model import DetectOptions
+from . import suggest as F
 
 
 def _confirmed_incidents(es, since) -> list[dict]:
-    hits = es.req("POST", f"/{F.INCIDENT_INDEX}/_search?ignore_unavailable=true", {
+    hits = es.req("POST", f"/{INCIDENT_INDEX}/_search?ignore_unavailable=true", {
         "size": 1000, "query": {"bool": {"filter": [{"terms": {"status": ["confirmed", "corrected", "resolved"]}},
                                                     {"range": {"start": {"gte": since.isoformat()}}}]}}}).get("hits", {}).get("hits", [])
     return [{"id": h["_id"], **h["_source"]} for h in hits if h["_source"].get("services")]
@@ -117,19 +119,93 @@ def _scope_hits(df: pd.DataFrame, proposals: list[dict], tz: str) -> int:
     return int(hit.sum())
 
 
+KINDS_DATA = ("exclude_window", "reset_point", "recurring_override")
+
+
+def _detect_all(es, cfg: dict, specs: list[dict], bases: dict, days, now, dopts, tz: str, adjs_all: list[dict], quiet: bool) -> pd.DataFrame:
+    """用一套調整（override＋排除時段等）把每條序列每天重跑一次 detect_series，回全部 status anomaly 的點（附序列名、服務、keys）。"""
+    ov = [a for a in adjs_all if (a.get("kind") or "override") == "override"]
+    adjs = [a for a in adjs_all if a.get("kind") in KINDS_DATA]
+    frames = []
+    for spec in specs:
+        keys, base = keys_of(spec), bases[spec["name"]]
+        if base.empty:
+            continue
+        for d in days:
+            day_end = min(d + pd.Timedelta(days=1), now)
+            for r, s in detect_series(es, cfg, spec, base, day_end, day_end - d, dopts, tz, ov, adjs, quiet=quiet):
+                if s.empty:
+                    continue
+                s = s[s["status"] == "anomaly"]
+                if not s.empty:
+                    frames.append(s.assign(_series=spec["name"], _svc=[_service_of(x, keys) for x in s[keys].to_dict("records")],
+                                           _keys=s[keys].to_dict("records")))
+    return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(columns=["ts", "_series", "_svc", "_keys"])
+
+
+def _judge(es, cfg: dict, before: pd.DataFrame, after: pd.DataFrame, proposals: list[dict], since, weeks: int, tz: str) -> dict:
+    """比「現在的設定」與「加上建議」兩次的結果：告警少幾個、已確認事故還抓不抓得到、漏報有沒有抓到 → verdict 與理由。"""
+    incidents = []
+    for inc in _confirmed_incidents(es, since):
+        b, a = caught(before, inc.get("services"), inc["start"], inc["end"], tz), caught(after, inc.get("services"), inc["start"], inc["end"], tz)
+        incidents.append({"id": inc["id"], "title": inc.get("title"), "services": inc.get("services"), "before": b, "after": a})
+    missed = []
+    for m in _missed(es, since):
+        t = _ts(m["anomaly_at"], tz)
+        svc = (m.get("keys") or {}).get("service") or (m.get("keys") or {}).get("resource.attributes.service.name")
+        missed.append({"series": m.get("series"), "service": svc, "at": m["anomaly_at"],
+                       "after": caught(after, [svc] if svc else None, t - pd.Timedelta(_freq(cfg.get("interval", "5m"))), t + pd.Timedelta("15min"), tz)})
+    lost = [i for i in incidents if i["before"] and not i["after"]]
+    hits = _scope_hits(before, proposals, tz)
+    res = {"anomalies_before": int(len(before)), "anomalies_after": int(len(after)), "scope_hits": hits,
+           "incidents_total": len(incidents), "incidents_caught_before": sum(i["before"] for i in incidents),
+           "incidents_caught_after": sum(i["after"] for i in incidents), "incidents_lost": [i["id"] for i in lost],
+           "missed_total": len(missed), "missed_caught_after": sum(m["after"] for m in missed)}
+    got_missed = any(m["after"] for m in missed)
+    inc_txt = (f"已確認事故 {res['incidents_caught_after']}/{len(incidents)} 件還抓得到" if res["incidents_caught_before"]
+               else f"已確認事故 {len(incidents)} 件都不是這些序列抓的，不受影響" if incidents else "沒有已確認的事故可以對照")
+    if lost:
+        res.update(verdict="harmful", recommended=False, reason=f"有害：會漏掉 {len(lost)} 件已確認的事故：{'、'.join(i['title'] or i['id'] for i in lost)}")
+    elif len(after) > len(before) and not got_missed:
+        res.update(verdict="worse", recommended=False, reason=f"告警反而變多（{len(before)} → {len(after)}），也沒抓到漏報")
+    elif len(after) == len(before) and not got_missed and hits == 0:
+        res.update(verdict="unknown", recommended=False,
+                   reason=f"無法判斷：回測 {weeks} 週內沒有落在這組建議範圍（序列、對象、時段）的異常，沒機會驗；拉長 --weeks 或等它再發生")
+    elif len(after) == len(before) and not got_missed:
+        res.update(verdict="ineffective", recommended=False, reason=f"無效：範圍內有 {hits} 筆異常，告警 {len(before)} → {len(after)} 一筆都沒少，也沒抓到漏報")
+    else:
+        res.update(verdict="effective", recommended=True, reason=f"有效：告警 {len(before)} → {len(after)}（範圍內 {hits} 筆）；{inc_txt}"
+                                                             + (f"；漏報抓到 {res['missed_caught_after']}/{len(missed)}" if missed else ""))
+    return res
+
+
+def _ablation(res: dict, proposals: list[dict], before: pd.DataFrame, cur_active: list[dict], detect, judge) -> None:
+    """整組有效才逐筆剔除：拿掉某筆後結果不變 → 那筆多餘；變差 → 必要。寫進 res["ablation"]、補 reason。"""
+    abl = {}
+    for i, p in enumerate(proposals):
+        others = [{**q, "status": "active"} for j, q in enumerate(proposals) if j != i]
+        r_i = judge(before, detect(cur_active + others))
+        same = r_i["anomalies_after"] == res["anomalies_after"] and r_i["incidents_caught_after"] == res["incidents_caught_after"] \
+            and r_i["missed_caught_after"] == res["missed_caught_after"]
+        abl[p.get("id") or f"#{i + 1}"] = "redundant" if same else "necessary"
+    res["ablation"] = abl
+    n_red = sum(v == "redundant" for v in abl.values())
+    if n_red:
+        res["reason"] += f"；{n_red} 筆拿掉也一樣（多餘）：{'、'.join(k for k, v in abl.items() if v == 'redundant')}"
+
+
 def run_backtest(es, cfg: dict, proposal, weeks: int, now=None, quiet: bool = True, ablate: bool = True) -> dict:
     """proposal：一筆建議（dict），或同一個對象的一組建議（list）——一組一起測，有效才逐筆剔除看哪筆多餘
     （docs/pdca/meta/2026-11-backtest-group.md）。
     回傳 {"verdict": effective／ineffective／unknown／harmful／worse, "recommended", "reason", "anomalies_before", "anomalies_after",
     "scope_hits", "incidents": [...], "incidents_caught_before/after", "missed_caught_after", "ablation": {id: redundant／necessary}}。
-    每天一段（window 1D）跑 detect_series，每套設定各一次。"""
+    每天一段（window 1D）跑 detect_series（_detect_all），每套設定各一次；比較在 _judge。"""
     es = _CachedES(es)   # 幾套設定讀同一批資料，只查一次；呼叫端（cmd_backtest）寫回時用的還是真的 es
     proposals = list(proposal) if isinstance(proposal, list) else [proposal]
     now = now or _now(None)
     tz = cfg.get("train", {}).get("timezone", "Asia/Taipei")
     dopts = DetectOptions(**cfg.get("detect", {}))
     cur_active = A.active(load_adjustments(es, cfg), now)
-    kinds_data = ("exclude_window", "reset_point", "recurring_override")
     only_override = all((p.get("kind") or "override") == "override" for p in proposals)
     specs = [s for s in cfg["series"] if any(re.fullmatch(p.get("series") or ".*", s["name"]) for p in proposals)] if only_override \
         else list(cfg["series"])
@@ -138,77 +214,14 @@ def run_backtest(es, cfg: dict, proposal, weeks: int, now=None, quiet: bool = Tr
     since = now - pd.Timedelta(weeks=weeks)
     days = pd.date_range(since.floor("D"), now.floor("D"), freq="D")
     bases = {s["name"]: load_baseline(es, s["name"], keys_of(s)) for s in specs}
-
-    def run(adjs_all: list[dict]) -> pd.DataFrame:
-        ov = [a for a in adjs_all if (a.get("kind") or "override") == "override"]
-        adjs = [a for a in adjs_all if a.get("kind") in kinds_data]
-        frames = []
-        for spec in specs:
-            keys, base = keys_of(spec), bases[spec["name"]]
-            if base.empty:
-                continue
-            for d in days:
-                day_end = min(d + pd.Timedelta(days=1), now)
-                for r, s in detect_series(es, cfg, spec, base, day_end, day_end - d, dopts, tz, ov, adjs, quiet=quiet):
-                    if s.empty:
-                        continue
-                    s = s[s["status"] == "anomaly"]
-                    if not s.empty:
-                        frames.append(s.assign(_series=spec["name"], _svc=[_service_of(x, keys) for x in s[keys].to_dict("records")],
-                                               _keys=s[keys].to_dict("records")))
-        return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(columns=["ts", "_series", "_svc", "_keys"])
-
-    def judge(before: pd.DataFrame, after: pd.DataFrame) -> dict:
-        incidents = []
-        for inc in _confirmed_incidents(es, since):
-            b, a = caught(before, inc.get("services"), inc["start"], inc["end"], tz), caught(after, inc.get("services"), inc["start"], inc["end"], tz)
-            incidents.append({"id": inc["id"], "title": inc.get("title"), "services": inc.get("services"), "before": b, "after": a})
-        missed = []
-        for m in _missed(es, since):
-            t = _ts(m["anomaly_at"], tz)
-            svc = (m.get("keys") or {}).get("service") or (m.get("keys") or {}).get("resource.attributes.service.name")
-            missed.append({"series": m.get("series"), "service": svc, "at": m["anomaly_at"],
-                           "after": caught(after, [svc] if svc else None, t - pd.Timedelta(_freq(cfg.get("interval", "5m"))), t + pd.Timedelta("15min"), tz)})
-        lost = [i for i in incidents if i["before"] and not i["after"]]
-        hits = _scope_hits(before, proposals, tz)
-        res = {"anomalies_before": int(len(before)), "anomalies_after": int(len(after)), "scope_hits": hits,
-               "incidents_total": len(incidents), "incidents_caught_before": sum(i["before"] for i in incidents),
-               "incidents_caught_after": sum(i["after"] for i in incidents), "incidents_lost": [i["id"] for i in lost],
-               "missed_total": len(missed), "missed_caught_after": sum(m["after"] for m in missed)}
-        got_missed = any(m["after"] for m in missed)
-        inc_txt = (f"已確認事故 {res['incidents_caught_after']}/{len(incidents)} 件還抓得到" if res["incidents_caught_before"]
-                   else f"已確認事故 {len(incidents)} 件都不是這些序列抓的，不受影響" if incidents else "沒有已確認的事故可以對照")
-        if lost:
-            res.update(verdict="harmful", recommended=False, reason=f"有害：會漏掉 {len(lost)} 件已確認的事故：{'、'.join(i['title'] or i['id'] for i in lost)}")
-        elif len(after) > len(before) and not got_missed:
-            res.update(verdict="worse", recommended=False, reason=f"告警反而變多（{len(before)} → {len(after)}），也沒抓到漏報")
-        elif len(after) == len(before) and not got_missed and hits == 0:
-            res.update(verdict="unknown", recommended=False,
-                       reason=f"無法判斷：回測 {weeks} 週內沒有落在這組建議範圍（序列、對象、時段）的異常，沒機會驗；拉長 --weeks 或等它再發生")
-        elif len(after) == len(before) and not got_missed:
-            res.update(verdict="ineffective", recommended=False, reason=f"無效：範圍內有 {hits} 筆異常，告警 {len(before)} → {len(after)} 一筆都沒少，也沒抓到漏報")
-        else:
-            res.update(verdict="effective", recommended=True, reason=f"有效：告警 {len(before)} → {len(after)}（範圍內 {hits} 筆）；{inc_txt}"
-                                                                 + (f"；漏報抓到 {res['missed_caught_after']}/{len(missed)}" if missed else ""))
-        return res
-
-    before = run(cur_active)
-    after = run(cur_active + [{**p, "status": "active"} for p in proposals])
+    detect = lambda adjs: _detect_all(es, cfg, specs, bases, days, now, dopts, tz, adjs, quiet)
+    judge = lambda before, after: _judge(es, cfg, before, after, proposals, since, weeks, tz)
+    before = detect(cur_active)
+    after = detect(cur_active + [{**p, "status": "active"} for p in proposals])
     res = {"weeks": weeks, "series": [s["name"] for s in specs], "at": now.isoformat(), "group": [p.get("id") for p in proposals] if len(proposals) > 1 else None,
            **judge(before, after)}
-    # 整組有效才逐筆剔除：拿掉某筆後結果不變 → 那筆多餘；變差 → 必要
     if ablate and len(proposals) > 1 and res["verdict"] == "effective":
-        abl = {}
-        for i, p in enumerate(proposals):
-            others = [{**q, "status": "active"} for j, q in enumerate(proposals) if j != i]
-            r_i = judge(before, run(cur_active + others))
-            same = r_i["anomalies_after"] == res["anomalies_after"] and r_i["incidents_caught_after"] == res["incidents_caught_after"] \
-                and r_i["missed_caught_after"] == res["missed_caught_after"]
-            abl[p.get("id") or f"#{i + 1}"] = "redundant" if same else "necessary"
-        res["ablation"] = abl
-        n_red = sum(v == "redundant" for v in abl.values())
-        if n_red:
-            res["reason"] += f"；{n_red} 筆拿掉也一樣（多餘）：{'、'.join(k for k, v in abl.items() if v == 'redundant')}"
+        _ablation(res, proposals, before, cur_active, detect, judge)
     return res
 
 
@@ -258,7 +271,7 @@ def run_rule_backtest(es, cfg: dict, proposal: dict, weeks: int, now=None) -> di
     now = now or _now(None)
     tz = cfg.get("train", {}).get("timezone", "Asia/Taipei")
     ids = list(proposal.get("incident_ids") or [])
-    got = es.req("POST", f"/{F.INCIDENT_INDEX}/_mget", {"ids": ids}).get("docs", []) if ids else []
+    got = es.req("POST", f"/{INCIDENT_INDEX}/_mget", {"ids": ids}).get("docs", []) if ids else []
     incidents = [{"id": g["_id"], **g["_source"]} for g in got if g.get("found") and g["_source"].get("start")]
     df = fetch(es, draft, now - pd.Timedelta(weeks=weeks), now, draft.get("lookback", "5m"))   # ES 的 fixed_interval 要 5m，不是 pandas 的 5min
     return rule_backtest_result(df, draft, incidents, weeks, tz)

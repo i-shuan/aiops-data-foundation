@@ -6,15 +6,16 @@ import dataclasses
 import numpy as np
 import pandas as pd
 
-from .es import (ANOMALY_INDEX, ANOMALY_MAPPING, BASELINE_INDEX, BASELINE_MAPPING, ES, alive_times, doc_id, fetch, load_baseline,
+from core.alert import ALERT_INDEX, ALERT_MAPPING, stamp_of
+from core.anomaly import ANOMALY_INDEX, ANOMALY_MAPPING, Anomaly
+from .es import (BASELINE_INDEX, BASELINE_MAPPING, ES, alive_times, doc_id, fetch, load_baseline,
                  load_group_baselines, value_kind)
 from . import adjust as A
 from .model import (CONFIDENCE, RESOLUTIONS, DetectOptions, TrainOptions, effective_for, mask_thin, pick_resolution, score, group_of, mark_status, override_for, resolutions_from, score_poisson, train, train_groups)
 from .common import _freq, _now, _v, keys_of
-from .base import Anomaly
-from .owner import write_anomalies
-from .tuning import TUNING_INDEX, TUNING_MAPPING, data_adjustments, load_overrides
-from sources import as_backend, open_backend
+from sources import as_backend, open_backend, write_anomalies
+from core.tuning import TUNING_INDEX, TUNING_MAPPING, validated
+from .adjust import data_adjustments, load_overrides
 
 
 def save_baseline(es, name: str, by: list[str], b: pd.DataFrame, start, end, had_data: bool = False) -> None:
@@ -299,7 +300,7 @@ def cmd_tune(cfg: dict, args) -> int:
     doc = {"kind": "override", "series": args.series, "match": match, "resolution": args.resolution, "z": args.z, "min_abs": args.min_abs,
            "confirm_points": args.confirm_points, "instant_z": args.instant_z,
            "reason": args.reason, "by": args.by, "at": pd.Timestamp.now(tz="UTC").isoformat()}
-    es.req("PUT", f"/{TUNING_INDEX}/_doc/{_id}?refresh=true", {k: v for k, v in doc.items() if v is not None})
+    es.req("PUT", f"/{TUNING_INDEX}/_doc/{_id}?refresh=true", validated({k: v for k, v in doc.items() if v is not None}))
     print(f"已調整：{args.series} {match} → " + "，".join(f"{k}={doc[k]}" for k in ("resolution", "z", "min_abs", "confirm_points", "instant_z") if doc[k] is not None)
           + "（粒度下次 train 生效；z、min_abs、confirm_points、instant_z 下次 detect 生效）")
     return 0
@@ -427,7 +428,6 @@ def write_detect_status(es, now: pd.Timestamp, missing: list[str]) -> None:
     missing_baseline 是這輪沒有 baseline 的序列數。aiops-baseline 掉了（ES 重建、index 被刪）時 detect 只印一行就跳過，
     動態基準線這一路靜默停擺，aiops-heartbeat 看不到；Grafana 的 aiops-baseline-missing 規則查 missing_baseline > 0 送平台
     （grafana/helmchart/files/alert-rules.yaml、docs/pdca/meta/2026-10-open-issues.md 第 7 節）。"""
-    from investigator.cmd_alert import ALERT_INDEX, ALERT_MAPPING, stamp_of   # 函式內 import：cmd_alert 也 import detector，避免循環
     es.ensure_index(ALERT_INDEX, ALERT_MAPPING)    # 既有 index 補 missing_baseline 欄位（dynamic false；ensure_index 會 PUT _mapping）
     es.bulk_index(ALERT_INDEX, [("detect-status", {
         "@timestamp": stamp_of(now).isoformat(), "alert_id": "detect-status", "category": "status", "status": "ok",

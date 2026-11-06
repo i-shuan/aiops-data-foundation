@@ -28,10 +28,13 @@ import typer
 
 from core import traces as T
 from core.config import load_config
+from sources.base import as_backend
 
 from . import analyze as A
 from . import cmd_alert
 from . import es as E
+from . import similar as SIM
+from feedback import importer as IMP
 from .report import _dur, _local, _ms, _ts, investigate_full  # noqa: F401  舊的 import 路徑還有人用
 
 app = typer.Typer(add_completion=False, rich_markup_mode=None, pretty_exceptions_enable=False)
@@ -47,7 +50,7 @@ def topology(cfg: dict, args) -> str:
     end = _ts(args.at)
     start = end - _dur(args.window)
     ids = E.recent_trace_ids(es, cfg["indices"]["traces"], start, end, args.sample)
-    tr = T.group_traces(T.spans_of(es, cfg["indices"]["traces"], ids, start - timedelta(minutes=5), end + timedelta(minutes=5)))
+    tr = T.group_traces(as_backend(es).spans(cfg["indices"]["traces"], ids, start - timedelta(minutes=5), end + timedelta(minutes=5)))
     edges = A.topology(tr)
     tz = cfg.get("timezone", "Asia/Taipei")
     out = [f"# 服務之間的呼叫關係：{_local(start, tz)}～{_local(end, tz)}（{tz}，最近 {len(tr)} 個請求）", "",
@@ -58,7 +61,6 @@ def topology(cfg: dict, args) -> str:
 
 
 def similar_eval(cfg: dict, args) -> int:
-    from . import similar as SIM
     es = E.ES()
     weights = (cfg.get("alerts") or {}).get("similar_weights")
     r = SIM.evaluate(es, weights=weights)
@@ -81,7 +83,6 @@ def similar_eval(cfg: dict, args) -> int:
 
 
 def import_incidents(cfg: dict, args) -> int:
-    from . import importer as IMP
     db = cfg.get("incidents_db") or {}
     url, sql = args.db or db.get("url"), args.sql or db.get("sql")
     tz = args.tz or cfg.get("timezone") or IMP.DEFAULT_TZ
@@ -110,26 +111,26 @@ def investigate_cmd(config: str = Opt(...), service: str | None = Opt(None),
                     start: str | None = Opt(None), end: str | None = Opt(None),
                     at: str | None = Opt(None, help="不給 --start/--end 時：查到這個時間為止（預設現在）"),
                     window: str = Opt("30m"), out: str | None = Opt(None)) -> int:
-    args = Namespace(**locals())
+    args = Namespace(config=config, service=service, route=route, start=start, end=end, at=at, window=window, out=out)
     return _report(investigate(load_config(config, "rca"), args), out)
 
 
 @app.command("topology")
 def topology_cmd(config: str = Opt(...), at: str | None = Opt(None), window: str = Opt("1h"), sample: int = Opt(2000),
                  out: str | None = Opt(None)) -> int:
-    args = Namespace(**locals())
+    args = Namespace(config=config, at=at, window=window, sample=sample, out=out)
     return _report(topology(load_config(config, "rca"), args), out)
 
 
 @app.command("alert", help="異常合成一件、新的那件跑根因分析，寫 aiops-alerts（Grafana 讀它發通知）")
 def alert_cmd(config: str = Opt(...), at: str | None = Opt(None, help="回測：拿這個時間當成「現在」")) -> int:
-    return cmd_alert.run(load_config(config, "rca"), Namespace(**locals()), investigate_full)
+    return cmd_alert.run(load_config(config, "rca"), Namespace(config=config, at=at), investigate_full)
 
 
 @app.command("similar-eval", help="告警分類的評測：留一法分類準確率與 recall@3（同一個根因分類有沒有排進前 3）")
 def similar_eval_cmd(config: str = Opt(...),
                      learn_weights: bool = Opt(False, "--learn-weights", help="case ≥ 50 件時用留一法準確率學特徵權重，印出來（不自動寫入）")) -> int:
-    return similar_eval(load_config(config, "rca"), Namespace(**locals()))
+    return similar_eval(load_config(config, "rca"), Namespace(config=config, learn_weights=learn_weights))
 
 
 @app.command("import-incidents", help="歷史事故單匯入 aiops-incidents（status confirmed、source import），告警分類馬上用得到")
@@ -140,7 +141,7 @@ def import_incidents_cmd(file: str | None = typer.Argument(None, help="CSV 或 J
                          config: str | None = Opt(None, help="選填：拿 timezone 當沒寫時區的時間的時區；incidents_db: {url, sql} 可以放這裡代替 --db、--sql"),
                          tz: str | None = Opt(None, help="沒寫時區的時間當哪裡的時間（預設 Asia/Taipei，或 --config 的 timezone）"),
                          dry_run: bool = Opt(False, "--dry-run", help="只解析、印出哪幾筆會略過，不寫 ES")) -> int:
-    args = Namespace(**locals())
+    args = Namespace(file=file, db=db, sql=sql, config=config, tz=tz, dry_run=dry_run)
     return import_incidents(load_config(config, "rca") if config else {}, args)
 
 

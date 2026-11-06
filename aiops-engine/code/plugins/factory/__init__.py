@@ -6,6 +6,11 @@ from __future__ import annotations
 from datetime import datetime
 
 from core.plugin import Chain, Plugin as Base
+from investigator.report import _dur
+
+from .chain import lot_links
+from .changes import change_at
+from .cmd_paths import register
 
 PROFILE = {
     # 機台歸屬（廠區、設備工程師群）在機台主檔 eqp-master：一台一筆、沒有時間欄位（static），engine 只讀
@@ -59,19 +64,15 @@ class Plugin(Base):
 
     def chain(self, es, cfg, anomalies, open_alerts, start, now) -> Chain:
         """前後站：這一輪帶 lot 的異常 → 從履歷找這批 lot 之前經過哪幾站（plugins/factory/chain.py）。"""
-        from investigator.report import _dur
 
-        from .chain import lot_links
         acfg = cfg.get("alerts", {})
         return Chain(links=lot_links(es, cfg["indices"]["traces"], anomalies, now, _dur(str(acfg.get("paths_lookback", "3d")))))
 
     def change_at(self, es, cfg, entity, since, now) -> datetime | None:
         """recipe 變更紀錄當換版（plugins/factory/changes.py）。"""
-        from .changes import change_at
         acfg = cfg.get("alerts", {})
         return change_at(es, acfg.get("deploy_index", "eqp-logs-*"), acfg.get("deploy_entity_field", "equipment_id"), entity,
                          since, now, acfg.get("deploy_time_field", "@timestamp"), acfg.get("deploy_filter", {"term": {"event_type": "recipe_change"}}))
 
     def commands(self) -> dict:
-        from .cmd_paths import register
         return {"paths-merge": register}

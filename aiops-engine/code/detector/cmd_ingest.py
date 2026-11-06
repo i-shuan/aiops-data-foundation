@@ -11,8 +11,8 @@ from sources.base import as_backend
 
 from . import ingest as I
 from .common import RULE_FIELDS, _now
-from .es import ANOMALY_INDEX, ANOMALY_MAPPING
-from .owner import write_anomalies
+from core.anomaly import ANOMALY_INDEX, ANOMALY_MAPPING
+from sources import write_anomalies
 
 INGEST_FIELDS = {**RULE_FIELDS, "source": {"type": "keyword"}, "source_id": {"type": "keyword"}, "status": {"type": "keyword"}}
 

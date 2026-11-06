@@ -21,12 +21,14 @@ http 和 taiwan 都帶快取（cache_ttl，預設 24h）：detect 每 30 秒跑�
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import sys
 import time
 
 import pandas as pd
+import requests
 
 TAIWAN_URL = "https://cdn.jsdelivr.net/gh/ruyut/TaiwanCalendar/data/{year}.json"
 
@@ -36,7 +38,6 @@ def _warn(msg: str) -> None:
 
 
 def _http_json(url: str, headers: dict | None = None, timeout: float = 20):
-    import requests
     r = requests.get(url, headers=headers or {}, timeout=timeout)
     if r.status_code == 404:
         return None
@@ -140,7 +141,6 @@ def _years(src: dict, now: pd.Timestamp | None = None) -> list[int]:
 
 def _http_source(src: dict, fetch) -> object:
     """provider: http。帶快取（cache_ttl，預設 24h；cache_dir 預設 .cache/http）。"""
-    import hashlib
     d = src.get("cache_dir", ".cache/http")
     path = os.path.join(d, hashlib.sha1(src["url"].encode()).hexdigest()[:16] + ".json") if d else None
     return cached_fetch(fetch, src["url"], path, _ttl_seconds(src.get("cache_ttl", "24h")), src.get("headers"),

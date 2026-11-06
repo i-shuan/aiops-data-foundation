@@ -7,7 +7,7 @@ import pandas as pd
 
 import sources
 from core.version import ENGINE_VERSION
-from detector import owner as O
+from sources import write_anomalies
 from detector import rules as R
 from detector import es as DE
 from investigator import similar as SIM
@@ -73,13 +73,13 @@ class AsBackend(unittest.TestCase):
 class WriteAnomalies(unittest.TestCase):
     def test_memory_store_gets_engine_version_and_unassigned(self):
         be = sources.MemoryBackend({})
-        O.write_anomalies(be, [("a", {"keys": {"service": "mes-api"}})])
+        write_anomalies(be, [("a", {"keys": {"service": "mes-api"}})])
         (_, doc), = be.store.docs("aiops-anomalies")
         self.assertEqual((doc["engine_version"], doc["dept"], doc["group"]), (ENGINE_VERSION, None, "unassigned"))
 
     def test_es_store_gets_owner_and_engine_version(self):
         es = FakeES(owners={"mes-api": ("D3120", "it")})
-        O.write_anomalies(sources.ESBackend(es), [("a", {"keys": {"service": "mes-api"}}), ("b", {"keys": {"service": "nobody"}})])
+        write_anomalies(sources.ESBackend(es), [("a", {"keys": {"service": "mes-api"}}), ("b", {"keys": {"service": "nobody"}})])
         (index, docs), = es.written
         self.assertEqual(index, "aiops-anomalies")
         self.assertEqual([(d["dept"], d["group"], d["engine_version"]) for _, d in docs],

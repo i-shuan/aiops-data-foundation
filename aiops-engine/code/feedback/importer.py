@@ -17,12 +17,16 @@ from __future__ import annotations
 
 import csv
 import json
+import os
+import re
+import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from core.es import ES, doc_id
-
-from .similar import INCIDENT_INDEX, _seg_name
+from core.incident import INCIDENT_INDEX, INCIDENT_MAPPING, Fingerprint, Incident
+from detector.adjust import local_iso
 
 REQUIRED = ("title", "start", "end", "services", "root_cause_category", "root_cause", "action", "how_detected", "checked")
 OPTIONAL = ("by", "note")
@@ -37,16 +41,13 @@ class DbRows:
     url 是 SQLAlchemy 的；sqlite:/// 不用裝 SQLAlchemy（標準庫）。url 裡的 ${VAR} 用環境變數換掉（密碼不寫進設定檔）。"""
 
     def __init__(self, url: str, sql: str):
-        import os
         self.url, self.sql = os.path.expandvars(url), sql
 
     def __str__(self):
-        import re
         return re.sub(r"://([^:/@]+):[^@]*@", r"://\1:***@", self.url)   # 印出來時遮密碼
 
     def rows(self) -> list[dict]:
         if self.url.startswith("sqlite:///"):
-            import sqlite3
             con = sqlite3.connect(self.url[len("sqlite:///"):])
             con.row_factory = sqlite3.Row
             try:
@@ -98,7 +99,6 @@ def _text(v) -> str | None:
 
 def _time(v, tz: str) -> str | None:
     """沒寫時區的當 tz 的當地時間。看不懂回 None（呼叫端當成缺欄位）。"""
-    from detector.adjust import local_iso
     s = _text(v)
     if not s:
         return None
@@ -121,30 +121,22 @@ def normalize(row: dict, n: int, tz: str = DEFAULT_TZ, now: datetime | None = No
         return None, f"end（{end}）早於 start（{start}）"
     now = now or datetime.now(timezone.utc)
     services = sorted(set(split_list(row["services"])))
-    doc = {"@timestamp": now.isoformat(), "title": _text(row["title"]), "start": start, "end": end, "services": services,
-           "status": "confirmed", "source": "import", "detected_at": start, "resolved_at": end,
-           "root_cause_category": _text(row["root_cause_category"]), "root_cause": _text(row["root_cause"]),
-           "action": _text(row["action"]), "how_detected": _text(row["how_detected"]), "checked": split_list(row["checked"]),
-           "fingerprint": fingerprint(row, services)}
-    for k in OPTIONAL:
-        if _text(row.get(k)):
-            doc[k] = _text(row[k])
-    if doc.get("by"):
-        doc["confirmed_by"] = doc["by"]
-    from zoneinfo import ZoneInfo
     day = datetime.fromisoformat(start).astimezone(ZoneInfo(tz)).strftime("%Y%m%d")    # 事故日期用當地日期
-    doc["alert_id"] = f"imp-{day}-{n:02d}"
-    return (doc_id("import", doc["title"], start, services), doc), None
+    by = _text(row.get("by"))
+    inc = Incident(**{"@timestamp": now.isoformat()}, title=_text(row["title"]), start=start, end=end, services=services,
+                   status="confirmed", source="import", detected_at=start, resolved_at=end,
+                   root_cause_category=_text(row["root_cause_category"]), root_cause=_text(row["root_cause"]),
+                   action=_text(row["action"]), how_detected=_text(row["how_detected"]), checked=split_list(row["checked"]),
+                   fingerprint=fingerprint(row, services), by=by, confirmed_by=by, note=_text(row.get("note")),
+                   alert_id=f"imp-{day}-{n:02d}")
+    return (doc_id("import", inc.title, start, services), inc.to_doc()), None
 
 
-def fingerprint(row: dict, services: list[str]) -> dict:
-    """跟 similar.fingerprint 同一個形狀：全部是陣列；慢的那段、錯的源頭去數字，跟自動產生的對得起來。"""
-    return {"services": services,
-            "routes": sorted(set(split_list(row.get("routes")))),
-            "series": sorted(set(split_list(row.get("series")))),
-            "slow_segments": [_seg_name(s) for s in split_list(row.get("slow_segments"))][:3],
-            "error_origins": [_seg_name(s) for s in split_list(row.get("error_origins"))][:3],
-            "patterns": [p[:120] for p in split_list(row.get("patterns"))][:5]}
+def fingerprint(row: dict, services: list[str]) -> Fingerprint:
+    """匯入檔一列的指紋欄位 → Fingerprint；正規化（去數字、截幾個）跟自動產生的同一處（Fingerprint.normalized），才對得起來。"""
+    return Fingerprint.normalized(services=services, routes=split_list(row.get("routes")), series=split_list(row.get("series")),
+                                  slow_segments=split_list(row.get("slow_segments")), error_origins=split_list(row.get("error_origins")),
+                                  patterns=split_list(row.get("patterns")))
 
 
 def parse(path: "str | Path | DbRows", tz: str = DEFAULT_TZ, now: datetime | None = None) -> tuple[list[tuple[str, dict]], list[tuple[int, str]]]:
@@ -163,7 +155,6 @@ def write(es: ES, docs: list[tuple[str, dict]]) -> int:
     """index（不是 update）：匯入的檔案是這幾件的真相，重匯就覆蓋，包括回饋網頁後來改過的欄位。"""
     if not docs:
         return 0
-    from detector.feedback import INCIDENT_MAPPING
     es.ensure_index(INCIDENT_INDEX, INCIDENT_MAPPING)
     es.bulk_index(INCIDENT_INDEX, docs)
     return len(docs)

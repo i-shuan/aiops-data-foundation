@@ -10,7 +10,7 @@
 | `models.peer` | M2 Pod 同儕橫向比對 (Peer Comparison) | `group… + member + value [+ volume]`：一個 Pod 在這個 window 的值 | `compare`、`compare_checked` |
 | `models.rules` | M3 靜態臨界值規則 (Static Threshold Rules) | `{by 的值元組: [(ts, 文件), …]}`，文件是攤平的 dict；window 型用 `by… + value + n` | `evaluate`、`evaluate_window`、`points_of`（原始列 → points） |
 | `models.trace` | M4 trace 分段 | span：`{trace_id, span_id, parent, service, name, kind, target, start_ms, dur_ms, error, …}`，一列一段 | `group_traces`、`compare_segments`、`summarize`、`segment`、`self_times` |
-| `models.similar` | M5 相似事故檢索 | 新事故的 `alert`、`findings`；候選 `[(id, 事故文件), …]`，文件有 `fingerprint`、`status` | `fingerprint`、`rank`、`confirmed_only`、`format_similar` |
+| `models.similar` | M5 相似事故檢索 | 新事故的 `alert`、`findings`；候選 `[(id, 事故文件), …]`，文件有 `fingerprint`、`status` | `fingerprint`（回 `core.incident.Fingerprint`；`rank`／`explain` 也收同形狀的 dict）、`rank`、`confirmed_only`、`format_similar` |
 
 ## 欄位
 

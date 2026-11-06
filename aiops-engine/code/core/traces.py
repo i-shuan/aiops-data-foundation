@@ -138,19 +138,6 @@ def from_merged(doc: dict) -> list[dict]:
             for s in doc.get("spans") or []]
 
 
-def spans_by_id(es, index: str, span_ids: list[str], start: datetime, end: datetime) -> dict[str, dict]:
-    """用 span_id 讀回 span（例如 link 指到的、另一個 trace 裡的生產者）。ES 的查詢在 sources/es_source.py。"""
-    from sources.base import as_backend   # sources import 這個模組（schema_of、to_span），所以在這裡才 import
-    return as_backend(es).spans_by_id(index, span_ids, start, end)
-
-
-def spans_of(es, index: str, trace_ids: list[str], start: datetime, end: datetime) -> list[dict]:
-    """把這些 trace 的所有 span 讀回來（含其他服務的）。時間放寬，跨過邊界的請求也讀得完整。
-    ES 的查詢在 sources/es_source.py；檔案來源的 span 已經是這個格式，直接拿。"""
-    from sources.base import as_backend
-    return as_backend(es).spans(index, trace_ids, start, end)
-
-
 def segment(s: dict) -> str:
     """一段的名稱：服務 › 做什麼（→ 呼叫誰）。比較、排名都以這個為單位。"""
     label = f"{s['service']} › {s['name']}"
