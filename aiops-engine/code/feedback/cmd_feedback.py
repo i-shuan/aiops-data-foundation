@@ -1,4 +1,4 @@
-"""Check：事故紀錄 incident、值班回饋 feedback（detector/feedback.py）。"""
+"""⑨ 值班回饋 feedback（pending、add、list、summary、suggest、export）與事故紀錄 incident（add、list、resolve）；計算在 feedback/suggest.py。"""
 from __future__ import annotations
 
 import json
@@ -6,14 +6,16 @@ import json
 import pandas as pd
 
 from core import llm as LLM
-from core.incident import Incident
+from core.incident import INCIDENT_INDEX, INCIDENT_MAPPING, Incident
 
-from .es import ANOMALY_INDEX, ES, doc_id
-from . import adjust as A
-from . import feedback as F
-from .model import DetectOptions
-from .common import _now
-from .tuning import TUNING_INDEX, TUNING_MAPPING, load_adjustments, propose_from_text
+from detector.es import ANOMALY_INDEX, ES, doc_id
+from core.tuning import TUNING_INDEX, TUNING_MAPPING
+from detector import adjust as A
+from detector.adjust import load_adjustments
+from detector.common import _now
+from detector.model import DetectOptions
+from . import suggest as F
+from .suggest import propose_from_text
 
 
 def _anomaly_rows(es, days: int, now) -> pd.DataFrame:
@@ -46,7 +48,7 @@ def _feedback_rows(es, days: int, now) -> pd.DataFrame:
 
 def _confirmed_incidents(es, days: int, now) -> list[dict]:
     """老師傅確認過、有根因分類的事故（升級成規則的材料）。"""
-    hits = es.req("POST", f"/{F.INCIDENT_INDEX}/_search?ignore_unavailable=true", {
+    hits = es.req("POST", f"/{INCIDENT_INDEX}/_search?ignore_unavailable=true", {
         "size": 1000, "query": {"bool": {"filter": [{"terms": {"status": ["confirmed", "corrected"]}}, {"exists": {"field": "root_cause_category"}},
                                                     {"range": {"start": {"gte": (now - pd.Timedelta(days=days)).isoformat()}}}]}}}).get("hits", {}).get("hits", [])
     return [{"id": h["_id"], **h["_source"]} for h in hits]
@@ -301,10 +303,10 @@ def cmd_feedback(cfg: dict, args) -> int:
 
 def cmd_incident(cfg: dict, args) -> int:
     es = ES()
-    es.ensure_index(F.INCIDENT_INDEX, F.INCIDENT_MAPPING)
+    es.ensure_index(INCIDENT_INDEX, INCIDENT_MAPPING)
     now = _now(None)
     if args.action == "list":
-        hits = es.req("POST", f"/{F.INCIDENT_INDEX}/_search?ignore_unavailable=true",
+        hits = es.req("POST", f"/{INCIDENT_INDEX}/_search?ignore_unavailable=true",
                       {"size": 200, "sort": [{"start": "desc"}]}).get("hits", {}).get("hits", [])
         for h in hits:
             i = h["_source"]
@@ -313,7 +315,7 @@ def cmd_incident(cfg: dict, args) -> int:
         print(f"共 {len(hits)} 件")
         return 0
     if args.action == "resolve":
-        es.req("POST", f"/{F.INCIDENT_INDEX}/_update/{args.id}?refresh=true",
+        es.req("POST", f"/{INCIDENT_INDEX}/_update/{args.id}?refresh=true",
                {"doc": {"status": "resolved", "resolved_at": now.isoformat(), "action": args.action_taken,
                         "root_cause": args.root_cause}})
         print(f"已結案：{args.id}")
@@ -327,7 +329,7 @@ def cmd_incident(cfg: dict, args) -> int:
                    services=args.service or [], severity=args.severity, status="open", root_cause=args.root_cause,
                    action=args.action_taken, by=args.by, anomaly_ids=args.anomaly or []).to_doc()
     _id = args.id or doc_id("incident", doc["title"], doc["start"])
-    es.req("PUT", f"/{F.INCIDENT_INDEX}/_doc/{_id}?refresh=true", doc)
+    es.req("PUT", f"/{INCIDENT_INDEX}/_doc/{_id}?refresh=true", doc)
     print(f"已記錄事故 {_id}：{args.title}（{doc['start'][:16]}～{doc['end'][:16]}）")
     if args.exclude_training:
         es.ensure_index(TUNING_INDEX, TUNING_MAPPING)

@@ -40,7 +40,8 @@ from detector.cmd_baseline import detect_series
 from detector.common import keys_of
 from detector.es import ANOMALY_INDEX, BASELINE_INDEX, ES, load_baseline
 from detector.model import DetectOptions
-from detector.tuning import TUNING_INDEX, data_adjustments, load_overrides
+from core.tuning import TUNING_INDEX
+from detector.adjust import data_adjustments, load_overrides
 from tests import otlp_synth as O
 
 

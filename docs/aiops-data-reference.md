@@ -13,8 +13,8 @@
 | `aiops-anomalies` | `aiops-engine/code/detector/es.py` 的 `ANOMALY_MAPPING` |
 | `aiops-alerts` | `aiops-engine/code/investigator/cmd_alert.py` 的 `ALERT_MAPPING` |
 | `aiops-incidents` | `aiops-engine/code/core/incident.py` 的 `INCIDENT_MAPPING`（欄位的唯一定義是同一檔的 `Incident`、`Fingerprint` 模型，寫入一律 `to_doc()`） |
-| `aiops-feedback` | `aiops-engine/code/detector/feedback.py` 的 `FEEDBACK_MAPPING` |
-| `aiops-tuning` | `aiops-engine/code/detector/tuning.py` 的 `TUNING_MAPPING` |
+| `aiops-feedback` | `aiops-engine/code/feedback/suggest.py` 的 `FEEDBACK_MAPPING` |
+| `aiops-tuning` | `aiops-engine/code/core/tuning.py` 的 `TUNING_MAPPING`（⑨ 寫、④ 讀，所以放 `core/`） |
 
 五個索引的 mapping 都是 `dynamic: false`：**沒列在 mapping 的欄位，會留在 `_source`（Grafana 面板讀得到、顯示得出來），但不能拿來篩選或聚合。**
 

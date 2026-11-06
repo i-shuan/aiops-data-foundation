@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from pydantic import ValidationError
 
 from core.incident import INCIDENT_MAPPING, UNMAPPED_FIELDS, Fingerprint, Incident
-from investigator import importer as IMP
+from feedback import importer as IMP
 from investigator import similar as SIM
 
 ALERT = {"alert_id": "a-1", "service": "mes-api", "routes": ["GET /lots/{id}"], "series": ["http.latency_p95_s"]}

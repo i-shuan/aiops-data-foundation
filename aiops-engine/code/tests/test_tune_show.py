@@ -59,7 +59,7 @@ class TuneShow(unittest.TestCase):
     def test_values_match_what_detect_uses(self):
         # --show 的值跟 detect 的 score_params／status_params 同一個函式算出來，不會兩套
         from detector.model import DetectOptions
-        from detector.tuning import load_overrides
+        from detector.adjust import load_overrides
         ov = load_overrides(FakeES(), CFG)
         spec, key = CFG["series"][0], {"service": "mes-report-api"}
         self.assertEqual(C.score_params(spec, key, DetectOptions(**CFG["detect"]), ov), (7.0, 0.2))

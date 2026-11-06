@@ -377,3 +377,21 @@ def describe(a: dict) -> str:
             "rule_suggestion": lambda: f"升級成規則：{a.get('service')} / {a.get('root_cause_category')}（{len(a.get('incident_ids') or [])} 件）"}[k]()
     return (f"[{a.get('status') or 'active'}] {k} {a.get('series') or '.*'} {who}：{what}"
             f"（{a.get('source') or 'manual'}；{a.get('reason') or ''}）")
+
+
+# ── 從 aiops-tuning 讀生效中的調整（以前在 detector/tuning.py；寫入在 feedback/）──
+
+def load_adjustments(es, cfg: dict) -> list[dict]:
+    """全部調整（四種 kind）：設定檔（overrides、adjustments_file）＋ aiops-tuning（tune、adjust 指令、learning loop 提的）。"""
+    from core.tuning import TUNING_INDEX
+    return load(es, TUNING_INDEX, cfg)
+
+
+def load_overrides(es, cfg: dict, now=None) -> list[dict]:
+    """粒度、z、min_abs、confirm_points、instant_z 的調整（kind: override；舊資料沒有 kind 也是），生效中的，後面蓋前面。"""
+    return active(load_adjustments(es, cfg), now if now is not None else pd.Timestamp.now(tz="UTC"), kinds=("override",))
+
+
+def data_adjustments(es, cfg: dict, now) -> list[dict]:
+    """排除時段、重置點、週期放寬，生效中的。"""
+    return active(load_adjustments(es, cfg), now, kinds=("exclude_window", "reset_point", "recurring_override"))

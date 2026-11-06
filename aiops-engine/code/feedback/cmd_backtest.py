@@ -19,18 +19,20 @@ import re
 import numpy as np
 import pandas as pd
 
-from .cmd_baseline import detect_series
-from .es import ES, fetch, load_baseline
-from .model import DetectOptions
-from . import adjust as A
-from . import feedback as F
-from . import rules as R
-from .common import _freq, _now, keys_of
-from .tuning import TUNING_INDEX, load_adjustments
+from core.incident import INCIDENT_INDEX
+from core.tuning import TUNING_INDEX
+from detector import adjust as A
+from detector import rules as R
+from detector.adjust import load_adjustments
+from detector.cmd_baseline import detect_series
+from detector.common import _freq, _now, keys_of
+from detector.es import ES, fetch, load_baseline
+from detector.model import DetectOptions
+from . import suggest as F
 
 
 def _confirmed_incidents(es, since) -> list[dict]:
-    hits = es.req("POST", f"/{F.INCIDENT_INDEX}/_search?ignore_unavailable=true", {
+    hits = es.req("POST", f"/{INCIDENT_INDEX}/_search?ignore_unavailable=true", {
         "size": 1000, "query": {"bool": {"filter": [{"terms": {"status": ["confirmed", "corrected", "resolved"]}},
                                                     {"range": {"start": {"gte": since.isoformat()}}}]}}}).get("hits", {}).get("hits", [])
     return [{"id": h["_id"], **h["_source"]} for h in hits if h["_source"].get("services")]
@@ -258,7 +260,7 @@ def run_rule_backtest(es, cfg: dict, proposal: dict, weeks: int, now=None) -> di
     now = now or _now(None)
     tz = cfg.get("train", {}).get("timezone", "Asia/Taipei")
     ids = list(proposal.get("incident_ids") or [])
-    got = es.req("POST", f"/{F.INCIDENT_INDEX}/_mget", {"ids": ids}).get("docs", []) if ids else []
+    got = es.req("POST", f"/{INCIDENT_INDEX}/_mget", {"ids": ids}).get("docs", []) if ids else []
     incidents = [{"id": g["_id"], **g["_source"]} for g in got if g.get("found") and g["_source"].get("start")]
     df = fetch(es, draft, now - pd.Timedelta(weeks=weeks), now, draft.get("lookback", "5m"))   # ES 的 fixed_interval 要 5m，不是 pandas 的 5min
     return rule_backtest_result(df, draft, incidents, weeks, tz)

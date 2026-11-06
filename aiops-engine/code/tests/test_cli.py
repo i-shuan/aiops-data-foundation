@@ -12,7 +12,9 @@ from typer.testing import CliRunner
 
 import detector.__main__ as D
 import investigator.__main__ as I
+from core import cli as CLI
 from core import plugin
+from feedback import cli as FB
 from investigator import cmd_alert
 from plugins.factory import cmd_paths
 
@@ -22,8 +24,8 @@ CODE = os.path.dirname(HERE)
 # 子命令 → (處理函式所在的模組, 屬性名, load_config 的 kind)
 HANDLERS = {
     "train": (D, "cmd_train", "series"), "detect": (D, "cmd_detect", "series"), "tune": (D, "cmd_tune", "series"),
-    "backtest": (D, "cmd_backtest", "series"), "adjust": (D, "cmd_adjust", "series"), "shift": (D, "cmd_shift", "series"),
-    "metrics": (D, "cmd_metrics", "series"), "feedback": (D, "cmd_feedback", "series"), "incident": (D, "cmd_incident", "series"),
+    "backtest": (FB, "cmd_backtest", "series"), "adjust": (FB, "cmd_adjust", "series"), "shift": (D, "cmd_shift", "series"),
+    "metrics": (FB, "cmd_metrics", "series"), "feedback": (FB, "cmd_feedback", "series"), "incident": (FB, "cmd_incident", "series"),
     "rules": (D, "cmd_rules", "rules"), "peer": (D, "cmd_peer", "peer"), "quality": (D, "cmd_quality", "quality"),
     "trace-collect": (D, "cmd_trace_collect", "trace"), "trace-train": (D, "cmd_trace_train", "trace"),
     "trace-detect": (D, "cmd_trace_detect", "trace"), "trace-merge": (D, "cmd_trace_merge", "trace"),
@@ -51,7 +53,7 @@ def run(prog: str, argv: list[str], rc: int = 0):
         seen["load"] = (path, k)
         return {}
     main = D.main if prog == "detector" else I.main
-    with mock.patch.object(mod, name, handler), mock.patch.object(D, "load_config", load), \
+    with mock.patch.object(mod, name, handler), mock.patch.object(CLI, "load_config", load), \
          mock.patch.object(I, "load_config", load), mock.patch.object(cmd_paths, "load_config", load), \
          contextlib.redirect_stdout(io.StringIO()):
         got = main(argv)

@@ -19,7 +19,8 @@ import pandas as pd
 from .es import ANOMALY_INDEX, ES, doc_id
 from . import adjust as A
 from .common import _now
-from .tuning import TUNING_INDEX, TUNING_MAPPING, load_adjustments
+from core.tuning import TUNING_INDEX, TUNING_MAPPING
+from .adjust import load_adjustments
 
 DEFAULTS = {"window": "24h", "min_points": 20, "min_share": 0.9, "max_spread": 0.3}
 

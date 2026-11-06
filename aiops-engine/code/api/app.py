@@ -15,8 +15,8 @@ from core import llm as LLM
 from core.config import load_config
 from core.es import doc_id
 from core.incident import INCIDENT_INDEX, INCIDENT_MAPPING, Incident
-from detector import tuning as T
-from detector.feedback import FEEDBACK_MAPPING, RCA_USEFUL as _RCA_USEFUL
+from feedback import suggest as T
+from feedback.suggest import FEEDBACK_MAPPING, RCA_USEFUL as _RCA_USEFUL
 
 ALERT_INDEX, FEEDBACK_INDEX = "aiops-alerts", "aiops-feedback"
 _ready = set()

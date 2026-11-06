@@ -14,7 +14,7 @@ def approved_rules(es: ES, cfg: dict, now: pd.Timestamp | None = None) -> list[d
     """老師傅核准的「升級成規則」（aiops-tuning 的 rule_suggestion，status active、expires_at 還沒到、門檻是數字）：
     跟 rules.yaml 的一起跑。now 是這一輪的時間（--at），過期用它比。"""
     from . import adjust as A
-    from .tuning import load_adjustments
+    from .adjust import load_adjustments
     try:
         adjs = load_adjustments(es, cfg)
     except Exception as e:

@@ -8,8 +8,9 @@ from __future__ import annotations
 
 import pandas as pd
 
-from .es import ES
-from . import feedback as F
+from core.incident import INCIDENT_INDEX
+from detector.es import ES
+from . import suggest as F
 
 ALERT_INDEX = "aiops-alerts"
 
@@ -47,7 +48,7 @@ def load_period(es, start, end) -> dict:
     rng = lambda f: {"range": {f: {"gte": start.isoformat(), "lt": end.isoformat()}}}
     alerts = _all(es, ALERT_INDEX, {"query": {"bool": {"filter": [rng("started_at")]}}})
     feedback = load_feedback(es, [a.get("alert_id") for a in alerts], start, end)
-    incidents = _all(es, F.INCIDENT_INDEX, {"query": {"bool": {"filter": [rng("start")]}}})
+    incidents = _all(es, INCIDENT_INDEX, {"query": {"bool": {"filter": [rng("start")]}}})
     return {"alerts": alerts, "feedback": feedback, "incidents": incidents, "start": start, "end": end}
 
 

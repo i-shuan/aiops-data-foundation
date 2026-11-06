@@ -1,4 +1,5 @@
-"""Check：事故紀錄、值班回饋、誤報統計（docs/feedback/README.md、docs/pdca/README.md 的 Check）。
+"""⑨ 回饋 → 建議：誤報統計、放寬門檻／排除時段／升級成規則的建議、回饋文字對到調整種類（原 detector/feedback.py）。
+Check：事故紀錄、值班回饋、誤報統計（docs/feedback/README.md、docs/pdca/README.md 的 Check）。
 
 先只收集、不自動生效：
   事故 aiops-incidents   每次事故記時間、影響的服務、根因、處置；可選擇同時提一筆「這段不學」（proposed，人核准才生效）
@@ -18,7 +19,7 @@ import re
 import pandas as pd
 
 FEEDBACK_INDEX = "aiops-feedback"
-from core.incident import INCIDENT_INDEX, INCIDENT_MAPPING, Fingerprint  # noqa: F401
+from core.incident import Fingerprint
 VERDICTS = ("true_positive", "false_positive", "wrong_root_cause", "missed")
 
 FEEDBACK_MAPPING = {"mappings": {"dynamic": False, "properties": {
@@ -374,3 +375,21 @@ def format_summary(s: dict, days: int) -> list[str]:
         lines += [f"- {r['series']}：{r['target']}" for r in s["missed"].to_dict("records")]
         lines.append("")
     return lines
+
+
+# ── 寫 aiops-tuning ──
+
+def propose_from_text(es, fields: dict, alert: dict, text: str, by: str | None, now, current_z: float = 5.0) -> str | None:
+    """回饋文字抽出來的四欄對得到調整種類就寫一筆 aiops-tuning（feedback.suggest_from_text；proposed、source feedback、reason 帶原文），
+    回傳 id；suggested_action 是 none 回 None。同一個人對同一件、同一種 kind 再送會覆蓋，不重複。不自動生效（adjust approve 才會）。"""
+    from core.es import doc_id
+    from core.tuning import TUNING_INDEX, TUNING_MAPPING
+    sug = suggest_from_text(fields, alert, text, current_z)
+    if not sug:
+        return None
+    sug = {k: v for k, v in sug.items() if v not in (None, "", [])}
+    sug.update({"at": now.isoformat(), "by": by or "feedback"})
+    _id = doc_id("feedback-text", alert.get("alert_id"), by or "", sug["kind"])
+    es.ensure_index(TUNING_INDEX, TUNING_MAPPING)
+    es.req("PUT", f"/{TUNING_INDEX}/_doc/{_id}?refresh=true", sug)
+    return _id

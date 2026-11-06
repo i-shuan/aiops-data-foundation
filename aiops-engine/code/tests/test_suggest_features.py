@@ -4,7 +4,7 @@ import unittest
 
 import pandas as pd
 
-from detector import feedback as F
+from feedback import suggest as F
 
 T0 = pd.Timestamp("2026-11-02T12:00:00Z")   # 週一 20:00 台北
 TARGET = F.target_of({"service": "wip-worker", "route": "GET /wip/{lot}"})
@@ -88,6 +88,6 @@ class Table(unittest.TestCase):
 
 class BacktestGate(unittest.TestCase):
     def test_no_reduction_is_not_recommended(self):
-        from detector import cmd_backtest as B
+        from feedback import cmd_backtest as B
         src = open(B.__file__, encoding="utf-8").read()
         self.assertIn("一筆都沒少", src)

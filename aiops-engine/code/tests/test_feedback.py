@@ -1,10 +1,10 @@
-"""Check：誤報統計、建議、事故（detector.feedback）。不需要 ES。各種測資。"""
+"""Check：誤報統計、建議、事故（feedback.suggest）。不需要 ES。各種測資。"""
 import json
 import unittest
 
 import pandas as pd
 
-from detector import feedback as F
+from feedback import suggest as F
 from detector.model import override_for
 
 

@@ -1,7 +1,7 @@
 """⑦⑨ 事故（aiops-incidents）與它的指紋：**欄位只定義在這裡**（docs/pdca/meta/2026-11-vo-models.md）。
 
-寫 aiops-incidents 的四條路（事件整合自動開：investigator/cmd_alert；歷史事故單匯入：investigator/importer；人工補登：
-detector/cmd_feedback cmd_incident；回饋網頁 upsert 的種子：api/app）以前各自手寫一份 dict，欄位名打錯要到讀的時候才知道。
+寫 aiops-incidents 的四條路（事件整合自動開：investigator/cmd_alert；歷史事故單匯入：feedback/importer；人工補登：
+feedback/cmd_feedback cmd_incident；回饋網頁 upsert 的種子：api/app）以前各自手寫一份 dict，欄位名打錯要到讀的時候才知道。
 現在都建 Incident 再 to_doc()；讀回來用 Incident.from_doc()（舊文件缺欄位給預設值、多出來的鍵忽略，不丟例外）。
 
 指紋（Fingerprint）是相似事故檢索的比對依據（investigator/similar.py）：六組 keyword 陣列。從告警＋根因分析算（from_alert）、
@@ -32,7 +32,7 @@ INCIDENT_MAPPING = {"mappings": {"dynamic": False, "properties": {
     "alert_id": {"type": "keyword"}, "dept": {"type": "keyword"}, "group": {"type": "keyword"},
     "root_cause_category": {"type": "keyword"}, "how_detected": {"type": "text"}, "checked": {"type": "keyword"},
     "improve": {"type": "text"}, "confirmed_at": {"type": "date"}, "confirmed_by": {"type": "keyword"},
-    # 歷史事故單匯入（investigator/importer.py）：source import；note 是匯入檔的備註
+    # 歷史事故單匯入（feedback/importer.py）：source import；note 是匯入檔的備註
     "source": {"type": "keyword"}, "note": {"type": "text"},
     # 指紋：相似事故檢索用（investigator/similar.py）
     "fingerprint": {"properties": {"services": {"type": "keyword"}, "routes": {"type": "keyword"}, "series": {"type": "keyword"},

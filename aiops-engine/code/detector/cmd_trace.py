@@ -11,7 +11,7 @@ from .model import DetectOptions, TrainOptions, score, train
 from .cmd_baseline import save_anomalies, save_baseline, train_summary, with_status
 from .common import RULE_FIELDS, _freq, _now
 from .owner import write_anomalies
-from .tuning import data_adjustments
+from .adjust import data_adjustments
 
 
 def _metric_frame(df: pd.DataFrame, m: str) -> pd.DataFrame:

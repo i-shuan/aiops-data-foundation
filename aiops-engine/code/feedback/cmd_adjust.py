@@ -3,9 +3,10 @@ from __future__ import annotations
 
 import pandas as pd
 
-from .es import ES, doc_id
-from . import adjust as A
-from .tuning import TUNING_INDEX, TUNING_MAPPING, load_adjustments
+from core.tuning import TUNING_INDEX, TUNING_MAPPING
+from detector import adjust as A
+from detector.adjust import load_adjustments
+from detector.es import ES, doc_id
 
 
 def cmd_adjust(cfg: dict, args) -> int:

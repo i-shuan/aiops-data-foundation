@@ -81,7 +81,7 @@ def similar_eval(cfg: dict, args) -> int:
 
 
 def import_incidents(cfg: dict, args) -> int:
-    from . import importer as IMP
+    from feedback import importer as IMP
     db = cfg.get("incidents_db") or {}
     url, sql = args.db or db.get("url"), args.sql or db.get("sql")
     tz = args.tz or cfg.get("timezone") or IMP.DEFAULT_TZ

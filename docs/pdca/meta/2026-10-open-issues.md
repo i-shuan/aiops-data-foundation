@@ -15,7 +15,7 @@
 
 ## Check：測試的目的與結果
 
-無。以下數字與行為，除註明外，都來自 [schedule.yaml](../../../aiops-engine/code/configs/schedule/schedule.yaml)、[series.yaml](../../../aiops-engine/code/configs/baseline/series.yaml)、[alerts.py](../../../aiops-engine/code/investigator/alerts.py)、[tuning.py](../../../aiops-engine/code/detector/tuning.py)、[rca/README.md](../../rca/README.md)。
+無。以下數字與行為，除註明外，都來自 [schedule.yaml](../../../aiops-engine/code/configs/schedule/schedule.yaml)、[series.yaml](../../../aiops-engine/code/configs/baseline/series.yaml)、[alerts.py](../../../aiops-engine/code/investigator/alerts.py)、[tuning.py](../../../aiops-engine/code/core/tuning.py)、[rca/README.md](../../rca/README.md)。
 
 ## Act：沒解決的，在什麼情況下發現的
 
