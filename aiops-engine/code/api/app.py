@@ -14,10 +14,11 @@ from core import domain
 from core import llm as LLM
 from core.config import load_config
 from core.es import doc_id
+from core.incident import INCIDENT_INDEX, INCIDENT_MAPPING, Incident
 from detector import tuning as T
-from detector.feedback import FEEDBACK_MAPPING, INCIDENT_MAPPING, RCA_USEFUL as _RCA_USEFUL
+from detector.feedback import FEEDBACK_MAPPING, RCA_USEFUL as _RCA_USEFUL
 
-ALERT_INDEX, FEEDBACK_INDEX, INCIDENT_INDEX = "aiops-alerts", "aiops-feedback", "aiops-incidents"
+ALERT_INDEX, FEEDBACK_INDEX = "aiops-alerts", "aiops-feedback"
 _ready = set()
 # 漏報表單的序列選單、時區：跟 detector 讀同一份 series.yaml（image 裡 configs/ 跟套件放在一起，路徑一樣）
 _SERIES_CFG = load_config(str(Path(__file__).resolve().parents[1] / "configs/baseline/series.yaml"), "series")
@@ -132,9 +133,9 @@ def submit(es, form: dict, now: datetime | None = None) -> dict:
                     "checked": [c for c in (form.get("checked") or []) if c] or None, "improve": (form.get("improve") or "").strip() or None})
     inc = {k: v for k, v in inc.items() if v is not None}
     # 事故可能還沒被 alert 開出來（例如回饋得很快）：用 upsert 補一筆最小的
-    seed = {"@timestamp": now.isoformat(), "alert_id": alert["alert_id"], "title": alert.get("title"), "start": alert.get("started_at"),
-            "end": alert.get("resolved_at") or alert.get("updated_at"), "services": [alert.get("service")], "severity": alert.get("severity"),
-            "dept": alert.get("dept"), "group": alert.get("group"), "anomaly_ids": ids[:200], **inc}
+    seed = Incident(**{"@timestamp": now.isoformat()}, alert_id=alert["alert_id"], title=alert.get("title"), start=alert.get("started_at"),
+                    end=alert.get("resolved_at") or alert.get("updated_at"), services=[alert.get("service")], severity=alert.get("severity"),
+                    dept=alert.get("dept"), group=alert.get("group"), anomaly_ids=ids[:Incident.MAX_ANOMALY_IDS], **inc).to_doc()
     es.req("POST", f"/{INCIDENT_INDEX}/_update/{alert['alert_id']}?refresh=true", {"doc": inc, "upsert": seed})
     # 不再另外 _refresh：bulk_index 已經 refresh=wait_for；最小權限的 key 沒有 maintenance，多打這一下會 403，資料存好了卻回「沒有存成功」
     out = {"feedback": len(docs), "incident": status, "by": by}

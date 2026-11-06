@@ -6,6 +6,7 @@ import json
 import pandas as pd
 
 from core import llm as LLM
+from core.incident import Incident
 
 from .es import ANOMALY_INDEX, ES, doc_id
 from . import adjust as A
@@ -322,11 +323,9 @@ def cmd_incident(cfg: dict, args) -> int:
         return 2
     tz = cfg.get("train", {}).get("timezone", "Asia/Taipei")
     local = lambda x: (pd.Timestamp(x).tz_localize(tz) if pd.Timestamp(x).tzinfo is None else pd.Timestamp(x)).isoformat()   # 沒寫時區的當台北時間
-    doc = {"@timestamp": now.isoformat(), "title": args.title, "start": local(args.start),
-           "end": local(args.end), "services": args.service or [], "severity": args.severity,
-           "status": "open", "root_cause": args.root_cause, "action": args.action_taken, "by": args.by,
-           "anomaly_ids": args.anomaly or []}
-    doc = {k: v for k, v in doc.items() if v not in (None, "", [])}
+    doc = Incident(**{"@timestamp": now.isoformat()}, title=args.title, start=local(args.start), end=local(args.end),
+                   services=args.service or [], severity=args.severity, status="open", root_cause=args.root_cause,
+                   action=args.action_taken, by=args.by, anomaly_ids=args.anomaly or []).to_doc()
     _id = args.id or doc_id("incident", doc["title"], doc["start"])
     es.req("PUT", f"/{F.INCIDENT_INDEX}/_doc/{_id}?refresh=true", doc)
     print(f"已記錄事故 {_id}：{args.title}（{doc['start'][:16]}～{doc['end'][:16]}）")

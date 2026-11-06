@@ -53,8 +53,8 @@ class IncidentKeepsDownstreamOnly(unittest.TestCase):
         al = {"alert_id": "a-1", "service": "wip-worker", "upstream_services": ["mes-api"], "severity": "critical",
               "anomaly_ids": ["x1", "x2"], "routes": [], "series": []}
         doc = {"@timestamp": "t", "started_at": "s", "updated_at": "u", "title": "x", "dept": None, "group": "g"}
-        inc = C._incident_doc(al, doc, None)
-        self.assertEqual((inc["services"], inc["upstream_services"]), (["wip-worker"], ["mes-api"]))
+        inc = C.Incident.from_alert(al, doc, None)
+        self.assertEqual((inc.services, inc.upstream_services), (["wip-worker"], ["mes-api"]))
         for f in ("upstream_services", "merged_into"):
             self.assertEqual(C.ALERT_MAPPING["mappings"]["properties"][f], {"type": "keyword"})
 

@@ -18,7 +18,7 @@ import re
 import pandas as pd
 
 FEEDBACK_INDEX = "aiops-feedback"
-INCIDENT_INDEX = "aiops-incidents"
+from core.incident import INCIDENT_INDEX, INCIDENT_MAPPING, Fingerprint  # noqa: F401
 VERDICTS = ("true_positive", "false_positive", "wrong_root_cause", "missed")
 
 FEEDBACK_MAPPING = {"mappings": {"dynamic": False, "properties": {
@@ -40,23 +40,7 @@ RCA_USEFUL = ("yes", "no", "not_seen")
 CAUSE_CATEGORY = {"db_slow_query": "db", "db_lock": "db", "db_connection_pool": "db", "network": "network", "dns": "network",
                   "config_change": "config_change", "deploy": "deploy", "external_api": "external", "resource_cpu": "resource",
                   "resource_memory": "resource", "disk_full": "resource", "bug": "bug", "data_volume": "data", "dirty_data": "data"}
-# status：open／resolved（人補登的）、auto（事件整合自動開的，還沒人看）、confirmed（老師傅標真的）、corrected（真的但根因改過）
-# 相似事故檢索只用 confirmed、corrected（investigator/similar.py）。根因分類表在 plugin（core/domain.categories）
-INCIDENT_MAPPING = {"mappings": {"dynamic": False, "properties": {
-    "@timestamp": {"type": "date"}, "title": {"type": "text"}, "start": {"type": "date"}, "end": {"type": "date"},
-    "services": {"type": "keyword"}, "severity": {"type": "keyword"}, "status": {"type": "keyword"},
-    "root_cause": {"type": "text"}, "action": {"type": "text"}, "anomaly_ids": {"type": "keyword"},
-    "detected_at": {"type": "date"}, "resolved_at": {"type": "date"}, "by": {"type": "keyword"},
-    # 老師傅的經驗（docs/pdca/phase5-learning-loop/2026-10-expert-feedback.md）
-    "alert_id": {"type": "keyword"}, "dept": {"type": "keyword"}, "group": {"type": "keyword"},
-    "root_cause_category": {"type": "keyword"}, "how_detected": {"type": "text"}, "checked": {"type": "keyword"},
-    "improve": {"type": "text"}, "confirmed_at": {"type": "date"}, "confirmed_by": {"type": "keyword"},
-    # 歷史事故單匯入（investigator/importer.py）：source import；note 是匯入檔的備註
-    "source": {"type": "keyword"}, "note": {"type": "text"},
-    # 指紋：相似事故檢索用（investigator/similar.py）
-    "fingerprint": {"properties": {"services": {"type": "keyword"}, "routes": {"type": "keyword"}, "series": {"type": "keyword"},
-                                   "slow_segments": {"type": "keyword"}, "error_origins": {"type": "keyword"},
-                                   "patterns": {"type": "text"}}}}}}
+# INCIDENT_MAPPING、status 的意思搬到 core/incident.py（跟 Incident 模型放一起）；這裡 re-export 讓舊的 import 還能用
 
 
 def target_of(keys: dict | None) -> str:
@@ -287,8 +271,9 @@ def suggest_rules(incidents: list[dict], min_recurring: int = 3, anomalies_of: d
     for (svc, cat), incs in by.items():
         if len(incs) < min_recurring:
             continue
-        segs = Counter(s for i in incs for s in ((i.get("fingerprint") or {}).get("slow_segments") or []))
-        errs = Counter(s for i in incs for s in ((i.get("fingerprint") or {}).get("error_origins") or []))
+        fps = [Fingerprint.of(i.get("fingerprint")) for i in incs]
+        segs = Counter(s for fp in fps for s in fp.slow_segments)
+        errs = Counter(s for fp in fps for s in fp.error_origins)
         where = (segs or errs).most_common(1)[0][0] if (segs or errs) else None
         threshold, series, peaks, routes = rule_threshold(incs, anomalies_of)
         spec = next((s for s in (series_specs or []) if s.get("name") == series), None) or {

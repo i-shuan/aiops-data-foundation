@@ -15,11 +15,11 @@ from zoneinfo import ZoneInfo
 from core import llm as LLM
 from core import plugin
 from core.es import ES
+from core.incident import INCIDENT_INDEX, INCIDENT_MAPPING, Incident
 
 from . import alerts as AL
 from . import similar as SIM
 
-INCIDENT_INDEX = "aiops-incidents"
 
 ALERT_INDEX = "aiops-alerts"
 # 開著的件、心跳的 @timestamp 往前寫這麼多（docs/pdca/phase3-locate/2026-10-alert-flap.md）。
@@ -140,16 +140,6 @@ def _done_ids(es: ES, since: datetime) -> set:
     return {i for h in es.search(ALERT_INDEX, body)["hits"]["hits"] for i in h["_source"].get("anomaly_ids") or []}
 
 
-def _incident_doc(al: dict, doc: dict, findings: dict | None) -> dict:
-    """事件整合自動開的事故（status auto）：回饋表單確認後變 confirmed，才會被相似事故檢索拿來用。
-    services 只放這件自己的服務（根因在下游；feedback 的規則建議依 services 寫 match）；連帶的上游另外記 upstream_services。"""
-    return {"@timestamp": doc["@timestamp"], "alert_id": al["alert_id"], "title": doc.get("title"), "start": doc["started_at"],
-            "end": doc.get("resolved_at") or doc["updated_at"], "services": [al["service"]], "severity": al["severity"],
-            "upstream_services": list(al.get("upstream_services") or []),
-            "status": "auto", "dept": doc.get("dept"), "group": doc.get("group"), "anomaly_ids": al["anomaly_ids"][:200],
-            "detected_at": doc["started_at"], "fingerprint": SIM.fingerprint(al, findings)}
-
-
 def with_feedback_footer(report: str | None, feedback_url: str | None) -> str | None:
     """報告全文最後加一行老師傅回饋的網址：Grafana 表格點眼睛（Inspect value）看全文時，看完最下面就是回饋入口。
     報告會跟著件一輪一輪寫回去，已經有這行就不再加。"""
@@ -196,7 +186,6 @@ def write_incidents(es: ES, incidents: list[tuple[str, dict]]) -> int:
     用 ES 的 scripted upsert 一次做完判斷和寫入（原子），不是先讀再寫：讀和寫之間老師傅送出回饋也不會被蓋掉。"""
     if not incidents:
         return 0
-    from detector.feedback import INCIDENT_MAPPING
     es.ensure_index(INCIDENT_INDEX, INCIDENT_MAPPING)
     script = {"lang": "painless", "params": {},
               "source": "if (ctx._source.status == null || ctx._source.status == 'auto') { ctx._source.putAll(params.doc) } else { ctx.op = 'none' }"}
@@ -353,15 +342,13 @@ def run(cfg: dict, args, investigate) -> int:
             # 它開的事故改成 merged（還是 auto 才會被改；老師傅確認過的不動）
             print(f"  🔗 併進 {al['merged_into']}：{doc['title']}")
             if al["category"] == "service":
-                inc = _incident_doc(al, doc, al.get("findings"))
-                inc.update({"status": "merged", "merged_into": al["merged_into"]})
-                incidents.append((al["alert_id"], inc))
+                incidents.append((al["alert_id"], Incident.from_alert(al, doc, al.get("findings"), status="merged", merged_into=al["merged_into"]).to_doc()))
             continue
         if al.get("_anoms") or al["status"] == "resolved":
             # 這輪有異常併進來、或這輪結束的件：把 alert_id 寫回它的每筆異常（連同之前併的：改版前就開著的件，結束時補得到）
             tags += [(i, al["alert_id"]) for i in dict.fromkeys([a["_id"] for a in al.get("_anoms") or []] + al["anomaly_ids"])]
         if al["category"] == "service" and (al.get("_new") or al.get("_anoms") or al.get("_rerun") or al["status"] == "resolved"):
-            incidents.append((al["alert_id"], _incident_doc(al, doc, findings)))
+            incidents.append((al["alert_id"], Incident.from_alert(al, doc, findings).to_doc()))
         if al.get("_new") and al["status"] == "resolved":   # 已經過去的（例如這支停了一陣子才跑）：記下來，不算新開、不通知
             print(f"  ⏺ 已經過去的：{doc['title']}")
         elif al.get("_new"):

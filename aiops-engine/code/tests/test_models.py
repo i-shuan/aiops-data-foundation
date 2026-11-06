@@ -68,8 +68,8 @@ class SimilarModel(unittest.TestCase):
         alert = {"alert_id": "a1", "service": "mes-api", "routes": ["GET /lots"], "series": ["http.error_rate"]}
         fp = similar.fingerprint(alert, {"segments": [{"segment": "mes-api › SELECT WIP → oracle", "delta_ms": 7}]})
         cands = similar.check_candidates([
-            ("old", {"status": "confirmed", "title": "連線池", "fingerprint": {**fp, "routes": []}}),
-            ("new", {"status": "proposed", "title": "沒人看過", "fingerprint": fp})])
+            ("old", {"status": "confirmed", "title": "連線池", "fingerprint": {**fp.to_doc(), "routes": []}}),
+            ("new", {"status": "proposed", "title": "沒人看過", "fingerprint": fp.to_doc()})])
         top = similar.rank(fp, similar.confirmed_only(cands), k=3)
         self.assertEqual([t["incident_id"] for t in top], ["old"])
         self.assertTrue(similar.format_similar(top)[0].startswith("## 分類"))

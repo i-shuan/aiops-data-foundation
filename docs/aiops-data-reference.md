@@ -12,7 +12,8 @@
 |---|---|
 | `aiops-anomalies` | `aiops-engine/code/detector/es.py` 的 `ANOMALY_MAPPING` |
 | `aiops-alerts` | `aiops-engine/code/investigator/cmd_alert.py` 的 `ALERT_MAPPING` |
-| `aiops-incidents`、`aiops-feedback` | `aiops-engine/code/detector/feedback.py` 的 `INCIDENT_MAPPING`、`FEEDBACK_MAPPING` |
+| `aiops-incidents` | `aiops-engine/code/core/incident.py` 的 `INCIDENT_MAPPING`（欄位的唯一定義是同一檔的 `Incident`、`Fingerprint` 模型，寫入一律 `to_doc()`） |
+| `aiops-feedback` | `aiops-engine/code/detector/feedback.py` 的 `FEEDBACK_MAPPING` |
 | `aiops-tuning` | `aiops-engine/code/detector/tuning.py` 的 `TUNING_MAPPING` |
 
 五個索引的 mapping 都是 `dynamic: false`：**沒列在 mapping 的欄位，會留在 `_source`（Grafana 面板讀得到、顯示得出來），但不能拿來篩選或聚合。**
@@ -190,6 +191,8 @@ Grafana（⑧）         讀 aiops-alerts 發通知；儀表板讀 alerts、anom
 ```
 
 ## aiops-incidents：事故庫（相似事故檢索的資料池）
+
+欄位定義在 `aiops-engine/code/core/incident.py` 的 `Incident`（指紋是 `Fingerprint`）；四條寫入路徑都建模型再 `to_doc()`，下表是它的欄位說明。
 
 三種寫入：事件整合每一輪只要這件有新異常併進來、新開或結束，就寫一次（`status: auto`；用 scripted upsert，**只更新還是 `auto` 的，人處理過的一個欄位都不動**）；資深維運專家在回饋表單送出後，回饋網頁（`aiops-engine/code/api/app.py`）更新同一筆；也可以人用 `python3 -m detector incident add／resolve` 補登一件（`status: open`，結束時 `resolved`）。
 

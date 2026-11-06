@@ -61,8 +61,9 @@ class Store(ABC):
     def incidents(self, statuses: tuple[str, ...], exclude_id: str | None = None, having: tuple[str, ...] = ()) -> list[tuple[str, dict]]:
         """aiops-incidents 裡 status 在 statuses、having 的欄位都有值的（M5 的候選、留一法評測）。"""
 
-    def similar_incidents(self, fp: dict, statuses: tuple[str, ...], exclude_id: str | None = None, size: int = 200) -> list[tuple[str, dict]]:
-        """跟指紋 fp 可能像的候選（分數一律由 investigator.similar.rank 自己算）。預設就是全部 statuses 的；ES 用指紋先篩、只要前 size 件。"""
+    def similar_incidents(self, fp, statuses: tuple[str, ...], exclude_id: str | None = None, size: int = 200) -> list[tuple[str, dict]]:
+        """跟指紋 fp（core.incident.Fingerprint 或同形狀的 dict）可能像的候選（分數一律由 investigator.similar.rank 自己算）。
+        預設就是全部 statuses 的；ES 用指紋先篩、只要前 size 件。"""
         return self.incidents(statuses, exclude_id)
 
 
@@ -134,7 +135,7 @@ class Backend(ABC):
     def incidents(self, statuses: tuple[str, ...], exclude_id: str | None = None, having: tuple[str, ...] = ()) -> list[tuple[str, dict]]:
         return self.store.incidents(statuses, exclude_id, having)
 
-    def similar_incidents(self, fp: dict, statuses: tuple[str, ...], exclude_id: str | None = None, size: int = 200) -> list[tuple[str, dict]]:
+    def similar_incidents(self, fp, statuses: tuple[str, ...], exclude_id: str | None = None, size: int = 200) -> list[tuple[str, dict]]:
         return self.store.similar_incidents(fp, statuses, exclude_id, size)
 
 
