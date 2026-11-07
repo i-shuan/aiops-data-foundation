@@ -20,45 +20,10 @@ from common.infra.es import Doc
 from common.clock import STAMP_LAG, stamp_of  # noqa: F401
 from common.types.incident import classify, describe_class
 
-ALERT_INDEX = "aiops-alerts"
+ALERT_TABLE = "aiops_alerts"            # PostgreSQL 的表
 # stamp_of、STAMP_LAG 在 common/clock/stamp.py（detect 的狀態心跳也用）；這裡 import 進來，舊的引用不用改
 
 
-ALERT_MAPPING = {"mappings": {"dynamic": False, "properties": {
-    "@timestamp": {"type": "date"}, "alert_id": {"type": "keyword"}, "category": {"type": "keyword"},
-    "service": {"type": "keyword"}, "dept": {"type": "keyword"}, "group": {"type": "keyword"},
-    "severity": {"type": "keyword"}, "status": {"type": "keyword"},
-    "started_at": {"type": "date"}, "updated_at": {"type": "date"}, "resolved_at": {"type": "date"},
-    "anomaly_ids": {"type": "keyword"}, "anomaly_count": {"type": "integer"}, "series": {"type": "keyword"},
-    "routes": {"type": "keyword"},
-    # 跨服務（一層）：這件連帶了哪些上游服務；上游那件被整件併進下游時，上游那件標 resolved、merged_into 指到下游那件
-    "upstream_services": {"type": "keyword"}, "merged_into": {"type": "keyword"},
-    # 工廠版：這件牽涉哪些 lot（異常的 keys.lot；前後站併件時「同一批 lot」優先，investigator/alerts.merge 的 links）
-    "lots": {"type": "keyword"},
-    # 根因分析重跑：沒有 trace 的件（開件太快、trace 還沒合成完）每隔一陣子重跑，這是跑了幾次
-    "rca_attempts": {"type": "integer"},
-    # 同源（不合併）：這件卡在哪些外部依賴；跟它卡同一個依賴的其他開著的件
-    "dependencies": {"type": "keyword"}, "related_alerts": {"type": "keyword"}, "shared_dependency": {"type": "keyword"},
-    # Grafana 的告警只能帶 labels（terms 分組的值），所以標題、摘要、報告連結都存成 keyword
-    "title": {"type": "keyword", "ignore_above": 1024}, "summary": {"type": "keyword", "ignore_above": 4096},
-    "report_url": {"type": "keyword"}, "report": {"type": "text", "index": False}, "report_at": {"type": "date"},
-    # 標題一行＋報告全文：Grafana 表格的 title 欄用它（值對應只顯示第一行），點那格的眼睛（Inspect value）就是全文
-    "report_titled": {"type": "text", "index": False},
-    "feedback_url": {"type": "keyword"},
-    # 結構化的根因分析結果（相似事故檢索、LLM 用；不索引）、相似事故、LLM 摘要
-    "findings": {"type": "object", "enabled": False}, "similar": {"type": "object", "enabled": False},
-    "llm_summary": {"type": "text", "index": False}, "llm_provider": {"type": "keyword"},
-    # case 只做分類（investigator/similar.classify）：像哪一類、信心；回饋表單預帶、Grafana 可依它分組
-    "suggested_category": {"type": "keyword"}, "category_confidence": {"type": "double"},
-    # 嚴重度怎麼來的（investigator/severity.py）：訊號廣度、持續、換版上限；deploy_at 是這個服務最近一次換版
-    "severity_why": {"type": "text", "index": False}, "deploy_at": {"type": "date"},
-    # detector detect 每輪寫的 detect-status（detector/cmd_baseline.py）：這輪沒有 baseline 的序列數；Grafana 的 aiops-baseline-missing 查它
-    "missing_baseline": {"type": "integer"},
-    # source-check-series／source-check-trace（data/source/check.py）：宣告的來源跟資料對不上的個數；Grafana 的 aiops-source-mismatch 查它
-    "source_mismatch": {"type": "integer"},
-}}}
-# 有寫進 _source、但沒進 mapping 的欄位（dynamic false：存得下、查不到）：api POST /api/rca 標的，下一輪 alert 看過就拿掉
-UNMAPPED_FIELDS = ("rca_requested", "rca_requested_at")
 
 AlertStatus = Literal["open", "resolved"]
 SEVERITY = {"warning": 1, "high": 2, "critical": 3}   # 一件最後的嚴重度由 incident/alert_severity.grade 算；這裡只是異常自己帶的

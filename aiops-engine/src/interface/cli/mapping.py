@@ -18,6 +18,7 @@ import typer
 import data.mapping_service as M
 from interface.config.schedule import trace_raw_pairs
 from common.infra.es import ES
+from common.infra.pg import DB
 from common.scenario import load_scenario
 from interface.cli.common import Opt, group
 
@@ -35,12 +36,12 @@ def _show(findings) -> None:
 
 @mapping.command("list", help="每個來源、每個開放的欄位：yaml 的值、現在生效的值；下面列出所有提過的覆寫")
 def list_cmd() -> int:
-    es, sc = ES(), load_scenario()
-    for r in M.current(es, sc, trace_raw_pairs(sc.schedule)):
+    db, sc = DB(), load_scenario()
+    for r in M.current(db, sc, trace_raw_pairs(sc.schedule)):
         mark = f"  ← 覆寫 {r['override']}" if r["override"] else ""
         print(f"{r['source']:5} {r['section']:5} {r['field']:15} {r['value']!s:45}{'' if r['value'] == r['yaml'] else '（yaml：' + str(r['yaml']) + '）'}{mark}")
     print("\n提過的覆寫（新的在前）：")
-    for d in M.MappingRepository(es).all():
+    for d in M.MappingRepository(db=db).all():
         print(f"  {d['id']}  [{d.get('status')}] {d.get('source')}.{d.get('section')}.{d.get('field')}：{d.get('old_value')} → {d.get('value')}"
               f"（{d.get('by')}，{str(d.get('created_at', ''))[:16]}）{' ' + d['reason'] if d.get('reason') else ''}")
     return 0
@@ -61,7 +62,7 @@ def propose_cmd(source: str = Opt(...), section: str = Opt(...), field: str = Op
                 by: str = Opt(...), reason: str = Opt("")) -> int:
     try:
         sc = load_scenario()
-        _id, findings = M.propose(ES(), sc, source, section, field, value, by, reason, trace_raw_pairs(sc.schedule))
+        _id, findings = M.propose(ES(), DB(), sc, source, section, field, value, by, reason, trace_raw_pairs(sc.schedule))
     except ValueError as e:
         print(e)
         return 2
@@ -72,20 +73,20 @@ def propose_cmd(source: str = Opt(...), section: str = Opt(...), field: str = Op
 
 @mapping.command("approve", help="proposed → active（核准前再試一次；對不上不給，--force 才行）")
 def approve_cmd(id_: str = Opt(..., "--id"), by: str = Opt(...), force: bool = Opt(False, "--force", help="試不過也硬核准（例如資料還沒進來）")) -> int:
-    ok, msg = M.approve(ES(), load_scenario(), id_, by, force)
+    ok, msg = M.approve(ES(), DB(), load_scenario(), id_, by, force)
     print(msg)
     return 0 if ok else 2
 
 
 @mapping.command("reject", help="proposed → rejected")
 def reject_cmd(id_: str = Opt(..., "--id"), by: str = Opt(...)) -> int:
-    ok, msg = M.set_status(ES(), id_, "rejected", by)
+    ok, msg = M.set_status(DB(), id_, "rejected", by)
     print(msg)
     return 0 if ok else 2
 
 
 @mapping.command("disable", help="active → disabled（退回 yaml 的值）")
 def disable_cmd(id_: str = Opt(..., "--id"), by: str = Opt(...)) -> int:
-    ok, msg = M.set_status(ES(), id_, "disabled", by)
+    ok, msg = M.set_status(DB(), id_, "disabled", by)
     print(msg)
     return 0 if ok else 2

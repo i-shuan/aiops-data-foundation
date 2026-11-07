@@ -1,20 +1,19 @@
-"""prune.yaml：AIOps 自己索引的保留天數。"""
+"""prune.yaml：engine 自己的資料（PostgreSQL）的保留天數。"""
 from __future__ import annotations
 
-from typing import Any
+from typing import Literal
 
 from common.config.common import NonNeg, Strict, Tz
 
 
 # ── prune.yaml ──
 
-class PruneIndex(Strict):
-    index: str
+class PruneTable(Strict):
+    # 哪一種資料（Repos 的名字）：anomalies 依異常的時間、segments 依統計的時間、alerts 只刪已結案的、依結案時間
+    table: Literal["anomalies", "segments", "alerts"]
     keep_days: NonNeg
-    time_field: str = "@timestamp"           # 依這個欄位的時間判斷「超過保留天數」
-    filter: dict[str, Any] | None = None     # 再加上的條件，例如 aiops-alerts 只刪 status resolved
 
 
 class PruneConfig(Strict):
     timezone: Tz = "Asia/Taipei"            # 輸出的時間用這個時區
-    indices: list[PruneIndex] = []
+    tables: list[PruneTable] = []

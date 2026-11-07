@@ -25,7 +25,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from common.infra.es import ES, doc_id
-from common.types.incident import INCIDENT_INDEX, Fingerprint, Incident
+from common.types.incident import INCIDENT_TABLE, Fingerprint, Incident
 from common.infra.repos import Repos
 from common.scenario import load_scenario
 from detect.series_ops.manual_adjust import local_iso
@@ -176,5 +176,5 @@ def run(path: "str | DbRows", tz: str = DEFAULT_TZ, dry_run: bool = False, repo=
         print(f"檢查完：{len(docs)} 筆可匯入、{len(skipped)} 筆略過（共 {total} 筆；--dry-run 沒有寫入）")
         return 0 if docs or not total else 1
     n = write(repo or Repos(ES(), load_scenario()), docs)
-    print(f"匯入 {n} 筆、略過 {len(skipped)} 筆（共 {total} 筆）→ {INCIDENT_INDEX}（status confirmed、source import）")
+    print(f"匯入 {n} 筆、略過 {len(skipped)} 筆（共 {total} 筆）→ {INCIDENT_TABLE}（status confirmed、source import）")
     return 0

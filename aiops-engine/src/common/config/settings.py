@@ -4,7 +4,7 @@
 打錯字、型別錯、忘了設，要到用的那一刻才炸。集中之後：每個變數的名字、型別、預設值只有一份，型別錯馬上有一行講清楚的錯誤。
 
 用法：`from common.config.settings import settings`，要的地方呼叫 `settings()`；每次呼叫都重讀環境（很便宜），所以測試用
-`mock.patch.dict(os.environ, …)` 照樣有效，沒有要手動清的快取。必填的（ES_URL、LLM_API_KEY）只在真的要用的那一刻檢查
+`mock.patch.dict(os.environ, …)` 照樣有效，沒有要手動清的快取。必填的（ES_URL、AIOPS_PG_DSN、LLM_API_KEY）只在真的要用的那一刻檢查
 （require_*），不在 import 時檢查——單元測試與 check-docs 光 import 不該需要 ES。
 
 預設值照程式原本的樣子（LLM_PROVIDER 預設 template、AIOPS_PLUGIN 預設 observability）。空字串視同沒設（chart 會給空字串）。
@@ -37,6 +37,13 @@ class Settings(BaseModel):
     es_api_key: str | None = None
     es_auth: str | None = None           # "user:password"（本機、測試；正式環境用 es_api_key）
     es_ca: str | None = None             # 自簽憑證的 CA 檔
+    # ── PostgreSQL（engine 自己的資料：異常、基準線、告警、事故、回饋、調整、對照覆寫）──
+    aiops_pg_dsn: str | None = None      # postgresql://user:密碼@host:5432/db（密碼也可以用 libpq 的 PGPASSWORD）
+    aiops_pg_schema: str | None = None   # 公司的 PostgreSQL 給的是某個 schema 時填；沒填用 public
+    # ── embedding（相似事故的向量；沒設就只用欄位比對）──
+    embedding_url: str | None = None     # OpenAI 相容的 API 根，例如 https://llm-gw.example.com/v1（POST {url}/embeddings）
+    embedding_model: str | None = None
+    embedding_api_key: str | None = None
     # ── LLM（根因摘要）──
     llm_provider: str = "template"       # template（不呼叫模型）、anthropic、openai
     llm_chat_model: str | None = None    # 沒設就依 provider 用各自的預設（chat_model()）
@@ -66,6 +73,11 @@ class Settings(BaseModel):
         if not self.es_url:
             raise MissingSetting("ES_URL")
         return self.es_url
+
+    def require_pg_dsn(self) -> str:
+        if not self.aiops_pg_dsn:
+            raise MissingSetting("AIOPS_PG_DSN")
+        return self.aiops_pg_dsn
 
     def require_llm_api_key(self) -> str:
         if not self.llm_api_key:

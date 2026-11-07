@@ -123,7 +123,7 @@ class CmdPeerTest(unittest.TestCase):
         # 開連線、寫異常在 Detector 基底（detector/base.py）；查資料在 cmd_peer 自己
         with contextlib.redirect_stdout(io.StringIO()):
             C.cmd_peer(cfg, args, repo)
-        return sorted(d["keys"]["pod"] for _, d in repo.docs("aiops-anomalies"))
+        return sorted(d["keys"]["pod"] for _, d in repo.docs("aiops_anomalies"))
 
     def test_young_pod_not_compared(self):
         # 3 個舊的＋1 個 1 分鐘前剛起來（CPU 還是 1 核）：沒有 warmup 會報新的；warmup 5m 不報

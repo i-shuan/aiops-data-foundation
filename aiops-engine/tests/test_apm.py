@@ -180,15 +180,16 @@ class SourceProfileTest(unittest.TestCase):
             def req(self, method, path, body):
                 self.calls.append((path, body))
                 return {"aggregations": {"ns": {"buckets": []}, "svc": {"buckets": [{"key": "mes-api", "d": {"buckets": [{"key": "D3120"}]}, "g": {"buckets": [{"key": "it"}]}}]}}}
-            def bulk_index(self, index, docs): self.written = docs
         es = Fake()
         with mock.patch.dict(os.environ, {"AIOPS_SOURCE": "apm"}):
-            Repos(es, load_scenario()).anomalies.write([("a", {"keys": {"service": "mes-api", "route": "GET /lots/{id}"}})])
+            repo = Repos(es, load_scenario())
+            repo.anomalies.write([("a", {"@timestamp": "2026-11-01T00:00:00+00:00", "keys": {"service": "mes-api", "route": "GET /lots/{id}"}})])
         path, body = es.calls[0]
         self.assertTrue(path.startswith("/metrics-apm.transaction.1m-*/_search"))
         self.assertEqual(body["aggs"]["svc"]["terms"]["field"], "service.name")
         self.assertEqual(body["aggs"]["svc"]["aggs"]["d"]["terms"]["field"], "labels.dept")
-        self.assertEqual((es.written[0][1]["dept"], es.written[0][1]["group"]), ("D3120", "it"))
+        got = repo.anomalies.get("a")                                     # 異常寫進 PostgreSQL（tests/conftest.py 指好的）
+        self.assertEqual((got["dept"], got["group"]), ("D3120", "it"))
 
     def test_owner_query_default_is_unchanged(self):
         class Fake:

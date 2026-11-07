@@ -1,14 +1,11 @@
-"""慢性病清單（aiops-chronic）：每週一份，天天都有的告警、log（detect/strategy/chronic_issue.py）。"""
+"""慢性病清單（PostgreSQL 的 aiops_chronic）：每週一份，天天都有的告警、log（detect/strategy/chronic_issue.py）。"""
 from __future__ import annotations
 
-from common.infra.es import Repository
+from common.infra.pg import PgRepository
 
-CHRONIC_INDEX = "aiops-chronic"
-CHRONIC_MAPPING = {"mappings": {"dynamic": False, "properties": {
-    "@timestamp": {"type": "date"}, "week": {"type": "keyword"}, "source": {"type": "keyword"}, "rank": {"type": "integer"},
-    "keys": {"type": "flattened"}, "days": {"type": "integer"}, "total": {"type": "long"}, "per_day": {"type": "double"},
-    "first_day": {"type": "date"}, "last_day": {"type": "date"}, "owner": {"type": "keyword"}, "message": {"type": "text"}}}}
+CHRONIC_TABLE = "aiops_chronic"
 
 
-class ChronicRepository(Repository):
-    INDEX, MAPPING = CHRONIC_INDEX, CHRONIC_MAPPING
+class ChronicRepository(PgRepository):
+    TABLE, TIME = CHRONIC_TABLE, "@timestamp"
+    INDEXES = ("((doc->>'week'))",)

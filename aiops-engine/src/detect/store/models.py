@@ -17,30 +17,12 @@ from common.infra.es import doc_id, get_field
 
 
 # ── anomaly ──
-ANOMALY_INDEX = "aiops-anomalies"
-KEYS_MAPPING = {"type": "flattened"}     # 序列的 keys（對象）：欄位隨序列設定而變，用 flattened
-ANOMALY_MAPPING = {"mappings": {"dynamic": False, "properties": {
-    "@timestamp": {"type": "date"}, "series": {"type": "keyword"}, "keys": KEYS_MAPPING,
-    "value": {"type": "double"}, "median": {"type": "double"}, "expected_low": {"type": "double"},
-    "expected_high": {"type": "double"}, "z": {"type": "double"}, "level": {"type": "keyword"},
-    "direction": {"type": "keyword"}, "detected_at": {"type": "date"},
-    "resolution": {"type": "keyword"}, "method": {"type": "keyword"}, "baseline_source": {"type": "keyword"},
-    "confidence": {"type": "keyword"}, "p": {"type": "double"},
-    "status": {"type": "keyword"}, "streak": {"type": "integer"},
-    "dept": {"type": "keyword"}, "group": {"type": "keyword"},
-    "alert_id": {"type": "keyword"},   # 併進哪一件（investigator alert 寫回；儀表板依它撈這件的異常）
-    # 哪一版 engine 產生的（aiops.ENGINE_VERSION；AnomalyRepository.write 補）。放在這裡而不是 RULE_FIELDS：index 是 dynamic false，
-    # 但 ensure_index 對既有 index 也會 PUT _mapping 把這份 properties 補上，detect、rules、peer、quality、trace 每輪都呼叫，不用另外補
-    "engine_version": {"type": "keyword"},
-}}}
-# 規則、同儕、品質、trace 的偵測多寫的三個欄位（既有索引由 AnomalyRepository.ensure 補上）
-RULE_FIELDS = {"severity": {"type": "keyword"}, "message": {"type": "text"}, "rule": {"type": "keyword"}}
+ANOMALY_TABLE = "aiops_anomalies"         # PostgreSQL 的表（common/infra/pg.py）
 
 
 @dataclass
 class Anomaly:
-    """寫進 aiops-anomalies 的一筆異常。**這是異常文件唯一的定義處**：同一檔的 ANOMALY_MAPPING、detector/common.py 的
-    RULE_FIELDS 要跟它一致（tests/test_detector_base.py 會對）。to_doc() 產生寫入的 dict。
+    """寫進 aiops_anomalies（PostgreSQL）的一筆異常。**這是異常文件唯一的定義處**。to_doc() 產生寫入的 dict。
 
     欄位            誰寫                      意思
     ts→@timestamp   全部                      異常落在哪個時間格：rules／quality 是 now 取整到 interval、peer 到分、baseline／trace 是資料點的時間
@@ -54,7 +36,7 @@ class Anomaly:
     z               全部（沒有就 None）       偏離幾倍
     direction       全部                      up／down／both；rules 放 op（>=、<=）
     detected_at     全部                      寫入的時間（沒給就在 to_doc 時補）
-    rule            rules、peer、quality、trace 規則   規則名（RULE_FIELDS 的欄位；peer、quality 放檢查名）
+    rule            rules、peer、quality、trace 規則   規則名（peer、quality 放檢查名）
     severity        同上                      warning／critical
     message         同上                      給人看的一句話（Grafana 直接顯示）
     since           rules                     從什麼時候開始超過門檻（只在 _source，沒進 mapping）
@@ -140,16 +122,8 @@ def entity_value(keys: dict | None, entity_keys: tuple[str, ...]) -> str | None:
 
 
 # ── baseline ──
-BASELINE_INDEX = "aiops-baseline"
+BASELINE_TABLE = "aiops_baseline"
 # baseline 讀回來的欄位。method 存成 baseline_method：序列的 keys 也可能有 method（HTTP method），會撞名
 BASELINE_COLUMNS = ("dow", "hour", "level", "median", "mad", "resolution", "baseline_method", "baseline_source", "trained_at")
 GROUP_COLUMNS = ("dow", "hour", "level", "median", "mad", "resolution")
 RENAMED = {"baseline_method": "method"}
-BASELINE_MAPPING = {"mappings": {"dynamic": False, "properties": {
-    "series": {"type": "keyword"}, "keys": KEYS_MAPPING, "dow": {"type": "byte"}, "hour": {"type": "byte"},
-    "level": {"type": "keyword"}, "median": {"type": "double"}, "mad": {"type": "double"},
-    "p05": {"type": "double"}, "p95": {"type": "double"}, "n": {"type": "integer"},
-    "trained_at": {"type": "date"}, "history_from": {"type": "date"}, "history_to": {"type": "date"},
-    "resolution": {"type": "keyword"}, "method": {"type": "keyword"}, "baseline_source": {"type": "keyword"},
-    "events": {"type": "double"},
-}}}

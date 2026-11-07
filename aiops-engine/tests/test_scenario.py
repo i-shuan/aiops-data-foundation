@@ -108,7 +108,7 @@ class Builtins(unittest.TestCase):
         self.assertEqual(seen["body"]["query"]["bool"]["filter"][0], {"term": {"equipment_id": "ETCH-01"}})
         self.assertEqual(seen["body"]["query"]["bool"]["filter"][2], {"term": {"event_type": "recipe_change"}})
         anoms = [{"_id": "a", "@timestamp": T0.isoformat(), "keys": {"equipment": "METRO-01", "lot": "L1"}}]
-        ch = sc.chain(repo, rca(indices={"anomalies": "aiops-anomalies", "traces": "lot-paths-*"}, alerts={"paths_lookback": "2d"}), anoms, [], T0 - timedelta(hours=1), T0)
+        ch = sc.chain(repo, rca(indices={"traces": "lot-paths-*"}, alerts={"paths_lookback": "2d"}), anoms, [], T0 - timedelta(hours=1), T0)
         self.assertEqual(seen["index"], "lot-paths-*")
         self.assertEqual(seen["body"]["query"]["bool"]["filter"][0]["range"]["@timestamp"]["gte"], (T0 - timedelta(days=2)).isoformat())
         self.assertEqual((ch.calls, ch.links), (set(), {}))   # 履歷裡沒有站 → 沒有前站
@@ -147,7 +147,7 @@ class ReportSections(unittest.TestCase):
 
     def _run(self, sections, *, requests=0, logs=()):
         from argparse import Namespace
-        cfg = rca(indices={"anomalies": "aiops-anomalies", "traces": "lot-paths-*", "logs": "eqp-logs-*"},
+        cfg = rca(indices={"traces": "lot-paths-*", "logs": "eqp-logs-*"},
                   changes={"lookback": "12h", "query": {"term": {"event_type": "pm"}}})
         anoms = [{"_id": "a1", "@timestamp": T0.isoformat(), "series": "fdc.pressure", "value": 12.0, "median": 9.0, "z": 6.0,
                   "status": "anomaly", "keys": {"equipment": "ETCH-01", "recipe": "REC-1"}}]

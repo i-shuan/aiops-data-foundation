@@ -14,8 +14,8 @@ from __future__ import annotations
 from common.types.incident import DEFAULT_WEIGHTS as WEIGHTS, Fingerprint, Incident, classify, describe_class, seg_name  # noqa: F401
 MIN_SCORE = 4.0        # 低於這個分數不算像：至少一個強特徵、或兩三個弱特徵
 TOP_K = 3
-# 跟 ES 要幾件候選再自己重算分數：ES 的 _score（boost）跟 explain 的算法不一樣（series 這裡是 min(交集,3) 倍、ES 只算一次），
-# 排在 ES 第 21 名以後的可能本地分數最高，候選太少會被截掉。已確認的事故預期幾十到一兩百件，explain 是 O(n)、很便宜，直接要 200。
+# 跟資料庫要幾件候選再自己重算分數：資料庫照權重排（series 只算一次），explain 的 series 是 min(交集,3) 倍，
+# 排序有一點不一樣，候選太少可能截掉本地分數最高的。已確認的事故預期幾十到一兩百件，explain 是 O(n)、很便宜，直接要 200。
 CANDIDATES = 200
 CONFIRMED = ("confirmed", "corrected")
 
@@ -72,12 +72,12 @@ def confirmed_only(candidates: list[tuple[str, dict]], exclude_id: str | None = 
 
 def search(repo, fp: Fingerprint | dict, exclude_id: str | None = None, k: int = TOP_K, min_score: float = MIN_SCORE, size: int = CANDIDATES,
            weights: dict | None = None) -> list[dict]:
-    """最像的 k 件（分數 ≥ min_score）。回傳給報告用的欄位＋為什麼像。size：跟 ES 要幾件候選（見 CANDIDATES）。
-    候選由 repo.incidents.similar 給（ES 用指紋的 query 先篩前 size 件），分數一樣用 rank 算。"""
+    """最像的 k 件（分數 ≥ min_score）。回傳給報告用的欄位＋為什麼像。size：跟資料庫要幾件候選（見 CANDIDATES）。
+    候選由 repo.incidents.similar 給（PostgreSQL 照同一組權重先排、取前 size 件），分數一樣用 rank 算。"""
     fp = Fingerprint.of(fp)
     if fp.empty:
         return []
-    return rank(fp, repo.incidents.similar(fp, CONFIRMED, exclude_id, size), k, min_score, weights)
+    return rank(fp, repo.incidents.similar(fp, CONFIRMED, exclude_id, size, weights=weights), k, min_score, weights)
 
 
 def format_similar(items: list[dict], tz_label: str = "", cls: dict | None = None) -> list[str]:

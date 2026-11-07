@@ -1,6 +1,6 @@
 """依賴方向（docs/pdca/meta/2026-11-feature-folders.md）：interface → learn → incident → llm → detect → data → common。
 誰 import 誰只能往右（common 最底，什麼功能都不依賴）；main.py（入口）不算。
-函式內的 import 只允許名單上那幾個。索引名只能在各功能資料夾的 store/ 與 common/。
+函式內的 import 只允許名單上那幾個。表名（PostgreSQL）只能在各功能資料夾的 store/ 與 common/。
 common/infra/repos.py 用名稱表在第一次取用才載入各功能的 repository（importlib），所以不算靜態依賴。
 `if TYPE_CHECKING:` 底下的 import 只給型別檢查看、執行時不載入，也不算（common/config/loader.py 的 overload、scenario/base.py 用）。
 加了反向 import 這裡會紅——讀到這裡的人：先想東西該不該搬，不要改名單。"""
@@ -14,9 +14,9 @@ LAYERS = ("common", "data", "detect", "llm", "incident", "learn", "interface")  
 ALLOWED = {name: set(LAYERS[:i]) for i, name in enumerate(LAYERS)}
 # 函式內才 import 的（其他都要在檔頭）：sqlalchemy 是選配、worker 要 broker
 LAZY_OK = {("learn/history_importer.py", "sqlalchemy"), ("interface/jobs/local.py", "interface.jobs.worker")}
-# 索引名的字面值只能在各功能的 store/（資料物件定義、repository 讀寫）與 common/
-INDEX_LITERALS = ("aiops-anomalies", "aiops-alerts", "aiops-incidents", "aiops-feedback", "aiops-tuning", "aiops-baseline",
-                  "aiops-trace-segments", "aiops-state", "aiops-chronic")
+# 表名的字面值只能在各功能的 store/（資料物件定義、repository 讀寫）與 common/
+INDEX_LITERALS = ("aiops_anomalies", "aiops_alerts", "aiops_incidents", "aiops_feedback", "aiops_tuning", "aiops_baseline",
+                  "aiops_trace_segments", "aiops_state", "aiops_chronic")
 # 還沒清掉的反向依賴：S2 之後是空的，加了反向 import 這裡會紅
 KNOWN: set[str] = set()
 

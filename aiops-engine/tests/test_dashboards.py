@@ -31,7 +31,7 @@ class Dashboards(unittest.TestCase):
         d = json.loads((FILES / "dashboards" / "aiops-overview.json").read_text(encoding="utf-8"))
         ds = [(p["id"], p["datasource"]["uid"]) for p in d["panels"]]
         self.assertEqual([u for _, u in ds[:5]], ["apm-metrics", "apm-traces", "apm-traces", "apm-traces", "apm-logs"])
-        self.assertTrue(all(u == "aiops-alerts" for _, u in ds[5:]))
+        self.assertTrue(all(u == "aiops_alerts" for _, u in ds[5:]))
         self.assertEqual([v["name"] for v in d["templating"]["list"]], ["service", "alert"])
 
     def test_apm_datasources_match_the_engine_config(self):

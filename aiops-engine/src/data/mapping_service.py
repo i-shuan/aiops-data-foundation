@@ -1,4 +1,4 @@
-"""欄位對照的覆寫：提、試、核准、退回、停用（② 清資料：讀進來時欄位叫什麼）。存在 aiops-mapping（common/scenario/mapping.py）。
+"""欄位對照的覆寫：提、試、核准、退回、停用（② 清資料：讀進來時欄位叫什麼）。存在 PostgreSQL 的 aiops_mapping（common/scenario/mapping.py）；試的時候讀 ES 的原始資料。
 
 流程跟調整（aiops-tuning）一樣：任何人都能**提**（網頁、命令列），status proposed，還沒生效；**核准**只能用命令列
 （`detector mapping approve`，有權限進 pod／跑排程的人才能），核准前一定先對真的資料**試**一次：
@@ -50,18 +50,18 @@ def _yaml_profiles(scenario, pairs: Pairs | None) -> dict:
     return base
 
 
-def _effective_profiles(es, scenario, pairs: Pairs | None) -> dict:
-    eff, raw = profiles(effective(scenario, es)), yaml_raw(scenario, pairs)
+def _effective_profiles(db, scenario, pairs: Pairs | None) -> dict:
+    eff, raw = profiles(effective(scenario, db)), yaml_raw(scenario, pairs)
     for src, p in eff.items():
         p["trace"] = p["trace"] or ({"raw_index": raw[src]} if src in raw else {})
     return eff
 
 
-def current(es, scenario, pairs: Pairs | None = None) -> list[dict]:
+def current(db, scenario, pairs: Pairs | None = None) -> list[dict]:
     """每個來源、每個開放的欄位：yaml 的值、現在生效的值、是不是被覆寫了（網頁、命令列的清單用）。
     pairs：trace.yaml 的 raw_indexes()（沒給，trace 的 yaml 值顯示不出來）。"""
-    base, eff = _yaml_profiles(scenario, pairs), _effective_profiles(es, scenario, pairs)
-    active = {(o["source"], o["section"], o["field"]): o for o in MappingRepository(es).active()} if es is not None else {}
+    base, eff = _yaml_profiles(scenario, pairs), _effective_profiles(db, scenario, pairs)
+    active = {(o["source"], o["section"], o["field"]): o for o in MappingRepository(db=db).active()} if db is not None else {}
     rows = []
     for src in base:
         for section, fields in EDITABLE.items():
@@ -98,7 +98,7 @@ def try_value(es, scenario, source: str, section: str, field: str, value) -> lis
     return [Finding(f"{source}.{section}.{field}", f.problem, f.kind) for f in check_fields(es, f"{source}.{section}.{field}", index, None, want)]
 
 
-def propose(es, scenario, source: str, section: str, field: str, value, by: str, reason: str = "",
+def propose(es, db, scenario, source: str, section: str, field: str, value, by: str, reason: str = "",
             pairs: Pairs | None = None) -> tuple[str, list[Finding]]:
     """提一筆（status proposed，還沒生效），順便試一次、把結果存起來。回 (id, 試的結果)。"""
     if not (by or "").strip():
@@ -106,21 +106,21 @@ def propose(es, scenario, source: str, section: str, field: str, value, by: str,
     value = check_value(section, field, value)
     if source not in profiles(scenario):
         raise ValueError(f"來源 {source!r} 沒有在用（AIOPS_SOURCE 是 {','.join(profiles(scenario))}）")
-    old = _effective_profiles(es, scenario, pairs)[source][section].get(field)
+    old = _effective_profiles(db, scenario, pairs)[source][section].get(field)
     if old == value:
         raise ValueError(f"{source}.{section}.{field} 現在就是 {value}，不用改")
     findings = try_value(es, scenario, source, section, field, value)
     now = now_of().isoformat()
     _id = doc_id("mapping", source, section, field, str(value), now)
-    MappingRepository(es).put(_id, {"source": source, "section": section, "field": field, "value": value, "old_value": old,
+    MappingRepository(db=db).put(_id, {"source": source, "section": section, "field": field, "value": value, "old_value": old,
                                     "status": "proposed", "by": by.strip(), "reason": reason, "created_at": now,
                                     "check": "\n".join(str(f) for f in findings) or "試過：欄位在資料裡有出現"})
     return _id, findings
 
 
-def approve(es, scenario, _id: str, by: str, force: bool = False) -> tuple[bool, str]:
+def approve(es, db, scenario, _id: str, by: str, force: bool = False) -> tuple[bool, str]:
     """proposed → active。核准前再試一次：對不上（或抽不到資料、試不了）就不給，除非 force。同一個欄位原本生效的那筆改成 disabled。"""
-    repo = MappingRepository(es)
+    repo = MappingRepository(db=db)
     doc = repo.get(_id)
     if not doc:
         return False, f"找不到 {_id}（mapping list 看得到）"
@@ -139,9 +139,9 @@ def approve(es, scenario, _id: str, by: str, force: bool = False) -> tuple[bool,
     return True, f"已核准 {_id}：{doc['source']}.{doc['section']}.{doc['field']} {doc.get('old_value')} → {doc['value']}，下一輪工作就用新的{note}"
 
 
-def set_status(es, _id: str, status: str, by: str) -> tuple[bool, str]:
+def set_status(db, _id: str, status: str, by: str) -> tuple[bool, str]:
     """reject（proposed → rejected）、disable（active → disabled，退回 yaml 的值）。"""
-    repo = MappingRepository(es)
+    repo = MappingRepository(db=db)
     doc = repo.get(_id)
     allowed = {"rejected": "proposed", "disabled": "active"}
     if not doc:

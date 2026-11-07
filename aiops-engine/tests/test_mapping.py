@@ -1,8 +1,8 @@
-"""欄位對照的覆寫（aiops-mapping）：提、試、核准、退回、停用，蓋在情境資料檔上。為了確認：
+"""欄位對照的覆寫（PostgreSQL 的 aiops_mapping）：提、試、核准、退回、停用，蓋在情境資料檔上。為了確認：
 1. 只開放歸屬、log 的欄位與 trace 的 raw 索引；值寫錯在提的時候就擋。
 2. 只有核准（active）的才生效；proposed、rejected、disabled 都不影響。
 3. 核准前一定對真的資料試：新的欄位名一次都沒出現就不給核准（--force 才行）；同一個欄位新的核准會把舊的停用。
-4. 覆寫只改這一輪用的情境，不動 yaml；讀不到 ES 照 yaml 跑；壞掉的一筆略過不擋其他筆。
+4. 覆寫只改這一輪用的情境，不動 yaml；讀不到資料庫照 yaml 跑；壞掉的一筆略過不擋其他筆。
 5. 並存（otel,apm）時改得到次要來源那一份。
 6. 網頁：看得到現在生效的、提得出、先試不存；核准不在網頁。"""
 import os
@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 
 import data.mapping_service as M
 import common.scenario.mapping as MP
+from common.infra.pg import DB
 from common.scenario import load_scenario
 
 APM_METRIC = {"@timestamp": "2026-11-07T03:00:00Z", "service": {"name": "mes-api", "node": {"name": "mes-api-0"}},
@@ -20,31 +21,26 @@ APM_METRIC = {"@timestamp": "2026-11-07T03:00:00Z", "service": {"name": "mes-api
 
 
 class FakeES:
-    """aiops-mapping 存在記憶體；其他索引的搜尋回 sample（抽樣用）。"""
-    def __init__(self, sample=None, down=False):
-        self.docs, self.sample, self.down = {}, sample if sample is not None else [APM_METRIC], down
+    """原始資料的 ES：搜尋回 sample（抽樣用）。覆寫存在測試用的 PostgreSQL（db，tests/conftest.py 指好的，每個測試結束清空）；
+    docs：{id: 文件}，現在 aiops_mapping 裡有的（指定 docs = {...} 就是整個換掉）。"""
+    def __init__(self, sample=None):
+        self.sample = sample if sample is not None else [APM_METRIC]
+        self.db = DB()
+
+    @property
+    def docs(self) -> dict:
+        return dict(MP.MappingRepository(db=self.db)._select())
+
+    @docs.setter
+    def docs(self, value: dict) -> None:
+        repo = MP.MappingRepository(db=self.db)
+        repo.delete_where("TRUE")
+        repo.bulk(list(value.items()))
 
     def req(self, method, path, body=None, ok=None):
-        if self.down:
-            raise ConnectionError("es down")
-        parts = path.split("?")[0].strip("/").split("/")
-        if parts[0] == MP.MAPPING_INDEX:
-            if parts[-1] == "_search":
-                return {"hits": {"hits": [{"_id": k, "_source": v} for k, v in self.docs.items()]}}
-            if parts[1] == "_doc" and method == "GET":
-                return {"found": parts[2] in self.docs, "_source": self.docs.get(parts[2])}
-            if parts[1] == "_doc" and method == "PUT":
-                self.docs[parts[2]] = dict(body)
-                return {}
-            if parts[1] == "_update":
-                self.docs[parts[2]].update(body["doc"])
-                return {}
-        if parts[-1] == "_search":
+        if path.split("?")[0].endswith("_search"):
             return {"hits": {"hits": [{"_id": str(i), "_source": d} for i, d in enumerate(self.sample)]}}
         return {}
-
-    def ensure_index(self, name, mapping):
-        pass
 
     def search(self, index, body):
         return self.req("POST", f"/{index}/_search", body)
@@ -74,13 +70,13 @@ class Apply(unittest.TestCase):
         es.docs = {"a": {"source": "apm", "section": "owner", "field": "dept", "value": "labels.group", "status": "active", "approved_at": "1"},
                    "p": {"source": "apm", "section": "owner", "field": "service", "value": "labels.app", "status": "proposed"},
                    "d": {"source": "apm", "section": "log", "field": "level", "value": "x", "status": "disabled"}}
-        eff = MP.effective(sc, es)
+        eff = MP.effective(sc, es.db)
         self.assertEqual((eff.owner["dept"], eff.owner["service"], eff.log["level"]), ("labels.group", "service.name", "log.level"))
         self.assertEqual(sc.owner["dept"], "labels.dept")                       # 原本的情境（yaml）沒被改
 
-    def test_es_down_means_yaml(self):
+    def test_db_down_means_yaml(self):
         sc = apm()
-        self.assertIs(MP.effective(sc, FakeES(down=True)), sc)
+        self.assertIs(MP.effective(sc, DB("postgresql://nobody@127.0.0.1:1/none")), sc)
 
     def test_a_broken_override_is_skipped_not_fatal(self):
         sc = apm()
@@ -101,50 +97,50 @@ class Flow(unittest.TestCase):
         self.es, self.sc = FakeES(), apm()
 
     def test_propose_does_not_take_effect_until_approved(self):
-        _id, found = M.propose(self.es, self.sc, "apm", "owner", "dept", "labels.group", "王小明", "部門改用 group")
+        _id, found = M.propose(self.es, self.es.db, self.sc, "apm", "owner", "dept", "labels.group", "王小明", "部門改用 group")
         self.assertEqual(found, [])                                              # 試過：labels.group 在資料裡有
         self.assertEqual(self.es.docs[_id]["status"], "proposed")
-        self.assertEqual(MP.effective(self.sc, self.es).owner["dept"], "labels.dept")
-        ok, msg = M.approve(self.es, self.sc, _id, "李主管")
+        self.assertEqual(MP.effective(self.sc, self.es.db).owner["dept"], "labels.dept")
+        ok, msg = M.approve(self.es, self.es.db, self.sc, _id, "李主管")
         self.assertTrue(ok, msg)
-        self.assertEqual(MP.effective(self.sc, self.es).owner["dept"], "labels.group")
-        row = next(r for r in M.current(self.es, self.sc) if (r["section"], r["field"]) == ("owner", "dept"))
+        self.assertEqual(MP.effective(self.sc, self.es.db).owner["dept"], "labels.group")
+        row = next(r for r in M.current(self.es.db, self.sc) if (r["section"], r["field"]) == ("owner", "dept"))
         self.assertEqual((row["yaml"], row["value"], row["override"]), ("labels.dept", "labels.group", _id))
 
     def test_a_field_that_is_not_in_the_data_cannot_be_approved_without_force(self):
-        _id, found = M.propose(self.es, self.sc, "apm", "owner", "service", "labels.nope", "王小明")
+        _id, found = M.propose(self.es, self.es.db, self.sc, "apm", "owner", "service", "labels.nope", "王小明")
         self.assertTrue(found and found[0].counts)                               # 提的時候就看得到「一次都沒出現」
-        ok, msg = M.approve(self.es, self.sc, _id, "李主管")
+        ok, msg = M.approve(self.es, self.es.db, self.sc, _id, "李主管")
         self.assertFalse(ok)
         self.assertIn("--force", msg)
-        self.assertEqual(MP.effective(self.sc, self.es).owner["service"], "service.name")
-        ok, _ = M.approve(self.es, self.sc, _id, "李主管", force=True)
+        self.assertEqual(MP.effective(self.sc, self.es.db).owner["service"], "service.name")
+        ok, _ = M.approve(self.es, self.es.db, self.sc, _id, "李主管", force=True)
         self.assertTrue(ok)
 
     def test_new_approval_disables_the_old_one_and_disable_goes_back_to_yaml(self):
-        a, _ = M.propose(self.es, self.sc, "apm", "owner", "dept", "labels.group", "甲")
-        M.approve(self.es, self.sc, a, "主管")
-        b, _ = M.propose(self.es, self.sc, "apm", "owner", "dept", "labels.app", "乙")
-        M.approve(self.es, self.sc, b, "主管")
+        a, _ = M.propose(self.es, self.es.db, self.sc, "apm", "owner", "dept", "labels.group", "甲")
+        M.approve(self.es, self.es.db, self.sc, a, "主管")
+        b, _ = M.propose(self.es, self.es.db, self.sc, "apm", "owner", "dept", "labels.app", "乙")
+        M.approve(self.es, self.es.db, self.sc, b, "主管")
         self.assertEqual((self.es.docs[a]["status"], self.es.docs[b]["status"]), ("disabled", "active"))
-        self.assertEqual(MP.effective(self.sc, self.es).owner["dept"], "labels.app")
-        ok, _ = M.set_status(self.es, b, "disabled", "主管")
+        self.assertEqual(MP.effective(self.sc, self.es.db).owner["dept"], "labels.app")
+        ok, _ = M.set_status(self.es.db, b, "disabled", "主管")
         self.assertTrue(ok)
-        self.assertEqual(MP.effective(self.sc, self.es).owner["dept"], "labels.dept")
+        self.assertEqual(MP.effective(self.sc, self.es.db).owner["dept"], "labels.dept")
 
     def test_reject_and_wrong_transitions(self):
-        _id, _ = M.propose(self.es, self.sc, "apm", "log", "level", "labels.app", "甲")
-        self.assertFalse(M.set_status(self.es, _id, "disabled", "主管")[0])      # proposed 不能 disable
-        self.assertTrue(M.set_status(self.es, _id, "rejected", "主管")[0])
-        self.assertFalse(M.approve(self.es, self.sc, _id, "主管")[0])             # rejected 不能再核准
+        _id, _ = M.propose(self.es, self.es.db, self.sc, "apm", "log", "level", "labels.app", "甲")
+        self.assertFalse(M.set_status(self.es.db, _id, "disabled", "主管")[0])      # proposed 不能 disable
+        self.assertTrue(M.set_status(self.es.db, _id, "rejected", "主管")[0])
+        self.assertFalse(M.approve(self.es, self.es.db, self.sc, _id, "主管")[0])             # rejected 不能再核准
 
     def test_propose_guards(self):
         with self.assertRaises(ValueError):
-            M.propose(self.es, self.sc, "apm", "owner", "dept", "labels.group", "")          # 沒寫是誰
+            M.propose(self.es, self.es.db, self.sc, "apm", "owner", "dept", "labels.group", "")          # 沒寫是誰
         with self.assertRaises(ValueError):
-            M.propose(self.es, self.sc, "apm", "owner", "dept", "labels.dept", "甲")          # 跟現在一樣
+            M.propose(self.es, self.es.db, self.sc, "apm", "owner", "dept", "labels.dept", "甲")          # 跟現在一樣
         with self.assertRaises(ValueError):
-            M.propose(self.es, self.sc, "otel", "owner", "dept", "x", "甲")                   # 沒在用的來源
+            M.propose(self.es, self.es.db, self.sc, "otel", "owner", "dept", "x", "甲")                   # 沒在用的來源
 
 
 class Page(unittest.TestCase):
@@ -153,7 +149,7 @@ class Page(unittest.TestCase):
         import interface.web.routes as R
         self.R, self.es = R, FakeES()
         self.client = TestClient(R.app)
-        R.state.es, R.state.repo = self.es, type("Repo", (), {"es": self.es, "scenario": apm()})()
+        R.state.es, R.state.repo = self.es, type("Repo", (), {"es": self.es, "db": self.es.db, "scenario": apm()})()
 
     def test_page_lists_current_values_and_proposes(self):
         page = self.client.get("/mapping").text

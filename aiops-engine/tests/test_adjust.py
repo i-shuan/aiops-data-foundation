@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 
 import detect.series_ops.manual_adjust as A
+from common.infra.pg import DB
 from common.infra.repos import Repos
 from common.scenario import load_scenario
 
@@ -66,23 +67,13 @@ class Robust(unittest.TestCase):
         self.assertIn("粒度", A.problem({"kind": "override", "resolution": "2m"}))
         self.assertIsNone(A.problem({"kind": "rule_suggestion", "rule_draft": {}}))
 
-    def test_load_skips_bad_and_survives_unreadable_index(self):
-        class FakeES:
-            def __init__(self, hits=None, err=None):
-                self.hits, self.err = hits, err
-
-            def req(self, *a, **k):
-                if self.err:
-                    raise self.err
-                return {"hits": {"hits": self.hits}}
-        good = {"_id": "g", "_source": {"kind": "override", "series": "x", "z": 7}}
-        bad = {"_id": "b", "_source": {"kind": "exclude_window", "start": "2026-10-01"}}
+    def test_load_skips_bad_and_survives_unreadable_db(self):
         cfg = validate({"adjustments_file": "", "calendar_file": "", "overrides": [{"series": "y", "z": 9}], "series": []}, "series")
-        self.assertEqual([a.get("id") for a in A.load(Repos(FakeES([good, bad])), cfg)], [None, "g"])
-        got = A.load(Repos(FakeES(err=RuntimeError("400 index_closed_exception"))), cfg)
-        self.assertEqual(got, [o.model_dump(exclude_unset=True, by_alias=True) for o in cfg.overrides])          # 只剩設定檔的
-        import requests
-        self.assertEqual(A.load(Repos(FakeES(err=requests.ConnectionError("down"))), cfg), [o.model_dump(exclude_unset=True, by_alias=True) for o in cfg.overrides])
+        repo = Repos(None)
+        repo.tuning.bulk([("g", {"kind": "override", "series": "x", "z": 7}), ("b", {"kind": "exclude_window", "start": "2026-10-01"})])
+        self.assertEqual([a.get("id") for a in A.load(repo, cfg)], [None, "g"])                 # 壞的（沒有 end）略過
+        down = Repos(None, db=DB("postgresql://nobody@127.0.0.1:1/none"))                     # 資料庫連不上
+        self.assertEqual(A.load(down, cfg), [o.model_dump(exclude_unset=True, by_alias=True) for o in cfg.overrides])   # 只剩設定檔的
 
 
 class LocalTime(unittest.TestCase):

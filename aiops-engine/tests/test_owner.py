@@ -57,28 +57,23 @@ class OwnerOf(unittest.TestCase):
 class WriteAnomalies(unittest.TestCase):
     def test_adds_owner_and_writes(self):
         class Fake:
-            def __init__(self): self.written = None
             def req(self, *a, **k):
                 return {"aggregations": {"ns": {"buckets": [bucket("mes-prod", "D3120", "it")]}, "svc": {"buckets": []}}}
-            def bulk_index(self, index, docs): self.written = (index, docs)
-        es = Fake()
-        docs = [("a", {"keys": {"namespace": "mes-prod"}}), ("b", {"keys": {"node": "n1"}})]
-        Repos(es, IT).anomalies.write(docs)
-        self.assertEqual(es.written[0], "aiops-anomalies")
-        self.assertEqual([(d["dept"], d["group"]) for _, d in es.written[1]], [("D3120", "it"), (None, "unassigned")])
+        repo = Repos(Fake(), IT)
+        repo.anomalies.write([("a", {"keys": {"namespace": "mes-prod"}}), ("b", {"keys": {"node": "n1"}})])
+        got = repo.anomalies.get_many(["a", "b"])                     # 寫進 PostgreSQL（tests/conftest.py 指好的）
+        self.assertEqual([(got[i]["dept"], got[i]["group"]) for i in ("a", "b")], [("D3120", "it"), (None, "unassigned")])
 
     def test_every_doc_carries_engine_version(self):
-        # 五種寫入（baseline、規則、peer、quality、trace）都走這裡，所以在這裡補就等於每筆都有；欄位也要在 mapping（dynamic false）
+        # 五種寫入（baseline、規則、peer、quality、trace）都走這裡，所以在這裡補就等於每筆都有
         from common.infra.env import ENGINE_VERSION
-        from detect.store.models import ANOMALY_MAPPING
+
         class Fake:
-            def __init__(self): self.written = None
             def req(self, *a, **k): return {}
-            def bulk_index(self, index, docs): self.written = docs
-        es = Fake()
-        Repos(es, IT).anomalies.write([("a", {"keys": {"service": "x"}}), ("b", {"keys": {}})])
-        self.assertEqual([d["engine_version"] for _, d in es.written], [ENGINE_VERSION, ENGINE_VERSION])
-        self.assertEqual(ANOMALY_MAPPING["mappings"]["properties"]["engine_version"], {"type": "keyword"})
+        repo = Repos(Fake(), IT)
+        repo.anomalies.write([("a", {"keys": {"service": "x"}}), ("b", {"keys": {}})])
+        got = repo.anomalies.get_many(["a", "b"])
+        self.assertEqual([got[i]["engine_version"] for i in ("a", "b")], [ENGINE_VERSION, ENGINE_VERSION])
 
     def test_empty_does_not_query(self):
         class Boom:

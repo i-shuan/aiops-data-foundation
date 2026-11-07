@@ -1,4 +1,5 @@
 """ES 的共用部分：連線與查詢小工具（原 connection）、寫進 ES 的文件的 pydantic 基底 Doc（原 document）、repository 基底 Repository（原 repository）。
+ES 只放原始資料（Elastic APM 寫的）與 traces-merged-*；engine 自己的資料在 PostgreSQL（common/infra/pg.py）。
 一個 repository 管一個索引（或一組同格式的索引）的讀寫，索引名與 ES 的查詢只出現在各功能的 store/；
 es 是這裡的 ES；測試裡只要有 req／search／bulk_index／ensure_index 的假 ES 也行（tests/fakes.py 另有不連 ES 的記憶體版）。
 
@@ -118,8 +119,8 @@ class Repository:
     INDEX: str = ""
     MAPPING: dict = {}
 
-    def __init__(self, es, scenario=None):
-        self.es, self.scenario = es, scenario
+    def __init__(self, es, scenario=None, db=None):
+        self.es, self.scenario, self.db = es, scenario, db      # db：讀原始資料的 repository 也要查 PostgreSQL 時用（例如欄位對照的覆寫）
 
     # ── 索引 ──
     def ensure(self, index: str | None = None, mapping: dict | None = None) -> None:

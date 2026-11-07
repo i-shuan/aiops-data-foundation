@@ -1,86 +1,72 @@
-"""detector prune（aiops-* 超過保留天數的文件每天清）的單元測試，不需要 ES。"""
+"""detector prune（engine 自己的資料超過保留天數的每天清）：對真的 PostgreSQL（tests/pg.py）跑。為了確認：
+1. 保留天數算對（cutoff）；附的設定只清異常、trace 每段的統計、告警，不碰事故、回饋、調整、基準線。
+2. 異常、統計依自己的時間刪；告警只刪已結案、結案時間早於 cutoff 的（開著的件、狀態文件不刪）。
+3. --dry-run 只數不刪。"""
 import contextlib
 import io
 import unittest
 from argparse import Namespace
-from unittest import mock
 
 import pandas as pd
 import yaml
 
 import detect.housekeeping as P
 from common.config import validate
+from common.infra.repos import Repos
+from common.scenario import load_scenario
+from tests.pg import fresh_db, needs_pg
 
 NOW = pd.Timestamp("2026-11-01T03:30:00Z")
-CFG = validate({"timezone": "Asia/Taipei", "indices": [
-    {"index": "aiops-anomalies", "keep_days": 90},
-    {"index": "aiops-alerts", "time_field": "resolved_at", "keep_days": 180, "filter": {"term": {"status": "resolved"}}},
-]}, "prune")
-
-
-class FakeES:
-    def __init__(self, counts):
-        self.counts, self.calls = counts, []
-
-    def req(self, method, path, body=None, ok=None):
-        self.calls.append((method, path, body))
-        index = path.split("/")[1]
-        if "_count" in path:
-            return {"count": self.counts.get(index, 0)}
-        if "_delete_by_query" in path:
-            return {"deleted": self.counts.get(index, 0), "failures": []}
-        raise AssertionError(path)
-
-
-def run(es, **kw):
-    with mock.patch.object(P, "ES", lambda: es), contextlib.redirect_stdout(io.StringIO()) as out:
-        rc = P.cmd_prune(CFG, Namespace(at=pd.Timestamp("2026-11-01T03:30:00Z"), **{"dry_run": False, **kw}))
-    return rc, out.getvalue()
+CFG = validate({"timezone": "Asia/Taipei", "tables": [{"table": "anomalies", "keep_days": 90}, {"table": "alerts", "keep_days": 180}]}, "prune")
 
 
 class Plan(unittest.TestCase):
-    def test_cutoff_and_filter(self):
+    def test_cutoff(self):
         a, al = P.plan(CFG, NOW)
-        self.assertEqual((a["index"], a["time_field"]), ("aiops-anomalies", "@timestamp"))
-        self.assertEqual(a["query"], {"bool": {"filter": [{"range": {"@timestamp": {"lt": "2026-08-03T03:30:00+00:00"}}}]}})   # 90 天前
-        self.assertEqual(al["query"]["bool"]["filter"], [{"range": {"resolved_at": {"lt": "2026-05-05T03:30:00+00:00"}}},
-                                                          {"term": {"status": "resolved"}}])                              # 180 天前、只刪已結案的
+        self.assertEqual((a["table"], a["cutoff"].isoformat()), ("anomalies", "2026-08-03T03:30:00+00:00"))    # 90 天前
+        self.assertEqual((al["table"], al["cutoff"].isoformat()), ("alerts", "2026-05-05T03:30:00+00:00"))     # 180 天前
 
-    def test_shipped_config_only_touches_derived_indices(self):
+    def test_shipped_config_only_touches_derived_data(self):
         with open("configs/baseline/prune.yaml", encoding="utf-8") as f:
             cfg = yaml.safe_load(f)
-        names = {i["index"] for i in cfg["indices"]}
-        self.assertEqual(names, {"aiops-anomalies", "aiops-trace-segments", "aiops-alerts"})
-        for forbidden in ("aiops-incidents", "aiops-feedback", "aiops-tuning", "aiops-baseline"):
-            self.assertNotIn(forbidden, names)
-        alerts = next(i for i in cfg["indices"] if i["index"] == "aiops-alerts")
-        self.assertEqual((alerts["time_field"], alerts["filter"]), ("resolved_at", {"term": {"status": "resolved"}}))
+        self.assertEqual({t["table"] for t in cfg["tables"]}, {"anomalies", "segments", "alerts"})
+        validate(cfg, "prune")
+
+    def test_unknown_table_is_rejected(self):
+        with self.assertRaises(Exception):
+            validate({"tables": [{"table": "incidents", "keep_days": 1}]}, "prune")
 
 
+@needs_pg
 class Run(unittest.TestCase):
-    def test_deletes_by_query_and_reports(self):
-        es = FakeES({"aiops-anomalies": 12, "aiops-alerts": 3})
-        rc, out = run(es)
+    def setUp(self):
+        self.repo = Repos(None, load_scenario(), db=fresh_db())
+        old, new = "2026-07-01T00:00:00+00:00", "2026-10-30T00:00:00+00:00"
+        self.repo.anomalies.bulk([("a-old", {"@timestamp": old, "series": "s"}), ("a-new", {"@timestamp": new, "series": "s"})])
+        self.repo.alerts.bulk([
+            ("al-old", {"@timestamp": old, "status": "resolved", "resolved_at": "2026-04-01T00:00:00+00:00"}),
+            ("al-recent", {"@timestamp": new, "status": "resolved", "resolved_at": "2026-10-01T00:00:00+00:00"}),
+            ("al-open", {"@timestamp": old, "status": "open", "started_at": "2026-01-01T00:00:00+00:00"}),
+            ("detect-status", {"@timestamp": old, "status": "ok"})])
+
+    def run_prune(self, **kw):
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            rc = P.cmd_prune(CFG, Namespace(at=NOW, **{"dry_run": False, **kw}), self.repo)
+        return rc, out.getvalue()
+
+    def test_deletes_old_and_keeps_open(self):
+        rc, out = self.run_prune()
         self.assertEqual(rc, 0)
-        dels = [(p, b) for m, p, b in es.calls if "_delete_by_query" in p]
-        self.assertEqual([p.split("/")[1] for p, _ in dels], ["aiops-anomalies", "aiops-alerts"])
-        self.assertIn("conflicts=proceed", dels[0][0])
-        self.assertIn("refresh=true", dels[0][0])
-        self.assertEqual(dels[1][1]["query"]["bool"]["filter"][1], {"term": {"status": "resolved"}})
-        self.assertIn("刪了 12 筆", out)
-        self.assertIn("共 15 筆", out)
+        self.assertEqual(self.repo.anomalies.get_many(["a-old", "a-new"]).keys(), {"a-new"})
+        self.assertEqual({i for i, _ in self.repo.alerts._select()}, {"al-recent", "al-open", "detect-status"})
+        self.assertIn("anomalies：刪了 1 筆", out)
+        self.assertIn("共 2 筆", out)
 
     def test_dry_run_only_counts(self):
-        es = FakeES({"aiops-anomalies": 12})
-        rc, out = run(es, dry_run=True)
-        self.assertFalse(any("_delete_by_query" in p for _, p, _ in es.calls))
+        rc, out = self.run_prune(dry_run=True)
         self.assertIn("沒刪（--dry-run）", out)
-        self.assertIn("共 12 筆要刪", out)
-
-    def test_nothing_to_delete_skips_delete(self):
-        es = FakeES({})
-        run(es)
-        self.assertFalse(any("_delete_by_query" in p for _, p, _ in es.calls))
+        self.assertIn("共 2 筆要刪", out)
+        self.assertEqual(len(self.repo.anomalies.get_many(["a-old", "a-new"])), 2)
 
 
 if __name__ == "__main__":

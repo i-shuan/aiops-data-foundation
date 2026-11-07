@@ -209,7 +209,7 @@ def _rca_submit(request: Request, raw: bytes) -> Response:
 
 @app.get("/mapping")    # 欄位對照：看現在生效的、提一筆（待核准）、先試一下；核准在命令列
 def mapping_page():
-    return _send(200, V.render_mapping(state.repo.es, state.repo.scenario).encode())
+    return _send(200, V.render_mapping(state.repo, state.repo.scenario).encode())
 
 
 @app.post("/mapping")
@@ -219,19 +219,20 @@ async def mapping_submit(request: Request):
 
 def _mapping_submit(raw: bytes) -> Response:
     form = _form(raw)
-    es, sc = state.repo.es, state.repo.scenario
+    repo, sc = state.repo, state.repo.scenario
+    es = repo.es
     section, _, field = (form.get("key") or "").partition(".")
     try:
         if form.get("action") == "try":
-            return _send(200, V.render_mapping(es, sc, form=form, tried=MAP.try_value(es, sc, form.get("source", ""), section, field, form.get("value"))).encode())
-        _id, findings = MAP.propose(es, sc, form.get("source", ""), section, field, form.get("value"), form.get("by", ""), form.get("reason", ""),
+            return _send(200, V.render_mapping(repo, sc, form=form, tried=MAP.try_value(es, sc, form.get("source", ""), section, field, form.get("value"))).encode())
+        _id, findings = MAP.propose(es, repo.db, sc, form.get("source", ""), section, field, form.get("value"), form.get("by", ""), form.get("reason", ""),
                                     trace_raw_pairs(sc.schedule))
     except ValueError as e:
-        return _send(400, V.render_mapping(es, sc, form=form, error=str(e)).encode())
-    except Exception as e:    # ES 掛了：說清楚沒存成功
+        return _send(400, V.render_mapping(repo, sc, form=form, error=str(e)).encode())
+    except Exception as e:    # 資料庫掛了：說清楚沒存成功
         sys.stderr.write(f"mapping submit failed: {e!r}\n")
-        return _send(503, V.render_mapping(es, sc, form=form, error=f"沒有存成功（{type(e).__name__}：{str(e)[:120]}）").encode())
-    return _send(200, V.render_mapping(es, sc, done={"id": _id}, tried=findings).encode())
+        return _send(503, V.render_mapping(repo, sc, form=form, error=f"沒有存成功（{type(e).__name__}：{str(e)[:120]}）").encode())
+    return _send(200, V.render_mapping(repo, sc, done={"id": _id}, tried=findings).encode())
 
 
 @app.post("/missed")        # 網頁版的漏報：form-urlencoded，回表單那一頁

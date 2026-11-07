@@ -1,9 +1,9 @@
 """測試用、不連 ES 的 Repos（跟 common.infra.repos.Repos 同樣的屬性與方法）：
-原始資料是 {index pattern: DataFrame}（整形在 tests/shaping.py，語意跟 ES 端的 aggregation 一樣），aiops-* 的文件存在 dict。
+原始資料是 {index pattern: DataFrame}（整形在 tests/shaping.py，語意跟 ES 端的 aggregation 一樣），engine 自己的資料（PostgreSQL 的表）存在 dict。
 
     repo = MemoryRepos({"metrics-apm.transaction.1m-*": df})
     cmd_train(cfg, args, repo); cmd_detect(cfg, args, repo)
-    repo.docs("aiops-anomalies")   # [(id, 文件)]
+    repo.docs("aiops_anomalies")   # [(id, 文件)]
 """
 from __future__ import annotations
 
@@ -13,14 +13,14 @@ import json
 import pandas as pd
 
 from common.infra.env import ENGINE_VERSION
-from incident.store.models import ALERT_INDEX, Alert
-from detect.store.models import ANOMALY_INDEX
-from detect.store.models import BASELINE_COLUMNS, BASELINE_INDEX, GROUP_COLUMNS, RENAMED
-from learn.store.models import FEEDBACK_INDEX
-from common.types.incident import INCIDENT_INDEX
-from learn.store.models import TUNING_INDEX, validated
-from detect.store.segment_repo import SEGMENT_INDEX
-from detect.store.state_repo import STATE_INDEX
+from incident.store.models import ALERT_TABLE, Alert
+from detect.store.models import ANOMALY_TABLE
+from detect.store.models import BASELINE_COLUMNS, BASELINE_TABLE, GROUP_COLUMNS, RENAMED
+from learn.store.models import FEEDBACK_TABLE
+from common.types.incident import INCIDENT_TABLE
+from learn.store.models import TUNING_TABLE, validated
+from detect.store.segment_repo import SEGMENT_TABLE
+from detect.store.state_repo import STATE_TABLE
 from common.scenario import load_scenario
 import tests.shaping as shape
 
@@ -119,7 +119,7 @@ class MemorySeries:
 
 
 class MemoryAnomalies(_Docs):
-    INDEX = ANOMALY_INDEX
+    INDEX = ANOMALY_TABLE
 
     def write(self, docs) -> None:
         """記憶體來源沒有歸屬可查：全部 unassigned；engine_version 跟 ES 版一樣每筆都補。"""
@@ -146,7 +146,7 @@ class MemoryAnomalies(_Docs):
 
 
 class MemoryBaseline(_Docs):
-    INDEX = BASELINE_INDEX
+    INDEX = BASELINE_TABLE
 
     def load(self, series, by):
         rows = [{**{f: s.get("keys", {}).get(f) for f in by}, **{k: s.get(RENAMED.get(k, k)) for k in BASELINE_COLUMNS}}
@@ -167,7 +167,7 @@ class MemoryBaseline(_Docs):
 
 
 class MemoryTuning(_Docs):
-    INDEX = TUNING_INDEX
+    INDEX = TUNING_TABLE
 
     def all(self) -> list[dict]:   # noqa: D102  跟 TuningRepository.all 一樣回帶 id 的文件
         return sorted([{"id": i, **s} for i, s in self.data.get(self.INDEX, {}).items()], key=lambda a: str(a.get("at") or ""))
@@ -183,7 +183,7 @@ class MemoryTuning(_Docs):
 
 
 class MemoryAlerts(_Docs):
-    INDEX = ALERT_INDEX
+    INDEX = ALERT_TABLE
 
     def open(self) -> list[Alert]:
         return [Alert.from_doc(s) for _, s in self.all() if s.get("status") == "open"]
@@ -202,7 +202,7 @@ class MemoryAlerts(_Docs):
 
 
 class MemoryIncidents(_Docs):
-    INDEX = INCIDENT_INDEX
+    INDEX = INCIDENT_TABLE
 
     def get_many(self, ids) -> list[dict]:
         d = self.data.get(self.INDEX, {})
@@ -212,7 +212,7 @@ class MemoryIncidents(_Docs):
         return [(i, s) for i, s in self.all() if s.get("status") in statuses and i != exclude_id and all(s.get(f) for f in having)
                 and (since is None or _in(s.get("start"), since, None))][:size]
 
-    def similar(self, fp, statuses, exclude_id=None, size=200) -> list[tuple[str, dict]]:
+    def similar(self, fp, statuses, exclude_id=None, size=200, weights=None) -> list[tuple[str, dict]]:
         return self.find(statuses, exclude_id=exclude_id)[:size]
 
     def recent(self, size=200) -> list[tuple[str, dict]]:
@@ -232,7 +232,7 @@ class MemoryIncidents(_Docs):
 
 
 class MemoryFeedback(_Docs):
-    INDEX = FEEDBACK_INDEX
+    INDEX = FEEDBACK_TABLE
 
     def since(self, start, end=None) -> list[dict]:
         return sorted([{**s, "_id": i} for i, s in self.all() if _in(s["@timestamp"], start, end)], key=lambda s: s["@timestamp"])
@@ -259,22 +259,23 @@ class MemoryTraces:
 
 
 class MemorySegments(_Docs):
-    INDEX = SEGMENT_INDEX
+    INDEX = SEGMENT_TABLE
 
     def segments(self, start, end) -> list[dict]:
         return [s for _, s in self.all() if s.get("kind") == "segment" and _in(s["@timestamp"], start, end)]
 
 
 class MemoryState(_Docs):
-    INDEX = STATE_INDEX
+    INDEX = STATE_TABLE
 
     def set(self, key, doc) -> None:
         self.put(key, doc)
 
 
 class MemoryRepos:
-    """跟 Repos 同樣的屬性。frames：{index pattern: DataFrame}；incidents：[(id, 文件)] 預先放進 aiops-incidents；scenario 沒給就依環境變數。"""
+    """跟 Repos 同樣的屬性（db 是 None：欄位對照的覆寫不套用，照 yaml）。frames：{index pattern: DataFrame}；incidents：[(id, 文件)] 預先放進 aiops-incidents；scenario 沒給就依環境變數。"""
     es = None
+    db = None
 
     def __init__(self, frames: dict[str, pd.DataFrame] | None = None, fmt: str = "events", spans: list[dict] | None = None,
                  incidents: list[tuple[str, dict]] | None = None, scenario=None):

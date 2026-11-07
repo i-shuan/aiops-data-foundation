@@ -1,25 +1,20 @@
-"""欄位對照的覆寫（aiops-mapping）：人在網頁上提、核准後蓋在情境資料檔（it_otel.yaml、it_apm.yaml）的 owner、log 上。
+"""欄位對照的覆寫（PostgreSQL 的 aiops_mapping）：人在網頁上提、核准後蓋在情境資料檔（it_otel.yaml、it_apm.yaml）的 owner、log 上。
 
 trace 的 raw 索引（trace.yaml 的 raw_index）也能覆寫：存在 Scenario.trace_raw，trace-merge 讀索引時蓋上去（data/mapping_service.raw_indexes）；
 trace 合成時的部門、群組直接用 owner 的 dept、group 欄位名（data/store/trace_repo.py），不另開欄位。
-yaml 是基準（在 git、image 裡）；ES 裡核准過（status active）的覆寫在**每次讀**時蓋上去，所以改了不用重新部署、下一輪工作就生效，
-engine 換 image 也不會洗掉（ES 是另一個服務）。只開放「設定寫得出來」的欄位（EDITABLE）；來源適配器裡用程式寫的轉換不在這裡改。
-讀不到 ES、覆寫寫錯：那一筆略過、印一行，照 yaml 的值跑——對照覆寫不能讓偵測停下來。
-計畫與為什麼存 ES 不存容器裡的檔或內建資料庫：docs/pdca/meta/2026-11-mapping-ui.md。
+yaml 是基準（在 git、image 裡）；PostgreSQL 裡核准過（status active）的覆寫在**每次讀**時蓋上去，所以改了不用重新部署、下一輪工作就生效，
+engine 換 image 也不會洗掉（PostgreSQL 是另一個服務）。只開放「設定寫得出來」的欄位（EDITABLE）；來源適配器裡用程式寫的轉換不在這裡改。
+讀不到資料庫、覆寫寫錯：那一筆略過、印一行，照 yaml 的值跑——對照覆寫不能讓偵測停下來。
+計畫與為什麼不存容器裡的檔或內建資料庫（當時存 ES，2026-11 搬到 PostgreSQL：docs/pdca/meta/2026-11-postgres-store.md）：docs/pdca/meta/2026-11-mapping-ui.md。
 """
 from __future__ import annotations
 
 import dataclasses
 import time
 
-from common.infra.es import Repository
+from common.infra.pg import DB, PgRepository
 
-MAPPING_INDEX = "aiops-mapping"
-MAPPING_MAPPING = {"mappings": {"dynamic": False, "properties": {
-    "source": {"type": "keyword"}, "section": {"type": "keyword"}, "field": {"type": "keyword"},
-    "value": {"type": "keyword"}, "old_value": {"type": "keyword"}, "status": {"type": "keyword"},
-    "by": {"type": "keyword"}, "reason": {"type": "text"}, "created_at": {"type": "date"},
-    "approved_by": {"type": "keyword"}, "approved_at": {"type": "date"}, "check": {"type": "text", "index": False}}}}
+MAPPING_TABLE = "aiops_mapping"          # PostgreSQL 的表
 
 # 開放在網頁上改的欄位：歸屬、log、trace 的 raw 索引。值是字串；LIST 的是字串清單
 EDITABLE: dict[str, tuple[str, ...]] = {
@@ -76,18 +71,17 @@ def apply(scenario, overrides: list[dict]):
                                trace_raw=tuple((n, prof[n]["trace"]["raw_index"]) for n in names if prof[n]["trace"].get("raw_index")))
 
 
-class MappingRepository(Repository):
-    INDEX, MAPPING = MAPPING_INDEX, MAPPING_MAPPING
+class MappingRepository(PgRepository):
+    TABLE, TIME = MAPPING_TABLE, "created_at"
 
     def all(self) -> list[dict]:
-        """全部（帶 id），新的在前。索引還不存在（沒人提過）是正常的，回 []。"""
-        res = self.es.req("POST", f"/{self.INDEX}/_search", {"size": 1000, "sort": [{"created_at": {"order": "desc", "unmapped_type": "date"}}]},
-                          ok=(200, 404))
-        return [{"id": h["_id"], **h["_source"]} for h in res.get("hits", {}).get("hits", [])]
+        """全部（帶 id），新的在前。還沒人提過是空的。"""
+        return [{"id": i, **d} for i, d in self._select(order="ts DESC NULLS LAST, id")]
 
     def active(self) -> list[dict]:
         """生效的覆寫，舊的在前（同一個欄位有兩筆生效時，後核准的蓋過先的；核准時其實會把舊的停用）。"""
-        return sorted([d for d in self.all() if d.get("status") == "active"], key=lambda d: d.get("approved_at") or "")
+        rows = self._select("doc->>'status' = 'active'", order="doc->>'approved_at' NULLS FIRST, id")   # ISO 字串照字排就是照時間（不轉型：值寫壞也不會整個查不到）
+        return [{"id": i, **d} for i, d in rows]
 
     def get(self, _id: str) -> dict | None:
         got = self._get(_id)
@@ -96,7 +90,6 @@ class MappingRepository(Repository):
     def put(self, _id: str, doc: dict) -> None:
         if doc.get("status") not in STATUSES:
             raise ValueError(f"status 只能是 {'、'.join(STATUSES)}")
-        self.ensure()
         self._put(_id, doc)
 
     def patch(self, _id: str, doc: dict) -> None:
@@ -106,19 +99,20 @@ class MappingRepository(Repository):
 _cache: dict[int, tuple[float, list[dict]]] = {}
 
 
-def effective(scenario, es):
-    """這一輪要用的情境：yaml 的 owner、log 蓋上 ES 裡生效的覆寫。讀不到就照 yaml（印一行）。常駐的程序 CACHE_SECONDS 內重用。"""
-    if scenario is None or es is None or not hasattr(es, "req"):
+def effective(scenario, db):
+    """這一輪要用的情境：yaml 的 owner、log 蓋上 PostgreSQL 裡生效的覆寫。讀不到就照 yaml（印一行）。常駐的程序 CACHE_SECONDS 內重用。
+    db 不是 PostgreSQL 的連線（None、測試的記憶體版）就照 yaml。"""
+    if scenario is None or not isinstance(db, DB):
         return scenario
     now = time.monotonic()
-    hit = _cache.get(id(es))
+    hit = _cache.get(id(db))
     if hit and now - hit[0] < CACHE_SECONDS:
         overrides = hit[1]
     else:
         try:
-            overrides = MappingRepository(es).active()
-        except Exception as e:  # noqa: BLE001  ES 回錯、連不上、假的 ES：照 yaml 跑
+            overrides = MappingRepository(db=db).active()
+        except Exception as e:  # noqa: BLE001  連不上、沒權限、沒設 AIOPS_PG_DSN：照 yaml 跑
             print(f"  ⚠ 讀不到欄位對照的覆寫（{type(e).__name__}: {str(e)[:100]}），這一輪照設定檔的")
             overrides = []
-        _cache[id(es)] = (now, overrides)
+        _cache[id(db)] = (now, overrides)
     return apply(scenario, overrides) if overrides else scenario

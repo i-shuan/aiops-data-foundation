@@ -123,7 +123,7 @@ def cmd_trace_merge(trace_config, args) -> int:
     at = now_of(args.at).to_pydatetime()
     run_source_check(repo, "trace", now_of(args.at),         # 宣告的來源跟 raw trace 對得上嗎：只回報，不擋合成
                      lambda: trace_findings(repo, trace_config))
-    raw = MAP.raw_indexes(effective(repo.scenario, repo.es), trace_config.raw_indexes())   # 蓋上 /mapping 核准過的 raw 索引
+    raw = MAP.raw_indexes(effective(repo.scenario, repo.db), trace_config.raw_indexes())   # 蓋上 /mapping 核准過的 raw 索引
     since, until, n = span_merge.run(repo, raw, trace_config.merge.settle_seconds, at, args.window.to_pytimedelta())
     print(f"trace-merge {since:%H:%M:%S}～{until:%H:%M:%S}：合了 {n} 個 trace")
     return 0
@@ -132,7 +132,7 @@ def cmd_trace_merge(trace_config, args) -> int:
 def trace_findings(repo, trace_config) -> list:
     """每個 raw trace 索引各查一次：明講了來源就用它，沒講用索引名與宣告的來源。"""
     out = []
-    for index, source in MAP.raw_indexes(effective(repo.scenario, repo.es), trace_config.raw_indexes()):
+    for index, source in MAP.raw_indexes(effective(repo.scenario, repo.db), trace_config.raw_indexes()):
         adapter = adapter_of(source) if source else for_index(index, repo.scenario.source)
         out += check_trace_index(repo.es, index, adapter, ADAPTERS)
     return out
@@ -184,7 +184,7 @@ def quality(config: str = Opt(...), at: pd.Timestamp | None = at_opt("回測：�
     return run(cmd_quality, "quality", config=config, at=at, only=only)
 
 
-@command("prune", help="aiops-anomalies、aiops-trace-segments、已結案的 aiops-alerts 超過保留天數的文件清掉（每天）")
+@command("prune", help="異常、trace 每段的統計、已結案的告警（PostgreSQL）超過保留天數的清掉（每天）")
 def prune(config: str = Opt(...), at: pd.Timestamp | None = at_opt("拿某個時間點當成現在"),
           dry_run: bool = Opt(False, "--dry-run", help="只印會刪幾筆，不刪")) -> int:
     return run(cmd_prune, "prune", config=config, at=at, dry_run=dry_run)

@@ -105,7 +105,7 @@ class Deploy(unittest.TestCase):
 
 
 class GradeAlert(unittest.TestCase):
-    """cmd_alert.grade_alert：舊異常用 _mget 補齊、只算這件自己服務的、換版查不到不擋。"""
+    """cmd_alert.grade_alert：舊異常從資料庫補齊、只算這件自己服務的、換版查不到不擋。"""
 
     def test_reads_old_anomalies_and_detects_deploy(self):
         import incident.alert_service as C
@@ -115,22 +115,18 @@ class GradeAlert(unittest.TestCase):
         old = [{"_id": f"o{i}", "_source": {"@timestamp": (T0 + timedelta(minutes=i)).isoformat(), "series": "http.error_rate", "keys": {"service": "pay-api", "route": "POST /pay"}}} for i in range(5)]
 
         class FakeES:
-            def req(self, method, path, body=None, ok=None):
-                self.ids = body["ids"]
-                return {"docs": [{**o, "found": True} for o in old]}
-
             def search(self, index, body):
                 return {"aggregations": {"v": {"buckets": [
                     {"key": "1.4.0", "first": {"value": (T0 - timedelta(days=5)).timestamp() * 1000}},
                     {"key": "1.5.0", "first": {"value": (T0 - timedelta(minutes=2)).timestamp() * 1000}}]}}}
         es = FakeES()
+        Repos(None, SC).anomalies.bulk([(o["_id"], o["_source"]) for o in old])     # 舊異常在 PostgreSQL（tests/conftest.py 指好的）
         new = [{"_id": f"n{i}", "@timestamp": (T0 + timedelta(minutes=i)).isoformat(), "series": "http.latency_p95_s", "keys": {"service": "pay-api"}} for i in (5, 6)]
         al = C.Alert(alert_id="a", category="service", service="pay-api", status="open", severity="warning", started_at=T0, updated_at=T0 + timedelta(minutes=6),
                      anomaly_ids=[o["_id"] for o in old] + [n["_id"] for n in new], series=["http.error_rate", "http.latency_p95_s"], routes=[], new=False,
                      anoms=new)
-        cfg = rca(indices={"anomalies": "aiops-anomalies"})
+        cfg = rca(indices={})
         C.grade_alert(Repos(es, SC), cfg, al, T0 + timedelta(minutes=7))
-        self.assertEqual(es.ids, [o["_id"] for o in old])                       # 只補這一輪沒有的
         self.assertEqual((al.severity, al.deploy_at), ("warning", T0 - timedelta(minutes=2)))   # 2 類 → 本該 high；異常都在換版後 8 分鐘內 → warning
         self.assertIn("原本 high", al.severity_why)
         # 異常繼續到換版後 20 分鐘：沒收斂 → high
@@ -139,7 +135,7 @@ class GradeAlert(unittest.TestCase):
         C.grade_alert(Repos(es, SC), cfg, al, T0 + timedelta(minutes=19))
         self.assertEqual(al.severity, "high")
         # 同一件，pay-api 列成 P0：換版後的上限 warning 也升一級（high），沒收斂的 high 升 critical
-        cfg = rca(indices={"anomalies": "aiops-anomalies"}, alerts={"p0_services": ["pay-.*"]})
+        cfg = rca(indices={}, alerts={"p0_services": ["pay-.*"]})
         C.grade_alert(Repos(es, SC), cfg, al, T0 + timedelta(minutes=19))
         self.assertEqual(al.severity, "critical")
         self.assertIn("P0 服務", al.severity_why)

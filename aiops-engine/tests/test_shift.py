@@ -92,7 +92,7 @@ class QuietDrops(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()):
             C.cmd_train(CFG, Namespace(end=T0 + pd.Timedelta(days=14), weeks=None, at=None), be)
             C.cmd_detect(CFG, Namespace(at=at, window=pd.Timedelta("24h")), be)
-        self.assertFalse([d for _, d in be.docs("aiops-anomalies") if d.get("series") == "http.error_rate"])   # 往下掉不判成異常、不通知
+        self.assertFalse([d for _, d in be.docs("aiops_anomalies") if d.get("series") == "http.error_rate"])   # 往下掉不判成異常、不通知
 
         drops = S.quiet_drops(be, CFG, at, pd.Timedelta("24h"), "Asia/Taipei")
         self.assertGreaterEqual(len(drops), 15)          # 1 小時一點，24 小時扣掉還沒收齊的
@@ -103,7 +103,7 @@ class QuietDrops(unittest.TestCase):
         cfg = CFG.model_copy(update={"shift": Shift(min_points=10)})
         with contextlib.redirect_stdout(io.StringIO()) as text:
             S.cmd_shift(cfg, Namespace(at=at), be)
-        props = [d for _, d in be.docs("aiops-tuning") if d.get("kind") == "reset_point"]
+        props = [d for _, d in be.docs("aiops_tuning") if d.get("kind") == "reset_point"]
         self.assertEqual(len(props), 1, text.getvalue())
         self.assertEqual((props[0]["status"], props[0]["series"]), ("proposed", "http\\.error_rate"))
         self.assertIn("往下", props[0]["reason"])

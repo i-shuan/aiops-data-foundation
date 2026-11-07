@@ -1,4 +1,4 @@
-"""common/types/incident.py：Fingerprint／Incident 的 to_doc() 跟改成類別之前（master 31c72f8）四條寫入路徑手寫的 dict 比；欄位跟 INCIDENT_MAPPING、
+"""common/types/incident.py：Fingerprint／Incident 的 to_doc() 跟改成類別之前（master 31c72f8）四條寫入路徑手寫的 dict 比；欄位跟
 similar.WEIGHTS 對得上；欄位名打錯、status 給錯會擋；from_doc 讀舊文件（缺欄位、多欄位、型別不對）不炸。不連 ES。
 
 期望值是改之前用同樣輸入跑 similar.fingerprint／importer.normalize／cmd_alert._incident_doc 存下來的（docs/pdca/meta/2026-11-vo-models.md Check）。"""
@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from pydantic import ValidationError
 
 from incident.store.models import Alert
-from common.types.incident import INCIDENT_MAPPING, UNMAPPED_FIELDS, Fingerprint, Incident
+from common.types.incident import Fingerprint, Incident
 import learn.history_importer as IMP
 import llm.similar as SIM
 
@@ -51,7 +51,6 @@ class FingerprintGolden(unittest.TestCase):
     def test_weights_cover_exactly_the_fields(self):
         self.assertEqual(set(SIM.WEIGHTS), set(Fingerprint.FIELDS))
         self.assertEqual(set(Fingerprint.FIELDS), set(Fingerprint.model_fields))
-        self.assertEqual(set(INCIDENT_MAPPING["mappings"]["properties"]["fingerprint"]["properties"]), set(Fingerprint.FIELDS))
 
     def test_of_and_empty(self):
         self.assertTrue(Fingerprint.of(None).empty)
@@ -128,12 +127,6 @@ class IncidentGolden(unittest.TestCase):
     def test_seed_drops_none_service(self):
         """回饋網頁的種子：告警沒有 service 時以前會寫 [None]，現在丟掉。"""
         self.assertEqual(Incident(**{"@timestamp": "t"}, status="confirmed", services=[None]).services, [])
-
-    def test_mapping_fields_are_model_fields(self):
-        names = {f.alias or n for n, f in Incident.model_fields.items()}
-        mapped = set(INCIDENT_MAPPING["mappings"]["properties"])
-        self.assertEqual(mapped - names, set(), "mapping 有、模型沒有的欄位")
-        self.assertEqual(names - mapped, set(UNMAPPED_FIELDS), "模型有、mapping 沒有的欄位要列在 UNMAPPED_FIELDS")
 
     def test_typo_and_bad_status_rejected(self):
         with self.assertRaises(ValidationError):

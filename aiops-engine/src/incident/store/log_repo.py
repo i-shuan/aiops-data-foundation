@@ -29,7 +29,7 @@ def _fields_param(p: dict) -> list[str]:
 class LogRepository(Repository):
     def _scenario(self):
         """情境蓋上核准過的欄位對照覆寫（aiops-mapping）：log 的欄位名可以在網頁上提、核准後改，不用重新部署。"""
-        return effective(self.scenario, self.es)
+        return effective(self.scenario, self.db)
 
     def _profile(self) -> dict:
         return self._scenario().log

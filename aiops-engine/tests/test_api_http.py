@@ -10,21 +10,27 @@ from fastapi.testclient import TestClient
 import interface.web.routes as W
 import interface.web.dto as D
 import learn.feedback_service as F
-from learn.store.models import FEEDBACK_INDEX
+from learn.store.models import FEEDBACK_TABLE
 from tests.test_api import ALERT, FakeES
 
 
 class BrokenES(FakeES):
-    """告警讀得到，但寫回饋時 ES 回 503。"""
-    def bulk_index(self, index, docs):
-        raise RuntimeError("POST /_bulk → 503: no shard available")
+    """告警讀得到，但一次寫好幾筆回饋時資料庫回錯（漏報是單筆寫，寫得進去）。"""
+    def __init__(self):
+        super().__init__()
+        self.broken = mock.patch("learn.store.feedback_repo.FeedbackRepository.bulk", side_effect=RuntimeError("connection to server lost"))
 
 
 class Http(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        W.set_es(BrokenES())
         cls.c = TestClient(W.app)
+
+    def setUp(self):                  # 每個測試結束資料庫會清空（tests/conftest.py），所以每次都重新放告警
+        es = BrokenES()
+        W.set_es(es)
+        es.broken.start()
+        self.addCleanup(es.broken.stop)
 
     def post(self, path, body, ctype):
         r = self.c.post(path, content=body, headers={"Content-Type": ctype})
@@ -61,14 +67,14 @@ class Http(unittest.TestCase):
         st, body = self.post("/api/missed", json.dumps({"series": "nope", "service": "mes-api", "at": "2026-10-25 10:00"}).encode(), "application/json")
         self.assertEqual(st, 400)
         self.assertIn("series 要是", json.loads(body)["error"])
-        with mock.patch.object(F, "_ready", set()):     # BrokenES 只壞 bulk_index；漏報走單筆 PUT，寫得進去
+        with mock.patch.object(F, "_ready", set()):     # BrokenES 只壞一次寫好幾筆的；漏報是單筆，寫得進去
             st, body = self.post("/api/missed", json.dumps({"series": "http.latency_p95_s", "service": "mes-api", "at": "2026-10-25 10:00", "by": "amy"}).encode(), "application/json")
         self.assertEqual(st, 200)
         self.assertEqual(json.loads(body)["verdict"], "missed")
-        self.assertTrue(any(d.get("verdict") == "missed" for d in W.state.es.written[FEEDBACK_INDEX].values()))
+        self.assertTrue(any(d.get("verdict") == "missed" for d in W.state.es.written[FEEDBACK_TABLE].values()))
 
-    def test_missed_es_down_is_503_with_message(self):
-        with mock.patch.object(W.state.es, "req", side_effect=RuntimeError("PUT → 503")), mock.patch.object(F, "_ready", {id(W.state.es)}):
+    def test_missed_db_down_is_503_with_message(self):
+        with mock.patch("learn.store.feedback_repo.FeedbackRepository.put", side_effect=RuntimeError("connection refused")):
             st, body = self.post("/api/missed", json.dumps({"series": "http.latency_p95_s", "service": "mes-api", "at": "2026-10-25 10:00"}).encode(), "application/json")
         self.assertEqual(st, 503)
         self.assertIn("沒有存成功", json.loads(body)["error"])

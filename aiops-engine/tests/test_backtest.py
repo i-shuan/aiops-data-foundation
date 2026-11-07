@@ -86,7 +86,7 @@ class CachedES(unittest.TestCase):
 
     def test_search_method_cached_too(self):
         body = {"size": 1000, "query": {"match_all": {}}}
-        self.assertIs(self.es.search("aiops-incidents", body), self.es.search("aiops-incidents", dict(body)))
+        self.assertIs(self.es.search("aiops_incidents", body), self.es.search("aiops_incidents", dict(body)))
         self.assertEqual(len(self.raw.calls), 1)
 
     def test_writes_pass_through(self):
@@ -94,7 +94,7 @@ class CachedES(unittest.TestCase):
             self.es.req("PUT", "/aiops-tuning/_doc/x", {"a": 1})
             self.es.req("POST", "/aiops-tuning/_update/x?refresh=true", {"doc": {"a": 1}})
             self.es.req("DELETE", "/aiops-tuning/_doc/x", ok=(200, 404))
-            self.es.bulk_index("aiops-anomalies", [("1", {})])
+            self.es.bulk_index("aiops_anomalies", [("1", {})])
         self.assertEqual(len(self.raw.calls), 8)
         self.assertEqual(self.raw.calls[0], ("PUT", "/aiops-tuning/_doc/x", {"a": 1}))
 

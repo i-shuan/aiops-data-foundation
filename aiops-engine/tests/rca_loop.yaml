@@ -1,5 +1,4 @@
 indices:
-  anomalies: aiops-anomalies
   traces: traces-*.otel-*
   logs: k8s-*
 timezone: Asia/Taipei

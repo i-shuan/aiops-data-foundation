@@ -152,7 +152,6 @@
   "entry_lag": "0s",
   "incidents_db": null,
   "indices": {
-   "anomalies": "aiops-anomalies",
    "logs": "logs-apm.app.*,logs-apm.error-*",
    "traces": "traces-merged-*"
   },
@@ -1258,28 +1257,18 @@
   }
  },
  "configs/baseline/prune.yaml": {
-  "indices": [
+  "tables": [
    {
-    "filter": null,
-    "index": "aiops-anomalies",
     "keep_days": 90,
-    "time_field": "@timestamp"
+    "table": "anomalies"
    },
    {
-    "filter": null,
-    "index": "aiops-trace-segments",
     "keep_days": 90,
-    "time_field": "@timestamp"
+    "table": "segments"
    },
    {
-    "filter": {
-     "term": {
-      "status": "resolved"
-     }
-    },
-    "index": "aiops-alerts",
     "keep_days": 180,
-    "time_field": "resolved_at"
+    "table": "alerts"
    }
   ],
   "timezone": "Asia/Taipei"
@@ -4111,7 +4100,6 @@
   "entry_lag": "12h",
   "incidents_db": null,
   "indices": {
-   "anomalies": "aiops-anomalies",
    "logs": "eqp-logs-*",
    "traces": "lot-paths-*"
   },
@@ -4262,7 +4250,6 @@
   "entry_lag": "0s",
   "incidents_db": null,
   "indices": {
-   "anomalies": "aiops-anomalies",
    "logs": "eqp-logs-*",
    "traces": null
   },
@@ -4767,7 +4754,6 @@
   "entry_lag": "0s",
   "incidents_db": null,
   "indices": {
-   "anomalies": "aiops-anomalies",
    "logs": "k8s-*",
    "traces": "traces-merged-*"
   },
@@ -4976,7 +4962,7 @@
     "retries": null,
     "stage": 2,
     "timeout": 600,
-    "why": "aiops-anomalies、aiops-trace-segments、已結案的 aiops-alerts 沒有 ILM，超過保留天數的每天清一次（prune.yaml）"
+    "why": "異常、trace 每段的統計、已結案的告警（PostgreSQL）超過保留天數的每天清一次（prune.yaml）"
    },
    {
     "args": [

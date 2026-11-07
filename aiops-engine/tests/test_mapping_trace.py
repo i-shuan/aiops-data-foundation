@@ -33,7 +33,7 @@ def active(source, section, field, value):
 class TraceEs(FakeES):
     """raw trace 的搜尋回 sample，並記下要的 _source。"""
     def req(self, method, path, body=None, ok=None):
-        if path.split("?")[0].strip("/").split("/")[0] != MP.MAPPING_INDEX and body and "_source" in body:
+        if path.split("?")[0].strip("/").split("/")[0] != MP.MAPPING_TABLE and body and "_source" in body:
             self.asked = body["_source"]
         return super().req(method, path, body, ok)
 
@@ -61,7 +61,7 @@ class OwnerFields(unittest.TestCase):
         doc["labels"]["app"] = "mes"
         doc["custom"] = {"dept": "D9999"}
         es = TraceEs(sample=[doc])
-        repo = TraceRepository(es, scenario())
+        repo = TraceRepository(es, scenario(), db=es.db)
         start, end = datetime(2026, 11, 2, tzinfo=timezone.utc), datetime(2026, 11, 3, tzinfo=timezone.utc)
         spans = repo.spans("traces-apm-*", ["t1"], start, end)
         index, merged = Trace.group(spans)["t1"].to_merged_doc(end)
@@ -78,7 +78,7 @@ class OwnerFields(unittest.TestCase):
         doc = {"@timestamp": "2026-11-02T01:00:00Z", "trace_id": "t1", "span_id": "s1", "name": "GET /", "kind": "Server", "duration": 1000000,
                "resource": {"attributes": {"service.name": "a", "dept": "D1", "group": "g1"}}}
         es = TraceEs(sample=[doc])
-        repo = TraceRepository(es, scenario("otel"))
+        repo = TraceRepository(es, scenario("otel"), db=es.db)
         start, end = datetime(2026, 11, 2, tzinfo=timezone.utc), datetime(2026, 11, 3, tzinfo=timezone.utc)
         res = repo.spans("traces-generic.otel-*", ["t1"], start, end)[0]["resource"]
         self.assertEqual((res["dept"], res["group"]), ("D1", "g1"))
@@ -91,7 +91,7 @@ class RawIndex(unittest.TestCase):
     def eff(self, source, *overrides):
         es = FakeES()
         es.docs = {str(i): o for i, o in enumerate(overrides)}
-        return MP.effective(scenario(source), es)
+        return MP.effective(scenario(source), es.db)
 
     def test_no_override_is_unchanged(self):
         pairs = [("traces-apm-*", None)]
@@ -120,24 +120,24 @@ class RawIndex(unittest.TestCase):
     def test_cannot_approve_an_index_with_the_wrong_format(self):
         sc = scenario()
         es = FakeES(sample=[{"trace_id": "t1", "span_id": "s1"}])
-        _id, _ = M.propose(es, sc, "apm", "trace", "raw_index", "traces-generic.otel-*", "王小明", pairs=[("traces-apm-*", None)])
-        ok, msg = M.approve(es, sc, _id, "李主管")
+        _id, _ = M.propose(es, es.db, sc, "apm", "trace", "raw_index", "traces-generic.otel-*", "王小明", pairs=[("traces-apm-*", None)])
+        ok, msg = M.approve(es, es.db, sc, _id, "李主管")
         self.assertFalse(ok, msg)
-        self.assertEqual(M.raw_indexes(MP.effective(sc, es), [("traces-apm-*", None)]), [("traces-apm-*", None)])
+        self.assertEqual(M.raw_indexes(MP.effective(sc, es.db), [("traces-apm-*", None)]), [("traces-apm-*", None)])
 
     def test_current_and_propose_know_the_yaml_value(self):
         pairs = trace_raw_pairs("configs/apm/schedule.yaml")
         self.assertEqual(pairs, [("traces-apm-*", None)])
         sc, es = scenario(), FakeES(sample=[TX])
-        row = next(r for r in M.current(es, sc, pairs) if r["section"] == "trace")
+        row = next(r for r in M.current(es.db, sc, pairs) if r["section"] == "trace")
         self.assertEqual((row["yaml"], row["value"], row["override"]), ("traces-apm-*", "traces-apm-*", None))
         with self.assertRaises(ValueError):                                        # 跟現在一樣
-            M.propose(es, sc, "apm", "trace", "raw_index", "traces-apm-*", "王小明", pairs=pairs)
-        _id, _ = M.propose(es, sc, "apm", "trace", "raw_index", "traces-apm.new-*", "王小明", pairs=pairs)
+            M.propose(es, es.db, sc, "apm", "trace", "raw_index", "traces-apm-*", "王小明", pairs=pairs)
+        _id, _ = M.propose(es, es.db, sc, "apm", "trace", "raw_index", "traces-apm.new-*", "王小明", pairs=pairs)
         self.assertEqual(es.docs[_id]["old_value"], "traces-apm-*")
-        ok, msg = M.approve(es, sc, _id, "李主管")
+        ok, msg = M.approve(es, es.db, sc, _id, "李主管")
         self.assertTrue(ok, msg)
-        row = next(r for r in M.current(es, sc, pairs) if r["section"] == "trace")
+        row = next(r for r in M.current(es.db, sc, pairs) if r["section"] == "trace")
         self.assertEqual((row["yaml"], row["value"], row["override"]), ("traces-apm-*", "traces-apm.new-*", _id))
 
     def test_schedule_without_trace_merge_is_none(self):

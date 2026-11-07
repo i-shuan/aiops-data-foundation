@@ -60,7 +60,7 @@ class TraceRepository(Repository):
         """這個來源的歸屬欄位（情境資料檔＋/mapping 核准過的覆寫）：合成 trace 時部門、群組跟 metrics、log 的異常讀同一個欄位。"""
         if self.scenario is None:
             return {}
-        return profiles(effective(self.scenario, self.es)).get(source, {}).get("owner") or {}
+        return profiles(effective(self.scenario, self.db)).get(source, {}).get("owner") or {}
 
     def spans(self, index: str, trace_ids: list[str], start, end, source: str | None = None) -> list[dict]:
         """這些 trace 的所有 span（含其他服務的）。呼叫端把時間放寬，跨過邊界的請求也讀得完整。source：raw 索引明講的來源（OTel 與 APM 並存時，每個 raw 索引各一個）。"""

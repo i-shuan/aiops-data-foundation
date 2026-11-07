@@ -1,7 +1,7 @@
-from learn.store.models import FEEDBACK_INDEX
+from learn.store.models import FEEDBACK_TABLE
 """api 的三個新端點（docs/pdca/meta/2026-11-api-beat-worker.md）：POST /api/anomalies（token、走 ingest.yaml 的對照、寫 ⑤、丟 alert）、
 POST /api/rca（標 rca_requested、結束的件不重跑、丟 alert）、GET /api/alerts；以及 alert 看到 rca_requested 會強制重跑、把標記拿掉。
-假的 ES、apply_async 用 mock 接住；HTTP 用 FastAPI 的 TestClient，不開 socket。"""
+告警存在測試用的 PostgreSQL、apply_async 用 mock 接住；HTTP 用 FastAPI 的 TestClient，不開 socket。"""
 from tests.config_factory import Alerts, rca
 import json
 import os
@@ -21,21 +21,10 @@ TOKEN = {"AIOPS_API_TOKEN": "s3cret", "AIOPS_PLUGIN": "factory", tasks.BROKER_EN
 
 
 class ES(FakeES):
+    """多一件已結束的（a-done）。"""
     def __init__(self):
         super().__init__()
-        self.alerts["a-done"] = {**ALERT, "alert_id": "a-done", "status": "resolved"}
-        self.mappings = []
-
-    def req(self, method, path, body=None, ok=(200, 201)):
-        if path.endswith("/_mapping"):
-            self.mappings.append(body)
-            return {}
-        return super().req(method, path, body, ok)
-
-    def search(self, index, body):
-        q = body["query"]
-        rows = [a for a in self.alerts.values() if "match_all" in q or a["status"] == q["term"]["status"]]
-        return {"hits": {"hits": [{"_source": {k: v for k, v in a.items() if k in body["_source"]}} for a in rows[: body["size"]]]}}
+        self.repo.alerts.bulk([("a-done", {**ALERT, "alert_id": "a-done", "status": "resolved"})])
 
 
 class Http(unittest.TestCase):
@@ -84,7 +73,6 @@ class Http(unittest.TestCase):
         self.assertEqual(doc["keys"]["equipment"], "ETCH-01")          # 欄位對照照 configs/factory/ingest.yaml
         self.assertEqual((doc["level"], doc["source"], doc["source_id"]), ("ml", "ml", "r-1"))
         self.assertEqual(aa.call_args.kwargs["queue"], "alert")        # 推完立刻丟一個 alert，幾秒內開件
-        self.assertTrue(self.es.mappings)                               # ingest 的欄位（source、source_id）補進 mapping
 
     def test_anomalies_bad_requests(self):
         with mock.patch.dict(os.environ, TOKEN), mock.patch.object(tasks.run_job, "apply_async"):
@@ -114,9 +102,7 @@ class Http(unittest.TestCase):
             code, r = self.call("POST", "/api/rca", {"alert_id": ALERT["alert_id"]})
         self.assertEqual(code, 200, r)
         self.assertTrue(r["queued"])
-        index, _id, body = self.es.updates[-1]
-        self.assertEqual((index, _id), ("aiops-alerts", ALERT["alert_id"]))
-        self.assertTrue(body["doc"]["rca_requested"])
+        self.assertTrue(self.es.alert(ALERT["alert_id"])["rca_requested"])
         self.assertEqual(aa.call_args.kwargs["queue"], "alert")
 
     def test_rca_refuses_missing_or_resolved(self):
@@ -125,7 +111,7 @@ class Http(unittest.TestCase):
             code, r = self.call("POST", "/api/rca", {"alert_id": "a-done"})
         self.assertEqual(code, 409)
         self.assertIn("結束", r["error"])
-        self.assertEqual(self.es.updates, [])
+        self.assertNotIn("rca_requested", self.es.alert("a-done"))
         aa.assert_not_called()
 
     def test_rca_cors_for_grafana_button(self):
@@ -213,7 +199,7 @@ class HtmlPages(unittest.TestCase):
         self.assertEqual(code, 303)
         self.assertTrue(h["Location"].startswith(f"/feedback?alert={ALERT['alert_id']}&notice="))
         self.assertTrue(h["Location"].endswith("&full=1"))
-        self.assertTrue(self.es.updates[-1][2]["doc"]["rca_requested"])
+        self.assertTrue(self.es.alert(ALERT["alert_id"])["rca_requested"])
         _, page = self.get(h["Location"])
         self.assertIn("下一分鐘的 alert 會重跑", page)                 # 沒有佇列：下一分鐘排程接手
 
@@ -222,7 +208,7 @@ class HtmlPages(unittest.TestCase):
         self.assertEqual(code, 303)
         _, page = self.get(h["Location"])
         self.assertIn("已經結束", page)
-        self.assertEqual(self.es.updates, [])
+        self.assertNotIn("rca_requested", self.es.alert("a-done"))
 
     def test_missed_page_and_submit(self):
         code, page = self.get("/missed")
@@ -234,7 +220,7 @@ class HtmlPages(unittest.TestCase):
         code, _, page = self.post_form("/missed", {"series": "http.error_rate", "service": "mes-api", "at": "2026-11-05 10:05", "by": "amy"})
         self.assertEqual(code, 200, page)
         self.assertIn("已記錄漏報", page)
-        (doc,) = self.es.written[FEEDBACK_INDEX].values()
+        (doc,) = self.es.written[FEEDBACK_TABLE].values()
         self.assertEqual((doc["verdict"], doc["series"], doc["keys"]["service"], doc["by"]), ("missed", "http.error_rate", "mes-api", "amy"))
 
     def test_missed_bad_input_keeps_what_was_typed(self):

@@ -32,8 +32,6 @@ class FakeES:
         self.ensured.append(name)
 
     def req(self, method, path, body=None, ok=None):
-        if path.startswith("/aiops-tuning/_search"):
-            return {"hits": {"hits": TUNING}}
         return {}
 
 
@@ -41,6 +39,7 @@ def show(series, match):
     out = io.StringIO()
     args = Namespace(list=False, remove=False, show=True, series=series, match=match, resolution=None, z=None, min_abs=None,
                      confirm_points=None, instant_z=None, reason=None, by=None)
+    Repos(None).tuning.bulk([(h["_id"], h["_source"]) for h in TUNING])      # 調整寫進 PostgreSQL（tests/conftest.py 指好的）
     with mock.patch.object(C, "ES", FakeES), contextlib.redirect_stdout(out):
         rc = C.cmd_tune(CFG, args)
     return rc, out.getvalue()
@@ -66,7 +65,9 @@ class TuneShow(unittest.TestCase):
         # --show 的值跟 detect 的 score_params／status_params 同一個函式算出來，不會兩套
         from detect.strategy.dynamic_baseline import DetectOptions
         from detect.series_ops.manual_adjust import load_overrides
-        ov = load_overrides(Repos(FakeES(), SC), CFG)
+        repo = Repos(FakeES(), SC)
+        repo.tuning.bulk([(h["_id"], h["_source"]) for h in TUNING])
+        ov = load_overrides(repo, CFG)
         spec, key = CFG.series[0], {"service": "mes-report-api"}
         self.assertEqual(C.score_params(spec, key, DetectOptions(**CFG.detect.model_dump(exclude_none=True)), ov), (7.0, 0.2))
         self.assertEqual(C.status_params(CFG, spec, key, ov), (3, 15.0))

@@ -1,37 +1,19 @@
-"""相似事故檢索（investigator.similar）：指紋、為什麼像、檢索、留一法評測。假的 ES，不用連線。"""
+"""相似事故檢索（llm/similar.py）：指紋、為什麼像、檢索、留一法評測。事故存在測試用的 PostgreSQL。"""
 import unittest
 
 import llm.similar as SIM
 from common.infra.repos import Repos
 from common.scenario import load_scenario
+from tests.pg import fresh_db
 
 SC = load_scenario()
 
 
-class FakeES:
-    """只做 similar 用到的：status 的 terms 過濾、exists、must_not ids、size（照 docs 的順序切前 size 件，當作 ES 的排名）；
-    should 不算（分數由 explain 自己算）。"""
-    def __init__(self, incidents: dict):
-        self.docs = incidents
-        self.bodies = []
-
-    def search(self, index, body):
-        self.bodies.append(body)
-        q = body["query"]["bool"]
-        out = []
-        for _id, s in self.docs.items():
-            ok = True
-            for f in q.get("filter", []):
-                if "terms" in f:
-                    (k, vals), = f["terms"].items()
-                    ok &= s.get(k) in vals
-                if "exists" in f:
-                    ok &= s.get(f["exists"]["field"]) is not None
-            for m in q.get("must_not", []):
-                ok &= _id not in m["ids"]["values"]
-            if ok:
-                out.append({"_id": _id, "_source": s})
-        return {"hits": {"hits": out[:body.get("size", 10)]}}
+def store(incidents: dict, db=None) -> Repos:
+    """事故寫進測試用的 PostgreSQL（tests/conftest.py 指好的，每個測試結束清空；db 給了就寫那個）。"""
+    repo = Repos(None, SC, db=db)
+    repo.incidents.bulk(list(incidents.items()))
+    return repo
 
 
 def findings(seg="mes-api › wip-worker › Oracle SELECT lots 123", err=None, pats=()):
@@ -80,7 +62,7 @@ class Explain(unittest.TestCase):
 class Search(unittest.TestCase):
     def setUp(self):
         self.fp = SIM.fingerprint(ALERT, findings())
-        self.es = FakeES({
+        self.repo = store({
             "i-db": incident("db", self.fp),                                       # 一模一樣
             "i-net": incident("network", {"services": ["mes-api"], "routes": [], "series": ["log.errors"], "slow_segments": [], "error_origins": [], "patterns": []}),  # 只有同服務：3 分，不夠
             "i-auto": incident("db", self.fp, status="auto"),                      # 還沒人確認：不拿來教人
@@ -88,41 +70,38 @@ class Search(unittest.TestCase):
         })
 
     def test_only_confirmed_and_above_min_score(self):
-        got = SIM.search(Repos(self.es), self.fp)
+        got = SIM.search(self.repo, self.fp)
         self.assertEqual([g["incident_id"] for g in got], ["i-db"])
         self.assertEqual(got[0]["root_cause"], "db 的根因")
         self.assertTrue(got[0]["why"])
 
     def test_exclude_self(self):
-        self.assertEqual(SIM.search(Repos(self.es), self.fp, exclude_id="i-db"), [])
+        self.assertEqual(SIM.search(self.repo, self.fp, exclude_id="i-db"), [])
 
     def test_empty_fingerprint_returns_nothing(self):
-        self.assertEqual(SIM.search(Repos(self.es), {"services": [], "routes": []}), [])
+        self.assertEqual(SIM.search(self.repo, {"services": [], "routes": []}), [])
 
     def test_evaluate_leave_one_out(self):
         # 加一件跟 i-db 同根因、同指紋的：i-db 查得到它、它查得到 i-db → 兩件都命中；i-net、i-other 沒有同類的 → 沒命中
-        self.es.docs["i-db2"] = incident("db", self.fp)
-        r = SIM.evaluate(Repos(self.es))
+        self.repo.incidents.bulk([("i-db2", incident("db", self.fp))])
+        r = SIM.evaluate(self.repo)
         self.assertEqual(r["n"], 4)
         self.assertEqual(r["hit"], 2)
         self.assertAlmostEqual(r["recall"], 0.5)
 
-    def test_best_match_beyond_es_top20_is_found(self):
-        """docs/pdca/phase5-learning-loop/2026-10-fix-critical.md Act「相似事故 ES 前 20 截斷」：ES 排前面的 25 件只有同服務（3 分、不夠像），
-        一模一樣的那件排第 26；候選只要 20 件就被截掉，要 200 件才找得到。"""
+    def test_best_match_is_not_cut_by_the_candidate_limit(self):
+        """docs/pdca/phase5-learning-loop/2026-10-fix-critical.md Act「相似事故前 20 截斷」：25 件只有同服務（3 分、不夠像）、而且比較新，
+        一模一樣的那件最舊。候選照權重排（同一段變慢 4 分在前），只要 20 件也找得到它。"""
         only_svc = {"services": ["mes-api"], "routes": [], "series": [], "slow_segments": [], "error_origins": [], "patterns": []}
-        docs = {f"i-weak{i}": incident("network", only_svc) for i in range(25)}
-        docs["i-best"] = incident("db", self.fp)
-        es = FakeES(docs)
-        self.assertEqual([g["incident_id"] for g in SIM.search(Repos(es, SC), self.fp)], ["i-best"])
-        self.assertEqual(es.bodies[-1]["size"], SIM.CANDIDATES)
-        self.assertGreaterEqual(SIM.CANDIDATES, 26)
-        # 以前的 20 件就會漏掉；size 可以指定
-        self.assertEqual(SIM.search(Repos(es, SC), self.fp, size=20), [])
-        self.assertEqual(es.bodies[-1]["size"], 20)
+        docs = {f"i-weak{i}": incident("network", only_svc, start=f"2026-10-{i + 1:02d}T00:00:00+00:00") for i in range(25)}
+        docs["i-best"] = incident("db", self.fp, start="2026-01-01T00:00:00+00:00")
+        repo = store(docs, fresh_db())          # 不跟 setUp 放的那幾件混在一起
+        self.assertEqual([g["incident_id"] for g in SIM.search(repo, self.fp)], ["i-best"])
+        self.assertEqual([g["incident_id"] for g in SIM.search(repo, self.fp, size=20)], ["i-best"])
+        self.assertEqual([i for i, _ in repo.incidents.similar(self.fp, SIM.CONFIRMED, size=1)], ["i-best"])
 
     def test_format(self):
-        lines = SIM.format_similar(SIM.search(Repos(self.es), self.fp))
+        lines = SIM.format_similar(SIM.search(self.repo, self.fp))
         text = "\n".join(lines)
         # case 只做分類：段落標題是分類，清單只有日期、分類、標題、為什麼像；不列當時的根因、處置
         self.assertTrue(lines[0].startswith("## 分類（依過去相似的 case）：像 db 類"), lines[0])

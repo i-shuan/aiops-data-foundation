@@ -2,7 +2,7 @@
 from common.config import validate
 from incident.config.rca import Alerts, RcaConfig  # noqa: F401  測試直接用 Alerts(...)
 
-BASE_INDICES = {"anomalies": "aiops-anomalies", "traces": "traces-*", "logs": "logs-*"}
+BASE_INDICES = {"traces": "traces-*", "logs": "logs-*"}
 
 
 def rca(**over) -> RcaConfig:

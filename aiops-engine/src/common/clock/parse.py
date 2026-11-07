@@ -10,7 +10,7 @@
 from __future__ import annotations
 
 import re
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import pandas as pd
@@ -58,3 +58,18 @@ def check_zone(name: str) -> str:
 
 def zone(name: str) -> ZoneInfo:
     return ZoneInfo(name)
+
+
+def stored_time(v) -> datetime | None:
+    """存起來的文件裡的時間（ISO 字串、datetime、epoch 毫秒）→ 帶時區的 datetime；看不懂回 None（ts 欄空著，不擋寫入）。"""
+    if v is None or v == "":
+        return None
+    if isinstance(v, datetime):
+        return v if v.tzinfo else v.replace(tzinfo=timezone.utc)
+    if isinstance(v, (int, float)) and not isinstance(v, bool):
+        return datetime.fromtimestamp(v / 1000, tz=timezone.utc)
+    try:
+        t = datetime.fromisoformat(str(v).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return t if t.tzinfo else t.replace(tzinfo=timezone.utc)

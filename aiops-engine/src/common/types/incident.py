@@ -7,7 +7,7 @@ feedback/cmd_feedback cmd_incident；回饋網頁 upsert 的種子：api/app）�
 指紋（Fingerprint）是相似事故檢索的比對依據（investigator/similar.py）：六組 keyword 陣列。從告警＋根因分析算（from_alert）、
 從匯入的一列算（normalized）都走同一套正規化：段名去數字、慢的段與錯誤源頭最多 3 個、log 樣式截 120 字最多 5 個。
 
-跟 detect/store/models.py 的 Anomaly、incident/store/models.py 的 Alert 同一個做法（基底 core/doc.py）：模型是唯一定義處，INCIDENT_MAPPING 要跟它一致（tests/test_incident.py 會對）。
+跟 detect/store/models.py 的 Anomaly、incident/store/models.py 的 Alert 同一個做法（基底 core/doc.py）：模型是唯一定義處。
 時間欄位目前都是 ISO 字串（三條寫入路徑拿到的本來就是字串），這一輪不轉 datetime。
 """
 from __future__ import annotations
@@ -19,29 +19,12 @@ from pydantic import Field, field_serializer, field_validator
 
 from common.infra.es import Doc
 
-INCIDENT_INDEX = "aiops-incidents"
+INCIDENT_TABLE = "aiops_incidents"      # PostgreSQL 的表
 
 # status：open／resolved（人補登的）、auto（事件整合自動開的，還沒人看）、confirmed（老師傅標真的）、corrected（真的但根因改過）、
 # false_positive（老師傅說誤報）、merged（上游那件整件併進下游，不算一件）。相似事故檢索只用 confirmed、corrected（investigator/similar.py）。
 IncidentStatus = Literal["open", "resolved", "auto", "confirmed", "corrected", "false_positive", "merged"]
 
-INCIDENT_MAPPING = {"mappings": {"dynamic": False, "properties": {
-    "@timestamp": {"type": "date"}, "title": {"type": "text"}, "start": {"type": "date"}, "end": {"type": "date"},
-    "services": {"type": "keyword"}, "severity": {"type": "keyword"}, "status": {"type": "keyword"},
-    "root_cause": {"type": "text"}, "action": {"type": "text"}, "anomaly_ids": {"type": "keyword"},
-    "detected_at": {"type": "date"}, "resolved_at": {"type": "date"}, "by": {"type": "keyword"},
-    # 老師傅的經驗（docs/pdca/phase5-learning-loop/2026-10-expert-feedback.md）
-    "alert_id": {"type": "keyword"}, "dept": {"type": "keyword"}, "group": {"type": "keyword"},
-    "root_cause_category": {"type": "keyword"}, "how_detected": {"type": "text"}, "checked": {"type": "keyword"},
-    "improve": {"type": "text"}, "confirmed_at": {"type": "date"}, "confirmed_by": {"type": "keyword"},
-    # 歷史事故單匯入（feedback/importer.py）：source import；note 是匯入檔的備註
-    "source": {"type": "keyword"}, "note": {"type": "text"},
-    # 指紋：相似事故檢索用（investigator/similar.py）
-    "fingerprint": {"properties": {"services": {"type": "keyword"}, "routes": {"type": "keyword"}, "series": {"type": "keyword"},
-                                   "slow_segments": {"type": "keyword"}, "error_origins": {"type": "keyword"},
-                                   "patterns": {"type": "text"}}}}}}
-# 有寫進 _source、但沒進 mapping 的欄位（dynamic false：存得下、查不到）。要查就得加進 mapping 並重建索引，這一輪不動。
-UNMAPPED_FIELDS = ("upstream_services", "merged_into")
 # 相似事故檢索的比對權重（先估的）：同一段變慢、同一個錯誤源頭最有鑑別力；同服務其次；指標組合、log 樣式較弱。
 # 鍵就是 Fingerprint 的六個欄位；rca.yaml 的 similar_weights 或 learn_weights 學出來的可以蓋掉（investigator/similar.py）
 DEFAULT_WEIGHTS = {"slow_segments": 4.0, "error_origins": 4.0, "services": 3.0, "routes": 2.0, "patterns": 2.0, "series": 1.0}
@@ -108,24 +91,6 @@ class Fingerprint(Doc):
                    slow_segments=[seg_name(s) for s in _as_list(slow_segments)][:cls.MAX_SEGMENTS],
                    error_origins=[seg_name(s) for s in _as_list(error_origins)][:cls.MAX_SEGMENTS],
                    patterns=[p[:cls.PATTERN_LEN] for p in _as_list(patterns)][:cls.MAX_PATTERNS])
-
-    def es_query(self, exclude_id: str | None = None, size: int = 200, statuses: tuple[str, ...] = ("confirmed", "corrected"),
-                 weights: dict | None = None) -> dict:
-        """ES 的候選查詢（incident/store/incident_repo.py IncidentRepository.similar 用）：status 過濾＋六組各一個 should（boost 只影響 ES 端排前 size 件；
-        分數還是 investigator.similar.explain 自己算）。"""
-        should = []
-        for field, w in (weights or DEFAULT_WEIGHTS).items():
-            vals = self.get(field)
-            if not vals:
-                continue
-            if field == "patterns":
-                should += [{"match": {"fingerprint.patterns": {"query": v, "boost": w}}} for v in vals]
-            else:
-                should.append({"terms": {f"fingerprint.{field}": vals, "boost": w}})
-        q = {"bool": {"filter": [{"terms": {"status": list(statuses)}}], "should": should, "minimum_should_match": 1}}
-        if exclude_id:
-            q["bool"]["must_not"] = [{"ids": {"values": [exclude_id]}}]
-        return {"size": size, "query": q}
 
     @classmethod
     def from_alert(cls, alert, findings: dict | None) -> "Fingerprint":

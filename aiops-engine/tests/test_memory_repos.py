@@ -59,12 +59,12 @@ class MemoryReposTrainDetect(unittest.TestCase):
             self.assertEqual(rc, 0)
             rc, text = quiet(C.cmd_detect, CFG, Namespace(at=spike + pd.Timedelta(hours=1), window=pd.Timedelta("2h")), be)
         self.assertEqual(rc, 0)
-        self.assertTrue(be.docs("aiops-baseline"))
-        hits = [d for _, d in be.docs("aiops-anomalies") if d["series"] == "http.error_rate"]
+        self.assertTrue(be.docs("aiops_baseline"))
+        hits = [d for _, d in be.docs("aiops_anomalies") if d["series"] == "http.error_rate"]
         self.assertEqual([d["@timestamp"][:13] for d in hits], [spike.isoformat()[:13]])
         self.assertEqual(hits[0]["status"], "anomaly")
         self.assertEqual((hits[0]["dept"], hits[0]["group"]), (None, "unassigned"))
-        self.assertEqual([d for i, d in be.docs("aiops-alerts") if i == "detect-status"][0]["missing_baseline"], 0)
+        self.assertEqual([d for i, d in be.docs("aiops_alerts") if i == "detect-status"][0]["missing_baseline"], 0)
 
 
 class RulesPeerSimilarOnMemory(unittest.TestCase):
@@ -77,7 +77,7 @@ class RulesPeerSimilarOnMemory(unittest.TestCase):
         be = MemoryRepos({"k8s-pods-*": r})
         rc, text = quiet(cmd_rules.cmd_rules, cfg, Namespace(at=T0 + pd.Timedelta(minutes=7), only=None), be)
         self.assertEqual(rc, 0)
-        hits = [d for _, d in be.docs("aiops-anomalies")]
+        hits = [d for _, d in be.docs("aiops_anomalies")]
         self.assertEqual([d["keys"]["pod"] for d in hits], ["p1"])
         self.assertEqual(hits[0]["rule"], "restart")
 
@@ -90,7 +90,7 @@ class RulesPeerSimilarOnMemory(unittest.TestCase):
         be = MemoryRepos({"k8s-*": r})
         rc, _ = quiet(cmd_peer.cmd_peer, cfg, Namespace(at=T0 + pd.Timedelta(minutes=10), only=None), be)
         self.assertEqual(rc, 0)
-        self.assertEqual([d["keys"]["pod"] for _, d in be.docs("aiops-anomalies")], ["d"])
+        self.assertEqual([d["keys"]["pod"] for _, d in be.docs("aiops_anomalies")], ["d"])
 
     def test_similar_from_backend_incidents(self):
         import llm.similar as SIM

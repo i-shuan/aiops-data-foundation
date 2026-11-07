@@ -1,6 +1,5 @@
 """事件整合的兩個防護（docs/pdca/phase5-learning-loop/2026-10-fix-critical.md 1、3）：LLM 失敗不擋這一輪；已確認的事故不會被先讀再寫蓋掉。"""
 from tests.config_factory import Alerts, rca
-import json
 import unittest
 from datetime import datetime, timedelta, timezone
 from unittest import mock
@@ -10,7 +9,6 @@ from common.infra.repos import Repos
 from common.scenario import load_scenario
 
 SC = load_scenario()
-from incident.store.models import ALERT_MAPPING
 import incident.strategy.it_topology as CH
 
 AL = C.Alert(alert_id="a-1", category="service", service="mes-api", status="open", started_at="2026-10-25T02:00:00+00:00",
@@ -61,8 +59,6 @@ class IncidentKeepsDownstreamOnly(unittest.TestCase):
         doc = {"@timestamp": "t", "started_at": "s", "updated_at": "u", "title": "x", "dept": None, "group": "g"}
         inc = C.Incident.from_alert(al, doc, None)
         self.assertEqual((inc.services, inc.upstream_services), (["wip-worker"], ["mes-api"]))
-        for f in ("upstream_services", "merged_into"):
-            self.assertEqual(ALERT_MAPPING["mappings"]["properties"][f], {"type": "keyword"})
 
 
 class LlmDoesNotBlock(unittest.TestCase):
@@ -83,83 +79,36 @@ class LlmDoesNotBlock(unittest.TestCase):
         self.assertIn("[A1]", r["text"])
 
 
-class FakeSession:
-    def __init__(self, resp):
-        self.resp, self.sent = resp, None
-
-    def post(self, url, data=None, headers=None, timeout=None):
-        self.sent = data
-        class R:
-            status_code = 200
-            text = ""
-            def json(self_inner):
-                return self.resp
-        return R()
-
-
-class FakeES:
-    url = "http://es"
-
-    def __init__(self, resp):
-        self.s = FakeSession(resp)
-        self.ensured = []
-
-    def ensure_index(self, name, body):
-        self.ensured.append(name)
-
-
 class IncidentsAreNotOverwritten(unittest.TestCase):
-    def test_bulk_update_with_status_guard(self):
-        es = FakeES({"errors": False, "items": [{"update": {"_id": "a-1", "result": "noop"}}, {"update": {"_id": "a-2", "result": "created"}}]})
-        n = Repos(es, SC).incidents.upsert_auto([("a-1", {"status": "auto", "title": "x"}), ("a-2", {"status": "auto", "title": "y"})])
-        self.assertEqual(n, 1)
-        lines = [json.loads(l) for l in es.s.sent.strip().split("\n")]
-        self.assertEqual(lines[0], {"update": {"_index": "aiops-incidents", "_id": "a-1"}})
-        body = lines[1]
-        # 判斷和寫入在 ES 裡一次做：狀態不是 auto 就 ctx.op = 'none'，一個欄位都不動；不存在就 upsert
-        self.assertIn("ctx._source.status == 'auto'", body["script"]["source"])
-        self.assertIn("ctx.op = 'none'", body["script"]["source"])
-        self.assertEqual(body["script"]["params"]["doc"], {"status": "auto", "title": "x"})
-        self.assertEqual(body["upsert"], {"status": "auto", "title": "x"})
-        self.assertEqual(es.ensured, ["aiops-incidents"])
+    """自動開的事故（status auto）每輪更新；老師傅確認過的一個欄位都不動（判斷和寫入是同一個 SQL，原子）。資料在測試用的 PostgreSQL。"""
 
-    def test_bulk_error_raises(self):
-        es = FakeES({"errors": True, "items": [{"update": {"_id": "a-1", "error": {"reason": "bad script"}}}]})
-        with self.assertRaises(RuntimeError):
-            Repos(es, SC).incidents.upsert_auto([("a-1", {"status": "auto"})])
+    def test_only_auto_is_updated(self):
+        repo = Repos(None, SC)
+        repo.incidents.bulk([("a-1", {"status": "confirmed", "title": "老師傅改過的", "root_cause": "統計資訊過期"})])
+        n = repo.incidents.upsert_auto([("a-1", {"status": "auto", "title": "x"}), ("a-2", {"status": "auto", "title": "y"})])
+        self.assertEqual(n, 1)                                                  # a-2 新建；a-1 不動
+        self.assertEqual(repo.incidents.get_many(["a-1"])[0]["title"], "老師傅改過的")
+        self.assertEqual(repo.incidents.get_many(["a-1"])[0]["status"], "confirmed")
+        n = repo.incidents.upsert_auto([("a-2", {"status": "auto", "title": "y2", "end": "2026-11-01T00:00:00+00:00"})])
+        self.assertEqual(n, 1)                                                  # 還是 auto：更新（合併頂層欄位）
+        self.assertEqual(repo.incidents.get_many(["a-2"])[0]["title"], "y2")
 
     def test_empty(self):
-        self.assertEqual(Repos(FakeES({})).incidents.upsert_auto([]), 0)
+        self.assertEqual(Repos(None, SC).incidents.upsert_auto([]), 0)
 
 
 class AnomaliesCarryAlertId(unittest.TestCase):
-    """併件時把 alert_id 寫回 aiops-anomalies：儀表板「這件事故的異常」依 alert_id 撈，規則觸發的（沒有 status）也撈得到。"""
+    """併件時把 alert_id 寫回異常：儀表板「這件事故的異常」依 alert_id 撈，規則觸發的（沒有 status）也撈得到。"""
 
-    def test_bulk_update_alert_id(self):
-        es = FakeES({"errors": False, "items": [{"update": {"_id": "x1", "result": "updated"}}, {"update": {"_id": "x2", "result": "noop"}}]})
-        n = Repos(es, SC).anomalies.tag_alert([("x1", "a-1"), ("x2", "a-1")])
-        self.assertEqual(n, 2)
-        lines = [json.loads(l) for l in es.s.sent.strip().split("\n")]
-        self.assertEqual(lines[0], {"update": {"_index": "aiops-anomalies", "_id": "x1"}})
-        self.assertEqual(lines[1], {"doc": {"alert_id": "a-1"}})
-        self.assertEqual(es.ensured, ["aiops-anomalies"])   # 舊 index 補 alert_id 欄位（mapping 是 dynamic false）
-
-    def test_missing_anomaly_is_skipped(self):
-        # 保留期過了、異常已刪：那一筆 document_missing，其他照寫，不擋這一輪
-        es = FakeES({"errors": True, "items": [{"update": {"_id": "x1", "error": {"type": "document_missing_exception"}}},
-                                               {"update": {"_id": "x2", "result": "updated"}}]})
-        self.assertEqual(Repos(es, SC).anomalies.tag_alert([("x1", "a-1"), ("x2", "a-1")]), 1)
-
-    def test_other_error_raises(self):
-        es = FakeES({"errors": True, "items": [{"update": {"_id": "x1", "error": {"type": "index_closed_exception"}}}]})
-        with self.assertRaises(RuntimeError):
-            Repos(es, SC).anomalies.tag_alert([("x1", "a-1")])
+    def test_tag_alert_and_missing_is_skipped(self):
+        repo = Repos(None, SC)
+        repo.anomalies.bulk([("x1", {"@timestamp": "2026-11-01T00:00:00+00:00", "series": "s"})])
+        self.assertEqual(repo.anomalies.tag_alert([("x1", "a-1"), ("gone", "a-1")]), 1)     # 保留期過了被清掉的：略過
+        self.assertEqual(repo.anomalies.get("x1")["alert_id"], "a-1")
+        self.assertEqual(repo.anomalies.get("x1")["series"], "s")                           # 其他欄位不動
 
     def test_empty(self):
-        es = FakeES({})
-        self.assertEqual(Repos(es, SC).anomalies.tag_alert([]), 0)
-        self.assertEqual(es.ensured, [])
-
+        self.assertEqual(Repos(None, SC).anomalies.tag_alert([]), 0)
 
 if __name__ == "__main__":
     unittest.main()

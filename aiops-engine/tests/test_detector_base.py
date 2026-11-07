@@ -1,5 +1,6 @@
-"""detector/base.py：Anomaly.to_doc() 跟改成類別之前各指令手寫的 dict 一字不差；欄位跟 ANOMALY_MAPPING、RULE_FIELDS 對得上；
-Detector.run() 的順序（prepare → checks → evaluate → 一次 write → 回傳碼）、--only、一條壞掉只跳過那一條。不連 ES。"""
+"""detector/base.py：Anomaly.to_doc() 跟改成類別之前各指令手寫的 dict 一字不差；每個欄位都寫得出來；
+Detector.run() 的順序（prepare → checks → evaluate → 一次 write → 回傳碼）、--only、一條壞掉只跳過那一條。
+寫進去的異常存在測試用的 PostgreSQL（tests/pg.py）；原始資料用假的 ES。"""
 import contextlib
 import dataclasses
 import io
@@ -12,7 +13,7 @@ import pandas as pd
 
 import detect.base as B
 from detect.base import Anomaly, Detector
-from detect.store.models import ANOMALY_INDEX, ANOMALY_MAPPING, RULE_FIELDS
+from tests.pg import fresh_db, needs_pg
 from common.infra.repos import Repos
 from common.scenario import load_scenario
 
@@ -93,39 +94,24 @@ class ToDoc(unittest.TestCase):
         self.assertEqual(a.id(), doc_id("rule.x", {"a": 1}, SLOT))
 
 
-class MappingConsistency(unittest.TestCase):
-    """Anomaly 是異常文件唯一的定義處：mapping 的欄位（owner／investigator 補的除外）都要在 dataclass 裡，to_doc 的鍵都要有地方放。"""
-    ADDED_LATER = {"dept", "group", "engine_version", "alert_id"}      # AnomalyRepository.write、investigator 併件補的
+class AllFieldsWritten(unittest.TestCase):
+    """Anomaly 是異常文件唯一的定義處：每個 dataclass 欄位都寫得出來（沒有定義了卻永遠不寫的欄位）。"""
 
-    def test_dataclass_covers_mapping(self):
-        fields = {"@timestamp" if f.name == "ts" else f.name for f in dataclasses.fields(Anomaly)}
-        mapped = set(ANOMALY_MAPPING["mappings"]["properties"])
-        self.assertEqual(mapped - self.ADDED_LATER - fields, set())
-
-    def test_doc_keys_all_mapped(self):
+    def test_every_field_is_written(self):
         full = Anomaly(ts=SLOT, series="s", keys={}, value=1, level="rule", median=1, expected_low=0, expected_high=2, z=1, direction="up",
                        detected_at=DET, rule="r", severity="warning", message="m", since=SLOT, resolution="5m", method="mad",
                        baseline_source="self", confidence="high", status="anomaly", streak=1, p=0.1)
         keys = set(full.to_doc())
-        allowed = set(ANOMALY_MAPPING["mappings"]["properties"]) | set(RULE_FIELDS) | {"since"}
-        self.assertEqual(keys - allowed, set())
-        # 每個 dataclass 欄位都寫得出來（沒有定義了卻永遠不寫的欄位）
         self.assertEqual({"@timestamp" if f.name == "ts" else f.name for f in dataclasses.fields(Anomaly)}, keys)
 
 
 class FakeES:
-    def __init__(self):
-        self.calls, self.written = [], []
-
-    def ensure_index(self, name, body):
-        self.calls.append(("ensure_index", name))
-
+    """原始資料（歸屬查詢）回空。"""
     def req(self, method, path, body=None, ok=None):
-        self.calls.append(("req", method, path))
         return {"aggregations": {}}
 
-    def bulk_index(self, index, docs):
-        self.written.extend(docs)
+    def search(self, index, body):
+        return {"aggregations": {}}
 
 
 class Toy(Detector):
@@ -163,21 +149,22 @@ class Tolerant(Toy):
 
 
 def run(cls, checks, only=None):
-    be, log = FakeES(), []
+    log = []
+    repo = Repos(FakeES(), SC, db=fresh_db())
     cfg = SimpleNamespace(interval="1m", checks=[SimpleNamespace(name=n) for n in checks])
     args = Namespace(at=pd.Timestamp("2026-11-05T10:03:20Z"), only=only)
     with contextlib.redirect_stdout(io.StringIO()) as out:
-        rc = cls(cfg, args, Repos(be, SC), log).run()
-    return rc, be, be.written, log, out.getvalue()
+        rc = cls(cfg, args, repo, log).run()
+    written = sorted(repo.anomalies._select(), key=lambda x: x[1]["series"])
+    return rc, repo, written, log, out.getvalue()
 
 
+@needs_pg
 class Template(unittest.TestCase):
     def test_order_and_single_write(self):
         rc, be, written, log, text = run(Toy, ["a", "b"])
         self.assertEqual(rc, 0)
         self.assertEqual(log, ["prepare", "checks", "evaluate:a", "evaluate:b", "write:2"])
-        # prepare：補 index、補 RULE_FIELDS
-        self.assertEqual(be.calls[:2], [("ensure_index", ANOMALY_INDEX), ("req", "PUT", f"/{ANOMALY_INDEX}/_mapping")])
         self.assertEqual([d["series"] for _, d in written], ["a", "b"])
         self.assertEqual(written[0][1]["@timestamp"], "2026-11-05T10:03:00+00:00")       # now 取整到 interval
         self.assertEqual(written[0][0], Anomaly(ts=SLOT, series="a", keys={"k": "a"}, value=1, level="toy").id())

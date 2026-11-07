@@ -45,12 +45,12 @@ def render_report(alert: dict) -> str:
     return _env.get_template("report.html").render(alert=alert)
 
 
-def render_mapping(es, sc: Scenario, done: dict | None = None, error: str | None = None, form: dict | None = None, tried=None) -> str:
+def render_mapping(repo, sc: Scenario, done: dict | None = None, error: str | None = None, form: dict | None = None, tried=None) -> str:
     """欄位對照的網頁：現在生效的值（標出被覆寫的）、提一筆的表單（可以先試）、提過的清單。核准不在這裡（命令列）。"""
     try:
-        rows, history = MAP.current(es, sc, trace_raw_pairs(sc.schedule)), MappingRepository(es).all()[:50]
-    except Exception as e:  # noqa: BLE001  ES 連不上：頁面照樣出來，說清楚
-        rows, history, error = [], [], error or f"讀不到 ES（{type(e).__name__}：{str(e)[:120]}）"
+        rows, history = MAP.current(repo.db, sc, trace_raw_pairs(sc.schedule)), MappingRepository(db=repo.db).all()[:50]
+    except Exception as e:  # noqa: BLE001  資料庫連不上：頁面照樣出來，說清楚
+        rows, history, error = [], [], error or f"讀不到資料庫（{type(e).__name__}：{str(e)[:120]}）"
     return _env.get_template("mapping.html").render(rows=rows, history=history, done=done, error=error, tried=tried,
                                                     f={k: str(v or "") for k, v in (form or {}).items()}, sources=list(profiles(sc)), editable=EDITABLE)
 

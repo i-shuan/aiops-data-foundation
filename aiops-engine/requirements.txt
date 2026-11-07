@@ -2,6 +2,7 @@ pandas>=2.2
 numpy>=1.26
 pyyaml>=6.0
 requests>=2.31
+psycopg[binary]>=3.2   # engine 自己的資料存 PostgreSQL（common/infra/pg.py）
 celery>=5.4
 redis>=5.0
 packaging>=23

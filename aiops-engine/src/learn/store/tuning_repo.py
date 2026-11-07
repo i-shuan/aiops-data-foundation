@@ -1,29 +1,26 @@
-"""調整（aiops-tuning）：門檻覆寫、排除時段、重置點、週期放寬、升級成規則（learn/store/models.py）。
+"""調整（PostgreSQL 的 aiops_tuning）：門檻覆寫、排除時段、重置點、週期放寬、升級成規則（learn/store/models.py）。
 status proposed 的是建議，adjust approve 才生效。"""
 from __future__ import annotations
 
-from learn.store.models import TUNING_INDEX, TUNING_MAPPING, validated
-from common.infra.es import Repository
+from common.infra.pg import PgRepository
+from learn.store.models import TUNING_TABLE, validated
 
 
-class TuningRepository(Repository):
-    INDEX, MAPPING = TUNING_INDEX, TUNING_MAPPING
+class TuningRepository(PgRepository):
+    TABLE, TIME = TUNING_TABLE, "at"
+    INDEXES = ("((doc->>'status'))",)
 
     def all(self) -> list[dict]:
-        """全部文件（帶 id），依 at 排。讀不到（index 關閉、沒權限、ES 逾時）不整個失敗：印一行、回 []，這一輪只用設定檔的。
-        index 不存在是正常的（還沒人調過）。"""
+        """全部文件（帶 id），依 at 排。讀不到（沒權限、DB 連不上）不整個失敗：印一行、回 []，這一輪只用設定檔的。"""
         try:
-            hits = self.es.req("POST", f"/{self.INDEX}/_search", {"size": 10000, "sort": [{"at": {"order": "asc", "unmapped_type": "date"}}]},
-                               ok=(200, 404)).get("hits", {}).get("hits", [])
-        except Exception as e:  # noqa: BLE001  RuntimeError（ES 回錯誤）或 requests 的連線、逾時錯誤
-            print(f"  ⚠ 讀不到 {self.INDEX}（{str(e)[:120]}），這一輪不套用裡面的調整，只用設定檔的")
-            hits = []
-        return [{"id": h["_id"], **h["_source"]} for h in hits]
+            rows = self._select(order="ts NULLS FIRST, id")
+        except Exception as e:  # noqa: BLE001  psycopg 的連線、權限錯誤，或沒設 AIOPS_PG_DSN
+            print(f"  ⚠ 讀不到 {self.TABLE}（{str(e)[:120]}），這一輪不套用裡面的調整，只用設定檔的")
+            rows = []
+        return [{"id": i, **d} for i, d in rows]
 
     def proposed(self, size: int = 50) -> list[dict]:
-        hits = self.es.req("POST", f"/{self.INDEX}/_search", {"size": size, "query": {"bool": {"filter": [{"term": {"status": "proposed"}}]}}},
-                           ok=(200, 404)).get("hits", {}).get("hits", [])
-        return [{**h["_source"], "id": h["_id"]} for h in hits]
+        return [{**d, "id": i} for i, d in self._select("doc->>'status' = 'proposed'", order="ts DESC NULLS LAST, id", limit=size)]
 
     def get(self, _id: str) -> dict | None:
         return self._get(_id)

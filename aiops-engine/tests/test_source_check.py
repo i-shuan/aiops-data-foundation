@@ -10,10 +10,10 @@ from unittest import mock
 import pandas as pd
 
 import detect.detect_service as C
+from common.infra.repos import Repos
 from common.config import validate
 from data.source import ADAPTERS, adapter_of
 from data.source.check import check_fields, check_trace_index
-from incident.store.models import ALERT_INDEX
 
 APM_SPAN = {"@timestamp": "2026-11-07T03:00:00Z", "processor": {"event": "span"}, "trace": {"id": "t"}, "service": {"name": "mes-api"}}
 OTEL_SPAN = {"@timestamp": "2026-11-07T03:00:00Z", "trace_id": "t", "span_id": "s", "resource": {"attributes": {"service.name": "mes-api"}}}
@@ -29,8 +29,6 @@ class FakeES:
         if self.error:
             raise self.error
         if "_search" in path:
-            if "/aiops-" in path:                                                # engine 自己的索引（baseline…）：空的
-                return {"hits": {"hits": []}}
             return {"hits": {"hits": [{"_id": str(i), "_source": d} for i, d in enumerate(self.docs)]}}
         self.written.append((path, body))
         return {}
@@ -95,7 +93,7 @@ class WiredIntoDetect(unittest.TestCase):
         es = FakeES(docs)
         with mock.patch.object(C, "ES", lambda: es), contextlib.redirect_stdout(io.StringIO()) as out:
             rc = C.cmd_detect(CFG, Namespace(at=pd.Timestamp("2026-11-01T02:05:00Z"), window=pd.Timedelta("10min")))
-        status = {i: d for idx, docs in es.written if idx == ALERT_INDEX for i, d in docs}
+        status = dict(Repos(None).alerts._select())        # 狀態文件寫進 PostgreSQL（tests/conftest.py 指好的）
         return rc, status, out.getvalue()
 
     def test_no_data_is_information_not_a_mismatch(self):

@@ -3,14 +3,13 @@ from __future__ import annotations
 
 from typing import Any
 
-from detect.store.models import ANOMALY_INDEX
 from common.config.common import Dur, NonNeg, Num, PosInt, Ratio, Strict, Tz
 
 
 # ── rca.yaml ──
 
 class Indices(Strict):
-    anomalies: str = ANOMALY_INDEX
+    # ES 的索引（原始資料、合成的 trace）；engine 自己的資料在 PostgreSQL，不在這裡設
     traces: str | None = None          # metrics_only 沒有履歷
     logs: str | None = None
 

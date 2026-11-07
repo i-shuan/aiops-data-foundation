@@ -1,16 +1,17 @@
-"""detect 每輪寫 detect-status 進 aiops-alerts：missing_baseline 是沒有 baseline 的序列數（docs/pdca/meta/2026-10-open-issues.md 第 7 節）。
-假的 ES：aiops-baseline 只對指定的序列回 baseline，其他查詢都回空。"""
+"""detect 每輪寫 detect-status 進告警（PostgreSQL 的 aiops_alerts）：missing_baseline 是沒有 baseline 的序列數（docs/pdca/meta/2026-10-open-issues.md 第 7 節）。
+基準線先寫進測試用的 PostgreSQL（tests/pg.py），只有指定的序列有；原始資料用假的 ES、都回空。"""
 import contextlib
 import io
 import unittest
 
 import pandas as pd
 from argparse import Namespace
-from unittest import mock
 
 import detect.detect_service as C
 from common.config import validate
-from incident.store.models import ALERT_INDEX, ALERT_MAPPING
+from common.infra.repos import Repos
+from common.scenario import load_scenario
+from tests.pg import fresh_db, needs_pg
 
 CFG = validate({"interval": "5m", "adjustments_file": None, "calendar_file": None, "detect": {"z": 5}, "status": {"confirm_points": 2},
        "series": [{"name": "a.cpu", "index": "m", "by": ["service"], "value": {"avg": "v"}},
@@ -21,33 +22,25 @@ BASELINE = {"keys": {"service": "s1"}, "dow": 0, "hour": 0, "level": "all", "med
 
 
 class FakeES:
-    def __init__(self, with_baseline):
-        self.with_baseline, self.ensured, self.written = with_baseline, [], []
-
-    def ensure_index(self, name, body):
-        self.ensured.append((name, body))
-
+    """原始資料：序列查詢都回空（這裡只看 detect-status）。"""
     def search(self, index, body):
-        return self.req("POST", f"/{index}/_search", body)
-
-    def req(self, method, path, body=None, ok=None):
-        if path.startswith("/aiops-baseline/_search"):
-            series = body["query"]["bool"]["filter"][0]["term"]["series"]
-            return {"hits": {"hits": [{"_source": {**BASELINE, "series": series}}] if series in self.with_baseline else []}}
         return {}
 
-    def bulk_index(self, index, docs):
-        self.written.append((index, docs))
+    def req(self, method, path, body=None, ok=None):
+        return {}
 
 
 def detect(with_baseline):
-    es = FakeES(with_baseline)
-    with mock.patch.object(C, "ES", lambda: es), contextlib.redirect_stdout(io.StringIO()) as out:
-        C.cmd_detect(CFG, Namespace(at=pd.Timestamp("2026-11-01T02:05:00Z"), window=pd.Timedelta("10min")))
-    status = [d for idx, docs in es.written if idx == ALERT_INDEX for d in docs if d[0] == "detect-status"]     # source-check-* 那兩筆另外測（test_source_check.py）
-    return es, status, out.getvalue()
+    db = fresh_db()
+    repo = Repos(FakeES(), load_scenario(), db=db)
+    repo.baseline.bulk([(f"b-{s}", {**BASELINE, "series": s}) for s in sorted(with_baseline)])
+    with contextlib.redirect_stdout(io.StringIO()) as out:
+        C.cmd_detect(CFG, Namespace(at=pd.Timestamp("2026-11-01T02:05:00Z"), window=pd.Timedelta("10min")), repo)
+    got = repo.alerts.get("detect-status")
+    return repo, ([("detect-status", got)] if got else []), out.getvalue()     # source-check-* 那兩筆另外測（test_source_check.py）
 
 
+@needs_pg
 class DetectStatus(unittest.TestCase):
     def test_one_series_without_baseline(self):
         es, status, text = detect({"a.cpu"})
@@ -59,9 +52,6 @@ class DetectStatus(unittest.TestCase):
         # 跟心跳一樣的形狀：事件整合查 status:open、儀表板查 category:service 都不會抓到它
         self.assertEqual((doc["anomaly_ids"], doc["anomaly_count"], doc["routes"], doc["group"]), ([], 0, [], "unassigned"))
         self.assertLess(doc["@timestamp"], doc["updated_at"])      # @timestamp 往前 1 分鐘（STAMP_LAG），Grafana 的窗才查得到
-        # 既有的 aiops-alerts 要補 missing_baseline 欄位（dynamic false）
-        self.assertIn((ALERT_INDEX, ALERT_MAPPING), es.ensured)
-        self.assertEqual(ALERT_MAPPING["mappings"]["properties"]["missing_baseline"], {"type": "integer"})
         self.assertIn("b.mem：沒有 baseline", text)
         self.assertIn("1 條序列沒有 baseline", text)
 

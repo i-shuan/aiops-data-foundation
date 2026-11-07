@@ -1,12 +1,12 @@
 """incident/store/models.py：Alert 是 ⑥ 併件時手上的物件、寫進 aiops-alerts 的格式、讀回來的格式。
-欄位跟 ALERT_MAPPING 對得上；執行期欄位（anoms、new…）不寫 ES；時間欄位物件裡是 datetime、to_doc 轉 ISO 字串；from_doc 讀舊文件寬鬆；打錯欄位名會擋。
+執行期欄位（anoms、new…）不寫 ES；時間欄位物件裡是 datetime、to_doc 轉 ISO 字串；from_doc 讀舊文件寬鬆；打錯欄位名會擋。
 to_doc 跟改成類別之前 alert_doc 寫的 dict 的逐欄位比對記在 docs/pdca/meta/2026-11-clean-code.md Check。"""
 import unittest
 from datetime import datetime, timedelta, timezone
 
 from pydantic import ValidationError
 
-from incident.store.models import ALERT_MAPPING, UNMAPPED_FIELDS, Alert
+from incident.store.models import Alert
 
 T0 = datetime(2026, 10, 25, 2, 0, tzinfo=timezone.utc)
 
@@ -17,11 +17,6 @@ def alert(**kw) -> Alert:
 
 
 class Contract(unittest.TestCase):
-    def test_mapping_fields_are_model_fields(self):
-        names = {f.alias or n for n, f in Alert.model_fields.items() if not f.exclude}
-        mapped = set(ALERT_MAPPING["mappings"]["properties"])
-        self.assertEqual(mapped - names, set(), "mapping 有、模型沒有的欄位")
-        self.assertEqual(names - mapped, set(UNMAPPED_FIELDS), "模型有、mapping 沒有的欄位要列在 UNMAPPED_FIELDS")
 
     def test_runtime_fields_never_written(self):
         al = alert(anoms=[{"_id": "x1"}], new=True, upgraded=True, rerun=True, report_text="r", llm={"text": "t"})

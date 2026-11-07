@@ -11,19 +11,12 @@ import pandas as pd
 import learn.feedback_service as C
 
 
-class FakeES:
-    def __init__(self, feedback, anomalies):
-        self.feedback, self.anomalies = feedback, anomalies
-
-    def search(self, index, body):
-        return self.req("POST", f"/{index}/_search", body)
-
-    def req(self, method, path, body=None, ok=None):
-        if "aiops-feedback/_search" in path:
-            return {"hits": {"hits": [{"_id": f"fb{i}", "_source": f} for i, f in enumerate(self.feedback)]}}
-        if "_mget" in path:
-            return {"docs": [{"_id": i, "found": i in self.anomalies, "_source": self.anomalies.get(i, {})} for i in body["ids"]]}
-        raise AssertionError(path)
+def seeded(feedback, anomalies) -> Repos:
+    """回饋、異常寫進測試用的 PostgreSQL（tests/conftest.py 指好的）。"""
+    repo = Repos(None)
+    repo.feedback.bulk([(f"fb{i}", f) for i, f in enumerate(feedback)])
+    repo.anomalies.bulk(list(anomalies.items()))
+    return repo
 
 
 FB = [{"@timestamp": "2026-11-04T07:00:00Z", "verdict": "false_positive", "fp_reason": "pm_just_done", "by": "chen", "alert_id": "a-1", "anomaly_id": "x1"},
@@ -36,7 +29,7 @@ AN = {"x1": {"@timestamp": "2026-11-04T06:00:00Z", "series": "fdc.pressure", "ke
 
 class Export(unittest.TestCase):
     def test_rows_join_feedback_with_anomaly(self):
-        rows = C.export_rows(Repos(FakeES(FB, AN)), 28, pd.Timestamp("2026-11-04T08:00:00Z"))
+        rows = C.export_rows(seeded(FB, AN), 28, pd.Timestamp("2026-11-04T08:00:00Z"))
         self.assertEqual(len(rows), 3)
         r = rows[0]
         self.assertEqual((r["verdict"], r["fp_reason"], r["source"], r["source_id"], r["series"], r["keys"]["lot"]), ("false_positive", "pm_just_done", "ml", "R1", "fdc.pressure", "LOT-1"))
@@ -45,7 +38,7 @@ class Export(unittest.TestCase):
         self.assertIsNone(rows[2]["source_id"])
 
     def test_write_ndjson_and_csv(self):
-        rows = C.export_rows(Repos(FakeES(FB, AN)), 28, pd.Timestamp("2026-11-04T08:00:00Z"))
+        rows = C.export_rows(seeded(FB, AN), 28, pd.Timestamp("2026-11-04T08:00:00Z"))
         with tempfile.TemporaryDirectory() as d:
             p = C.write_export(rows, os.path.join(d, "fp.ndjson"))
             lines = [json.loads(l) for l in open(p, encoding="utf-8")]

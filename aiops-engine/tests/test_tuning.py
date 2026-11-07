@@ -5,14 +5,11 @@ import unittest
 import pandas as pd
 from pydantic import ValidationError
 
-from learn.store.models import TUNING_MAPPING, Adjustment, validated
+from learn.store.models import validated
 import learn.param_suggester as F
 
 
 class Validated(unittest.TestCase):
-    def test_mapping_fields_are_model_fields(self):
-        mapped = set(TUNING_MAPPING["mappings"]["properties"])
-        self.assertEqual(mapped - set(Adjustment.model_fields), set())
 
     def test_rejects_bad_kind_status_and_types(self):
         for bad in ({"kind": "overide"}, {"status": "approved"}, {"kind": "override", "z": "high"}, {"kind": "exclude_window", "apply_to": "train"}):

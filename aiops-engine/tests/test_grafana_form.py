@@ -12,7 +12,7 @@ import learn.feedback_service as F
 from common.scenario import load_scenario
 
 SC = load_scenario()
-from learn.store.models import FEEDBACK_INDEX
+from learn.store.models import FEEDBACK_TABLE
 from tests.test_api import ALERT, FakeES
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -102,8 +102,10 @@ class Cors(unittest.TestCase):
     """CORS 只開在 /api/*、Origin 要在 API_CORS_ORIGIN 裡；網頁本身（/feedback）永遠不開。"""
     @classmethod
     def setUpClass(cls):
-        W.set_es(FakeES())
         cls.c = TestClient(W.app)
+
+    def setUp(self):                  # 每個測試結束資料庫會清空（tests/conftest.py），所以每次都重新放告警
+        W.set_es(FakeES())
 
     def req(self, path, method="GET", origin="http://grafana.local", body=None, ctype=None):
         h = {"Origin": origin}
@@ -157,9 +159,9 @@ class Cors(unittest.TestCase):
         self.assertTrue(r["extract"]["ok"])
         self.assertTrue(r["tuning_id"])
         es = W.state.es
-        fb = next(iter(es.written[FEEDBACK_INDEX].values()))
+        fb = next(iter(es.written[FEEDBACK_TABLE].values()))
         self.assertEqual((fb["rca_cause_useful"], fb["rca_action_useful"], fb["tuning_id"]), ("yes", "not_seen", r["tuning_id"]))
-        self.assertEqual(es.written["aiops-tuning"][r["tuning_id"]]["status"], "proposed")
+        self.assertEqual(es.written["aiops_tuning"][r["tuning_id"]]["status"], "proposed")
 
 
 if __name__ == "__main__":

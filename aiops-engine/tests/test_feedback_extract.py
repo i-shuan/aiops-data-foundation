@@ -12,7 +12,6 @@ from unittest import mock
 import pandas as pd
 
 import llm.summary as LLM
-from learn.store.models import TUNING_INDEX
 import learn.param_suggester as F
 import learn.param_suggester as T
 from detect.series_ops.manual_adjust import active, problem
@@ -160,25 +159,15 @@ class MapToTuning(unittest.TestCase):
         self.assertIsNone(F.suggest_from_text({**GOOD, "suggested_action": "none"}, ALERT, "x"))
 
     def test_propose_writes_proposed_row_with_stable_id(self):
-        class ES:
-            def __init__(self):
-                self.put = {}
-            def ensure_index(self, name, body):
-                self.ensured = name
-            def req(self, method, path, body=None, ok=(200, 201)):
-                self.put[path] = body
-                return {}
-        es = ES()
+        repo = Repos(None, SC)                                   # 調整寫進 PostgreSQL（tests/conftest.py 指好的）
         now = pd.Timestamp("2026-10-29T01:00:00Z")
-        _id = T.propose_from_text(Repos(es, SC), GOOD, ALERT, self.TEXT, "amy", now)
-        self.assertEqual(es.ensured, TUNING_INDEX)
-        (path, body), = es.put.items()
-        self.assertEqual(path, f"/{TUNING_INDEX}/_doc/{_id}?refresh=true")
+        _id = T.propose_from_text(repo, GOOD, ALERT, self.TEXT, "amy", now)
+        body = repo.tuning.get(_id)
         self.assertEqual((body["status"], body["by"], body["at"], body["kind"]), ("proposed", "amy", now.isoformat(), "recurring_override"))
-        self.assertEqual(T.propose_from_text(Repos(es, SC), GOOD, ALERT, self.TEXT, "amy", now), _id)              # 同一人、同一件、同一種：覆蓋不重複
-        self.assertNotEqual(T.propose_from_text(Repos(es, SC), GOOD, ALERT, self.TEXT, "bob", now), _id)
-        self.assertIsNone(T.propose_from_text(Repos(es, SC), {**GOOD, "suggested_action": "none"}, ALERT, self.TEXT, "amy", now))
-
+        self.assertEqual(T.propose_from_text(repo, GOOD, ALERT, self.TEXT, "amy", now), _id)              # 同一人、同一件、同一種：覆蓋不重複
+        self.assertEqual(len(repo.tuning.all()), 1)
+        self.assertNotEqual(T.propose_from_text(repo, GOOD, ALERT, self.TEXT, "bob", now), _id)
+        self.assertIsNone(T.propose_from_text(repo, {**GOOD, "suggested_action": "none"}, ALERT, self.TEXT, "amy", now))
 
 if __name__ == "__main__":
     unittest.main()
