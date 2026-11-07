@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import types
 import typing
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal, overload
 
 import yaml
 from pydantic import BaseModel, ValidationError
@@ -39,8 +39,36 @@ class ConfigError(ValueError):
     """設定檔不對。str() 是一行一個問題：<檔名>: <欄位路徑>：<問題>。"""
 
 
-def load_config(path: str, kind: str) -> dict:
-    """讀一份設定檔。kind 是哪一種（KINDS），用它挑模型驗證。回傳 dict，鍵值跟 yaml 一樣。"""
+@overload
+def load_config(path: str, kind: Literal["series"]) -> SeriesConfig: ...
+@overload
+def load_config(path: str, kind: Literal["rules"]) -> RulesConfig: ...
+@overload
+def load_config(path: str, kind: Literal["peer"]) -> PeerConfig: ...
+@overload
+def load_config(path: str, kind: Literal["quality"]) -> QualityConfig: ...
+@overload
+def load_config(path: str, kind: Literal["trace"]) -> TraceConfig: ...
+@overload
+def load_config(path: str, kind: Literal["rca"]) -> RcaConfig: ...
+@overload
+def load_config(path: str, kind: Literal["schedule"]) -> ScheduleConfig: ...
+@overload
+def load_config(path: str, kind: Literal["chronic"]) -> ChronicConfig: ...
+@overload
+def load_config(path: str, kind: Literal["prune"]) -> PruneConfig: ...
+@overload
+def load_config(path: str, kind: Literal["calendar"]) -> CalendarConfig: ...
+@overload
+def load_config(path: str, kind: Literal["adjustments"]) -> AdjustmentsConfig: ...
+@overload
+def load_config(path: str, kind: Literal["ingest"]) -> IngestConfig: ...
+@overload
+def load_config(path: str, kind: Literal["paths"]) -> PathsConfig: ...
+@overload
+def load_config(path: str, kind: str) -> Strict: ...
+def load_config(path: str, kind: str) -> Strict:
+    """讀一份設定檔。kind 是哪一種（KINDS），用它挑模型驗證。回傳那一種的模型（SeriesConfig、RulesConfig…），不是 dict。"""
     if kind not in KINDS:
         raise ValueError(f"不認得的設定種類 {kind!r}，只能是 {'、'.join(KINDS)}")
     with open(path, encoding="utf-8") as f:
@@ -50,16 +78,15 @@ def load_config(path: str, kind: str) -> dict:
     return validate(raw, kind, path)
 
 
-def validate(raw: dict, kind: str, where: str = "<設定>") -> dict:
-    """驗證一份已經讀成 dict 的設定（API、測試用）。回傳的 dict 跟 raw 內容一樣；where 只用在錯誤訊息。"""
+def validate(raw: dict, kind: str, where: str = "<設定>") -> Strict:
+    """驗證一份已經讀成 dict 的設定（API、測試用），回傳那一種的模型；where 只用在錯誤訊息。
+    `_` 開頭的鍵是 yaml 的 anchor（`_tx: &tx …`），只給 yaml 自己用，驗證前拿掉。"""
     model = MODELS[kind]
     body = {k: v for k, v in raw.items() if not str(k).startswith("_")}
     try:
-        checked = model.model_validate(body).model_dump(exclude_unset=True, by_alias=True)
+        return model.model_validate(body)
     except ValidationError as e:
         raise ConfigError("\n".join(_format(e, model, where))) from None
-    # 依 yaml 原本的順序組回去；_ 開頭的 anchor 原樣
-    return {k: checked.get(k, v) for k, v in raw.items()}
 
 
 # ── 錯誤訊息 ──

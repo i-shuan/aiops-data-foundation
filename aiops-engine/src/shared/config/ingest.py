@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
+from pydantic import Field
+
 from shared.config.common import Query, Strict
 
 
@@ -20,7 +22,7 @@ class Input(Strict):
     name: str
     index: str
     series: str
-    keys: dict[str, str]
+    key_names: dict[str, str] = Field(alias="keys")      # yaml 的鍵叫 keys（見 series.py 的說明）
     time_field: str | None = None
     filter: Query | None = None
     id_field: str | None = None

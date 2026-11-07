@@ -185,7 +185,7 @@ def load_owners(cfg: dict, *, fetch=_http_json) -> list[dict]:
     """cfg：chronic.yaml 的內容。owners（直接寫的）加 owners_source（一個或多個來源）。先寫的優先（owner_of 取第一個符合的）。"""
     out = list(cfg.get("owners") or [])
     srcs = cfg.get("owners_source") or []
-    for src in [srcs] if isinstance(srcs, dict) else srcs:
+    for src in srcs if isinstance(srcs, list) else [srcs]:
         p = src["provider"]
         try:
             if p == "file":

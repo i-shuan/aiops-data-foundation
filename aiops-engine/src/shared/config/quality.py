@@ -19,7 +19,7 @@ class QualityCheck(Strict):
     severity: Severity | None = None
     filter: Query | None = None
     by: list[str] | None = None
-    keys: list[str] | None = None
+    key_names: list[str] | None = Field(default=None, alias="keys")   # yaml 的鍵叫 keys；屬性不能叫 keys（會蓋掉過渡層 dict 介面的 keys()）
     time_field: str | None = None
     window: Dur | None = None
     min_docs: NonNeg | None = None
@@ -50,7 +50,7 @@ class QualityCheck(Strict):
 
     @model_validator(mode="after")
     def _check(self):
-        _same_length(self.keys, self.by)
+        _same_length(self.key_names, self.by)
         need = {"cardinality": ("field",), "missing": ("fields",), "share": ("part_index",), "lag": ("from_", "to")}
         for f in need.get(self.type, ()):
             if getattr(self, f) is None:

@@ -8,34 +8,35 @@ from __future__ import annotations
 
 import pandas as pd
 
+from shared.config.prune import PruneConfig
 from shared.infra.es import ES
 from shared.infra.repos import Repos
 from shared.scenario import load_scenario
 from detect.utils import _now
 
 
-def plan(cfg: dict, now: pd.Timestamp) -> list[dict]:
+def plan(prune_config: PruneConfig, now: pd.Timestamp) -> list[dict]:
     """每個索引要刪什麼：{"index", "query", "keep_days", "time_field"}。
     query：time_field < now − keep_days，再加上設定的 filter（例如 aiops-alerts 只刪 status resolved）。"""
     out = []
-    for it in cfg.get("indices", []):
-        days = float(it["keep_days"])
+    for it in prune_config.indices:
+        days = float(it.keep_days)
         cutoff = (now - pd.Timedelta(days=days)).isoformat()
-        tf = it.get("time_field", "@timestamp")
+        tf = it.time_field
         must = [{"range": {tf: {"lt": cutoff}}}]
-        if it.get("filter"):
-            must.append(it["filter"])
-        out.append({"index": it["index"], "keep_days": days, "time_field": tf, "cutoff": cutoff,
+        if it.filter:
+            must.append(it.filter)
+        out.append({"index": it.index, "keep_days": days, "time_field": tf, "cutoff": cutoff,
                     "query": {"bool": {"filter": must}}})
     return out
 
 
-def cmd_prune(cfg: dict, args) -> int:
+def cmd_prune(prune_config: PruneConfig, args) -> int:
     hk = Repos(ES(), load_scenario()).housekeeping
     now = _now(args.at)
     dry = bool(getattr(args, "dry_run", False))
     total = 0
-    for p in plan(cfg, now):
+    for p in plan(prune_config, now):
         n = hk.count(p["index"], p["query"])
         if dry or not n:
             print(f"  {p['index']}：{p['time_field']} 早於 {p['cutoff'][:16]}（保留 {p['keep_days']:g} 天）的有 {n} 筆" + ("，沒刪（--dry-run）" if dry and n else ""))
@@ -46,5 +47,5 @@ def cmd_prune(cfg: dict, args) -> int:
         total += deleted
         print(f"  {p['index']}：刪了 {deleted} 筆（{p['time_field']} 早於 {p['cutoff'][:16]}，保留 {p['keep_days']:g} 天）"
               + (f"；{len(r['failures'])} 筆失敗" if r.get("failures") else ""))
-    print(f"{now.tz_convert(cfg.get('timezone', 'Asia/Taipei')):%m-%d %H:%M}：共 {total} 筆" + ("要刪" if dry else ""))
+    print(f"{now.tz_convert(prune_config.timezone):%m-%d %H:%M}：共 {total} 筆" + ("要刪" if dry else ""))
     return 0

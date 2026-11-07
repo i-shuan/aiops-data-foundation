@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import model_validator
+from pydantic import Field, model_validator
 
 from shared.config.common import _same_length, NonNeg, PosInt, Provider, Query, Strict
 
@@ -17,7 +17,7 @@ class ChronicSource(Strict):
     index: str | None = None
     filter: Query | None = None
     by: list[str] | None = None
-    keys: list[str] | None = None
+    key_names: list[str] | None = Field(default=None, alias="keys")   # yaml 的鍵叫 keys；屬性不能叫 keys（會蓋掉過渡層 dict 介面的 keys()）
     min_per_day: NonNeg | None = None
     min_days: PosInt | None = None
     top: PosInt | None = None
@@ -26,7 +26,7 @@ class ChronicSource(Strict):
 
     @model_validator(mode="after")
     def _check(self):
-        _same_length(self.keys, self.by)
+        _same_length(self.key_names, self.by)
         if self.type == "log" and (self.index is None or not self.by):
             raise ValueError("type log 要有 index、by")
         return self

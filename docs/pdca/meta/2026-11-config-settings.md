@@ -1,6 +1,6 @@
 # 設定集中管理：環境變數 Settings、設定檔回模型、時間統一（2026-11）
 
-**狀態**：進行中　　**日期**：2026-11-07　　**相關**：分支 `claude/config-settings`（從 master `079f97e` 開）；承接 [feature-folders](2026-11-feature-folders.md) 之後盤點出的資料形狀問題
+**狀態**：進行中（步驟 0 完成、步驟 1 做到一半）　　**日期**：2026-11-07　　**相關**：分支 `claude/config-settings`（從 master `079f97e` 開）；承接 [feature-folders](2026-11-feature-folders.md) 之後盤點出的資料形狀問題
 **模組**：②～⑨（程式內部，不改任何階段的行為）
 
 ## Plan
@@ -38,6 +38,16 @@
 - 順手刪掉 `shared/infra/clock.py` 裡重複定義的 `stamp_of`（先前搬檔時重複貼的）。
 - **跟計畫不同的地方**：計畫寫「只在入口讀一次、往下傳」，實際是「每次用到就 `settings()` 重讀」。原因：`ES()` 在二十幾個函式裡直接建立、`load_scenario()` 在測試裡依環境變數重讀；真的往下傳要改所有簽名、測試要全改。每次重讀只是讀 21 個字串，成本可以忽略。步驟 1 設定回模型時簽名本來就要動，到時候再看哪些適合改成注入。
 
+### 步驟 1：設定檔回模型（進行中；①②做完，③進行中）
+
+- **①搬家與拆檔**：`shared/scenario/config.py`（790 行）拆成 `shared/config/` 套件：`common.py`（共用型別與小段）、一種設定一個檔（`series.py`、`rules.py`、`peer.py`、`quality.py`、`trace.py`、`rca.py`、`schedule.py`、`chronic.py`、`prune.py`、`calendar.py`、`adjustments.py`、`ingest.py`、`paths.py`）、`loader.py`（讀檔、驗證、錯誤訊息、`KINDS`、`MODELS`）；用腳本依 AST 切、補 import，只搬不改。
+- **②過渡層與回模型**：`Strict` 加 `get`／`[]`／`in`／`keys`／`items`／`values`／`len`／`to_dict`／`==`，語意跟原本的 dict 一樣（**只有 yaml 有寫的鍵才算有**）；`load_config`、`validate` 回那一種的模型（13 個 `@overload`，編輯器知道 `load_config(p, "series")` 是 `SeriesConfig`），不再 `model_dump` 倒回 dict。現有的程式與測試幾乎不用改。
+- **③逐種換成屬性存取**：先做 `prune` 當樣板——`plan(prune_config: PruneConfig, …)`、`it.keep_days`、預設值（`time_field="@timestamp"`、`timezone="Asia/Taipei"`、`indices=[]`）進模型、程式裡的 `.get(…, 預設)` 刪掉、測試改用 `validate({…}, "prune")` 造設定。
+- **踩到的三個問題（過渡層的代價）**：
+  1. `owners_source: list[Provider] | Provider` 只寫一個來源時變成 `Provider` 模型，`load_owners` 的 `isinstance(srcs, dict)` 失效、會去迭代模型——單元測試傳的都是 dict 所以沒抓到。改成 `srcs if isinstance(srcs, list) else [srcs]`，補測試（用 `validate` 造設定）。
+  2. 5 個模型有欄位叫 `keys`，蓋掉過渡層的 `keys()` 方法（pydantic 只警告），`{**spec}`（`peer_compare.py:78`）會壞。欄位改叫 `key_names`（`alias="keys"`，yaml 與 `spec["keys"]` 不變），加測試鎖「沒有欄位跟 `keys`／`items`／`values`／`get`／`to_dict` 同名」。
+  3. 最上層的鍵順序變成欄位宣告的順序，不是 yaml 的；清單與 dict 值的順序不變。測試改比 `set`。
+
 ## Check
 
 | 要驗什麼 | 怎麼驗 | 結果 |
@@ -48,6 +58,11 @@
 | 對真 ES、真的 api 行程 | `chain_e2e`、`factory_e2e`、`loop_e2e`（loop 用 `API_PORT` 起 api） | ✅ 26/26、15/15；loop 仍是那 2 個舊斷言 |
 | 錯誤訊息 | `API_PORT=abc`、`SCHEDULE_STAGE=x` 跑 api／scheduler／tasks worker；沒設 `ES_URL` 跑 detector | ✅ 一行「設定錯誤：…」、結束碼 2（原本是 traceback 或 KeyError） |
 | 第一版的問題 | `API_PORT=abc` 時連不相干的指令都在 import 就失敗：`env.py` 與 `worker.py`（載入時就建 Celery app、讀 broker 與時區）在載入時讀環境 | 已修：`engine_version()` 單獨讀、角色延遲 import |
+| 步驟 1①②：拆檔與回模型後行為不變 | 全部測試（helm 也跑）；`chain`、`factory`、`loop`、`adaptive`、`synth` e2e | ✅ 單元 802 項（0 跳過）；e2e 同前（loop 仍是那 2 個舊斷言） |
+| 步驟 1：每份 yaml 都驗得過、`to_dict()` 跟 `yaml.safe_load` 一樣（去掉 `_` 開頭的 anchor） | `tests/test_config.py`（configs/ 23 份加 tests/ 的 7 份） | ✅ |
+| 步驟 1：過渡層的語意跟 dict 一樣 | `test_config.py::ModelsReadLikeDicts`：沒寫的鍵 `get` 回 default、`in` 為假、`**` 展開 | ✅ |
+| 步驟 1③ 樣板 `prune` 走真的 CLI | `python3 -m main detector prune --config configs/baseline/prune.yaml --dry-run`（對真 ES） | ✅ 三個索引各印一行 |
+| 其他 e2e（`adjust_edge`、`rules_edge`、`baseline_edge`、`trace_quality_edge`、`fine`、`peer_edge`） | 在 master 與這個分支各跑一次 | ⚠️ 前四個在 master 上也一樣失敗（e2e 腳本本身過期：`adjustments_file` 欄位、`index` 缺、索引沒建、日期格式），後兩個是測試 ES 當時分片分配不了（磁碟水位）；沒有一個是這個分支造成的 |
 
 ## Act
 
@@ -56,4 +71,6 @@
 | `interface/jobs/worker.py` 載入時就建立 Celery app | 驗證錯誤訊息時 | 之後改成函式裡才建；現在靠延遲 import 擋住 |
 | 空字串視同沒設：原本 `SCHEDULE_STAGE=""`、`AIOPS_SOURCE=""` 會報錯，現在用預設 | 寫 `Settings` 時 | 接受（chart 本來就會給空字串）；要嚴格再改 |
 | `Settings` 的欄位與 helm 的 `env.yaml` 沒有自動對照 | 盤點時 | 可以加測試：每個欄位在 chart 或文件有出現；之後 |
-| 步驟 1～4 還沒做 | — | 下一步：`shared/config/` 搬家與設定檔回模型（過渡層） |
+| 過渡層讓「型別錯的設定值傳進來」要到用的那一刻才發現（例如單元測試傳 dict 給已經換成屬性存取的函式） | 轉換 `prune` 時 | 每一種換完就把那一種的測試改成 `validate({…}, kind)`；過渡層拆掉前不加新的 dict 用法 |
+| 6 個舊的 e2e 腳本在 master 上就壞（見 Check） | 驗證步驟 1 時 | 另開一件修；這份計畫不處理 |
+| 還剩 12 種設定要逐種換成屬性存取、預設值搬進模型 | — | 下一步：依序 `calendar`、`chronic`、`adjustments`、`ingest`、`paths`、`peer`、`quality`、`trace`、`rules`、`rca`、`series`、`schedule` |

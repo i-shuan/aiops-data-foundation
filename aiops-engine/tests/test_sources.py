@@ -228,6 +228,14 @@ class LoadOwners(unittest.TestCase):
         got = S.load_owners({"owners_source": {"provider": "file", "path": "/no/such/file.json"}})
         self.assertEqual(got, [])
 
+    def test_single_source_from_a_loaded_config(self):
+        """load_config 回的是模型：owners_source 只寫一個來源時是 Provider，不是 dict，也不是 list。"""
+        from shared.config import validate
+        cfg = validate({"owners_source": {"provider": "file", "path": "/no/such/file.json"}}, "chronic")
+        self.assertEqual(S.load_owners(cfg), [])
+        two = validate({"owners_source": [{"provider": "file", "path": "/no/such/a.json"}, {"provider": "file", "path": "/no/such/b.json"}]}, "chronic")
+        self.assertEqual(S.load_owners(two), [])
+
     def test_fake_data_files_follow_the_interface(self):
         here = os.path.dirname(os.path.dirname(__file__))
         with open(os.path.join(here, "fake-data", "owners.json"), encoding="utf-8") as f:

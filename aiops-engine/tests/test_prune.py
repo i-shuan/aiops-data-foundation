@@ -9,12 +9,13 @@ import pandas as pd
 import yaml
 
 import detect.housekeeping as P
+from shared.config import validate
 
 NOW = pd.Timestamp("2026-11-01T03:30:00Z")
-CFG = {"timezone": "Asia/Taipei", "indices": [
+CFG = validate({"timezone": "Asia/Taipei", "indices": [
     {"index": "aiops-anomalies", "keep_days": 90},
     {"index": "aiops-alerts", "time_field": "resolved_at", "keep_days": 180, "filter": {"term": {"status": "resolved"}}},
-]}
+]}, "prune")
 
 
 class FakeES:
