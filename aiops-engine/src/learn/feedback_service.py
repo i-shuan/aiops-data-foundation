@@ -12,7 +12,7 @@ import pandas as pd
 
 import llm.summary as LLM
 from shared.infra.env import CODE_ROOT
-from shared.scenario.config import load_config
+from shared.config import load_config
 from shared.infra.es import ES, doc_id
 from learn.store.models import RCA_USEFUL, VERDICTS
 from shared.types.incident import Incident

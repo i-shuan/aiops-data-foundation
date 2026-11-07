@@ -13,7 +13,7 @@ from shared.infra.clock import now_ts as _now
 from shared.infra.es import ES
 from shared.infra.repos import Repos
 from shared.scenario import load_scenario
-from shared.scenario.config import load_config
+from shared.config import load_config
 
 
 def register(app: typer.Typer) -> None:

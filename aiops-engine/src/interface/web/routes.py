@@ -21,7 +21,7 @@ import interface.web.views as V
 import detect.fab_ingest.ingest_service as ING
 import learn.feedback_service as F
 from shared.config.settings import settings
-from shared.scenario.config import load_config
+from shared.config import load_config
 from shared.infra.repos import Repos
 from shared.scenario import load_scenario
 

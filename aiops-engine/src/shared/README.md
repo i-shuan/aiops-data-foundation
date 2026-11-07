@@ -2,11 +2,12 @@
 
 > **類型：規格 Reference**　為什麼這樣分層見 [docs/architecture.md](../../../docs/architecture.md)、計畫見 [docs/pdca/meta/2026-11-target-architecture.md](../../../docs/pdca/meta/2026-11-target-architecture.md)
 
-`shared/` 是各功能共用的底層，分三個資料夾，它不依賴任何功能資料夾（`tests/test_layers.py` 鎖著）：
+`shared/` 是各功能共用的底層，分四個資料夾，它不依賴任何功能資料夾（`tests/test_layers.py` 鎖著）：
 
 - `infra/`：`env.py`（引擎版本、專案根目錄）、`clock.py`（時間長度、「現在」、`stamp_of`）、`es.py`（ES 連線、寫進 ES 的文件的基底 `Doc`、repository 基底 `Repository`）、`repos.py`（`Repos`）。
 - `types/`：`incident.py`——事故與指紋的資料物件，`llm/`（過去相似）與 `incident/`（告警）都用它，放在任一邊都會循環。
-- `scenario/`：`base.py`（`Scenario`、`load_scenario()`）、`*.yaml`（四份情境資料檔）、`config.py`（設定檔欄位的 pydantic 模型與 `load_config`）。
+- `scenario/`：`base.py`（`Scenario`、`load_scenario()`）、`*.yaml`（四份情境資料檔）。
+- `config/`：設定檔欄位的 pydantic 模型，一種設定一個檔（`series.py`、`rules.py`、`rca.py`、`schedule.py`…，共用型別在 `common.py`），`loader.py` 的 `load_config(path, kind)` 讀檔驗證；`settings.py` 是環境變數（`settings()`）。
 
 索引名只出現在各功能資料夾的 `store/` 與 `shared/`。每個功能的 repository 放在自己的 `store/`（`detect/store/`、`incident/store/`、`learn/store/`），上層透過 `Repos` 拿：
 
