@@ -19,7 +19,7 @@ import pandas as pd
 import yaml
 
 import common.infra.archive as ARC
-import detect.housekeeping as P
+import common.infra.prune as P
 from common.config import validate
 from common.infra.repos import Repos
 from common.scenario import load_scenario

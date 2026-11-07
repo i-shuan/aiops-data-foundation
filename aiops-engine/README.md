@@ -48,8 +48,8 @@ src/
 │  └─ store/      models · alert_repo · incident_repo · change_repo · log_repo
 ├─ llm/           summary（LLM 摘要）· similar（過去相似事故）
 ├─ detect/        ③④⑤ 異常分析
-│  ├─ base · detect_service · housekeeping · reference_data · utils
-│  ├─ config/     series · rules · peer · quality · trace · chronic · prune · adjustments · calendar · ingest · types
+│  ├─ base · detect_service · reference_data · utils
+│  ├─ config/     series · rules · peer · quality · trace · chronic · adjustments · calendar · ingest · types
 │  ├─ strategy/   threshold_rule · peer_compare · dynamic_baseline · chronic_issue
 │  ├─ series_ops/ quality_check · level_shift · manual_adjust
 │  ├─ trace/      latency_stats（每段統計與偵測）
@@ -62,9 +62,9 @@ src/
 │  ├─ trace/      span_merge（合成 traces-merged-*）· path_builder · path_service（工廠履歷）
 │  └─ store/      models（trace 資料物件、raw→統一 span）· trace_repo · series_repo · owner_repo
 └─ common/        共用底層
-   ├─ config/     common（共用型別）· loader（讀檔驗證）· settings（環境變數）
+   ├─ config/     common（共用型別）· loader（讀檔驗證）· settings（環境變數）· prune（保留天數、歸檔）
    ├─ clock/      parse（時間長度、時間點、時區）· window（TimeWindow、now_of）· stamp
-   ├─ infra/      env · es（連線、文件基底）· repos（Repos）
+   ├─ infra/      env · es（連線、文件基底）· pg · repos（Repos）· archive · prune（detector prune：歸檔再刪）
    ├─ types/      incident（事故與指紋）
    └─ scenario/   base · it_otel／it_apm／factory／metrics_only.yaml（情境資料檔）
 ```

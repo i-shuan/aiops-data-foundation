@@ -15,7 +15,7 @@ from common.clock import now_of
 from common.config.settings import settings
 from common.infra.repos import Repos
 from common.scenario import load_scenario
-from detect.config.prune import PruneArchive, PruneConfig
+from common.config.prune import PruneArchive, PruneConfig
 
 
 def plan(prune_config: PruneConfig, now: pd.Timestamp) -> list[dict]:

@@ -19,7 +19,7 @@ if TYPE_CHECKING:        # 只給型別檢查看（overload 的回傳型別）�
     from detect.config.ingest import IngestConfig
     from data.config.paths import PathsConfig
     from detect.config.peer import PeerConfig
-    from detect.config.prune import PruneConfig
+    from common.config.prune import PruneConfig
     from detect.config.quality import QualityConfig
     from detect.config.rules import RulesConfig
     from detect.config.series import SeriesConfig
@@ -32,7 +32,7 @@ if TYPE_CHECKING:        # 只給型別檢查看（overload 的回傳型別）�
 REGISTRY: dict[str, str] = {
     "series": "detect.config.series:SeriesConfig", "rules": "detect.config.rules:RulesConfig", "peer": "detect.config.peer:PeerConfig",
     "quality": "detect.config.quality:QualityConfig", "trace": "detect.config.trace:TraceConfig", "chronic": "detect.config.chronic:ChronicConfig",
-    "prune": "detect.config.prune:PruneConfig", "calendar": "detect.config.calendar:CalendarConfig",
+    "prune": "common.config.prune:PruneConfig", "calendar": "detect.config.calendar:CalendarConfig",
     "adjustments": "detect.config.adjustments:AdjustmentsConfig", "ingest": "detect.config.ingest:IngestConfig",
     "paths": "data.config.paths:PathsConfig", "rca": "incident.config.rca:RcaConfig", "schedule": "interface.config.schedule:ScheduleConfig",
 }

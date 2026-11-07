@@ -63,7 +63,7 @@ import interface.cli.mapping as mapping_cli
 
 from detect.detect_service import cmd_train, cmd_tune, cmd_detect
 from detect.strategy.chronic_issue import cmd_chronic
-from detect.housekeeping import cmd_prune
+from common.infra.prune import cmd_prune
 from detect.series_ops.level_shift import cmd_shift
 from detect.trace.latency_stats import cmd_trace_collect, cmd_trace_train, cmd_trace_detect
 from detect.strategy.threshold_rule import cmd_rules

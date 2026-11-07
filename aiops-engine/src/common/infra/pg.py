@@ -208,7 +208,7 @@ class PgRepository:
         self.ensure()
         return self.db.execute(f"DELETE FROM {self.table} WHERE {where}", params)
 
-    # ── 過期資料（detector prune；detect/housekeeping.py）──
+    # ── 過期資料（detector prune；common/infra/prune.py）──
     def prune(self, cutoff: datetime) -> int:
         return self.delete_where(self.PRUNE_WHERE, (cutoff,))
 
