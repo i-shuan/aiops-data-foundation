@@ -13,10 +13,10 @@ SIGTERM／SIGINT：不再排新的，等還在跑的結束（pod 的 termination
 """
 from __future__ import annotations
 
+from shared.config.settings import settings
 from shared.infra.env import CODE_ROOT
 
 import argparse
-import os
 import signal
 import sys
 import threading
@@ -30,8 +30,8 @@ HERE = str(CODE_ROOT)   # aiops-engine：子行程在這裡跑，configs/ 才找
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(prog="scheduler")
     p.add_argument("--config", default="configs/schedule/schedule.yaml")
-    p.add_argument("--stage", type=int, default=int(os.environ.get("SCHEDULE_STAGE", "1")), help="開到第幾階段（預設 1；環境變數 SCHEDULE_STAGE）")
-    p.add_argument("--alive-file", default=os.environ.get("SCHEDULE_ALIVE_FILE"), help="每分鐘更新一次的檔（liveness probe 用）")
+    p.add_argument("--stage", type=int, default=settings().schedule_stage, help="開到第幾階段（預設 1；環境變數 SCHEDULE_STAGE）")
+    p.add_argument("--alive-file", default=settings().schedule_alive_file, help="每分鐘更新一次的檔（liveness probe 用）")
     p.add_argument("--run", metavar="工作", help="手動跑一次這個工作就結束")
     p.add_argument("--list", action="store_true")
     p.add_argument("--enqueue", action="store_true", help="beat：只把工作丟進佇列（tasks/），不自己跑")

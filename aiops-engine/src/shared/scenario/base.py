@@ -15,8 +15,9 @@
 """
 from __future__ import annotations
 
+from shared.config.settings import settings
+
 import importlib
-import os
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -147,11 +148,12 @@ def from_dict(d: dict) -> Scenario:
 
 def load_scenario(spec: str | None = None) -> Scenario:
     """環境變數（或 spec）→ Scenario。內建三個名字、yaml 路徑、或「套件.模組:名字」（Scenario 實例，或回 Scenario 的函式）。"""
-    s = spec or os.environ.get(ENV) or DEFAULT
+    cfg = settings()
+    s = spec or cfg.aiops_plugin or DEFAULT
     if s in BUILTIN:
         target = BUILTIN[s]
         if isinstance(target, dict):
-            src = os.environ.get(SOURCE_ENV, "otel")
+            src = cfg.aiops_source
             if src not in target:
                 raise ValueError(f"{SOURCE_ENV} 只能是 {'、'.join(target)}，不是 {src!r}")
             target = target[src]

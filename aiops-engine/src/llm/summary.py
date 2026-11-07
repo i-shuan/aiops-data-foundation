@@ -14,11 +14,11 @@ from __future__ import annotations
 
 import json
 import math
-import os
 import re
 
 import requests
 
+from shared.config.settings import settings
 from shared.types.incident import classify
 
 CITE = re.compile(r"\[([A-Z]\d+)\]")
@@ -145,19 +145,21 @@ def template(pack: dict) -> str:
 
 
 def _call_anthropic(prompt: str) -> str:
-    base = os.environ.get("ANTHROPIC_BASE_URL", "https://api.anthropic.com").rstrip("/")
+    cfg = settings()
+    base = cfg.anthropic_base_url.rstrip("/")
     r = requests.post(f"{base}/v1/messages", timeout=60,
-                      headers={"x-api-key": os.environ["LLM_API_KEY"], "anthropic-version": "2023-06-01", "content-type": "application/json"},
-                      json={"model": os.environ.get("LLM_CHAT_MODEL", "claude-sonnet-4-5"), "max_tokens": 600,
+                      headers={"x-api-key": cfg.require_llm_api_key(), "anthropic-version": "2023-06-01", "content-type": "application/json"},
+                      json={"model": cfg.chat_model("claude-sonnet-4-5"), "max_tokens": 600,
                             "messages": [{"role": "user", "content": prompt}]})
     r.raise_for_status()
     return "".join(c.get("text", "") for c in r.json().get("content", []))
 
 
 def _call_openai(prompt: str) -> str:
-    base = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com").rstrip("/")
-    body = {"model": os.environ.get("LLM_CHAT_MODEL", "gpt-4o-mini"), "messages": [{"role": "user", "content": prompt}]}
-    headers = {"Authorization": f"Bearer {os.environ['LLM_API_KEY']}", "content-type": "application/json"}
+    cfg = settings()
+    base = cfg.openai_base_url.rstrip("/")
+    body = {"model": cfg.chat_model("gpt-4o-mini"), "messages": [{"role": "user", "content": prompt}]}
+    headers = {"Authorization": f"Bearer {cfg.require_llm_api_key()}", "content-type": "application/json"}
     # 新的模型只收 max_completion_tokens、舊的只收 max_tokens：先用新的，被 400 說不支援就換舊的
     # 會推理的模型把預算花在推理上，600 不夠就回空的（實測 gpt-6-luna 3 次有 1 次）：給 2000
     r = requests.post(f"{base}/v1/chat/completions", timeout=60, headers=headers, json={**body, "max_completion_tokens": 2000})
@@ -169,7 +171,7 @@ def _call_openai(prompt: str) -> str:
 
 def summarize(pack: dict, provider: str | None = None) -> dict:
     """回傳 {"text", "provider", "ok", "reason"}。text 只有在 ok 時才該顯示。"""
-    provider = provider or os.environ.get("LLM_PROVIDER") or "template"
+    provider = provider or settings().llm_provider
     if provider == "template":
         text = template(pack)
         ok, reason = validate(text, pack)
@@ -325,7 +327,7 @@ def extract_feedback(text: str, alert: dict | None = None, provider: str | None 
     """回傳 {"ok", "fields", "provider", "reason", "raw"}。ok 才有 fields（四欄）；不 ok 就只存原文、不抽取。
     模型掛了（連不上、回空的）退回關鍵字版（provider 會寫明）；模型回了但格式不對（驗不過）就不抽，不猜。永不丟例外。"""
     alert = alert or {}
-    provider = provider or os.environ.get("LLM_PROVIDER") or "template"
+    provider = provider or settings().llm_provider
     text = (text or "").strip()
     if not text:
         return {"ok": False, "fields": None, "provider": provider, "reason": "沒有文字", "raw": ""}

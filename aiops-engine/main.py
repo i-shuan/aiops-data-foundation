@@ -13,29 +13,46 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))   # 程式在 src/；從 aiops-engine/ 跑，不用設 PYTHONPATH
 
-from interface.cli.detect import main as detector
-from interface.cli.rca import main as investigator
-from interface.jobs.local import main as scheduler
-from interface.jobs.worker import worker_main
-from interface.web.__main__ import main as api
+from shared.config.settings import MissingSetting, SettingsError
+
+ROLE_NAMES = ("detector", "investigator", "scheduler", "tasks", "api")
 
 
-def tasks(argv: list[str]) -> int:
-    if not argv or argv[0] != "worker":
-        print("用法：python3 -m main tasks worker --queue <realtime|alert|batch> [--concurrency N]", file=sys.stderr)
-        return 2
-    return worker_main(argv[1:])
+def _role(name: str):
+    """角色的程式到要跑的那一刻才 import：有些模組載入時就會讀環境變數（Celery 的 broker），環境變數不對時要先走到下面的
+    try 才能印一行錯誤，不是在 import 就丟 traceback。"""
+    if name == "detector":
+        from interface.cli.detect import main
+        return main
+    if name == "investigator":
+        from interface.cli.rca import main
+        return main
+    if name == "scheduler":
+        from interface.jobs.local import main
+        return main
+    if name == "api":
+        from interface.web.__main__ import main
+        return lambda argv: main()
+    from interface.jobs.worker import worker_main
 
-
-ROLES = {"detector": detector, "investigator": investigator, "scheduler": scheduler, "tasks": tasks, "api": lambda argv: api()}
+    def tasks(argv: list[str]) -> int:
+        if not argv or argv[0] != "worker":
+            print("用法：python3 -m main tasks worker --queue <realtime|alert|batch> [--concurrency N]", file=sys.stderr)
+            return 2
+        return worker_main(argv[1:])
+    return tasks
 
 
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
-    if not argv or argv[0] not in ROLES:
-        print(f"用法：python3 -m main <{'|'.join(ROLES)}> …", file=sys.stderr)
+    if not argv or argv[0] not in ROLE_NAMES:
+        print(f"用法：python3 -m main <{'|'.join(ROLE_NAMES)}> …", file=sys.stderr)
         return 2
-    return int(ROLES[argv[0]](argv[1:]) or 0)
+    try:
+        return int(_role(argv[0])(argv[1:]) or 0)
+    except (SettingsError, MissingSetting) as e:     # 環境變數的問題：一行講清楚，不丟 traceback
+        print(f"設定錯誤：{e}", file=sys.stderr)
+        return 2
 
 
 if __name__ == "__main__":

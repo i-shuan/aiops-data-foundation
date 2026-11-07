@@ -18,11 +18,6 @@ def stamp_of(now: datetime) -> datetime:
     return now - STAMP_LAG
 
 
-def stamp_of(now: datetime) -> datetime:
-    """開著的件、心跳寫進 aiops-alerts 的 @timestamp（Grafana 用它判斷「最近還有沒有」）。"""
-    return now - STAMP_LAG
-
-
 _UNITS = {"s": "seconds", "m": "minutes", "h": "hours", "d": "days", "w": "weeks"}
 
 

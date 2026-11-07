@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import json
-import os
 
+from shared.config.settings import settings
 from shared.infra.env import CODE_ROOT
 from learn.store.models import RCA_USEFUL as _RCA_USEFUL
 from shared.types.incident import classify
@@ -59,8 +59,8 @@ def to_json(x) -> bytes:
 def ingest_config_path(sc: Scenario) -> str | None:
     """POST /api/anomalies 用哪份 ingest.yaml：AIOPS_INGEST_CONFIG，沒設就從這個情境的排程表找 ingest 工作的 --config。
     排程表沒有 ingest（observability 自己判，沒有外部來源）回 None。"""
-    if os.environ.get("AIOPS_INGEST_CONFIG"):
-        return os.environ["AIOPS_INGEST_CONFIG"]
+    if settings().aiops_ingest_config:
+        return settings().aiops_ingest_config
     _, jobs = load_schedule(str(CODE_ROOT / sc.schedule), stage=2)
     job = next((j for j in jobs if j.name == "ingest"), None)
     if job is None or "--config" not in job.args:

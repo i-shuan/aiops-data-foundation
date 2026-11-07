@@ -7,7 +7,6 @@ JSON 一律 dto.to_json 的 bytes 原樣回、不走 FastAPI 的序列化；表�
 from __future__ import annotations
 
 import json
-import os
 import sys
 from types import SimpleNamespace
 from urllib.parse import parse_qs, quote
@@ -21,6 +20,7 @@ import interface.web.dto as D
 import interface.web.views as V
 import detect.fab_ingest.ingest_service as ING
 import learn.feedback_service as F
+from shared.config.settings import settings
 from shared.scenario.config import load_config
 from shared.infra.repos import Repos
 from shared.scenario import load_scenario
@@ -36,12 +36,12 @@ def set_es(es) -> None:
 def _cors_origins() -> set[str]:
     """API_CORS_ORIGIN：允許哪些網頁從瀏覽器打 /api/*（例如 Grafana 的網址 https://grafana.example.internal）；逗號分隔；不設就不開。
     Grafana 儀表板裡的表單（Business Forms 外掛）是從瀏覽器直接打這裡，跟 Grafana 不同網域，要開。"""
-    return {o.strip().rstrip("/") for o in os.environ.get("API_CORS_ORIGIN", "").split(",") if o.strip()}
+    return settings().cors_origins
 
 
 def _authorized(headers) -> tuple[bool, str]:
     """寫入類端點（/api/anomalies）要 Authorization: Bearer <AIOPS_API_TOKEN>。沒設 token 一律擋（不會因為忘了設就全開）。"""
-    token = os.environ.get("AIOPS_API_TOKEN", "")
+    token = settings().aiops_api_token
     if not token:
         return False, "伺服器沒設 AIOPS_API_TOKEN，這個端點關著"
     got = (headers.get("Authorization") or "").strip()

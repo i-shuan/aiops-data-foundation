@@ -6,9 +6,10 @@ es 是這裡的 ES；測試裡只要有 req／search／bulk_index／ensure_index
 """
 from __future__ import annotations
 
+from shared.config.settings import settings
+
 import hashlib
 import json
-import os
 from datetime import datetime
 
 import requests
@@ -17,14 +18,15 @@ from pydantic import BaseModel, ConfigDict
 
 class ES:
     def __init__(self, url: str | None = None):
-        self.url = (url or os.environ["ES_URL"]).rstrip("/")
+        cfg = settings()
+        self.url = (url or cfg.require_es_url()).rstrip("/")
         self.s = requests.Session()
-        if os.environ.get("ES_API_KEY"):
-            self.s.headers["Authorization"] = f"ApiKey {os.environ['ES_API_KEY']}"
-        elif os.environ.get("ES_AUTH"):
-            self.s.auth = tuple(os.environ["ES_AUTH"].split(":", 1))
-        if os.environ.get("ES_CA"):
-            self.s.verify = os.environ["ES_CA"]
+        if cfg.es_api_key:
+            self.s.headers["Authorization"] = f"ApiKey {cfg.es_api_key}"
+        elif cfg.es_auth:
+            self.s.auth = tuple(cfg.es_auth.split(":", 1))
+        if cfg.es_ca:
+            self.s.verify = cfg.es_ca
 
     def req(self, method: str, path: str, body=None, ok=(200, 201)):
         r = self.s.request(method, self.url + path, json=body, timeout=120)

@@ -10,6 +10,7 @@
 """
 from __future__ import annotations
 
+from shared.config.settings import settings
 from shared.infra.env import CODE_ROOT
 
 import argparse
@@ -31,7 +32,7 @@ HERE = str(CODE_ROOT)   # aiops-engine：子行程在這裡跑，configs/ 才找
 
 
 def broker_url() -> str | None:
-    return os.environ.get(BROKER_ENV) or None
+    return settings().aiops_broker_url
 
 
 def configured() -> bool:
@@ -47,7 +48,7 @@ app.conf.update(
     task_reject_on_worker_lost=True,
     worker_prefetch_multiplier=1,            # 一次只拿一個：alert 佇列才真的同時只有一個在跑
     broker_connection_retry_on_startup=True,
-    timezone=os.environ.get("TZ", "Asia/Taipei"),
+    timezone=settings().tz,
     enable_utc=True,
 )
 
