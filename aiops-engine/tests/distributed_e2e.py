@@ -24,6 +24,7 @@ from datetime import datetime, timedelta, timezone
 import redis
 
 from common.infra.es import ES
+from tests.aiops_es import AiopsES     # engine 自己的資料在 PostgreSQL：aiops-* 的請求轉過去
 
 PY = sys.executable
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -84,7 +85,7 @@ def open_alert(es) -> dict | None:
 
 
 def main() -> int:
-    es = ES()
+    es = AiopsES(ES())
     r = redis.Redis.from_url(BROKER)
     print(f"== 0. 清掉 {EQP} 的舊資料、清空佇列")
     for ix in ("aiops-anomalies", "aiops-alerts", "aiops-incidents"):

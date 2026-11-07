@@ -11,6 +11,7 @@
 """
 from __future__ import annotations
 
+import llm.embedding as EMB
 from common.types.incident import DEFAULT_WEIGHTS as WEIGHTS, Fingerprint, Incident, classify, describe_class, seg_name  # noqa: F401
 MIN_SCORE = 4.0        # 低於這個分數不算像：至少一個強特徵、或兩三個弱特徵
 TOP_K = 3
@@ -45,16 +46,22 @@ def explain(fp: Fingerprint | dict, other: dict, weights: dict | None = None) ->
 
 
 def rank(fp: Fingerprint | dict, candidates: list[tuple[str, dict]], k: int = TOP_K, min_score: float = MIN_SCORE,
-         weights: dict | None = None) -> list[dict]:
-    """M5 的核心（不碰 ES）：候選事故 [(id, 文件), …] 各自算分數（explain），留 ≥ min_score 的前 k 件，附為什麼像。
-    候選要先只留老師傅確認過的（status 在 CONFIRMED）：ES 的 query 已經過濾；自己準備候選時用 confirmed_only。
+         weights: dict | None = None, sims: dict[str, float] | None = None, vector: dict | None = None) -> list[dict]:
+    """M5 的核心（不碰資料庫）：候選事故 [(id, 文件), …] 各自算分數（explain），留 ≥ min_score 的前 k 件，附為什麼像。
+    候選要先只留老師傅確認過的（status 在 CONFIRMED）：資料庫的查詢已經過濾；自己準備候選時用 confirmed_only。
+    sims：{事故 id: 向量相似度}（vector_sims）；相似度 ≥ min_similarity 的再加 weight × 相似度分，why 寫「描述相近」。
     候選文件用 Incident.from_doc 讀（舊文件缺欄位給預設值）。"""
     fp = Fingerprint.of(fp)
-    if fp.empty:
+    sims, v = sims or {}, {**VECTOR, **(vector or {})}
+    if fp.empty and not sims:
         return []
     out = []
     for _id, s in candidates:
         score, why = explain(fp, s, weights)
+        sim = sims.get(_id)
+        if sim is not None and sim >= float(v["min_similarity"]):
+            score += float(v["weight"]) * sim
+            why.append(f"描述相近（向量相似度 {sim:.2f}）")
         if score < min_score:
             continue
         inc = Incident.from_doc(s)
@@ -66,18 +73,61 @@ def rank(fp: Fingerprint | dict, candidates: list[tuple[str, dict]], k: int = TO
     return out[:k]
 
 
+VECTOR = {"weight": 5.0, "min_similarity": 0.8, "k": 10}   # rca.yaml 的 alerts.similar_vector 可蓋；0.8 × 5 = 4 分：只有向量像也剛好夠 MIN_SCORE
+
+
+def sync_vectors(repo, cases: list[tuple[str, dict]]) -> int:
+    """確認過的事故還沒有這個模型的向量、或內容改過（文字雜湊不一樣）的，算出來存起來。回算了幾件。"""
+    model = EMB.model_name()
+    known = repo.incident_vectors.known(model)
+    todo = [(i, EMB.incident_text(d)) for i, d in cases]
+    todo = [(i, t) for i, t in todo if t and known.get(i) != EMB.text_hash(t)]
+    if not todo:
+        return 0
+    vecs = EMB.embed([t for _, t in todo])
+    repo.incident_vectors.put_many([(i, model, EMB.text_hash(t), v) for (i, t), v in zip(todo, vecs)])
+    return len(todo)
+
+
+def vector_sims(repo, text: str | None, exclude_id: str | None = None, k: int = 10) -> dict[str, float]:
+    """這段文字跟確認過的事故，向量最近的 k 件：{事故 id: 相似度}。沒設 embedding、沒文字、API 或資料庫出錯：{}（只用欄位比對）。"""
+    if not text or not EMB.configured():
+        return {}
+    try:
+        cases = repo.incidents.find(CONFIRMED)
+        sync_vectors(repo, cases)
+        model, query = EMB.model_name(), EMB.embed([text])[0]
+        if repo.db.has_vector():
+            pairs = repo.incident_vectors.nearest_sql(model, query, CONFIRMED, exclude_id, k)
+        else:
+            vecs = repo.incident_vectors.vectors(model, [i for i, _ in cases if i != exclude_id])
+            pairs = sorted(((i, EMB.cosine(query, v)) for i, v in vecs.items()), key=lambda x: -x[1])[:k]
+        return dict(pairs)
+    except Exception as e:  # noqa: BLE001  embedding API、資料庫出錯：退回只用欄位比對
+        print(f"  向量檢索失敗，只用欄位比對：{type(e).__name__}: {str(e)[:120]}")
+        return {}
+
+
 def confirmed_only(candidates: list[tuple[str, dict]], exclude_id: str | None = None) -> list[tuple[str, dict]]:
     return [(i, s) for i, s in candidates if s.get("status") in CONFIRMED and i != exclude_id]
 
 
 def search(repo, fp: Fingerprint | dict, exclude_id: str | None = None, k: int = TOP_K, min_score: float = MIN_SCORE, size: int = CANDIDATES,
-           weights: dict | None = None) -> list[dict]:
+           weights: dict | None = None, text: str | None = None, vector: dict | None = None) -> list[dict]:
     """最像的 k 件（分數 ≥ min_score）。回傳給報告用的欄位＋為什麼像。size：跟資料庫要幾件候選（見 CANDIDATES）。
-    候選由 repo.incidents.similar 給（PostgreSQL 照同一組權重先排、取前 size 件），分數一樣用 rank 算。"""
+    候選由 repo.incidents.similar 給（PostgreSQL 照同一組權重先排、取前 size 件），分數一樣用 rank 算。
+    text：這件的文字（embedding.alert_text）；有設 embedding 時，向量最近的幾件也當候選、相似度加分（欄位比對為主、向量輔助）。"""
     fp = Fingerprint.of(fp)
-    if fp.empty:
+    v = {**VECTOR, **(vector or {})}
+    sims = vector_sims(repo, text, exclude_id, int(v["k"])) if text else {}
+    if fp.empty and not sims:
         return []
-    return rank(fp, repo.incidents.similar(fp, CONFIRMED, exclude_id, size, weights=weights), k, min_score, weights)
+    cands = repo.incidents.similar(fp, CONFIRMED, exclude_id, size, weights=weights) if not fp.empty else []
+    have = {i for i, _ in cands}
+    extra = [i for i in sims if i not in have]
+    if extra:
+        cands += [(d["id"], {k_: x for k_, x in d.items() if k_ != "id"}) for d in repo.incidents.get_many(extra)]
+    return rank(fp, cands, k, min_score, weights, sims, v)
 
 
 def format_similar(items: list[dict], tz_label: str = "", cls: dict | None = None) -> list[str]:

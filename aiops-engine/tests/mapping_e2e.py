@@ -13,6 +13,7 @@ import json
 from datetime import timedelta
 
 from common.infra.es import ES
+from tests.aiops_es import AiopsES     # engine 自己的資料在 PostgreSQL：aiops-* 的請求轉過去
 from tests import apm_synth
 
 ok = True
@@ -43,7 +44,7 @@ def run_rules(es: ES, at: str) -> set:
 
 
 def main() -> int:
-    es = ES()
+    es = AiopsES(ES())
     got = apm_synth.load(os.environ["ES_URL"], minutes=40, incident=15, clean=True)
     at = got["now"]
     es.req("DELETE", "/aiops-mapping", ok=(200, 404))

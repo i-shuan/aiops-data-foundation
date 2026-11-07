@@ -186,11 +186,12 @@ def load(es, data: dict) -> None:
 
 def run(keep: bool = False, dump_dir: str | None = None, plugin_name: str = "factory") -> int:
     from common.infra.es import ES
+    from tests.aiops_es import AiopsES     # engine 自己的資料在 PostgreSQL：aiops-* 的請求轉過去
     from interface.cli.detect import main as detector
     from interface.cli.rca import main as investigator
     os.environ["AIOPS_PLUGIN"] = plugin_name
     full = plugin_name == "factory"          # 有履歷；metrics_only 沒有
-    es = ES()
+    es = AiopsES(ES())
     data = make()
     print(f"假資料：MES {len(data['mes'])} 列、S6F11 {len(data['events'])}、ML {len(data['ml'])}、FDC {len(data['fdc'])}、log {len(data['logs'])}；"
           f"事故 A 影響 {len(data['_affected'])} 個 lot")
@@ -308,7 +309,8 @@ def main(argv=None) -> int:
     a = p.parse_args(argv)
     if a.clean:
         from common.infra.es import ES
-        cleanup(ES(), EQUIPMENTS)
+        from tests.aiops_es import AiopsES
+        cleanup(AiopsES(ES()), EQUIPMENTS)
         print("清掉了")
         return 0
     return run(a.keep, a.dump, a.plugin)

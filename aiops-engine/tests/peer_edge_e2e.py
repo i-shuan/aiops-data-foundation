@@ -26,6 +26,7 @@ import yaml
 
 from interface.cli.detect import main as cli
 from common.infra.es import ES
+from tests.aiops_es import AiopsES     # engine 自己的資料在 PostgreSQL：aiops-* 的請求轉過去
 
 CONFIG = os.environ.get("PEER_CONFIG", "configs/baseline/peer.yaml")   # 換別的設定比較用（例如改之前的版本）
 HTTP_INDEX = "metrics-generic.otel-default"
@@ -286,7 +287,7 @@ def run_peer(minute):
 
 
 def main() -> int:
-    es = ES()
+    es = AiopsES(ES())
     print(f"namespace 前綴 pe{RUN}-")
     rows = []
     sc = scenarios()

@@ -48,6 +48,12 @@ class SeverityCfg(Strict):
     classes: dict[str, list[str] | str] | list[SeverityClass] | None = None
 
 
+class SimilarVector(Strict):
+    weight: NonNeg = 5.0
+    min_similarity: Ratio = 0.8
+    k: PosInt = 10
+
+
 class Alerts(Strict):
     """事件整合（incident/alert_service.py）＋ 情境策略讀的換版、前後站設定（scenario/it、scenario/factory）。"""
     close_after: Dur = "30m"                # 這麼久沒有新異常就結案
@@ -69,6 +75,8 @@ class Alerts(Strict):
     rca_retry_max: PosInt = 5   # 最多跑幾次（含第一次）；服務本來就沒埋點的，不會永遠重跑
     similar: bool = True   # 附上老師傅確認過的相似事故（incident 的 similar）
     similar_weights: dict[str, Num] | None = None
+    # 向量輔助（要設 EMBEDDING_URL、EMBEDDING_MODEL）：相似度 ≥ min_similarity 加 weight × 相似度分；k 是向量最近的幾件當候選
+    similar_vector: SimilarVector | None = None
     llm: bool = True   # LLM 摘要（llm/summary.py）：provider 由環境變數 LLM_PROVIDER 決定（template 不叫模型）
     llm_provider: str | None = None          # 沒寫用環境變數 LLM_PROVIDER（settings.llm_provider）
     chain: bool = True   # 跨服務（一層）：下游出事連帶上游異常時只開一件、留下游；呼叫關係從這段時間的 trace 算

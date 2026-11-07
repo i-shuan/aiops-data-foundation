@@ -32,7 +32,8 @@ import sys
 from datetime import datetime, timedelta, timezone
 
 from common.infra.es import ES
-from detect.store.models import ANOMALY_MAPPING
+from tests.aiops_es import AiopsES     # engine 自己的資料在 PostgreSQL：aiops-* 的請求轉過去
+from tests.aiops_es import ANOMALY_MAPPING
 
 CFG = "tests/rca_chain.yaml"
 TRACES = "traces-generic.otel-it"
@@ -151,7 +152,10 @@ def cleanup(es: ES):
                          ("aiops-anomalies", "keys.service"),
                          ("aiops-anomalies", "keys.resource.attributes.service.name"), ("aiops-alerts", "service"),
                          ("aiops-incidents", "services")]:
-        es.s.post(f"{es.url}/{index}/{dbq}", json={"query": {"prefix": {field: "cs-"}}}, timeout=600)
+        if index.startswith("aiops-"):                  # engine 自己的資料在 PostgreSQL（tests/aiops_es.py 轉過去）
+            es.req("POST", f"/{index}/{dbq}", {"query": {"prefix": {field: "cs-"}}})
+        else:
+            es.s.post(f"{es.url}/{index}/{dbq}", json={"query": {"prefix": {field: "cs-"}}}, timeout=600)
 
 
 def refresh(es: ES, pattern: str):
@@ -236,7 +240,7 @@ def evaluate(kind: str, als: list[dict]) -> bool:
 
 
 def main() -> int:
-    es = ES()
+    es = AiopsES(ES())
     now = datetime.now(timezone.utc).replace(second=0, microsecond=0)
     base = now - timedelta(minutes=now.minute % 5) - timedelta(hours=len(SCENARIOS) + 2)
     print(f"== 0. 清掉上次的 cs- 資料；情境從 {iso(base)} 起、每小時一個")
@@ -300,8 +304,8 @@ def main() -> int:
               src.get("services") == [WIP] and src.get("upstream_services") == [MES], json.dumps({k: src.get(k) for k in ("services", "upstream_services")}))
     else:
         check("chain", "沒有任何一次連鎖情境併成一件，綜合檢查跳過", False)
-    dup = es.search("aiops-alerts", {"size": 0, "query": {"prefix": {"service": "cs-"}},
-                                     "aggs": {"d": {"terms": {"field": "alert_id", "min_doc_count": 2, "size": 10}}}})["aggregations"]["d"]["buckets"]
+    ids = [h["_source"].get("alert_id") for h in es.search("aiops-alerts", {"size": 10000, "query": {"prefix": {"service": "cs-"}}})["hits"]["hits"]]
+    dup = sorted({i for i in ids if ids.count(i) > 1})
     check("grafana", "一件一筆（Grafana 一件一則）：沒有重複的 alert_id", not dup, str(dup))
     hb = es.req("GET", "/aiops-alerts/_doc/heartbeat", ok=(200, 404))
     check("grafana", "心跳照寫", hb.get("found") and hb["_source"]["status"] == "ok")

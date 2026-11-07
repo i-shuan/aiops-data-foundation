@@ -27,6 +27,7 @@ import yaml
 from interface.cli.detect import main as cli
 from detect.series_ops.quality_check import quality_hits
 from common.infra.es import ES
+from tests.aiops_es import AiopsES     # engine 自己的資料在 PostgreSQL：aiops-* 的請求轉過去
 
 CFG = "tests/trace_edge.yaml"
 QUALITY = "configs/baseline/quality.yaml"
@@ -526,7 +527,7 @@ def _retry():
 
 def main() -> int:
     _retry()
-    es = ES()
+    es = AiopsES(ES())
     v = es.s.get(es.url, timeout=120).json()
     print(f"ES {v['version']['number']}（{v['cluster_name']}）")
     cleanup(es)

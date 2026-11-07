@@ -17,6 +17,7 @@ import time
 from datetime import datetime, timedelta, timezone
 
 from common.infra.es import ES
+from tests.aiops_es import AiopsES     # engine 自己的資料在 PostgreSQL：aiops-* 的請求轉過去
 from data.store.models import from_merged, group_traces, topology
 from tests import apm_synth
 
@@ -74,7 +75,7 @@ def merged(es: ES) -> list[dict]:
 
 
 def main() -> int:
-    es = ES()
+    es = AiopsES(ES())
     for ix in (APM_IX, OTEL_IX):
         es.req("DELETE", f"/{ix}", ok=(200, 404))
         es.req("PUT", f"/{ix}", KEYWORDS)

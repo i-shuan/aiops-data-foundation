@@ -131,6 +131,7 @@
    "report_url": null,
    "severity": null,
    "similar": true,
+   "similar_vector": null,
    "similar_weights": null,
    "version_field": null
   },
@@ -4068,6 +4069,7 @@
     "window": 120
    },
    "similar": true,
+   "similar_vector": null,
    "similar_weights": null,
    "version_field": null
   },
@@ -4218,6 +4220,7 @@
     "window": 120
    },
    "similar": true,
+   "similar_vector": null,
    "similar_weights": null,
    "version_field": null
   },
@@ -4732,6 +4735,7 @@
    "report_url": null,
    "severity": null,
    "similar": true,
+   "similar_vector": null,
    "similar_weights": null,
    "version_field": null
   },

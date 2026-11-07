@@ -38,12 +38,13 @@ import yaml
 from interface.cli.detect import main as cli
 from detect.detect_service import detect_series
 from detect.utils import keys_of
-from detect.store.models import ANOMALY_INDEX
+from tests.aiops_es import ANOMALY_INDEX
 from common.infra.es import ES
-from detect.store.models import BASELINE_INDEX
+from tests.aiops_es import AiopsES     # engine 自己的資料在 PostgreSQL：aiops-* 的請求轉過去
+from tests.aiops_es import BASELINE_INDEX
 from common.infra.repos import Repos
 from detect.strategy.dynamic_baseline import DetectOptions
-from learn.store.models import TUNING_INDEX
+from tests.aiops_es import TUNING_INDEX
 from detect.series_ops.manual_adjust import data_adjustments, load_overrides
 from tests import otlp_synth as O
 
@@ -881,7 +882,7 @@ def main() -> int:
     ap.add_argument("--fresh", action="store_true", help="先刪掉上一次寫的資料")
     ap.add_argument("--only", default="fp,edge,reset,tune")
     args = ap.parse_args()
-    es = ES()
+    es = AiopsES(ES())
     only = set(args.only.split(","))
     if not args.skip_write:
         t = pd.Timestamp.now()

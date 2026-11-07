@@ -57,6 +57,7 @@ from data.trace import span_merge
 from detect.detect_service import run_source_check, source_findings
 from interface.cli.common import SERIES, Opt, at_opt, registry, run, window_opt
 import interface.cli.feedback as feedback_cli
+import interface.cli.db as db_cli
 import interface.cli.mapping as mapping_cli
 
 from detect.detect_service import cmd_train, cmd_tune, cmd_detect
@@ -206,7 +207,7 @@ def ingest(config: str = Opt(..., help="configs/factory/ingest.yaml"),
 def build_app() -> typer.Typer:
     """detector 的子命令＋⑨ 的（feedback/cli.py）＋現在這個情境多出來的（例如工廠的 paths-merge）。每次 main 重建：測試會換 AIOPS_PLUGIN。"""
     app = typer.Typer(add_completion=False, rich_markup_mode=None, pretty_exceptions_enable=False)
-    for register in {**COMMANDS, **feedback_cli.COMMANDS, **mapping_cli.COMMANDS, **load_scenario().commands}.values():
+    for register in {**COMMANDS, **feedback_cli.COMMANDS, **mapping_cli.COMMANDS, **db_cli.COMMANDS, **load_scenario().commands}.values():
         register(app)
     return app
 

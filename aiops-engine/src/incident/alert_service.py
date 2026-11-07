@@ -22,6 +22,7 @@ from common.scenario import load_scenario
 
 import incident.alert_grouper as AL
 import incident.alert_severity as SEV
+import llm.embedding as EMB
 import llm.similar as SIM
 
 
@@ -172,7 +173,9 @@ def _similar(repo: Repos, alerts_config: Alerts, al: Alert, findings: dict | Non
     if not alerts_config.similar:
         return []
     try:
-        return SIM.search(repo, SIM.fingerprint(al, findings), weights=alerts_config.similar_weights)
+        fp = SIM.fingerprint(al, findings)
+        vector = alerts_config.similar_vector.model_dump() if alerts_config.similar_vector else None
+        return SIM.search(repo, fp, weights=alerts_config.similar_weights, text=EMB.alert_text(al.title, fp.to_doc(), al.summary), vector=vector)
     except Exception as e:  # noqa: BLE001
         print(f"  相似事故檢索失敗：{e}")
         return []

@@ -12,6 +12,7 @@ import sys
 from datetime import datetime, timedelta, timezone
 
 from common.infra.es import ES
+from tests.aiops_es import AiopsES     # engine 自己的資料在 PostgreSQL：aiops-* 的請求轉過去
 from tests import apm_synth
 from tests.mapping_e2e import check, main_
 import tests.mapping_e2e as base
@@ -36,7 +37,7 @@ def proposed_id(out: str) -> str:
 
 
 def main() -> int:
-    es = ES()
+    es = AiopsES(ES())
     got = apm_synth.load(os.environ["ES_URL"], minutes=40, incident=15, clean=True)
     # trace-merge 看 event.ingested（真的寫進去的時間），--at 要在寫完之後：settle 30 秒，多給 2 分鐘
     at = (datetime.now(timezone.utc) + timedelta(minutes=2)).isoformat()

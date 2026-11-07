@@ -564,7 +564,17 @@ def retry(fn, tries=8):
             time.sleep(20 * (i + 1))
 
 
+_AIOPS = None
+
+
 def req(method, path, body=None, ok=(200, 201), **kw):
+    global _AIOPS
+    if path.lstrip("/").startswith("aiops-"):          # engine 自己的資料在 PostgreSQL（tests/aiops_es.py 轉過去）
+        if _AIOPS is None:
+            from common.infra.es import ES
+            from tests.aiops_es import AiopsES
+            _AIOPS = AiopsES(ES(ES_URL))
+        return _AIOPS.req(method, path, body, ok=ok)
     r = retry(lambda: s.request(method, ES_URL + path, json=body, timeout=600, **kw))
     if r.status_code not in ok:
         raise RuntimeError(f"{method} {path} → {r.status_code}: {r.text[:800]}")
@@ -753,7 +763,7 @@ def check_tuning():
     r = run_rules(only=only)
     check("動態調整", "aiops-tuning 不存在：只跑 rules.yaml、exit 0", r.returncode == 0 and "觸發" in r.stdout,
           r.stdout[-300:] + r.stderr[-300:])
-    from learn.store.models import TUNING_MAPPING  # noqa: E402  跟 adjust 寫的同一個 mapping
+    from tests.aiops_es import TUNING_MAPPING  # noqa: E402  以前的 ES mapping（PostgreSQL 不用）
     req("PUT", "/aiops-tuning", TUNING_MAPPING)
     tune_doc("p2-rule", "proposed")
     wipe_tuned()

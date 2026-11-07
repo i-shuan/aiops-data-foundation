@@ -26,9 +26,10 @@ import pandas as pd
 import yaml
 
 from interface.cli.detect import main as _cli
-from detect.store.models import ANOMALY_INDEX, ANOMALY_MAPPING
+from tests.aiops_es import ANOMALY_INDEX, ANOMALY_MAPPING
 from common.infra.es import ES
-from detect.store.models import BASELINE_INDEX
+from tests.aiops_es import AiopsES     # engine 自己的資料在 PostgreSQL：aiops-* 的請求轉過去
+from tests.aiops_es import BASELINE_INDEX
 
 TZ = "Asia/Taipei"
 MAIN, CAL, LOGS = "aiops-adjtest", "aiops-adjtest-cal", "aiops-adjtest-logs"
@@ -410,7 +411,7 @@ def test_chronic(es: ES, tmp: str) -> None:
 
 
 def main() -> int:
-    es = ES()
+    es = AiopsES(ES())
     info = es.req("GET", "/")
     print(f"ES {info['version']['number']}（{info['cluster_name']}），{es.url}")
     if not es.url.startswith(("http://127.0.0.1", "http://localhost")) and os.environ.get("ALLOW_REMOTE") != "1":

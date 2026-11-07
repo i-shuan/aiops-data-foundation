@@ -26,6 +26,7 @@ REGISTRY = {
     "feedback": "learn.store.feedback_repo:FeedbackRepository",
     "housekeeping": "detect.store.housekeeping_repo:HousekeepingRepository",
     "incidents": "incident.store.incident_repo:IncidentRepository",
+    "incident_vectors": "incident.store.vector_repo:IncidentVectorRepository",
     "logs": "incident.store.log_repo:LogRepository",
     "quality": "detect.store.quality_repo:QualityRepository",
     "segments": "detect.store.segment_repo:SegmentRepository",

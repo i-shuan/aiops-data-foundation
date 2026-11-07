@@ -25,6 +25,7 @@ import pandas as pd
 import yaml
 
 from common.infra.es import ES
+from tests.aiops_es import AiopsES     # engine 自己的資料在 PostgreSQL：aiops-* 的請求轉過去
 from tests import apm_synth
 
 ok = True
@@ -169,7 +170,7 @@ def alert_part(es: ES) -> None:
 
 
 def main() -> int:
-    es = ES()
+    es = AiopsES(ES())
     drop_part(es)
     alert_part(es)
     print("\n" + ("全部通過" if ok else "有項目失敗"))

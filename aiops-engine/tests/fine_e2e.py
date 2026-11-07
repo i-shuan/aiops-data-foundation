@@ -17,9 +17,10 @@ import numpy as np
 import pandas as pd
 
 from interface.cli.detect import main as cli
-from detect.store.models import ANOMALY_INDEX
+from tests.aiops_es import ANOMALY_INDEX
 from common.infra.es import ES
-from detect.store.models import BASELINE_INDEX
+from tests.aiops_es import AiopsES     # engine 自己的資料在 PostgreSQL：aiops-* 的請求轉過去
+from tests.aiops_es import BASELINE_INDEX
 
 TZ = "Asia/Taipei"
 INDEX = "aiops-fine"
@@ -61,7 +62,7 @@ def resolution_of(es: ES, series: str, api: str) -> str | None:
 
 
 def main() -> int:
-    es = ES()
+    es = AiopsES(ES())
     es.req("DELETE", f"/{INDEX}", ok=(200, 404))
     es.req("PUT", f"/{INDEX}", {"mappings": {"properties": {
         "@timestamp": {"type": "date"}, "api": {"type": "keyword"}, "requests": {"type": "long"}, "latency_ms": {"type": "double"}}}})

@@ -11,6 +11,7 @@
 import json, os, subprocess, sys, tempfile, time, urllib.request
 import numpy as np, pandas as pd
 from common.infra.es import ES
+from tests.aiops_es import AiopsES     # engine 自己的資料在 PostgreSQL：aiops-* 的請求轉過去
 TZ = "Asia/Taipei"; INDEX = "aiops-synth"; SYNTH = "tests/synth.yaml"; RCA = "tests/rca_loop.yaml"
 D0 = pd.Timestamp("2026-10-05", tz=TZ)            # 週一；前面 4 週是歷史
 # 網頁寫的回饋，時間是寫入當下；metrics 的查詢區間要含「現在」，不然測試日期過了 10/28 就算不到回饋
@@ -66,7 +67,7 @@ def alerts(es, **term):
     return [h["_source"] for h in es.search("aiops-alerts", q)["hits"]["hits"]]
 
 def main():
-    es = ES()
+    es = AiopsES(ES())
     print("== 0. 清掉上次的、寫入模擬資料（4 週歷史＋ 2 天）")
     for idx in ("aiops-synth", "aiops-baseline", "aiops-anomalies", "aiops-alerts", "aiops-incidents", "aiops-feedback", "aiops-tuning"):
         es.req("DELETE", f"/{idx}", ok=(200, 404))
