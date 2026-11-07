@@ -109,7 +109,8 @@ class Scenario:
     sources: tuple[str, ...] = ()                 # 宣告的全部來源（沒並存時是空的）
     extra_owners: tuple[dict, ...] = ()
     extra_logs: tuple[dict, ...] = ()
-    trace_raw: tuple[tuple[str, str], ...] = ()   # 欄位對照覆寫的 raw trace 索引 ((來源, 索引)…)；只有 aiops-mapping 核准過的才有（trace.yaml 的值不在這）
+    trace_raw: tuple[tuple[str, str], ...] = ()
+    checklists: dict = field(default_factory=dict)   # 每一類根因先查什麼（domain.checklists；llm/similar.checklist 用，過去勾過的排前面）   # 欄位對照覆寫的 raw trace 索引 ((來源, 索引)…)；只有 aiops-mapping 核准過的才有（trace.yaml 的值不在這）
 
     @property
     def owners(self) -> tuple[dict, ...]:
@@ -157,7 +158,7 @@ def from_dict(d: dict) -> Scenario:
         name=d["name"], source=d.get("source", "otel"), owner=d.get("owner") or {}, log=d.get("log") or {},
         entity=dom.get("entity", "服務"), unit=dom.get("unit", "請求"), trace=dom.get("trace", "Trace"), new_value_hint=dom.get("new_value_hint", ""),
         categories=tuple(tuple(c) for c in dom.get("categories") or ()), fp_reasons=tuple(tuple(c) for c in dom.get("fp_reasons") or ()),
-        checked=tuple(dom.get("checked") or ()),
+        checked=tuple(dom.get("checked") or ()), checklists={str(k): [str(x) for x in v or []] for k, v in (dom.get("checklists") or {}).items()},
         entity_keys=tuple(d.get("entity_keys") or ("service",)), route=d.get("route", "http"),
         chain=strategy("chain", NoChain), change=strategy("change", NoChange),
         critical_levels=tuple(d.get("critical_levels") or ("rule", "peer", "quality")), severity_classes=d.get("severity_classes"),

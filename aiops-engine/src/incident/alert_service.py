@@ -57,6 +57,7 @@ def grade_alert(repo: Repos, rca_config: RcaConfig, al: Alert, now: datetime) ->
                   members=len({(a.get("series"), sc.route_of(a.get("keys") or {})) for a in golden}),
                   rule_critical=any(a.get("severity") == "critical" and a.get("level") in critical_levels for a in own),
                   now=now, deploy_at=dep, opts=opts, classes=classes)
+    g = SEV.escalate(g, SEV.is_p0(al.service, alerts_config.p0_services))
     if g["severity"] != al.severity:
         al.upgraded = AL.SEVERITY.get(g["severity"], 1) > AL.SEVERITY.get(al.severity or "warning", 1) and not al.new
     al.severity, al.severity_why = g["severity"], g["why"]
@@ -177,9 +178,26 @@ def _similar(repo: Repos, alerts_config: Alerts, al: Alert, findings: dict | Non
         return []
 
 
-def _with_head(report: str | None, llm: dict | None, similar: list[dict], cls: dict | None) -> str | None:
-    """報告最前面：LLM 摘要（引言）＋相似事故的分類。"""
-    head = ([f"> {l}" for l in llm["text"].splitlines()] + [""] if llm and llm["ok"] else []) + SIM.format_similar(similar, cls=cls)
+def _case_hints(repo: Repos, alerts_config: Alerts, findings: dict | None, cls: dict | None) -> list[str]:
+    """歷史 case 的線索（這次已證實有變化、過去也出事過的段）與這一類的先查清單；查失敗當沒有。"""
+    if not alerts_config.similar:
+        return []
+    try:
+        cases = SIM.confirmed_cases(repo)
+    except Exception as e:  # noqa: BLE001
+        print(f"  讀不到已確認的事故（{type(e).__name__}），不列歷史線索")
+        return []
+    hints = SIM.segment_hints(findings, cases)
+    if findings is not None:       # 跟著 findings 存進 aiops-alerts（只留 id，不重複存整件）
+        findings["case_hints"] = [{"segment": h["segment"], "kind": h["kind"], "evidence": h["evidence"], "cases": [c["id"] for c in h["cases"]]}
+                                  for h in hints]
+    todo = SIM.checklist(cls["category"] if cls else None, cases, repo.scenario.checklists)
+    return SIM.format_hints(hints, todo, cls)
+
+
+def _with_head(report: str | None, llm: dict | None, similar: list[dict], cls: dict | None, hints: list[str] | None = None) -> str | None:
+    """報告最前面：LLM 摘要（引言）＋相似事故的分類＋歷史 case 的線索與先查清單。"""
+    head = ([f"> {l}" for l in llm["text"].splitlines()] + [""] if llm and llm["ok"] else []) + SIM.format_similar(similar, cls=cls) + (hints or [])
     return "\n".join(head) + "\n" + report if head and report else report
 
 
@@ -210,8 +228,9 @@ def investigate_alert(repo: Repos, rca_config: RcaConfig, alerts_config: Alerts,
     al.suggested_category = cls["category"] if cls else None
     al.category_confidence = cls["confidence"] if cls else None
     llm = llm_summary(al, findings, similar, alerts_config, repo.scenario.unit_text())
+    hints = _case_hints(repo, alerts_config, findings, cls)
     al.findings, al.similar = findings, similar
-    al.report_text, al.llm = _with_head(report, llm, similar, cls), llm
+    al.report_text, al.llm = _with_head(report, llm, similar, cls, hints), llm
 
 
 def alert_doc(al: Alert, alerts_config: Alerts, now: datetime, tz: ZoneInfo, relinked: set[str], sc) -> dict:

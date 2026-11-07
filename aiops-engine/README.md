@@ -145,7 +145,7 @@ kubectl -n aiops logs deploy/aiops-worker-alert -f | grep '\[scheduler\]'  # 工
 | `trace-collect`、`trace-train`、`trace-detect` | 2 | 每 5 分鐘／每天 02:20／每 5 分鐘 | 240／3600／240 秒 | `detector trace-*` | trace 每一段的 baseline；從 raw（100% 收、2 天）抽樣 |
 | `chronic` | 2 | 每週一 08:00 | 1800 秒 | `detector chronic` | 慢性病清單，要幾週資料才有意義 |
 | `prune` | 2 | 每天 03:30 | 600 秒 | `detector prune` | `aiops-anomalies`、`aiops-trace-segments`、已結案的 `aiops-alerts` 超過保留天數的每天清一次（[prune.yaml](configs/baseline/prune.yaml)；這三個是一般索引、不能用 ILM）。人工判斷的索引不清、只備份（[data-storage-reference](../docs/data-storage-reference.md)） |
-| `shift` | 2 | 每天 04:00 | 300 秒 | `detector shift` | 一階跳變（換版後延遲停在新水準、每點都報）→ 提 `reset_point` 建議（proposed，人核准才生效）；ES 的 `change_point` 聚合要付費授權，這裡看 `aiops-anomalies` 裡已判出的點 |
+| `shift` | 2 | 每天 04:00 | 300 秒 | `detector shift` | 一階跳變（換版後延遲停在新水準、每點都報）→ 提 `reset_point` 建議（proposed，人核准才生效）；ES 的 `change_point` 聚合要付費授權，這裡看 `aiops-anomalies` 裡已判出的點；只判往上的序列往下掉也看（另外打分、不寫異常） |
 
 改頻率、逾時改 `schedule.yaml` 再 build image（或用 `configOverrides.schedule.schedule` 蓋）。
 

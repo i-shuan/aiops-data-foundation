@@ -14,6 +14,7 @@ commonality:
 # alerts: 的選項（要改才寫）
   # 嚴重度（investigator/severity.py）：critical／high／warning 依幾類黃金訊號、持續多久、換版後多久；只通知 critical、high
   # severity: {window: 15, min_coverage: 0.8, min_duration: 10, min_span_critical: 3, min_points_per_class: 2, deploy_grace: 10}
+  # p0_services: [order-api, payment-.*]   # P0 服務（名字或整個名字對得上的 regex）：嚴重度升一級；門檻不動
   # deploy_grace: false           # OTel 來源沒有 service.version 的 1 分鐘指標時關掉（查不到也只是不設上限）
   # llm_provider: template
   # feedback_url: http://aiops-api.aiops.svc:8080/feedback?alert={alert_id}   # 備用回饋網頁（aiops-engine/api）；通知裡的連結

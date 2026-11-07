@@ -66,3 +66,45 @@ class Proposal(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class QuietDrops(unittest.TestCase):
+    """只判往上的序列往下掉：不寫異常、不通知，但 shift 看得到、提 reset_point（docs/pdca/meta/2026-11-cases-tier-drop.md）。"""
+
+    def test_error_rate_drop_is_proposed_quietly(self):
+        import contextlib
+        import io
+        from argparse import Namespace
+        from tests.fakes import MemoryRepos
+        from tests.test_memory_repos import CFG, T0
+        import detect.detect_service as C
+
+        rnd = np.random.default_rng(3)
+        out = []
+        for h in range(15 * 24):
+            ts = T0 + pd.Timedelta(hours=h)
+            rate = 0.30 if h < 14 * 24 else 0.02          # 最後一天修好了：錯誤率 30% → 2%
+            for k in range(60):
+                out.append({"@timestamp": (ts + pd.Timedelta(seconds=k * 50)).isoformat(), "service.name": "mes-api", "transaction.name": "GET /lots",
+                            "event.outcome": "failure" if rnd.random() < rate else "success", "transaction.duration.us": 100000})
+        be = MemoryRepos({"metrics-apm.transaction.1m-*": pd.DataFrame(out)})
+        at = T0 + pd.Timedelta(days=15)
+        with contextlib.redirect_stdout(io.StringIO()):
+            C.cmd_train(CFG, Namespace(end=T0 + pd.Timedelta(days=14), weeks=None, at=None), be)
+            C.cmd_detect(CFG, Namespace(at=at, window=pd.Timedelta("24h")), be)
+        self.assertFalse([d for _, d in be.docs("aiops-anomalies") if d.get("series") == "http.error_rate"])   # 往下掉不判成異常、不通知
+
+        drops = S.quiet_drops(be, CFG, at, pd.Timedelta("24h"), "Asia/Taipei")
+        self.assertGreaterEqual(len(drops), 15)          # 1 小時一點，24 小時扣掉還沒收齊的
+        self.assertEqual(set(drops["series"]), {"http.error_rate"})       # 只看只判往上的；requests（both）不在這裡
+        self.assertTrue((drops["value"] < drops["median"]).all())
+
+        from detect.config.series import Shift
+        cfg = CFG.model_copy(update={"shift": Shift(min_points=10)})
+        with contextlib.redirect_stdout(io.StringIO()) as text:
+            S.cmd_shift(cfg, Namespace(at=at), be)
+        props = [d for _, d in be.docs("aiops-tuning") if d.get("kind") == "reset_point"]
+        self.assertEqual(len(props), 1, text.getvalue())
+        self.assertEqual((props[0]["status"], props[0]["series"]), ("proposed", "http\\.error_rate"))
+        self.assertIn("往下", props[0]["reason"])
+        self.assertIn("只判往上", props[0]["reason"])

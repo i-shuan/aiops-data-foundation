@@ -138,3 +138,8 @@ class GradeAlert(unittest.TestCase):
         al.anomaly_ids.append("n9")
         C.grade_alert(Repos(es, SC), cfg, al, T0 + timedelta(minutes=19))
         self.assertEqual(al.severity, "high")
+        # 同一件，pay-api 列成 P0：換版後的上限 warning 也升一級（high），沒收斂的 high 升 critical
+        cfg = rca(indices={"anomalies": "aiops-anomalies"}, alerts={"p0_services": ["pay-.*"]})
+        C.grade_alert(Repos(es, SC), cfg, al, T0 + timedelta(minutes=19))
+        self.assertEqual(al.severity, "critical")
+        self.assertIn("P0 服務", al.severity_why)

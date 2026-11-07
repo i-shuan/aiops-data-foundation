@@ -10,6 +10,9 @@ saturation（飽和：CPU、記憶體、連線池、lag）、traffic（流量）
 traffic 不算廣度（流量變了不一定是壞事，而且什麼事故都會帶動流量），只在 why 裡提。
 換版上限看「最後一筆異常離換版多久」，不看現在：換版後 N 分鐘內的異常上限 warning；N 分鐘後還有異常就照常評（壞版起不來不會被永遠靜音）。
 Grafana 只通知 critical、high；warning 只進事故清單（grafana/helmchart/files/policies.yaml）。
+
+P0 服務（rca.yaml 的 alerts.p0_services）：上面算完再升一級（escalate）。換版後的上限 warning 也跟著變 high：P0 換版壞了也要叫人。
+門檻（算不算異常）不動：P0 要更早報，用靜態臨界值規則或 confirm_points: 1（docs/pdca/meta/2026-11-cases-tier-drop.md）。
 """
 from __future__ import annotations
 
@@ -26,6 +29,31 @@ CLASSES = (   # 依序比對：流量先（dep.calls 是流量，不是下游變
     ("saturation", (r"cpu", r"memory", r"disk", r"pool", r"lag", r"throttl", r"heap", r"\bgc\b", r"thread", r"full")),
 )
 RANK = {"warning": 1, "high": 2, "critical": 3}
+UP = {"warning": "high", "high": "critical", "critical": "critical"}
+
+
+def is_p0(service: str | None, patterns: list[str] | tuple[str, ...]) -> bool:
+    """服務名完全等於、或整個名字對得上 regex（寫壞的 regex 當一般名字比）。"""
+    if not service:
+        return False
+    for p in patterns or ():
+        if p == service:
+            return True
+        try:
+            if re.fullmatch(p, service):
+                return True
+        except re.error:
+            continue
+    return False
+
+
+def escalate(g: dict, p0: bool) -> dict:
+    """P0 服務：grade 的結果升一級，why 寫出來。不是 P0 原樣回。"""
+    if not p0:
+        return g
+    up = UP[g["severity"]]
+    why = g["why"] + ("；P0 服務，升一級" if up != g["severity"] else "；P0 服務")
+    return {**g, "severity": up, "why": why, "p0": True}
 
 
 @dataclass(frozen=True)

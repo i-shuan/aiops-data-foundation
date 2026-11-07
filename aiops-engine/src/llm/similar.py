@@ -148,3 +148,71 @@ def learn_weights(cases: list[tuple[str, dict]], start: dict | None = None, min_
         if not changed:
             break
     return {"ok": True, "weights": w, "before": before, "after": best, "n": len(cases)}
+
+
+# ── 歷史 case 補根因分析：線索排順序、先查什麼（docs/pdca/meta/2026-11-cases-tier-drop.md）──
+# 當下的 trace 回答「哪裡壞了」；case 補「過去哪一段常出事、出事時老師傅先查什麼」。
+# 只把**當下資料已經證實有變化**的段拿來排序（變慢、錯變多）；過去常出事、但現在沒變化的段不列——舊答案不取代證據。
+
+MAX_HINTS = 3
+
+
+def confirmed_cases(repo) -> list[tuple[str, dict]]:
+    """已確認的事故（線索、先查清單用）：有指紋或有查過什麼的都算。"""
+    return repo.incidents.find(CONFIRMED)
+
+
+def segment_hints(findings: dict | None, cases: list[tuple[str, dict]], k: int = MAX_HINTS) -> list[dict]:
+    """findings：這次根因分析的 segments（delta_ms > 0 的才算變慢）、error_origins；cases：已確認的事故 [(id, 文件)]。
+    回傳 [{segment, kind（slow／error）, evidence, cases: [{id, title, start, category}]}]：過去出現過的件數多的排前面，
+    一樣多照這次變化的大小（findings 本來的順序）。過去沒出現過的不列。"""
+    f = findings or {}
+    now = [("slow", d["segment"], f"每個多 {d['delta_ms']:.0f} ms（平常 {d['ref_ms']:.0f} ms）")
+           for d in f.get("segments") or [] if (d.get("delta_ms") or 0) > 0]
+    now += [("error", d["segment"], f"錯 {d['now_errors']} 個（平常 {d['ref_errors']}）") for d in f.get("error_origins") or []]
+    field = {"slow": "slow_segments", "error": "error_origins"}
+    out = []
+    for order, (kind, seg, evidence) in enumerate(now):
+        name = seg_name(seg)
+        hit = [(i, s) for i, s in cases if name in {seg_name(x) for x in Fingerprint.of(s.get("fingerprint")).get(field[kind])}]   # 兩邊都去數字再比
+        if not hit:
+            continue
+        hit.sort(key=lambda x: x[1].get("start") or "", reverse=True)
+        out.append({"segment": seg, "kind": kind, "evidence": evidence, "order": order,
+                    "cases": [{"id": i, "title": s.get("title"), "start": s.get("start"), "category": s.get("root_cause_category")} for i, s in hit]})
+    out.sort(key=lambda h: (-len(h["cases"]), h["order"]))
+    return out[:k]
+
+
+def checklist(category: str | None, cases: list[tuple[str, dict]], defaults: dict | None = None, k: int = 5) -> list[dict]:
+    """這一類根因「先查什麼」：同一類、已確認的事故裡老師傅勾過的（checked）依次數排前面，不夠 k 項用情境資料檔的
+    domain.checklists 補。回傳 [{item, n（過去勾過幾次；0＝設定檔的預設）}]。沒有分類就空。"""
+    if not category:
+        return []
+    counts: dict[str, int] = {}
+    for _, s in cases:
+        if s.get("root_cause_category") == category:
+            for it in s.get("checked") or []:
+                counts[it] = counts.get(it, 0) + 1
+    items = [{"item": it, "n": n} for it, n in sorted(counts.items(), key=lambda x: (-x[1], x[0]))]
+    for it in (defaults or {}).get(category) or []:
+        if it not in counts:
+            items.append({"item": it, "n": 0})
+    return items[:k]
+
+
+def format_hints(hints: list[dict], todo: list[dict], cls: dict | None) -> list[str]:
+    """報告最前面、分類之後：線索（當下已證實、過去也出事過的段）與這一類的先查清單。都沒有就空。"""
+    lines = []
+    if hints:
+        lines += ["## 歷史 case 的線索（只列這次資料已經看到變化的段）", ""]
+        for i, h in enumerate(hints, 1):
+            what = "變慢" if h["kind"] == "slow" else "錯誤源頭"
+            past = "、".join(f"{(c['start'] or '')[:10]} {c['title'] or c['id'][:12]}" for c in h["cases"][:3])
+            lines.append(f"{i}. **{h['segment']}**（這次{what}：{h['evidence']}）：過去 {len(h['cases'])} 件確認過的事故也是這段（{past}）")
+        lines += ["", "> 排序只代表「先看哪個」；是不是它，看上面這次的數字。", ""]
+    if todo and cls:
+        lines += [f"## 像 {cls['category']} 類：先查什麼", ""]
+        lines += [f"- [ ] {t['item']}" + (f"（過去 {t['n']} 件有查）" if t["n"] else "") for t in todo]
+        lines.append("")
+    return lines

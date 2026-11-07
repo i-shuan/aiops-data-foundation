@@ -7,6 +7,10 @@ ES 的 change_point 聚合要付費授權，這裡只看 aiops-anomalies 裡已�
   - 至少 min_share（預設 0.9）往同一個方向
   - 新水準很穩：這些點的值的 MAD ÷ |值的中位數 − 平常值| ≤ max_spread（預設 0.3）——跳上去就停在那裡，不是一直在跳
 符合就提 reset_point：reset_at 是第一個異常點的時間，warmup 用預設。
+
+只判往上的序列（direction: up，延遲、錯誤）往下掉時，往下的點不會判成異常、不在 aiops-anomalies，上面看不到；
+可是中位數要約 2 週才跟上，這段期間退回舊的高水準會被當成正常。所以 quiet_drops 對這些序列另外用「往下」打一次分
+（只在記憶體，不寫異常、不通知），一樣過上面的條件，提 reset_point（docs/pdca/meta/2026-11-cases-tier-drop.md）。
 """
 from __future__ import annotations
 
@@ -22,6 +26,10 @@ from common.infra.es import ES, doc_id
 from common.infra.repos import Repos
 from common.scenario import load_scenario
 import detect.series_ops.manual_adjust as A
+from detect.detect_service import detect_series
+from detect.series_ops.manual_adjust import data_adjustments, load_overrides
+from detect.strategy.dynamic_baseline import DetectOptions
+from detect.utils import keys_of
 from detect.series_ops.manual_adjust import load_adjustments
 
 DEFAULTS = {"window": "24h", "min_points": 20, "min_share": 0.9, "max_spread": 0.3}
@@ -50,7 +58,8 @@ def find_shifts(anoms: pd.DataFrame, *, min_points: int = 20, min_share: float =
         if spread > max_spread:
             continue
         out.append({"series": series, "keys": json.loads(target), "since": pd.Timestamp(g["ts"].min()), "direction": direction,
-                    "points": int(len(g)), "level": level, "usual": usual, "share": float(share), "spread": spread})
+                    "points": int(len(g)), "level": level, "usual": usual, "share": float(share), "spread": spread,
+                    "quiet": bool(g["quiet"].fillna(False).astype(bool).any()) if "quiet" in g else False})
     return out
 
 
@@ -61,7 +70,8 @@ def proposal(s: dict, tz: str) -> dict:
             "reset_at": since.isoformat(), "status": "proposed", "source": "shift",
             "reason": f"一階跳變：最近 {s['points']} 個點有 {s['share']:.0%} 往{'上' if s['direction'] == 'up' else '下'}超標，"
                       f"新水準 {s['level']:.4g}（平常 {s['usual']:.4g}）很穩（離散 {s['spread']:.0%}）；"
-                      f"像是換版後停在新位置，建議從 {since:%m-%d %H:%M} 重新學。核准前先確認那時候有沒有換版或調整"}
+                      f"像是換版後停在新位置，建議從 {since:%m-%d %H:%M} 重新學。核准前先確認那時候有沒有換版或調整"
+                      + ("（這條只判往上，往下掉不會通知；不重新學的話，退回舊水準要約 2 週後才報得出來）" if s.get("quiet") else "")}
 
 
 def _rows(repo: Repos, start: pd.Timestamp, end: pd.Timestamp) -> pd.DataFrame:
@@ -73,15 +83,42 @@ def _rows(repo: Repos, start: pd.Timestamp, end: pd.Timestamp) -> pd.DataFrame:
     return pd.DataFrame(rows, columns=["series", "target", "ts", "value", "median"])
 
 
-def cmd_shift(series_config: SeriesConfig, args) -> int:
-    repo = Repos(ES(), load_scenario())
+def quiet_drops(repo: Repos, series_config: SeriesConfig, now: pd.Timestamp, window: pd.Timedelta, tz: str) -> pd.DataFrame:
+    """只判往上的序列，最近 window 往下超標的點（series、target、ts、value、median）：用 detect 同一套（粒度、調整、排除時段）、
+    方向換成 down 打分；不寫 ES。沒有 baseline 的序列跳過。"""
+    dopts = DetectOptions(**series_config.detect.model_dump(exclude_none=True))
+    overrides, adjs = load_overrides(repo, series_config, now), data_adjustments(repo, series_config, now)
+    rows = []
+    for spec in series_config.series:
+        if spec.direction != "up":
+            continue
+        keys = keys_of(spec)
+        base = repo.baseline.load(spec.name, keys)
+        if base.empty:
+            continue
+        down = spec.model_copy(update={"direction": "down"})
+        for _, s in detect_series(repo, series_config, down, base, now, window, dopts, tz, overrides, adjs, quiet=True):
+            if s.empty or "status" not in s:
+                continue
+            for r in s[s["status"].isin(["anomaly", "warning"])].to_dict("records"):
+                rows.append({"series": spec.name, "target": json.dumps({k: r[k] for k in keys}, sort_keys=True, ensure_ascii=False),
+                             "ts": pd.Timestamp(r["ts"]), "value": r.get("value"), "median": r.get("median"), "quiet": True})
+    return pd.DataFrame(rows, columns=["series", "target", "ts", "value", "median", "quiet"])
+
+
+def cmd_shift(series_config: SeriesConfig, args, repo: Repos | None = None) -> int:
+    repo = repo or Repos(ES(), load_scenario())
     repo.tuning.ensure()
     opts = {**DEFAULTS, **(series_config.shift.model_dump(exclude_none=True) if series_config.shift else {})}
     tz = series_config.train.timezone or series_config.timezone or "Asia/Taipei"
     now = now_of(args.at)
     start = now - pd.Timedelta(opts["window"])
-    found = find_shifts(_rows(repo, start, now), min_points=int(opts["min_points"]), min_share=float(opts["min_share"]),
-                        max_spread=float(opts["max_spread"]))
+    drops = quiet_drops(repo, series_config, now, pd.Timedelta(opts["window"]), tz)
+    if not drops.empty:
+        print(f"  只判往上的序列：{drops.groupby(['series', 'target']).ngroups} 個對象最近往下超標（不通知，只看要不要重新學）")
+    rows = _rows(repo, start, now)
+    found = find_shifts(pd.concat([rows, drops], ignore_index=True) if not drops.empty else rows, min_points=int(opts["min_points"]),
+                        min_share=float(opts["min_share"]), max_spread=float(opts["max_spread"]))
     existing = {(a.get("series"), json.dumps(a.get("match"), sort_keys=True)) for a in load_adjustments(repo, series_config)
                 if a.get("kind") == "reset_point"}
     n = 0

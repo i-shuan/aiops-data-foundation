@@ -11,6 +11,7 @@
   python3 -m main investigator alert --config configs/rca/rca.yaml [--at …]
   # 相似事故檢索的評測（留一法 recall@3）
   python3 -m main investigator similar-eval --config configs/rca/rca.yaml
+  python3 -m main investigator rca-eval --config configs/rca/rca.yaml [--save before.json] [--compare before.json]   （根因分析的考卷）
   # 歷史事故單匯入（CSV 或 JSON，欄位＝aiops-incidents；--dry-run 只檢查不寫）
   python3 -m main investigator import-incidents configs/rca/incidents-example.csv [--tz Asia/Taipei] [--dry-run]
 
@@ -28,6 +29,7 @@ import pandas as pd
 import typer
 
 import data.store.models as T
+import incident.rca_eval as EVAL
 from common.clock import TimeWindow, now_of
 from common.config import load_config
 from interface.cli.common import at_opt, window_opt
@@ -136,6 +138,14 @@ def alert_cmd(config: str = Opt(...), at: pd.Timestamp | None = at_opt("回測�
 def similar_eval_cmd(config: str = Opt(...),
                      learn_weights: bool = Opt(False, "--learn-weights", help="case ≥ 50 件時用留一法準確率學特徵權重，印出來（不自動寫入）")) -> int:
     return similar_eval(load_config(config, "rca"), Namespace(config=config, learn_weights=learn_weights))
+
+
+@app.command("rca-eval", help="根因分析的考卷：已確認的事故重跑一次，慢的段、錯的源頭還對不對得上；--compare 跟上次比，變差回 1")
+def rca_eval_cmd(config: str = Opt(...), save: str | None = Opt(None, help="結果存成這個檔"),
+                 compare: str | None = Opt(None, "--compare", help="跟上次存的檔比，列出上次對、這次錯的")) -> int:
+    code, lines = EVAL.run(Repos(ES(), load_scenario()), load_config(config, "rca"), investigate_full, save=save, against=compare)
+    print("\n".join(lines))
+    return code
 
 
 @app.command("import-incidents", help="歷史事故單匯入 aiops-incidents（status confirmed、source import），告警分類馬上用得到")

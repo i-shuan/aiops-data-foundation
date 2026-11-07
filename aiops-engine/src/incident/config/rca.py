@@ -54,6 +54,8 @@ class Alerts(Strict):
     close_after: Dur = "30m"                # 這麼久沒有新異常就結案
     lookback: Dur = "2h"   # 每次讀最近多久的異常
     severity: SeverityCfg | None = None
+    # P0 服務（名字，或整個名字對得上的 regex）：這些服務的件嚴重度升一級（warning→high、high→critical）；門檻不動
+    p0_services: list[str] = []
     critical_levels: list[str] | None = None    # 沒寫用情境的（Scenario.critical_levels）
     deploy_grace: bool = True
     deploy_index: str | None = None

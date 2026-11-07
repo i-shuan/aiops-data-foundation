@@ -43,6 +43,16 @@ domain:
     - [other, 其他]
   checked: ["Oracle AWR / 慢查詢", DB 連線池, "主機 CPU / 記憶體 / 磁碟", "網路 / DNS", Kibana log, trace 瀑布圖,
             Kafka lag, "近期的版本更新 / 設定變更", "上游 / 下游服務", 外部系統狀態]
+  # 每一類根因「先查什麼」（報告最前面列；同一類已確認的事故裡老師傅勾過的 checked 排前面，不夠才用這裡的）
+  checklists:
+    db: ["Oracle AWR / 慢查詢", DB 連線池, 有沒有鎖表或長交易, 批次排程是不是剛好在跑, 統計資訊是不是過期]
+    network: ["網路 / DNS", 同一台 node 上的其他服務有沒有一起慢, 防火牆 / LB 有沒有變更]
+    config_change: ["近期的版本更新 / 設定變更", ConfigMap / 環境變數 / feature flag, 誰改的、能不能先退回]
+    deploy: ["近期的版本更新 / 設定變更", 新版的 Pod 跟舊版比（trace 共同點的 service.version）, 能不能先退版]
+    external: [外部系統狀態, 呼叫外部的逾時與重試設定, 供應商的公告]
+    resource: ["主機 CPU / 記憶體 / 磁碟", Pod 有沒有被限流（throttling）或 OOM, 同儕的 Pod 是不是只有一隻異常]
+    bug: [Kibana log, 例外的堆疊從哪一行開始, 只發生在某支 API 或某種輸入嗎]
+    data: [量是不是暴增（流量、批次筆數）, 有沒有髒資料或特別大的單]
 
 # 異常的 keys 裡哪個是服務（baseline、規則、peer、quality、trace 的寫法都不一樣）；caller／callee 是 trace 分段的
 entity_keys: [resource.attributes.service.name, service, entry.service, service.name, caller, callee]
