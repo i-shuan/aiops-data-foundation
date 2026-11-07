@@ -1,6 +1,6 @@
 # 整合儀表板：metrics → trace → log → AI 根因（Elastic APM 資料）（2026-11）
 
-**狀態**：已完成（未合進 master）　　**日期**：2026-11-06　　**相關**：分支 `claude/apm-dashboard`（從 master `8ed32ba` 開）；舊的示範儀表板（`e2e/k8s/rca-demo/dashboard.json`，2026-11-02 隨自建收值刪除，截圖 [rca-demo-dashboard.png](../phase3-locate/img/rca-demo-dashboard.png)）；[APM 來源](2026-11-apm-source.md)
+**狀態**：已完成（已合進 master）　　**日期**：2026-11-06　　**相關**：分支 `claude/apm-dashboard`（從 master `8ed32ba` 開）；舊的示範儀表板（`e2e/k8s/rca-demo/dashboard.json`，2026-11-02 隨自建收值刪除，截圖 [rca-demo-dashboard.png](../phase3-locate/img/rca-demo-dashboard.png)）；[APM 來源](2026-11-apm-source.md)
 **模組**：⑧ 出口（Grafana）
 
 ## Plan
