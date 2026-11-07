@@ -1,6 +1,6 @@
 # common：各功能共用的底層，與 `Repos`（索引的讀寫，一個實體一個）
 
-> **類型：規格 Reference**　為什麼這樣分層見 [docs/architecture.md](../../../docs/architecture.md)、計畫見 [docs/pdca/meta/2026-11-target-architecture.md](../../../docs/pdca/meta/2026-11-target-architecture.md)
+> **類型：規格 Reference**　為什麼這樣分層見 [docs/architecture.md](../../../docs/architecture.md)、計畫見 [docs/pdca/meta/2026-11-target-architecture.md](../../../docs/pdca/archive/meta/2026-11-target-architecture.md)
 
 `common/` 是各功能共用的底層，分五個資料夾，它不依賴任何功能資料夾（`tests/test_layers.py` 鎖著）：
 

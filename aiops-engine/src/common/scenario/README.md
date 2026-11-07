@@ -1,6 +1,6 @@
 # 情境（scenario）：選一個，或自己寫一份
 
-> **類型：操作 How-To**　原理（為什麼拆成主程式＋情境、擴充點怎麼挑）見 [docs/architecture.md §4.2](../../../../docs/architecture.md)・紀錄 [docs/pdca/meta/2026-11-plugin-architecture.md](../../../../docs/pdca/meta/2026-11-plugin-architecture.md)、[docs/pdca/meta/2026-11-target-architecture.md](../../../../docs/pdca/meta/2026-11-target-architecture.md)
+> **類型：操作 How-To**　原理（為什麼拆成主程式＋情境、擴充點怎麼挑）見 [docs/architecture.md §4.2](../../../../docs/architecture.md)・紀錄 [docs/pdca/meta/2026-11-plugin-architecture.md](../../../../docs/pdca/meta/2026-11-plugin-architecture.md)、[docs/pdca/meta/2026-11-target-architecture.md](../../../../docs/pdca/archive/meta/2026-11-target-architecture.md)
 
 engine 一份程式；「IT 可觀測性」「全套工廠」「只有指標」各是一份資料檔（同資料夾的 `*.yaml`）加兩個策略，環境變數 `AIOPS_PLUGIN` 選。
 主程式（`detect/`、`llm/`、`incident/`、`learn/`、`interface/`）只看 [base.py](base.py) 的 `Scenario` 欄位，不認得 `factory`、`lot`、`equipment` 這些字；

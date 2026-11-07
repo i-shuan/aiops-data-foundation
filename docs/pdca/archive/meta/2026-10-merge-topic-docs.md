@@ -49,4 +49,4 @@
 | `metrics` 的 .NET 指標名稱對照與規則名稱整張刪掉 | metrics agent 的回報 | .NET 8 與 9 規則分開這件事只剩一句 | 規則名稱在 `engine/configs/baseline/rules.yaml`；需要時補回一個短表 |
 | 來源互相矛盾的說法靠我逐項對程式處理，沒處理的還有 | agent 回報的「不確定處」 | `backtest` 預設週數、`queue_size` 是否 log 與 metrics 各一份未確認 | 對 `engine/detector/cmd_backtest.py`、`common.yaml` 確認 |
 | `rca/README.md` 的「15 個故障案例」只剩五種做法的歸納 | rca agent 的回報 | 逐案例「要看什麼訊號、哪種 baseline」不見了 | 原表在 git 歷史（`docs/rca/cases.md`）；`metrics` 與 `rca` 都講五種做法的重複這次沒處理 |
-| 本機 `e2e/` 測試仍有 ES 9 的假設沒處理 | 見 [2026-10-e2e-es8-rerun](2026-10-e2e-es8-rerun.md) | 不在這次範圍 | 另案 |
+| 本機 `e2e/` 測試仍有 ES 9 的假設沒處理 | 見 [2026-10-e2e-es8-rerun](../../meta/2026-10-e2e-es8-rerun.md) | 不在這次範圍 | 另案 |

@@ -1,6 +1,6 @@
 # case 只做告警分類：分類器、報告只給分類、表單預帶、DB 讀 case、precision 自動提建議（2026-11）
 
-**狀態**：已完成　　**日期**：2026-11-03　　**相關**：分支 `claude/case-classify`（從 [model-modules](2026-11-model-modules.md) 的分支接出，用到它的 `Store.incidents`）
+**狀態**：已完成　　**日期**：2026-11-03　　**相關**：分支 `claude/case-classify`（從 [model-modules](../archive/meta/2026-11-model-modules.md) 的分支接出，用到它的 `Store.incidents`）
 **模組**：⑦⑨
 
 ## Plan：這一次要達到什麼

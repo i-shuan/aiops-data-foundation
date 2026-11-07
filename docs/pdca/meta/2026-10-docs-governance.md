@@ -1,6 +1,6 @@
 # 文件治理：讓文件不再腐化、跟程式脫節、越寫越難讀（2026-10）
 
-**狀態**：完成（`CLAUDE.md` 在新 session 是否生效未驗證，見 Act）　　**日期**：2026-10-29　　**相關**：分支 `claude/docs-governance-run`（計畫先在 `claude/docs-governance`）；前置 [docs-vs-code](2026-10-docs-vs-code.md)（文件對程式一次）
+**狀態**：完成（`CLAUDE.md` 在新 session 是否生效未驗證，見 Act）　　**日期**：2026-10-29　　**相關**：分支 `claude/docs-governance-run`（計畫先在 `claude/docs-governance`）；前置 [docs-vs-code](../archive/meta/2026-10-docs-vs-code.md)（文件對程式一次）
 **模組**：跨階段
 
 ## Plan：這一次要達到什麼

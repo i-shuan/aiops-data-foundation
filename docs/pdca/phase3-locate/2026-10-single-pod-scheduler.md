@@ -1,6 +1,6 @@
 # AIOps engine 改成一隻常駐 pod：排程器＋回饋網頁兩個 container（2026-10）
 
-**狀態**：已完成（`aiops` namespace 那輪驗證沒跑完）　　**日期**：2026-10-31　　**相關**：分支 `claude/single-pod-scheduler`；前一版 [2026-10-schedule.md](2026-10-schedule.md)（10 個 CronJob）；結構 [restructure-components](../meta/2026-10-restructure-components.md)
+**狀態**：已完成（`aiops` namespace 那輪驗證沒跑完）　　**日期**：2026-10-31　　**相關**：分支 `claude/single-pod-scheduler`；前一版 [2026-10-schedule.md](2026-10-schedule.md)（10 個 CronJob）；結構 [restructure-components](../archive/meta/2026-10-restructure-components.md)
 **模組**：④⑤⑥⑧（排程）
 
 ## Plan：這一次要達到什麼

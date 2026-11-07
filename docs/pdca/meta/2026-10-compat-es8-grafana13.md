@@ -47,7 +47,7 @@ docker 起 ES 8.19（9201）與 Grafana 13（3001），跟現有 9.5.5／12.2 �
 
 | 沒改善的 | 在什麼情況下發現的 | 影響 | 後續 |
 |---|---|---|---|
-| **Collector 三條出口要改**：`otlphttp` → ES `_otlp` 在 8.19 不存在 | 第一個檢查 | 8.19 上 Collector 寫不進任何資料 | 改成 `elasticsearch` exporter（`mapping.mode: otel`）。`common.yaml` 136 行註解寫過當初不用它的理由：「連線逾時當永久錯誤、不重試」。換回去之前要在 k3s 上重跑 [durability](../phase1-collect/2026-10-durability.md)、[load-test](../phase1-collect/2026-10-load-test.md) 的 ES 停機、限流情境 |
+| **Collector 三條出口要改**：`otlphttp` → ES `_otlp` 在 8.19 不存在 | 第一個檢查 | 8.19 上 Collector 寫不進任何資料 | 改成 `elasticsearch` exporter（`mapping.mode: otel`）。`common.yaml` 136 行註解寫過當初不用它的理由：「連線逾時當永久錯誤、不重試」。換回去之前要在 k3s 上重跑 [durability](../archive/phase1-collect/2026-10-durability.md)、[load-test](../archive/phase1-collect/2026-10-load-test.md) 的 ES 停機、限流情境 |
 | 只測了最小設定 | docker 單一 Collector、三筆資料 | DaemonSet、trace-sampler 兩台、`k8s_attributes`、尾端取樣沒跟 8.19 一起跑 | k3d 上把 overlay 的出口換成 `elasticsearch` exporter 重跑 `run-rca-e2e.sh` |
 | 9.5 專屬的設定可能有漏 | 這輪只看 setup 腳本 exit 0 與幾個 settings | `component-settings.json`、ILM 的 downsample 細節沒逐項比 | 列一份 9.5 → 8.19 的設定差異表 |
 | `loop_e2e` 的 `metrics` 檢查跟日期綁死 | 今天 10-30 跑，窗到 10-28 | 之後每天都會 FAIL 這一項 | 把回饋的 `@timestamp` 改成跟事故同一天，或窗用「今天」算 |

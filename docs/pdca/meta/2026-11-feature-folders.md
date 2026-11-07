@@ -1,6 +1,6 @@
 # 程式改成「一個功能一個資料夾」：detect／learn／incident／llm／shared（2026-11）
 
-**狀態**：已完成（已合進 master）　　**日期**：2026-11-06　　**相關**：分支 `claude/feature-folders`（從 `claude/flatten-package` 開）；承接 [target-architecture](2026-11-target-architecture.md)（四層）
+**狀態**：已完成（已合進 master）　　**日期**：2026-11-06　　**相關**：分支 `claude/feature-folders`（從 `claude/flatten-package` 開）；承接 [target-architecture](../archive/meta/2026-11-target-architecture.md)（四層）
 **模組**：②～⑨（程式結構，不改任何階段的行為）
 
 ## Plan

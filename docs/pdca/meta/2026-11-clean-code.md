@@ -1,6 +1,6 @@
 # 程式整理：先順主軸，再拆、再理依賴、再改型別（2026-11）
 
-**狀態**：已完成（單元測試；沒連 ES）　　**日期**：2026-11-06　　**相關**：分支 `claude/clean-code`（從 `claude/vo-models` `d169924` 開，含 `Incident` 模型），四個 commit：A `25f2a78`、B `d446bba`、C `627b76c`、D `ec669b4`；取代 [vo-models](2026-11-vo-models.md) 的步驟 2～6
+**狀態**：已完成（單元測試；沒連 ES）　　**日期**：2026-11-06　　**相關**：分支 `claude/clean-code`（從 `claude/vo-models` `d169924` 開，含 `Incident` 模型），四個 commit：A `25f2a78`、B `d446bba`、C `627b76c`、D `ec669b4`；取代 [vo-models](../archive/meta/2026-11-vo-models.md) 的步驟 2～6
 **模組**：②～⑨（程式結構，不改任何階段的行為）
 
 ## Plan：這一次要達到什麼
@@ -14,7 +14,7 @@
   - **A** 一個階段一個資料夾：⑨ 全部搬進新的 `feedback/`；`detector/` 只剩 ②③④⑤、`investigator/` 只剩 ⑥⑦⑧；每個套件的 docstring 第一行寫它是哪幾個模組；CLAUDE.md 結構表與 architecture 4.2 對應。**命令列名稱不變**（`python3 -m detector feedback …` 照舊：排程表、helm、64 份文件都在用），`detector/__main__.py`、`investigator/__main__.py` 只是入口（組合根），從 `feedback/` 掛子命令。
   - **B** 讀得懂：沒有函式 >100 行；`action` 當參數的命令（feedback、adjust、incident）改成 typer 子命令，每個子命令只有自己的參數；不再 `locals()`。
   - **C** 依賴只往一個方向：`core` → `sources` → `detector`、`investigator` → `feedback` → `api`、`scheduler`、`tasks`、`plugins`、`models`（門面）、`__main__`。用 `tests/test_layers.py` 鎖住，之後誰加反向 import 測試就紅。函式內 import 只留真的要 lazy 的（SQLAlchemy、LLM SDK）。
-  - **D** 跨階段的文件有型別：`Anomaly`（已有，搬 `core/`）、`Alert`（⑥ 寫、⑧⑨ 讀）、`aiops-tuning` 的調整文件（⑨ 寫、④ 讀）；規則同 [vo-models](2026-11-vo-models.md)：`to_doc()` 跟改前逐欄位相同、`from_doc()` 讀舊文件不炸、mapping 跟模型對照測試。
+  - **D** 跨階段的文件有型別：`Anomaly`（已有，搬 `core/`）、`Alert`（⑥ 寫、⑧⑨ 讀）、`aiops-tuning` 的調整文件（⑨ 寫、④ 讀）；規則同 [vo-models](../archive/meta/2026-11-vo-models.md)：`to_doc()` 跟改前逐欄位相同、`from_doc()` 讀舊文件不炸、mapping 跟模型對照測試。
 - **範圍**：
   - 做：上面 A～D；每一步一個 commit、全部單元測試過才下一步。
   - 不做：改任何階段的行為、ES 查詢語句、文件格式、命令列參數名；`cfg` 改成到處傳模型（226 處，另開一輪）；`Span`／`Findings`（⑦ 內部的 dict，不跨階段）；PDCA 紀錄裡的舊路徑措辭（只修會斷的連結）。

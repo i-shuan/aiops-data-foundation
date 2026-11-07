@@ -1,6 +1,6 @@
 # trace 每一段每點抽 100 個請求（2026-11）
 
-**狀態**：已完成　　**日期**：2026-11-01　　**相關**：分支 `claude/trace-sample-100`；起因見 [trace-merge 的 Act](../phase1-collect/2026-10-trace-merge.md)「trace-quality 的 6 項失敗」、[open-issues 9.2](../meta/2026-10-open-issues.md)
+**狀態**：已完成　　**日期**：2026-11-01　　**相關**：分支 `claude/trace-sample-100`；起因見 [trace-merge 的 Act](../archive/phase1-collect/2026-10-trace-merge.md)「trace-quality 的 6 項失敗」、[open-issues 9.2](../meta/2026-10-open-issues.md)
 **模組**：④ 判斷（trace 每一段的動態基準線、例外吞噬檢測）
 
 ## Plan：這一次要達到什麼

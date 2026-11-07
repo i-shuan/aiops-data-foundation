@@ -53,7 +53,7 @@ Java agent 用 Prometheus 格式開給 Collector 抓（Prometheus 慣例），.N
 
 ### (3) metrics 跟 trace 怎麼連
 
-**metrics 裡沒有 trace_id**（exemplar 不存，[rca/README.md「為什麼不用 exemplar」](../../rca/README.md) 已決定），所以 metrics ↔ trace 是**用共同的鑰匙縮範圍**，不是同一筆對同一筆：
+**metrics 裡沒有 trace_id**（exemplar 不存，[rca/README.md「為什麼不用 exemplar」](../../../rca/README.md) 已決定），所以 metrics ↔ trace 是**用共同的鑰匙縮範圍**，不是同一筆對同一筆：
 
 ```
 metrics：order-service 的 GET /checkout，10:05～10:20 錯誤率飆高

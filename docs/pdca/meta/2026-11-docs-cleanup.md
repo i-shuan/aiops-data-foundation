@@ -1,6 +1,6 @@
 # 整理舊的 md：先盤點，再決定刪、改、併（2026-11）
 
-**狀態**：進行中（盤點完成、還沒動任何 md）　　**日期**：2026-11-07　　**相關**：分支 `claude/docs-cleanup`（從 master `27d58dd` 開）
+**狀態**：進行中（盤點完成；舊紀錄已封存；共用文件的改寫還沒做）　　**日期**：2026-11-07　　**相關**：分支 `claude/docs-cleanup`（從 master `27d58dd` 開）
 **模組**：—（文件）
 
 ## Plan：這一次要達到什麼
@@ -69,3 +69,10 @@
 
 - 動手改之前先回答上面三件事；回答前不動任何 md。
 - 做完之後的長期防護：把「反引號路徑要存在」加進 `tools/check-docs.py`（現在只查連結、索引、舊說法、類型），否則下次搬檔又會留下一批壞路徑。這件事要不要做，也請一併決定。
+
+## 封存的執行（使用者說「舊有的移到 archive」）
+
+- **Do**：`git mv` 34 份到 `docs/pdca/archive/`：`phase1-collect/` 19 份，加 `meta/` 的 15 份（10 月的文件整理 10 份：`restructure`、`restructure-components`、`merge-architecture`、`merge-topic-docs`、`feedback-readme`、`log-readme`、`metrics-trace-readme`、`product-line-table`、`retention-split`、`docs-vs-code`；`collector-es-exporter`；`target-architecture`、`oop-core`、`vo-models`、`model-modules`）。內容不改。腳本把所有 md 的相對連結改到新位置（101 個連結；被搬的檔案自己往外的連結也重算）；`tools/check-docs.py` 的舊說法檢查加上 `docs/pdca/archive/`（跟其他 PDCA 紀錄一樣是當時的措辭）。`docs/pdca/README.md` 加「封存」一節。
+- **挑的標準**：描述的程式或文件配置已經不在 repo，而且不是現在結構的依據。**沒搬**的：`feature-folders`（`tests/test_layers.py` 引用它）、`frameworks`、`clean-code`、`plugin-architecture`（`AIOPS_PLUGIN` 還在）、`remove-collector`（說明為什麼刪）、`diataxis`、`docs-governance`。
+- **Check**：`tools/check-docs.py` 連結、索引、舊說法、類型都過（搬完之前有 97 個壞連結）。
+- **Act**：「要問的事 2、3」（OTel 來源文件、`pdca/README.md` 的索引結構）與共用文件的改寫還沒做；搬動的範圍是我挑的，要增減就 `git mv` 一次。

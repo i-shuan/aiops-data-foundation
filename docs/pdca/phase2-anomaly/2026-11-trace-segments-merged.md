@@ -1,6 +1,6 @@
 # trace 每一段的統計改讀合成後的 traces-merged-*（2026-11）
 
-**狀態**：已完成　　**日期**：2026-11-01　　**相關**：分支 `claude/trace-segments-merged`；來源 [open-issues 第 1 節「讀端兩套」](../meta/2026-10-open-issues.md)、[trace-merge 的 Act](../phase1-collect/2026-10-trace-merge.md)
+**狀態**：已完成　　**日期**：2026-11-01　　**相關**：分支 `claude/trace-segments-merged`；來源 [open-issues 第 1 節「讀端兩套」](../meta/2026-10-open-issues.md)、[trace-merge 的 Act](../archive/phase1-collect/2026-10-trace-merge.md)
 **模組**：④ 判斷（trace 每一段的動態基準線）
 
 ## Plan：這一次要達到什麼

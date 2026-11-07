@@ -27,7 +27,7 @@
 - 腳本從部署到檢查完整段拿著 cluster 鎖；在鎖裡才 port-forward ES，斷了（ES Pod 被重建）自動重連，每次查 ES 連不上會等最多 2 分鐘。
 - 量之前先確認最近 1 分鐘有 span 進 ES、再發 6 個探測請求（只通一台 trace-sampler 會缺一半）；不通就停下來說原因，不動 cluster，不會印出一堆假 FAIL。
 
-文件：apps/standards/tracing.md（log 什麼時候帶 trace_id、2-4）、[troubleshooting.md](../../troubleshooting.md)、metrics/dotnet.md 的 Kafka、trace/README.md。
+文件：apps/standards/tracing.md（log 什麼時候帶 trace_id、2-4）、[troubleshooting.md](../../../troubleshooting.md)、metrics/dotnet.md 的 Kafka、trace/README.md。
 
 ## Check：測試的目的與結果
 

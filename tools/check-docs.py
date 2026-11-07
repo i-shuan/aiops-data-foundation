@@ -21,7 +21,7 @@ PDCA_INDEX = ROOT / "docs/pdca/README.md"
 # 「一把」是量詞（一把 key）、「一件」「老師傅」「值班」是產品用語，不在這裡。
 FORBIDDEN = {"跟兄弟比": "Pod 同儕橫向比對", "保底規則": "靜態臨界值規則", "一把寫入": "集中式資料寫入憑證"}
 # 這些是紀錄或對照表本身，不檢查舊說法：PDCA 紀錄（當時的措辭）、術語表、這個腳本
-TERM_EXEMPT = ("docs/pdca/phase", "docs/pdca/meta/", "docs/pdca/TEMPLATE.md", "CLAUDE.md", "tools/check-docs.py")
+TERM_EXEMPT = ("docs/pdca/phase", "docs/pdca/meta/", "docs/pdca/archive/", "docs/pdca/TEMPLATE.md", "CLAUDE.md", "tools/check-docs.py")
 
 LINK = re.compile(r"(?<!\!)\[[^\]]*\]\(([^)\s]+)\)")
 FENCE = re.compile(r"^\s*(```|~~~)")

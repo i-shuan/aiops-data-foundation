@@ -1,6 +1,6 @@
 # 版本釘選成 ES 8.19.23、Grafana 13.0.7，補測剩下的故障情境（2026-10）
 
-**狀態**：部分完成（版本釘選完成；補測只做完一部分，見 Act）　　**日期**：2026-10-30　　**相關**：分支 `claude/pin-es8-grafana13`；接續 [collector-es-exporter](2026-10-collector-es-exporter.md)、[compat-es8-grafana13](2026-10-compat-es8-grafana13.md)
+**狀態**：部分完成（版本釘選完成；補測只做完一部分，見 Act）　　**日期**：2026-10-30　　**相關**：分支 `claude/pin-es8-grafana13`；接續 [collector-es-exporter](../archive/meta/2026-10-collector-es-exporter.md)、[compat-es8-grafana13](2026-10-compat-es8-grafana13.md)
 **模組**：① 收值、③ 存、⑧ 出口
 
 ## Plan：這一次要達到什麼
@@ -38,6 +38,6 @@
 - **ES 429、ES 停機 600 秒、trace-sampler PVC 塞滿**：在 k3d 上啟動測試時被中斷，沒有結果。發現於：補測剩餘情境時。
 - **多節點**：`add-nodes.sh` 與 `node-lost` 情境已寫好，但沒執行過，不能說多節點沒問題。
 - **OOM**：要把上限降到 80Mi 左右、流量調高，才能真的觸發 OOM 再看佇列接回。
-- **Collector 使用 elasticsearch 寫入元件後，ES `docker stop` 約掉 3%**：見 [collector-es-exporter](2026-10-collector-es-exporter.md)，仍是已知限制。
+- **Collector 使用 elasticsearch 寫入元件後，ES `docker stop` 約掉 3%**：見 [collector-es-exporter](../archive/meta/2026-10-collector-es-exporter.md)，仍是已知限制。
 - **外掛仍是 6.3.1**：Grafana 13.0.7 實測可用；6.3.2 以後未驗，也沒重算 SHA-256。
 - **歷史 PDCA 與「實測」段落**仍寫 ES 9.5.5、Grafana 12.2，那是當時實際用的版本，沒有改。

@@ -1,11 +1,11 @@
 # 介面：要別人提供的資料
 
-程式只認**格式**，不管資料從哪來。**接口**（這個資料夾、`detect/reference_data.py`）是長期的；**假資料**（[fake-data/](../fake-data/README.md)）是現在拿來跑的範例，之後換成真的來源，程式不用改。
+程式只認**格式**，不管資料從哪來。**接口**（這個資料夾、`detect/reference_data.py`）是長期的；**假資料**（[fake-data/](README.md)）是現在拿來跑的範例，之後換成真的來源，程式不用改。
 
 | 介面 | 內容 | 誰用 | provider | 假資料 |
 |---|---|---|---|---|
-| `owners` | 哪個服務歸哪個團隊 | `chronic`（慢性病清單附負責人） | `file`、`http` | [fake-data/owners.json](../fake-data/owners.json) |
-| `calendar` | 國定假日、維護日、活動、補班日 | `train`、`detect`（不學、不判斷） | `file`、`http`、`taiwan` | [fake-data/calendar.json](../fake-data/calendar.json) |
+| `owners` | 哪個服務歸哪個團隊 | `chronic`（慢性病清單附負責人） | `file`、`http` | [fake-data/owners.json](owners.json) |
+| `calendar` | 國定假日、維護日、活動、補班日 | `train`、`detect`（不學、不判斷） | `file`、`http`、`taiwan` | [fake-data/calendar.json](calendar.json) |
 
 設定在 [configs/baseline/chronic.yaml](../configs/baseline/chronic.yaml)（`owners_source`）和 [configs/baseline/calendar.yaml](../configs/baseline/calendar.yaml)（`sources`）。多個來源合在一起；某個失敗只印警告，不讓指令掛掉（這兩種都是輔助資訊）。
 

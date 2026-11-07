@@ -1,6 +1,6 @@
 # Collector 出口改用 elasticsearch 寫入元件：ES 停機、沒回應會不會掉資料（2026-10）
 
-**狀態**：完成（k3d 單節點、ES 在主機 docker；三輪實測，設定改了兩次）　　**日期**：2026-10-30　　**相關**：分支 `claude/collector-es-exporter`；前置 [compat-es8-grafana13](2026-10-compat-es8-grafana13.md)、[durability](../phase1-collect/2026-10-durability.md)
+**狀態**：完成（k3d 單節點、ES 在主機 docker；三輪實測，設定改了兩次）　　**日期**：2026-10-30　　**相關**：分支 `claude/collector-es-exporter`；前置 [compat-es8-grafana13](../../meta/2026-10-compat-es8-grafana13.md)、[durability](../phase1-collect/2026-10-durability.md)
 **模組**：① 收值（Collector 出口）、③ 存
 
 ## Plan：這一次要達到什麼

@@ -1,6 +1,6 @@
 # 半導體（FDC）：沒有 trace id 時怎麼做 AIOps
 
-> **類型：原理 Explanation**　目前的設計見 [architecture.md](architecture.md)・五個模型的輸入規格見 [models/README.md](pdca/meta/2026-11-target-architecture.md)・資料怎麼餵進來見 [sources/README.md](../aiops-engine/src/common/README.md)
+> **類型：原理 Explanation**　目前的設計見 [architecture.md](architecture.md)・五個模型的輸入規格見 [models/README.md](pdca/archive/meta/2026-11-target-architecture.md)・資料怎麼餵進來見 [sources/README.md](../aiops-engine/src/common/README.md)
 > 🟡 部分實作：工廠版 engine（`configs/factory/`）已用假資料整條跑通，怎麼跑、要給什麼資料見 [configs/factory/README.md](../aiops-engine/configs/factory/README.md)；沒有 MES 歷程、FDC 的欄位樣本，欄位名是假設，拿到樣本要重對。現況見文末。
 
 目前的設計是一般服務（Web API、worker、Kafka、DB）：靠 Elastic APM 的 trace id 把「一個請求經過哪幾段」串起來。半導體的 FDC（Fault Detection and Classification）沒有 trace id，但有同樣功能的鍵：**lot（或 wafer）的加工路徑**。這份說明路徑怎麼取代 trace、五個模型各要改什麼、跟目前設計差在哪。

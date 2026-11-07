@@ -61,7 +61,7 @@
 | 計畫裡「ES chart 帶一個 Job 跑 setup」沒做 | 寫 chart 時：setup 要讀 `code/storage/` 四十幾個檔，Helm 讀不到 chart 目錄外的檔；要做得把 storage 複製進 chart 或打成 image | 測試 ES 裝好後還是要從主機跑 `elasticsearch-setup.sh`（e2e 腳本本來就這樣，正式 ES 也是這樣） | 不做；README 寫清楚兩步 |
 | 設定檔靠 `--set-file` 帶，`helm install` 指令很長 | 設計時 | 每個元件的 README 和 e2e 的 deploy 腳本都寫好完整指令；正式環境如果用 CD 工具（Argo CD 等）要把 `code/` 的檔塞進 values | 有 CD 工具時再看要不要改成 chart 內 `files/`＋同步腳本 |
 | 五支改了部署指令的 e2e 腳本沒在 cluster 上跑過（見 Check「沒測到的」） | 時間；Docker Desktop 也沒開（image build 用的 nerdctl 走 Rancher Desktop，`run-schedule-e2e.sh` 要先 build） | 它們的 helm 指令可能還有路徑或參數的小錯 | 下一次跑各自的 e2e 時順手驗；`run-rca-demo.sh` 最值得先跑（Grafana chart 第一次真的裝） |
-| `e2e/local-k3d/` 的兩支耐久測試（`run-es-outage.sh`、`run-durability.sh`）刪了，Grafana 13 通知測試（`run-grafana-notify.sh`）也刪了 | 計畫就決定刪 | 耐久測試 `e2e/k8s/load/run-durability.sh` 有涵蓋；Grafana 通知測試現在只剩 `e2e/pipeline/run-alert-flap.py`（要一台 Grafana）和 `rca-demo`。結果都在 [collector-es-exporter](2026-10-collector-es-exporter.md)、[pin-es8-grafana13](2026-10-pin-es8-grafana13.md) | 要再測 Grafana 通知就用 `rca-demo`（chart 裝的 Grafana＋notify-sink） |
+| `e2e/local-k3d/` 的兩支耐久測試（`run-es-outage.sh`、`run-durability.sh`）刪了，Grafana 13 通知測試（`run-grafana-notify.sh`）也刪了 | 計畫就決定刪 | 耐久測試 `e2e/k8s/load/run-durability.sh` 有涵蓋；Grafana 通知測試現在只剩 `e2e/pipeline/run-alert-flap.py`（要一台 Grafana）和 `rca-demo`。結果都在 [collector-es-exporter](2026-10-collector-es-exporter.md)、[pin-es8-grafana13](../../meta/2026-10-pin-es8-grafana13.md) | 要再測 Grafana 通知就用 `rca-demo`（chart 裝的 Grafana＋notify-sink） |
 
 - **決定**：部署只留 Helm 一種；`code/` 是設定的唯一來源，chart 不複製它（`--set-file`）。
 - **下一輪**：排程改成一隻 pod（排程器＋回饋網頁兩個 container），在新結構的 `aiops-engine/` 上做。

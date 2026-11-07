@@ -1,6 +1,6 @@
 # 收值、共同鑰匙圈、log↔trace 綁定、metrics 時間窗：這週的驗證（2026-10）
 
-**狀態**：完成（docker；補了 OTLP log 的路和 pipeline 兩個漏洞；真的 Java agent、.NET 自動埋點各跑一次）　　**日期**：2026-10-27　　**相關**：分支 `claude/ingest-check`；對照簡報「PDCA (Phase 1) 收值端整合、共同鑰匙圈與極限壓測」；[field-unify](2026-10-field-unify.md)、[trace-durability](2026-10-trace-durability.md)、[docs/rca/README「共同鑰匙圈」](../../rca/README.md)
+**狀態**：完成（docker；補了 OTLP log 的路和 pipeline 兩個漏洞；真的 Java agent、.NET 自動埋點各跑一次）　　**日期**：2026-10-27　　**相關**：分支 `claude/ingest-check`；對照簡報「PDCA (Phase 1) 收值端整合、共同鑰匙圈與極限壓測」；[field-unify](2026-10-field-unify.md)、[trace-durability](2026-10-trace-durability.md)、[docs/rca/README「共同鑰匙圈」](../../../rca/README.md)
 **模組**：① 收值、② 清資料、③ 存
 
 ## Plan：這一次要達到什麼

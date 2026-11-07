@@ -19,7 +19,7 @@
 |---|---|---|---|
 | 連鎖警報聚合率 | ≥ 80% | 事件整合只併「同服務、同時間」（`investigator/alerts.py` 的 `entity_of`）。情境 1 的前端 API 與 DB 連線池是兩個服務，會開成 2 件 | **沒做**：用 trace 的父子關係（一層）把下游引發的上游異常併進同一件 |
 | 回饋標記解析率 | ≥ 90% | 回饋表單是結構化欄位（真的／誤報、根因分類、處置、怎麼看出來的），沒有從自然語言抽取的步驟 | **沒做**：LLM 把自由文字抽成 `feedback_type`、`identified_cause`、`target_service`、`suggested_action`，寫進 `aiops-tuning`（`status: proposed`，審核機制已有） |
-| 端到端串查成功率 | 100% | 有：metrics 異常 → 慢在哪一段 → 最慢請求的 span → 以 `trace_id` 撈 log（[rca-demo](../phase3-locate/2026-10-rca-demo.md)；K8s 上 2026-10-29 再跑一次，六段齊全） | 量法要寫清楚：metrics 沒有 trace ID，是用「服務＋路由＋時間窗」對到 trace，再用 `trace_id` 對 log（[metrics-trace](../phase1-collect/2026-10-metrics-trace.md)） |
+| 端到端串查成功率 | 100% | 有：metrics 異常 → 慢在哪一段 → 最慢請求的 span → 以 `trace_id` 撈 log（[rca-demo](../phase3-locate/2026-10-rca-demo.md)；K8s 上 2026-10-29 再跑一次，六段齊全） | 量法要寫清楚：metrics 沒有 trace ID，是用「服務＋路由＋時間窗」對到 trace，再用 `trace_id` 對 log（[metrics-trace](../archive/phase1-collect/2026-10-metrics-trace.md)） |
 | 根因初篩時間（MTTI） | < 3 分鐘 | 實測注入到開成一件＋報告 **3 分 40 秒**（[rca-demo](../phase3-locate/2026-10-rca-demo.md)）：規則要 5 分鐘窗內超標、排程每分鐘一次 | 差 40 秒：調規則時間窗或排程間隔；動態基準線學習的 p95 連續 2 窗約 1～2 分鐘 |
 | 相似事故 Top-3 召回率 | ≥ 70% | 檢索（欄位比對、有權重）與評測指令 `investigator similar-eval`（留一法 recall@3）都有；匯入格式＝`aiops-incidents` 欄位（[similar-incidents](../phase4-rca-llm/2026-10-similar-incidents.md)） | **缺資料**：知識庫只有模擬的 2 筆；要 15～30 筆真實事故單，再補一支匯入指令 |
 | RCA 建議採納率 | ≥ 60% | 表單有「真的／誤報／根因報錯」，`detector metrics` 算得出根因命中率 | 缺「建議的排查動作有參考價值」這一題 |
@@ -57,7 +57,7 @@
 
 ### 前提（使用者提供）
 
-- 1 組真實 Java 或 .NET 服務，可接上 Collector（自動埋點只在測試應用驗過：[sdk-inject](../phase1-collect/2026-10-sdk-inject.md)）。
+- 1 組真實 Java 或 .NET 服務，可接上 Collector（自動埋點只在測試應用驗過：[sdk-inject](../archive/phase1-collect/2026-10-sdk-inject.md)）。
 - 15～30 筆歷史事故單，欄位：`title`、`start`、`end`、`services`、`root_cause_category`、`root_cause`、`action`、`how_detected`、`checked`。
 
 ### 時程與判定
@@ -75,7 +75,7 @@ Go：串查成功率 100%、聚合率 ≥ 80%、召回率 ≥ 70% 三項都到�
 
 | 改了什麼 | 為何要改 |
 |---|---|
-| 路徑：`engine/` → `aiops-engine/`、`engine/configs/grafana/` → `grafana/code/`、`e2e/local-k3s/` → `e2e/k8s/` | 中間做過元件重整（PDCA [restructure-components](2026-10-restructure-components.md)） |
+| 路徑：`engine/` → `aiops-engine/`、`engine/configs/grafana/` → `grafana/code/`、`e2e/local-k3s/` → `e2e/k8s/` | 中間做過元件重整（PDCA [restructure-components](../archive/meta/2026-10-restructure-components.md)） |
 | `feedback_web/app.py`：留 master 的「不再另外 `_refresh`」，加上任務 2 的抽取結果回傳 | master 已修掉最小權限 key 會 403 的那一下 |
 | `tests/test_feedback_web.py`：master 的漏報測試與任務 2 的測試都留；假 ES 的漏報分支補回 `return` | 合併時兩段 `if` 疊在一起，漏報那段少了 `return` |
 | `grafana/README.md`：補任務 2 的表單欄位表 | 原本寫在已刪的 `engine/configs/grafana/README.md` |

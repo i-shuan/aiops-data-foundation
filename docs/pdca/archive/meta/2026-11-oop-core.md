@@ -1,6 +1,6 @@
 # 核心邏輯物件導向化（一）：ES 實作 Backend、Detector 基底與 Anomaly（2026-11）
 
-**狀態**：已完成（單元測試；沒連 ES）　　**日期**：2026-11-05　　**相關**：分支 `claude/oop-core`（從 master `4fd6582` 開）；接 [frameworks](2026-11-frameworks.md)（只換了骨架，核心邏輯沒動）；來源是 code-review 的結構發現
+**狀態**：已完成（單元測試；沒連 ES）　　**日期**：2026-11-05　　**相關**：分支 `claude/oop-core`（從 master `4fd6582` 開）；接 [frameworks](../../meta/2026-11-frameworks.md)（只換了骨架，核心邏輯沒動）；來源是 code-review 的結構發現
 **模組**：④ 判斷、⑤ 異常總表、⑦ 根因分析
 
 ## Plan：這一次要達到什麼

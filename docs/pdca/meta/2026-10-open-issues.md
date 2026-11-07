@@ -21,7 +21,7 @@
 
 ### 1. trace 合併
 
-**狀態：已合入 master**（PR #36、#37，2026-11-01；設計與實測見 [PDCA](../phase1-collect/2026-10-trace-merge.md)，ES 兩個資料節點加只投票節點見 [es-two-pods](../phase1-collect/2026-11-es-two-pods.md)）。trace/README.md、retention.md 已改成 100% 收、一個請求合成一筆。
+**狀態：已合入 master**（PR #36、#37，2026-11-01；設計與實測見 [PDCA](../archive/phase1-collect/2026-10-trace-merge.md)，ES 兩個資料節點加只投票節點見 [es-two-pods](../archive/phase1-collect/2026-11-es-two-pods.md)）。trace/README.md、retention.md 已改成 100% 收、一個請求合成一筆。
 
 目的：製造業事故檢討不能少資料，不在收值端取樣；一個請求原本是 5～8 筆 span，希望查一個請求只讀一筆。
 
@@ -36,7 +36,7 @@
 | 摘要延遲 | 晚 1～2 分鐘：排程器每分鐘跑，根因分析看到的 merged 是 1～2 分鐘前的；事故當下要看即時的查 raw（2 天內） |
 | 工廠端是什麼意思 | 未回答 |
 
-合入時還沒解決的（來源：[PDCA](../phase1-collect/2026-10-trace-merge.md) 的 Act）：
+合入時還沒解決的（來源：[PDCA](../archive/phase1-collect/2026-10-trace-merge.md) 的 Act）：
 
 | 項目 | 現況 |
 |---|---|
@@ -45,7 +45,7 @@
 | merged 不是 OTel 原生格式 | 自訂格式；Kibana 只有 raw 那 2 天看得到原生 |
 | 讀端兩套 | 已做：trace 每一段的統計（`trace-collect`／`trace-detect`）改讀 merged（`nested` → `composite` → `top_hits`，入口用合成時算好的 `entries`；[PDCA](../phase2-anomaly/2026-11-trace-segments-merged.md)）。資料品質仍讀 raw（看的是 span 的欄位） |
 | 實測環境 | Rancher Desktop 單節點、ES 8.19.23：`run-trace-e2e.sh` 7b 的 raw 21 個 trace 對 merged 21 筆、重跑不重複、權限正確；`run-rca-e2e.sh` 11 項過；單元測試 377 個過。排程器（含 `trace-merge` 每分鐘）24 項、`loop_e2e` 43 項、⑧⑨ 實跑 11 項、metrics-trace 15 項、keys 84 項、trace-id 15 項、kafka 9 項、peer-edge 6 項都過。正式環境沒跑過 |
-| ES 全部資料節點停機會掉資料（**已知風險，決定不處理**） | 測試 ES 改成兩個資料節點加一個只投票節點後（[PDCA](../phase1-collect/2026-11-es-two-pods.md)）：卡住任何一個資料節點，log、trace 都 0 遺失；兩個資料節點都停 180 秒仍掉（log 7,580／71,988 = 10.5%、trace 993／7,199 = 13.8%、metrics 空 209 秒），遺失集中在停機後 0～30 秒與 50～92 秒，其餘時間沒掉。單 Pod 時 trace 掉 35%（master 是 0，因為 trace 以前經 sampler 無限重試）。原因：Collector 的 ES 元件遇到連線逾時不重試；一直重試的 `retry`、`timeout: 0`、磁碟佇列早就開了，缺的只有這一種錯誤。log 遺失 master 也有（9,649 對 7,715）。**決定：不處理，記成已知風險——掛任何一個資料節點都安全，全停才會掉。**沒查全停時掉資料的具體錯誤種類；正式環境若 ES 前面有 LB 加健康檢查，連線黑洞會變成 503、Collector 會重試，風險可能更小（沒實測）；前案 [collector-es-exporter](2026-10-collector-es-exporter.md) 記過同一個限制 |
+| ES 全部資料節點停機會掉資料（**已知風險，決定不處理**） | 測試 ES 改成兩個資料節點加一個只投票節點後（[PDCA](../archive/phase1-collect/2026-11-es-two-pods.md)）：卡住任何一個資料節點，log、trace 都 0 遺失；兩個資料節點都停 180 秒仍掉（log 7,580／71,988 = 10.5%、trace 993／7,199 = 13.8%、metrics 空 209 秒），遺失集中在停機後 0～30 秒與 50～92 秒，其餘時間沒掉。單 Pod 時 trace 掉 35%（master 是 0，因為 trace 以前經 sampler 無限重試）。原因：Collector 的 ES 元件遇到連線逾時不重試；一直重試的 `retry`、`timeout: 0`、磁碟佇列早就開了，缺的只有這一種錯誤。log 遺失 master 也有（9,649 對 7,715）。**決定：不處理，記成已知風險——掛任何一個資料節點都安全，全停才會掉。**沒查全停時掉資料的具體錯誤種類；正式環境若 ES 前面有 LB 加健康檢查，連線黑洞會變成 503、Collector 會重試，風險可能更小（沒實測）；前案 [collector-es-exporter](../archive/meta/2026-10-collector-es-exporter.md) 記過同一個限制 |
 | `trace_quality` 測試 6 項失敗 | 已解決：3 項在測已廢止的隨機取 5%，已刪；抽樣太少的 2 項在每點抽 100 個後都過，B6a 由 `missing_if_equals` 解掉。整支 38 項全過（[PDCA](../phase2-anomaly/2026-11-trace-sample-100.md)） |
 | B8（unassigned 的 log 比例）單獨跑沒過 | 已重跑：資料品質那段單獨跑 21 項全過，B8 兩項都報了。之前失敗時測試 ES 剛跑完 durability、留著大量其他 log；現在過了，與「分母被墊大」的推測一致，但沒有直接證明（[PDCA](../phase2-anomaly/2026-11-trace-sample-100.md)） |
 
@@ -142,9 +142,9 @@
 | 項目 | 現況 | 來源 |
 |---|---|---|
 | ES 停 180 秒、中途重啟兩個 Collector，metrics 整段 0 筆 | 佇列裡的資料在 Collector 重啟時遺失；根因沒查 | [e2e-es8-rerun](2026-10-e2e-es8-rerun.md) |
-| 部署重整後五支 e2e 腳本沒在 cluster 上跑 | 它們的 helm 指令沒驗過 | [restructure-components](2026-10-restructure-components.md) |
+| 部署重整後五支 e2e 腳本沒在 cluster 上跑 | 它們的 helm 指令沒驗過 | [restructure-components](../archive/meta/2026-10-restructure-components.md) |
 | `run-metrics-scenarios.sh label` 修好後沒重跑；測試之間互相干擾（`rules` 抓到 rca 留下的服務） | 單獨跑會過，連著跑會誤判 | [e2e-es8-rerun](2026-10-e2e-es8-rerun.md) |
-| ES chart 沒帶 setup Job；設定靠 `--set-file`，用 CD 工具要另外處理 | setup 要讀 `code/storage/` 四十幾個檔，Helm 讀不到 chart 目錄外的檔 | [restructure-components](2026-10-restructure-components.md) |
+| ES chart 沒帶 setup Job；設定靠 `--set-file`，用 CD 工具要另外處理 | setup 要讀 `code/storage/` 四十幾個檔，Helm 讀不到 chart 目錄外的檔 | [restructure-components](../archive/meta/2026-10-restructure-components.md) |
 | 服務重名跨部門 | 只靠服務名的異常歸給其中一個部門，告警可能送錯 | [anomaly-owner](../phase2-anomaly/2026-10-anomaly-owner.md) |
 | LLM 逾時 60 秒、alert 時限 600 秒是估的 | 已量：用真的模型（OpenAI `gpt-6-luna`，公網）同一份報告輸入包打 5 次，每次 4.5～6.3 秒、中位數 5.1 秒，5 次都通過驗證；60 秒逾時約 10 倍餘裕，一輪 10 件新事故也只用 1 分鐘。只是單次實測，換模型或閘道要再量 | [fix-critical](../phase5-learning-loop/2026-10-fix-critical.md) |
 
@@ -180,7 +180,7 @@
 | 設備通訊（SECS）、REST API 的 log 還沒有規則 | 缺一般事件、告警、逾時、多行的真實樣本 | log/README.md |
 | 業務 ID（交易 ID）名稱未定 | log、metrics、trace 三份鑰匙圈都是 ❌ | log、metrics、trace |
 | metrics 沒有 `trace_id` | exemplar 寫進 ES 時被丟（ES 9.5.5、8.19.23 實測） | metrics/README.md |
-| 開 otlp 的服務 log 量兩倍 | 存量兩倍，統計推論也算兩次 | [log-trace-bind](../phase1-collect/2026-10-log-trace-bind.md) |
+| 開 otlp 的服務 log 量兩倍 | 存量兩倍，統計推論也算兩次 | [log-trace-bind](../archive/phase1-collect/2026-10-log-trace-bind.md) |
 | Collector 接回 16KB 長行、file＋OTLP 兩份未驗證 | 只用 `_simulate` 驗了 pipeline | 同上 |
 
 #### 9.5 模組缺口與過度設計

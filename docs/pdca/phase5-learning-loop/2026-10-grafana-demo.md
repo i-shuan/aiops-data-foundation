@@ -1,6 +1,6 @@
 # Grafana 上看得到：根因分析、老師傅回饋、回饋調門檻（2026-10）
 
-**狀態**：完成（60 分驗證：能跑通、有截圖；資料是模擬加 k3d 模擬服務）　　**日期**：2026-10-29　　**相關**：分支 `claude/grafana-demo-screens`；前置 [grafana-form](2026-10-grafana-form.md)、[rule-threshold](2026-10-rule-threshold.md)、[k3d-e2e](../phase1-collect/2026-10-k3d-e2e.md)
+**狀態**：完成（60 分驗證：能跑通、有截圖；資料是模擬加 k3d 模擬服務）　　**日期**：2026-10-29　　**相關**：分支 `claude/grafana-demo-screens`；前置 [grafana-form](2026-10-grafana-form.md)、[rule-threshold](2026-10-rule-threshold.md)、[k3d-e2e](../archive/phase1-collect/2026-10-k3d-e2e.md)
 **模組**：⑦ 根因分析、⑧ 出口、⑨ feedback
 
 ## Plan：這一次要達到什麼

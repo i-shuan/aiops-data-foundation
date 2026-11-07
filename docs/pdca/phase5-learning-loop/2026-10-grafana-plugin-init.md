@@ -1,6 +1,6 @@
 # Grafana 在 K8s 上用 initContainer 裝回饋表單外掛（2026-10）
 
-**狀態**：完成（這輪 docker 模擬驗過；K8s 行為之後在 k3d 驗過，見 [k3d-e2e](../phase1-collect/2026-10-k3d-e2e.md)）　　**日期**：2026-10-26　　**相關**：分支 `claude/grafana-initcontainer`；前置 [grafana-form](2026-10-grafana-form.md) 的做法 B
+**狀態**：完成（這輪 docker 模擬驗過；K8s 行為之後在 k3d 驗過，見 [k3d-e2e](../archive/phase1-collect/2026-10-k3d-e2e.md)）　　**日期**：2026-10-26　　**相關**：分支 `claude/grafana-initcontainer`；前置 [grafana-form](2026-10-grafana-form.md) 的做法 B
 **模組**：⑧ 出口、⑨ feedback
 
 ## Plan：這一次要達到什麼
@@ -52,7 +52,7 @@
 | 網址錯 | 404 | curl exit 22，失敗 |
 | 單元測試 | pytest（`file://`）、ruff | 過 |
 
-- **K8s 上的行為**（2026-10-27，[k3d-e2e](../phase1-collect/2026-10-k3d-e2e.md)）：`grafana-example.yaml` 裝好外掛；Pod 重建重裝；SHA-256 不符停在 `Init:Error`，舊 Pod 繼續服務。
+- **K8s 上的行為**（2026-10-27，[k3d-e2e](../archive/phase1-collect/2026-10-k3d-e2e.md)）：`grafana-example.yaml` 裝好外掛；Pod 重建重裝；SHA-256 不符停在 `Init:Error`，舊 Pod 繼續服務。
 
 ## Act：Check 後沒改善的、還沒解決的
 

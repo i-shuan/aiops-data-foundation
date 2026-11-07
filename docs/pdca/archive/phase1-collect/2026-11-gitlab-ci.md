@@ -1,6 +1,6 @@
 # 各元件的 GitLab CI：ES 結構設定、collector、aiops-engine、grafana 分開部署（2026-11）
 
-**狀態**：已完成（GitLab 上沒跑過）　　**日期**：2026-11-01　　**相關**：分支 `claude/gitlab-ci-es-grafana`；`elasticsearch/README.md`（已移除，改成 [kibana-dev-tools.txt](../../../elasticsearch/kibana-dev-tools.txt)）
+**狀態**：已完成（GitLab 上沒跑過）　　**日期**：2026-11-01　　**相關**：分支 `claude/gitlab-ci-es-grafana`；`elasticsearch/README.md`（已移除，改成 [kibana-dev-tools.txt](../../../../elasticsearch/kibana-dev-tools.txt)）
 **模組**：① 收值、③ 存、④～⑨ AIOps、⑧ 出口
 
 ## Plan：這一次要達到什麼
