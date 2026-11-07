@@ -62,6 +62,6 @@ class Rule(Strict):
 
 
 class RulesConfig(Strict):
-    interval: Dur | None = None              # 沒寫用 1 分鐘（Detector.interval_default）
-    lookback: Dur = "10m"                    # 每條規則看最近多久（規則自己可以寫）
+    interval: Dur = "1m"   # 同一條規則、同一個對象，這麼久內只記一筆（重跑不會重複）（stamp 取整的粒度）
+    lookback: Dur = "10m"   # 讀最近多久的資料（要比每條規則的 for 長）（每條規則看最近多久（規則自己可以寫））
     rules: list[Rule] = []

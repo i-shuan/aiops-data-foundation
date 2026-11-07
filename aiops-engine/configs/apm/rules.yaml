@@ -2,9 +2,6 @@
 # APM 只有應用層的資料：保底的錯誤率、p95 兩條能用；K8s 狀態（重啟、Pending、節點）、kubelet、cAdvisor、ntp、JVM／.NET runtime
 # 那些 APM 不收，沒列。agent 有送 system metrics（metrics-apm.app.*）或 JVM metrics 時再加。
 
-interval: 1m
-lookback: 10m
-
 _tx: &tx metrics-apm.transaction.1m-*
 _hist: &hist transaction.duration.histogram
 _txf: &txf {bool: {filter: [{term: {metricset.name: transaction}}, {term: {transaction.type: request}}]}}

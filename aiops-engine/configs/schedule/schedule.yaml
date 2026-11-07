@@ -8,7 +8,6 @@
 #
 # 第一階段只開 4 個（rules、detect、alert、train）：能跑通「告警 → 回饋 → 調門檻」這一圈的最少集合，偵測來源少，
 # 第一個月誤報來了容易知道是哪裡出的；四個在真實資料上跑穩、看過一輪誤報再開 stage 2（建議順序：quality → peer → trace 三個 → chronic）。
-timezone: Asia/Taipei
 jobs:
   - name: rules
     stage: 1

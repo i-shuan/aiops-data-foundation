@@ -2,7 +2,6 @@
 # engine 不自己判 FDC 感測值。右邊的欄位名全是假設（沒有 ML 輸出、FDC 的樣本），拿到樣本換右邊；左邊的 keys 名字
 # （equipment、chamber、recipe、step、lot、parameter）是後面收斂、根因分析認的，不要改。
 # 離線跑假資料：tests/factory_e2e.py 把假資料寫進 ES 再跑整條鏈（ingest 只讀 ES）。
-timezone: Asia/Taipei
 
 inputs:
   # ML 團隊的異常跳點：一個 run（一個 lot 在一個 chamber 跑一個 recipe step）一個參數一筆

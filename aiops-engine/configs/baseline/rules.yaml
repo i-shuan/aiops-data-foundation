@@ -4,9 +4,6 @@
 #
 # 門檻是常見的起始值，依現場的誤報、漏報再調。
 
-interval: 1m      # 同一條規則、同一個對象，1 分鐘內只記一筆（重跑不會重複）
-lookback: 10m     # 讀最近多久的資料（要比每條規則的 for 長）
-
 # 共用的維度（resource.attributes.*）
 _ns: &ns resource.attributes.k8s.namespace.name
 _pod: &pod resource.attributes.k8s.pod.name

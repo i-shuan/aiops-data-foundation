@@ -21,5 +21,5 @@ class Job(Strict):
 
 
 class ScheduleConfig(Strict):
-    timezone: Tz = "UTC"
+    timezone: Tz = "Asia/Taipei"
     jobs: list[Job] = []

@@ -13,15 +13,15 @@ from detect.config.types import Detect, Status, Train, Value
 # ── series.yaml ──
 
 class AdaptiveMinEvents(Strict):
-    rate: NonNeg = 20                        # 比例、百分位：每個時間窗至少幾個事件才判斷
-    count: NonNeg = 10
+    rate: NonNeg = 20   # 比例、百分位類每窗至少 20 個請求（比例、百分位：每個時間窗至少幾個事件才判斷）
+    count: NonNeg = 10   # 筆數類每窗至少 10 筆
     gauge: NonNeg = 10
 
 
 class Adaptive(Strict):
     resolutions: list[Dur] | None = None     # 沒寫用 dynamic_baseline.RESOLUTIONS
     min_events: AdaptiveMinEvents = AdaptiveMinEvents()
-    coverage: Ratio = 0.3
+    coverage: Ratio = 0.3   # 至少三成的時間窗夠（只有白天有人用的 API 也算）
 
 
 class Group(Strict):
@@ -30,8 +30,8 @@ class Group(Strict):
 
 
 class Borrowing(Strict):
-    min_members: PosInt = 3
-    z: NonNeg = 7.0
+    min_members: PosInt = 3   # 組裡至少幾個成員有自己的 baseline，才算得出組 baseline
+    z: NonNeg = 7.0   # 借來的門檻調高
     resolution: Dur | None = None            # 沒寫用 adaptive 最粗的那個
 
 
@@ -74,8 +74,8 @@ class Series(Strict):
 
 class SeriesConfig(Strict):
     interval: Dur = "5m"
-    history_weeks: PosInt = 4
-    fine_history: Dur = "14d"                # 5 分鐘以下的粒度只學最近這麼久
+    history_weeks: PosInt = 4   # 學過去幾週
+    fine_history: Dur = "14d"   # 5 分鐘以下的粒度只學最近這麼久（30 秒一點 4 週是 8 萬點）（5 分鐘以下的粒度只學最近這麼久）
     lag: Dur = "0s"                          # 資料寫進來的延遲，最近這麼久的不判斷
     timezone: Tz | None = None
     adaptive: Adaptive | None = None         # 沒寫＝全部用 interval 這一個粒度

@@ -491,8 +491,8 @@
   },
   "calendar_file": null,
   "detect": {
-   "abs_floor": null,
-   "alpha": null,
+   "abs_floor": 1e-09,
+   "alpha": 0.001,
    "rel_floor": 0.05,
    "z": 5
   },
@@ -960,7 +960,7 @@
   "train": {
    "min_days": 3,
    "min_points": 50,
-   "min_slot_points": null,
+   "min_slot_points": 6,
    "min_weeks": 2,
    "timezone": "Asia/Taipei"
   }
@@ -968,8 +968,8 @@
  "configs/apm/trace.yaml": {
   "clock_skew_ms": 500,
   "detect": {
-   "abs_floor": null,
-   "alpha": null,
+   "abs_floor": 1e-09,
+   "alpha": 0.001,
    "rel_floor": 0.1,
    "z": 5
   },
@@ -1009,7 +1009,7 @@
   "train": {
    "min_days": 3,
    "min_points": 50,
-   "min_slot_points": null,
+   "min_slot_points": 6,
    "min_weeks": 2,
    "timezone": "Asia/Taipei"
   }
@@ -3429,8 +3429,8 @@
   },
   "calendar_file": null,
   "detect": {
-   "abs_floor": null,
-   "alpha": null,
+   "abs_floor": 1e-09,
+   "alpha": 0.001,
    "rel_floor": 0.05,
    "z": 5
   },
@@ -3849,7 +3849,7 @@
   "train": {
    "min_days": 3,
    "min_points": 50,
-   "min_slot_points": null,
+   "min_slot_points": 6,
    "min_weeks": 2,
    "timezone": "Asia/Taipei"
   }
@@ -3857,8 +3857,8 @@
  "configs/baseline/trace.yaml": {
   "clock_skew_ms": 500,
   "detect": {
-   "abs_floor": null,
-   "alpha": null,
+   "abs_floor": 1e-09,
+   "alpha": 0.001,
    "rel_floor": 0.1,
    "z": 5
   },
@@ -3898,7 +3898,7 @@
   "train": {
    "min_days": 3,
    "min_points": 50,
-   "min_slot_points": null,
+   "min_slot_points": 6,
    "min_weeks": 2,
    "timezone": "Asia/Taipei"
   }

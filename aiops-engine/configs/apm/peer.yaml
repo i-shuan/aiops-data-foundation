@@ -3,12 +3,7 @@
 # kubernetes.pod.name 要 agent 拿得到 K8s metadata 才有，不一定每個服務都有。
 # CPU、記憶體的比對要 metrics-apm.app.*（agent 的 system metrics），公司的資料流沒有，沒列。
 
-window: 10m
-z: 5
 z_by_peers: {2: 3, 3: 4, 4: 4}
-rel_floor: 0.1
-min_peers: 3
-fresh: 2m
 warmup: 5m
 
 _tx: &tx metrics-apm.transaction.1m-*

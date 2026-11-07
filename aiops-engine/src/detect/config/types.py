@@ -10,19 +10,21 @@ Value = Literal["count"] | dict[str, Any]      # count 或 {sum|avg|max|min|perc
 
 class Train(Strict):
     """dynamic_baseline.TrainOptions(**series_config.train.model_dump(exclude_none=True))：欄位要跟 dataclass 一樣。"""
-    timezone: Tz | None = None
-    min_weeks: PosInt | None = None
-    min_days: PosInt | None = None
-    min_points: PosInt | None = None
-    min_slot_points: PosInt | None = None
+    # 預設值跟 dynamic_baseline.TrainOptions 一樣（tests/test_config_defaults.py 鎖著）
+    timezone: Tz = "Asia/Taipei"   # 週期依工廠當地時間（換班、上下班）
+    min_weeks: PosInt = 2   # 「同星期幾 × 同小時」至少要有 2 天，不夠就退到「每天同小時」
+    min_days: PosInt = 3   # 「每天同小時」至少要有 3 天，不夠就退到「不分時段」
+    min_points: PosInt = 50
+    min_slot_points: PosInt = 6
 
 
 class Detect(Strict):
     """dynamic_baseline.DetectOptions(**…detect.model_dump(exclude_none=True))。"""
-    z: NonNeg | None = None
-    rel_floor: NonNeg | None = None
-    abs_floor: NonNeg | None = None
-    alpha: Ratio | None = None
+    # 預設值跟 dynamic_baseline.DetectOptions 一樣（tests/test_config_defaults.py 鎖著）
+    z: NonNeg = 5.0   # 離平常 5 倍穩健標準差才算異常
+    rel_floor: NonNeg = 0.05   # 平常幾乎不動的序列，波動至少當成平常值的 5%
+    abs_floor: NonNeg = 1e-9
+    alpha: Ratio = 0.001
 
 
 class Status(Strict):

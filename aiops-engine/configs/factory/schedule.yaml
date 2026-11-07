@@ -1,6 +1,5 @@
 # 工廠版的排程表（chart 的 values source: factory 會用這份；格式見 configs/schedule/schedule.yaml）。
 # 沒有 train／detect／rules／peer／trace-*：異常由 ML、FDC 判，engine 從 ⑤ 開始接（ingest）；trace 換成履歷（paths-merge）。
-timezone: Asia/Taipei
 jobs:
   - name: ingest
     stage: 1

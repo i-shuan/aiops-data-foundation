@@ -13,13 +13,8 @@
 # 同一個服務的 Pod 本來就不會一模一樣（分到的請求不同、快取冷熱），所以門檻比 baseline 寬：
 # rel_floor 10%（其他 Pod 幾乎一樣時，差距至少當成中位數的 10%），再加上 min_abs、min_ratio 兩道。
 
-window: 10m
-z: 5
 z_by_peers: {2: 3, 3: 4, 4: 4}   # 其他 Pod 只有 2～4 個時門檻放低：它們之間的差距沒統計意義（新舊 Pod 本來就差幾十 MB 會把分母撐大），
                                  # 靠 min_abs、min_ratio 擋誤報。3 個 Pod 一個洩漏（420 vs 251、163MB）z 只有 3.3，用 5 抓不到
-rel_floor: 0.1
-min_peers: 3          # 至少 3 個 Pod 才比（2 個的話分不出誰才是怪的）
-fresh: 2m            # 最近 2 分鐘還有資料的 Pod 才算（換版、縮容刪掉的不算）
 warmup: 5m           # 起來不到 5 分鐘的 Pod 不比（啟動時 CPU 高、記憶體還在長，會誤報自己或舊 Pod）；要比 window 短
 
 _ns: &ns resource.attributes.k8s.namespace.name

@@ -1,6 +1,5 @@
 # 只有指標（AIOPS_PLUGIN=metrics_only）的排程表：ML／FDC 判好的異常接進 ⑤、同機台合成一件、根因只看 log 與事故前的變更。
 # 沒有 paths-merge（沒有 MES 履歷）、沒有 train／detect／rules／peer／trace-*。格式見 configs/schedule/schedule.yaml
-timezone: Asia/Taipei
 jobs:
   - name: ingest
     stage: 1

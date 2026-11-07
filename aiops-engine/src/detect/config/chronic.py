@@ -34,9 +34,9 @@ class ChronicSource(Strict):
 
 
 class ChronicConfig(Strict):
-    days: PosInt = 7                         # 看最近幾個「完整的日子」
-    min_days: PosInt = 6                     # 幾天裡至少幾天有才算慢性（來源可以自己寫）
-    top: PosInt = 10
+    days: PosInt = 7   # 看最近幾天（看最近幾個「完整的日子」）
+    min_days: PosInt = 6   # 至少幾天有出現才算慢性病（7 天裡 6 天：週末量少那天沒出現也算）（幾天裡至少幾天有才算慢性（來源可以自己寫））
+    top: PosInt = 10   # 每個來源列前幾名
     timezone: Tz = "Asia/Taipei"
     sources: list[ChronicSource] = []
     owners: list[dict[str, Any]] = []

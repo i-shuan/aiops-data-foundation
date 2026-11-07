@@ -1,24 +1,17 @@
 # 只有指標（AIOPS_PLUGIN=metrics_only）的事件整合、根因分析設定。跟 configs/factory/rca.yaml 一樣，差在沒有履歷：
 # 不需要 indices.traces；報告只有異常、log、事故前的變更、結論（plugins/metrics_only）；不併跨機台。
 indices:
-  anomalies: aiops-anomalies
   logs: eqp-logs-*                                   # 機台 alarm（S5F1）、PM／維修紀錄、recipe 變更，合在一個索引（欄位見 plugins/factory/__init__.py）
-timezone: Asia/Taipei
-compare_with: 7d                                     # log 的「平常」拿一週前同一段比
 interval: 30m
 
 changes:                                             # 報告的「事故前的變更」：出事前 lookback 內這台的 PM、recipe 變更（logs 索引裡 query 符合的）
-  lookback: 12h
   query: {terms: {event_type: [pm, recipe_change]}}
 
 alerts:
   close_after: 2h                                    # 兩筆異常隔 2 小時內算同一件
   lookback: 8h
-  rca: true
   rca_lead: 1h                                       # 根因分析的窗從第一筆異常往前 1 小時：ML 是 run 結束才報
   rca_retry: false                                   # 沒有履歷就沒有「等履歷合成完再跑一次」的理由
-  similar: true
-  llm: true
   llm_provider: template                             # 廠內多半不能用外部 LLM：固定句型，不叫模型
   chain: false                                       # 沒有履歷，不併跨機台（plugin 本來就不併；寫明）
   severity:

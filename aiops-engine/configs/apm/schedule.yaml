@@ -1,6 +1,5 @@
 # 資料來源是 Elastic APM 時的排程表（chart 的 values `source: apm` 會用這份；格式見 configs/schedule/schedule.yaml）。
 # 少了 quality（資料品質檢查整份是 OTel 專用）和 chronic（讀 k8s-*）；其餘指令同、設定檔換成 configs/apm/。
-timezone: Asia/Taipei
 jobs:
   - name: rules
     stage: 1

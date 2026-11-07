@@ -1,7 +1,6 @@
 # 工廠 ⑦ 履歷合成器（detector paths-merge，只有 AIOPS_PLUGIN=factory 有這個子命令；程式 detect/trace/path_builder.py）：MES 進出站＋S6F11 機台事件 → 一個 lot 一筆 lot-paths-*，
 # 格式跟 traces-merged-* 一樣，M4、根因分析、前後站都照舊。欄位名全是假設（沒有 MES、EAP 樣本），拿到樣本換 fields 右邊。
 # 離線跑假資料：tests/factory_e2e.py 把假 MES、事件寫進 ES 再跑（paths-merge 只讀 ES）。
-timezone: Asia/Taipei
 group: fab1                      # index 名：lot-paths-fab1-<日期>；或 group_field: area 從 MES 列讀
 dept_field: dept                 # MES 列裡的部門（選填；Grafana 依它分送）
 

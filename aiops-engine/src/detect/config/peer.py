@@ -39,7 +39,7 @@ class PeerConfig(Strict):
     z: NonNeg = 5.0
     z_by_peers: dict[int, NonNeg] = {}       # {同儕數: z}，同儕少時放寬
     rel_floor: NonNeg = 0.1
-    min_peers: PosInt = 3
-    fresh: Dur = "2m"                        # 最近這麼久內還有資料的才算現在還在的 Pod
+    min_peers: PosInt = 3   # 至少幾個 Pod 才比（2 個的話分不出誰才是怪的）
+    fresh: Dur = "2m"   # 最近這麼久還有資料的 Pod 才算（換版、縮容刪掉的不算）（最近這麼久內還有資料的才算現在還在的 Pod）
     warmup: Dur | None = None                # 剛起來的 Pod 不比
     checks: list[PeerCheck] = []

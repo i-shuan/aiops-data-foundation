@@ -3,7 +3,6 @@
 #
 # 不在這裡的（不清）：aiops-incidents、aiops-feedback、aiops-tuning（人工判斷，事故紀錄要長留，備份見 elasticsearch/kibana-dev-tools.txt 第 5 段）、
 # aiops-baseline（每天 train 覆蓋）、aiops-state（一筆）、aiops-log-stats（有自己的 ILM）。
-timezone: Asia/Taipei
 indices:
   - index: aiops-anomalies            # 異常總表：回饋、回測最多看 4 週；事故的 anomaly_ids 對不到舊異常時只影響「每個異常各一筆回饋」，退回一件一筆
     time_field: "@timestamp"

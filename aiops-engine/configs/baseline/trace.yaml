@@ -1,36 +1,10 @@
 # trace 每一段的 baseline（detector/trace.py）：每個 API 的每個請求，呼叫每一段幾次、花多久、出錯比例。
 # 對應的案例見 docs/rca/README.md：N+1、重試風暴、快取穿透（次數）；拖累、熱點鎖（時間）。
-traces_index: traces-merged-*         # 合成一個請求一筆（engine 每分鐘 trace-merge 寫的，留 7 天）：入口用合成時算好的 entries。寫 raw 的測試用 traces-*.otel-* 也可以
-interval: 5m              # 每 5 分鐘一個點
-history_weeks: 4
-sample_per_bucket: 100    # 每 5 分鐘、每個 API 抽幾個請求來算。100 是 ES top_hits 的預設上限（index.max_inner_result_window），再大要改索引設定。
-                          # 20 個時，平常 3% 的慢請求讓平均值飄太大，10% 請求變慢報不出來、2% 吞例外在單一點就到 5% 門檻（docs/pdca/phase2-anomaly/2026-11-trace-sample-100.md）
-min_requests: 5           # 這 5 分鐘抽到的請求少於這個數，不判斷（太少，平均不準）
-clock_skew_ms: 500        # 呼叫方與被呼叫方的時間差超過這個就算時鐘不同步（規則，不用學）
 
+# 只寫跟預設值不同的鍵：索引、取樣、train／detect、metrics 的門檻、merge 的等待時間都用模型的預設（detect/config/trace.py，每個值的來由寫在那裡）。
 # trace-merge（排程器每分鐘跑）：raw 裡這一分鐘有新 span 的 trace 全部重新合成一筆，寫 traces-merged-<group>-<日期>
-raw_index: traces-generic.otel-*
-merge:
-  settle_seconds: 10     # 剛寫進 ES 的 span 等 refresh；合到「現在 − 這幾秒」
 
 # 不用學的規則：baseline 會把「從上線第一天就有的壞味道」學成平常，所以另外設門檻
 rules:
   repeated_calls: 20      # 同一個請求裡，同一個往外的呼叫（同一句 SQL、同一個下游）平均 ≥ 20 次：N+1、迴圈裡打 API
   swallowed_rate: 0.05    # 這一段 ≥ 5% 的請求丟了例外、卻沒標成錯誤（catch 掉、回 200）
-
-train:
-  timezone: Asia/Taipei
-  min_weeks: 2
-  min_days: 3
-  min_points: 50
-
-detect:
-  z: 5
-  rel_floor: 0.1          # 每個請求呼叫幾次這種數字很穩（MAD 常常是 0），波動至少當成平常值的 10%
-
-# 三種數字各自怎麼判斷
-metrics:
-  calls:      {direction: both, min_abs: 0.5}    # 每個請求至少多（或少）0.5 次：N+1、重試、快取穿透；少了可能是功能沒跑
-  time_ms:    {direction: up,   min_abs: 20}     # 至少多 20 毫秒：拖累、熱點鎖、慢查詢
-  error_rate: {direction: up,   min_abs: 0.05}   # 至少多 5 個百分點
-  swallowed_rate: {direction: up, min_abs: 0.05} # 吞掉的例外變多：至少多 5 個百分點

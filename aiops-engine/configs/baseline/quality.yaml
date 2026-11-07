@@ -18,8 +18,6 @@
 # 建議每 10 分鐘跑一次：python3 -m main detector quality --config configs/baseline/quality.yaml
 
 interval: 10m       # 同一個檢查、同一個對象，10 分鐘內只記一筆（重跑不會重複）
-window: 1h
-ref_offset: 24h
 
 _svc: &svc resource.attributes.service.name
 # Pod 沒有 service label 時，Collector 把 service.name 補成 container 名稱（例如 app）：欄位有值但對不到服務，要算缺

@@ -10,33 +10,15 @@
 #   - 往外呼叫在 metrics-apm.service_destination.1m-*：只有次數和耗時總和，算平均（div），沒有 p95
 
 interval: 1m          # APM 的指標是每分鐘一筆
-history_weeks: 4
-fine_history: 14d
 lag: 90s              # apm-server 在那一分鐘結束後才算、才寫；再加 ES refresh
 
 adaptive:
   resolutions: [1m, 5m, 15m, 30m, 1h]
-  min_events: {rate: 20, count: 10}
-  coverage: 0.3
 
 status:
   confirm_points: 2
   confirm_span: 30m
   instant_z: 15
-
-borrowing:
-  min_members: 3
-  z: 7
-
-train:
-  timezone: Asia/Taipei
-  min_weeks: 2
-  min_days: 3
-  min_points: 50
-
-detect:
-  z: 5
-  rel_floor: 0.05
 
 # 共用的片段
 _tx: &tx metrics-apm.transaction.1m-*

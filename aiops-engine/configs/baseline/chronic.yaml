@@ -2,11 +2,6 @@
 # 每週跑一次（例如週一早上）：python3 -m main detector chronic --config configs/baseline/chronic.yaml
 # 結果寫 aiops-chronic（每週一份），並印成報告；修掉的下週自然消失。
 
-days: 7          # 看最近幾天
-min_days: 6      # 至少幾天有出現才算慢性病（7 天裡 6 天：週末量少那天沒出現也算）
-top: 10          # 每個來源列前幾名
-timezone: Asia/Taipei
-
 sources:
   # 錯誤 log：依服務 × 例外種類（error.type；沒有的歸成「（無）」）
   - name: chronic.log_errors
