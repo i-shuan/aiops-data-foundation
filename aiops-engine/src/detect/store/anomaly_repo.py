@@ -6,6 +6,7 @@ from datetime import datetime
 from common.infra.env import ENGINE_VERSION
 from detect.store.models import ANOMALY_INDEX, ANOMALY_MAPPING, RULE_FIELDS
 from common.infra.es import Repository
+from common.scenario.mapping import effective
 from data.store.owner_repo import load_all_owners, owner_of
 
 
@@ -48,7 +49,7 @@ class AnomalyRepository(Repository):
         """每筆帶 engine_version、dept／group（keys 裡的 namespace／服務對回去，找不到 unassigned）。空的不碰 ES。"""
         if not docs:
             return
-        owners = load_all_owners(self.es, self.scenario.owners)
+        owners = load_all_owners(self.es, effective(self.scenario, self.es).owners)   # 核准過的欄位對照覆寫（aiops-mapping）蓋在 yaml 上
         for _, d in docs:
             d["engine_version"] = ENGINE_VERSION
             d["dept"], d["group"] = owner_of(d.get("keys"), owners, self.scenario.entity_keys)

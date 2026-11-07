@@ -1,8 +1,6 @@
 # 欄位對照（mapper）可以在網頁上調：存哪裡、進版會不會被洗掉（2026-11）
 
-> ⚪ 構想，尚未實作（這份只有 Plan：使用者問「能不能 UI 設定、調完寫進 yaml、要不要資料庫、Dockerfile 內建資料庫進版會不會被清」）
-
-**狀態**：Plan　　**日期**：2026-11-07　　**相關**：分支 `claude/mapping-ui`（從 `claude/source-adapter` 開：要用到那邊的來源適配器與自我檢查，那條還沒合回 master）
+**狀態**：已完成第一版（歸屬與 log；要核准）　　**日期**：2026-11-07　　**相關**：分支 `claude/mapping-ui`（從 `claude/source-adapter` 開：要用到那邊的來源適配器與自我檢查，那條還沒合回 master）
 **模組**：②（讀進來的欄位對照）、⑧⑨（engine 的網頁）
 
 ## Plan：這一次要達到什麼
@@ -57,6 +55,36 @@ ES 的 aiops-config（網頁改的）      ← 執行時調的，即時生效、
 2. **改了要不要人核准**（像 `aiops-tuning` 的 proposed → active）？還是改了就生效？
 3. **第一版要做多大**：只做歸屬與 log 的欄位（最常因環境不同要改的），還是序列也一起？
 
-## Do／Check／Act
+## 使用者的決定
 
-還沒開始。
+要核准；第一版先做歸屬與 log。「誰可以改」沒有另外指定，所以照調整（`aiops-tuning`）的做法：**誰都能提**（網頁、命令列），**核准只在命令列**（有權限進 pod、跑排程的人）。
+
+## Do
+
+| 檔案 | 改了什麼 | 為何 |
+|---|---|---|
+| `src/common/scenario/mapping.py`（新） | 索引 `aiops-mapping` 與 mapping、開放的欄位（`EDITABLE`：owner 5 個、log 6 個）、`check_value`、`apply`（把生效的覆寫蓋到情境上，回新的，不動原本的）、`MappingRepository`、`effective`（讀生效的覆寫並套上；讀不到照 yaml；常駐程序 60 秒內重用） | 覆寫是「情境資料檔」的一層，跟情境放在一起；`common` 不依賴功能資料夾 |
+| `src/data/mapping_service.py`（新） | `current`（每個欄位：yaml 的值、現在用的、被誰覆寫）、`try_value`（對真的資料抽樣）、`propose`、`approve`（核准前再試一次，對不上不給，`force` 才行；同一個欄位舊的生效那筆改 disabled）、`set_status`（reject、disable） | 「讀進來時欄位叫什麼」是 ② 清資料的事；試的時候用階段 2 的 `data/source/check.py` |
+| `src/detect/store/anomaly_repo.py`、`src/incident/store/log_repo.py` | 讀歸屬、讀 log 時用 `effective(self.scenario, self.es)` | 只有這兩處用 owner、log 的欄位名；影響範圍就鎖在這兩處 |
+| `src/interface/cli/mapping.py`（新） | `detector mapping list／try／propose／approve／reject／disable` | 核准在命令列 |
+| `src/interface/web/`（`routes.py`、`views.py`、`templates/mapping.html`） | `GET /mapping`（現在生效的、提過的）、`POST /mapping`（先試不存、提出待核准） | 網頁只能看與提 |
+
+## Check
+
+| 為了確認什麼 | 怎麼測 | 結果 |
+|---|---|---|
+| 只開放歸屬與 log、值寫錯就擋 | `tests/test_mapping.py::Validate` | 未開放的欄位、`series.*`、空值、空清單都擋 |
+| 只有核准的才生效、yaml 不被動、ES 掛了照 yaml、壞的一筆不擋其他筆、並存時改得到次要來源 | `Apply` | 都如預期 |
+| 流程：提了不生效、核准後生效、資料裡沒有的欄位不給核准、新核准停用舊的、停用回到 yaml、狀態不能亂跳 | `Flow` | 都如預期 |
+| 網頁：看得到、先試不存、提出、錯的回 400 說原因 | `Page`（FastAPI TestClient） | 都如預期 |
+| **真的 ES** | `tests/mapping_e2e.py`：APM 合成資料，把部門從 `labels.dept` 改成 `labels.group`，每一步之後跑一次 `detector rules`、看新寫的異常的 `dept` | 沒覆寫 D3120 → 提了沒核准 D3120 → 核准後 **mes** → 資料裡沒有的欄位核准被擋 → 停用後回到 D3120；`mapping list` 看得到三筆的狀態。全部通過 |
+| 其他沒壞 | 全測試（含 helm） | 870 個過 |
+
+## Act
+
+- **網頁沒有登入**：誰都能「提」，但提了不生效；核准只能在命令列，所以「能改的人」＝能進 pod 的人。要網頁上核准，得先有登入或 API key。
+- **只做了歸屬與 log**；序列（`series.yaml`）、trace 的 `raw_index` 還要改設定檔（第二版）。
+- **`log.problem_levels` 是值不是欄位名**，抽樣看不出對錯，核准時會列成「試不了」，要人自己確認（`--force`）。
+- **log 的主要來源**：試的時候用情境資料檔裡的 `log.index`；但實際讀 log 的索引是 `rca.yaml` 的 `indices.logs`，兩者不一樣時，試的結果不代表實際。
+- **換版後**，新的 yaml 若改了同一個欄位，覆寫仍會蓋過去；網頁會並列「現在用的」與「yaml 的值」，但沒有特別警告「yaml 在你核准之後改過」。
+- **沒有「匯出成 yaml」**（Plan 寫了，第一版沒做）。

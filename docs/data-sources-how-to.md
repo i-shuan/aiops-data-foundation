@@ -27,6 +27,17 @@
 9. **對真實資料跑一次**：`python3 -m main detector trace-merge --config configs/<名字>/trace.yaml`，看有沒有 `UnknownSourceError`、`traces-merged-*` 的文件對不對；再跑 `investigator investigate` 看報告找不找得到那一段。
 10. **更新文件**：[data-sources-reference.md](data-sources-reference.md) 的對照表加一欄，`docs/README.md` 若新增檔案要更新。
 
+## 只是欄位名不一樣：不用寫程式，在網頁上改
+
+歸屬（服務、namespace、部門、群組在哪個欄位）與 log（服務、等級、trace id、訊息在哪個欄位）的欄位名，可以不改 yaml、不重新部署：
+
+1. 打開 engine 的 `/mapping`，挑來源與欄位、填新的欄位名，按「先試一下」：抽 20 筆真的資料，看這個欄位有沒有出現。
+2. 試過了按「提出」：存成待核准（還沒生效）。
+3. 有權限的人核准：`python3 -m main detector mapping approve --id <id> --by <你>`（核准前會再試一次，資料裡沒有就不給，`--force` 才行）。下一輪工作就用新的。
+4. 改錯了：`detector mapping disable --id <id> --by <你>`，回到 yaml 的值。
+
+存在 ES 的 `aiops-mapping`，換 engine 的 image 不會洗掉。穩定之後把它寫回 yaml（進 git）比較好。第一版只開放歸屬與 log；序列、trace 的索引還是改設定檔。
+
 ## 常見的坑
 
 - **耗時單位**：OTel 奈秒、APM 微秒。換算錯一千倍不會報錯，只是所有慢請求都不見了或全部變慢。

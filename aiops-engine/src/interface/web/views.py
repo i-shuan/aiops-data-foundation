@@ -8,6 +8,8 @@ from jinja2 import Environment, FileSystemLoader
 
 from interface.web.dto import RCA_QUESTIONS, RCA_USEFUL, SERIES_NAMES, TIMEZONE, VERDICTS
 from common.scenario import Scenario, load_scenario
+import data.mapping_service as MAP
+from common.scenario.mapping import EDITABLE, MappingRepository, profiles
 
 TEXT_HINT = "選填。一句話說這件怎麼回事，系統會抽成結構化欄位、提一筆待審核的調整建議；例：「這是每月初的批次匯出報表，屬於預期內負載」"
 _env = Environment(loader=FileSystemLoader(str(Path(__file__).resolve().parent / "templates")), autoescape=True, trim_blocks=True, lstrip_blocks=True)
@@ -40,3 +42,14 @@ def render_missed(done: dict | None = None, error: str | None = None, form: dict
 
 def render_report(alert: dict) -> str:
     return _env.get_template("report.html").render(alert=alert)
+
+
+def render_mapping(es, sc: Scenario, done: dict | None = None, error: str | None = None, form: dict | None = None, tried=None) -> str:
+    """欄位對照的網頁：現在生效的值（標出被覆寫的）、提一筆的表單（可以先試）、提過的清單。核准不在這裡（命令列）。"""
+    try:
+        rows, history = MAP.current(es, sc), MappingRepository(es).all()[:50]
+    except Exception as e:  # noqa: BLE001  ES 連不上：頁面照樣出來，說清楚
+        rows, history, error = [], [], error or f"讀不到 ES（{type(e).__name__}：{str(e)[:120]}）"
+    return _env.get_template("mapping.html").render(rows=rows, history=history, done=done, error=error, tried=tried,
+                                                    f={k: str(v or "") for k, v in (form or {}).items()}, sources=list(profiles(sc)), editable=EDITABLE)
+

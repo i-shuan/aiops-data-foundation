@@ -67,6 +67,24 @@ metrics、log 的對照（索引、欄位、單位 `scale`、直方圖桶、粒�
 | 讀回來之後 | `to_span(doc)` | 依序問每個適配器 `can_handle`，第一個認得的翻；**都不認得丟 `UnknownSourceError`**（訊息列出文件有的欄位，不默默當成 OTel） |
 | 合成後的索引（`traces-merged-*`、`lot-paths-*`） | `is_merged(index)` | 看索引名；這是 engine 自己的格式，不是來源 |
 
+## 欄位對照的覆寫（`aiops-mapping`）
+
+情境資料檔（`it_otel.yaml`、`it_apm.yaml`）的 `owner`、`log` 是基準；ES 的 `aiops-mapping` 裡**核准過**的覆寫在每次讀時蓋上去（`common/scenario/mapping.py`）。
+
+| 開放的欄位 | |
+|---|---|
+| `owner` | `index`、`namespace`、`service`、`dept`、`group` |
+| `log` | `index`、`service`、`level`、`trace_id`、`message`（清單）、`problem_levels`（清單） |
+
+| 狀態 | 意思 |
+|---|---|
+| `proposed` | 提了，還沒生效 |
+| `active` | 核准了，生效中；同一個欄位新的核准會把舊的改成 `disabled` |
+| `rejected` | 沒核准 |
+| `disabled` | 停用，回到 yaml 的值 |
+
+讀不到 ES 時照 yaml；一筆覆寫寫錯（欄位沒開放、來源沒在用）只略過那一筆。怎麼操作見 [data-sources-how-to.md](data-sources-how-to.md)。
+
 ## 目前的限制
 
 - **並存的限制**（[../aiops-engine/configs/mixed/README.md](../aiops-engine/configs/mixed/README.md)）：同一個服務不要兩邊都送；序列的 `name` 不能重複；`interval`、`lag` 整份一個值；log 只有「這個請求的 log」與 warn／error 會查兩個來源。

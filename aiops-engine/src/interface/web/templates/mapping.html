@@ -1,0 +1,37 @@
+<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><title>欄位對照</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>body{font-family:system-ui,sans-serif;max-width:1000px;margin:24px auto;padding:0 16px;line-height:1.5}
+table{border-collapse:collapse;width:100%;font-size:14px;margin:8px 0 20px}td,th{border:1px solid #ddd;padding:4px 6px;text-align:left;vertical-align:top}
+th{background:#f4f4f4}code{background:#f4f4f4;padding:0 3px}.ov{background:#fff7e0}.ok{background:#e6f7e6;padding:10px}.err{background:#fde8e8;padding:10px}
+.warn{background:#fff7e0;padding:10px}label{display:block;margin-top:10px;font-weight:600}input,select,textarea{width:100%;padding:6px;font-size:15px}
+button{margin-top:14px;padding:8px 18px;font-size:15px;margin-right:8px}.hint{font-weight:400;color:#666;font-size:13px}</style></head><body>
+<h2>欄位對照（歸屬、log 的欄位名）</h2>
+<p class="hint">設定檔（yaml）是基準；這裡可以<b>提</b>覆寫，<b>核准後</b>下一輪工作就用新的，不用重新部署、換版也不會洗掉（存在 ES 的 aiops-mapping）。
+核准只能用命令列：<code>python3 -m main detector mapping approve --id &lt;id&gt; --by &lt;你&gt;</code>（核准前會再對真的資料試一次，對不上不給）。</p>
+{% if error %}<p class="err">{{ error }}</p>{% endif %}
+{% if done %}<p class="ok">已提：{{ done.id }}（proposed，還沒生效）。核准：<code>detector mapping approve --id {{ done.id }} --by &lt;你&gt;</code></p>{% endif %}
+{% if tried is not none %}{% if tried %}<div class="warn"><b>試的結果：</b><ul>{% for f in tried %}<li>{{ '⚠' if f.counts else 'ℹ' }} {{ f }}</li>{% endfor %}</ul></div>
+{% else %}<p class="ok">試過：這個欄位在抽到的資料裡有出現。</p>{% endif %}{% endif %}
+
+<h3>現在生效的</h3>
+<table><tr><th>來源</th><th>哪一塊</th><th>欄位</th><th>現在用的</th><th>yaml 的值</th><th>覆寫</th></tr>
+{% for r in rows %}<tr{% if r.override %} class="ov"{% endif %}><td>{{ r.source }}</td><td>{{ r.section }}</td><td>{{ r.field }}</td>
+<td><code>{{ (r.value|join('、')) if (r.value is iterable and r.value is not string) else (r.value if r.value is not none else '—') }}</code></td><td>{{ (r.yaml|join('、')) if (r.yaml is iterable and r.yaml is not string) else (r.yaml if r.yaml is not none else '—') }}</td><td>{{ r.override or '' }}</td></tr>{% endfor %}
+</table>
+
+<h3>提一筆覆寫</h3>
+<form method="post" action="/mapping">
+<label>來源 <select name="source">{% for s in sources %}<option{% if f.get('source') == s %} selected{% endif %}>{{ s }}</option>{% endfor %}</select></label>
+<label>欄位 <span class="hint">（owner＝歸屬：去哪個索引查服務、namespace 屬於哪個部門；log＝根因分析讀 log 時的欄位名）</span>
+<select name="key">{% for section, fields in editable.items() %}{% for fld in fields %}<option value="{{ section }}.{{ fld }}"{% if f.get('key') == section ~ '.' ~ fld %} selected{% endif %}>{{ section }}.{{ fld }}</option>{% endfor %}{% endfor %}</select></label>
+<label>新的值 <span class="hint">（欄位名，例：labels.app；log.message、log.problem_levels 用逗號隔開多個）</span><input type="text" name="value" value="{{ f.get('value', '') }}" required></label>
+<label>你是 <input type="text" name="by" value="{{ f.get('by', '') }}" placeholder="名字或工號"></label>
+<label>為什麼 <span class="hint">（選填）</span><textarea name="reason">{{ f.get('reason', '') }}</textarea></label>
+<button type="submit" name="action" value="try">先試一下（不存）</button><button type="submit" name="action" value="propose">提出（待核准）</button>
+</form>
+
+<h3>提過的（新的在前）</h3>
+<table><tr><th>id</th><th>狀態</th><th>欄位</th><th>舊 → 新</th><th>誰、何時</th><th>試的結果</th></tr>
+{% for d in history %}<tr><td><code>{{ d.id[:12] }}</code></td><td>{{ d.status }}</td><td>{{ d.source }}.{{ d.section }}.{{ d.field }}</td>
+<td>{{ d.old_value }} → <b>{{ d.value }}</b></td><td>{{ d.by }}，{{ (d.created_at or '')[:16] }}{% if d.approved_by %}；核准 {{ d.approved_by }}{% endif %}</td><td>{{ d.check }}</td></tr>{% else %}<tr><td colspan="6">還沒有</td></tr>{% endfor %}
+</table></body></html>

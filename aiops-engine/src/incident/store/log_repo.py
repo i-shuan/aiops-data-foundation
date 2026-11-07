@@ -9,6 +9,7 @@ import pandas as pd
 
 from common.infra.es import time_range
 from common.infra.es import Repository
+from common.scenario.mapping import effective
 
 # log 的 @timestamp 是應用自己的時間：時鐘偏了、或請求結束後才寫的 log，可能離 span 十幾分鐘。
 # trace_id 本身就夠準，時間只用來少掃幾個 backing index，所以前後多放 30 分鐘（docs/pdca/phase1-collect/2026-10-log-trace-bind.md）
@@ -26,13 +27,18 @@ def _fields_param(p: dict) -> list[str]:
 
 
 class LogRepository(Repository):
+    def _scenario(self):
+        """情境蓋上核准過的欄位對照覆寫（aiops-mapping）：log 的欄位名可以在網頁上提、核准後改，不用重新部署。"""
+        return effective(self.scenario, self.es)
+
     def _profile(self) -> dict:
-        return self.scenario.log
+        return self._scenario().log
 
     def _targets(self, index: str) -> list[tuple[dict, str]]:
         """要查的 (欄位對照, 索引)：主要來源用呼叫端給的 index（RCA 設定的 indices.logs）；OTel 與 APM 並存時，其餘來源各帶自己的 index
         （Scenario.extra_logs；沒寫 index 的略過）。"""
-        return [(self._profile(), index), *[(p, p["index"]) for p in self.scenario.extra_logs if p.get("index")]]
+        sc = self._scenario()
+        return [(sc.log, index), *[(p, p["index"]) for p in sc.extra_logs if p.get("index")]]
 
     def _logs(self, index: str, filters: list[dict], size: int, sort: list | None = None, p: dict | None = None) -> list[dict]:
         p = p or self._profile()
@@ -48,7 +54,7 @@ class LogRepository(Repository):
         for p, ix in self._targets(index):
             out += self._logs(ix, [time_range(start - LOG_TRACE_SKEW, end + LOG_TRACE_SKEW), {"terms": {p["trace_id"]: trace_ids[:1000]}}],
                               size, [{"@timestamp": "asc"}], p)
-        return sorted(out, key=lambda r: str(r["ts"]))[:size] if len(self.scenario.extra_logs) else out
+        return sorted(out, key=lambda r: str(r["ts"]))[:size] if len(self._scenario().extra_logs) else out
 
     def changes(self, index: str, services: list[str], start: datetime, end: datetime, query: dict, size: int = 200) -> list[dict]:
         """這些對象在這段時間的變更紀錄（工廠：PM、recipe 變更；query 是哪些算變更，例如 {terms: {event_type: [pm, recipe_change]}}），依時間排。只看主要來源。"""
