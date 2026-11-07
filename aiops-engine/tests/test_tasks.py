@@ -10,6 +10,7 @@ from unittest import mock
 from zoneinfo import ZoneInfo
 
 import interface.jobs.worker as tasks
+from shared.config.schedule import Job as ScheduleJob
 from interface.jobs.cron import Cron
 from interface.jobs.runner import QUEUES, Job, default_queue, load_schedule, tick
 
@@ -26,7 +27,7 @@ def job(name="j", cron="* * * * *", queue=None, args=("tests._run_code", "pass")
     d = {"name": name, "cron": cron, "args": list(args), "timeout": timeout, "retries": retries}
     if queue:
         d["queue"] = queue
-    return Job.from_dict(d)
+    return Job.from_config(ScheduleJob.model_validate(d))
 
 
 class QueueOfJob(unittest.TestCase):

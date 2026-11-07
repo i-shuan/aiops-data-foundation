@@ -9,17 +9,17 @@ from shared.config.common import NonNeg, PosInt, Strict
 # ── schedule.yaml ──
 
 class Job(Strict):
-    """scheduler/runner.Job.from_dict 讀的欄位。"""
+    """排程表的一個工作（interface/jobs/runner.Job.from_config 讀）。"""
     name: str
     cron: str
     args: list[Any]
-    timeout: PosInt | None = None
-    retries: NonNeg | None = None
-    stage: PosInt | None = None
-    why: str | None = None
-    queue: Literal["realtime", "alert", "batch"] | None = None
+    timeout: PosInt = 300                    # 秒
+    retries: NonNeg | None = None            # 沒寫：每分鐘的 0 次（下一輪就是重試）、其他 2 次，看 cron 才知道，所以留 None
+    stage: PosInt = 1
+    why: str = ""
+    queue: Literal["realtime", "alert", "batch"] | None = None    # 沒寫：依名字與頻率挑（runner.default_queue）
 
 
 class ScheduleConfig(Strict):
-    timezone: str | None = None
-    jobs: list[Job] | None = None
+    timezone: str = "UTC"
+    jobs: list[Job] = []

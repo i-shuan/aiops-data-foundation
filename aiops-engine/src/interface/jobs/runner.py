@@ -20,6 +20,7 @@ from shared.config import load_config
 
 
 from interface.jobs.cron import Cron
+from shared.config.schedule import Job as ScheduleJob
 
 QUEUES = ("realtime", "alert", "batch")
 
@@ -44,23 +45,21 @@ class Job:
     running: threading.Thread | None = field(default=None, repr=False)
 
     @classmethod
-    def from_dict(cls, d: dict) -> "Job":
-        cron = Cron(str(d["cron"]))
-        retries = d.get("retries")
+    def from_config(cls, c: ScheduleJob) -> "Job":
+        cron = Cron(c.cron)
+        retries = c.retries
         if retries is None:
             retries = 0 if cron.every_minute else 2   # 每幾分鐘的：下一輪就是重試；每天、每週的：不重試要等明天
-        queue = str(d.get("queue") or default_queue(str(d["name"]), cron))
-        if queue not in QUEUES:
-            raise ValueError(f"工作 {d['name']} 的 queue 要是 {'／'.join(QUEUES)} 之一，不是 {queue!r}")
-        return cls(name=str(d["name"]), cron=cron, args=[str(a) for a in d["args"]], timeout=int(d.get("timeout", 300)),
-                   retries=int(retries), stage=int(d.get("stage", 1)), why=str(d.get("why", "")), queue=queue)
+        queue = c.queue or default_queue(c.name, cron)
+        return cls(name=c.name, cron=cron, args=[str(a) for a in c.args], timeout=c.timeout,
+                   retries=retries, stage=c.stage, why=c.why, queue=queue)
 
 
 def load_schedule(path: str, stage: int) -> tuple[ZoneInfo, list[Job]]:
     """stage：開到第幾階段（1 只開 stage 1 的；2 全開）。排程表先過 core/config 的驗證（鍵打錯在這裡就擋）。"""
-    cfg = load_config(path, "schedule")
-    tz = ZoneInfo(str(cfg.get("timezone", "UTC")))
-    jobs = [Job.from_dict(d) for d in cfg.get("jobs", [])]
+    schedule_config = load_config(path, "schedule")
+    tz = ZoneInfo(schedule_config.timezone)
+    jobs = [Job.from_config(c) for c in schedule_config.jobs]
     names = [j.name for j in jobs]
     if len(set(names)) != len(names):
         raise ValueError(f"schedule 的工作名稱重複：{names}")
