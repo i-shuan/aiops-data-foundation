@@ -33,7 +33,7 @@ class Plan(unittest.TestCase):
     def test_shipped_config_only_touches_derived_data(self):
         with open("configs/baseline/prune.yaml", encoding="utf-8") as f:
             cfg = yaml.safe_load(f)
-        self.assertEqual({t["table"] for t in cfg["tables"]}, {"anomalies", "segments", "alerts"})
+        self.assertEqual({t["table"] for t in cfg["tables"]}, {"anomalies", "alerts"})
         validate(cfg, "prune")
 
     def test_unknown_table_is_rejected(self):

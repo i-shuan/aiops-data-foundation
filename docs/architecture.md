@@ -391,7 +391,7 @@ K8s 排程頻率見 [aiops-engine/README.md](../aiops-engine/README.md)；Elasti
 | 東西 | 為什麼算過度 | 建議 |
 |---|---|---|
 | 動態基準線三個自動機制同時存在：自選粒度、卜瓦松、借同組 | 沒有真實資料就先做三種退路，設定、文件、測試都變厚 | 留著但不再擴；真實資料跑過再決定砍哪個 |
-| trace 每一段的 baseline＋N+1、例外吞噬檢測規則 | raw 只留 2 天，學長期要靠 `aiops_trace_segments` 的統計 | 先只跑根因分析那條；trace baseline 等真資料 |
+| trace 每一段的 baseline＋N+1、例外吞噬檢測規則 | raw 只留 2 天，學長期要靠 `aiops-trace-segments`（ES）的統計 | 先只跑根因分析那條；trace baseline 等真資料 |
 | 回饋表單 10 個「查了哪裡」、6 種誤報原因、9 類根因 | 選項是估的，沒人填過 | 第一週看真的填了什麼再縮 |
 | `metrics` 的「最吵的服務」、依 dept | Grafana 讀 `aiops_alerts` 畫更合適 | 留表格，不再加欄 |
 

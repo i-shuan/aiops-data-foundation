@@ -74,7 +74,7 @@ flowchart TB
         VEC["aiops_incident_vectors<br/>事故的向量（選用）"]
         TUNE["aiops_tuning<br/>調整 · 建議（proposed → active）"]
         MAPI["aiops_mapping<br/>欄位對照覆寫"]
-        STATE["aiops_state · aiops_chronic · aiops_trace_segments"]
+        STATE["aiops_state · aiops_chronic"]
     end
     RAW --> MERGED
     RAW --> BASE

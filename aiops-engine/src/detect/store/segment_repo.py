@@ -1,17 +1,24 @@
-"""trace 每段的統計（PostgreSQL 的 aiops_trace_segments）：trace-detect 每 5 分鐘算一次（API × 段 × 時段），trace-train 從這裡學。"""
+"""trace 每段的統計（ES 的 aiops-trace-segments）：trace-detect 每 5 分鐘算一次（API × 段 × 時段），trace-train 從這裡學。
+只有可觀測性（OTel／APM）會用到 trace，所以放 ES、不放 PostgreSQL；保留天數由 ILM 管（elasticsearch/kibana-dev-tools.txt）。"""
 from __future__ import annotations
 
 from datetime import datetime
 
-from common.infra.pg import PgRepository
+from common.infra.es import Repository, time_range
 
-SEGMENT_TABLE = "aiops_trace_segments"
+SEGMENT_INDEX = "aiops-trace-segments"
+SEGMENT_MAPPING = {"mappings": {"dynamic": False, "properties": {
+    "@timestamp": {"type": "date"}, "kind": {"type": "keyword"},
+    "entry": {"properties": {"service": {"type": "keyword"}, "name": {"type": "keyword"}}},
+    "segment": {"type": "keyword"}, "requests": {"type": "integer"}, "calls": {"type": "double"}, "time_ms": {"type": "double"},
+    "error_rate": {"type": "double"}, "swallowed_rate": {"type": "double"}, "exception_type": {"type": "keyword"},
+    "caller": {"type": "keyword"}, "callee": {"type": "keyword"}, "skew_ms": {"type": "double"}}}}
 
 
-class SegmentRepository(PgRepository):
-    TABLE, TIME = SEGMENT_TABLE, "@timestamp"
-    INDEXES = ("((doc->>'kind'), ts)",)
+class SegmentRepository(Repository):
+    INDEX, MAPPING = SEGMENT_INDEX, SEGMENT_MAPPING
 
     def segments(self, start: datetime, end: datetime) -> list[dict]:
         """[start, end) 的段統計（kind segment），依時間排。"""
-        return [d for _, d in self._select("ts >= %s AND ts < %s AND doc->>'kind' = 'segment'", (start, end), order="ts, id")]
+        body = {"query": {"bool": {"filter": [time_range(start, end), {"term": {"kind": "segment"}}]}}}
+        return [h["_source"] for h in self._scan(body, size=10000)]

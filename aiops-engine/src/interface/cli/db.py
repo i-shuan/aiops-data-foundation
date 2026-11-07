@@ -19,7 +19,7 @@ from interface.cli.common import Opt
 
 db = typer.Typer(add_completion=False, rich_markup_mode=None, help="engine 自己的資料（PostgreSQL）：init、status、import-es、restore")
 COMMANDS = {"db": lambda app: app.add_typer(db, name="db")}
-TABLES = ("packed", "anomalies", "baseline", "alerts", "incidents", "incident_vectors", "feedback", "tuning", "state", "chronic", "segments")
+TABLES = ("packed", "anomalies", "baseline", "alerts", "incidents", "incident_vectors", "feedback", "tuning", "state", "chronic")
 
 
 def _targets(repo: Repos) -> dict:

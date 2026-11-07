@@ -1,6 +1,6 @@
 # trace 的資料放回 ES（2026-11）
 
-**狀態**：進行中　　**日期**：2026-11-07　　**相關**：分支 `claude/trace-to-es`
+**狀態**：已完成（未合 master）　　**日期**：2026-11-07　　**相關**：分支 `claude/trace-to-es`
 **模組**：② 清資料、③ 存、④ 判斷
 
 ## Plan：這一次要達到什麼
@@ -25,8 +25,18 @@
 
 ## Check：測試的目的與結果
 
-（做完補）
+| 新的兩個 ES repository 寫得進、讀得回 | 對測試叢集的真 ES：`segments.bulk` → `segments(start,end)`；`trace_state.set` → `get`，不存在的 key | 讀回同一筆；不存在回 None；索引由 `ensure()` 自己建 |
+| 重構沒弄壞既有行為 | 全套 pytest（含 PostgreSQL 真庫的測試） | 962 過；失敗的 11 個都是 `test_journal`／`test_job_lock` 寫死 `/tmp`（Windows 沒有，master 上也一樣） |
+| prune 設定與快照跟著改 | `test_prune`、`test_config_snapshot` | `segments` 不在 prune 的表裡；快照重寫 |
+| 分層規則仍成立 | `test_layers`（表名字面值只能在 store/、common/） | 過 |
+| 文件連結、索引、舊說法、類型 | `tools/check-docs.py` | 4 項 0 問題（「程式路徑」另有 master 上就存在的誤報） |
 
-## Act：沒解決的
+## Act
+
+- **未驗證**：`kibana-dev-tools.txt` 1b 的 ILM＋rollover 別名沒有在真 ES 上跑過（測試叢集的 ES 是 basic 授權，語法照官方文件）；上線前要在 Kibana Dev Tools 跑一次，並確認 engine 的 key 對別名可寫。
+- **要人做的**：以前版本若已自動建了名為 `aiops-trace-segments` 的實體 index，要先刪或 reindex，才能建同名別名（kibana-dev-tools.txt 1b 有寫）。
+- **舊資料**：PostgreSQL 裡的 `aiops_trace_segments`／`aiops_state` 的 trace-merge 那筆不再使用，不自動刪；trace-merge 進度重新開始會從預設起點補合，不會漏。
+- 舊 PostgreSQL 表可由 DBA 手動 `DROP TABLE aiops_trace_segments`。
+：沒解決的
 
 （做完補）

@@ -32,8 +32,9 @@ repo.series.fetch(spec, start, end, "5m")   # 原始資料 → 一條序列（ke
 | `tuning` | `learn/store/tuning_repo.py` | `aiops_tuning` | 調整：all（讀不到回 []）、proposed、get／exists、put（過 Adjustment 模型）、patch、delete |
 | `feedback` | `learn/store/feedback_repo.py` | `aiops_feedback` | ⑨ since、missed_since、by_alert_ids、put、bulk |
 | `baseline` | `detect/store/baseline_repo.py` | `aiops_baseline` | 動態基準線 load、load_group、save（寫完刪舊的） |
-| `segments` | `detect/store/segment_repo.py` | `aiops_trace_segments` | trace 每段的統計 |
-| `state` | `detect/store/state_repo.py` | `aiops_state` | 排程工作的進度（trace-merge 合到哪） |
+| `state` | `detect/store/state_repo.py` | `aiops_state`（PostgreSQL） | 偵測的進度（detect-watermark） |
+| `segments` | `detect/store/segment_repo.py` | `aiops-trace-segments`（**ES**） | trace 每段的統計 |
+| `trace_state` | `data/store/trace_state_repo.py` | `aiops-trace-state`（**ES**） | trace-merge 合到哪 |
 | `chronic` | `detect/store/chronic_repo.py` | `aiops_chronic` | 慢性病清單 |
 | `series` | `data/store/series_repo.py` | 設定給（metrics、log 的索引） | 原始資料 → `fetch`（序列）、`alive_times`、`points`（規則）、`rows`／`rows_where`（ingest、paths-merge）；`value` 的寫法 → ES aggregation 在這裡 |
 | `traces` | `data/store/trace_repo.py` | 設定給（raw、merged、lot-paths） | spans、spans_by_id、updated_trace_ids、write_merged、merged_docs、entry_stats、sample_trace_ids、recent／service_trace_ids、sample_entries |

@@ -1272,10 +1272,6 @@
     "table": "anomalies"
    },
    {
-    "keep_days": 35,
-    "table": "segments"
-   },
-   {
     "keep_days": 180,
     "table": "alerts"
    }

@@ -11,7 +11,5 @@ pack:
 tables:
   - table: anomalies     # 異常總表：回饋、回測最多看 4 週；事故的 anomaly_ids 對不到舊異常時只影響「每個異常各一筆回饋」，退回一件一筆
     keep_days: 90
-  - table: segments      # trace 每一段每 5 分鐘的統計：trace-train 最多回看 4 週，35 天夠；筆數固定（API × 段 × 每 5 分鐘），中型規模每天約 72 萬筆
-    keep_days: 35
   - table: alerts        # 事故（一件一筆，含 RCA 報告）：只刪已結案的、依結案時間；開著的件、心跳、detect-status 不會被刪
     keep_days: 180

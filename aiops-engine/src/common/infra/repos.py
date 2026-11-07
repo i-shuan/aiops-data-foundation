@@ -33,6 +33,7 @@ REGISTRY = {
     "segments": "detect.store.segment_repo:SegmentRepository",
     "series": "data.store.series_repo:SeriesRepository",
     "state": "detect.store.state_repo:StateRepository",
+    "trace_state": "data.store.trace_state_repo:TraceStateRepository",
     "traces": "data.store.trace_repo:TraceRepository",
     "tuning": "learn.store.tuning_repo:TuningRepository",
 }

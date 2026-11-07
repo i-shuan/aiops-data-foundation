@@ -19,6 +19,37 @@ PUT _ilm/policy/traces-merged
 }
 
 
+# ── 1b. trace 每段的統計 aiops-trace-segments：用別名 + rollover，留 35 天（取代以前的 detector prune） ──
+# 只有可觀測性（OTel／APM）用得到 trace，所以放 ES、PostgreSQL 不碰。engine 照舊寫、讀 aiops-trace-segments（別名），rollover 到下一個 index 它不知道。
+# trace-train 最多回看 4 週；每天約 72 萬筆（中型規模），一個 index 滿 1d 就 rollover、滿 35d 刪。
+PUT _ilm/policy/aiops-trace-segments
+{
+  "policy": {
+    "phases": {
+      "hot": {"actions": {"rollover": {"max_age": "1d", "max_primary_shard_size": "20gb"}}},
+      "delete": {"min_age": "35d", "actions": {"delete": {}}}
+    }
+  }
+}
+PUT _index_template/aiops-trace-segments
+{
+  "index_patterns": ["aiops-trace-segments-*"],
+  "template": {
+    "settings": {"index.lifecycle.name": "aiops-trace-segments", "index.lifecycle.rollover_alias": "aiops-trace-segments"},
+    "mappings": {"dynamic": false, "properties": {
+      "@timestamp": {"type": "date"}, "kind": {"type": "keyword"},
+      "entry": {"properties": {"service": {"type": "keyword"}, "name": {"type": "keyword"}}},
+      "segment": {"type": "keyword"}, "requests": {"type": "integer"}, "calls": {"type": "double"}, "time_ms": {"type": "double"},
+      "error_rate": {"type": "double"}, "swallowed_rate": {"type": "double"}, "exception_type": {"type": "keyword"},
+      "caller": {"type": "keyword"}, "callee": {"type": "keyword"}, "skew_ms": {"type": "double"}}}
+  }
+}
+# 第一個 index（只做一次；已經有 aiops-trace-segments 這個「index」——以前版本自動建的——要先 DELETE 它或 reindex 到 -000001，再做這個）
+PUT aiops-trace-segments-000001
+{"aliases": {"aiops-trace-segments": {"is_write_index": true}}}
+# trace-merge 的進度（aiops-trace-state，一筆）engine 自己建，不用 ILM。
+
+
 # ── 2. traces-merged 的 index template：spans、entries 要是 nested，沒有它根因分析會查詢失敗 ──
 PUT _index_template/traces-merged
 {
@@ -77,7 +108,7 @@ POST _security/api_key
     "aiops-engine": {
       "indices": [
         {"names": ["traces-apm*", "logs-apm*", "metrics-apm*"], "privileges": ["read", "view_index_metadata"]},
-        {"names": ["traces-merged-*"], "privileges": ["read", "write", "create_index", "view_index_metadata"]},
+        {"names": ["traces-merged-*", "aiops-trace-*"], "privileges": ["read", "write", "create_index", "view_index_metadata"]},
         {"names": ["aiops-*"], "privileges": ["read", "view_index_metadata"]}
       ]
     }
@@ -304,5 +335,4 @@ GET _ilm/policy/traces-merged
 # DELETE aiops-mapping
 # DELETE aiops-state
 # DELETE aiops-chronic
-# DELETE aiops-trace-segments
 # 刪完把第 3 段 engine key 裡 aiops-* 的唯讀拿掉（重發一把 key）。

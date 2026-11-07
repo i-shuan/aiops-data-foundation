@@ -19,7 +19,8 @@ from detect.store.models import BASELINE_COLUMNS, BASELINE_TABLE, GROUP_COLUMNS,
 from learn.store.models import FEEDBACK_TABLE
 from common.types.incident import INCIDENT_TABLE
 from learn.store.models import TUNING_TABLE, validated
-from detect.store.segment_repo import SEGMENT_TABLE
+from detect.store.segment_repo import SEGMENT_INDEX
+from data.store.trace_state_repo import TRACE_STATE_INDEX
 from detect.store.state_repo import STATE_TABLE
 from common.scenario import load_scenario
 import tests.shaping as shape
@@ -259,7 +260,7 @@ class MemoryTraces:
 
 
 class MemorySegments(_Docs):
-    INDEX = SEGMENT_TABLE
+    INDEX = SEGMENT_INDEX
 
     def segments(self, start, end) -> list[dict]:
         return [s for _, s in self.all() if s.get("kind") == "segment" and _in(s["@timestamp"], start, end)]
@@ -267,6 +268,13 @@ class MemorySegments(_Docs):
 
 class MemoryState(_Docs):
     INDEX = STATE_TABLE
+
+    def set(self, key, doc) -> None:
+        self.put(key, doc)
+
+
+class MemoryTraceState(_Docs):
+    INDEX = TRACE_STATE_INDEX
 
     def set(self, key, doc) -> None:
         self.put(key, doc)
@@ -291,6 +299,7 @@ class MemoryRepos:
         self.traces = MemoryTraces(spans)
         self.segments = MemorySegments(self.data)
         self.state = MemoryState(self.data)
+        self.trace_state = MemoryTraceState(self.data)
         if incidents:
             self.incidents.bulk(incidents)
 

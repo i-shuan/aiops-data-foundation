@@ -259,7 +259,7 @@ def cmd_trace_collect(trace_config: TraceConfig, args) -> int:
         df, _ = collect(repo, trace_config, t, min(t + step, end))
         n += len(df)
         t += step
-    print(f"統計 {start} ～ {end}：{n} 筆（API × 段 × 時段）寫進 {repo.segments.TABLE}")
+    print(f"統計 {start} ～ {end}：{n} 筆（API × 段 × 時段）寫進 {repo.segments.INDEX}")
     return 0
 
 def cmd_trace_train(trace_config: TraceConfig, args) -> int:

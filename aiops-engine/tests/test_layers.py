@@ -17,7 +17,7 @@ ALLOWED = {name: set(LAYERS[:i]) for i, name in enumerate(LAYERS)}
 LAZY_OK = {("learn/history_importer.py", "sqlalchemy"), ("interface/jobs/local.py", "interface.jobs.worker")}
 # 表名的字面值只能在各功能的 store/（資料物件定義、repository 讀寫）與 common/
 INDEX_LITERALS = ("aiops_anomalies", "aiops_alerts", "aiops_incidents", "aiops_feedback", "aiops_tuning", "aiops_baseline",
-                  "aiops_trace_segments", "aiops_state", "aiops_chronic")
+                  "aiops_state", "aiops_chronic")
 # 還沒清掉的反向依賴：S2 之後是空的，加了反向 import 這裡會紅
 KNOWN: set[str] = set()
 

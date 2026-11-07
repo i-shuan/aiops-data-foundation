@@ -11,7 +11,7 @@ from __future__ import annotations
 LEGACY = {
     "aiops-anomalies": "anomalies", "aiops-baseline": "baseline", "aiops-alerts": "alerts", "aiops-incidents": "incidents",
     "aiops-feedback": "feedback", "aiops-tuning": "tuning", "aiops-state": "state", "aiops-chronic": "chronic",
-    "aiops-trace-segments": "segments", "aiops-mapping": "mapping",
+    "aiops-mapping": "mapping",
 }
 PAGE = 2000
 

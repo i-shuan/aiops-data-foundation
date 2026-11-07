@@ -45,13 +45,13 @@ def merge(repo, raw_indexes: RawIndexes, since: datetime, until: datetime, now: 
 
 
 def load_state(repo) -> datetime | None:
-    got = repo.state.get(STATE_ID)
+    got = repo.trace_state.get(STATE_ID)
     last = (got or {}).get("last")
     return datetime.fromisoformat(last.replace("Z", "+00:00")) if last else None
 
 
 def save_state(repo, last: datetime, now: datetime) -> None:
-    repo.state.set(STATE_ID, {"last": last.isoformat(), "updated_at": now.isoformat()})
+    repo.trace_state.set(STATE_ID, {"last": last.isoformat(), "updated_at": now.isoformat()})
 
 
 def run(repo, raw_indexes: RawIndexes, settle_seconds: float, at: datetime, window: timedelta, chunk: timedelta = timedelta(minutes=10)) -> tuple[datetime, datetime, int]:
