@@ -9,6 +9,8 @@
 # 沒有 ES：detect／rules／train 用替身（make_configs.py）。結果與解讀見 docs/pdca/meta/2026-11-tight-resource-test.md
 set -u
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
+cleanup() { pgb_stop; mountpoint -q /tmp/aiops-tight-disk 2>/dev/null && umount /tmp/aiops-tight-disk; pg dropdb --if-exists $DB 2>/dev/null; true; }
+trap cleanup EXIT                                                   # 不管怎麼結束（包括報錯）都關 PgBouncer、卸載小磁碟、刪測試資料庫
 DSN_DIRECT=postgresql:///$DB; DSN_POOL=postgresql://postgres@127.0.0.1:$PGB_PORT/$DB
 
 storm_run() {  # $1 名稱 $2 池子 $3 cpus $4 秒
@@ -50,4 +52,3 @@ cmd_poison() {
   echo "   壞的那筆還在嗎：$(ls $D | wc -l) 個檔"
 }
 case "${1:-}" in storm|mem|journal|blip|poison) cmd_$1;; all) cmd_poison; cmd_journal; cmd_blip; cmd_mem; cmd_storm;; *) sed -n 2,12p "$0"; exit 2;; esac
-pg dropdb --if-exists $DB 2>/dev/null; true

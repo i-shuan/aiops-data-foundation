@@ -17,6 +17,7 @@ setup() {   # 全新資料庫＋建表（detector db init）；工作資料夾
 engine_env() { local dsn=$1; shift; echo env HOME=/tmp AIOPS_PG_DSN=$dsn AIOPS_PG_RETRY_SECONDS=${RETRY:-0} "$@"; }
 
 pgb_start() {   # $1 池子大小（session 模式，跟工作鎖相容的唯一模式）  $2 query_wait_timeout（預設 120）
+  pgb_stop; pkill -f "pgbouncer -d $W/pgb/pgb.ini" 2>/dev/null; sleep 0.5      # 上一次沒收乾淨的先關掉，不然對照組會接在舊的上面
   cat > "$W/pgb/pgb.ini" <<INI
 [databases]
 $DB = host=/var/run/postgresql dbname=$DB user=postgres
