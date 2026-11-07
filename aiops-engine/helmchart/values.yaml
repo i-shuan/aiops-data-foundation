@@ -11,7 +11,7 @@
 #
 # 一個 image、一份 values：mode 決定裝成什麼樣（docs/pdca/meta/2026-11-api-beat-worker.md；畫面全在 Grafana，grafana/）：
 #   single       一隻 pod 兩個 container：scheduler（排程器自己跑 configs/<plugin>/schedule.yaml 的工作）＋ api。不用 Redis；
-#                只能 1 個副本（多一個每個工作就跑兩份）；換 image 先停舊的（Recreate），中間缺幾十秒。開發、離線廠區用
+#                1 個副本；換 image 先起新的再停舊的（RollingUpdate，沒有空窗；重疊時同一個工作靠 PostgreSQL 的鎖只跑一份）。開發、離線廠區用
 #   distributed  Superset 式：api（N 份）、beat（1 份，每分鐘只把工作丟進佇列）、worker 依佇列 realtime／alert／batch 各一個 Deployment
 #                （各自 replicas、resources；alert 固定 1 份 concurrency 1）、redis（佇列）。train 跟每分鐘的工作分開跑、api 跟排程分開掛
 #

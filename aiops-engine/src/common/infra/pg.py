@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import math
 import threading
+from contextlib import contextmanager
 from datetime import datetime
 
 import psycopg
@@ -107,6 +108,31 @@ class DB:
         if self._conn is not None:
             self._conn.close()
             self._conn = None
+
+
+LOCK_SPACE = 0x41494F50   # advisory lock 的第一個鍵（"AIOP"）：跟同一個資料庫裡別的系統的鎖分開
+
+
+@contextmanager
+def job_lock(name: str):
+    """同一個工作同一時間只能有一份在跑（interface/jobs/runner.run_once；docs/pdca/meta/2026-11-job-lock.md）。
+
+    yield True：搶到了，跑；False：別人（另一個排程器、worker、換版時新舊兩隻 Pod）正在跑，這輪跳過。
+    用 PostgreSQL 的 advisory lock，鎖跟著一條專用連線：工作跑完關掉連線就放掉；跑的程式死掉、連線斷掉，PostgreSQL 也會自動放掉，
+    不會留下卡住的鎖。連線開 TCP keepalive（約 1 分鐘認出對方不見），網路斷掉時鎖不會一直卡著。
+    AIOPS_PG_DSN 沒設（本機沒有資料庫）就不鎖、yield True；設了但連不到，丟出例外（呼叫端決定這輪不跑）。"""
+    env = settings()
+    if not env.aiops_pg_dsn:
+        yield True
+        return
+    conn = psycopg.connect(env.aiops_pg_dsn, autocommit=True, connect_timeout=env.aiops_pg_connect_timeout,
+                           application_name=f"{env.aiops_pg_app_name}-lock:{name}"[:63],
+                           keepalives=1, keepalives_idle=30, keepalives_interval=10, keepalives_count=3)
+    try:
+        got = conn.execute("SELECT pg_try_advisory_lock(%s, hashtext(%s)) AS ok", (LOCK_SPACE, f"job:{name}")).fetchone()[0]
+        yield bool(got)
+    finally:
+        conn.close()
 
 
 def _ident(name: str) -> str:

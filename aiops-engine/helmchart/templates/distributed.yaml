@@ -47,6 +47,8 @@ metadata:
   labels: {app.kubernetes.io/name: aiops-beat}
 spec:
   replicas: 1          # 一定要 1，多一個每個工作就丟兩份
+  # beat 維持 Recreate：兩個 beat 重疊會把同一分鐘的工作丟兩份；鎖只擋「同時」跑，前一份跑完後一份還是會再跑一次
+  # （重跑是覆蓋、結果一樣，只是白跑）。beat 只丟工作、重啟很快，空窗只是晚幾秒丟，工作本身在 worker 跑不受影響
   strategy:
     type: Recreate
   selector:
@@ -93,7 +95,8 @@ spec:
   replicas: {{ $w.replicas | default 1 }}
   {{- if eq $queue "alert" }}
   strategy:
-    type: Recreate     # 換版時新舊不會同時吃 alert 佇列
+    type: RollingUpdate     # 新舊重疊時兩個 worker 都可能拿到 alert：每個工作開始前搶鎖（common/infra/pg.job_lock），同時只跑一份
+    rollingUpdate: {maxSurge: 1, maxUnavailable: 0}
   {{- end }}
   selector:
     matchLabels: {app.kubernetes.io/name: aiops-worker, aiops/queue: {{ $queue | quote }}}

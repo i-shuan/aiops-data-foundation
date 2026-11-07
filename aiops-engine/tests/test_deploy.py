@@ -32,7 +32,8 @@ class EngineChart(unittest.TestCase):
         # Secret ×2：aiops-llm（LLM key）、aiops-api（API token），沒填就是空的
         self.assertEqual(sorted(k.split("/")[0] for k in self.docs), ["ConfigMap", "Deployment", "Secret", "Secret", "Service"])
         dep = self.docs["Deployment/aiops-engine"]["spec"]
-        self.assertEqual((dep["replicas"], dep["strategy"]["type"]), (1, "Recreate"))
+        self.assertEqual((dep["replicas"], dep["strategy"]["type"]), (1, "RollingUpdate"))
+        self.assertEqual(dep["strategy"]["rollingUpdate"], {"maxSurge": 1, "maxUnavailable": 0})   # 先起新的：重疊靠 job_lock
         self.assertEqual(sorted(containers(self.docs)), ["api", "scheduler"])
         self.assertNotIn("--enqueue", containers(self.docs)["scheduler"]["args"])          # single：排程器自己跑
         self.assertNotIn("AIOPS_BROKER_URL", self.docs["ConfigMap/aiops-env"]["data"])     # 沒有佇列
@@ -115,7 +116,7 @@ class DistributedChart(unittest.TestCase):
             self.assertEqual(w["args"], ["main", "tasks", "worker", "--queue", q, "--concurrency", conc], q)
             self.assertIn({"configMapRef": {"name": "aiops-env"}}, w["envFrom"])
         self.assertEqual(containers(self.docs, "aiops-worker-batch")["worker"]["resources"]["limits"]["memory"], "6Gi")   # train 在這
-        self.assertEqual(self.docs["Deployment/aiops-worker-alert"]["spec"]["strategy"]["type"], "Recreate")
+        self.assertEqual(self.docs["Deployment/aiops-worker-alert"]["spec"]["strategy"]["type"], "RollingUpdate")
         self.assertEqual(render("--set", "mode=distributed", "--set", "workers.realtime.replicas=3")["Deployment/aiops-worker-realtime"]["spec"]["replicas"], 3)
 
     def test_alert_worker_must_be_single_consumer(self):

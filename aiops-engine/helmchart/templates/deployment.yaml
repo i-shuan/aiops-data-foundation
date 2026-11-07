@@ -6,9 +6,12 @@ metadata:
   name: aiops-engine
   labels: {app.kubernetes.io/name: aiops-engine}
 spec:
-  replicas: 1          # 一定要 1，多一個每個工作就跑兩份
+  replicas: 1
+  # 換版先起新的、新的好了才停舊的（沒有空窗）。新舊重疊的那一下兩個排程器都在排：每個工作開始前先搶 PostgreSQL 的鎖
+  # （common/infra/pg.job_lock），同一個工作只會有一份在跑，另一份印「跳過」（docs/pdca/meta/2026-11-job-lock.md）
   strategy:
-    type: Recreate     # 換版先停舊的，新舊不會同時排
+    type: RollingUpdate
+    rollingUpdate: {maxSurge: 1, maxUnavailable: 0}
   selector:
     matchLabels: {app.kubernetes.io/name: aiops-engine}
   template:

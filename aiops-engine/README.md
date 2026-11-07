@@ -149,7 +149,7 @@ kubectl -n aiops logs deploy/aiops-worker-alert -f | grep '\[scheduler\]'  # 工
 
 改頻率、逾時改 `schedule.yaml` 再 build image（或用 `configOverrides.schedule.schedule` 蓋）。
 
-**資源與故障範圍（single）**：`scheduler` container limit 6Gi（`train` 要 4Gi，同時每分鐘的三個還在跑；平時用不到），`api` 512Mi，各自獨立。pod 只能 1 個副本（多一個每個工作就跑兩份）；換 image 先停舊的（`Recreate`），中間缺幾十秒、錯過的分鐘不補。pod 被 OOM／驅逐時所有排程一起停，心跳也停——下面那條告警就是抓這個。排程器（beat 也是）每分鐘更新 `/tmp/scheduler-alive`，超過 3 分鐘沒更新 liveness probe 會重啟 container。分散模式下 `train` 在 `batch` worker（6Gi）、每分鐘的在 `realtime` worker，互不影響。
+**資源與故障範圍（single）**：`scheduler` container limit 6Gi（`train` 要 4Gi，同時每分鐘的三個還在跑；平時用不到），`api` 512Mi，各自獨立。pod 1 個副本；換 image 先起新的再停舊的（`RollingUpdate`），沒有空窗；新舊重疊時每個工作開始前先搶 PostgreSQL 的鎖（`common/infra/pg.py` 的 `job_lock`），同一個工作只跑一份、另一份印「跳過」。pod 被 OOM／驅逐時所有排程一起停，心跳也停——下面那條告警就是抓這個。排程器（beat 也是）每分鐘更新 `/tmp/scheduler-alive`，超過 3 分鐘沒更新 liveness probe 會重啟 container。分散模式下 `train` 在 `batch` worker（6Gi）、每分鐘的在 `realtime` worker，互不影響。
 
 ## 重建 ES、換 ES 之後
 

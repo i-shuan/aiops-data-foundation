@@ -3,6 +3,8 @@
 跟 K8s CronJob 一樣的行為：
   同一個工作上一次沒跑完就跳過這次（Forbid）；超過 timeout 砍掉（activeDeadlineSeconds）；錯過的分鐘不補跑（只看醒來的那一分鐘）；
   失敗在同一次內重試 retries 次（backoffLimit），每幾分鐘的預設 0、每天／每週的預設 2。
+開始前先搶這個工作的鎖（common/infra/pg.job_lock）：別的排程器、worker 正在跑同一個工作（換版時新舊 Pod 重疊、兩份排程器互相備援）
+就跳過這一輪；連不到資料庫就不跑（不知道別人有沒有在跑）。
 每次執行結束在 stdout 留一行（[scheduler] <工作> <排定時間> <結果> <秒數>），子行程的輸出原樣印出（pod 的 log 就是全部的紀錄）。
 分散模式（tasks/）：serve(run=tasks.enqueue) 時每分鐘只把該跑的工作丟進佇列（beat），不開子行程；每個工作的 queue 決定進哪個佇列。"""
 from __future__ import annotations
@@ -17,6 +19,7 @@ from typing import Callable
 from zoneinfo import ZoneInfo
 
 from common.config import load_config
+from common.infra.pg import job_lock
 
 
 from interface.jobs.cron import Cron
@@ -71,8 +74,21 @@ def log(msg: str) -> None:
 
 
 def run_once(job: Job, at: datetime, python: str = sys.executable, cwd: str | None = None) -> bool:
-    """跑一次（含重試）；回傳成功與否。子行程 stdout／stderr 原樣往下送。"""
+    """跑一次（含重試）；回傳成功與否（別人正在跑、這輪跳過也算成功）。子行程 stdout／stderr 原樣往下送。"""
     label = at.strftime("%Y-%m-%dT%H:%M%z")
+    try:
+        with job_lock(job.name) as got:
+            if not got:
+                log(f"{job.name} {label} 跳過：別的排程器或 worker 正在跑這個工作")
+                return True
+            return _run(job, label, python, cwd)
+    except Exception as e:  # noqa: BLE001  連不到 PostgreSQL：不知道別人有沒有在跑，這輪不跑（工作本身也要資料庫，跑了也是失敗）
+        first = (str(e).strip().splitlines() or [""])[0][:120]
+        log(f"{job.name} {label} 沒跑：連不到 PostgreSQL、不知道別人有沒有在跑（{type(e).__name__}: {first}）")
+        return False
+
+
+def _run(job: Job, label: str, python: str, cwd: str | None) -> bool:
     for attempt in range(job.retries + 1):
         t0 = time.monotonic()
         try:
