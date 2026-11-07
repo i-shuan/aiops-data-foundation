@@ -23,9 +23,10 @@ Superset 把 `chart` 當「外掛的種類」；我們的種類是 `pipeline`（
 | `superset-ui-core/src/chart/models/` `ChartPlugin.ts` `ChartMetadata.ts` `ChartProps.ts` | `common/core/pipeline/models/` `plugin.py`（`PipelinePlugin`） `metadata.py`（`PipelineMetadata`） `props.py`（`PipelineProps`） |
 | `superset-ui-core/src/chart/registries/` `ChartMetadataRegistrySingleton.ts` 等 | `common/core/pipeline/registries/` `metadata.py` `control_panel.py` `run.py`（各一個 `get_pipeline_xxx_registry()`） |
 | `superset-ui-chart-controls/` `ControlPanelConfig`、`sharedControls` | `common/core/controls/` `types.py`（`ControlPanelConfig`、`ControlPanelSectionConfig`、`ControlConfig`） `shared_controls.py` |
-| `plugins/plugin-chart-echarts/src/Timeseries/` `index.ts` `controlPanel.tsx` `transformProps.ts` `types.ts` `EchartsTimeseries.tsx` | `plugins/severity/golden_signals/` `__init__.py`（`GoldenSignalsPipelinePlugin`） `control_panel.py` `transform_props.py` `types.py` `golden_signals.py`（真正做事的） |
+| `plugins/plugin-chart-echarts/`（一包，裡面多個圖表；`src/index.ts` 匯出全部） | `plugins/plugin_pipeline_severity/`（一包，裡面多個外掛；`__init__.py` 匯出全部）；以後 `plugin_pipeline_detect`、`plugin_pipeline_rca`、`plugin_pipeline_notify` |
+| `plugin-chart-echarts/src/Timeseries/` `index.ts` `controlPanel.tsx` `transformProps.ts` `buildQuery.ts` `types.ts` `EchartsTimeseries.tsx` | `plugin_pipeline_severity/golden_signals/` `__init__.py`（`GoldenSignalsPipelinePlugin`） `control_panel.py` `transform_props.py` `build_query.py`（需要時） `types.py` `golden_signals.py`（真正做事的） |
 | `visualizations/presets/MainPreset.js` | `presets/main_preset.py`（`MainPreset`） |
-| 外部 npm 套件 `@superset-ui/plugin-chart-xxx` | 外部 pip 套件 `aiops-plugin-severity-xxx`（Python 的模組名不能有 `-`，所以 repo 裡是 `plugins/<段>/<名字>/`） |
+| 外部 npm 套件 `@superset-ui/plugin-chart-xxx` | 外部 pip 套件 `aiops-plugin-pipeline-xxx`（Python 的模組名不能有 `-`、也不需要 `src/`，所以 repo 裡是 `plugins/plugin_pipeline_xxx/`；Superset 的圖表資料夾是 PascalCase（`Timeseries`），Python 套件用小寫（`golden_signals`）） |
 
 ### 類別與方法（詞照搬，Python 用 snake_case）
 
@@ -48,7 +49,7 @@ Superset 把 `chart` 當「外掛的種類」；我們的種類是 `pipeline`（
 
 | 現在 | 之後 |
 |---|---|
-| `common/blocks.py` 手寫 `Stage("severity", {"golden_signals": ("incident.alert_severity:golden_signals", 說明)…})` | `plugins/severity/golden_signals/`、`plugins/severity/p0/` 兩個外掛資料夾；`presets/main_preset.py` 登記 |
+| `common/blocks.py` 手寫 `Stage("severity", {"golden_signals": ("incident.alert_severity:golden_signals", 說明)…})` | `plugins/plugin_pipeline_severity/golden_signals/`、`plugins/plugin_pipeline_severity/p0/` 兩個外掛資料夾；`presets/main_preset.py` 登記 |
 | 說明字串寫在登記表 | `PipelineMetadata.description` |
 | 參數寫在 YAML、說明寫在 docstring | 各外掛的 `control_panel.py`：`golden_signals` 宣告 `window`、`min_coverage`、`min_duration`、`min_span_critical`、`min_points_per_class`、`deploy_grace`；`p0` 宣告 `p0_services` |
 | `BLOCKS.stage("severity").loaded(sc)` 回 `[(名字, 函式)]` | 介面不變（舊呼叫端不用改）；內部改讀 `get_pipeline_run_registry()` |
