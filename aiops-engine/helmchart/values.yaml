@@ -51,15 +51,9 @@ llm:
   baseUrl: ""                  # 空的用公網 api.openai.com／api.anthropic.com；內網走閘道時填閘道網址（不含 /v1）
   apiKey: ""
 
-# 過期資料的歸檔（detector prune 刪之前壓縮存成檔案；configs/baseline/prune.yaml 的 archive）。enabled：建一個 PVC 掛在
-# /var/lib/aiops/archive（single：scheduler；distributed：batch worker，prune 在 batch 佇列）。關掉時 AIOPS_ARCHIVE_DIR=off，prune 直接刪。
-# 量：gzip 約壓成 1/8（本機實測 612 筆 trace 統計 196 KB → 24 KB）；中型規模（每天 72 萬筆）約 27 MB／天，keep_days 365 → 一年約 10 GB
-archive:
-  enabled: true
-  size: 20Gi
-  storageClass: ""             # 空的用叢集預設
-  accessMode: ReadWriteOnce    # distributed 的 batch worker 多於 1 份時要 ReadWriteMany（或改成 1 份）
-  existingClaim: ""            # 已經有 PVC 就填名字，不另建
+# 過期資料的歸檔資料夾（detector prune 刪之前先壓縮存在這裡；common/config/prune.py）。空的 = 不歸檔、直接刪。
+# chart 不建儲存空間：填的路徑要是 Pod 重建不會消失的（自己用 configOverrides 之外的方式掛公司的 NFS 等）
+archiveDir: ""
 
 configOverrides: {}            # {baseline: {series: <內容>}} → 掛在 /app/configs/baseline/series.yaml 蓋掉 image 裡的
 

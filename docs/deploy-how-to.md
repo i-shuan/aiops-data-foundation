@@ -152,21 +152,21 @@ engine 只把告警寫進 PostgreSQL 的 `aiops_alerts`，**不自己發通知**
 
 ## 過期資料的歸檔讀回
 
-`detector prune` 刪掉的舊資料先壓縮存在歸檔的 PVC（放哪、檔名、留多久見 [data-storage-reference.md](data-storage-reference.md#過期資料的歸檔)）。要查舊的：
+`detector prune` 刪掉的舊資料先壓縮存在你指定的歸檔資料夾（放哪、檔名、留多久見 [data-storage-reference.md](data-storage-reference.md#過期資料的歸檔)）。要查舊的：
 
 ```bash
 # 看有哪些檔（一天一個）
-kubectl -n aiops exec deploy/aiops-engine -c scheduler -- ls -R /var/lib/aiops/archive
+kubectl -n aiops exec deploy/aiops-engine -c scheduler -- ls -R /mnt/aiops-archive
 # 直接看內容（一行一筆 JSON）
-kubectl -n aiops exec deploy/aiops-engine -c scheduler -- sh -c 'zcat /var/lib/aiops/archive/aiops_anomalies/2026/aiops_anomalies-2026-08-01.jsonl.gz | head'
+kubectl -n aiops exec deploy/aiops-engine -c scheduler -- sh -c 'zcat /mnt/aiops-archive/aiops_anomalies/2026/aiops_anomalies-2026-08-01.jsonl.gz | head'
 # 讀回 PostgreSQL（同 id 覆蓋，可以重跑）：一個檔、一個資料夾，或整個歸檔；--table 只讀回一張表，--dry-run 只數
-kubectl -n aiops exec deploy/aiops-engine -c scheduler -- python3 -m main detector db restore /var/lib/aiops/archive/aiops_anomalies/2026 --dry-run
-kubectl -n aiops exec deploy/aiops-engine -c scheduler -- python3 -m main detector db restore /var/lib/aiops/archive/aiops_anomalies/2026
+kubectl -n aiops exec deploy/aiops-engine -c scheduler -- python3 -m main detector db restore /mnt/aiops-archive/aiops_anomalies/2026 --dry-run
+kubectl -n aiops exec deploy/aiops-engine -c scheduler -- python3 -m main detector db restore /mnt/aiops-archive/aiops_anomalies/2026
 ```
 
-- distributed 把 `deploy/aiops-engine -c scheduler` 換成 `deploy/aiops-worker-batch`（只有它掛歸檔的 PVC）。
+- distributed 把 `deploy/aiops-engine -c scheduler` 換成 `deploy/aiops-worker-batch`（prune 在 batch 佇列，歸檔資料夾要掛在它上面）。
 - 讀回來的資料還是比保留天數舊，**下一次 prune（每天 03:30）會再歸檔、刪掉**。要查久一點，先把排程的 prune 拿掉。
-- 沒有 PVC 的環境（本機開發）：`AIOPS_ARCHIVE_DIR=off` 不歸檔、直接刪；或指到一個寫得進去的資料夾。
+- 沒設 `AIOPS_ARCHIVE_DIR`（預設）：不歸檔、直接刪；設成 `off` 也一樣。
 
 ## 可以晚點做的
 

@@ -102,7 +102,7 @@ APM 寫的三種資料 engine 只讀，保留天數不在這個 repo 管；`trac
 
 | 項目 | 現況 |
 |---|---|
-| 放哪 | `/var/lib/aiops/archive`（[prune.yaml](../aiops-engine/configs/baseline/prune.yaml) 的 `archive.dir`；環境變數 `AIOPS_ARCHIVE_DIR` 蓋過，`off` = 不歸檔直接刪）。helm 的 `archive.enabled` 建一個 PVC `aiops-archive`（預設 20Gi，`helm uninstall` 不刪）掛在這裡：single 掛在 scheduler、distributed 掛在 batch worker |
+| 放哪 | 自己指定（[prune.yaml](../aiops-engine/configs/baseline/prune.yaml) 的 `archive.dir`；環境變數 `AIOPS_ARCHIVE_DIR` 蓋過，`off` = 不歸檔直接刪）。**預設不歸檔**（沒設就直接刪）；要歸檔設 `AIOPS_ARCHIVE_DIR`（helm 的 `archiveDir`）。chart 不建儲存空間，資料夾要自己掛一個 Pod 重建不會消失的（公司的 NFS 之類），寫在容器裡換版就沒了 |
 | 檔名 | `<表>/<年>/<表>-<年-月-日>.jsonl.gz`，一天一個（依那筆的時間、prune.yaml 的時區）；同一天再歸檔接在後面 |
 | 內容 | 一行一筆 `{"table", "id", "ts", "doc"}`，`doc` 是整份文件；`zcat` 直接看得懂（中文不跳脫） |
 | 大小 | gzip 約壓成 1/8（本機實測 612 筆 trace 統計 196 KB → 24 KB）；中型規模（trace 統計每天 72 萬筆）約 27 MB／天，一年約 10 GB（推論，照實測比例算） |

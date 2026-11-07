@@ -30,8 +30,7 @@ class EngineChart(unittest.TestCase):
 
     def test_one_pod_two_containers_no_cronjob(self):
         # Secret ×2：aiops-llm（LLM key）、aiops-api（API token），沒填就是空的
-        self.assertEqual(sorted(k.split("/")[0] for k in self.docs),
-                         ["ConfigMap", "Deployment", "PersistentVolumeClaim", "Secret", "Secret", "Service"])   # PVC：過期資料的歸檔
+        self.assertEqual(sorted(k.split("/")[0] for k in self.docs), ["ConfigMap", "Deployment", "Secret", "Secret", "Service"])
         dep = self.docs["Deployment/aiops-engine"]["spec"]
         self.assertEqual((dep["replicas"], dep["strategy"]["type"]), (1, "Recreate"))
         self.assertEqual(sorted(containers(self.docs)), ["api", "scheduler"])
@@ -73,24 +72,6 @@ class EngineChart(unittest.TestCase):
         docs = render("--set", "api.enabled=false")
         self.assertEqual(list(containers(docs)), ["scheduler"])
         self.assertNotIn("Service/aiops-api", docs)
-
-    def test_archive_pvc_mount_and_env(self):
-        """過期資料的歸檔（docs/pdca/meta/2026-11-prune-archive.md）：PVC 掛在 prune 讀的路徑、uninstall 不刪；關掉時 prune 直接刪。"""
-        pvc = self.docs["PersistentVolumeClaim/aiops-archive"]
-        self.assertEqual(pvc["metadata"]["annotations"]["helm.sh/resource-policy"], "keep")
-        sched = containers(self.docs)["scheduler"]
-        self.assertIn({"name": "archive", "mountPath": "/var/lib/aiops/archive"}, sched["volumeMounts"])
-        self.assertEqual(self.docs["ConfigMap/aiops-env"]["data"]["AIOPS_ARCHIVE_DIR"], "/var/lib/aiops/archive")
-        with open(os.path.join(HERE, "..", "configs", "baseline", "prune.yaml"), encoding="utf-8") as f:
-            self.assertEqual(yaml.safe_load(f)["archive"]["dir"], "/var/lib/aiops/archive")
-        off = render("--set", "archive.enabled=false")
-        self.assertNotIn("PersistentVolumeClaim/aiops-archive", off)
-        self.assertEqual(off["ConfigMap/aiops-env"]["data"]["AIOPS_ARCHIVE_DIR"], "off")
-        self.assertFalse(any(m["name"] == "archive" for m in containers(off)["scheduler"]["volumeMounts"]))
-        mine = render("--set", "archive.existingClaim=my-pvc")
-        self.assertNotIn("PersistentVolumeClaim/aiops-archive", mine)
-        vols = mine["Deployment/aiops-engine"]["spec"]["template"]["spec"]["volumes"]
-        self.assertIn({"name": "archive", "persistentVolumeClaim": {"claimName": "my-pvc"}}, vols)
 
     def test_bad_mode_fails(self):
         with self.assertRaises(subprocess.CalledProcessError):
@@ -166,14 +147,6 @@ class DistributedChart(unittest.TestCase):
         self.assertEqual(sched_and_env("otel\\,apm")[0], "configs/schedule/schedule.yaml")
         self.assertEqual(sched_and_env("apm\\,otel")[0], "configs/apm/schedule.yaml")
         self.assertEqual(sched_and_env("apm")[0], "configs/apm/schedule.yaml")
-
-    def test_archive_only_on_batch_worker(self):
-        for dep in ("aiops-api", "aiops-beat", "aiops-worker-realtime", "aiops-worker-alert", "aiops-worker-batch"):
-            c = next(iter(containers(self.docs, dep).values()))
-            mounts = [m["mountPath"] for m in c.get("volumeMounts") or []]
-            self.assertEqual("/var/lib/aiops/archive" in mounts, dep == "aiops-worker-batch", dep)
-        spec = self.docs["Deployment/aiops-worker-batch"]["spec"]["template"]["spec"]
-        self.assertEqual(spec["securityContext"], {"fsGroup": 10001})
 
     def test_config_override_mounts_in_every_role(self):
         docs = render("--set", "mode=distributed", "--set", "configOverrides.schedule.schedule=timezone: UTC")
