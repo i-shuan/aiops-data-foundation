@@ -72,4 +72,4 @@
 
 ## PDCA 紀錄
 
-每次工作一份，依 phase 分資料夾；索引、各 phase 的結論在 [pdca/README.md](pdca/README.md)，寫法見 [pdca/TEMPLATE.md](pdca/TEMPLATE.md)。PDCA 是紀錄，不是文件，不分類型。
+每次工作一份，依 phase 分資料夾；現況與待辦在 [pdca/README.md](pdca/README.md)，每一輪紀錄的索引在 [pdca/records.md](pdca/records.md)，寫法見 [pdca/TEMPLATE.md](pdca/TEMPLATE.md)。PDCA 是紀錄，不是文件，不分類型。

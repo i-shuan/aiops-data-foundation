@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """文件檢查（docs/pdca/meta/2026-10-docs-governance.md）：
 
-  python3 tools/check-docs.py          檢查：連結沒斷、每份 md 都在索引裡、活的文件沒有舊說法、共用文件有類型標示；有問題 exit 1
+  python3 tools/check-docs.py          檢查：連結沒斷、每份 md 都在索引裡、活的文件沒有舊說法、共用文件有類型標示、
+                                       反引號裡的程式路徑真的存在；有問題 exit 1
   python3 tools/check-docs.py --toc    重新產生 <!-- toc --> 和 <!-- /toc --> 中間的目錄（手寫的目錄一定會腐化）
 
 只用標準函式庫。在 repo 根目錄跑（或任何地方，會自己找 git 根目錄）。
@@ -15,7 +16,8 @@ from pathlib import Path
 
 ROOT = Path(subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True, check=True).stdout.strip())
 INDEX = ROOT / "docs/README.md"
-PDCA_INDEX = ROOT / "docs/pdca/README.md"
+PDCA_INDEX = ROOT / "docs/pdca/README.md"          # 現況與待辦
+PDCA_RECORDS = ROOT / "docs/pdca/records.md"       # 每一輪紀錄的索引
 
 # 舊說法 → 正式術語（唯一來源是 CLAUDE.md 的術語對照表；這裡只放「一定不會是別的意思」的片語）。
 # 「一把」是量詞（一把 key）、「一件」「老師傅」「值班」是產品用語，不在這裡。
@@ -99,18 +101,20 @@ def check_index(files: list[Path]) -> list[str]:
     bad = []
     if not INDEX.exists():
         return ["docs/README.md 不存在"]
-    top, pdca = linked_from(INDEX), linked_from(PDCA_INDEX)
+    top, pdca = linked_from(INDEX), linked_from(PDCA_INDEX) | linked_from(PDCA_RECORDS)
     for f in files:
         rel = f.relative_to(ROOT).as_posix()
         if f in (INDEX, PDCA_INDEX):
             continue
-        if rel.startswith("docs/pdca/"):    # PDCA 紀錄在 docs/pdca/README.md 裡有一份索引；docs/README.md 只要指到它
+        if rel.startswith("docs/pdca/"):    # PDCA 紀錄在 docs/pdca/records.md 有索引（README 是現況與待辦，連到它）；docs/README.md 只要指到 README
             if f.resolve() not in pdca and rel != "docs/pdca/TEMPLATE.md":
-                bad.append(f"{rel} 不在 docs/pdca/README.md 的索引裡")
+                bad.append(f"{rel} 不在 docs/pdca/records.md 的索引裡")
         elif f.resolve() not in top:
             bad.append(f"{rel} 不在 docs/README.md 的索引裡")
     if PDCA_INDEX.resolve() not in top:
         bad.append("docs/README.md 沒有連到 docs/pdca/README.md")
+    if PDCA_RECORDS.resolve() not in linked_from(PDCA_INDEX):
+        bad.append("docs/pdca/README.md 沒有連到 docs/pdca/records.md")
     return bad
 
 
@@ -124,6 +128,50 @@ def check_terms(files: list[Path]) -> list[str]:
             for old, new in FORBIDDEN.items():
                 if old in line:
                     bad.append(f"{rel}:{n} 舊說法「{old}」，正式術語是「{new}」")
+    return bad
+
+
+# ── 反引號裡的程式路徑要真的存在（搬檔、改名後最容易留下壞路徑）──
+# 路徑可以相對這幾個資料夾（文件常寫短的，例如 `detect/store/models.py`）
+PATH_ROOTS = ("", "aiops-engine/", "aiops-engine/src/", "aiops-engine/configs/", "aiops-engine/tests/", "grafana/", "grafana/helmchart/", "grafana/helmchart/files/",
+              "aiops-engine/helmchart/", "docs/", "common/")
+# 歷史紀錄寫的是當時的路徑，不檢查（跟術語檢查同一批）
+PATH_EXEMPT = ("docs/pdca/phase", "docs/pdca/meta/", "docs/pdca/archive/", "docs/pdca/TEMPLATE.md", "docs/pdca/records.md")   # records.md 是歷史紀錄的摘要索引，講的是當時的路徑
+# 不是 repo 裡的檔，不是壞路徑：使用者自己建的檔、kubectl／helm 的語法與 annotation、檔名慣例（CLAUDE.md 的 Diátaxis 表）
+PATH_ALLOW = {"values-local.yaml", "checksum/env", "checksum/provisioning", "how-to.md", "troubleshooting.md", "catalog.md", "cases.md", "scenarios.md", "reference.md",
+              "verification.md"}
+PATH_ALLOW_PREFIX = ("deploy/", "checksum/", "/")
+# 同一行說「已刪／在 git 歷史」＝刻意提到不存在的檔
+PATH_GONE = ("已刪", "git 歷史", "已隨", "已移除")
+PATH_TOKEN = re.compile(r"`([\w./\-]+\.(?:py|yaml|yml|md|json|sh)|[\w\-]+(?:/[\w\-.]+)+/?)`")
+
+
+def check_paths(files: list[Path]) -> list[str]:
+    tracked = set(subprocess.run(["git", "ls-files"], cwd=ROOT, capture_output=True, text=True, check=True).stdout.split())
+    dirs: set[str] = set()
+    for f in tracked:
+        d = str(Path(f).parent)
+        while d not in (".", ""):
+            dirs.add(d)
+            d = str(Path(d).parent)
+    names = {Path(f).name for f in tracked}
+
+    def exists(t: str) -> bool:
+        t = t.strip("./").rstrip("/")
+        return any((r + t) in tracked or (r + t) in dirs for r in PATH_ROOTS) or ("/" not in t and t in names)
+
+    bad = []
+    for f in files:
+        rel = f.relative_to(ROOT).as_posix()
+        if rel.startswith(PATH_EXEMPT):
+            continue
+        for n, line in lines_outside_code(f.read_text(encoding="utf-8")):
+            if any(g in line for g in PATH_GONE):
+                continue
+            for t in PATH_TOKEN.findall(line):
+                if t in PATH_ALLOW or t.startswith(PATH_ALLOW_PREFIX) or "YYYY" in t or t.startswith("http") or exists(t):
+                    continue
+                bad.append(f"{rel}:{n} 程式路徑不存在：{t}")
     return bad
 
 
@@ -184,7 +232,7 @@ def main() -> int:
     if "--toc" in sys.argv:
         update_toc(files)
         return 0
-    problems = {"連結": check_links(files), "索引": check_index(files), "舊說法": check_terms(files), "類型": check_types(files)}
+    problems = {"連結": check_links(files), "索引": check_index(files), "舊說法": check_terms(files), "類型": check_types(files), "程式路徑": check_paths(files)}
     for kind, items in problems.items():
         print(f"{'✗' if items else '✓'} {kind}：{len(items)} 個問題")
         for i in items[:40]:

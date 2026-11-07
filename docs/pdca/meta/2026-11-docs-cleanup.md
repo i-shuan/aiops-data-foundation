@@ -1,6 +1,6 @@
 # 整理舊的 md：先盤點，再決定刪、改、併（2026-11）
 
-**狀態**：已完成（盤點、封存舊紀錄、共用文件的壞路徑修正）；剩下的取捨見最後一節　　**日期**：2026-11-07　　**相關**：分支 `claude/docs-cleanup`（從 master `27d58dd` 開）
+**狀態**：已完成（盤點、封存舊紀錄、共用文件的壞路徑修正、索引拆分、路徑檢查進腳本）　　**日期**：2026-11-07　　**相關**：分支 `claude/docs-cleanup`（從 master `27d58dd` 開）
 **模組**：—（文件）
 
 ## Plan：這一次要達到什麼
@@ -82,3 +82,9 @@
 - **Do**：用腳本找「反引號裡長得像路徑、repo 裡找不到」的 61 處，逐處對照現在的程式後改：`CLAUDE.md`（`clock.py`→`clock/`）、`baseline/reference.md`（`core/owner.py`、`core/version.py`、`detector/owner.py`、`model.py`→現在的 `detect/store/owner_repo.py`、`common/infra/env.py`、`anomaly_repo.py`、`dynamic_baseline.py`）、`rca/README.md`（`investigator/`→`incident/`、`llm/`）、`fake-data/interfaces.md`、`scenario/README.md`（6 個缺副檔名或舊名）、`aiops-data-reference.md`（`feedback/suggest.py`→`learn/store/models.py`，四個偵測檔名）、`architecture.md`（`core/source.py`、`merge.py`、`report.py`、`llm.py`、`aiops-engine/scheduler`）、`feedback/README.md`、`semiconductor-design.md`、`troubleshooting.md`（`detector/rules.py`、`grafana/code/alert-rules.yaml`→`grafana/helmchart/files/`；告警閃爍的驗證指到 `tests/test_cmd_alert.py`）。講到已刪腳本（`e2e/k8s/run-*.sh`、`elasticsearch-setup.sh`、`run-alert-flap.py`）的實測紀錄**保留**，加上「已刪，在 git 歷史」與現在的對應（`tests/*_e2e.py`、`elasticsearch/kibana-dev-tools.txt`）。`baseline/reference.md` 開頭加一段說明：這份以 OTel 來源為準，Collector 指寫入端，APM 的差異看 `../apm/README.md`。
 - **Check**：`tools/check-docs.py` 過；同一支路徑檢查腳本重跑，剩下的都是使用者自己建的檔（`values-local.yaml`）、kubectl 語法（`deploy/aiops-beat`）、k8s annotation（`checksum/env`）、以及 `CLAUDE.md` 的檔名慣例（`how-to.md`…）。**沒驗證**：改的是路徑與名字，沒有逐句重讀全文確認敘述還符合現在的行為。
 - **Act**：①OTel 來源：先**保留並標明**（程式還支援），要不要刪還是使用者決定。②`docs/pdca/README.md` 的索引結構沒動。③這支「反引號路徑要存在」的檢查還只是一次性腳本，沒進 `tools/check-docs.py`——不進去，下次搬檔還是會留下壞路徑。
+
+## 收尾：索引拆分、路徑檢查進 `tools/check-docs.py`、合回 master（使用者說「一併處理，然後 merge 回 master」）
+
+- **Do**：①`docs/pdca/README.md` 只留「現況與待辦」（71 行，原本 252 行）；每一輪紀錄的索引（各 phase、`meta/`、`archive/`）搬到新的 `docs/pdca/records.md`（181 行），內容不改。`check-docs` 的索引檢查改成「PDCA 紀錄要出現在 `records.md`，`records.md` 要被 `README.md` 連到」；`CLAUDE.md`、`docs/README.md` 的指引同步。②`tools/check-docs.py` 加「程式路徑」檢查：反引號裡長得像路徑（有副檔名，或含 `/`）的，要在 repo 裡找得到（可相對 `aiops-engine/src/`、`configs/`、`tests/`、`grafana/helmchart/files/` 等）。**不檢查**：歷史紀錄（`phase*`、`meta/`、`archive/`、`records.md`，寫的是當時的路徑）、同一行說「已刪／git 歷史」的、明列的非 repo 檔（使用者自己建的 `values-local.yaml`、k8s annotation `checksum/…`、kubectl 的 `deploy/…`、`CLAUDE.md` 的檔名慣例 `how-to.md` 等）。③`CLAUDE.md`、`common/README.md` 剩下的 3 個真的寫得不精確的路徑（`config/settings.py`、`types/incident.py`、`tests/fakes.MemoryRepos`）改成完整路徑。
+- **Check**：①`tools/check-docs.py` 五項都過、exit 0。②**反向測試**：故意在 README 放 `aiops-engine/src/detect/not_here.py`，檢查有抓到（`程式路徑不存在`），還原後回到 0 個。③第一次跑時抓到 `docs/pdca/records.md` 自己的 23 個舊路徑（它是歷史摘要），所以把它列入不檢查。
+- **Act**：這個檢查只認「反引號＋長得像路徑」，沒加反引號的路徑、程式碼區塊內的、或剛好撞到某個同名檔的壞路徑（`ok` 的條件含「單獨檔名在 repo 任何地方出現」）抓不到。檔名撞名的漏報是刻意的取捨（不然 `README.md` 這種短名會全報錯）。

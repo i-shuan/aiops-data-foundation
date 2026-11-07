@@ -43,6 +43,6 @@ repo.series.fetch(spec, start, end, "5m")   # 原始資料 → 一條序列（ke
 
 - mapping 跟著實體：`detect/store/{anomaly,baseline}.py`、`incident/store/models.py`、`common/types/incident.py`、`learn/store/models.py`；只有 repository 自己用的索引（segments、state、chronic）mapping 放在 repository 檔裡。
 - 共用的翻頁（search_after、composite）、_mget、_update、_bulk update 在 `common/infra/es.py` 的 `Repository`。
-- 不連 ES 的測試：`tests/fakes.MemoryRepos`（原始資料給 DataFrame，整形在 `tests/shaping.py`，語意跟 ES 端的 aggregation 一樣，`tests/test_shape.py`、`test_values.py` 對過）。
+- 不連 ES 的測試：`tests/fakes.py` 的 `MemoryRepos`（原始資料給 DataFrame，整形在 `tests/shaping.py`，語意跟 ES 端的 aggregation 一樣，`tests/test_shape.py`、`test_values.py` 對過）。
 
 - `Repos` 的屬性名對 repository 的名稱表在 `common/infra/repos.py`（`REGISTRY`），第一次取用才載入，所以 `common/` 不靜態依賴任何功能；新增 repository：檔案放功能的 `store/`，在 `REGISTRY` 加一行。
