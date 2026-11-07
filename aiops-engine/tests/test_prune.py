@@ -96,7 +96,7 @@ class Pack(unittest.TestCase):
         return rc, out.getvalue()
 
     def rows(self, table):
-        return [r for pk in self.repo.packed.packs(table) for r in PACK.unpack(pk["data"])]
+        return [r for pk in self.repo.packed.packs(table, data=True) for r in PACK.unpack(pk["data"])]
 
     def test_pack_then_delete_by_day_in_batches(self):
         rc, out = self.run_prune(packed({"batch": 2}))                              # 6 筆、一次 2 筆：分 3 批
@@ -149,7 +149,8 @@ class Pack(unittest.TestCase):
                 for i in range(2000)]
         import json
         raw = len(json.dumps([r["doc"] for r in rows]))
-        self.assertLess(len(PACK.pack(rows)), raw / 3)
+        self.assertLess(len(PACK.pack(rows)), raw / 5)
+        self.assertIsInstance(PACK.pack(rows), bytes)
 
 
 if __name__ == "__main__":

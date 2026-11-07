@@ -73,7 +73,7 @@ def restore_cmd(table: str = Opt("", help="只讀回這張表，例如 aiops_ano
         print(f"不認得 {table}（可以是 {'、'.join(by_table)}）")
         return 2
     counts: dict[str, int] = {}
-    for pk in repo.packed.packs(table or None, start or None, end or None):
+    for pk in repo.packed.packs(table or None, start or None, end or None, data=True):
         t = pk["table"]
         if t not in by_table:
             continue

@@ -152,7 +152,7 @@ engine 只把告警寫進 PostgreSQL 的 `aiops_alerts`，**不自己發通知**
 
 ## 過期資料的壓縮讀回
 
-`detector prune` 對超過保留天數的資料，先一天打包成一筆 gzip 放進 PostgreSQL 的 `aiops_packed`，才刪細筆（放哪、大小、留多久見 [data-storage-reference.md](data-storage-reference.md#過期資料的壓縮)）。不用 PVC、不用資料夾。要查舊的：
+`detector prune` 對超過保留天數的資料，先一天打包成一筆 gzip（bytea 欄）放進 PostgreSQL 的 `aiops_packed`，才刪細筆（放哪、大小、留多久見 [data-storage-reference.md](data-storage-reference.md#過期資料的壓縮)）。不用 PVC、不用資料夾。要查舊的：
 
 ```bash
 # 有哪些天、各幾筆
