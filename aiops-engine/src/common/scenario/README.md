@@ -47,7 +47,7 @@ cfg 可以覆蓋情境的預設：`alerts.critical_levels`、`alerts.severity.cl
 | ⑦ 相似事故分類（M5） | ✅ | ✅ | ✅ |
 | ⑧⑨ 通知、回饋、匯出 | ✅ | ✅ | ✅ |
 
-## 功能積木：選要哪幾塊
+## 外掛：選要哪幾個
 
 ④⑥⑦⑨ 每一段的功能是一塊一塊的，情境資料檔的 `blocks:` 選要哪幾塊；**沒寫的段就是預設**（多半是全部，跟沒有這個設定時一模一樣）。看全部有哪些、這個情境開了哪幾塊：
 
@@ -55,7 +55,7 @@ cfg 可以覆蓋情境的預設：`alerts.critical_levels`、`alerts.severity.cl
 python3 -m main detector blocks
 ```
 
-| 段（`blocks.` 底下的鍵） | 內建的積木 | 關掉或換掉時 |
+| 段（`blocks.` 底下的鍵） | 內建的外掛 | 關掉或換掉時 |
 |---|---|---|
 | `detect`（④ 判斷） | `dynamic_baseline`、`peer_compare`、`threshold_rule`、`chronic_issue`、`quality_check`、`level_shift`、`trace_latency` | 關掉的那個指令跑了只印一行、回 0（排程照跑不會報錯）；手動調整（排除時段、重置點）是動態基準線的一部分 |
 | `grouping`（⑥ 併件，只能一塊） | `same_entity` | 換成自己寫的 `merge(…)` |
@@ -73,7 +73,7 @@ blocks:
   similar: [fields]                                                    # 不算向量
 ```
 
-**自己寫的積木**填「套件.模組:名字」，每一段要長什麼樣印在 `detector blocks` 的「自己寫的積木」那一行（定義在 [common/blocks.py](../blocks.py) 的 `STAGES`）。寫錯名字，第一次用到那一段時會講清楚有哪些可以填。
+**自己寫的外掛**填「套件.模組:名字」（一個函式，或一個 `PipelinePlugin`），每一段要長什麼樣印在 `detector blocks` 的「自己寫的外掛」那一行（定義在 [common/stages.py](../stages.py) 的 `STAGES`）。內建的外掛在 `src/plugins/plugin_<段>/`。寫錯名字，第一次用到那一段時會講清楚有哪些可以填。
 
 ## 自己寫一份
 

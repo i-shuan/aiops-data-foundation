@@ -38,6 +38,7 @@ quality：資料品質檢查（路由沒參數化、必填欄位缺、資料停�
 """
 from __future__ import annotations
 
+import importlib
 import sys
 from typing import Callable, List
 
@@ -47,7 +48,7 @@ import typer
 from common.clock import now_of
 from common.infra.es import ES
 from common.infra.repos import Repos
-import common.blocks as BLOCKS
+import common.stages as ST
 from common.scenario import load_scenario
 from common.scenario.mapping import effective
 import data.mapping_service as MAP
@@ -61,22 +62,18 @@ import interface.cli.feedback as feedback_cli
 import interface.cli.db as db_cli
 import interface.cli.mapping as mapping_cli
 
-from detect.detect_service import cmd_train, cmd_tune, cmd_detect
-from detect.strategy.chronic_issue import cmd_chronic
 from common.infra.prune import cmd_prune
-from detect.series_ops.level_shift import cmd_shift
-from detect.trace.latency_stats import cmd_trace_collect, cmd_trace_train, cmd_trace_detect
-from detect.strategy.threshold_rule import cmd_rules
-from detect.strategy.peer_compare import cmd_peer
-from detect.series_ops.quality_check import cmd_quality
+from plugins.plugin_detect.dynamic_baseline.dynamic_baseline import tune as cmd_tune   # tune 不受 blocks.detect 開關（調整永遠能做）
 from interface.cli.fab import cmd_ingest
 
-def gated(block: str, handler, kind: str, /, **params) -> int:
-    """④ 的積木（common/blocks.py 的 detect）：情境資料檔的 blocks.detect 沒開這一塊，就印一行、回 0（排程照跑不會報錯）。"""
+def gated(block: str, command: str, kind: str, /, **params) -> int:
+    """④ 的外掛（plugins/plugin_detect/<block>）：情境資料檔的 blocks.detect 沒開它，就印一行、回 0（排程照跑不會報錯）。
+    command＝"run" 從 run 登記表拿（外掛的主指令）；其他（train、tune、collect）是同一個外掛主檔裡的另外幾個指令。"""
     sc = load_scenario()
-    if not BLOCKS.on("detect", sc, block):
-        print(f"④ 積木 {block} 沒開（情境 {sc.name} 的 blocks.detect：{'、'.join(BLOCKS.enabled('detect', sc))}），跳過")
+    if not ST.on("detect", sc, block):
+        print(f"④ 外掛 {block} 沒開（情境 {sc.name} 的 blocks.detect：{'、'.join(ST.enabled('detect', sc))}），跳過")
         return 0
+    handler = ST.stage("detect").load(block) if command == "run" else         getattr(importlib.import_module(f"plugins.plugin_detect.{block}.{block}"), command)
     return run(handler, kind, **params)
 
 
@@ -86,12 +83,12 @@ command = registry(COMMANDS)
 
 @command("train")
 def train(config: str = Opt(...), weeks: int | None = Opt(None), end: pd.Timestamp | None = at_opt()) -> int:
-    return gated("dynamic_baseline", cmd_train, "series", config=config, weeks=weeks, end=end)
+    return gated("dynamic_baseline", "train", "series", config=config, weeks=weeks, end=end)
 
 
 @command("detect")
 def detect(config: str = Opt(...), window: pd.Timedelta = window_opt("30m"), at: pd.Timestamp | None = at_opt()) -> int:
-    return gated("dynamic_baseline", cmd_detect, "series", config=config, window=window, at=at)
+    return gated("dynamic_baseline", "run", "series", config=config, window=window, at=at)
 
 
 @command("tune", help="調整某條序列、某些對象的粒度、z、min_abs（寫進 aiops-tuning）")
@@ -113,18 +110,18 @@ def tune(config: str = Opt(SERIES),
 
 @command("trace-collect")
 def trace_collect(config: str = Opt(...), start: pd.Timestamp | None = at_opt(), end: pd.Timestamp | None = at_opt()) -> int:
-    return gated("trace_latency", cmd_trace_collect, "trace", config=config, start=start, end=end)
+    return gated("trace_latency", "collect", "trace", config=config, start=start, end=end)
 
 
 @command("trace-train")
 def trace_train(config: str = Opt(...), history: str | None = Opt(None, help="學多久的資料，例如 4w、2h（預設 history_weeks）"),
                 end: pd.Timestamp | None = at_opt()) -> int:
-    return gated("trace_latency", cmd_trace_train, "trace", config=config, history=history, end=end)
+    return gated("trace_latency", "train", "trace", config=config, history=history, end=end)
 
 
 @command("trace-detect")
 def trace_detect(config: str = Opt(...), window: pd.Timedelta = window_opt("30m"), at: pd.Timestamp | None = at_opt()) -> int:
-    return gated("trace_latency", cmd_trace_detect, "trace", config=config, window=window, at=at)
+    return gated("trace_latency", "run", "trace", config=config, window=window, at=at)
 
 
 def cmd_trace_merge(trace_config, args) -> int:
@@ -161,9 +158,9 @@ def cmd_source_check(series_config, args) -> int:
     return 0
 
 
-@command("blocks", help="功能積木：④⑥⑦⑨ 每一段有哪些積木、這個情境開了哪幾塊（情境資料檔的 blocks:）")
+@command("blocks", help="外掛：④⑥⑦⑨ 每一段有哪些外掛、這個情境開了哪幾塊（情境資料檔的 blocks:）")
 def blocks_cmd() -> int:
-    print("\n".join(BLOCKS.describe(load_scenario())))
+    print("\n".join(ST.describe(load_scenario())))
     return 0
 
 
@@ -181,24 +178,24 @@ def trace_merge(config: str = Opt(...), window: pd.Timedelta = window_opt("3m", 
 @command("rules")
 def rules(config: str = Opt(...), at: pd.Timestamp | None = at_opt("回測：拿過去某個時間點當成現在"),
           only: str | None = Opt(None, help="只跑這幾條（逗號分開）")) -> int:
-    return gated("threshold_rule", cmd_rules, "rules", config=config, at=at, only=only)
+    return gated("threshold_rule", "run", "rules", config=config, at=at, only=only)
 
 
 @command("peer")
 def peer(config: str = Opt(...), at: pd.Timestamp | None = at_opt("回測：拿過去某個時間點當成現在"),
          only: str | None = Opt(None, help="只跑這幾個（逗號分開）")) -> int:
-    return gated("peer_compare", cmd_peer, "peer", config=config, at=at, only=only)
+    return gated("peer_compare", "run", "peer", config=config, at=at, only=only)
 
 
 @command("chronic", help="慢性病清單：天天噴錯、沒人修的（每週）")
 def chronic(config: str = Opt(...), at: pd.Timestamp | None = at_opt("回測：拿過去某個時間點當成現在")) -> int:
-    return gated("chronic_issue", cmd_chronic, "chronic", config=config, at=at)
+    return gated("chronic_issue", "run", "chronic", config=config, at=at)
 
 
 @command("quality")
 def quality(config: str = Opt(...), at: pd.Timestamp | None = at_opt("回測：拿過去某個時間點當成現在"),
             only: str | None = Opt(None, help="只跑這幾個（逗號分開）")) -> int:
-    return gated("quality_check", cmd_quality, "quality", config=config, at=at, only=only)
+    return gated("quality_check", "run", "quality", config=config, at=at, only=only)
 
 
 @command("prune", help="異常、trace 每段的統計、已結案的告警（PostgreSQL）超過保留天數的清掉（每天）")
@@ -210,7 +207,7 @@ def prune(config: str = Opt(...), at: pd.Timestamp | None = at_opt("拿某個時
 @command("shift", help="一階跳變：最近一天幾乎每點都往同一邊超標、新水準很穩的序列，提 reset_point（proposed）")
 def shift(config: str = Opt(..., help="series.yaml（可加 shift: {window, min_points, min_share, max_spread}）"),
           at: pd.Timestamp | None = at_opt("拿某個時間點當成現在")) -> int:
-    return gated("level_shift", cmd_shift, "series", config=config, at=at)
+    return gated("level_shift", "run", "series", config=config, at=at)
 
 
 @command("ingest", help="別人判好的異常（ML 的異常跳點、FDC 鳴叫）→ aiops-anomalies（detector/ingest.py）")
@@ -226,9 +223,9 @@ def build_app() -> typer.Typer:
     sc = load_scenario()
     for register in {**COMMANDS, **feedback_cli.COMMANDS, **mapping_cli.COMMANDS, **db_cli.COMMANDS, **sc.commands}.values():
         register(app)
-    for name in BLOCKS.enabled("detect", sc):            # ④ 自己寫的積木（套件.模組:名字）：register(app)，加自己的子命令
-        if name not in BLOCKS.stage("detect").builtin:
-            BLOCKS.stage("detect").load(name)(app)
+    for name in ST.enabled("detect", sc):            # ④ 自己寫的外掛（套件.模組:名字）：register(app)，加自己的子命令
+        if name not in ST.stage("detect").builtin:
+            ST.stage("detect").load(name)(app)
     return app
 
 

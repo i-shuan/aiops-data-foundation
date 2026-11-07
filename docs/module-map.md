@@ -199,9 +199,9 @@ LLM 摘要（`aiops-engine/src/llm/summary.py`）只加註、每句附依據，�
 
 學權重：`similar-eval --learn-weights` 在已確認的事故 ≥ 50 件時才學，只印不寫入。
 
-## 4. 功能積木
+## 4. 外掛（仿 Superset）
 
-④⑥⑦⑨ 每一段的功能都登記在 `aiops-engine/src/common/blocks.py` 的一張表裡（判斷方法、併件、嚴重度、報告段落、相似事故、摘要、歷史線索、調整建議），情境資料檔的 `blocks:` 選要哪幾塊、關掉哪幾塊，也可以填自己寫的實作；沒寫就是全部開，跟以前一樣。`python3 -m main detector blocks` 列出全部。怎麼選見 [情境的 README](../aiops-engine/src/common/scenario/README.md#功能積木選要哪幾塊)。① 收值、② 的來源適配器本來就是積木（`data/source/`）。
+④⑥⑦⑨ 每一段的功能都是一個外掛（`aiops-engine/src/plugins/plugin_<段>/<名字>/`，對應 Superset 的 `plugins/plugin-chart-*`）：判斷方法、併件、嚴重度、報告段落、相似事故、摘要、歷史線索、調整建議。外掛自帶說明（`PipelineMetadata`）與可調參數（`control_panel.py`），入口啟動時 `MainPreset().register()` 登記進框架（`src/core/`）的三張登記表；各段的主程式只從登記表拿，不認得任何一個外掛。情境資料檔的 `blocks:` 選要哪幾個、關掉哪幾個，也可以填自己寫的實作；沒寫就是登記了的全部。`python3 -m main detector blocks` 列出全部與每個外掛的參數。結構與命名對照見 [pdca/meta/2026-11-superset-style.md](pdca/meta/2026-11-superset-style.md)；怎麼選見 [情境的 README](../aiops-engine/src/common/scenario/README.md#外掛選要哪幾個)。① 收值、② 的來源適配器另有自己的登記表（`data/source/`）。
 
 ## 5. 橫向支撐（不屬於哪一階段）
 
@@ -212,7 +212,7 @@ LLM 摘要（`aiops-engine/src/llm/summary.py`）只加註、每句附依據，�
 | 時間 | 時間只在一個地方解析 | `aiops-engine/src/common/clock/` |
 | 入口與排程 | `python3 -m main <detector\|investigator\|scheduler\|tasks\|api>`；排程器每個工作開一個子程序，所以設定每輪重讀 | `aiops-engine/src/interface/` |
 
-依賴方向只能往下走：`interface → learn → incident → llm → detect → data → common`（`aiops-engine/tests/test_layers.py` 鎖著）。
+依賴方向只能往下走：`interface → presets → plugins → learn → incident → llm → detect → data → common → core`（`aiops-engine/tests/test_layers.py` 鎖著）。
 
 ## 6. 現在最弱的地方
 

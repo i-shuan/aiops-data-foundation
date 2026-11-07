@@ -7,6 +7,8 @@ import unittest
 from datetime import datetime, timedelta, timezone
 
 import incident.alert_severity as SEV
+import plugins.plugin_severity.golden_signals.golden_signals as G
+import plugins.plugin_severity.p0.p0 as P0RUN
 from incident.config.rca import Alerts
 
 
@@ -16,28 +18,28 @@ T0 = datetime(2026, 11, 7, 2, 0, tzinfo=timezone.utc)
 class P0(unittest.TestCase):
     def test_is_p0(self):
         pats = ["order-api", "payment-.*", "bad[regex"]
-        self.assertTrue(SEV.is_p0("order-api", pats))
-        self.assertTrue(SEV.is_p0("payment-gw", pats))
-        self.assertTrue(SEV.is_p0("bad[regex", pats))
-        self.assertFalse(SEV.is_p0("order-api-v2", pats))           # 要整個名字對得上
-        self.assertFalse(SEV.is_p0(None, pats))
-        self.assertFalse(SEV.is_p0("x", []))
+        self.assertTrue(P0RUN.is_p0("order-api", pats))
+        self.assertTrue(P0RUN.is_p0("payment-gw", pats))
+        self.assertTrue(P0RUN.is_p0("bad[regex", pats))
+        self.assertFalse(P0RUN.is_p0("order-api-v2", pats))           # 要整個名字對得上
+        self.assertFalse(P0RUN.is_p0(None, pats))
+        self.assertFalse(P0RUN.is_p0("x", []))
 
     def test_escalate_one_level(self):
         for before, after in (("warning", "high"), ("high", "critical"), ("critical", "critical")):
-            g = SEV.escalate({"severity": before, "why": "w"}, True)
+            g = P0RUN.escalate({"severity": before, "why": "w"}, True)
             self.assertEqual(g["severity"], after)
             self.assertIn("P0", g["why"])
-        self.assertEqual(SEV.escalate({"severity": "warning", "why": "w"}, False), {"severity": "warning", "why": "w"})
+        self.assertEqual(P0RUN.escalate({"severity": "warning", "why": "w"}, False), {"severity": "warning", "why": "w"})
 
     def test_single_point_and_deploy_cap(self):
-        g = SEV.grade(["http.latency"], [T0])
+        g = G.grade(["http.latency"], [T0])
         self.assertEqual(g["severity"], "warning")
-        self.assertEqual(SEV.escalate(g, True)["severity"], "high")
+        self.assertEqual(P0RUN.escalate(g, True)["severity"], "high")
         ts = [T0 + timedelta(minutes=i) for i in range(12)]
-        g = SEV.grade(["http.latency"] * 12 + ["http.errors"] * 12, ts + ts, deploy_at=T0 + timedelta(minutes=5))
+        g = G.grade(["http.latency"] * 12 + ["http.errors"] * 12, ts + ts, deploy_at=T0 + timedelta(minutes=5))
         self.assertTrue(g["capped"])
-        self.assertEqual(SEV.escalate(g, True)["severity"], "high")
+        self.assertEqual(P0RUN.escalate(g, True)["severity"], "high")
 
     def test_config_field(self):
         self.assertEqual(Alerts().p0_services, [])

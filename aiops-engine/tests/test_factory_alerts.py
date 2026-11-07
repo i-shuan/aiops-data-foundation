@@ -9,6 +9,7 @@ from common.scenario import load_scenario
 import common.scenario.base as SC
 import incident.alert_grouper as AL
 import incident.alert_severity as S
+import plugins.plugin_severity.golden_signals.golden_signals as G
 import incident.strategy.fab_process_flow as FAC
 
 T0 = datetime(2026, 11, 4, 1, 0, tzinfo=timezone.utc)
@@ -130,14 +131,14 @@ class SeverityClasses(unittest.TestCase):
 
     def test_two_families_is_high_three_sustained_is_critical(self):
         ts = [T0 + timedelta(minutes=m) for m in range(0, 60, 10)]
-        g = S.grade(["fdc.pressure", "fdc.temperature"] * 3, ts, classes=self.CLASSES)
+        g = G.grade(["fdc.pressure", "fdc.temperature"] * 3, ts, classes=self.CLASSES)
         self.assertEqual((g["severity"], g["breadth"]), ("high", 2))
-        g = S.grade(["fdc.pressure", "fdc.temperature", "fdc.cd_bias"] * 2, ts, classes=self.CLASSES)
+        g = G.grade(["fdc.pressure", "fdc.temperature", "fdc.cd_bias"] * 2, ts, classes=self.CLASSES)
         self.assertEqual(g["severity"], "critical")
 
     def test_recipe_change_caps_to_warning(self):
         ts = [T0 + timedelta(minutes=m) for m in (3, 9, 14, 21, 25)]
-        g = S.grade(["fdc.temperature", "fdc.pressure"] * 3, ts + [ts[0]], deploy_at=T0, opts=S.GradeOptions(deploy_grace=30), classes=self.CLASSES)
+        g = G.grade(["fdc.temperature", "fdc.pressure"] * 3, ts + [ts[0]], deploy_at=T0, opts=S.GradeOptions(deploy_grace=30), classes=self.CLASSES)
         self.assertEqual((g["severity"], g["capped"]), ("warning", True))
         self.assertIn("換版後", g["why"])
 

@@ -24,17 +24,23 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 CODE = os.path.dirname(HERE)
 
 # 子命令 → (處理函式所在的模組, 屬性名, load_config 的 kind)
+import plugins.plugin_detect.dynamic_baseline.dynamic_baseline as DB
+import plugins.plugin_detect.trace_latency.trace_latency as TL
+from core import get_pipeline_run_registry
+
+RUN = object()     # 外掛的主指令從 run 登記表拿（plugins/plugin_detect）：測試時把登記表裡那一個換成假的
+
 HANDLERS = {
-    "train": (D, "cmd_train", "series"), "detect": (D, "cmd_detect", "series"), "tune": (D, "cmd_tune", "series"),
-    "backtest": (FB, "cmd_backtest", "series"), "shift": (D, "cmd_shift", "series"), "metrics": (FB, "cmd_metrics", "series"),
+    "train": (DB, "train", "series"), "detect": (RUN, "detect.dynamic_baseline", "series"), "tune": (D, "cmd_tune", "series"),
+    "backtest": (FB, "cmd_backtest", "series"), "shift": (RUN, "detect.level_shift", "series"), "metrics": (FB, "cmd_metrics", "series"),
     # 有子命令的（feedback／incident／adjust）：key 是「命令 子命令」，各自一個處理函式
     **{f"feedback {a}": (FB, f"feedback_{a}", "series") for a in ("pending", "add", "list", "summary", "suggest", "export")},
     **{f"incident {a}": (FB, f"incident_{a}", "series") for a in ("add", "list", "resolve")},
     **{f"adjust {a}": (FB, f"adjust_{a}", "series") for a in ("add", "list", "approve", "remove")},
-    "rules": (D, "cmd_rules", "rules"), "peer": (D, "cmd_peer", "peer"), "quality": (D, "cmd_quality", "quality"),
-    "trace-collect": (D, "cmd_trace_collect", "trace"), "trace-train": (D, "cmd_trace_train", "trace"),
-    "trace-detect": (D, "cmd_trace_detect", "trace"), "trace-merge": (D, "cmd_trace_merge", "trace"),
-    "chronic": (D, "cmd_chronic", "chronic"), "prune": (D, "cmd_prune", "prune"), "ingest": (D, "cmd_ingest", "ingest"),
+    "rules": (RUN, "detect.threshold_rule", "rules"), "peer": (RUN, "detect.peer_compare", "peer"), "quality": (RUN, "detect.quality_check", "quality"),
+    "trace-collect": (TL, "collect", "trace"), "trace-train": (TL, "train", "trace"),
+    "trace-detect": (RUN, "detect.trace_latency", "trace"), "trace-merge": (D, "cmd_trace_merge", "trace"),
+    "chronic": (RUN, "detect.chronic_issue", "chronic"), "prune": (D, "cmd_prune", "prune"), "ingest": (D, "cmd_ingest", "ingest"),
     "paths-merge": (cmd_paths, "cmd_paths_merge", "paths"),
     "alert": (cmd_alert, "run", "rca"),
 }
@@ -42,6 +48,18 @@ HANDLERS = {
 
 def env(**kw):
     return mock.patch.dict(os.environ, kw)
+
+
+@contextlib.contextmanager
+def _patch_run(key: str, handler):
+    """run 登記表的 key 暫時換成 handler，結束換回原本的。"""
+    registry = get_pipeline_run_registry()
+    old = registry.get(key)
+    registry.register_value(key, handler)
+    try:
+        yield
+    finally:
+        registry.register_value(key, old)
 
 
 def run(prog: str, argv: list[str], rc: int = 0):
@@ -60,7 +78,8 @@ def run(prog: str, argv: list[str], rc: int = 0):
         seen["load"] = (path, k)
         return {}
     main = D.main if prog == "detector" else I.main
-    with mock.patch.object(mod, name, handler), mock.patch.object(CLI, "load_config", load), \
+    patch = _patch_run(name, handler) if mod is RUN else mock.patch.object(mod, name, handler)
+    with patch, mock.patch.object(CLI, "load_config", load), \
          mock.patch.object(I, "load_config", load), mock.patch.object(cmd_paths, "load_config", load), \
          contextlib.redirect_stdout(io.StringIO()):
         got = main(argv)

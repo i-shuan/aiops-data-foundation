@@ -1,9 +1,9 @@
-"""功能積木（common/blocks.py，docs/pdca/meta/2026-11-blocks.md）。為了確認：
+"""管線各段與外掛的選用（common/stages.py；外掛在 plugins/，docs/pdca/meta/2026-11-superset-style.md）。為了確認：
 1. 登記表：沒寫 blocks 的段 = 預設（跟以前一樣）；寫錯名字講清楚有哪些；只能一塊的段多選會擋；自己寫的（套件.模組:名字）載得到。
 2. 情境資料檔的 blocks: 讀得進 Scenario；`detector blocks` 列得出每一段開了哪幾塊。
 3. ④ 關掉的判斷指令只印一行、回 0、不碰資料；自己寫的判斷加得進 detector 的子命令。
 4. ⑥ 嚴重度：拿掉 p0 就不升級；自己寫的接在後面會改結果。併件換成自己寫的會被叫。
-5. ⑦ 相似事故只開 fields 時不算向量；自己寫的檢索的候選會進分數；歷史 case 的積木照順序出現；摘要可以整個關掉；報告段落可以填自己寫的。
+5. ⑦ 相似事故只開 fields 時不算向量；自己寫的檢索的候選會進分數；歷史 case 的外掛照順序出現；摘要可以整個關掉；報告段落可以填自己寫的。
 6. ⑨ 只跑開著的建議規則，自己寫的也會跑；from_text 關掉時一句話不提調整。"""
 import contextlib
 import dataclasses
@@ -15,12 +15,12 @@ from argparse import Namespace
 from datetime import datetime, timedelta, timezone
 from unittest import mock
 
-import common.blocks as BLOCKS
+import common.stages as ST
 import incident.alert_service as C
 import learn.feedback_service as FS
 import llm.embedding as EMB
 import llm.similar as SIM
-import tests.blocks_fixtures as FX
+import tests.stages_fixtures as FX
 from common.scenario import load_scenario
 from common.scenario.base import _read, from_dict
 from incident.config.rca import Alerts
@@ -37,23 +37,23 @@ def with_blocks(**blocks):
 class Registry(unittest.TestCase):
     def test_defaults_are_everything_like_before(self):
         sc = load_scenario()
-        self.assertEqual(BLOCKS.enabled("detect", sc), list(BLOCKS.stage("detect").builtin))
-        self.assertEqual(BLOCKS.enabled("severity", sc), ["golden_signals", "p0"])
-        self.assertEqual(BLOCKS.enabled("rca_sections", sc), list(sc.sections))          # 沒寫 blocks：沿用情境的 sections
+        self.assertEqual(ST.enabled("detect", sc), list(ST.stage("detect").builtin))
+        self.assertEqual(ST.enabled("severity", sc), ["golden_signals", "p0"])
+        self.assertEqual(ST.enabled("rca_sections", sc), list(sc.sections))          # 沒寫 blocks：沿用情境的 sections
 
     def test_bad_names_one_only_and_custom(self):
         with self.assertRaises(ValueError) as cm:
-            BLOCKS.enabled("detect", with_blocks(detect=["dynamic_baselin"]))
+            ST.enabled("detect", with_blocks(detect=["dynamic_baselin"]))
         self.assertIn("dynamic_baseline", str(cm.exception))                              # 講出有哪些
         with self.assertRaises(ValueError):
-            BLOCKS.enabled("grouping", with_blocks(grouping=["same_entity", "tests.blocks_fixtures:merge"]))
-        self.assertIs(BLOCKS.stage("severity").load("tests.blocks_fixtures:always_critical"), FX.always_critical)
+            ST.enabled("grouping", with_blocks(grouping=["same_entity", "tests.stages_fixtures:merge"]))
+        self.assertIs(ST.stage("severity").load("tests.stages_fixtures:always_critical"), FX.always_critical)
         with self.assertRaises(ValueError):
-            BLOCKS.stage("severity").load("tests.blocks_fixtures:nope")
-        self.assertEqual(BLOCKS.enabled("summary", with_blocks(summary=[])), [])         # 空清單 = 這段全關
+            ST.stage("severity").load("tests.stages_fixtures:nope")
+        self.assertEqual(ST.enabled("summary", with_blocks(summary=[])), [])         # 空清單 = 這段全關
 
     def test_every_builtin_loads(self):
-        for st in BLOCKS.STAGES.values():
+        for st in ST.STAGES.values():
             for name in st.builtin:
                 with self.subTest(stage=st.key, name=name):
                     self.assertTrue(callable(st.load(name)))
@@ -64,11 +64,11 @@ class Registry(unittest.TestCase):
         self.addCleanup(os.unlink, f.name)
         sc = from_dict(_read(f.name))
         self.assertEqual(sc.blocks, {"detect": ["dynamic_baseline"], "severity": ["golden_signals"]})
-        text = "\n".join(BLOCKS.describe(sc))
+        text = "\n".join(ST.describe(sc))
         self.assertIn("✓ dynamic_baseline", text)
         self.assertIn("· peer_compare", text)
         self.assertIn("· p0", text)
-        self.assertIn("自己寫的積木", text)
+        self.assertIn("自己寫的外掛", text)
 
 
 class Detect(unittest.TestCase):
@@ -85,10 +85,10 @@ class Detect(unittest.TestCase):
     def test_disabled_command_skips(self):
         rc, out = self.run_cli("blocks:\n  detect: [dynamic_baseline]\n", ["rules", "--config", "configs/baseline/rules.yaml"])
         self.assertEqual(rc, 0)
-        self.assertIn("④ 積木 threshold_rule 沒開", out)
+        self.assertIn("④ 外掛 threshold_rule 沒開", out)
 
     def test_custom_detect_block_adds_command(self):
-        rc, out = self.run_cli("blocks:\n  detect: [dynamic_baseline, tests.blocks_fixtures:register]\n", ["my-check"])
+        rc, out = self.run_cli("blocks:\n  detect: [dynamic_baseline, tests.stages_fixtures:register]\n", ["my-check"])
         self.assertEqual(rc, 0)
         self.assertIn("my-check 跑了", out)
 
@@ -105,16 +105,16 @@ class Severity(unittest.TestCase):
     def test_chain(self):
         self.assertEqual(self.grade(with_blocks()).severity, "high")                      # 預設：warning → P0 升一級
         self.assertEqual(self.grade(with_blocks(severity=["golden_signals"])).severity, "warning")
-        al = self.grade(with_blocks(severity=["golden_signals", "tests.blocks_fixtures:always_critical"]))
+        al = self.grade(with_blocks(severity=["golden_signals", "tests.stages_fixtures:always_critical"]))
         self.assertEqual(al.severity, "critical")
-        self.assertIn("自己寫的積木", al.severity_why)
+        self.assertIn("自己寫的外掛", al.severity_why)
 
     def test_grouping_is_a_block(self):
         FX.CALLS.clear()
-        (_, merge), = BLOCKS.stage("grouping").loaded(with_blocks(grouping=["tests.blocks_fixtures:merge"]))
+        (_, merge), = ST.stage("grouping").loaded(with_blocks(grouping=["tests.stages_fixtures:merge"]))
         self.assertEqual(merge([], [], T0, timedelta(minutes=30)), [])
         self.assertEqual(FX.CALLS, ["merge"])
-        (_, merge), = BLOCKS.stage("grouping").loaded(with_blocks())
+        (_, merge), = ST.stage("grouping").loaded(with_blocks())
         self.assertIs(merge, C.AL.merge)
 
 
@@ -131,14 +131,14 @@ class Rca(unittest.TestCase):
         self.assertEqual([g["incident_id"] for g in got], ["f-1"])
 
     def test_custom_retriever_joins_the_ranking(self):
-        repo = MemoryRepos(scenario=with_blocks(similar=["fields", "tests.blocks_fixtures:by_ticket"]), incidents=[self.INC])
+        repo = MemoryRepos(scenario=with_blocks(similar=["fields", "tests.stages_fixtures:by_ticket"]), incidents=[self.INC])
         got = {g["incident_id"]: g for g in SIM.search(repo, self.FP)}
         self.assertEqual(set(got), {"f-1", "t-1"})
         self.assertTrue(any(w.startswith("描述相近") for w in got["t-1"]["why"]))         # 0.9 × 5 = 4.5 分，夠
 
     def test_hints_order_and_off(self):
         findings = {"segments": [{"segment": "mes-api › SELECT lots", "delta_ms": 100, "ref_ms": 10}], "error_origins": []}
-        repo = MemoryRepos(scenario=with_blocks(hints=["tests.blocks_fixtures:my_hint", "checklist"]), incidents=[self.INC])
+        repo = MemoryRepos(scenario=with_blocks(hints=["tests.stages_fixtures:my_hint", "checklist"]), incidents=[self.INC])
         lines = C._case_hints(repo, Alerts(), dict(findings), {"category": "db"})
         self.assertEqual(lines[0], "## 自己寫的線索")
         self.assertIn("- [ ] DB 連線池（過去 1 件有查）", lines)
@@ -146,18 +146,18 @@ class Rca(unittest.TestCase):
         self.assertEqual(C._case_hints(MemoryRepos(scenario=with_blocks(hints=[])), Alerts(), dict(findings), None), [])
 
     def test_summary_off_and_custom_section(self):
-        self.assertEqual(BLOCKS.stage("summary").loaded(with_blocks(summary=[])), [])
-        sc = with_blocks(rca_sections=["anomalies", "tests.blocks_fixtures:my_section"])
-        self.assertEqual(BLOCKS.enabled("rca_sections", sc), ["anomalies", "tests.blocks_fixtures:my_section"])
+        self.assertEqual(ST.stage("summary").loaded(with_blocks(summary=[])), [])
+        sc = with_blocks(rca_sections=["anomalies", "tests.stages_fixtures:my_section"])
+        self.assertEqual(ST.enabled("rca_sections", sc), ["anomalies", "tests.stages_fixtures:my_section"])
         c = type("Ctx", (), {"out": []})()
-        BLOCKS.stage("rca_sections").load("tests.blocks_fixtures:my_section")(c)
+        ST.stage("rca_sections").load("tests.stages_fixtures:my_section")(c)
         self.assertEqual(c.out[0], "## 自己寫的段落")
 
 
 class Suggest(unittest.TestCase):
     def test_only_enabled_rules_run(self):
         FX.CALLS.clear()
-        repo = MemoryRepos(scenario=with_blocks(suggest=["missed", "tests.blocks_fixtures:my_suggest"]))
+        repo = MemoryRepos(scenario=with_blocks(suggest=["missed", "tests.stages_fixtures:my_suggest"]))
         from common.config import load_config
         series = load_config("configs/baseline/series.yaml", "series")
         with mock.patch.object(FS, "_connect", return_value=repo), \
