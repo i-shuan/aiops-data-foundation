@@ -72,3 +72,22 @@ envFrom:
   configMap: {name: aiops-configs}
 {{- end }}
 {{- end -}}
+
+
+{{/* 過期資料的歸檔（archive.enabled）：PVC 掛在 /var/lib/aiops/archive；pod 用 fsGroup 讓 image 的使用者（10001）寫得進去 */}}
+{{- define "aiops.archiveClaim" -}}
+{{ .Values.archive.existingClaim | default "aiops-archive" }}
+{{- end -}}
+
+{{- define "aiops.archiveMount" -}}
+{{- if .Values.archive.enabled }}
+- {name: archive, mountPath: /var/lib/aiops/archive}
+{{- end }}
+{{- end -}}
+
+{{- define "aiops.archiveVolume" -}}
+{{- if .Values.archive.enabled }}
+- name: archive
+  persistentVolumeClaim: {claimName: {{ include "aiops.archiveClaim" . }}}
+{{- end }}
+{{- end -}}

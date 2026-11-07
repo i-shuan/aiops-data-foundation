@@ -1258,13 +1258,18 @@
   }
  },
  "configs/baseline/prune.yaml": {
+  "archive": {
+   "batch": 20000,
+   "dir": "/var/lib/aiops/archive",
+   "keep_days": 365
+  },
   "tables": [
    {
     "keep_days": 90,
     "table": "anomalies"
    },
    {
-    "keep_days": 90,
+    "keep_days": 35,
     "table": "segments"
    },
    {

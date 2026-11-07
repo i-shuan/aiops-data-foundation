@@ -121,6 +121,7 @@ class PgRepository:
     TABLE: str = ""
     TIME: str | None = None
     INDEXES: tuple[str, ...] = ()
+    PRUNE_WHERE = "ts < %s"          # detector prune 刪哪些（參數是 cutoff）；告警改成「已結案、結案時間早於 cutoff」
 
     def __init__(self, es=None, scenario=None, db: DB | None = None):
         self.es, self.scenario = es, scenario
@@ -206,6 +207,28 @@ class PgRepository:
     def delete_where(self, where: str, params=()) -> int:
         self.ensure()
         return self.db.execute(f"DELETE FROM {self.table} WHERE {where}", params)
+
+    # ── 過期資料（detector prune；detect/housekeeping.py）──
+    def prune(self, cutoff: datetime) -> int:
+        return self.delete_where(self.PRUNE_WHERE, (cutoff,))
+
+    def prune_count(self, cutoff: datetime) -> int:
+        return self.count(self.PRUNE_WHERE, (cutoff,))
+
+    def prune_rows(self, cutoff: datetime, limit: int) -> list[dict]:
+        """要刪的、最舊的 limit 筆：[{id, ts, doc}]（歸檔用，寫好檔案再 delete_ids）。"""
+        self.ensure()
+        return self.db.query(f"SELECT id, ts, doc FROM {self.table} WHERE {self.PRUNE_WHERE} ORDER BY ts NULLS FIRST, id LIMIT {int(limit)}",
+                             (cutoff,))
+
+    def delete_ids(self, ids: list[str]) -> int:
+        return self.delete_where("id = ANY(%s)", (list(ids),)) if ids else 0
+
+    def restore(self, rows: list[tuple[str, datetime | None, dict]]) -> None:
+        """歸檔讀回（detector db restore）：照原本的 id、ts 寫回；同 id 覆蓋。"""
+        if rows:
+            self.ensure()
+            self.db.executemany(self._upsert_sql(), [(i, ts, dumps(d)) for i, ts, d in rows])
 
 
 def has(field: str) -> str:

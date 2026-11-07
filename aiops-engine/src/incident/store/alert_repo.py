@@ -20,6 +20,7 @@ _PRUNE = f"doc->>'status' = 'resolved' AND {_t('resolved_at')} < %s"
 
 class AlertRepository(PgRepository):
     TABLE, TIME = ALERT_TABLE, "@timestamp"
+    PRUNE_WHERE = _PRUNE        # 只刪已結案、結案時間早於 cutoff 的；開著的件、狀態文件沒有 resolved_at，不會被刪
     INDEXES = ("((doc->>'status'))", "((doc->>'service'))")
 
     def get(self, alert_id: str) -> dict | None:
@@ -48,9 +49,3 @@ class AlertRepository(PgRepository):
     def request_rca(self, alert_id: str, at: str) -> None:
         self._patch(alert_id, {"rca_requested": True, "rca_requested_at": at})
 
-    def prune(self, cutoff: datetime) -> int:
-        """只刪已結案、結案時間早於 cutoff 的；開著的件、狀態文件沒有 resolved_at，不會被刪。"""
-        return self.delete_where(_PRUNE, (cutoff,))
-
-    def prune_count(self, cutoff: datetime) -> int:
-        return self.count(_PRUNE, (cutoff,))

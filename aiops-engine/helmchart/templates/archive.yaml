@@ -1,0 +1,17 @@
+{{- if and .Values.archive.enabled (not .Values.archive.existingClaim) }}
+# 過期資料的歸檔（detector prune 刪之前壓縮存成 .jsonl.gz；detector db restore 讀回）。helm uninstall 不刪這個 PVC（歸檔是唯一的一份）
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: aiops-archive
+  annotations:
+    helm.sh/resource-policy: keep
+spec:
+  accessModes: [{{ .Values.archive.accessMode }}]
+  {{- with .Values.archive.storageClass }}
+  storageClassName: {{ . | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.archive.size }}
+{{- end }}

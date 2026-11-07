@@ -18,6 +18,9 @@ spec:
         checksum/env: {{ include (print .Template.BasePath "/env.yaml") . | sha256sum }}
     spec:
       terminationGracePeriodSeconds: {{ .Values.scheduler.terminationGracePeriodSeconds }}
+      {{- if .Values.archive.enabled }}
+      securityContext: {fsGroup: 10001}     # 歸檔的 PVC 給 image 的使用者寫
+      {{- end }}
       containers:
         - name: scheduler
           image: {{ include "aiops.image" . }}
@@ -33,6 +36,9 @@ spec:
             {{- toYaml .Values.scheduler.resources | nindent 12 }}
           volumeMounts:
             - {name: tmp, mountPath: /tmp}
+            {{- with include "aiops.archiveMount" . }}
+            {{- . | nindent 12 }}
+            {{- end }}
             {{- with include "aiops.configMounts" . }}
             {{- . | nindent 12 }}
             {{- end }}
@@ -42,6 +48,9 @@ spec:
       volumes:
         - name: tmp
           emptyDir: {}
+        {{- with include "aiops.archiveVolume" . }}
+        {{- . | nindent 8 }}
+        {{- end }}
         {{- with include "aiops.configVolumes" . }}
         {{- . | nindent 8 }}
         {{- end }}

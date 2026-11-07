@@ -67,9 +67,3 @@ class AnomalyRepository(PgRepository):
         ids, aids = [t[0] for t in tags], [t[1] for t in tags]
         return self.db.execute(f"UPDATE {self.table} AS t SET doc = t.doc || jsonb_build_object('alert_id', v.aid), updated_at = now() "
                                f"FROM unnest(%s::text[], %s::text[]) AS v(id, aid) WHERE t.id = v.id", (ids, aids))
-
-    def prune(self, cutoff: datetime) -> int:
-        return self.delete_where("ts < %s", (cutoff,))
-
-    def prune_count(self, cutoff: datetime) -> int:
-        return self.count("ts < %s", (cutoff,))

@@ -104,6 +104,10 @@ spec:
         checksum/env: {{ $env }}
     spec:
       terminationGracePeriodSeconds: {{ $.Values.scheduler.terminationGracePeriodSeconds }}
+      {{- $archive := and $.Values.archive.enabled (eq $queue "batch") }}{{/* prune 在 batch 佇列：只有它掛歸檔的 PVC */}}
+      {{- if $archive }}
+      securityContext: {fsGroup: 10001}
+      {{- end }}
       containers:
         - name: worker
           image: {{ include "aiops.image" $ }}
@@ -111,11 +115,13 @@ spec:
           {{- include "aiops.envFrom" $ | nindent 10 }}
           resources:
             {{- toYaml $w.resources | nindent 12 }}
-          {{- with include "aiops.configMounts" $ }}
+          {{- $mounts := printf "%s%s" (ternary (include "aiops.archiveMount" $) "" $archive) (include "aiops.configMounts" $) }}
+          {{- with $mounts }}
           volumeMounts:
             {{- . | nindent 12 }}
           {{- end }}
-      {{- with include "aiops.configVolumes" $ }}
+      {{- $vols := printf "%s%s" (ternary (include "aiops.archiveVolume" $) "" $archive) (include "aiops.configVolumes" $) }}
+      {{- with $vols }}
       volumes:
         {{- . | nindent 8 }}
       {{- end }}

@@ -5,7 +5,7 @@
 `common/` 是各功能共用的底層，分五個資料夾，它不依賴任何功能資料夾（`tests/test_layers.py` 鎖著）：
 
 - `clock/`：時間只在這裡解析一份。`parse.py`（`parse_duration` 30m／1h／7d→timedelta、`parse_instant` ISO→帶時區的 Timestamp、`pandas_freq`、`check_zone`）、`window.py`（`now_of`、`TimeWindow`、`show_duration`）、`stamp.py`（`stamp_of`）。字串只在邊界解析：命令列在 `interface/cli/common.py` 的 `at_opt`／`window_opt`（typer 的 parser，看不懂印用法、不是 traceback），設定檔在載入時（`Dur`、`Tz`）；往下傳的是 `pandas.Timestamp`、`Timedelta`、`TimeWindow`。`tests/test_no_time_strings.py` 鎖著。
-- `infra/`：`env.py`（引擎版本、專案根目錄）、`es.py`（ES 連線、文件的基底 `Doc`、讀原始資料的 repository 基底 `Repository`）、`pg.py`（PostgreSQL 連線 `DB`、表的 repository 基底 `PgRepository`：`id`、`ts`、`doc jsonb`）、`repos.py`（`Repos`）、`es_import.py`（以前存在 ES 的 `aiops-*` 搬進來，一次性）。
+- `infra/`：`env.py`（引擎版本、專案根目錄）、`es.py`（ES 連線、文件的基底 `Doc`、讀原始資料的 repository 基底 `Repository`）、`pg.py`（PostgreSQL 連線 `DB`、表的 repository 基底 `PgRepository`：`id`、`ts`、`doc jsonb`）、`repos.py`（`Repos`）、`es_import.py`（以前存在 ES 的 `aiops-*` 搬進來，一次性）、`archive.py`（`detector prune` 刪之前把過期的那幾筆壓縮存成一天一個 `.jsonl.gz`，`detector db restore` 讀回）。
 - `types/`：`incident.py`——事故與指紋的資料物件，`llm/`（過去相似）與 `incident/`（告警）都用它，放在任一邊都會循環。
 - `scenario/`：`base.py`（`Scenario`、`load_scenario()`）、`*.yaml`（四份情境資料檔）。
 - `config/`：只放「各功能共用」的設定：`common.py`（共用型別與 `Strict` 基底）、`loader.py`（`load_config(path, kind)` 讀檔驗證，模型名稱表 `REGISTRY` 第一次用到才載入各功能的模型，所以 common 不靜態依賴功能）、`settings.py`（環境變數，`settings()`）。**各種設定自己的模型放用它的功能資料夾**：`detect/config/`（series、rules、peer、quality、trace、chronic、prune、adjustments、calendar、paths、ingest，加 detect 內共用的 `types.py`）、`incident/config/rca.py`、`interface/config/schedule.py`。

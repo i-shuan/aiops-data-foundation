@@ -15,9 +15,3 @@ class SegmentRepository(PgRepository):
     def segments(self, start: datetime, end: datetime) -> list[dict]:
         """[start, end) 的段統計（kind segment），依時間排。"""
         return [d for _, d in self._select("ts >= %s AND ts < %s AND doc->>'kind' = 'segment'", (start, end), order="ts, id")]
-
-    def prune(self, cutoff: datetime) -> int:
-        return self.delete_where("ts < %s", (cutoff,))
-
-    def prune_count(self, cutoff: datetime) -> int:
-        return self.count("ts < %s", (cutoff,))

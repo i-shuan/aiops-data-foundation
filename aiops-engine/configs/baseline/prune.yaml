@@ -3,10 +3,17 @@
 #
 # 不在這裡的（不清）：事故、回饋、調整、對照覆寫（人工判斷，事故紀錄要長留，備份交給 PostgreSQL 的備份）、
 # 基準線（每天 train 覆蓋）、進度（一筆）。
+#
+# archive：刪之前先壓縮存成檔案（一天一個 <表>-<年-月-日>.jsonl.gz），要查舊的用 detector db restore 讀回。
+# 資料夾寫不進去就一筆都不刪（排程標失敗）。部署時 helm 的 archive.enabled 掛一個 PVC 在這個路徑；
+# 環境變數 AIOPS_ARCHIVE_DIR 蓋過 dir，設 off 就不歸檔、直接刪（本機開發、沒有 PVC 時）。
+archive:
+  dir: /var/lib/aiops/archive
+  keep_days: 365         # 歸檔檔案留一年；不寫 = 不刪
 tables:
   - table: anomalies     # 異常總表：回饋、回測最多看 4 週；事故的 anomaly_ids 對不到舊異常時只影響「每個異常各一筆回饋」，退回一件一筆
     keep_days: 90
-  - table: segments      # trace 每一段每 5 分鐘的統計：trace-train 回看 4 週；API 多時長最快
-    keep_days: 90
+  - table: segments      # trace 每一段每 5 分鐘的統計：trace-train 最多回看 4 週，35 天夠；筆數固定（API × 段 × 每 5 分鐘），中型規模每天約 72 萬筆
+    keep_days: 35
   - table: alerts        # 事故（一件一筆，含 RCA 報告）：只刪已結案的、依結案時間；開著的件、心跳、detect-status 不會被刪
     keep_days: 180
