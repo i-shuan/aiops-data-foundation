@@ -21,6 +21,7 @@ from dataclasses import dataclass
 import pandas as pd
 
 from shared.infra.es import ES, doc_id
+from shared.config.trace import TraceConfig
 from detect.store.models import group_traces, segment, self_times
 from detect.store.models import Anomaly
 from shared.infra.repos import Repos
@@ -28,6 +29,7 @@ from shared.scenario import load_scenario
 import detect.series_ops.manual_adjust as A
 from detect.series_ops.manual_adjust import data_adjustments
 from detect.detect_service import save_anomalies, save_baseline, train_summary, with_status
+from detect.strategy.dynamic_baseline import DetectOptions, TrainOptions, score, train
 from detect.utils import _freq, _now
 import detect.trace.span_merge as M
 
@@ -209,10 +211,10 @@ def swallowed(cur: pd.DataFrame, min_rate: float) -> pd.DataFrame:
 
 # ── 讀寫（repo.traces 抽樣、讀 span；repo.segments 存統計）──
 
-def collect(repo, cfg: dict, start: pd.Timestamp, end: pd.Timestamp) -> tuple[pd.DataFrame, list[dict]]:
+def collect(repo, trace_config: TraceConfig, start: pd.Timestamp, end: pd.Timestamp) -> tuple[pd.DataFrame, list[dict]]:
     """[start, end) 每個時段抽樣、算好，寫進 aiops-trace-segments（同一個時段重算會覆蓋，不會重複）。"""
-    interval, ix = cfg.get("interval", "5m"), cfg["traces_index"]
-    samples = [Sampled(*s) for s in repo.traces.sample_entries(ix, start, end, interval, cfg.get("sample_per_bucket", 100), cfg.get("sample_policy"))]
+    interval, ix = trace_config.interval, trace_config.traces_index
+    samples = [Sampled(*s) for s in repo.traces.sample_entries(ix, start, end, interval, trace_config.sample_per_bucket, trace_config.sample_policy)]
     if not samples:
         return pd.DataFrame(columns=COLUMNS), []
     pad = pd.Timedelta(minutes=5)
@@ -220,7 +222,7 @@ def collect(repo, cfg: dict, start: pd.Timestamp, end: pd.Timestamp) -> tuple[pd
     # 消費者用 link 指到的生產者在別的 trace 裡，另外讀回來（尾端取樣時那個 trace 可能沒被留下，就算不出排隊時間）
     want = {sid for t in traces.values() for sp in t if sp["kind"] == "Consumer" for sid in sp.get("links") or []}
     linked = repo.traces.spans_by_id(ix, sorted(want), start - pad, end + pad) if want else {}
-    df, skews = summarize(samples, traces, cfg.get("clock_skew_ms", 500), linked)
+    df, skews = summarize(samples, traces, trace_config.clock_skew_ms, linked)
     df = fill_missing_segments(df)
     repo.segments.ensure()
     docs = [(doc_id("seg", r["ts"], r["entry.service"], r["entry.name"], r["segment"]),
@@ -245,41 +247,41 @@ def load_segments(repo, start: pd.Timestamp, end: pd.Timestamp) -> pd.DataFrame:
 def _metric_frame(df: pd.DataFrame, m: str) -> pd.DataFrame:
     return df[[*KEYS, "ts"]].assign(value=df[m])
 
-def cmd_trace_merge(cfg: dict, args) -> int:
+def cmd_trace_merge(trace_config: TraceConfig, args) -> int:
     """raw（每一段一筆）→ 一個請求一筆（traces-merged-<group>-<日期>）。排程器每分鐘跑；從上次合到的時間接著合，中斷很久會分段補（最多 2 天）。"""
     repo = Repos(ES(), load_scenario())
     at = _now(args.at).to_pydatetime()
-    since, until, n = M.run(repo, cfg, at, pd.Timedelta(args.window).to_pytimedelta())
+    since, until, n = M.run(repo, trace_config, at, pd.Timedelta(args.window).to_pytimedelta())
     print(f"trace-merge {since:%H:%M:%S}～{until:%H:%M:%S}：合了 {n} 個 trace")
     return 0
 
 
-def cmd_trace_collect(cfg: dict, args) -> int:
+def cmd_trace_collect(trace_config: TraceConfig, args) -> int:
     """補過去的統計（trace 原文只留 7 天，最多補 7 天），或手動重算某一段。平常由 trace-detect 每 5 分鐘順便做。"""
     repo = Repos(ES(), load_scenario())
-    freq = _freq(cfg.get("interval", "5m"))
+    freq = _freq(trace_config.interval)
     end = _now(args.end).floor(freq)
     start = pd.Timestamp(args.start) if args.start else end - pd.Timedelta(days=7)
     step = pd.Timedelta(hours=1)
     n = 0
     t = start
     while t < end:
-        df, _ = collect(repo, cfg, t, min(t + step, end))
+        df, _ = collect(repo, trace_config, t, min(t + step, end))
         n += len(df)
         t += step
     print(f"統計 {start} ～ {end}：{n} 筆（API × 段 × 時段）寫進 {repo.segments.INDEX}")
     return 0
 
-def cmd_trace_train(cfg: dict, args) -> int:
+def cmd_trace_train(trace_config: TraceConfig, args) -> int:
     repo = Repos(ES(), load_scenario())
     repo.baseline.ensure()
-    freq = _freq(cfg.get("interval", "5m"))
+    freq = _freq(trace_config.interval)
     end = _now(args.end).floor(freq)
-    start = end - (pd.Timedelta(args.history) if args.history else pd.Timedelta(weeks=cfg.get("history_weeks", 4)))
-    topts = TrainOptions(**cfg.get("train", {}))
+    start = end - (pd.Timedelta(args.history) if args.history else pd.Timedelta(weeks=trace_config.history_weeks))
+    topts = TrainOptions(**trace_config.train.to_dict())
     hist = load_segments(repo, start, end)
-    hist = hist[hist["requests"] >= cfg.get("min_requests", 5)]
-    adjs = data_adjustments(repo, cfg, end)
+    hist = hist[hist["requests"] >= trace_config.min_requests]
+    adjs = data_adjustments(repo, trace_config, end)
     print(f"學習區間 {start.tz_convert(topts.timezone):%Y-%m-%d %H:%M} ～ {end.tz_convert(topts.timezone):%Y-%m-%d %H:%M}"
           f"（{topts.timezone}），{len(hist)} 筆統計")
     for m in METRICS:
@@ -289,19 +291,19 @@ def cmd_trace_train(cfg: dict, args) -> int:
         print(train_summary(f"trace.segment.{m}", KEYS, h, b) + (f"；排除 {dropped} 個點" if dropped else ""))
     return 0
 
-def cmd_trace_detect(cfg: dict, args) -> int:
+def cmd_trace_detect(trace_config: TraceConfig, args) -> int:
     """算最近一段時間每個 API 每一段的統計（同時寫進 aiops-trace-segments，之後 train 用），跟 baseline 比。"""
     repo = Repos(ES(), load_scenario())
     repo.anomalies.ensure()
-    freq = _freq(cfg.get("interval", "5m"))
+    freq = _freq(trace_config.interval)
     end = _now(args.at).floor(freq)
     start = end - pd.Timedelta(args.window)
-    tz = cfg.get("train", {}).get("timezone", "Asia/Taipei")
-    dopts = DetectOptions(**cfg.get("detect", {}))
+    tz = trace_config.train.timezone or "Asia/Taipei"
+    dopts = DetectOptions(**trace_config.detect.to_dict())
     print(f"偵測區間 {start.tz_convert(tz):%Y-%m-%d %H:%M} ～ {end.tz_convert(tz):%Y-%m-%d %H:%M}（{tz}）")
-    cur, skews = collect(repo, cfg, start, end)
-    adjs = data_adjustments(repo, cfg, end)
-    cur = cur[cur["requests"] >= cfg.get("min_requests", 5)]
+    cur, skews = collect(repo, trace_config, start, end)
+    adjs = data_adjustments(repo, trace_config, end)
+    cur = cur[cur["requests"] >= trace_config.min_requests]
     total = 0
     for m in METRICS:
         name = f"trace.segment.{m}"
@@ -311,12 +313,12 @@ def cmd_trace_detect(cfg: dict, args) -> int:
             continue
         # baseline 裡有、這次完全沒出現的段補 0（例如平常會查 DB 的那段整個消失）
         c = fill_missing_segments(cur, base[KEYS].drop_duplicates())
-        rule = cfg.get("metrics", {}).get(m, {})
-        s = score(_metric_frame(c, m), base, KEYS, direction=rule.get("direction", "both"),
-                  min_abs=rule.get("min_abs", 0.0), opts=dopts, tz=tz)
+        rule = getattr(trace_config.metrics, m)
+        s = score(_metric_frame(c, m), base, KEYS, direction=rule.direction,
+                  min_abs=rule.min_abs, opts=dopts, tz=tz)
         s, _ = A.detect_filter(s, KEYS, name, adjs, tz, baseline=base)
-        s = with_status(cfg, s, KEYS, cfg.get("interval", "5m"), start)
-        total += save_anomalies(repo, name, KEYS, s, rule.get("direction", "both"), tz)
+        s = with_status(trace_config, s, KEYS, trace_config.interval, start)
+        total += save_anomalies(repo, name, KEYS, s, rule.direction, tz)
     # 沒見過的呼叫：規則，這支 API 有 baseline、但這一段從來沒出現過
     base = repo.baseline.load("trace.segment.calls", KEYS)
     new = new_segments(cur, base)
@@ -332,15 +334,15 @@ def cmd_trace_detect(cfg: dict, args) -> int:
                   f"（每個請求 {d['value']:.1f} 次）")
     total += len(docs)
     # 不用學的規則：N+1（同一個呼叫太多次）、吞掉的例外
-    rules = cfg.get("rules", {})
+    rules = trace_config.rules
     found = []
-    if rules.get("repeated_calls"):
-        found += [("trace.segment.repeated", r, r["calls"], rules["repeated_calls"],
+    if rules.repeated_calls:
+        found += [("trace.segment.repeated", r, r["calls"], rules.repeated_calls,
                    f"同一個呼叫太多次（可能是 N+1）：{r['entry.service']} {r['entry.name']} → {r['segment']}"
-                   f"（每個請求 {r['calls']:.0f} 次，門檻 {rules['repeated_calls']}）")
-                  for r in repeated_calls(cur, rules["repeated_calls"]).to_dict("records")]
-    if rules.get("swallowed_rate"):
-        found += [("trace.segment.swallowed", r, r["swallowed_rate"], rules["swallowed_rate"],
+                   f"（每個請求 {r['calls']:.0f} 次，門檻 {rules.repeated_calls}）")
+                  for r in repeated_calls(cur, rules.repeated_calls).to_dict("records")]
+    if rules.swallowed_rate:
+        found += [("trace.segment.swallowed", r, r["swallowed_rate"], rules.swallowed_rate,
                    f"吞掉的例外：{r['entry.service']} {r['entry.name']} → {r['segment']}"
                    f"（{r['swallowed_rate']:.0%} 的請求丟了 {r.get('exception_type') or '例外'}，但沒標成錯誤）")
                   for r in swallowed(cur, rules["swallowed_rate"]).to_dict("records")]
@@ -356,7 +358,7 @@ def cmd_trace_detect(cfg: dict, args) -> int:
     # _id 不是預設的 (series, keys, ts)：既有資料就是這樣算的，換了會重複寫
     docs = [(doc_id("trace.clock_skew_ms", r["caller"], r["callee"], r["ts"]),
              Anomaly(ts=r["ts"], series="trace.clock_skew_ms", keys={"caller": r["caller"], "callee": r["callee"]}, value=r["skew_ms"],
-                     median=0.0, expected_low=0.0, expected_high=cfg.get("clock_skew_ms", 500), level="rule", direction="up").to_doc())
+                     median=0.0, expected_low=0.0, expected_high=trace_config.clock_skew_ms, level="rule", direction="up").to_doc())
             for r in skews]
     if docs:
         repo.anomalies.write(docs)
