@@ -23,6 +23,7 @@ from common.infra.pg import job_lock
 
 
 from interface.jobs.cron import Cron
+from interface.jobs.guard import Guard
 from interface.config.schedule import Job as ScheduleJob
 
 QUEUES = ("realtime", "alert", "batch")
@@ -139,6 +140,7 @@ def serve(jobs: list[Job], tz: ZoneInfo, alive_file: str | None = None, stop: th
     stop = stop or threading.Event()
     log(f"開始：{len(jobs)} 個工作（{', '.join(j.name for j in jobs)}），時區 {tz.key}" + ("，只丟進佇列（beat）" if run else ""))
     touch(alive_file)
+    guard = Guard(log)
     while not stop.is_set():
         now = datetime.now(tz)
         nxt = (now + timedelta(minutes=1)).replace(second=0, microsecond=0)
@@ -152,6 +154,7 @@ def serve(jobs: list[Job], tz: ZoneInfo, alive_file: str | None = None, stop: th
         if at < nxt:          # 醒早了幾毫秒
             at = nxt
         tick(jobs, at, python, cwd, run)
+        guard.kick(at)                    # 看守（資料庫、看門狗、本機日誌）在背景跑，不拖排程
     log("收到停止：不再排新的，等還在跑的結束")
     for j in jobs:
         if j.running is not None and j.running.is_alive():

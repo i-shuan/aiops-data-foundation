@@ -52,10 +52,13 @@ engine 自己的資料——異常、基準線、告警（含 RCA 報告）、�
 |---|---|
 | 版本 | PostgreSQL **14 以上**；只用標準功能（jsonb、GIN、btree），不用 TimescaleDB |
 | 資料庫 | 一個（例如 `aiops`）；要放在某個 schema 而不是 `public` 也可以，engine 設 `pgSchema`（環境變數 `AIOPS_PG_SCHEMA`） |
-| engine 的帳號 | 那個 schema 的 `CREATE`、表的 `SELECT／INSERT／UPDATE／DELETE`（engine 每個工作啟動時會送 `CREATE TABLE IF NOT EXISTS`，**沒有 `CREATE` 權限會 `permission denied`，即使表已經建好**；DBA 先跑 `detector db init` 建表不能省掉這個權限） |
+| 建表的帳號 | 部署時跑一次 `python3 -m main detector db init`（建全部的表與索引）：要那個 schema 的 `CREATE`。可以是 DBA 自己、或部署用的另一個帳號；之後改版加了索引再跑一次 |
+| engine 的帳號 | 表的 `SELECT／INSERT／UPDATE／DELETE` 就夠（**不用 `CREATE`**）：engine 先用 `to_regclass` 查表在不在，在就不送 DDL；表還沒建時才會試著建，那時沒有 `CREATE` 會 `permission denied`，請先跑 `db init`（2026-11-07 前的版本每次都送 `CREATE TABLE IF NOT EXISTS`，一定要 `CREATE`） |
 | Grafana 的帳號 | **唯讀**：`SELECT`，加 `ALTER DEFAULT PRIVILEGES … GRANT SELECT ON TABLES`（engine 之後建的表也讀得到） |
 | 擴充（選用） | `pgvector`：相似事故的向量用 SQL 算。**不給也能跑**：向量存一般欄位、在程式裡算（事故幾十到幾百件，沒差） |
 | 連線 | engine、Grafana 的 pod 連得到；`sslmode=require` 以上 |
+| 高可用 | 問 DBA 有沒有**主從自動切換**（雲端託管的 Multi-AZ、Patroni＋HAProxy…）與切換要多久。engine 連不上會等 1、2、4、8… 秒重試、最多 `AIOPS_PG_RETRY_SECONDS`（預設 30 秒），切換在這之內就沒感覺。連線位址：切換後位址不變（VIP、HAProxy）最好；不行的話 DSN 寫多台、只連主庫：`postgresql://帳號:密碼@pg1:5432,pg2:5432/aiops?target_session_attrs=read-write` |
+| 唯讀副本（選用） | 有的話 **Grafana 連副本**（`grafana/` 的 `AIOPS_PG_HOST`），engine 連主庫：Grafana 查大範圍歷史不會拖慢 engine 的寫入 |
 | engine 的連線設定 | 都在 `aiops-engine/src/common/config/settings.py`（環境變數）：`AIOPS_PG_DSN`（必填）、`AIOPS_PG_SCHEMA`、`AIOPS_PG_CONNECT_TIMEOUT`（預設 10 秒）、`AIOPS_PG_STATEMENT_TIMEOUT`（一個查詢最多幾秒，預設 120）、`AIOPS_PG_APP_NAME`（DBA 在 `pg_stat_activity` 看到的名字，預設 `aiops-engine`） |
 | 備份 | 事故、回饋、調整是人判斷的，**掉了不能重算**：請 DBA 照一般資料庫備份；異常、告警、基準線由 `detector prune` 自己清舊的（[prune.yaml](../aiops-engine/configs/baseline/prune.yaml)） |
 | 大小 | 量最大的是異常、trace 每段的統計、基準線（依序列數 × 對象數，90 天）；其他每天幾十到幾百筆。上線前用正式環境的量估 |

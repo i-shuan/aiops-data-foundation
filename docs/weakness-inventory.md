@@ -11,7 +11,7 @@
 | # | 模組 | 弱點 | 會怎麼樣 |
 |---|---|---|---|
 | 1 | ④⑧ | **單點排程器，而且「某一個工作壞了」沒人知道**：single 模式一隻 pod 跑所有排程。已有 `aiops-heartbeat` 規則（`alert` 工作 10 分鐘沒寫心跳 → 送平台），但心跳只證明 `alert` 這個工作活著；`rules`、`detect`、`train`、`trace-*` 單獨失敗或逾時，只印在 pod 的 log，沒有告警。（換版空窗 2026-11-07 已處理：改 RollingUpdate＋每個工作開始前搶鎖，見 [pdca/meta/2026-11-job-lock.md](pdca/meta/2026-11-job-lock.md)；卡死、OOM、機器維修時的重啟空窗還在） | `train` 天天失敗（重試 2 次後放棄）→ 基準線慢慢變舊，沒有規則會響；`detect`／`rules` 逾時 50 秒被砍、每分鐘不重試，一直失敗也只有 log |
-| 2 | ③ | **PostgreSQL 是單點，而且權限要求比文件寫的高**：每個工作是獨立子行程、各連一條線，沒有連線池；斷線重連一次、連線逾時 10 秒就放棄。另外 engine 每次啟動（每個工作）會對用到的表送 `CREATE TABLE IF NOT EXISTS`，**沒有 schema 的 CREATE 權限就會 `permission denied`，即使表已經存在**（本機 PostgreSQL 16 實測） | DB 斷線期間所有工作失敗、Grafana 的儀表板與 SQL 規則也跟著失靈；DBA 只給讀寫權限、事先用 `db init` 建好表，engine 一樣跑不起來 |
+| 2 | ③ | **PostgreSQL 是單點，而且權限要求比文件寫的高**：每個工作是獨立子行程、各連一條線，沒有連線池；斷線重連一次、連線逾時 10 秒就放棄。另外 engine 每次啟動（每個工作）會對用到的表送 `CREATE TABLE IF NOT EXISTS`，**沒有 schema 的 CREATE 權限就會 `permission denied`，即使表已經存在**（本機 PostgreSQL 16 實測） | DB 斷線期間所有工作失敗、Grafana 的儀表板與 SQL 規則也跟著失靈；DBA 只給讀寫權限、事先用 `db init` 建好表，engine 一樣跑不起來（2026-11-07 已處理：表在了就不送 DDL、只要讀寫權限；連不上逐次拉長間隔重試 30 秒；本機日誌補寫；資料庫連不上直接打 webhook；detect 停過自動補算；PgBouncer 選用；見 [pdca/meta/2026-11-pg-resilience.md](pdca/meta/2026-11-pg-resilience.md)。**PostgreSQL 本身的高可用還是 DBA 的事**） |
 | 3 | ⑤ | **異常連續跳點沒上限**（2026-11-07 決定不做「異常段」表與上限） | 幾百條序列同時壞（例如 DB 掛掉）時每分鐘寫幾百筆，90 天後才壓縮 |
 | 4 | ⑧⑨ | **回饋網頁沒登入**（Keycloak 先不做） | 誰都能提回饋、核准調整；回饋的「誰」是自己填的 |
 | 5 | ⑨ | **提調整的人可以核准自己提的** | 沒有「不能核准自己提的」這條 |
@@ -23,7 +23,7 @@
 
 | # | 模組 | 弱點 | 說明 |
 |---|---|---|---|
-| 9 | ⑧ | **helm chart 這幾輪的改動都沒渲染過** | 環境沒有 helm。PostgreSQL DSN、embedding、積木相關的 values 沒經過 `helm template`；`tests/test_deploy.py` 在沒有 helm 的地方是跳過的 |
+| 9 | ⑧ | ~~helm chart 這幾輪的改動都沒渲染過~~（2026-11-07 已處理：從原始碼編了 helm 3.16，`tests/test_deploy.py` 25 個全跑、`helm lint` 過） | 剩下沒驗的是真的叢集：PVC、`fsGroup`、PgBouncer 的 image |
 | 10 | ⑧ | **Grafana 13 的 SQL 規則與儀表板只在本機跑過** | 四條規則、三個儀表板都改成 SQL；正式 PostgreSQL 的唯讀帳號、schema、權限沒試過 |
 | 11 | ④⑨ | **所有門檻與係數都是估的** | z、`min_abs`、誤報 ×1.4、漏報 ×0.8、precision 0.7／0.95、相似事故權重、向量門檻 0.8，沒有真實資料校過 |
 | 12 | ⑦ | **相似事故檢索 recall@3 只有 50%，而且是合成資料** | 真實事故單一件都沒有，RAG 的效果未知 |

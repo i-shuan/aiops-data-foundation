@@ -1,0 +1,17 @@
+{{- if and (include "aiops.journalPvc" .) (not .Values.journal.existingClaim) }}
+# 本機日誌（common/infra/journal.py）：寫進 PostgreSQL 前先記在這裡，寫不進去的之後補寫。helm uninstall 不刪（裡面可能有還沒補寫的）
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: aiops-journal
+  annotations:
+    helm.sh/resource-policy: keep
+spec:
+  accessModes: [{{ .Values.journal.accessMode }}]
+  {{- with .Values.journal.storageClass }}
+  storageClassName: {{ . | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.journal.size }}
+{{- end }}

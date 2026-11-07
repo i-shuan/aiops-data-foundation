@@ -43,6 +43,13 @@ class Shift(Strict):
     max_spread: NonNeg | None = None
 
 
+class Catchup(Strict):
+    """detect 斷線（DB、ES、排程器停了）恢復後補算空白的那段（docs/pdca/meta/2026-11-pg-resilience.md）。
+    每一輪照常看最近 --window，另外補一段 step；空白超過 max 的只補最近 max（更早的要手動：detector detect --at … --window …）。"""
+    max: Dur = "6h"             # 最多補多久之前的；0s = 不補
+    step: Dur = "30m"           # 一輪最多補多少（6 小時的空白約 12 分鐘補完）（detect 逾時 50 秒：一次補太多會被砍，被砍就連進度都沒記）
+
+
 class Series(Strict):
     """一條序列（detector/es.py 的查詢、cmd_baseline 的判斷）。"""
     name: str
@@ -86,6 +93,7 @@ class SeriesConfig(Strict):
     train: Train = Train()
     detect: Detect = Detect()
     shift: Shift | None = None
+    catchup: Catchup = Catchup()
     adjustments_file: str | None = None      # 寫 null 是「不載入」，所以載入端用 .get（manual_adjust.load）
     calendar_file: str | None = None
     series: list[Series] = []

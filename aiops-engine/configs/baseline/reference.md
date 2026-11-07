@@ -60,6 +60,7 @@
 | 最快多久開始判斷 | 50 個點（`all` 層）：30 秒一點約 25 分鐘、5 分鐘一點約 4 小時；3 天後有「每天同一小時」；2 週後有「同星期幾 × 同小時」 |
 | 訓練（`train`） | 建議每天一次；5 分鐘以上的粒度用最近 4 週，30 秒、1 分鐘用最近 14 天（OTel 版跟 metrics 原始資料留 14 天一致；Elastic APM 版是 1 分鐘一點，見 [../apm/series.yaml](../apm/series.yaml)） |
 | 偵測（`detect`） | 建議每 30 秒一次，看最近 30 分鐘、只看已經結束（再退 30 秒確定收齊）的時間窗 |
+| 停過之後補算（`catchup`） | `series.yaml` 的 `catchup: {max: 6h, step: 30m}`：每一輪照常看最近 `--window`；上一輪之後有空白（DB、ES、排程器停過）就記在 `aiops_state` 的 `detect-watermark:<設定檔>`，每輪多補一段 `step`，補完為止；空白超過 `max` 只補最近 `max`，更早的手動 `detect --at … --window …`。`--at` 回放不動進度。`max: 0s` 不補（[pdca/meta/2026-11-pg-resilience.md](../../../docs/pdca/meta/2026-11-pg-resilience.md)） |
 | 現況 | ⚠️ 正式環境還沒排程，目前是測試環境手動跑（排程範例見「怎麼跑」） |
 
 ### 跳一次是 warning，連續才是 anomaly

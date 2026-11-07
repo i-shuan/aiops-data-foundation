@@ -30,10 +30,14 @@ class EngineChart(unittest.TestCase):
 
     def test_one_pod_two_containers_no_cronjob(self):
         # Secret ×2：aiops-llm（LLM key）、aiops-api（API token），沒填就是空的
-        self.assertEqual(sorted(k.split("/")[0] for k in self.docs), ["ConfigMap", "Deployment", "Secret", "Secret", "Service"])
+        self.assertEqual(sorted(k.split("/")[0] for k in self.docs),
+                         ["ConfigMap", "Deployment", "PersistentVolumeClaim", "Secret", "Secret", "Service"])   # PVC：本機日誌
         dep = self.docs["Deployment/aiops-engine"]["spec"]
-        self.assertEqual((dep["replicas"], dep["strategy"]["type"]), (1, "RollingUpdate"))
-        self.assertEqual(dep["strategy"]["rollingUpdate"], {"maxSurge": 1, "maxUnavailable": 0})   # 先起新的：重疊靠 job_lock
+        self.assertEqual((dep["replicas"], dep["strategy"]["type"]), (1, "Recreate"))         # 預設的日誌 PVC 是 ReadWriteOnce
+        rwx = render("--set", "journal.accessMode=ReadWriteMany")["Deployment/aiops-engine"]["spec"]
+        self.assertEqual(rwx["strategy"], {"type": "RollingUpdate", "rollingUpdate": {"maxSurge": 1, "maxUnavailable": 0}})   # 重疊靠 job_lock
+        off = render("--set", "journal.enabled=false")["Deployment/aiops-engine"]["spec"]
+        self.assertEqual(off["strategy"]["type"], "RollingUpdate")
         self.assertEqual(sorted(containers(self.docs)), ["api", "scheduler"])
         self.assertNotIn("--enqueue", containers(self.docs)["scheduler"]["args"])          # single：排程器自己跑
         self.assertNotIn("AIOPS_BROKER_URL", self.docs["ConfigMap/aiops-env"]["data"])     # 沒有佇列
@@ -74,6 +78,43 @@ class EngineChart(unittest.TestCase):
         self.assertEqual(list(containers(docs)), ["scheduler"])
         self.assertNotIn("Service/aiops-api", docs)
 
+    def test_journal_pvc_env_and_mounts(self):
+        """本機日誌（docs/pdca/meta/2026-11-pg-resilience.md）：PVC uninstall 不刪；scheduler、api 都掛；環境變數指到掛載點。"""
+        self.assertEqual(self.docs["PersistentVolumeClaim/aiops-journal"]["metadata"]["annotations"]["helm.sh/resource-policy"], "keep")
+        self.assertEqual(self.docs["ConfigMap/aiops-env"]["data"]["AIOPS_JOURNAL_DIR"], "/var/lib/aiops/journal")
+        for name, c in containers(self.docs).items():
+            self.assertIn({"name": "journal", "mountPath": "/var/lib/aiops/journal"}, c["volumeMounts"], name)
+        self.assertEqual(self.docs["Deployment/aiops-engine"]["spec"]["template"]["spec"]["securityContext"], {"fsGroup": 10001})
+        dist = render("--set", "mode=distributed")                                     # 預設 ReadWriteOnce：每個 Pod 自己的 emptyDir
+        self.assertNotIn("PersistentVolumeClaim/aiops-journal", dist)
+        vols = dist["Deployment/aiops-worker-batch"]["spec"]["template"]["spec"]["volumes"]
+        self.assertIn({"name": "journal", "emptyDir": {}}, vols)
+        shared = render("--set", "mode=distributed", "--set", "journal.accessMode=ReadWriteMany")
+        self.assertIn("PersistentVolumeClaim/aiops-journal", shared)
+        off = render("--set", "journal.enabled=false")
+        self.assertNotIn("AIOPS_JOURNAL_DIR", off["ConfigMap/aiops-env"]["data"])
+
+    def test_fallback_and_watchdog_env(self):
+        on = render("--set", "fallback.webhook=https://hook/x", "--set", "watchdog.url=https://dog/p")["ConfigMap/aiops-env"]["data"]
+        self.assertEqual((on["AIOPS_FALLBACK_WEBHOOK"], on["AIOPS_WATCHDOG_URL"], on["AIOPS_FALLBACK_AFTER_MINUTES"]), ("https://hook/x", "https://dog/p", "5"))
+        self.assertNotIn("AIOPS_FALLBACK_WEBHOOK", self.docs["ConfigMap/aiops-env"]["data"])
+
+    def test_pgbouncer_sidecar_session_mode(self):
+        """PgBouncer（docs/pdca/meta/2026-11-pg-resilience.md）：關著時沒有 sidecar；開了每個連 DB 的容器改連 127.0.0.1、固定 session 模式。"""
+        self.assertNotIn("pgbouncer", containers(self.docs))
+        on = render("--set", "pgbouncer.enabled=true")
+        cs = containers(on)
+        env = {e["name"]: e for e in cs["pgbouncer"]["env"]}
+        self.assertEqual(env["POOL_MODE"]["value"], "session")
+        self.assertEqual(env["SERVER_RESET_QUERY"]["value"], "DISCARD ALL")
+        for name in ("scheduler", "api"):
+            dsn = next(e for e in cs[name]["env"] if e["name"] == "AIOPS_PG_DSN")
+            self.assertEqual(dsn["valueFrom"]["secretKeyRef"]["key"], "AIOPS_PG_DSN_POOLED")
+        dist = render("--set", "mode=distributed", "--set", "pgbouncer.enabled=true")
+        for dep in ("aiops-api", "aiops-worker-realtime", "aiops-worker-alert", "aiops-worker-batch"):
+            self.assertIn("pgbouncer", containers(dist, dep), dep)
+        self.assertNotIn("pgbouncer", containers(dist, "aiops-beat"))
+
     def test_bad_mode_fails(self):
         with self.assertRaises(subprocess.CalledProcessError):
             render("--set", "mode=weird")
@@ -84,7 +125,7 @@ class EngineChart(unittest.TestCase):
         for name, c in containers(docs).items():
             mount = next(m for m in c["volumeMounts"] if m["name"] == "configs")
             self.assertEqual((mount["mountPath"], mount["subPath"]), ("/app/configs/schedule/schedule.yaml", "schedule__schedule.yaml"), name)
-        self.assertEqual([m["name"] for m in containers(self.docs)["scheduler"]["volumeMounts"]], ["tmp"])
+        self.assertEqual([m["name"] for m in containers(self.docs)["scheduler"]["volumeMounts"]], ["tmp", "journal"])   # 沒有 configOverrides：只有暫存與本機日誌
 
 
 @unittest.skipUnless(shutil.which("helm"), "要 helm")

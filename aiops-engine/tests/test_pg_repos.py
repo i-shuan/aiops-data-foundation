@@ -169,3 +169,102 @@ class Connection(unittest.TestCase):
             self.assertEqual((got["a"], got["t"]), ("aiops-test", "1s"))
             with self.assertRaises(Exception):
                 db.query("SELECT pg_sleep(3)")
+
+
+@needs_pg
+class LeastPrivilege(unittest.TestCase):
+    """DBA 只給讀寫權限（docs/pdca/meta/2026-11-pg-resilience.md）：表由 detector db init（有 CREATE 權限的帳號）先建好，
+    engine 的帳號沒有 schema 的 CREATE 也要能讀寫；表沒建時錯誤講得出是權限。"""
+
+    def setUp(self):
+        from common.infra.pg import DB
+        self.admin = fresh_db()
+        self.dsn = self.admin.dsn
+        self.role = f"dml_{id(self) % 100000}"
+        self.admin.execute(f"CREATE ROLE {self.role}")
+        self.addCleanup(lambda: (self.admin.execute(f"DROP OWNED BY {self.role}"), self.admin.execute(f"DROP ROLE {self.role}")))
+        self.admin.execute("REVOKE CREATE ON SCHEMA public FROM PUBLIC")
+        self.admin.execute(f"GRANT USAGE ON SCHEMA public TO {self.role}")
+        self.DB = DB
+
+    def as_dml(self):
+        db = self.DB(self.dsn)
+        db.execute(f"SET ROLE {self.role}")
+        return db
+
+    def test_existing_tables_need_only_dml(self):
+        admin_repo = Repos(None, load_scenario(), db=self.admin)
+        for name in ("anomalies", "alerts", "state", "packed"):
+            getattr(admin_repo, name).ensure(force=True)                 # db init
+        self.admin.execute(f"GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO {self.role}")
+        repo = Repos(None, load_scenario(), db=self.as_dml())
+        repo.anomalies.bulk([("x", {"@timestamp": at(0), "series": "s"})])     # 第一次用會 ensure：只查不建
+        repo.state.set("k", {"v": 1})
+        self.assertEqual(repo.anomalies.get("x")["series"], "s")
+        self.assertEqual(repo.state.get("k"), {"v": 1})
+
+    def test_missing_table_without_create_fails_clearly(self):
+        repo = Repos(None, load_scenario(), db=self.as_dml())
+        with self.assertRaises(Exception) as cm:
+            repo.state.set("k", {"v": 1})
+        self.assertIn("permission denied", str(cm.exception))
+
+
+class Retry(unittest.TestCase):
+    """連不上時逐次拉長間隔重試（common/infra/pg.connect_with_retry）：DB 重啟、主從切換的十幾秒撐得過去；
+    真的不行在 AIOPS_PG_RETRY_SECONDS 內放棄；查詢逾時不當斷線重跑。"""
+
+    def test_gives_up_within_budget(self):
+        import os
+        import time
+        from unittest import mock
+        from common.infra.pg import DB
+        with mock.patch.dict(os.environ, {"AIOPS_PG_RETRY_SECONDS": "3", "AIOPS_PG_CONNECT_TIMEOUT": "2"}):
+            t0 = time.monotonic()
+            with self.assertRaises(Exception):
+                DB("postgresql://x@127.0.0.1:1/none").query("SELECT 1")
+            took = time.monotonic() - t0
+        self.assertGreater(took, 2.5)            # 等了 1、2 秒（不是 0.6 秒就放棄）
+        self.assertLess(took, 6)
+
+    def test_recovers_when_db_comes_back(self):
+        import os
+        import psycopg
+        from unittest import mock
+        from common.infra import pg
+        calls, real = [], psycopg.connect
+
+        def flaky(*a, **k):                      # 前兩次像 DB 重啟中：連線被拒絕
+            calls.append(1)
+            if len(calls) <= 2:
+                raise psycopg.OperationalError("connection refused")
+            return real(*a, **k)
+
+        dsn = fresh_db().dsn
+        with mock.patch.dict(os.environ, {"AIOPS_PG_RETRY_SECONDS": "10"}), mock.patch.object(pg.psycopg, "connect", flaky), \
+             mock.patch.object(pg.time, "sleep") as slept:
+            self.assertEqual(pg.DB(dsn).query("SELECT 1 AS one"), [{"one": 1}])
+        self.assertEqual(len(calls), 3)
+        waits = [c.args[0] for c in slept.call_args_list]
+        self.assertTrue(0.8 <= waits[0] <= 1.2 and 1.6 <= waits[1] <= 2.4, waits)     # 1 秒、2 秒（±20%）
+
+    def test_killed_session_reconnects(self):
+        from common.infra.pg import DB
+        admin = fresh_db()
+        db = DB(admin.dsn)
+        pid = db.query("SELECT pg_backend_pid() AS p")[0]["p"]
+        admin.execute("SELECT pg_terminate_backend(%s)", (pid,))          # DBA 踢掉、DB 重啟：這條連線死了
+        self.assertNotEqual(db.query("SELECT pg_backend_pid() AS p")[0]["p"], pid)   # 自己重連、這次的查詢照樣成功
+
+    def test_query_timeout_is_not_retried(self):
+        import os
+        from unittest import mock
+        from common.infra.pg import DB
+        dsn = fresh_db().dsn
+        with mock.patch.dict(os.environ, {"AIOPS_PG_STATEMENT_TIMEOUT": "1"}):
+            db = DB(dsn)
+            db.query("SELECT 1")
+            with mock.patch.object(db, "_connect", side_effect=AssertionError("不該重連")):
+                with self.assertRaises(Exception) as cm:
+                    db.query("SELECT pg_sleep(3)")
+        self.assertIn("statement timeout", str(cm.exception))

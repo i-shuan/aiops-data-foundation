@@ -102,7 +102,7 @@ class JobLock(unittest.TestCase):
         self.assertTrue(got)
 
     def test_db_unreachable_does_not_run(self):
-        with mock.patch.dict(os.environ, {"AIOPS_PG_DSN": "postgresql://x@127.0.0.1:1/none", "AIOPS_PG_CONNECT_TIMEOUT": "2"}):
+        with mock.patch.dict(os.environ, {"AIOPS_PG_DSN": "postgresql://x@127.0.0.1:1/none", "AIOPS_PG_CONNECT_TIMEOUT": "2", "AIOPS_PG_RETRY_SECONDS": "0"}):
             with redirect_stdout(io.StringIO()) as buf:
                 ok = run_once(job("alert", self.code("me", 0)), AT, cwd=ROOT)
         self.assertFalse(ok)

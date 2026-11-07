@@ -43,6 +43,11 @@ class Settings(BaseModel):
     aiops_pg_connect_timeout: int = 10   # 連線最多等幾秒（資料庫連不上時，排程的工作不要卡住）
     aiops_pg_statement_timeout: int = 120   # 一個查詢最多跑幾秒（0 = 不限）；超過就取消，這一輪失敗、下一輪再跑
     aiops_pg_app_name: str = "aiops-engine"   # 連線名稱（DBA 在 pg_stat_activity 看得到是誰在連）
+    aiops_journal_dir: str | None = None # 本機日誌（common/infra/journal.py）：寫資料庫前先記在這裡（PVC），寫不進去的之後補寫；沒設 = 不記
+    aiops_fallback_webhook: str | None = None   # 資料庫連不上時排程器直接打這個網址（不經過 Grafana：Grafana 也讀同一個資料庫）；POST JSON {"text", "status", "since"}
+    aiops_fallback_after_minutes: int = 5       # 連不上幾分鐘才通知；之後每 60 分鐘再提醒一次，恢復時再通知一次
+    aiops_watchdog_url: str | None = None       # 外部看門狗：排程器每分鐘（資料庫連得上時）GET 一次；外部服務一段時間沒收到就告警（engine 停了、DB 掛了都會停）
+    aiops_pg_retry_seconds: int = 30     # 連不上（DB 重啟、主從切換）時最多重試幾秒：等 1、2、4、8、8… 秒（±20%）；0 = 不重試
     # ── embedding（相似事故的向量；沒設就只用欄位比對）──
     embedding_url: str | None = None     # OpenAI 相容的 API 根，例如 https://llm-gw.example.com/v1（POST {url}/embeddings）
     embedding_model: str | None = None
