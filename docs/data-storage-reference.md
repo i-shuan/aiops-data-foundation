@@ -31,7 +31,7 @@ AIOps 與 Grafana 的資料各存在哪裡、誰寫、多久一次、會不會�
 | `aiops_tuning`（`ts` = `at`） | 偵測的調整與建議（override、排除時段、週期放寬、`rule_suggestion`），含 `status`、誰核准 | `tune`、`adjust`、`feedback suggest`、`shift`、回饋網頁 | **不會**；`expires_at` 到期只是不再生效，文件還在 |
 | `aiops_mapping`（`ts` = `created_at`） | 欄位對照的覆寫（提的、核准的、停用的） | 網頁 `/mapping`、`detector mapping` | **不會** |
 | `aiops_chronic` | 慢性病清單，每週一份 | `detector chronic`，每週 | 不會 |
-| `aiops_state` | `trace-merge` 合到哪個時間（就一筆） | `detector trace-merge`，每分鐘 | 每次覆蓋同一筆 |
+| `aiops_state` | 排程工作的進度：`trace-merge` 合到哪個時間；`detect-watermark:<設定檔>` detect 看到哪、還有哪段空白沒補（停過之後補算用） | `detector trace-merge`、`detector detect`，每分鐘 | 每次覆蓋同一筆 |
 
 沒寫 `ts` 的表 `ts` 是 `@timestamp`（`aiops_state` 沒有）。欄位細節：`aiops_anomalies`、`aiops_alerts`、`aiops_incidents`、`aiops_feedback`、`aiops_tuning` 見 [aiops-data-reference.md](aiops-data-reference.md)；`aiops_baseline` 的欄位在 [detect/store/models.py](../aiops-engine/src/detect/store/models.py)；`aiops_trace_segments`、`aiops_state` 的在 [detect/store/segment_repo.py](../aiops-engine/src/detect/store/segment_repo.py)、[detect/store/state_repo.py](../aiops-engine/src/detect/store/state_repo.py)。誰在什麼時候跑見 [schedule.yaml](../aiops-engine/configs/schedule/schedule.yaml)。
 
@@ -108,6 +108,18 @@ APM 寫的三種資料 engine 只讀，保留天數不在這個 repo 管；`trac
 | 留多久 | `pack.keep_days`（附的設定 365 天）：那一天超過就刪；`null` = 不刪。`pack: null` = 不打包、超過天數直接刪 |
 | 安全 | 先寫 `aiops_packed`，才刪細筆（一次 `pack.batch` 筆，預設 20,000）。寫不進去（資料庫磁碟滿、權限）這一批不刪、指令回 1，排程標失敗、下一次再試。寫完當掉沒刪：下一次會再打包一次，讀回是同 id 覆蓋，不會重複 |
 | 不在裡面的 | 事故、回饋、調整、對照覆寫（本來就不刪）；基準線（每天重算） |
+
+## 本機日誌（寫進資料庫前的那一份）
+
+engine 每一筆寫進 PostgreSQL 的動作（INSERT／UPDATE／DELETE），先記在本機的 PVC，再寫資料庫（[common/infra/journal.py](../aiops-engine/src/common/infra/journal.py)）。
+
+| 項目 | 現況 |
+|---|---|
+| 放哪 | `AIOPS_JOURNAL_DIR`（helm 的 `journal.enabled` 建 PVC `aiops-journal`，掛在 `/var/lib/aiops/journal`；沒設 = 不記）。一個程式一個檔 `<資料庫代號>-<主機>-<pid>-<開始時間>.jsonl`，一行一個寫入動作 |
+| 平常 | 寫進資料庫就清空，所以檔案幾乎都是空的；程式結束刪掉 |
+| 資料庫寫不進去 | 那一筆留在檔案、工作照樣看到錯誤；同一個程式下一次寫入先補它（照原本的順序）；程式結束了還沒補完，排程器的看守每分鐘、別的程式第一次寫入前會認領、照順序補寫 |
+| 本機寫不進去 | 照樣寫資料庫，只印一行警告（本機那一份是額外的保險，不能變成新的故障點） |
+| 演練 | 本機停 PostgreSQL 150 秒，每 2 秒寫一筆：停的期間 21 筆寫入失敗，恢復後全部補寫，110 筆一筆不少（[pdca/meta/2026-11-pg-resilience.md](pdca/meta/2026-11-pg-resilience.md)） |
 
 ## 保留與備份的現況
 

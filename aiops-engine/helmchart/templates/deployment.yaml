@@ -9,9 +9,14 @@ spec:
   replicas: 1
   # 換版先起新的、新的好了才停舊的（沒有空窗）。新舊重疊的那一下兩個排程器都在排：每個工作開始前先搶 PostgreSQL 的鎖
   # （common/infra/pg.job_lock），同一個工作只會有一份在跑，另一份印「跳過」（docs/pdca/meta/2026-11-job-lock.md）
+  {{- if include "aiops.rollingOk" . }}
   strategy:
     type: RollingUpdate
     rollingUpdate: {maxSurge: 1, maxUnavailable: 0}
+  {{- else }}
+  strategy:
+    type: Recreate     # 本機日誌的 PVC 是 ReadWriteOnce：新的 Pod 排到別台機器掛不上，只能先停舊的（values.yaml 的 journal）
+  {{- end }}
   selector:
     matchLabels: {app.kubernetes.io/name: aiops-engine}
   template:
@@ -21,11 +26,18 @@ spec:
         checksum/env: {{ include (print .Template.BasePath "/env.yaml") . | sha256sum }}
     spec:
       terminationGracePeriodSeconds: {{ .Values.scheduler.terminationGracePeriodSeconds }}
+      {{- if .Values.journal.enabled }}
+      securityContext: {fsGroup: 10001}     # 本機日誌的 PVC 給 image 的使用者寫
+      {{- end }}
       containers:
         - name: scheduler
           image: {{ include "aiops.image" . }}
           args: ["main", "scheduler", "--config", {{ include "aiops.schedule" . | quote }}, "--stage", {{ .Values.scheduler.stage | quote }}, "--alive-file", "/tmp/scheduler-alive"]
           {{- include "aiops.envFrom" . | nindent 10 }}
+          {{- with include "aiops.pgEnv" . }}
+          env:
+            {{- . | nindent 12 }}
+          {{- end }}
           # 排程器每分鐘醒來更新 /tmp/scheduler-alive；超過 3 分鐘沒更新就是卡死，重啟
           livenessProbe:
             exec:
@@ -36,15 +48,24 @@ spec:
             {{- toYaml .Values.scheduler.resources | nindent 12 }}
           volumeMounts:
             - {name: tmp, mountPath: /tmp}
+            {{- with include "aiops.journalMount" . }}
+            {{- . | nindent 12 }}
+            {{- end }}
             {{- with include "aiops.configMounts" . }}
             {{- . | nindent 12 }}
             {{- end }}
         {{- if .Values.api.enabled }}
         {{- include "aiops.apiContainer" . | nindent 8 }}
         {{- end }}
+        {{- with include "aiops.pgbouncer" . }}
+        {{- . | nindent 8 }}
+        {{- end }}
       volumes:
         - name: tmp
           emptyDir: {}
+        {{- with include "aiops.journalVolume" . }}
+        {{- . | nindent 8 }}
+        {{- end }}
         {{- with include "aiops.configVolumes" . }}
         {{- . | nindent 8 }}
         {{- end }}

@@ -16,6 +16,8 @@ from tests.pg import admin_dsn, fresh_db
 
 # 外掛的登記（對應 Superset 的 setupPlugins()）：正式跑由 main.py 做，測試在這裡做一次（全部內建外掛）
 MainPreset().register()
+# 連不上資料庫時預設會重試 30 秒（common/infra/pg.connect_with_retry）：故意測「DB 掛了」的測試不用等。要測重試的自己設
+os.environ.setdefault("AIOPS_PG_RETRY_SECONDS", "0")
 
 
 @pytest.fixture(scope="session")

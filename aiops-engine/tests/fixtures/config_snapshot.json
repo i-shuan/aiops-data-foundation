@@ -491,6 +491,10 @@
    "z": 7.0
   },
   "calendar_file": null,
+  "catchup": {
+   "max": "6h",
+   "step": "30m"
+  },
   "detect": {
    "abs_floor": 1e-09,
    "alpha": 0.001,
@@ -3423,6 +3427,10 @@
    "z": 7.0
   },
   "calendar_file": null,
+  "catchup": {
+   "max": "6h",
+   "step": "30m"
+  },
   "detect": {
    "abs_floor": 1e-09,
    "alpha": 0.001,
@@ -4347,6 +4355,10 @@
    "z": 7.0
   },
   "calendar_file": null,
+  "catchup": {
+   "max": "6h",
+   "step": "30m"
+  },
   "detect": {
    "abs_floor": 1e-09,
    "alpha": 0.001,

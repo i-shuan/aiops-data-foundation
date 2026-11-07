@@ -15,7 +15,9 @@ from __future__ import annotations
 
 import json
 import math
+import random
 import threading
+import time
 from contextlib import contextmanager
 from datetime import datetime
 
@@ -24,6 +26,7 @@ from psycopg.rows import dict_row
 
 from common.clock import stored_time
 from common.config.settings import settings
+from common.infra.journal import Journal, JournalUnwritable, db_key, is_write
 
 
 def _clean(v):
@@ -45,6 +48,23 @@ def dumps(doc) -> str:
     return json.dumps(_clean(doc), default=str, ensure_ascii=False)
 
 
+def connect_with_retry(dsn: str, **kw):
+    """連線；連不上（DB 重啟、主從切換、網路抖一下）就等 1、2、4、8、8… 秒（±20% 抖動，免得一堆工作同時重連）再試，
+    總共最多 AIOPS_PG_RETRY_SECONDS 秒（預設 30）；還是不行才丟出最後一次的錯。連線被拒絕只要幾毫秒，不等的話 0.6 秒就失敗。"""
+    env = settings()
+    budget, delay, t0 = max(0, env.aiops_pg_retry_seconds), 1.0, time.monotonic()
+    kw.setdefault("application_name", env.aiops_pg_app_name)
+    while True:
+        try:
+            return psycopg.connect(dsn, connect_timeout=env.aiops_pg_connect_timeout, **kw)
+        except psycopg.OperationalError:
+            left = budget - (time.monotonic() - t0)
+            if left <= 0:
+                raise
+            time.sleep(min(delay * random.uniform(0.8, 1.2), left))
+            delay = min(delay * 2, 8.0)
+
+
 class DB:
     """一條 PostgreSQL 連線（autocommit：每個語句自己就是一個交易，跟 ES 一筆一筆寫的語意一樣）。第一次用才連；斷了自動重連一次。"""
 
@@ -55,6 +75,8 @@ class DB:
         self._lock = threading.Lock()
         self._vector: bool | None = None
         self.ensured: set[str] = set()       # 這條連線已經建過（CREATE IF NOT EXISTS）的表，不重複送 DDL
+        self._journal = None                 # 本機日誌（AIOPS_JOURNAL_DIR）：第一次寫入才開
+        self._journal_dir = env.aiops_journal_dir
 
     @property
     def dsn(self) -> str:
@@ -62,8 +84,7 @@ class DB:
 
     def _connect(self):
         env = settings()
-        conn = psycopg.connect(self.dsn, autocommit=True, row_factory=dict_row, connect_timeout=env.aiops_pg_connect_timeout,
-                               application_name=env.aiops_pg_app_name)
+        conn = connect_with_retry(self.dsn, autocommit=True, row_factory=dict_row)
         if env.aiops_pg_statement_timeout:
             conn.execute(f"SET statement_timeout = {int(env.aiops_pg_statement_timeout) * 1000}")
         if self._schema:
@@ -78,22 +99,67 @@ class DB:
 
     def _run(self, fn):
         with self._lock:
+            conn = self.conn                     # 連不上：connect_with_retry 已經等過，直接丟
             try:
-                return fn(self.conn)
-            except (psycopg.OperationalError, psycopg.InterfaceError):   # 連線斷了（DB 重啟、閒置被踢）：重連一次再試；其他錯照丟
+                return fn(conn)
+            except (psycopg.OperationalError, psycopg.InterfaceError) as e:
+                # 連線斷了（DB 重啟、主從切換、閒置被踢）：重連（照 connect_with_retry 等）再跑一次。
+                # 連線還好好的（查詢逾時 QueryCanceled 也是 OperationalError）就照丟，不重跑長查詢
+                if isinstance(e, psycopg.errors.QueryCanceled) or (not conn.closed and not conn.broken):
+                    raise
                 self._conn = None
                 return fn(self.conn)
 
-    def execute(self, sql: str, params=None) -> int:
-        """回影響的列數。"""
+    def _apply(self, sql: str, params, many: bool):
+        if many:
+            return self._run(lambda c: c.cursor().executemany(sql, params))
         return self._run(lambda c: c.execute(sql, params).rowcount)
+
+    @property
+    def journal(self):
+        """本機日誌（common/infra/journal.py）；沒設 AIOPS_JOURNAL_DIR 回 None。第一次用時先補寫別的程式留下的。"""
+        if self._journal is None and self._journal_dir:
+            self._journal = Journal(self._journal_dir, db_key(self.dsn, self._schema))
+        return self._journal
+
+    def recover_journal(self) -> int:
+        """補寫別的程式留下、還沒寫進資料庫的（排程器每分鐘叫；每個程式第一次寫入前也會叫）。沒開日誌回 0。"""
+        j = self.journal
+        return j.recover(self._apply) if j is not None else 0
+
+    def _write(self, sql: str, params, many: bool):
+        j = None
+        if is_write(sql):
+            try:
+                j = self.journal
+            except OSError as e:                 # 日誌的資料夾建不起來：不要讓本機那一份變成新的故障點，直接寫資料庫
+                self._journal_broken(e)
+        if j is None:
+            return self._apply(sql, params, many)
+        if not j.recovered:
+            j.recovered = True
+            j.recover(self._apply)
+        try:
+            return j.write(self._apply, sql, params, many)
+        except JournalUnwritable as e:           # 本機寫不進去（沒權限、磁碟滿）：照樣寫資料庫，只是這一筆沒有本機那一份
+            self._journal_broken(e.__cause__ or e)
+            return self._apply(sql, params, many)
+
+    def _journal_broken(self, e) -> None:
+        if not getattr(self, "_warned", False):
+            self._warned = True
+            print(f"  （本機日誌寫不進去：{type(e).__name__}: {e}；直接寫資料庫，資料庫斷線時這些寫入不會留本機一份）", flush=True)
+
+    def execute(self, sql: str, params=None) -> int:
+        """回影響的列數。INSERT／UPDATE／DELETE 有開本機日誌時先記下來再寫。"""
+        return self._write(sql, params, False)
 
     def query(self, sql: str, params=None) -> list[dict]:
         return self._run(lambda c: c.execute(sql, params).fetchall())
 
     def executemany(self, sql: str, rows: list) -> None:
         if rows:
-            self._run(lambda c: c.cursor().executemany(sql, rows))
+            self._write(sql, rows, True)
 
     def has_vector(self) -> bool:
         """pgvector 裝了沒（公司的 PostgreSQL 不一定准裝）：沒有的話向量存 jsonb、在程式裡算相似度。"""
@@ -125,9 +191,7 @@ def job_lock(name: str):
     if not env.aiops_pg_dsn:
         yield True
         return
-    conn = psycopg.connect(env.aiops_pg_dsn, autocommit=True, connect_timeout=env.aiops_pg_connect_timeout,
-                           application_name=f"{env.aiops_pg_app_name}-lock:{name}"[:63],
-                           keepalives=1, keepalives_idle=30, keepalives_interval=10, keepalives_count=3)
+    conn = connect_with_retry(env.aiops_pg_dsn, autocommit=True, application_name=f"{env.aiops_pg_app_name}-lock:{name}"[:63], keepalives=1, keepalives_idle=30, keepalives_interval=10, keepalives_count=3)
     try:
         got = conn.execute("SELECT pg_try_advisory_lock(%s, hashtext(%s)) AS ok", (LOCK_SPACE, f"job:{name}")).fetchone()[0]
         yield bool(got)
@@ -158,17 +222,28 @@ class PgRepository:
         return _ident(self.TABLE)
 
     # ── 表 ──
-    def ensure(self, *_a, **_k) -> None:
-        """沒有就建（含索引）。同一條連線只送一次 DDL。舊的 ES 版有 extra_fields 參數（補 mapping），這裡不需要、忽略。"""
-        if self.table in self.db.ensured:
-            return
+    def ddl(self) -> list[str]:
+        """建這張表要送的 DDL（表＋索引）。子類別要多欄位、多索引就改這裡。"""
         t = self.table
-        self.db.execute(f"CREATE TABLE IF NOT EXISTS {t} (id text PRIMARY KEY, ts timestamptz, doc jsonb NOT NULL, "
-                        f"updated_at timestamptz NOT NULL DEFAULT now())")
-        self.db.execute(f"CREATE INDEX IF NOT EXISTS {t}_ts ON {t} (ts)")
-        for i, expr in enumerate(self.INDEXES):
-            self.db.execute(f"CREATE INDEX IF NOT EXISTS {t}_x{i} ON {t} {expr}")
-        self.db.ensured.add(t)
+        return [f"CREATE TABLE IF NOT EXISTS {t} (id text PRIMARY KEY, ts timestamptz, doc jsonb NOT NULL, "
+                f"updated_at timestamptz NOT NULL DEFAULT now())",
+                f"CREATE INDEX IF NOT EXISTS {t}_ts ON {t} (ts)",
+                *[f"CREATE INDEX IF NOT EXISTS {t}_x{i} ON {t} {expr}" for i, expr in enumerate(self.INDEXES)]]
+
+    def missing(self) -> bool:
+        """表還沒建（to_regclass 只要 schema 的 USAGE 權限，不用 CREATE）。"""
+        return self.db.query("SELECT to_regclass(%s) IS NULL AS missing", (self.table,))[0]["missing"]
+
+    def ensure(self, *_a, force: bool = False, **_k) -> None:
+        """表已經在了就什麼都不送（engine 只要讀寫權限：DBA 先跑 detector db init 建好）；還沒建才送 DDL（那時才要 CREATE 權限）。
+        同一條連線只查一次。force：不管在不在都送一次（db init 用：補上新加的索引）。
+        PostgreSQL 的 CREATE TABLE IF NOT EXISTS 會先檢查 schema 的 CREATE 權限，表在不在都一樣，所以不能直接送（docs/pdca/meta/2026-11-pg-resilience.md）。"""
+        if self.table in self.db.ensured and not force:
+            return
+        if force or self.missing():
+            for stmt in self.ddl():
+                self.db.execute(stmt)
+        self.db.ensured.add(self.table)
 
     def _ts(self, doc: dict) -> datetime | None:
         return stored_time(doc.get(self.TIME)) if self.TIME else None

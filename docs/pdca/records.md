@@ -169,6 +169,7 @@ metrics → trace → log 找到哪一段、哪行 log；事件整合、排程�
 | [meta/2026-11-pack-bytea.md](meta/2026-11-pack-bytea.md) | ③ 打包的資料改存 bytea（不轉 base64，小 1/4） | 已完成 |
 | [meta/2026-11-weakness-inventory.md](meta/2026-11-weakness-inventory.md) | ①～⑨ 設計弱點盤點（`docs/weakness-inventory.md`） | 已完成 |
 | [meta/2026-11-job-lock.md](meta/2026-11-job-lock.md) | ④⑥⑧ 同一個工作同時只跑一份（PostgreSQL 的鎖）；single 與 alert worker 換版改 RollingUpdate | 已完成 |
+| [meta/2026-11-pg-resilience.md](meta/2026-11-pg-resilience.md) | ③④⑧ PostgreSQL 斷線、權限、單點：建表前先查、重試逐次拉長、PgBouncer（session）、detect 補算、本機日誌同步寫 DB、斷線直接通知、看門狗、Grafana 讀副本；真的停資料庫 150 秒演練一筆不少 | 已完成 |
 | [meta/2026-10-poc-acceptance.md](meta/2026-10-poc-acceptance.md) | ①～⑨ POC 驗收計畫：6 個 KPI、4 個故障情境、Go/No-Go | 四個任務已合入 master；模擬服務、合成資料上：聚合率 100%、解析率 100%、串查 ✅、召回率 50%（要真實事故單）；Go/No-Go 待真實服務 |
 | [meta/2026-11-apm-source.md](meta/2026-11-apm-source.md) | ④⑤⑦ engine 讀 Elastic APM 的資料（不改 Collector、ES）：`configs/apm/`、`source: apm`、序列 `scale`／`div`、trace 的 APM 轉換 | 562 個單元測試過（新加 17 個：APM span 轉換、查詢欄位、scale／div、owner／log 欄位）；chart 兩種 source render 對；沒有真實 APM 資料，整條沒在 ES 上跑；例外吞噬、Pod 資源、往外呼叫 p95 在 APM 資料上做不到 |
 | [meta/2026-11-remove-collector.md](meta/2026-11-remove-collector.md) | ①②③ 刪自建收值：`collector/`、`apps/`、`e2e/`、ES 的 OTel 入口設定與文件；`elasticsearch/` 縮成只補 `traces-merged-*` 與兩把 key | 刪約 200 個檔；連結檢查從 80 個壞連結修到 0；engine 的 OTel 來源沒動；瘦身後的 setup 腳本與 chart 沒對真實 ES 跑 |

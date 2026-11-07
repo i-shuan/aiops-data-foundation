@@ -84,7 +84,7 @@ providers:
 kubectl create namespace grafana
 kubectl -n grafana create secret generic grafana-env \
   --from-literal=ES_URL=https://<中央 ES>:9200 --from-literal=GRAFANA_ES_API_KEY=<setup 發的 Grafana 唯讀 key> \
-  --from-literal=AIOPS_PG_HOST=<PostgreSQL>:5432 --from-literal=AIOPS_PG_DATABASE=aiops --from-literal=AIOPS_PG_SSLMODE=require \
+  --from-literal=AIOPS_PG_HOST=<PostgreSQL 的唯讀副本，沒有就主庫>:5432 --from-literal=AIOPS_PG_DATABASE=aiops --from-literal=AIOPS_PG_SSLMODE=require \
   --from-literal=GRAFANA_PG_USER=grafana_aiops --from-literal=GRAFANA_PG_PASSWORD=<DBA 給的唯讀帳號密碼> \
   --from-literal=NOTIFY_IT_URL=<IT 的 webhook> --from-literal=NOTIFY_IMC_URL=<IMC 的 webhook> --from-literal=NOTIFY_PLATFORM_URL=<平台的 webhook> \
   --from-literal=GF_SECURITY_ADMIN_PASSWORD=<admin 密碼>

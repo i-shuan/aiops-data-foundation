@@ -8,7 +8,7 @@ import json
 
 import pandas as pd
 
-from common.clock import now_of, pandas_freq
+from common.clock import now_of, pandas_freq, parse_duration
 from common.infra.es import ES, doc_id
 from common.clock import stamp_of
 from data.source.check import Finding, check_fields
@@ -494,33 +494,74 @@ def run_source_check(repo: Repos, kind: str, now, findings_fn) -> list[Finding]:
         return []
 
 
+CATCHUP_KEY = "detect-watermark:"
+
+
+def detect_window(repo, series_config: SeriesConfig, now: pd.Timestamp, window: pd.Timedelta, tz: str, label: str = "") -> tuple[int, list[str]]:
+    """[now - window, now) 判一次、寫異常。回 (異常數, 沒有 baseline 的序列)。"""
+    dopts = DetectOptions(**series_config.detect.model_dump(exclude_none=True))
+    overrides = load_overrides(repo, series_config, now)   # --at 回放時以 --at 判斷有沒有過期（跟排除時段、重置點、backtest 一樣）
+    adjs = data_adjustments(repo, series_config, now)
+    end = now.floor(pandas_freq(series_config.interval))
+    print(f"{label}偵測區間 {(end - window).tz_convert(tz):%Y-%m-%d %H:%M} ～ {end.tz_convert(tz):%Y-%m-%d %H:%M}（{tz}）")
+    total, missing = 0, []
+    for spec in series_config.series:
+        keys = keys_of(spec)
+        base = repo.baseline.load(spec.name, keys)
+        if spec.borrow and series_config.groups:
+            total += detect_borrowed(repo, series_config, spec, base, now, window, dopts, tz, adjs)
+        if base.empty:
+            print(f"  {spec.name}：沒有 baseline，先跑 train")
+            missing.append(spec.name)
+            continue
+        for r, s in detect_series(repo, series_config, spec, base, now, window, dopts, tz, overrides, adjs):
+            total += save_anomalies(repo, spec.name, keys, s, (spec.direction or "both"), tz, resolution=r)
+    return total, missing
+
+
+def catchup_plan(state: dict | None, start: pd.Timestamp, max_back: pd.Timedelta, step: pd.Timedelta) -> tuple[dict, tuple | None]:
+    """水位線：state = {"covered_until": 上一輪看到哪, "gap_from"／"gap_to": 還沒補的空白（沒有就沒這兩個鍵）}。
+    這一輪照常看 [start, end)；上一輪只看到 covered_until < start 的話，[covered_until, start) 是空白（結尾當下就固定，
+    之後每輪的 start 往後走也不會改）。又停一次就跟還沒補完的併成一段。
+    回 (新的 state 的空白部分, 這一輪要補的一段 (段的結束, 段長) 或 None)。比 start - max_back 還早的不補。"""
+    g0 = pd.Timestamp(state["gap_from"]) if state and state.get("gap_from") else None
+    g1 = pd.Timestamp(state["gap_to"]) if state and state.get("gap_to") else None
+    covered = pd.Timestamp(state["covered_until"]) if state and state.get("covered_until") else None
+    if covered is not None and covered < start:                    # 這次又有新的空白
+        g0 = covered if g0 is None else min(g0, covered)
+        g1 = start if g1 is None else max(g1, start)
+    if g0 is None or g1 is None or max_back <= pd.Timedelta(0):
+        return {}, None
+    g0 = max(g0, start - max_back)
+    if g0 >= g1:
+        return {}, None
+    chunk_end = min(g0 + step, g1)
+    rest = {"gap_from": chunk_end.isoformat(), "gap_to": g1.isoformat()} if chunk_end < g1 else {}
+    return rest, (chunk_end, chunk_end - g0)
+
+
 def cmd_detect(series_config: SeriesConfig, args, repo: Repos | None = None) -> int:
     repo = repo or Repos(ES(), load_scenario())
     repo.anomalies.ensure()
     if getattr(repo, "es", None) is not None and hasattr(repo.es, "req"):      # 記憶體版（測試）沒有 ES 可抽樣
         run_source_check(repo, "series", now_of(args.at), lambda: source_findings(repo.es, series_config, repo.scenario.owners))
-    interval = series_config.interval
     now = now_of(args.at)
     # 最後一段可能還沒收齊（筆數會偏低，看起來像「驟降」），所以只看已經結束的時段
-    end = now.floor(pandas_freq(interval))
+    end = now.floor(pandas_freq(series_config.interval))
     start = end - args.window
     tz = series_config.train.timezone or "Asia/Taipei"
-    dopts = DetectOptions(**series_config.detect.model_dump(exclude_none=True))
-    overrides = load_overrides(repo, series_config, now)   # --at 回放時以 --at 判斷有沒有過期（跟排除時段、重置點、backtest 一樣）
-    adjs = data_adjustments(repo, series_config, now)
-    total, missing = 0, []
-    print(f"偵測區間 {start.tz_convert(tz):%Y-%m-%d %H:%M} ～ {end.tz_convert(tz):%Y-%m-%d %H:%M}（{tz}）")
-    for spec in series_config.series:
-        keys = keys_of(spec)
-        base = repo.baseline.load(spec.name, keys)
-        if spec.borrow and series_config.groups:
-            total += detect_borrowed(repo, series_config, spec, base, now, args.window, dopts, tz, adjs)
-        if base.empty:
-            print(f"  {spec.name}：沒有 baseline，先跑 train")
-            missing.append(spec.name)
-            continue
-        for r, s in detect_series(repo, series_config, spec, base, now, args.window, dopts, tz, overrides, adjs):
-            total += save_anomalies(repo, spec.name, keys, s, (spec.direction or "both"), tz, resolution=r)
+    total, missing = detect_window(repo, series_config, now, args.window, tz)
+    # 水位線（只在排程照常跑時；--at 回放不動進度）：上一輪之後有空白（DB／ES／排程器停過）就每輪補一段
+    live = getattr(args, "at", None) is None
+    if live:
+        key = CATCHUP_KEY + str(getattr(args, "config", "") or "series")
+        cu = series_config.catchup
+        rest, chunk = catchup_plan(repo.state.get(key), start, pd.Timedelta(parse_duration(cu.max)), pd.Timedelta(parse_duration(cu.step)))
+        if chunk:
+            chunk_end, length = chunk
+            n, _ = detect_window(repo, series_config, chunk_end, length, tz, label="補算（之前停過）：")
+            total += n
+        repo.state.set(key, {"covered_until": end.isoformat(), **rest, "updated_at": now.isoformat()})
     write_detect_status(repo, now, missing)
     print(f"共 {total} 個異常" + (f"；{len(missing)} 條序列沒有 baseline（已寫 detect-status）" if missing else ""))
     return 0

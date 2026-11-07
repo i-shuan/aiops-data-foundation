@@ -28,11 +28,11 @@ def _targets(repo: Repos) -> dict:
     return out
 
 
-@db.command("init", help="建全部的表與索引（已經有的不動）")
+@db.command("init", help="建全部的表與索引（已經有的不動；要 CREATE 權限：DBA 或部署時跑一次，之後 engine 只要讀寫）")
 def init_cmd() -> int:
     repo = Repos(None, load_scenario())
     for name, r in _targets(repo).items():
-        r.ensure()
+        r.ensure(force=True)          # 已經有的表也補上新加的索引
         print(f"  {r.TABLE}")
     print(f"建好了；pgvector {'有裝（向量用 SQL 算）' if repo.db.has_vector() else '沒裝（向量在程式裡算，事故幾百件以內沒差）'}")
     return 0

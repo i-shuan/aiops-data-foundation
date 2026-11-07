@@ -41,16 +41,12 @@ class PackedRepository(PgRepository):
     TABLE, TIME = PACKED_TABLE, "ts"
     INDEXES = ("((doc->>'table'), ts)",)
 
-    def ensure(self, *_a, **_k) -> None:
-        if self.table in self.db.ensured:
-            return
+    def ddl(self) -> list[str]:
         t = self.table
-        self.db.execute(f"CREATE TABLE IF NOT EXISTS {t} (id text PRIMARY KEY, ts timestamptz, doc jsonb NOT NULL, data bytea NOT NULL, "
-                        f"updated_at timestamptz NOT NULL DEFAULT now())")
-        self.db.execute(f"CREATE INDEX IF NOT EXISTS {t}_ts ON {t} (ts)")
-        for i, expr in enumerate(self.INDEXES):
-            self.db.execute(f"CREATE INDEX IF NOT EXISTS {t}_x{i} ON {t} {expr}")
-        self.db.ensured.add(t)
+        return [f"CREATE TABLE IF NOT EXISTS {t} (id text PRIMARY KEY, ts timestamptz, doc jsonb NOT NULL, data bytea NOT NULL, "
+                f"updated_at timestamptz NOT NULL DEFAULT now())",
+                f"CREATE INDEX IF NOT EXISTS {t}_ts ON {t} (ts)",
+                *[f"CREATE INDEX IF NOT EXISTS {t}_x{i} ON {t} {expr}" for i, expr in enumerate(self.INDEXES)]]
 
     def add(self, table: str, rows: list[dict], tz: str = "UTC") -> int:
         """rows 依天（tz）分開打包寫進來；回幾包。同 id 覆蓋。"""

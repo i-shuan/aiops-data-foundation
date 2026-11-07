@@ -37,6 +37,22 @@ esApiKey: ""                   # 部署時給：chart 建上面這個 Secret；�
 pgDsn: ""                      # 同上（postgresql://帳號:密碼@host:5432/db?sslmode=require）；跟 esApiKey 一起給才建 Secret
 pgSchema: ""                   # DBA 給的是某個 schema（不是 public）時填
 
+# PgBouncer（選用）：每個 Pod 多一個 sidecar，engine 的子行程連 127.0.0.1，PgBouncer 留著連到 PostgreSQL 的連線重複用
+# （子行程每分鐘開一堆、每個都重新連線，DB 端連線數、建連線的成本省下來）。**固定 session 模式**：工作鎖、連線設定要一條連線到底，
+# transaction 模式會壞。開了要在 Secret 多加 AIOPS_PG_DSN_POOLED=postgresql://<同帳號>:<同密碼>@127.0.0.1:6432/<db>
+# （AIOPS_PG_DSN 還是真的 PostgreSQL，給 PgBouncer 用）。beat 不經過它（只連一下）
+pgbouncer:
+  enabled: false
+  image: nexus.example.internal/pgbouncer/pgbouncer:1.23   # 用支援 DATABASE_URL 環境變數的 image（例如 edoburu/pgbouncer），換成公司 registry 的
+  port: 6432
+  poolSize: 10                 # 每個 Pod 連到 PostgreSQL 最多幾條。⚠️ 已知問題（還沒修，等使用者選做法）：每個工作佔 2 條（一條鎖、一條自己的），
+                               # 池子不夠時 session 模式讓工作排隊等連線、前一個跑完才接著跑（同一分鐘跑兩次），不是跳過
+                               # （docs/pdca/meta/2026-11-pg-resilience.md 的 Act）
+  maxClientConn: 100
+  resources:
+    requests: {cpu: 10m, memory: 16Mi}
+    limits: {memory: 64Mi}
+
 # 相似事故的向量輔助（llm/embedding.py）：OpenAI 相容的 embedding API；url、model 空的就只用欄位比對。key 跟 llm.apiKey 一樣放 values-local.yaml
 embedding:
   url: ""                      # 例如 https://llm-gw.example.internal/v1（POST {url}/embeddings）
@@ -50,6 +66,26 @@ llm:
   model: ""                    # 空的用程式預設：openai gpt-4o-mini、anthropic claude-sonnet-4-5
   baseUrl: ""                  # 空的用公網 api.openai.com／api.anthropic.com；內網走閘道時填閘道網址（不含 /v1）
   apiKey: ""
+
+# 本機日誌（common/infra/journal.py）：每一筆寫進 PostgreSQL 的動作先記在這個 PVC，再寫資料庫；寫不進去的之後照順序補寫
+# （排程器每分鐘、下一個工作開始時）。平常檔案是空的（寫進去就清掉），只有資料庫斷線時才會長。
+#   accessMode ReadWriteOnce：single 模式的換版會改成先停舊的再起新的（Recreate）——新的 Pod 排到別台機器時掛不上同一個 PVC，
+#                            RollingUpdate 會卡住。要沒有空窗就用 ReadWriteMany（NFS 之類，問平台有沒有）
+#   distributed：api、每個 worker 要掛同一個 PVC，要 ReadWriteMany；不是的話每個 Pod 改用自己的 emptyDir（Pod 刪掉就沒了）
+journal:
+  enabled: true
+  size: 5Gi
+  storageClass: ""             # 空的用叢集預設
+  accessMode: ReadWriteOnce
+  existingClaim: ""            # 已經有 PVC 就填名字，不另建
+
+# 資料庫斷線時直接通知（不經過 Grafana：Grafana 的告警也讀同一個資料庫）＋外部看門狗（interface/jobs/guard.py）。
+# 網址裡有 token 的話，改放 Secret（AIOPS_FALLBACK_WEBHOOK、AIOPS_WATCHDOG_URL），這裡留空
+fallback:
+  webhook: ""                  # POST JSON {"text", "status": db_down／db_recovered, "since"}；Slack／Teams 的 incoming webhook 收得到 text
+  afterMinutes: 5
+watchdog:
+  url: ""                      # 每分鐘 GET 一次（資料庫連得上時）；外部服務（Uptime Kuma push、healthchecks…）設「N 分鐘沒收到就告警」
 
 configOverrides: {}            # {baseline: {series: <內容>}} → 掛在 /app/configs/baseline/series.yaml 蓋掉 image 裡的
 

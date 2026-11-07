@@ -16,11 +16,15 @@ def _literal(vec: list[float]) -> str:
 class IncidentVectorRepository(PgRepository):
     TABLE = VECTOR_TABLE
 
-    def ensure(self, *_a, **_k) -> None:
-        first = self.table not in self.db.ensured
-        super().ensure()
-        if first and self.db.has_vector():
-            self.db.execute(f"ALTER TABLE {self.table} ADD COLUMN IF NOT EXISTS embedding vector")
+    def ddl(self) -> list[str]:
+        return super().ddl() + ([f"ALTER TABLE {self.table} ADD COLUMN IF NOT EXISTS embedding vector"] if self.db.has_vector() else [])
+
+    def missing(self) -> bool:
+        """表沒建，或 pgvector 裝了但還沒有 embedding 欄。"""
+        if super().missing():
+            return True
+        return self.db.has_vector() and not self.db.query(
+            "SELECT 1 FROM information_schema.columns WHERE table_name = %s AND column_name = 'embedding'", (self.table,))
 
     def known(self, model: str) -> dict[str, str]:
         """{事故 id: 文字雜湊}：這個模型已經算過的。"""

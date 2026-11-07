@@ -23,9 +23,15 @@ spec:
       annotations:
         checksum/env: {{ $env }}
     spec:
+      {{- if .Values.journal.enabled }}
+      securityContext: {fsGroup: 10001}
+      {{- end }}
       containers:
         {{- include "aiops.apiContainer" . | nindent 8 }}
-      {{- with include "aiops.configVolumes" . }}
+        {{- with include "aiops.pgbouncer" . }}
+        {{- . | nindent 8 }}
+        {{- end }}
+      {{- with printf "%s%s" (include "aiops.journalVolume" .) (include "aiops.configVolumes" .) }}
       volumes:
         {{- . | nindent 8 }}
       {{- end }}
@@ -107,18 +113,28 @@ spec:
         checksum/env: {{ $env }}
     spec:
       terminationGracePeriodSeconds: {{ $.Values.scheduler.terminationGracePeriodSeconds }}
+      {{- if $.Values.journal.enabled }}
+      securityContext: {fsGroup: 10001}
+      {{- end }}
       containers:
         - name: worker
           image: {{ include "aiops.image" $ }}
           args: ["main", "tasks", "worker", "--queue", {{ $queue | quote }}, "--concurrency", {{ $w.concurrency | default 1 | quote }}]
           {{- include "aiops.envFrom" $ | nindent 10 }}
+          {{- with include "aiops.pgEnv" $ }}
+          env:
+            {{- . | nindent 12 }}
+          {{- end }}
           resources:
             {{- toYaml $w.resources | nindent 12 }}
-          {{- with include "aiops.configMounts" $ }}
+          {{- with printf "%s%s" (include "aiops.journalMount" $) (include "aiops.configMounts" $) }}
           volumeMounts:
             {{- . | nindent 12 }}
           {{- end }}
-      {{- with include "aiops.configVolumes" $ }}
+        {{- with include "aiops.pgbouncer" $ }}
+        {{- . | nindent 8 }}
+        {{- end }}
+      {{- with printf "%s%s" (include "aiops.journalVolume" $) (include "aiops.configVolumes" $) }}
       volumes:
         {{- . | nindent 8 }}
       {{- end }}

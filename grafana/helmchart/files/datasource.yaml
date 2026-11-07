@@ -7,7 +7,7 @@ datasources:
     uid: aiops-db
     type: grafana-postgresql-datasource
     access: proxy
-    url: ${AIOPS_PG_HOST}                 # host:port，例如 pg.example.internal:5432
+    url: ${AIOPS_PG_HOST}                 # host:port，例如 pg.example.internal:5432；DBA 有唯讀副本就填副本（Grafana 只讀，不跟 engine 的寫入搶主庫；副本落後幾秒不影響 10 分鐘的心跳規則）
     user: ${GRAFANA_PG_USER}
     jsonData:
       database: ${AIOPS_PG_DATABASE}
