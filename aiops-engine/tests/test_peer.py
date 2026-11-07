@@ -12,6 +12,7 @@ import pandas as pd
 import yaml
 
 import detect.strategy.peer_compare as P
+from common.config import load_config
 
 
 def pods(values, svc="order-api", **extra):
@@ -104,7 +105,7 @@ class CmdPeerTest(unittest.TestCase):
         import detect.strategy.peer_compare as C
 
         def fetch(spec, start, end, interval):
-            if spec["value"] == "count":   # 這段時間有資料的 Pod
+            if spec.value == "count":   # 這段時間有資料的 Pod
                 rows = [p for p, (b, d) in life.items()
                         if self.END + pd.Timedelta(minutes=b) < end and (d is None or self.END + pd.Timedelta(minutes=d) > start)]
                 return pd.DataFrame({"ns": ["n"] * len(rows), "deploy": ["d"] * len(rows), "pod": rows, "value": 1.0})
@@ -153,13 +154,11 @@ class DescribeTest(unittest.TestCase):
 
 class SpecTest(unittest.TestCase):
     def test_volume_spec_from_histogram(self):
-        with open("configs/baseline/peer.yaml", encoding="utf-8") as f:
-            cfg = yaml.safe_load(f)
-        by = {c["name"]: c for c in cfg["checks"]}
+        by = {c.name: c for c in load_config("configs/baseline/peer.yaml", "peer").checks}
         v = P.volume_spec(by["peer.http_error_rate"])
-        self.assertEqual(v["value"], {"hist_count": "metrics.http.server.request.duration"})
+        self.assertEqual(v.value, {"hist_count": "metrics.http.server.request.duration"})
         self.assertIsNone(P.volume_spec(by["peer.pod_cpu"]))   # CPU 不用看請求數
-        self.assertEqual(P.count_spec(by["peer.pod_cpu"])["value"], "count")
+        self.assertEqual(P.count_spec(by["peer.pod_cpu"]).value, "count")
 
 
 if __name__ == "__main__":

@@ -80,9 +80,9 @@ class Robust(unittest.TestCase):
         cfg = validate({"adjustments_file": "", "calendar_file": "", "overrides": [{"series": "y", "z": 9}], "series": []}, "series")
         self.assertEqual([a.get("id") for a in A.load(Repos(FakeES([good, bad])), cfg)], [None, "g"])
         got = A.load(Repos(FakeES(err=RuntimeError("400 index_closed_exception"))), cfg)
-        self.assertEqual(got, cfg["overrides"])          # 只剩設定檔的
+        self.assertEqual(got, [o.model_dump(exclude_unset=True, by_alias=True) for o in cfg.overrides])          # 只剩設定檔的
         import requests
-        self.assertEqual(A.load(Repos(FakeES(err=requests.ConnectionError("down"))), cfg), cfg["overrides"])
+        self.assertEqual(A.load(Repos(FakeES(err=requests.ConnectionError("down"))), cfg), [o.model_dump(exclude_unset=True, by_alias=True) for o in cfg.overrides])
 
 
 class LocalTime(unittest.TestCase):

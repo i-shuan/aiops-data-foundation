@@ -64,19 +64,19 @@ def compare(df: pd.DataFrame, group: list[str], member: str, *, direction: str =
     return pd.DataFrame(rows, columns=cols)
 
 
-def volume_spec(spec: dict) -> dict | None:
+def volume_spec(spec: PeerCheck) -> PeerCheck | None:
     """錯誤率、p95 這種從直方圖算的，另外查每個 Pod 的請求數（同一個直方圖的次數），用來排除流量太少的 Pod。"""
-    def one(v: dict) -> dict | None:
-        (kind, arg), = v["value"].items() if isinstance(v["value"], dict) else ((None, None),)
+    def one(v: PeerCheck) -> PeerCheck | None:
+        (kind, arg), = v.value.items() if isinstance(v.value, dict) else ((None, None),)
         if kind in ("hist_ratio", "percentile"):
-            return {**v, "value": {"hist_count": arg["field"]}}
+            return v.model_copy(update={"value": {"hist_count": arg["field"]}})
         return None
     return one(spec)
 
 
-def count_spec(spec: dict) -> dict:
+def count_spec(spec: PeerCheck) -> PeerCheck:
     """同一個查詢、只數筆數：看哪些 Pod 最近還有資料。"""
-    return {**spec, "value": "count"}
+    return spec.model_copy(update={"value": "count"})
 
 
 def describe(check: PeerCheck, r: dict, keys: list[str], fmt) -> str:

@@ -16,7 +16,7 @@
 
 命令列用 typer：每個子命令是一個函式，參數就是命令列參數；@command 登記進 COMMANDS，main() 建 app 時連同
 feedback/cli.py（⑨：feedback、incident、adjust、backtest、metrics）和 Scenario.commands 一起掛上（三邊同一種形狀：{子命令名: register(app)}）。
-函式只把參數裝成 argparse.Namespace、用 core.config.load_config 讀設定，再交給 cmd_*(cfg, args)（core/cli.py 的 run）。
+函式只把參數裝成 argparse.Namespace、用 core.config.load_config 讀設定，再交給 cmd_*(config, args)（core/cli.py 的 run）。
 這個檔是入口（組合根）：它可以 import feedback/，feedback/ 不會 import 它。
 可以給好幾個值的參數（--match、--service、--anomaly、--id）要重複寫：--match service=a --match route=b。
 

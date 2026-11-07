@@ -14,9 +14,9 @@ def _lot_ids(rows: list[dict], lot_field: str) -> set[str]:
     return {str(v) for r in rows if (v := get_field(r, lot_field)) not in (None, "")}
 
 
-def _rows_of_lots(repo, inp: dict, lot_field: str, lots: set[str]) -> list[dict]:
+def _rows_of_lots(repo, inp, time_field: str, lot_field: str, lots: set[str]) -> list[dict]:
     """這些 lot 的全部列（含 window 之前的站：一個 lot 的履歷要完整）。"""
-    return repo.series.rows_where(inp, lot_field, sorted(lots)) if lots else []
+    return repo.series.rows_where(inp, lot_field, sorted(lots), time_field) if lots else []
 
 
 def run(repo, paths_config: PathsConfig, now: pd.Timestamp, window: pd.Timedelta) -> int:
@@ -26,14 +26,14 @@ def run(repo, paths_config: PathsConfig, now: pd.Timestamp, window: pd.Timedelta
     mf = mes.fields
     start = now - window
     # MES 列的時間欄位：進站時間（出站晚到的用 end 欄位也查一次）
-    recent = read_rows({**mes, "time_field": mf.start}, start, now)
+    recent = read_rows(mes, start, now, mf.start)
     if mf.end:
-        recent += read_rows({**mes, "time_field": mf.end}, start, now)
+        recent += read_rows(mes, start, now, mf.end)
     lots = _lot_ids(recent, mf.lot)
     if not lots:
         return 0
-    steps = _rows_of_lots(repo, {**mes, "time_field": mf.start}, mf.lot, lots)
-    events = _rows_of_lots(repo, {**ev, "time_field": ev.fields.start}, ev.fields.lot, lots) if ev else []
+    steps = _rows_of_lots(repo, mes, mf.start, mf.lot, lots)
+    events = _rows_of_lots(repo, ev, ev.fields.start, ev.fields.lot, lots) if ev else []
     docs = P.build_docs(steps, events, paths_config, now.to_pydatetime())
     try:
         repo.housekeeping.put_index_template(P.PATHS_PREFIX, P.PATHS_TEMPLATE)

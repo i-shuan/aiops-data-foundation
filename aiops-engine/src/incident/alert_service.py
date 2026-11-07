@@ -36,7 +36,7 @@ def grade_alert(repo: Repos, rca_config: RcaConfig, al: Alert, now: datetime) ->
     rca_config 的 alerts.severity.classes、alerts.critical_levels 可覆蓋。"""
     sc = repo.scenario
     alerts_config = rca_config.alerts
-    sev_cfg = alerts_config.severity.to_dict() if alerts_config.severity else {}
+    sev_cfg = alerts_config.severity.model_dump(exclude_unset=True, by_alias=True) if alerts_config.severity else {}
     classes = SEV.parse_classes(sev_cfg.pop("classes", None) or sc.severity_classes)
     opts = SEV.GradeOptions(**sev_cfg)
     critical_levels = set(alerts_config.critical_levels or sc.critical_levels)

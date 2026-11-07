@@ -143,97 +143,99 @@ def fill_zero(df: pd.DataFrame, by: list[str], start, end, interval, alive=None)
     return pd.concat(out, ignore_index=True)[by + COLUMNS]
 
 
+# fetch 的 spec 是 series.yaml 的 Series、peer 的 PeerCheck、rules 的 window Rule 其中一種；
+# 沒有的選填欄位（time_field、keys、events、fill_zero）用 getattr 取，沒有就是 None
 class SeriesRepository(Repository):
     # ── series（動態基準線、同儕比對、window 型規則）──
-    def fetch(self, spec: dict, start: pd.Timestamp, end: pd.Timestamp, interval: str | None) -> pd.DataFrame:
+    def fetch(self, spec, start: pd.Timestamp, end: pd.Timestamp, interval: str | None) -> pd.DataFrame:
         """一條序列定義（series.yaml 的一筆：index、by、filter、value、keys、scale、events、fill_zero）在 [start, end) 的資料，
         依 by 欄位和 interval 切好（composite aggregation 翻頁）。interval 是 None 時整段算一個值（ts 是 end），同儕比對用。
 
         回傳欄位：by 的每個欄位（有 keys 時改成 keys 的名字）+ ts + value + n（底下的事件數；events: value 時就是 value）。
         筆數類（count、或 fill_zero: true）沒有資料的時段補 0：沒有請求就是 0，不是「不知道」。這也是為什麼資料不能缺，缺了會被學成「平常會掉到 0」。"""
-        by = spec["by"]
-        tf = spec.get("time_field", "@timestamp")
+        by = spec.by
+        tf = (getattr(spec, "time_field", None) or "@timestamp")
         filters = [{"range": {tf: {"gte": start.isoformat(), "lt": end.isoformat()}}}]
-        if spec.get("filter"):
-            filters.append(spec["filter"])
+        if spec.filter:
+            filters.append(spec.filter)
         sources = [{f"k{i}": {"terms": {"field": f}}} for i, f in enumerate(by)]
         if interval:
             sources.append({"ts": {"date_histogram": {"field": tf, "fixed_interval": interval}}})
-        scale = float(spec.get("scale") or 1.0)      # 資料的單位換成序列的單位（APM 的微秒 → 秒），見 _value_aggs
-        aggs = _value_aggs(spec["value"], scale)
-        if isinstance(spec.get("events"), dict):
-            aggs["n"] = _value_aggs(spec["events"])["v"]
+        scale = float(spec.scale or 1.0)      # 資料的單位換成序列的單位（APM 的微秒 → 秒），見 _value_aggs
+        aggs = _value_aggs(spec.value, scale)
+        if isinstance(getattr(spec, "events", None), dict):
+            aggs["n"] = _value_aggs(getattr(spec, "events", None))["v"]
         body = {"size": 0, "query": {"bool": {"filter": filters}}, "aggs": {"s": {"composite": {"size": 5000, "sources": sources}, "aggs": aggs}}}
         rows = []
-        for b in self._composite(body, ("s",), spec["index"]):
+        for b in self._composite(body, ("s",), spec.index):
             row = {f: b["key"][f"k{i}"] for i, f in enumerate(by)}
             row["ts"] = pd.Timestamp(b["key"]["ts"], unit="ms", tz="UTC") if interval else end
-            row["value"] = _bucket_value(spec["value"], b, scale)
-            ev = spec.get("events")
-            row["n"] = row["value"] if ev == "value" else b["n"]["value"] if isinstance(ev, dict) else _bucket_events(spec["value"], b)
+            row["value"] = _bucket_value(spec.value, b, scale)
+            ev = getattr(spec, "events", None)
+            row["n"] = row["value"] if ev == "value" else b["n"]["value"] if isinstance(ev, dict) else _bucket_events(spec.value, b)
             rows.append(row)
         df = pd.DataFrame(rows, columns=by + COLUMNS)
-        if interval and (spec["value"] == "count" or spec.get("fill_zero")) and not df.empty:
+        if interval and (spec.value == "count" or getattr(spec, "fill_zero", None)) and not df.empty:
             # 有 filter 的序列（例如只數 error log）不能拿自己的資料判斷收集系統有沒有在跑：沒有任何服務出錯的時段
             # 會被當成「不知道」，稀少的錯誤數就只剩有錯的時段可學，平常被學高
-            alive = self.alive_times(spec, start, end, interval) if spec.get("filter") else None
+            alive = self.alive_times(spec, start, end, interval) if spec.filter else None
             df = fill_zero(df, by, start, end, interval, alive)
-        if spec.get("keys"):
-            df = df.rename(columns=dict(zip(by, spec["keys"])))
+        if getattr(spec, "key_names", None):
+            df = df.rename(columns=dict(zip(by, getattr(spec, "key_names", None))))
         return df
 
-    def alive_times(self, spec: dict, start: pd.Timestamp, end: pd.Timestamp, interval: str) -> pd.DatetimeIndex:
+    def alive_times(self, spec, start: pd.Timestamp, end: pd.Timestamp, interval: str) -> pd.DatetimeIndex:
         """收集系統有在送資料的時間窗：這條序列的 index、不加序列自己的 filter，任何一筆資料就算。
         整個 index 都沒有資料的時段＝收集系統停了（「不知道」），不是零流量。"""
-        tf = spec.get("time_field", "@timestamp")
+        tf = (getattr(spec, "time_field", None) or "@timestamp")
         body = {"size": 0, "query": {"bool": {"filter": [{"range": {tf: {"gte": start.isoformat(), "lt": end.isoformat()}}}]}},
                 "aggs": {"t": {"composite": {"size": 10000, "sources": [{"ts": {"date_histogram": {"field": tf, "fixed_interval": interval}}}]}}}}
-        out = [b["key"]["ts"] for b in self._composite(body, ("t",), spec["index"])]
+        out = [b["key"]["ts"] for b in self._composite(body, ("t",), spec.index)]
         return pd.DatetimeIndex(pd.to_datetime(out, unit="ms", utc=True))
 
     # ── points（靜態臨界值規則）──
-    def points(self, rule: dict, start: pd.Timestamp, end: pd.Timestamp) -> dict[tuple, list[tuple[pd.Timestamp, dict]]]:
+    def points(self, rule, start: pd.Timestamp, end: pd.Timestamp) -> dict[tuple, list[tuple[pd.Timestamp, dict]]]:
         """{序列的 key: [(時間, 文件), …]}。join：分母在另一種文件，依「同一個對象、同一個時間點」補進來。"""
         # exists：直方圖的 sum 這種子欄位不能拿來過濾「有沒有」，要用直方圖本身（例如 metrics.jvm_gc_duration_seconds）
-        out = self._points(rule["index"], rule["field"], rule.get("filter", []), rule, start, end, rule.get("exists"))
-        if rule.get("join"):
-            j = rule["join"]
-            other = self._points(rule["index"], j["field"], j.get("filter", []), rule, start, end)
-            lookup = {(k, t): get_field(d, j["field"]) for k, pts in other.items() for t, d in pts}
+        out = self._points(rule.index, rule.field, (rule.filter or []), rule, start, end, rule.exists)
+        if rule.join:
+            j = rule.join
+            other = self._points(rule.index, j.field, [], rule, start, end)
+            lookup = {(k, t): get_field(d, j.field) for k, pts in other.items() for t, d in pts}
             for k, pts in out.items():
                 for t, d in pts:
                     if (v := lookup.get((k, t))) is not None:
-                        _put(d, j["field"], v)
+                        _put(d, j.field, v)
         return out
 
-    def _points(self, index: str, field: str, filters: list, rule: dict, start, end, exists: str | None = None) -> dict[tuple, list]:
-        fields = [field, *([rule["other"]] if rule.get("other") else []), *rule.get("den", [])]
-        keep = rule["by"] + rule.get("context", [])
+    def _points(self, index: str, field: str, filters: list, rule, start, end, exists: str | None = None) -> dict[tuple, list]:
+        fields = [field, *([rule.other] if rule.other else []), *(rule.den or [])]
+        keep = rule.by + (rule.context or [])
         q = {"bool": {"filter": [time_range(start, end), {"exists": {"field": exists or field}}, *filters]}}
         out: dict[tuple, list] = defaultdict(list)
         for h in self._scan({"_source": ["@timestamp", *fields, *keep], "query": q}, index):
             d = h["_source"]
-            key = tuple(get_field(d, f) for f in rule["by"])
+            key = tuple(get_field(d, f) for f in rule.by)
             ts = d["@timestamp"]
             ts = pd.Timestamp(ts, unit="ms", tz="UTC") if isinstance(ts, (int, float)) else pd.Timestamp(ts)
             out[key].append((ts, d))
         return out
 
     # ── rows（ingest、paths-merge）──
-    def rows(self, inp: dict, start: pd.Timestamp, end: pd.Timestamp) -> list[dict]:
-        """inp（index、time_field、filter）在 [start, end) 的原始列；每列多帶 _source_doc_id（ES 的 _id）：ingest 算異常 _id 用。"""
-        tf = inp.get("time_field", "@timestamp")
+    def rows(self, inp, start: pd.Timestamp, end: pd.Timestamp, time_field: str | None = None) -> list[dict]:
+        """inp（有 index、filter，可有 time_field 的設定：series、paths 的 mes／events、ingest 的 input）在 [start, end) 的原始列；每列多帶 _source_doc_id（ES 的 _id）：ingest 算異常 _id 用。"""
+        tf = time_field or inp.time_field or "@timestamp"
         filters = [{"range": {tf: {"gte": start.isoformat(), "lt": end.isoformat()}}}]
-        if inp.get("filter"):
-            filters.append(inp["filter"])
+        if inp.filter:
+            filters.append(inp.filter)
         return [{**h["_source"], "_source_doc_id": h["_id"]}
-                for h in self._scan({"query": {"bool": {"filter": filters}}}, inp["index"], sort=[{tf: "asc"}, {"_doc": "asc"}])]
+                for h in self._scan({"query": {"bool": {"filter": filters}}}, inp.index, sort=[{tf: "asc"}, {"_doc": "asc"}])]
 
-    def rows_where(self, inp: dict, field: str, values: list[str]) -> list[dict]:
+    def rows_where(self, inp, field: str, values: list[str], time_field: str | None = None) -> list[dict]:
         """inp 的索引裡 field 在 values 的全部列（不限時間；工廠的履歷要一個 lot 全部的站），依 time_field 排。"""
-        tf = inp.get("time_field", "@timestamp")
+        tf = time_field or inp.time_field or "@timestamp"
         out, vals = [], sorted(values)
         for i in range(0, len(vals), 1000):
             body = {"query": {"bool": {"filter": [{"terms": {field: vals[i:i + 1000]}}]}}}
-            out += [h["_source"] for h in self._scan(body, inp["index"], size=10000, sort=[{tf: "asc"}, {"_doc": "asc"}])]
+            out += [h["_source"] for h in self._scan(body, inp.index, size=10000, sort=[{tf: "asc"}, {"_doc": "asc"}])]
         return out

@@ -38,10 +38,12 @@ import numpy as np
 import pandas as pd
 
 from common.infra.es import get_field
+from pydantic import ValidationError
+
 from detect.config.rules import Rule, RulesConfig
 from detect.store.models import Anomaly
 from detect.base import Detector
-from detect.utils import _freq
+from detect.utils import _freq, dflt
 import detect.series_ops.manual_adjust as A
 
 OPS = {">=": operator.ge, ">": operator.gt, "<=": operator.le, "<": operator.lt, "==": operator.eq, "!=": operator.ne}
@@ -51,19 +53,19 @@ def _dur(s) -> pd.Timedelta:
     return pd.Timedelta(str(s).replace("m", "min") if str(s).endswith("m") else str(s)) if s else pd.Timedelta(0)
 
 
-def sample_value(rule: dict, doc: dict):
+def sample_value(rule: Rule, doc: dict):
     """一個點的值（increase 以外）。欄位不存在就回 None（這個點不算）。"""
-    v = get_field(doc, rule["field"])
+    v = get_field(doc, rule.field)
     if v is None:
         return None
-    t = rule["type"]
+    t = rule.type
     if t == "value":
-        return abs(float(v)) if rule.get("abs") else float(v)
+        return abs(float(v)) if rule.abs else float(v)
     if t == "compare":
-        other = get_field(doc, rule["other"])
+        other = get_field(doc, rule.other)
         return None if other is None else float(other) - float(v)
     if t == "ratio":
-        parts = [get_field(doc, f) for f in rule["den"]]
+        parts = [get_field(doc, f) for f in rule.den]
         if any(p is None for p in parts):
             return None
         den = sum(float(p) for p in parts)
@@ -109,22 +111,22 @@ def lows_rising(vals: list[float], parts: int = 3) -> bool:
     return all(b > a for a, b in zip(lows, lows[1:]))
 
 
-def _slope(rule: dict, key, pts, now: pd.Timestamp, op, th) -> dict | None:
-    hold = _dur(rule.get("for", "30m"))
-    step = pd.Timedelta(seconds=float(rule.get("step_s", 30)))
-    w = [(t, d, float(v)) for t, d in _window(pts, now, hold) if (v := get_field(d, rule["field"])) is not None]
+def _slope(rule: Rule, key, pts, now: pd.Timestamp, op, th) -> dict | None:
+    hold = _dur(dflt(rule.for_, "30m"))
+    step = pd.Timedelta(seconds=float(dflt(rule.step_s, 30)))
+    w = [(t, d, float(v)) for t, d in _window(pts, now, hold) if (v := get_field(d, rule.field)) is not None]
     # 點不夠、最新的太舊（對象不在了）、for 開頭沒資料（新容器還在暖機）：不判斷
-    if len(w) < int(rule.get("min_points", 10)) or w[-1][0] < now - _dur(rule.get("fresh", "2m")) or w[0][0] > now - hold + 2 * step:
+    if len(w) < int(dflt(rule.min_points, 10)) or w[-1][0] < now - _dur(dflt(rule.fresh, "2m")) or w[0][0] > now - hold + 2 * step:
         return None
     vals = [v for _, _, v in w]
     per_h = slope_per_s([t for t, _, _ in w], vals) * 3600
     if per_h <= 0 or not lows_rising(vals):
         return None
-    if rule.get("den"):
+    if rule.den:
         # 上限 = den 加總（例如 working_set + available）；用最後一個兩者都有的點
         limit = None
         for _, d, _ in reversed(w):
-            parts = [get_field(d, f) for f in rule["den"]]
+            parts = [get_field(d, f) for f in rule.den]
             if all(p is not None for p in parts):
                 limit = sum(float(p) for p in parts)
                 break
@@ -136,46 +138,46 @@ def _slope(rule: dict, key, pts, now: pd.Timestamp, op, th) -> dict | None:
     return {"key": key, "value": v, "since": w[0][0], "last": pts[-1][1], "per_hour": per_h} if op(v, th) else None
 
 
-def evaluate(rule: dict, series: dict[tuple, list[tuple[pd.Timestamp, dict]]], now: pd.Timestamp) -> list[dict]:
+def evaluate(rule: Rule, series: dict[tuple, list[tuple[pd.Timestamp, dict]]], now: pd.Timestamp) -> list[dict]:
     """series：{序列的 key: [(時間, 文件), …]}（時間由舊到新）。回傳觸發的：{"key", "value", "since", "last"（最新的文件）}。"""
-    op, th = OPS[rule.get("op", ">=")], rule["threshold"]
-    hold = _dur(rule.get("for", 0))
+    op, th = OPS[dflt(rule.op, ">=")], rule.threshold
+    hold = _dur(dflt(rule.for_, 0))
     out = []
     for key, pts in series.items():
-        if rule["type"] == "slope":
+        if rule.type == "slope":
             if (h := _slope(rule, key, pts, now, op, th)) is not None:
                 out.append(h)
             continue
-        if rule["type"] in ("increase_ratio", "rate", "total"):
+        if rule.type in ("increase_ratio", "rate", "total"):
             w = _window(pts, now, hold)
-            if len(w) < 2 or w[-1][0] < now - _dur(rule.get("fresh", "2m")):
+            if len(w) < 2 or w[-1][0] < now - _dur(dflt(rule.fresh, "2m")):
                 continue
-            if rule["type"] == "increase_ratio":
-                num = increase([float(v) for _, d in w if (v := get_field(d, rule["field"])) is not None])
-                den = increase([float(v) for _, d in w if (v := get_field(d, rule["den"][0])) is not None])
+            if rule.type == "increase_ratio":
+                num = increase([float(v) for _, d in w if (v := get_field(d, rule.field)) is not None])
+                den = increase([float(v) for _, d in w if (v := get_field(d, rule.den[0])) is not None])
                 v = num / den if den else None
             else:
                 # 每一筆是那 30 秒的量（直方圖已換成差值）；同一個時間點可能有好幾筆（例如不同的 GC），全部加起來
-                pick = (lambda d: hist_count(get_field(d, rule["field"]))) if rule.get("hist_count") \
-                    else (lambda d: get_field(d, rule["field"]))
+                pick = (lambda d: hist_count(get_field(d, rule.field))) if rule.hist_count \
+                    else (lambda d: get_field(d, rule.field))
                 total = sum(float(v) for _, d in w if (v := pick(d)) is not None)
-                secs = max((w[-1][0] - w[0][0]).total_seconds() + float(rule.get("step_s", 30)), 1.0)
-                v = total / secs if rule["type"] == "rate" else total
+                secs = max((w[-1][0] - w[0][0]).total_seconds() + float(dflt(rule.step_s, 30)), 1.0)
+                v = total / secs if rule.type == "rate" else total
             if v is not None and op(v, th):
                 out.append({"key": key, "value": v, "since": w[0][0], "last": w[-1][1]})
             continue
-        if rule["type"] in ("increase", "delta"):
+        if rule.type in ("increase", "delta"):
             # 對象已經不在了（Pod 刪掉）：最後幾分鐘的累計值還在回溯範圍裡，不算（除非 report_gone）
-            if not rule.get("report_gone") and pts and pts[-1][0] < now - _dur(rule.get("fresh", "2m")):
+            if not rule.report_gone and pts and pts[-1][0] < now - _dur(dflt(rule.fresh, "2m")):
                 continue
-            vals = [float(v) for _, d in _window(pts, now, hold) if (v := get_field(d, rule["field"])) is not None]
+            vals = [float(v) for _, d in _window(pts, now, hold) if (v := get_field(d, rule.field)) is not None]
             # delta：量測值（gauge）的淨變化，最後 − 最前；變小就是變小，不當成歸零重來
-            if len(vals) >= 2 and op(inc := (vals[-1] - vals[0] if rule["type"] == "delta" else increase(vals)), th):
+            if len(vals) >= 2 and op(inc := (vals[-1] - vals[0] if rule.type == "delta" else increase(vals)), th):
                 out.append({"key": key, "value": inc, "since": pts[0][0], "last": pts[-1][1]})
             continue
         vals = [(t, v) for t, d in pts if (v := sample_value(rule, d)) is not None]
         # 最新的點太舊（Pod 已經刪掉、節點拿掉了）：不是「現在」的狀態，不算
-        if not vals or vals[-1][0] < now - _dur(rule.get("fresh", "2m")):
+        if not vals or vals[-1][0] < now - _dur(dflt(rule.fresh, "2m")):
             continue
         if hold == pd.Timedelta(0):
             t, v = vals[-1]
@@ -187,36 +189,36 @@ def evaluate(rule: dict, series: dict[tuple, list[tuple[pd.Timestamp, dict]]], n
         # 而且這個對象在 for 開頭之前就有資料：剛建立的對象（例如新 Pod 從第一筆就 Pending）要等滿 for，不是一半就報
         ok = sum(op(v, th) for _, v in recent)
         if len(recent) >= 2 and recent[0][0] <= now - hold / 2 and vals[0][0] <= now - hold and op(recent[-1][1], th) \
-                and ok >= rule.get("min_ratio", 1.0) * len(recent):
+                and ok >= dflt(rule.min_ratio, 1.0) * len(recent):
             out.append({"key": key, "value": recent[-1][1], "since": recent[0][0], "last": pts[-1][1]})
     return out
 
 
-def evaluate_window(rule: dict, df: pd.DataFrame, since: pd.Timestamp) -> list[dict]:
+def evaluate_window(rule: Rule, df: pd.DataFrame, since: pd.Timestamp) -> list[dict]:
     """type window：df 是 detector.es.fetch（interval=None）的結果，每個對象一列（by + value + n）。
     事件數（請求數）不到 min_events 的不判斷：3 個請求錯 1 個不是「錯誤率 33%」。"""
-    op, th, need = OPS[rule.get("op", ">=")], rule["threshold"], rule.get("min_events", 0)
-    return [{"key": tuple(r[f] for f in rule["by"]), "value": float(r["value"]), "since": since, "last": {}}
+    op, th, need = OPS[dflt(rule.op, ">=")], rule.threshold, dflt(rule.min_events, 0)
+    return [{"key": tuple(r[f] for f in rule.by), "value": float(r["value"]), "since": since, "last": {}}
             for r in df.to_dict("records")
             if r["value"] is not None and not pd.isna(r["value"]) and (r["n"] or 0) >= need and op(r["value"], th)]
 
 
-def describe(rule: dict, hit: dict) -> str:
+def describe(rule: Rule, hit: dict) -> str:
     """給人看的一句話，例如「容器重啟：imc-wip-prod、crash-app-…、app（1，門檻 >= 1）」。"""
     # 比例用百分比顯示；show: number 的（例如「每核幾條執行緒」）照數字顯示。total 是次數
-    pct = (rule["type"] in ("ratio", "increase_ratio", "rate") and rule.get("show") != "number") or rule.get("show") == "pct"
+    pct = (rule.type in ("ratio", "increase_ratio", "rate") and rule.show != "number") or rule.show == "pct"
     fmt = (lambda x: f"{x:.0%}") if pct else (lambda x: f"{x:g}")
-    if rule.get("show") == "seconds":
+    if rule.show == "seconds":
         fmt = lambda x: f"{x:.2f} 秒"
-    if rule.get("show") == "hours":
+    if rule.show == "hours":
         fmt = lambda x: f"{x:.1f} 小時"
-    if rule.get("show") == "ns_as_ms":   # 奈秒的數字（主機時鐘偏移）顯示成毫秒
+    if rule.show == "ns_as_ms":   # 奈秒的數字（主機時鐘偏移）顯示成毫秒
         fmt = lambda x: f"{x / 1e6:,.0f} 毫秒"
     who = "、".join(str(k) for k in hit["key"] if k is not None)
-    return f"{rule['title']}：{who}（{fmt(hit['value'])}，門檻 {rule.get('op', '>=')} {fmt(rule['threshold'])}）"
+    return f"{rule.title}：{who}（{fmt(hit['value'])}，門檻 {dflt(rule.op, '>=')} {fmt(rule.threshold)}）"
 
 
-def approved_rules(repo, rules_config: RulesConfig, now: pd.Timestamp | None = None) -> list[dict]:
+def approved_rules(repo, rules_config: RulesConfig, now: pd.Timestamp | None = None) -> list[Rule]:
     """老師傅核准的「升級成規則」（aiops-tuning 的 rule_suggestion，status active、expires_at 還沒到、門檻是數字）：
     跟 rules.yaml 的一起跑。now 是這一輪的時間（--at），過期用它比。"""
     try:
@@ -234,41 +236,44 @@ def approved_rules(repo, rules_config: RulesConfig, now: pd.Timestamp | None = N
         exp = A._ts(a.get("expires_at"))
         if exp is not None and exp <= now:
             continue
-        out.append({k: v for k, v in draft.items() if not k.startswith("_")})
+        try:
+            out.append(Rule.model_validate({k: v for k, v in draft.items() if not k.startswith("_")}))
+        except ValidationError as e:
+            print(f"  核准的規則 {draft.get('name')} 欄位不對，跳過：{e.errors()[0]['loc']} {e.errors()[0]['msg']}")
     return out
 
 
 class RulesDetector(Detector):
     level = "rule"
 
-    def checks(self) -> list[Rule | dict]:
+    def checks(self) -> list[Rule]:
         extra = approved_rules(self.repo, self.config, self.now)
         if extra:
-            print(f"  從 aiops-tuning 載入 {len(extra)} 條核准的規則：{'、'.join(r['name'] for r in extra)}")
-        self.rules = list(self.config.rules) + extra     # rules.yaml 的是 Rule，aiops-tuning 核准的是 dict；下面的函式兩種都吃（rule.get／rule[…]）
+            print(f"  從 aiops-tuning 載入 {len(extra)} 條核准的規則：{'、'.join(r.name for r in extra)}")
+        self.rules = list(self.config.rules) + extra     # rules.yaml 的與 aiops-tuning 核准的都是 Rule
         return self.rules
 
-    def evaluate(self, rule: dict) -> list[Anomaly]:
+    def evaluate(self, rule: Rule) -> list[Anomaly]:
         now = self.now
-        start = now - pd.Timedelta(_freq(rule.get("lookback") or self.config.lookback))
-        if rule["type"] == "window":   # 整段算一個值（錯誤率、p95）：跟 series.yaml 同一套查法
+        start = now - pd.Timedelta(_freq(rule.lookback or self.config.lookback))
+        if rule.type == "window":   # 整段算一個值（錯誤率、p95）：跟 series.yaml 同一套查法
             hits = evaluate_window(rule, self.repo.series.fetch(rule, start, now, None), start)
         else:
             hits = evaluate(rule, self.repo.series.points(rule, start, now), now)
         out = []
         for h in hits:
-            keys = {f: v for f, v in zip(rule["by"], h["key"])}
+            keys = {f: v for f, v in zip(rule.by, h["key"])}
             # 附帶的資訊（服務名稱、節點），根因分析用來對到服務；不參與「同一個對象」的判斷
-            keys.update({f: v for f in rule.get("context", []) if (v := get_field(h["last"], f)) is not None})
-            out.append(Anomaly(ts=self.slot, series=f"rule.{rule['name']}", rule=rule["name"], keys=keys, value=h["value"],
-                               expected_high=rule["threshold"], level=self.level, direction=rule.get("op", ">="),
-                               severity=rule.get("severity", "warning"), message=describe(rule, h), since=h["since"]))
+            keys.update({f: v for f in dflt(rule.context, []) if (v := get_field(h["last"], f)) is not None})
+            out.append(Anomaly(ts=self.slot, series=f"rule.{rule.name}", rule=rule.name, keys=keys, value=h["value"],
+                               expected_high=rule.threshold, level=self.level, direction=dflt(rule.op, ">="),
+                               severity=dflt(rule.severity, "warning"), message=describe(rule, h), since=h["since"]))
         return out
 
-    def on_error(self, rule: dict, exc: Exception) -> None:
+    def on_error(self, rule: Rule, exc: Exception) -> None:
         # 一條規則壞掉（查詢錯、核准的草稿缺欄位）只跳過那一條，其他照跑、照寫
-        self.failed.append(rule["name"])
-        print(f"  規則 {rule['name']} 失敗，跳過：{type(exc).__name__}: {str(exc)[:300]}")
+        self.failed.append(rule.name)
+        print(f"  規則 {rule.name} 失敗，跳過：{type(exc).__name__}: {str(exc)[:300]}")
 
     def summary(self) -> str:
         return (f"{self.slot.tz_convert('Asia/Taipei'):%m-%d %H:%M}：{len(self.rules)} 條規則，觸發 {self.fired} 個"

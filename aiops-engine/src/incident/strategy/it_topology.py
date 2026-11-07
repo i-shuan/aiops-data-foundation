@@ -27,7 +27,7 @@ def call_edges(repo, rca_config: RcaConfig, services: set[str], start: datetime,
 
 
 class CallEdges:
-    """跨服務（一層）：這段時間 trace 裡「誰呼叫誰」，只看有件開著、或這次有異常的服務。cfg 的 alerts.chain_sample 是每個服務抽幾個請求。"""
+    """跨服務（一層）：這段時間 trace 裡「誰呼叫誰」，只看有件開著、或這次有異常的服務。rca_config 的 alerts.chain_sample 是每個服務抽幾個請求。"""
 
     def __call__(self, repo, rca_config: RcaConfig, anomalies: list[dict], open_alerts: list, start: datetime, now: datetime) -> Chain:
         keys = repo.scenario.entity_keys

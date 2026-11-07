@@ -4,6 +4,7 @@ import contextlib
 import dataclasses
 import io
 import unittest
+from types import SimpleNamespace
 from argparse import Namespace
 from unittest import mock
 
@@ -141,14 +142,14 @@ class Toy(Detector):
 
     def checks(self):
         self.log.append("checks")
-        return self.cfg["checks"]
+        return self.config.checks
 
     def evaluate(self, c):
-        self.log.append(f"evaluate:{c['name']}")
-        if c["name"] == "bad":
+        self.log.append(f"evaluate:{c.name}")
+        if c.name == "bad":
             raise RuntimeError("查詢壞了")
-        return [Anomaly(ts=self.slot, series=c["name"], rule=c["name"], keys={"k": c["name"]}, value=1, level=self.level,
-                        direction="up", severity="warning", message=f"{c['name']} 超過")]
+        return [Anomaly(ts=self.slot, series=c.name, rule=c.name, keys={"k": c.name}, value=1, level=self.level,
+                        direction="up", severity="warning", message=f"{c.name} 超過")]
 
     def write(self, docs):
         self.log.append(f"write:{len(docs)}")
@@ -157,13 +158,13 @@ class Toy(Detector):
 
 class Tolerant(Toy):
     def on_error(self, c, exc):
-        self.failed.append(c["name"])
-        self.log.append(f"error:{c['name']}")
+        self.failed.append(c.name)
+        self.log.append(f"error:{c.name}")
 
 
 def run(cls, checks, only=None):
     be, log = FakeES(), []
-    cfg = {"interval": "1m", "checks": [{"name": n} for n in checks]}
+    cfg = SimpleNamespace(interval="1m", checks=[SimpleNamespace(name=n) for n in checks])
     args = Namespace(at="2026-11-05T10:03:20Z", only=only)
     with contextlib.redirect_stdout(io.StringIO()) as out:
         rc = cls(cfg, args, Repos(be, SC), log).run()

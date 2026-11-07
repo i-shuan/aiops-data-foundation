@@ -22,6 +22,7 @@ import pandas as pd
 
 from common.infra.es import doc_id
 from common.types.incident import Fingerprint
+from detect.config.series import Series
 
 from learn.store.models import VERDICTS
 # identified_cause（llm/summary.py 的 CAUSE_CODES）→ 表單的根因分類；規則草稿的 root_cause_category 用。沒列的是 other
@@ -242,7 +243,7 @@ def rule_threshold(incs: list[dict], anomalies_of: dict[str, list[dict]] | None)
 
 
 def suggest_rules(incidents: list[dict], min_recurring: int = 3, anomalies_of: dict[str, list[dict]] | None = None,
-                  series_specs: list[dict] | None = None) -> list[dict]:
+                  series_specs: list[Series] | None = None) -> list[dict]:
     """同一個服務、同一個根因分類被確認 ≥ min_recurring 次 → 提「升級成規則」（kind rule_suggestion，附 rule_draft）。
     門檻從那幾件事故的延遲峰值算（rule_threshold）；規則的查法直接用那條 baseline 序列的定義（同 index、欄位、切法），只多「只看這個服務」。
     人 adjust approve 之後 detector rules 自動載入（cmd_rules），不用改 rules.yaml。算不出門檻的草稿 threshold 是 None，不能核准。
@@ -260,17 +261,17 @@ def suggest_rules(incidents: list[dict], min_recurring: int = 3, anomalies_of: d
         errs = Counter(s for fp in fps for s in fp.error_origins)
         where = (segs or errs).most_common(1)[0][0] if (segs or errs) else None
         threshold, series, peaks, routes = rule_threshold(incs, anomalies_of)
-        spec = next((s for s in (series_specs or []) if s.get("name") == series), None) or {
-            "index": "metrics-*.otel-*", "filter": {"exists": {"field": "metrics.http.server.request.duration"}},
-            "by": ["resource.attributes.service.name", "attributes.http.request.method", "attributes.http.route"],
-            "value": {"percentile": {"field": "metrics.http.server.request.duration", "percent": 95}}}
-        filters = ([spec["filter"]] if spec.get("filter") else []) + [{"term": {spec["by"][0]: svc}}]
-        if len(routes) == 1 and len(spec["by"]) >= 3:
-            filters.append({"term": {spec["by"][-1]: next(iter(routes))}})
-        is_rate = any(k in spec["value"] for k in ("percentile", "ratio", "hist_ratio")) if isinstance(spec.get("value"), dict) else False
+        spec = next((s for s in (series_specs or []) if s.name == series), None) or Series(
+            name=series or "http.latency_p95_s", index="metrics-*.otel-*", filter={"exists": {"field": "metrics.http.server.request.duration"}},
+            by=["resource.attributes.service.name", "attributes.http.request.method", "attributes.http.route"],
+            value={"percentile": {"field": "metrics.http.server.request.duration", "percent": 95}})
+        filters = ([spec.filter] if spec.filter else []) + [{"term": {spec.by[0]: svc}}]
+        if len(routes) == 1 and len(spec.by) >= 3:
+            filters.append({"term": {spec.by[-1]: next(iter(routes))}})
+        is_rate = any(k in spec.value for k in ("percentile", "ratio", "hist_ratio")) if isinstance(spec.value, dict) else False
         draft = {"name": f"{svc}.{cat}.recurring", "severity": "critical", "type": "window", "lookback": "5m",
-                 "index": spec["index"], "filter": {"bool": {"filter": filters}}, "by": list(spec["by"]), "value": spec["value"],
-                 "op": ">=", "threshold": threshold, "show": "seconds" if "percentile" in str(spec.get("value")) else "value",
+                 "index": spec.index, "filter": {"bool": {"filter": filters}}, "by": list(spec.by), "value": spec.value,
+                 "op": ">=", "threshold": threshold, "show": "seconds" if "percentile" in str(spec.value) else "value",
                  "_source": {"series": series, "incident_ids": [i["id"] for i in incs], "floors": peaks, "route": next(iter(routes)) if len(routes) == 1 else None},
                  "_note": (f"門檻 = 這 {len(peaks)} 件事故各自最低的 {series} 異常值（{'、'.join(f'{p:g}' for p in peaks)}）取最小值：每件、每個點都抓得到，一跳就報"
                            if threshold is not None else "這幾件事故沒有延遲類的異常，算不出門檻：不能核准，要先看報告決定用哪條序列")

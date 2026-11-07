@@ -24,6 +24,7 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
+from detect.config.series import Group
 from detect.series_ops.manual_adjust import match_keys
 
 MAD_TO_SIGMA = 1.4826  # 常態分布下 MAD 換成標準差的係數
@@ -282,13 +283,13 @@ def score_poisson(current: pd.DataFrame, baseline: pd.DataFrame, keys: list[str]
     return m.drop(columns=["dow", "hour", "p_up", "p_down"])
 
 
-def group_of(key: dict, groups: list[dict]) -> list[str]:
+def group_of(key: dict, groups: list[Group]) -> list[str]:
     """這條序列屬於哪些組（依設定的順序，由細到粗）。match 的每個欄位都要符合（正規表示式，re.search）。"""
-    return [g["name"] for g in groups
-            if all(key.get(f) is not None and re.search(pat, str(key[f])) for f, pat in g["match"].items())]
+    return [g.name for g in groups
+            if all(key.get(f) is not None and re.search(pat, str(key[f])) for f, pat in g.match.items())]
 
 
-def train_groups(own: pd.DataFrame, keys: list[str], groups: list[dict], min_members: int = 3) -> pd.DataFrame:
+def train_groups(own: pd.DataFrame, keys: list[str], groups: list[Group], min_members: int = 3) -> pd.DataFrame:
     """從成員自己的 baseline 算出每一組的 baseline（借給新 API、量太少的 API 用）。
 
     own：train 的結果（keys + dow、hour、median、mad…，只用中位數＋MAD 學出來的）。
@@ -303,14 +304,14 @@ def train_groups(own: pd.DataFrame, keys: list[str], groups: list[dict], min_mem
     members = own[keys].drop_duplicates()
     rows = []
     for g in groups:
-        mine = [m for m in members.to_dict("records") if g["name"] in group_of(m, [g])]
+        mine = [m for m in members.to_dict("records") if g.name in group_of(m, [g])]
         if len(mine) < min_members:
             continue
         sub = own.merge(pd.DataFrame(mine), on=keys)
         for (dow, hour), gg in sub.groupby(["dow", "hour"]):
             if gg[keys].drop_duplicates().shape[0] < min_members:
                 continue
-            rows.append({"group": g["name"], "dow": dow, "hour": hour, "level": "group",
+            rows.append({"group": g.name, "dow": dow, "hour": hour, "level": "group",
                          "median": float(gg["median"].median()), "mad": float(gg["mad"].median()),
                          "p05": float(gg["median"].min()), "p95": float(gg["median"].max()), "n": int(len(gg))})
     return pd.DataFrame(rows, columns=cols)

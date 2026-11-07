@@ -196,7 +196,7 @@ class LoadCalendar(unittest.TestCase):
             class NoES:
                 def req(self, *a, **k):
                     raise RuntimeError("no es")
-            got = A.load(Repos(NoES(), SC), {"calendar_file": cal, "adjustments_file": None})
+            got = A.load(Repos(NoES(), SC), validate({"calendar_file": cal, "adjustments_file": None}, "series"))
             self.assertEqual([(a["kind"], a["source"]) for a in got], [("exclude_window", "calendar")])
 
 

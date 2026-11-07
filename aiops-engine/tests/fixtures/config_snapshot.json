@@ -1,0 +1,4606 @@
+{
+ "configs/apm/peer.yaml": {
+  "checks": [
+   {
+    "by": [
+     "service.name",
+     "service.node.name"
+    ],
+    "direction": "up",
+    "filter": {
+     "bool": {
+      "filter": [
+       {
+        "term": {
+         "metricset.name": "transaction"
+        }
+       },
+       {
+        "term": {
+         "transaction.type": "request"
+        }
+       }
+      ]
+     }
+    },
+    "index": "metrics-apm.transaction.1m-*",
+    "keys": [
+     "service",
+     "pod"
+    ],
+    "max_peer_median": 0.05,
+    "min_abs": 0.05,
+    "min_ratio": null,
+    "min_volume": 20,
+    "name": "peer.http_error_rate",
+    "scale": null,
+    "severity": "warning",
+    "show": "pct",
+    "time_field": null,
+    "title": "這個 Pod 的錯誤率比同服務其他 Pod 高",
+    "value": {
+     "hist_ratio": {
+      "field": "transaction.duration.histogram",
+      "query": {
+       "term": {
+        "event.outcome": "failure"
+       }
+      }
+     }
+    }
+   },
+   {
+    "by": [
+     "service.name",
+     "service.node.name"
+    ],
+    "direction": "up",
+    "filter": {
+     "bool": {
+      "filter": [
+       {
+        "term": {
+         "metricset.name": "transaction"
+        }
+       },
+       {
+        "term": {
+         "transaction.type": "request"
+        }
+       }
+      ]
+     }
+    },
+    "index": "metrics-apm.transaction.1m-*",
+    "keys": [
+     "service",
+     "pod"
+    ],
+    "max_peer_median": 2,
+    "min_abs": 0.1,
+    "min_ratio": 2,
+    "min_volume": 20,
+    "name": "peer.http_latency_p95_s",
+    "scale": 1e-06,
+    "severity": "warning",
+    "show": "seconds",
+    "time_field": null,
+    "title": "這個 Pod 比同服務其他 Pod 慢",
+    "value": {
+     "percentile": {
+      "field": "transaction.duration.histogram",
+      "percent": 95
+     }
+    }
+   }
+  ],
+  "fresh": "2m",
+  "min_peers": 3,
+  "rel_floor": 0.1,
+  "warmup": "5m",
+  "window": "10m",
+  "z": 5,
+  "z_by_peers": {
+   "2": 3,
+   "3": 4,
+   "4": 4
+  }
+ },
+ "configs/apm/rca.yaml": {
+  "alerts": {
+   "chain": true,
+   "chain_sample": 100,
+   "close_after": "30m",
+   "critical_levels": null,
+   "deploy_entity_field": null,
+   "deploy_filter": null,
+   "deploy_grace": true,
+   "deploy_index": null,
+   "deploy_time_field": null,
+   "feedback_url": null,
+   "llm": true,
+   "llm_provider": null,
+   "lookback": "2h",
+   "paths_lookback": "3d",
+   "rca": true,
+   "rca_lead": "0s",
+   "rca_retry": true,
+   "rca_retry_after": "2m",
+   "rca_retry_max": 5,
+   "report_url": null,
+   "severity": null,
+   "similar": true,
+   "similar_weights": null,
+   "version_field": null
+  },
+  "changes": null,
+  "commonality": {
+   "attrs": [
+    "db.statement"
+   ],
+   "min_lift": 2,
+   "min_share": 0.6,
+   "min_traces": 5,
+   "resource": [
+    "k8s.pod.name",
+    "service.version",
+    "host.name"
+   ]
+  },
+  "compare_with": "7d",
+  "entry_lag": "0s",
+  "incidents_db": null,
+  "indices": {
+   "anomalies": "aiops-anomalies",
+   "logs": "logs-apm.app.*,logs-apm.error-*",
+   "traces": "traces-merged-*"
+  },
+  "interval": "5m",
+  "ref_gap": "10m",
+  "sample": 200,
+  "timezone": "Asia/Taipei",
+  "trend": {
+   "window": "10m",
+   "windows": 6
+  }
+ },
+ "configs/apm/rules.yaml": {
+  "interval": "1m",
+  "lookback": "10m",
+  "rules": [
+   {
+    "abs": null,
+    "by": [
+     "service.name",
+     "transaction.name"
+    ],
+    "context": null,
+    "den": null,
+    "description": null,
+    "exists": null,
+    "field": null,
+    "filter": {
+     "bool": {
+      "filter": [
+       {
+        "term": {
+         "metricset.name": "transaction"
+        }
+       },
+       {
+        "term": {
+         "transaction.type": "request"
+        }
+       }
+      ]
+     }
+    },
+    "for": null,
+    "fresh": null,
+    "hist_count": null,
+    "index": "metrics-apm.transaction.1m-*",
+    "join": null,
+    "lookback": "5m",
+    "min_events": 20,
+    "min_points": null,
+    "min_ratio": null,
+    "name": "http.error_rate_floor",
+    "op": ">=",
+    "other": null,
+    "report_gone": null,
+    "scale": null,
+    "severity": "critical",
+    "show": "pct",
+    "step_s": null,
+    "threshold": 0.05,
+    "title": "API 錯誤率超過 5%",
+    "type": "window",
+    "value": {
+     "hist_ratio": {
+      "field": "transaction.duration.histogram",
+      "query": {
+       "term": {
+        "event.outcome": "failure"
+       }
+      }
+     }
+    }
+   },
+   {
+    "abs": null,
+    "by": [
+     "service.name",
+     "transaction.name"
+    ],
+    "context": null,
+    "den": null,
+    "description": null,
+    "exists": null,
+    "field": null,
+    "filter": {
+     "bool": {
+      "filter": [
+       {
+        "term": {
+         "metricset.name": "transaction"
+        }
+       },
+       {
+        "term": {
+         "transaction.type": "request"
+        }
+       }
+      ]
+     }
+    },
+    "for": null,
+    "fresh": null,
+    "hist_count": null,
+    "index": "metrics-apm.transaction.1m-*",
+    "join": null,
+    "lookback": "5m",
+    "min_events": 20,
+    "min_points": null,
+    "min_ratio": null,
+    "name": "http.latency_p95_floor",
+    "op": ">=",
+    "other": null,
+    "report_gone": null,
+    "scale": 1e-06,
+    "severity": "warning",
+    "show": "seconds",
+    "step_s": null,
+    "threshold": 2,
+    "title": "API p95 超過 2 秒",
+    "type": "window",
+    "value": {
+     "percentile": {
+      "field": "transaction.duration.histogram",
+      "percent": 95
+     }
+    }
+   }
+  ]
+ },
+ "configs/apm/schedule.yaml": {
+  "jobs": [
+   {
+    "args": [
+     "main",
+     "detector",
+     "rules",
+     "--config",
+     "configs/apm/rules.yaml"
+    ],
+    "cron": "* * * * *",
+    "name": "rules",
+    "queue": "realtime",
+    "retries": null,
+    "stage": 1,
+    "timeout": 50,
+    "why": "保底的錯誤率 5%、p95 2 秒；老師傅核准的規則也在這裡跑"
+   },
+   {
+    "args": [
+     "main",
+     "detector",
+     "detect",
+     "--config",
+     "configs/apm/series.yaml",
+     "--window",
+     "10m"
+    ],
+    "cron": "* * * * *",
+    "name": "detect",
+    "queue": "realtime",
+    "retries": null,
+    "stage": 1,
+    "timeout": 50,
+    "why": "每分鐘看最近 10 分鐘"
+   },
+   {
+    "args": [
+     "main",
+     "investigator",
+     "alert",
+     "--config",
+     "configs/apm/rca.yaml"
+    ],
+    "cron": "* * * * *",
+    "name": "alert",
+    "queue": "alert",
+    "retries": null,
+    "stage": 1,
+    "timeout": 600,
+    "why": "合成一件、根因分析、相似事故、LLM 摘要、心跳"
+   },
+   {
+    "args": [
+     "main",
+     "detector",
+     "trace-merge",
+     "--config",
+     "configs/apm/trace.yaml"
+    ],
+    "cron": "* * * * *",
+    "name": "trace-merge",
+    "queue": "realtime",
+    "retries": null,
+    "stage": 1,
+    "timeout": 50,
+    "why": "traces-apm-* 的 transaction、span → 一個請求一筆（traces-merged）"
+   },
+   {
+    "args": [
+     "main",
+     "detector",
+     "train",
+     "--config",
+     "configs/apm/series.yaml"
+    ],
+    "cron": "0 2 * * *",
+    "name": "train",
+    "queue": "batch",
+    "retries": null,
+    "stage": 1,
+    "timeout": 3600,
+    "why": "每天學過去 4 週"
+   },
+   {
+    "args": [
+     "main",
+     "detector",
+     "peer",
+     "--config",
+     "configs/apm/peer.yaml"
+    ],
+    "cron": "*/5 * * * *",
+    "name": "peer",
+    "queue": "realtime",
+    "retries": null,
+    "stage": 2,
+    "timeout": 240,
+    "why": "Pod 同儕橫向比對看最近 10 分鐘"
+   },
+   {
+    "args": [
+     "main",
+     "detector",
+     "trace-collect",
+     "--config",
+     "configs/apm/trace.yaml"
+    ],
+    "cron": "*/5 * * * *",
+    "name": "trace-collect",
+    "queue": "realtime",
+    "retries": null,
+    "stage": 2,
+    "timeout": 240,
+    "why": "trace 每一段的量"
+   },
+   {
+    "args": [
+     "main",
+     "detector",
+     "trace-detect",
+     "--config",
+     "configs/apm/trace.yaml",
+     "--window",
+     "10m"
+    ],
+    "cron": "*/5 * * * *",
+    "name": "trace-detect",
+    "queue": "realtime",
+    "retries": null,
+    "stage": 2,
+    "timeout": 240,
+    "why": "trace 每一段跟 baseline 比"
+   },
+   {
+    "args": [
+     "main",
+     "detector",
+     "trace-train",
+     "--config",
+     "configs/apm/trace.yaml"
+    ],
+    "cron": "20 2 * * *",
+    "name": "trace-train",
+    "queue": "batch",
+    "retries": null,
+    "stage": 2,
+    "timeout": 3600,
+    "why": "每天學 trace 每一段"
+   },
+   {
+    "args": [
+     "main",
+     "detector",
+     "prune",
+     "--config",
+     "configs/baseline/prune.yaml"
+    ],
+    "cron": "30 3 * * *",
+    "name": "prune",
+    "queue": "batch",
+    "retries": null,
+    "stage": 2,
+    "timeout": 600,
+    "why": "aiops-* 沒有 ILM，超過保留天數的每天清一次（跟來源無關，共用 baseline 的）"
+   },
+   {
+    "args": [
+     "main",
+     "detector",
+     "shift",
+     "--config",
+     "configs/apm/series.yaml"
+    ],
+    "cron": "0 4 * * *",
+    "name": "shift",
+    "queue": "batch",
+    "retries": null,
+    "stage": 2,
+    "timeout": 300,
+    "why": "一階跳變提 reset_point 的建議"
+   }
+  ],
+  "timezone": "Asia/Taipei"
+ },
+ "configs/apm/series.yaml": {
+  "adaptive": {
+   "coverage": 0.3,
+   "min_events": {
+    "count": 10,
+    "gauge": 10,
+    "rate": 20
+   },
+   "resolutions": [
+    "1m",
+    "5m",
+    "15m",
+    "30m",
+    "1h"
+   ]
+  },
+  "adjustments_file": null,
+  "borrowing": {
+   "min_members": 3,
+   "resolution": null,
+   "z": 7
+  },
+  "calendar_file": null,
+  "detect": {
+   "abs_floor": null,
+   "alpha": null,
+   "rel_floor": 0.05,
+   "z": 5
+  },
+  "fine_history": "14d",
+  "groups": [],
+  "history_weeks": 4,
+  "interval": "1m",
+  "lag": "90s",
+  "overrides": [],
+  "series": [
+   {
+    "borrow": null,
+    "buckets": null,
+    "by": [
+     "service.name",
+     "transaction.name"
+    ],
+    "confirm_points": null,
+    "direction": "both",
+    "events": null,
+    "fill_zero": true,
+    "filter": {
+     "bool": {
+      "filter": [
+       {
+        "term": {
+         "metricset.name": "transaction"
+        }
+       },
+       {
+        "term": {
+         "transaction.type": "request"
+        }
+       }
+      ]
+     }
+    },
+    "index": "metrics-apm.transaction.1m-*",
+    "instant_z": null,
+    "keys": [
+     "service",
+     "route"
+    ],
+    "kind": null,
+    "min_abs": 5,
+    "min_count": null,
+    "min_resolution": "1m",
+    "name": "http.requests",
+    "resolution": null,
+    "scale": null,
+    "time_field": null,
+    "value": {
+     "hist_count": "transaction.duration.histogram"
+    }
+   },
+   {
+    "borrow": true,
+    "buckets": null,
+    "by": [
+     "service.name",
+     "transaction.name"
+    ],
+    "confirm_points": 1,
+    "direction": "up",
+    "events": null,
+    "fill_zero": null,
+    "filter": {
+     "bool": {
+      "filter": [
+       {
+        "term": {
+         "metricset.name": "transaction"
+        }
+       },
+       {
+        "term": {
+         "transaction.type": "request"
+        }
+       }
+      ]
+     }
+    },
+    "index": "metrics-apm.transaction.1m-*",
+    "instant_z": null,
+    "keys": [
+     "service",
+     "route"
+    ],
+    "kind": null,
+    "min_abs": 0.05,
+    "min_count": 3,
+    "min_resolution": null,
+    "name": "http.error_rate",
+    "resolution": null,
+    "scale": null,
+    "time_field": null,
+    "value": {
+     "hist_ratio": {
+      "field": "transaction.duration.histogram",
+      "query": {
+       "term": {
+        "event.outcome": "failure"
+       }
+      }
+     }
+    }
+   },
+   {
+    "borrow": true,
+    "buckets": null,
+    "by": [
+     "service.name",
+     "transaction.name"
+    ],
+    "confirm_points": null,
+    "direction": "up",
+    "events": null,
+    "fill_zero": null,
+    "filter": {
+     "bool": {
+      "filter": [
+       {
+        "term": {
+         "metricset.name": "transaction"
+        }
+       },
+       {
+        "term": {
+         "transaction.type": "request"
+        }
+       }
+      ]
+     }
+    },
+    "index": "metrics-apm.transaction.1m-*",
+    "instant_z": null,
+    "keys": [
+     "service",
+     "route"
+    ],
+    "kind": null,
+    "min_abs": 0.05,
+    "min_count": null,
+    "min_resolution": null,
+    "name": "http.latency_p95_s",
+    "resolution": null,
+    "scale": 1e-06,
+    "time_field": null,
+    "value": {
+     "percentile": {
+      "field": "transaction.duration.histogram",
+      "percent": 95
+     }
+    }
+   },
+   {
+    "borrow": true,
+    "buckets": null,
+    "by": [
+     "service.name",
+     "transaction.name"
+    ],
+    "confirm_points": null,
+    "direction": "up",
+    "events": null,
+    "fill_zero": null,
+    "filter": {
+     "bool": {
+      "filter": [
+       {
+        "term": {
+         "metricset.name": "transaction"
+        }
+       },
+       {
+        "term": {
+         "transaction.type": "request"
+        }
+       }
+      ]
+     }
+    },
+    "index": "metrics-apm.transaction.1m-*",
+    "instant_z": null,
+    "keys": [
+     "service",
+     "route"
+    ],
+    "kind": null,
+    "min_abs": 0.1,
+    "min_count": null,
+    "min_resolution": null,
+    "name": "http.latency_p99_s",
+    "resolution": null,
+    "scale": 1e-06,
+    "time_field": null,
+    "value": {
+     "percentile": {
+      "field": "transaction.duration.histogram",
+      "percent": 99
+     }
+    }
+   },
+   {
+    "borrow": true,
+    "buckets": null,
+    "by": [
+     "service.name",
+     "transaction.name"
+    ],
+    "confirm_points": null,
+    "direction": "up",
+    "events": null,
+    "fill_zero": null,
+    "filter": {
+     "bool": {
+      "filter": [
+       {
+        "term": {
+         "metricset.name": "transaction"
+        }
+       },
+       {
+        "term": {
+         "transaction.type": "request"
+        }
+       }
+      ]
+     }
+    },
+    "index": "metrics-apm.transaction.1m-*",
+    "instant_z": null,
+    "keys": [
+     "service",
+     "route"
+    ],
+    "kind": null,
+    "min_abs": 0.02,
+    "min_count": 3,
+    "min_resolution": null,
+    "name": "http.slow_ratio",
+    "resolution": null,
+    "scale": 1e-06,
+    "time_field": null,
+    "value": {
+     "hist_ratio_above": {
+      "field": "transaction.duration.histogram",
+      "gt": 2.0
+     }
+    }
+   },
+   {
+    "borrow": null,
+    "buckets": null,
+    "by": [
+     "service.name",
+     "span.destination.service.resource"
+    ],
+    "confirm_points": null,
+    "direction": "both",
+    "events": "value",
+    "fill_zero": true,
+    "filter": {
+     "term": {
+      "metricset.name": "service_destination"
+     }
+    },
+    "index": "metrics-apm.service_destination.1m-*",
+    "instant_z": null,
+    "keys": [
+     "service",
+     "target"
+    ],
+    "kind": null,
+    "min_abs": 5,
+    "min_count": null,
+    "min_resolution": "1m",
+    "name": "dep.calls",
+    "resolution": null,
+    "scale": null,
+    "time_field": null,
+    "value": {
+     "sum": "span.destination.service.response_time.count"
+    }
+   },
+   {
+    "borrow": null,
+    "buckets": null,
+    "by": [
+     "service.name",
+     "span.destination.service.resource"
+    ],
+    "confirm_points": null,
+    "direction": "up",
+    "events": null,
+    "fill_zero": null,
+    "filter": {
+     "term": {
+      "metricset.name": "service_destination"
+     }
+    },
+    "index": "metrics-apm.service_destination.1m-*",
+    "instant_z": null,
+    "keys": [
+     "service",
+     "target"
+    ],
+    "kind": null,
+    "min_abs": 0.02,
+    "min_count": null,
+    "min_resolution": null,
+    "name": "dep.latency_avg_s",
+    "resolution": null,
+    "scale": 1e-06,
+    "time_field": null,
+    "value": {
+     "div": {
+      "den": "span.destination.service.response_time.count",
+      "num": "span.destination.service.response_time.sum.us"
+     }
+    }
+   },
+   {
+    "borrow": null,
+    "buckets": null,
+    "by": [
+     "service.name",
+     "span.destination.service.resource"
+    ],
+    "confirm_points": 1,
+    "direction": "up",
+    "events": null,
+    "fill_zero": null,
+    "filter": {
+     "term": {
+      "metricset.name": "service_destination"
+     }
+    },
+    "index": "metrics-apm.service_destination.1m-*",
+    "instant_z": null,
+    "keys": [
+     "service",
+     "target"
+    ],
+    "kind": null,
+    "min_abs": 0.05,
+    "min_count": null,
+    "min_resolution": null,
+    "name": "dep.error_rate",
+    "resolution": null,
+    "scale": null,
+    "time_field": null,
+    "value": {
+     "div": {
+      "den": "span.destination.service.response_time.count",
+      "num": {
+       "field": "span.destination.service.response_time.count",
+       "query": {
+        "term": {
+         "event.outcome": "failure"
+        }
+       }
+      }
+     }
+    }
+   },
+   {
+    "borrow": null,
+    "buckets": null,
+    "by": [
+     "service.name"
+    ],
+    "confirm_points": null,
+    "direction": "both",
+    "events": null,
+    "fill_zero": null,
+    "filter": null,
+    "index": "logs-apm.app.*",
+    "instant_z": null,
+    "keys": null,
+    "kind": null,
+    "min_abs": 20,
+    "min_count": null,
+    "min_resolution": null,
+    "name": "log.lines",
+    "resolution": null,
+    "scale": null,
+    "time_field": null,
+    "value": "count"
+   },
+   {
+    "borrow": null,
+    "buckets": null,
+    "by": [
+     "service.name"
+    ],
+    "confirm_points": null,
+    "direction": "up",
+    "events": null,
+    "fill_zero": null,
+    "filter": {
+     "terms": {
+      "log.level": [
+       "error",
+       "ERROR",
+       "Error",
+       "fatal",
+       "FATAL",
+       "Fatal",
+       "critical",
+       "CRITICAL",
+       "Critical"
+      ]
+     }
+    },
+    "index": "logs-apm.app.*",
+    "instant_z": null,
+    "keys": null,
+    "kind": null,
+    "min_abs": 5,
+    "min_count": null,
+    "min_resolution": null,
+    "name": "log.errors",
+    "resolution": null,
+    "scale": null,
+    "time_field": null,
+    "value": "count"
+   },
+   {
+    "borrow": null,
+    "buckets": null,
+    "by": [
+     "service.name"
+    ],
+    "confirm_points": null,
+    "direction": "up",
+    "events": null,
+    "fill_zero": null,
+    "filter": {
+     "term": {
+      "processor.event": "error"
+     }
+    },
+    "index": "logs-apm.error-*",
+    "instant_z": null,
+    "keys": null,
+    "kind": null,
+    "min_abs": 5,
+    "min_count": null,
+    "min_resolution": null,
+    "name": "apm.errors",
+    "resolution": null,
+    "scale": null,
+    "time_field": null,
+    "value": "count"
+   }
+  ],
+  "shift": null,
+  "status": {
+   "confirm_points": 2,
+   "confirm_span": "30m",
+   "instant_z": 15
+  },
+  "timezone": null,
+  "train": {
+   "min_days": 3,
+   "min_points": 50,
+   "min_slot_points": null,
+   "min_weeks": 2,
+   "timezone": "Asia/Taipei"
+  }
+ },
+ "configs/apm/trace.yaml": {
+  "clock_skew_ms": 500,
+  "detect": {
+   "abs_floor": null,
+   "alpha": null,
+   "rel_floor": 0.1,
+   "z": 5
+  },
+  "history_weeks": 4,
+  "interval": "5m",
+  "merge": {
+   "settle_seconds": 30
+  },
+  "metrics": {
+   "calls": {
+    "direction": "both",
+    "min_abs": 0.5
+   },
+   "error_rate": {
+    "direction": "up",
+    "min_abs": 0.05
+   },
+   "swallowed_rate": {
+    "direction": "up",
+    "min_abs": 0.05
+   },
+   "time_ms": {
+    "direction": "up",
+    "min_abs": 20
+   }
+  },
+  "min_requests": 5,
+  "raw_index": "traces-apm-*",
+  "rules": {
+   "repeated_calls": 20,
+   "swallowed_rate": 0.05
+  },
+  "sample_per_bucket": 100,
+  "sample_policy": null,
+  "status": null,
+  "traces_index": "traces-merged-*",
+  "train": {
+   "min_days": 3,
+   "min_points": 50,
+   "min_slot_points": null,
+   "min_weeks": 2,
+   "timezone": "Asia/Taipei"
+  }
+ },
+ "configs/baseline/adjustments.yaml": {
+  "adjustments": []
+ },
+ "configs/baseline/calendar.yaml": {
+  "calendar": [],
+  "sources": [
+   {
+    "cache_dir": null,
+    "cache_ttl": null,
+    "detect": null,
+    "enabled": false,
+    "headers": null,
+    "match": null,
+    "path": "fake-data/calendar.json",
+    "provider": "file",
+    "series": null,
+    "timeout": null,
+    "url": null,
+    "years": null
+   }
+  ],
+  "timezone": "Asia/Taipei"
+ },
+ "configs/baseline/chronic.yaml": {
+  "days": 7,
+  "min_days": 6,
+  "owners": [],
+  "owners_source": [
+   {
+    "cache_dir": null,
+    "cache_ttl": null,
+    "detect": null,
+    "enabled": null,
+    "headers": null,
+    "match": null,
+    "path": "fake-data/owners.json",
+    "provider": "file",
+    "series": null,
+    "timeout": null,
+    "url": null,
+    "years": null
+   }
+  ],
+  "sources": [
+   {
+    "by": [
+     "resource.attributes.service.name",
+     "error.type"
+    ],
+    "filter": {
+     "terms": {
+      "log.level": [
+       "error",
+       "fatal"
+      ]
+     }
+    },
+    "index": "k8s-*",
+    "keys": [
+     "service",
+     "error_type"
+    ],
+    "levels": [
+     "rule",
+     "peer"
+    ],
+    "min_days": null,
+    "min_per_day": 20,
+    "name": "chronic.log_errors",
+    "series": null,
+    "title": "天天有錯誤 log",
+    "top": null,
+    "type": "log"
+   },
+   {
+    "by": null,
+    "filter": null,
+    "index": null,
+    "keys": null,
+    "levels": [
+     "rule",
+     "peer"
+    ],
+    "min_days": null,
+    "min_per_day": 1,
+    "name": "chronic.anomalies",
+    "series": null,
+    "title": "天天觸發的規則",
+    "top": null,
+    "type": "anomalies"
+   }
+  ],
+  "timezone": "Asia/Taipei",
+  "top": 10
+ },
+ "configs/baseline/peer.yaml": {
+  "checks": [
+   {
+    "by": [
+     "resource.attributes.k8s.namespace.name",
+     "resource.attributes.service.name",
+     "resource.attributes.k8s.pod.name"
+    ],
+    "direction": "up",
+    "filter": {
+     "exists": {
+      "field": "metrics.http.server.request.duration"
+     }
+    },
+    "index": "metrics-*.otel-*",
+    "keys": [
+     "namespace",
+     "service",
+     "pod"
+    ],
+    "max_peer_median": 0.05,
+    "min_abs": 0.05,
+    "min_ratio": null,
+    "min_volume": 20,
+    "name": "peer.http_error_rate",
+    "scale": null,
+    "severity": "warning",
+    "show": "pct",
+    "time_field": null,
+    "title": "這個 Pod 的錯誤率比同服務其他 Pod 高",
+    "value": {
+     "hist_ratio": {
+      "field": "metrics.http.server.request.duration",
+      "query": {
+       "range": {
+        "attributes.http.response.status_code": {
+         "gte": 500
+        }
+       }
+      }
+     }
+    }
+   },
+   {
+    "by": [
+     "resource.attributes.k8s.namespace.name",
+     "resource.attributes.service.name",
+     "resource.attributes.k8s.pod.name"
+    ],
+    "direction": "up",
+    "filter": {
+     "exists": {
+      "field": "metrics.http.server.request.duration"
+     }
+    },
+    "index": "metrics-*.otel-*",
+    "keys": [
+     "namespace",
+     "service",
+     "pod"
+    ],
+    "max_peer_median": 2,
+    "min_abs": 0.1,
+    "min_ratio": 2,
+    "min_volume": 20,
+    "name": "peer.http_latency_p95_s",
+    "scale": null,
+    "severity": "warning",
+    "show": "seconds",
+    "time_field": null,
+    "title": "這個 Pod 比同服務其他 Pod 慢",
+    "value": {
+     "percentile": {
+      "field": "metrics.http.server.request.duration",
+      "percent": 95
+     }
+    }
+   },
+   {
+    "by": [
+     "resource.attributes.k8s.namespace.name",
+     "resource.attributes.k8s.deployment.name",
+     "resource.attributes.k8s.pod.name"
+    ],
+    "direction": "up",
+    "filter": {
+     "exists": {
+      "field": "metrics.k8s.pod.cpu.usage"
+     }
+    },
+    "index": "metrics-kubeletstatsreceiver.otel-*",
+    "keys": null,
+    "max_peer_median": null,
+    "min_abs": 0.2,
+    "min_ratio": 3,
+    "min_volume": null,
+    "name": "peer.pod_cpu",
+    "scale": null,
+    "severity": "warning",
+    "show": "cores",
+    "time_field": null,
+    "title": "這個 Pod 的 CPU 比同 Deployment 其他 Pod 高很多",
+    "value": {
+     "avg": "metrics.k8s.pod.cpu.usage"
+    }
+   },
+   {
+    "by": [
+     "resource.attributes.k8s.namespace.name",
+     "resource.attributes.k8s.deployment.name",
+     "resource.attributes.k8s.pod.name"
+    ],
+    "direction": "up",
+    "filter": {
+     "exists": {
+      "field": "metrics.k8s.pod.memory.working_set"
+     }
+    },
+    "index": "metrics-kubeletstatsreceiver.otel-*",
+    "keys": null,
+    "max_peer_median": null,
+    "min_abs": 104857600,
+    "min_ratio": 1.5,
+    "min_volume": null,
+    "name": "peer.pod_memory_bytes",
+    "scale": null,
+    "severity": "warning",
+    "show": "bytes",
+    "time_field": null,
+    "title": "這個 Pod 的記憶體比同 Deployment 其他 Pod 高很多",
+    "value": {
+     "max": "metrics.k8s.pod.memory.working_set"
+    }
+   }
+  ],
+  "fresh": "2m",
+  "min_peers": 3,
+  "rel_floor": 0.1,
+  "warmup": "5m",
+  "window": "10m",
+  "z": 5,
+  "z_by_peers": {
+   "2": 3,
+   "3": 4,
+   "4": 4
+  }
+ },
+ "configs/baseline/prune.yaml": {
+  "indices": [
+   {
+    "filter": null,
+    "index": "aiops-anomalies",
+    "keep_days": 90,
+    "time_field": "@timestamp"
+   },
+   {
+    "filter": null,
+    "index": "aiops-trace-segments",
+    "keep_days": 90,
+    "time_field": "@timestamp"
+   },
+   {
+    "filter": {
+     "term": {
+      "status": "resolved"
+     }
+    },
+    "index": "aiops-alerts",
+    "keep_days": 180,
+    "time_field": "resolved_at"
+   }
+  ],
+  "timezone": "Asia/Taipei"
+ },
+ "configs/baseline/quality.yaml": {
+  "checks": [
+   {
+    "absolute": null,
+    "by": [
+     "resource.attributes.service.name"
+    ],
+    "field": "attributes.http.route",
+    "fields": null,
+    "filter": {
+     "exists": {
+      "field": "metrics.http.server.request.duration"
+     }
+    },
+    "from": null,
+    "id_share": 0.5,
+    "index": "metrics-*.otel-*",
+    "keys": [
+     "service"
+    ],
+    "lookback": null,
+    "max_increase": null,
+    "max_missing": null,
+    "max_seconds": null,
+    "max_share": null,
+    "max_values": 500,
+    "min_docs": null,
+    "min_increase": 50,
+    "missing_if_equals": null,
+    "name": "quality.route_cardinality",
+    "part_index": null,
+    "ratio": 3,
+    "sample_values": null,
+    "severity": "warning",
+    "silent": null,
+    "stat": null,
+    "time_field": null,
+    "title": "路由數暴增或像帶了 ID（沒參數化）",
+    "to": null,
+    "type": "cardinality",
+    "window": null
+   },
+   {
+    "absolute": null,
+    "by": [
+     "resource.attributes.service.name"
+    ],
+    "field": "name",
+    "fields": null,
+    "filter": {
+     "terms": {
+      "kind": [
+       "Server",
+       "Consumer"
+      ]
+     }
+    },
+    "from": null,
+    "id_share": 0.5,
+    "index": "traces-*.otel-*",
+    "keys": [
+     "service"
+    ],
+    "lookback": null,
+    "max_increase": null,
+    "max_missing": null,
+    "max_seconds": null,
+    "max_share": null,
+    "max_values": 500,
+    "min_docs": null,
+    "min_increase": 50,
+    "missing_if_equals": null,
+    "name": "quality.trace_name_cardinality",
+    "part_index": null,
+    "ratio": 3,
+    "sample_values": null,
+    "severity": "warning",
+    "silent": null,
+    "stat": null,
+    "time_field": null,
+    "title": "trace 的 API 名稱暴增或像帶了 ID（沒參數化）",
+    "to": null,
+    "type": "cardinality",
+    "window": null
+   },
+   {
+    "absolute": null,
+    "by": [
+     "resource.attributes.service.name"
+    ],
+    "field": null,
+    "fields": null,
+    "filter": {
+     "exists": {
+      "field": "metrics.http_server_request_duration_seconds"
+     }
+    },
+    "from": null,
+    "id_share": null,
+    "index": "metrics-*.otel-*",
+    "keys": [
+     "service"
+    ],
+    "lookback": null,
+    "max_increase": null,
+    "max_missing": null,
+    "max_seconds": null,
+    "max_share": null,
+    "max_values": null,
+    "min_docs": 1,
+    "min_increase": null,
+    "missing_if_equals": null,
+    "name": "quality.metric_name_legacy",
+    "part_index": null,
+    "ratio": null,
+    "sample_values": null,
+    "severity": "warning",
+    "silent": null,
+    "stat": null,
+    "time_field": null,
+    "title": "有服務的 HTTP 指標還是舊名字（Collector 沒改名）",
+    "to": null,
+    "type": "present",
+    "window": null
+   },
+   {
+    "absolute": null,
+    "by": [
+     "resource.attributes.k8s.namespace.name"
+    ],
+    "field": null,
+    "fields": [
+     "resource.attributes.service.name",
+     "resource.attributes.k8s.pod.name"
+    ],
+    "filter": null,
+    "from": null,
+    "id_share": null,
+    "index": "k8s-*",
+    "keys": [
+     "namespace"
+    ],
+    "lookback": null,
+    "max_increase": null,
+    "max_missing": 0.05,
+    "max_seconds": null,
+    "max_share": null,
+    "max_values": null,
+    "min_docs": 100,
+    "min_increase": null,
+    "missing_if_equals": {
+     "resource.attributes.service.name": "resource.attributes.k8s.container.name"
+    },
+    "name": "quality.log_missing_identity",
+    "part_index": null,
+    "ratio": null,
+    "sample_values": null,
+    "severity": "warning",
+    "silent": null,
+    "stat": null,
+    "time_field": null,
+    "title": "log 缺服務或 Pod",
+    "to": null,
+    "type": "missing",
+    "window": null
+   },
+   {
+    "absolute": null,
+    "by": [
+     "resource.attributes.service.name"
+    ],
+    "field": null,
+    "fields": [
+     "resource.attributes.k8s.pod.name",
+     "resource.attributes.k8s.namespace.name"
+    ],
+    "filter": {
+     "exists": {
+      "field": "metrics.http.server.request.duration"
+     }
+    },
+    "from": null,
+    "id_share": null,
+    "index": "metrics-*.otel-*",
+    "keys": [
+     "service"
+    ],
+    "lookback": null,
+    "max_increase": null,
+    "max_missing": 0.05,
+    "max_seconds": null,
+    "max_share": null,
+    "max_values": null,
+    "min_docs": 20,
+    "min_increase": null,
+    "missing_if_equals": null,
+    "name": "quality.metrics_missing_identity",
+    "part_index": null,
+    "ratio": null,
+    "sample_values": null,
+    "severity": "warning",
+    "silent": null,
+    "stat": null,
+    "time_field": null,
+    "title": "應用 metrics 缺 Pod 或 namespace",
+    "to": null,
+    "type": "missing",
+    "window": null
+   },
+   {
+    "absolute": null,
+    "by": [
+     "resource.attributes.k8s.namespace.name"
+    ],
+    "field": null,
+    "fields": [
+     "resource.attributes.service.name"
+    ],
+    "filter": {
+     "exists": {
+      "field": "metrics.http.server.request.duration"
+     }
+    },
+    "from": null,
+    "id_share": null,
+    "index": "metrics-*.otel-*",
+    "keys": [
+     "namespace"
+    ],
+    "lookback": null,
+    "max_increase": null,
+    "max_missing": 0.05,
+    "max_seconds": null,
+    "max_share": null,
+    "max_values": null,
+    "min_docs": 20,
+    "min_increase": null,
+    "missing_if_equals": {
+     "resource.attributes.service.name": "resource.attributes.k8s.container.name"
+    },
+    "name": "quality.metrics_missing_service",
+    "part_index": null,
+    "ratio": null,
+    "sample_values": null,
+    "severity": "warning",
+    "silent": null,
+    "stat": null,
+    "time_field": null,
+    "title": "應用 metrics 缺服務名",
+    "to": null,
+    "type": "missing",
+    "window": null
+   },
+   {
+    "absolute": null,
+    "by": [
+     "resource.attributes.service.name"
+    ],
+    "field": null,
+    "fields": [
+     "trace_id"
+    ],
+    "filter": null,
+    "from": null,
+    "id_share": null,
+    "index": "k8s-*",
+    "keys": [
+     "service"
+    ],
+    "lookback": null,
+    "max_increase": 0.3,
+    "max_missing": null,
+    "max_seconds": null,
+    "max_share": null,
+    "max_values": null,
+    "min_docs": 200,
+    "min_increase": null,
+    "missing_if_equals": null,
+    "name": "quality.log_trace_id_drop",
+    "part_index": null,
+    "ratio": null,
+    "sample_values": null,
+    "severity": "warning",
+    "silent": null,
+    "stat": null,
+    "time_field": null,
+    "title": "帶 trace_id 的 log 變少",
+    "to": null,
+    "type": "missing",
+    "window": null
+   },
+   {
+    "absolute": null,
+    "by": [
+     "document.index",
+     "error.type"
+    ],
+    "field": null,
+    "fields": null,
+    "filter": null,
+    "from": null,
+    "id_share": null,
+    "index": "k8s-*::failures,metrics-*.otel-*::failures,traces-*.otel-*::failures",
+    "keys": [
+     "index",
+     "error_type"
+    ],
+    "lookback": null,
+    "max_increase": null,
+    "max_missing": null,
+    "max_seconds": null,
+    "max_share": null,
+    "max_values": null,
+    "min_docs": 1,
+    "min_increase": null,
+    "missing_if_equals": null,
+    "name": "quality.ingest_rejected",
+    "part_index": null,
+    "ratio": null,
+    "sample_values": null,
+    "severity": "warning",
+    "silent": null,
+    "stat": null,
+    "time_field": null,
+    "title": "有資料被 ES 拒收（在 failure store）",
+    "to": null,
+    "type": "present",
+    "window": null
+   },
+   {
+    "absolute": null,
+    "by": [
+     "resource.attributes.service.name"
+    ],
+    "field": null,
+    "fields": null,
+    "filter": null,
+    "from": null,
+    "id_share": null,
+    "index": "k8s-*",
+    "keys": [
+     "service"
+    ],
+    "lookback": "1h",
+    "max_increase": null,
+    "max_missing": null,
+    "max_seconds": null,
+    "max_share": null,
+    "max_values": null,
+    "min_docs": 30,
+    "min_increase": null,
+    "missing_if_equals": null,
+    "name": "quality.log_stopped",
+    "part_index": null,
+    "ratio": null,
+    "sample_values": null,
+    "severity": "warning",
+    "silent": "15m",
+    "stat": null,
+    "time_field": null,
+    "title": "log 停了",
+    "to": null,
+    "type": "stopped",
+    "window": null
+   },
+   {
+    "absolute": null,
+    "by": [
+     "resource.attributes.service.name"
+    ],
+    "field": null,
+    "fields": null,
+    "filter": {
+     "exists": {
+      "field": "metrics.http.server.request.duration"
+     }
+    },
+    "from": null,
+    "id_share": null,
+    "index": "metrics-*.otel-*",
+    "keys": [
+     "service"
+    ],
+    "lookback": "1h",
+    "max_increase": null,
+    "max_missing": null,
+    "max_seconds": null,
+    "max_share": null,
+    "max_values": null,
+    "min_docs": 20,
+    "min_increase": null,
+    "missing_if_equals": null,
+    "name": "quality.metrics_stopped",
+    "part_index": null,
+    "ratio": null,
+    "sample_values": null,
+    "severity": "warning",
+    "silent": "5m",
+    "stat": null,
+    "time_field": null,
+    "title": "應用 metrics 停了",
+    "to": null,
+    "type": "stopped",
+    "window": null
+   },
+   {
+    "absolute": null,
+    "by": [
+     "resource.attributes.service.name"
+    ],
+    "field": null,
+    "fields": null,
+    "filter": {
+     "terms": {
+      "kind": [
+       "Server",
+       "Consumer"
+      ]
+     }
+    },
+    "from": null,
+    "id_share": null,
+    "index": "traces-*.otel-*",
+    "keys": [
+     "service"
+    ],
+    "lookback": "1h",
+    "max_increase": null,
+    "max_missing": null,
+    "max_seconds": null,
+    "max_share": null,
+    "max_values": null,
+    "min_docs": 30,
+    "min_increase": null,
+    "missing_if_equals": null,
+    "name": "quality.trace_stopped",
+    "part_index": null,
+    "ratio": null,
+    "sample_values": null,
+    "severity": "warning",
+    "silent": "15m",
+    "stat": null,
+    "time_field": null,
+    "title": "trace 停了",
+    "to": null,
+    "type": "stopped",
+    "window": null
+   },
+   {
+    "absolute": null,
+    "by": null,
+    "field": null,
+    "fields": null,
+    "filter": null,
+    "from": null,
+    "id_share": null,
+    "index": "k8s-*",
+    "keys": null,
+    "lookback": null,
+    "max_increase": null,
+    "max_missing": null,
+    "max_seconds": null,
+    "max_share": null,
+    "max_values": null,
+    "min_docs": 1000,
+    "min_increase": 0.05,
+    "missing_if_equals": null,
+    "name": "quality.log_unassigned_share",
+    "part_index": "k8s-unassigned-*",
+    "ratio": null,
+    "sample_values": null,
+    "severity": "warning",
+    "silent": null,
+    "stat": null,
+    "time_field": null,
+    "title": "落到 unassigned 的 log 變多",
+    "to": null,
+    "type": "share",
+    "window": null
+   },
+   {
+    "absolute": null,
+    "by": null,
+    "field": null,
+    "fields": null,
+    "filter": {
+     "exists": {
+      "field": "metrics.http.server.request.duration"
+     }
+    },
+    "from": null,
+    "id_share": null,
+    "index": "metrics-*.otel-*",
+    "keys": null,
+    "lookback": null,
+    "max_increase": null,
+    "max_missing": null,
+    "max_seconds": null,
+    "max_share": null,
+    "max_values": null,
+    "min_docs": 100,
+    "min_increase": 0.05,
+    "missing_if_equals": null,
+    "name": "quality.metrics_unassigned_share",
+    "part_index": "metrics-*.otel-unassigned",
+    "ratio": null,
+    "sample_values": null,
+    "severity": "warning",
+    "silent": null,
+    "stat": null,
+    "time_field": null,
+    "title": "落到 unassigned 的應用 metrics 變多",
+    "to": null,
+    "type": "share",
+    "window": null
+   },
+   {
+    "absolute": null,
+    "by": [
+     "resource.attributes.service.name"
+    ],
+    "field": null,
+    "fields": null,
+    "filter": null,
+    "from": "event.created",
+    "id_share": null,
+    "index": "k8s-*",
+    "keys": [
+     "service"
+    ],
+    "lookback": null,
+    "max_increase": null,
+    "max_missing": null,
+    "max_seconds": 60,
+    "max_share": null,
+    "max_values": null,
+    "min_docs": 50,
+    "min_increase": null,
+    "missing_if_equals": null,
+    "name": "quality.log_ingest_lag",
+    "part_index": null,
+    "ratio": null,
+    "sample_values": null,
+    "severity": "warning",
+    "silent": null,
+    "stat": "p95",
+    "time_field": "event.ingested",
+    "title": "收資料延遲",
+    "to": "event.ingested",
+    "type": "lag",
+    "window": "15m"
+   },
+   {
+    "absolute": true,
+    "by": [
+     "resource.attributes.service.name",
+     "log.timestamp_source"
+    ],
+    "field": null,
+    "fields": null,
+    "filter": {
+     "terms": {
+      "log.timestamp_source": [
+       "app",
+       "app_assumed_tz"
+      ]
+     }
+    },
+    "from": "@timestamp",
+    "id_share": null,
+    "index": "k8s-*",
+    "keys": [
+     "service",
+     "timestamp_source"
+    ],
+    "lookback": null,
+    "max_increase": null,
+    "max_missing": null,
+    "max_seconds": 300,
+    "max_share": null,
+    "max_values": null,
+    "min_docs": 50,
+    "min_increase": null,
+    "missing_if_equals": null,
+    "name": "quality.log_clock_skew",
+    "part_index": null,
+    "ratio": null,
+    "sample_values": null,
+    "severity": "warning",
+    "silent": null,
+    "stat": "p50",
+    "time_field": "event.created",
+    "title": "應用的時間跟節點對不上",
+    "to": "event.created",
+    "type": "lag",
+    "window": null
+   }
+  ],
+  "interval": "10m",
+  "ref_offset": "24h",
+  "window": "1h"
+ },
+ "configs/baseline/rules.yaml": {
+  "interval": "1m",
+  "lookback": "10m",
+  "rules": [
+   {
+    "abs": null,
+    "by": [
+     "resource.attributes.service.name",
+     "attributes.http.request.method",
+     "attributes.http.route"
+    ],
+    "context": null,
+    "den": null,
+    "description": null,
+    "exists": null,
+    "field": null,
+    "filter": {
+     "exists": {
+      "field": "metrics.http.server.request.duration"
+     }
+    },
+    "for": null,
+    "fresh": null,
+    "hist_count": null,
+    "index": "metrics-*.otel-*",
+    "join": null,
+    "lookback": "5m",
+    "min_events": 20,
+    "min_points": null,
+    "min_ratio": null,
+    "name": "http.error_rate_floor",
+    "op": ">=",
+    "other": null,
+    "report_gone": null,
+    "scale": null,
+    "severity": "critical",
+    "show": "pct",
+    "step_s": null,
+    "threshold": 0.05,
+    "title": "API 錯誤率超過 5%",
+    "type": "window",
+    "value": {
+     "hist_ratio": {
+      "field": "metrics.http.server.request.duration",
+      "query": {
+       "range": {
+        "attributes.http.response.status_code": {
+         "gte": 500
+        }
+       }
+      }
+     }
+    }
+   },
+   {
+    "abs": null,
+    "by": [
+     "resource.attributes.service.name",
+     "attributes.http.request.method",
+     "attributes.http.route"
+    ],
+    "context": null,
+    "den": null,
+    "description": null,
+    "exists": null,
+    "field": null,
+    "filter": {
+     "exists": {
+      "field": "metrics.http.server.request.duration"
+     }
+    },
+    "for": null,
+    "fresh": null,
+    "hist_count": null,
+    "index": "metrics-*.otel-*",
+    "join": null,
+    "lookback": "5m",
+    "min_events": 20,
+    "min_points": null,
+    "min_ratio": null,
+    "name": "http.latency_p95_floor",
+    "op": ">=",
+    "other": null,
+    "report_gone": null,
+    "scale": null,
+    "severity": "warning",
+    "show": "seconds",
+    "step_s": null,
+    "threshold": 2,
+    "title": "API p95 超過 2 秒",
+    "type": "window",
+    "value": {
+     "percentile": {
+      "field": "metrics.http.server.request.duration",
+      "percent": 95
+     }
+    }
+   },
+   {
+    "abs": null,
+    "by": [
+     "resource.attributes.k8s.namespace.name",
+     "resource.attributes.k8s.pod.name",
+     "resource.attributes.k8s.container.name"
+    ],
+    "context": [
+     "resource.attributes.service.name",
+     "resource.attributes.k8s.node.name"
+    ],
+    "den": null,
+    "description": null,
+    "exists": null,
+    "field": "metrics.k8s.container.restarts",
+    "filter": null,
+    "for": null,
+    "fresh": null,
+    "hist_count": null,
+    "index": "metrics-k8sclusterreceiver.otel-*",
+    "join": null,
+    "lookback": null,
+    "min_events": null,
+    "min_points": null,
+    "min_ratio": null,
+    "name": "container.restarted",
+    "op": ">=",
+    "other": null,
+    "report_gone": true,
+    "scale": null,
+    "severity": "critical",
+    "show": null,
+    "step_s": null,
+    "threshold": 1,
+    "title": "容器重啟",
+    "type": "increase",
+    "value": null
+   },
+   {
+    "abs": null,
+    "by": [
+     "resource.attributes.k8s.namespace.name",
+     "resource.attributes.k8s.deployment.name"
+    ],
+    "context": [
+     "resource.attributes.service.name"
+    ],
+    "den": null,
+    "description": null,
+    "exists": null,
+    "field": "metrics.k8s.deployment.available",
+    "filter": null,
+    "for": "3m",
+    "fresh": null,
+    "hist_count": null,
+    "index": "metrics-k8sclusterreceiver.otel-*",
+    "join": null,
+    "lookback": null,
+    "min_events": null,
+    "min_points": null,
+    "min_ratio": 0.8,
+    "name": "deployment.unavailable",
+    "op": ">=",
+    "other": "metrics.k8s.deployment.desired",
+    "report_gone": null,
+    "scale": null,
+    "severity": "critical",
+    "show": null,
+    "step_s": null,
+    "threshold": 1,
+    "title": "Deployment 可用副本不夠",
+    "type": "compare",
+    "value": null
+   },
+   {
+    "abs": null,
+    "by": [
+     "resource.attributes.k8s.namespace.name",
+     "resource.attributes.k8s.statefulset.name"
+    ],
+    "context": null,
+    "den": null,
+    "description": null,
+    "exists": null,
+    "field": "metrics.k8s.statefulset.ready_pods",
+    "filter": null,
+    "for": "3m",
+    "fresh": null,
+    "hist_count": null,
+    "index": "metrics-k8sclusterreceiver.otel-*",
+    "join": null,
+    "lookback": null,
+    "min_events": null,
+    "min_points": null,
+    "min_ratio": 0.8,
+    "name": "statefulset.unavailable",
+    "op": ">=",
+    "other": "metrics.k8s.statefulset.desired_pods",
+    "report_gone": null,
+    "scale": null,
+    "severity": "critical",
+    "show": null,
+    "step_s": null,
+    "threshold": 1,
+    "title": "StatefulSet ready 的 Pod 不夠",
+    "type": "compare",
+    "value": null
+   },
+   {
+    "abs": null,
+    "by": [
+     "resource.attributes.k8s.namespace.name",
+     "resource.attributes.k8s.daemonset.name"
+    ],
+    "context": null,
+    "den": null,
+    "description": null,
+    "exists": null,
+    "field": "metrics.k8s.daemonset.ready_nodes",
+    "filter": null,
+    "for": "3m",
+    "fresh": null,
+    "hist_count": null,
+    "index": "metrics-k8sclusterreceiver.otel-*",
+    "join": null,
+    "lookback": null,
+    "min_events": null,
+    "min_points": null,
+    "min_ratio": 0.8,
+    "name": "daemonset.unavailable",
+    "op": ">=",
+    "other": "metrics.k8s.daemonset.desired_scheduled_nodes",
+    "report_gone": null,
+    "scale": null,
+    "severity": "warning",
+    "show": null,
+    "step_s": null,
+    "threshold": 1,
+    "title": "DaemonSet 有節點沒跑起來",
+    "type": "compare",
+    "value": null
+   },
+   {
+    "abs": null,
+    "by": [
+     "resource.attributes.k8s.namespace.name",
+     "resource.attributes.k8s.pod.name"
+    ],
+    "context": [
+     "resource.attributes.service.name",
+     "resource.attributes.k8s.node.name"
+    ],
+    "den": null,
+    "description": null,
+    "exists": null,
+    "field": "metrics.k8s.pod.phase",
+    "filter": null,
+    "for": null,
+    "fresh": null,
+    "hist_count": null,
+    "index": "metrics-k8sclusterreceiver.otel-*",
+    "join": null,
+    "lookback": null,
+    "min_events": null,
+    "min_points": null,
+    "min_ratio": null,
+    "name": "pod.failed",
+    "op": "==",
+    "other": null,
+    "report_gone": null,
+    "scale": null,
+    "severity": "critical",
+    "show": null,
+    "step_s": null,
+    "threshold": 4,
+    "title": "Pod 失敗",
+    "type": "value",
+    "value": null
+   },
+   {
+    "abs": null,
+    "by": [
+     "resource.attributes.k8s.namespace.name",
+     "resource.attributes.k8s.pod.name"
+    ],
+    "context": [
+     "resource.attributes.service.name"
+    ],
+    "den": null,
+    "description": null,
+    "exists": null,
+    "field": "metrics.k8s.pod.phase",
+    "filter": null,
+    "for": "5m",
+    "fresh": null,
+    "hist_count": null,
+    "index": "metrics-k8sclusterreceiver.otel-*",
+    "join": null,
+    "lookback": null,
+    "min_events": null,
+    "min_points": null,
+    "min_ratio": null,
+    "name": "pod.pending",
+    "op": "==",
+    "other": null,
+    "report_gone": null,
+    "scale": null,
+    "severity": "warning",
+    "show": null,
+    "step_s": null,
+    "threshold": 1,
+    "title": "Pod 一直排不上去（Pending）",
+    "type": "value",
+    "value": null
+   },
+   {
+    "abs": null,
+    "by": [
+     "resource.attributes.k8s.namespace.name",
+     "resource.attributes.k8s.job.name"
+    ],
+    "context": null,
+    "den": null,
+    "description": null,
+    "exists": null,
+    "field": "metrics.k8s.job.failed_pods",
+    "filter": null,
+    "for": null,
+    "fresh": null,
+    "hist_count": null,
+    "index": "metrics-k8sclusterreceiver.otel-*",
+    "join": null,
+    "lookback": null,
+    "min_events": null,
+    "min_points": null,
+    "min_ratio": null,
+    "name": "job.failed",
+    "op": ">=",
+    "other": null,
+    "report_gone": true,
+    "scale": null,
+    "severity": "warning",
+    "show": null,
+    "step_s": null,
+    "threshold": 1,
+    "title": "Job 有 Pod 失敗",
+    "type": "increase",
+    "value": null
+   },
+   {
+    "abs": null,
+    "by": [
+     "resource.attributes.k8s.node.name"
+    ],
+    "context": null,
+    "den": null,
+    "description": null,
+    "exists": null,
+    "field": "metrics.k8s.node.condition_ready",
+    "filter": null,
+    "for": "1m",
+    "fresh": null,
+    "hist_count": null,
+    "index": "metrics-k8sclusterreceiver.otel-*",
+    "join": null,
+    "lookback": null,
+    "min_events": null,
+    "min_points": null,
+    "min_ratio": null,
+    "name": "node.not_ready",
+    "op": "==",
+    "other": null,
+    "report_gone": null,
+    "scale": null,
+    "severity": "critical",
+    "show": null,
+    "step_s": null,
+    "threshold": 0,
+    "title": "節點 NotReady",
+    "type": "value",
+    "value": null
+   },
+   {
+    "abs": true,
+    "by": [
+     "resource.attributes.k8s.node.name"
+    ],
+    "context": null,
+    "den": null,
+    "description": null,
+    "exists": null,
+    "field": "metrics.ntp.offset",
+    "filter": null,
+    "for": null,
+    "fresh": "40m",
+    "hist_count": null,
+    "index": "metrics-ntpreceiver.otel-*",
+    "join": null,
+    "lookback": "40m",
+    "min_events": null,
+    "min_points": null,
+    "min_ratio": null,
+    "name": "node.clock_offset",
+    "op": ">=",
+    "other": null,
+    "report_gone": null,
+    "scale": null,
+    "severity": "warning",
+    "show": "ns_as_ms",
+    "step_s": null,
+    "threshold": 100000000,
+    "title": "主機時鐘偏移超過 100 毫秒",
+    "type": "value",
+    "value": null
+   },
+   {
+    "abs": true,
+    "by": [
+     "resource.attributes.k8s.node.name"
+    ],
+    "context": null,
+    "den": null,
+    "description": null,
+    "exists": null,
+    "field": "metrics.ntp.offset",
+    "filter": null,
+    "for": null,
+    "fresh": "40m",
+    "hist_count": null,
+    "index": "metrics-ntpreceiver.otel-*",
+    "join": null,
+    "lookback": "40m",
+    "min_events": null,
+    "min_points": null,
+    "min_ratio": null,
+    "name": "node.clock_offset_critical",
+    "op": ">=",
+    "other": null,
+    "report_gone": null,
+    "scale": null,
+    "severity": "critical",
+    "show": "ns_as_ms",
+    "step_s": null,
+    "threshold": 1000000000,
+    "title": "主機時鐘偏移超過 1 秒",
+    "type": "value",
+    "value": null
+   },
+   {
+    "abs": null,
+    "by": [
+     "resource.attributes.k8s.node.name"
+    ],
+    "context": null,
+    "den": null,
+    "description": null,
+    "exists": null,
+    "field": "metrics.k8s.node.condition_memory_pressure",
+    "filter": null,
+    "for": null,
+    "fresh": null,
+    "hist_count": null,
+    "index": "metrics-k8sclusterreceiver.otel-*",
+    "join": null,
+    "lookback": null,
+    "min_events": null,
+    "min_points": null,
+    "min_ratio": null,
+    "name": "node.memory_pressure",
+    "op": "==",
+    "other": null,
+    "report_gone": null,
+    "scale": null,
+    "severity": "critical",
+    "show": null,
+    "step_s": null,
+    "threshold": 1,
+    "title": "節點記憶體壓力",
+    "type": "value",
+    "value": null
+   },
+   {
+    "abs": null,
+    "by": [
+     "resource.attributes.k8s.node.name"
+    ],
+    "context": null,
+    "den": null,
+    "description": null,
+    "exists": null,
+    "field": "metrics.k8s.node.condition_disk_pressure",
+    "filter": null,
+    "for": null,
+    "fresh": null,
+    "hist_count": null,
+    "index": "metrics-k8sclusterreceiver.otel-*",
+    "join": null,
+    "lookback": null,
+    "min_events": null,
+    "min_points": null,
+    "min_ratio": null,
+    "name": "node.disk_pressure",
+    "op": "==",
+    "other": null,
+    "report_gone": null,
+    "scale": null,
+    "severity": "critical",
+    "show": null,
+    "step_s": null,
+    "threshold": 1,
+    "title": "節點磁碟壓力",
+    "type": "value",
+    "value": null
+   },
+   {
+    "abs": null,
+    "by": [
+     "resource.attributes.k8s.namespace.name",
+     "resource.attributes.k8s.pod.name"
+    ],
+    "context": [
+     "resource.attributes.service.name"
+    ],
+    "den": null,
+    "description": null,
+    "exists": null,
+    "field": "metrics.up",
+    "filter": null,
+    "for": "1m",
+    "fresh": null,
+    "hist_count": null,
+    "index": "metrics-prometheusreceiver.otel-*",
+    "join": null,
+    "lookback": null,
+    "min_events": null,
+    "min_points": null,
+    "min_ratio": null,
+    "name": "scrape.down",
+    "op": "==",
+    "other": null,
+    "report_gone": null,
+    "scale": null,
+    "severity": "warning",
+    "show": null,
+    "step_s": null,
+    "threshold": 0,
+    "title": "抓不到應用的 metrics（服務掛了或 metrics port 壞了）",
+    "type": "value",
+    "value": null
+   },
+   {
+    "abs": null,
+    "by": [
+     "resource.attributes.k8s.namespace.name",
+     "resource.attributes.k8s.pod.name",
+     "resource.attributes.k8s.container.name"
+    ],
+    "context": [
+     "resource.attributes.service.name",
+     "resource.attributes.k8s.node.name"
+    ],
+    "den": [
+     "metrics.container.memory.working_set",
+     "metrics.container.memory.available"
+    ],
+    "description": null,
+    "exists": null,
+    "field": "metrics.container.memory.working_set",
+    "filter": null,
+    "for": "2m",
+    "fresh": null,
+    "hist_count": null,
+    "index": "metrics-kubeletstatsreceiver.otel-*",
+    "join": null,
+    "lookback": null,
+    "min_events": null,
+    "min_points": null,
+    "min_ratio": null,
+    "name": "container.memory_near_limit",
+    "op": ">=",
+    "other": null,
+    "report_gone": null,
+    "scale": null,
+    "severity": "warning",
+    "show": null,
+    "step_s": null,
+    "threshold": 0.9,
+    "title": "容器記憶體快到上限（會被 OOM kill）",
+    "type": "ratio",
+    "value": null
+   },
+   {
+    "abs": null,
+    "by": [
+     "resource.attributes.k8s.namespace.name",
+     "resource.attributes.k8s.pod.name",
+     "resource.attributes.k8s.container.name"
+    ],
+    "context": [
+     "resource.attributes.service.name",
+     "resource.attributes.k8s.node.name"
+    ],
+    "den": [
+     "metrics.container.memory.working_set",
+     "metrics.container.memory.available"
+    ],
+    "description": null,
+    "exists": null,
+    "field": "metrics.container.memory.working_set",
+    "filter": null,
+    "for": "30m",
+    "fresh": null,
+    "hist_count": null,
+    "index": "metrics-kubeletstatsreceiver.otel-*",
+    "join": null,
+    "lookback": "35m",
+    "min_events": null,
+    "min_points": 40,
+    "min_ratio": null,
+    "name": "container.memory_leak",
+    "op": "<=",
+    "other": null,
+    "report_gone": null,
+    "scale": null,
+    "severity": "warning",
+    "show": "hours",
+    "step_s": null,
+    "threshold": 6,
+    "title": "容器記憶體一直漲，照這個速度幾小時內會到上限（像洩漏）",
+    "type": "slope",
+    "value": null
+   },
+   {
+    "abs": null,
+    "by": [
+     "resource.attributes.k8s.node.name"
+    ],
+    "context": null,
+    "den": [
+     "metrics.k8s.node.memory.working_set",
+     "metrics.k8s.node.memory.available"
+    ],
+    "description": null,
+    "exists": null,
+    "field": "metrics.k8s.node.memory.working_set",
+    "filter": null,
+    "for": "5m",
+    "fresh": null,
+    "hist_count": null,
+    "index": "metrics-kubeletstatsreceiver.otel-*",
+    "join": null,
+    "lookback": null,
+    "min_events": null,
+    "min_points": null,
+    "min_ratio": null,
+    "name": "node.memory_high",
+    "op": ">=",
+    "other": null,
+    "report_gone": null,
+    "scale": null,
+    "severity": "warning",
+    "show": null,
+    "step_s": null,
+    "threshold": 0.9,
+    "title": "節點記憶體快滿",
+    "type": "ratio",
+    "value": null
+   },
+   {
+    "abs": null,
+    "by": [
+     "resource.attributes.k8s.node.name"
+    ],
+    "context": null,
+    "den": [
+     "metrics.k8s.node.filesystem.capacity"
+    ],
+    "description": null,
+    "exists": null,
+    "field": "metrics.k8s.node.filesystem.usage",
+    "filter": null,
+    "for": "5m",
+    "fresh": null,
+    "hist_count": null,
+    "index": "metrics-kubeletstatsreceiver.otel-*",
+    "join": null,
+    "lookback": null,
+    "min_events": null,
+    "min_points": null,
+    "min_ratio": null,
+    "name": "node.disk_high",
+    "op": ">=",
+    "other": null,
+    "report_gone": null,
+    "scale": null,
+    "severity": "warning",
+    "show": null,
+    "step_s": null,
+    "threshold": 0.85,
+    "title": "節點磁碟快滿",
+    "type": "ratio",
+    "value": null
+   },
+   {
+    "abs": null,
+    "by": [
+     "resource.attributes.k8s.node.name"
+    ],
+    "context": null,
+    "den": [
+     "metrics.k8s.node.filesystem.capacity"
+    ],
+    "description": null,
+    "exists": null,
+    "field": "metrics.k8s.node.filesystem.usage",
+    "filter": null,
+    "for": "1m",
+    "fresh": null,
+    "hist_count": null,
+    "index": "metrics-kubeletstatsreceiver.otel-*",
+    "join": null,
+    "lookback": null,
+    "min_events": null,
+    "min_points": null,
+    "min_ratio": null,
+    "name": "node.disk_full",
+    "op": ">=",
+    "other": null,
+    "report_gone": null,
+    "scale": null,
+    "severity": "critical",
+    "show": null,
+    "step_s": null,
+    "threshold": 0.95,
+    "title": "節點磁碟幾乎滿了（log 寫不出去會卡住服務）",
+    "type": "ratio",
+    "value": null
+   },
+   {
+    "abs": null,
+    "by": [
+     "resource.attributes.k8s.namespace.name",
+     "resource.attributes.k8s.pod.name",
+     "resource.attributes.k8s.container.name"
+    ],
+    "context": [
+     "resource.attributes.service.name",
+     "resource.attributes.k8s.node.name"
+    ],
+    "den": [
+     "metrics.container_cpu_cfs_periods_total"
+    ],
+    "description": null,
+    "exists": null,
+    "field": "metrics.container_cpu_cfs_throttled_periods_total",
+    "filter": null,
+    "for": "5m",
+    "fresh": null,
+    "hist_count": null,
+    "index": "metrics-prometheusreceiver.otel-*",
+    "join": null,
+    "lookback": null,
+    "min_events": null,
+    "min_points": null,
+    "min_ratio": null,
+    "name": "container.cpu_throttled",
+    "op": ">=",
+    "other": null,
+    "report_gone": null,
+    "scale": null,
+    "severity": "warning",
+    "show": null,
+    "step_s": null,
+    "threshold": 0.25,
+    "title": "容器 CPU 被限流（limit 太低，突波被凍結）",
+    "type": "increase_ratio",
+    "value": null
+   },
+   {
+    "abs": null,
+    "by": [
+     "resource.attributes.k8s.namespace.name",
+     "resource.attributes.k8s.pod.name",
+     "attributes.jvm_memory_pool_name"
+    ],
+    "context": [
+     "resource.attributes.service.name"
+    ],
+    "den": [
+     "metrics.jvm_memory_limit_bytes"
+    ],
+    "description": null,
+    "exists": null,
+    "field": "metrics.jvm_memory_used_after_last_gc_bytes",
+    "filter": [
+     {
+      "regexp": {
+       "attributes.jvm_memory_pool_name": ".*(Old|Tenured).*"
+      }
+     }
+    ],
+    "for": "2m",
+    "fresh": null,
+    "hist_count": null,
+    "index": "metrics-*.otel-*",
+    "join": null,
+    "lookback": null,
+    "min_events": null,
+    "min_points": null,
+    "min_ratio": null,
+    "name": "jvm.old_gen_after_gc_high",
+    "op": ">=",
+    "other": null,
+    "report_gone": null,
+    "scale": null,
+    "severity": "warning",
+    "show": null,
+    "step_s": null,
+    "threshold": 0.8,
+    "title": "JVM 老年代 GC 後還很滿（記憶體洩漏或 heap 不夠）",
+    "type": "ratio",
+    "value": null
+   },
+   {
+    "abs": null,
+    "by": [
+     "resource.attributes.k8s.namespace.name",
+     "resource.attributes.k8s.pod.name"
+    ],
+    "context": [
+     "resource.attributes.service.name"
+    ],
+    "den": null,
+    "description": null,
+    "exists": null,
+    "field": "metrics.jvm_gc_duration_seconds",
+    "filter": [
+     {
+      "term": {
+       "attributes.jvm_gc_action": "end of major GC"
+      }
+     }
+    ],
+    "for": "5m",
+    "fresh": null,
+    "hist_count": true,
+    "index": "metrics-*.otel-*",
+    "join": null,
+    "lookback": null,
+    "min_events": null,
+    "min_points": null,
+    "min_ratio": null,
+    "name": "jvm.major_gc_frequent",
+    "op": ">=",
+    "other": null,
+    "report_gone": null,
+    "scale": null,
+    "severity": "warning",
+    "show": null,
+    "step_s": null,
+    "threshold": 5,
+    "title": "JVM major GC 太頻繁（老年代清不掉）",
+    "type": "total",
+    "value": null
+   },
+   {
+    "abs": null,
+    "by": [
+     "resource.attributes.k8s.namespace.name",
+     "resource.attributes.k8s.pod.name"
+    ],
+    "context": [
+     "resource.attributes.service.name"
+    ],
+    "den": null,
+    "description": null,
+    "exists": null,
+    "field": "metrics.jvm_gc_duration_seconds_sum",
+    "filter": null,
+    "for": "3m",
+    "fresh": null,
+    "hist_count": null,
+    "index": "metrics-*.otel-*",
+    "join": null,
+    "lookback": null,
+    "min_events": null,
+    "min_points": null,
+    "min_ratio": null,
+    "name": "jvm.gc_overhead",
+    "op": ">=",
+    "other": null,
+    "report_gone": null,
+    "scale": null,
+    "severity": "warning",
+    "show": null,
+    "step_s": null,
+    "threshold": 0.1,
+    "title": "JVM 花太多時間在 GC",
+    "type": "rate",
+    "value": null
+   },
+   {
+    "abs": null,
+    "by": [
+     "resource.attributes.k8s.namespace.name",
+     "resource.attributes.k8s.pod.name",
+     "attributes.pool_name"
+    ],
+    "context": [
+     "resource.attributes.service.name"
+    ],
+    "den": [
+     "metrics.db_client_connections_max"
+    ],
+    "description": null,
+    "exists": null,
+    "field": "metrics.db_client_connections_usage",
+    "filter": [
+     {
+      "term": {
+       "attributes.state": "used"
+      }
+     }
+    ],
+    "for": "1m",
+    "fresh": null,
+    "hist_count": null,
+    "index": "metrics-*.otel-*",
+    "join": {
+     "field": "metrics.db_client_connections_max"
+    },
+    "lookback": null,
+    "min_events": null,
+    "min_points": null,
+    "min_ratio": null,
+    "name": "db.pool_exhausted",
+    "op": ">=",
+    "other": null,
+    "report_gone": null,
+    "scale": null,
+    "severity": "critical",
+    "show": null,
+    "step_s": null,
+    "threshold": 0.9,
+    "title": "資料庫連線池用光了",
+    "type": "ratio",
+    "value": null
+   },
+   {
+    "abs": null,
+    "by": [
+     "resource.attributes.k8s.namespace.name",
+     "resource.attributes.k8s.pod.name",
+     "attributes.pool_name"
+    ],
+    "context": [
+     "resource.attributes.service.name"
+    ],
+    "den": null,
+    "description": null,
+    "exists": null,
+    "field": "metrics.db_client_connections_pending_requests",
+    "filter": null,
+    "for": "1m",
+    "fresh": null,
+    "hist_count": null,
+    "index": "metrics-*.otel-*",
+    "join": null,
+    "lookback": null,
+    "min_events": null,
+    "min_points": null,
+    "min_ratio": 0.8,
+    "name": "db.pool_waiting",
+    "op": ">=",
+    "other": null,
+    "report_gone": null,
+    "scale": null,
+    "severity": "warning",
+    "show": null,
+    "step_s": null,
+    "threshold": 1,
+    "title": "有請求在排隊等資料庫連線",
+    "type": "value",
+    "value": null
+   },
+   {
+    "abs": null,
+    "by": [
+     "resource.attributes.k8s.namespace.name",
+     "resource.attributes.k8s.pod.name"
+    ],
+    "context": [
+     "resource.attributes.service.name"
+    ],
+    "den": null,
+    "description": null,
+    "exists": null,
+    "field": "metrics.dotnet.gc.collections",
+    "filter": [
+     {
+      "term": {
+       "attributes.gc.heap.generation": "gen2"
+      }
+     }
+    ],
+    "for": "5m",
+    "fresh": null,
+    "hist_count": null,
+    "index": "metrics-*.otel-*",
+    "join": null,
+    "lookback": null,
+    "min_events": null,
+    "min_points": null,
+    "min_ratio": null,
+    "name": "dotnet.gen2_gc_frequent",
+    "op": ">=",
+    "other": null,
+    "report_gone": null,
+    "scale": null,
+    "severity": "warning",
+    "show": null,
+    "step_s": null,
+    "threshold": 5,
+    "title": ".NET Gen2 GC 太頻繁（記憶體清不掉）",
+    "type": "increase",
+    "value": null
+   },
+   {
+    "abs": null,
+    "by": [
+     "resource.attributes.k8s.namespace.name",
+     "resource.attributes.k8s.pod.name"
+    ],
+    "context": [
+     "resource.attributes.service.name"
+    ],
+    "den": null,
+    "description": null,
+    "exists": null,
+    "field": "metrics.dotnet.exceptions",
+    "filter": [
+     {
+      "term": {
+       "attributes.error.type": "OutOfMemoryException"
+      }
+     }
+    ],
+    "for": "5m",
+    "fresh": null,
+    "hist_count": null,
+    "index": "metrics-*.otel-*",
+    "join": null,
+    "lookback": null,
+    "min_events": null,
+    "min_points": null,
+    "min_ratio": null,
+    "name": "dotnet.out_of_memory",
+    "op": ">=",
+    "other": null,
+    "report_gone": null,
+    "scale": null,
+    "severity": "critical",
+    "show": null,
+    "step_s": null,
+    "threshold": 1,
+    "title": ".NET 丟出 OutOfMemoryException",
+    "type": "increase",
+    "value": null
+   },
+   {
+    "abs": null,
+    "by": [
+     "resource.attributes.k8s.namespace.name",
+     "resource.attributes.k8s.pod.name"
+    ],
+    "context": [
+     "resource.attributes.service.name"
+    ],
+    "den": null,
+    "description": null,
+    "exists": null,
+    "field": "metrics.dotnet.thread_pool.queue.length",
+    "filter": null,
+    "for": "2m",
+    "fresh": null,
+    "hist_count": null,
+    "index": "metrics-*.otel-*",
+    "join": null,
+    "lookback": null,
+    "min_events": null,
+    "min_points": null,
+    "min_ratio": 0.8,
+    "name": "dotnet.thread_pool_starvation",
+    "op": ">=",
+    "other": null,
+    "report_gone": null,
+    "scale": null,
+    "severity": "warning",
+    "show": null,
+    "step_s": null,
+    "threshold": 10,
+    "title": ".NET 執行緒池飢餓（工作在排隊）",
+    "type": "value",
+    "value": null
+   },
+   {
+    "abs": null,
+    "by": [
+     "resource.attributes.k8s.namespace.name",
+     "resource.attributes.k8s.pod.name"
+    ],
+    "context": [
+     "resource.attributes.service.name"
+    ],
+    "den": [
+     "metrics.dotnet.process.cpu.count"
+    ],
+    "description": null,
+    "exists": null,
+    "field": "metrics.dotnet.thread_pool.thread.count",
+    "filter": null,
+    "for": "2m",
+    "fresh": null,
+    "hist_count": null,
+    "index": "metrics-*.otel-*",
+    "join": {
+     "field": "metrics.dotnet.process.cpu.count"
+    },
+    "lookback": null,
+    "min_events": null,
+    "min_points": null,
+    "min_ratio": 0.8,
+    "name": "dotnet.thread_pool_growth",
+    "op": ">=",
+    "other": null,
+    "report_gone": null,
+    "scale": null,
+    "severity": "warning",
+    "show": "number",
+    "step_s": null,
+    "threshold": 16,
+    "title": ".NET 執行緒暴增（請求在同步等待，可能是 .Result／.Wait()）",
+    "type": "ratio",
+    "value": null
+   },
+   {
+    "abs": null,
+    "by": [
+     "resource.attributes.k8s.namespace.name",
+     "resource.attributes.k8s.pod.name"
+    ],
+    "context": [
+     "resource.attributes.service.name"
+    ],
+    "den": null,
+    "description": null,
+    "exists": null,
+    "field": "metrics.process.runtime.dotnet.gc.collections.count",
+    "filter": [
+     {
+      "term": {
+       "attributes.generation": "gen2"
+      }
+     }
+    ],
+    "for": "5m",
+    "fresh": null,
+    "hist_count": null,
+    "index": "metrics-*.otel-*",
+    "join": null,
+    "lookback": null,
+    "min_events": null,
+    "min_points": null,
+    "min_ratio": null,
+    "name": "dotnet8.gen2_gc_frequent",
+    "op": ">=",
+    "other": null,
+    "report_gone": null,
+    "scale": null,
+    "severity": "warning",
+    "show": null,
+    "step_s": null,
+    "threshold": 5,
+    "title": ".NET Gen2 GC 太頻繁（記憶體清不掉）",
+    "type": "increase",
+    "value": null
+   },
+   {
+    "abs": null,
+    "by": [
+     "resource.attributes.k8s.namespace.name",
+     "resource.attributes.k8s.pod.name"
+    ],
+    "context": [
+     "resource.attributes.service.name"
+    ],
+    "den": null,
+    "description": null,
+    "exists": null,
+    "field": "metrics.process.runtime.dotnet.exceptions.count",
+    "filter": null,
+    "for": "5m",
+    "fresh": null,
+    "hist_count": null,
+    "index": "metrics-*.otel-*",
+    "join": null,
+    "lookback": null,
+    "min_events": null,
+    "min_points": null,
+    "min_ratio": null,
+    "name": "dotnet8.exceptions_burst",
+    "op": ">=",
+    "other": null,
+    "report_gone": null,
+    "scale": null,
+    "severity": "warning",
+    "show": null,
+    "step_s": null,
+    "threshold": 500,
+    "title": ".NET 例外暴增",
+    "type": "increase",
+    "value": null
+   },
+   {
+    "abs": null,
+    "by": [
+     "resource.attributes.k8s.namespace.name",
+     "resource.attributes.k8s.pod.name"
+    ],
+    "context": [
+     "resource.attributes.service.name"
+    ],
+    "den": null,
+    "description": null,
+    "exists": null,
+    "field": "metrics.process.runtime.dotnet.thread_pool.queue.length",
+    "filter": null,
+    "for": "2m",
+    "fresh": null,
+    "hist_count": null,
+    "index": "metrics-*.otel-*",
+    "join": null,
+    "lookback": null,
+    "min_events": null,
+    "min_points": null,
+    "min_ratio": 0.8,
+    "name": "dotnet8.thread_pool_starvation",
+    "op": ">=",
+    "other": null,
+    "report_gone": null,
+    "scale": null,
+    "severity": "warning",
+    "show": null,
+    "step_s": null,
+    "threshold": 10,
+    "title": ".NET 執行緒池飢餓（工作在排隊）",
+    "type": "value",
+    "value": null
+   },
+   {
+    "abs": null,
+    "by": [
+     "resource.attributes.k8s.namespace.name",
+     "resource.attributes.k8s.pod.name"
+    ],
+    "context": [
+     "resource.attributes.service.name"
+    ],
+    "den": [
+     "metrics.process.cpu.count"
+    ],
+    "description": null,
+    "exists": null,
+    "field": "metrics.process.runtime.dotnet.thread_pool.threads.count",
+    "filter": null,
+    "for": "2m",
+    "fresh": null,
+    "hist_count": null,
+    "index": "metrics-*.otel-*",
+    "join": {
+     "field": "metrics.process.cpu.count"
+    },
+    "lookback": null,
+    "min_events": null,
+    "min_points": null,
+    "min_ratio": 0.8,
+    "name": "dotnet8.thread_pool_growth",
+    "op": ">=",
+    "other": null,
+    "report_gone": null,
+    "scale": null,
+    "severity": "warning",
+    "show": "number",
+    "step_s": null,
+    "threshold": 16,
+    "title": ".NET 執行緒暴增（請求在同步等待，可能是 .Result／.Wait()）",
+    "type": "ratio",
+    "value": null
+   },
+   {
+    "abs": null,
+    "by": [
+     "resource.attributes.k8s.namespace.name",
+     "resource.attributes.k8s.pod.name",
+     "attributes.pool.name"
+    ],
+    "context": [
+     "resource.attributes.service.name"
+    ],
+    "den": [
+     "metrics.db.client.connections.max"
+    ],
+    "description": null,
+    "exists": null,
+    "field": "metrics.db.client.connections.usage",
+    "filter": [
+     {
+      "term": {
+       "attributes.state": "used"
+      }
+     }
+    ],
+    "for": "1m",
+    "fresh": null,
+    "hist_count": null,
+    "index": "metrics-*.otel-*",
+    "join": {
+     "field": "metrics.db.client.connections.max"
+    },
+    "lookback": null,
+    "min_events": null,
+    "min_points": null,
+    "min_ratio": null,
+    "name": "db.pool_exhausted_otlp",
+    "op": ">=",
+    "other": null,
+    "report_gone": null,
+    "scale": null,
+    "severity": "critical",
+    "show": null,
+    "step_s": null,
+    "threshold": 0.9,
+    "title": "資料庫連線池用光了",
+    "type": "ratio",
+    "value": null
+   },
+   {
+    "abs": null,
+    "by": [
+     "attributes.consumergroup",
+     "attributes.topic"
+    ],
+    "context": null,
+    "den": null,
+    "description": null,
+    "exists": null,
+    "field": "metrics.kafka_consumergroup_lag_sum",
+    "filter": null,
+    "for": "3m",
+    "fresh": null,
+    "hist_count": null,
+    "index": "metrics-*.otel-*",
+    "join": null,
+    "lookback": null,
+    "min_events": null,
+    "min_points": null,
+    "min_ratio": 0.8,
+    "name": "kafka.consumer_lag",
+    "op": ">=",
+    "other": null,
+    "report_gone": null,
+    "scale": null,
+    "severity": "warning",
+    "show": null,
+    "step_s": null,
+    "threshold": 10000,
+    "title": "Kafka 消費落後太多",
+    "type": "value",
+    "value": null
+   },
+   {
+    "abs": null,
+    "by": [
+     "attributes.consumergroup",
+     "attributes.topic"
+    ],
+    "context": null,
+    "den": null,
+    "description": null,
+    "exists": null,
+    "field": "metrics.kafka_consumergroup_lag_sum",
+    "filter": null,
+    "for": "5m",
+    "fresh": null,
+    "hist_count": null,
+    "index": "metrics-*.otel-*",
+    "join": null,
+    "lookback": null,
+    "min_events": null,
+    "min_points": null,
+    "min_ratio": null,
+    "name": "kafka.consumer_lag_growing",
+    "op": ">=",
+    "other": null,
+    "report_gone": null,
+    "scale": null,
+    "severity": "warning",
+    "show": null,
+    "step_s": null,
+    "threshold": 5000,
+    "title": "Kafka 消費落後一直增加（消費者跟不上）",
+    "type": "delta",
+    "value": null
+   },
+   {
+    "abs": null,
+    "by": [
+     "attributes.equipment_id"
+    ],
+    "context": [
+     "resource.attributes.service.name"
+    ],
+    "den": null,
+    "description": null,
+    "exists": null,
+    "field": "metrics.eap_secs_communicating",
+    "filter": null,
+    "for": "1m",
+    "fresh": null,
+    "hist_count": null,
+    "index": "metrics-*.otel-*",
+    "join": null,
+    "lookback": null,
+    "min_events": null,
+    "min_points": null,
+    "min_ratio": null,
+    "name": "eap.secs_disconnected",
+    "op": "==",
+    "other": null,
+    "report_gone": null,
+    "scale": null,
+    "severity": "critical",
+    "show": null,
+    "step_s": null,
+    "threshold": 0,
+    "title": "機台 SECS 通訊斷線",
+    "type": "value",
+    "value": null
+   },
+   {
+    "abs": null,
+    "by": [
+     "attributes.equipment_id"
+    ],
+    "context": [
+     "resource.attributes.service.name"
+    ],
+    "den": null,
+    "description": null,
+    "exists": null,
+    "field": "metrics.plc_scan_cycle_time_ms",
+    "filter": null,
+    "for": "2m",
+    "fresh": null,
+    "hist_count": null,
+    "index": "metrics-*.otel-*",
+    "join": null,
+    "lookback": null,
+    "min_events": null,
+    "min_points": null,
+    "min_ratio": 0.8,
+    "name": "eap.plc_scan_slow",
+    "op": ">=",
+    "other": null,
+    "report_gone": null,
+    "scale": null,
+    "severity": "warning",
+    "show": null,
+    "step_s": null,
+    "threshold": 50,
+    "title": "PLC 掃描週期超過規格",
+    "type": "value",
+    "value": null
+   },
+   {
+    "abs": null,
+    "by": [
+     "attributes.equipment_id"
+    ],
+    "context": [
+     "resource.attributes.service.name"
+    ],
+    "den": null,
+    "description": null,
+    "exists": null,
+    "field": "metrics.eap_secs_retransmits_total",
+    "filter": null,
+    "for": "5m",
+    "fresh": null,
+    "hist_count": null,
+    "index": "metrics-*.otel-*",
+    "join": null,
+    "lookback": null,
+    "min_events": null,
+    "min_points": null,
+    "min_ratio": null,
+    "name": "eap.secs_retransmits",
+    "op": ">=",
+    "other": null,
+    "report_gone": null,
+    "scale": null,
+    "severity": "warning",
+    "show": null,
+    "step_s": null,
+    "threshold": 10,
+    "title": "SECS 封包重傳變多",
+    "type": "increase",
+    "value": null
+   }
+  ]
+ },
+ "configs/baseline/series.yaml": {
+  "adaptive": {
+   "coverage": 0.3,
+   "min_events": {
+    "count": 10,
+    "gauge": 10,
+    "rate": 20
+   },
+   "resolutions": [
+    "30s",
+    "1m",
+    "5m",
+    "15m",
+    "30m",
+    "1h"
+   ]
+  },
+  "adjustments_file": null,
+  "borrowing": {
+   "min_members": 3,
+   "resolution": null,
+   "z": 7
+  },
+  "calendar_file": null,
+  "detect": {
+   "abs_floor": null,
+   "alpha": null,
+   "rel_floor": 0.05,
+   "z": 5
+  },
+  "fine_history": "14d",
+  "groups": [],
+  "history_weeks": 4,
+  "interval": "30s",
+  "lag": "30s",
+  "overrides": [],
+  "series": [
+   {
+    "borrow": null,
+    "buckets": null,
+    "by": [
+     "resource.attributes.service.name",
+     "attributes.http.request.method",
+     "attributes.http.route"
+    ],
+    "confirm_points": null,
+    "direction": "both",
+    "events": null,
+    "fill_zero": true,
+    "filter": {
+     "exists": {
+      "field": "metrics.http.server.request.duration"
+     }
+    },
+    "index": "metrics-*.otel-*",
+    "instant_z": null,
+    "keys": [
+     "service",
+     "method",
+     "route"
+    ],
+    "kind": null,
+    "min_abs": 5,
+    "min_count": null,
+    "min_resolution": "1m",
+    "name": "http.requests",
+    "resolution": null,
+    "scale": null,
+    "time_field": null,
+    "value": {
+     "hist_count": "metrics.http.server.request.duration"
+    }
+   },
+   {
+    "borrow": true,
+    "buckets": null,
+    "by": [
+     "resource.attributes.service.name",
+     "attributes.http.request.method",
+     "attributes.http.route"
+    ],
+    "confirm_points": 1,
+    "direction": "up",
+    "events": null,
+    "fill_zero": null,
+    "filter": {
+     "exists": {
+      "field": "metrics.http.server.request.duration"
+     }
+    },
+    "index": "metrics-*.otel-*",
+    "instant_z": null,
+    "keys": [
+     "service",
+     "method",
+     "route"
+    ],
+    "kind": null,
+    "min_abs": 0.05,
+    "min_count": 3,
+    "min_resolution": null,
+    "name": "http.error_rate",
+    "resolution": null,
+    "scale": null,
+    "time_field": null,
+    "value": {
+     "hist_ratio": {
+      "field": "metrics.http.server.request.duration",
+      "query": {
+       "range": {
+        "attributes.http.response.status_code": {
+         "gte": 500
+        }
+       }
+      }
+     }
+    }
+   },
+   {
+    "borrow": true,
+    "buckets": [
+     0.005,
+     0.01,
+     0.025,
+     0.05,
+     0.075,
+     0.1,
+     0.25,
+     0.5,
+     0.75,
+     1.0,
+     2.5,
+     5.0,
+     7.5,
+     10.0
+    ],
+    "by": [
+     "resource.attributes.service.name",
+     "attributes.http.request.method",
+     "attributes.http.route"
+    ],
+    "confirm_points": null,
+    "direction": "up",
+    "events": null,
+    "fill_zero": null,
+    "filter": {
+     "exists": {
+      "field": "metrics.http.server.request.duration"
+     }
+    },
+    "index": "metrics-*.otel-*",
+    "instant_z": null,
+    "keys": [
+     "service",
+     "method",
+     "route"
+    ],
+    "kind": null,
+    "min_abs": 0.05,
+    "min_count": null,
+    "min_resolution": null,
+    "name": "http.latency_p95_s",
+    "resolution": null,
+    "scale": null,
+    "time_field": null,
+    "value": {
+     "percentile": {
+      "field": "metrics.http.server.request.duration",
+      "percent": 95
+     }
+    }
+   },
+   {
+    "borrow": true,
+    "buckets": [
+     0.005,
+     0.01,
+     0.025,
+     0.05,
+     0.075,
+     0.1,
+     0.25,
+     0.5,
+     0.75,
+     1.0,
+     2.5,
+     5.0,
+     7.5,
+     10.0
+    ],
+    "by": [
+     "resource.attributes.service.name",
+     "attributes.http.request.method",
+     "attributes.http.route"
+    ],
+    "confirm_points": null,
+    "direction": "up",
+    "events": null,
+    "fill_zero": null,
+    "filter": {
+     "exists": {
+      "field": "metrics.http.server.request.duration"
+     }
+    },
+    "index": "metrics-*.otel-*",
+    "instant_z": null,
+    "keys": [
+     "service",
+     "method",
+     "route"
+    ],
+    "kind": null,
+    "min_abs": 0.1,
+    "min_count": null,
+    "min_resolution": null,
+    "name": "http.latency_p99_s",
+    "resolution": null,
+    "scale": null,
+    "time_field": null,
+    "value": {
+     "percentile": {
+      "field": "metrics.http.server.request.duration",
+      "percent": 99
+     }
+    }
+   },
+   {
+    "borrow": true,
+    "buckets": null,
+    "by": [
+     "resource.attributes.service.name",
+     "attributes.http.request.method",
+     "attributes.http.route"
+    ],
+    "confirm_points": null,
+    "direction": "up",
+    "events": null,
+    "fill_zero": null,
+    "filter": {
+     "exists": {
+      "field": "metrics.http.server.request.duration"
+     }
+    },
+    "index": "metrics-*.otel-*",
+    "instant_z": null,
+    "keys": [
+     "service",
+     "method",
+     "route"
+    ],
+    "kind": null,
+    "min_abs": 0.02,
+    "min_count": 3,
+    "min_resolution": null,
+    "name": "http.slow_ratio",
+    "resolution": null,
+    "scale": null,
+    "time_field": null,
+    "value": {
+     "hist_ratio_above": {
+      "field": "metrics.http.server.request.duration",
+      "gt": 2.0
+     }
+    }
+   },
+   {
+    "borrow": null,
+    "buckets": [
+     0.005,
+     0.01,
+     0.025,
+     0.05,
+     0.075,
+     0.1,
+     0.25,
+     0.5,
+     0.75,
+     1.0,
+     2.5,
+     5.0,
+     7.5,
+     10.0
+    ],
+    "by": [
+     "resource.attributes.service.name",
+     "attributes.server.address"
+    ],
+    "confirm_points": null,
+    "direction": "up",
+    "events": null,
+    "fill_zero": null,
+    "filter": {
+     "exists": {
+      "field": "metrics.http.client.request.duration"
+     }
+    },
+    "index": "metrics-*.otel-*",
+    "instant_z": null,
+    "keys": [
+     "service",
+     "target"
+    ],
+    "kind": null,
+    "min_abs": 0.05,
+    "min_count": null,
+    "min_resolution": null,
+    "name": "http.client_p95_s",
+    "resolution": null,
+    "scale": null,
+    "time_field": null,
+    "value": {
+     "percentile": {
+      "field": "metrics.http.client.request.duration",
+      "percent": 95
+     }
+    }
+   },
+   {
+    "borrow": null,
+    "buckets": null,
+    "by": [
+     "resource.attributes.service.name"
+    ],
+    "confirm_points": null,
+    "direction": "both",
+    "events": null,
+    "fill_zero": null,
+    "filter": null,
+    "index": "k8s-*",
+    "instant_z": null,
+    "keys": null,
+    "kind": null,
+    "min_abs": 20,
+    "min_count": null,
+    "min_resolution": null,
+    "name": "log.lines",
+    "resolution": null,
+    "scale": null,
+    "time_field": null,
+    "value": "count"
+   },
+   {
+    "borrow": null,
+    "buckets": null,
+    "by": [
+     "resource.attributes.service.name"
+    ],
+    "confirm_points": null,
+    "direction": "up",
+    "events": null,
+    "fill_zero": null,
+    "filter": {
+     "terms": {
+      "log.level": [
+       "error",
+       "fatal"
+      ]
+     }
+    },
+    "index": "k8s-*",
+    "instant_z": null,
+    "keys": null,
+    "kind": null,
+    "min_abs": 5,
+    "min_count": null,
+    "min_resolution": null,
+    "name": "log.errors",
+    "resolution": null,
+    "scale": null,
+    "time_field": null,
+    "value": "count"
+   },
+   {
+    "borrow": null,
+    "buckets": null,
+    "by": [
+     "resource.attributes.k8s.namespace.name",
+     "resource.attributes.k8s.deployment.name"
+    ],
+    "confirm_points": null,
+    "direction": "up",
+    "events": null,
+    "fill_zero": null,
+    "filter": {
+     "exists": {
+      "field": "metrics.k8s.pod.cpu.usage"
+     }
+    },
+    "index": "metrics-kubeletstatsreceiver.otel-*",
+    "instant_z": null,
+    "keys": null,
+    "kind": null,
+    "min_abs": 0.1,
+    "min_count": null,
+    "min_resolution": null,
+    "name": "pod.cpu",
+    "resolution": null,
+    "scale": null,
+    "time_field": null,
+    "value": {
+     "avg": "metrics.k8s.pod.cpu.usage"
+    }
+   },
+   {
+    "borrow": null,
+    "buckets": null,
+    "by": [
+     "resource.attributes.k8s.namespace.name",
+     "resource.attributes.k8s.deployment.name"
+    ],
+    "confirm_points": null,
+    "direction": "up",
+    "events": null,
+    "fill_zero": null,
+    "filter": {
+     "exists": {
+      "field": "metrics.k8s.pod.memory.working_set"
+     }
+    },
+    "index": "metrics-kubeletstatsreceiver.otel-*",
+    "instant_z": null,
+    "keys": null,
+    "kind": null,
+    "min_abs": 104857600,
+    "min_count": null,
+    "min_resolution": null,
+    "name": "pod.memory_bytes",
+    "resolution": null,
+    "scale": null,
+    "time_field": null,
+    "value": {
+     "avg": "metrics.k8s.pod.memory.working_set"
+    }
+   }
+  ],
+  "shift": null,
+  "status": {
+   "confirm_points": 2,
+   "confirm_span": "30m",
+   "instant_z": 15
+  },
+  "timezone": null,
+  "train": {
+   "min_days": 3,
+   "min_points": 50,
+   "min_slot_points": null,
+   "min_weeks": 2,
+   "timezone": "Asia/Taipei"
+  }
+ },
+ "configs/baseline/trace.yaml": {
+  "clock_skew_ms": 500,
+  "detect": {
+   "abs_floor": null,
+   "alpha": null,
+   "rel_floor": 0.1,
+   "z": 5
+  },
+  "history_weeks": 4,
+  "interval": "5m",
+  "merge": {
+   "settle_seconds": 10
+  },
+  "metrics": {
+   "calls": {
+    "direction": "both",
+    "min_abs": 0.5
+   },
+   "error_rate": {
+    "direction": "up",
+    "min_abs": 0.05
+   },
+   "swallowed_rate": {
+    "direction": "up",
+    "min_abs": 0.05
+   },
+   "time_ms": {
+    "direction": "up",
+    "min_abs": 20
+   }
+  },
+  "min_requests": 5,
+  "raw_index": "traces-generic.otel-*",
+  "rules": {
+   "repeated_calls": 20,
+   "swallowed_rate": 0.05
+  },
+  "sample_per_bucket": 100,
+  "sample_policy": null,
+  "status": null,
+  "traces_index": "traces-merged-*",
+  "train": {
+   "min_days": 3,
+   "min_points": 50,
+   "min_slot_points": null,
+   "min_weeks": 2,
+   "timezone": "Asia/Taipei"
+  }
+ },
+ "configs/factory/ingest.yaml": {
+  "inputs": [
+   {
+    "direction": {
+     "default": "up",
+     "field": "direction",
+     "map": null
+    },
+    "expected": "expected",
+    "extra": [],
+    "filter": {
+     "term": {
+      "is_anomaly": true
+     }
+    },
+    "id_field": "run_id",
+    "index": "factory-ml-anomalies-*",
+    "keys": {
+     "chamber": "chamber_id",
+     "equipment": "equipment_id",
+     "lot": "lot_id",
+     "parameter": "parameter",
+     "recipe": "recipe_id",
+     "step": "step_id"
+    },
+    "level": "ml",
+    "message": "{parameter}={value}（平常 {expected}，score {score}）：{equipment_id} {chamber_id} {recipe_id}",
+    "name": "ml",
+    "score": "score",
+    "series": "fdc.{parameter}",
+    "severity": {
+     "default": "warning",
+     "field": "grade",
+     "map": {
+      "strong": "high",
+      "weak": "warning"
+     }
+    },
+    "status": {
+     "default": "anomaly",
+     "field": "grade",
+     "map": {
+      "strong": "anomaly",
+      "weak": "warning"
+     }
+    },
+    "time_field": "@timestamp",
+    "value": "value"
+   },
+   {
+    "direction": {
+     "default": "up",
+     "field": "direction",
+     "map": null
+    },
+    "expected": "target",
+    "extra": [],
+    "filter": null,
+    "id_field": "alarm_id",
+    "index": "factory-fdc-alarms-*",
+    "keys": {
+     "chamber": "chamber_id",
+     "equipment": "equipment_id",
+     "lot": "lot_id",
+     "parameter": "parameter",
+     "recipe": "recipe_id",
+     "step": "step_id"
+    },
+    "level": "fdc",
+    "message": "FDC {alarm_level} {parameter}={value}（界限 {limit}）：{equipment_id} {chamber_id} {recipe_id}",
+    "name": "fdc",
+    "score": null,
+    "series": "fdc.{parameter}",
+    "severity": {
+     "default": "warning",
+     "field": "alarm_level",
+     "map": {
+      "OOC": "warning",
+      "OOS": "critical"
+     }
+    },
+    "status": "anomaly",
+    "time_field": "@timestamp",
+    "value": "value"
+   }
+  ],
+  "timezone": "Asia/Taipei"
+ },
+ "configs/factory/paths.yaml": {
+  "dept_field": "dept",
+  "events": {
+   "attrs": [
+    "ceid",
+    "wafer_count"
+   ],
+   "fields": {
+    "chamber": "chamber_id",
+    "end": "end_time",
+    "equipment": "equipment_id",
+    "event": "ceid",
+    "lot": "lot_id",
+    "start": "start_time",
+    "step": "recipe_step"
+   },
+   "filter": null,
+   "index": "eqp-events-*",
+   "time_field": null
+  },
+  "group": "fab1",
+  "group_field": null,
+  "mes": {
+   "attrs": [
+    "operator",
+    "carrier_id",
+    "material_lot"
+   ],
+   "bad_results": [
+    "hold",
+    "scrap",
+    "rework",
+    "fail",
+    "abort"
+   ],
+   "fields": {
+    "chamber": "chamber_id",
+    "end": "track_out",
+    "equipment": "equipment_id",
+    "lot": "lot_id",
+    "product": "product_id",
+    "recipe": "recipe_id",
+    "recipe_version": "recipe_version",
+    "result": "result",
+    "start": "track_in",
+    "station": "station",
+    "step": "step_no"
+   },
+   "filter": null,
+   "index": "mes-history-*",
+   "time_field": null
+  },
+  "timezone": "Asia/Taipei"
+ },
+ "configs/factory/rca.yaml": {
+  "alerts": {
+   "chain": true,
+   "chain_sample": 100,
+   "close_after": "2h",
+   "critical_levels": null,
+   "deploy_entity_field": null,
+   "deploy_filter": null,
+   "deploy_grace": true,
+   "deploy_index": null,
+   "deploy_time_field": null,
+   "feedback_url": null,
+   "llm": true,
+   "llm_provider": "template",
+   "lookback": "8h",
+   "paths_lookback": "3d",
+   "rca": true,
+   "rca_lead": "1h",
+   "rca_retry": true,
+   "rca_retry_after": "5m",
+   "rca_retry_max": 5,
+   "report_url": null,
+   "severity": {
+    "classes": null,
+    "deploy_grace": 30,
+    "min_coverage": 0.3,
+    "min_duration": 60,
+    "min_points_per_class": 2,
+    "min_span_critical": 30,
+    "window": 120
+   },
+   "similar": true,
+   "similar_weights": null,
+   "version_field": null
+  },
+  "changes": {
+   "lookback": "12h",
+   "query": {
+    "terms": {
+     "event_type": [
+      "pm",
+      "recipe_change"
+     ]
+    }
+   }
+  },
+  "commonality": {
+   "attrs": [
+    "material_lot",
+    "operator",
+    "carrier_id"
+   ],
+   "min_lift": 1.5,
+   "min_share": 0.6,
+   "min_traces": 5,
+   "resource": [
+    "chamber",
+    "recipe.version"
+   ]
+  },
+  "compare_with": "7d",
+  "entry_lag": "12h",
+  "incidents_db": null,
+  "indices": {
+   "anomalies": "aiops-anomalies",
+   "logs": "eqp-logs-*",
+   "traces": "lot-paths-*"
+  },
+  "interval": "30m",
+  "ref_gap": "2h",
+  "sample": 6,
+  "timezone": "Asia/Taipei",
+  "trend": {
+   "window": "2h",
+   "windows": 6
+  }
+ },
+ "configs/factory/schedule.yaml": {
+  "jobs": [
+   {
+    "args": [
+     "main",
+     "detector",
+     "ingest",
+     "--config",
+     "configs/factory/ingest.yaml",
+     "--window",
+     "10m"
+    ],
+    "cron": "* * * * *",
+    "name": "ingest",
+    "queue": "realtime",
+    "retries": null,
+    "stage": 1,
+    "timeout": 50,
+    "why": "ML 的異常跳點、FDC 鳴叫 → aiops-anomalies（最近 10 分鐘，重讀不重複）"
+   },
+   {
+    "args": [
+     "main",
+     "investigator",
+     "alert",
+     "--config",
+     "configs/factory/rca.yaml"
+    ],
+    "cron": "* * * * *",
+    "name": "alert",
+    "queue": "alert",
+    "retries": null,
+    "stage": 1,
+    "timeout": 600,
+    "why": "同機台合成一件、前後站、根因分析（慢在哪一站、壞 lot 的共同點、alarm／PM）、分類、心跳"
+   },
+   {
+    "args": [
+     "main",
+     "detector",
+     "paths-merge",
+     "--config",
+     "configs/factory/paths.yaml",
+     "--window",
+     "1d"
+    ],
+    "cron": "*/5 * * * *",
+    "name": "paths-merge",
+    "queue": "realtime",
+    "retries": null,
+    "stage": 1,
+    "timeout": 240,
+    "why": "MES 進出站＋S6F11 → 一個 lot 一筆履歷（lot-paths）"
+   },
+   {
+    "args": [
+     "main",
+     "detector",
+     "prune",
+     "--config",
+     "configs/baseline/prune.yaml"
+    ],
+    "cron": "30 3 * * *",
+    "name": "prune",
+    "queue": "batch",
+    "retries": null,
+    "stage": 2,
+    "timeout": 600,
+    "why": "aiops-* 沒有 ILM，超過保留天數的每天清一次"
+   }
+  ],
+  "timezone": "Asia/Taipei"
+ },
+ "configs/metrics_only/rca.yaml": {
+  "alerts": {
+   "chain": false,
+   "chain_sample": 100,
+   "close_after": "2h",
+   "critical_levels": null,
+   "deploy_entity_field": null,
+   "deploy_filter": null,
+   "deploy_grace": true,
+   "deploy_index": null,
+   "deploy_time_field": null,
+   "feedback_url": null,
+   "llm": true,
+   "llm_provider": "template",
+   "lookback": "8h",
+   "paths_lookback": "3d",
+   "rca": true,
+   "rca_lead": "1h",
+   "rca_retry": false,
+   "rca_retry_after": "2m",
+   "rca_retry_max": 5,
+   "report_url": null,
+   "severity": {
+    "classes": null,
+    "deploy_grace": 30,
+    "min_coverage": 0.3,
+    "min_duration": 60,
+    "min_points_per_class": 2,
+    "min_span_critical": 30,
+    "window": 120
+   },
+   "similar": true,
+   "similar_weights": null,
+   "version_field": null
+  },
+  "changes": {
+   "lookback": "12h",
+   "query": {
+    "terms": {
+     "event_type": [
+      "pm",
+      "recipe_change"
+     ]
+    }
+   }
+  },
+  "commonality": {
+   "attrs": [
+    "lot.id",
+    "db.statement"
+   ],
+   "min_lift": 2,
+   "min_share": 0.6,
+   "min_traces": 5,
+   "resource": [
+    "k8s.pod.name",
+    "service.version",
+    "k8s.node.name"
+   ]
+  },
+  "compare_with": "7d",
+  "entry_lag": "0s",
+  "incidents_db": null,
+  "indices": {
+   "anomalies": "aiops-anomalies",
+   "logs": "eqp-logs-*",
+   "traces": null
+  },
+  "interval": "30m",
+  "ref_gap": "10m",
+  "sample": 200,
+  "timezone": "Asia/Taipei",
+  "trend": {
+   "window": "10m",
+   "windows": 6
+  }
+ },
+ "configs/metrics_only/schedule.yaml": {
+  "jobs": [
+   {
+    "args": [
+     "main",
+     "detector",
+     "ingest",
+     "--config",
+     "configs/factory/ingest.yaml",
+     "--window",
+     "10m"
+    ],
+    "cron": "* * * * *",
+    "name": "ingest",
+    "queue": "realtime",
+    "retries": null,
+    "stage": 1,
+    "timeout": 50,
+    "why": "ML 的異常跳點、FDC 鳴叫 → aiops-anomalies（最近 10 分鐘，重讀不重複）；設定跟 factory 共用"
+   },
+   {
+    "args": [
+     "main",
+     "investigator",
+     "alert",
+     "--config",
+     "configs/metrics_only/rca.yaml"
+    ],
+    "cron": "* * * * *",
+    "name": "alert",
+    "queue": "alert",
+    "retries": null,
+    "stage": 1,
+    "timeout": 600,
+    "why": "同機台合成一件（不併跨機台）、嚴重度、根因分析（alarm 新樣式、事故前的 PM／recipe 變更）、分類、心跳"
+   },
+   {
+    "args": [
+     "main",
+     "detector",
+     "prune",
+     "--config",
+     "configs/baseline/prune.yaml"
+    ],
+    "cron": "30 3 * * *",
+    "name": "prune",
+    "queue": "batch",
+    "retries": null,
+    "stage": 2,
+    "timeout": 600,
+    "why": "aiops-* 沒有 ILM，超過保留天數的每天清一次"
+   }
+  ],
+  "timezone": "Asia/Taipei"
+ },
+ "configs/rca/rca.yaml": {
+  "alerts": {
+   "chain": true,
+   "chain_sample": 100,
+   "close_after": "30m",
+   "critical_levels": null,
+   "deploy_entity_field": null,
+   "deploy_filter": null,
+   "deploy_grace": true,
+   "deploy_index": null,
+   "deploy_time_field": null,
+   "feedback_url": null,
+   "llm": true,
+   "llm_provider": null,
+   "lookback": "2h",
+   "paths_lookback": "3d",
+   "rca": true,
+   "rca_lead": "0s",
+   "rca_retry": true,
+   "rca_retry_after": "2m",
+   "rca_retry_max": 5,
+   "report_url": null,
+   "severity": null,
+   "similar": true,
+   "similar_weights": null,
+   "version_field": null
+  },
+  "changes": null,
+  "commonality": {
+   "attrs": [
+    "lot.id",
+    "db.statement"
+   ],
+   "min_lift": 2,
+   "min_share": 0.6,
+   "min_traces": 5,
+   "resource": [
+    "k8s.pod.name",
+    "service.version",
+    "k8s.node.name"
+   ]
+  },
+  "compare_with": "7d",
+  "entry_lag": "0s",
+  "incidents_db": null,
+  "indices": {
+   "anomalies": "aiops-anomalies",
+   "logs": "k8s-*",
+   "traces": "traces-merged-*"
+  },
+  "interval": "5m",
+  "ref_gap": "10m",
+  "sample": 200,
+  "timezone": "Asia/Taipei",
+  "trend": {
+   "window": "10m",
+   "windows": 6
+  }
+ },
+ "configs/schedule/schedule.yaml": {
+  "jobs": [
+   {
+    "args": [
+     "main",
+     "detector",
+     "rules",
+     "--config",
+     "configs/baseline/rules.yaml"
+    ],
+    "cron": "* * * * *",
+    "name": "rules",
+    "queue": "realtime",
+    "retries": null,
+    "stage": 1,
+    "timeout": 50,
+    "why": "狀態變化（容器重啟、錯誤率 5%、p95 2 秒保底…）要快；老師傅核准的規則也在這裡跑"
+   },
+   {
+    "args": [
+     "main",
+     "detector",
+     "detect",
+     "--config",
+     "configs/baseline/series.yaml",
+     "--window",
+     "10m"
+    ],
+    "cron": "* * * * *",
+    "name": "detect",
+    "queue": "realtime",
+    "retries": null,
+    "stage": 1,
+    "timeout": 50,
+    "why": "每分鐘看最近 10 分鐘；同一筆重跑會覆蓋"
+   },
+   {
+    "args": [
+     "main",
+     "investigator",
+     "alert",
+     "--config",
+     "configs/rca/rca.yaml"
+    ],
+    "cron": "* * * * *",
+    "name": "alert",
+    "queue": "alert",
+    "retries": null,
+    "stage": 1,
+    "timeout": 600,
+    "why": "合成一件、根因分析、相似事故、LLM 摘要、心跳"
+   },
+   {
+    "args": [
+     "main",
+     "detector",
+     "trace-merge",
+     "--config",
+     "configs/baseline/trace.yaml"
+    ],
+    "cron": "* * * * *",
+    "name": "trace-merge",
+    "queue": "realtime",
+    "retries": null,
+    "stage": 1,
+    "timeout": 50,
+    "why": "raw 的每一段 → 一個請求一筆（traces-merged）；根因分析讀合成的那份"
+   },
+   {
+    "args": [
+     "main",
+     "detector",
+     "train",
+     "--config",
+     "configs/baseline/series.yaml"
+    ],
+    "cron": "0 2 * * *",
+    "name": "train",
+    "queue": "batch",
+    "retries": null,
+    "stage": 1,
+    "timeout": 3600,
+    "why": "每天學過去 4 週（要 4Gi 記憶體）"
+   },
+   {
+    "args": [
+     "main",
+     "detector",
+     "peer",
+     "--config",
+     "configs/baseline/peer.yaml"
+    ],
+    "cron": "*/5 * * * *",
+    "name": "peer",
+    "queue": "realtime",
+    "retries": null,
+    "stage": 2,
+    "timeout": 240,
+    "why": "Pod 同儕橫向比對看最近 10 分鐘"
+   },
+   {
+    "args": [
+     "main",
+     "detector",
+     "trace-collect",
+     "--config",
+     "configs/baseline/trace.yaml"
+    ],
+    "cron": "*/5 * * * *",
+    "name": "trace-collect",
+    "queue": "realtime",
+    "retries": null,
+    "stage": 2,
+    "timeout": 240,
+    "why": "trace 每一段的量"
+   },
+   {
+    "args": [
+     "main",
+     "detector",
+     "trace-detect",
+     "--config",
+     "configs/baseline/trace.yaml",
+     "--window",
+     "10m"
+    ],
+    "cron": "*/5 * * * *",
+    "name": "trace-detect",
+    "queue": "realtime",
+    "retries": null,
+    "stage": 2,
+    "timeout": 240,
+    "why": "trace 每一段跟 baseline 比"
+   },
+   {
+    "args": [
+     "main",
+     "detector",
+     "quality",
+     "--config",
+     "configs/baseline/quality.yaml"
+    ],
+    "cron": "*/10 * * * *",
+    "name": "quality",
+    "queue": "realtime",
+    "retries": null,
+    "stage": 2,
+    "timeout": 500,
+    "why": "資料品質（第一個月人天天看，先不用它報）"
+   },
+   {
+    "args": [
+     "main",
+     "detector",
+     "trace-train",
+     "--config",
+     "configs/baseline/trace.yaml"
+    ],
+    "cron": "20 2 * * *",
+    "name": "trace-train",
+    "queue": "batch",
+    "retries": null,
+    "stage": 2,
+    "timeout": 3600,
+    "why": "每天學 trace 每一段"
+   },
+   {
+    "args": [
+     "main",
+     "detector",
+     "chronic",
+     "--config",
+     "configs/baseline/chronic.yaml"
+    ],
+    "cron": "0 8 * * 1",
+    "name": "chronic",
+    "queue": "batch",
+    "retries": null,
+    "stage": 2,
+    "timeout": 1800,
+    "why": "每週一的慢性病清單，要幾週資料才有意義"
+   },
+   {
+    "args": [
+     "main",
+     "detector",
+     "prune",
+     "--config",
+     "configs/baseline/prune.yaml"
+    ],
+    "cron": "30 3 * * *",
+    "name": "prune",
+    "queue": "batch",
+    "retries": null,
+    "stage": 2,
+    "timeout": 600,
+    "why": "aiops-anomalies、aiops-trace-segments、已結案的 aiops-alerts 沒有 ILM，超過保留天數的每天清一次（prune.yaml）"
+   },
+   {
+    "args": [
+     "main",
+     "detector",
+     "shift",
+     "--config",
+     "configs/baseline/series.yaml"
+    ],
+    "cron": "0 4 * * *",
+    "name": "shift",
+    "queue": "batch",
+    "retries": null,
+    "stage": 2,
+    "timeout": 300,
+    "why": "一階跳變（換版後停在新水準、一直報）提 reset_point 的建議（proposed，人核准才生效）；每天看一次最近 24 小時"
+   }
+  ],
+  "timezone": "Asia/Taipei"
+ }
+}

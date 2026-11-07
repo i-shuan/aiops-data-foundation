@@ -18,15 +18,15 @@ from pydantic import BaseModel, ConfigDict
 
 class ES:
     def __init__(self, url: str | None = None):
-        cfg = settings()
-        self.url = (url or cfg.require_es_url()).rstrip("/")
+        env = settings()
+        self.url = (url or env.require_es_url()).rstrip("/")
         self.s = requests.Session()
-        if cfg.es_api_key:
-            self.s.headers["Authorization"] = f"ApiKey {cfg.es_api_key}"
-        elif cfg.es_auth:
-            self.s.auth = tuple(cfg.es_auth.split(":", 1))
-        if cfg.es_ca:
-            self.s.verify = cfg.es_ca
+        if env.es_api_key:
+            self.s.headers["Authorization"] = f"ApiKey {env.es_api_key}"
+        elif env.es_auth:
+            self.s.auth = tuple(env.es_auth.split(":", 1))
+        if env.es_ca:
+            self.s.verify = env.es_ca
 
     def req(self, method: str, path: str, body=None, ok=(200, 201)):
         r = self.s.request(method, self.url + path, json=body, timeout=120)

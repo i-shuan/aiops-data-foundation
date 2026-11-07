@@ -1,5 +1,6 @@
 """資料品質檢查（detector.quality）的計算：路由沒參數化、欄位缺、資料停了、落到 unassigned 變多。"""
 from detect.config.quality import QualityCheck
+from detect.config.quality import QualityCheck
 import unittest
 
 import pandas as pd
@@ -228,7 +229,7 @@ class MissingQuery(unittest.TestCase):
 
     def aggs(self, check):
         es = FakeES()
-        df = Repos(es, SC).quality.missing({"name": "x", "index": "k8s-*", "by": ["ns"], "keys": ["namespace"], **check},
+        df = Repos(es, SC).quality.missing(QualityCheck.model_validate({"name": "x", "type": "missing", "index": "k8s-*", "by": ["ns"], "keys": ["namespace"], **check}),
                              self.T - pd.Timedelta("1h"), self.T)
         self.assertEqual(list(df.columns), ["namespace", "docs"] + [f"missing:{f}" for f in check["fields"]])
         return es.bodies[0]["aggs"]["g"]["aggs"]
@@ -271,7 +272,7 @@ class Config(unittest.TestCase):
             for f in self.REQUIRED[c["type"]]:
                 self.assertIn(f, c, c["name"])
             if c.get("by"):
-                self.assertEqual(len(Q.check_keys(c)), len(c["by"]), c["name"])
+                self.assertEqual(len(Q.check_keys(QualityCheck.model_validate(c))), len(c["by"]), c["name"])
         for n in ["quality.trace_name_cardinality", "quality.trace_stopped", "quality.metrics_missing_service"]:
             self.assertIn(n, names)
         # service.name 被 Collector 補成 container 名稱的也要算缺（e2e B6a：沒有 service label 的 Pod）

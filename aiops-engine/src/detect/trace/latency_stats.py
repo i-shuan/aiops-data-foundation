@@ -278,7 +278,7 @@ def cmd_trace_train(trace_config: TraceConfig, args) -> int:
     freq = _freq(trace_config.interval)
     end = _now(args.end).floor(freq)
     start = end - (pd.Timedelta(args.history) if args.history else pd.Timedelta(weeks=trace_config.history_weeks))
-    topts = TrainOptions(**trace_config.train.to_dict())
+    topts = TrainOptions(**trace_config.train.model_dump(exclude_none=True))
     hist = load_segments(repo, start, end)
     hist = hist[hist["requests"] >= trace_config.min_requests]
     adjs = data_adjustments(repo, trace_config, end)
@@ -299,7 +299,7 @@ def cmd_trace_detect(trace_config: TraceConfig, args) -> int:
     end = _now(args.at).floor(freq)
     start = end - pd.Timedelta(args.window)
     tz = trace_config.train.timezone or "Asia/Taipei"
-    dopts = DetectOptions(**trace_config.detect.to_dict())
+    dopts = DetectOptions(**trace_config.detect.model_dump(exclude_none=True))
     print(f"偵測區間 {start.tz_convert(tz):%Y-%m-%d %H:%M} ～ {end.tz_convert(tz):%Y-%m-%d %H:%M}（{tz}）")
     cur, skews = collect(repo, trace_config, start, end)
     adjs = data_adjustments(repo, trace_config, end)
@@ -345,7 +345,7 @@ def cmd_trace_detect(trace_config: TraceConfig, args) -> int:
         found += [("trace.segment.swallowed", r, r["swallowed_rate"], rules.swallowed_rate,
                    f"吞掉的例外：{r['entry.service']} {r['entry.name']} → {r['segment']}"
                    f"（{r['swallowed_rate']:.0%} 的請求丟了 {r.get('exception_type') or '例外'}，但沒標成錯誤）")
-                  for r in swallowed(cur, rules["swallowed_rate"]).to_dict("records")]
+                  for r in swallowed(cur, rules.swallowed_rate).to_dict("records")]
     docs = [(a.id(), a.to_doc(now)) for a in (
         Anomaly(ts=r["ts"], series=series, rule=series, keys={k: r[k] for k in KEYS}, value=v, expected_high=th,
                 level="rule", direction="up", severity="warning", message=msg) for series, r, v, th, msg in found)]

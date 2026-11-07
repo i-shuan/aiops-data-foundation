@@ -314,14 +314,14 @@ def load(repo, config: AdjustableConfig) -> list[dict]:
     config 是 series、trace、rules 其中一種：沒有 overrides、adjustments_file、calendar_file 的種類用預設的檔。
     adjustments_file、calendar_file 寫了 null（或空字串）是「不載入」，所以用 `config.get(鍵, 預設)`（只有 yaml 有寫才算有），
     不能用屬性（屬性沒寫也是 None，分不出來）。"""
-    out = [o.to_dict() for o in getattr(config, "overrides", None) or []]
+    out = [o.model_dump(exclude_unset=True, by_alias=True) for o in getattr(config, "overrides", None) or []]
     train = getattr(config, "train", None)
     default_tz = train.timezone if train is not None and train.timezone else "Asia/Taipei"
     tz = default_tz
-    path = config.get("adjustments_file", "configs/baseline/adjustments.yaml")
+    path = getattr(config, "adjustments_file", None) if "adjustments_file" in config.model_fields_set else "configs/baseline/adjustments.yaml"
     if path and os.path.exists(path):
-        out += [localize(a.to_dict(), tz) for a in load_config(path, "adjustments").adjustments]
-    cal = config.get("calendar_file", "configs/baseline/calendar.yaml")
+        out += [localize(a.model_dump(exclude_unset=True, by_alias=True), tz) for a in load_config(path, "adjustments").adjustments]
+    cal = getattr(config, "calendar_file", None) if "calendar_file" in config.model_fields_set else "configs/baseline/calendar.yaml"
     if cal and os.path.exists(cal):
         entries, tz = load_calendar(load_config(cal, "calendar"))
         out += calendar_adjustments(entries, tz or default_tz)

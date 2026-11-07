@@ -9,7 +9,7 @@ Value = Literal["count"] | dict[str, Any]      # count 或 {sum|avg|max|min|perc
 
 
 class Train(Strict):
-    """detector/model.TrainOptions(**cfg["train"])：欄位要跟 dataclass 一樣。"""
+    """dynamic_baseline.TrainOptions(**series_config.train.model_dump(exclude_none=True))：欄位要跟 dataclass 一樣。"""
     timezone: str | None = None
     min_weeks: PosInt | None = None
     min_days: PosInt | None = None
@@ -18,7 +18,7 @@ class Train(Strict):
 
 
 class Detect(Strict):
-    """detector/model.DetectOptions(**cfg["detect"])。"""
+    """dynamic_baseline.DetectOptions(**…detect.model_dump(exclude_none=True))。"""
     z: NonNeg | None = None
     rel_floor: NonNeg | None = None
     abs_floor: NonNeg | None = None

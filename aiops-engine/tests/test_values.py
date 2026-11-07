@@ -1,4 +1,5 @@
 """es._value_aggs／_bucket_value 的單元測試：直方圖的請求數、錯誤率，不需要 ES。"""
+from tests.config_factory import series_of
 import unittest
 
 from detect.store.series_repo import _bucket_value, _value_aggs
@@ -37,6 +38,6 @@ class HistRatioAbove(unittest.TestCase):
     def test_is_a_rate_with_request_count_as_events(self):
         from detect.utils import value_kind
         from detect.store.series_repo import _bucket_events
-        spec = {"value": {"hist_ratio_above": {"field": F, "gt": 2.0}}}
+        spec = series_of({"name": "x", "value": {"hist_ratio_above": {"field": F, "gt": 2.0}}})
         self.assertEqual(value_kind(spec), "rate")
-        self.assertEqual(_bucket_events(spec["value"], {"n": {"value": 400}}), 400)
+        self.assertEqual(_bucket_events(spec.value, {"n": {"value": 400}}), 400)

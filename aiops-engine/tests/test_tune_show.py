@@ -67,8 +67,8 @@ class TuneShow(unittest.TestCase):
         from detect.strategy.dynamic_baseline import DetectOptions
         from detect.series_ops.manual_adjust import load_overrides
         ov = load_overrides(Repos(FakeES(), SC), CFG)
-        spec, key = CFG["series"][0], {"service": "mes-report-api"}
-        self.assertEqual(C.score_params(spec, key, DetectOptions(**CFG["detect"]), ov), (7.0, 0.2))
+        spec, key = CFG.series[0], {"service": "mes-report-api"}
+        self.assertEqual(C.score_params(spec, key, DetectOptions(**CFG.detect.model_dump(exclude_none=True)), ov), (7.0, 0.2))
         self.assertEqual(C.status_params(CFG, spec, key, ov), (3, 15.0))
         _, text = show("http.latency_p95_s", ["service=mes-report-api"])
         self.assertIn("z = 7.0", text)

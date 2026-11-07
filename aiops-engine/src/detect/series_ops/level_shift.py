@@ -76,7 +76,7 @@ def _rows(repo: Repos, start: pd.Timestamp, end: pd.Timestamp) -> pd.DataFrame:
 def cmd_shift(series_config: SeriesConfig, args) -> int:
     repo = Repos(ES(), load_scenario())
     repo.tuning.ensure()
-    opts = {**DEFAULTS, **(series_config.shift.to_dict() if series_config.shift else {})}
+    opts = {**DEFAULTS, **(series_config.shift.model_dump(exclude_none=True) if series_config.shift else {})}
     tz = series_config.train.timezone or series_config.timezone or "Asia/Taipei"
     now = _now(args.at)
     start = now - pd.Timedelta(opts["window"])

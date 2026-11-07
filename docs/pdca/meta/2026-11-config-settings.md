@@ -38,7 +38,7 @@
 - 順手刪掉 `common/infra/clock.py` 裡重複定義的 `stamp_of`（先前搬檔時重複貼的）。
 - **跟計畫不同的地方**：計畫寫「只在入口讀一次、往下傳」，實際是「每次用到就 `settings()` 重讀」。原因：`ES()` 在二十幾個函式裡直接建立、`load_scenario()` 在測試裡依環境變數重讀；真的往下傳要改所有簽名、測試要全改。每次重讀只是讀 21 個字串，成本可以忽略。步驟 1 設定回模型時簽名本來就要動，到時候再看哪些適合改成注入。
 
-### 步驟 1：設定檔回模型（①②③做完，13 種都已換成屬性存取；過渡層還在）
+### 步驟 1：設定檔回模型（①②③做完，過渡層已在階段 3 拆掉）
 
 - **①搬家與拆檔**：`common/scenario/config.py`（790 行）拆成 `common/config/` 套件：`common.py`（共用型別與小段）、一種設定一個檔（`series.py`、`rules.py`、`peer.py`、`quality.py`、`trace.py`、`rca.py`、`schedule.py`、`chronic.py`、`prune.py`、`calendar.py`、`adjustments.py`、`ingest.py`、`paths.py`）、`loader.py`（讀檔、驗證、錯誤訊息、`KINDS`、`MODELS`）；用腳本依 AST 切、補 import，只搬不改。
 - **②過渡層與回模型**：`Strict` 加 `get`／`[]`／`in`／`keys`／`items`／`values`／`len`／`to_dict`／`==`，語意跟原本的 dict 一樣（**只有 yaml 有寫的鍵才算有**）；`load_config`、`validate` 回那一種的模型（13 個 `@overload`，編輯器知道 `load_config(p, "series")` 是 `SeriesConfig`），不再 `model_dump` 倒回 dict。現有的程式與測試幾乎不用改。
@@ -52,7 +52,7 @@
 | rules | 🟡 設定層 | `RulesDetector`、`approved_rules`、`cmd_rules` 用屬性；單條規則的函式（`evaluate`、`describe`…）仍吃 dict 或 `Rule`——aiops-tuning 核准的規則是 dict，tests 有 59 處直接傳 dict |
 | trace、rca、series | ✅ 載入端與服務端 | 參數改叫 `trace_config`、`rca_config`、`series_config`（策略外掛的簽名也是 `rca_config`）；預設值進模型（`SeriesConfig` 的 interval 5m、history_weeks 4、borrowing…）；`status`、`shift`、`adaptive` 沒寫是 `None`，用 `config.status or Status()`。測試用 `validate({...}, "series")` 或 `tests/config_factory.py` 造 |
 
-- **過渡層留著的地方**：`repo.series.fetch／rows／points` 與 `keys_of` 吃「像 dict 的規格」（series 的一條、peer／quality 的一個檢查、ingest 的 input、paths 的 mes）。這些要等 `series` 做完一起處理。
+- **過渡層留著的地方**（階段 3 已拆，見下）：`repo.series.fetch／rows／points` 與 `keys_of` 吃「像 dict 的規格」……
 - **踩到的三個問題（過渡層的代價）**：
   1. `owners_source: list[Provider] | Provider` 只寫一個來源時變成 `Provider` 模型，`load_owners` 的 `isinstance(srcs, dict)` 失效、會去迭代模型——單元測試傳的都是 dict 所以沒抓到。改成 `srcs if isinstance(srcs, list) else [srcs]`，補測試（用 `validate` 造設定）。
   2. 5 個模型有欄位叫 `keys`，蓋掉過渡層的 `keys()` 方法（pydantic 只警告），`{**spec}`（`peer_compare.py:78`）會壞。欄位改叫 `key_names`（`alias="keys"`，yaml 與 `spec["keys"]` 不變），加測試鎖「沒有欄位跟 `keys`／`items`／`values`／`get`／`to_dict` 同名」。
@@ -70,7 +70,7 @@
 | 第一版的問題 | `API_PORT=abc` 時連不相干的指令都在 import 就失敗：`env.py` 與 `worker.py`（載入時就建 Celery app、讀 broker 與時區）在載入時讀環境 | 已修：`engine_version()` 單獨讀、角色延遲 import |
 | 步驟 1①②：拆檔與回模型後行為不變 | 全部測試（helm 也跑）；`chain`、`factory`、`loop`、`adaptive`、`synth` e2e | ✅ 單元 802 項（0 跳過）；e2e 同前（loop 仍是那 2 個舊斷言） |
 | 步驟 1：每份 yaml 都驗得過、`to_dict()` 跟 `yaml.safe_load` 一樣（去掉 `_` 開頭的 anchor） | `tests/test_config.py`（configs/ 23 份加 tests/ 的 7 份） | ✅ |
-| 步驟 1：過渡層的語意跟 dict 一樣 | `test_config.py::ModelsReadLikeDicts`：沒寫的鍵 `get` 回 default、`in` 為假、`**` 展開 | ✅ |
+| 步驟 1：過渡層的語意跟 dict 一樣 | （階段 3 拆掉後，`ModelsReadLikeDicts` 換成 `ModelsAreModels`：屬性、`model_fields_set`、dict 寫法會報錯） | ✅ |
 | 步驟 1③ 樣板 `prune` 走真的 CLI | `python3 -m main detector prune --config configs/baseline/prune.yaml --dry-run`（對真 ES） | ✅ 三個索引各印一行 |
 | 其他 e2e（`adjust_edge`、`rules_edge`、`baseline_edge`、`trace_quality_edge`、`fine`、`peer_edge`） | 在 master 與這個分支各跑一次 | ⚠️ 前四個在 master 上也一樣失敗（e2e 腳本本身過期：`adjustments_file` 欄位、`index` 缺、索引沒建、日期格式），後兩個是測試 ES 當時分片分配不了（磁碟水位）；沒有一個是這個分支造成的 |
 
@@ -83,11 +83,19 @@
 | `Settings` 的欄位與 helm 的 `env.yaml` 沒有自動對照 | 盤點時 | 可以加測試：每個欄位在 chart 或文件有出現；之後 |
 | 過渡層讓「型別錯的設定值傳進來」要到用的那一刻才發現（例如單元測試傳 dict 給已經換成屬性存取的函式） | 轉換 `prune` 時 | 每一種換完就把那一種的測試改成 `validate({…}, kind)`；過渡層拆掉前不加新的 dict 用法 |
 | 6 個舊的 e2e 腳本在 master 上就壞（見 Check） | 驗證步驟 1 時 | 另開一件修；這份計畫不處理 |
-| 過渡層還在：單條 `Series`／規則／檢查的 `spec` 仍是「像 dict」（`spec.get`）、`repo.series.fetch／rows／points`、`keys_of` | — | 下一步：階段 3 拆過渡層，再加 AST 測試擋 `cfg` 參數名；之後進時間統一與 yaml 瘦身 |
+| 過渡層已拆；但沒有型別標註的地方（`repo.series.fetch` 的 spec、e2e 才走到的分支）要到執行才知道有沒有漏改——階段 3 靠 pyright 對照拆前拆後新增的錯誤，加 e2e（`adaptive_e2e` 抓到 `Group`）與真的 CLI（`quality` 抓到 `QualityCheck`）補 | 階段 3 | 已補；之後新增設定欄位都走屬性 |
 
 ### 步驟 1.5：`shared/` 改名 `common/`，各功能的設定模型搬進各自的 `config/`（使用者要求）
 
 - **Do**：`git mv src/shared src/common`；`common/config/` 只留共用的 `common.py`、`loader.py`、`settings.py`。`series`、`rules`、`peer`、`quality`、`trace`、`chronic`、`prune`、`adjustments`、`calendar`、`paths`、`ingest` 搬到 `detect/config/`；`rca` 到 `incident/config/`；`schedule` 到 `interface/config/`。`Train`、`Detect`、`Status`、`Provider`、`Value` 只有 detect 的設定在用，搬到 `detect/config/types.py`。
 - **loader**：`MODELS` 改成名稱表 `REGISTRY`（`"detect.config.series:SeriesConfig"`），第一次用到才 import（跟 `Repos` 同一招），所以 `common` 不靜態依賴功能；`load_config` 的 overload 回傳型別用 `if TYPE_CHECKING:` 引入。
 - **test_layers**：層名 `shared`→`common`；`if TYPE_CHECKING:` 底下的 import 不算依賴（執行時不載入）。這是放寬一條規則，理由寫在測試檔頭。
+
+
+
+### 階段 3：拆過渡層（`Strict` 的 `get`／`[]`／`in`／`keys`／`items`／`values`／`len`／`to_dict`／`==` 全拿掉）
+
+- **Do**：每個設定模型只剩屬性存取。單條 `Series`、`Rule`、`PeerCheck`、`QualityCheck`、`Provider`、`Input`、`Pick`、`Group` 都改屬性；`spec["name"]`→`spec.name`，`rule.get("for", "30m")`→`dflt(rule.for_, "30m")`（`detect/utils.dflt`）。`repo.series.fetch／points／rows／rows_where` 吃模型；`rows` 的時間欄位改成參數 `time_field=`（原本 `{**mes, "time_field": …}`）。`.to_dict()`→`model_dump(exclude_none=True)`（Train／Detect／Shift）或 `model_dump(exclude_unset=True, by_alias=True)`（要「yaml 有寫的」）。寫 null 跟沒寫意思不同的地方（`adjustments_file`、`calendar_file`、`Provider.cache_dir`）用 `model_fields_set`。aiops-tuning 核准的規則草稿（`approved_rules`）改成驗成 `Rule`，欄位不對就印一行跳過（原本是 dict、到用的時候才爆）。回測的規則草稿同樣驗成 `Rule`。
+- **Check**：①`tests/test_no_cfg_names.py`（AST）：`src/` 沒有叫 `cfg` 的參數或變數、沒有 `.train.to_dict()` 這類 dict 寫法、`*_config` 參數不標 `dict`。②pyright 拆前拆後的錯誤差集：新增的 78 個照著改完，剩下的只是 Optional 型別提示。③測試改用 `tests/config_factory.py` 的 `rule_of`／`series_of`／`validate`；`tests/test_config.py::ModelsAreModels`。④e2e（`adaptive`、`synth`、`chain`、`factory`、`fine`、`peer_edge` 過；`rules_edge`、`adjust_edge`、`baseline_edge`、`trace_quality_edge`、`loop` 的失敗在 master 上一樣）和真的 CLI（`detector train／detect／shift／tune --show／quality／backtest／feedback suggest`、`investigator alert`）。
+- **Act**：e2e 才碰得到的分支（`Group`）、只有 CLI 才碰得到的分支（`quality_repo`）單元測試沒蓋到，靠實跑才發現；沒有型別標註的函式（`spec` 參數）靜態檢查抓不到。之後這類函式要加型別標註。`p95_spike_e2e` 的 `Alert is not subscriptable` 是 e2e 腳本沒跟上 Alert 模型，不是設定。
 

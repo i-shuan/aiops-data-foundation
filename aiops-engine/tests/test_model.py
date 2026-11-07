@@ -4,6 +4,7 @@ import unittest
 import numpy as np
 import pandas as pd
 
+from detect.config.series import Group
 from detect.strategy.dynamic_baseline import (TrainOptions, effective_for, group_of, mark_status, mask_thin, override_for,
                                   pick_resolution, resolutions_from, score, score_poisson, train, train_groups)
 
@@ -233,7 +234,7 @@ class PoissonTest(unittest.TestCase):
 
 class GroupTest(unittest.TestCase):
     """借同組的 baseline：組由設定的正規表示式決定，組 baseline 從成員自己的 baseline 算。"""
-    GROUPS = [{"name": "mes-query", "match": {"svc": "^mes-", "route": "query"}}, {"name": "mes", "match": {"svc": "^mes-"}}]
+    GROUPS = [Group(name="mes-query", match={"svc": "^mes-", "route": "query"}), Group(name="mes", match={"svc": "^mes-"})]
 
     def test_group_of_is_ordered_fine_to_coarse(self):
         self.assertEqual(group_of({"svc": "mes-api", "route": "/lot/query"}, self.GROUPS), ["mes-query", "mes"])

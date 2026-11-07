@@ -1,5 +1,6 @@
 """資料來源是 Elastic APM 時（AIOPS_SOURCE=apm、traces-apm-*）：span 的轉換、查詢用的欄位、序列的 scale／div、owner 與 log 的欄位。
 不連 ES（docs/pdca/meta/2026-11-apm-source.md）。"""
+from tests.config_factory import series_of
 import os
 import unittest
 from datetime import datetime, timezone
@@ -151,7 +152,7 @@ class ScaleAndDivTest(unittest.TestCase):
         self.assertAlmostEqual(_bucket_value(v, b, 1e-6), 21309833 / 7488 / 1e6)
         self.assertEqual(_bucket_events(v, b), 7488.0)                 # 事件數是次數
         self.assertIsNone(_bucket_value(v, {"den": {"value": 0.0}, "num": {"value": 0.0}}))
-        self.assertEqual(value_kind({"value": v}), "rate")
+        self.assertEqual(value_kind(series_of({"name": "x", "value": v})), "rate")
 
     def test_div_with_query_is_a_share_of_counts(self):
         v = {"div": {"num": {"field": "c", "query": {"term": {"event.outcome": "failure"}}}, "den": "c"}}

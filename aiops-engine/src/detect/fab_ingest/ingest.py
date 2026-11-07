@@ -30,7 +30,7 @@ from datetime import datetime, timezone
 
 import pandas as pd
 
-from detect.config.ingest import IngestConfig, Input
+from detect.config.ingest import IngestConfig, Input, Pick
 from common.infra.es import doc_id, get_field
 
 LEVELS = ("ml", "fdc", "external")
@@ -47,17 +47,18 @@ def _fmt(template: str, row: dict) -> str:
     return _FIELD.sub(rep, template)
 
 
-def _pick(row: dict, spec, default=None):
+def _pick(row: dict, spec: str | Pick | None, default=None):
     """固定值（字串），或 {field, map, default}：讀該列的欄位、查表對應。"""
     if spec is None:
         return default
     if isinstance(spec, str):
         return spec
-    v = get_field(row, spec["field"])
-    m = spec.get("map") or {}
+    v = get_field(row, spec.field)
+    m = spec.map or {}
+    d = default if spec.default is None else spec.default
     if v is None:
-        return spec.get("default", default)
-    return m.get(str(v), m.get(v, spec.get("default", default) if m else v))
+        return d
+    return m.get(str(v), m.get(v, d if m else v))
 
 
 def _num(x):

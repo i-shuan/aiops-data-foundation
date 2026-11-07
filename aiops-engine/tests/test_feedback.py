@@ -1,4 +1,5 @@
 """Check：誤報統計、建議、事故（feedback.suggest）。不需要 ES。各種測資。"""
+from tests.config_factory import series_of
 import json
 import unittest
 
@@ -145,9 +146,9 @@ class SuggestFromIncidents(unittest.TestCase):
     def inc(self, i, svc="mes-api", cat="db", seg="mes-api › wip-worker › Oracle SELECT lots #"):
         return {"id": f"i{i}", "services": [svc], "root_cause_category": cat, "fingerprint": {"slow_segments": [seg], "error_origins": []}}
 
-    SPECS = [{"name": "http.latency_p95_s", "index": "metrics-*.otel-*", "filter": {"exists": {"field": "metrics.http.server.request.duration"}},
+    SPECS = [series_of({"name": "http.latency_p95_s", "index": "metrics-*.otel-*", "filter": {"exists": {"field": "metrics.http.server.request.duration"}},
               "by": ["resource.attributes.service.name", "attributes.http.request.method", "attributes.http.route"],
-              "value": {"percentile": {"field": "metrics.http.server.request.duration", "percent": 95}}}]
+              "value": {"percentile": {"field": "metrics.http.server.request.duration", "percent": 95}}})]
 
     def anoms(self, peaks, route="/lots/{id}"):
         """每件事故的異常：延遲 p95 的峰值＋一筆不相干的錯誤率"""
@@ -166,7 +167,7 @@ class SuggestFromIncidents(unittest.TestCase):
         self.assertEqual((d["name"], d["type"], d["op"]), ("mes-api.db.recurring", "window", ">="))
         self.assertEqual(d["threshold"], 2.16)                     # 每件最低的異常值 2.79、2.16、3.6 取最小：三件、每個點都抓得到
         self.assertEqual(d["_source"]["floors"], [2.79, 2.16, 3.6])
-        self.assertEqual(d["value"], self.SPECS[0]["value"])        # 查法跟那條 baseline 序列一樣
+        self.assertEqual(d["value"], self.SPECS[0].value)        # 查法跟那條 baseline 序列一樣
         self.assertIn({"term": {"resource.attributes.service.name": "mes-api"}}, d["filter"]["bool"]["filter"])   # 只看這個服務
         self.assertIn({"term": {"attributes.http.route": "/lots/{id}"}}, d["filter"]["bool"]["filter"])          # 三件都同一支 API → 只看它
         self.assertEqual(d["min_events"], 20)

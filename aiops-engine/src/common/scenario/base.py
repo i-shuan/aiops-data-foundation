@@ -45,7 +45,7 @@ class Chain:
 
 
 class ChainStrategy(Protocol):
-    def __call__(self, repo, cfg: dict, anomalies: list[dict], open_alerts: list, start: datetime, now: datetime) -> Chain: ...
+    def __call__(self, repo, rca_config: RcaConfig, anomalies: list[dict], open_alerts: list, start: datetime, now: datetime) -> Chain: ...
 
 
 class ChangeStrategy(Protocol):
@@ -151,12 +151,12 @@ def from_dict(d: dict) -> Scenario:
 
 def load_scenario(spec: str | None = None) -> Scenario:
     """環境變數（或 spec）→ Scenario。內建三個名字、yaml 路徑、或「套件.模組:名字」（Scenario 實例，或回 Scenario 的函式）。"""
-    cfg = settings()
-    s = spec or cfg.aiops_plugin or DEFAULT
+    env = settings()
+    s = spec or env.aiops_plugin or DEFAULT
     if s in BUILTIN:
         target = BUILTIN[s]
         if isinstance(target, dict):
-            src = cfg.aiops_source
+            src = env.aiops_source
             if src not in target:
                 raise ValueError(f"{SOURCE_ENV} 只能是 {'、'.join(target)}，不是 {src!r}")
             target = target[src]

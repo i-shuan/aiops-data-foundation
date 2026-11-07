@@ -13,7 +13,10 @@
 """
 from __future__ import annotations
 
-from detect.config.series import SeriesConfig
+from pydantic import ValidationError
+
+from detect.config.rules import Rule
+from detect.config.series import Series, SeriesConfig
 import json
 import re
 
@@ -117,13 +120,13 @@ def _scope_hits(df: pd.DataFrame, proposals: list[dict], tz: str) -> int:
 KINDS_DATA = ("exclude_window", "reset_point", "recurring_override")
 
 
-def _detect_all(repo, series_config: SeriesConfig, specs: list[dict], bases: dict, days, now, dopts, tz: str, adjs_all: list[dict], quiet: bool) -> pd.DataFrame:
+def _detect_all(repo, series_config: SeriesConfig, specs: list[Series], bases: dict, days, now, dopts, tz: str, adjs_all: list[dict], quiet: bool) -> pd.DataFrame:
     """用一套調整（override＋排除時段等）把每條序列每天重跑一次 detect_series，回全部 status anomaly 的點（附序列名、服務、keys）。"""
     ov = [a for a in adjs_all if (a.get("kind") or "override") == "override"]
     adjs = [a for a in adjs_all if a.get("kind") in KINDS_DATA]
     frames = []
     for spec in specs:
-        keys, base = keys_of(spec), bases[spec["name"]]
+        keys, base = keys_of(spec), bases[spec.name]
         if base.empty:
             continue
         for d in days:
@@ -133,7 +136,7 @@ def _detect_all(repo, series_config: SeriesConfig, specs: list[dict], bases: dic
                     continue
                 s = s[s["status"] == "anomaly"]
                 if not s.empty:
-                    frames.append(s.assign(_series=spec["name"], _svc=[_service_of(x, keys) for x in s[keys].to_dict("records")],
+                    frames.append(s.assign(_series=spec.name, _svc=[_service_of(x, keys) for x in s[keys].to_dict("records")],
                                            _keys=s[keys].to_dict("records")))
     return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(columns=["ts", "_series", "_svc", "_keys"])
 
@@ -199,21 +202,21 @@ def run_backtest(repo, series_config: SeriesConfig, proposal, weeks: int, now=No
     proposals = list(proposal) if isinstance(proposal, list) else [proposal]
     now = now or _now(None)
     tz = series_config.train.timezone or "Asia/Taipei"
-    dopts = DetectOptions(**series_config.detect.to_dict())
+    dopts = DetectOptions(**series_config.detect.model_dump(exclude_none=True))
     cur_active = A.active(load_adjustments(repo, series_config), now)
     only_override = all((p.get("kind") or "override") == "override" for p in proposals)
-    specs = [s for s in series_config.series if any(re.fullmatch(p.get("series") or ".*", s["name"]) for p in proposals)] if only_override \
+    specs = [s for s in series_config.series if any(re.fullmatch(p.get("series") or ".*", s.name) for p in proposals)] if only_override \
         else list(series_config.series)
     if not specs:
         return {"verdict": "unknown", "recommended": False, "reason": f"沒有序列符合 {[p.get('series') for p in proposals]}"}
     since = now - pd.Timedelta(weeks=weeks)
     days = pd.date_range(since.floor("D"), now.floor("D"), freq="D")
-    bases = {s["name"]: repo.baseline.load(s["name"], keys_of(s)) for s in specs}
+    bases = {s.name: repo.baseline.load(s.name, keys_of(s)) for s in specs}
     detect = lambda adjs: _detect_all(repo, series_config, specs, bases, days, now, dopts, tz, adjs, quiet)
     judge = lambda before, after: _judge(repo, series_config, before, after, proposals, since, weeks, tz)
     before = detect(cur_active)
     after = detect(cur_active + [{**p, "status": "active"} for p in proposals])
-    res = {"weeks": weeks, "series": [s["name"] for s in specs], "at": now.isoformat(), "group": [p.get("id") for p in proposals] if len(proposals) > 1 else None,
+    res = {"weeks": weeks, "series": [s.name for s in specs], "at": now.isoformat(), "group": [p.get("id") for p in proposals] if len(proposals) > 1 else None,
            **judge(before, after)}
     if ablate and len(proposals) > 1 and res["verdict"] == "effective":
         _ablation(res, proposals, before, cur_active, detect, judge)
@@ -267,7 +270,11 @@ def run_rule_backtest(repo, series_config: SeriesConfig, proposal: dict, weeks: 
     tz = series_config.train.timezone or "Asia/Taipei"
     ids = list(proposal.get("incident_ids") or [])
     incidents = [i for i in repo.incidents.get_many(ids) if i.get("start")] if ids else []
-    df = repo.series.fetch(draft, now - pd.Timedelta(weeks=weeks), now, draft.get("lookback", "5m"))   # ES 的 fixed_interval 要 5m，不是 pandas 的 5min
+    try:
+        rule = Rule.model_validate(draft)
+    except ValidationError as e:
+        return {"kind": "rule_suggestion", "recommended": False, "reason": f"規則草稿的欄位不對，不能回測：{e.errors()[0]['loc']} {e.errors()[0]['msg']}"}
+    df = repo.series.fetch(rule, now - pd.Timedelta(weeks=weeks), now, rule.lookback or "5m")   # ES 的 fixed_interval 要 5m，不是 pandas 的 5min
     return rule_backtest_result(df, draft, incidents, weeks, tz)
 
 

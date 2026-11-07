@@ -145,21 +145,21 @@ def template(pack: dict) -> str:
 
 
 def _call_anthropic(prompt: str) -> str:
-    cfg = settings()
-    base = cfg.anthropic_base_url.rstrip("/")
+    env = settings()
+    base = env.anthropic_base_url.rstrip("/")
     r = requests.post(f"{base}/v1/messages", timeout=60,
-                      headers={"x-api-key": cfg.require_llm_api_key(), "anthropic-version": "2023-06-01", "content-type": "application/json"},
-                      json={"model": cfg.chat_model("claude-sonnet-4-5"), "max_tokens": 600,
+                      headers={"x-api-key": env.require_llm_api_key(), "anthropic-version": "2023-06-01", "content-type": "application/json"},
+                      json={"model": env.chat_model("claude-sonnet-4-5"), "max_tokens": 600,
                             "messages": [{"role": "user", "content": prompt}]})
     r.raise_for_status()
     return "".join(c.get("text", "") for c in r.json().get("content", []))
 
 
 def _call_openai(prompt: str) -> str:
-    cfg = settings()
-    base = cfg.openai_base_url.rstrip("/")
-    body = {"model": cfg.chat_model("gpt-4o-mini"), "messages": [{"role": "user", "content": prompt}]}
-    headers = {"Authorization": f"Bearer {cfg.require_llm_api_key()}", "content-type": "application/json"}
+    env = settings()
+    base = env.openai_base_url.rstrip("/")
+    body = {"model": env.chat_model("gpt-4o-mini"), "messages": [{"role": "user", "content": prompt}]}
+    headers = {"Authorization": f"Bearer {env.require_llm_api_key()}", "content-type": "application/json"}
     # 新的模型只收 max_completion_tokens、舊的只收 max_tokens：先用新的，被 400 說不支援就換舊的
     # 會推理的模型把預算花在推理上，600 不夠就回空的（實測 gpt-6-luna 3 次有 1 次）：給 2000
     r = requests.post(f"{base}/v1/chat/completions", timeout=60, headers=headers, json={**body, "max_completion_tokens": 2000})

@@ -18,7 +18,7 @@ class PeerCheck(Strict):
     title: str | None = None
     severity: Severity = "warning"
     show: Show | None = None
-    key_names: list[str] | None = Field(default=None, alias="keys")   # yaml 的鍵叫 keys；屬性不能叫 keys（會蓋掉過渡層 dict 介面的 keys()）
+    key_names: list[str] | None = Field(default=None, alias="keys")   # yaml 的鍵叫 keys；屬性叫 key_names（不跟 dict 的 keys() 混）
     filter: Query | None = None
     time_field: str | None = None
     scale: NonNeg | None = None

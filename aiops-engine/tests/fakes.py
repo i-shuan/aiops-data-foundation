@@ -80,6 +80,11 @@ def _in(ts, start, end) -> bool:
     return (start is None or t >= start) and (end is None or t < end)
 
 
+def _plain(model) -> dict:
+    """設定模型 → shaping.py 讀的 dict（沒寫的選填欄位不在裡面）。"""
+    return model.model_dump(exclude_none=True, by_alias=True)
+
+
 class MemorySeries:
     def __init__(self, frames: dict[str, pd.DataFrame] | None, fmt: str = "events"):
         self.frames, self.fmt = dict(frames or {}), fmt
@@ -89,27 +94,27 @@ class MemorySeries:
         return parts[0] if len(parts) == 1 else pd.concat(parts, ignore_index=True)
 
     def fetch(self, spec, start, end, interval):
-        return shape.series_from_rows(self._rows(spec["index"]), spec, start, end, interval, self.fmt)
+        return shape.series_from_rows(self._rows(spec.index), _plain(spec), start, end, interval, self.fmt)
 
     def alive_times(self, spec, start, end, interval):
-        rows = self._rows(spec["index"])
-        tf = "ts" if self.fmt == "series" and "ts" in rows.columns else spec.get("time_field", "@timestamp")
+        rows = self._rows(spec.index)
+        tf = "ts" if self.fmt == "series" and "ts" in rows.columns else (getattr(spec, "time_field", None) or "@timestamp")
         return shape.alive_from_rows(rows, tf, start, end, interval)
 
     def points(self, rule, start, end):
-        return shape.points_from_rows(self._rows(rule["index"]), rule, start, end)
+        return shape.points_from_rows(self._rows(rule.index), _plain(rule), start, end)
 
-    def rows(self, inp, start, end):
-        df = shape.in_window(self._rows(inp["index"]), inp.get("time_field", "@timestamp"), start, end)
+    def rows(self, inp, start, end, time_field=None):
+        df = shape.in_window(self._rows(inp.index), time_field or getattr(inp, "time_field", None) or "@timestamp", start, end)
         if df.empty:
             return []
-        if inp.get("filter"):
-            df = df.loc[shape.mask(df, inp["filter"])]
+        if inp.filter:
+            df = df.loc[shape.mask(df, inp.filter)]
         rows = df.drop(columns=["ts"]).to_dict("records")
         return [{k: (None if isinstance(v, float) and pd.isna(v) else v) for k, v in r.items()} for r in rows]
 
-    def rows_where(self, inp, field, values):
-        rows = self._rows(inp["index"]).to_dict("records")
+    def rows_where(self, inp, field, values, time_field=None):
+        rows = self._rows(inp.index).to_dict("records")
         return [r for r in rows if str(r.get(field)) in set(values)]
 
 

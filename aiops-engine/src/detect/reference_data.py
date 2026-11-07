@@ -32,6 +32,7 @@ import requests
 
 from detect.config.calendar import CalendarConfig
 from detect.config.chronic import ChronicConfig
+from detect.config.types import Provider
 
 TAIWAN_URL = "https://cdn.jsdelivr.net/gh/ruyut/TaiwanCalendar/data/{year}.json"
 
@@ -135,19 +136,19 @@ def taiwan_calendar(years: list[int], *, url: str = TAIWAN_URL, cache_dir: str |
 
 # ── 介面 ──
 
-def _years(src: dict, now: pd.Timestamp | None = None) -> list[int]:
-    if src.get("years"):
-        return [int(y) for y in src["years"]]
+def _years(src: Provider, now: pd.Timestamp | None = None) -> list[int]:
+    if src.years:
+        return [int(y) for y in src.years]
     y = (now or pd.Timestamp.now(tz="UTC")).year
     return [y, y + 1]
 
 
-def _http_source(src: dict, fetch) -> object:
+def _http_source(src: Provider, fetch) -> object:
     """provider: http。帶快取（cache_ttl，預設 24h；cache_dir 預設 .cache/http）。"""
-    d = src.get("cache_dir", ".cache/http")
-    path = os.path.join(d, hashlib.sha1(src["url"].encode()).hexdigest()[:16] + ".json") if d else None
-    return cached_fetch(fetch, src["url"], path, _ttl_seconds(src.get("cache_ttl", "24h")), src.get("headers"),
-                        src.get("timeout", 20), label=src["url"])
+    d = src.cache_dir if "cache_dir" in src.model_fields_set else ".cache/http"     # 寫 null ＝不用快取，沒寫 ＝ 預設資料夾
+    path = os.path.join(d, hashlib.sha1(src.url.encode()).hexdigest()[:16] + ".json") if d else None
+    return cached_fetch(fetch, src.url, path, _ttl_seconds(src.cache_ttl or "24h"), src.headers,
+                        20 if src.timeout is None else src.timeout, label=src.url)
 
 
 SCOPE_FIELDS = ("match", "series", "detect")   # 來源層級寫的，套到這個來源的每一筆（那一筆自己有寫的優先）
@@ -159,25 +160,25 @@ def load_calendar(calendar_config: CalendarConfig, *, fetch=_http_json, now: pd.
 
     來源可以寫 match、series、detect，套到它的每一筆：台灣行事曆的每一天沒有 match，不限定的話假日那天
     所有服務（含 24×7 的工廠）都不學、不判斷，假日當天真的故障也被吞掉；週休的辦公室系統要寫 match 限定。"""
-    entries = [e.to_dict() for e in calendar_config.calendar]
-    for src in calendar_config.sources:     # src 是 Provider；cache_dir 等「沒寫」與「寫 null」意思不同，所以這層仍用 src.get
-        if src.get("enabled") is False:
+    entries = [e.model_dump(exclude_unset=True, by_alias=True) for e in calendar_config.calendar]
+    for src in calendar_config.sources:     # src 是 Provider；cache_dir「沒寫」與「寫 null」意思不同，用 model_fields_set 分
+        if src.enabled is False:
             continue
-        p = src["provider"]
+        p = src.provider
         try:
             if p == "file":
-                data = _file_json(src["path"])
+                data = _file_json(src.path)
                 got = data.get("calendar", []) if isinstance(data, dict) else data
             elif p == "http":
                 data = _http_source(src, fetch)
                 got = (data or {}).get("calendar", []) if isinstance(data, dict) else (data or [])
             elif p == "taiwan":
-                got = taiwan_calendar(_years(src, now), url=src.get("url", TAIWAN_URL),
-                                      cache_dir=src.get("cache_dir", ".cache/calendar"),
-                                      ttl=_ttl_seconds(src.get("cache_ttl", "24h")), fetch=fetch)
+                got = taiwan_calendar(_years(src, now), url=src.url or TAIWAN_URL,
+                                      cache_dir=src.cache_dir if "cache_dir" in src.model_fields_set else ".cache/calendar",
+                                      ttl=_ttl_seconds(src.cache_ttl or "24h"), fetch=fetch)
             else:
                 raise ValueError(f"不認得的 provider：{p}")
-            scope = {k: src[k] for k in SCOPE_FIELDS if k in src}
+            scope = {k: getattr(src, k) for k in SCOPE_FIELDS if k in src.model_fields_set}
             entries += [{**scope, **e} for e in got]
         except Exception as e:
             _warn(f"行事曆來源 {p} 失敗：{type(e).__name__}: {e}")
@@ -189,10 +190,10 @@ def load_owners(chronic_config: ChronicConfig, *, fetch=_http_json) -> list[dict
     out = list(chronic_config.owners)
     srcs = chronic_config.owners_source or []
     for src in srcs if isinstance(srcs, list) else [srcs]:
-        p = src["provider"]
+        p = src.provider
         try:
             if p == "file":
-                data = _file_json(src["path"])
+                data = _file_json(src.path)
             elif p == "http":
                 data = _http_source(src, fetch)
             else:

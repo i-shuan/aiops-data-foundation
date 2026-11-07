@@ -19,8 +19,8 @@ class ApprovedRules(unittest.TestCase):
                           {"kind": "rule_suggestion", "status": "active", "rule_draft": {**DRAFT, "threshold": None}},  # 算不出門檻
                           {"kind": "override", "status": "active", "z": 7}])
         self.assertEqual(len(got), 1)
-        self.assertEqual(got[0]["threshold"], 2.4)
-        self.assertFalse(any(k.startswith("_") for k in got[0]))     # 給人看的註記不進規則
+        self.assertEqual(got[0].threshold, 2.4)
+        self.assertFalse(any(k.startswith("_") for k in got[0].model_dump()))     # 給人看的註記不進規則
 
     def test_expired_not_loaded(self):
         import pandas as pd
@@ -30,7 +30,7 @@ class ApprovedRules(unittest.TestCase):
                 {"kind": "rule_suggestion", "status": "active", "rule_draft": {**DRAFT, "name": "future"}, "expires_at": "2026-10-28T10:01:00+00:00"},
                 {"kind": "rule_suggestion", "status": "active", "rule_draft": {**DRAFT, "name": "never"}}]):
             got = C.approved_rules(object(), {}, now)
-        self.assertEqual([r["name"] for r in got], ["future", "never"])
+        self.assertEqual([r.name for r in got], ["future", "never"])
 
     def test_status_must_be_exactly_active(self):
         got = self.rules([{"kind": "rule_suggestion", "status": s, "rule_draft": DRAFT} for s in ("rejected", "inactive", None, "ACTIVE")])

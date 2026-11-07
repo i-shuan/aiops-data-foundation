@@ -1,5 +1,6 @@
 """回饋 → 建議：特徵全部算完再查表、老師傅的原因優先、不用累積、一筆可以多個動作；回測沒效果不建議
 （docs/pdca/meta/2026-11-suggest-features.md）。不連 ES。"""
+from tests.config_factory import series_of
 import unittest
 
 import pandas as pd
@@ -82,7 +83,7 @@ class Table(unittest.TestCase):
         from detect.detect_service import apply_min_count
         s = pd.DataFrame({"service": ["a", "b"], "route": ["r", "r"], "value": [0.1, 0.1], "n": [30, 30], "anomaly": [True, True]})
         ov = [{"kind": "override", "series": "http\\.error_rate", "match": {"service": "^a$"}, "min_count": 4, "status": "active"}]
-        out = apply_min_count(s, {"name": "http.error_rate", "min_count": 3}, ["service", "route"], ov)
+        out = apply_min_count(s, series_of({"name": "http.error_rate", "min_count": 3}), ["service", "route"], ov)
         self.assertEqual(out["anomaly"].tolist(), [False, True])       # a 要 4 筆（只有 3）；b 照設定檔的 3
 
 

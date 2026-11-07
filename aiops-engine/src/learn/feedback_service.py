@@ -191,7 +191,7 @@ def _propose(repo, _id: str, sug: dict, now, text: str) -> None:
 def _suggest_false_positives(repo, series_config: SeriesConfig, args, s: dict, z0: float, overrides: dict, now) -> int:
     """有人標誤報就提（不用累積）：特徵全部算完再查表，老師傅選的原因優先（suggest.suggest_for_false_positives）。"""
     fb = _feedback_rows(repo, args.days, now)
-    tz, specs = _timezone(series_config), {sp["name"]: sp for sp in series_config.series}
+    tz, specs = _timezone(series_config), {sp.name: sp for sp in series_config.series}
     n = 0
     for r in s["candidates"].to_dict("records"):
         if str(r["series"]).startswith("rule."):   # 靜態規則沒有 z、min_abs：門檻在 rules.yaml，這裡提不了
@@ -199,9 +199,9 @@ def _suggest_false_positives(repo, series_config: SeriesConfig, args, s: dict, z
             continue
         rows = fb[(fb["verdict"] == "false_positive") & (fb["series"] == r["series"]) & (fb["target"] == r["target"])]
         fps = _anomaly_details(repo, sorted(set(rows["anomaly_id"].dropna())))
-        spec = specs.get(r["series"]) or {}
-        sugs = F.suggest_for_false_positives(r["series"], r["target"], fps, z0, float(spec.get("min_abs", 0.0)), tz,
-                                             reasons=rows["fp_reason"].dropna().tolist(), current_min_count=spec.get("min_count"),
+        spec = specs.get(r["series"])
+        sugs = F.suggest_for_false_positives(r["series"], r["target"], fps, z0, float((spec and spec.min_abs) or 0.0), tz,
+                                             reasons=rows["fp_reason"].dropna().tolist(), current_min_count=spec and spec.min_count,
                                              deploy_at=_deploy_before(repo, fps))
         for sug in sugs:
             what = sug.get("kind", "override") + ":" + ",".join(k for k in ("z", "min_abs", "min_count", "reset_at", "start") if sug.get(k) is not None) \
@@ -268,7 +268,7 @@ def feedback_suggest(series_config: SeriesConfig, args) -> int:
     """誤報多次→放寬、漏報→收緊、整條序列 precision、同根因 ≥ N 次→規則；全部 proposed，人核准（adjust approve）才生效。"""
     repo, now = _connect(), _now(None)
     s = F.summarize(_anomaly_rows(repo, args.days, now), _feedback_rows(repo, args.days, now), min_false_positive=args.min_false_positive)
-    z0 = DetectOptions(**series_config.detect.to_dict()).z
+    z0 = DetectOptions(**series_config.detect.model_dump(exclude_none=True)).z
     overrides = {_override_key(a.get("series"), a.get("match")): a for a in load_adjustments(repo, series_config)
                  if (a.get("kind") or "override") == "override" and a.get("z")}
     n = (_suggest_false_positives(repo, series_config, args, s, z0, overrides, now) + _suggest_missed(repo, s, z0, overrides, now)
@@ -307,7 +307,7 @@ def _extract(repo, series_config: SeriesConfig, args, doc: dict, alert: dict | N
     doc["extract"] = {k: v for k, v in {**(ext["fields"] or {}), "ok": ext["ok"], "provider": ext["provider"], "reason": ext["reason"]}.items() if v not in (None, "")}
     print(f"抽取（{ext['provider']}）：" + (json.dumps(ext["fields"], ensure_ascii=False) if ext["ok"] else f"沒抽到（{ext['reason']}），只存原文"))
     if ext["ok"]:
-        doc["tuning_id"] = propose_from_text(repo, ext["fields"], ctx, args.text, args.by, now, DetectOptions(**series_config.detect.to_dict()).z)
+        doc["tuning_id"] = propose_from_text(repo, ext["fields"], ctx, args.text, args.by, now, DetectOptions(**series_config.detect.model_dump(exclude_none=True)).z)
     return ext
 
 
@@ -399,8 +399,8 @@ def incident_add(series_config: SeriesConfig, args) -> int:
 
 # 漏報表單的序列選單、時區：跟 detector 讀同一份 series.yaml（image 裡 configs/ 跟套件放在一起，路徵一樣）
 _SERIES_CFG = load_config(str(CODE_ROOT / "configs/baseline/series.yaml"), "series")
-SERIES_NAMES = [s["name"] for s in _SERIES_CFG["series"]]
-TIMEZONE = _SERIES_CFG.get("train", {}).get("timezone", "Asia/Taipei")
+SERIES_NAMES = [s.name for s in _SERIES_CFG.series]
+TIMEZONE = _SERIES_CFG.train.timezone or "Asia/Taipei"
 WEB_VERDICTS = ("true_positive", "false_positive", "wrong_root_cause")     # 表單能選的（漏報走 submit_missed）
 RCA_QUESTIONS = ("rca_cause_useful", "rca_action_useful")                  # 採納率的兩題（docs/pdca/phase5-learning-loop/2026-10-feedback-nl-extract.md）
 _ready: set[int] = set()   # 哪些連線已經確認過 index（每個連線一次）

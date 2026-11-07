@@ -1,4 +1,4 @@
-"""命令列共用的三樣：登記子命令的裝飾器（registry）、typer 參數 → Namespace → cmd_*(cfg, args) 的轉接（run）、typer.Option 的短名（Opt）。
+"""命令列共用的三樣：登記子命令的裝飾器（registry）、typer 參數 → Namespace → cmd_*(config, args) 的轉接（run）、typer.Option 的短名（Opt）。
 interface/cli/detect.py、feedback.py、情境加的子命令都用這一套，三邊登記出來的形狀一樣：{子命令名: register(app)}。"""
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ def registry(commands: dict[str, Callable[[typer.Typer], None]]):
 
 def run(handler, kind: str, /, **params) -> int:
     """typer 的參數（明確列出、不用 locals()）→ argparse.Namespace（屬性名跟以前一樣；id_、list_ 去掉底線），
-    讀設定（core.config，kind 挑模型），交給 handler(cfg, args)。前兩個是 positional-only：命令自己的參數也可以叫 kind。"""
+    讀設定（core.config，kind 挑模型），交給 handler(config, args)。前兩個是 positional-only：命令自己的參數也可以叫 kind。"""
     args = Namespace(**{k.rstrip("_"): v for k, v in params.items()})
     return handler(load_config(args.config, kind), args)
 

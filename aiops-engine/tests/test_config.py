@@ -32,7 +32,7 @@ class EveryConfigLoads(unittest.TestCase):
         self.assertEqual(set(MODELS), set(KINDS))
 
     def test_every_yaml_validates_and_is_unchanged(self):
-        """configs/ 的 23 份、tests/ 的 7 份：驗證過、回傳那一種的模型，而且 to_dict() 跟 yaml.safe_load 一樣（不塞預設值；`_` 開頭的 anchor 只給 yaml 自己用，不在裡面）。"""
+        """configs/ 的 23 份、tests/ 的 7 份：驗證過、回傳那一種的模型，而且「yaml 有寫的鍵」（model_dump(exclude_unset)）跟 yaml.safe_load 一樣（不塞預設值；`_` 開頭的 anchor 只給 yaml 自己用，不在裡面）。"""
         files = all_yaml()
         self.assertGreaterEqual(len(files), 30)
         self.assertEqual({k for _, k in files}, set(KINDS), "每一種設定檔至少要有一份實際的 yaml 被驗過")
@@ -43,61 +43,39 @@ class EveryConfigLoads(unittest.TestCase):
                 got = load_config(path, kind)
                 self.assertIsInstance(got, MODELS[kind])
                 expected = {k: v for k, v in raw.items() if not str(k).startswith("_")}
-                self.assertEqual(got.to_dict(), expected)
-                self.assertEqual(got, expected)         # 過渡層：跟 dict 比也相等
-                self.assertEqual(set(got.keys()), set(expected))     # 最上層的鍵依欄位宣告的順序，不是 yaml 的；清單與 dict 值的順序不變
+                self.assertEqual(got.model_dump(exclude_unset=True, by_alias=True), expected)
 
     def test_yaml_anchors_are_expanded_and_not_kept(self):
         """rules.yaml 用 `_svc: &svc …` 在別處引用：yaml 展開後值在 rules 裡，`_svc` 這個鍵本身不留在模型裡。"""
         got = load_config(os.path.join(CODE, "configs", "baseline", "rules.yaml"), "rules")
-        self.assertNotIn("_svc", got)
-        self.assertEqual(got["rules"][0]["by"][0], "resource.attributes.service.name")
+        self.assertNotIn("_svc", got.model_dump())
+        self.assertEqual(got.rules[0].by[0], "resource.attributes.service.name")
 
 
-class ModelsReadLikeDicts(unittest.TestCase):
-    """過渡層（Strict 的 get／[]／in／keys）：只有 yaml 有寫的鍵才算有，跟原本的 dict 一樣。步驟 3 拆掉時這個 class 一起拿掉。"""
+class ModelsAreModels(unittest.TestCase):
+    """設定是模型，用屬性讀；「yaml 有寫」跟「沒寫」用 model_fields_set 分（寫 null 與沒寫意思不同的地方用）。"""
 
     def setUp(self):
         self.cfg = validate({"timezone": "Asia/Taipei", "days": 3}, "chronic")
 
-    def test_written_keys_only(self):
-        self.assertEqual(self.cfg["days"], 3)
-        self.assertEqual(self.cfg.get("days", 7), 3)
-        self.assertIn("days", self.cfg)
-        self.assertEqual(set(self.cfg.keys()), {"timezone", "days"})
+    def test_attributes_and_defaults(self):
+        self.assertEqual(self.cfg.days, 3)
+        self.assertEqual(self.cfg.min_days, 6)                   # 沒寫：模型的預設
 
-    def test_unwritten_key_is_absent_even_though_the_model_has_a_default(self):
-        self.assertNotIn("min_days", self.cfg)
-        self.assertEqual(self.cfg.get("min_days", 99), 99)       # 沒寫：get 回你給的預設
-        self.assertEqual(self.cfg.min_days, 6)                   # 屬性：模型的預設
-        with self.assertRaises(KeyError):
-            self.cfg["min_days"]
+    def test_written_vs_unwritten(self):
+        self.assertEqual(self.cfg.model_fields_set, {"timezone", "days"})
+        self.assertNotIn("min_days", self.cfg.model_fields_set)
 
-    def test_no_field_shadows_the_dict_like_methods(self):
-        """欄位名不能跟過渡層的方法同名（keys、items、values、get…）：pydantic 只警告，欄位會蓋掉方法，`**spec` 就壞。
-        yaml 的 `keys` 因此叫 key_names（alias keys）。"""
-        import common.config.common as C
-        reserved = {"keys", "items", "values", "get", "to_dict"}
-        stack, seen, bad = list(C.Strict.__subclasses__()), set(), []
-        while stack:
-            m = stack.pop()
-            if m in seen:
-                continue
-            seen.add(m)
-            stack += m.__subclasses__()
-            bad += [f"{m.__name__}.{n}" for n in m.model_fields if n in reserved]
-        self.assertEqual(bad, [])
+    def test_not_dict_like_any_more(self):
+        for use in (lambda: self.cfg["days"], lambda: self.cfg.get("days"), lambda: self.cfg.to_dict(), lambda: {**self.cfg}):
+            with self.assertRaises((TypeError, AttributeError)):
+                use()
 
-    def test_series_unpacks_like_a_mapping_and_keeps_yaml_names(self):
+    def test_yaml_key_keys_is_the_attribute_key_names(self):
         cfg = validate({"series": [{"name": "a", "keys": ["service"], "by": ["service.name"], "index": "m-*", "value": "count"}]}, "series")
-        spec = cfg["series"][0]
-        self.assertEqual(spec["keys"], ["service"])         # yaml 的名字
-        self.assertEqual(spec.key_names, ["service"])       # 屬性的名字
-        self.assertEqual({**spec, "value": "x"}["keys"], ["service"])
-        self.assertEqual(spec.to_dict()["keys"], ["service"])
-
-    def test_unpack_like_a_mapping(self):
-        self.assertEqual({**self.cfg}, {"timezone": "Asia/Taipei", "days": 3})
+        spec = cfg.series[0]
+        self.assertEqual(spec.key_names, ["service"])
+        self.assertEqual(spec.model_dump(by_alias=True, exclude_unset=True)["keys"], ["service"])     # 寫出去又是 yaml 的名字
 
 
 class BadConfigsAreCaught(unittest.TestCase):

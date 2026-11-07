@@ -31,7 +31,7 @@ class Detector(ABC):
     interval_default = "1m"          # stamp() 取整的粒度：config.interval 沒寫時用這個
 
     def __init__(self, config: RulesConfig | PeerConfig | QualityConfig, args, repo: Repos | None = None):
-        self.config = self.cfg = config      # cfg 是舊名，還沒換成屬性存取的子類別（rules、quality）仍用它；換完就拿掉
+        self.config = config
         self.args, self.repo = args, repo
         self.names = set(args.only.split(",")) if getattr(args, "only", None) else None
         self.now = self.slot = None
@@ -49,23 +49,23 @@ class Detector(ABC):
 
     def stamp(self) -> pd.Timestamp:
         """這一輪異常的 @timestamp：now 取整到 interval。"""
-        return self.now.floor(_freq(self.cfg.get("interval", self.interval_default)))
+        return self.now.floor(_freq(getattr(self.config, "interval", None) or self.interval_default))
 
     @abstractmethod
-    def checks(self) -> list[dict]:
+    def checks(self) -> list:
         """要跑的檢查（prepare、now、slot 都有了才呼叫，要先載入、先驗的也在這裡）。"""
 
-    def selected(self, check: dict) -> bool:
-        return self.names is None or check["name"] in self.names
+    def selected(self, check) -> bool:
+        return self.names is None or check.name in self.names
 
     @abstractmethod
-    def evaluate(self, check: dict) -> list[Anomaly]: ...
+    def evaluate(self, check) -> list[Anomaly]: ...
 
-    def on_error(self, check: dict, exc: Exception) -> None:
+    def on_error(self, check, exc: Exception) -> None:
         """一個檢查壞了怎麼辦：預設整輪失敗（rules 覆寫成記下來、跳過那一條）。"""
         raise exc
 
-    def after_check(self, check: dict, hits: list[Anomaly]) -> None:
+    def after_check(self, check, hits: list[Anomaly]) -> None:
         """一個檢查跑完（異常都印了）之後要印的（peer 的「幾組、幾個 Pod 比過」）。"""
 
     def doc_id(self, a: Anomaly) -> str:
