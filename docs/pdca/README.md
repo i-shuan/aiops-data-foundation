@@ -62,6 +62,15 @@ PDCA 的意思：**Plan** 定規則與門檻 → **Do** 收值、判斷、報告
 | ⑦⑨ 相似事故檢索（RAG 的檢索，欄位比對） | ✅ 模擬資料驗過；門檻、權重是估的；匯入指令有了，合成 20 筆 recall@3 50%，等真實事故單 | [phase4-rca-llm/2026-10-similar-incidents.md](phase4-rca-llm/2026-10-similar-incidents.md) |
 | ⑦⑨ LLM：根因報告摘要（只加註、每句附依據） | ✅ template 與真的模型（OpenAI）都跑過，每句附依據；評測集 ❌ | [phase4-rca-llm/2026-10-llm-summary.md](phase4-rca-llm/2026-10-llm-summary.md)、[phase5-learning-loop/2026-10-fix-feedback-ux.md](phase5-learning-loop/2026-10-fix-feedback-ux.md) |
 
+### 使用者提的問題（2026-11-07，還沒開工）
+
+| 問題 | 現在做到哪 | 還缺 |
+|---|---|---|
+| ④ 流量會變、有季節性嗎？ | 動態基準線學習 (Dynamic Baseline Learning) 每條序列分 168 格（星期幾 × 幾點）各學一個中位數，歷史不夠退到「每天同一小時」再退到「不分時段」；粒度依流量自動挑（`pick_resolution`）；假日、活動用 `calendar.yaml` 不學不報；月底批次用 `recurring_override` 放寬 | 只有「一週」這個週期；月初／月底以外的月週期、年週期（年底、季末）、長期趨勢都沒有（[rca/](../rca/README.md) 的 📝「趨勢」） |
+| ④⑥ 突然爆量怎麼處理？ | 偏太多（`instant_z`）不等確認直接報，其餘要連續 `confirm_points` 個時間窗；Pod 同儕橫向比對 (Peer Comparison) 抓「只有一個 Pod 爆」；爆完停在新水準由 `level_shift` 提 `reset_point`；預先知道的活動寫進行事曆 | 分不出「好的爆量」（活動、流量真的變多，錯誤率與延遲沒變）跟出事：沒有「流量變大所以延遲變高」的換算，也沒有「請求數爆但錯誤率正常就降級」 |
+| ⑨ 回饋後抽什麼資料調門檻？ | 誤報：偏差多大（→ `min_abs`）、z 多少（→ z × 1.4）、事件數（→ `min_count`）、是不是集中在同一時段（→ 時段放寬）、老師傅選的原因優先；整條序列看 precision（<0.7 放寬、>0.95 收緊）；漏報 → z × 0.8；同根因確認 ≥ 3 次 → 規則，門檻取每件事故最低的異常值；事故 → 那段不學。全部 proposed → 回測 → 人核准（`learn/param_suggester.py`） | 真實回饋還沒有，係數（1.4、0.8、0.7）是估的 |
+| ⑦⑨ 歷史 case 怎麼幫 RCA 定位？ | 只拿來**分類**：指紋（服務、API、慢的段、錯的起點、指標組合、log 樣式）找最像的 3 件、投票說像哪一類、列出為什麼像；刻意不拿舊根因當答案（`llm/similar.py`） | 想法：(1) 拿 case 的「慢的段、錯的起點」當 `rca_analyzer` 排序的先驗，當下的 trace 還是要證實；(2) 每類列「先查什麼」清單；(3) case ≥ 50 件用 `learn_weights` 學權重；(4) 當 RCA 的回歸測試集。要先有真實事故單 |
+
 **之後**：Elastic 付費 AIOps 功能評估（試用只能開一次，等資料累積夠再開）；工廠（EAP、機台、MES…）不在目前範圍。
 
 **建議順序**：正式排程（只寫入不通知）→ 收斂(1)(2)＋告警出口＋事故紀錄、回饋 → 用 2～4 週真實資料校正門檻 → LLM 摘要 → 回測、版本 → 收斂(3)、自動調門檻。
