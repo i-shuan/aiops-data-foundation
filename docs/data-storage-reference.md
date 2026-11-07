@@ -11,7 +11,7 @@ AIOps 與 Grafana 的資料各存在哪裡、誰寫、多久一次、會不會�
 | 訓練（基準線）存哪？ | PostgreSQL 的 `aiops_baseline`，不是模型檔 |
 | RCA 報告存哪？ | PostgreSQL 的 `aiops_alerts`，一件一筆，報告全文在 `doc` 的 `report` |
 | Grafana 怎麼拿到？ | 用唯讀帳號直接查 PostgreSQL（SQL）；通知裡的報告連結由回饋網頁從 `aiops_alerts` 讀出來顯示 |
-| 會自己消失的有哪些？ | 原始資料有 ILM（log、metrics、trace）；`aiops_baseline` 每次訓練被取代；`aiops_anomalies`（90 天）、`aiops_trace_segments`（35 天）、結案的 `aiops_alerts`（180 天）由 `detector prune` 每天**先壓縮歸檔、再刪**（歸檔見下面「過期資料的歸檔」）。人工判斷的三張表**不刪**，備份是 PostgreSQL 的備份（DBA） |
+| 會自己消失的有哪些？ | 原始資料有 ILM（log、metrics、trace）；`aiops_baseline` 每次訓練被取代；`aiops_anomalies`（90 天）、`aiops_trace_segments`（35 天）、結案的 `aiops_alerts`（180 天）由 `detector prune` 每天**先壓縮（一天打包成一筆）、再刪**（見下面「過期資料的壓縮」）。人工判斷的三張表**不刪**，備份是 PostgreSQL 的備份（DBA） |
 | Grafana 自己存什麼？ | 設定在 repo 的檔案；內部 sqlite 在容器裡、沒掛 PVC，Pod 重建就清掉 |
 
 ## PostgreSQL：engine 自己的資料
@@ -21,9 +21,10 @@ AIOps 與 Grafana 的資料各存在哪裡、誰寫、多久一次、會不會�
 | 表 | 存什麼 | 誰寫、多久一次 | 會不會自己消失 |
 |---|---|---|---|
 | `aiops_baseline`（`ts` = `trained_at`） | 動態基準線：每條序列 × 星期幾 × 小時的中位數、MAD、p05、p95 | `detector train`，每天 02:00 | **被取代**：先寫新的，再刪這次沒有的舊版（改了粒度、4 週內沒出現的 API）；原始資料查不到任何資料時不刪 |
-| `aiops_trace_segments` | trace 每一段的統計：每個 API × 每一段 × 每 5 分鐘的呼叫次數、耗時、錯誤率、吞例外比例；另有時鐘差 | `detector trace-collect`，每 5 分鐘 | `detector prune` 每天歸檔、刪超過 **35 天**的（[prune.yaml](../aiops-engine/configs/baseline/prune.yaml)；trace-train 最多回看 4 週）。筆數固定：API × 段 × 每 5 分鐘，跟流量、有沒有出事無關 |
-| `aiops_anomalies` | 異常總表：每個異常一筆（序列、對象、值、平常值、z、status） | `detect`（每分鐘）、`rules`（每分鐘）、`peer`、`trace-detect`、`quality` | `detector prune` 每天歸檔、刪超過 **90 天**的；同一個對象同一時槽的 `_id` 固定，重跑是覆蓋 |
-| `aiops_alerts` | 事故（一件一筆）：標題、摘要、**RCA 報告全文**、LLM 摘要、相似事故、歷史線索、連帶的上游服務；另有 `heartbeat`、`detect-status`、`source-check-*` 幾筆狀態 | `investigator alert`，每分鐘；開著的件每輪覆蓋同一筆 | `detector prune` 每天歸檔、刪**結案超過 180 天**的；開著的件、狀態文件不刪 |
+| `aiops_trace_segments` | trace 每一段的統計：每個 API × 每一段 × 每 5 分鐘的呼叫次數、耗時、錯誤率、吞例外比例；另有時鐘差 | `detector trace-collect`，每 5 分鐘 | `detector prune` 每天打包、刪超過 **35 天**的（[prune.yaml](../aiops-engine/configs/baseline/prune.yaml)；trace-train 最多回看 4 週）。筆數固定：API × 段 × 每 5 分鐘，跟流量、有沒有出事無關 |
+| `aiops_anomalies` | 異常總表：每個異常一筆（序列、對象、值、平常值、z、status） | `detect`（每分鐘）、`rules`（每分鐘）、`peer`、`trace-detect`、`quality` | `detector prune` 每天打包、刪超過 **90 天**的；同一個對象同一時槽的 `_id` 固定，重跑是覆蓋 |
+| `aiops_alerts` | 事故（一件一筆）：標題、摘要、**RCA 報告全文**、LLM 摘要、相似事故、歷史線索、連帶的上游服務；另有 `heartbeat`、`detect-status`、`source-check-*` 幾筆狀態 | `investigator alert`，每分鐘；開著的件每輪覆蓋同一筆 | `detector prune` 每天打包、刪**結案超過 180 天**的；開著的件、狀態文件不刪 |
+| `aiops_packed` | 超過保留天數的資料，一天打包成一筆 gzip（見下面「過期資料的壓縮」） | `detector prune`，每天 03:30 | 超過 **365 天**的由 prune 刪（`pack.keep_days`） |
 | `aiops_incidents`（`ts` = `start`） | 事故庫：老師傅確認過的事故、根因分類、怎麼看出來的、指紋 | 回饋網頁、`incident` 指令、`import-incidents` | **不會**，刻意不刪；備份靠 PostgreSQL 的備份 |
 | `aiops_incident_vectors` | 確認過的事故的向量（相似事故的向量輔助；有設 embedding 才有） | 相似事故檢索時補算（事故改了就重算） | 跟著事故；pgvector 有裝另有 `embedding` 欄 |
 | `aiops_feedback` | 值班回饋：真的／誤報／根因錯／漏報，一句話與抽取結果 | 回饋網頁、`feedback` 指令 | **不會**，刻意不刪 |
@@ -96,26 +97,24 @@ APM 寫的三種資料 engine 只讀，保留天數不在這個 repo 管；`trac
 
 排程器 pod 有一個 `emptyDir`，放心跳檔（`touch`）、台灣行事曆的快取。Pod 重建就沒了，兩者都能重新產生。
 
-## 過期資料的歸檔
+## 過期資料的壓縮
 
-`detector prune` 刪之前，把要刪的那幾筆壓縮存成檔案（[common/infra/archive.py](../aiops-engine/src/common/infra/archive.py)）。讀回的步驟見 [deploy-how-to.md](deploy-how-to.md#過期資料的歸檔讀回)。
+`detector prune` 對超過保留天數的資料**不直接刪**：一批一批讀出來，**一天打包成一筆 gzip**，寫進 PostgreSQL 的 `aiops_packed`，才刪原本的細筆（[common/infra/pack.py](../aiops-engine/src/common/infra/pack.py)）。不寫檔、不用資料夾、不用 PVC。讀回的步驟見 [deploy-how-to.md](deploy-how-to.md#過期資料的壓縮讀回)。
 
 | 項目 | 現況 |
 |---|---|
-| 放哪 | 自己指定（[prune.yaml](../aiops-engine/configs/baseline/prune.yaml) 的 `archive.dir`；環境變數 `AIOPS_ARCHIVE_DIR` 蓋過，`off` = 不歸檔直接刪）。**預設不歸檔**（沒設就直接刪）；要歸檔設 `AIOPS_ARCHIVE_DIR`（helm 的 `archiveDir`）。chart 不建儲存空間，資料夾要自己掛一個 Pod 重建不會消失的（公司的 NFS 之類），寫在容器裡換版就沒了 |
-| 檔名 | `<表>/<年>/<表>-<年-月-日>.jsonl.gz`，一天一個（依那筆的時間、prune.yaml 的時區）；同一天再歸檔接在後面 |
-| 內容 | 一行一筆 `{"table", "id", "ts", "doc"}`，`doc` 是整份文件；`zcat` 直接看得懂（中文不跳脫） |
-| 大小 | gzip 約壓成 1/8（本機實測 612 筆 trace 統計 196 KB → 24 KB）；中型規模（trace 統計每天 72 萬筆）約 27 MB／天，一年約 10 GB（推論，照實測比例算） |
-| 留多久 | `archive.keep_days`（附的設定 365 天）：檔名的日期超過就刪；不寫 = 不刪 |
-| 安全 | 先寫檔、fsync，才刪資料庫那幾筆（一次 `archive.batch` 筆，預設 20,000）。資料夾寫不進去（沒掛、沒權限、磁碟滿）**一筆都不刪**、指令回 1（排程標失敗、下一次再試）。寫到一半當掉：那幾筆還沒刪、下一次再歸檔；讀的時候不完整的尾巴跳過，同 id 寫回是覆蓋 |
-| 不在歸檔裡的 | 事故、回饋、調整、對照覆寫（本來就不刪）；基準線（每天重算） |
+| 放哪 | `aiops_packed`：一筆 = 某張表某一天的一批。`doc` 有 `table`、`day`、`n`（幾筆）、`data`（base64 的 gzip，解開是一行一筆的 `{id, ts, doc}`）；`ts` = 那一天 |
+| 大小 | 約壓成 1/6（本機實測 612 筆 trace 統計：jsonb 196 KB → 31.5 KB，含 base64）；中型規模（trace 統計每天 72 萬筆）約 35 MB／天（推論，照實測比例算） |
+| 留多久 | `pack.keep_days`（附的設定 365 天）：那一天超過就刪；`null` = 不刪。`pack: null` = 不打包、超過天數直接刪 |
+| 安全 | 先寫 `aiops_packed`，才刪細筆（一次 `pack.batch` 筆，預設 20,000）。寫不進去（資料庫磁碟滿、權限）這一批不刪、指令回 1，排程標失敗、下一次再試。寫完當掉沒刪：下一次會再打包一次，讀回是同 id 覆蓋，不會重複 |
+| 不在裡面的 | 事故、回饋、調整、對照覆寫（本來就不刪）；基準線（每天重算） |
 
 ## 保留與備份的現況
 
 | 項目 | 現況 |
 |---|---|
 | `aiops_feedback`、`aiops_incidents`、`aiops_tuning`、`aiops_mapping`（人工判斷） | 不自動刪；備份是公司 PostgreSQL 的備份（**DBA 決定頻率與保留**，申請時要講，見 [deploy-how-to.md](deploy-how-to.md#1b-postgresqlengine-自己的資料)）。以前在 ES 時的 snapshot（[kibana-dev-tools.txt](../elasticsearch/kibana-dev-tools.txt) 第 5 段）搬完就不用了 |
-| `aiops_anomalies`、`aiops_trace_segments`、結案的 `aiops_alerts` | 排程 `prune` 每天 03:30 歸檔、刪超過 90／35／180 天的（[prune.yaml](../aiops-engine/configs/baseline/prune.yaml)，天數是估的）。異常刪了之後，事故的 `anomaly_ids` 對不到的那幾筆，回饋退回「一件一筆」，其他不受影響 |
+| `aiops_anomalies`、`aiops_trace_segments`、結案的 `aiops_alerts` | 排程 `prune` 每天 03:30 打包、刪超過 90／35／180 天的（[prune.yaml](../aiops-engine/configs/baseline/prune.yaml)，天數是估的）。異常刪了之後，事故的 `anomaly_ids` 對不到的那幾筆，回饋退回「一件一筆」，其他不受影響 |
 | `aiops_baseline` | 每天重寫的衍生資料；資料庫還原後不用重 train。重建資料庫沒還原的話要手動跑一次 `train`，否則等隔天 02:00（期間基準線這一路停擺，Grafana 的 `aiops-baseline-missing` 會響） |
 
 測試叢集 2026-11-01 的大小（當時在 ES：`aiops_alerts` 32 筆 1 MB、`aiops_anomalies` 157 筆 0.5 MB、`aiops_baseline` 1,512 筆 0.5 MB、`aiops_trace_segments` 3,431 筆 1.2 MB）只是量級參考，不代表正式環境。量最大的是 `aiops_anomalies`、`aiops_trace_segments`、`aiops_baseline`（依序列數 × 對象數），其他每天幾十到幾百筆。

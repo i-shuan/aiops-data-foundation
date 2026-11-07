@@ -150,23 +150,21 @@ engine 只把告警寫進 PostgreSQL 的 `aiops_alerts`，**不自己發通知**
 
 確認：Grafana 的 AIOps 資料夾有 `aiops-rca`、`aiops-learning`、`aiops_feedback` 三個儀表板；Alerting 有 `aiops-incident`、`aiops-heartbeat`、`aiops-baseline-missing` 三條規則；data source 測試通過。
 
-## 過期資料的歸檔讀回
+## 過期資料的壓縮讀回
 
-`detector prune` 刪掉的舊資料先壓縮存在你指定的歸檔資料夾（放哪、檔名、留多久見 [data-storage-reference.md](data-storage-reference.md#過期資料的歸檔)）。要查舊的：
+`detector prune` 對超過保留天數的資料，先一天打包成一筆 gzip 放進 PostgreSQL 的 `aiops_packed`，才刪細筆（放哪、大小、留多久見 [data-storage-reference.md](data-storage-reference.md#過期資料的壓縮)）。不用 PVC、不用資料夾。要查舊的：
 
 ```bash
-# 看有哪些檔（一天一個）
-kubectl -n aiops exec deploy/aiops-engine -c scheduler -- ls -R /mnt/aiops-archive
-# 直接看內容（一行一筆 JSON）
-kubectl -n aiops exec deploy/aiops-engine -c scheduler -- sh -c 'zcat /mnt/aiops-archive/aiops_anomalies/2026/aiops_anomalies-2026-08-01.jsonl.gz | head'
-# 讀回 PostgreSQL（同 id 覆蓋，可以重跑）：一個檔、一個資料夾，或整個歸檔；--table 只讀回一張表，--dry-run 只數
-kubectl -n aiops exec deploy/aiops-engine -c scheduler -- python3 -m main detector db restore /mnt/aiops-archive/aiops_anomalies/2026 --dry-run
-kubectl -n aiops exec deploy/aiops-engine -c scheduler -- python3 -m main detector db restore /mnt/aiops-archive/aiops_anomalies/2026
+# 有哪些天、各幾筆
+psql "$AIOPS_PG_DSN" -c "select doc->>'table' t, doc->>'day' d, doc->>'n' n from aiops_packed order by 1,2"
+# 讀回原表（同 id 覆蓋，可以重跑）：--table 只讀某張表，--from／--to 限日期（含），--dry-run 只數
+kubectl -n aiops exec deploy/aiops-engine -c scheduler -- python3 -m main detector db restore --table aiops_anomalies --from 2026-07-01 --to 2026-07-31 --dry-run
+kubectl -n aiops exec deploy/aiops-engine -c scheduler -- python3 -m main detector db restore --table aiops_anomalies --from 2026-07-01 --to 2026-07-31
 ```
 
-- distributed 把 `deploy/aiops-engine -c scheduler` 換成 `deploy/aiops-worker-batch`（prune 在 batch 佇列，歸檔資料夾要掛在它上面）。
-- 讀回來的資料還是比保留天數舊，**下一次 prune（每天 03:30）會再歸檔、刪掉**。要查久一點，先把排程的 prune 拿掉。
-- 沒設 `AIOPS_ARCHIVE_DIR`（預設）：不歸檔、直接刪；設成 `off` 也一樣。
+- distributed 把 `deploy/aiops-engine -c scheduler` 換成 `deploy/aiops-worker-batch`。
+- 讀回來的資料還是比保留天數舊，**下一次 prune（每天 03:30）會再打包、刪掉**。要查久一點，先把排程的 prune 拿掉。
+- 不想打包：`prune.yaml` 寫 `pack: null`，超過天數直接刪。
 
 ## 可以晚點做的
 

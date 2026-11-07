@@ -216,7 +216,7 @@ class PgRepository:
         return self.count(self.PRUNE_WHERE, (cutoff,))
 
     def prune_rows(self, cutoff: datetime, limit: int) -> list[dict]:
-        """要刪的、最舊的 limit 筆：[{id, ts, doc}]（歸檔用，寫好檔案再 delete_ids）。"""
+        """要刪的、最舊的 limit 筆：[{id, ts, doc}]（打包用，寫好 aiops_packed 再 delete_ids）。"""
         self.ensure()
         return self.db.query(f"SELECT id, ts, doc FROM {self.table} WHERE {self.PRUNE_WHERE} ORDER BY ts NULLS FIRST, id LIMIT {int(limit)}",
                              (cutoff,))
@@ -225,7 +225,7 @@ class PgRepository:
         return self.delete_where("id = ANY(%s)", (list(ids),)) if ids else 0
 
     def restore(self, rows: list[tuple[str, datetime | None, dict]]) -> None:
-        """歸檔讀回（detector db restore）：照原本的 id、ts 寫回；同 id 覆蓋。"""
+        """打包的資料讀回（detector db restore）：照原本的 id、ts 寫回；同 id 覆蓋。"""
         if rows:
             self.ensure()
             self.db.executemany(self._upsert_sql(), [(i, ts, dumps(d)) for i, ts, d in rows])

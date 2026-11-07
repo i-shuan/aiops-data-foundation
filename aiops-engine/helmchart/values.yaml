@@ -51,10 +51,6 @@ llm:
   baseUrl: ""                  # 空的用公網 api.openai.com／api.anthropic.com；內網走閘道時填閘道網址（不含 /v1）
   apiKey: ""
 
-# 過期資料的歸檔資料夾（detector prune 刪之前先壓縮存在這裡；common/config/prune.py）。空的 = 不歸檔、直接刪。
-# chart 不建儲存空間：填的路徑要是 Pod 重建不會消失的（自己用 configOverrides 之外的方式掛公司的 NFS 等）
-archiveDir: ""
-
 configOverrides: {}            # {baseline: {series: <內容>}} → 掛在 /app/configs/baseline/series.yaml 蓋掉 image 裡的
 
 # 排程：single 的排程器、distributed 的 beat 共用這段。第一階段只開 stage 1 的 4 個（rules、detect、alert、train）；跑穩、看過一輪誤報再

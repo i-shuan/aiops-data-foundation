@@ -62,9 +62,9 @@ src/
 │  ├─ trace/      span_merge（合成 traces-merged-*）· path_builder · path_service（工廠履歷）
 │  └─ store/      models（trace 資料物件、raw→統一 span）· trace_repo · series_repo · owner_repo
 └─ common/        共用底層
-   ├─ config/     common（共用型別）· loader（讀檔驗證）· settings（環境變數）· prune（保留天數、歸檔）
+   ├─ config/     common（共用型別）· loader（讀檔驗證）· settings（環境變數）· prune（保留天數、打包）
    ├─ clock/      parse（時間長度、時間點、時區）· window（TimeWindow、now_of）· stamp
-   ├─ infra/      env · es（連線、文件基底）· pg · repos（Repos）· archive · prune（detector prune：歸檔再刪）
+   ├─ infra/      env · es（連線、文件基底）· pg · repos（Repos）· pack · prune（detector prune：打包再刪）
    ├─ types/      incident（事故與指紋）
    └─ scenario/   base · it_otel／it_apm／factory／metrics_only.yaml（情境資料檔）
 ```

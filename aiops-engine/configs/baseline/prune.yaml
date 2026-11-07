@@ -4,13 +4,10 @@
 # 不在這裡的（不清）：事故、回饋、調整、對照覆寫（人工判斷，事故紀錄要長留，備份交給 PostgreSQL 的備份）、
 # 基準線（每天 train 覆蓋）、進度（一筆）。
 #
-# 要歸檔（刪之前先壓縮存成檔案，一天一個 <表>-<年-月-日>.jsonl.gz；要查舊的用 detector db restore 讀回）：
-# 設環境變數 AIOPS_ARCHIVE_DIR=<資料夾>（helm 的 archiveDir），或在這裡取消註解 archive。
-# **資料夾要是 Pod 重建不會消失的**（公司的 NFS 之類）；寫在容器裡換版就沒了。資料夾寫不進去就一筆都不刪（排程標失敗）。
-# 沒設 = 不歸檔、超過天數直接刪。
-# archive:
-#   dir: /mnt/aiops-archive
-#   keep_days: 365       # 歸檔檔案本身留幾天；不寫 = 不刪
+# pack：超過保留天數的資料不是直接刪，而是一天打包成一筆 gzip（約 1/6～1/8 大）放進 PostgreSQL 的 aiops_packed，細筆才刪；
+# 要查舊的用 detector db restore 讀回原表。keep_days 是打包的資料再留幾天（null = 不刪）。寫 pack: null = 不打包、超過天數直接刪。
+pack:
+  keep_days: 365
 tables:
   - table: anomalies     # 異常總表：回饋、回測最多看 4 週；事故的 anomaly_ids 對不到舊異常時只影響「每個異常各一筆回饋」，退回一件一筆
     keep_days: 90

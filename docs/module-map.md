@@ -120,7 +120,7 @@ trace 合成時的部門、群組跟著歸屬的欄位名（含核准過的覆�
 ### ③ 存
 
 - **做什麼**：engine 自己的資料（異常、基準線、告警、事故、回饋、調整、對照覆寫）寫進 PostgreSQL，一種一張表（`id`、`ts`、`doc jsonb`）；原始資料與 `traces-merged-*` 在 ES。
-- **功能**：每張表一個存取類別（各功能資料夾的 `store/`）；表名、SQL 只能出現在 `store/` 和 `common/`（`tests/test_layers.py` 鎖著）。`detector db init`／`status`／`import-es`（以前存在 ES 的搬過來）／`restore`（歸檔讀回）。過期的資料 `detector prune` 每天刪；設了 `AIOPS_ARCHIVE_DIR` 就先壓縮歸檔（一天一個 `.jsonl.gz`）再刪。
+- **功能**：每張表一個存取類別（各功能資料夾的 `store/`）；表名、SQL 只能出現在 `store/` 和 `common/`（`tests/test_layers.py` 鎖著）。`detector db init`／`status`／`import-es`（以前存在 ES 的搬過來）／`restore`（讀回打包的資料）。過期的資料 `detector prune` 每天先一天打包成一筆 gzip（放 PostgreSQL 的 `aiops_packed`）再刪細筆，`restore` 讀回。
 - **程式**：各功能的 `store/`、`aiops-engine/src/common/infra/pg.py`（PostgreSQL 的基底）、`aiops-engine/src/common/infra/es.py`（原始資料）。
 
 ### ④ 判斷：這個值算不算異常
