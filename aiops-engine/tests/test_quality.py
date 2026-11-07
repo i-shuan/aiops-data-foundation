@@ -1,4 +1,5 @@
 """資料品質檢查（detector.quality）的計算：路由沒參數化、欄位缺、資料停了、落到 unassigned 變多。"""
+from shared.config.quality import QualityCheck
 import unittest
 
 import pandas as pd
@@ -10,6 +11,11 @@ from shared.scenario import load_scenario
 
 SC = load_scenario()
 
+
+
+def _check(name, title):
+    """describe 只看 name、title；其他欄位是模型要求的最少的。"""
+    return QualityCheck(name=name, title=title, type="present", index="x")
 
 class LooksLikeId(unittest.TestCase):
     def test_ids(self):
@@ -154,7 +160,7 @@ class Present(unittest.TestCase):
 class Describe(unittest.TestCase):
     def test_message(self):
         h = {"key": {"service": "order"}, "why": ["從 40 個變 400 個"], "examples": ["/orders/1"]}
-        self.assertEqual(Q.describe({"name": "quality.route_cardinality", "title": "路由數暴增"}, h),
+        self.assertEqual(Q.describe(_check("quality.route_cardinality", "路由數暴增"), h),
                          "路由數暴增：order，從 40 個變 400 個（例如 /orders/1）")
 
 
@@ -195,7 +201,7 @@ class MissingBucket(unittest.TestCase):
 
     def test_message_names_the_missing_key(self):
         h = {"key": {"namespace": None}, "why": ["100% 缺 service.name"]}
-        self.assertEqual(Q.describe({"name": "x", "title": "log 缺服務或 Pod"}, h),
+        self.assertEqual(Q.describe(_check("x", "log 缺服務或 Pod"), h),
                          "log 缺服務或 Pod：沒有 namespace，100% 缺 service.name")
 
     def test_stopped_with_none_key(self):

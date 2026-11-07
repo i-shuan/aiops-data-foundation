@@ -10,6 +10,9 @@ from abc import ABC, abstractmethod
 
 import pandas as pd
 
+from shared.config.peer import PeerConfig
+from shared.config.quality import QualityConfig
+from shared.config.rules import RulesConfig
 from shared.infra.es import ES
 from detect.store.models import Anomaly
 from shared.infra.repos import Repos
@@ -25,10 +28,11 @@ class Detector(ABC):
     """
 
     level: str                       # 寫進異常的 level
-    interval_default = "1m"          # stamp() 取整的粒度：cfg.interval 沒寫時用這個
+    interval_default = "1m"          # stamp() 取整的粒度：config.interval 沒寫時用這個
 
-    def __init__(self, cfg: dict, args, repo: Repos | None = None):
-        self.cfg, self.args, self.repo = cfg, args, repo
+    def __init__(self, config: RulesConfig | PeerConfig | QualityConfig, args, repo: Repos | None = None):
+        self.config = self.cfg = config      # cfg 是舊名，還沒換成屬性存取的子類別（rules、quality）仍用它；換完就拿掉
+        self.args, self.repo = args, repo
         self.names = set(args.only.split(",")) if getattr(args, "only", None) else None
         self.now = self.slot = None
         self.docs: list[tuple[str, dict]] = []

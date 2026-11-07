@@ -1,4 +1,5 @@
 """tests/fakes.MemoryRepos：不用 ES 也能跑 train → detect、rules、peer、相似事故（指令的 repo= 參數）。不連 ES。"""
+from shared.config import validate
 import contextlib
 import io
 import unittest
@@ -82,9 +83,9 @@ class RulesPeerSimilarOnMemory(unittest.TestCase):
     def test_peer_from_rows(self):
         r = pd.DataFrame([{"@timestamp": (T0 + pd.Timedelta(minutes=9, seconds=s)).isoformat(), "ns": "n", "deploy": "d", "pod": p, "cpu": c}
                           for p, c in (("a", 0.2), ("b", 0.2), ("c", 0.2), ("d", 1.5)) for s in range(3)])
-        cfg = {"window": "10m", "fresh": "2m", "min_peers": 3, "checks": [
+        cfg = validate({"window": "10m", "fresh": "2m", "min_peers": 3, "checks": [
             {"name": "peer.pod_cpu", "title": "CPU 高", "index": "k8s-*", "by": ["ns", "deploy", "pod"], "value": {"avg": "cpu"},
-             "direction": "up", "min_abs": 0.2, "min_ratio": 3}]}
+             "direction": "up", "min_abs": 0.2, "min_ratio": 3}]}, "peer")
         be = MemoryRepos({"k8s-*": r})
         rc, _ = quiet(cmd_peer.cmd_peer, cfg, Namespace(at=(T0 + pd.Timedelta(minutes=10)).isoformat(), only=None), be)
         self.assertEqual(rc, 0)

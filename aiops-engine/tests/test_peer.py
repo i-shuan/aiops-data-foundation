@@ -1,4 +1,6 @@
 """跟兄弟比（detector/peer.py）的單元測試，不需要 ES。"""
+from shared.config import validate
+from shared.config.peer import PeerCheck
 import contextlib
 import io
 import unittest
@@ -113,9 +115,9 @@ class CmdPeerTest(unittest.TestCase):
         written = []
         repo = MemoryRepos()
         repo.series.fetch = fetch
-        cfg = {"window": "10m", "fresh": "2m", "min_peers": 3, **(cfg_extra or {}), "checks": [
+        cfg = validate({"window": "10m", "fresh": "2m", "min_peers": 3, **(cfg_extra or {}), "checks": [
             {"name": "peer.pod_cpu", "title": "CPU 高", "index": "x", "by": ["ns", "deploy", "pod"],
-             "value": {"avg": "cpu"}, "direction": "up", "min_abs": 0.2, "min_ratio": 3}]}
+             "value": {"avg": "cpu"}, "direction": "up", "min_abs": 0.2, "min_ratio": 3}]}, "peer")
         args = type("A", (), {"at": self.END.isoformat(), "only": None})()
         # 開連線、寫異常在 Detector 基底（detector/base.py）；查資料在 cmd_peer 自己
         with contextlib.redirect_stdout(io.StringIO()):
@@ -145,7 +147,7 @@ class CmdPeerTest(unittest.TestCase):
 class DescribeTest(unittest.TestCase):
     def test_huge_z_capped(self):
         r = {"service": "order-api", "pod": "order-api-9", "value": 0.13, "peers": 2, "median": 0.0, "z": 1.3e8}
-        msg = P.describe({"title": "錯誤率比兄弟高"}, r, ["service", "pod"], lambda x: f"{x:.0%}")
+        msg = P.describe(PeerCheck(name="e", index="x", by=["service", "pod"], value="count", title="錯誤率比兄弟高"), r, ["service", "pod"], lambda x: f"{x:.0%}")
         self.assertEqual(msg, "錯誤率比兄弟高：order-api、order-api-9（13%，其他 2 個 Pod 中位數 0%，z=>999）")
 
 

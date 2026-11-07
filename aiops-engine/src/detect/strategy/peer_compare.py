@@ -21,6 +21,7 @@ import pandas as pd
 
 from detect.strategy.dynamic_baseline import MAD_TO_SIGMA
 from detect.store.models import Anomaly
+from shared.config.peer import PeerCheck, PeerConfig
 from detect.base import Detector
 from detect.utils import _freq, keys_of
 
@@ -78,9 +79,9 @@ def count_spec(spec: dict) -> dict:
     return {**spec, "value": "count"}
 
 
-def describe(check: dict, r: dict, keys: list[str], fmt) -> str:
+def describe(check: PeerCheck, r: dict, keys: list[str], fmt) -> str:
     who = "、".join(str(r[k]) for k in keys if r.get(k) is not None)
-    return (f"{check['title']}：{who}（{fmt(r['value'])}，其他 {r['peers']} 個 Pod 中位數 {fmt(r['median'])}，"
+    return (f"{check.title or check.name}：{who}（{fmt(r['value'])}，其他 {r['peers']} 個 Pod 中位數 {fmt(r['median'])}，"
             f"z={'>999' if abs(r['z']) > 999 else format(r['z'], '.1f')}）")   # 其他 Pod 都是 0 時 z 會上億，沒意義
 
 
@@ -94,21 +95,21 @@ class PeerDetector(Detector):
     def stamp(self) -> pd.Timestamp:
         return self.now.floor("1min")
 
-    def checks(self) -> list[dict]:
-        cfg, end = self.cfg, self.now
-        self.start = end - pd.Timedelta(_freq(cfg.get("window", "10m")))
-        self.warmup = pd.Timedelta(_freq(cfg["warmup"])) if cfg.get("warmup") else None
+    def checks(self) -> list[PeerCheck]:
+        peer_config, end = self.config, self.now
+        self.start = end - pd.Timedelta(_freq(peer_config.window))
+        self.warmup = pd.Timedelta(_freq(peer_config.warmup)) if peer_config.warmup else None
         if self.warmup is not None and self.warmup >= end - self.start:
-            raise SystemExit(f"warmup（{cfg['warmup']}）要比 window 短")
-        return cfg["checks"]
+            raise SystemExit(f"warmup（{peer_config.warmup}）要比 window 短")
+        return peer_config.checks
 
-    def evaluate(self, c: dict) -> list[Anomaly]:
-        cfg, fetch, start, end, warmup = self.cfg, self.repo.series.fetch, self.start, self.now, self.warmup
+    def evaluate(self, c: PeerCheck) -> list[Anomaly]:
+        peer_config, fetch, start, end, warmup = self.config, self.repo.series.fetch, self.start, self.now, self.warmup
         keys = keys_of(c)
         group, member = keys[:-1], keys[-1]
         cur = fetch(c, start, end, None)
         # 只比現在還在的 Pod：最近 fresh（預設 2 分鐘）內還有資料的。換版、縮容刪掉的 Pod 不算同儕
-        alive = fetch(count_spec(c), end - pd.Timedelta(_freq(cfg.get("fresh", "2m"))), end, None)
+        alive = fetch(count_spec(c), end - pd.Timedelta(_freq(peer_config.fresh)), end, None)
         cur = cur.merge(alive[keys], on=keys) if not cur.empty and not alive.empty else cur.iloc[0:0]
         # 剛起來的 Pod 不比（warmup）：起來前幾分鐘 JIT、載入、heap 還在長，CPU 偏高、記憶體偏低，會誤報自己或舊 Pod。
         # 在 window 開頭到 end - warmup 之間就有資料的，才算暖機完
@@ -118,26 +119,26 @@ class PeerDetector(Detector):
             before = len(cur)
             cur = cur.merge(old[keys], on=keys) if not old.empty else cur.iloc[0:0]
             n_young = before - len(cur)
-        if c.get("min_volume") and (vs := volume_spec(c)) is not None and not cur.empty:
+        if c.min_volume and (vs := volume_spec(c)) is not None and not cur.empty:
             vol = fetch(vs, start, end, None).rename(columns={"value": "volume"})
             cur = cur.merge(vol[keys + ["volume"]], on=keys, how="left")
-            cur = cur[cur["volume"].fillna(0) >= c["min_volume"]]
-        res = compare(cur, group, member, direction=c.get("direction", "up"), z=cfg.get("z", 5.0),
-                        min_abs=c.get("min_abs", 0.0), min_ratio=c.get("min_ratio"),
-                        rel_floor=cfg.get("rel_floor", 0.1), min_peers=cfg.get("min_peers", 3),
-                        max_peer_median=c.get("max_peer_median"),
-                        z_by_peers={int(k): float(v) for k, v in (cfg.get("z_by_peers") or {}).items()})
-        fmt = SHOW.get(c.get("show"), lambda x: f"{x:g}")
+            cur = cur[cur["volume"].fillna(0) >= c.min_volume]
+        res = compare(cur, group, member, direction=c.direction, z=peer_config.z,
+                        min_abs=c.min_abs, min_ratio=c.min_ratio,
+                        rel_floor=peer_config.rel_floor, min_peers=peer_config.min_peers,
+                        max_peer_median=c.max_peer_median,
+                        z_by_peers={int(k): float(v) for k, v in peer_config.z_by_peers.items()})
+        fmt = SHOW.get(c.show, lambda x: f"{x:g}")
         n_groups = res.groupby(group).ngroups if not res.empty else 0
-        self.note = f"  {c['name']}：{n_groups} 組、{len(res)} 個 Pod 比過" + (f"（{n_young} 個 Pod 暖機中不比）" if n_young else "")
-        return [Anomaly(ts=self.slot, series=c["name"], rule=c["name"], keys={f: r[f] for f in keys}, value=r["value"],
-                        median=r["median"], z=r["z"], level=self.level, direction=c.get("direction", "up"),
-                        severity=c.get("severity", "warning"), message=describe(c, r, keys, fmt))
+        self.note = f"  {c.name}：{n_groups} 組、{len(res)} 個 Pod 比過" + (f"（{n_young} 個 Pod 暖機中不比）" if n_young else "")
+        return [Anomaly(ts=self.slot, series=c.name, rule=c.name, keys={f: r[f] for f in keys}, value=r["value"],
+                        median=r["median"], z=r["z"], level=self.level, direction=c.direction,
+                        severity=c.severity, message=describe(c, r, keys, fmt))
                 for r in res[res["anomaly"]].to_dict("records")]
 
-    def after_check(self, c: dict, hits: list[Anomaly]) -> None:
+    def after_check(self, c: PeerCheck, hits: list[Anomaly]) -> None:
         print(self.note)
 
 
-def cmd_peer(cfg: dict, args, repo=None) -> int:
-    return PeerDetector(cfg, args, repo).run()
+def cmd_peer(peer_config: PeerConfig, args, repo=None) -> int:
+    return PeerDetector(peer_config, args, repo).run()

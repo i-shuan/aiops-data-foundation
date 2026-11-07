@@ -29,6 +29,7 @@ from detect.store.quality_repo import check_keys  # noqa: F401  讀統計在 rep
 from detect.store.models import Anomaly
 from detect.base import Detector
 from detect.utils import _freq, _v
+from shared.config.quality import QualityCheck, QualityConfig
 
 # 路徑裡「像是 ID」的一段：純數字、UUID、8 碼以上的 hex、混了數字的長字串（例如訂單號 A20261023001）
 _ID_SEGMENT = re.compile(
@@ -164,43 +165,48 @@ def eval_lag(df: pd.DataFrame, keys: list[str], *, stat: str = "p95", max_second
     return hits
 
 
-def describe(check: dict, hit: dict) -> str:
+def describe(check: QualityCheck, hit: dict) -> str:
     # 缺欄位的那組（missing_bucket）寫「沒有 namespace」，不寫「全部」：全部是沒有分組的檢查（例如 share）
     who = "、".join(f"沒有 {k}" if pd.isna(v) else f"{v}" for k, v in hit["key"].items()) or "全部"
-    msg = f"{check.get('title', check['name'])}：{who}，{'；'.join(hit['why'])}"
+    msg = f"{check.title or check.name}：{who}，{'；'.join(hit['why'])}"
     if hit.get("examples"):
         msg += f"（例如 {', '.join(hit['examples'])}）"
     return msg
 
 
-def quality_hits(q, c: dict, now, window, ref_offset) -> list[dict]:
+def _or(value, default):
+    """沒寫（None）才用預設；寫 0 就是 0。每種檢查（type）的預設不一樣（min_docs：cardinality 100、stopped 10、present 1、lag 50），所以預設留在這裡，不放進模型。"""
+    return default if value is None else value
+
+
+def quality_hits(q, c: QualityCheck, now, window, ref_offset) -> list[dict]:
     """跑一個檢查，回傳觸發的對象（eval_* 的結果）。q 是 repo.quality（讀統計）。"""
     start, rs, re_ = now - window, now - window - ref_offset, now - ref_offset
-    keys, t = check_keys(c), c["type"]
+    keys, t = check_keys(c), c.type
     if t == "cardinality":
-        return eval_cardinality(q.cardinality(c, start, now, c.get("sample_values", 500)), q.cardinality(c, rs, re_, 0), keys,
-                                  max_values=c.get("max_values"), ratio=c.get("ratio", 3.0),
-                                  min_increase=c.get("min_increase", 50), id_share_min=c.get("id_share", 0.5))
+        return eval_cardinality(q.cardinality(c, start, now, _or(c.sample_values, 500)), q.cardinality(c, rs, re_, 0), keys,
+                                  max_values=c.max_values, ratio=_or(c.ratio, 3.0),
+                                  min_increase=_or(c.min_increase, 50), id_share_min=_or(c.id_share, 0.5))
     if t == "missing":
-        return eval_missing(q.missing(c, start, now), q.missing(c, rs, re_), keys, c["fields"],
-                              min_docs=c.get("min_docs", 100), max_missing=c.get("max_missing"),
-                              max_increase=c.get("max_increase"))
+        return eval_missing(q.missing(c, start, now), q.missing(c, rs, re_), keys, c.fields,
+                              min_docs=_or(c.min_docs, 100), max_missing=c.max_missing,
+                              max_increase=c.max_increase)
     if t == "stopped":
-        silent = pd.Timedelta(_freq(c.get("silent", "10m")))
-        lookback = pd.Timedelta(_freq(c.get("lookback", "1h")))
+        silent = pd.Timedelta(_freq(_or(c.silent, "10m")))
+        lookback = pd.Timedelta(_freq(_or(c.lookback, "1h")))
         return eval_stopped(q.counts(c, now - lookback, now - silent), q.counts(c, now - silent, now),
-                              keys, min_docs=c.get("min_docs", 10))
+                              keys, min_docs=_or(c.min_docs, 10))
     if t == "present":
-        return eval_present(q.counts(c, start, now), keys, min_docs=c.get("min_docs", 1))
+        return eval_present(q.counts(c, start, now), keys, min_docs=_or(c.min_docs, 1))
     if t == "share":
-        return eval_share(q.count(c["part_index"], c, start, now), q.count(c["index"], c, start, now),
-                            q.count(c["part_index"], c, rs, re_), q.count(c["index"], c, rs, re_),
-                            min_docs=c.get("min_docs", 100), max_share=c.get("max_share"),
-                            min_increase=c.get("min_increase", 0.1))
+        return eval_share(q.count(c.part_index, c, start, now), q.count(c.index, c, start, now),
+                            q.count(c.part_index, c, rs, re_), q.count(c.index, c, rs, re_),
+                            min_docs=_or(c.min_docs, 100), max_share=c.max_share,
+                            min_increase=_or(c.min_increase, 0.1))
     if t == "lag":
-        return eval_lag(q.lag(c, start, now), keys, stat=c.get("stat", "p95"),
-                          max_seconds=c.get("max_seconds", 60), min_docs=c.get("min_docs", 50),
-                          absolute=c.get("absolute", False))
+        return eval_lag(q.lag(c, start, now), keys, stat=_or(c.stat, "p95"),
+                          max_seconds=_or(c.max_seconds, 60), min_docs=_or(c.min_docs, 50),
+                          absolute=_or(c.absolute, False))
     raise ValueError(f"不認得的檢查種類：{t}")
 
 
@@ -208,21 +214,21 @@ class QualityDetector(Detector):
     level = "quality"
     interval_default = "10m"
 
-    def checks(self) -> list[dict]:
-        self.ref_offset = pd.Timedelta(_freq(self.cfg.get("ref_offset", "24h")))
-        return self.cfg["checks"]
+    def checks(self) -> list[QualityCheck]:
+        self.ref_offset = pd.Timedelta(_freq(self.config.ref_offset))
+        return self.config.checks
 
-    def evaluate(self, c: dict) -> list[Anomaly]:
-        window = pd.Timedelta(_freq(c.get("window", self.cfg.get("window", "1h"))))
+    def evaluate(self, c: QualityCheck) -> list[Anomaly]:
+        window = pd.Timedelta(_freq(c.window or self.config.window))
         out = []
         for h in quality_hits(self.repo.quality, c, self.now, window, self.ref_offset):
             keys = {**{k: v for k, v in h["key"].items() if _v(v) is not None},   # NaN 寫進 ES 會整批被拒
                     **({"field": h["field"]} if "field" in h else {})}
-            out.append(Anomaly(ts=self.slot, series=c["name"], rule=c["name"], keys=keys, value=h["value"],
+            out.append(Anomaly(ts=self.slot, series=c.name, rule=c.name, keys=keys, value=h["value"],
                                median=_v(h.get("ref")), level=self.level, direction="up",
-                               severity=c.get("severity", "warning"), message=describe(c, h)))
+                               severity=_or(c.severity, "warning"), message=describe(c, h)))
         return out
 
 
-def cmd_quality(cfg: dict, args, repo=None) -> int:
-    return QualityDetector(cfg, args, repo).run()
+def cmd_quality(quality_config: QualityConfig, args, repo=None) -> int:
+    return QualityDetector(quality_config, args, repo).run()

@@ -16,7 +16,7 @@ class QualityCheck(Strict):
     type: Literal["cardinality", "missing", "stopped", "share", "lag", "present"]
     index: str
     title: str | None = None
-    severity: Severity | None = None
+    severity: Severity = "warning"
     filter: Query | None = None
     by: list[str] | None = None
     key_names: list[str] | None = Field(default=None, alias="keys")   # yaml 的鍵叫 keys；屬性不能叫 keys（會蓋掉過渡層 dict 介面的 keys()）
@@ -59,7 +59,7 @@ class QualityCheck(Strict):
 
 
 class QualityConfig(Strict):
-    interval: Dur | None = None
-    window: Dur | None = None
-    ref_offset: Dur | None = None
-    checks: list[QualityCheck] | None = None
+    interval: Dur | None = None              # 沒寫用 1 分鐘（Detector.interval_default）
+    window: Dur = "1h"                       # 每個檢查看最近多久（檢查自己可以寫）
+    ref_offset: Dur = "24h"                  # 拿多久以前的同一段當對照
+    checks: list[QualityCheck] = []

@@ -15,14 +15,14 @@ class PeerCheck(Strict):
     by: list[str]
     value: Value
     title: str | None = None
-    severity: Severity | None = None
+    severity: Severity = "warning"
     show: Show | None = None
     key_names: list[str] | None = Field(default=None, alias="keys")   # yaml 的鍵叫 keys；屬性不能叫 keys（會蓋掉過渡層 dict 介面的 keys()）
     filter: Query | None = None
     time_field: str | None = None
     scale: NonNeg | None = None
-    direction: Direction | None = None
-    min_abs: NonNeg | None = None
+    direction: Direction = "up"
+    min_abs: NonNeg = 0.0
     min_ratio: NonNeg | None = None
     min_volume: NonNeg | None = None
     max_peer_median: NonNeg | None = None
@@ -34,11 +34,11 @@ class PeerCheck(Strict):
 
 
 class PeerConfig(Strict):
-    window: Dur | None = None
-    z: NonNeg | None = None
-    z_by_peers: dict[int, NonNeg] | None = None
-    rel_floor: NonNeg | None = None
-    min_peers: PosInt | None = None
-    fresh: Dur | None = None
-    warmup: Dur | None = None
-    checks: list[PeerCheck] | None = None
+    window: Dur = "10m"                      # 比對看最近多久
+    z: NonNeg = 5.0
+    z_by_peers: dict[int, NonNeg] = {}       # {同儕數: z}，同儕少時放寬
+    rel_floor: NonNeg = 0.1
+    min_peers: PosInt = 3
+    fresh: Dur = "2m"                        # 最近這麼久內還有資料的才算現在還在的 Pod
+    warmup: Dur | None = None                # 剛起來的 Pod 不比
+    checks: list[PeerCheck] = []
