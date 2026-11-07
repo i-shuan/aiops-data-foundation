@@ -45,8 +45,9 @@ pgbouncer:
   enabled: false
   image: nexus.example.internal/pgbouncer/pgbouncer:1.23   # 用支援 DATABASE_URL 環境變數的 image（例如 edoburu/pgbouncer），換成公司 registry 的
   port: 6432
-  poolSize: 20                 # 每個 Pod 連到 PostgreSQL 最多幾條：要 ≥ 2 ×「同時跑的工作數」（每個工作一條鎖、一條自己的）。
-                               # 不夠時 session 模式會讓工作排隊等連線、前一個跑完才接著跑（同一分鐘跑兩次），不是跳過
+  poolSize: 10                 # 每個 Pod 連到 PostgreSQL 最多幾條。⚠️ 已知問題（還沒修，等使用者選做法）：每個工作佔 2 條（一條鎖、一條自己的），
+                               # 池子不夠時 session 模式讓工作排隊等連線、前一個跑完才接著跑（同一分鐘跑兩次），不是跳過
+                               # （docs/pdca/meta/2026-11-pg-resilience.md 的 Act）
   maxClientConn: 100
   resources:
     requests: {cpu: 10m, memory: 16Mi}
