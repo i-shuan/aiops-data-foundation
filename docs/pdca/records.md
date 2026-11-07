@@ -183,7 +183,7 @@ metrics → trace → log 找到哪一段、哪行 log；事件整合、排程�
 | [meta/2026-11-plugin-architecture.md](meta/2026-11-plugin-architecture.md) | ④⑥⑦⑨ engine 改成主程式＋plugin：`core/plugin.py` 擴充點（欄位對照、用語、實體 keys、併件依據、換版、報告段、子命令、排程）、`plugins/` 三個內建（observability／factory／metrics_only）、`AIOPS_PLUGIN` 選、RCA 報告拆段 | 682 個測試過（新 11）；工廠 e2e 15/15 不變、**只有指標 e2e 第一次跑 13/13**（沒履歷：報告略過履歷段、log 照出；量測異常併不進前站是已知限制）；chart 三種 plugin render 對；`AIOPS_DOMAIN` 移除 |
 | [meta/2026-11-api-beat-worker.md](meta/2026-11-api-beat-worker.md) | ⑤⑥⑦⑧⑨ engine 拆成 api／beat／worker 三種角色（Superset 式）：一個 image、一份 values.yaml 用 `mode` 選一隻 pod 或分散；Celery＋Redis 佇列 `realtime`／`alert`／`batch`；`POST /api/anomalies`（ML／FDC 即時推進 ⑤）、`POST /api/rca`（Grafana 按鈕重跑根因）；畫面全交給 Grafana | 進行中 |
 | [meta/2026-11-html-forms.md](meta/2026-11-html-forms.md) | ⑧⑨ 刪本機 sh（`load-plugin.sh`）與外掛 zip、社群 chart 副本；Grafana 回饋預設改用 engine api 的網頁（回饋頁加重跑根因分析、新漏報頁），外掛選用；修工廠版沒有履歷時報告整份失敗 | 720 個測試過；測試 cluster 實裝：儀表板連結帶出 alert id、網頁重跑根因 → worker 重跑、報告不再「失敗：aggregations」 |
-| [meta/2026-11-superset-style.md](meta/2026-11-superset-style.md) | ④⑥⑦⑧⑨ 程式架構仿造 Superset（superset-ui）：`core/`（Registry、Plugin、Preset、PipelinePlugin、ControlPanelConfig）、`plugins/plugin_*`（演算法搬進外掛）、`presets/`（MainPreset、情境）；六個階段 | 計畫，還沒動程式 |
+| [meta/2026-11-superset-style.md](meta/2026-11-superset-style.md) | ④⑥⑦⑧⑨ 程式架構仿造 Superset（superset-ui）：`core/`（Registry、Plugin、Preset、PipelinePlugin、ControlPanelConfig）、`plugins/plugin_*` 28 個外掛（嚴重度與報告段落的演算法搬進外掛，其餘包裝）、`presets/`（MainPreset，入口登記）；刪 `common/blocks.py` | 941 個測試過（`test_job_lock` 4 個是 Windows 的 /tmp）；依賴方向加 core／plugins／presets；叢集實跑：嚴重度、報告 8 段、摘要都從登記表拿；E、F 沒做 |
 
 ## 封存（`archive/`）
 

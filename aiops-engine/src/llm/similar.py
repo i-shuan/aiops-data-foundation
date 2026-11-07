@@ -11,7 +11,7 @@
 """
 from __future__ import annotations
 
-import common.blocks as BLOCKS
+import common.stages as ST
 import llm.embedding as EMB
 from common.types.incident import DEFAULT_WEIGHTS as WEIGHTS, Fingerprint, Incident, classify, describe_class, seg_name  # noqa: F401
 MIN_SCORE = 4.0        # 低於這個分數不算像：至少一個強特徵、或兩三個弱特徵
@@ -123,7 +123,7 @@ def search(repo, fp: Fingerprint | dict, exclude_id: str | None = None, k: int =
     opts = {"size": size, "weights": weights, "vector": v}
     cands: dict[str, dict] = {}
     sims: dict[str, float] = {}
-    for _, block in BLOCKS.stage("similar").loaded(getattr(repo, "scenario", None)):   # ⑦ 相似事故的積木（common/blocks.py）
+    for _, block in ST.stage("similar").loaded(getattr(repo, "scenario", None)):   # ⑦ 相似事故的外掛（common/stages.py；外掛在 plugins/）
         for _id, doc, sim in block(repo, fp, text, exclude_id, opts):
             cands.setdefault(_id, doc)
             if sim is not None:
@@ -134,14 +134,14 @@ def search(repo, fp: Fingerprint | dict, exclude_id: str | None = None, k: int =
 
 
 def field_candidates(repo, fp: Fingerprint, text: str | None, exclude_id: str | None, opts: dict) -> list[tuple[str, dict, float | None]]:
-    """積木 fields：指紋有交集的確認過的事故（資料庫照權重先排、取前 size 件）。"""
+    """外掛 fields：指紋有交集的確認過的事故（資料庫照權重先排、取前 size 件）。"""
     if fp.empty:
         return []
     return [(i, d, None) for i, d in repo.incidents.similar(fp, CONFIRMED, exclude_id, opts["size"], weights=opts["weights"])]
 
 
 def vector_candidates(repo, fp: Fingerprint, text: str | None, exclude_id: str | None, opts: dict) -> list[tuple[str, dict, float | None]]:
-    """積木 vector：向量最近的幾件（沒設 embedding、沒有文字：沒有）。"""
+    """外掛 vector：向量最近的幾件（沒設 embedding、沒有文字：沒有）。"""
     sims = vector_sims(repo, text, exclude_id, int(opts["vector"]["k"])) if text else {}
     if not sims:
         return []
@@ -270,7 +270,7 @@ def checklist(category: str | None, cases: list[tuple[str, dict]], defaults: dic
 
 
 def hint_lines(findings: dict | None, cases: list[tuple[str, dict]], cls: dict | None, scenario) -> list[str]:
-    """積木 segment_hints：線索那一段（Markdown），也存進 findings.case_hints（只留事故 id）。"""
+    """外掛 segment_hints：線索那一段（Markdown），也存進 findings.case_hints（只留事故 id）。"""
     hints = segment_hints(findings, cases)
     if findings is not None:
         findings["case_hints"] = [{"segment": h["segment"], "kind": h["kind"], "evidence": h["evidence"], "cases": [c["id"] for c in h["cases"]]}
@@ -279,7 +279,7 @@ def hint_lines(findings: dict | None, cases: list[tuple[str, dict]], cls: dict |
 
 
 def checklist_lines(findings: dict | None, cases: list[tuple[str, dict]], cls: dict | None, scenario) -> list[str]:
-    """積木 checklist：這一類的先查清單（Markdown）。"""
+    """外掛 checklist：這一類的先查清單（Markdown）。"""
     todo = checklist(cls["category"] if cls else None, cases, getattr(scenario, "checklists", None) or {})
     return format_hints([], todo, cls)
 

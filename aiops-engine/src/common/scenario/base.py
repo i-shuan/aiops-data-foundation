@@ -111,7 +111,7 @@ class Scenario:
     extra_logs: tuple[dict, ...] = ()
     trace_raw: tuple[tuple[str, str], ...] = ()
     checklists: dict = field(default_factory=dict)
-    blocks: dict = field(default_factory=dict)       # 功能積木：{段: [積木名或 套件.模組:名字]}（common/blocks.py）；沒寫的段用預設   # 每一類根因先查什麼（domain.checklists；llm/similar.checklist 用，過去勾過的排前面）   # 欄位對照覆寫的 raw trace 索引 ((來源, 索引)…)；只有 aiops-mapping 核准過的才有（trace.yaml 的值不在這）
+    blocks: dict = field(default_factory=dict)       # 各段選哪幾個外掛：{段: [外掛名或 套件.模組:名字]}（common/stages.py；外掛在 plugins/）；沒寫的段用登記了的全部   # 每一類根因先查什麼（domain.checklists；llm/similar.checklist 用，過去勾過的排前面）   # 欄位對照覆寫的 raw trace 索引 ((來源, 索引)…)；只有 aiops-mapping 核准過的才有（trace.yaml 的值不在這）
 
     @property
     def owners(self) -> tuple[dict, ...]:

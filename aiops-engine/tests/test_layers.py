@@ -5,12 +5,13 @@ common/infra/repos.py 用名稱表在第一次取用才載入各功能的 reposi
 `if TYPE_CHECKING:` 底下的 import 只給型別檢查看、執行時不載入，也不算（common/config/loader.py 的 overload、scenario/base.py 用）。
 加了反向 import 這裡會紅——讀到這裡的人：先想東西該不該搬，不要改名單。"""
 import ast
+from pathlib import PurePosixPath
 import pathlib
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 PKG = ROOT / "src"
-LAYERS = ("common", "data", "detect", "llm", "incident", "learn", "interface")       # 由下往上
+LAYERS = ("core", "common", "data", "detect", "llm", "incident", "learn", "plugins", "presets", "interface")       # 由下往上
 ALLOWED = {name: set(LAYERS[:i]) for i, name in enumerate(LAYERS)}
 # 函式內才 import 的（其他都要在檔頭）：sqlalchemy 是選配、worker 要 broker
 LAZY_OK = {("learn/history_importer.py", "sqlalchemy"), ("interface/jobs/local.py", "interface.jobs.worker")}
@@ -25,7 +26,7 @@ def modules():
     for layer in LAYERS:
         for p in (PKG / layer).rglob("*.py"):
             if "__pycache__" not in p.parts:
-                yield p.relative_to(PKG), ast.parse(p.read_text(encoding="utf-8"))
+                yield PurePosixPath(p.relative_to(PKG).as_posix()), ast.parse(p.read_text(encoding="utf-8"))   # / 分隔：Windows 上比對路徑字串才對得上
 
 
 def _runtime_nodes(tree):

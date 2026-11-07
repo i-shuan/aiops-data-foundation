@@ -20,7 +20,7 @@ from common.infra.repos import Repos
 from common.scenario import Chain, load_scenario
 from common.scenario import load_scenario
 
-import common.blocks as BLOCKS
+import common.stages as ST
 import incident.alert_grouper as AL
 import incident.alert_severity as SEV
 import llm.embedding as EMB
@@ -60,9 +60,9 @@ def grade_alert(repo: Repos, rca_config: RcaConfig, al: Alert, now: datetime) ->
                               rule_critical=any(a.get("severity") == "critical" and a.get("level") in critical_levels for a in own),
                               now=now, deploy_at=dep, opts=opts, classes=classes, alerts_config=alerts_config)
     g = None
-    for _, block in BLOCKS.stage("severity").loaded(sc):          # ⑥ 嚴重度的積木一串依序跑（common/blocks.py）
+    for _, block in ST.stage("severity").loaded(sc):          # ⑥ 嚴重度的外掛一串依序跑（common/stages.py；外掛在 plugins/）
         g = block(ctx, g)
-    g = g or {"severity": al.severity or "warning", "why": "沒有開嚴重度的積木（blocks.severity）"}
+    g = g or {"severity": al.severity or "warning", "why": "沒有開嚴重度的外掛（blocks.severity）"}
     if g["severity"] != al.severity:
         al.upgraded = AL.SEVERITY.get(g["severity"], 1) > AL.SEVERITY.get(al.severity or "warning", 1) and not al.new
     al.severity, al.severity_why = g["severity"], g["why"]
@@ -187,7 +187,7 @@ def _similar(repo: Repos, alerts_config: Alerts, al: Alert, findings: dict | Non
 
 def _case_hints(repo: Repos, alerts_config: Alerts, findings: dict | None, cls: dict | None) -> list[str]:
     """歷史 case 的線索（這次已證實有變化、過去也出事過的段）與這一類的先查清單；查失敗當沒有。"""
-    blocks = BLOCKS.stage("hints").loaded(repo.scenario)
+    blocks = ST.stage("hints").loaded(repo.scenario)
     if not alerts_config.similar or not blocks:
         return []
     try:
@@ -196,7 +196,7 @@ def _case_hints(repo: Repos, alerts_config: Alerts, findings: dict | None, cls: 
         print(f"  讀不到已確認的事故（{type(e).__name__}），不列歷史線索")
         return []
     lines = []
-    for _, block in blocks:                    # ⑦ 歷史 case 的積木：線索、先查清單（common/blocks.py）
+    for _, block in blocks:                    # ⑦ 歷史 case 的外掛：線索、先查清單（common/stages.py；外掛在 plugins/）
         lines += block(findings, cases, cls, repo.scenario)
     return lines
 
@@ -234,7 +234,7 @@ def investigate_alert(repo: Repos, rca_config: RcaConfig, alerts_config: Alerts,
     al.suggested_category = cls["category"] if cls else None
     al.category_confidence = cls["confidence"] if cls else None
     llm = None
-    for _, block in BLOCKS.stage("summary").loaded(repo.scenario):    # ⑦ 摘要的積木：第一塊有回東西的就用它
+    for _, block in ST.stage("summary").loaded(repo.scenario):    # ⑦ 摘要的外掛：第一塊有回東西的就用它
         llm = block(al, findings, similar, alerts_config, repo.scenario.unit_text())
         if llm:
             break
@@ -298,7 +298,7 @@ def run(rca_config: RcaConfig, args, investigate) -> int:
     start = min(now - lookback, oldest - close_after)
     anoms = repo.anomalies.between(start, now)
     chain = _chain(repo, rca_config, alerts_config, anoms, open_alerts, start, now)
-    (_, merge), = BLOCKS.stage("grouping").loaded(repo.scenario)     # ⑥ 併件的積木（只能一塊；common/blocks.py）
+    (_, merge), = ST.stage("grouping").loaded(repo.scenario)     # ⑥ 併件的外掛（只能一塊；common/stages.py）
     alerts = merge(open_alerts, anoms, now, close_after, repo.alerts.resolved_anomaly_ids(start - close_after), chain.calls, chain.links,
                    scenario=repo.scenario)
     for al in alerts:

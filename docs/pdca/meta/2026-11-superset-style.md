@@ -1,6 +1,6 @@
 # 程式架構仿造 Superset（superset-ui）：core、plugins、presets（2026-11）
 
-**狀態**：計畫（還沒動程式）　　**日期**：2026-11-07　　**相關**：分支 `claude/superset-style`（從 master 開）
+**狀態**：A～D 已完成（E、F 沒做）　　**日期**：2026-11-07　　**相關**：分支 `claude/superset-style`（從 master 開）
 **模組**：④⑥⑦⑧⑨（積木機制與檔案結構；演算法本身不改）
 
 ## Plan：這一次要達到什麼
@@ -123,12 +123,44 @@ plugins/plugin_severity/
 
 ## Do：改動哪些 code、改了什麼、為何要改
 
-還沒動程式。先前試做過一版（`common/core/`、`BlockPlugin` 等舊命名）已整批丟掉，不留。
+先前試做的一版（`common/core/`、`BlockPlugin` 等舊命名）整批丟掉，照這份計畫重寫。
+
+| 檔案 | 改了什麼 | 為何要改 |
+|---|---|---|
+| `src/core/`（新）：`models/`（`plugin.py`、`preset.py`、`registry.py`）、`pipeline/models/`（`plugin.py`＝`PipelinePlugin`、`metadata.py`、`props.py`）、`pipeline/registries/`（`metadata.py`、`control_panel.py`、`run.py`）、`controls/`（`types.py`、`shared_controls.py`） | 框架：`Registry`（`register_value`／`register_loader` 延遲、`OverwritePolicy`）、`Plugin`（`configure`／`reset_config`／`register`）、`Preset`、`PipelinePlugin`（register 進三張登記表，key＝`<段>.<名字>`）、`ControlPanelConfig`（`build_form_data` 補預設、轉型、驗證、講出可調參數）、`shared_controls` | 對應 `@superset-ui/core`＋`@superset-ui/chart-controls`；不認得業務、不 import 其他層 |
+| `src/plugins/`（新）：8 包 `plugin_detect`、`plugin_grouping`、`plugin_severity`、`plugin_rca`、`plugin_similar`、`plugin_summary`、`plugin_hints`、`plugin_suggest`，共 28 個外掛；每個外掛資料夾 `__init__.py`（`XxxPipelinePlugin`）、`control_panel.py`、主檔 | 對應 `superset-frontend/plugins/plugin-chart-*`；每包 `__init__.py` 匯出全部 |
+| `plugin_severity/golden_signals/golden_signals.py`、`plugin_severity/p0/p0.py` | **搬移**：`grade`、`coverage`、`_minute`、`is_p0`、`escalate`、`UP` 從 `incident/alert_severity.py` 搬進來；`alert_severity.py` 只留共用的訊號分類、`GradeOptions`、`SeverityContext` | 只有這兩個外掛用 |
+| `plugin_rca/<8 段>/<段>.py` | **搬移**：`sec_anomalies`…`sec_conclusion` 從 `incident/rca_report.py` 搬進來（改名 `run`）；`rca_report.py` 只留骨架（`Ctx`、標題編號、共用的小工具、`investigate_full` 從登記表拿段落） | 一段一個外掛 |
+| 其餘 18 個外掛的主檔 | **包裝**：`from <原模組> import <函式> as run`；`dynamic_baseline` 另外匯出 `train`、`tune`，`trace_latency` 匯出 `collect`、`train` | 演算法還有主程式其他地方在用（例：`detect_service` 被回測、level_shift 用），搬了會往上 import |
+| `plugin_severity/*/control_panel.py` | `golden_signals` 宣告 6 個參數、`p0` 宣告 `p0_services` | 其餘外掛的 control panel 是空的（參數還在 `configs/`） |
+| `src/presets/`（新）：`main_preset.py`（`MainPreset`，登記順序＝原本的預設順序）、`observability.py`、`factory.py`、`metrics_only.py`、`setup_plugins()` | 對應 `visualizations/presets/` 與 `setupPlugins()` | 三個情境 Preset 目前都是 MainPreset |
+| `src/common/stages.py`（新）、刪 `src/common/blocks.py` | 各段的定義（title、contract、只能選一個、`fallback_attr`、④ 的指令名）與 `blocks:` 的選用；內建清單從登記表讀，不再手寫表；`load` 支援「套件.模組:名字」（函式或 `PipelinePlugin`）；`describe` 多印 control panel 的參數 | 主程式只認登記表 |
+| `main.py` | 執行任何角色前 `setup_plugins(AIOPS_PLUGIN)` | 入口負責登記 |
+| `incident/alert_service.py`、`incident/rca_report.py`、`learn/feedback_service.py`、`llm/similar.py`、`interface/cli/detect.py` | `common.blocks` → `common.stages`；`detector` 的子指令經 `gated(外掛, 指令)` 從 run 登記表／外掛主檔拿，不再直接 import 演算法模組；訊息「積木」改「外掛」 | |
+| 測試：`tests/conftest.py`（登記 MainPreset）、`tests/test_core.py`（新）、`test_blocks.py`→`test_stages.py`、`blocks_fixtures.py`→`stages_fixtures.py`、`test_severity*.py`／`test_factory_alerts.py`（改 import 搬走的函式）、`test_cli.py`（換登記表裡的 run）、`test_layers.py`（`LAYERS` 加 `core`、`plugins`、`presets`；路徑改用 `/` 比對） | | Windows 上 `test_layers` 原本固定紅兩個，是路徑分隔符 |
+| 文件：`aiops-engine/README.md`（程式結構樹）、`docs/module-map.md`（第 4 節）、`common/scenario/README.md`、`CLAUDE.md` 結構表 | `blocks.py` → 外掛、`core/`、`presets/`；依賴方向加 `core`、`plugins`、`presets` | |
 
 ## Check：測試的目的與結果
 
-還沒開始。
+| 測試目的 | 怎麼測 | 結果 |
+|---|---|---|
+| 行為不變 | `python -m pytest -q`（PostgreSQL：`AIOPS_TEST_PG_DSN`） | 941 過；4 個失敗都是 `test_job_lock`：測試寫死 `tempfile.mkdtemp(dir="/tmp")`，Windows 沒這個資料夾，改之前也一樣 |
+| 依賴方向 | `test_layers`：`core → common → data → detect → llm → incident → learn → plugins → presets → interface` | 過；沒有往上的 import、沒有函式內 import |
+| 框架 | `test_core`：Registry 延遲與覆蓋策略、Plugin／Preset 順序、control panel 的預設／轉型／錯誤訊息、PipelinePlugin 三張登記表 | 過 |
+| 外掛的結構 | `test_core.PluginLayoutTest`：8 包、28 個外掛資料夾都有 `__init__`、`control_panel`、主檔且 `run` 可呼叫；MainPreset 登記的順序跟原本手寫表一樣；`golden_signals` 宣告的預設＝`GradeOptions`；`p0_service`（少一個 s）當場擋 | 過 |
+| 選用與自己寫的外掛 | `test_stages`（原 `test_blocks`）：沒寫 blocks 用全部、寫錯名字講出有哪些、只能選一個的多選會擋、④ 關掉的指令只印一行、⑥⑦⑨ 換成自己寫的會被叫 | 14 過 |
+| 叢集實跑 | 重 build image、重啟 api／beat／三個 worker；pod 裡 `detector blocks` 列出外掛與參數；推一筆異常 → 開件 `a-20261107-1143-ARCH-01`，嚴重度 `warning`（由 `plugin_severity` 算）、報告 8 段都出（`plugin_rca`）、摘要 `openai`（`plugin_summary`），worker 沒有錯誤 | 過 |
+
+- **沒測到的**：e2e（`factory_e2e`、`chain_e2e`…）這輪沒重跑。
 
 ## Act：Check 後沒改善的、還沒解決的
 
-還沒開始。
+| 沒改善的 | 在什麼情況下發現的 | 影響 | 後續 |
+|---|---|---|---|
+| 26 個外掛的 control panel 是空的，參數還在 `configs/` | 搬的時候 | `detector blocks` 只印得出嚴重度兩個外掛的參數 | 一段一段把參數搬進 control panel，並讓 form_data 真的驅動外掛（現在 golden_signals 的值照舊從 rca.yaml 讀，control panel 只宣告、測試鎖住預設一致） |
+| 18 個外掛是包裝，演算法還在原層 | 依賴方向：`detect_service` 被回測、level_shift、trace 用；`llm/similar` 被 alert_service 用 | 外掛還不是「自成一包」，抽成外部套件前要先拆 | 拆出只屬於外掛的部分再搬 |
+| `PipelineProps`、`transform_props` 有介面、還沒有段用 | 設計時：各段的 run 照原本的契約，改成 props 會打壞自己寫的外掛 | — | 契約統一時一起改 |
+| 三個情境的 Preset 都是 MainPreset | 搬的時候 | 情境還不會少登記外掛 | 要時在 `presets/` 改 |
+| 階段 E（`plugin_notify`）、F（外部外掛套件） | 範圍 | ⑧ 還沒有外掛 | 另開 |
+| `tools/check-docs.py` 的「程式路徑」檢查有 68 個問題（master 本來就 65 個），連存在的 `aiops-engine/src/` 都報不存在 | 跑 check-docs 時 | 這一項等於沒在擋 | 檢查腳本另修 |
+| 測試的資料庫名用 process id，Windows 上 process id 重複時會撞名（`DuplicateDatabase`） | 這輪跑測試時 | 偶爾整批失敗，要手動刪 `t_*` 的資料庫 | `tests/pg.py` 名字加亂數 |

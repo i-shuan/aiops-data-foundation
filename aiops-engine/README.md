@@ -27,10 +27,24 @@
 
 ## 程式結構（`src/`）
 
-依賴只能往下：`interface → learn → incident → llm → detect → data → common`（`tests/test_layers.py` 鎖著）。每個功能的資料物件與 ES 讀寫放自己的 `store/`，設定欄位的定義（型別、預設值、檢查）放自己的 `config/`（`detect/config/`、`incident/config/`、`interface/config/`；共用的在 `common/config/`），值在 `configs/` 的 yaml，yaml 只寫跟預設值不同的鍵。時間只在邊界解析：命令列的字串在 `interface/cli` 變成 `Timestamp`／`Timedelta`，往下傳的不是字串。
+依賴只能往下：`interface → presets → plugins → learn → incident → llm → detect → data → common → core`（`tests/test_layers.py` 鎖著）。每個功能的資料物件與 ES 讀寫放自己的 `store/`，設定欄位的定義（型別、預設值、檢查）放自己的 `config/`（`detect/config/`、`incident/config/`、`interface/config/`；共用的在 `common/config/`），值在 `configs/` 的 yaml，yaml 只寫跟預設值不同的鍵。時間只在邊界解析：命令列的字串在 `interface/cli` 變成 `Timestamp`／`Timedelta`，往下傳的不是字串。
 
 ```
 src/
+├─ core/          框架（對應 @superset-ui/core；不認得任何業務、不 import 其他層）
+│  ├─ models/     plugin（Plugin）· preset（Preset）· registry（Registry、OverwritePolicy）
+│  ├─ pipeline/   models/（plugin＝PipelinePlugin · metadata · props）· registries/（metadata · control_panel · run）
+│  └─ controls/   types（ControlPanelConfig、ControlPanelSectionConfig、ControlConfig）· shared_controls
+├─ plugins/       外掛（對應 superset-frontend/plugins/）：一包 plugin_<段>，一個外掛一個資料夾（__init__ · control_panel · 主檔）
+│  ├─ plugin_detect/    dynamic_baseline · peer_compare · threshold_rule · chronic_issue · quality_check · level_shift · trace_latency
+│  ├─ plugin_grouping/  same_entity
+│  ├─ plugin_severity/  golden_signals · p0
+│  ├─ plugin_rca/       anomalies · entries · segments · slowest · logs · changes · topology · conclusion
+│  ├─ plugin_similar/   fields · vector
+│  ├─ plugin_summary/   llm
+│  ├─ plugin_hints/     segment_hints · checklist
+│  └─ plugin_suggest/   false_positive · missed · precision · rule_upgrade · from_text
+├─ presets/       對應 visualizations/presets/：main_preset（MainPreset）· observability · factory · metrics_only；setup_plugins()
 ├─ interface/     對外的入口
 │  ├─ config/     schedule
 │  ├─ cli/        common · detect · feedback · rca · fab
@@ -66,6 +80,7 @@ src/
    ├─ clock/      parse（時間長度、時間點、時區）· window（TimeWindow、now_of）· stamp
    ├─ infra/      env · es（連線、文件基底）· pg · repos（Repos）· pack · prune（detector prune：打包再刪）
    ├─ types/      incident（事故與指紋）
+   ├─ stages.py   管線各段（④⑥⑦⑨）的定義與情境資料檔 blocks: 的選用；外掛從 core 的登記表拿
    └─ scenario/   base · it_otel／it_apm／factory／metrics_only.yaml（情境資料檔）
 ```
 

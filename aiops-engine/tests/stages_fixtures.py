@@ -1,4 +1,4 @@
-"""tests/test_blocks.py 用的「自己寫的積木」（情境資料檔填 tests.blocks_fixtures:名字）。"""
+"""tests/test_stages.py 用的「自己寫的外掛」（情境資料檔填 tests.stages_fixtures:名字）。"""
 from __future__ import annotations
 
 CALLS: list[str] = []
@@ -14,7 +14,7 @@ def register(app):
 
 def always_critical(ctx, g):
     """⑥ 嚴重度：不管前面評什麼，都改成 critical。"""
-    return {**(g or {}), "severity": "critical", "why": ((g or {}).get("why", "") + "；自己寫的積木：一律 critical").lstrip("；")}
+    return {**(g or {}), "severity": "critical", "why": ((g or {}).get("why", "") + "；自己寫的外掛：一律 critical").lstrip("；")}
 
 
 def merge(*args, **kwargs):

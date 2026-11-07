@@ -20,7 +20,7 @@ from learn.store.models import RCA_USEFUL, VERDICTS
 from common.types.incident import Incident
 from common.infra.repos import Repos
 from common.scenario import load_scenario
-import common.blocks as BLOCKS
+import common.stages as ST
 from dataclasses import dataclass
 import detect.series_ops.manual_adjust as A
 from detect.series_ops.manual_adjust import load_adjustments
@@ -268,7 +268,7 @@ def _suggest_rules(repo, series_config: SeriesConfig, args, now) -> int:
 
 @dataclass
 class SuggestContext:
-    """feedback suggest 一輪手上的東西；自己寫的建議積木從這裡拿（寫建議用 _propose，id 用 doc_id）。"""
+    """feedback suggest 一輪手上的東西；自己寫的建議外掛從這裡拿（寫建議用 _propose，id 用 doc_id）。"""
     repo: object
     series_config: SeriesConfig
     args: object                 # days、min_false_positive、min_recurring…（feedback suggest 的參數）
@@ -303,7 +303,7 @@ def feedback_suggest(series_config: SeriesConfig, args) -> int:
                  if (a.get("kind") or "override") == "override" and a.get("z")}
     ctx = SuggestContext(repo=repo, series_config=series_config, args=args, summary=s, z0=z0, overrides=overrides, now=now)
     n = 0
-    for name, block in BLOCKS.stage("suggest").loaded(repo.scenario):     # ⑨ 調整建議的積木（common/blocks.py）；from_text 是送出回饋時跑的
+    for name, block in ST.stage("suggest").loaded(repo.scenario):     # ⑨ 調整建議的外掛（common/stages.py；外掛在 plugins/）；from_text 是送出回饋時跑的
         if name != "from_text":
             n += block(ctx)
     print(f"{n} 筆建議（status: proposed；override 先 backtest --id … 再 adjust approve --id …；規則草稿照 rule_draft 加進 rules.yaml）；"
@@ -339,7 +339,7 @@ def _extract(repo, series_config: SeriesConfig, args, doc: dict, alert: dict | N
     doc["feedback_text"] = args.text
     doc["extract"] = {k: v for k, v in {**(ext["fields"] or {}), "ok": ext["ok"], "provider": ext["provider"], "reason": ext["reason"]}.items() if v not in (None, "")}
     print(f"抽取（{ext['provider']}）：" + (json.dumps(ext["fields"], ensure_ascii=False) if ext["ok"] else f"沒抽到（{ext['reason']}），只存原文"))
-    if ext["ok"] and BLOCKS.on("suggest", repo.scenario, "from_text"):        # ⑨ 積木 from_text 關掉：只存原文與抽到的，不提調整
+    if ext["ok"] and ST.on("suggest", repo.scenario, "from_text"):        # ⑨ 外掛 from_text 關掉：只存原文與抽到的，不提調整
         doc["tuning_id"] = propose_from_text(repo, ext["fields"], ctx, args.text, args.by, now, DetectOptions(**series_config.detect.model_dump(exclude_none=True)).z)
     return ext
 
@@ -466,7 +466,7 @@ def _extract_text(repo: Repos, text: str, alert: dict, by: str, now: datetime, b
     ext = LLM.extract_feedback(text, alert)
     base["feedback_text"] = text
     base["extract"] = {k: v for k, v in {**(ext["fields"] or {}), "ok": ext["ok"], "provider": ext["provider"], "reason": ext["reason"]}.items() if v not in (None, "")}
-    if not ext["ok"] or not BLOCKS.on("suggest", getattr(repo, "scenario", None), "from_text"):
+    if not ext["ok"] or not ST.on("suggest", getattr(repo, "scenario", None), "from_text"):
         return None, None
     try:
         tuning_id = propose_from_text(repo, ext["fields"], alert, text, by, now)

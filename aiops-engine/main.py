@@ -13,7 +13,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))   # 程式在 src/；從 aiops-engine/ 跑，不用設 PYTHONPATH
 
-from common.config.settings import MissingSetting, SettingsError
+from common.config.settings import MissingSetting, SettingsError, settings
+from presets import setup_plugins
 
 ROLE_NAMES = ("detector", "investigator", "scheduler", "tasks", "api")
 
@@ -49,6 +50,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"用法：python3 -m main <{'|'.join(ROLE_NAMES)}> …", file=sys.stderr)
         return 2
     try:
+        setup_plugins(settings().aiops_plugin)     # 對應 Superset 的 setupPlugins()：照情境登記 Preset（presets/）
         return int(_role(argv[0])(argv[1:]) or 0)
     except (SettingsError, MissingSetting) as e:     # 環境變數的問題：一行講清楚，不丟 traceback
         print(f"設定錯誤：{e}", file=sys.stderr)

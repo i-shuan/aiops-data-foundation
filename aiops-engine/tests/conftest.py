@@ -11,7 +11,11 @@ from unittest import mock
 import pytest
 
 import common.scenario.mapping as MAPPING
+from presets import MainPreset
 from tests.pg import admin_dsn, fresh_db
+
+# 外掛的登記（對應 Superset 的 setupPlugins()）：正式跑由 main.py 做，測試在這裡做一次（全部內建外掛）
+MainPreset().register()
 
 
 @pytest.fixture(scope="session")
