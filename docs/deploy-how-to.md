@@ -52,7 +52,7 @@ engine 自己的資料——異常、基準線、告警（含 RCA 報告）、�
 |---|---|
 | 版本 | PostgreSQL **14 以上**；只用標準功能（jsonb、GIN、btree），不用 TimescaleDB |
 | 資料庫 | 一個（例如 `aiops`）；要放在某個 schema 而不是 `public` 也可以，engine 設 `pgSchema`（環境變數 `AIOPS_PG_SCHEMA`） |
-| engine 的帳號 | 那個 schema 的 `CREATE`、表的 `SELECT／INSERT／UPDATE／DELETE`（engine 第一次寫入時自己建表；DBA 想先建好就跑 `detector db init`，之後 engine 只需要讀寫） |
+| engine 的帳號 | 那個 schema 的 `CREATE`、表的 `SELECT／INSERT／UPDATE／DELETE`（engine 每個工作啟動時會送 `CREATE TABLE IF NOT EXISTS`，**沒有 `CREATE` 權限會 `permission denied`，即使表已經建好**；DBA 先跑 `detector db init` 建表不能省掉這個權限） |
 | Grafana 的帳號 | **唯讀**：`SELECT`，加 `ALTER DEFAULT PRIVILEGES … GRANT SELECT ON TABLES`（engine 之後建的表也讀得到） |
 | 擴充（選用） | `pgvector`：相似事故的向量用 SQL 算。**不給也能跑**：向量存一般欄位、在程式裡算（事故幾十到幾百件，沒差） |
 | 連線 | engine、Grafana 的 pod 連得到；`sslmode=require` 以上 |
