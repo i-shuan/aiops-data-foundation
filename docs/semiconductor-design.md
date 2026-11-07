@@ -36,7 +36,7 @@
 | ② 清資料 | 不收測試流量（沒有自動辨識） | 排除 PM（預防保養）後、qual run、dummy wafer、工程 lot | 要有「哪些 run 不算」的標記；對應現有的排除時段、重置點 |
 | ③ 存 | `traces-merged-*`、`aiops-*` | 加一個 `lot-paths-*`（一個 lot 一筆，step 巢狀），其餘 `aiops-*` 不變 | 新 template；結果索引沿用 |
 | ④ 判斷 | 每分鐘 metrics；「同星期幾 × 同小時」的基準線 | 事件驅動：每個 run 一個值；基準線依（機台、chamber、recipe、step）分 | 見下「M1」 |
-| ⑤ 異常總表 | `aiops-anomalies`，key 是 service、route | key 是 equipment、chamber、recipe、step | `keys` 欄位換；索引不變 |
+| ⑤ 異常總表 | `aiops_anomalies`，key 是 service、route | key 是 equipment、chamber、recipe、step | `keys` 欄位換；索引不變 |
 | ⑥ 收斂 | 同服務、時間相連合成一件；跨服務依呼叫關係併一層 | 同機台、同一段時間；跨機台依「同一批 lot 的前後站」併一層 | 見下「事件整合」 |
 | ⑦ 根因分析 | metrics → trace → log | FDC 異常 → lot 路徑 → 機台 alarm／事件 log | 路徑合成器取代 trace-merge |
 | ⑧ 出口 | Grafana 依 dept 分送 | 同；dept 換成廠區、製程段（區域）、設備工程師群 | `labels.dept` 的來源換成機台的歸屬表 |
@@ -91,7 +91,7 @@
 
 | 對照表的項目 | 做了 | 沒做 |
 |---|---|---|
-| ④ 判斷 | 接收器 `detector ingest`：ML、FDC 的輸出 → `aiops-anomalies`（`level` ml／fdc、`source_id` 是 run_id／alarm_id） | engine 自己判 FDC（M1、M3）、chamber matching（M2） |
+| ④ 判斷 | 接收器 `detector ingest`：ML、FDC 的輸出 → `aiops_anomalies`（`level` ml／fdc、`source_id` 是 run_id／alarm_id） | engine 自己判 FDC（M1、M3）、chamber matching（M2） |
 | ③ 存 | `lot-paths-*`（一個 lot 一筆，跟 `traces-merged-*` 同格式） | 同一個 ES 跟 IT 版分 `aiops-*` 前綴 |
 | ⑥ 收斂 | 同機台一件；後站的異常依履歷併進前站（優先「那件已有這批 lot」的前站）；嚴重度依參數家族；recipe 變更當換版 | 前後站併件只併一層 |
 | ⑦ 根因 | 履歷合成器 `paths-merge`（MES 主幹＋S6F11 子段）→ M4 照舊：哪一站哪個 chamber 多花多久、壞 lot 的共同點（chamber、recipe 版本、材料批）、機台 alarm 新樣式、事故前的 PM／recipe 變更 | RCA graph；rework、split／merge lot 的路徑 |

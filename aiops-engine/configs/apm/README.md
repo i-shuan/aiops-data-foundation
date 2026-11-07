@@ -26,7 +26,7 @@
 
 ### 1、2. ES：key 與 `traces-merged-*` 的 template
 
-engine 要**讀** APM 的三種資料，**寫**自己的 `aiops-*` 和 `traces-merged-*`（只有寫沒有讀跑不起來；`aiops-*` 的索引名是 `aiops-anomalies`、`aiops-alerts`…，沒有連字號後綴，所以 pattern 用 `aiops-*`）。
+engine 要**讀** APM 的三種資料，**寫** `traces-merged-*`（只有寫沒有讀跑不起來）；engine 自己的其他資料（異常、告警、事故…）在 PostgreSQL，不在 ES（[deploy-how-to.md 第 1b 節](../../../docs/deploy-how-to.md#1b-postgresqlengine-自己的資料)）。
 `traces-merged-*` 一天一個 index，mapping 要 nested，得先放 template。
 
 兩件事都在 [elasticsearch/kibana-dev-tools.txt](../../../elasticsearch/kibana-dev-tools.txt)：整份貼進 Kibana Dev Tools，第 1、2 段是 ILM 與 template，第 3 段發 engine 的 key（回傳的 `encoded` 就是 `ES_API_KEY`）。全部是新增，不碰現有索引。

@@ -19,8 +19,8 @@
       "type": "stat",
       "title": "mes-report 月底批次：目前被判為異常的筆數",
       "datasource": {
-        "type": "elasticsearch",
-        "uid": "aiops-anomalies"
+        "type": "grafana-postgresql-datasource",
+        "uid": "aiops-db"
       },
       "gridPos": {
         "x": 0,
@@ -32,29 +32,13 @@
         {
           "refId": "A",
           "datasource": {
-            "type": "elasticsearch",
-            "uid": "aiops-anomalies"
+            "type": "grafana-postgresql-datasource",
+            "uid": "aiops-db"
           },
-          "query": "keys.service:mes-report AND series:synth.requests AND status:anomaly",
-          "alias": "",
-          "metrics": [
-            {
-              "id": "1",
-              "type": "count"
-            }
-          ],
-          "bucketAggs": [
-            {
-              "id": "2",
-              "type": "date_histogram",
-              "field": "@timestamp",
-              "settings": {
-                "interval": "auto",
-                "min_doc_count": "0"
-              }
-            }
-          ],
-          "timeField": "@timestamp"
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT $__timeGroupAlias(ts, $__interval), count(*) AS value FROM aiops_anomalies WHERE $__timeFilter(ts) AND doc->'keys'->>'service' = 'mes-report' AND doc->>'series' = 'synth.requests' AND doc->>'status' = 'anomaly' GROUP BY 1 ORDER BY 1"
         }
       ],
       "fieldConfig": {
@@ -86,8 +70,8 @@
       "type": "stat",
       "title": "老師傅回饋筆數",
       "datasource": {
-        "type": "elasticsearch",
-        "uid": "aiops-feedback"
+        "type": "grafana-postgresql-datasource",
+        "uid": "aiops-db"
       },
       "gridPos": {
         "x": 8,
@@ -99,29 +83,13 @@
         {
           "refId": "A",
           "datasource": {
-            "type": "elasticsearch",
-            "uid": "aiops-feedback"
+            "type": "grafana-postgresql-datasource",
+            "uid": "aiops-db"
           },
-          "query": "*",
-          "alias": "",
-          "metrics": [
-            {
-              "id": "1",
-              "type": "count"
-            }
-          ],
-          "bucketAggs": [
-            {
-              "id": "2",
-              "type": "date_histogram",
-              "field": "@timestamp",
-              "settings": {
-                "interval": "auto",
-                "min_doc_count": "0"
-              }
-            }
-          ],
-          "timeField": "@timestamp"
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT $__timeGroupAlias(ts, $__interval), count(*) AS value FROM aiops_feedback WHERE $__timeFilter(ts) GROUP BY 1 ORDER BY 1"
         }
       ],
       "fieldConfig": {
@@ -153,8 +121,8 @@
       "type": "stat",
       "title": "已生效的調整（核准後）",
       "datasource": {
-        "type": "elasticsearch",
-        "uid": "aiops-tuning"
+        "type": "grafana-postgresql-datasource",
+        "uid": "aiops-db"
       },
       "gridPos": {
         "x": 16,
@@ -166,29 +134,13 @@
         {
           "refId": "A",
           "datasource": {
-            "type": "elasticsearch",
-            "uid": "aiops-tuning"
+            "type": "grafana-postgresql-datasource",
+            "uid": "aiops-db"
           },
-          "query": "status:active",
-          "alias": "",
-          "metrics": [
-            {
-              "id": "1",
-              "type": "count"
-            }
-          ],
-          "bucketAggs": [
-            {
-              "id": "2",
-              "type": "date_histogram",
-              "field": "at",
-              "settings": {
-                "interval": "auto",
-                "min_doc_count": "0"
-              }
-            }
-          ],
-          "timeField": "at"
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT $__timeGroupAlias(ts, $__interval), count(*) AS value FROM aiops_tuning WHERE $__timeFilter(ts) AND doc->>'status' = 'active' GROUP BY 1 ORDER BY 1"
         }
       ],
       "fieldConfig": {
@@ -221,8 +173,8 @@
       "title": "調整建議（回饋 → 建議 → 回測 → 人核准 → 偵測下一輪直接吃）",
       "description": "",
       "datasource": {
-        "type": "elasticsearch",
-        "uid": "aiops-tuning"
+        "type": "grafana-postgresql-datasource",
+        "uid": "aiops-db"
       },
       "gridPos": {
         "x": 0,
@@ -234,22 +186,13 @@
         {
           "refId": "A",
           "datasource": {
-            "type": "elasticsearch",
-            "uid": "aiops-tuning"
+            "type": "grafana-postgresql-datasource",
+            "uid": "aiops-db"
           },
-          "query": "*",
-          "alias": "",
-          "metrics": [
-            {
-              "id": "1",
-              "type": "raw_data",
-              "settings": {
-                "size": "50"
-              }
-            }
-          ],
-          "bucketAggs": [],
-          "timeField": "at"
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT doc->>'at' AS at, doc->>'kind' AS kind, doc->>'status' AS status, doc->>'series' AS series, COALESCE(doc->'match'->>'service', doc->>'service') AS service, (doc->>'z')::float AS z, doc->>'reason' AS reason, doc->'backtest'->>'anomalies_before' AS \"backtest.anomalies_before\", doc->'backtest'->>'anomalies_after' AS \"backtest.anomalies_after\", doc->'backtest'->>'recommended' AS \"backtest.recommended\", doc->>'approved_by' AS approved_by FROM aiops_tuning WHERE $__timeFilter(ts) ORDER BY ts DESC LIMIT 50"
         }
       ],
       "transformations": [
@@ -360,8 +303,8 @@
       "title": "老師傅回饋",
       "description": "",
       "datasource": {
-        "type": "elasticsearch",
-        "uid": "aiops-feedback"
+        "type": "grafana-postgresql-datasource",
+        "uid": "aiops-db"
       },
       "gridPos": {
         "x": 0,
@@ -373,22 +316,13 @@
         {
           "refId": "A",
           "datasource": {
-            "type": "elasticsearch",
-            "uid": "aiops-feedback"
+            "type": "grafana-postgresql-datasource",
+            "uid": "aiops-db"
           },
-          "query": "*",
-          "alias": "",
-          "metrics": [
-            {
-              "id": "1",
-              "type": "raw_data",
-              "settings": {
-                "size": "50"
-              }
-            }
-          ],
-          "bucketAggs": [],
-          "timeField": "@timestamp"
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT doc->>'@timestamp' AS \"@timestamp\", doc->>'by' AS by, doc->>'verdict' AS verdict, doc->>'series' AS series, doc->>'alert_id' AS alert_id, doc->>'note' AS note FROM aiops_feedback WHERE $__timeFilter(ts) ORDER BY ts DESC LIMIT 50"
         }
       ],
       "transformations": [

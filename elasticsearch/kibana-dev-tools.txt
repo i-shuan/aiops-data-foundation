@@ -1,7 +1,8 @@
 # 在公司的 Elasticsearch 上補 AIOps 需要的東西。整份貼進 Kibana → Dev Tools，從上往下一段一段執行（游標放在該段，按執行）。
 # 全部是新增，不碰 Elastic APM 寫的任何索引（traces-apm*、logs-apm*、metrics-apm*）。重跑安全（template、ILM 是覆蓋）；key 每次都是新的。
 # 需要的權限：manage_index_templates、manage_ilm、manage_own_api_key（發 key）。沒有的話請有權限的人貼。
-# 第一次部署 engine 之前做完 1～4。5 是備份，選用。aiops-* 的索引 engine 自己建，不用在這裡建。
+# 第一次部署 engine 之前做完 1～4。engine 自己的資料（異常、告警、事故、回饋、調整…）2026-11 起存 PostgreSQL，不在 ES（docs/pdca/meta/2026-11-postgres-store.md）；
+# 以前存在 ES 的 aiops-* 搬完之後的處理在第 6 段。
 
 
 # ── 1. traces-merged 的保留天數（ILM）：engine 合成的「一個請求一筆」，留 7 天 ──
@@ -67,7 +68,7 @@ PUT _index_template/traces-merged
 }
 
 
-# ── 3. engine 的 API key：讀 APM 的三種資料，只能寫自己的 aiops-*、traces-merged-* ──
+# ── 3. engine 的 API key：讀 APM 的三種資料，只能寫 traces-merged-*（engine 自己的其他資料在 PostgreSQL） ──
 # 回傳的 "encoded" 就是 engine 的 ES_API_KEY（Secret aiops-secrets）。只會出現這一次；不要貼進 git、聊天或 log。
 POST _security/api_key
 {
@@ -76,14 +77,16 @@ POST _security/api_key
     "aiops-engine": {
       "indices": [
         {"names": ["traces-apm*", "logs-apm*", "metrics-apm*"], "privileges": ["read", "view_index_metadata"]},
-        {"names": ["aiops-*", "traces-merged-*"], "privileges": ["read", "write", "create_index", "view_index_metadata"]}
+        {"names": ["traces-merged-*"], "privileges": ["read", "write", "create_index", "view_index_metadata"]},
+        {"names": ["aiops-*"], "privileges": ["read", "view_index_metadata"]}
       ]
     }
   }
 }
+# 最後一行的 aiops-* 唯讀：只給「以前存在 ES 的資料搬進 PostgreSQL」（detector db import-es）用一次；搬完、刪掉舊索引（第 6 段）之後可以拿掉。
 
 
-# ── 4. Grafana 的唯讀 key：AIOps 寫的四個索引，加 APM 的三種資料（整合儀表板 aiops-overview 的上半） ──
+# ── 4. Grafana 的唯讀 key：APM 的三種資料（整合儀表板 aiops-overview 的上半）；AIOps 自己的資料 Grafana 讀 PostgreSQL ──
 # APM 的 trace、log 帶 SQL 與例外訊息；不想讓 Grafana 讀到，就拿掉下面 names 裡的三個 APM pattern（整合儀表板的上半會變成 403，其餘儀表板照常）。
 # 回傳的 "encoded" 就是 GRAFANA_ES_API_KEY（Secret grafana-env）。cluster monitor：Grafana 會先打 GET / 看版本，沒有它 data source 測試回 403。
 POST _security/api_key
@@ -93,7 +96,7 @@ POST _security/api_key
     "grafana-aiops": {
       "cluster": ["monitor"],
       "indices": [
-        {"names": ["aiops-alerts", "aiops-anomalies", "aiops-tuning", "aiops-feedback", "metrics-apm.transaction.1m-*", "traces-apm-*", "logs-apm.*"], "privileges": ["read", "view_index_metadata"]}
+        {"names": ["metrics-apm.transaction.1m-*", "traces-apm-*", "logs-apm.*"], "privileges": ["read", "view_index_metadata"]}
       ]
     }
   }
@@ -246,7 +249,7 @@ PUT _index_template/lot-paths
   }
 }
 
-# 工廠版 engine 的 key：讀 ML／FDC／MES／機台 log，寫自己的 aiops-*、lot-paths-*
+# 工廠版 engine 的 key：讀 ML／FDC／MES／機台 log，寫 lot-paths-*（engine 自己的其他資料在 PostgreSQL）
 POST _security/api_key
 {
   "name": "aiops-engine-factory",
@@ -254,7 +257,8 @@ POST _security/api_key
     "aiops-engine-factory": {
       "indices": [
         {"names": ["factory-ml-anomalies-*", "factory-fdc-alarms-*", "mes-history-*", "eqp-events-*", "eqp-logs-*", "eqp-master"], "privileges": ["read", "view_index_metadata"]},
-        {"names": ["aiops-*", "lot-paths-*"], "privileges": ["read", "write", "create_index", "view_index_metadata"]}
+        {"names": ["lot-paths-*"], "privileges": ["read", "write", "create_index", "view_index_metadata"]},
+        {"names": ["aiops-*"], "privileges": ["read", "view_index_metadata"]}
       ]
     }
   }
@@ -268,7 +272,8 @@ GET _ilm/policy/traces-merged
 # 用 engine 的 key 打這個（要大於 0）：GET metrics-apm.transaction.1m-*/_count
 
 
-# ── 5. （選用）每天備份人工判斷的索引：回饋、事故紀錄、調整掉了不能重算 ──
+# ── 5. （2026-11 以前用的，PostgreSQL 之後不用）每天備份人工判斷的索引 ──
+# 回饋、事故紀錄、調整現在在 PostgreSQL，備份交給 DBA（PostgreSQL 的備份）；下面留著給還沒搬的環境參考。
 # 先要有 snapshot 儲存庫，類型與位置由管 ES 的人決定（s3、fs、azure、gcs…）。下面兩段的 <…> 要先換成實際值。
 # PUT _snapshot/aiops
 # {"type": "s3", "settings": {"bucket": "<bucket>", "base_path": "aiops"}}
@@ -284,3 +289,20 @@ GET _ilm/policy/traces-merged
 # 還原一個索引：  先 DELETE aiops-tuning，再
 #   POST _snapshot/aiops/<快照名>/_restore
 #   {"indices": "aiops-tuning", "include_global_state": false}
+
+
+# ── 6. 以前存在 ES 的 aiops-* 搬進 PostgreSQL 之後（一次性） ──
+# 先搬：kubectl -n aiops exec deploy/aiops-engine -c scheduler -- python3 -m main detector db import-es
+# 對筆數：上面 import-es 印的筆數，跟 kubectl … -- python3 -m main detector db status 一樣；Grafana 改讀 PostgreSQL、看過儀表板正常。
+# 都確認了才刪（刪了不能復原；要留一份就先做第 5 段的 snapshot）：
+# DELETE aiops-anomalies
+# DELETE aiops-baseline
+# DELETE aiops-alerts
+# DELETE aiops-incidents
+# DELETE aiops-feedback
+# DELETE aiops-tuning
+# DELETE aiops-mapping
+# DELETE aiops-state
+# DELETE aiops-chronic
+# DELETE aiops-trace-segments
+# 刪完把第 3 段 engine key 裡 aiops-* 的唯讀拿掉（重發一把 key）。

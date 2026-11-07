@@ -67,9 +67,9 @@ metrics、log 的對照（索引、欄位、單位 `scale`、直方圖桶、粒�
 | 讀回來之後 | `to_span(doc)` | 依序問每個適配器 `can_handle`，第一個認得的翻；**都不認得丟 `UnknownSourceError`**（訊息列出文件有的欄位，不默默當成 OTel） |
 | 合成後的索引（`traces-merged-*`、`lot-paths-*`） | `is_merged(index)` | 看索引名；這是 engine 自己的格式，不是來源 |
 
-## 欄位對照的覆寫（`aiops-mapping`）
+## 欄位對照的覆寫（`aiops_mapping`）
 
-情境資料檔（`it_otel.yaml`、`it_apm.yaml`）的 `owner`、`log` 是基準；ES 的 `aiops-mapping` 裡**核准過**的覆寫在每次讀時蓋上去（`common/scenario/mapping.py`）。
+情境資料檔（`it_otel.yaml`、`it_apm.yaml`）的 `owner`、`log` 是基準；PostgreSQL 的 `aiops_mapping` 裡**核准過**的覆寫在每次讀時蓋上去（`common/scenario/mapping.py`）。
 
 | 開放的欄位 | |
 |---|---|
@@ -86,7 +86,7 @@ metrics、log 的對照（索引、欄位、單位 `scale`、直方圖桶、粒�
 
 trace 合成時的部門、群組直接用 `owner` 的 `dept`、`group` 欄位名（假設同一個來源的 metrics 與 trace 用同一個 label 路徑），所以改歸屬的部門欄位，trace 也跟著。
 
-讀不到 ES 時照 yaml；一筆覆寫寫錯（欄位沒開放、來源沒在用）只略過那一筆。怎麼操作見 [data-sources-how-to.md](data-sources-how-to.md)。
+讀不到資料庫時照 yaml；一筆覆寫寫錯（欄位沒開放、來源沒在用）只略過那一筆。怎麼操作見 [data-sources-how-to.md](data-sources-how-to.md)。
 
 ## 目前的限制
 

@@ -1,49 +1,49 @@
-# AIOps 資料格式：aiops-* 索引的欄位
+# AIOps 資料格式：engine 自己的資料表的欄位
 
 > **類型：規格 Reference**　同主題：[原理（為什麼這樣設計）](architecture.md)・[回饋與學習](feedback/README.md)・[相似事故檢索](rca/README.md)
 
-查 AIOps（④～⑨）寫進 ES 的五個索引：每個欄位是什麼型別、誰在什麼時候寫、長怎樣。範例是 2026-10-31 在 ES 8.19.23 上跑 `loop_e2e`、`baseline_edge_e2e` 後取出的真實文件，長文字截短（標「…共 N 字」），內容沒改。log、metrics、trace 本身是 Elastic APM 的欄位，看 [aiops-engine/configs/apm/README.md](../aiops-engine/configs/apm/README.md)。
+查 AIOps（④～⑨）寫的五種資料：每個欄位是什麼型別、誰在什麼時候寫、長怎樣。2026-11 起存在 **PostgreSQL**，一種一張表（`aiops_anomalies`…），每張表都是 `id`、`ts`、`doc`（整份文件，jsonb）、`updated_at`，下面講的「欄位」是 `doc` 裡的鍵；SQL 裡寫 `doc->>'status'`、巢狀的 `doc->'keys'->>'service'`。範例是 2026-10-31 當時存在 ES 8.19.23、跑 `loop_e2e`、`baseline_edge_e2e` 後取出的真實文件（文件本身原樣搬進 `doc`，格式沒變），長文字截短（標「…共 N 字」），內容沒改。log、metrics、trace 本身是 Elastic APM 的欄位，看 [aiops-engine/configs/apm/README.md](../aiops-engine/configs/apm/README.md)。
 
-各索引存什麼、誰寫、多久一次、會不會自己消失，以及 Grafana 自己存什麼：[data-storage-reference.md](data-storage-reference.md)。
+各表存什麼、誰寫、多久一次、會不會自己消失，以及 Grafana 自己存什麼：[data-storage-reference.md](data-storage-reference.md)。
 
 **真正的定義在程式**（改欄位時以程式為準，並同步改這份）：
 
-| 索引 | mapping 在哪 |
-|---|---|
-| `aiops-anomalies` | `aiops-engine/src/detect/store/models.py` 的 `ANOMALY_MAPPING`（欄位的唯一定義是同一檔的 `Anomaly`） |
-| `aiops-alerts` | `aiops-engine/src/incident/store/models.py` 的 `ALERT_MAPPING`（欄位的唯一定義是同一檔的 `Alert`；事件整合在手上的就是這個物件，`to_doc()` 寫、`from_doc()` 讀） |
-| `aiops-incidents` | `aiops-engine/src/common/types/incident.py` 的 `INCIDENT_MAPPING`（欄位的唯一定義是同一檔的 `Incident`、`Fingerprint` 模型，寫入一律 `to_doc()`） |
-| `aiops-feedback` | `aiops-engine/src/learn/store/models.py` 的 `FEEDBACK_MAPPING` |
-| `aiops-tuning` | `aiops-engine/src/learn/store/models.py` 的 `TUNING_MAPPING`（⑨ 寫、④ 讀，所以放 `core/`）；寫進去前過同一檔的 `Adjustment`（`validated`） |
+| 表 | 欄位的定義在哪 | 查詢在哪 |
+|---|---|---|
+| `aiops_anomalies` | `aiops-engine/src/detect/store/models.py` 的 `Anomaly` | `aiops-engine/src/detect/store/anomaly_repo.py` |
+| `aiops_alerts` | `aiops-engine/src/incident/store/models.py` 的 `Alert`（事件整合在手上的就是這個物件，`to_doc()` 寫、`from_doc()` 讀） | `aiops-engine/src/incident/store/alert_repo.py` |
+| `aiops_incidents` | `aiops-engine/src/common/types/incident.py` 的 `Incident`、`Fingerprint`（寫入一律 `to_doc()`） | `aiops-engine/src/incident/store/incident_repo.py` |
+| `aiops_feedback` | `aiops-engine/src/learn/store/models.py` | `aiops-engine/src/learn/store/feedback_repo.py` |
+| `aiops_tuning` | `aiops-engine/src/learn/store/models.py` 的 `Adjustment`（寫進去前過 `validated`） | `aiops-engine/src/learn/store/tuning_repo.py` |
 
-五個索引的 mapping 都是 `dynamic: false`：**沒列在 mapping 的欄位，會留在 `_source`（Grafana 面板讀得到、顯示得出來），但不能拿來篩選或聚合。**
+`doc` 是 jsonb：**每個欄位都存得下、也都查得到**（以前 ES 的 mapping 是 `dynamic: false`，沒列進 mapping 的欄位查不到；現在沒有這個限制）。常查的欄位有運算式索引（各 repository 的 `INDEXES`）。下面各表的「型別」是以前 ES 的寫法，對到 JSON：`keyword`、`text` 是字串，`integer`、`long`、`double` 是數字，`date` 是 ISO 8601 字串（例如 `2026-10-31T02:05:00+00:00`），`flattened`、`object` 是物件。
 
 ## 資料怎麼流動
 
 ```
-偵測（④）            寫 aiops-anomalies（⑤ 異常總表）  一筆異常一份文件
+偵測（④）            寫 aiops_anomalies（⑤ 異常總表）  一筆異常一份文件
    ↓
-事件整合（⑥ 收斂）     讀 anomalies → 同一個服務合成一件 → 寫 aiops-alerts（每 1～2 分鐘更新）
+事件整合（⑥ 收斂）     讀 anomalies → 同一個服務合成一件 → 寫 aiops_alerts（每 1～2 分鐘更新）
    │                  同時把 alert_id 寫回它併進來的每筆 anomalies
-   │                  同時開一筆 aiops-incidents（status: auto，還沒人看）
+   │                  同時開一筆 aiops_incidents（status: auto，還沒人看）
    ↓
 根因分析（⑦）        新的一件跑一次：寫進 alerts 的 findings、similar、report、llm_summary
    ↓
-Grafana（⑧）         讀 aiops-alerts 發通知；儀表板讀 alerts、anomalies、feedback、tuning
+Grafana（⑧）         SQL 查 aiops_alerts 發通知；儀表板讀 alerts、anomalies、feedback、tuning
    ↓
-資深維運專家（老師傅）  在回饋表單送出 → 寫 aiops-feedback、更新 aiops-incidents
-回饋（⑨）            feedback → 建議 → 回測 → 人核准 → 寫 aiops-tuning，偵測下一輪生效
+資深維運專家（老師傅）  在回饋表單送出 → 寫 aiops_feedback、更新 aiops_incidents
+回饋（⑨）            feedback → 建議 → 回測 → 人核准 → 寫 aiops_tuning，偵測下一輪生效
 ```
 
-| 索引 | 誰寫 | 誰讀 | `_id` |
+| 表 | 誰寫 | 誰讀 | `id` |
 |---|---|---|---|
-| `aiops-anomalies` | `detector`（detect、rules） | 事件整合、Grafana、回饋 | 內容的 sha1（`doc_id`），同一點重跑不重複 |
-| `aiops-alerts` | `investigator alert`；`detector detect` 只寫 `detect-status` 一筆 | Grafana（告警規則、儀表板）、回饋網頁 | `alert_id`；心跳固定 `heartbeat`、detect 狀態固定 `detect-status` |
-| `aiops-incidents` | `investigator alert`（開）、回饋網頁（確認）、`detector incident`（人工補登） | 相似事故檢索 | 等於 `alert_id`；人工補登的是 `--id`，沒給就是（標題、開始時間）的 sha1 |
-| `aiops-feedback` | 回饋網頁、`detector feedback` | `feedback suggest`、儀表板 | 內容的 sha1（一筆異常、一個人一筆） |
-| `aiops-tuning` | `detector tune／adjust／feedback suggest` | `detect`、`train`、儀表板 | `--id` 指定的；沒給就是內容的 sha1（`suggest` 的是序列與對象、或服務與根因分類的 sha1） |
+| `aiops_anomalies` | `detector`（detect、rules） | 事件整合、Grafana、回饋 | 內容的 sha1（`doc_id`），同一點重跑不重複 |
+| `aiops_alerts` | `investigator alert`；`detector detect` 只寫 `detect-status` 一筆 | Grafana（告警規則、儀表板）、回饋網頁 | `alert_id`；心跳固定 `heartbeat`、detect 狀態固定 `detect-status` |
+| `aiops_incidents` | `investigator alert`（開）、回饋網頁（確認）、`detector incident`（人工補登） | 相似事故檢索 | 等於 `alert_id`；人工補登的是 `--id`，沒給就是（標題、開始時間）的 sha1 |
+| `aiops_feedback` | 回饋網頁、`detector feedback` | `feedback suggest`、儀表板 | 內容的 sha1（一筆異常、一個人一筆） |
+| `aiops_tuning` | `detector tune／adjust／feedback suggest` | `detect`、`train`、儀表板 | `--id` 指定的；沒給就是內容的 sha1（`suggest` 的是序列與對象、或服務與根因分類的 sha1） |
 
-## aiops-anomalies：一筆異常
+## aiops_anomalies：一筆異常
 
 寫入：`detect/detect_service.py`（動態基準線學習，每次 detect）、`detect/strategy/threshold_rule.py`（靜態臨界值規則）、`detect/strategy/peer_compare.py`（Pod 同儕橫向比對）、`detect/trace/latency_stats.py`（trace 的基準線與規則）、`detect/series_ops/quality_check.py`（資料品質），都經 `detect/store/anomaly_repo.py` 的 `AnomalyRepository.write`。事件整合另外用部分更新補上 `alert_id`。
 
@@ -66,7 +66,7 @@ Grafana（⑧）         讀 aiops-alerts 發通知；儀表板讀 alerts、anom
 | `p` | double | 卜瓦松的機率 |
 | `dept`、`group` | keyword | 寫入時由 `AnomalyRepository.write` 補（歸屬查 `data/store/owner_repo.py`）：依 `keys` 裡的 namespace（優先，dept 是 namespace 的 label）或服務，對回 metrics 裡的部門與 group；找不到就是 null、`unassigned` |
 | `alert_id` | keyword | 併進哪一件；事件整合寫回，沒併進去的沒有 |
-| `rule`、`severity`、`message` | keyword、keyword、text | 動態基準線學習的沒有，`rule`、`peer`、`quality` 的有：規則名、嚴重度、給人看的一句話。**這三個欄位不在 `ANOMALY_MAPPING`**，由 `rules`、`peer`、`trace`、`quality` 第一次跑時用 `PUT _mapping` 補進索引（`detect/store/models.py` 的 `RULE_FIELDS`，`AnomalyRepository.ensure` 補），所以只跑過 detect 的新索引沒有它們 |
+| `rule`、`severity`、`message` | keyword、keyword、text | 動態基準線學習的沒有，`rule`、`peer`、`quality` 的有：規則名、嚴重度、給人看的一句話。只有這幾種偵測寫的文件有 |
 | `since` | 不索引 | 只有靜態規則有：條件開始成立的時間 |
 | `engine_version` | keyword | 哪一版 engine 寫的（`aiops.ENGINE_VERSION`：環境變數 `ENGINE_VERSION`，chart 填 image tag；本機是 `dev`）。五種寫入都經 `AnomalyRepository.write`，都有 |
 
@@ -95,7 +95,7 @@ Grafana（⑧）         讀 aiops-alerts 發通知；儀表板讀 alerts、anom
  "since": "2026-10-31T06:45:45+00:00", "detected_at": "2026-10-31T06:50:28+00:00", "dept": null, "group": "unassigned"}
 ```
 
-## aiops-alerts：一件事故（Grafana 通知讀這個）
+## aiops_alerts：一件事故（Grafana 通知讀這個）
 
 寫入：`investigator alert`（`aiops-engine/src/incident/alert_service.py`），每 1～2 分鐘跑一次。同一個服務最近的異常合成一件；超過 `close_after`（預設 30 分鐘）沒有新異常就結束（`resolved`）。
 
@@ -104,14 +104,14 @@ Grafana（⑧）         讀 aiops-alerts 發通知；儀表板讀 alerts、anom
 | 欄位 | 型別 | 說明 |
 |---|---|---|
 | `alert_id` | keyword | 同時是 `_id`；格式 `a-<開始日期>-<開始時分>-<服務>`（服務名的特殊字元換成 `_`） |
-| `category` | keyword | 這件歸在誰身上：`service`（服務，優先）、`namespace`、`node`（異常的 `keys` 裡沒有服務時依序退到這兩個）、`other`（都沒有，名稱用序列名）、`data_quality`（資料品質，`alert_id` 結尾多 `-dq`）、`heartbeat`（心跳）、`status`（detect 狀態，見下）。**只有 `service` 會跑根因分析、寫進 `aiops-incidents`、顯示在事故清單面板** |
+| `category` | keyword | 這件歸在誰身上：`service`（服務，優先）、`namespace`、`node`（異常的 `keys` 裡沒有服務時依序退到這兩個）、`other`（都沒有，名稱用序列名）、`data_quality`（資料品質，`alert_id` 結尾多 `-dq`）、`heartbeat`（心跳）、`status`（detect 狀態，見下）。**只有 `service` 會跑根因分析、寫進 `aiops_incidents`、顯示在事故清單面板** |
 | `service`、`status` | keyword | `service` 欄位放的是上一列那個類別的名稱（服務名、namespace、節點名…）；`status` 是 `open`、`resolved` |
 | `severity` | keyword | `critical`、`high`、`warning`：代表要不要吵人，不是偏離幾倍。critical：靜態規則 critical，或 ≥ 3 類黃金訊號（latency、errors、downstream、saturation）同時異常且不是單點；high：2 類，或 1 類但持續（≥ 10 分鐘、最後 15 分鐘窗 ≥ 80% 有異常）或好幾條都跳；warning：其餘。換版後 10 分鐘內的異常上限 warning。Grafana 只通知 critical、high（[investigator/severity.py](../aiops-engine/src/incident/alert_severity.py)） |
 | `severity_why` | text（不索引） | 嚴重度怎麼來的一句話（幾類、跨幾分鐘、換版上限） |
 | `deploy_at` | date | 這個服務最近一次換版（`service.version` 第一次出現的時間）；查不到就沒有 |
 | `dept`、`group` | keyword | 通知依 `dept` 分送；沒有 dept 的送平台 |
 | `started_at`、`updated_at`、`resolved_at` | date | 事故起訖 |
-| `anomaly_ids`、`anomaly_count` | keyword、integer | 併進來的異常（指到 `aiops-anomalies` 的 `_id`），一件最多記 500 筆 |
+| `anomaly_ids`、`anomaly_count` | keyword、integer | 併進來的異常（指到 `aiops_anomalies` 的 `id`），一件最多記 500 筆 |
 | `series`、`routes` | keyword | 涉及的指標、路由（工廠版的「路由」是 recipe） |
 | `lots` | keyword | 工廠版：這件牽涉哪些 lot（異常的 `keys.lot`，最多 500 筆）；前後站併件時「那件已經有這批 lot」的前站優先（[investigator/alerts.py](../aiops-engine/src/incident/alert_grouper.py) 的 `links`） |
 | `title`、`summary` | keyword | 通知用的標題與摘要。**存成 keyword**：Grafana 告警只能把「分組欄位的值」帶成 label，內容一變就是另一則（舊的 resolved、新的 firing），所以摘要不放持續時間、筆數 |
@@ -181,7 +181,7 @@ Grafana（⑧）         讀 aiops-alerts 發通知；儀表板讀 alerts、anom
  "anomaly_ids": [], "series": [], "routes": [], "anomaly_count": 0}
 ```
 
-**detect 狀態**：`_id: detect-status` 的一筆，每輪 `detector detect` 都更新，形狀跟心跳一樣（`status: ok`，不是一件）。`missing_baseline` 是這輪沒有 baseline 的序列數、`series` 是那些序列名。Grafana 的 `aiops-baseline-missing` 規則查 `missing_baseline > 0` 持續 5 分鐘就送平台（`aiops-baseline` 掉了 detect 只會跳過那些序列，不然沒人知道）。
+**detect 狀態**：`_id: detect-status` 的一筆，每輪 `detector detect` 都更新，形狀跟心跳一樣（`status: ok`，不是一件）。`missing_baseline` 是這輪沒有 baseline 的序列數、`series` 是那些序列名。Grafana 的 `aiops-baseline-missing` 規則查 `missing_baseline > 0` 持續 5 分鐘就送平台（`aiops_baseline` 掉了 detect 只會跳過那些序列，不然沒人知道）。
 
 ```json
 {"@timestamp": "2026-11-01T02:04:00+00:00", "alert_id": "detect-status", "category": "status", "status": "ok",
@@ -190,7 +190,7 @@ Grafana（⑧）         讀 aiops-alerts 發通知；儀表板讀 alerts、anom
  "anomaly_ids": [], "series": ["http.latency_p95_s", "http.error_rate"], "routes": [], "anomaly_count": 0, "missing_baseline": 2}
 ```
 
-## aiops-incidents：事故庫（相似事故檢索的資料池）
+## aiops_incidents：事故庫（相似事故檢索的資料池）
 
 欄位定義在 `aiops-engine/src/common/types/incident.py` 的 `Incident`（指紋是 `Fingerprint`）；四條寫入路徑都建模型再 `to_doc()`，下表是它的欄位說明。
 
@@ -200,7 +200,7 @@ Grafana（⑧）         讀 aiops-alerts 發通知；儀表板讀 alerts、anom
 |---|---|---|---|
 | `alert_id` | keyword | 事件整合 | 同時是 `_id` |
 | `@timestamp` | date | 事件整合 | 這件事故的時間（結束的件是 `resolved_at`，開著的是這一輪的時間） |
-| `title`（text）、`start`、`end`（date）、`services`、`severity`（keyword） | | 事件整合 | 從 `aiops-alerts` 複製 |
+| `title`（text）、`start`、`end`（date）、`services`、`severity`（keyword） | | 事件整合 | 從 `aiops_alerts` 複製 |
 | `dept`、`group`、`detected_at`、`anomaly_ids` | | 事件整合 | `anomaly_ids` 最多 200 個 |
 | `fingerprint` | object | 事件整合 | 指紋，六組陣列，見下 |
 | `status` | keyword | 兩者 | `auto`（還沒人看）、`confirmed`（標真的）、`corrected`（真的但根因報錯了）、`false_positive`（誤報） |
@@ -236,7 +236,7 @@ Grafana（⑧）         讀 aiops-alerts 發通知；儀表板讀 alerts、anom
  "by": "小陳", "confirmed_by": "小陳", "confirmed_at": "2026-10-31T06:49:11+00:00"}
 ```
 
-## aiops-feedback：回饋
+## aiops_feedback：回饋
 
 寫入：回饋網頁（`interface/web/routes.py` → `learn/feedback_service.py`）；命令列 `python3 -m main detector feedback add` 也能寫（四種判定值都可以，漏報只能用命令列）。**一件事故的每筆異常各寫一筆**（現有的 `feedback summary`、`suggest` 是依「序列＋對象」算的，才對得起來）。
 
@@ -267,7 +267,7 @@ Grafana（⑧）         讀 aiops-alerts 發通知；儀表板讀 alerts、anom
  "series": "synth.requests", "keys": {"service": "mes-report"}, "anomaly_at": "2026-10-06T08:00:00+00:00"}
 ```
 
-## aiops-tuning：偵測的調整
+## aiops_tuning：偵測的調整
 
 寫入：`detector tune`、`detector adjust`、`detector feedback suggest`（來源 `source: feedback`）。**`status: proposed` 不生效，人用 `adjust approve` 改成 `active` 才生效**；`detect`、`train` 下一輪讀它。
 
@@ -293,20 +293,22 @@ Grafana（⑧）         讀 aiops-alerts 發通知；儀表板讀 alerts、anom
 
 ## Grafana 面板讀什麼
 
+面板與告警規則都用 SQL 查 PostgreSQL（資料來源 `aiops-db`，唯讀帳號）；查詢原文在 [grafana/helmchart/files/](../grafana/helmchart/files/)。
+
 | 面板（儀表板） | 讀 | 條件 | 顯示的欄位 |
 |---|---|---|---|
-| 事故清單（`aiops-rca`） | `aiops-alerts` | `category:service`，50 筆 | `started_at`、`status`、`severity`、`service`、`dept`、`anomaly_count`、`title` |
-| LLM 摘要 | `aiops-alerts` | `alert_id:"<選的那件>"`，1 筆 | `llm_provider`、`llm_summary` |
-| 過去相似事故與通知摘要 | `aiops-alerts` | 同上 | `summary`（裡面已經寫好「過去相似」） |
-| 根因報告全文 | `aiops-alerts` | 同上 | `report` |
-| 這件事故的異常 | `aiops-anomalies` | `alert_id:"<選的那件>"`，200 筆 | `@timestamp`、`status`、`severity`、`series`、`value`、`median`、`expected_high`、`z`、`message` 等 |
-| mes-report 月底批次：目前被判為異常的筆數（`aiops-learning`） | `aiops-anomalies` | `keys.service:mes-report AND series:synth.requests AND status:anomaly` | 筆數（依 `@timestamp` 分時段） |
-| 老師傅回饋筆數 | `aiops-feedback` | 全部 | 筆數 |
-| 老師傅回饋（表） | `aiops-feedback` | 全部 | `@timestamp`、`by`、`verdict`、`series`、`alert_id`、`note` |
-| 已生效的調整（核准後） | `aiops-tuning` | `status:active` | 筆數（依 `at` 分時段） |
-| 調整建議（表） | `aiops-tuning` | 全部 | `at`、`kind`、`status`、`series`、`service`、`z`、`reason`、`backtest.*`、`approved_by` |
-| 告警規則 `aiops-incident` | `aiops-alerts` | `status:open`，最近 5 分鐘，依 `alert_id` 分組 | 把 `service`、`dept`、`group`、`severity`、`summary`、`report_url` 帶成 label |
-| 告警規則 `aiops-heartbeat` | `aiops-alerts` | `alert_id:heartbeat`，最近 10 分鐘 | 數筆數，少於 1 就告警 |
-| 告警規則 `aiops-baseline-missing` | `aiops-alerts` | `alert_id:detect-status AND missing_baseline:>0`，最近 10 分鐘 | 數筆數，有就告警（持續 5 分鐘才送；查不到不算） |
+| 事故清單（`aiops-rca`） | `aiops_alerts` | `category = 'service'`，50 筆 | `started_at`、`status`、`severity`、`service`、`dept`、`anomaly_count`、`title` |
+| LLM 摘要 | `aiops_alerts` | `id = '<選的那件>'`，1 筆 | `llm_provider`、`llm_summary` |
+| 過去相似事故與通知摘要 | `aiops_alerts` | 同上 | `summary`（裡面已經寫好「過去相似」） |
+| 根因報告全文 | `aiops_alerts` | 同上 | `report` |
+| 這件事故的異常 | `aiops_anomalies` | `alert_id = '<選的那件>'`，200 筆 | `@timestamp`、`status`、`severity`、`series`、`value`、`median`、`expected_high`、`z`、`message` 等 |
+| mes-report 月底批次：目前被判為異常的筆數（`aiops-learning`） | `aiops_anomalies` | `keys.service = 'mes-report'`、`series = 'synth.requests'`、`status = 'anomaly'` | 筆數（依 `@timestamp` 分時段） |
+| 老師傅回饋筆數 | `aiops_feedback` | 全部 | 筆數 |
+| 老師傅回饋（表） | `aiops_feedback` | 全部 | `@timestamp`、`by`、`verdict`、`series`、`alert_id`、`note` |
+| 已生效的調整（核准後） | `aiops_tuning` | `status = 'active'` | 筆數（依 `at` 分時段） |
+| 調整建議（表） | `aiops_tuning` | 全部 | `at`、`kind`、`status`、`series`、`service`、`z`、`reason`、`backtest.*`、`approved_by` |
+| 告警規則 `aiops-incident` | `aiops_alerts` | `status = 'open'`，最近 5 分鐘，一件一列 | 把 `service`、`dept`、`group`、`severity`、`summary`、`report_url` 帶成 label |
+| 告警規則 `aiops-heartbeat` | `aiops_alerts` | `id = 'heartbeat'`，最近 10 分鐘 | 數筆數，少於 1 就告警 |
+| 告警規則 `aiops-baseline-missing` | `aiops_alerts` | `id = 'detect-status'`、`missing_baseline > 0`，最近 10 分鐘 | 數筆數，有就告警（持續 5 分鐘才送；查不到不算） |
 
-相似事故的資料池是 `aiops-incidents`，但面板不直接讀它：相似事故在事件整合寫入前就檢索好、寫進 `aiops-alerts` 的 `similar` 與 `summary`。
+相似事故的資料池是 `aiops_incidents`，但面板不直接讀它：相似事故在事件整合寫入前就檢索好、寫進 `aiops_alerts` 的 `similar` 與 `summary`。

@@ -46,15 +46,15 @@
         "label": "事故",
         "type": "query",
         "datasource": {
-          "type": "elasticsearch",
-          "uid": "aiops-alerts"
+          "type": "grafana-postgresql-datasource",
+          "uid": "aiops-db"
         },
         "refresh": 2,
         "sort": 2,
         "includeAll": false,
-        "query": "{\"find\": \"terms\", \"field\": \"alert_id\", \"query\": \"category:service\", \"size\": 100}",
+        "query": "SELECT alert_id FROM (SELECT doc->>'alert_id' AS alert_id, max(ts) AS t FROM aiops_alerts WHERE doc->>'category' = 'service' AND $__timeFilter(ts) GROUP BY 1 ORDER BY 2 DESC LIMIT 100) x",
         "current": {},
-        "definition": "{\"find\": \"terms\", \"field\": \"alert_id\", \"query\": \"category:service\", \"size\": 100}"
+        "definition": "SELECT alert_id FROM (SELECT doc->>'alert_id' AS alert_id, max(ts) AS t FROM aiops_alerts WHERE doc->>'category' = 'service' AND $__timeFilter(ts) GROUP BY 1 ORDER BY 2 DESC LIMIT 100) x"
       }
     ]
   },
@@ -435,10 +435,10 @@
       "id": 6,
       "type": "table",
       "title": "⑤ AIOps：合成的事件（一列一件；上面選一件，下面看摘要與根因全文）",
-      "description": "engine 每分鐘把同一個服務、時間相連的異常合成一件事故（aiops-alerts 一筆）。「合併的異常筆數」是這件合進來幾筆異常（aiops-anomalies）；30 分鐘沒有新異常就結案。上面選一件，下面看它的 LLM 摘要、相似事故與根因報告。",
+      "description": "engine 每分鐘把同一個服務、時間相連的異常合成一件事故（PostgreSQL 的 aiops_alerts 一筆）。「合併的異常筆數」是這件合進來幾筆異常（aiops_anomalies）；30 分鐘沒有新異常就結案。上面選一件，下面看它的 LLM 摘要、相似事故與根因報告。",
       "datasource": {
-        "type": "elasticsearch",
-        "uid": "aiops-alerts"
+        "type": "grafana-postgresql-datasource",
+        "uid": "aiops-db"
       },
       "gridPos": {
         "x": 0,
@@ -450,22 +450,13 @@
         {
           "refId": "A",
           "datasource": {
-            "type": "elasticsearch",
-            "uid": "aiops-alerts"
+            "type": "grafana-postgresql-datasource",
+            "uid": "aiops-db"
           },
-          "query": "category:service",
-          "alias": "",
-          "metrics": [
-            {
-              "id": "1",
-              "type": "raw_data",
-              "settings": {
-                "size": "50"
-              }
-            }
-          ],
-          "bucketAggs": [],
-          "timeField": "@timestamp"
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT doc->>'started_at' AS started_at, doc->>'status' AS status, doc->>'severity' AS severity, doc->>'service' AS service, doc->>'dept' AS dept, (doc->>'anomaly_count')::int AS anomaly_count, doc->>'title' AS title, doc->>'alert_id' AS alert_id FROM aiops_alerts WHERE $__timeFilter(ts) AND doc->>'category' = 'service' ORDER BY doc->>'started_at' DESC LIMIT 50"
         }
       ],
       "transformations": [
@@ -609,8 +600,8 @@
       "title": "LLM 摘要（每句附依據；驗不過退回模板）",
       "description": "依據 id：T=trace 段、A=異常、S=統計、E=例外、L=log 樣式、I=過去相似事故",
       "datasource": {
-        "type": "elasticsearch",
-        "uid": "aiops-alerts"
+        "type": "grafana-postgresql-datasource",
+        "uid": "aiops-db"
       },
       "gridPos": {
         "x": 0,
@@ -622,22 +613,13 @@
         {
           "refId": "A",
           "datasource": {
-            "type": "elasticsearch",
-            "uid": "aiops-alerts"
+            "type": "grafana-postgresql-datasource",
+            "uid": "aiops-db"
           },
-          "query": "alert_id:\"$alert\"",
-          "alias": "",
-          "metrics": [
-            {
-              "id": "1",
-              "type": "raw_data",
-              "settings": {
-                "size": "1"
-              }
-            }
-          ],
-          "bucketAggs": [],
-          "timeField": "@timestamp"
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT doc->>'llm_provider' AS llm_provider, doc->>'llm_summary' AS llm_summary FROM aiops_alerts WHERE id = '${alert}' LIMIT 1"
         }
       ],
       "transformations": [
@@ -706,8 +688,8 @@
       "title": "過去相似事故（RAG：只檢索老師傅確認過的）與通知摘要",
       "description": "",
       "datasource": {
-        "type": "elasticsearch",
-        "uid": "aiops-alerts"
+        "type": "grafana-postgresql-datasource",
+        "uid": "aiops-db"
       },
       "gridPos": {
         "x": 12,
@@ -719,22 +701,13 @@
         {
           "refId": "A",
           "datasource": {
-            "type": "elasticsearch",
-            "uid": "aiops-alerts"
+            "type": "grafana-postgresql-datasource",
+            "uid": "aiops-db"
           },
-          "query": "alert_id:\"$alert\"",
-          "alias": "",
-          "metrics": [
-            {
-              "id": "1",
-              "type": "raw_data",
-              "settings": {
-                "size": "1"
-              }
-            }
-          ],
-          "bucketAggs": [],
-          "timeField": "@timestamp"
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT doc->>'summary' AS summary FROM aiops_alerts WHERE id = '${alert}' LIMIT 1"
         }
       ],
       "transformations": [
@@ -789,8 +762,8 @@
       "title": "⑥ AIOps：根因分析報告全文（metrics 異常 → trace 哪一段 → 那一段的 log）",
       "description": "",
       "datasource": {
-        "type": "elasticsearch",
-        "uid": "aiops-alerts"
+        "type": "grafana-postgresql-datasource",
+        "uid": "aiops-db"
       },
       "gridPos": {
         "x": 0,
@@ -802,22 +775,13 @@
         {
           "refId": "A",
           "datasource": {
-            "type": "elasticsearch",
-            "uid": "aiops-alerts"
+            "type": "grafana-postgresql-datasource",
+            "uid": "aiops-db"
           },
-          "query": "alert_id:\"$alert\"",
-          "alias": "",
-          "metrics": [
-            {
-              "id": "1",
-              "type": "raw_data",
-              "settings": {
-                "size": "1"
-              }
-            }
-          ],
-          "bucketAggs": [],
-          "timeField": "@timestamp"
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT doc->>'report' AS report FROM aiops_alerts WHERE id = '${alert}' LIMIT 1"
         }
       ],
       "transformations": [

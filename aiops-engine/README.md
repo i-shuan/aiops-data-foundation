@@ -144,8 +144,8 @@ kubectl -n aiops logs deploy/aiops-worker-alert -f | grep '\[scheduler\]'  # 工
 | `peer` | 2 | 每 5 分鐘 | 240 秒 | `detector peer` | Pod 同儕橫向比對：多一種告警來源 |
 | `trace-collect`、`trace-train`、`trace-detect` | 2 | 每 5 分鐘／每天 02:20／每 5 分鐘 | 240／3600／240 秒 | `detector trace-*` | trace 每一段的 baseline；從 raw（100% 收、2 天）抽樣 |
 | `chronic` | 2 | 每週一 08:00 | 1800 秒 | `detector chronic` | 慢性病清單，要幾週資料才有意義 |
-| `prune` | 2 | 每天 03:30 | 600 秒 | `detector prune` | `aiops-anomalies`、`aiops-trace-segments`、已結案的 `aiops-alerts` 超過保留天數的每天清一次（[prune.yaml](configs/baseline/prune.yaml)；這三個是一般索引、不能用 ILM）。人工判斷的索引不清、只備份（[data-storage-reference](../docs/data-storage-reference.md)） |
-| `shift` | 2 | 每天 04:00 | 300 秒 | `detector shift` | 一階跳變（換版後延遲停在新水準、每點都報）→ 提 `reset_point` 建議（proposed，人核准才生效）；ES 的 `change_point` 聚合要付費授權，這裡看 `aiops-anomalies` 裡已判出的點；只判往上的序列往下掉也看（另外打分、不寫異常） |
+| `prune` | 2 | 每天 03:30 | 600 秒 | `detector prune` | `aiops_anomalies`、`aiops_trace_segments`、已結案的 `aiops_alerts` 超過保留天數的每天清一次（[prune.yaml](configs/baseline/prune.yaml)；這三個是一般索引、不能用 ILM）。人工判斷的索引不清、只備份（[data-storage-reference](../docs/data-storage-reference.md)） |
+| `shift` | 2 | 每天 04:00 | 300 秒 | `detector shift` | 一階跳變（換版後延遲停在新水準、每點都報）→ 提 `reset_point` 建議（proposed，人核准才生效）；ES 的 `change_point` 聚合要付費授權，這裡看 `aiops_anomalies` 裡已判出的點；只判往上的序列往下掉也看（另外打分、不寫異常） |
 
 改頻率、逾時改 `schedule.yaml` 再 build image（或用 `configOverrides.schedule.schedule` 蓋）。
 
@@ -153,22 +153,22 @@ kubectl -n aiops logs deploy/aiops-worker-alert -f | grep '\[scheduler\]'  # 工
 
 ## 重建 ES、換 ES 之後
 
-`aiops-baseline` 是 `train` 每天重算的衍生資料，但 ES 重建（或只有這個索引掉了）到隔天 02:00 之間，`detect` 讀到空的 baseline 會印一行「沒有 baseline，先跑 train」就跳過那條序列，不報錯；動態基準線這一路靜默停擺，規則、Pod 同儕橫向比對、資料品質不受影響。所以重建 ES 的標準步驟是：
+`aiops_baseline`（PostgreSQL）是 `train` 每天重算的衍生資料，但資料庫重建（或只有這張表被清掉）到隔天 02:00 之間，`detect` 讀到空的 baseline 會印一行「沒有 baseline，先跑 train」就跳過那條序列，不報錯；動態基準線這一路靜默停擺，規則、Pod 同儕橫向比對、資料品質不受影響。所以重建 ES 或資料庫的標準步驟是：
 
 1. 重貼 [elasticsearch/kibana-dev-tools.txt](../elasticsearch/kibana-dev-tools.txt)（ILM、template、key）。
 2. 等 Collector 送進至少 2 週的 metrics（不然 `train` 學不出 `dow_hour` 這一層，見 [docs/rca](../docs/rca/README.md)）；要立刻有 baseline 就先接受只有 `hour` 或 `all` 層。
 3. **手動跑一次 `train`**（上面的 `--run train`），不要等隔天 02:00。
-4. `aiops-incidents`、`aiops-feedback`、`aiops-tuning` 是人工判斷，重算不回來；有 snapshot 就先還原這三個（備份本身還沒做，見 [open-issues 第 7 節](../docs/pdca/meta/2026-10-open-issues.md)）。
+4. `aiops_incidents`、`aiops_feedback`、`aiops_tuning`、`aiops_mapping` 是人工判斷，重算不回來：從 PostgreSQL 的備份還原這幾張表（備份由 DBA 做，見 [deploy-how-to.md 第 1b 節](../docs/deploy-how-to.md#1b-postgresqlengine-自己的資料)）。
 
 ## 「AIOps 停了」怎麼知道
 
-`investigator alert` 每次跑都往 `aiops-alerts` 寫一筆心跳（`_id: heartbeat`、`status: ok`，不是一件事）。Grafana 的規則 `aiops-heartbeat`（[grafana/helmchart/files/alert-rules.yaml](../grafana/helmchart/files/alert-rules.yaml)）：最近 10 分鐘沒有心跳就送平台。
+`investigator alert` 每次跑都往 `aiops_alerts` 寫一筆心跳（`id` 是 `heartbeat`、`status: ok`，不是一件事）。Grafana 的規則 `aiops-heartbeat`（[grafana/helmchart/files/alert-rules.yaml](../grafana/helmchart/files/alert-rules.yaml)）：最近 10 分鐘沒有心跳就送平台。
 
 基準線不見時排程沒停、心跳照寫，上面那條不響。`detector detect` 每輪另寫一筆 `detect-status`（`_id: detect-status`、`status: ok`、`missing_baseline`＝這輪沒有 baseline 的序列數、`series`＝它們的名字），規則 `aiops-baseline-missing` 查 `missing_baseline > 0` 持續 5 分鐘就送平台；處置就是上一節的手動 `train`。
 
 ## 先只寫入、不通知
 
-上線前 2～4 週 Grafana 先不接 contact point（或全部送到沒人看的 webhook），讓它跑、累積 `aiops-alerts`、`aiops-feedback`。期間用 `python3 -m main detector metrics --from … --to …` 記下基準（每天幾件、誤報率），再開通知。
+上線前 2～4 週 Grafana 先不接 contact point（或全部送到沒人看的 webhook），讓它跑、累積 `aiops_alerts`、`aiops_feedback`。期間用 `python3 -m main detector metrics --from … --to …` 記下基準（每天幾件、誤報率），再開通知。
 
 ## 驗證過的
 

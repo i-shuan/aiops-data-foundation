@@ -2,7 +2,7 @@
 #
 # data source、3 條告警規則、contact point、policy、3 個儀表板都在 files/ 裡（Helm 只讀得到 chart 資料夾內的檔），
 # 裝的時候不用再帶檔案：helm upgrade --install grafana grafana/helmchart -n <ns>
-# 檔裡的 ${ES_URL}、${GRAFANA_ES_API_KEY}、${NOTIFY_*_URL} 由 Grafana 從環境變數展開（envSecret）。
+# 檔裡的 ${ES_URL}、${GRAFANA_ES_API_KEY}、${AIOPS_PG_*}、${GRAFANA_PG_*}、${NOTIFY_*_URL} 由 Grafana 從環境變數展開（envSecret）。
 # 要改通知管道、dept 清單：改 files/ 的檔再升級；回饋網頁的網址用下面的 feedbackUrl。
 image: grafana/grafana:13.0.7                              # 換成 Nexus 的路徑
 
@@ -10,9 +10,11 @@ service:
   type: ClusterIP
   port: 3000
 
-# Secret（chart 不建）：ES_URL、GRAFANA_ES_API_KEY（唯讀 key）、NOTIFY_IT_URL／NOTIFY_IMC_URL／NOTIFY_PLATFORM_URL、GF_SECURITY_ADMIN_PASSWORD
+# Secret（chart 不建）：ES_URL、GRAFANA_ES_API_KEY（唯讀 key，只讀 APM 原始資料）、
+#   AIOPS_PG_HOST（host:port）、AIOPS_PG_DATABASE、AIOPS_PG_SSLMODE（require）、GRAFANA_PG_USER、GRAFANA_PG_PASSWORD（PostgreSQL 唯讀帳號，engine 自己的資料）、
+#   NOTIFY_IT_URL／NOTIFY_IMC_URL／NOTIFY_PLATFORM_URL、GF_SECURITY_ADMIN_PASSWORD
 envSecret: grafana-env
-secretData: {}                                             # CI 部署時從 values 建 Secret（ES_URL、GRAFANA_ES_API_KEY、NOTIFY_*、GF_SECURITY_ADMIN_PASSWORD）；空的就不建、沿用手動建的
+secretData: {}                                             # CI 部署時從 values 建 Secret（上面那些）；空的就不建、沿用手動建的
 env:
   GF_PLUGINS_PREINSTALL_DISABLED: "true"                  # 不讓 Grafana 自己連外網裝預設外掛
 anonymousViewer: false                                     # true：不登入也能看（demo 用）

@@ -11,7 +11,7 @@
 
 | 檔 | 程式 | 做什麼 |
 |---|---|---|
-| [ingest.yaml](ingest.yaml) | `detector ingest`（[ingest.py](../../src/detect/fab_ingest/ingest.py)） | ML 的異常跳點、FDC 鳴叫 → `aiops-anomalies`：`keys` 是 equipment、chamber、recipe、step、lot、parameter；`series` 是 `fdc.<參數>`；`level` 是 `ml`／`fdc`；ML 的 strong／weak 對到 anomaly／warning；FDC 的 OOS 是 critical |
+| [ingest.yaml](ingest.yaml) | `detector ingest`（[ingest.py](../../src/detect/fab_ingest/ingest.py)） | ML 的異常跳點、FDC 鳴叫 → `aiops_anomalies`：`keys` 是 equipment、chamber、recipe、step、lot、parameter；`series` 是 `fdc.<參數>`；`level` 是 `ml`／`fdc`；ML 的 strong／weak 對到 anomaly／warning；FDC 的 OOS 是 critical |
 | [paths.yaml](paths.yaml) | `detector paths-merge`（[data/trace/path_builder.py](../../src/data/trace/path_builder.py)；只有 `factory` 情境有這個子命令） | MES 進出站＋S6F11 機台事件 → 一個 lot 一筆 `lot-paths-<group>-<日期>`，格式跟 `traces-merged-*` 一樣：一站一段（service 是機台、name 是 recipe、耗時是進站到出站、hold／scrap 算錯），站裡的 chamber 加工段掛在底下 |
 | [rca.yaml](rca.yaml) | `investigator alert`／`investigate` | 索引（履歷 `lot-paths-*`、log `eqp-logs-*`）與時間尺度（`close_after` 2h、滑動窗 2h、`entry_lag` 12h）；`changes` 讓報告多一段「事故前的變更」。「對象是機台、API 是 recipe、前後站從履歷找、recipe 變更當換版、嚴重度依參數家族」是 plugin 給的，要改才寫進 `alerts` |
 | [schedule.yaml](schedule.yaml) | `scheduler` | 每分鐘 `ingest`、`alert`；每 5 分鐘 `paths-merge`；每天 `prune`。沒有 train／detect／rules／peer／trace-* |
@@ -41,7 +41,7 @@
 cd aiops-engine && ES_URL=http://localhost:19200 ES_AUTH=elastic:changeme-test-only python -m tests.factory_e2e
 ```
 
-[tests/factory_e2e.py](../../tests/factory_e2e.py) 造 7 天、728 個 lot 的 MES 與 S6F11、兩個事故（ETCH-01 CH-B 壓力漂移連帶 METRO-01 量測偏；CVD-01 換 recipe 後震盪）寫進 `*-synth` 索引，跑 `paths-merge` → `ingest` → `alert` → `feedback add`／`export`，印出 15 項檢查。`--plugin metrics_only` 用同一批假資料但不給履歷（13 項：ETCH-01 仍 critical、報告只有異常／log／PM、METRO-01 自己開一件）。`--dump <資料夾>` 把假資料另存成 NDJSON，`--clean` 清掉。結果寫在共用的 `aiops-anomalies`（`source` 欄位是 ml／fdc）、`aiops-alerts`（service 是那 5 台機台）、`lot-paths-fab1-*`。
+[tests/factory_e2e.py](../../tests/factory_e2e.py) 造 7 天、728 個 lot 的 MES 與 S6F11、兩個事故（ETCH-01 CH-B 壓力漂移連帶 METRO-01 量測偏；CVD-01 換 recipe 後震盪）寫進 `*-synth` 索引，跑 `paths-merge` → `ingest` → `alert` → `feedback add`／`export`，印出 15 項檢查。`--plugin metrics_only` 用同一批假資料但不給履歷（13 項：ETCH-01 仍 critical、報告只有異常／log／PM、METRO-01 自己開一件）。`--dump <資料夾>` 把假資料另存成 NDJSON，`--clean` 清掉。結果寫在共用的 `aiops_anomalies`（`source` 欄位是 ml／fdc）、`aiops_alerts`（service 是那 5 台機台）、`lot-paths-fab1-*`。
 
 ### 接真資料
 

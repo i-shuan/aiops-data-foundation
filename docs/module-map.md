@@ -23,16 +23,16 @@ flowchart LR
         RULE["靜態臨界值規則"]
         CHRON["慢性病清單"]
     end
-    ANOM[("⑤ 異常總表<br/>aiops-anomalies")]
+    ANOM[("⑤ 異常總表<br/>aiops_anomalies")]
     subgraph INC["⑥⑦⑧ 告警與根因 incident/"]
         GRP["⑥ 收斂<br/>併件 · 嚴重度 · P0"]
         RCA["⑦ 根因分析<br/>metrics → trace → log"]
-        OUT["⑧ 出口<br/>aiops-alerts"]
+        OUT["⑧ 出口<br/>aiops_alerts"]
     end
     GRAF["Grafana 通知<br/>依部門分送"]
     subgraph LEARN["⑨ feedback learn/"]
         FB["收回饋"]
-        KB[("事故庫<br/>aiops-incidents")]
+        KB[("事故庫<br/>aiops_incidents")]
         SUG["參數建議 → 回測 → 核准"]
     end
     APM --> SRC --> MERGE
@@ -55,26 +55,40 @@ flowchart LR
     SUG -.核准後調整.-> RULE
 ```
 
-③ 存不是一個步驟，是每一段都把結果寫進 `aiops-*` 索引（下一節）。實線是資料往下游走，虛線是「回頭影響」：覆寫欄位名、相似事故補根因分析、核准後的調整改變判斷。
+③ 存不是一個步驟，是每一段都把結果寫進 PostgreSQL 的 `aiops_*` 表（原始資料與合成的 trace 在 ES；下一節）。實線是資料往下游走，虛線是「回頭影響」：覆寫欄位名、相似事故補根因分析、核准後的調整改變判斷。
 
 ## 2. 資料存在哪（③ 存）
 
 ```mermaid
 flowchart TB
-    RAW["Elastic APM 寫的原始資料<br/>traces-apm* · logs-apm* · metrics-apm*（只讀）"]
-    RAW --> MERGED["traces-merged-*<br/>一個請求一筆"]
-    RAW --> BASE["aiops-baseline<br/>每條序列的平常值"]
-    BASE --> ANOM["aiops-anomalies<br/>異常總表"]
+    subgraph ESBOX["ES（公司的；原始資料）"]
+        RAW["Elastic APM 寫的原始資料<br/>traces-apm* · logs-apm* · metrics-apm*（只讀）"]
+        MERGED["traces-merged-*<br/>一個請求一筆（engine 合成）"]
+    end
+    subgraph PG["PostgreSQL（公司的；engine 自己的資料）"]
+        BASE["aiops_baseline<br/>每條序列的平常值"]
+        ANOM["aiops_anomalies<br/>異常總表"]
+        ALERT["aiops_alerts<br/>一件一筆 · 報告全文"]
+        FEED["aiops_feedback<br/>值班的判斷"]
+        INCI["aiops_incidents<br/>確認過的事故 · 指紋"]
+        VEC["aiops_incident_vectors<br/>事故的向量（選用）"]
+        TUNE["aiops_tuning<br/>調整 · 建議（proposed → active）"]
+        MAPI["aiops_mapping<br/>欄位對照覆寫"]
+        STATE["aiops_state · aiops_chronic · aiops_trace_segments"]
+    end
+    RAW --> MERGED
+    RAW --> BASE
+    BASE --> ANOM
     RAW --> ANOM
-    ANOM --> ALERT["aiops-alerts<br/>一件一筆 · 報告全文"]
+    ANOM --> ALERT
     MERGED --> ALERT
-    ALERT --> FEED["aiops-feedback<br/>值班的判斷"]
-    FEED --> INCI["aiops-incidents<br/>確認過的事故 · 指紋"]
+    ALERT --> FEED
+    FEED --> INCI
+    INCI --> VEC
     INCI --> ALERT
-    FEED --> TUNE["aiops-tuning<br/>調整 · 建議（proposed → active）"]
+    FEED --> TUNE
     TUNE --> BASE
-    MAPI["aiops-mapping<br/>欄位對照覆寫"] --> RAW
-    STATE["aiops-state<br/>trace-merge 進度等"]
+    MAPI -.讀原始資料時的欄位名.-> RAW
 ```
 
 欄位與誰在什麼時候寫見 [aiops-data-reference.md](aiops-data-reference.md)、[data-storage-reference.md](data-storage-reference.md)。
@@ -95,19 +109,19 @@ flowchart TB
 | 功能 | 白話 | 程式 |
 |---|---|---|
 | 來源適配器 | 一種原始格式配一個轉換器（OTel、APM），是哪一種、欄位怎麼轉只在這裡 | `aiops-engine/src/data/source/` |
-| 來源自我檢查 | 宣告的來源跟 ES 裡真的資料對不對；只回報不擋，結果寫進 `aiops-alerts`，Grafana 規則 `aiops-source-mismatch` 叫人 | `aiops-engine/src/data/source/check.py` |
+| 來源自我檢查 | 宣告的來源跟 ES 裡真的資料對不對；只回報不擋，結果寫進 `aiops_alerts`，Grafana 規則 `aiops-source-mismatch` 叫人 | `aiops-engine/src/data/source/check.py` |
 | 兩種來源並存 | `AIOPS_SOURCE=otel,apm`：一個請求跨兩套系統也合得成同一筆 | `aiops-engine/configs/mixed/` |
 | trace 合成 | 一個請求的所有 span 合成一筆 `traces-merged-*`，晚到的 span 讓那筆再合一次 | `aiops-engine/src/data/trace/span_merge.py` |
 | 歸屬 | 服務屬於哪個部門、群組（異常寫進總表時補上） | `aiops-engine/src/data/store/owner_repo.py` |
-| 欄位對照覆寫 | 歸屬、log 的欄位名、trace 讀哪個原始索引：網頁 `/mapping` 提、命令列核准，存 `aiops-mapping`；核准前先對真的資料抽樣試 | `aiops-engine/src/data/mapping_service.py` |
+| 欄位對照覆寫 | 歸屬、log 的欄位名、trace 讀哪個原始索引：網頁 `/mapping` 提、命令列核准，存 `aiops_mapping`；核准前先對真的資料抽樣試 | `aiops-engine/src/data/mapping_service.py` |
 
 trace 合成時的部門、群組跟著歸屬的欄位名（含核准過的覆寫）。細節見 [data-sources-reference.md](data-sources-reference.md)、[data-sources-how-to.md](data-sources-how-to.md)。
 
 ### ③ 存
 
-- **做什麼**：把結果寫進 `aiops-*` 索引（異常、基準線、告警、事故、回饋、調整、對照覆寫）。
-- **功能**：每個索引一個存取類別（各功能資料夾的 `store/`）；索引名只能出現在 `store/` 和 `common/`（`tests/test_layers.py` 鎖著）。
-- **程式**：各功能的 `store/`、`aiops-engine/src/common/infra/es.py`。
+- **做什麼**：engine 自己的資料（異常、基準線、告警、事故、回饋、調整、對照覆寫）寫進 PostgreSQL，一種一張表（`id`、`ts`、`doc jsonb`）；原始資料與 `traces-merged-*` 在 ES。
+- **功能**：每張表一個存取類別（各功能資料夾的 `store/`）；表名、SQL 只能出現在 `store/` 和 `common/`（`tests/test_layers.py` 鎖著）。`detector db init`／`status`／`import-es`（以前存在 ES 的搬過來）。
+- **程式**：各功能的 `store/`、`aiops-engine/src/common/infra/pg.py`（PostgreSQL 的基底）、`aiops-engine/src/common/infra/es.py`（原始資料）。
 
 ### ④ 判斷：這個值算不算異常
 
@@ -132,7 +146,7 @@ trace 合成時的部門、群組跟著歸屬的欄位名（含核准過的覆�
 
 ### ⑤ 異常總表
 
-- **做什麼**：所有判斷的結果寫進同一張表 `aiops-anomalies`。
+- **做什麼**：所有判斷的結果寫進同一張表 `aiops_anomalies`。
 - **功能**：分 warning（跳一次）和 anomaly（連續或偏太多）；帶部門、群組、嚴重度、版本；基準線不見也會告警。
 - **程式**：`aiops-engine/src/detect/store/`、`aiops-engine/src/detect/detect_service.py`。
 - **延伸**：工廠的 ML／FDC 判好的異常可以推進來（`aiops-engine/src/detect/fab_ingest/`），目前不在範圍。
@@ -167,7 +181,7 @@ LLM 摘要（`aiops-engine/src/llm/summary.py`）只加註、每句附依據，�
 
 ### ⑧ 出口：通知
 
-- **功能**：告警寫進 `aiops-alerts`，通知交給 Grafana 依部門分送；只通知 critical、high，warning 只進事故清單；事故報告網頁、回饋入口。
+- **功能**：告警寫進 `aiops_alerts`，通知交給 Grafana 依部門分送；只通知 critical、high，warning 只進事故清單；事故報告網頁、回饋入口。
 - **程式**：`aiops-engine/src/incident/alert_service.py`（主流程）、`aiops-engine/src/interface/web/`、`grafana/`。
 - **規則**：告警一個服務一件；通知交給 Grafana；部門決定誰看得到。
 
@@ -178,7 +192,7 @@ LLM 摘要（`aiops-engine/src/llm/summary.py`）只加註、每句附依據，�
 | 收回饋 | 值班按「真的／誤報／根因錯」；漏報另外填（Grafana 表單、`/missed` 網頁、`feedback add --verdict missed`） | `aiops-engine/src/learn/feedback_service.py` |
 | 事故庫 | 資深維運專家（老師傅）確認過的事故，存指紋 | `aiops-engine/src/common/types/incident.py` |
 | 歷史匯入 | 把公司事故單匯進事故庫 | `aiops-engine/src/learn/history_importer.py` |
-| 相似事故 | 用指紋找最像的 3 件，**只拿來分類**（像 db、network…），不拿舊根因當答案 | `aiops-engine/src/llm/similar.py` |
+| 相似事故 | 用指紋找最像的 3 件，**只拿來分類**（像 db、network…），不拿舊根因當答案；設了 embedding 時向量輔助（「說法不同但意思一樣」的也找得到、寫出相似度） | `aiops-engine/src/llm/similar.py`、`aiops-engine/src/llm/embedding.py` |
 | 參數建議 | 誤報多 → 放寬、漏報 → 降成 0.8 倍、同根因確認 3 次 → 升級成規則；全部 proposed | `aiops-engine/src/learn/param_suggester.py` |
 | 回測 | 改門檻前先重跑過去幾週，沒回測不能核准 | `aiops-engine/src/learn/rule_backtester.py` |
 | 核准套用 | 人核准才生效 | `aiops-engine/src/learn/tuning_service.py` |
@@ -212,8 +226,8 @@ LLM 摘要（`aiops-engine/src/llm/summary.py`）只加註、每句附依據，�
 
 ## 6. 一次事故的走法
 
-1. wip-worker 的 DB 查詢變慢 → ④ 動態基準線學習判出延遲異常（warning，下一個時間窗還超標變 anomaly），⑤ 寫進 `aiops-anomalies`，帶部門、群組。
+1. wip-worker 的 DB 查詢變慢 → ④ 動態基準線學習判出延遲異常（warning，下一個時間窗還超標變 anomaly），⑤ 寫進 `aiops_anomalies`，帶部門、群組。
 2. ⑥ 同服務的異常併成一件；上游 mes-api 連帶異常，併進下游這件；算嚴重度（單一類 → warning；若 wip-worker 在 P0 清單就升成 high）。
 3. ⑦ 根因分析：這個服務最慢的請求跟平常比，`SELECT LOT_HISTORY → oracle` 那一段每個請求多 1 秒多；去事故庫找過去同一段變慢的確認事故，報告最前面列分類、歷史線索、「先查什麼」。
-4. ⑧ 寫進 `aiops-alerts`；Grafana 依部門通知（high 以上）。
+4. ⑧ 寫進 `aiops_alerts`；Grafana 依部門通知（high 以上）。
 5. ⑨ 值班查完按「真的／根因對」，老師傅確認後這件進事故庫；下次同樣的症狀就有線索。若值班覺得吵（誤報），累積後系統提放寬門檻的建議，回測、核准才生效。

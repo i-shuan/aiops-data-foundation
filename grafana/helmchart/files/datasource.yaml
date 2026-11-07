@@ -1,51 +1,21 @@
-# Grafana 的 ES data source：只讀 aiops-alerts（AIOps 合併過的事件）、aiops-anomalies、aiops-tuning、aiops-feedback（儀表板用），
-# 加公司 Elastic APM 的 metrics、trace、log 三個（整合儀表板 aiops-overview 用；欄位對照見 aiops-engine/configs/apm/README.md）
+# Grafana 的 data source：engine 自己的資料在 PostgreSQL（aiops-db：告警、異常、調整、回饋，儀表板與告警規則用），
+# 加公司 Elastic APM 的 metrics、trace、log 三個 ES（整合儀表板 aiops-overview 用；欄位對照見 aiops-engine/configs/apm/README.md）
 apiVersion: 1
 datasources:
-  - name: aiops-alerts
-    uid: aiops-alerts
-    type: elasticsearch
+  # engine 自己的資料（告警、異常、調整、回饋…）：PostgreSQL（docs/pdca/meta/2026-11-postgres-store.md）。帳號給唯讀的（SELECT）
+  - name: aiops-db
+    uid: aiops-db
+    type: grafana-postgresql-datasource
     access: proxy
-    url: ${ES_URL}
+    url: ${AIOPS_PG_HOST}                 # host:port，例如 pg.example.internal:5432
+    user: ${GRAFANA_PG_USER}
     jsonData:
-      index: aiops-alerts
-      timeField: "@timestamp"
-      httpHeaderName1: Authorization
+      database: ${AIOPS_PG_DATABASE}
+      sslmode: ${AIOPS_PG_SSLMODE}         # require／verify-full（公司的 PostgreSQL）；本機測試 disable
+      postgresVersion: 1400
+      timescaledb: false
     secureJsonData:
-      httpHeaderValue1: ApiKey ${GRAFANA_ES_API_KEY}
-  - name: aiops-anomalies
-    uid: aiops-anomalies
-    type: elasticsearch
-    access: proxy
-    url: ${ES_URL}
-    jsonData:
-      index: aiops-anomalies
-      timeField: "@timestamp"
-      httpHeaderName1: Authorization
-    secureJsonData:
-      httpHeaderValue1: ApiKey ${GRAFANA_ES_API_KEY}
-  - name: aiops-tuning
-    uid: aiops-tuning
-    type: elasticsearch
-    access: proxy
-    url: ${ES_URL}
-    jsonData:
-      index: aiops-tuning
-      timeField: "at"
-      httpHeaderName1: Authorization
-    secureJsonData:
-      httpHeaderValue1: ApiKey ${GRAFANA_ES_API_KEY}
-  - name: aiops-feedback
-    uid: aiops-feedback
-    type: elasticsearch
-    access: proxy
-    url: ${ES_URL}
-    jsonData:
-      index: aiops-feedback
-      timeField: "@timestamp"
-      httpHeaderName1: Authorization
-    secureJsonData:
-      httpHeaderValue1: ApiKey ${GRAFANA_ES_API_KEY}
+      password: ${GRAFANA_PG_PASSWORD}
   - name: apm-metrics
     uid: apm-metrics
     type: elasticsearch

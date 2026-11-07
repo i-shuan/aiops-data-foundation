@@ -2,7 +2,9 @@
 #   1. image：cd aiops-engine && docker build -t <nexus>/aiops-engine:<tag> .（下面 image 換成實際路徑）
 #   2. Secret（手動建，不進 git）：
 #        kubectl -n aiops create secret generic aiops-secrets \
-#          --from-literal=ES_API_KEY=<elasticsearch/kibana-dev-tools.txt 第 3 段發的 engine key>
+#          --from-literal=ES_API_KEY=<elasticsearch/kibana-dev-tools.txt 第 3 段發的 engine key> \
+#          --from-literal=AIOPS_PG_DSN='postgresql://aiops_engine:<密碼>@<host>:5432/<db>?sslmode=require'
+#      PostgreSQL（engine 自己的資料：異常、基準線、告警、事故、回饋、調整）是公司的、要跟 DBA 申請：見 docs/deploy-how-to.md「PostgreSQL」
 #   3. esUrl 改成實際值；LLM 的設定在下面 llm、API 的 token 在 api.token（key 寫在不進 git 的 values-local.yaml，部署時 -f 帶進來）
 #   4. 設定檔要跟 image 裡的不一樣時用 configOverrides（--set-file configOverrides.baseline.series=aiops-engine/configs/baseline/series.yaml；
 #      排程表是 configOverrides.schedule.schedule）
@@ -30,8 +32,16 @@ plugin: observability
 # metrics-apm.*、logs-apm.*、traces-apm-*；設定檔 configs/apm/，怎麼接見那個資料夾的 README.md）。其他 plugin 不看這個。
 # 兩種並存寫 otel,apm（逗號隔開，第一個是主要的：排程表、RCA 設定的 indices.logs 跟它；怎麼設定見 configs/mixed/README.md）
 source: otel
-secret: aiops-secrets          # ES_API_KEY
+secret: aiops-secrets          # ES_API_KEY、AIOPS_PG_DSN
 esApiKey: ""                   # 部署時給：chart 建上面這個 Secret；空的就不建、沿用手動建的
+pgDsn: ""                      # 同上（postgresql://帳號:密碼@host:5432/db?sslmode=require）；跟 esApiKey 一起給才建 Secret
+pgSchema: ""                   # DBA 給的是某個 schema（不是 public）時填
+
+# 相似事故的向量輔助（llm/embedding.py）：OpenAI 相容的 embedding API；url、model 空的就只用欄位比對。key 跟 llm.apiKey 一樣放 values-local.yaml
+embedding:
+  url: ""                      # 例如 https://llm-gw.example.internal/v1（POST {url}/embeddings）
+  model: ""
+  apiKey: ""
 
 # LLM 摘要（llm/summary.py）。provider、model、baseUrl 放 ConfigMap aiops-env；apiKey 由 chart 建成 Secret aiops-llm。
 # apiKey 這裡永遠留空：真的 key 寫在 values-local.yaml（.gitignore 擋掉），helm 加 -f values-local.yaml

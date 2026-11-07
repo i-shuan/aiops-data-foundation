@@ -34,7 +34,7 @@ python3 -m main investigator investigate --config configs/rca/rca.yaml --service
 # 服務之間的呼叫關係（最近 1 小時、最近 2,000 個請求）
 python3 -m main investigator topology --config configs/rca/rca.yaml --window 1h
 
-# 事件整合：最近的異常依服務合成一件、新的那件跑一次根因分析＋相似事故＋LLM 摘要，寫 aiops-alerts（Grafana 讀它發通知）
+# 事件整合：最近的異常依服務合成一件、新的那件跑一次根因分析＋相似事故＋LLM 摘要，寫 aiops_alerts（Grafana 讀它發通知）
 # 要定期跑，建議每 1～2 分鐘（rules、detect 之後）；排程見 deploy/
 python3 -m main investigator alert --config configs/rca/rca.yaml
 
@@ -44,11 +44,11 @@ python3 -m main investigator similar-eval --config configs/rca/rca.yaml
 python3 -m main investigator rca-eval --config configs/rca/rca.yaml --save before.json
 python3 -m main investigator rca-eval --config configs/rca/rca.yaml --compare before.json
 
-# 歷史事故單匯入 aiops-incidents（CSV 或 JSON；--dry-run 只檢查哪幾筆會略過、不寫）；格式見下面「匯入歷史事故單」
+# 歷史事故單匯入 aiops_incidents（CSV 或 JSON；--dry-run 只檢查哪幾筆會略過、不寫）；格式見下面「匯入歷史事故單」
 python3 -m main investigator import-incidents configs/rca/incidents-example.csv --dry-run
 python3 -m main investigator import-incidents <你的事故單.csv>
 
-# 老師傅的回饋入口（通知裡的連結點進來填；寫 aiops-feedback、aiops-incidents）
+# 老師傅的回饋入口（通知裡的連結點進來填；寫 aiops_feedback、aiops_incidents）
 API_PORT=8080 python3 -m main api
 ```
 
@@ -69,18 +69,19 @@ API_PORT=8080 python3 -m main api
 - **哪些會開一件**：critical 規則、baseline 連續才算的 `anomaly`、資料品質；warning 規則和Pod 同儕橫向比對要同一個服務 2 筆以上；只跳一次的 baseline `warning` 只併進已經開著的那件。
 - **一件的嚴重度**（[incident/alert_severity.py](../../src/incident/alert_severity.py)）：併完之後算，代表要不要吵人。`critical`：靜態規則 critical，或 ≥ 3 類黃金訊號（延遲、錯誤、往外呼叫、飽和）同時異常且不是單點；`high`：2 類，或 1 類但持續（≥ 10 分鐘、最後 15 分鐘窗 ≥ 80% 的分鐘有異常）或好幾條序列都跳；`warning`：單點、單一序列。廣度算「幾類」不是「幾條」（3 支 API 的錯誤率都跳仍是 1 類），流量不算，一類至少 2 筆。換版（`service.version` 變了）後 10 分鐘內的異常上限 `warning`，過了還有就照常評。參數在 `alerts.severity`（`window`、`min_coverage`、`min_duration`、`min_span_critical`、`min_points_per_class`、`deploy_grace`）。Grafana 只通知 critical、high（`policies.yaml` 把 warning 靜音）。**P0 服務**（`alerts.p0_services`：名字或 regex）上面算完再升一級（warning → high、high → critical；換版後的上限也一樣升），`severity_why` 會寫「P0 服務，升一級」；只改要不要叫人，**算不算異常的門檻不動**——P0 要更早報，給那條指標寫靜態臨界值規則 (Static Threshold Rules)，或設 `confirm_points: 1`（單點即判定 (Instant Anomaly)）。
 - **送給誰看 dept**：每一件帶 `dept`、`group`（取它的異常的，異常寫入時已補上）；資料品質一律 `group: unassigned`（送平台）。Grafana 依 `dept` 分送，設定範例在 [configs/grafana](../../../grafana/README.md)。
-- 新的那件跑一次 `investigate`：結論寫進 `summary`（Grafana 通知帶這個）、全文存 `report`；結構化結果存 `findings`（慢在哪一段、錯從哪開始、新 log 樣式），也拿來算這件的**指紋**，寫一筆 `aiops-incidents`（`status: auto`）。
-- **告警分類**（`alerts.similar`，[llm/similar.py](../../src/llm/similar.py)）：用指紋（服務、API、慢的那段、錯的源頭、異常的指標組合、新 log 樣式）去 `aiops-incidents` 找老師傅**確認過的**（`confirmed`、`corrected`）最像的 3 件，以分數投票說這件**像哪一類**（db、network、config_change…）＋信心，寫進 `suggested_category`、`category_confidence`；報告最前面一段只列分類和那幾件的日期、分類、標題、**為什麼像**。**不列當時的根因、處置**：程式換版後指紋還對得上、根因可能已經不是那個，根因請看定位（慢在哪一段）。分數不到 4（至少一個強特徵：同一段變慢、同一個錯誤源頭；或同服務＋同指標）就不附、不分類。用 ES 的欄位比對、自己算分，不用向量，看得出為什麼像。通知摘要多一行「分類：像 db 類…」。權重可用 `alerts.similar_weights` 蓋過（`similar-eval --learn-weights` 在 case ≥ 50 件時會建議）。
+- 新的那件跑一次 `investigate`：結論寫進 `summary`（Grafana 通知帶這個）、全文存 `report`；結構化結果存 `findings`（慢在哪一段、錯從哪開始、新 log 樣式），也拿來算這件的**指紋**，寫一筆 `aiops_incidents`（`status: auto`）。
+- **告警分類**（`alerts.similar`，[llm/similar.py](../../src/llm/similar.py)）：用指紋（服務、API、慢的那段、錯的源頭、異常的指標組合、新 log 樣式）去 `aiops_incidents` 找老師傅**確認過的**（`confirmed`、`corrected`）最像的 3 件，以分數投票說這件**像哪一類**（db、network、config_change…）＋信心，寫進 `suggested_category`、`category_confidence`；報告最前面一段只列分類和那幾件的日期、分類、標題、**為什麼像**。**不列當時的根因、處置**：程式換版後指紋還對得上、根因可能已經不是那個，根因請看定位（慢在哪一段）。分數不到 4（至少一個強特徵：同一段變慢、同一個錯誤源頭；或同服務＋同指標）就不附、不分類。用 ES 的欄位比對、自己算分，不用向量，看得出為什麼像。通知摘要多一行「分類：像 db 類…」。權重可用 `alerts.similar_weights` 蓋過（`similar-eval --learn-weights` 在 case ≥ 50 件時會建議）。
+- **向量輔助**（[llm/embedding.py](../../src/llm/embedding.py)；要設環境變數 `EMBEDDING_URL`、`EMBEDDING_MODEL`，helm 的 `embedding.*`）：欄位比對照舊是主要的，另外把確認過的事故的文字（標題、根因、處置、怎麼看出來的、慢的段、錯的源頭、log 樣式）與這一件的文字轉成向量，向量最近的 10 件也當候選；相似度 ≥ 0.8 的加「5 × 相似度」分，why 寫「描述相近（向量相似度 0.86）」——只有向量像、相似度 0.8 剛好 4 分，夠 `MIN_SCORE`。參數在 `alerts.similar_vector`（`weight`、`min_similarity`、`k`）。事故的向量存在 PostgreSQL 的 `aiops_incident_vectors`，事故內容改了（文字雜湊不一樣）才重算；`pgvector` 有裝用 SQL 算最近的，沒裝在程式裡算。embedding API 或資料庫出錯：印一行、只用欄位比對，不擋這一件。留一法的評測（`similar-eval`）只算欄位比對。
 - **歷史 case 的線索與先查清單**（[llm/similar.py](../../src/llm/similar.py) 的 `segment_hints`、`checklist`）：分類之後再列兩段。①**線索**：這次根因分析**已經看到變化**的段（變慢、錯變多），過去確認過的事故也是這段的，件數多的排前面、列出是哪幾件；過去常出事但這次沒變化的段不列——排序只代表先看哪個，是不是它看這次的數字（存進 `findings.case_hints`）。②**先查什麼**：分類那一類，已確認的事故裡老師傅勾過的（`checked`）次數多的排前面，不夠 5 項用情境資料檔的 `domain.checklists` 補。
 - **考卷**（`investigator rca-eval`，[incident/rca_eval.py](../../src/incident/rca_eval.py)）：改了根因分析的程式後，拿已確認的事故（`confirmed`、`corrected`，有指紋的）用當時的服務與時間重跑，答案的段（指紋的 `slow_segments`、`error_origins`）有一個出現在這次的前三段就算對；這段時間已經沒有 trace（過了保留期）的列「略過」、不算錯；指紋沒有段的不考。`--save` 存結果、`--compare` 跟上次比，列出上次對、這次錯的（回 1，可以放進 CI）。
 - **LLM 摘要**（`alerts.llm`，[llm/summary.py](../../src/llm/summary.py)）：報告最前面三到五句（原因、影響、建議先做什麼），每句結尾附依據的 id（`[A1]` 異常、`[S1]` 慢的那段、`[E1]` 錯誤源頭、`[L1]` log 樣式、`[I1]` 過去事故）；引用了不存在的 id、或有一句沒依據，**整段不顯示**（程式檢查）。模型掛了退回固定句型（`template`），報告照出。provider 用環境變數 `LLM_PROVIDER`（`template`／`anthropic`／`openai`）或 `alerts.llm_provider` 蓋過；`template` 不叫模型，沒有模型也能跑。`openai` 實測過（`LLM_API_KEY`、`LLM_CHAT_MODEL`，可選 `OPENAI_BASE_URL`）：一件 5～8 秒；`anthropic` 只寫了沒跑過。
 - **回饋連結**：`alerts.feedback_url`、`report_url`（含 `{alert_id}`）寫進每一件，Grafana 通知帶著；指到 [api](../../src/interface/web/__init__.py)。設了 `feedback_url` 時 `report` 全文最後一行也是回饋網址（Grafana 表格點眼睛看全文，看完就是回饋入口）；回饋頁加 `&full=1` 會把全文放在表單上面。
-- **回饋的一句話抽取**（`core.llm.extract_feedback`，同一個 `LLM_PROVIDER`）：值班在表單寫一句自然語言（「這是每月初的批次匯出報表，屬於預期內負載」），抽成 `feedback_type`（false_positive／true_positive／wrong_root_cause）、`identified_cause`（短代號，如 `scheduled_batch_job`）、`target_service`（預設告警的服務，文字點名別的才覆蓋）、`suggested_action`（`suppress_during_cron`／`widen_threshold`／`add_rule`／`none`）。模型回的要過格式檢查，不過就只存原文；對得到調整種類的寫一筆 `aiops-tuning`（`status: proposed`、`source: feedback`、`reason` 帶原文），**人核准才生效**。解析率用 `python3 -m tests.feedback_extract_eval` 量（26 句語料 `tests/feedback_corpus.yaml`；[pdca/phase5-learning-loop/2026-10-feedback-nl-extract.md](../../../docs/pdca/phase5-learning-loop/2026-10-feedback-nl-extract.md)）。
+- **回饋的一句話抽取**（`core.llm.extract_feedback`，同一個 `LLM_PROVIDER`）：值班在表單寫一句自然語言（「這是每月初的批次匯出報表，屬於預期內負載」），抽成 `feedback_type`（false_positive／true_positive／wrong_root_cause）、`identified_cause`（短代號，如 `scheduled_batch_job`）、`target_service`（預設告警的服務，文字點名別的才覆蓋）、`suggested_action`（`suppress_during_cron`／`widen_threshold`／`add_rule`／`none`）。模型回的要過格式檢查，不過就只存原文；對得到調整種類的寫一筆 `aiops_tuning`（`status: proposed`、`source: feedback`、`reason` 帶原文），**人核准才生效**。解析率用 `python3 -m tests.feedback_extract_eval` 量（26 句語料 `tests/feedback_corpus.yaml`；[pdca/phase5-learning-loop/2026-10-feedback-nl-extract.md](../../../docs/pdca/phase5-learning-loop/2026-10-feedback-nl-extract.md)）。
 - 重跑不會重複：已經在某一件裡的異常、最近結束的件裡的異常都不會再開一次。停了一陣子才跑時，已經過去的件只記錄（`resolved`），不算新開、不會通知。
 
 #### 過去相似怎麼算分（例）
 
-指紋六組的權重見 [aiops-data-reference.md](../../../docs/aiops-data-reference.md#aiops-incidents事故庫相似事故檢索的資料池)：慢的那段 4、錯誤源頭 4、服務 3、API 2、新 log 樣式 2、指標 1（每個相同的指標加 1，最多算 3 個）。有交集就加一次權重，總分 ≥ 4 才算像，取最高的 3 件。
+指紋六組的權重見 [aiops-data-reference.md](../../../docs/aiops-data-reference.md#aiops_incidents事故庫相似事故檢索的資料池)：慢的那段 4、錯誤源頭 4、服務 3、API 2、新 log 樣式 2、指標 1（每個相同的指標加 1，最多算 3 個）。有交集就加一次權重，總分 ≥ 4 才算像，取最高的 3 件。
 
 新的一件：`mes-api` 的 `GET /lots/{id}` 變慢又出錯，慢的那段和錯誤源頭都是 `wip-worker › SELECT LOT_HISTORY → oracle`，新出現 `Connection pool timeout…` 的 log，指標是 `http.latency_p95_s`、`http.error_rate`。
 
@@ -120,7 +121,7 @@ helm upgrade --install aiops aiops-engine/helmchart -n aiops --set llmProvider=o
 
 ```bash
 python3 -m main investigator import-incidents incidents.csv --dry-run    # 先檢查：印出第幾筆缺什麼，不寫
-python3 -m main investigator import-incidents incidents.csv              # 寫進 aiops-incidents；印出匯入幾筆、略過幾筆
+python3 -m main investigator import-incidents incidents.csv              # 寫進 aiops_incidents；印出匯入幾筆、略過幾筆
 python3 -m main investigator similar-eval --config configs/rca/rca.yaml  # 匯完量一次：分類準確率、recall@3
 ```
 

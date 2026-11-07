@@ -159,7 +159,7 @@ metrics → trace → log 找到哪一段、哪行 log；事件整合、排程�
 | [meta/2026-11-mapping-trace.md](meta/2026-11-mapping-trace.md) | ② 欄位對照的覆寫擴到 trace：合成時部門、群組用歸屬的欄位名；raw 索引網頁提、命令列核准（核准前驗格式） | 已完成 |
 | [meta/2026-11-cases-tier-drop.md](meta/2026-11-cases-tier-drop.md) | ④⑥⑦ 歷史 case 補根因分析（線索排序、先查清單、考卷）、P0 服務升嚴重度、baseline 往下掉提重新學 | 已完成 |
 | [meta/2026-11-module-map.md](meta/2026-11-module-map.md) | 文件：①～⑨ 每階段功能拆解與流程圖（module-map.md） | 已完成 |
-| [meta/2026-11-postgres-store.md](meta/2026-11-postgres-store.md) | ③⑦⑧⑨ engine 的資料從 ES 搬到 PostgreSQL（一次切過去）、相似事故加向量檢索、Grafana 改讀 PostgreSQL | Plan |
+| [meta/2026-11-postgres-store.md](meta/2026-11-postgres-store.md) | ③⑦⑧⑨ engine 的資料從 ES 搬到 PostgreSQL（一次切過去）、相似事故加向量檢索、Grafana 改讀 PostgreSQL | 已完成（公司的 PostgreSQL 還沒申請） |
 | [meta/2026-10-poc-acceptance.md](meta/2026-10-poc-acceptance.md) | ①～⑨ POC 驗收計畫：6 個 KPI、4 個故障情境、Go/No-Go | 四個任務已合入 master；模擬服務、合成資料上：聚合率 100%、解析率 100%、串查 ✅、召回率 50%（要真實事故單）；Go/No-Go 待真實服務 |
 | [meta/2026-11-apm-source.md](meta/2026-11-apm-source.md) | ④⑤⑦ engine 讀 Elastic APM 的資料（不改 Collector、ES）：`configs/apm/`、`source: apm`、序列 `scale`／`div`、trace 的 APM 轉換 | 562 個單元測試過（新加 17 個：APM span 轉換、查詢欄位、scale／div、owner／log 欄位）；chart 兩種 source render 對；沒有真實 APM 資料，整條沒在 ES 上跑；例外吞噬、Pod 資源、往外呼叫 p95 在 APM 資料上做不到 |
 | [meta/2026-11-remove-collector.md](meta/2026-11-remove-collector.md) | ①②③ 刪自建收值：`collector/`、`apps/`、`e2e/`、ES 的 OTel 入口設定與文件；`elasticsearch/` 縮成只補 `traces-merged-*` 與兩把 key | 刪約 200 個檔；連結檢查從 80 個壞連結修到 0；engine 的 OTel 來源沒動；瘦身後的 setup 腳本與 chart 沒對真實 ES 跑 |

@@ -1,13 +1,14 @@
-# 部署：公司已有 Elastic APM 與 ES，只裝 AIOps
+# 部署：公司已有 Elastic APM、ES、PostgreSQL，只裝 AIOps
 
 > **類型：操作 How-To**　原理見 [architecture.md](architecture.md)・APM 的欄位與能做到什麼見 [aiops-engine/configs/apm/README.md](../aiops-engine/configs/apm/README.md)
 
-收值（APM agent、apm-server）和 Elasticsearch 都是公司現有的，**不用部署**。要做的只有三件：在公司 ES 上手動補一次設定、部署 aiops-engine、（要發通知時）接 Grafana。
+收值（APM agent、apm-server）、Elasticsearch、PostgreSQL 都是公司現有的，**不用部署**。要做的：在公司 ES 上手動補一次設定、跟 DBA 申請 PostgreSQL、部署 aiops-engine、（要發通知時）接 Grafana。
 
 | 順序 | 做什麼 | 誰做 | 必要 |
 |---|---|---|---|
 | 0 | APM agent 的三個設定 | 應用團隊、公司 APM 團隊 | ✅ |
 | 1 | 在公司 ES 補設定：`traces-merged` 的 ILM 與 template、engine 的角色與 key | 有 ES 管理權限的人（Kibana Dev Tools） | ✅ |
+| 1b | 申請 PostgreSQL：一個資料庫、engine 與 Grafana 各一個帳號（engine 自己的資料） | DBA | ✅ |
 | 2 | 部署 aiops-engine | 我們 | ✅ |
 | 3 | 接 Grafana（通知、儀表板、回饋表單） | 我們 | 要發通知時 |
 
@@ -41,6 +42,43 @@
 | ILM 在 | `GET _ilm/policy/traces-merged` |
 | key 讀得到 APM | 用這把 key 打 `GET metrics-apm.transaction.1m-*/_count`，大於 0 |
 
+## 1b. PostgreSQL（engine 自己的資料）
+
+engine 自己的資料——異常、基準線、告警（含 RCA 報告）、事故、回饋、調整、欄位對照的覆寫——存在 PostgreSQL，一種資料一張表（[data-storage-reference.md](data-storage-reference.md)；為什麼從 ES 搬過來見 [PDCA 紀錄](pdca/meta/2026-11-postgres-store.md)）。原始資料與 `traces-merged-*` 還在 ES。
+
+**跟 DBA 申請的東西**
+
+| 項目 | 內容 |
+|---|---|
+| 版本 | PostgreSQL **14 以上**；只用標準功能（jsonb、GIN、btree），不用 TimescaleDB |
+| 資料庫 | 一個（例如 `aiops`）；要放在某個 schema 而不是 `public` 也可以，engine 設 `pgSchema`（環境變數 `AIOPS_PG_SCHEMA`） |
+| engine 的帳號 | 那個 schema 的 `CREATE`、表的 `SELECT／INSERT／UPDATE／DELETE`（engine 第一次寫入時自己建表；DBA 想先建好就跑 `detector db init`，之後 engine 只需要讀寫） |
+| Grafana 的帳號 | **唯讀**：`SELECT`，加 `ALTER DEFAULT PRIVILEGES … GRANT SELECT ON TABLES`（engine 之後建的表也讀得到） |
+| 擴充（選用） | `pgvector`：相似事故的向量用 SQL 算。**不給也能跑**：向量存一般欄位、在程式裡算（事故幾十到幾百件，沒差） |
+| 連線 | engine、Grafana 的 pod 連得到；`sslmode=require` 以上 |
+| 備份 | 事故、回饋、調整是人判斷的，**掉了不能重算**：請 DBA 照一般資料庫備份；異常、告警、基準線由 `detector prune` 自己清舊的（[prune.yaml](../aiops-engine/configs/baseline/prune.yaml)） |
+| 大小 | 量最大的是異常、trace 每段的統計、基準線（依序列數 × 對象數，90 天）；其他每天幾十到幾百筆。上線前用正式環境的量估 |
+
+Grafana 唯讀帳號（DBA 執行，`<engine 帳號>` 換成 engine 用的）：
+
+```sql
+CREATE ROLE grafana_aiops LOGIN PASSWORD '<密碼>';
+GRANT CONNECT ON DATABASE aiops TO grafana_aiops;
+GRANT USAGE ON SCHEMA public TO grafana_aiops;
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO grafana_aiops;
+ALTER DEFAULT PRIVILEGES FOR ROLE <engine 帳號> IN SCHEMA public GRANT SELECT ON TABLES TO grafana_aiops;
+```
+
+**以前存在 ES 的資料**：已經跑過一陣子、`aiops-*` 索引裡有資料的環境，部署好 engine（第 2 節）之後搬一次：
+
+```bash
+kubectl -n aiops exec deploy/aiops-engine -c scheduler -- python3 -m main detector db import-es --dry-run   # 先數 ES 裡有幾筆
+kubectl -n aiops exec deploy/aiops-engine -c scheduler -- python3 -m main detector db import-es             # 搬（同 id 覆蓋，可以重跑）
+kubectl -n aiops exec deploy/aiops-engine -c scheduler -- python3 -m main detector db status                # 每張表幾筆，跟上面對
+```
+
+對過筆數、Grafana 改讀 PostgreSQL 也正常之後，才刪 ES 的舊索引（[kibana-dev-tools.txt](../elasticsearch/kibana-dev-tools.txt) 第 6 段）。
+
 ## 2. 部署 aiops-engine
 
 ```bash
@@ -52,7 +90,8 @@ kubectl create namespace aiops
 ```
 
 ```bash
-kubectl -n aiops create secret generic aiops-secrets --from-literal=ES_API_KEY=<1-4 的 encoded>
+kubectl -n aiops create secret generic aiops-secrets --from-literal=ES_API_KEY=<1-4 的 encoded> \
+  --from-literal=AIOPS_PG_DSN='postgresql://<engine 帳號>:<密碼>@<host>:5432/aiops?sslmode=require'
 ```
 
 ```bash
@@ -75,34 +114,29 @@ helm upgrade --install aiops aiops-engine/helmchart -n aiops -f aiops-engine/hel
 |---|---|
 | Pod 起來 | `kubectl -n aiops get pod`：`aiops-engine-…` 2/2（distributed：`aiops-api`、`aiops-beat`、三個 `aiops-worker-*`、`aiops-redis` 都 Running） |
 | 排程在跑 | `kubectl -n aiops logs deploy/aiops-engine -c scheduler -f`：每分鐘有 rules、detect、alert、trace-merge（distributed：`deploy/aiops-beat` 每分鐘 `[beat] … → 佇列`，`deploy/aiops-worker-realtime` 有 `[scheduler] detect … ok`） |
-| 讀得到資料 | Kibana 看 `traces-merged-*` 開始有資料、`aiops-alerts` 有 `heartbeat` 那筆 |
+| 讀得到資料 | Kibana 看 `traces-merged-*` 開始有資料；`detector db status` 的 `aiops_alerts` 有筆數（`heartbeat` 那筆） |
 | 基準線 | 每天 02:00 train；資料要累積 2 週才有「同星期幾 × 同小時」，之前只有靜態臨界值規則在報 |
 
 ## 3. 接 Grafana（要發通知時）
 
-engine 只把告警寫進 `aiops-alerts`，**不自己發通知**。先只寫入、不通知跑 2～4 週，期間用 Kibana 看 `aiops-alerts`；要通知時再接 Grafana。細節見 [grafana/README.md](../grafana/README.md)。
+engine 只把告警寫進 PostgreSQL 的 `aiops_alerts`，**不自己發通知**。先只寫入、不通知跑 2～4 週，期間看 Grafana 的儀表板（或 SQL 查 `aiops_alerts`）；要通知時再接 Grafana。細節見 [grafana/README.md](../grafana/README.md)。
 
 **3-1. 準備的東西**
 
 | 項目 | 內容 | 哪來 |
 |---|---|---|
-| Grafana 的唯讀 key | 讀 `aiops-alerts`、`aiops-anomalies`、`aiops-tuning`、`aiops-feedback`，加 cluster `monitor`（Grafana 會先打 `GET /` 看版本） | 下面的 Dev Tools 指令 |
+| Grafana 的 PostgreSQL 唯讀帳號 | 讀 engine 的表（告警、異常、調整、回饋）：`AIOPS_PG_HOST`、`AIOPS_PG_DATABASE`、`AIOPS_PG_SSLMODE`、`GRAFANA_PG_USER`、`GRAFANA_PG_PASSWORD` | 第 1b 節 |
+| Grafana 的 ES 唯讀 key（整合儀表板的上半） | 讀 APM 的三種原始資料，加 cluster `monitor`（Grafana 會先打 `GET /` 看版本） | [kibana-dev-tools.txt](../elasticsearch/kibana-dev-tools.txt) 第 4 段 |
 | 各部門的通知管道 | `NOTIFY_IT_URL`、`NOTIFY_IMC_URL`、`NOTIFY_PLATFORM_URL`（範例是 webhook；Teams、Email 改 `contact-points.yaml`） | 各部門、平台團隊 |
 | dept 清單 | `policies.yaml` 的 dept 要跟 APM agent 的 `labels.dept` 值一樣 | 第 0 節的標籤 |
 | 回饋表單外掛（選用） | 預設不用：回饋走 engine api 的網頁。要在 Grafana 裡直接填才裝 Business Forms（`volkovlabs-form-panel`）**6.3.1**；Grafana 12.2、13.0.7 實測過 | Nexus |
 | 回饋網頁的網址 | 使用者**瀏覽器**連得到的 engine 回饋網頁（Service `aiops-api:8080` 前面加 Ingress） | 我們 |
 
-```
-POST _security/api_key
-{"name": "grafana-aiops", "role_descriptors": {"grafana-aiops": {"cluster": ["monitor"], "index": [
-  {"names": ["aiops-alerts", "aiops-anomalies", "aiops-tuning", "aiops-feedback"], "privileges": ["read", "view_index_metadata"]}]}}}
-```
-
 **3-2. 送進 Grafana**：內容都在 `grafana/helmchart/files/`（data source、3 條告警規則、contact point、policy、3 個儀表板），依公司有沒有 Grafana 選一種：
 
 | 情況 | 怎麼做 |
 |---|---|
-| 公司已有 Grafana | `grafana/helmchart/files/` 的檔（`dashboards/forms/` 除外，那是外掛版）交給管 Grafana 的人放進 provisioning 資料夾；Grafana 要有環境變數 `ES_URL`、`GRAFANA_ES_API_KEY`、`NOTIFY_*_URL` |
+| 公司已有 Grafana | `grafana/helmchart/files/` 的檔（`dashboards/forms/` 除外，那是外掛版）交給管 Grafana 的人放進 provisioning 資料夾；Grafana 要有環境變數 `ES_URL`、`GRAFANA_ES_API_KEY`、`AIOPS_PG_*`、`GRAFANA_PG_*`、`NOTIFY_*_URL` |
 | 沒有 Grafana | 用 `grafana/helmchart/` 裝一台（檔都在 chart 裡，只要 Secret `grafana-env` + `helm upgrade`，指令在 [grafana/README.md「部署」](../grafana/README.md#部署)） |
 
 **3-3. 跟 engine 接起來的三個網址**
@@ -113,7 +147,7 @@ POST _security/api_key
 | engine 部署加 `--set api.corsOrigin=https://<Grafana 網址>` | 表單、「重跑根因分析」按鈕從瀏覽器直接打 api，要開 CORS |
 | `alert-rules.yaml` 的 `feedback` annotation、engine `configs/apm/rca.yaml` 的 `alerts.feedback_url`、`report_url` | Grafana 與回饋網頁的網址（通知裡的連結） |
 
-確認：Grafana 的 AIOps 資料夾有 `aiops-rca`、`aiops-learning`、`aiops-feedback` 三個儀表板；Alerting 有 `aiops-incident`、`aiops-heartbeat`、`aiops-baseline-missing` 三條規則；data source 測試通過。
+確認：Grafana 的 AIOps 資料夾有 `aiops-rca`、`aiops-learning`、`aiops_feedback` 三個儀表板；Alerting 有 `aiops-incident`、`aiops-heartbeat`、`aiops-baseline-missing` 三條規則；data source 測試通過。
 
 ## 可以晚點做的
 

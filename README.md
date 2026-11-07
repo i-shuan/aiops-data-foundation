@@ -21,7 +21,7 @@
                     Grafana（⑧ 通知、儀表板、回饋表單）──► 派工系統／值班（webhook）
                                           │
                                           ▼
-                  ⑨ 老師傅回饋 ──► aiops-feedback ──► 調整門檻（回到 ④）
+                  ⑨ 老師傅回饋 ──► aiops_feedback ──► 調整門檻（回到 ④）
 ```
 
 **編號只有一套：①～⑨ 資料模組**（定義在 [docs/architecture.md](docs/architecture.md)）：① 收值、② 清資料、③ 存、④ 判斷、⑤ 異常總表、⑥ 收斂、⑦ 根因分析、⑧ 出口、⑨ feedback。①②③ 是公司的 Elastic APM 與 ES；④～⑨ 是這個 repo。
@@ -87,7 +87,7 @@ repo/
 | 資料夾 | 模組 | 內容 |
 |---|---|---|
 | `elasticsearch/` | ③ | 在公司 ES 上補的東西：一份貼進 Kibana Dev Tools 的檔（`traces-merged-*` 的 ILM 與 template、engine 與 Grafana 的 key、選用的 snapshot）。不部署 ES、不碰 APM 的索引 |
-| `grafana/` | ⑧ | 讀 `aiops-alerts` 依部門發通知、儀表板、回饋表單外掛 |
+| `grafana/` | ⑧ | 讀 `aiops_alerts` 依部門發通知、儀表板、回饋表單外掛 |
 | `aiops-engine/` | ④～⑨ | AIOps 分析核心：Python 程式在 `src/`，一個功能一個資料夾：`data/` 清資料（raw 的 trace 轉統一格式）、`detect/` 異常分析、`llm/` LLM 與過去相似事故、`incident/` 告警與根因、`learn/` 學習迴圈、`interface/` 命令列／API／排程器與 worker、`common/` 共用底層（`config/` 環境變數與設定載入、`clock/` 時間解析、`infra/` ES 連線與 `Repos`、`types/` 事故與指紋、`scenario/` 情境）；每個功能自己有 `store/`（資料物件與 ES 讀寫）和 `config/`（設定欄位定義）；指令一律 `python3 -m main <detector|investigator|scheduler|tasks|api> …`；`configs/`（`apm/` Elastic APM 版、`baseline/` `rca/` `schedule/` OTel 版） |
 | `docs/` | — | 設計文件、規劃、`docs/pdca/` 每一輪的紀錄 |
 

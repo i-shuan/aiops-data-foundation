@@ -26,15 +26,15 @@
 | 同一件事每分鐘收到「舊的 resolved＋新的 firing」 | `summary` 是告警的 label，內容一變就是另一則 | engine 寫的 summary 不放「持續 N 分鐘」「等 N 項異常」這種每分鐘會變的字（`aiops-engine/src/incident/alert_grouper.py`） |
 | 件還開著，Grafana 卻發 resolved，之後又 firing | 一件只有一筆、每輪覆蓋；Grafana 的查詢範圍到「排定的評估時間」為止，查詢晚幾秒才送出。覆蓋剛好落在這幾秒之間時，`@timestamp` 晚於範圍結束點，查到 0 筆 | engine 寫開著的件和心跳時，`@timestamp` 往前 1 分鐘（`common/clock/stamp.py` 的 `STAMP_LAG`）。驗證：`tests/test_cmd_alert.py`（`@timestamp` 往前寫 1 分鐘）；對真的 Grafana 的實測（原本的 `e2e/pipeline/run-alert-flap.py`）已刪，在 git 歷史 |
 | ES 連不上時收到 `DatasourceError`，不是「AIOps 停了」，而且一次兩則 | 規則 `execErrState: Error` 時 Grafana 發自己的 DatasourceError；兩條規則各發一則 | 要它也叫「AIOps 停了」就把心跳規則改 `execErrState: Alerting`；事件規則的 DatasourceError 用 notification policy 靜音（還沒改，要跟管 Grafana 的人定） |
-| 儀表板查 `_exists_:report` 永遠沒資料 | `aiops-alerts` 的 `report` 是 `index: false` | 用 `category:service` 篩 |
-| `aiops-rca` 儀表板「這件事故的異常」No data（規則觸發的事故一定空） | 原本查 `status:(warning OR anomaly)` 又只依時間範圍篩：規則觸發的異常沒有 `status`，而且撈到的不一定是這件的 | 已改：`investigator alert` 併件時把 `alert_id` 寫回 `aiops-anomalies`（`cmd_alert.tag_anomalies`），面板查 `alert_id:"$alert"`；改版前已結束的件撈不到（當時沒寫回） |
+| 儀表板查不到報告全文 | 報告在 PostgreSQL 的 `aiops_alerts`、`doc->>'report'`；以前在 ES 時 `report` 是 `index: false`、`_exists_:report` 查不到 | SQL 用 `doc->>'category' = 'service'` 篩、取 `doc->>'report'`（儀表板 `aiops-rca` 的寫法） |
+| `aiops-rca` 儀表板「這件事故的異常」No data（規則觸發的事故一定空） | 原本查 `status:(warning OR anomaly)` 又只依時間範圍篩：規則觸發的異常沒有 `status`，而且撈到的不一定是這件的 | 已改：`investigator alert` 併件時把 `alert_id` 寫回 `aiops_anomalies`（`cmd_alert.tag_anomalies`），面板查 `alert_id:"$alert"`；改版前已結束的件撈不到（當時沒寫回） |
 
 ## AIOps engine
 
 | 症狀 | 原因 | 做法 |
 |---|---|---|
 | 根因報告「最慢那個請求的 log」少了幾行 | log 的 `@timestamp` 是應用時間，時鐘偏或請求結束後才寫，離 span 十幾分鐘 | `logs_of_traces` 已前後多放 30 分鐘；更多的看 `quality.log_clock_skew` |
-| 下游（DB 連線池）跟上游（前端 API）同時出事，`aiops-alerts` 開了兩件 | 這段時間的 trace 算不出「上游呼叫下游」：trace context 沒傳到下游、trace 的 `service.name` 跟異常的服務名不同、`alerts.chain` 關了；或兩件開始時間差超過 `close_after` | `investigator topology --window 2h` 看有沒有那條邊；alert 的輸出有「呼叫關係查不到」就是查 trace 失敗（[rca README](../aiops-engine/configs/rca/README.md#事件整合alert)） |
+| 下游（DB 連線池）跟上游（前端 API）同時出事，`aiops_alerts` 開了兩件 | 這段時間的 trace 算不出「上游呼叫下游」：trace context 沒傳到下游、trace 的 `service.name` 跟異常的服務名不同、`alerts.chain` 關了；或兩件開始時間差超過 `close_after` | `investigator topology --window 2h` 看有沒有那條邊；alert 的輸出有「呼叫關係查不到」就是查 trace 失敗（[rca README](../aiops-engine/configs/rca/README.md#事件整合alert)） |
 | 上游那件「恢復」、同時下游開了新的一件（連帶上游） | 上游先被偵測到、下游晚一輪：下游開件時把上游那件整件併進來（`merged_into`） | 正常；看下游那件就好。要避免就縮短偵測延遲（規則窗、排程間隔） |
 | A→B→C 三個一起出事，開成兩件 | 事件整合只併一層（直接呼叫者）：C 連帶 B，A 自己一件 | 已知限制（[cross-service-aggregation](pdca/phase3-locate/2026-10-cross-service-aggregation.md) Act） |
 | Kafka 落後在變少（消費者追上來），卻報「落後一直增加」 | `increase` 把數字變小當成計數器歸零重來，把新的值整個算成增加；落後是量測值不是計數器 | 會上下動的量測值用 `type: delta`（最後 − 最前）；`increase` 只用在計數器（`kafka.consumer_lag_growing` 已改） |
@@ -46,7 +46,7 @@
 | 全部 Pod 都壞，同儕比對卻只報最嚴重的一個 | 只看「比其他 Pod 高多少」，沒看其他 Pod 本身壞了 | `max_peer_median`：其他 Pod 中位數到規則門檻（5%、2 秒）就不挑，交給規則 |
 | 2 個副本的服務壞了一個，同儕比對不報 | `min_peers: 3`：2 個分不出誰怪 | 正常；看規則 `http.error_rate_floor`、baseline |
 | 根因報告的「平常」數字跟出事時差不多（例如平常 p95 也是 1.5 秒） | 一週前沒資料時，「平常」改用出事前一段、中間空 `ref_gap`；偵測比事故晚約 4 分鐘，`ref_gap` 太短就包到事故 | `ref_gap` 要大於偵測延遲；正式設定 10 分鐘（`aiops-engine/configs/rca/rca.yaml`） |
-| `quality` 中斷：`bulk 寫入 aiops-anomalies 失敗 ... Non-standard token 'NaN'` | 缺欄位那組（例如 log 沒有 namespace）的 key 被 pandas 3 變成 NaN | 已修（`quality._frame`）；舊版這一輪的結果全沒寫 |
+| `quality` 中斷：`bulk 寫入 aiops_anomalies 失敗 ... Non-standard token 'NaN'` | 缺欄位那組（例如 log 沒有 namespace）的 key 被 pandas 3 變成 NaN | 已修（`quality._frame`）；舊版這一輪的結果全沒寫 |
 | trace 有 N+1，`trace.segment.repeated` 沒報、反而報一個沒有「→」的新段 | DB span 只有新版 `db.system.name`，段名沒有對象 | 已補這個欄位；Client span 什麼對象欄位都沒有的仍看不到 |
 | 程式 catch 掉 DB 例外、回 200，`trace.segment.swallowed` 沒報 | Java agent 會把丟例外的那段標成錯誤，舊定義只算沒標錯誤的 | 已改：入口沒標錯誤就算吞掉（已決定維持；重試後成功也會算，另外排除留到下一輪） |
 | 某支 API 一直沒有 trace 基準線 | 每點抽到的請求 < `min_requests` 5 | 流量太少的 API 學不到（5 分鐘至少 5 個請求） |
@@ -55,10 +55,10 @@
 | span 某欄位型別錯，failure store 卻沒有 | traces 是 logsdb、ignore_malformed：文件存進去，那個欄位丟掉 | 查 `_ignored`；`quality.ingest_rejected` 看不到這種 |
 | 收集系統停了半小時以上，每個服務都被報成「流量掉到 0」 | 偵測時有 baseline、整段沒資料的服務一律補 0 | 已改成只在 index 有資料的時間窗補 0（`es.alive_times`），[baseline-verify](pdca/phase2-anomaly/2026-10-baseline-verify.md) |
 | 稀少的 error log，baseline 學出來的平常次數偏高 | 用序列自己的 filter（只數 error）判斷收集系統有沒有在跑，沒人出錯的小時被當「不知道」 | 已改成看整個 index；實測 λ 1.68 → 1.21（實際 1.2） |
-| `train`／`detect` 整個失敗：`KeyError: 'end'`、`PatternError` | `aiops-tuning` 裡有缺欄位、正規表示式錯的調整 | 已改成略過那一筆並印「⚠ 略過調整 <id>」；照提示 `adjust remove --id` |
+| `train`／`detect` 整個失敗：`KeyError: 'end'`、`PatternError` | `aiops_tuning` 裡有缺欄位、正規表示式錯的調整 | 已改成略過那一筆並印「⚠ 略過調整 <id>」；照提示 `adjust remove --id` |
 | p95 一直報 anomaly，值在 0.175、0.375 之間跳 | 直方圖的 p95 落在桶中點，MAD＝0，跨一格 z 約 23 | p95 已設 `instant_z: null`（跨一格只算 warning，連續 2 窗才 anomaly；合成資料一週 anomaly 3.52% → 0.93%，warning 變多）；仍吵的對象 `tune --z`；根本修法待改程式（σ 至少半個桶寬，[threshold-tune](pdca/phase2-anomaly/2026-10-baseline-threshold-tune.md)） |
 | 根因報告說「這段時間沒有這個服務的 trace」，Kibana 卻看得到 | 鑰匙對不上：路由沒參數化（`/items/123`）、舊版 Java agent 的 span 名稱沒有 method（`/stock/{id}`）；Pod 沒有 `app.kubernetes.io/name` label 時，trace 的 `service.name` 是應用自設的、可能跟 metrics 不同（推論） | 不給 `--route` 再跑；用 metrics 的 `k8s.pod.name` 查 trace 的 `service.name`；根本做法是應用修路由模板、Pod 加 label（[metrics-trace](pdca/archive/phase1-collect/2026-10-metrics-trace.md)） |
 | 開了台灣行事曆，假日那天工廠（24×7）服務的故障也沒報 | 台灣行事曆每一天沒有 `match`，變成所有服務都不學、不判斷 | `calendar.yaml` 的 taiwan 來源寫 `match` 限定週休的系統（來源層級的 `match` 會套到每一天） |
 | `adjust add --start 2026-10-20T02:00` 排除的時段差 8 小時 | 舊版把沒寫時區的時間當 UTC | 現在當台北時間（`train.timezone`）；舊資料用 `adjust list` 看，差 8 小時的重寫一次 |
-| 查 `aiops-chronic` 找不到天天觸發的規則 | 規則那類的 `keys` 是 `series`＋對象（`service`…），不是只有服務 | 用 `keys.series` 找 |
+| 查 `aiops_chronic` 找不到天天觸發的規則 | 規則那類的 `keys` 是 `series`＋對象（`service`…），不是只有服務 | 用 `keys.series` 找 |
 

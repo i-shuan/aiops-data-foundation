@@ -10,7 +10,6 @@ size、sort（一個欄位）、_source（只留頂層欄位）；_search、_cou
 """
 from __future__ import annotations
 
-import json
 
 from common.infra.es_import import LEGACY
 from common.infra.repos import Repos
@@ -54,13 +53,13 @@ class _Q:
     def text(self, field: str) -> str:
         return "COALESCE(" + ", ".join(f"doc #>> {self.p(x)}" for x in _paths(field)) + ")"
 
-    def json(self, field: str) -> str:
+    def jsonv(self, field: str) -> str:
         return "COALESCE(" + ", ".join(f"doc #> {self.p(x)}" for x in _paths(field)) + ")"
 
     def elems(self, field: str) -> str:
         """陣列欄位的每個元素（不是陣列就沒有）。"""
-        j = self.json(field)
-        return f"jsonb_array_elements_text(CASE WHEN jsonb_typeof({j}) = 'array' THEN {self.json(field)} ELSE '[]'::jsonb END)"
+        j = self.jsonv(field)
+        return f"jsonb_array_elements_text(CASE WHEN jsonb_typeof({j}) = 'array' THEN {self.jsonv(field)} ELSE '[]'::jsonb END)"
 
     def sql(self, q: dict | None) -> str:
         if not q or "match_all" in q:
@@ -76,7 +75,7 @@ class _Q:
         if kind == "ids":
             return f"id = ANY({self.p(list(arg['values']))})"
         if kind == "exists":
-            return f"COALESCE(jsonb_typeof({self.json(arg['field'])}), 'null') <> 'null'"
+            return f"COALESCE(jsonb_typeof({self.jsonv(arg['field'])}), 'null') <> 'null'"
         (field, val), = arg.items()
         if field == "_id":
             return f"id = {self.p(val)}" if kind == "term" else f"id = ANY({self.p(list(val))})"

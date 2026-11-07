@@ -1,21 +1,21 @@
-# Grafana：讀 aiops-alerts 發通知
+# Grafana：讀 aiops_alerts 發通知
 
-AIOps 把異常合成「一件事」寫進 `aiops-alerts`（`python3 -m main investigator alert`，見 [configs/rca](../aiops-engine/configs/rca/README.md)）；**通知交給 Grafana**：送到哪、依 dept 分送、夜間、靜音、恢復通知都在 Grafana 設（[pdca/phase3-locate/2026-10-alert-exit.md](../docs/pdca/phase3-locate/2026-10-alert-exit.md)）。
+AIOps 把異常合成「一件事」寫進 `aiops_alerts`（`python3 -m main investigator alert`，見 [configs/rca](../aiops-engine/configs/rca/README.md)）；**通知交給 Grafana**：送到哪、依 dept 分送、夜間、靜音、恢復通知都在 Grafana 設（[pdca/phase3-locate/2026-10-alert-exit.md](../docs/pdca/phase3-locate/2026-10-alert-exit.md)）。
 
 `helmchart/files/` 是 Grafana provisioning 的檔（唯一來源：自建 chart 直接讀它，管 Grafana 的人照著改）；`helmchart/` 是沒有現成 Grafana 時裝一台的 chart（見下面「部署」）；`code/` 只放外掛安裝說明、initContainer 補丁和產生官方 chart values 的腳本；`plugins/` 放回饋表單外掛的 zip（git lfs，連不到 Nexus 時從這裡裝）：
 
 | 檔案 | 內容 | 要改的 |
 |---|---|---|
-| `datasource.yaml` | ES data source，只讀 `aiops-alerts`、`aiops-anomalies`、`aiops-tuning`、`aiops-feedback`，加 APM 的 `metrics-apm.transaction.1m-*`、`traces-apm-*`、`logs-apm.*`（整合儀表板用） | `ES_URL`、`GRAFANA_ES_API_KEY`（`elasticsearch/kibana-dev-tools.txt` 第 4 段發的 Grafana 唯讀 key） |
+| `datasource.yaml` | `aiops-db`：PostgreSQL（engine 自己的資料：`aiops_alerts`、`aiops_anomalies`、`aiops_tuning`、`aiops_feedback`，唯讀帳號）；加 APM 的三個 ES：`metrics-apm.transaction.1m-*`、`traces-apm-*`、`logs-apm.*`（整合儀表板用） | `AIOPS_PG_HOST`、`AIOPS_PG_DATABASE`、`AIOPS_PG_SSLMODE`、`GRAFANA_PG_USER`、`GRAFANA_PG_PASSWORD`（[deploy-how-to.md 第 1b 節](../docs/deploy-how-to.md#1b-postgresqlengine-自己的資料)）；`ES_URL`、`GRAFANA_ES_API_KEY`（`elasticsearch/kibana-dev-tools.txt` 第 4 段） |
 | `dashboards/aiops-overview.json` | **總覽**：上半是公司 APM 的 metrics（每支 API 的 p95）、trace（請求數、每一段耗時、最慢的請求）、log（例外，帶 trace.id），下半接 AIOps 的事件、LLM 摘要、根因報告全文；選服務與事故，整頁跟著動 |
 | `dashboards/aiops-rca.json`、`aiops-learning.json` | 事故與根因（選一件：LLM 摘要、相似事故、報告全文、這件的異常）；學習迴圈（回饋 → 建議 → 回測 → 核准後的筆數） | 一般不用改 |
-| `alert-rules.yaml` | (1) 每一件 `status: open` 的事件一則告警；labels 帶 `alert_id`、`service`、`dept`、`group`、`severity`，annotation 帶摘要與報告連結；(2) `aiops-heartbeat`：10 分鐘沒有心跳 → 「AIOps 停了」送平台；(3) `aiops-baseline-missing`：`detect` 寫的 `detect-status` 的 `missing_baseline > 0` 持續 5 分鐘 → 「基準線不見」送平台 | 一般不用改 |
+| `alert-rules.yaml` | 都是 SQL 查 `aiops_alerts`。(1) 每一件 `status: open` 的事件一則告警（一列一則，字串欄位變成 labels）；labels 帶 `alert_id`、`service`、`dept`、`group`、`severity`，annotation 帶摘要與報告連結；(2) `aiops-heartbeat`：10 分鐘沒有心跳 → 「AIOps 停了」送平台；(3) `aiops-baseline-missing`：`detect` 寫的 `detect-status` 的 `missing_baseline > 0` 持續 5 分鐘 → 「基準線不見」送平台；(4) `aiops-source-mismatch`：來源檢查對不上持續 10 分鐘送平台 | 一般不用改 |
 | `contact-points.yaml` | 各部門的通知管道（範例用 webhook） | 換成你們的 Teams、Email、LINE… |
 | `policies.yaml` | 依 `dept` 送到哪個 contact point；沒有 dept（資料品質、節點）送平台 | dept 清單（跟 APM agent 的 `labels.dept` 值一致） |
 | `dashboards/aiops-feedback.json` | 回饋入口（預設，不用外掛）：一個文字面板，連到 engine api 的網頁——回饋表單（同一頁有「重跑根因分析」）、報告全文、回報漏報；通知的 `feedback` 連結點進來 | api 的網址（`feedbackUrl`） |
 | `dashboards/forms/aiops-feedback-forms.json` | 外掛表單版（在 Grafana 裡直接填）：只有 chart 的 `plugin.enabled: true` 才載入 | 要先裝 Business Forms 外掛（下面「回饋表單」） |
 
-> Grafana 讀哪些 ES 索引、自己存什麼（設定在 repo 檔案、內部 sqlite 在容器裡，Pod 重建會清掉告警歷史）：[docs/data-storage-reference.md](../docs/data-storage-reference.md)。
+> Grafana 讀哪些表與 ES 索引、自己存什麼（設定在 repo 檔案、內部 sqlite 在容器裡，Pod 重建會清掉告警歷史）：[docs/data-storage-reference.md](../docs/data-storage-reference.md)。
 
 ## 誰負責什麼
 
@@ -23,20 +23,20 @@ AIOps 把異常合成「一件事」寫進 `aiops-alerts`（`python3 -m main inv
 
 | 條線 | AIOps（`aiops-engine/`）做 | Grafana（`grafana/`）做 | 管 Grafana 的人做 |
 |---|---|---|---|
-| 事故通知 | 異常合成一件，寫 `aiops-alerts`（`investigator alert`） | 規則 `aiops-incident` 每件一則；依 `dept` 分送、靜音、結束發恢復 | contact point、哪個 dept 送哪裡、夜間規則 |
+| 事故通知 | 異常合成一件，寫 `aiops_alerts`（`investigator alert`） | 規則 `aiops-incident` 每件一則；依 `dept` 分送、靜音、結束發恢復 | contact point、哪個 dept 送哪裡、夜間規則 |
 | AIOps 停了 | `investigator alert` 每輪寫心跳（`_id: heartbeat`） | 規則 `aiops-heartbeat`：10 分鐘沒心跳送平台 | 平台的 contact point |
 | 基準線不見 | `detector detect` 每輪寫 `detect-status`（`missing_baseline`） | 規則 `aiops-baseline-missing`：> 0 持續 5 分鐘送平台 | 同上；處置是手動 `train`（[aiops-engine/README.md](../aiops-engine/README.md)） |
-| 事故回饋 | `api` 的網頁 `/feedback?alert=…` 驗資料、寫 `aiops-feedback`、`aiops-incidents`；同一頁可以「重跑根因分析」（`POST /rca`） | 儀表板 `aiops-feedback` 放連結 | 給 api 一個使用者瀏覽器連得到的網址（Ingress） |
-| 漏報回報 | `api` 的網頁 `/missed` 驗序列名與時間、寫 `aiops-feedback` | 同一個儀表板的連結 | 同上 |
-| 唯讀儀表板 | 寫 `aiops-alerts`、`aiops-anomalies`、`aiops-tuning`、`aiops-feedback` | `aiops-rca`、`aiops-learning`：只讀這幾個索引畫圖；`aiops-overview` 另外讀 APM 三種資料（key 要含那三個 pattern，見 `kibana-dev-tools.txt` 第 4 段） | 給 Grafana 唯讀 key |
+| 事故回饋 | `api` 的網頁 `/feedback?alert=…` 驗資料、寫 `aiops_feedback`、`aiops_incidents`；同一頁可以「重跑根因分析」（`POST /rca`） | 儀表板 `aiops-feedback` 放連結 | 給 api 一個使用者瀏覽器連得到的網址（Ingress） |
+| 漏報回報 | `api` 的網頁 `/missed` 驗序列名與時間、寫 `aiops_feedback` | 同一個儀表板的連結 | 同上 |
+| 唯讀儀表板 | 寫 `aiops_alerts`、`aiops_anomalies`、`aiops_tuning`、`aiops_feedback` | `aiops-rca`、`aiops-learning`：SQL 讀這幾張表畫圖；`aiops-overview` 另外讀 APM 三種資料（ES key 要含那三個 pattern，見 `kibana-dev-tools.txt` 第 4 段） | 給 Grafana PostgreSQL 唯讀帳號、ES 唯讀 key |
 
 兩邊只用下面三個接口接起來，改任何一個，另一邊要一起改：
 
 | 接口 | AIOps 這邊 | Grafana 這邊 | 要一起改的情況 |
 |---|---|---|---|
-| ES 索引欄位 | 寫 `aiops-alerts` 等索引（欄位見 [aiops-data-reference.md](../docs/aiops-data-reference.md)） | `datasource.yaml` 的唯讀 key；規則與儀表板的查詢直接寫欄位名（`status`、`alert_id`、`dept`、`missing_baseline`…） | 改欄位名或型別 |
+| 資料表的欄位 | 寫 PostgreSQL 的 `aiops_alerts` 等表（`doc` 裡的欄位見 [aiops-data-reference.md](../docs/aiops-data-reference.md)） | 規則與儀表板的 SQL 直接寫欄位名（`doc->>'status'`、`alert_id`、`dept`、`missing_baseline`…） | 改欄位名或型別 |
 | 回饋 HTTP API | `api`：`GET /api/alert`、`/api/missed-form`；`POST /api/feedback`、`/api/missed` | 表單面板的 `initial.url`、`update.url`；**瀏覽器直接打**，不經 Grafana 後端 | 改路徑或欄位；部署時 URL 要改成使用者瀏覽器連得到的位置、`API_CORS_ORIGIN` 設成 Grafana 的網址 |
-| 告警標籤 | `aiops-alerts` 的 `service`、`dept`、`group`、`severity`、`summary`、`report_url` | 規則把它們帶成 labels；`policies.yaml` 依 `dept` 路由；`severity: warning` 的件走永遠靜音的 mute timing（`always`），只有 `critical`、`high` 送通知 | 改 `dept` 清單（要跟 APM agent 的 `labels.dept` 值一致）；要讓 warning 也通知就刪掉第一條路由 |
+| 告警標籤 | `aiops_alerts` 的 `service`、`dept`、`group`、`severity`、`summary`、`report_url` | 規則把它們帶成 labels；`policies.yaml` 依 `dept` 路由；`severity: warning` 的件走永遠靜音的 mute timing（`always`），只有 `critical`、`high` 送通知 | 改 `dept` 清單（要跟 APM agent 的 `labels.dept` 值一致）；要讓 warning 也通知就刪掉第一條路由 |
 
 - 表單的欄位 id 必須等於後端回傳 JSON 的 key（`/api/alert`、`/api/missed-form`）；漏報面板的 series 下拉是靜態列表，要跟 `series.yaml` 的名字一致。這兩點由 `tests/test_grafana_form.py` 擋。
 - 更細的通知分工（含管 Grafana 的人要設什麼）的設計紀錄：[alert-exit.md](../docs/pdca/phase3-locate/2026-10-alert-exit.md)。
@@ -49,7 +49,7 @@ AIOps 把異常合成「一件事」寫進 `aiops-alerts`（`python3 -m main inv
 
 | `helmchart/files/` 的檔 | 放到 Grafana 的 | 要改的 |
 |---|---|---|
-| `datasource.yaml` | `/etc/grafana/provisioning/datasources/` | ES 網址、唯讀 key（環境變數 `ES_URL`、`GRAFANA_ES_API_KEY`） |
+| `datasource.yaml` | `/etc/grafana/provisioning/datasources/` | PostgreSQL 的位置與唯讀帳號（`AIOPS_PG_*`、`GRAFANA_PG_*`）、ES 網址與唯讀 key（`ES_URL`、`GRAFANA_ES_API_KEY`） |
 | `alert-rules.yaml`、`contact-points.yaml`、`policies.yaml` | `/etc/grafana/provisioning/alerting/` | 通知管道換成公司的、dept 清單（環境變數 `NOTIFY_IT_URL`、`NOTIFY_IMC_URL`、`NOTIFY_PLATFORM_URL`） |
 | `dashboards/*.json` | 任一資料夾，例如 `/var/lib/grafana/dashboards/aiops/` | `aiops-feedback.json` 裡寫死的 `http://localhost:18080` 全部換成使用者瀏覽器連得到的回饋服務網址 |
 | （檔裡沒有，要自己寫）dashboards provider | `/etc/grafana/provisioning/dashboards/aiops.yaml` | 見下面 |
@@ -66,7 +66,7 @@ providers:
       path: /var/lib/grafana/dashboards/aiops
 ```
 
-- 檔裡的 `${ES_URL}`、`${GRAFANA_ES_API_KEY}`、`${NOTIFY_*_URL}` 由 Grafana 從**環境變數**展開，所以公司的 Grafana 要有這幾個環境變數（K8s 用 Secret 的 `envFrom`）。
+- 檔裡的 `${ES_URL}`、`${GRAFANA_ES_API_KEY}`、`${AIOPS_PG_*}`、`${GRAFANA_PG_*}`、`${NOTIFY_*_URL}` 由 Grafana 從**環境變數**展開，所以公司的 Grafana 要有這幾個環境變數（K8s 用 Secret 的 `envFrom`）。
 - 檔放好之後重啟 Grafana（或呼叫 provisioning reload 的 API）才會生效。不想動檔案系統，也可以用 Grafana 的 HTTP API 或畫面匯入儀表板、告警，內容一樣。
 - 回饋表單預設是 engine api 的網頁，不用裝外掛。要在 Grafana 裡直接填才需要 Business Forms 外掛（[INSTALL-form-plugin.md](code/INSTALL-form-plugin.md)），並把 `dashboards/forms/aiops-feedback-forms.json` 也放進去。
 
@@ -84,6 +84,8 @@ providers:
 kubectl create namespace grafana
 kubectl -n grafana create secret generic grafana-env \
   --from-literal=ES_URL=https://<中央 ES>:9200 --from-literal=GRAFANA_ES_API_KEY=<setup 發的 Grafana 唯讀 key> \
+  --from-literal=AIOPS_PG_HOST=<PostgreSQL>:5432 --from-literal=AIOPS_PG_DATABASE=aiops --from-literal=AIOPS_PG_SSLMODE=require \
+  --from-literal=GRAFANA_PG_USER=grafana_aiops --from-literal=GRAFANA_PG_PASSWORD=<DBA 給的唯讀帳號密碼> \
   --from-literal=NOTIFY_IT_URL=<IT 的 webhook> --from-literal=NOTIFY_IMC_URL=<IMC 的 webhook> --from-literal=NOTIFY_PLATFORM_URL=<平台的 webhook> \
   --from-literal=GF_SECURITY_ADMIN_PASSWORD=<admin 密碼>
 helm upgrade --install grafana grafana/helmchart -n grafana \
@@ -93,25 +95,25 @@ helm upgrade --install grafana grafana/helmchart -n grafana \
 
 預設不裝外掛（`plugin.enabled: false`），回饋走 engine api 的網頁。要在 Grafana 裡直接填：加 `--set plugin.enabled=true --set plugin.url=https://<nexus>/…/volkovlabs-form-panel-6.3.1.zip`，Pod 啟動時 initContainer 跑 `files/install-plugin.sh`（下載、核對 `plugin.sha256`、解開；不符 Grafana 不啟動），並多載入外掛表單版的儀表板。zip 要先放到 Pod 連得到的地方（Nexus 的 raw repository，[INSTALL-form-plugin.md](code/INSTALL-form-plugin.md)）。
 
-檔裡的 `${ES_URL}`、`${GRAFANA_ES_API_KEY}`、`${NOTIFY_*_URL}` 由 Grafana 從 Secret 的環境變數展開。provisioning 改了再跑同一個指令，Pod 會自己重啟（`checksum/provisioning`）。
+檔裡的 `${ES_URL}`、`${GRAFANA_ES_API_KEY}`、`${AIOPS_PG_*}`、`${GRAFANA_PG_*}`、`${NOTIFY_*_URL}` 由 Grafana 從 Secret 的環境變數展開。provisioning 改了再跑同一個指令，Pod 會自己重啟（`checksum/provisioning`）。
 
 ## 怎麼運作
 
-- `aiops-alerts` 一件一筆。`status: open` 的那幾筆，`@timestamp` 是 `investigator alert` 最後一次看到它還開著的時間（每次執行都更新）。
+- `aiops_alerts` 一件一筆。`status: open` 的那幾筆，`@timestamp` 是 `investigator alert` 最後一次看到它還開著的時間（每次執行都更新）。
 - 告警規則查「最近 5 分鐘 `@timestamp`、`status: open`」，依 `alert_id`（再帶 `service`、`dept`、`group`、`severity`、`summary`、`report_url`）分組：**每一件一個告警**。
 - 件結束（30 分鐘沒新的異常）→ `status: resolved` → 查不到 → Grafana 發恢復通知。
 - `investigator alert` 停了：所有件都查不到，Grafana 會當成全部恢復。所以它每次跑都寫一筆心跳（`_id: heartbeat`、`status: ok`），第二條規則 `aiops-heartbeat` 查 10 分鐘內有沒有心跳，沒有就送平台（`noDataState: Alerting`）。**ES 連不上時**發的是 Grafana 自己的 `DatasourceError`（`execErrState: Error`），不是這條的標題，而且兩條規則各發一則。
-- 基準線不見（`aiops-baseline` 掉了、還沒 `train`）：`detect` 照常跑、心跳照常寫，上面兩條都不響。`detector detect` 每輪另寫一筆 `detect-status`（`status: ok`，`missing_baseline` 是沒有 baseline 的序列數），第三條規則 `aiops-baseline-missing` 查它 > 0 持續 5 分鐘才送（剛部署、ES 剛重建還沒 `train` 的前幾輪不響）；沒有這筆是 `detect` 沒跑，交給心跳那條（`noDataState: OK`）。
+- 基準線不見（`aiops_baseline` 掉了、還沒 `train`）：`detect` 照常跑、心跳照常寫，上面兩條都不響。`detector detect` 每輪另寫一筆 `detect-status`（`status: ok`，`missing_baseline` 是沒有 baseline 的序列數），第三條規則 `aiops-baseline-missing` 查它 > 0 持續 5 分鐘才送（剛部署、ES 剛重建還沒 `train` 的前幾輪不響）；沒有這筆是 `detect` 沒跑，交給心跳那條（`noDataState: OK`）。
 - 開著的件、心跳的 `@timestamp` 是「最後一次看到」往前 1 分鐘：一件只有一筆、每輪覆蓋，往前寫才不會落在 Grafana 排定評估與送出查詢之間、被當成恢復（[troubleshooting](../docs/troubleshooting.md#grafana-告警)）。
 - `summary` 是 Grafana 的 label：內容一變就是另一則（舊的 resolved、新的 firing）。所以 `investigator alert` 寫的 summary 不放「持續 N 分鐘」、「等 N 項異常」這種每分鐘會變的字（Grafana 自己會顯示從何時開始；筆數看 `title`、`anomaly_count`）。
 - 通知裡的「回饋」連結：`aiops-alerts.feedback_url`（`rca.yaml` 的 `alerts.feedback_url`，指到 [aiops-engine/api](../aiops-engine/src/interface/web/__init__.py)）。要帶進通知，在 annotations 再加一個 `feedback: "{{ $labels.feedback_url }}"`，bucketAggs 多一個 terms `feedback_url`（跟 `report_url` 一樣的寫法）。
 
 ## 一次就嚴重的異常怎麼到 Grafana
 
-「連續才算」在 AIOps 做完，Grafana 不再等：`aiops-incident` 設 `for: 0s`，每 1 分鐘評估一次，查最近 5 分鐘 `status: open` 的件。件一寫進 `aiops-alerts`，下一次評估就發通知。
+「連續才算」在 AIOps 做完，Grafana 不再等：`aiops-incident` 設 `for: 0s`，每 1 分鐘評估一次，查最近 5 分鐘 `status: open` 的件。件一寫進 `aiops_alerts`，下一次評估就發通知。
 
 ```
-異常 → aiops-anomalies → investigator alert 合成一件 → aiops-alerts → Grafana 規則 aiops-incident
+異常 → aiops_anomalies → investigator alert 合成一件 → aiops_alerts → Grafana 規則 aiops-incident
 ```
 
 下列異常不用等第二筆就會開一件，到 Grafana 與其他件沒有差別：
@@ -140,7 +142,7 @@ helm upgrade --install grafana grafana/helmchart -n grafana \
 
 ### 外掛版（選用）
 
-> 送出後資料怎麼流（瀏覽器 → 回饋網頁 → ES 三個索引）：[docs/data-storage-reference.md](../docs/data-storage-reference.md#回饋表單的資料流)。
+> 送出後資料怎麼流（瀏覽器 → 回饋網頁 → PostgreSQL 三張表）：[docs/data-storage-reference.md](../docs/data-storage-reference.md#回饋表單的資料流)。
 
 老師傅從通知點 `feedback` 連結，直接在 Grafana 裡填回饋：預填那件告警（標題、摘要、AI 摘要、相似事故），選真的／誤報／根因錯，填根因、處置、怎麼看出來的，按送出。寫回 ES 的還是回饋服務（[aiops-engine/api](../aiops-engine/src/interface/web/__init__.py)，Grafana 本身不能寫 ES），所以兩邊都要有。
 
@@ -148,10 +150,10 @@ helm upgrade --install grafana grafana/helmchart -n grafana \
 
 | 欄位 | id | 寫到哪 |
 |---|---|---|
-| 可能根因有參考價值？／建議的排查動作有參考價值？（是／否／沒看） | `rca_cause_useful`、`rca_action_useful` | `aiops-feedback`；`detector metrics` 算「RCA 建議採納率」＝兩題正面 ÷ 有回答的（沒看、沒填不算） |
+| 可能根因有參考價值？／建議的排查動作有參考價值？（是／否／沒看） | `rca_cause_useful`、`rca_action_useful` | `aiops_feedback`；`detector metrics` 算「RCA 建議採納率」＝兩題正面 ÷ 有回答的（沒看、沒填不算） |
 | 這件是（真的／誤報／根因錯） | `verdict` | `aiops-feedback.verdict`、`aiops-incidents.status` |
-| 一句話說這件怎麼回事（選填） | `feedback_text` | `aiops-feedback.feedback_text`；LLM 抽成 `extract.{feedback_type, identified_cause, target_service, suggested_action}`，對得到調整種類的再寫一筆 `aiops-tuning`（proposed，`tuning_id` 回填）；抽不到只存原文（`extract.ok: false`）。送出後的提示會說有沒有提建議 |
-| 根因分類、根因、處置、怎麼看出來的、查了哪裡、下次怎麼更快（真的時） | `root_cause_category`、`root_cause`、`action`、`how_detected`、`checked`、`improve` | `aiops-incidents` |
+| 一句話說這件怎麼回事（選填） | `feedback_text` | `aiops-feedback.feedback_text`；LLM 抽成 `extract.{feedback_type, identified_cause, target_service, suggested_action}`，對得到調整種類的再寫一筆 `aiops_tuning`（proposed，`tuning_id` 回填）；抽不到只存原文（`extract.ok: false`）。送出後的提示會說有沒有提建議 |
+| 根因分類、根因、處置、怎麼看出來的、查了哪裡、下次怎麼更快（真的時） | `root_cause_category`、`root_cause`、`action`、`how_detected`、`checked`、`improve` | `aiops_incidents` |
 | 為什麼不是問題、補充（誤報時） | `fp_reason`、`fp_reason_text` | `aiops-feedback.fp_reason`、`note` |
 | 你是、備註 | `by`、`note` | 兩邊 |
 

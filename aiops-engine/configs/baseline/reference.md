@@ -66,7 +66,7 @@
 
 | 狀況 | status | 會怎樣 |
 |---|---|---|
-| 超標，但前一個時間窗正常 | `warning` | 寫進 `aiops-anomalies`，看得到「正在變壞」；**不觸發根因分析**、不通知 |
+| 超標，但前一個時間窗正常 | `warning` | 寫進 `aiops_anomalies`，看得到「正在變壞」；**不觸發根因分析**、不通知 |
 | 同一條序列、同一個方向，**連續 2 個時間窗**超標 | `anomaly` | 正式異常，根因分析會挑它 |
 | 連續超標的時間合計 **≥ 30 分鐘** | `anomaly` | 粗粒度的序列不用等兩個點：1 小時一點的，一個點就是一小時；30 分鐘一點的也是一個點就夠；15 分鐘一點的要兩個 |
 | 中間有一個時間窗正常、沒資料、或方向反過來 | 從頭算 | |
@@ -75,7 +75,7 @@
 
 - **不用另外存狀態**：每次偵測多查前一個時間窗，從資料重算「連續第幾個」（`streak` 欄位），程式重啟也一樣。
 - **不降級**：上一輪已判成 anomaly 的時間窗，這一輪就算查的範圍沒包含它的前一個時間窗，也維持 anomaly。
-- 設定在 `series.yaml` 的 `status: {confirm_points: 2, confirm_span: 30m, instant_z: 15}`。每條序列可以自己設 `confirm_points`、`instant_z`（`http.latency_p95_s` 設 `null`：不直接 anomaly；寫 0 會讓每個超標點都直接 anomaly）；`tune --confirm-points 1 --instant-z 10` 可以再依對象調（寫進 `aiops-tuning`，之後回饋的建議也能調）。優先順序：對象 > 序列 > 全域（[pdca/phase2-anomaly/2026-10-instant-anomaly.md](../../../docs/pdca/phase2-anomaly/2026-10-instant-anomaly.md)）。
+- 設定在 `series.yaml` 的 `status: {confirm_points: 2, confirm_span: 30m, instant_z: 15}`。每條序列可以自己設 `confirm_points`、`instant_z`（`http.latency_p95_s` 設 `null`：不直接 anomaly；寫 0 會讓每個超標點都直接 anomaly）；`tune --confirm-points 1 --instant-z 10` 可以再依對象調（寫進 `aiops_tuning`，之後回饋的建議也能調）。優先順序：對象 > 序列 > 全域（[pdca/phase2-anomaly/2026-10-instant-anomaly.md](../../../docs/pdca/phase2-anomaly/2026-10-instant-anomaly.md)）。
 - 規則（`rules.yaml`）另外用 `for`（要持續多久）處理；重啟、Pod Failed 這類 critical 規則一次就算，不等。
 
 ### 定義的原則與限制
@@ -126,11 +126,11 @@
 | 從哪裡調 | 怎麼調 | 什麼時候生效 |
 |---|---|---|
 | 使用者設定 | `series.yaml` 的 `overrides`（`series` 可用正規表示式、`match` 依 keys 比對） | 粒度：下次 train；z、min_abs：下次 detect |
-| 指令 | `python3 -m main detector tune --series http.latency_p95_s --match service=^mes-report --resolution 5m --z 7 --reason 誤報多 --by 王小明`，寫進 `aiops-tuning`（`--list` 列出、`--remove` 刪掉） | 同上 |
-| 查生效值 | `python3 -m main detector tune --show --series http.latency_p95_s --match service=mes-report-api`（`--match` 給對象的實際值，不是正規表示式）：印 `resolution`、`z`、`min_abs`、`confirm_points`、`instant_z` 各自現在的值與來源（`aiops-tuning` 的 id、`series.yaml overrides#<第幾筆>`、或 `series.yaml 預設`）。值跟 detect 用的同一個函式算，不會兩套 | 不寫入 |
-| feedback（📝） | 之後的 feedback 流程寫同一個 `aiops-tuning`：同一條序列誤報累積多次 → 建議粒度往粗一級或調高 z，回測通過才寫入（見 [docs/feedback/README.md「對了怎麼強化、錯了怎麼 feedback」](../../../docs/feedback/README.md)） | 同上 |
+| 指令 | `python3 -m main detector tune --series http.latency_p95_s --match service=^mes-report --resolution 5m --z 7 --reason 誤報多 --by 王小明`，寫進 `aiops_tuning`（`--list` 列出、`--remove` 刪掉） | 同上 |
+| 查生效值 | `python3 -m main detector tune --show --series http.latency_p95_s --match service=mes-report-api`（`--match` 給對象的實際值，不是正規表示式）：印 `resolution`、`z`、`min_abs`、`confirm_points`、`instant_z` 各自現在的值與來源（`aiops_tuning` 的 id、`series.yaml overrides#<第幾筆>`、或 `series.yaml 預設`）。值跟 detect 用的同一個函式算，不會兩套 | 不寫入 |
+| feedback（📝） | 之後的 feedback 流程寫同一個 `aiops_tuning`：同一條序列誤報累積多次 → 建議粒度往粗一級或調高 z，回測通過才寫入（見 [docs/feedback/README.md「對了怎麼強化、錯了怎麼 feedback」](../../../docs/feedback/README.md)） | 同上 |
 
-套用順序：自動選 → `series.yaml` 的 `overrides`（檔案順序）→ `adjustments.yaml` → `aiops-tuning`（依 `at` 由舊到新），同一欄位後面的蓋前面的，不同欄位各自生效；不看 `match` 寫得多細（較晚寫的寬鬆調整會蓋掉較早的精細調整）。每筆調整記 `reason`、`by`、`at`，查得到誰、為什麼、什麼時候改的。
+套用順序：自動選 → `series.yaml` 的 `overrides`（檔案順序）→ `adjustments.yaml` → `aiops_tuning`（依 `at` 由舊到新），同一欄位後面的蓋前面的，不同欄位各自生效；不看 `match` 寫得多細（較晚寫的寬鬆調整會蓋掉較早的精細調整）。每筆調整記 `reason`、`by`、`at`，查得到誰、為什麼、什麼時候改的。
 
 #### 調整和原始資料分開存
 
@@ -139,14 +139,14 @@
 | 東西 | 放哪 | 誰寫 |
 |---|---|---|
 | 原始資料（每個時間點的值） | `metrics-*.otel-*`、`k8s-*`、`traces-*.otel-*` | Collector |
-| 基準線（學出來的中位數與 MAD） | `aiops-baseline` | `train`；寫完會刪掉這條序列上一次留下、這次沒有的 |
+| 基準線（學出來的中位數與 MAD） | `aiops_baseline` | `train`；寫完會刪掉這條序列上一次留下、這次沒有的 |
 | 預設參數（`z`、`confirm_points`…） | `series.yaml` | 改檔 |
-| 調整 | `aiops-tuning`；另有 `series.yaml` 的 `overrides`、`adjustments.yaml` | `tune`、`adjust`、回饋網頁 |
+| 調整 | `aiops_tuning`；另有 `series.yaml` 的 `overrides`、`adjustments.yaml` | `tune`、`adjust`、回饋網頁 |
 
 - `override`（`z`、`min_abs`、`confirm_points`、`instant_z`）只改判斷用的門檻，下次 `detect` 就用，不動基準線。
 - `exclude_window`、`reset_point` 作用在 `train`：先把那段歷史拿掉再算中位數與 MAD，所以要等下次 `train` 基準線才變；要馬上生效手動跑一次 `train`。被排除的原始資料還在 ES。
 - 同一條序列加同一組 `match` 用 `tune` 再寫一次是覆蓋，不是新增一筆。
-- `aiops-tuning` 裡的調整不會自動刪：`expires_at` 過了只是不再生效，文件還在；`adjust remove --id` 才刪。
+- `aiops_tuning` 裡的調整不會自動刪：`expires_at` 過了只是不再生效，文件還在；`adjust remove --id` 才刪。
 
 ### (3) 自己沒有 baseline：借同類的
 
@@ -245,9 +245,9 @@ series:
 | `kafka.consumer_lag`、`kafka.consumer_lag_growing` | 消費落後筆數；5 分鐘淨增加多少（`delta`） | ≥ 10,000，3 分鐘；≥ 5,000 | warning |
 | `eap.secs_disconnected`、`eap.plc_scan_slow`、`eap.secs_retransmits` | 機台 SECS 通訊、PLC 掃描週期、重傳（依 `equipment_id`） | 斷線 1 分鐘；≥ 規格 50ms，2 分鐘；5 分鐘重傳 ≥ 10 次 | critical／warning |
 
-寫法：`value`（欄位跟門檻比）、`compare`（兩個欄位相減）、`ratio`（欄位 ÷ 分母）、`increase`（累計值增加多少，歸零重來也算得對；只能用在計數器）、`delta`（量測值淨增加多少，最後 − 最前；例如 Kafka 落後）、`increase_ratio`（兩個累計值增加量的比例）、`rate`（加總 ÷ 秒數）、`total`（加總；`hist_count` 數直方圖的次數）、`slope`（最近 `for` 這段的 Theil–Sen 斜率；有 `den` 就換成「幾小時後到上限」，沒有就是每小時漲多少；三段的低點要一路墊高，GC 鋸齒不算）。分母在另一種文件時用 `join` 補進來。`for` 是「這段時間都成立才算」（對象要在 for 開頭之前就有資料：新建的 Pod、Deployment 等滿 for 才報），`min_ratio` 放寬成「這段時間裡至少多少比例成立」。對象不在了（Pod 刪掉、節點拿掉，最新的資料超過 2 分鐘）就不報；只有容器重啟、Job 失敗設了 `report_gone: true`，刪掉了也照報。要加規則，在 rules.yaml 加一段，不用改程式。一條規則查詢失敗（或核准的草稿缺欄位）只跳過那一條、其他照跑，指令最後 exit 1。核准的規則草稿（`aiops-tuning` 的 `rule_suggestion`）`expires_at` 到了就不載入。邊緣案例見 `tests/rules_edge_e2e.py`。
+寫法：`value`（欄位跟門檻比）、`compare`（兩個欄位相減）、`ratio`（欄位 ÷ 分母）、`increase`（累計值增加多少，歸零重來也算得對；只能用在計數器）、`delta`（量測值淨增加多少，最後 − 最前；例如 Kafka 落後）、`increase_ratio`（兩個累計值增加量的比例）、`rate`（加總 ÷ 秒數）、`total`（加總；`hist_count` 數直方圖的次數）、`slope`（最近 `for` 這段的 Theil–Sen 斜率；有 `den` 就換成「幾小時後到上限」，沒有就是每小時漲多少；三段的低點要一路墊高，GC 鋸齒不算）。分母在另一種文件時用 `join` 補進來。`for` 是「這段時間都成立才算」（對象要在 for 開頭之前就有資料：新建的 Pod、Deployment 等滿 for 才報），`min_ratio` 放寬成「這段時間裡至少多少比例成立」。對象不在了（Pod 刪掉、節點拿掉，最新的資料超過 2 分鐘）就不報；只有容器重啟、Job 失敗設了 `report_gone: true`，刪掉了也照報。要加規則，在 rules.yaml 加一段，不用改程式。一條規則查詢失敗（或核准的草稿缺欄位）只跳過那一條、其他照跑，指令最後 exit 1。核准的規則草稿（`aiops_tuning` 的 `rule_suggestion`）`expires_at` 到了就不載入。邊緣案例見 `tests/rules_edge_e2e.py`。
 
-觸發的寫進 `aiops-anomalies`：`series` 是 `rule.<名稱>`、`level` 是 `rule`，另外有 `severity`、`message`（例如「容器重啟：rules-test、crash-app-…、app（1，門檻 >= 1）」）、`since`（從什麼時候開始成立）。同一條規則、同一個對象，1 分鐘只記一筆。
+觸發的寫進 `aiops_anomalies`：`series` 是 `rule.<名稱>`、`level` 是 `rule`，另外有 `severity`、`message`（例如「容器重啟：rules-test、crash-app-…、app（1，門檻 >= 1）」）、`since`（從什麼時候開始成立）。同一條規則、同一個對象，1 分鐘只記一筆。
 
 **還沒加：** JVM 老年代的趨勢（容器 working set 的有了；老年代要 prometheus 的 JVM 指標，欄位名依 agent 版本不同）、網卡丟包（要 node_exporter）、資料庫自己的指標（長交易、慢查詢，要 DB 的 exporter）。
 
@@ -277,7 +277,7 @@ series:
 - 同組少於 3 個 Pod（單 Pod 的服務、剛縮容到 1～2 個）完全不比，這類服務沒有這層保護，單一 Pod 的問題只能靠 baseline 和規則抓。
 - 換版途中新舊版本的 Pod 同組：新版整體比舊版差時，會把新版的每個 Pod 都報出來。
 
-觸發的寫進 `aiops-anomalies`：`series` 是檢查名稱（`peer.…`）、`level` 是 `peer`、`median` 是其他 Pod 的中位數，`message` 例如「這個 Pod 的錯誤率比同服務其他 Pod 高：metrics-cases、dotnet-app、dotnet-app-…（100%，其他 2 個 Pod 中位數 0%，z=…）」。
+觸發的寫進 `aiops_anomalies`：`series` 是檢查名稱（`peer.…`）、`level` 是 `peer`、`median` 是其他 Pod 的中位數，`message` 例如「這個 Pod 的錯誤率比同服務其他 Pod 高：metrics-cases、dotnet-app、dotnet-app-…（100%，其他 2 個 Pod 中位數 0%，z=…）」。
 
 ## 餵給 baseline 之前：擋了什麼、還缺什麼
 
@@ -318,7 +318,7 @@ series:
 - **對象**：`series`（正規表示式）、`match`（正規表示式，欄位可用別名：`service` 同時對到 `service`、`service.name`、`resource.attributes.service.name`、`entry.service`；另有 `namespace`、`pod`、`deployment`、`route`、`method`）。`tune` 的 `match` 也能用別名。
 - **週期**：`schedule: {cron: "0 20 * * *", duration: 4h, days_of_month: [-1]}`：台北時間每天 20:00 起 4 小時，只限每月最後一天（cron 寫不出「最後一天」）。
 - **時間**：沒寫時區的（`--start 2026-10-20T02:00`、`adjustments.yaml` 的 `start`）是台北時間（`train.timezone`），跟行事曆一樣。
-- **learning loop 的接口**：`status: proposed` 不生效，`adjust approve` 才生效；`source` 記誰寫的（`manual`／`feedback`／`cicd`）；`expires_at` 到期自動失效（以這輪 `train --end`、`detect --at` 的時間點判斷，回放時看得到當時的設定）。讀不到 `aiops-tuning` 時印警告、只用設定檔的；缺欄位、正規表示式錯的調整略過那一筆並印出，不讓整輪失敗。
+- **learning loop 的接口**：`status: proposed` 不生效，`adjust approve` 才生效；`source` 記誰寫的（`manual`／`feedback`／`cicd`）；`expires_at` 到期自動失效（以這輪 `train --end`、`detect --at` 的時間點判斷，回放時看得到當時的設定）。讀不到 `aiops_tuning` 時印警告、只用設定檔的；缺欄位、正規表示式錯的調整略過那一筆並印出，不讓整輪失敗。
 
 ## 事故紀錄與值班回饋
 
@@ -327,17 +327,17 @@ series:
 | 指令 | 做什麼 |
 |---|---|
 | `feedback pending` | 最近還沒人標記的告警（只列 `anomaly`；`warning` 還沒通知任何人）和它們的 id |
-| `feedback add --anomaly <id> --verdict …` | `true_positive` 真的、`false_positive` 誤報、`wrong_root_cause` 真的但根因錯（`--root-cause` 寫正確的）、`missed` 漏報（沒有 id，給 `--series --match --at`）。同一個人對同一筆再標會覆蓋。`--text "一句話"`（可加 `--alert <alert_id>` 帶入服務、序列）：LLM 抽成四欄（`extract.feedback_type`／`identified_cause`／`target_service`／`suggested_action`）存在回饋上，沒給 `--verdict` 就用抽出來的；`suggested_action` 對得到調整種類的寫一筆 `aiops-tuning`（下表）；抽不到只存原文 |
+| `feedback add --anomaly <id> --verdict …` | `true_positive` 真的、`false_positive` 誤報、`wrong_root_cause` 真的但根因錯（`--root-cause` 寫正確的）、`missed` 漏報（沒有 id，給 `--series --match --at`）。同一個人對同一筆再標會覆蓋。`--text "一句話"`（可加 `--alert <alert_id>` 帶入服務、序列）：LLM 抽成四欄（`extract.feedback_type`／`identified_cause`／`target_service`／`suggested_action`）存在回饋上，沒給 `--verdict` 就用抽出來的；`suggested_action` 對得到調整種類的寫一筆 `aiops_tuning`（下表）；抽不到只存原文 |
 | `feedback summary` | 每條序列的告警數、已標記比例、誤報率；誤報累積多次的對象；漏報 |
 | `feedback suggest` | (1) 同一個對象誤報 ≥ 3 次 → 依這些誤報選一種放寬：八成以上在同一個時段（每月最後一天的同一小時、或同一個星期幾的同一小時）→ 週期放寬（`recurring_override`，只有那 1 小時 z × 1.4）；每一筆的 z 都超過 z × 1.4（放寬 z 也壓不掉）→ `min_abs` 調到最大偏差的 1.2 倍；其他 → z × 1.4；(2) 漏報 → 那條序列、那個對象降 z（× 0.8）；(3) 同一個服務、同一個根因分類被老師傅確認 ≥ 3 次（`--min-recurring`）→ 提「升級成規則」：**門檻算好**（那幾件事故的延遲峰值取最小值，三件都抓得到）、查法跟那條 baseline 序列一樣、只看這個服務（三件同一支 API 就只看它）；`adjust approve` 後 **`rules` 自動載入**，不用改 `rules.yaml`；算不出門檻的不能核准。都是 `status: proposed`；要先 `backtest` 再 `adjust approve` |
-| `backtest --id <建議> --weeks 4` | 改門檻前先回測：用「現行」和「現行＋這筆建議」各重跑過去 N 週的 detect（不寫 ES），比告警少幾個、已確認的事故（`aiops-incidents` confirmed／corrected／resolved）還抓不抓得到、漏報抓到沒；少抓一件已確認的事故就「不建議」。`rule_suggestion` 另算：過去 N 週每 5 分鐘（規則的 `lookback`）一點算規則的值，提這條規則的事故都要抓到、事故以外平均每週多報不超過 1 次（估的）才「建議」。結果寫回建議的 `backtest` 欄位，`adjust list` 看得到 |
+| `backtest --id <建議> --weeks 4` | 改門檻前先回測：用「現行」和「現行＋這筆建議」各重跑過去 N 週的 detect（不寫 ES），比告警少幾個、已確認的事故（`aiops_incidents` confirmed／corrected／resolved）還抓不抓得到、漏報抓到沒；少抓一件已確認的事故就「不建議」。`rule_suggestion` 另算：過去 N 週每 5 分鐘（規則的 `lookback`）一點算規則的值，提這條規則的事故都要抓到、事故以外平均每週多報不超過 1 次（估的）才「建議」。結果寫回建議的 `backtest` 欄位，`adjust list` 看得到 |
 | `adjust approve --id … --by …` | override、`recurring_override`、`rule_suggestion` **沒回測、或回測不建議的不能核准**（要跳過用 `--force`）；記 `approved_by`、`approved_at` |
 | `metrics --from … --to … [--compare-from … --compare-to …]` | 量化：件數（每天、依 dept）、有回饋的比例、誤報率、根因錯的比例、漏報、從告警到第一筆回饋的中位時間、老師傅確認的事故數、「怎麼看出來的」有填的比例；兩段並排就是「學之前 vs 學之後」。只印 Markdown（`--out` 存檔），畫圖交給 Grafana |
-| `python3 -m main api` | 老師傅的回饋網頁（通知裡的連結）：一鍵真的／誤報／根因錯，多填根因分類、根因、處置、**怎麼看出來的**、查了哪裡、下次怎麼更快、兩題評分、**一句話**（LLM 抽成四欄，同 `feedback add --text`）；寫 `aiops-feedback`（一件的每筆異常各一筆）和 `aiops-incidents`（`confirmed`／`corrected`／`false_positive`）。Grafana 裡的表單欄位對照見 [configs/grafana/README.md](../../../grafana/README.md#回饋表單預設用-engine-api-的網頁要在-grafana-裡直接填才裝外掛) |
+| `python3 -m main api` | 老師傅的回饋網頁（通知裡的連結）：一鍵真的／誤報／根因錯，多填根因分類、根因、處置、**怎麼看出來的**、查了哪裡、下次怎麼更快、兩題評分、**一句話**（LLM 抽成四欄，同 `feedback add --text`）；寫 `aiops_feedback`（一件的每筆異常各一筆）和 `aiops_incidents`（`confirmed`／`corrected`／`false_positive`）。Grafana 裡的表單欄位對照見 [configs/grafana/README.md](../../../grafana/README.md#回饋表單預設用-engine-api-的網頁要在-grafana-裡直接填才裝外掛) |
 
 一句話抽出來的 `suggested_action` 對到的調整（都 `status: proposed`、`source: feedback`、`reason` 帶原文；`adjust approve` 才生效）：
 
-| `suggested_action` | 寫進 `aiops-tuning` 的 kind | 內容 | 核准前要做什麼 |
+| `suggested_action` | 寫進 `aiops_tuning` 的 kind | 內容 | 核准前要做什麼 |
 |---|---|---|---|
 | `suppress_during_cron` | `recurring_override` | `match.service` 是抽出來的服務、`effect.mute`；**沒有 `schedule`**（文字通常沒寫 cron、時長，不猜） | `adjust list` 會標「cron 要 5 欄」略過：補 `schedule`（`cron`、`duration`、必要時 `days_of_month`）再回測、核准 |
 | `widen_threshold` | `override` | 這件告警的序列、抽出來的服務，z × 1.4（跟誤報 3 次的建議一樣） | `backtest --id` 再 `adjust approve` |
@@ -346,7 +346,7 @@ series:
 | `incident add --title --start --end --service …` | 事故紀錄：時間、影響的服務、根因、處置、相關異常。`--exclude-training` 同時提「這段不學」（`exclude_window`，proposed，只排除列出的服務；沒列就全部） |
 | `incident list`／`incident resolve --id` | 列出／結案（補根因、處置） |
 
-寫進 `aiops-feedback`、`aiops-incidents`；建議寫進 `aiops-tuning`（跟 `tune`、`adjust` 同一處）。
+寫進 `aiops_feedback`、`aiops_incidents`；建議寫進 `aiops_tuning`（跟 `tune`、`adjust` 同一處）。
 
 **還沒做**：評測集（要真實事故）；`suggest` 不提粒度（改粒度要重新 train，回測比不了）；選放寬方式的比例（八成）、倍數（1.2）是估的；回饋表單的一句話抽成 `recurring_override` 時沒有 `schedule`，要人補。
 
@@ -357,9 +357,9 @@ series:
 | 來源 | 看什麼 | 算慢性病 |
 |---|---|---|
 | `chronic.log_errors` | 錯誤 log（error、fatal），依服務 × `error.type`（沒有的歸成「（無）」） | 最近 7 個完整的日子裡至少 6 天、每天至少 20 筆 |
-| `chronic.anomalies` | `aiops-anomalies` 裡的規則、Pod 同儕橫向比對（N+1、吞掉的例外、CPU 被限流、只有一個 Pod 壞…） | 同一條、同一個對象，7 天裡至少 6 天觸發 |
+| `chronic.anomalies` | `aiops_anomalies` 裡的規則、Pod 同儕橫向比對（N+1、吞掉的例外、CPU 被限流、只有一個 Pod 壞…） | 同一條、同一個對象，7 天裡至少 6 天觸發 |
 
-每個來源排前 10 名（天數多的先，再看量），依 `owners`（match 可用別名）附負責人，寫進 `aiops-chronic`（每週一份），並印成報告。修掉的下週自然從清單消失。
+每個來源排前 10 名（天數多的先，再看量），依 `owners`（match 可用別名）附負責人，寫進 `aiops_chronic`（每週一份），並印成報告。修掉的下週自然從清單消失。
 
 **資料來源**：負責人（`owners`）和行事曆（`calendar`）是要別人提供的資料，程式只認格式，來源可以換（`file`、`http`，行事曆另有 `taiwan`）。**接口**在 [detect/reference_data.py](../../src/detect/reference_data.py) 和 [fake-data/interfaces.md](../../fake-data/interfaces.md)，**假資料**在 [fake-data/](../../fake-data/README.md)，兩邊分開；換成真的只改設定。
 
@@ -384,15 +384,15 @@ series:
 
 `missing` 檢查的 `missing_if_equals: {欄位: 另一個欄位}`：欄位等於另一個欄位也算缺。Pod 沒有 service label 時 Collector 把 `service.name` 補成 container 名稱（例如 `app`），欄位有值但對不到服務，只看 `exists` 看不出來。
 
-觸發的寫進 `aiops-anomalies`：`level` 是 `quality`、`median` 放昨天的值、`keys` 缺欄位時多一個 `field`。
+觸發的寫進 `aiops_anomalies`：`level` 是 `quality`、`median` 放昨天的值、`keys` 缺欄位時多一個 `field`。
 
 ## 結果在哪裡
 
 | index | 內容 |
 |---|---|
-| `aiops-baseline` | `series`、`keys`（例如 `keys.service.name`）、`dow`（0 = 週一）、`hour`、`level`、`median`、`mad`、`p05`、`p95`、`n`、`trained_at` |
-| `aiops-anomalies` | `@timestamp`、`series`、`keys`、`value`、`median`、`expected_low`／`expected_high`（正常範圍）、`z`（偏離幾倍）、`level`、`direction`、`dept`、`group`、`alert_id`（併進哪一件；`investigator alert` 併件時寫回，Grafana 的「這件事故的異常」依它撈） |
+| `aiops_baseline` | `series`、`keys`（例如 `keys.service.name`）、`dow`（0 = 週一）、`hour`、`level`、`median`、`mad`、`p05`、`p95`、`n`、`trained_at` |
+| `aiops_anomalies` | `@timestamp`、`series`、`keys`、`value`、`median`、`expected_low`／`expected_high`（正常範圍）、`z`（偏離幾倍）、`level`、`direction`、`dept`、`group`、`alert_id`（併進哪一件；`investigator alert` 併件時寫回，Grafana 的「這件事故的異常」依它撈） |
 
 異常文件全部欄位的定義（誰寫、什麼意思）只有一處：程式 `detect/store/models.py` 的 `Anomaly`；上面的 [異常帶的欄位](#異常帶的欄位) 是 baseline 多記的那幾個。
 
-在 Kibana 建一個 `aiops-anomalies` 的 data view，就能依 `series`、`keys` 看哪個服務、哪個時間點異常。
+異常在 PostgreSQL 的 `aiops_anomalies`：例如 `SELECT ts, doc->>'series', doc->'keys' FROM aiops_anomalies WHERE ts > now() - interval '1 day' ORDER BY ts`，就能依 `series`、`keys` 看哪個服務、哪個時間點異常（Grafana 的儀表板也是這樣查）。

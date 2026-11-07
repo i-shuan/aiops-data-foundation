@@ -11,25 +11,26 @@ groups:
         condition: C
         data:
           - refId: A
-            datasourceUid: aiops-alerts
-            relativeTimeRange: {from: 300, to: 0}      # investigator alert 每 1～2 分鐘更新一次 @timestamp
+            datasourceUid: aiops-db
+            relativeTimeRange: {from: 300, to: 0}
             model:
               refId: A
-              query: "status:open"
-              timeField: "@timestamp"
-              metrics: [{id: "1", type: count}]
-              bucketAggs:
-                # 每一件一組；其他欄位跟著帶成 labels（同一件只有一個值）。missing：沒有 dept 的（資料品質、節點）也要算
-                # orderBy 一定要寫：Grafana 預設用 _term 排序，ES 不認得（實測 9.5 回 400；8.19 同樣不支援，整條規則 Error）
-                - {id: "2", type: terms, field: alert_id, settings: {size: "500", min_doc_count: "1", order: desc, orderBy: _count}}
-                - {id: "3", type: terms, field: service, settings: {size: "1", min_doc_count: "1", order: desc, orderBy: _count, missing: "—"}}
-                - {id: "4", type: terms, field: dept, settings: {size: "1", min_doc_count: "1", order: desc, orderBy: _count, missing: "none"}}
-                - {id: "5", type: terms, field: group, settings: {size: "1", min_doc_count: "1", order: desc, orderBy: _count, missing: "unassigned"}}
-                - {id: "6", type: terms, field: severity, settings: {size: "1", min_doc_count: "1", order: desc, orderBy: _count, missing: "warning"}}
-                # summary 是 label：內容一變就是另一則（舊的 resolved、新的 firing），所以 investigator/alerts.py 的 summary 不放持續時間、筆數
-                - {id: "7", type: terms, field: summary, settings: {size: "1", min_doc_count: "1", order: desc, orderBy: _count, missing: ""}}
-                - {id: "8", type: terms, field: report_url, settings: {size: "1", min_doc_count: "1", order: desc, orderBy: _count, missing: ""}}
-                - {id: "9", type: date_histogram, field: "@timestamp", settings: {interval: 1m, min_doc_count: "0"}}
+              editorMode: code
+              format: table
+              rawQuery: true
+              # 每一件開著的一列；字串欄位變成 labels（同一件只有一個值），value 是數字（Grafana 的 SQL 告警：一列一則）。
+              # summary 是 label：內容一變就是另一則（舊的 resolved、新的 firing），所以 incident/alert_service 的 summary 不放持續時間、筆數
+              rawSql: |-
+                SELECT doc->>'alert_id' AS alert_id,
+                       COALESCE(doc->>'service', '—') AS service,
+                       COALESCE(doc->>'dept', 'none') AS dept,
+                       COALESCE(doc->>'group', 'unassigned') AS "group",
+                       COALESCE(doc->>'severity', 'warning') AS severity,
+                       COALESCE(doc->>'summary', '') AS summary,
+                       COALESCE(doc->>'report_url', '') AS report_url,
+                       1 AS value
+                FROM aiops_alerts
+                WHERE doc->>'status' = 'open' AND $__timeFilter(ts)
           - refId: B
             datasourceUid: __expr__
             model: {refId: B, type: reduce, expression: A, reducer: max, settings: {mode: dropNN}}
@@ -45,22 +46,22 @@ groups:
           report: "{{ $labels.report_url }}"
           # 回饋：Grafana 儀表板 aiops-feedback（連到 engine api 的回饋網頁；不用外掛）；網址換成你們的 Grafana
           feedback: "https://grafana.example.internal/d/aiops-feedback?var-alert={{ $labels.alert_id }}"
-      # AIOps 停了：investigator alert 每次跑都寫一筆心跳（_id heartbeat，status ok）。10 分鐘內 aiops-alerts 沒有任何寫入 → 送平台
+      # AIOps 停了：investigator alert 每次跑都寫一筆心跳（_id heartbeat，status ok）。10 分鐘內 aiops_alerts（PostgreSQL）沒有寫入 → 送平台
       # （labels 沒有 dept，policies.yaml 的預設 receiver 就是 platform）。沒有這條，alert 停了所有件都查不到，Grafana 會當成全部恢復。
       - uid: aiops-heartbeat
         title: AIOps 停了（investigator alert 10 分鐘沒寫入）
         condition: C
         data:
           - refId: A
-            datasourceUid: aiops-alerts
+            datasourceUid: aiops-db
             relativeTimeRange: {from: 600, to: 0}
             model:
               refId: A
-              query: "alert_id:heartbeat"
-              timeField: "@timestamp"
-              metrics: [{id: "1", type: count}]
-              bucketAggs:
-                - {id: "2", type: date_histogram, field: "@timestamp", settings: {interval: 10m, min_doc_count: "0"}}
+              editorMode: code
+              format: table
+              rawQuery: true
+              rawSql: |-
+                SELECT count(*) AS value FROM aiops_alerts WHERE id = 'heartbeat' AND $__timeFilter(ts)
           - refId: B
             datasourceUid: __expr__
             model: {refId: B, type: reduce, expression: A, reducer: sum, settings: {mode: replaceNN, replaceWithValue: 0}}
@@ -72,24 +73,25 @@ groups:
         for: 2m
         labels: {source: aiops, severity: critical}
         annotations:
-          summary: "AIOps 的 investigator alert 已經 10 分鐘沒有寫入 aiops-alerts：排程停了、或連不到 ES。停著的期間所有件都看不到，不是真的恢復。"
+          summary: "AIOps 的 investigator alert 已經 10 分鐘沒有寫入 aiops_alerts：排程停了、或連不到 PostgreSQL。停著的期間所有件都看不到，不是真的恢復。"
       # 基準線不見了：detector detect 每輪寫一筆 detect-status（_id detect-status，status ok，detector/cmd_baseline.py），
-      # missing_baseline 是這輪沒有 baseline 的序列數。aiops-baseline 掉了（ES 重建、index 被刪）detect 只印一行就跳過，
+      # missing_baseline 是這輪沒有 baseline 的序列數。aiops_baseline 掉了（資料庫重建、表被清）detect 只印一行就跳過，
       # 動態基準線這一路靜默停擺；上面兩條都不會響（docs/pdca/meta/2026-10-open-issues.md 第 7 節）。送平台（labels 沒有 dept）。
       - uid: aiops-baseline-missing
-        title: AIOps 基準線不見（detect 讀到空的 aiops-baseline）
+        title: AIOps 基準線不見（detect 讀到空的 aiops_baseline）
         condition: C
         data:
           - refId: A
-            datasourceUid: aiops-alerts
+            datasourceUid: aiops-db
             relativeTimeRange: {from: 600, to: 0}
             model:
               refId: A
-              query: "alert_id:detect-status AND missing_baseline:>0"
-              timeField: "@timestamp"
-              metrics: [{id: "1", type: count}]
-              bucketAggs:
-                - {id: "2", type: date_histogram, field: "@timestamp", settings: {interval: 10m, min_doc_count: "0"}}
+              editorMode: code
+              format: table
+              rawQuery: true
+              rawSql: |-
+                SELECT count(*) AS value FROM aiops_alerts
+                WHERE id = 'detect-status' AND COALESCE((doc->>'missing_baseline')::int, 0) > 0 AND $__timeFilter(ts)
           - refId: B
             datasourceUid: __expr__
             model: {refId: B, type: reduce, expression: A, reducer: sum, settings: {mode: replaceNN, replaceWithValue: 0}}
@@ -98,30 +100,30 @@ groups:
             model: {refId: C, type: threshold, expression: B, conditions: [{evaluator: {type: gt, params: [0]}}]}   # 有一筆就算
         noDataState: OK           # 沒有 detect-status = detect 沒在跑，那是 aiops-heartbeat 的事（排程器停了兩個一起停）
         execErrState: Error
-        # 剛換版、ES 剛重建、第一次部署還沒跑 train 時，前幾輪 detect 也是 missing > 0：等 5 分鐘，部署流程有時間先跑 train。
+        # 剛換版、資料庫剛重建、第一次部署還沒跑 train 時，前幾輪 detect 也是 missing > 0：等 5 分鐘，部署流程有時間先跑 train。
         # 真的掉了不會自己好（train 一天一次），5 分鐘後一定響
         for: 5m
         labels: {source: aiops, severity: critical}
         annotations:
-          summary: "AIOps 的 detect 讀到空的基準線（aiops-baseline 掉了、或還沒 train）：這些序列的動態基準線學習靜默停了，不會報異常；靜態規則、Pod 同儕橫向比對不受影響。手動跑一次 train：kubectl -n aiops exec deploy/aiops-engine -c scheduler -- python3 -m main scheduler --config configs/schedule/schedule.yaml --run train"
+          summary: "AIOps 的 detect 讀到空的基準線（aiops_baseline 掉了、或還沒 train）：這些序列的動態基準線學習靜默停了，不會報異常；靜態規則、Pod 同儕橫向比對不受影響。手動跑一次 train：kubectl -n aiops exec deploy/aiops-engine -c scheduler -- python3 -m main scheduler --config configs/schedule/schedule.yaml --run train"
 
-      # 基準線不見了：detector detect 每輪寫一筆 detect-status（_id detect-status，status ok，detector/cmd_baseline.py），
-      # missing_baseline 是這輪沒有 baseline 的序列數。aiops-baseline 掉了（ES 重建、index 被刪）detect 只印一行就跳過，
-      # 動態基準線這一路靜默停擺；上面兩條都不會響（docs/pdca/meta/2026-10-open-issues.md 第 7 節）。送平台（labels 沒有 dept）。
+      # 來源對不上：detect、trace-merge 每輪寫 source-check-series、source-check-trace（status ok），source_mismatch 是對不上的地方數
+      # （data/source/check.py）。宣告錯來源不會報錯、只是查不到資料，送平台（labels 沒有 dept）。
       - uid: aiops-source-mismatch
         title: AIOps 來源對不上（宣告的資料來源跟 ES 裡的資料不一樣）
         condition: C
         data:
           - refId: A
-            datasourceUid: aiops-alerts
+            datasourceUid: aiops-db
             relativeTimeRange: {from: 600, to: 0}
             model:
               refId: A
-              query: "alert_id:source-check* AND source_mismatch:>0"
-              timeField: "@timestamp"
-              metrics: [{id: "1", type: count}]
-              bucketAggs:
-                - {id: "2", type: date_histogram, field: "@timestamp", settings: {interval: 10m, min_doc_count: "0"}}
+              editorMode: code
+              format: table
+              rawQuery: true
+              rawSql: |-
+                SELECT count(*) AS value FROM aiops_alerts
+                WHERE id LIKE 'source-check%' AND COALESCE((doc->>'source_mismatch')::int, 0) > 0 AND $__timeFilter(ts)
           - refId: B
             datasourceUid: __expr__
             model: {refId: B, type: reduce, expression: A, reducer: sum, settings: {mode: replaceNN, replaceWithValue: 0}}
@@ -134,4 +136,4 @@ groups:
         for: 10m
         labels: {source: aiops, severity: critical}
         annotations:
-          summary: "AIOps 宣告的資料來源（AIOPS_SOURCE：otel／apm）跟 ES 裡的資料對不上：序列的索引或欄位找不到、或 raw trace 的格式不是宣告的那種。這種錯不會報錯，只是查不到資料、沒有異常。看哪裡對不上：kubectl -n aiops exec deploy/aiops-engine -c scheduler -- python3 -m main detector source-check --config configs/baseline/series.yaml --trace-config configs/baseline/trace.yaml；或讀 aiops-alerts 裡 alert_id:source-check* 的 summary"
+          summary: "AIOps 宣告的資料來源（AIOPS_SOURCE：otel／apm）跟 ES 裡的資料對不上：序列的索引或欄位找不到、或 raw trace 的格式不是宣告的那種。這種錯不會報錯，只是查不到資料、沒有異常。看哪裡對不上：kubectl -n aiops exec deploy/aiops-engine -c scheduler -- python3 -m main detector source-check --config configs/baseline/series.yaml --trace-config configs/baseline/trace.yaml；或查 aiops_alerts 裡 id 是 source-check-* 的 summary"

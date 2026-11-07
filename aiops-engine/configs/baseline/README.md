@@ -90,14 +90,14 @@ python3 -m main detector tune --list                                 # 看現在
 python3 -m main detector tune --series http.error_rate --match service=^mes- --remove   # 還原
 ```
 
-- 寫進 `aiops-tuning`，下一次 `detect` 起 mes 用 `z: 7`，其他服務不變；`series.yaml` 的預設不動。
+- 寫進 `aiops_tuning`，下一次 `detect` 起 mes 用 `z: 7`，其他服務不變；`series.yaml` 的預設不動。
 - 之後發現是某段事故污染了歷史，再用上面的 `adjust add --kind exclude_window`，隔天 02:00 的 `train` 重學。
 - 套用順序與覆蓋規則見 [reference.md](reference.md#使用者feedback-調整)：較晚寫的寬鬆調整會蓋掉較早的精細調整，所以寫 `--match` 時範圍要準，改完用 `--list` 確認。
 - 要知道某個對象**最終**用的是哪個值、被哪一筆定的（多筆都符合時 `--list` 看不出來）：
 
 ```bash
 python3 -m main detector tune --show --series http.error_rate --match service=mes-api
-#   z = 7.0（來自 3f9c…（aiops-tuning 那筆的 _id）：http.error_rate service=^mes-）
+#   z = 7.0（來自 3f9c…（aiops_tuning 那筆的 _id）：http.error_rate service=^mes-）
 #   min_abs = 0.02（series.yaml 預設）…
 ```
 
@@ -114,7 +114,7 @@ python3 -m main detector chronic --config configs/baseline/chronic.yaml   # 每�
 ## 門檻怎麼校、誰來調
 
 - 門檻都是先估的。正式環境排程後先只寫入、不通知，跑 2～4 週，看每個檢查觸發幾次、哪些是真的，再由平台的人手動改 [quality.yaml](quality.yaml)。
-- `quality` 不讀 `aiops-tuning`：不能用 `tune`、`adjust` 依對象調，回饋建議（`feedback suggest`）也不會動它。
+- `quality` 不讀 `aiops_tuning`：不能用 `tune`、`adjust` 依對象調，回饋建議（`feedback suggest`）也不會動它。
 - 只跟昨天比的檢查（`log_trace_id_drop`、`*_unassigned_share` 的增量、`*_cardinality` 的倍數）第一天沒有比較對象，不會報；要第一天就有用的設 `max_share` 這類絕對上限。`*_cardinality` 第一天只看上限 500 條和「一半以上像 ID」；昨天有資料、只是沒有這個服務的（新服務），倍數照樣從 0 算。
 
 ```bash

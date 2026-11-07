@@ -36,7 +36,7 @@
 3. 有權限的人核准：`python3 -m main detector mapping approve --id <id> --by <你>`（核准前會再試一次，資料裡沒有就不給，`--force` 才行）。下一輪工作就用新的。
 4. 改錯了：`detector mapping disable --id <id> --by <你>`，回到 yaml 的值。
 
-存在 ES 的 `aiops-mapping`，換 engine 的 image 不會洗掉。穩定之後把它寫回 yaml（進 git）比較好。也開放 trace 的 raw 索引（欄位選 `trace.raw_index`；核准前會抽樣看是不是這個來源的格式）；trace 的部門、群組跟著歸屬的欄位。序列還是改設定檔。
+存在 PostgreSQL 的 `aiops_mapping`，換 engine 的 image 不會洗掉。穩定之後把它寫回 yaml（進 git）比較好。也開放 trace 的 raw 索引（欄位選 `trace.raw_index`；核准前會抽樣看是不是這個來源的格式）；trace 的部門、群組跟著歸屬的欄位。序列還是改設定檔。
 
 ## 常見的坑
 

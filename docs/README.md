@@ -20,8 +20,8 @@
 | [module-map.md](module-map.md) | 原理 | ①～⑨ 每一階段拆成哪些功能、程式在哪（整條線與資料存放的流程圖）、橫向支撐、現在最弱的地方、一次事故的走法 | 🟢 |
 | [detection-and-learning.md](detection-and-learning.md) | 原理 | 異常偵測與學習機制現在寫了什麼：統計方法清單、回饋學習（人在迴圈）、跟強化式學習差在哪、已知哪裡不準、貝氏更新構想 | 🟡（貝氏更新是構想；誤報量測是合成資料） |
 | [semiconductor-design.md](semiconductor-design.md) | 原理 | 半導體（FDC）沒有 trace id 時：lot 加工路徑取代 trace、五個模型與事件整合各要改什麼、跟目前設計的對照、做的順序、現況 | 🟡（工廠版 engine 用假資料跑通；欄位名是假設，等 MES、FDC 樣本） |
-| [aiops-data-reference.md](aiops-data-reference.md) | 規格 | AIOps 資料格式：`aiops-anomalies`、`aiops-alerts`、`aiops-incidents`、`aiops-feedback`、`aiops-tuning` 的欄位、誰在什麼時候寫、真實範例、Grafana 面板讀哪些欄位 | 🟢 |
-| [deploy-how-to.md](deploy-how-to.md) | 操作 | 部署：公司已有 Elastic APM 與 ES，在 Kibana 手動補設定、部署 aiops-engine、接 Grafana | 🟡（沒在真實環境照做過） |
+| [aiops-data-reference.md](aiops-data-reference.md) | 規格 | AIOps 資料格式（PostgreSQL 的表）：`aiops_anomalies`、`aiops_alerts`、`aiops_incidents`、`aiops_feedback`、`aiops_tuning` 的欄位、誰在什麼時候寫、真實範例、Grafana 面板讀哪些欄位 | 🟢 |
+| [deploy-how-to.md](deploy-how-to.md) | 操作 | 部署：公司已有 Elastic APM、ES、PostgreSQL：在 Kibana 手動補設定、跟 DBA 申請 PostgreSQL、搬以前存在 ES 的資料、部署 aiops-engine、接 Grafana | 🟡（沒在真實環境照做過） |
 | [troubleshooting.md](troubleshooting.md) | 操作 | 症狀 → 原因 → 做法 | 🟢 |
 | [img/README.md](img/README.md) | 案例 | POC 五個 KPI（聚合警報、LLM 解析、端到端串查、相似事故 Top-3、RCA 全文）在 Grafana 上的截圖 | 🟢（合成資料） |
 
@@ -29,7 +29,7 @@
 
 | 文件 | 類型 | 內容 | 狀態 |
 |---|---|---|---|
-| [data-storage-reference.md](data-storage-reference.md) | 規格 | 資料存哪裡：Elastic APM 寫的原始資料（只讀）、ES 的 `aiops-*`（訓練、RCA 報告、回饋）誰寫、多久一次、會不會自己消失；Grafana 自己存什麼 | 🟢 |
+| [data-storage-reference.md](data-storage-reference.md) | 規格 | 資料存哪裡：Elastic APM 寫的原始資料（ES，只讀）、engine 自己的資料（PostgreSQL 的 `aiops_*` 表：訓練、異常、RCA 報告、事故、回饋、調整）誰寫、多久一次、會不會自己消失；Grafana 自己存什麼 | 🟢 |
 | [data-sources-reference.md](data-sources-reference.md) | 規格 | 原始資料來源 OTel 與 Elastic APM 怎麼對齊：統一的 span、兩種格式的欄位／單位／失敗／種類對照、來源適配器要回答什麼、怎麼選、限制 | 🟡（APM 只對合成資料驗過） |
 | [data-sources-how-to.md](data-sources-how-to.md) | 操作 | 新增一種原始資料來源：寫適配器、登記、補測試、對真實資料跑一次、常見的坑 | 🟢 |
 
@@ -56,7 +56,7 @@
 | 文件 | 類型 | 內容 | 狀態 |
 |---|---|---|---|
 | [feedback/README.md](feedback/README.md) | 原理 | 閉環怎麼走、為什麼用 LLMOps 不自己訓練模型、紀律、LLM 何時叫與 token、現況 | 🟢 |
-| [../grafana/README.md](../grafana/README.md) | 操作 | Grafana：讀 aiops-alerts 發通知、儀表板、回饋入口（預設連到 engine api 的網頁，外掛選用）、用 Helm 裝 | 🟢 |
+| [../grafana/README.md](../grafana/README.md) | 操作 | Grafana：讀 aiops_alerts 發通知、儀表板、回饋入口（預設連到 engine api 的網頁，外掛選用）、用 Helm 裝 | 🟢 |
 | [../grafana/code/INSTALL-form-plugin.md](../grafana/code/INSTALL-form-plugin.md) | 操作 | 給管 Grafana 的人：裝回饋表單外掛（選用：要在 Grafana 裡直接填才需要） | 🟢 |
 
 ### 部署

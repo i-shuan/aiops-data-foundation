@@ -44,7 +44,7 @@
 **核心目標**
 
 1. **縮短從「發現異常」到「確認根因」的時間**：數百個服務的正常值各不相同且隨時段變化，固定門檻不可行。以動態基準線學習 (Dynamic Baseline Learning) 判斷異常，再沿 Metrics → Trace → Log 定位根因，交給值班可直接行動的事故報告。
-2. **沿用公司現有的 Elastic APM 資料、不另建收值**：應用團隊不改埋點方式；engine 只讀 APM 寫進公司 ES 的 log、metrics、trace，結果寫進 `aiops-*`，三種訊號靠 `trace.id`、`service.name` 對得上。
+2. **沿用公司現有的 Elastic APM 資料、不另建收值**：應用團隊不改埋點方式；engine 只讀 APM 寫進公司 ES 的 log、metrics、trace，結果寫進公司 PostgreSQL 的 `aiops_*` 表，三種訊號靠 `trace.id`、`service.name` 對得上。
 3. **以專家回饋持續校正**：值班與資深維運專家的判斷回流為事故知識庫與門檻調整（建議 → 回測 → 核准）；以統計＋LLM 為主，不自行訓練模型。
 
 **系統邊界**
@@ -71,7 +71,7 @@ flowchart TB
   subgraph S4["異常偵測（④⑤）"]
     direction LR
     DET["Detector<br/>靜態臨界值規則／動態基準線<br/>Pod 同儕比對／Trace 分段"]
-    AN[("異常總表")]
+    AN[("異常總表<br/>PostgreSQL")]
   end
   subgraph S5["關聯收斂（⑥）"]
     CORR["Investigator<br/>同服務、時間相連 → 一件事故"]
@@ -86,7 +86,7 @@ flowchart TB
     direction LR
     GF["Grafana<br/>依部門通知"]
     FB["回饋入口"]
-    KB[("事故知識庫")]
+    KB[("事故知識庫<br/>PostgreSQL")]
     TUNE["調整建議<br/>回測 → 核准"]
   end
 
@@ -102,8 +102,8 @@ flowchart TB
   TUNE -. "門檻、排除時段、新規則" .-> DET
 ```
 
-- **部署拓撲**：收值是公司現有的 Elastic APM 與 ES，不在這個 repo；ES、AIOps engine、Grafana 在同一個 cluster；engine 以專用 API key 讀 `traces-apm*`、`logs-apm*`、`metrics-apm*`，只寫 `aiops-*`、`traces-merged-*`。engine 一個 image，裝成一隻 pod 或 api／beat／worker 三種角色（4.3）；畫面全在 Grafana。
-- **模組交接**：模組之間只透過 ES 索引交接（`aiops-anomalies`、`aiops-alerts`、`aiops-incidents`、`aiops-feedback`、`aiops-tuning`），任一模組可獨立重跑或替換。
+- **部署拓撲**：收值是公司現有的 Elastic APM 與 ES，不在這個 repo；ES、AIOps engine、Grafana 在同一個 cluster；engine 以專用 API key 讀 `traces-apm*`、`logs-apm*`、`metrics-apm*`，在 ES 只寫 `traces-merged-*`；engine 自己的資料（異常、告警、事故、回饋、調整）寫進公司現有的 PostgreSQL（3.1）。engine 一個 image，裝成一隻 pod 或 api／beat／worker 三種角色（4.3）；畫面全在 Grafana。
+- **模組交接**：模組之間只透過 PostgreSQL 的表交接（`aiops_anomalies`、`aiops_alerts`、`aiops_incidents`、`aiops_feedback`、`aiops_tuning`），任一模組可獨立重跑或替換；其他系統要用這些資料直接查表（一般的 SQL）。
 
 ## 3. 關鍵架構決策 (Key Architectural Decisions)
 
@@ -113,7 +113,16 @@ flowchart TB
 - **理由**：
   - 公司已有一套收集系統，少維運一套。
   - 三種訊號由同一個 APM agent 帶 `trace.id`、`service.name`，跨訊號關聯不需翻譯。
-  - 讀寫分開：APM 的索引公司管，`aiops-*` 與 `traces-merged-*` 是 engine 的，權限與保留各管各的。
+  - 讀寫分開：APM 的索引公司管，`traces-merged-*` 是 engine 的，權限與保留各管各的。
+- **決策（2026-11）**：engine 自己的資料從 ES 搬到公司現有的 **PostgreSQL**，一種資料一張表（`id`、`ts`、`doc jsonb`），一次切過去、不留兩套（[PDCA](pdca/meta/2026-11-postgres-store.md)）。
+- **理由**：
+  - 其他系統要復用（工單、報表、別的平台）時，查一張 SQL 表比查 ES 的索引簡單，帳號權限也是 DBA 一般的做法。
+  - 調整、對照覆寫、事故這些「量小、有狀態、人判斷」的資料要交易與穩定的備份；`INSERT … ON CONFLICT … WHERE` 一個語句就做到「只更新還沒人確認的事故」。
+  - jsonb 每個欄位都查得到（以前 ES 的 mapping 是 `dynamic: false`，沒列的欄位查不到）。
+- **取捨**：
+  - 多一個要申請、要連得到的系統；只用標準 PostgreSQL（14 以上），不用 TimescaleDB。
+  - 量最大的異常、trace 每段的統計靠 `ts` 的 btree 索引與 `detector prune` 清舊的，沒有用分區表；量大到查得慢時再改分區（PostgreSQL 內建的宣告式分區）。
+  - 相似事故的向量：`pgvector` 有裝用 SQL 算，沒裝存一般欄位、在程式裡算（[rca/README.md](rca/README.md)）。
 - **取捨**（APM 的資料形狀決定了哪些功能做得到，細節見 [aiops-engine/configs/apm/README.md](../aiops-engine/configs/apm/README.md)）：
   - metrics 是 apm-server 預先聚合的每分鐘直方圖（微秒），最細粒度 1 分鐘；沒有 Pod CPU／記憶體、K8s 物件狀態（要 `metrics-apm.app.*` 或另外收）。
   - log 只有開 log shipping 的服務才有；例外是 `logs-apm.error-*` 的獨立文件，還沒接回 span（例外吞噬檢測做不到）。
@@ -133,8 +142,8 @@ flowchart TB
 ### 3.3 歸屬與權限 (Ownership & Access)
 
 - **決策**：
-  - **歸屬讀 agent 的標籤**：engine 寫 `aiops-anomalies` 時，依異常的服務（或 namespace）去查 `metrics-apm.transaction.1m-*` 最近 2 天的 `labels.dept`、`labels.group` 補上；對不到歸 `unassigned`。
-  - **權限**：engine 與 Grafana 各一把 API key（[kibana-dev-tools.txt](../elasticsearch/kibana-dev-tools.txt) 第 3、4 段）。engine 讀 APM 的三種資料、讀寫 `aiops-*`、`traces-merged-*`；Grafana 只讀 `aiops-alerts` 等四個索引。
+  - **歸屬讀 agent 的標籤**：engine 寫 `aiops_anomalies` 時，依異常的服務（或 namespace）去查 `metrics-apm.transaction.1m-*` 最近 2 天的 `labels.dept`、`labels.group` 補上；對不到歸 `unassigned`。
+  - **權限**：engine 與 Grafana 各一把 API key（[kibana-dev-tools.txt](../elasticsearch/kibana-dev-tools.txt) 第 3、4 段）。engine 讀 APM 的三種資料、讀寫 `traces-merged-*`；Grafana 的 ES key 只讀 APM 的三種資料。engine 自己的資料在 PostgreSQL：engine 一個讀寫帳號、Grafana 一個唯讀帳號（[deploy-how-to.md](deploy-how-to.md#1b-postgresqlengine-自己的資料)）。
 - **理由**：部門歸屬用現有的標籤機制，不另建對照表；讀寫分開，engine 出錯最多弄壞自己的索引，不會動到 APM 的資料。
 - **取捨**：標籤由 agent 自報，沒有邊緣驗證，填錯會送錯部門；沒設標籤的服務全進平台。要更準確時改成 engine 維護一張「服務 → 部門」的對照表（`data/store/owner_repo.py` 已是單一入口）。
 
@@ -161,7 +170,7 @@ flowchart TB
 | 根因分析報告（⑦） | 慢在哪一段、最慢請求的 trace、相關 log、相似的過去事故 | 給值班的線索，不下結論 |
 | LLM 摘要（⑦） | 報告開頭三到五句 | 只加註；每句要附依據，驗證不過就不顯示、退回固定句型 |
 | 通知（⑧） | Grafana 依部門送出 | 通知人，不替人決定 |
-| 自動開的事故（⑨） | `aiops-incidents` 的 `status: auto` | 老師傅確認後才是 `confirmed`；相似事故檢索只用確認過的 |
+| 自動開的事故（⑨） | `aiops_incidents` 的 `status: auto` | 老師傅確認後才是 `confirmed`；相似事故檢索只用確認過的 |
 
 會改變偵測行為的，一律要人核准：
 
@@ -186,12 +195,12 @@ flowchart TB
 |---|---|---|---|---|
 | ① | 公司現有 | 收值 | 應用的 log、metrics、trace | Elastic APM agent；apm-server；trace 100% 收 |
 | ② | 公司現有 | 清資料 | apm-server 寫入時的欄位統一；engine 讀進來時轉成同一種格式 | `detect/store/models.py` 的 APM 轉換、序列的 `scale`（微秒→秒）、`configs/apm/` |
-| ③ | 公司現有 | 存 | 公司 ES 8.19 的 data stream 與 ILM；engine 另在 ES 補 `traces-merged-*` 的 template 與 key | `elasticsearch/kibana-dev-tools.txt` |
+| ③ | 公司現有 | 存 | 公司 ES 8.19 的 data stream 與 ILM；engine 另在 ES 補 `traces-merged-*` 的 template 與 key；engine 自己的資料在公司 PostgreSQL | `elasticsearch/kibana-dev-tools.txt`、[data-storage-reference.md](data-storage-reference.md) |
 | ④ | AIOps | 判斷 | 判斷每條序列是否異常，分 `warning`、`anomaly` 兩級 | 靜態臨界值規則 (Static Threshold Rules)；動態基準線學習（168 時段中位數＋MAD、卜瓦松、借同組）；Pod 同儕橫向比對 (Peer Comparison)；Trace 分段基準、N+1、例外吞噬檢測 (Exception Swallowing Detection)；學習前排除事故時段、行事曆、慢性問題 |
-| ⑤ | AIOps | 異常總表 | 所有判斷結果的單一交接點 | `aiops-anomalies`，同序列同時間重跑覆蓋同一筆；寫入時補 `dept`、`group` |
+| ⑤ | AIOps | 異常總表 | 所有判斷結果的單一交接點 | `aiops_anomalies`，同序列同時間重跑覆蓋同一筆；寫入時補 `dept`、`group` |
 | ⑥ | AIOps | 收斂 | 把大量異常合成值班可處理的「一件」 | 同一服務、30 分鐘內接續的異常合為一件；30 分鐘無新異常即結束；全程程式計算 |
 | ⑦ | AIOps | 根因分析 | 對每件事故定位問題段落與證據，產出報告 | Metrics → Trace → Log 關聯（第 5 節）；相似事故檢索（指紋＋欄位比對，只檢索已確認事故）；LLM 摘要 |
-| ⑧ | AIOps | 出口 | 把事故送到對的人，並提供回饋入口 | `aiops-alerts` 一件一筆；Grafana 依 dept 每件一則、結束發恢復，無 dept 送平台；告警心跳 |
+| ⑧ | AIOps | 出口 | 把事故送到對的人，並提供回饋入口 | `aiops_alerts` 一件一筆；Grafana 依 dept 每件一則、結束發恢復，無 dept 送平台；告警心跳 |
 | ⑨ | AIOps | feedback | 把專家判斷轉成知識與調整 | 確認的事故進知識庫；誤報提放寬、漏報提調降、同根因提規則草稿；回測通過才可核准；量化（件數、回饋率、誤報率） |
 
 **④ 偵測方法的分工**：靜態臨界值規則管「狀態本身就是壞事」（重啟、副本不足、離極限太近；critical 立即觸發，其餘需持續一段時間）；動態基準線學習管有週期的服務整體指標（請求數、錯誤率、p95、log 筆數、CPU、記憶體）；Pod 同儕橫向比對管被服務平均稀釋的單一 Pod 異常（同服務至少 3 個 Pod）；Trace 分段基準管請求內部的變化（每段自身耗時、呼叫次數、錯誤、例外吞噬、Kafka 排隊）。單點偏離記為 `warning`（不觸發根因分析、不通知），同方向連續兩個時間窗或持續 30 分鐘才升為 `anomaly`；指定序列或偏離極大時採單點即判定 (Instant Anomaly)。
@@ -218,7 +227,7 @@ engine 一份程式，情境各是一份資料檔加兩個策略（[common/scena
 | | 主程式（哪個情境都一樣） | 情境（`Scenario` 的欄位與兩個策略） |
 |---|---|---|
 | ④ | 五個模型的數學、`ingest`（別人判好的異常 → ⑤） | — |
-| ⑤ | `aiops-anomalies` 的格式：**這是主程式與情境之間的契約**——異常只要進得了 ⑤（有 `series`、`keys`、`level`、時間），後面全部接得上 | 異常的 `keys` 裡哪個欄位是「對象」（服務／機台）、哪個是「API」（method＋route／recipe） |
+| ⑤ | `aiops_anomalies` 的格式：**這是主程式與情境之間的契約**——異常只要進得了 ⑤（有 `series`、`keys`、`level`、時間），後面全部接得上 | 異常的 `keys` 裡哪個欄位是「對象」（服務／機台）、哪個是「API」（method＋route／recipe） |
 | ⑥ | 同對象時間相連合一件、開件關件、嚴重度分級（廣度＋持續＋換版上限） | 跨對象併件的依據（呼叫關係／履歷前後站／不併）、「換版」是什麼（版號／recipe 變更）、訊號怎麼分類（黃金訊號／參數家族） |
 | ⑦ | 報告的每一段（[incident/rca_report.py](../aiops-engine/src/incident/rca_report.py)）、M4 分段、共同點、log 樣式、相似事故 | 報告有哪幾段、順序；索引與欄位的對照；用語（請求／lot、Trace／履歷） |
 | ⑧⑨ | Grafana 通知、回饋、匯出 | 回饋表單的分類表、誤報原因 |
@@ -229,12 +238,12 @@ engine 一份程式，情境各是一份資料檔加兩個策略（[common/scena
 
 ### 4.3 部署角色：api／beat／worker（Superset 式）
 
-engine 的每個工作都是「定期讀 ES、算、寫 ES」的子命令，沒有常駐狀態，所以**怎麼觸發**跟**算什麼**可以分開。一個 image、一份 values，`mode` 選（[aiops-engine/README.md](../aiops-engine/README.md)、[pdca/meta/2026-11-api-beat-worker.md](pdca/meta/2026-11-api-beat-worker.md)）：
+engine 的每個工作都是「定期讀 ES（原始資料）與 PostgreSQL、算、寫 PostgreSQL」的子命令，沒有常駐狀態，所以**怎麼觸發**跟**算什麼**可以分開。一個 image、一份 values，`mode` 選（[aiops-engine/README.md](../aiops-engine/README.md)、[pdca/meta/2026-11-api-beat-worker.md](pdca/meta/2026-11-api-beat-worker.md)）：
 
 | 角色 | 做什麼 | 份數 | 對應 Superset |
 |---|---|---|---|
 | Grafana（公司現有） | 所有畫面：儀表板、通知、回饋表單、「重跑根因分析」按鈕 | — | web 的畫面 |
-| `api`（`interface/web/`） | 沒有頁面的薄 API：表單送出、`POST /api/anomalies`（ML／FDC 推異常進 ⑤）、`POST /api/rca`；收到就寫 ES、丟一個 `alert` 工作 | 多份 | web 的後端 |
+| `api`（`interface/web/`） | 沒有頁面的薄 API：表單送出、`POST /api/anomalies`（ML／FDC 推異常進 ⑤）、`POST /api/rca`；收到就寫 PostgreSQL、丟一個 `alert` 工作 | 多份 | web 的後端 |
 | `beat` | 每分鐘照 `schedule.yaml` 把該跑的工作丟進佇列，自己不跑 | 1 | celery beat |
 | `worker` | 從一個佇列拿工作，開子行程跑 `python3 -m <args>`；`realtime`（每幾分鐘的）、`alert`（收斂，**單一消費者**）、`batch`（每天的，吃資源）各一個 Deployment | 各自設 | celery worker |
 | Redis | 佇列（Celery broker） | 1 | Redis |
@@ -275,14 +284,14 @@ K8s 排程頻率見 [aiops-engine/README.md](../aiops-engine/README.md)；Elasti
 | ② 清資料 | 公司現有 | 1 | `aiops-engine/src/data/store/models.py`（`_apm_span`）、`configs/apm/` | 讀進來時 | `tests/test_apm.py`（[apm-source](pdca/meta/2026-11-apm-source.md)） | 🟡 沒有真實 APM 資料 |
 | ③ 存 | 公司現有 | 1 | `elasticsearch/kibana-dev-tools.txt`（只補 `traces-merged-*` 與 key） | — | — | 🟡 公司環境沒實跑 |
 | ④ 判斷 | AIOps | 2 | `aiops-engine/src/detect/`、`aiops-engine/configs/baseline/*.yaml` | 每 1 分鐘（train 每天） | 單元測試；`synth_e2e`、`adaptive_e2e`、`fine_e2e`（一個 ES） | ✅；K8s CronJob 沒跑過 |
-| ⑤ 異常總表 | AIOps | 2 | `aiops-anomalies` | — | — | ✅ |
+| ⑤ 異常總表 | AIOps | 2 | `aiops_anomalies` | — | — | ✅ |
 | ⑥ 收斂 | AIOps | 3 | `aiops-engine/src/incident/`（`alert_grouper.py`、`alert_service.py`）、`incident/store/models.py`；`rca.yaml` 的 `alerts:` | 每 1 分鐘 | `test_alerts.py`、`chain_e2e`；[alert-exit](pdca/phase3-locate/2026-10-alert-exit.md)、[cross-service-aggregation](pdca/phase3-locate/2026-10-cross-service-aggregation.md) | ✅ 同服務合成一件；沿呼叫關係一層 ✅、多層 📝 |
 | ⑦ 根因分析 | AIOps | 3、4 | `aiops-engine/src/incident/rca_report.py`、`llm/`（`similar.py`、`summary.py`） | 跟 ⑥ 同一次 | `loop_e2e`；`test_similar.py`、`test_llm.py` | ✅；沒有評測集 |
 | ⑧ 出口 | AIOps | 3 | `grafana/helmchart/files/*.yaml` | Grafana 每 1 分鐘查 | Grafana 12.2、13.0.7 實測；[rca-demo](pdca/phase3-locate/2026-10-rca-demo.md) | ✅；K8s CronJob 沒跑過 |
 | ⑨ feedback | AIOps | 5 | `aiops-engine/src/learn/`（`feedback_service.py`、`rule_backtester.py`、`evaluation_metrics.py`）、`interface/web/` | api 常駐；suggest、backtest 人跑 | `loop_e2e`；`test_api.py`、`test_feedback.py`、`test_metrics.py` | ✅（模擬資料） |
 
 - ⑤ 欄位見 [baseline README「異常帶的欄位」](../aiops-engine/configs/baseline/reference.md#異常帶的欄位)；⑥ 哪些異常會開一件、怎麼不重複開見 [rca README「事件整合」](../aiops-engine/configs/rca/README.md#事件整合alert)。
-- ⑧ `aiops-alerts` 帶 `status`、`service`、`dept`、`group`、`severity`、`summary`、`report`、`feedback_url`；`summary` 是 Grafana 的 label，不放會變的字；心跳「AIOps 停了」docker 實測過。
+- ⑧ `aiops_alerts` 帶 `status`、`service`、`dept`、`group`、`severity`、`summary`、`report`、`feedback_url`；`summary` 是 Grafana 的 label，不放會變的字；心跳「AIOps 停了」docker 實測過。
 - ⑨ 回饋表單定案用 Grafana Business Forms 外掛，回饋服務的小網頁當備案（[grafana-form](pdca/phase5-learning-loop/2026-10-grafana-form.md)）。
 - 排程：`mode: single` 是一隻常駐 pod 裡的排程器（`aiops-engine/src/interface/jobs/runner.py`，照 `configs/<情境>/schedule.yaml`）自己跑；`mode: distributed` 是 beat 丟進佇列、worker 跑（4.3）。第一階段只開 rules、detect、alert、train 四個工作，其他在第二階段。
 
@@ -307,7 +316,7 @@ K8s 排程頻率見 [aiops-engine/README.md](../aiops-engine/README.md)；Elasti
 | 1 收值 | ② 清資料 | 1 | engine 讀進來時把 APM 欄位轉成同一種格式 | 🟡 單元測試 |
 | 2 異常分析 | ② 清資料 | 2 | 清資料（餵 baseline 前）：`adjust`、行事曆（見 4.1 灰色地帶）；`quality`、`chronic` 只有 OTel 版 | ✅ 程式；⚠️ 沒排程 |
 | 2 異常分析 | ④ 判斷 | 3 | 異常分析：動態基準線、trace 每一段＋靜態臨界值規則、Pod 同儕橫向比對 | ✅ 程式；門檻是估的 |
-| 2 異常分析 | ⑤ 異常總表 | 3 | 異常結果寫進 `aiops-anomalies` | ✅ |
+| 2 異常分析 | ⑤ 異常總表 | 3 | 異常結果寫進 `aiops_anomalies` | ✅ |
 | 3 定位問題 | ⑥ 收斂 | 6 | 整合事件：很多筆異常合成一件 | ⚠️ 同服務合成一件；沿呼叫關係只併一層 |
 | 3 定位問題 | ⑦ 根因分析 | 4 | 串 metrics → trace → log，抓出問題在哪 | ✅ |
 | 3 定位問題 | ⑦ 根因分析 | 5 | 輔助工具：呼叫關係、瀑布圖、log 樣式、業務 ID 查交易、LLM 查詢工具 | ⚠️ 前三樣有 |
@@ -323,7 +332,7 @@ K8s 排程頻率見 [aiops-engine/README.md](../aiops-engine/README.md)；Elasti
 
 | 故事 | 結果 |
 |---|---|
-| 第 1 次 mes-api 變慢 → 一件＋報告 → 老師傅回饋 | `aiops-incidents` 先 `auto` 再 `confirmed`；每筆異常一筆回饋 |
+| 第 1 次 mes-api 變慢 → 一件＋報告 → 老師傅回饋 | `aiops_incidents` 先 `auto` 再 `confirmed`；每筆異常一筆回饋 |
 | 第 2 次同樣症狀 | 報告最前面附第 1 件；LLM 摘要（template）每句附依據 |
 | 第 3 次 → 同根因 3 次 | 附 2 件相似；`similar-eval` recall@3 = 3/3；提規則草稿 |
 | 月底批次誤報 3 次 | 建議 z 5 → 7；沒回測不能核准；`backtest` 告警 3 → 1；核准後不再報 |
@@ -334,17 +343,17 @@ K8s 排程頻率見 [aiops-engine/README.md](../aiops-engine/README.md)；Elasti
 
 ```
 10:00  mes-api 延遲 120ms → 480ms（4 個 5 分鐘）
-10:01  detect：synth.latency z 45，第 1 點 warning、第 2 點 anomaly → aiops-anomalies
+10:01  detect：synth.latency z 45，第 1 點 warning、第 2 點 anomaly → aiops_anomalies
 10:02  alert：開一件 a-20261005-0205-mes-api（D3120／it）
        → 根因分析（有 trace 時：慢在 wip-worker › Oracle SELECT lots）
        → 相似事故：知識庫空的，不附
-       → aiops-alerts status open、summary「[warning] mes-api：synth.latency 526（平常 121.3）…」
-       → aiops-incidents 一筆 status auto（帶指紋）
+       → aiops_alerts status open、summary「[warning] mes-api：synth.latency 526（平常 121.3）…」
+       → aiops_incidents 一筆 status auto（帶指紋）
        → 心跳
 10:02  Grafana：status:open 查到 → it-oncall 收到一則，附摘要、報告連結、回饋連結
 10:10  老師傅點連結：真的、db、「Oracle 統計資訊過期」、處置「重跑 analyze」、
        怎麼看出來的「只有 lots 那張表的查詢慢，AWR 看到執行計畫變了」
-       → aiops-feedback 3 筆、aiops-incidents 變 confirmed
+       → aiops_feedback 3 筆、aiops_incidents 變 confirmed
 10:35  30 分鐘沒新異常 → resolved → Grafana 發恢復
 隔天   同樣症狀 → 新的一件，報告最前面：
        「跟 10-05 的事故相似（同服務；同樣的指標異常）；當時根因 [db] …；處置 …」
@@ -361,7 +370,7 @@ K8s 排程頻率見 [aiops-engine/README.md](../aiops-engine/README.md)；Elasti
 4. **回饋沒有身分**：回饋表單、小網頁都沒登入；回饋 3 次可以是同一個人（沒有第二人確認）。
 5. 漏報的回報：Grafana 回饋儀表板的第二個表單面板（`/api/missed`），或 `feedback` 指令（已合入 master，[PDCA](pdca/phase5-learning-loop/2026-11-open-issues-batch.md)）。
 6. 月底批次只會提「放寬 z」，不會提排除時段。
-7. 舊事故單匯入 `aiops-incidents` 的格式沒寫。
+7. 舊事故單匯入 `aiops_incidents` 的格式沒寫。
 8. code-review 的 10 項都已處理（最後三項：metrics 回饋跨段、回測重複查 ES、相似事故候選 20 → 200，已合入 master，[PDCA](pdca/phase5-learning-loop/2026-11-open-issues-batch.md)）。
 
 各模組還沒做的：
@@ -382,9 +391,9 @@ K8s 排程頻率見 [aiops-engine/README.md](../aiops-engine/README.md)；Elasti
 | 東西 | 為什麼算過度 | 建議 |
 |---|---|---|
 | 動態基準線三個自動機制同時存在：自選粒度、卜瓦松、借同組 | 沒有真實資料就先做三種退路，設定、文件、測試都變厚 | 留著但不再擴；真實資料跑過再決定砍哪個 |
-| trace 每一段的 baseline＋N+1、例外吞噬檢測規則 | raw 只留 2 天，學長期要靠 `aiops-trace-segments` 的統計 | 先只跑根因分析那條；trace baseline 等真資料 |
+| trace 每一段的 baseline＋N+1、例外吞噬檢測規則 | raw 只留 2 天，學長期要靠 `aiops_trace_segments` 的統計 | 先只跑根因分析那條；trace baseline 等真資料 |
 | 回饋表單 10 個「查了哪裡」、6 種誤報原因、9 類根因 | 選項是估的，沒人填過 | 第一週看真的填了什麼再縮 |
-| `metrics` 的「最吵的服務」、依 dept | Grafana 讀 `aiops-alerts` 畫更合適 | 留表格，不再加欄 |
+| `metrics` 的「最吵的服務」、依 dept | Grafana 讀 `aiops_alerts` 畫更合適 | 留表格，不再加欄 |
 
 **不是過度、一定要的**：靜態臨界值規則的保底門檻、連續才算、心跳、「已確認不覆蓋」、每句附依據的檢查、沒回測不能核准。這些是可靠度，不是功能。
 
@@ -441,7 +450,7 @@ K8s 排程頻率見 [aiops-engine/README.md](../aiops-engine/README.md)；Elasti
 
 | 紀錄 | 結論 |
 |---|---|
-| [alert-exit](pdca/phase3-locate/2026-10-alert-exit.md) | 同服務合成一件寫 `aiops-alerts`；Grafana 12.2 依 dept 一件一則 |
+| [alert-exit](pdca/phase3-locate/2026-10-alert-exit.md) | 同服務合成一件寫 `aiops_alerts`；Grafana 12.2 依 dept 一件一則 |
 | [alert-flap](pdca/phase3-locate/2026-10-alert-flap.md) | 假恢復來自每輪覆蓋；engine 寫 `@timestamp` 往前 1 分鐘 |
 | [rca-demo](pdca/phase3-locate/2026-10-rca-demo.md) | K8s 上整條線跑通：3 分半開件、根因指到 Oracle、通知送到 |
 | [schedule](pdca/phase3-locate/2026-10-schedule.md) | Dockerfile、CronJob、心跳規則完成（CronJob 之後改成一隻 pod：[single-pod-scheduler](pdca/phase3-locate/2026-10-single-pod-scheduler.md)） |
