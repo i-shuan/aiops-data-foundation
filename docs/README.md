@@ -17,6 +17,7 @@
 |---|---|---|---|
 | [../README.md](../README.md) | 原理 | 專案是什麼、怎麼跑起來 | 🟢 |
 | [architecture.md](architecture.md) | 原理 | 架構、設計決策與現況：收值用公司現有的 Elastic APM、目標、全域架構圖、關鍵決策、①～⑨ 模組職責、主程式與 plugin 的分界（§4.2）、根因定位機制（第 1～5 節）；各 phase、各模組的程式、驗證、還沒做的、PDCA 索引（第 6～14 節） | 🟡（Elastic APM 的資料沒實跑過） |
+| [module-map.md](module-map.md) | 原理 | ①～⑨ 每一階段拆成哪些功能、程式在哪（整條線與資料存放的流程圖）、橫向支撐、現在最弱的地方、一次事故的走法 | 🟢 |
 | [detection-and-learning.md](detection-and-learning.md) | 原理 | 異常偵測與學習機制現在寫了什麼：統計方法清單、回饋學習（人在迴圈）、跟強化式學習差在哪、已知哪裡不準、貝氏更新構想 | 🟡（貝氏更新是構想；誤報量測是合成資料） |
 | [semiconductor-design.md](semiconductor-design.md) | 原理 | 半導體（FDC）沒有 trace id 時：lot 加工路徑取代 trace、五個模型與事件整合各要改什麼、跟目前設計的對照、做的順序、現況 | 🟡（工廠版 engine 用假資料跑通；欄位名是假設，等 MES、FDC 樣本） |
 | [aiops-data-reference.md](aiops-data-reference.md) | 規格 | AIOps 資料格式：`aiops-anomalies`、`aiops-alerts`、`aiops-incidents`、`aiops-feedback`、`aiops-tuning` 的欄位、誰在什麼時候寫、真實範例、Grafana 面板讀哪些欄位 | 🟢 |
