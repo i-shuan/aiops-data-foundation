@@ -152,3 +152,20 @@ class IncidentsTuningState(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@needs_pg
+class Connection(unittest.TestCase):
+    """連線設定（common/config/settings.py）：連線名稱、查詢逾時真的套用；查詢超時是錯誤、不會卡住。"""
+
+    def test_settings_are_applied(self):
+        import os
+        from unittest import mock
+        from common.infra.pg import DB
+        dsn = fresh_db().dsn
+        with mock.patch.dict(os.environ, {"AIOPS_PG_APP_NAME": "aiops-test", "AIOPS_PG_STATEMENT_TIMEOUT": "1"}):
+            db = DB(dsn)
+            got = db.query("SELECT current_setting('application_name') AS a, current_setting('statement_timeout') AS t")[0]
+            self.assertEqual((got["a"], got["t"]), ("aiops-test", "1s"))
+            with self.assertRaises(Exception):
+                db.query("SELECT pg_sleep(3)")

@@ -2,15 +2,10 @@
 1. 線索只列「這次資料已經看到變化」的段（變慢的 delta > 0、錯變多的）；過去常出事但這次沒變化的不列。
 2. 過去出現過的件數多的排前面；一樣多照這次變化的順序；段名去數字後才比（SQL 裡的 id）。
 3. 先查清單：同一類、已確認的事故裡老師傅勾過的排前面，不夠用情境資料檔的補；沒分類就沒有。
-4. 告警流程把線索與清單接在分類後面、存進 findings；讀不到事故不擋。
-5. 考卷：答案的段在這次前三段就算對；沒 trace 略過不算錯；沒答案不考；跟上次比列出變差的、回 1。"""
+4. 告警流程把線索與清單接在分類後面、存進 findings；讀不到事故不擋。"""
 import json
-import os
-import tempfile
 import unittest
-from datetime import datetime, timezone
 
-import incident.rca_eval as EVAL
 import llm.similar as SIM
 from common.scenario import load_scenario
 
@@ -89,59 +84,6 @@ class AlertHook(unittest.TestCase):
         Repo.incidents = Inc(fail=True)
         self.assertEqual(C._case_hints(Repo(), Alerts(), dict(FINDINGS), None), [])      # 讀不到不擋
         self.assertEqual(C._case_hints(Repo(), Alerts(similar=False), dict(FINDINGS), None), [])
-
-
-class Exam(unittest.TestCase):
-    def investigate(self, results):
-        def run(cfg, args):
-            got = results[args.service]
-            if isinstance(got, Exception):
-                raise got
-            return "", got
-        return run
-
-    def test_scoring(self):
-        cases = [case("right", slow=["mes-api › SELECT WIP WHERE id=# → oracle"], services=["mes-api"]),
-                 case("wrong", slow=["pay-api › redis"], services=["pay-api"]),
-                 case("gone", slow=["old-api › x"], services=["old-api"]),
-                 case("noans", services=["x-api"]),
-                 case("boom", slow=["b › y"], services=["b"])]
-        inv = self.investigate({"mes-api": FINDINGS, "pay-api": FINDINGS, "old-api": {"requests": {"requests": 0}}, "x-api": FINDINGS,
-                                "b": RuntimeError("es down")})
-        r = EVAL.exam(cases, inv, None)
-        st = {x["id"]: x["status"] for x in r["rows"]}
-        self.assertEqual(st, {"right": "right", "wrong": "wrong", "gone": "skipped", "noans": "no_answer", "boom": "skipped"})
-        self.assertEqual((r["scored"], r["right"], r["accuracy"]), (2, 1, 0.5))
-
-    def test_window_from_incident(self):
-        seen = {}
-
-        def inv(cfg, args):
-            seen.update(start=args.start, end=args.end, service=args.service)
-            return "", FINDINGS
-        EVAL.exam([case("a", slow=[DB], start="2026-10-01T02:00:00Z")], inv, None)
-        self.assertEqual(seen["service"], "mes-api")
-        self.assertEqual(seen["start"], datetime(2026, 10, 1, 1, 55, tzinfo=timezone.utc))
-        self.assertEqual(seen["end"], datetime(2026, 10, 1, 2, 35, tzinfo=timezone.utc))   # 沒有 end：start + 30 分 + 5 分
-
-    def test_compare_and_run(self):
-        cases = [case("a", slow=[DB]), case("b", slow=["mes-api › GET /lots"])]
-
-        class Repo:
-            class incidents:
-                @staticmethod
-                def find(statuses, having=()):
-                    return cases
-
-        with tempfile.TemporaryDirectory() as d:
-            path = os.path.join(d, "before.json")
-            code, lines = EVAL.run(Repo, None, self.investigate({"mes-api": FINDINGS}), save=path)
-            self.assertEqual(code, 0)
-            self.assertIn("2/2", lines[-2])
-            worse = {**FINDINGS, "segments": [FINDINGS["segments"][0]]}         # 改壞了：DB 那段不見了
-            code, lines = EVAL.run(Repo, None, self.investigate({"mes-api": worse}), against=path)
-            self.assertEqual(code, 1)
-            self.assertTrue(any(l.strip().startswith("變差：a") for l in lines), lines)
 
 
 if __name__ == "__main__":

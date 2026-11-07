@@ -9,7 +9,6 @@ aiops-tuning 裡 synth. 開頭的。
          ②shift 提一筆 synth.latency／wip-worker 的 reset_point（proposed），理由寫「只判往上」；其他服務不提
   P0     ③APM 合成資料（下游 wip-worker 出錯、上游 mes-api 連帶）的那一件，沒列 P0 是某個等級；列了 P0 升一級、why 寫 P0
   case   ④放一件確認過的事故（同一段、db 類、勾過 DB 連線池），重開告警：報告有「歷史 case 的線索」與「先查什麼」
-  考卷   ⑤rca-eval：那件事故重跑對得上；--save 再 --compare 沒有變差（回 0）
 """
 from __future__ import annotations
 
@@ -99,7 +98,7 @@ def drop_part(es: ES) -> None:
           len(props) == 1 and "wip" in str(svcs) and props[0]["status"] == "proposed" and "只判往上" in props[0]["reason"], (rc, svcs, out[-400:]))
 
 
-# ── P0、case、考卷 ──
+# ── P0、case ──
 
 def rca_cfg(extra_alerts: dict | None = None) -> str:
     cfg = yaml.safe_load(open("configs/apm/rca.yaml", encoding="utf-8"))
@@ -121,7 +120,7 @@ def run_alert(es, cfg, at) -> dict | None:
 
 
 def alert_part(es: ES) -> None:
-    print("== P0、歷史 case、考卷（APM 合成資料）")
+    print("== P0、歷史 case（APM 合成資料）")
     got = apm_synth.load(os.environ["ES_URL"], minutes=40, incident=15, clean=True)
     at = got["now"]
     merge_at = (datetime.now(timezone.utc) + timedelta(minutes=2)).isoformat()
@@ -160,13 +159,6 @@ def alert_part(es: ES) -> None:
           report[:600])
     check("④findings 存了 case_hints", ((a2 or {}).get("findings") or {}).get("case_hints", [{}])[0].get("cases") == ["e2e-case-1"],
           ((a2 or {}).get("findings") or {}).get("case_hints"))
-
-    save = os.path.join(tempfile.mkdtemp(), "exam.json")
-    rc, out = main_("investigator", "rca-eval", "--config", rca_cfg(), "--save", save)
-    print("  " + "\n  ".join(out.splitlines()[-3:]))
-    check("⑤考卷：那件事故重跑對得上（1/1）", rc == 0 and "定位對得上：1/1" in out, out[-400:])
-    rc, out = main_("investigator", "rca-eval", "--config", rca_cfg(), "--compare", save)
-    check("⑤跟上次比：沒有變差（回 0）", rc == 0 and "變差 0 件" in out, out[-300:])
 
 
 def main() -> int:

@@ -56,6 +56,7 @@ engine 自己的資料——異常、基準線、告警（含 RCA 報告）、�
 | Grafana 的帳號 | **唯讀**：`SELECT`，加 `ALTER DEFAULT PRIVILEGES … GRANT SELECT ON TABLES`（engine 之後建的表也讀得到） |
 | 擴充（選用） | `pgvector`：相似事故的向量用 SQL 算。**不給也能跑**：向量存一般欄位、在程式裡算（事故幾十到幾百件，沒差） |
 | 連線 | engine、Grafana 的 pod 連得到；`sslmode=require` 以上 |
+| engine 的連線設定 | 都在 `aiops-engine/src/common/config/settings.py`（環境變數）：`AIOPS_PG_DSN`（必填）、`AIOPS_PG_SCHEMA`、`AIOPS_PG_CONNECT_TIMEOUT`（預設 10 秒）、`AIOPS_PG_STATEMENT_TIMEOUT`（一個查詢最多幾秒，預設 120）、`AIOPS_PG_APP_NAME`（DBA 在 `pg_stat_activity` 看到的名字，預設 `aiops-engine`） |
 | 備份 | 事故、回饋、調整是人判斷的，**掉了不能重算**：請 DBA 照一般資料庫備份；異常、告警、基準線由 `detector prune` 自己清舊的（[prune.yaml](../aiops-engine/configs/baseline/prune.yaml)） |
 | 大小 | 量最大的是異常、trace 每段的統計、基準線（依序列數 × 對象數，90 天）；其他每天幾十到幾百筆。上線前用正式環境的量估 |
 

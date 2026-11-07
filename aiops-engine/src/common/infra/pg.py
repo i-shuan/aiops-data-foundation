@@ -8,7 +8,8 @@
 常查的欄位在各 repository 的 INDEXES 加運算式索引。只用標準 PostgreSQL（14 以上：jsonb、GIN、btree），不用擴充；
 相似事故的向量用到 pgvector 時是「有就用」（DB.has_vector）。表名、SQL 只出現在各功能的 store/ 與 common/。
 
-連線用環境變數 AIOPS_PG_DSN（必填）、AIOPS_PG_SCHEMA（選填）。第一次查詢才連線（import、建 Repos 都不連）。
+連線設定都在 common/config/settings.py（環境變數）：AIOPS_PG_DSN（必填）、AIOPS_PG_SCHEMA、AIOPS_PG_CONNECT_TIMEOUT、
+AIOPS_PG_STATEMENT_TIMEOUT、AIOPS_PG_APP_NAME（選填）。第一次查詢才連線（import、建 Repos 都不連）。
 """
 from __future__ import annotations
 
@@ -59,7 +60,11 @@ class DB:
         return self._dsn or settings().require_pg_dsn()
 
     def _connect(self):
-        conn = psycopg.connect(self.dsn, autocommit=True, row_factory=dict_row)
+        env = settings()
+        conn = psycopg.connect(self.dsn, autocommit=True, row_factory=dict_row, connect_timeout=env.aiops_pg_connect_timeout,
+                               application_name=env.aiops_pg_app_name)
+        if env.aiops_pg_statement_timeout:
+            conn.execute(f"SET statement_timeout = {int(env.aiops_pg_statement_timeout) * 1000}")
         if self._schema:
             conn.execute(f'SET search_path TO "{self._schema}", public')
         return conn
