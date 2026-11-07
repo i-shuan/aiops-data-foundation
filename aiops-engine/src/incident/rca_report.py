@@ -5,7 +5,7 @@
   segments    慢在哪一段（M4：每段自己花的時間跟平常比）＋錯誤最早出在哪一段＋慢的那批單位的共同點（commonality）
   slowest     最慢那個單位的瀑布圖
   logs        那幾段的 warn／error log 新樣式；最慢那個單位的 log
-  changes     事故前 N 內的變更（PM、recipe、部署…）：cfg 有 changes.query 才出
+  changes     事故前 N 內的變更（PM、recipe、部署…）：rca_config 有 changes.query 才出
   topology    這些單位經過的對象（mermaid）
   conclusion  結論（給人確認）；事件整合的 summary 從這段抓（alerts.conclusion 認「## 結論」）
 
@@ -13,6 +13,7 @@
 """
 from __future__ import annotations
 
+from shared.config.rca import Commonality, RcaConfig
 import re
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
@@ -73,7 +74,7 @@ def _trust(r: dict) -> str:
     return r["confidence"] + "".join(f"、{x}" for x in extra if x)
 
 
-def pick_from_anomalies(repo: Repos, cfg, start, end):
+def pick_from_anomalies(repo: Repos, rca_config: RcaConfig, start, end):
     """沒指定對象：從 ⑤ 的異常裡，挑這段時間最嚴重的對象（偏離倍數最大），時間範圍取它異常的那段。
     異常帶著 API（method、route；工廠是 recipe）的話，也只查那支。"""
     sc = repo.scenario
@@ -87,18 +88,18 @@ def pick_from_anomalies(repo: Repos, cfg, start, end):
     mine = [r for r in rows if _svc_of(r["keys"], sc) == svc]
     t = sorted(_ts(r["@timestamp"]) for r in mine)
     # 異常的時間是那 5 分鐘的開始，所以查到最後一個異常再往後 5 分鐘
-    return svc, route, t[0], t[-1] + _dur(cfg.get("interval", "5m")), mine
+    return svc, route, t[0], t[-1] + _dur(rca_config.interval), mine
 
 
 # ── 一份報告的狀態 ──
 
 class Ctx:
-    def __init__(self, repo: Repos, cfg: dict, service: str, route: str | None, start: datetime, end: datetime, found: list[dict]):
-        self.repo, self.sc, self.cfg, self.ix = repo, repo.scenario, cfg, cfg["indices"]
+    def __init__(self, repo: Repos, rca_config: RcaConfig, service: str, route: str | None, start: datetime, end: datetime, found: list[dict]):
+        self.repo, self.sc, self.rca_config, self.ix = repo, repo.scenario, rca_config, rca_config.indices
         self.service, self.route, self.start, self.end, self.found = service, route, start, end, found
-        self.tz = cfg.get("timezone", "Asia/Taipei")
-        self.n = cfg.get("sample", 200)
-        self.lag = _dur(str(cfg.get("entry_lag", "0s")))     # 入口比文件時間晚最多多久（工廠的履歷：lot 開始到到這一站；IT 是 0）
+        self.tz = rca_config.timezone
+        self.n = rca_config.sample
+        self.lag = _dur(rca_config.entry_lag)     # 入口比文件時間晚最多多久（工廠的履歷：lot 開始到到這一站；IT 是 0）
         self.U, self.TRACE = self.sc.unit_text(), self.sc.trace  # 一個「請求」還是一個「 lot 」；trace 還是履歷
         self.what = f"{service}" + (f"（{route}）" if route else "")
         self.ref_start: datetime | None = None
@@ -143,12 +144,12 @@ def _skip(c: Ctx, title: str, why: str) -> None:
 def pick_reference(c: Ctx, need_traces: bool) -> None:
     """「平常」是哪一段：一週前同一段時間；那時候沒資料（例如服務剛上線）就用出事前那一段（同樣長，空 ref_gap 避開剛開始變壞的時候）。
     要 trace 的情境看那段有沒有請求來挑；只有指標的沒得挑，就用一週前。"""
-    cfg = c.cfg
-    back, length, gap = _dur(cfg.get("compare_with", "7d")), c.end - c.start, _dur(cfg.get("ref_gap", "10m"))
-    cands = ((c.start - back, c.end - back, f"{cfg.get('compare_with', '7d')} 前同一段時間"),
+    rca_config = c.rca_config
+    back, length, gap = _dur(rca_config.compare_with), c.end - c.start, _dur(rca_config.ref_gap)
+    cands = ((c.start - back, c.end - back, f"{rca_config.compare_with} 前同一段時間"),
              (c.start - gap - length, c.start - gap, "出事前一段時間"))
     for rs, re_, label in cands:
-        if not need_traces or c.repo.traces.entry_stats(c.ix["traces"], c.service, c.route, rs, re_, c.lag)["requests"]:
+        if not need_traces or c.repo.traces.entry_stats(c.ix.traces, c.service, c.route, rs, re_, c.lag)["requests"]:
             c.ref_start, c.ref_end, c.ref_label = rs, re_, label
             break
     c.findings["ref_label"] = c.ref_label or None
@@ -184,7 +185,7 @@ def sec_anomalies(c: Ctx) -> None:
 def sec_entries(c: Ctx) -> None:
     """這個對象收到的單位：數量、錯誤、p50／p95 跟平常比；出事前的趨勢；取樣最慢的那批與平常的那批。"""
     tr, ix, U, TRACE = c.repo.traces, c.ix, c.U, c.TRACE
-    now = tr.entry_stats(ix["traces"], c.service, c.route, c.start, c.end, c.lag)
+    now = tr.entry_stats(ix.traces, c.service, c.route, c.start, c.end, c.lag)
     c.heading(f"{TRACE}：這個{c.sc.entity}收到的{U}")
     c.findings["requests"] = now
     if not now["requests"]:
@@ -193,26 +194,26 @@ def sec_entries(c: Ctx) -> None:
                   f"先從 log 找；沒有{TRACE}的件系統會自動重跑報告（每 2 分鐘、最多 5 次）。", ""]
         return
     c.has_traces = True
-    ref = tr.entry_stats(ix["traces"], c.service, c.route, c.ref_start, c.ref_end, c.lag) if c.ref_start else None
+    ref = tr.entry_stats(ix.traces, c.service, c.route, c.ref_start, c.ref_end, c.lag) if c.ref_start else None
     c.out += [f"| | 現在 | 平常（{c.ref_label or '沒有資料'}） |", "|---|---|---|"]
     for k, label in (("requests", f"{U}數（{TRACE}，有取樣）"), ("errors", "錯誤"), ("p50_ms", "p50"), ("p95_ms", "p95")):
         f = _ms if k.endswith("_ms") else str
         c.out.append(f"| {label} | {f(now[k])} | {f(ref[k]) if ref else '—'} |")
     c.out.append("")
     # 出事前的趨勢：前面幾段（預設 6 段、每段 10 分鐘）的 p95，一路往上＝慢慢惡化、平的然後跳＝突然
-    tcfg = c.cfg.get("trend") or {}
-    tw, tn = _dur(str(tcfg.get("window", "10m"))), int(tcfg.get("windows", 6))
-    p95s = [tr.entry_stats(ix["traces"], c.service, c.route, c.start - tw * (k + 1), c.start - tw * k, c.lag)["p95_ms"] for k in reversed(range(tn))]
+    trend_config = c.rca_config.trend
+    tw, tn = _dur(trend_config.window), trend_config.windows
+    p95s = [tr.entry_stats(ix.traces, c.service, c.route, c.start - tw * (k + 1), c.start - tw * k, c.lag)["p95_ms"] for k in reversed(range(tn))]
     c.trend = A.classify_trend(p95s, now["p95_ms"])
-    c.trend["window"], c.trend["windows"] = str(tcfg.get("window", "10m")), tn
+    c.trend["window"], c.trend["windows"] = trend_config.window, tn
     c.findings["trend"] = c.trend
     c.span_label = f"{int(tw.total_seconds() * tn // 60)} 分鐘"
     c.out += [A.describe_trend(c.trend, c.span_label, _ms), ""]
-    now_ids = tr.sample_trace_ids(ix["traces"], c.service, c.route, c.start, c.end, c.n, slowest=True, lag=c.lag)
-    c.now_tr = T.group_traces(tr.spans(ix["traces"], now_ids, c.start - PAD - c.lag, c.end + PAD))
+    now_ids = tr.sample_trace_ids(ix.traces, c.service, c.route, c.start, c.end, c.n, slowest=True, lag=c.lag)
+    c.now_tr = T.group_traces(tr.spans(ix.traces, now_ids, c.start - PAD - c.lag, c.end + PAD))
     if c.ref_start:
-        ref_ids = tr.sample_trace_ids(ix["traces"], c.service, c.route, c.ref_start, c.ref_end, c.n, slowest=False, lag=c.lag)
-        c.ref_tr = T.group_traces(tr.spans(ix["traces"], ref_ids, c.ref_start - PAD - c.lag, c.ref_end + PAD))
+        ref_ids = tr.sample_trace_ids(ix.traces, c.service, c.route, c.ref_start, c.ref_end, c.n, slowest=False, lag=c.lag)
+        c.ref_tr = T.group_traces(tr.spans(ix.traces, ref_ids, c.ref_start - PAD - c.lag, c.ref_end + PAD))
 
 
 def sec_segments(c: Ctx) -> None:
@@ -238,11 +239,11 @@ def sec_segments(c: Ctx) -> None:
         c.out += [f"| {d.segment} | {d.now_errors} 個{U} | {d.ref_errors} |" for d in errs[:5]]
     c.out.append("")
     # 慢的那批有什麼共同點（平常沒這麼集中）
-    ccfg = c.cfg.get("commonality") or {}
-    commons = A.commonality(c.now_tr, c.ref_tr, res_keys=tuple(ccfg.get("resource") or ("k8s.pod.name", "service.version", "k8s.node.name")),
-                            attr_keys=tuple(ccfg.get("attrs") or ("lot.id", "db.statement")),
-                            min_share=float(ccfg.get("min_share", 0.6)), min_lift=float(ccfg.get("min_lift", 2)),
-                            min_traces=int(ccfg.get("min_traces", 5)))
+    common = c.rca_config.commonality
+    commons = A.commonality(c.now_tr, c.ref_tr, res_keys=tuple(common.resource) or Commonality().resource,     # 寫空清單＝用預設
+                            attr_keys=tuple(common.attrs) or Commonality().attrs,
+                            min_share=float(common.min_share), min_lift=float(common.min_lift),
+                            min_traces=int(common.min_traces))
     c.commons = commons
     c.findings["commonality"] = [{"dim": x.dim, "value": x.value, "now": x.now, "now_share": x.now_share, "ref_share": x.ref_share}
                                  for x in commons[:5]]
@@ -272,8 +273,8 @@ def sec_logs(c: Ctx) -> None:
     logs, ix, U = c.repo.logs, c.ix, c.U
     c.heading("Log：那幾段發生了什麼事")
     c.out += [f"看 {', '.join(c.suspects)} 這段時間的 warn／error，跟{c.ref_label or '平常'}比；新出現的排前面：", ""]
-    p_now = logs.problems(ix["logs"], c.suspects, c.start, c.end)
-    p_ref = logs.problems(ix["logs"], c.suspects, c.ref_start, c.ref_end) if c.ref_start else []
+    p_now = logs.problems(ix.logs, c.suspects, c.start, c.end)
+    p_ref = logs.problems(ix.logs, c.suspects, c.ref_start, c.ref_end) if c.ref_start else []
     pats = A.compare_patterns(p_now, p_ref)
     c.pats = pats
     c.findings["new_patterns"] = [{"service": p.service, "pattern": p.pattern[:200], "now": p.now, "ref": p.ref, "is_new": bool(p.is_new),
@@ -287,7 +288,7 @@ def sec_logs(c: Ctx) -> None:
         c.out.append("沒有比平常多的 warn／error log。")
     sl = _slowest(c) if c.traced else None
     if sl:
-        lines = logs.of_traces(ix["logs"], [sl[0]["trace_id"]], c.start - PAD, c.end + PAD)
+        lines = logs.of_traces(ix.logs, [sl[0]["trace_id"]], c.start - PAD, c.end + PAD)
         idl = "lot id" if U.strip() == "lot" else "trace_id"
         c.out += ["", f"最慢那個{U}的 log（依 {idl} 撈出來，{len(lines)} 行）：", "", "```"]
         c.out += [f"{l['ts']}  {l['service']:<14} {str(l['level'] or ''):<5}  {l['message'].splitlines()[0][:150]}" for l in lines[:20]] \
@@ -297,14 +298,14 @@ def sec_logs(c: Ctx) -> None:
 
 
 def sec_changes(c: Ctx) -> None:
-    """事故前的變更（PM、recipe 變更、部署、設定）：出事前 lookback 內、這幾個對象的變更紀錄，照時間列。cfg 有 changes.query 才出。"""
-    chcfg = c.cfg.get("changes") or {}
-    if not chcfg.get("query"):
+    """事故前的變更（PM、recipe 變更、部署、設定）：出事前 lookback 內、這幾個對象的變更紀錄，照時間列。rca_config 有 changes.query 才出。"""
+    changes_config = c.rca_config.changes
+    if changes_config is None or not changes_config.query:
         return
-    lookback = str(chcfg.get("lookback", "12h"))
+    lookback = changes_config.lookback
     c.heading(f"事故前 {lookback} 內的變更")
     try:
-        c.changes = c.repo.logs.changes(c.ix["logs"], c.suspects, c.start - _dur(lookback), c.end, chcfg["query"])
+        c.changes = c.repo.logs.changes(c.ix.logs, c.suspects, c.start - _dur(lookback), c.end, changes_config.query)
     except Exception as ex:  # noqa: BLE001  變更紀錄查不到不擋報告
         c.out += [f"（事故前的變更查不到：{type(ex).__name__}）", ""]
         return
@@ -360,7 +361,7 @@ SECTIONS: dict[str, Callable[[Ctx], None]] = {
 TRACE_SECTIONS = ("entries", "segments", "slowest", "topology")
 
 
-def investigate_full(cfg: dict, args, sections: tuple[str, ...] | None = None) -> tuple[str, dict]:
+def investigate_full(rca_config: RcaConfig, args, sections: tuple[str, ...] | None = None) -> tuple[str, dict]:
     """回傳 (Markdown 報告, findings)。findings 是結構化的結果：異常、慢在哪一段、錯從哪開始、新 log 樣式、呼叫關係，
     給事件整合存進 aiops-alerts、相似事故檢索（investigator/similar.py）和 LLM 摘要（llm/summary.py）用。
     sections 不給就用情境的（Scenario.sections）。"""
@@ -369,7 +370,7 @@ def investigate_full(cfg: dict, args, sections: tuple[str, ...] | None = None) -
     unknown = [s for s in names if s not in SECTIONS]
     if unknown:
         raise ValueError(f"不認得的報告段：{unknown}；有 {list(SECTIONS)}")
-    ix, tz = cfg["indices"], cfg.get("timezone", "Asia/Taipei")
+    ix, tz = rca_config.indices, rca_config.timezone
     service, route, found = args.service, args.route, []
     if args.start:
         start, end = _ts(args.start), _ts(args.end)
@@ -377,7 +378,7 @@ def investigate_full(cfg: dict, args, sections: tuple[str, ...] | None = None) -
         end = _ts(args.at)
         start = end - _dur(args.window)
     if not service:
-        picked = pick_from_anomalies(repo, cfg, start, end)
+        picked = pick_from_anomalies(repo, rca_config, start, end)
         if not picked:
             empty = {"service": None, "route": None, "anomalies": [], "segments": [], "error_origins": [], "new_patterns": [],
                      "topology": [], "requests": None, "ref_label": None, "trend": None, "commonality": [], "changes": []}
@@ -385,7 +386,7 @@ def investigate_full(cfg: dict, args, sections: tuple[str, ...] | None = None) -
         service, route, start, end, found = picked
     else:
         found = repo.anomalies.between(start, end, size=1000, service=service, service_keys=repo.scenario.entity_keys)
-    c = Ctx(repo, cfg, service, route, start, end, found)
+    c = Ctx(repo, rca_config, service, route, start, end, found)
     pick_reference(c, need_traces=any(s in names for s in TRACE_SECTIONS))
     c.out = [f"# 根因分析：{c.what}，{_local(start, tz)}～{_local(end, tz)}（{tz}）", ""]
     for s in names:

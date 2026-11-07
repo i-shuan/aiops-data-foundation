@@ -1,4 +1,5 @@
 """事件整合的兩個防護（docs/pdca/phase5-learning-loop/2026-10-fix-critical.md 1、3）：LLM 失敗不擋這一輪；已確認的事故不會被先讀再寫蓋掉。"""
+from tests.config_factory import Alerts, rca
 import json
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -40,15 +41,15 @@ class CallEdges(unittest.TestCase):
         asked = []
         traces = mock.Mock(service_trace_ids=mock.Mock(side_effect=lambda ix, s, a, b, n: (asked.append(s), ids.get(s, []))[1]),
                            spans=mock.Mock(return_value=self.SPANS))
-        edges = CH.call_edges(mock.Mock(traces=traces), {"indices": {"traces": "traces-*"}}, {"mes-api", "wip-worker", "mes-report"}, T0, T0 + timedelta(hours=1), per=50)
+        edges = CH.call_edges(mock.Mock(traces=traces), rca(), {"mes-api", "wip-worker", "mes-report"}, T0, T0 + timedelta(hours=1), per=50)
         self.assertEqual(edges, {("mes-api", "wip-worker")})       # oracle 不是候選服務；mes-report 沒人呼叫、也沒呼叫誰
         self.assertEqual(sorted(asked), ["mes-api", "mes-report", "wip-worker"])
         self.assertEqual(traces.spans.call_args[0][1], ["t1", "t2"])     # 同一個 trace 只讀一次
 
     def test_fewer_than_two_services_or_no_traces(self):
-        self.assertEqual(CH.call_edges(mock.Mock(), {}, {"mes-api"}, T0, T0), set())
+        self.assertEqual(CH.call_edges(mock.Mock(), rca(), {"mes-api"}, T0, T0), set())
         repo = mock.Mock(traces=mock.Mock(service_trace_ids=mock.Mock(return_value=[])))
-        self.assertEqual(CH.call_edges(repo, {"indices": {"traces": "traces-*"}}, {"mes-api", "wip-worker"}, T0, T0), set())
+        self.assertEqual(CH.call_edges(repo, rca(), {"mes-api", "wip-worker"}, T0, T0), set())
 
 
 class IncidentKeepsDownstreamOnly(unittest.TestCase):
@@ -67,17 +68,17 @@ class IncidentKeepsDownstreamOnly(unittest.TestCase):
 class LlmDoesNotBlock(unittest.TestCase):
     def test_build_pack_exception_returns_none(self):
         with mock.patch.object(C.LLM, "build_pack", side_effect=ValueError("cannot convert float NaN to integer")):
-            self.assertIsNone(C.llm_summary(AL, {}, [], {"llm": True}))
+            self.assertIsNone(C.llm_summary(AL, {}, [], Alerts(llm=True)))
 
     def test_summarize_exception_returns_none(self):
         with mock.patch.object(C.LLM, "summarize", side_effect=RuntimeError("boom")):
-            self.assertIsNone(C.llm_summary(AL, {}, [], {"llm": True}))
+            self.assertIsNone(C.llm_summary(AL, {}, [], Alerts(llm=True)))
 
     def test_disabled(self):
-        self.assertIsNone(C.llm_summary(AL, {}, [], {"llm": False}))
+        self.assertIsNone(C.llm_summary(AL, {}, [], Alerts(llm=False)))
 
     def test_normal(self):
-        r = C.llm_summary(AL, {"anomalies": [{"series": "x", "value": 3.0, "median": 1.0, "z": 9}]}, [], {"llm": True, "llm_provider": "template"})
+        r = C.llm_summary(AL, {"anomalies": [{"series": "x", "value": 3.0, "median": 1.0, "z": 9}]}, [], Alerts(llm=True, llm_provider="template"))
         self.assertTrue(r["ok"])
         self.assertIn("[A1]", r["text"])
 
@@ -167,7 +168,7 @@ if __name__ == "__main__":
 class RerunWithoutTrace(unittest.TestCase):
     """開件太快、trace 還沒合成完時第一份報告是空的：沒有 trace 的件隔一陣子重跑，最多幾次。"""
     NOW = datetime(2026, 11, 1, 12, 50, tzinfo=timezone.utc)
-    ACFG = {"rca_retry_after": "2m", "rca_retry_max": 5}
+    ACFG = Alerts(rca_retry_after="2m", rca_retry_max=5)
 
     def al(self, **kw):
         base = {"alert_id": "a", "category": "service", "service": "s", "status": "open", "started_at": self.NOW, "updated_at": self.NOW,
@@ -200,7 +201,7 @@ class RerunWithoutTrace(unittest.TestCase):
         self.assertEqual(C.attempts(self.al(rca_attempts=None, report=None)), 0)
 
     def test_can_be_turned_off(self):
-        self.assertFalse(C.needs_rerun(self.al(), self.NOW, {**self.ACFG, "rca_retry": False}))
+        self.assertFalse(C.needs_rerun(self.al(), self.NOW, Alerts(rca_retry_after="2m", rca_retry_max=5, rca_retry=False)))
 
 
 class FeedbackFooter(unittest.TestCase):
@@ -237,7 +238,7 @@ class AlertDocUsesScenario(unittest.TestCase):
         al = C.Alert(alert_id="a-1", category="service", service="mes-api", status="open", started_at=T0, updated_at=T0, severity="high",
                      anomaly_ids=["x1"], series=["http.error_rate"], routes=[], new=True,
                      anoms=[{"_id": "x1", "@timestamp": T0.isoformat(), "series": "http.error_rate", "keys": {"service": "mes-api"}, "value": 0.3, "median": 0.02}])
-        doc = C.alert_doc(al, {"report_url": "http://r/{alert_id}", "feedback_url": "http://f/{alert_id}"}, T0 + timedelta(minutes=5),
+        doc = C.alert_doc(al, Alerts(report_url="http://r/{alert_id}", feedback_url="http://f/{alert_id}"), T0 + timedelta(minutes=5),
                           timezone.utc, set(), load_scenario("observability"))
         self.assertTrue(doc["title"].startswith("[high] mes-api：http.error_rate 0.3（平常 0.02）"))
         self.assertEqual(doc["summary"].splitlines()[0], "[high] mes-api：http.error_rate 0.3（平常 0.02）")

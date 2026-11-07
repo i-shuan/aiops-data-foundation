@@ -2,6 +2,7 @@ from learn.store.models import FEEDBACK_INDEX
 """api 的三個新端點（docs/pdca/meta/2026-11-api-beat-worker.md）：POST /api/anomalies（token、走 ingest.yaml 的對照、寫 ⑤、丟 alert）、
 POST /api/rca（標 rca_requested、結束的件不重跑、丟 alert）、GET /api/alerts；以及 alert 看到 rca_requested 會強制重跑、把標記拿掉。
 假的 ES、apply_async 用 mock 接住；HTTP 用 FastAPI 的 TestClient，不開 socket。"""
+from tests.config_factory import Alerts, rca
 import json
 import os
 import unittest
@@ -159,21 +160,21 @@ class AlertHonoursRcaRequest(unittest.TestCase):
 
     def test_requested_reruns_and_clears_flag(self):
         al = self.al(rca_requested=True, rca_requested_at="2026-10-25T02:29:00+00:00")
-        self.assertEqual(C.wants_rerun(al, self.NOW, {"rca_retry": False}), (True, True))
+        self.assertEqual(C.wants_rerun(al, self.NOW, Alerts(rca_retry=False)), (True, True))
         self.assertIsNone(al.rca_requested)
         self.assertNotIn("rca_requested", al.to_doc())                          # 標記不寫回去
         self.assertNotIn("rca_requested_at", al.to_doc())
 
     def test_not_requested_follows_auto_rule(self):
-        self.assertEqual(C.wants_rerun(self.al(), self.NOW, {"rca_retry": False}), (False, False))
+        self.assertEqual(C.wants_rerun(self.al(), self.NOW, Alerts(rca_retry=False)), (False, False))
         fresh = self.al(rca_attempts=1)                                          # 自動重試：沒 trace、隔 2 分鐘以上、次數沒用完
-        self.assertEqual(C.wants_rerun(fresh, self.NOW, {}), (True, False))
+        self.assertEqual(C.wants_rerun(fresh, self.NOW, Alerts()), (True, False))
 
     def test_resolved_or_rca_off_never_reruns(self):
         al = self.al(status="resolved", rca_requested=True)
-        self.assertEqual(C.wants_rerun(al, self.NOW, {}), (False, False))
+        self.assertEqual(C.wants_rerun(al, self.NOW, Alerts()), (False, False))
         self.assertNotIn("rca_requested", al.to_doc())                          # 標記還是拿掉，不留在文件裡
-        self.assertEqual(C.wants_rerun(self.al(rca_requested=True), self.NOW, {"rca": False}), (False, False))
+        self.assertEqual(C.wants_rerun(self.al(rca_requested=True), self.NOW, Alerts(rca=False)), (False, False))
 
 
 class HtmlPages(unittest.TestCase):

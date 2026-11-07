@@ -58,19 +58,20 @@ class ModelsReadLikeDicts(unittest.TestCase):
     """過渡層（Strict 的 get／[]／in／keys）：只有 yaml 有寫的鍵才算有，跟原本的 dict 一樣。步驟 3 拆掉時這個 class 一起拿掉。"""
 
     def setUp(self):
-        self.cfg = validate({"interval": "5m", "series": []}, "rca") if False else validate({"timezone": "Asia/Taipei", "interval": "5m"}, "rca")
+        self.cfg = validate({"timezone": "Asia/Taipei", "days": 3}, "chronic")
 
     def test_written_keys_only(self):
-        self.assertEqual(self.cfg["interval"], "5m")
-        self.assertEqual(self.cfg.get("interval", "1h"), "5m")
-        self.assertIn("interval", self.cfg)
-        self.assertEqual(set(self.cfg.keys()), {"timezone", "interval"})
+        self.assertEqual(self.cfg["days"], 3)
+        self.assertEqual(self.cfg.get("days", 7), 3)
+        self.assertIn("days", self.cfg)
+        self.assertEqual(set(self.cfg.keys()), {"timezone", "days"})
 
     def test_unwritten_key_is_absent_even_though_the_model_has_a_default(self):
-        self.assertNotIn("compare_with", self.cfg)
-        self.assertEqual(self.cfg.get("compare_with", "7d"), "7d")
+        self.assertNotIn("min_days", self.cfg)
+        self.assertEqual(self.cfg.get("min_days", 99), 99)       # 沒寫：get 回你給的預設
+        self.assertEqual(self.cfg.min_days, 6)                   # 屬性：模型的預設
         with self.assertRaises(KeyError):
-            self.cfg["compare_with"]
+            self.cfg["min_days"]
 
     def test_no_field_shadows_the_dict_like_methods(self):
         """欄位名不能跟過渡層的方法同名（keys、items、values、get…）：pydantic 只警告，欄位會蓋掉方法，`**spec` 就壞。
@@ -96,7 +97,7 @@ class ModelsReadLikeDicts(unittest.TestCase):
         self.assertEqual(spec.to_dict()["keys"], ["service"])
 
     def test_unpack_like_a_mapping(self):
-        self.assertEqual({**self.cfg}, {"timezone": "Asia/Taipei", "interval": "5m"})
+        self.assertEqual({**self.cfg}, {"timezone": "Asia/Taipei", "days": 3})
 
 
 class BadConfigsAreCaught(unittest.TestCase):

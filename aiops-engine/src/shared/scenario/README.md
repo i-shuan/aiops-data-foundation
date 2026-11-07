@@ -57,7 +57,7 @@ name: network
 domain: {entity: 設備, unit: 封包, trace: 路徑, new_value_hint: 新韌體}
 entity_keys: [device]                                 # 異常的 keys 裡哪個是對象
 route: none
-chain: {strategy: "myplugins.network:TopologyEdges"}  # 自己的策略：可呼叫物件 (repo, cfg, anomalies, open_alerts, start, now) -> Chain
+chain: {strategy: "myplugins.network:TopologyEdges"}  # 自己的策略：可呼叫物件 (repo, rca_config, anomalies, open_alerts, start, now) -> Chain（rca_config 是 shared/config/rca.py 的 RcaConfig，不是 dict）
 change: null
 ```
 
@@ -67,7 +67,7 @@ change: null
 - `domain.categories`、`fp_reasons` 是 `[代碼, 顯示文字]` 的清單，最後一項要是 `other`；`checked` 是常查的地方。
 - `sections` 只能從 [incident/rca_report.py](../../incident/rca_report.py) 的 `SECTIONS` 挑；要 trace 的段在沒有 trace 時自己寫一行略過，不用你管。
 - `commands` 是 `{子命令名: "套件.模組:register"}`，`register(app)` 用 `app.command("子命令名", help=…)` 掛一個 typer 函式；函式自己 `load_config(config, kind)`、組 `argparse.Namespace` 再呼叫處理函式 `(cfg, args) -> int`（寫法見 [interface/cli/fab.py](../../interface/cli/fab.py)）。內建子命令也是同一種形狀。
-- 策略是「可呼叫物件」：`chain(repo, cfg, anomalies, open_alerts, start, now) -> Chain`、`change(repo, cfg, entity, since, now) -> datetime | None`；要查 ES 走 `repo.traces`、`repo.change`（[shared/README.md](../README.md)），不要自己打查詢。
+- 策略是「可呼叫物件」：`chain(repo, rca_config, anomalies, open_alerts, start, now) -> Chain（rca_config 是 shared/config/rca.py 的 RcaConfig，不是 dict）`、`change(repo, cfg, entity, since, now) -> datetime | None`；要查 ES 走 `repo.traces`、`repo.change`（[shared/README.md](../README.md)），不要自己打查詢。
 - 單元測試：`AIOPS_PLUGIN` 用 `mock.patch.dict(os.environ, …)` 包，每次 `load_scenario()` 都重讀；寫法見 [tests/test_scenario.py](../../../tests/test_scenario.py)。
 
 ## 怎麼驗

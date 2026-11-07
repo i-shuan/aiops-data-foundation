@@ -2,6 +2,7 @@
 IT 看 service.version 第一次出現（incident/strategy/it_deployment.py）；工廠的變更紀錄一筆一次，直接拿最近一筆。"""
 from __future__ import annotations
 
+from shared.config.rca import RcaConfig
 from datetime import datetime
 
 
@@ -12,9 +13,9 @@ def change_at(repo, index: str, entity_field: str, entity: str, since: datetime,
 
 
 class LatestChange:
-    """cfg 的 alerts.deploy_index／deploy_entity_field／deploy_time_field／deploy_filter 可改；預設 eqp-logs-* 的 recipe_change。"""
+    """rca_config 的 alerts.deploy_index／deploy_entity_field／deploy_time_field／deploy_filter 可改；預設 eqp-logs-* 的 recipe_change。"""
 
-    def __call__(self, repo, cfg: dict, entity: str, since: datetime, now: datetime) -> datetime | None:
-        acfg = cfg.get("alerts", {})
-        return change_at(repo, acfg.get("deploy_index", "eqp-logs-*"), acfg.get("deploy_entity_field", "equipment_id"), entity,
-                         since, now, acfg.get("deploy_time_field", "@timestamp"), acfg.get("deploy_filter", {"term": {"event_type": "recipe_change"}}))
+    def __call__(self, repo, rca_config: RcaConfig, entity: str, since: datetime, now: datetime) -> datetime | None:
+        acfg = rca_config.alerts
+        return change_at(repo, acfg.deploy_index or "eqp-logs-*", acfg.deploy_entity_field or "equipment_id", entity,
+                         since, now, acfg.deploy_time_field or "@timestamp", acfg.deploy_filter or {"term": {"event_type": "recipe_change"}})

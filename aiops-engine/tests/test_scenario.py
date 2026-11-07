@@ -1,4 +1,5 @@
 """情境（scenario）：環境變數選哪份、三個內建各填了什麼、客製怎麼給、detector 的子命令與報告段跟著情境。不連 ES。"""
+from tests.config_factory import rca
 import dataclasses
 import os
 import unittest
@@ -55,8 +56,8 @@ class Loading(unittest.TestCase):
             self.assertEqual((sc.name, sc.entity), ("mine", "主機"))
             self.assertEqual(AL.entity_of({"keys": {"host": "h1"}, "series": "s"}, sc), ("service", "h1"))
             self.assertEqual(owner_of({"host": "h1"}, {("svc", "h1"): ("D1", "G1")}, sc.entity_keys), ("D1", "G1"))
-            self.assertEqual(sc.chain(None, {}, [], [], T0, T0), Chain())
-            self.assertIsNone(sc.change(None, {}, "h1", T0, T0))
+            self.assertEqual(sc.chain(None, rca(), [], [], T0, T0), Chain())
+            self.assertIsNone(sc.change(None, rca(), "h1", T0, T0))
 
 
 class Builtins(unittest.TestCase):
@@ -88,7 +89,7 @@ class Builtins(unittest.TestCase):
         self.assertEqual(m.commands, {})
         self.assertIn("segments", f.sections)
         self.assertNotIn("segments", m.sections)
-        self.assertEqual(m.chain(None, {}, [], [], T0, T0), Chain())
+        self.assertEqual(m.chain(None, rca(), [], [], T0, T0), Chain())
         self.assertEqual(m.name, "metrics_only")
 
     def test_factory_chain_and_change_read_cfg(self):
@@ -102,12 +103,12 @@ class Builtins(unittest.TestCase):
                 hit = {"@timestamp": "2026-11-04T00:30:00+00:00"} if index.startswith("chg") else {"trace_id": "L1", "spans": []}
                 return {"hits": {"hits": [{"_source": hit}]}}
         repo = Repos(ES(), sc)
-        dep = sc.change(repo, {"alerts": {"deploy_index": "chg-*"}}, "ETCH-01", T0 - timedelta(hours=1), T0)
+        dep = sc.change(repo, rca(alerts={"deploy_index": "chg-*"}), "ETCH-01", T0 - timedelta(hours=1), T0)
         self.assertEqual((seen["index"], dep), ("chg-*", datetime(2026, 11, 4, 0, 30, tzinfo=timezone.utc)))
         self.assertEqual(seen["body"]["query"]["bool"]["filter"][0], {"term": {"equipment_id": "ETCH-01"}})
         self.assertEqual(seen["body"]["query"]["bool"]["filter"][2], {"term": {"event_type": "recipe_change"}})
         anoms = [{"_id": "a", "@timestamp": T0.isoformat(), "keys": {"equipment": "METRO-01", "lot": "L1"}}]
-        ch = sc.chain(repo, {"indices": {"traces": "lot-paths-*"}, "alerts": {"paths_lookback": "2d"}}, anoms, [], T0 - timedelta(hours=1), T0)
+        ch = sc.chain(repo, rca(indices={"anomalies": "aiops-anomalies", "traces": "lot-paths-*"}, alerts={"paths_lookback": "2d"}), anoms, [], T0 - timedelta(hours=1), T0)
         self.assertEqual(seen["index"], "lot-paths-*")
         self.assertEqual(seen["body"]["query"]["bool"]["filter"][0]["range"]["@timestamp"]["gte"], (T0 - timedelta(days=2)).isoformat())
         self.assertEqual((ch.calls, ch.links), (set(), {}))   # 履歷裡沒有站 → 沒有前站
@@ -146,8 +147,8 @@ class ReportSections(unittest.TestCase):
 
     def _run(self, sections, *, requests=0, logs=()):
         from argparse import Namespace
-        cfg = {"indices": {"anomalies": "aiops-anomalies", "traces": "lot-paths-*", "logs": "eqp-logs-*"},
-               "changes": {"lookback": "12h", "query": {"term": {"event_type": "pm"}}}}
+        cfg = rca(indices={"anomalies": "aiops-anomalies", "traces": "lot-paths-*", "logs": "eqp-logs-*"},
+                  changes={"lookback": "12h", "query": {"term": {"event_type": "pm"}}})
         anoms = [{"_id": "a1", "@timestamp": T0.isoformat(), "series": "fdc.pressure", "value": 12.0, "median": 9.0, "z": 6.0,
                   "status": "anomaly", "keys": {"equipment": "ETCH-01", "recipe": "REC-1"}}]
         stats = {"requests": requests, "errors": 0, "p50_ms": 1.0, "p95_ms": 2.0}

@@ -5,6 +5,7 @@ IT 是從 trace 算「誰呼叫誰」（incident/strategy/it_topology.py）；�
 """
 from __future__ import annotations
 
+from shared.config.rca import RcaConfig
 from datetime import datetime, timedelta, timezone
 
 from shared.infra.clock import duration
@@ -59,6 +60,5 @@ def lot_links(repo, index: str, anomalies: list[dict], now: datetime, lookback: 
 class LotLinks:
     """前後站：這一輪帶 lot 的異常 → 從履歷（cfg.indices.traces）找這批 lot 之前經過哪幾站；cfg 的 alerts.paths_lookback 是往前找多久。"""
 
-    def __call__(self, repo, cfg: dict, anomalies: list[dict], open_alerts: list, start: datetime, now: datetime) -> Chain:
-        acfg = cfg.get("alerts", {})
-        return Chain(links=lot_links(repo, cfg["indices"]["traces"], anomalies, now, duration(str(acfg.get("paths_lookback", "3d")))))
+    def __call__(self, repo, rca_config: RcaConfig, anomalies: list[dict], open_alerts: list, start: datetime, now: datetime) -> Chain:
+        return Chain(links=lot_links(repo, rca_config.indices.traces, anomalies, now, duration(rca_config.alerts.paths_lookback)))

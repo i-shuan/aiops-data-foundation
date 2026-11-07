@@ -28,6 +28,7 @@ import typer
 
 import detect.store.models as T
 from shared.config import load_config
+from shared.config.rca import IncidentsDb, RcaConfig
 from shared.infra.es import ES
 from shared.infra.repos import Repos
 from shared.scenario import load_scenario
@@ -42,18 +43,18 @@ app = typer.Typer(add_completion=False, rich_markup_mode=None, pretty_exceptions
 Opt = typer.Option
 
 
-def investigate(cfg: dict, args) -> str:
-    return investigate_full(cfg, args)[0]
+def investigate(rca_config: RcaConfig, args) -> str:
+    return investigate_full(rca_config, args)[0]
 
 
-def topology(cfg: dict, args) -> str:
-    traces, ix = Repos(ES(), load_scenario()).traces, cfg["indices"]["traces"]
+def topology(rca_config: RcaConfig, args) -> str:
+    traces, ix = Repos(ES(), load_scenario()).traces, rca_config.indices.traces
     end = _ts(args.at)
     start = end - _dur(args.window)
     ids = traces.recent_trace_ids(ix, start, end, args.sample)
     tr = T.group_traces(traces.spans(ix, ids, start - timedelta(minutes=5), end + timedelta(minutes=5)))
     edges = T.topology(tr)
-    tz = cfg.get("timezone", "Asia/Taipei")
+    tz = rca_config.timezone
     out = [f"# 服務之間的呼叫關係：{_local(start, tz)}～{_local(end, tz)}（{tz}，最近 {len(tr)} 個請求）", "",
            "| 呼叫方 | 被呼叫 | 次數 | 錯誤 | p95 |", "|---|---|---|---|---|"]
     out += [f"| {e.caller} | {e.callee} | {e.calls} | {e.errors} | {_ms(e.p95())} |" for e in edges]
@@ -61,9 +62,9 @@ def topology(cfg: dict, args) -> str:
     return "\n".join(out)
 
 
-def similar_eval(cfg: dict, args) -> int:
+def similar_eval(rca_config: RcaConfig, args) -> int:
     repo = Repos(ES(), load_scenario())
-    weights = (cfg.get("alerts") or {}).get("similar_weights")
+    weights = rca_config.alerts.similar_weights
     r = SIM.evaluate(repo, weights=weights)
     for row in r["rows"]:
         pred = f"→ 分類 {row['predicted']}（{row['confidence']:.0%}）" if row["predicted"] else "→ 沒有相似的、不分類"
@@ -83,10 +84,11 @@ def similar_eval(cfg: dict, args) -> int:
     return 0
 
 
-def import_incidents(cfg: dict, args) -> int:
-    db = cfg.get("incidents_db") or {}
-    url, sql = args.db or db.get("url"), args.sql or db.get("sql")
-    tz = args.tz or cfg.get("timezone") or IMP.DEFAULT_TZ
+def import_incidents(rca_config: RcaConfig | None, args) -> int:
+    """rca_config 選填（沒給 --config 是 None）：只拿它的 incidents_db 與 timezone。"""
+    db = (rca_config.incidents_db if rca_config else None) or IncidentsDb()
+    url, sql = args.db or db.url, args.sql or db.sql
+    tz = args.tz or (rca_config.timezone if rca_config else None) or IMP.DEFAULT_TZ
     if url:
         if not sql:
             print("--db 要搭 --sql（或 config 的 incidents_db.sql）")
@@ -143,7 +145,7 @@ def import_incidents_cmd(file: str | None = typer.Argument(None, help="CSV 或 J
                          tz: str | None = Opt(None, help="沒寫時區的時間當哪裡的時間（預設 Asia/Taipei，或 --config 的 timezone）"),
                          dry_run: bool = Opt(False, "--dry-run", help="只解析、印出哪幾筆會略過，不寫 ES")) -> int:
     args = Namespace(file=file, db=db, sql=sql, config=config, tz=tz, dry_run=dry_run)
-    return import_incidents(load_config(config, "rca") if config else {}, args)
+    return import_incidents(load_config(config, "rca") if config else None, args)
 
 
 def main(argv=None) -> int:

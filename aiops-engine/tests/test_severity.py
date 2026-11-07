@@ -1,4 +1,5 @@
 """一件的嚴重度（investigator/severity.py）：訊號廣度（幾類、不是幾條）＋持續（滑動窗覆蓋率）＋換版上限。不連 ES。"""
+from tests.config_factory import rca
 import unittest
 from datetime import datetime, timedelta, timezone
 from unittest import mock
@@ -127,7 +128,7 @@ class GradeAlert(unittest.TestCase):
         al = C.Alert(alert_id="a", category="service", service="pay-api", status="open", severity="warning", started_at=T0, updated_at=T0 + timedelta(minutes=6),
                      anomaly_ids=[o["_id"] for o in old] + [n["_id"] for n in new], series=["http.error_rate", "http.latency_p95_s"], routes=[], new=False,
                      anoms=new)
-        cfg = {"indices": {"anomalies": "aiops-anomalies"}, "alerts": {}}
+        cfg = rca(indices={"anomalies": "aiops-anomalies"})
         C.grade_alert(Repos(es, SC), cfg, al, T0 + timedelta(minutes=7))
         self.assertEqual(es.ids, [o["_id"] for o in old])                       # 只補這一輪沒有的
         self.assertEqual((al.severity, al.deploy_at), ("warning", T0 - timedelta(minutes=2)))   # 2 類 → 本該 high；異常都在換版後 8 分鐘內 → warning

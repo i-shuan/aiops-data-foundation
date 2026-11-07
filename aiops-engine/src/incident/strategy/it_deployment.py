@@ -1,6 +1,7 @@
 """IT 的「換版」：服務的版號（service.version）第一次出現的時間。換版後 deploy_grace 分鐘內的異常上限 warning（incident/alert_severity.py）。"""
 from __future__ import annotations
 
+from shared.config.rca import RcaConfig
 from datetime import datetime
 
 
@@ -13,8 +14,8 @@ def deploy_at(repo, service: str, since: datetime, now: datetime, index: str = "
 
 
 class VersionFirstSeen:
-    """cfg 的 alerts.deploy_index、alerts.version_field 可改查哪個索引、哪個欄位。"""
+    """rca_config 的 alerts.deploy_index、alerts.version_field 可改查哪個索引、哪個欄位。"""
 
-    def __call__(self, repo, cfg: dict, entity: str, since: datetime, now: datetime) -> datetime | None:
-        acfg = cfg.get("alerts", {})
-        return deploy_at(repo, entity, since, now, acfg.get("deploy_index", "metrics-apm.transaction.1m-*"), acfg.get("version_field", "service.version"))
+    def __call__(self, repo, rca_config: RcaConfig, entity: str, since: datetime, now: datetime) -> datetime | None:
+        acfg = rca_config.alerts
+        return deploy_at(repo, entity, since, now, acfg.deploy_index or "metrics-apm.transaction.1m-*", acfg.version_field or "service.version")

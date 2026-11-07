@@ -15,6 +15,7 @@
 """
 from __future__ import annotations
 
+from shared.config.rca import RcaConfig
 from shared.config.settings import settings
 
 import importlib
@@ -46,16 +47,16 @@ class ChainStrategy(Protocol):
 
 
 class ChangeStrategy(Protocol):
-    def __call__(self, repo, cfg: dict, entity: str, since: datetime, now: datetime) -> datetime | None: ...
+    def __call__(self, repo, rca_config: RcaConfig, entity: str, since: datetime, now: datetime) -> datetime | None: ...
 
 
 class NoChain:
-    def __call__(self, repo, cfg, anomalies, open_alerts, start, now) -> Chain:
+    def __call__(self, repo, rca_config, anomalies, open_alerts, start, now) -> Chain:
         return Chain()
 
 
 class NoChange:
-    def __call__(self, repo, cfg, entity, since, now) -> datetime | None:
+    def __call__(self, repo, rca_config, entity, since, now) -> datetime | None:
         return None
 
 
