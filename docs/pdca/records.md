@@ -196,3 +196,4 @@ metrics → trace → log 找到哪一段、哪行 log；事件整合、排程�
 | `archive/meta/` 的 10 月文件整理 | 10 | `2026-10-restructure*`（`code/`＋`helmchart/` 的舊目錄）、`2026-10-merge-*`、`feedback-readme`、`log-readme`、`metrics-trace-readme`、`product-line-table`、`retention-split`、`docs-vs-code`：描述的文件配置（`docs/log/`、`docs/metrics/`…）已經不是現在的 |
 | `archive/meta/` 的舊 Collector 與中間態程式結構 | 5 | `2026-10-collector-es-exporter`；`2026-11-target-architecture`（core／scenario／service／interface 四層）、`oop-core`、`vo-models`、`model-modules`：被後來的「一個功能一個資料夾」取代（現在的結構看 [feature-folders](meta/2026-11-feature-folders.md) 與 [aiops-engine/README.md](../../aiops-engine/README.md)） |
 
+| [meta/2026-11-trace-to-es.md](meta/2026-11-trace-to-es.md) | ②③④ trace 的資料放回 ES：每段統計 `aiops-trace-segments`、trace-merge 進度 `aiops-trace-state`；PostgreSQL 完全不碰 trace，`detect-watermark` 留 PostgreSQL | 進行中 |
