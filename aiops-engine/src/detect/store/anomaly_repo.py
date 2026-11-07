@@ -6,7 +6,7 @@ from datetime import datetime
 from common.infra.env import ENGINE_VERSION
 from detect.store.models import ANOMALY_INDEX, ANOMALY_MAPPING, RULE_FIELDS
 from common.infra.es import Repository
-from clean.store.owner_repo import load_owners, owner_of
+from data.store.owner_repo import load_owners, owner_of
 
 
 class AnomalyRepository(Repository):

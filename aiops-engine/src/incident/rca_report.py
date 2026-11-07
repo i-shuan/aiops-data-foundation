@@ -22,7 +22,7 @@ from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 from typing import Callable
 
-import clean.store.models as T
+import data.store.models as T
 from common.infra.es import ES
 from detect.store.models import entity_value
 from common.infra.repos import Repos

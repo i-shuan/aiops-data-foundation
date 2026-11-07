@@ -21,7 +21,7 @@ engine 一份程式；「IT 可觀測性」「全套工廠」「只有指標」�
 | 欄位 | observability | factory | metrics_only（extends factory） | 誰用 |
 |---|---|---|---|---|
 | `source` 原始資料格式 | `otel`／`apm` | `factory` | 同 | trace 的 schema（`detect/store/models.py` 的 `schema_of`） |
-| `owner`、`log` 索引與欄位對照 | 依 `AIOPS_SOURCE` | `eqp-master`（機台主檔）、`eqp-logs-*` | 同 | `clean/store/owner_repo.py`、`incident/store/log_repo.py` |
+| `owner`、`log` 索引與欄位對照 | 依 `AIOPS_SOURCE` | `eqp-master`（機台主檔）、`eqp-logs-*` | 同 | `data/store/owner_repo.py`、`incident/store/log_repo.py` |
 | `domain` 用語、分類表（entity、unit、trace、new_value_hint、categories、fp_reasons、checked） | 服務／請求／Trace；db、network、deploy… | 機台／lot／履歷；equipment、process_drift、recipe… | 同 | 報告、LLM 範本、回饋網頁 |
 | `entity_keys` 對象在 keys 的哪個欄位 | `service`、`entry.service`、`service.name`… | `equipment` | 同 | 事件整合、歸屬、根因分析 |
 | `route` 「哪支 API」怎麼算 | `http`（`entry.name`、method＋route、APM 的 `route`） | `recipe` | 同 | 事件整合、根因分析挑樣本 |

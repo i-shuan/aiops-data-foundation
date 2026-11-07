@@ -187,7 +187,7 @@ class NewTypesTest(unittest.TestCase):
 
     def test_join_fills_denominator(self):
         d = {"metrics": {"usage": 5.0}}
-        from clean.store.series_repo import _put
+        from data.store.series_repo import _put
         _put(d, "metrics.db_client_connections_max", 5.0)
         self.assertEqual(d["metrics"]["db_client_connections_max"], 5.0)
         rule = {"type": "ratio", "field": "metrics.usage", "den": ["metrics.db_client_connections_max"], "op": ">=", "threshold": 0.9}

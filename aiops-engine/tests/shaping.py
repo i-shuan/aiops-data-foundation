@@ -22,7 +22,7 @@ import numpy as np
 import pandas as pd
 
 from common.clock import pandas_freq
-from clean.store.series_repo import COLUMNS, fill_zero
+from data.store.series_repo import COLUMNS, fill_zero
 
 class ShapeError(ValueError):
     pass

@@ -17,7 +17,7 @@ if TYPE_CHECKING:        # 只給型別檢查看（overload 的回傳型別）�
     from detect.config.calendar import CalendarConfig
     from detect.config.chronic import ChronicConfig
     from detect.config.ingest import IngestConfig
-    from clean.config.paths import PathsConfig
+    from data.config.paths import PathsConfig
     from detect.config.peer import PeerConfig
     from detect.config.prune import PruneConfig
     from detect.config.quality import QualityConfig
@@ -34,7 +34,7 @@ REGISTRY: dict[str, str] = {
     "quality": "detect.config.quality:QualityConfig", "trace": "detect.config.trace:TraceConfig", "chronic": "detect.config.chronic:ChronicConfig",
     "prune": "detect.config.prune:PruneConfig", "calendar": "detect.config.calendar:CalendarConfig",
     "adjustments": "detect.config.adjustments:AdjustmentsConfig", "ingest": "detect.config.ingest:IngestConfig",
-    "paths": "clean.config.paths:PathsConfig", "rca": "incident.config.rca:RcaConfig", "schedule": "interface.config.schedule:ScheduleConfig",
+    "paths": "data.config.paths:PathsConfig", "rca": "incident.config.rca:RcaConfig", "schedule": "interface.config.schedule:ScheduleConfig",
 }
 KINDS = tuple(REGISTRY)
 

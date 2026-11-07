@@ -7,7 +7,7 @@ from argparse import Namespace
 import pandas as pd
 import typer
 
-import clean.trace.path_service as PS
+import data.trace.path_service as PS
 from common.clock import now_of, show_duration
 from detect.fab_ingest import ingest_service as ING
 from common.infra.es import ES
@@ -16,7 +16,7 @@ from common.scenario import load_scenario
 from common.config import load_config
 from interface.cli.common import at_opt, window_opt
 from detect.config.ingest import IngestConfig
-from clean.config.paths import PathsConfig
+from data.config.paths import PathsConfig
 
 
 def register(app: typer.Typer) -> None:

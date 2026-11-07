@@ -1,4 +1,4 @@
-"""依賴方向（docs/pdca/meta/2026-11-feature-folders.md）：interface → learn → incident → llm → detect → clean → common。
+"""依賴方向（docs/pdca/meta/2026-11-feature-folders.md）：interface → learn → incident → llm → detect → data → common。
 誰 import 誰只能往右（common 最底，什麼功能都不依賴）；main.py（入口）不算。
 函式內的 import 只允許名單上那幾個。索引名只能在各功能資料夾的 store/ 與 common/。
 common/infra/repos.py 用名稱表在第一次取用才載入各功能的 repository（importlib），所以不算靜態依賴。
@@ -10,7 +10,7 @@ import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 PKG = ROOT / "src"
-LAYERS = ("common", "clean", "detect", "llm", "incident", "learn", "interface")       # 由下往上
+LAYERS = ("common", "data", "detect", "llm", "incident", "learn", "interface")       # 由下往上
 ALLOWED = {name: set(LAYERS[:i]) for i, name in enumerate(LAYERS)}
 # 函式內才 import 的（其他都要在檔頭）：sqlalchemy 是選配、worker 要 broker
 LAZY_OK = {("learn/history_importer.py", "sqlalchemy"), ("interface/jobs/local.py", "interface.jobs.worker")}

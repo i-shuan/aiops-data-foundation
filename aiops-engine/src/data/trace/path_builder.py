@@ -29,9 +29,9 @@ from datetime import datetime, timezone
 
 import pandas as pd
 
-from clean.config.paths import EventFields, PathsConfig
+from data.config.paths import EventFields, PathsConfig
 from common.infra.es import get_field
-from clean.store.models import Trace
+from data.store.models import Trace
 
 PATHS_PREFIX = "lot-paths"
 ROOT_SERVICE = "lot"

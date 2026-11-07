@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 
 import pandas as pd
 
-from clean.store.owner_repo import NODE_KEYS, NS_KEYS     # namespace、節點的欄位名（歸屬與歸件共用，定義在清資料那邊）
+from data.store.owner_repo import NODE_KEYS, NS_KEYS     # namespace、節點的欄位名（歸屬與歸件共用，定義在清資料那邊）
 from common.infra.es import doc_id, get_field
 
 

@@ -3,7 +3,7 @@ import unittest
 
 import pandas as pd
 
-from clean.store.series_repo import fill_zero as _fill_zero
+from data.store.series_repo import fill_zero as _fill_zero
 
 T0 = pd.Timestamp("2026-10-01T00:00:00Z")
 

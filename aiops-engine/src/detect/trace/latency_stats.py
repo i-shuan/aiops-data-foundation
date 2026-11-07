@@ -23,7 +23,7 @@ import pandas as pd
 from common.clock import now_of, pandas_freq
 from common.infra.es import ES, doc_id
 from detect.config.trace import TraceConfig
-from clean.store.models import group_traces, segment, self_times
+from data.store.models import group_traces, segment, self_times
 from detect.store.models import Anomaly
 from common.infra.repos import Repos
 from common.scenario import load_scenario
@@ -31,7 +31,7 @@ import detect.series_ops.manual_adjust as A
 from detect.series_ops.manual_adjust import data_adjustments
 from detect.detect_service import save_anomalies, save_baseline, train_summary, with_status
 from detect.strategy.dynamic_baseline import DetectOptions, TrainOptions, score, train
-import clean.trace.span_merge as M
+import data.trace.span_merge as M
 
 KEYS = ["entry.service", "entry.name", "segment"]
 COLUMNS = ["ts", *KEYS, "requests", "calls", "time_ms", "error_rate", "swallowed_rate", "exception_type"]

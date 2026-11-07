@@ -33,13 +33,13 @@ repo.series.fetch(spec, start, end, "5m")   # 原始資料 → 一條序列（ke
 | `segments` | `detect/store/segment_repo.py` | `aiops-trace-segments` | trace 每段的統計 |
 | `state` | `detect/store/state_repo.py` | `aiops-state` | 排程工作的進度（trace-merge 合到哪） |
 | `chronic` | `detect/store/chronic_repo.py` | `aiops-chronic` | 慢性病清單 |
-| `series` | `clean/store/series_repo.py` | 設定給（metrics、log 的索引） | 原始資料 → `fetch`（序列）、`alive_times`、`points`（規則）、`rows`／`rows_where`（ingest、paths-merge）；`value` 的寫法 → ES aggregation 在這裡 |
-| `traces` | `clean/store/trace_repo.py` | 設定給（raw、merged、lot-paths） | spans、spans_by_id、updated_trace_ids、write_merged、merged_docs、entry_stats、sample_trace_ids、recent／service_trace_ids、sample_entries |
+| `series` | `data/store/series_repo.py` | 設定給（metrics、log 的索引） | 原始資料 → `fetch`（序列）、`alive_times`、`points`（規則）、`rows`／`rows_where`（ingest、paths-merge）；`value` 的寫法 → ES aggregation 在這裡 |
+| `traces` | `data/store/trace_repo.py` | 設定給（raw、merged、lot-paths） | spans、spans_by_id、updated_trace_ids、write_merged、merged_docs、entry_stats、sample_trace_ids、recent／service_trace_ids、sample_entries |
 | `logs` | `incident/store/log_repo.py` | 設定給 | of_traces、changes、problems、daily_counts；欄位名依場景的 log 對照 |
 | `change` | `incident/store/change_repo.py` | 設定給 | 換版：version_first_seen（IT）、latest（工廠的變更紀錄） |
 | `quality` | `detect/store/quality_repo.py` | check 給 | 品質檢查讀的統計：cardinality、missing、counts、count、lag |
 | `housekeeping` | `detect/store/housekeeping_repo.py` | 設定給 | count／delete_by_query（prune）、put_index_template |
-| （函式） | `clean/store/owner_repo.py` | 設定給 | `load_owners`、`owner_of`：異常的 dept／group（AnomalyRepository.write 用） |
+| （函式） | `data/store/owner_repo.py` | 設定給 | `load_owners`、`owner_of`：異常的 dept／group（AnomalyRepository.write 用） |
 
 - mapping 跟著實體：`detect/store/{anomaly,baseline}.py`、`incident/store/models.py`、`common/types/incident.py`、`learn/store/models.py`；只有 repository 自己用的索引（segments、state、chronic）mapping 放在 repository 檔裡。
 - 共用的翻頁（search_after、composite）、_mget、_update、_bulk update 在 `common/infra/es.py` 的 `Repository`。

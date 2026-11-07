@@ -27,7 +27,7 @@
 
 ## 程式結構（`src/`）
 
-依賴只能往下：`interface → learn → incident → llm → detect → clean → common`（`tests/test_layers.py` 鎖著）。每個功能的資料物件與 ES 讀寫放自己的 `store/`，設定欄位的定義（型別、預設值、檢查）放自己的 `config/`（`detect/config/`、`incident/config/`、`interface/config/`；共用的在 `common/config/`），值在 `configs/` 的 yaml，yaml 只寫跟預設值不同的鍵。時間只在邊界解析：命令列的字串在 `interface/cli` 變成 `Timestamp`／`Timedelta`，往下傳的不是字串。
+依賴只能往下：`interface → learn → incident → llm → detect → data → common`（`tests/test_layers.py` 鎖著）。每個功能的資料物件與 ES 讀寫放自己的 `store/`，設定欄位的定義（型別、預設值、檢查）放自己的 `config/`（`detect/config/`、`incident/config/`、`interface/config/`；共用的在 `common/config/`），值在 `configs/` 的 yaml，yaml 只寫跟預設值不同的鍵。時間只在邊界解析：命令列的字串在 `interface/cli` 變成 `Timestamp`／`Timedelta`，往下傳的不是字串。
 
 ```
 src/
@@ -56,7 +56,7 @@ src/
 │  ├─ fab_ingest/ ingest · ingest_service
 │  └─ store/      models（異常、基準線）· anomaly／baseline／chronic／housekeeping／
 │                 quality／segment／state 的 *_repo
-├─ clean/         ② 清資料：raw 的 trace（OTel 或 Elastic APM）→ 統一格式、一個請求一筆
+├─ data/          ② 清資料：raw 的 trace（OTel 或 Elastic APM）→ 統一格式、一個請求一筆
 │  ├─ config/     paths
 │  ├─ trace/      span_merge（合成 traces-merged-*）· path_builder · path_service（工廠履歷）
 │  └─ store/      models（trace 資料物件、raw→統一 span）· trace_repo · series_repo · owner_repo
