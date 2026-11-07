@@ -12,31 +12,47 @@
   - 之後（B～E，各自另開一輪）：B 其餘各段搬完、刪舊登記表；C ④ 判斷的指令抽成 `run`；D 情境改成 `Preset`；E 新增 ⑧ 輸出段、統一設定檔與 `FEATURE_FLAGS`。
   - 不做：React 元件、畫面、RBAC、Flask-AppBuilder 的 api／schemas／commands／dao 那一套。
 
-### 命名對照（Superset → 我們；Python 用 snake_case，名字的詞照搬）
+### 檔案結構（照 superset-ui，`chart` 換成 `pipeline`，檔名短）
 
-| Superset（superset-ui） | 我們 | 說明 |
-|---|---|---|
-| `Registry`、`registerValue`／`registerLoader`／`get`／`has`／`keys`／`values`／`entries`／`remove`／`clear`／`size` | `Registry`：`register_value`／`register_loader`／`get`／`has`／`keys`／`values`／`entries`／`remove`／`clear`／`size` | `register_loader` 是延遲載入（第一次 `get` 才跑） |
-| `OverwritePolicy.ALLOW／WARN／PROHIBIT` | `OverwritePolicy.ALLOW／WARN／PROHIBIT` | 重名時怎麼辦 |
-| `Plugin`：`configure(config, replace)`／`resetConfig`／`register`／`unregister` | `Plugin`：`configure`／`reset_config`／`register`／`unregister` | `Plugin().configure({"key": "x"}).register()` |
-| `ChartPlugin` | `BlockPlugin(stage, metadata, control_panel, run／load_run)` | 一個積木 |
-| `ChartMetadata`（name、description、tags、category、behaviors、credits、deprecated） | `BlockMetadata`（同欄位，沒有 thumbnail） | 積木自我描述 |
-| `ControlPanelConfig`（`controlPanelSections`、`controlOverrides`、`formDataOverrides`） | `ControlPanelConfig`（`control_panel_sections`、`control_overrides`、`form_data_overrides`） | 宣告可調參數 |
-| `ControlPanelSectionConfig`（label、description、expanded、`controlSetRows`） | `ControlPanelSectionConfig`（`label`、`description`、`expanded`、`control_set_rows`） | 參數分組 |
-| `sharedControls`、control 的 `type`（`TextControl`、`SelectControl`、`CheckboxControl`…）、`default`、`label`、`description`、`choices` | `shared_controls`、`ControlConfig(type, label, description, default, choices, min, max)` | 常用的參數共用 |
-| `formData`（使用者填的值） | `form_data`（YAML 裡這個積木的參數）；`ControlPanelConfig.build_form_data(raw)` 補預設、轉型、驗證 | 打錯字、型別錯丟 `ValueError` |
-| `getChartMetadataRegistry()`、`getChartControlPanelRegistry()`、`getChartComponentRegistry()` | `get_block_metadata_registry()`、`get_block_control_panel_registry()`、`get_block_run_registry()` | 三張登記表；key＝`<段>.<名字>`（例 `severity.golden_signals`） |
-| `Preset({name, description, presets, plugins})`、`.register()` | `Preset(name, description, presets, plugins)`、`.register()` | 一包外掛一起登記；階段 D 情境改成 Preset |
+Superset 把 `chart` 當「外掛的種類」；我們的種類是 `pipeline`（管線裡的一個環節）。資料夾結構照抄，檔名去掉重複的前綴
+（Superset 是 TypeScript 一個類別一個檔、檔名帶種類；Python 用模組路徑就分得出來，所以 `pipeline/models/plugin.py` 不寫成 `pipeline_plugin.py`）。
+
+| superset-ui | 我們 |
+|---|---|
+| `superset-ui-core/src/models/` `Plugin.ts` `Preset.ts` `Registry.ts` | `common/core/models/` `plugin.py` `preset.py` `registry.py` |
+| `superset-ui-core/src/chart/models/` `ChartPlugin.ts` `ChartMetadata.ts` `ChartProps.ts` | `common/core/pipeline/models/` `plugin.py`（`PipelinePlugin`） `metadata.py`（`PipelineMetadata`） `props.py`（`PipelineProps`） |
+| `superset-ui-core/src/chart/registries/` `ChartMetadataRegistrySingleton.ts` 等 | `common/core/pipeline/registries/` `metadata.py` `control_panel.py` `run.py`（各一個 `get_pipeline_xxx_registry()`） |
+| `superset-ui-chart-controls/` `ControlPanelConfig`、`sharedControls` | `common/core/controls/` `types.py`（`ControlPanelConfig`、`ControlPanelSectionConfig`、`ControlConfig`） `shared_controls.py` |
+| `plugins/plugin-chart-echarts/src/Timeseries/` `index.ts` `controlPanel.tsx` `transformProps.ts` `types.ts` `EchartsTimeseries.tsx` | `plugins/severity/golden_signals/` `__init__.py`（`GoldenSignalsPipelinePlugin`） `control_panel.py` `transform_props.py` `types.py` `golden_signals.py`（真正做事的） |
+| `visualizations/presets/MainPreset.js` | `presets/main_preset.py`（`MainPreset`） |
+| 外部 npm 套件 `@superset-ui/plugin-chart-xxx` | 外部 pip 套件 `aiops-plugin-severity-xxx`（Python 的模組名不能有 `-`，所以 repo 裡是 `plugins/<段>/<名字>/`） |
+
+### 類別與方法（詞照搬，Python 用 snake_case）
+
+| superset-ui | 我們 |
+|---|---|
+| `Registry`：`registerValue` `registerLoader` `get` `has` `keys` `values` `entries` `remove` `clear` | `Registry`：`register_value` `register_loader` `get` `has` `keys` `values` `entries` `remove` `clear` |
+| `OverwritePolicy.Allow／Warn／Prohibit` | `OverwritePolicy.ALLOW／WARN／PROHIBIT` |
+| `Plugin`：`configure` `resetConfig` `register` `unregister` | `Plugin`：`configure` `reset_config` `register` `unregister` |
+| `ChartPlugin({ metadata, controlPanel, loadChart, transformProps })` | `PipelinePlugin(metadata=, control_panel=, load_run=, transform_props=)` |
+| `ChartMetadata`（name、description、tags、category、behaviors、credits、deprecated、thumbnail） | `PipelineMetadata`（同，沒有 thumbnail） |
+| `ControlPanelConfig`（`controlPanelSections`、`controlOverrides`、`formDataOverrides`） | `ControlPanelConfig`（`control_panel_sections`、`control_overrides`、`form_data_overrides`） |
+| `ControlPanelSectionConfig`（label、description、expanded、`controlSetRows`） | `ControlPanelSectionConfig`（`label`、`description`、`expanded`、`control_set_rows`） |
+| control 的 `type`（`TextControl`、`SelectControl`、`CheckboxControl`…）、`default`、`label`、`description`、`choices` | `ControlConfig(type, label, description, default, choices)`，type 名字照抄 |
+| `formData` | `form_data` |
+| `getChartMetadataRegistry()` `getChartControlPanelRegistry()` `getChartComponentRegistry()` | `get_pipeline_metadata_registry()` `get_pipeline_control_panel_registry()` `get_pipeline_run_registry()`；key＝`<段>.<名字>` |
+| `new EchartsTimeseriesChartPlugin().configure({ key: 'echarts_timeseries' }).register()` | `GoldenSignalsPipelinePlugin().configure({"key": "golden_signals"}).register()` |
+| `Preset({ name, description, presets, plugins })` | `Preset(name=, description=, presets=, plugins=)`；`MainPreset` 繼承它 |
 
 ### 階段 A 的搬移對照
 
 | 現在 | 之後 |
 |---|---|
-| `common/blocks.py` 的 `Stage("severity", {"golden_signals": ("incident.alert_severity:golden_signals", 說明)…})` | `common/block_plugins/severity.py`：`BlockPlugin(stage="severity", metadata=…, control_panel=…, load_run=…).configure({"key": "golden_signals"})`；`main_preset` 把它們 `register()` |
-| 說明字串寫在登記表 | `BlockMetadata.description` |
-| 參數寫在 YAML、說明寫在 docstring | `control_panel`：`golden_signals` 宣告 `window`、`min_coverage`、`min_duration`、`min_span_critical`、`min_points_per_class`、`deploy_grace`；`p0` 宣告 `p0_services` |
-| `BLOCKS.stage("severity").loaded(sc)` 回 `[(名字, 函式)]` | 介面不變（舊呼叫端不用改）；內部改讀 `get_block_run_registry()` |
-| `main blocks` 印名字＋說明 | 多印每個積木的可調參數（名字、型別、預設） |
+| `common/blocks.py` 手寫 `Stage("severity", {"golden_signals": ("incident.alert_severity:golden_signals", 說明)…})` | `plugins/severity/golden_signals/`、`plugins/severity/p0/` 兩個外掛資料夾；`presets/main_preset.py` 登記 |
+| 說明字串寫在登記表 | `PipelineMetadata.description` |
+| 參數寫在 YAML、說明寫在 docstring | 各外掛的 `control_panel.py`：`golden_signals` 宣告 `window`、`min_coverage`、`min_duration`、`min_span_critical`、`min_points_per_class`、`deploy_grace`；`p0` 宣告 `p0_services` |
+| `BLOCKS.stage("severity").loaded(sc)` 回 `[(名字, 函式)]` | 介面不變（舊呼叫端不用改）；內部改讀 `get_pipeline_run_registry()` |
+| `main blocks` 印名字＋說明 | 多印每個外掛的可調參數（名字、type、預設） |
 
 ## Do：改動哪些 code、改了什麼、為何要改
 
