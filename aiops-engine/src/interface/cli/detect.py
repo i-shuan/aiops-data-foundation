@@ -44,7 +44,11 @@ from typing import Callable, List
 import pandas as pd
 import typer
 
+from common.clock import now_of
+from common.infra.es import ES
+from common.infra.repos import Repos
 from common.scenario import load_scenario
+from data.trace import span_merge
 from interface.cli.common import SERIES, Opt, at_opt, registry, run, window_opt
 import interface.cli.feedback as feedback_cli
 
@@ -52,7 +56,7 @@ from detect.detect_service import cmd_train, cmd_tune, cmd_detect
 from detect.strategy.chronic_issue import cmd_chronic
 from detect.housekeeping import cmd_prune
 from detect.series_ops.level_shift import cmd_shift
-from detect.trace.latency_stats import cmd_trace_collect, cmd_trace_train, cmd_trace_detect, cmd_trace_merge
+from detect.trace.latency_stats import cmd_trace_collect, cmd_trace_train, cmd_trace_detect
 from detect.strategy.threshold_rule import cmd_rules
 from detect.strategy.peer_compare import cmd_peer
 from detect.series_ops.quality_check import cmd_quality
@@ -103,6 +107,16 @@ def trace_train(config: str = Opt(...), history: str | None = Opt(None, help="�
 @command("trace-detect")
 def trace_detect(config: str = Opt(...), window: pd.Timedelta = window_opt("30m"), at: pd.Timestamp | None = at_opt()) -> int:
     return run(cmd_trace_detect, "trace", config=config, window=window, at=at)
+
+
+def cmd_trace_merge(trace_config, args) -> int:
+    """raw（每一段一筆）→ 一個請求一筆（traces-merged-<group>-<日期>）。排程器每分鐘跑；從上次合到的時間接著合，中斷很久會分段補。
+    合成本身在 data/trace/span_merge（② 清資料，不認得 trace.yaml 的設定檔）；這裡只把設定裡的 raw_index、settle_seconds 交給它。"""
+    repo = Repos(ES(), load_scenario())
+    at = now_of(args.at).to_pydatetime()
+    since, until, n = span_merge.run(repo, trace_config.raw_index, trace_config.merge.settle_seconds, at, args.window.to_pytimedelta())
+    print(f"trace-merge {since:%H:%M:%S}～{until:%H:%M:%S}：合了 {n} 個 trace")
+    return 0
 
 
 @command("trace-merge")

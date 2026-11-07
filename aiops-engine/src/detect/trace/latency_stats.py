@@ -31,7 +31,6 @@ import detect.series_ops.manual_adjust as A
 from detect.series_ops.manual_adjust import data_adjustments
 from detect.detect_service import save_anomalies, save_baseline, train_summary, with_status
 from detect.strategy.dynamic_baseline import DetectOptions, TrainOptions, score, train
-import data.trace.span_merge as M
 
 KEYS = ["entry.service", "entry.name", "segment"]
 COLUMNS = ["ts", *KEYS, "requests", "calls", "time_ms", "error_rate", "swallowed_rate", "exception_type"]
@@ -246,15 +245,6 @@ def load_segments(repo, start: pd.Timestamp, end: pd.Timestamp) -> pd.DataFrame:
 
 def _metric_frame(df: pd.DataFrame, m: str) -> pd.DataFrame:
     return df[[*KEYS, "ts"]].assign(value=df[m])
-
-def cmd_trace_merge(trace_config: TraceConfig, args) -> int:
-    """raw（每一段一筆）→ 一個請求一筆（traces-merged-<group>-<日期>）。排程器每分鐘跑；從上次合到的時間接著合，中斷很久會分段補（最多 2 天）。"""
-    repo = Repos(ES(), load_scenario())
-    at = now_of(args.at).to_pydatetime()
-    since, until, n = M.run(repo, trace_config.raw_index, trace_config.merge.settle_seconds, at, args.window.to_pytimedelta())
-    print(f"trace-merge {since:%H:%M:%S}～{until:%H:%M:%S}：合了 {n} 個 trace")
-    return 0
-
 
 def cmd_trace_collect(trace_config: TraceConfig, args) -> int:
     """補過去的統計（trace 原文只留 7 天，最多補 7 天），或手動重算某一段。平常由 trace-detect 每 5 分鐘順便做。"""
