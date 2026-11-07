@@ -31,5 +31,5 @@ class CalendarEntry(Strict):
 
 class CalendarConfig(Strict):
     timezone: str | None = None
-    sources: list[Provider] | None = None
-    calendar: list[CalendarEntry] | None = None
+    sources: list[Provider] = []             # 外部來源（file／http／taiwan）；沒寫也行
+    calendar: list[CalendarEntry] = []       # 直接寫的項目（人工補的維護日、活動）

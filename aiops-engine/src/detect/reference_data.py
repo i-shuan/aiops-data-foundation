@@ -30,6 +30,9 @@ import time
 import pandas as pd
 import requests
 
+from shared.config.calendar import CalendarConfig
+from shared.config.chronic import ChronicConfig
+
 TAIWAN_URL = "https://cdn.jsdelivr.net/gh/ruyut/TaiwanCalendar/data/{year}.json"
 
 
@@ -150,14 +153,14 @@ def _http_source(src: dict, fetch) -> object:
 SCOPE_FIELDS = ("match", "series", "detect")   # 來源層級寫的，套到這個來源的每一筆（那一筆自己有寫的優先）
 
 
-def load_calendar(cfg: dict, *, fetch=_http_json, now: pd.Timestamp | None = None) -> tuple[list[dict], str | None]:
-    """cfg：calendar.yaml 的內容 {timezone, sources: [...], calendar: [...]}。回傳（項目、時區）。
+def load_calendar(calendar_config: CalendarConfig, *, fetch=_http_json, now: pd.Timestamp | None = None) -> tuple[list[dict], str | None]:
+    """calendar_config：calendar.yaml（shared/config/calendar.py）。回傳（項目、時區）。
     calendar 直接寫的項目（人工補的維護日、活動）一起算；sources 沒寫也行。
 
     來源可以寫 match、series、detect，套到它的每一筆：台灣行事曆的每一天沒有 match，不限定的話假日那天
     所有服務（含 24×7 的工廠）都不學、不判斷，假日當天真的故障也被吞掉；週休的辦公室系統要寫 match 限定。"""
-    entries = list(cfg.get("calendar") or [])
-    for src in cfg.get("sources") or []:
+    entries = [e.to_dict() for e in calendar_config.calendar]
+    for src in calendar_config.sources:     # src 是 Provider；cache_dir 等「沒寫」與「寫 null」意思不同，所以這層仍用 src.get
         if src.get("enabled") is False:
             continue
         p = src["provider"]
@@ -178,13 +181,13 @@ def load_calendar(cfg: dict, *, fetch=_http_json, now: pd.Timestamp | None = Non
             entries += [{**scope, **e} for e in got]
         except Exception as e:
             _warn(f"行事曆來源 {p} 失敗：{type(e).__name__}: {e}")
-    return entries, cfg.get("timezone")
+    return entries, calendar_config.timezone
 
 
-def load_owners(cfg: dict, *, fetch=_http_json) -> list[dict]:
-    """cfg：chronic.yaml 的內容。owners（直接寫的）加 owners_source（一個或多個來源）。先寫的優先（owner_of 取第一個符合的）。"""
-    out = list(cfg.get("owners") or [])
-    srcs = cfg.get("owners_source") or []
+def load_owners(chronic_config: ChronicConfig, *, fetch=_http_json) -> list[dict]:
+    """chronic_config：chronic.yaml（shared/config/chronic.py）。owners（直接寫的）加 owners_source（一個或多個來源）。先寫的優先（owner_of 取第一個符合的）。"""
+    out = list(chronic_config.owners)
+    srcs = chronic_config.owners_source or []
     for src in srcs if isinstance(srcs, list) else [srcs]:
         p = src["provider"]
         try:

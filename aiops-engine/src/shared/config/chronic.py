@@ -13,7 +13,7 @@ from shared.config.common import _same_length, NonNeg, PosInt, Provider, Query, 
 class ChronicSource(Strict):
     name: str
     type: Literal["log", "anomalies"]
-    title: str | None = None
+    title: str | None = None                 # 沒寫就用 name
     index: str | None = None
     filter: Query | None = None
     by: list[str] | None = None
@@ -21,7 +21,7 @@ class ChronicSource(Strict):
     min_per_day: NonNeg | None = None
     min_days: PosInt | None = None
     top: PosInt | None = None
-    levels: list[str] | None = None
+    levels: list[str] = ["rule", "peer"]    # type anomalies 才用：哪些 level 的異常算
     series: str | None = None
 
     @model_validator(mode="after")
@@ -33,10 +33,10 @@ class ChronicSource(Strict):
 
 
 class ChronicConfig(Strict):
-    days: PosInt | None = None
-    min_days: PosInt | None = None
-    top: PosInt | None = None
-    timezone: str | None = None
-    sources: list[ChronicSource] | None = None
-    owners: list[dict[str, Any]] | None = None
+    days: PosInt = 7                         # 看最近幾個「完整的日子」
+    min_days: PosInt = 6                     # 幾天裡至少幾天有才算慢性（來源可以自己寫）
+    top: PosInt = 10
+    timezone: str = "Asia/Taipei"
+    sources: list[ChronicSource] = []
+    owners: list[dict[str, Any]] = []
     owners_source: list[Provider] | Provider | None = None

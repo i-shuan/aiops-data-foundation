@@ -8,6 +8,7 @@ import pandas as pd
 
 import detect.series_ops.manual_adjust as A
 from shared.infra.repos import Repos
+from shared.config import validate
 from shared.scenario import load_scenario
 
 SC = load_scenario()
@@ -119,7 +120,7 @@ class TaiwanCalendar(unittest.TestCase):
 
     def test_default_years_this_and_next(self):
         calls = []
-        entries, _ = S.load_calendar({"sources": [{"provider": "taiwan", "cache_dir": None}]},
+        entries, _ = S.load_calendar(validate({"sources": [{"provider": "taiwan", "cache_dir": None}]}, "calendar"),
                                      fetch=fetcher({}, calls), now=NOW)
         self.assertEqual([c.rsplit("/", 1)[1] for c in calls], ["2026.json", "2027.json"])
         self.assertEqual(entries, [])
@@ -138,9 +139,9 @@ class LoadCalendar(unittest.TestCase):
     def test_merge_inline_file_http_taiwan(self):
         with tempfile.TemporaryDirectory() as d:
             f = self.write(d, "c.json", {"calendar": [{"date": "2099-01-01", "name": "假"}]})
-            cfg = {"timezone": "Asia/Taipei", "calendar": [{"date": "2026-11-11", "name": "活動"}],
-                   "sources": [{"provider": "file", "path": f}, {"provider": "http", "url": "http://x/c.json", "cache_dir": None},
-                               {"provider": "taiwan", "years": [2026], "cache_dir": None}]}
+            cfg = validate({"timezone": "Asia/Taipei", "calendar": [{"date": "2026-11-11", "name": "活動"}],
+                            "sources": [{"provider": "file", "path": f}, {"provider": "http", "url": "http://x/c.json", "cache_dir": None},
+                                        {"provider": "taiwan", "years": [2026], "cache_dir": None}]}, "calendar")
             http = {"http://x/c.json": [{"date": "2030-01-01", "name": "http"}]}   # 直接回傳陣列也可以
 
             def fetch(url, headers=None, timeout=20):
@@ -152,16 +153,16 @@ class LoadCalendar(unittest.TestCase):
     def test_failing_source_does_not_break_others(self):
         with tempfile.TemporaryDirectory() as d:
             f = self.write(d, "c.json", {"calendar": [{"date": "2099-01-01", "name": "假"}]})
-            cfg = {"sources": [{"provider": "file", "path": os.path.join(d, "nope.json")},
-                               {"provider": "bogus"}, {"provider": "file", "path": f}]}
+            cfg = validate({"sources": [{"provider": "file", "path": os.path.join(d, "nope.json")},
+                                        {"provider": "file", "path": f}]}, "calendar")
             entries, _ = S.load_calendar(cfg)
             self.assertEqual([e["name"] for e in entries], ["假"])
 
     def test_source_scope_applies_to_each_entry(self):
         # 台灣行事曆的每一天沒有 match：來源寫 match 才不會把 24×7 的服務一起吞掉（2026-10-adjust-schedule-verify.md）
-        cfg = {"sources": [{"provider": "taiwan", "years": [2026], "cache_dir": None,
-                            "match": {"service": "^office$"}, "series": "http\\..*"}],
-               "calendar": [{"date": "2026-11-01", "name": "UPS", "type": "maintenance"}]}
+        cfg = validate({"sources": [{"provider": "taiwan", "years": [2026], "cache_dir": None,
+                                     "match": {"service": "^office$"}, "series": "http\\..*"}],
+                        "calendar": [{"date": "2026-11-01", "name": "UPS", "type": "maintenance"}]}, "calendar")
         entries, _ = S.load_calendar(cfg, fetch=lambda url, headers=None, timeout=20: YEAR_2026, now=NOW)
         tw = [e for e in entries if e["name"] != "UPS"]
         self.assertTrue(tw and all(e["match"] == {"service": "^office$"} and e["series"] == "http\\..*" for e in tw))
@@ -170,7 +171,7 @@ class LoadCalendar(unittest.TestCase):
         key = {"service": "fab"}
         self.assertFalse(any(A.match_keys(key, a["match"]) for a in adjs if a.get("match")))
         # 那一筆自己寫的優先
-        entries, _ = S.load_calendar({"sources": [{"provider": "file", "path": self.write_tmp(), "detect": True}]})
+        entries, _ = S.load_calendar(validate({"sources": [{"provider": "file", "path": self.write_tmp(), "detect": True}]}, "calendar"))
         self.assertEqual([e["detect"] for e in entries], [True, False])
 
     def write_tmp(self):
@@ -181,7 +182,7 @@ class LoadCalendar(unittest.TestCase):
 
     def test_disabled_source_skipped(self):
         calls = []
-        S.load_calendar({"sources": [{"provider": "taiwan", "enabled": False}]}, fetch=fetcher({}, calls), now=NOW)
+        S.load_calendar(validate({"sources": [{"provider": "taiwan", "enabled": False}]}, "calendar"), fetch=fetcher({}, calls), now=NOW)
         self.assertEqual(calls, [])
 
     def test_adjust_load_reads_calendar_file(self):
@@ -203,7 +204,7 @@ class HttpProviderCache(unittest.TestCase):
     def test_http_source_is_cached(self):
         with tempfile.TemporaryDirectory() as d:
             calls = []
-            cfg = {"sources": [{"provider": "http", "url": "http://x/c.json", "cache_dir": d}]}
+            cfg = validate({"sources": [{"provider": "http", "url": "http://x/c.json", "cache_dir": d}]}, "calendar")
 
             def fetch(url, headers=None, timeout=20):
                 calls.append(url)
@@ -219,14 +220,22 @@ class LoadOwners(unittest.TestCase):
             p = os.path.join(d, "o.json")
             with open(p, "w", encoding="utf-8") as f:
                 json.dump({"owners": [{"match": {"service": "^mes-"}, "owner": "檔案"}]}, f)
-            cfg = {"owners": [{"match": {"service": "^mes-api$"}, "owner": "直接寫"}],
-                   "owners_source": [{"provider": "file", "path": p}, {"provider": "http", "url": "http://x/o", "cache_dir": None}]}
+            cfg = validate({"owners": [{"match": {"service": "^mes-api$"}, "owner": "直接寫"}],
+                            "owners_source": [{"provider": "file", "path": p}, {"provider": "http", "url": "http://x/o", "cache_dir": None}]}, "chronic")
             got = S.load_owners(cfg, fetch=lambda url, headers=None, timeout=20: [{"match": {}, "owner": "http"}])
             self.assertEqual([o["owner"] for o in got], ["直接寫", "檔案", "http"])
 
     def test_single_source_dict_and_failure(self):
-        got = S.load_owners({"owners_source": {"provider": "file", "path": "/no/such/file.json"}})
+        got = S.load_owners(validate({"owners_source": {"provider": "file", "path": "/no/such/file.json"}}, "chronic"))
         self.assertEqual(got, [])
+
+    def test_unknown_provider_is_rejected_when_the_config_is_loaded(self):
+        """原本 load 的時候才跳過（印警告）；現在設定一讀進來就擋，打錯字不用等到那個來源被用到。"""
+        from shared.config import ConfigError
+        with self.assertRaises(ConfigError):
+            validate({"sources": [{"provider": "bogus"}]}, "calendar")
+        with self.assertRaises(ConfigError):
+            validate({"owners_source": {"provider": "bogus"}}, "chronic")
 
     def test_single_source_from_a_loaded_config(self):
         """load_config 回的是模型：owners_source 只寫一個來源時是 Provider，不是 dict，也不是 list。"""
