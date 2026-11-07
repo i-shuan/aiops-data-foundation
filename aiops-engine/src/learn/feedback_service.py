@@ -3,7 +3,7 @@
 HTTP 層（interface/web）只做收參數、挑回 HTML 還是 JSON。"""
 from __future__ import annotations
 
-from shared.config.series import SeriesConfig
+from detect.config.series import SeriesConfig
 import json
 import sys
 from collections import Counter
@@ -12,13 +12,13 @@ from datetime import datetime, timezone
 import pandas as pd
 
 import llm.summary as LLM
-from shared.infra.env import CODE_ROOT
-from shared.config import load_config
-from shared.infra.es import ES, doc_id
+from common.infra.env import CODE_ROOT
+from common.config import load_config
+from common.infra.es import ES, doc_id
 from learn.store.models import RCA_USEFUL, VERDICTS
-from shared.types.incident import Incident
-from shared.infra.repos import Repos
-from shared.scenario import load_scenario
+from common.types.incident import Incident
+from common.infra.repos import Repos
+from common.scenario import load_scenario
 import detect.series_ops.manual_adjust as A
 from detect.series_ops.manual_adjust import load_adjustments
 from detect.utils import _now

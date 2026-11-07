@@ -6,8 +6,8 @@ from __future__ import annotations
 import pandas as pd
 
 import detect.trace.path_builder as P
-from shared.config.paths import PathsConfig
-from shared.infra.es import get_field
+from detect.config.paths import PathsConfig
+from common.infra.es import get_field
 
 
 def _lot_ids(rows: list[dict], lot_field: str) -> set[str]:

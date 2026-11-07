@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from incident.store.models import ALERT_INDEX, ALERT_MAPPING, Alert
-from shared.infra.es import Repository
+from common.infra.es import Repository
 
 LIST_FIELDS = ["alert_id", "service", "title", "summary", "severity", "status", "dept", "group", "started_at", "updated_at", "resolved_at",
                "anomaly_count", "series", "upstream_services", "suggested_category", "category_confidence", "report_url", "feedback_url"]

@@ -11,13 +11,13 @@ from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 import llm.summary as LLM
-from shared.infra.es import ES
-from shared.config.rca import Alerts, RcaConfig
+from common.infra.es import ES
+from incident.config.rca import Alerts, RcaConfig
 from incident.store.models import Alert, stamp_of
-from shared.types.incident import Incident
-from shared.infra.repos import Repos
-from shared.scenario import Chain, load_scenario
-from shared.scenario import load_scenario
+from common.types.incident import Incident
+from common.infra.repos import Repos
+from common.scenario import Chain, load_scenario
+from common.scenario import load_scenario
 
 import incident.alert_grouper as AL
 import incident.alert_severity as SEV

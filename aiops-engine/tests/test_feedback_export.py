@@ -4,7 +4,7 @@ import os
 import tempfile
 import unittest
 
-from shared.infra.repos import Repos
+from common.infra.repos import Repos
 
 import pandas as pd
 

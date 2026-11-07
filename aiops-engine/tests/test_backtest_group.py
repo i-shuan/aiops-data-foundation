@@ -5,9 +5,9 @@ from unittest import mock
 import pandas as pd
 
 import learn.rule_backtester as B
-from shared.config import validate
-from shared.infra.repos import Repos
-from shared.scenario import load_scenario
+from common.config import validate
+from common.infra.repos import Repos
+from common.scenario import load_scenario
 
 SC = load_scenario()
 from detect.store.baseline_repo import BaselineRepository

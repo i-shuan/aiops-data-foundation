@@ -8,10 +8,10 @@ from __future__ import annotations
 
 import pandas as pd
 
-from shared.config.prune import PruneConfig
-from shared.infra.es import ES
-from shared.infra.repos import Repos
-from shared.scenario import load_scenario
+from detect.config.prune import PruneConfig
+from common.infra.es import ES
+from common.infra.repos import Repos
+from common.scenario import load_scenario
 from detect.utils import _now
 
 

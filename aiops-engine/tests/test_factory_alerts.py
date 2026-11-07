@@ -1,12 +1,12 @@
 """工廠 plugin 的事件整合與嚴重度（docs/pdca/meta/2026-11-factory-engine.md）：對象是機台、API 是 recipe、前後站從履歷找、
-嚴重度依參數家族、recipe 變更當換版。不連 ES。整個模組在 AIOPS_PLUGIN=factory 下跑（shared/scenario/factory.yaml）。"""
+嚴重度依參數家族、recipe 變更當換版。不連 ES。整個模組在 AIOPS_PLUGIN=factory 下跑（common/scenario/factory.yaml）。"""
 import os
 import unittest
 from datetime import datetime, timedelta, timezone
 from unittest import mock
 
-from shared.scenario import load_scenario
-import shared.scenario.base as SC
+from common.scenario import load_scenario
+import common.scenario.base as SC
 import incident.alert_grouper as AL
 import incident.alert_severity as S
 import incident.strategy.fab_process_flow as FAC

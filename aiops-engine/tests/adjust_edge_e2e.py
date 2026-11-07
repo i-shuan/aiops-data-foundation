@@ -27,7 +27,7 @@ import yaml
 
 from interface.cli.detect import main as _cli
 from detect.store.models import ANOMALY_INDEX, ANOMALY_MAPPING
-from shared.infra.es import ES
+from common.infra.es import ES
 from detect.store.models import BASELINE_INDEX
 
 TZ = "Asia/Taipei"

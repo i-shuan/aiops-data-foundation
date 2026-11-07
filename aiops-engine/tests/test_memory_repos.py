@@ -1,5 +1,5 @@
 """tests/fakes.MemoryRepos：不用 ES 也能跑 train → detect、rules、peer、相似事故（指令的 repo= 參數）。不連 ES。"""
-from shared.config import validate
+from common.config import validate
 import contextlib
 import io
 import unittest

@@ -7,7 +7,7 @@ from typing import Callable
 
 import typer
 
-from shared.config import load_config
+from common.config import load_config
 
 SERIES = "configs/baseline/series.yaml"
 Opt = typer.Option

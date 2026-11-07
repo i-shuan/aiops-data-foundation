@@ -4,7 +4,7 @@
 
 | 資料夾 | 內容 |
 |---|---|
-| `src/` | Python 程式，一個功能一個資料夾，依賴只能往左：`interface/`（`cli/` 命令列、`web/` API 與回饋網頁、`jobs/` 排程器與佇列 worker）→ `learn/`（⑨ 學習迴圈：`feedback_service` 回饋、`tuning_service` 調整、`param_suggester` 建議、`rule_backtester` 回測、`evaluation_metrics` 指標、`history_importer` 事故單匯入）→ `incident/`（⑥⑦⑧ 告警與根因：`alert_service` 主流程、`alert_grouper` 併件、`alert_severity` 嚴重度、`rca_analyzer`／`rca_report` 根因分析與報告）→ `llm/`（LLM 摘要、過去相似事故的檢索）→ `detect/`（②③④⑤ 異常分析：`strategy/` 判斷方法、`series_ops/` 前處理與修正、`trace/`、`fab_ingest/` 工廠接 ML／FDC 的異常）→ `shared/`（`infra/` ES 連線與 [`Repos`](src/shared/README.md)、`types/` 事故與指紋、[`scenario/`](src/shared/scenario/README.md) 情境、`config/` 設定檔欄位定義與環境變數）；`detect/`、`incident/`、`learn/` 各有 `store/`，放自己的資料物件和 ES 讀寫。`shared/config/` 是設定檔欄位的定義（一種設定一個檔，型別、預設值、檢查；`settings.py` 是環境變數），值在 `configs/` |
+| `src/` | Python 程式，一個功能一個資料夾，依賴只能往左：`interface/`（`cli/` 命令列、`web/` API 與回饋網頁、`jobs/` 排程器與佇列 worker）→ `learn/`（⑨ 學習迴圈：`feedback_service` 回饋、`tuning_service` 調整、`param_suggester` 建議、`rule_backtester` 回測、`evaluation_metrics` 指標、`history_importer` 事故單匯入）→ `incident/`（⑥⑦⑧ 告警與根因：`alert_service` 主流程、`alert_grouper` 併件、`alert_severity` 嚴重度、`rca_analyzer`／`rca_report` 根因分析與報告）→ `llm/`（LLM 摘要、過去相似事故的檢索）→ `detect/`（②③④⑤ 異常分析：`strategy/` 判斷方法、`series_ops/` 前處理與修正、`trace/`、`fab_ingest/` 工廠接 ML／FDC 的異常）→ `common/`（`infra/` ES 連線與 [`Repos`](src/common/README.md)、`types/` 事故與指紋、[`scenario/`](src/common/scenario/README.md) 情境、`config/` 設定檔欄位定義與環境變數）；`detect/`、`incident/`、`learn/` 各有 `store/`，放自己的資料物件和 ES 讀寫。設定檔欄位的定義（型別、預設值、檢查）：共用的在 `common/config/`（`settings.py` 是環境變數），各功能自己的放自己的 `config/`（`detect/config/`、`incident/config/`、`interface/config/`），值在 `configs/` |
 | `configs/` | 各情境的設定檔（[baseline](configs/baseline/README.md)、[rca](configs/rca/README.md)、[schedule](configs/schedule/schedule.yaml)、`apm/`、`factory/`、`metrics_only/`） |
 | `tests/` | 單元測試與 e2e（e2e 要測試用的 ES） |
 | `Dockerfile`、`requirements.txt` | 一個 image 裝全部，`ENTRYPOINT python3 -m`，`args` 給套件名和指令 |
@@ -14,7 +14,7 @@
 
 **情境名與設定資料夾怎麼對**（兩邊名字不是一對一，因為選法不同）：
 
-| 選什麼 | 情境資料檔（`src/shared/scenario/`） | 設定資料夾（`configs/`） |
+| 選什麼 | 情境資料檔（`src/common/scenario/`） | 設定資料夾（`configs/`） |
 |---|---|---|
 | `AIOPS_PLUGIN=observability`（預設）、`AIOPS_SOURCE=otel`（預設） | `it_otel.yaml` | `baseline/`、`rca/`、`schedule/` |
 | `AIOPS_PLUGIN=observability`、`AIOPS_SOURCE=apm` | `it_apm.yaml` | `apm/` |
@@ -27,11 +27,12 @@
 
 ## 程式結構（`src/`）
 
-依賴只能往下：`interface → learn → incident → llm → detect → shared`（`tests/test_layers.py` 鎖著）。每個功能的資料物件與 ES 讀寫放自己的 `store/`。
+依賴只能往下：`interface → learn → incident → llm → detect → common`（`tests/test_layers.py` 鎖著）。每個功能的資料物件與 ES 讀寫放自己的 `store/`。
 
 ```
 src/
 ├─ interface/     對外的入口
+│  ├─ config/     schedule
 │  ├─ cli/        common · detect · feedback · rca · fab
 │  ├─ web/        routes · dto · views · __main__ · templates/(feedback、missed、report.html)
 │  └─ jobs/       runner · local · worker · cron · sleep
@@ -42,18 +43,21 @@ src/
 ├─ incident/      ⑥⑦⑧ 告警與根因
 │  ├─ alert_service · alert_grouper · alert_severity
 │  ├─ rca_analyzer · rca_report
+│  ├─ config/     rca
 │  ├─ strategy/   it_topology · it_deployment · fab_process_flow · fab_recipe_change
 │  └─ store/      models · alert_repo · incident_repo · change_repo · log_repo
 ├─ llm/           summary（LLM 摘要）· similar（過去相似事故）
 ├─ detect/        ②③④⑤ 異常分析
 │  ├─ base · detect_service · housekeeping · reference_data · utils
+│  ├─ config/     series · rules · peer · quality · trace · chronic · prune · adjustments · calendar · paths · ingest · types
 │  ├─ strategy/   threshold_rule · peer_compare · dynamic_baseline · chronic_issue
 │  ├─ series_ops/ quality_check · level_shift · manual_adjust
 │  ├─ trace/      span_merge · latency_stats · path_builder · path_service
 │  ├─ fab_ingest/ ingest · ingest_service
 │  └─ store/      models · anomaly／baseline／chronic／housekeeping／owner／
 │                 quality／segment／series／state／trace 的 *_repo
-└─ shared/        共用底層
+└─ common/        共用底層
+   ├─ config/     common · loader · settings（各功能自己的設定模型在 detect／incident／interface 的 config/）
    ├─ infra/      env · clock · es · repos
    ├─ types/      incident
    └─ scenario/   base · config · factory／it_apm／it_otel／metrics_only.yaml
@@ -75,7 +79,7 @@ kubectl -n aiops logs deploy/aiops-engine -c scheduler -f | grep '\[scheduler\]'
 
 - `rca.yaml` 的 `alerts.feedback_url`、`report_url` 填 api 的網址（Service `aiops-api:8080`；要讓人從公司網路點得到再加 Ingress）。
 - 分散模式：`--set mode=distributed`（下一節）；ML／FDC 要推異常進來時再 `--set api.token=<隨機字串>`（寫在 `values-local.yaml`）。
-- 情境：預設 `observability`（IT）；工廠 `--set plugin=factory`，只有 ML／FDC 指標 `--set plugin=metrics_only`（[shared/scenario/README.md](src/shared/scenario/README.md)）。各裝一個 release、各自一隻 pod。
+- 情境：預設 `observability`（IT）；工廠 `--set plugin=factory`，只有 ML／FDC 指標 `--set plugin=metrics_only`（[common/scenario/README.md](src/common/scenario/README.md)）。各裝一個 release、各自一隻 pod。
 - 資料來源（observability 才看）：預設讀我們 Collector 寫的 OTel 格式。公司 ES 裡是 Elastic APM 的資料（`traces-apm-*`、`logs-apm.*`、`metrics-apm.*`）時 `--set source=apm`，設定檔與怎麼接見 [configs/apm/README.md](configs/apm/README.md)。
 - LLM：`values.yaml` 的 `llm.provider`（`template` 不叫模型）、`llm.model`（空的用程式預設 openai `gpt-4o-mini`、anthropic `claude-sonnet-4-5`）、`llm.baseUrl`（內網閘道，不含 `/v1`）放 ConfigMap `aiops-env`；`llm.apiKey` 由 chart 建成 Secret `aiops-llm`。**key 只寫在 `values-local.yaml`**（`.gitignore` 擋掉），`values.yaml` 永遠留空。改了重跑 helm，pod 會自己重啟（`checksum/env`）。
 - 設定檔要跟 image 裡的不一樣：`--set-file configOverrides.baseline.series=aiops-engine/configs/baseline/series.yaml`（掛在 `/app/configs/baseline/series.yaml`）；排程表是 `configOverrides.schedule.schedule`。

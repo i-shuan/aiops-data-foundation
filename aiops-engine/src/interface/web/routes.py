@@ -20,10 +20,10 @@ import interface.web.dto as D
 import interface.web.views as V
 import detect.fab_ingest.ingest_service as ING
 import learn.feedback_service as F
-from shared.config.settings import settings
-from shared.config import load_config
-from shared.infra.repos import Repos
-from shared.scenario import load_scenario
+from common.config.settings import settings
+from common.config import load_config
+from common.infra.repos import Repos
+from common.scenario import load_scenario
 
 state = SimpleNamespace(es=None, repo=None)    # ES 連線的單一注入點：main() 放 ES()，測試放假的（set_es）；repo 是它上面的 repository
 HTML, JSON, TEXT = "text/html; charset=utf-8", "application/json", "text/plain; charset=utf-8"

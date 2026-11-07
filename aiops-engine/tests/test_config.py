@@ -1,4 +1,4 @@
-"""shared/config：每一份設定檔都過得了驗證、回傳那一種的模型（寫的鍵跟 yaml 一樣）；鍵打錯、型別錯會擋下來，訊息有檔名與欄位路徑。"""
+"""common/config：每一份設定檔都過得了驗證、回傳那一種的模型（寫的鍵跟 yaml 一樣）；鍵打錯、型別錯會擋下來，訊息有檔名與欄位路徑。"""
 import glob
 import os
 import tempfile
@@ -6,7 +6,7 @@ import unittest
 
 import yaml
 
-from shared.config import KINDS, MODELS, ConfigError, load_config, validate
+from common.config import KINDS, MODELS, ConfigError, load_config, validate
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 CODE = os.path.join(HERE, "..")
@@ -76,7 +76,7 @@ class ModelsReadLikeDicts(unittest.TestCase):
     def test_no_field_shadows_the_dict_like_methods(self):
         """欄位名不能跟過渡層的方法同名（keys、items、values、get…）：pydantic 只警告，欄位會蓋掉方法，`**spec` 就壞。
         yaml 的 `keys` 因此叫 key_names（alias keys）。"""
-        import shared.config.common as C
+        import common.config.common as C
         reserved = {"keys", "items", "values", "get", "to_dict"}
         stack, seen, bad = list(C.Strict.__subclasses__()), set(), []
         while stack:

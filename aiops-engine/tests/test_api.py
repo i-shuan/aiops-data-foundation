@@ -4,14 +4,14 @@ import unittest
 from datetime import datetime, timezone
 from unittest import mock
 
-from shared.infra.es import doc_id
+from common.infra.es import doc_id
 import interface.web.dto as D
 import learn.feedback_service as F
 import interface.web.views as V
 from incident.store.models import ALERT_INDEX
 from learn.store.models import FEEDBACK_INDEX
-from shared.types.incident import INCIDENT_INDEX
-from shared.infra.repos import Repos
+from common.types.incident import INCIDENT_INDEX
+from common.infra.repos import Repos
 
 NOW =datetime(2026, 10, 25, 3, 0, tzinfo=timezone.utc)
 ALERT = {"alert_id": "a-20261025-0200-mes-api", "service": "mes-api", "dept": "D3120", "group": "it", "severity": "critical", "status": "open",

@@ -21,7 +21,7 @@ import pandas as pd
 
 from detect.strategy.dynamic_baseline import MAD_TO_SIGMA
 from detect.store.models import Anomaly
-from shared.config.peer import PeerCheck, PeerConfig
+from detect.config.peer import PeerCheck, PeerConfig
 from detect.base import Detector
 from detect.utils import _freq, keys_of
 

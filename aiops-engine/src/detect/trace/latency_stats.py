@@ -20,12 +20,12 @@ from dataclasses import dataclass
 
 import pandas as pd
 
-from shared.infra.es import ES, doc_id
-from shared.config.trace import TraceConfig
+from common.infra.es import ES, doc_id
+from detect.config.trace import TraceConfig
 from detect.store.models import group_traces, segment, self_times
 from detect.store.models import Anomaly
-from shared.infra.repos import Repos
-from shared.scenario import load_scenario
+from common.infra.repos import Repos
+from common.scenario import load_scenario
 import detect.series_ops.manual_adjust as A
 from detect.series_ops.manual_adjust import data_adjustments
 from detect.detect_service import save_anomalies, save_baseline, train_summary, with_status

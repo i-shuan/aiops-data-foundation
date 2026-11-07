@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 
 import pandas as pd
 
-from shared.infra.es import doc_id, get_field
+from common.infra.es import doc_id, get_field
 
 
 # ── anomaly ──

@@ -6,14 +6,14 @@ import dataclasses
 import numpy as np
 import pandas as pd
 
-from shared.infra.es import ES, doc_id
-from shared.infra.clock import stamp_of
-from shared.config.common import Status
-from shared.config.series import Series, SeriesConfig
-from shared.config.trace import TraceConfig
+from common.infra.es import ES, doc_id
+from common.infra.clock import stamp_of
+from detect.config.types import Status
+from detect.config.series import Series, SeriesConfig
+from detect.config.trace import TraceConfig
 from detect.store.models import Anomaly
-from shared.infra.repos import Repos
-from shared.scenario import load_scenario
+from common.infra.repos import Repos
+from common.scenario import load_scenario
 import detect.series_ops.manual_adjust as A
 from detect.strategy.dynamic_baseline import (CONFIDENCE, RESOLUTIONS, DetectOptions, TrainOptions, effective_for, mask_thin, pick_resolution, score, group_of, mark_status, override_for, resolutions_from, score_poisson, train, train_groups)
 from detect.utils import _freq, _now, _v, keys_of, value_kind

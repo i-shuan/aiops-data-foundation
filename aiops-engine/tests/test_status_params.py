@@ -3,7 +3,7 @@ import unittest
 
 import pandas as pd
 
-from shared.config import validate
+from common.config import validate
 from detect.detect_service import status_params, with_status
 
 CFG = validate({"status": {"confirm_points": 2, "confirm_span": "30m", "instant_z": 15}}, "series")

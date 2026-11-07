@@ -5,12 +5,12 @@ from __future__ import annotations
 
 import pandas as pd
 
-from shared.infra.es import ES, doc_id
-from shared.infra.repos import Repos
-from shared.scenario import load_scenario
+from common.infra.es import ES, doc_id
+from common.infra.repos import Repos
+from common.scenario import load_scenario
 import detect.series_ops.manual_adjust as A
 from detect.series_ops.manual_adjust import load_adjustments
-from shared.config.series import SeriesConfig
+from detect.config.series import SeriesConfig
 
 # add 每種 kind 必填的參數
 REQUIRED = {"exclude_window": ("start", "end"), "reset_point": ("at",), "recurring_override": ("cron", "duration")}

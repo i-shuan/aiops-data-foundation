@@ -30,8 +30,8 @@ import time
 import pandas as pd
 import requests
 
-from shared.config.calendar import CalendarConfig
-from shared.config.chronic import ChronicConfig
+from detect.config.calendar import CalendarConfig
+from detect.config.chronic import ChronicConfig
 
 TAIWAN_URL = "https://cdn.jsdelivr.net/gh/ruyut/TaiwanCalendar/data/{year}.json"
 
@@ -154,7 +154,7 @@ SCOPE_FIELDS = ("match", "series", "detect")   # 來源層級寫的，套到這�
 
 
 def load_calendar(calendar_config: CalendarConfig, *, fetch=_http_json, now: pd.Timestamp | None = None) -> tuple[list[dict], str | None]:
-    """calendar_config：calendar.yaml（shared/config/calendar.py）。回傳（項目、時區）。
+    """calendar_config：calendar.yaml（common/config/calendar.py）。回傳（項目、時區）。
     calendar 直接寫的項目（人工補的維護日、活動）一起算；sources 沒寫也行。
 
     來源可以寫 match、series、detect，套到它的每一筆：台灣行事曆的每一天沒有 match，不限定的話假日那天
@@ -185,7 +185,7 @@ def load_calendar(calendar_config: CalendarConfig, *, fetch=_http_json, now: pd.
 
 
 def load_owners(chronic_config: ChronicConfig, *, fetch=_http_json) -> list[dict]:
-    """chronic_config：chronic.yaml（shared/config/chronic.py）。owners（直接寫的）加 owners_source（一個或多個來源）。先寫的優先（owner_of 取第一個符合的）。"""
+    """chronic_config：chronic.yaml（common/config/chronic.py）。owners（直接寫的）加 owners_source（一個或多個來源）。先寫的優先（owner_of 取第一個符合的）。"""
     out = list(chronic_config.owners)
     srcs = chronic_config.owners_source or []
     for src in srcs if isinstance(srcs, list) else [srcs]:

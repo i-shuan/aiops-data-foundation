@@ -2,8 +2,8 @@
 import unittest
 
 import detect.store.owner_repo as O
-from shared.infra.repos import Repos
-from shared.scenario import load_scenario
+from common.infra.repos import Repos
+from common.scenario import load_scenario
 
 IT = load_scenario("observability")
 
@@ -69,7 +69,7 @@ class WriteAnomalies(unittest.TestCase):
 
     def test_every_doc_carries_engine_version(self):
         # 五種寫入（baseline、規則、peer、quality、trace）都走這裡，所以在這裡補就等於每筆都有；欄位也要在 mapping（dynamic false）
-        from shared.infra.env import ENGINE_VERSION
+        from common.infra.env import ENGINE_VERSION
         from detect.store.models import ANOMALY_MAPPING
         class Fake:
             def __init__(self): self.written = None

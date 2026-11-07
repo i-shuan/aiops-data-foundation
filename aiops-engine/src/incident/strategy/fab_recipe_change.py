@@ -2,7 +2,7 @@
 IT 看 service.version 第一次出現（incident/strategy/it_deployment.py）；工廠的變更紀錄一筆一次，直接拿最近一筆。"""
 from __future__ import annotations
 
-from shared.config.rca import RcaConfig
+from incident.config.rca import RcaConfig
 from datetime import datetime
 
 

@@ -13,8 +13,8 @@ SIGTERM／SIGINT：不再排新的，等還在跑的結束（pod 的 termination
 """
 from __future__ import annotations
 
-from shared.config.settings import settings
-from shared.infra.env import CODE_ROOT
+from common.config.settings import settings
+from common.infra.env import CODE_ROOT
 
 import argparse
 import signal

@@ -31,7 +31,7 @@ import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
 
-from shared.infra.es import ES
+from common.infra.es import ES
 from detect.store.models import ANOMALY_MAPPING
 
 CFG = "tests/rca_chain.yaml"

@@ -31,10 +31,10 @@ import re
 import numpy as np
 import pandas as pd
 
-from shared.config import load_config
-from shared.config.rules import RulesConfig
-from shared.config.series import SeriesConfig
-from shared.config.trace import TraceConfig
+from common.config import load_config
+from detect.config.rules import RulesConfig
+from detect.config.series import SeriesConfig
+from detect.config.trace import TraceConfig
 from detect.reference_data import load_calendar
 
 KINDS = ("override", "exclude_window", "reset_point", "recurring_override")

@@ -13,7 +13,7 @@ import pandas as pd
 
 from interface.cli.detect import main as cli
 from detect.store.models import ANOMALY_INDEX
-from shared.infra.es import ES
+from common.infra.es import ES
 from detect.store.models import BASELINE_INDEX
 
 TZ = "Asia/Taipei"

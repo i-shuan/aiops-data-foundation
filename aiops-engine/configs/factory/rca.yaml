@@ -1,11 +1,11 @@
 # 工廠的事件整合、根因分析設定（investigator alert／investigate）。寫法跟 configs/apm/rca.yaml 一樣，差在索引與時間尺度；
-# 「對象是機台、API 是 recipe、前後站從履歷找、recipe 變更當換版、嚴重度依參數家族」是情境決定的（shared/scenario/factory.yaml），
+# 「對象是機台、API 是 recipe、前後站從履歷找、recipe 變更當換版、嚴重度依參數家族」是情境決定的（common/scenario/factory.yaml），
 # 跑之前 AIOPS_PLUGIN=factory。情境給的預設想改才寫在這裡：alerts.critical_levels、alerts.severity.classes、
 # alerts.deploy_index／deploy_entity_field／deploy_time_field／deploy_filter（recipe 變更紀錄在哪）。
 indices:
   anomalies: aiops-anomalies
   traces: lot-paths-*                                # detector paths-merge 合成的履歷
-  logs: eqp-logs-*                                   # 機台 alarm（S5F1）、PM／維修紀錄、recipe 變更，合在一個索引（欄位見 shared/scenario/factory.yaml 的 log）
+  logs: eqp-logs-*                                   # 機台 alarm（S5F1）、PM／維修紀錄、recipe 變更，合在一個索引（欄位見 common/scenario/factory.yaml 的 log）
 timezone: Asia/Taipei
 compare_with: 7d                                     # 「平常」拿一週前同一段的 lot 比
 ref_gap: 2h
@@ -38,7 +38,7 @@ alerts:
   chain: true                                        # 前後站從履歷找（incident/strategy/fab_process_flow.py）；false 就不併跨機台
   paths_lookback: 3d                                 # 履歷往前找幾天的 lot
   # critical_levels、換版的索引（deploy_index eqp-logs-*、deploy_entity_field equipment_id、deploy_filter event_type recipe_change）、
-  # severity.classes（參數家族）都用情境的預設（shared/scenario/factory.yaml）；要改才寫
+  # severity.classes（參數家族）都用情境的預設（common/scenario/factory.yaml）；要改才寫
   severity:
     window: 120                                      # 滑動窗 2 小時（IT 是 15 分鐘）：工廠一站幾十分鐘
     min_coverage: 0.3

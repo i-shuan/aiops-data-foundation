@@ -7,8 +7,8 @@ from datetime import datetime, timedelta
 
 import pandas as pd
 
-from shared.infra.es import time_range
-from shared.infra.es import Repository
+from common.infra.es import time_range
+from common.infra.es import Repository
 
 # log 的 @timestamp 是應用自己的時間：時鐘偏了、或請求結束後才寫的 log，可能離 span 十幾分鐘。
 # trace_id 本身就夠準，時間只用來少掃幾個 backing index，所以前後多放 30 分鐘（docs/pdca/phase1-collect/2026-10-log-trace-bind.md）

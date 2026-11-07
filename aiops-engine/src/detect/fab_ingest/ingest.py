@@ -30,8 +30,8 @@ from datetime import datetime, timezone
 
 import pandas as pd
 
-from shared.config.ingest import IngestConfig, Input
-from shared.infra.es import doc_id, get_field
+from detect.config.ingest import IngestConfig, Input
+from common.infra.es import doc_id, get_field
 
 LEVELS = ("ml", "fdc", "external")
 _FIELD = re.compile(r"\{([^{}]+)\}")
@@ -132,7 +132,7 @@ def convert(rows: list[dict], inp: Input, detected_at: datetime | None = None) -
 
 def validate(ingest_config: IngestConfig) -> list[str]:
     """模型管不到的：每個 input 的 name 不能重複、keys 不能是空的、至少要有一個 input。name、index、series、keys 有沒有寫、
-    level 對不對，設定檔一讀進來模型就擋了（shared/config/ingest.py）。回傳問題清單（空的就是沒問題）。"""
+    level 對不對，設定檔一讀進來模型就擋了（common/config/ingest.py）。回傳問題清單（空的就是沒問題）。"""
     bad = []
     names = set()
     for i, inp in enumerate(ingest_config.inputs):

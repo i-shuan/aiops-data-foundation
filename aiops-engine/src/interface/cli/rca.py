@@ -27,11 +27,11 @@ from datetime import timedelta
 import typer
 
 import detect.store.models as T
-from shared.config import load_config
-from shared.config.rca import IncidentsDb, RcaConfig
-from shared.infra.es import ES
-from shared.infra.repos import Repos
-from shared.scenario import load_scenario
+from common.config import load_config
+from incident.config.rca import IncidentsDb, RcaConfig
+from common.infra.es import ES
+from common.infra.repos import Repos
+from common.scenario import load_scenario
 
 import incident.rca_analyzer as A
 import incident.alert_service as cmd_alert

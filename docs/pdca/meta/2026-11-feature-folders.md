@@ -28,12 +28,12 @@
 
 ## Do
 
-- `git mv` 加腳本改 import（147 個檔）：`core/{connection,clock,env}`→`shared/`、`core/entity/base`→`shared/document.py`、`core/entity/incident`→`shared/incident_doc.py`、`core/repository/_base`→`shared/repository.py`、`scenario/base`＋`data/`→`shared/scenario/`、`schema/`→`shared/schema/`；`service/detect/*`→`detect/`；`service/converge/*` 與 `service/rca/{analyze,report}`→`incident/`；`service/rca/{llm,similar}`→`llm/{summary,similar}.py`；`service/feedback/*`→`learn/`；entity 與 repository 分到各功能的 `store/`（repository 檔名加 `_repo`）；`scenario/{it,factory}/{chain,change}`→`incident/strategy/{it,factory}_{chain,change}.py`；`scenario/factory/{ingest,ingest_job,paths,commands}`→`detect/factory/`。
+- `git mv` 加腳本改 import（147 個檔）：`core/{connection,clock,env}`→`shared/`、`core/entity/base`→`shared/document.py`、`core/entity/incident`→`shared/incident_doc.py`、`core/repository/_base`→`shared/repository.py`、`scenario/base`＋`data/`→`common/scenario/`、`schema/`→`shared/schema/`；`service/detect/*`→`detect/`；`service/converge/*` 與 `service/rca/{analyze,report}`→`incident/`；`service/rca/{llm,similar}`→`llm/{summary,similar}.py`；`service/feedback/*`→`learn/`；entity 與 repository 分到各功能的 `store/`（repository 檔名加 `_repo`）；`scenario/{it,factory}/{chain,change}`→`incident/strategy/{it,factory}_{chain,change}.py`；`scenario/factory/{ingest,ingest_job,paths,commands}`→`detect/factory/`。
 - `Repos` 改成 `shared/repos.py`：名稱表＋第一次取用才用 `importlib` 載入，所以 `shared/` 沒有靜態 import 任何功能；呼叫端只是 import 路徑變（`from shared.repos import Repos`）。
 - `stamp_of`、`STAMP_LAG` 搬到 `shared/clock.py`（`detect/` 的狀態心跳也用，放在 alert 會變成 detect 依賴 incident）；`incident/store/alert.py` 仍 re-export。
 - `tests/test_layers.py` 改成新順序（`shared < detect < llm < incident < learn < interface`），索引名字面值只能在 `*/store/` 與 `shared/`；新增 `test_scans_something`——搬完第一次跑時舊名單掃不到任何檔，三個測試是空轉通過的。
 - 情境 yaml 的策略字串、文件與註解裡的路徑、CLAUDE.md／README／architecture 的結構段同步。
-- 踩到的：第一次改 import 的正則把變數 `scenario`、`schema` 也換掉了（`Repos(es, scenario)` 變成 `Repos(es, shared.scenario)`），整批 `git checkout` 還原後，改成只換 `from scenario import` 與完整模組名。
+- 踩到的：第一次改 import 的正則把變數 `scenario`、`schema` 也換掉了（`Repos(es, scenario)` 變成 `Repos(es, common.scenario)`），整批 `git checkout` 還原後，改成只換 `from scenario import` 與完整模組名。
 
 ## Check
 

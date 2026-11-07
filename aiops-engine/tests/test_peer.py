@@ -1,6 +1,6 @@
 """跟兄弟比（detector/peer.py）的單元測試，不需要 ES。"""
-from shared.config import validate
-from shared.config.peer import PeerCheck
+from common.config import validate
+from detect.config.peer import PeerCheck
 import contextlib
 import io
 import unittest

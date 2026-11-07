@@ -5,11 +5,11 @@ IT 是從 trace 算「誰呼叫誰」（incident/strategy/it_topology.py）；�
 """
 from __future__ import annotations
 
-from shared.config.rca import RcaConfig
+from incident.config.rca import RcaConfig
 from datetime import datetime, timedelta, timezone
 
-from shared.infra.clock import duration
-from shared.scenario.base import Chain
+from common.infra.clock import duration
+from common.scenario.base import Chain
 
 
 def _ms_to_dt(ms: float) -> datetime:

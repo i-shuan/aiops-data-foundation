@@ -9,8 +9,8 @@ from collections import defaultdict
 
 import pandas as pd
 
-from shared.infra.es import get_field, time_range
-from shared.infra.es import Repository
+from common.infra.es import get_field, time_range
+from common.infra.es import Repository
 
 COLUMNS = ["ts", "value", "n"]
 

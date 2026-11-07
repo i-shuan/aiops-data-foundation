@@ -1,13 +1,13 @@
 """調整（detector.adjust）：排除時段、重置點、週期放寬、別名、生效條件。不需要 ES。"""
-from shared.config import validate
+from common.config import validate
 import unittest
 
 import numpy as np
 import pandas as pd
 
 import detect.series_ops.manual_adjust as A
-from shared.infra.repos import Repos
-from shared.scenario import load_scenario
+from common.infra.repos import Repos
+from common.scenario import load_scenario
 
 SC = load_scenario()
 from detect.strategy.dynamic_baseline import override_for

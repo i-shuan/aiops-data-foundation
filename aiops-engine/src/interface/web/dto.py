@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import json
 
-from shared.config.settings import settings
-from shared.infra.env import CODE_ROOT
+from common.config.settings import settings
+from common.infra.env import CODE_ROOT
 from learn.store.models import RCA_USEFUL as _RCA_USEFUL
-from shared.types.incident import classify
+from common.types.incident import classify
 from interface.jobs.runner import load_schedule
-from shared.scenario import Scenario
+from common.scenario import Scenario
 from learn.feedback_service import RCA_QUESTIONS as _RCA_QUESTIONS, SERIES_NAMES, TIMEZONE, WEB_VERDICTS  # noqa: F401  給 views、測試用
 
 MISSED_FIELDS = ("series", "service", "at", "by", "note", "route", "pod")    # 漏報表單的元素 id（Grafana 預填的 key 要對到這些）

@@ -1,12 +1,12 @@
 """tune --show：印出某條序列、某個對象現在生效的值與來源（detector.cmd_baseline.cmd_tune、effective_lines）。
 用假的 ES（aiops-tuning 裡放兩筆都符合的 override），不連 ES；設定檔的 adjustments、calendar 關掉，只看這裡給的。"""
-from shared.config import validate
+from common.config import validate
 import contextlib
 import io
 import unittest
 
-from shared.infra.repos import Repos
-from shared.scenario import load_scenario
+from common.infra.repos import Repos
+from common.scenario import load_scenario
 
 SC = load_scenario()
 from argparse import Namespace

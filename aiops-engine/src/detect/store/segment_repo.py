@@ -3,8 +3,8 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from shared.infra.es import time_range
-from shared.infra.es import Repository
+from common.infra.es import time_range
+from common.infra.es import Repository
 
 SEGMENT_INDEX = "aiops-trace-segments"
 SEGMENT_MAPPING = {"mappings": {"dynamic": False, "properties": {

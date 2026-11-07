@@ -6,10 +6,10 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from unittest import mock
 
-import shared.scenario.base as SC
-from shared.infra.repos import Repos
+import common.scenario.base as SC
+from common.infra.repos import Repos
 from detect.store.owner_repo import owner_of
-from shared.scenario import Chain, Scenario, load_scenario
+from common.scenario import Chain, Scenario, load_scenario
 import incident.alert_grouper as AL
 import incident.rca_report as R
 
@@ -61,7 +61,7 @@ class Loading(unittest.TestCase):
 
 
 class Builtins(unittest.TestCase):
-    """三個內建各填了什麼（shared/scenario/README.md 的表）。"""
+    """三個內建各填了什麼（common/scenario/README.md 的表）。"""
 
     def test_observability(self):
         sc = load_scenario("observability")

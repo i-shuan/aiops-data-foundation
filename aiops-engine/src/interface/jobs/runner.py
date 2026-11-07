@@ -16,11 +16,11 @@ from datetime import datetime, timedelta
 from typing import Callable
 from zoneinfo import ZoneInfo
 
-from shared.config import load_config
+from common.config import load_config
 
 
 from interface.jobs.cron import Cron
-from shared.config.schedule import Job as ScheduleJob
+from interface.config.schedule import Job as ScheduleJob
 
 QUEUES = ("realtime", "alert", "batch")
 

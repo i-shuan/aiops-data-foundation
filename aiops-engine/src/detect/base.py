@@ -10,13 +10,13 @@ from abc import ABC, abstractmethod
 
 import pandas as pd
 
-from shared.config.peer import PeerConfig
-from shared.config.quality import QualityConfig
-from shared.config.rules import RulesConfig
-from shared.infra.es import ES
+from detect.config.peer import PeerConfig
+from detect.config.quality import QualityConfig
+from detect.config.rules import RulesConfig
+from common.infra.es import ES
 from detect.store.models import Anomaly
-from shared.infra.repos import Repos
-from shared.scenario import load_scenario
+from common.infra.repos import Repos
+from common.scenario import load_scenario
 from detect.utils import _freq, _now
 
 

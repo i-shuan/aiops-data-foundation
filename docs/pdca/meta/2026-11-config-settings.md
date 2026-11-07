@@ -12,9 +12,9 @@
 
 | 步 | 做什麼 | 為什麼排在這 |
 |---|---|---|
-| 0 | `shared/config/settings.py`：環境變數集中成一個有型別的 `Settings`，只在入口（`main.py` 各角色）讀一次、往下傳；`shared/infra/env.py` 併進來 | 獨立、小、不碰演算法，先消滅「打錯字不報錯」 |
-| 1 | `shared/config/` 搬家（`shared/scenario/config.py` 拆成一種一個檔加 `loader.py`），再三階段回模型：①模型加 `get`／`[]` 過渡層（語意同現在的 dict：只有 yaml 有寫的鍵才算有）、`load_config` 回模型 ②依 kind 逐種換成屬性存取、參數名改 `<kind>_config`、預設值搬進模型 ③拆掉過渡層與 AST 檢查 | 設定的主體；過渡層讓現有測試和傳 dict 的測試不必一次全改 |
-| 2 | 時間統一 `shared/clock/`：`TimeWindow`、`parse_duration`／`parse_instant` 只給 `interface/` 呼叫，設定檔的 `timezone` 驗成 `ZoneInfo` | 設定回模型後，時區欄位才有地方驗 |
+| 0 | `common/config/settings.py`：環境變數集中成一個有型別的 `Settings`，只在入口（`main.py` 各角色）讀一次、往下傳；`common/infra/env.py` 併進來 | 獨立、小、不碰演算法，先消滅「打錯字不報錯」 |
+| 1 | `common/config/` 搬家（`common/scenario/config.py` 拆成一種一個檔加 `loader.py`），再三階段回模型：①模型加 `get`／`[]` 過渡層（語意同現在的 dict：只有 yaml 有寫的鍵才算有）、`load_config` 回模型 ②依 kind 逐種換成屬性存取、參數名改 `<kind>_config`、預設值搬進模型 ③拆掉過渡層與 AST 檢查 | 設定的主體；過渡層讓現有測試和傳 dict 的測試不必一次全改 |
+| 2 | 時間統一 `common/clock/`：`TimeWindow`、`parse_duration`／`parse_instant` 只給 `interface/` 呼叫，設定檔的 `timezone` 驗成 `ZoneInfo` | 設定回模型後，時區欄位才有地方驗 |
 | 3 | 重複副本：**用「模型預設值當 baseline」**（使用者決定）——共通的鍵預設值進模型，各情境的 `rca`、`schedule` 等 yaml 只留跟預設值不同的鍵；不自己再做一套 `extends`；**不**把情境改成包 13 種設定的根模型；像 `rules` 這種長清單若各情境只微調幾條，另議（可能保留獨立檔） | 預設值搬進模型之後才有東西可以省；之前做會維護兩套繼承 |
 | 4 | 約 80 個常數：動到那個模組時才搬進對應模型 | 不一次大改 |
 
@@ -31,16 +31,16 @@
 
 ### 步驟 0：環境變數集中成 `Settings`（已做）
 
-- 新增 `shared/config/settings.py`：`Settings`（21 個欄位，名字是環境變數的小寫，預設值照原本）、`settings()`（每次呼叫重讀環境，所以測試的 `mock.patch.dict(os.environ, …)` 照樣有效，24 個動環境變數的測試檔不用改）、`require_es_url()`／`require_llm_api_key()`（用的那一刻才檢查，繼承 `KeyError`，原本抓 `KeyError` 的地方照舊）、`chat_model(default)`（各 provider 的預設模型不同）、`cors_origins`、`tls`；型別錯拋 `SettingsError`，訊息講變數名與值。
-- 改 9 個讀環境變數的檔（`shared/infra/es.py`、`shared/scenario/base.py`、`llm/summary.py`、`interface/web/{__main__,routes,dto}.py`、`interface/jobs/{local,worker}.py`、`shared/infra/env.py`）改用 `settings()`；`ENGINE_VERSION` 用單獨的 `engine_version()` 讀（模組載入時就要，不該因為別的變數錯而連 import 都失敗）。
+- 新增 `common/config/settings.py`：`Settings`（21 個欄位，名字是環境變數的小寫，預設值照原本）、`settings()`（每次呼叫重讀環境，所以測試的 `mock.patch.dict(os.environ, …)` 照樣有效，24 個動環境變數的測試檔不用改）、`require_es_url()`／`require_llm_api_key()`（用的那一刻才檢查，繼承 `KeyError`，原本抓 `KeyError` 的地方照舊）、`chat_model(default)`（各 provider 的預設模型不同）、`cors_origins`、`tls`；型別錯拋 `SettingsError`，訊息講變數名與值。
+- 改 9 個讀環境變數的檔（`common/infra/es.py`、`common/scenario/base.py`、`llm/summary.py`、`interface/web/{__main__,routes,dto}.py`、`interface/jobs/{local,worker}.py`、`common/infra/env.py`）改用 `settings()`；`ENGINE_VERSION` 用單獨的 `engine_version()` 讀（模組載入時就要，不該因為別的變數錯而連 import 都失敗）。
 - `main.py`：各角色的程式改成「要跑的那一刻才 import」；`SettingsError`／`MissingSetting` 印一行「設定錯誤：…」、結束碼 2，不丟 traceback。
 - `tests/test_settings.py`：除了 `settings.py`，`src/` 和 `main.py` 沒有任何 `os.environ`／`os.getenv`（AST 檢查）。
-- 順手刪掉 `shared/infra/clock.py` 裡重複定義的 `stamp_of`（先前搬檔時重複貼的）。
+- 順手刪掉 `common/infra/clock.py` 裡重複定義的 `stamp_of`（先前搬檔時重複貼的）。
 - **跟計畫不同的地方**：計畫寫「只在入口讀一次、往下傳」，實際是「每次用到就 `settings()` 重讀」。原因：`ES()` 在二十幾個函式裡直接建立、`load_scenario()` 在測試裡依環境變數重讀；真的往下傳要改所有簽名、測試要全改。每次重讀只是讀 21 個字串，成本可以忽略。步驟 1 設定回模型時簽名本來就要動，到時候再看哪些適合改成注入。
 
 ### 步驟 1：設定檔回模型（①②③做完，13 種都已換成屬性存取；過渡層還在）
 
-- **①搬家與拆檔**：`shared/scenario/config.py`（790 行）拆成 `shared/config/` 套件：`common.py`（共用型別與小段）、一種設定一個檔（`series.py`、`rules.py`、`peer.py`、`quality.py`、`trace.py`、`rca.py`、`schedule.py`、`chronic.py`、`prune.py`、`calendar.py`、`adjustments.py`、`ingest.py`、`paths.py`）、`loader.py`（讀檔、驗證、錯誤訊息、`KINDS`、`MODELS`）；用腳本依 AST 切、補 import，只搬不改。
+- **①搬家與拆檔**：`common/scenario/config.py`（790 行）拆成 `common/config/` 套件：`common.py`（共用型別與小段）、一種設定一個檔（`series.py`、`rules.py`、`peer.py`、`quality.py`、`trace.py`、`rca.py`、`schedule.py`、`chronic.py`、`prune.py`、`calendar.py`、`adjustments.py`、`ingest.py`、`paths.py`）、`loader.py`（讀檔、驗證、錯誤訊息、`KINDS`、`MODELS`）；用腳本依 AST 切、補 import，只搬不改。
 - **②過渡層與回模型**：`Strict` 加 `get`／`[]`／`in`／`keys`／`items`／`values`／`len`／`to_dict`／`==`，語意跟原本的 dict 一樣（**只有 yaml 有寫的鍵才算有**）；`load_config`、`validate` 回那一種的模型（13 個 `@overload`，編輯器知道 `load_config(p, "series")` 是 `SeriesConfig`），不再 `model_dump` 倒回 dict。現有的程式與測試幾乎不用改。
 - **③逐種換成屬性存取**：先做 `prune` 當樣板——`plan(prune_config: PruneConfig, …)`、`it.keep_days`、預設值（`time_field="@timestamp"`、`timezone="Asia/Taipei"`、`indices=[]`）進模型、程式裡的 `.get(…, 預設)` 刪掉、測試改用 `validate({…}, "prune")` 造設定。
 - **③ 目前的進度**（13 種設定換成屬性存取：參數改名 `<種類>_config`、預設值進模型、程式裡的 `.get(鍵, 預設)` 刪掉、測試改用 `validate({…}, 種類)` 造設定）：
@@ -84,3 +84,10 @@
 | 過渡層讓「型別錯的設定值傳進來」要到用的那一刻才發現（例如單元測試傳 dict 給已經換成屬性存取的函式） | 轉換 `prune` 時 | 每一種換完就把那一種的測試改成 `validate({…}, kind)`；過渡層拆掉前不加新的 dict 用法 |
 | 6 個舊的 e2e 腳本在 master 上就壞（見 Check） | 驗證步驟 1 時 | 另開一件修；這份計畫不處理 |
 | 過渡層還在：單條 `Series`／規則／檢查的 `spec` 仍是「像 dict」（`spec.get`）、`repo.series.fetch／rows／points`、`keys_of` | — | 下一步：階段 3 拆過渡層，再加 AST 測試擋 `cfg` 參數名；之後進時間統一與 yaml 瘦身 |
+
+### 步驟 1.5：`shared/` 改名 `common/`，各功能的設定模型搬進各自的 `config/`（使用者要求）
+
+- **Do**：`git mv src/shared src/common`；`common/config/` 只留共用的 `common.py`、`loader.py`、`settings.py`。`series`、`rules`、`peer`、`quality`、`trace`、`chronic`、`prune`、`adjustments`、`calendar`、`paths`、`ingest` 搬到 `detect/config/`；`rca` 到 `incident/config/`；`schedule` 到 `interface/config/`。`Train`、`Detect`、`Status`、`Provider`、`Value` 只有 detect 的設定在用，搬到 `detect/config/types.py`。
+- **loader**：`MODELS` 改成名稱表 `REGISTRY`（`"detect.config.series:SeriesConfig"`），第一次用到才 import（跟 `Repos` 同一招），所以 `common` 不靜態依賴功能；`load_config` 的 overload 回傳型別用 `if TYPE_CHECKING:` 引入。
+- **test_layers**：層名 `shared`→`common`；`if TYPE_CHECKING:` 底下的 import 不算依賴（執行時不載入）。這是放寬一條規則，理由寫在測試檔頭。
+

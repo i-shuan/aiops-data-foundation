@@ -3,8 +3,8 @@ import unittest
 from datetime import datetime, timezone
 
 import detect.fab_ingest.ingest as I
-from shared.config import ConfigError, validate
-from shared.config.ingest import Input
+from common.config import ConfigError, validate
+from detect.config.ingest import Input
 
 NOW = datetime(2026, 11, 4, 6, 0, tzinfo=timezone.utc)
 ML_RAW = {"name": "ml", "index": "factory-ml-anomalies-*", "id_field": "run_id", "series": "fdc.{parameter}",

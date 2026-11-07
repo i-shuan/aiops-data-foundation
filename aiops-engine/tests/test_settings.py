@@ -1,9 +1,9 @@
-"""shared/config/settings.py：環境變數集中成 Settings。程式裡只有它讀 os.environ；預設值照原本；型別錯一行講清楚；必填的要用才檢查。"""
+"""common/config/settings.py：環境變數集中成 Settings。程式裡只有它讀 os.environ；預設值照原本；型別錯一行講清楚；必填的要用才檢查。"""
 import ast
 import pathlib
 import unittest
 
-from shared.config.settings import MissingSetting, Settings, SettingsError, settings
+from common.config.settings import MissingSetting, Settings, SettingsError, settings
 
 SRC = pathlib.Path(__file__).resolve().parents[1] / "src"
 
@@ -17,7 +17,7 @@ class OnlySettingsReadsEnv(unittest.TestCase):
             for n in ast.walk(ast.parse(p.read_text(encoding="utf-8"))):
                 if isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name) and n.value.id == "os" and n.attr in ("environ", "getenv"):
                     bad.append(f"{p.relative_to(SRC.parent)}:{n.lineno}")
-        self.assertEqual(bad, [], "只有 shared/config/settings.py 可以讀環境變數，其他地方用 settings()")
+        self.assertEqual(bad, [], "只有 common/config/settings.py 可以讀環境變數，其他地方用 settings()")
 
 
 class Defaults(unittest.TestCase):

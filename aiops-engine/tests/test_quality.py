@@ -1,13 +1,13 @@
 """資料品質檢查（detector.quality）的計算：路由沒參數化、欄位缺、資料停了、落到 unassigned 變多。"""
-from shared.config.quality import QualityCheck
+from detect.config.quality import QualityCheck
 import unittest
 
 import pandas as pd
 
 import detect.series_ops.quality_check as Q
 import detect.store.quality_repo as QR
-from shared.infra.repos import Repos
-from shared.scenario import load_scenario
+from common.infra.repos import Repos
+from common.scenario import load_scenario
 
 SC = load_scenario()
 

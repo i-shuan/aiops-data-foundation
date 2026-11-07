@@ -39,9 +39,9 @@ from interface.cli.detect import main as cli
 from detect.detect_service import detect_series
 from detect.utils import keys_of
 from detect.store.models import ANOMALY_INDEX
-from shared.infra.es import ES
+from common.infra.es import ES
 from detect.store.models import BASELINE_INDEX
-from shared.infra.repos import Repos
+from common.infra.repos import Repos
 from detect.strategy.dynamic_baseline import DetectOptions
 from learn.store.models import TUNING_INDEX
 from detect.series_ops.manual_adjust import data_adjustments, load_overrides
@@ -52,7 +52,7 @@ def _patient_es():
     """測試機很慢時（多個 ES 共用一台 VM，單一查詢可以超過 2 分鐘），engine 的 ES 用戶端逾時（120 秒）就整輪失敗。
     這裡只在測試裡把逾時拉長、逾時或連線被重設時重送（查詢、帶 _id 的寫入、delete_by_query 重送都不會多出資料）。"""
     import requests
-    from shared.infra.es import ES as _ES
+    from common.infra.es import ES as _ES
 
     def req(self, method, path, body=None, ok=(200, 201)):
         for i in range(6):

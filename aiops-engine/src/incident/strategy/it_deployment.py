@@ -1,7 +1,7 @@
 """IT 的「換版」：服務的版號（service.version）第一次出現的時間。換版後 deploy_grace 分鐘內的異常上限 warning（incident/alert_severity.py）。"""
 from __future__ import annotations
 
-from shared.config.rca import RcaConfig
+from incident.config.rca import RcaConfig
 from datetime import datetime
 
 

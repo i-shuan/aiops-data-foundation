@@ -10,16 +10,16 @@ ES 的 change_point 聚合要付費授權，這裡只看 aiops-anomalies 裡已�
 """
 from __future__ import annotations
 
-from shared.config.series import SeriesConfig
+from detect.config.series import SeriesConfig
 import json
 import re
 
 import numpy as np
 import pandas as pd
 
-from shared.infra.es import ES, doc_id
-from shared.infra.repos import Repos
-from shared.scenario import load_scenario
+from common.infra.es import ES, doc_id
+from common.infra.repos import Repos
+from common.scenario import load_scenario
 import detect.series_ops.manual_adjust as A
 from detect.utils import _now
 from detect.series_ops.manual_adjust import load_adjustments

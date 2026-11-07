@@ -13,17 +13,17 @@
 """
 from __future__ import annotations
 
-from shared.config.rca import Commonality, RcaConfig
+from incident.config.rca import Commonality, RcaConfig
 import re
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 from typing import Callable
 
 import detect.store.models as T
-from shared.infra.es import ES
+from common.infra.es import ES
 from detect.store.models import entity_value
-from shared.infra.repos import Repos
-from shared.scenario import load_scenario
+from common.infra.repos import Repos
+from common.scenario import load_scenario
 
 import incident.rca_analyzer as A
 

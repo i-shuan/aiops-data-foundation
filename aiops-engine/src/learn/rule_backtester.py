@@ -13,7 +13,7 @@
 """
 from __future__ import annotations
 
-from shared.config.series import SeriesConfig
+from detect.config.series import SeriesConfig
 import json
 import re
 
@@ -25,9 +25,9 @@ import detect.strategy.threshold_rule as R
 from detect.series_ops.manual_adjust import load_adjustments
 from detect.detect_service import detect_series
 from detect.utils import _freq, _now, keys_of
-from shared.infra.es import ES
-from shared.infra.repos import Repos
-from shared.scenario import load_scenario
+from common.infra.es import ES
+from common.infra.repos import Repos
+from common.scenario import load_scenario
 from detect.strategy.dynamic_baseline import DetectOptions
 import learn.param_suggester as F
 

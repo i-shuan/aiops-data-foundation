@@ -1,7 +1,7 @@
 """索引層級的雜務：依時間清舊文件（prune）、放 index template（工廠的履歷索引）。索引名由設定給。"""
 from __future__ import annotations
 
-from shared.infra.es import Repository
+from common.infra.es import Repository
 
 _OPTS = "ignore_unavailable=true&allow_no_indices=true"
 

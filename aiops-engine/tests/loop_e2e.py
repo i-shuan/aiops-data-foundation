@@ -10,7 +10,7 @@
 """
 import json, os, subprocess, sys, tempfile, time, urllib.request
 import numpy as np, pandas as pd
-from shared.infra.es import ES
+from common.infra.es import ES
 TZ = "Asia/Taipei"; INDEX = "aiops-synth"; SYNTH = "tests/synth.yaml"; RCA = "tests/rca_loop.yaml"
 D0 = pd.Timestamp("2026-10-05", tz=TZ)            # 週一；前面 4 週是歷史
 # 網頁寫的回饋，時間是寫入當下；metrics 的查詢區間要含「現在」，不然測試日期過了 10/28 就算不到回饋

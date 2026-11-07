@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 import interface.web.routes as W
 import interface.web.dto as D
 import learn.feedback_service as F
-from shared.scenario import load_scenario
+from common.scenario import load_scenario
 
 SC = load_scenario()
 from learn.store.models import FEEDBACK_INDEX

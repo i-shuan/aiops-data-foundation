@@ -9,17 +9,17 @@ import typer
 
 import detect.trace.path_service as PS
 from detect.fab_ingest import ingest_service as ING
-from shared.infra.clock import now_ts as _now
-from shared.infra.es import ES
-from shared.infra.repos import Repos
-from shared.scenario import load_scenario
-from shared.config import load_config
-from shared.config.ingest import IngestConfig
-from shared.config.paths import PathsConfig
+from common.infra.clock import now_ts as _now
+from common.infra.es import ES
+from common.infra.repos import Repos
+from common.scenario import load_scenario
+from common.config import load_config
+from detect.config.ingest import IngestConfig
+from detect.config.paths import PathsConfig
 
 
 def register(app: typer.Typer) -> None:
-    """掛成 detector 的子命令（shared/scenario/factory.yaml 的 commands）。"""
+    """掛成 detector 的子命令（common/scenario/factory.yaml 的 commands）。"""
     app.command("paths-merge", help="工廠：MES 進出站＋S6F11 機台事件 → 一個 lot 一筆履歷 lot-paths-*（plugins/factory/paths.py）")(paths_merge)
 
 

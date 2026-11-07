@@ -7,7 +7,7 @@ import pandas as pd
 from jinja2 import Environment, FileSystemLoader
 
 from interface.web.dto import RCA_QUESTIONS, RCA_USEFUL, SERIES_NAMES, TIMEZONE, VERDICTS
-from shared.scenario import Scenario, load_scenario
+from common.scenario import Scenario, load_scenario
 
 TEXT_HINT = "選填。一句話說這件怎麼回事，系統會抽成結構化欄位、提一筆待審核的調整建議；例：「這是每月初的批次匯出報表，屬於預期內負載」"
 _env = Environment(loader=FileSystemLoader(str(Path(__file__).resolve().parent / "templates")), autoescape=True, trim_blocks=True, lstrip_blocks=True)

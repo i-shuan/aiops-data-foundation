@@ -23,7 +23,7 @@ image:
 
 esUrl: https://elasticsearch.example.internal:9200
 tz: Asia/Taipei
-# 情境（shared/scenario/README.md）：observability（IT：服務、API、trace）、factory（工廠：ML／FDC 判好的異常、MES 履歷、機台 alarm）、
+# 情境（common/scenario/README.md）：observability（IT：服務、API、trace）、factory（工廠：ML／FDC 判好的異常、MES 履歷、機台 alarm）、
 # metrics_only（只有 ML／FDC 的異常、沒有履歷）。環境變數 AIOPS_PLUGIN 跟著設，排程表換成那個情境的
 plugin: observability
 # observability 的原始資料是誰寫的：otel（我們的 Collector：metrics-*.otel-*、k8s-*、traces-generic.otel-*）或 apm（Elastic APM：

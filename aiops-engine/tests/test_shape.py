@@ -154,5 +154,5 @@ class PointsTest(unittest.TestCase):
         self.assertEqual([t for t, _ in pts[("p1",)]], [T0, T0 + pd.Timedelta(minutes=1)])      # 依時間排
         self.assertEqual(pts[("p1",)][0][1]["metrics.max"], 10)                                  # join 補進同時間點
         self.assertIsNone(pts[("p1",)][1][1].get("metrics.max"))
-        from shared.infra.es import get_field
+        from common.infra.es import get_field
         self.assertEqual(get_field(pts[("p1",)][0][1], "metrics.used"), 3)                       # 攤平的 dict，get_field 讀得到

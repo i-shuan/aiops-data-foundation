@@ -37,8 +37,8 @@ import operator
 import numpy as np
 import pandas as pd
 
-from shared.infra.es import get_field
-from shared.config.rules import Rule, RulesConfig
+from common.infra.es import get_field
+from detect.config.rules import Rule, RulesConfig
 from detect.store.models import Anomaly
 from detect.base import Detector
 from detect.utils import _freq

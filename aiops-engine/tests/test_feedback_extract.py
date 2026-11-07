@@ -3,8 +3,8 @@
 import json
 import unittest
 
-from shared.infra.repos import Repos
-from shared.scenario import load_scenario
+from common.infra.repos import Repos
+from common.scenario import load_scenario
 
 SC = load_scenario()
 from unittest import mock

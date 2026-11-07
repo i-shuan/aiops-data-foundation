@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import pandas as pd
 
-from shared.infra.repos import Repos
+from common.infra.repos import Repos
 
 import detect.fab_ingest.ingest as I
-from shared.config.ingest import IngestConfig
+from detect.config.ingest import IngestConfig
 
 INGEST_FIELDS = {"source": {"type": "keyword"}, "source_id": {"type": "keyword"}, "status": {"type": "keyword"}}
 

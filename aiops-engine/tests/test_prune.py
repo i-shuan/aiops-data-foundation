@@ -9,7 +9,7 @@ import pandas as pd
 import yaml
 
 import detect.housekeeping as P
-from shared.config import validate
+from common.config import validate
 
 NOW = pd.Timestamp("2026-11-01T03:30:00Z")
 CFG = validate({"timezone": "Asia/Taipei", "indices": [

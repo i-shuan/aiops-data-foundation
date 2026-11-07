@@ -7,8 +7,8 @@ import pandas as pd
 import learn.evaluation_metrics as M
 from incident.store.models import ALERT_INDEX
 from learn.store.models import FEEDBACK_INDEX
-from shared.infra.repos import Repos
-from shared.scenario import load_scenario
+from common.infra.repos import Repos
+from common.scenario import load_scenario
 
 SC = load_scenario()
 

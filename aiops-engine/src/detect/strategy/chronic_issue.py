@@ -20,12 +20,12 @@ import pandas as pd
 
 
 from detect.series_ops.manual_adjust import match_keys
-from shared.infra.es import ES, doc_id
-from shared.infra.repos import Repos
-from shared.scenario import load_scenario
+from common.infra.es import ES, doc_id
+from common.infra.repos import Repos
+from common.scenario import load_scenario
 from detect.utils import _now, _v
 from detect.reference_data import load_owners
-from shared.config.chronic import ChronicConfig, ChronicSource
+from detect.config.chronic import ChronicConfig, ChronicSource
 
 
 def find_chronic(daily: pd.DataFrame, keys: list[str], *, min_days: int = 6, min_per_day: float = 1,

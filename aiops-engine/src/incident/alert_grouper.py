@@ -25,7 +25,7 @@ from datetime import datetime, timedelta
 
 from incident.store.models import SEVERITY, Alert  # noqa: F401  SEVERITY 給 alert_service 用
 from detect.store.models import entity_of as _entity_of
-from shared.scenario import Scenario, load_scenario
+from common.scenario import Scenario, load_scenario
 
 _ts = Alert._ts
 

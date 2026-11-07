@@ -13,7 +13,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))   # 程式在 src/；從 aiops-engine/ 跑，不用設 PYTHONPATH
 
-from shared.config.settings import MissingSetting, SettingsError
+from common.config.settings import MissingSetting, SettingsError
 
 ROLE_NAMES = ("detector", "investigator", "scheduler", "tasks", "api")
 

@@ -12,8 +12,8 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from shared.infra.es import time_range
-from shared.config.trace import TraceConfig
+from common.infra.es import time_range
+from detect.config.trace import TraceConfig
 from detect.store.models import Trace
 
 STATE_ID = "trace-merge"

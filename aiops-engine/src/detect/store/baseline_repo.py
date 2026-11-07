@@ -4,7 +4,7 @@ from __future__ import annotations
 import pandas as pd
 
 from detect.store.models import BASELINE_COLUMNS, BASELINE_INDEX, BASELINE_MAPPING, GROUP_COLUMNS, RENAMED
-from shared.infra.es import Repository
+from common.infra.es import Repository
 
 
 class BaselineRepository(Repository):

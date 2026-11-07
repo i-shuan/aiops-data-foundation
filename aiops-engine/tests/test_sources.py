@@ -7,9 +7,9 @@ import unittest
 import pandas as pd
 
 import detect.series_ops.manual_adjust as A
-from shared.infra.repos import Repos
-from shared.config import validate
-from shared.scenario import load_scenario
+from common.infra.repos import Repos
+from common.config import validate
+from common.scenario import load_scenario
 
 SC = load_scenario()
 import detect.reference_data as S
@@ -231,7 +231,7 @@ class LoadOwners(unittest.TestCase):
 
     def test_unknown_provider_is_rejected_when_the_config_is_loaded(self):
         """原本 load 的時候才跳過（印警告）；現在設定一讀進來就擋，打錯字不用等到那個來源被用到。"""
-        from shared.config import ConfigError
+        from common.config import ConfigError
         with self.assertRaises(ConfigError):
             validate({"sources": [{"provider": "bogus"}]}, "calendar")
         with self.assertRaises(ConfigError):
@@ -239,7 +239,7 @@ class LoadOwners(unittest.TestCase):
 
     def test_single_source_from_a_loaded_config(self):
         """load_config 回的是模型：owners_source 只寫一個來源時是 Provider，不是 dict，也不是 list。"""
-        from shared.config import validate
+        from common.config import validate
         cfg = validate({"owners_source": {"provider": "file", "path": "/no/such/file.json"}}, "chronic")
         self.assertEqual(S.load_owners(cfg), [])
         two = validate({"owners_source": [{"provider": "file", "path": "/no/such/a.json"}, {"provider": "file", "path": "/no/such/b.json"}]}, "chronic")

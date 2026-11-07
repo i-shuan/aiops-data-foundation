@@ -2,8 +2,8 @@
 import unittest
 
 import learn.rule_backtester as B
-from shared.config import validate
-from shared.infra.repos import Repos
+from common.config import validate
+from common.infra.repos import Repos
 from detect.store.baseline_repo import BaselineRepository
 
 

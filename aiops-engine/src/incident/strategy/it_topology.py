@@ -1,12 +1,12 @@
 """IT 的併件依據：trace 裡「誰呼叫誰」（下游出事連帶上游；incident/alert_grouper 的 calls）。"""
 from __future__ import annotations
 
-from shared.config.rca import RcaConfig
+from incident.config.rca import RcaConfig
 from datetime import datetime, timedelta
 
 import detect.store.models as T
 from detect.store.models import entity_of
-from shared.scenario.base import Chain
+from common.scenario.base import Chain
 
 
 def call_edges(repo, rca_config: RcaConfig, services: set[str], start: datetime, end: datetime, per: int = 100) -> set[tuple[str, str]]:

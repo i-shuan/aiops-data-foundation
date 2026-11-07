@@ -7,7 +7,7 @@ from argparse import Namespace
 from unittest import mock
 
 import detect.detect_service as C
-from shared.config import validate
+from common.config import validate
 from incident.store.models import ALERT_INDEX, ALERT_MAPPING
 
 CFG = validate({"interval": "5m", "adjustments_file": None, "calendar_file": None, "detect": {"z": 5}, "status": {"confirm_points": 2},

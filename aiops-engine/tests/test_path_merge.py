@@ -1,5 +1,5 @@
 """工廠 plugin 的履歷合成器（plugins/factory/paths.py）：MES 進出站＋S6F11 → 跟 traces-merged 同格式的一筆。不連 ES。"""
-from shared.config import validate
+from common.config import validate
 import unittest
 from datetime import datetime, timezone
 

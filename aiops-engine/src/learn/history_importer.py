@@ -24,10 +24,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from shared.infra.es import ES, doc_id
-from shared.types.incident import INCIDENT_INDEX, Fingerprint, Incident
-from shared.infra.repos import Repos
-from shared.scenario import load_scenario
+from common.infra.es import ES, doc_id
+from common.types.incident import INCIDENT_INDEX, Fingerprint, Incident
+from common.infra.repos import Repos
+from common.scenario import load_scenario
 from detect.series_ops.manual_adjust import local_iso
 
 REQUIRED = ("title", "start", "end", "services", "root_cause_category", "root_cause", "action", "how_detected", "checked")

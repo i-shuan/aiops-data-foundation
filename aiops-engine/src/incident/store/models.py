@@ -16,12 +16,12 @@ from typing import ClassVar, Literal
 from pydantic import Field, field_validator
 
 from detect.store.models import entity_of
-from shared.infra.es import Doc
-from shared.infra.clock import STAMP_LAG, stamp_of  # noqa: F401
-from shared.types.incident import classify, describe_class
+from common.infra.es import Doc
+from common.infra.clock import STAMP_LAG, stamp_of  # noqa: F401
+from common.types.incident import classify, describe_class
 
 ALERT_INDEX = "aiops-alerts"
-# stamp_of、STAMP_LAG 在 shared/infra/clock.py（detect 的狀態心跳也用）；這裡 import 進來，舊的引用不用改
+# stamp_of、STAMP_LAG 在 common/infra/clock.py（detect 的狀態心跳也用）；這裡 import 進來，舊的引用不用改
 
 
 ALERT_MAPPING = {"mappings": {"dynamic": False, "properties": {

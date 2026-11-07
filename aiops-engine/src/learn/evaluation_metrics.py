@@ -6,12 +6,12 @@
 """
 from __future__ import annotations
 
-from shared.config.series import SeriesConfig
+from detect.config.series import SeriesConfig
 import pandas as pd
 
-from shared.infra.es import ES
-from shared.infra.repos import Repos
-from shared.scenario import load_scenario
+from common.infra.es import ES
+from common.infra.repos import Repos
+from common.scenario import load_scenario
 import learn.param_suggester as F
 
 

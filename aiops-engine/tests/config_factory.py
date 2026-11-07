@@ -1,6 +1,6 @@
 """測試用：一行造出型別化的設定（不用每個測試自己寫整份 yaml）。"""
-from shared.config import validate
-from shared.config.rca import Alerts, RcaConfig  # noqa: F401  測試直接用 Alerts(...)
+from common.config import validate
+from incident.config.rca import Alerts, RcaConfig  # noqa: F401  測試直接用 Alerts(...)
 
 BASE_INDICES = {"anomalies": "aiops-anomalies", "traces": "traces-*", "logs": "logs-*"}
 
