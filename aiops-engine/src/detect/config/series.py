@@ -89,3 +89,14 @@ class SeriesConfig(Strict):
     adjustments_file: str | None = None      # 寫 null 是「不載入」，所以載入端用 .get（manual_adjust.load）
     calendar_file: str | None = None
     series: list[Series] = []
+
+    @model_validator(mode="after")
+    def _unique_names(self):
+        """序列的 name 不能重複：異常、基準線、調整都用名字認序列，重複會悄悄互相蓋掉（OTel 與 APM 混寫同一份時最容易撞名，加來源前綴）。"""
+        seen, dup = set(), []
+        for s in self.series:
+            dup.append(s.name) if s.name in seen else seen.add(s.name)
+        if dup:
+            raise ValueError(f"序列的 name 重複：{'、'.join(dict.fromkeys(dup))}（OTel 與 APM 混寫時兩邊同名的指標加來源前綴，例如 otel.http.requests）")
+        return self
+

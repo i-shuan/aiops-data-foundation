@@ -154,7 +154,7 @@ metrics → trace → log 找到哪一段、哪行 log；事件整合、排程�
 | [meta/2026-11-apm-overview-dashboard.md](meta/2026-11-apm-overview-dashboard.md) | ⑧ 整合儀表板：APM 的 metrics → trace → log 接事故與根因，一頁看完（重做被刪掉的示範儀表板） | 已完成；已合進 master |
 | [meta/2026-11-config-settings.md](meta/2026-11-config-settings.md) | 設定集中管理：環境變數 Settings、參數 yaml 回 Pydantic 模型（不倒回 dict）、時間統一，附設定盤點與順序 | 已完成，合回 master |
 | [meta/2026-11-docs-cleanup.md](meta/2026-11-docs-cleanup.md) | 整理舊的 md：29 份共用文件逐份盤點（保留／小修／改寫）、112 份 PDCA 紀錄的處置、要先問使用者的三件事 | 已完成 |
-| [meta/2026-11-source-adapter.md](meta/2026-11-source-adapter.md) | ①②④⑦ 收值（讀的那一側）模組化：OTel、APM 各一個來源模組，可選、之後可並存；先盤點來源相關程式在哪、分三階段、要問使用者的事 | 進行中（Plan） |
+| [meta/2026-11-source-adapter.md](meta/2026-11-source-adapter.md) | ①②④⑦ 收值（讀的那一側）模組化：OTel、APM 各一個來源模組，可選、之後可並存；先盤點來源相關程式在哪、分三階段、要問使用者的事 | 已完成（階段 0～3：拆 `data/`、來源適配器、自我檢查、並存） |
 | [meta/2026-10-poc-acceptance.md](meta/2026-10-poc-acceptance.md) | ①～⑨ POC 驗收計畫：6 個 KPI、4 個故障情境、Go/No-Go | 四個任務已合入 master；模擬服務、合成資料上：聚合率 100%、解析率 100%、串查 ✅、召回率 50%（要真實事故單）；Go/No-Go 待真實服務 |
 | [meta/2026-11-apm-source.md](meta/2026-11-apm-source.md) | ④⑤⑦ engine 讀 Elastic APM 的資料（不改 Collector、ES）：`configs/apm/`、`source: apm`、序列 `scale`／`div`、trace 的 APM 轉換 | 562 個單元測試過（新加 17 個：APM span 轉換、查詢欄位、scale／div、owner／log 欄位）；chart 兩種 source render 對；沒有真實 APM 資料，整條沒在 ES 上跑；例外吞噬、Pod 資源、往外呼叫 p95 在 APM 資料上做不到 |
 | [meta/2026-11-remove-collector.md](meta/2026-11-remove-collector.md) | ①②③ 刪自建收值：`collector/`、`apps/`、`e2e/`、ES 的 OTel 入口設定與文件；`elasticsearch/` 縮成只補 `traces-merged-*` 與兩把 key | 刪約 200 個檔；連結檢查從 80 個壞連結修到 0；engine 的 OTel 來源沒動；瘦身後的 setup 腳本與 chart 沒對真實 ES 跑 |

@@ -45,7 +45,7 @@ class Settings(BaseModel):
     openai_base_url: str = "https://api.openai.com"
     # ── 情境 ──
     aiops_plugin: str = "observability"  # observability、factory、metrics_only、yaml 路徑、或 套件.模組:名字
-    aiops_source: str = "otel"           # observability 的原始資料：otel、apm
+    aiops_source: str = "otel"           # observability 的原始資料：otel、apm；並存用逗號隔開（otel,apm），第一個是主要的
     aiops_ingest_config: str | None = None
     # ── 排程 ──
     schedule_stage: int = 1

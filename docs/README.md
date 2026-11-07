@@ -43,6 +43,7 @@
 | [../aiops-engine/configs/rca/README.md](../aiops-engine/configs/rca/README.md) | 操作 | 根因分析：預設值、怎麼跑、匯入歷史事故單、報告長什麼樣子、限制、怎麼驗 | 🟢 |
 | [../aiops-engine/configs/rca/example-report.md](../aiops-engine/configs/rca/example-report.md) | 案例 | 一份範例報告 | 🟢 |
 | [../aiops-engine/configs/apm/README.md](../aiops-engine/configs/apm/README.md) | 操作 | 用 Elastic APM 的資料跑 engine（收值就是這個）：哪些功能能用、ES role、template、`source: apm`、欄位對照 | 🟡（未在真實 APM 資料上跑過） |
+| [../aiops-engine/configs/mixed/README.md](../aiops-engine/configs/mixed/README.md) | 操作 | OTel 與 APM 並存：`AIOPS_SOURCE=otel,apm`、trace 的 raw_index 寫清單、序列混寫、歸屬與 log 各查各的、檢查、限制 | 🟡（只有合成資料驗過） |
 | [../aiops-engine/src/common/scenario/README.md](../aiops-engine/src/common/scenario/README.md) | 操作 | 情境：`AIOPS_PLUGIN` 選 observability／factory／metrics_only、三份資料檔（yaml）各填了什麼、兩個策略、哪些功能在哪個情境能用、怎麼自己寫一個 | 🟢（三個都有單元測試；factory、metrics_only 假資料 e2e 跑通） |
 | [../aiops-engine/configs/factory/README.md](../aiops-engine/configs/factory/README.md) | 操作 | 工廠（`AIOPS_PLUGIN=factory`）：ML／FDC 判好的異常接進 ⑤、MES＋S6F11 合成履歷取代 trace、機台 alarm／PM／recipe 變更當 log、前後站併件、誤報匯出給 ML；要給什麼資料、怎麼跑、哪些功能能用 | 🟡（假資料跑通；欄位名是假設） |
 | [../aiops-engine/src/common/README.md](../aiops-engine/src/common/README.md) | 規格 | repository 層：一個實體一個，索引名與 ES 查詢只在這裡；`Repos` 怎麼用、每個 repository 管哪個索引 | 🟢 |

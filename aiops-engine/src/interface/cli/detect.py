@@ -49,7 +49,7 @@ from common.infra.es import ES
 from common.infra.repos import Repos
 from common.scenario import load_scenario
 from common.config import load_config
-from data.source import ADAPTERS, for_index
+from data.source import ADAPTERS, adapter_of, for_index
 from data.source.check import check_trace_index
 from data.trace import span_merge
 from detect.detect_service import run_source_check, source_findings
@@ -119,21 +119,30 @@ def cmd_trace_merge(trace_config, args) -> int:
     repo = Repos(ES(), load_scenario())
     at = now_of(args.at).to_pydatetime()
     run_source_check(repo, "trace", now_of(args.at),         # 宣告的來源跟 raw trace 對得上嗎：只回報，不擋合成
-                     lambda: check_trace_index(repo.es, trace_config.raw_index, for_index(trace_config.raw_index, repo.scenario.source), ADAPTERS))
-    since, until, n = span_merge.run(repo, trace_config.raw_index, trace_config.merge.settle_seconds, at, args.window.to_pytimedelta())
+                     lambda: trace_findings(repo, trace_config))
+    since, until, n = span_merge.run(repo, trace_config.raw_indexes(), trace_config.merge.settle_seconds, at, args.window.to_pytimedelta())
     print(f"trace-merge {since:%H:%M:%S}～{until:%H:%M:%S}：合了 {n} 個 trace")
     return 0
+
+
+def trace_findings(repo, trace_config) -> list:
+    """每個 raw trace 索引各查一次：明講了來源就用它，沒講用索引名與宣告的來源。"""
+    out = []
+    for index, source in trace_config.raw_indexes():
+        adapter = adapter_of(source) if source else for_index(index, repo.scenario.source)
+        out += check_trace_index(repo.es, index, adapter, ADAPTERS)
+    return out
 
 
 def cmd_source_check(series_config, args) -> int:
     """宣告的來源（AIOPS_SOURCE）跟 ES 裡真的資料對得上嗎：每個序列的索引與欄位、（有給 --trace-config 時）raw trace 的格式。
     只回報、永遠回 0（要看有沒有問題看輸出；排程裡每輪也會自動檢查並寫狀態文件，Grafana 叫人）。"""
     repo = Repos(ES(), load_scenario())
-    found = run_source_check(repo, "series", now_of(None), lambda: source_findings(repo.es, series_config, repo.scenario.owner))
+    found = run_source_check(repo, "series", now_of(None), lambda: source_findings(repo.es, series_config, repo.scenario.owners))
     if args.trace_config:
         tc = load_config(args.trace_config, "trace")
-        found += run_source_check(repo, "trace", now_of(None), lambda: check_trace_index(repo.es, tc.raw_index, for_index(tc.raw_index, repo.scenario.source), ADAPTERS))
-    print(f"來源自我檢查：宣告 {repo.scenario.source}，{'全部對得上' if not any(f.counts for f in found) else str(sum(f.counts for f in found)) + ' 個地方對不上（上面 ⚠ 的）'}；{sum(not f.counts for f in found)} 個只是抽不到資料（ℹ）")
+        found += run_source_check(repo, "trace", now_of(None), lambda: trace_findings(repo, tc))
+    print(f"來源自我檢查：宣告 {','.join(repo.scenario.sources) or repo.scenario.source}，{'全部對得上' if not any(f.counts for f in found) else str(sum(f.counts for f in found)) + ' 個地方對不上（上面 ⚠ 的）'}；{sum(not f.counts for f in found)} 個只是抽不到資料（ℹ）")
     return 0
 
 

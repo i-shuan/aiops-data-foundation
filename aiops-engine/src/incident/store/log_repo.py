@@ -29,31 +29,41 @@ class LogRepository(Repository):
     def _profile(self) -> dict:
         return self.scenario.log
 
-    def _logs(self, index: str, filters: list[dict], size: int, sort: list | None = None) -> list[dict]:
-        p = self._profile()
+    def _targets(self, index: str) -> list[tuple[dict, str]]:
+        """要查的 (欄位對照, 索引)：主要來源用呼叫端給的 index（RCA 設定的 indices.logs）；OTel 與 APM 並存時，其餘來源各帶自己的 index
+        （Scenario.extra_logs；沒寫 index 的略過）。"""
+        return [(self._profile(), index), *[(p, p["index"]) for p in self.scenario.extra_logs if p.get("index")]]
+
+    def _logs(self, index: str, filters: list[dict], size: int, sort: list | None = None, p: dict | None = None) -> list[dict]:
+        p = p or self._profile()
         body = {"size": size, "_source": False, "fields": _fields_param(p), "query": {"bool": {"filter": filters}}, **({"sort": sort} if sort else {})}
         return [_to_log(h, p) for h in self._hits(body, index)]
 
     def of_traces(self, index: str, trace_ids: list[str], start: datetime, end: datetime, size: int = 2000) -> list[dict]:
-        """這些請求在各服務留下的 log（log 的 trace_id 是 alias，指到 trace.id；跟 trace 的 trace_id 同名）。"""
+        """這些請求在各服務留下的 log（log 的 trace_id 是 alias，指到 trace.id；跟 trace 的 trace_id 同名）。
+        並存時每個來源各查各的 log 索引、欄位名，合起來依時間排。"""
         if not trace_ids:
             return []
-        p = self._profile()
-        return self._logs(index, [time_range(start - LOG_TRACE_SKEW, end + LOG_TRACE_SKEW), {"terms": {p["trace_id"]: trace_ids[:1000]}}],
-                          size, [{"@timestamp": "asc"}])
+        out = []
+        for p, ix in self._targets(index):
+            out += self._logs(ix, [time_range(start - LOG_TRACE_SKEW, end + LOG_TRACE_SKEW), {"terms": {p["trace_id"]: trace_ids[:1000]}}],
+                              size, [{"@timestamp": "asc"}], p)
+        return sorted(out, key=lambda r: str(r["ts"]))[:size] if len(self.scenario.extra_logs) else out
 
     def changes(self, index: str, services: list[str], start: datetime, end: datetime, query: dict, size: int = 200) -> list[dict]:
-        """這些對象在這段時間的變更紀錄（工廠：PM、recipe 變更；query 是哪些算變更，例如 {terms: {event_type: [pm, recipe_change]}}），依時間排。"""
+        """這些對象在這段時間的變更紀錄（工廠：PM、recipe 變更；query 是哪些算變更，例如 {terms: {event_type: [pm, recipe_change]}}），依時間排。只看主要來源。"""
         p = self._profile()
         return self._logs(index, [time_range(start, end), {"terms": {p["service"]: services}}, query], size, [{"@timestamp": "asc"}])
 
     def problems(self, index: str, services: list[str], start: datetime, end: datetime, size: int = 5000) -> list[dict]:
         """這些服務在這段時間的 warn、error、fatal log（不限有沒有 trace_id：有些錯誤不在請求裡，例如背景工作）。
-        來源有 problem_query 的（APM 的例外文件沒有 log.level，用 processor.event: error 認）一起撈。"""
-        p = self._profile()
-        level = {"terms": {p["level"]: p["problem_levels"]}}
-        which = {"bool": {"should": [level, p["problem_query"]], "minimum_should_match": 1}} if p.get("problem_query") else level
-        return self._logs(index, [time_range(start, end), {"terms": {p["service"]: services}}, which], size)
+        來源有 problem_query 的（APM 的例外文件沒有 log.level，用 processor.event: error 認）一起撈。並存時每個來源各查各的。"""
+        out = []
+        for p, ix in self._targets(index):
+            level = {"terms": {p["level"]: p["problem_levels"]}}
+            which = {"bool": {"should": [level, p["problem_query"]], "minimum_should_match": 1}} if p.get("problem_query") else level
+            out += self._logs(ix, [time_range(start, end), {"terms": {p["service"]: services}}, which], size, None, p)
+        return out
 
     def daily_counts(self, index: str, by: list[str], keys: list[str], start, end, tz: str, filter: dict | None = None) -> pd.DataFrame:
         """每個對象（by 的欄位，叫 keys）每天幾筆（當地時間）：欄位 keys + day + count。"""

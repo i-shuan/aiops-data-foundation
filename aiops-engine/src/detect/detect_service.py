@@ -443,7 +443,7 @@ def write_detect_status(repo: Repos, now: pd.Timestamp, missing: list[str]) -> N
         "anomaly_ids": [], "series": list(missing), "routes": [], "anomaly_count": 0, "missing_baseline": len(missing)})])
 
 
-def source_findings(es, series_config: SeriesConfig, owner: dict | None = None) -> list[Finding]:
+def source_findings(es, series_config: SeriesConfig, owners=()) -> list[Finding]:
     """序列的索引、欄位跟 ES 裡的資料對得上嗎；有給 owner（Scenario.owner：歸屬查哪個索引哪幾個欄位）也一併查
     （這是「宣告的來源」真正影響 detect 的地方：序列的索引與欄位是 series.yaml 自己寫的，歸屬的欄位名依宣告的來源）。
     只回報，不擋。同一個索引、filter、欄位的序列只查一次。"""
@@ -459,10 +459,14 @@ def source_findings(es, series_config: SeriesConfig, owner: dict | None = None) 
         got = check_fields(es, names, index, query, list(by))
         with_data += not got
         out += got
-    if owner and owner.get("index"):
+    for owner in ([owners] if isinstance(owners, dict) else owners):
+        if not owner or not owner.get("index"):
+            continue
         got = check_fields(es, "歸屬（Scenario.owner）", owner["index"], None, [f for f in (owner.get("namespace"), owner.get("service")) if f])
-        # 序列查得到資料、歸屬的索引卻一筆都沒有：不是「這個索引本來就沒資料」，是宣告的來源跟資料不一樣（宣告錯來源最常見的樣子）
-        out += [Finding(f.where, f.problem + "；序列的索引有資料、這裡卻沒有：宣告的來源（AIOPS_SOURCE）跟資料不一樣？", "mismatch") if f.kind == "nodata" and with_data else f for f in got]
+        # 序列查得到資料、歸屬的索引卻一筆都沒有：不是「這個索引本來就沒資料」，是宣告的來源跟資料不一樣（宣告錯來源最常見的樣子）。
+        # 並存（好幾份歸屬）時，其中一份的來源本來就可能沒資料，所以只在「只有一份歸屬」時才升級成對不上
+        promote = with_data and len([o for o in ([owners] if isinstance(owners, dict) else owners) if o]) == 1
+        out += [Finding(f.where, f.problem + "；序列的索引有資料、這裡卻沒有：宣告的來源（AIOPS_SOURCE）跟資料不一樣？", "mismatch") if f.kind == "nodata" and promote else f for f in got]
     return out
 
 
@@ -494,7 +498,7 @@ def cmd_detect(series_config: SeriesConfig, args, repo: Repos | None = None) -> 
     repo = repo or Repos(ES(), load_scenario())
     repo.anomalies.ensure()
     if getattr(repo, "es", None) is not None and hasattr(repo.es, "req"):      # 記憶體版（測試）沒有 ES 可抽樣
-        run_source_check(repo, "series", now_of(args.at), lambda: source_findings(repo.es, series_config, repo.scenario.owner))
+        run_source_check(repo, "series", now_of(args.at), lambda: source_findings(repo.es, series_config, repo.scenario.owners))
     interval = series_config.interval
     now = now_of(args.at)
     # 最後一段可能還沒收齊（筆數會偏低，看起來像「驟降」），所以只看已經結束的時段

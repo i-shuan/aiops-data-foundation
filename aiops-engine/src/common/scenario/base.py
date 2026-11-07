@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from common.config.settings import settings
 
+import dataclasses
 import importlib
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -104,6 +105,20 @@ class Scenario:
     sections: tuple[str, ...] = ("anomalies", "entries", "segments", "slowest", "logs", "changes", "topology", "conclusion")
     schedule: str = "configs/schedule/schedule.yaml"
     commands: dict[str, Callable] = field(default_factory=dict)   # 多出來的 detector 子命令：{名: register(app)}
+    # OTel 與 APM 並存（AIOPS_SOURCE=otel,apm）：source 是第一個（主要的）；其餘來源的歸屬、log 對照放這裡
+    sources: tuple[str, ...] = ()                 # 宣告的全部來源（沒並存時是空的）
+    extra_owners: tuple[dict, ...] = ()
+    extra_logs: tuple[dict, ...] = ()
+
+    @property
+    def owners(self) -> tuple[dict, ...]:
+        """歸屬要查的全部索引對照：主要的在前（同一個服務兩邊都有時，主要的優先）。"""
+        return (self.owner, *self.extra_owners)
+
+    @property
+    def logs(self) -> tuple[dict, ...]:
+        """log 的欄位對照：主要的（用 RCA 設定的 indices.logs）在前，其餘各自帶 index。"""
+        return (self.log, *self.extra_logs)
 
     def route_of(self, keys: dict | None) -> str | None:
         return ROUTES[self.route](keys or {})
@@ -156,10 +171,16 @@ def load_scenario(spec: str | None = None) -> Scenario:
     if s in BUILTIN:
         target = BUILTIN[s]
         if isinstance(target, dict):
-            src = env.aiops_source
-            if src not in target:
-                raise ValueError(f"{SOURCE_ENV} 只能是 {'、'.join(target)}，不是 {src!r}")
-            target = target[src]
+            names = [n.strip() for n in env.aiops_source.split(",") if n.strip()]       # AIOPS_SOURCE=otel,apm：並存，第一個是主要的
+            bad = [n for n in names if n not in target]
+            if not names or bad:
+                raise ValueError(f"{SOURCE_ENV} 只能是 {'、'.join(target)}（並存用逗號隔開，例如 otel,apm），不是 {env.aiops_source!r}")
+            sc = from_dict(_read(target[names[0]]))
+            if len(names) > 1:
+                others = [_read(target[n]) for n in names[1:]]
+                sc = dataclasses.replace(sc, sources=tuple(names), extra_owners=tuple(o.get("owner") or {} for o in others),
+                                         extra_logs=tuple(o.get("log") or {} for o in others))
+            return sc
         return from_dict(_read(target))
     if s.endswith((".yaml", ".yml")):
         return from_dict(_read(s))

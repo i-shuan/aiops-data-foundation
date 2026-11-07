@@ -138,6 +138,16 @@ class DistributedChart(unittest.TestCase):
         beat = containers(render("--set", "mode=distributed", "--set", "plugin=factory"), "aiops-beat")["beat"]
         self.assertEqual(beat["args"][3], "configs/factory/schedule.yaml")
 
+    def test_mixed_sources_reach_the_env_and_the_first_one_picks_the_schedule(self):
+        """OTel 與 APM 並存（逗號要跳脫）：環境變數照給；排程表跟第一個（主要的）來源。"""
+        def sched_and_env(src):
+            docs = render("--set", "mode=distributed", "--set", f"source={src}")
+            beat = containers(docs, "aiops-beat")["beat"]
+            return beat["args"][3], {e["name"]: e.get("value") for e in beat.get("env", [])}.get("AIOPS_SOURCE")
+        self.assertEqual(sched_and_env("otel\\,apm")[0], "configs/schedule/schedule.yaml")
+        self.assertEqual(sched_and_env("apm\\,otel")[0], "configs/apm/schedule.yaml")
+        self.assertEqual(sched_and_env("apm")[0], "configs/apm/schedule.yaml")
+
     def test_config_override_mounts_in_every_role(self):
         docs = render("--set", "mode=distributed", "--set", "configOverrides.schedule.schedule=timezone: UTC")
         for dep in ("aiops-api", "aiops-beat", "aiops-worker-realtime", "aiops-worker-alert", "aiops-worker-batch"):

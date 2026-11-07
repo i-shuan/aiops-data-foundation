@@ -11,6 +11,7 @@ owner:                                   # dept／group 歸屬查哪裡（detect
   dept: resource.attributes.dept
   group: resource.attributes.group
 log:                                     # 根因分析讀 log 的欄位（incident/store/log_repo.py）；service.name、trace_id 是 alias，_source 裡沒有，用 fields 取
+  index: k8s-*                           # 只有「OTel 是並存時的次要來源」才用（AIOPS_SOURCE=apm,otel）；主要來源用 rca.yaml 的 indices.logs
   service: resource.attributes.service.name
   level: log.level
   trace_id: trace_id

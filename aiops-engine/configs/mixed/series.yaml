@@ -1,0 +1,151 @@
+# OTel 與 APM 並存的序列範例（只列 HTTP 的三條，各來源一份，名字加來源前綴）：每條序列自己帶 index、by、value、scale，沒有全域的來源。
+# interval／lag 是整份一個值：取兩邊裡粗的（APM 最細 1 分鐘、資料慢 90 秒）。完整的序列清單從 configs/baseline/series.yaml、configs/apm/series.yaml 各挑。
+interval: 1m
+lag: 90s
+adaptive:
+  resolutions:
+  - 1m
+  - 5m
+  - 15m
+  - 30m
+  - 1h
+status:
+  confirm_points: 2
+  confirm_span: 30m
+  instant_z: 15
+series:
+- name: otel.http.requests
+  keys:
+  - service
+  - method
+  - route
+  min_resolution: 1m
+  index: metrics-*.otel-*
+  filter:
+    exists:
+      field: metrics.http.server.request.duration
+  by:
+  - resource.attributes.service.name
+  - attributes.http.request.method
+  - attributes.http.route
+  value:
+    hist_count: metrics.http.server.request.duration
+  fill_zero: true
+  direction: both
+  min_abs: 5
+- name: otel.http.error_rate
+  keys:
+  - service
+  - method
+  - route
+  confirm_points: 1
+  borrow: true
+  index: metrics-*.otel-*
+  filter:
+    exists:
+      field: metrics.http.server.request.duration
+  by:
+  - resource.attributes.service.name
+  - attributes.http.request.method
+  - attributes.http.route
+  value:
+    hist_ratio:
+      field: metrics.http.server.request.duration
+      query:
+        range:
+          attributes.http.response.status_code:
+            gte: 500
+  direction: up
+  min_abs: 0.05
+  min_count: 3
+- name: otel.http.latency_p95_s
+  keys:
+  - service
+  - method
+  - route
+  borrow: true
+  index: metrics-*.otel-*
+  filter:
+    exists:
+      field: metrics.http.server.request.duration
+  by:
+  - resource.attributes.service.name
+  - attributes.http.request.method
+  - attributes.http.route
+  value:
+    percentile:
+      field: metrics.http.server.request.duration
+      percent: 95
+  direction: up
+  min_abs: 0.05
+  instant_z: null
+  buckets:
+  - 0.005
+  - 0.01
+  - 0.025
+  - 0.05
+  - 0.075
+  - 0.1
+  - 0.25
+  - 0.5
+  - 0.75
+  - 1.0
+  - 2.5
+  - 5.0
+  - 7.5
+  - 10.0
+- name: apm.http.requests
+  keys:
+  - service
+  - route
+  min_resolution: 1m
+  index: metrics-apm.transaction.1m-*
+  filter: &id001
+    bool:
+      filter:
+      - term:
+          metricset.name: transaction
+      - term:
+          transaction.type: request
+  by: &id002
+  - service.name
+  - transaction.name
+  value:
+    hist_count: transaction.duration.histogram
+  fill_zero: true
+  direction: both
+  min_abs: 5
+- name: apm.http.error_rate
+  keys:
+  - service
+  - route
+  confirm_points: 1
+  borrow: true
+  index: metrics-apm.transaction.1m-*
+  filter: *id001
+  by: *id002
+  value:
+    hist_ratio:
+      field: transaction.duration.histogram
+      query:
+        term:
+          event.outcome: failure
+  direction: up
+  min_abs: 0.05
+  min_count: 3
+- name: apm.http.latency_p95_s
+  keys:
+  - service
+  - route
+  borrow: true
+  index: metrics-apm.transaction.1m-*
+  filter: *id001
+  by: *id002
+  value:
+    percentile:
+      field: transaction.duration.histogram
+      percent: 95
+  scale: 1.0e-06
+  direction: up
+  min_abs: 0.05
+  instant_z: null

@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 import pandas as pd
 
 from common.infra.es import time_range
-from data.source import for_index
+from data.source import adapter_of, for_index
 from data.store.models import from_merged, is_merged
 from common.infra.es import Repository
 
@@ -50,11 +50,15 @@ class TraceRepository(Repository):
     """index 每次呼叫給（trace 的索引依場景、依設定）。"""
 
     # ── span ──
-    def spans(self, index: str, trace_ids: list[str], start, end) -> list[dict]:
-        """這些 trace 的所有 span（含其他服務的）。呼叫端把時間放寬，跨過邊界的請求也讀得完整。"""
+    def _adapter(self, index: str, source: str | None):
+        """這個 raw 索引用哪個來源適配器：設定明講了（source）就用它；沒講由索引名與宣告的來源決定（for_index）。"""
+        return adapter_of(source) if source else for_index(index, self.scenario.source)
+
+    def spans(self, index: str, trace_ids: list[str], start, end, source: str | None = None) -> list[dict]:
+        """這些 trace 的所有 span（含其他服務的）。呼叫端把時間放寬，跨過邊界的請求也讀得完整。source：raw 索引明講的來源（OTel 與 APM 並存時，每個 raw 索引各一個）。"""
         out = []
         merged = is_merged(index)
-        fmt = for_index(index, self.scenario.source)
+        fmt = self._adapter(index, source)
         for i in range(0, len(trace_ids), 500):
             ids = trace_ids[i:i + 500]
             if merged:
@@ -88,10 +92,10 @@ class TraceRepository(Repository):
         return out
 
     # ── 合成（trace-merge、工廠 paths-merge）──
-    def updated_trace_ids(self, raw_index: str, since: datetime, until: datetime) -> list[str]:
+    def updated_trace_ids(self, raw_index: str, since: datetime, until: datetime, source: str | None = None) -> list[str]:
         """這段時間（依 event.ingested）有 span 進來的 trace。event.ingested 我們的 pipeline traces-otel 蓋、APM 的 Fleet pipeline 也蓋。"""
         body = {"size": 0, "query": {"range": {"event.ingested": {"gte": since.isoformat(), "lt": until.isoformat()}}},
-                "aggs": {"t": {"composite": {"size": 2000, "sources": [{"id": {"terms": {"field": for_index(raw_index, self.scenario.source).trace_id_field}}}]}}}}
+                "aggs": {"t": {"composite": {"size": 2000, "sources": [{"id": {"terms": {"field": self._adapter(raw_index, source).trace_id_field}}}]}}}}
         return [b["key"]["id"] for b in self._composite(body, ("t",), raw_index)]
 
     def write_merged(self, docs: dict[str, list[tuple[str, dict]]]) -> int:

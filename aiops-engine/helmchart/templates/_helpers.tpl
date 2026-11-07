@@ -9,10 +9,10 @@
 {{ $m }}
 {{- end -}}
 
-{{/* 排程表依 plugin（code/plugins/<plugin>/__init__.py 的 schedule）；observability 再看 source 是 otel 還是 apm */}}
+{{/* 排程表依 plugin（code/plugins/<plugin>/__init__.py 的 schedule）；observability 再看 source（第一個＝主要的來源）是 otel 還是 apm；並存寫 otel,apm */}}
 {{- define "aiops.schedule" -}}
 {{- $plugin := .Values.plugin | default "observability" -}}
-{{- $schedules := dict "observability" (printf "configs/%s/schedule.yaml" (ternary "apm" "schedule" (eq (.Values.source | default "otel") "apm"))) "factory" "configs/factory/schedule.yaml" "metrics_only" "configs/metrics_only/schedule.yaml" -}}
+{{- $schedules := dict "observability" (printf "configs/%s/schedule.yaml" (ternary "apm" "schedule" (hasPrefix "apm" (.Values.source | default "otel")))) "factory" "configs/factory/schedule.yaml" "metrics_only" "configs/metrics_only/schedule.yaml" -}}
 {{- $schedule := index $schedules $plugin -}}
 {{- if not $schedule }}{{ fail (printf "plugin 只能是 observability、factory、metrics_only，不是 %q" $plugin) }}{{ end -}}
 {{ $schedule }}

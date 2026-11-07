@@ -1,6 +1,6 @@
 # 收值模組化：OTel 與 APM 各一個來源模組，可選、之後可並存（2026-11）
 
-**狀態**：進行中（階段 0、1 已完成；階段 2、3 還沒做）　　**日期**：2026-11-07　　**相關**：分支 `claude/source-adapter`（從 master `bf8b5a9` 開）
+**狀態**：已完成（階段 0～3；使用者決定：自我檢查不擋、要並存）　　**日期**：2026-11-07　　**相關**：分支 `claude/source-adapter`（從 master `bf8b5a9` 開）
 **模組**：①②（讀進來、清資料）、④⑦（判斷、根因分析讀 trace 與 log 的那一側）
 
 ## Plan：這一次要達到什麼
@@ -107,6 +107,20 @@ data/source/
 
 - **命名**：`base.py` → `adapter.py`，`SourceFormat` → `SourceAdapter`，`OtelFormat`／`ApmFormat` → `OtelAdapter`／`ApmAdapter`，`FORMATS`／`format_of` → `ADAPTERS`／`adapter_of`，`is_doc` → `can_handle`。理由：原本的名字只說了實作手段（基底類別），沒說出它在業務上是什麼；這是 Adapter 模式，名字要讓人一眼看出。
 - **不再默默退回 OTel**：`to_span` 原本是「不是 APM 就當 OTel」。改成問每個適配器 `can_handle`（只在確定是自己的格式時才認），都不認得就丟 `UnknownSourceError`，訊息列出文件有的欄位。OTel 的 `can_handle` 從 `"trace_id" in doc or "resource" in doc` 收緊成 `"trace_id" in doc and "span_id" in doc`（`to_span` 本來就直接取這兩個）。**這是行為變動，但只影響「本來就會壞」的文件**：不認得的文件原本會在 OTel 的 `to_span` 丟 `KeyError: 'trace_id'`，看不出是格式問題；現在丟看得懂的錯。沒有放寬任何本來能處理的文件。
-- **文件**：新增 [data-sources-reference.md](../data-sources-reference.md)（規格：統一的 span、OTel 與 APM 逐項對照、適配器要回答什麼、怎麼選、限制）與 [data-sources-how-to.md](../data-sources-how-to.md)（操作：新增一種來源的步驟與常見的坑）。審稿意見建議合成一份；照專案的 Diátaxis 規則（一份文件只做一種事）拆成規格與操作兩份。
+- **文件**：新增 [data-sources-reference.md](../../data-sources-reference.md)（規格：統一的 span、OTel 與 APM 逐項對照、適配器要回答什麼、怎麼選、限制）與 [data-sources-how-to.md](../../data-sources-how-to.md)（操作：新增一種來源的步驟與常見的坑）。審稿意見建議合成一份；照專案的 Diátaxis 規則（一份文件只做一種事）拆成規格與操作兩份。
 - **Check**：①搬動前後 `to_span` 逐筆比對重跑（APM 3600、OTel 1200 筆）仍完全相同。②全測試 816 個過；新增兩條：不認得的文件丟 `UnknownSourceError` 並列出欄位、每個適配器只認領自己的樣本。③e2e `synth`、`chain`、`factory`（15/15）、`adaptive` 過。④`check-docs` 過。
+
+## 階段 2：啟動時自我檢查（使用者決定：只回報，不擋）
+
+- **Do**：`data/source/check.py`：`check_trace_index`（抽 20 筆，要是宣告的適配器認得的格式；說得出「文件長得像 apm」）、`check_fields`（序列的索引抽 20 筆，`by` 的欄位至少出現一次）。`Finding` 分三種：`mismatch`（抽到資料但對不上）、`nodata`（抽不到資料，可能本來就沒有）、`unchecked`（連不上）；只有 `mismatch` 算 `source_mismatch`。`detect/detect_service.py`：`source_findings`（同索引、filter、欄位的序列只查一次；加歸屬的索引）、`write_source_check`、`run_source_check`（算、印、寫；任何一步出錯只印一行，不影響呼叫它的指令）；`cmd_detect` 與 `trace-merge` 每輪呼叫，各寫一筆 `source-check-series`／`source-check-trace` 進 `aiops-alerts`（跟 `detect-status` 同一個形狀，不是一件事）；新指令 `detector source-check`（手動查）；`incident/store/models.py` 的 mapping 加 `source_mismatch`；Grafana `alert-rules.yaml` 加 `aiops-source-mismatch` 規則（只叫、10 分鐘）。
+- **設計上的一個判斷**：序列的索引與欄位是 `series.yaml` 自己寫的，宣告的來源（`AIOPS_SOURCE`）影響的是**歸屬**（`Scenario.owner` 的索引與欄位）、**log** 與 **raw trace 的格式**。所以檢查的重點是這三處。「抽不到資料」不算對不上，除非「序列的索引有資料、歸屬的索引卻一筆都沒有」——那是宣告錯來源最常見的樣子，升級成對不上；並存（好幾份歸屬）時不升級，因為其中一份的來源本來就可能沒資料。
+- **Check**：`tests/test_source_check.py`（宣告錯的三種樣子、對的不報、ES 連不上不丟例外、接進 `detect` 不擋它、檢查本身出錯不影響 `detect`、抽不到資料不算對不上、歸屬索引沒資料而序列有資料算對不上）；對真的 ES 跑 `detector source-check`：宣告 `apm` 對 APM 資料「全部對得上」；宣告 `otel` 對 APM 資料，歸屬那一項報 ⚠「序列有資料、這裡卻沒有」；宣告 `apm` 配 OTel 設定，raw trace 報「宣告 apm，但抽到的 20 筆都不是這個格式；文件長得像 otel」。
+- **一個沒處理好的雜訊**：對 `apm_synth` 的合成資料，檢查會印 3 條 ℹ（`service_destination`、`logs-apm.app.*`）——合成資料沒造這兩種索引；真實環境沒開 log shipping 時也會這樣。只是提示、不算 `source_mismatch`、不會叫人。
+
+## 階段 3：OTel 與 APM 並存（使用者決定：要）
+
+- **設計**：「來源跟著資料走，不是跟著程序走」。序列本來就自己帶 `index`／`by`／`value`／`scale`，沒有全域的來源，所以**序列混寫在同一份 `series.yaml` 就能並存**（`name` 要不重複）；真正有「全域來源」的只有三處，各改成可以有好幾個：①`Scenario`：`AIOPS_SOURCE=otel,apm`（第一個是主要的），`sources`、`extra_owners`、`extra_logs`，`owners`／`logs` 屬性把主要的放前面；②raw trace：`trace.yaml` 的 `raw_index` 可寫 `[{index, source}]` 清單，每個索引帶自己的來源，`span_merge.merge` 讀**所有**索引、合成同一筆（一個請求跨過兩套系統時兩邊的 span 才合得在一起）；③`LogRepository`：`of_traces`、`problems` 每個來源各查各的索引與欄位名；歸屬（`load_all_owners`）兩邊各查、合併，同一服務兩邊都有時主要的優先。
+- **Do**：`data/store/trace_repo.py`（`spans`、`updated_trace_ids` 加 `source` 參數，明講的優先於索引名與宣告）、`data/trace/span_merge.py`（`raw_indexes` 清單）、`detect/config/trace.py`（`RawIndex`、`raw_index: str | list[RawIndex]`、`raw_indexes()`、`source` 載入時驗過）、`common/scenario/base.py`（解析逗號、`dataclasses.replace` 加次要來源）、`data/store/owner_repo.py`（`load_all_owners`）、`incident/store/log_repo.py`、`it_otel.yaml`／`it_apm.yaml` 的 `log.index`（次要來源用）、`interface/cli/detect.py`（`trace_findings`）、helm（`hasPrefix "apm"` 選排程表；`--set 'source=otel\,apm'` 逗號要跳脫）、新增 `configs/mixed/`（`trace.yaml`、`series.yaml` 範例、`README.md`）。
+- **Check**：①`tests/test_source_mixed.py`：情境載入（主要的在前、單一來源不變、打錯說清楚）、歸屬合併且主要優先、**一個請求跨兩個來源合成同一筆且呼叫鏈接得起來**（用假的 repo）、`raw_index` 字串與清單兩種寫法、未知來源載入時擋下、log 各查各的索引與欄位名。②`tests/test_deploy.py`：`source=otel,apm` 用 OTel 的排程表、`apm,otel` 用 APM 的。③**真的 ES 的端到端 `tests/mixed_e2e.py`**：mes-api 的 span 寫進 APM 格式的索引（微秒）、wip-worker 的 span 寫進 OTel 格式的索引（奈秒），OTel 那邊的入口 span 的 parent 指到 APM 那邊的往外呼叫 span；跑 `detector trace-merge`：對照組（只列 APM 索引）合出的那筆只有 mes-api 的 2 個 span；並存設定合成**1 筆、5 個 span、兩個服務都在、呼叫鏈 tx1→sp1→ot1→ot2 接得起來、耗時換成毫秒（1600、1500）、種類對、`topology` 看得到 mes-api → wip-worker**。④既有的測試與 e2e（`synth`、`chain`、`factory`、`adaptive`、`fine`、`peer_edge`）過；`tests/test_config_snapshot.py` 的快照加兩份新 yaml（既有 23 份載入結果沒變）。
+- **沒做、或沒驗證**：①**同一個服務兩邊都送資料**：服務名要對得上才會併成同一件，目前沒有「兩邊服務名不同怎麼對」的規則；不要讓同一服務兩邊都送（指標會算兩次）。②`changes`、`daily_counts` 只看主要來源。③`interval`、`lag` 整份一個值（要 30 秒的 OTel 序列另一份 `series.yaml` 另一個排程工作）。④（已補）混寫序列時 `name` 重複會悄悄互相蓋掉基準線：`SeriesConfig` 載入時檢查，重複就擋下並說明「加來源前綴」；`tests/test_source_mixed.py::SeriesNames`。⑤**只有合成資料**驗過，沒對公司真實的 OTel／APM 資料跑過。⑥Grafana 的儀表板與告警規則沒有「來源」這個維度，並存後看不出一件事故的資料來自哪個來源。
 

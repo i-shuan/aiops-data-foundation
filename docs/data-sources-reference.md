@@ -4,7 +4,7 @@
 
 engine 讀進來的 raw 資料有兩種格式：**OTel**（我們過去的 Collector 寫的，Collector 已不在這個 repo）與 **Elastic APM**（公司現有的）。兩種各有一個**來源適配器**（`aiops-engine/src/data/source/`），把自己的 raw 文件翻成同一種統一的 span；合成、判斷、告警、根因都只認統一的 span。
 
-> 範圍：**trace**（span）。metrics 與 log 的差異不在適配器裡，靠 `configs/<來源>/series.yaml` 與情境資料檔（`common/scenario/it_otel.yaml`、`it_apm.yaml`）處理。目前**一個程序只宣告一種來源**（`AIOPS_SOURCE=otel|apm`），不能同時讀兩種。
+> 範圍：**trace**（span）。metrics 與 log 的差異不在適配器裡，靠 `configs/<來源>/series.yaml` 與情境資料檔（`common/scenario/it_otel.yaml`、`it_apm.yaml`）處理。來源用 `AIOPS_SOURCE=otel`、`apm`，或兩種並存 `otel,apm`（第一個是主要的；設定見 [../aiops-engine/configs/mixed/README.md](../aiops-engine/configs/mixed/README.md)）。
 
 ## 統一的 span
 
@@ -63,14 +63,14 @@ metrics、log 的對照（索引、欄位、單位 `scale`、直方圖桶、粒�
 
 | 時機 | 函式 | 規則 |
 |---|---|---|
-| 查 raw 之前（文件還沒讀回來） | `for_index(索引名, 宣告的來源)` | 有適配器認領索引名（APM 認 `traces-apm-*`）就用它；沒有就用宣告的來源；宣告的不在登記表（工廠情境的 `"factory"`）用 OTel |
+| 查 raw 之前（文件還沒讀回來） | 設定明講的 `source`（`trace.yaml` 的 `raw_index` 清單每個索引帶一個），沒講就 `for_index(索引名, 宣告的來源)` | 明講的優先；沒講：有適配器認領索引名（APM 認 `traces-apm-*`）就用它；沒有就用宣告的來源（並存時是第一個）；宣告的不在登記表（工廠情境的 `"factory"`）用 OTel |
 | 讀回來之後 | `to_span(doc)` | 依序問每個適配器 `can_handle`，第一個認得的翻；**都不認得丟 `UnknownSourceError`**（訊息列出文件有的欄位，不默默當成 OTel） |
 | 合成後的索引（`traces-merged-*`、`lot-paths-*`） | `is_merged(index)` | 看索引名；這是 engine 自己的格式，不是來源 |
 
 ## 目前的限制
 
-- **一個程序一種來源。** 同時讀兩種（一部分服務 OTel、一部分 APM）要「依索引選適配器」，還沒做（[計畫階段 3](pdca/meta/2026-11-source-adapter.md)）。
+- **並存的限制**（[../aiops-engine/configs/mixed/README.md](../aiops-engine/configs/mixed/README.md)）：同一個服務不要兩邊都送；序列的 `name` 不能重複；`interval`、`lag` 整份一個值；log 只有「這個請求的 log」與 warn／error 會查兩個來源。
 - **只涵蓋 trace。** metrics、log 的差異靠設定檔。
-- **沒有自我檢查。** 宣告的來源跟資料對不對，目前要人手動跑「先確認資料對得上」（[計畫階段 2](pdca/meta/2026-11-source-adapter.md)）。
+- **自我檢查只回報、不擋**：`detector source-check`，每輪 `detect`、`trace-merge` 也自動檢查，Grafana 的「AIOps 來源對不上」規則叫人；「抽不到資料」只算提示（可能本來就沒有，例如沒開 log shipping），「抽到了但欄位或格式對不上」才算對不上。
 - **APM 版只對合成資料（`tests/apm_synth.py`）驗過**，沒有對公司真實的 APM 資料跑過。
 - **APM 的別名表是空的**：`match` 寫 `service=…` 時，若 APM 序列的 key 是 `service.name` 找不到對應；補在 `apm.py` 的 `aliases`。

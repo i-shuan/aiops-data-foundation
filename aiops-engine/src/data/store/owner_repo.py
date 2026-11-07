@@ -42,6 +42,14 @@ def load_owners(es, profile: dict, days: int = OWNER_DAYS) -> dict:
     return owners_from_agg(res)
 
 
+def load_all_owners(es, profiles, days: int = OWNER_DAYS) -> dict:
+    """OTel 與 APM 並存時有好幾份對照（Scenario.owners，主要的在前）：每份各查各的索引、合併；同一個服務兩邊都有，主要的優先。"""
+    out: dict = {}
+    for profile in reversed([p for p in profiles if p]):
+        out.update(load_owners(es, profile, days))
+    return out
+
+
 def owner_of(keys: dict | None, owners: dict, entity_keys: tuple[str, ...]) -> tuple[str | None, str]:
     """(dept, group)。namespace 優先（dept 是 namespace 的 label），其次對象（entity_keys 裡的服務／機台）；找不到 → (None, unassigned)。"""
     for kind, fields in (("ns", NS_KEYS), ("svc", entity_keys)):

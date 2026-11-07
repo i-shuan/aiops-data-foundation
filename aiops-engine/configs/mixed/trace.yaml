@@ -1,0 +1,12 @@
+# OTel 與 APM 並存（AIOPS_SOURCE=otel,apm）的 trace 設定：兩個 raw 索引，各帶自己的來源。
+# trace-merge 把兩個索引裡同一個 trace 的 span 讀在一起、合成同一筆 traces-merged-*（一個請求跨過兩套系統也接得起來）。
+# 其餘（interval、train、detect、metrics…）跟 configs/baseline/trace.yaml 一樣，只寫跟預設不同的鍵。
+raw_index:
+  - {index: traces-generic.otel-*, source: otel}
+  - {index: traces-apm-*, source: apm}
+merge:
+  settle_seconds: 30      # 取兩邊裡慢的那個（APM 要多等 apm-server 批次送）
+
+rules:
+  repeated_calls: 20
+  swallowed_rate: 0.05    # 只有 OTel 來源的 span 有例外種類；APM 的例外是獨立文件，這條在 APM 的 span 上不會觸發

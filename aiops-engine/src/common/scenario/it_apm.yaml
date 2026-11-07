@@ -11,6 +11,7 @@ owner:                                   # dept、group 是 agent 設的 label�
   dept: labels.dept
   group: labels.group
 log:
+  index: logs-apm.app.*,logs-apm.error-*   # 只有「APM 是並存時的次要來源」才用（AIOPS_SOURCE=otel,apm）；主要來源用 rca.yaml 的 indices.logs
   service: service.name
   level: log.level
   trace_id: trace.id

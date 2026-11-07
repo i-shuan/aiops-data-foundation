@@ -18,15 +18,25 @@ from data.store.models import Trace
 STATE_ID = "trace-merge"
 
 
-def merge(repo, raw_index: str, since: datetime, until: datetime, now: datetime | None = None) -> int:
+RawIndexes = str | list[tuple[str, str | None]]       # 一個索引，或 [(索引, 明講的來源)]：OTel 與 APM 並存時每個 raw 索引各一個來源
+
+
+def as_list(raw_indexes: RawIndexes) -> list[tuple[str, str | None]]:
+    return [(raw_indexes, None)] if isinstance(raw_indexes, str) else list(raw_indexes)
+
+
+def merge(repo, raw_indexes: RawIndexes, since: datetime, until: datetime, now: datetime | None = None) -> int:
     """[since, until) 有新 span 的 trace 全部重新合成、寫進 merged。回傳合了幾個 trace。
-    span 的時間用 until 往前 2 天（raw 的保留天數）到 until 往後 5 分鐘（時鐘偏）來框。"""
+    span 的時間用 until 往前 2 天（raw 的保留天數）到 until 往後 5 分鐘（時鐘偏）來框。
+    多個 raw 索引（OTel 與 APM 並存）：任何一個有新 span 的 trace 都重合，而且要把**所有** raw 索引裡這個 trace 的 span 都讀回來——
+    一個請求跨過兩套系統（A 服務用 APM、B 服務用 OTel）時，兩邊的 span 才會合成同一筆，各自翻成統一的 span。"""
     now = now or datetime.now(timezone.utc)
-    raw = raw_index
-    ids = repo.traces.updated_trace_ids(raw, since, until)
+    pairs = as_list(raw_indexes)
+    ids = list(dict.fromkeys(i for raw, src in pairs for i in repo.traces.updated_trace_ids(raw, since, until, src)))
     if not ids:
         return 0
-    spans = repo.traces.spans(raw, ids, until - timedelta(days=2), until + timedelta(minutes=5))
+    lo, hi = until - timedelta(days=2), until + timedelta(minutes=5)
+    spans = [s for raw, src in pairs for s in repo.traces.spans(raw, ids, lo, hi, src)]
     docs: dict[str, list[tuple[str, dict]]] = {}
     for tid, t in Trace.group(spans).items():
         index, doc = t.to_merged_doc(now)
@@ -44,7 +54,7 @@ def save_state(repo, last: datetime, now: datetime) -> None:
     repo.state.set(STATE_ID, {"last": last.isoformat(), "updated_at": now.isoformat()})
 
 
-def run(repo, raw_index: str, settle_seconds: float, at: datetime, window: timedelta, chunk: timedelta = timedelta(minutes=10)) -> tuple[datetime, datetime, int]:
+def run(repo, raw_indexes: RawIndexes, settle_seconds: float, at: datetime, window: timedelta, chunk: timedelta = timedelta(minutes=10)) -> tuple[datetime, datetime, int]:
     """從上次合到的時間（沒有就 at − window）合到 at − 10 秒（剛寫進 ES 的要等 refresh）；中斷很久的話分段補。
     回傳 (since, until, 合了幾個)。"""
     until = at - timedelta(seconds=int(settle_seconds))
@@ -56,7 +66,7 @@ def run(repo, raw_index: str, settle_seconds: float, at: datetime, window: timed
     n, t = 0, since
     while t < until:
         t2 = min(t + chunk, until)
-        n += merge(repo, raw_index, t, t2, at)
+        n += merge(repo, raw_indexes, t, t2, at)
         t = t2
     save_state(repo, until, at)
     return since, until, n

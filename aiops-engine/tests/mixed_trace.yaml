@@ -1,0 +1,7 @@
+# tests/mixed_e2e.py 用：OTel 與 APM 並存的 trace 設定（兩個 raw 索引各帶自己的來源）
+traces_index: traces-merged-*
+raw_index:
+  - {index: mixedtest-apm-traces, source: apm}
+  - {index: mixedtest-otel-traces, source: otel}
+merge:
+  settle_seconds: 0

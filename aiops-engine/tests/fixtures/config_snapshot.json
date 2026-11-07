@@ -99,7 +99,7 @@
   "rel_floor": 0.1,
   "warmup": "5m",
   "window": "10m",
-  "z": 5,
+  "z": 5.0,
   "z_by_peers": {
    "2": 3,
    "3": 4,
@@ -487,14 +487,14 @@
   "borrowing": {
    "min_members": 3,
    "resolution": null,
-   "z": 7
+   "z": 7.0
   },
   "calendar_file": null,
   "detect": {
    "abs_floor": 1e-09,
    "alpha": 0.001,
    "rel_floor": 0.05,
-   "z": 5
+   "z": 5.0
   },
   "fine_history": "14d",
   "groups": [],
@@ -971,7 +971,7 @@
    "abs_floor": 1e-09,
    "alpha": 0.001,
    "rel_floor": 0.1,
-   "z": 5
+   "z": 5.0
   },
   "history_weeks": 4,
   "interval": "5m",
@@ -1249,7 +1249,7 @@
   "rel_floor": 0.1,
   "warmup": "5m",
   "window": "10m",
-  "z": 5,
+  "z": 5.0,
   "z_by_peers": {
    "2": 3,
    "3": 4,
@@ -3425,14 +3425,14 @@
   "borrowing": {
    "min_members": 3,
    "resolution": null,
-   "z": 7
+   "z": 7.0
   },
   "calendar_file": null,
   "detect": {
    "abs_floor": 1e-09,
    "alpha": 0.001,
    "rel_floor": 0.05,
-   "z": 5
+   "z": 5.0
   },
   "fine_history": "14d",
   "groups": [],
@@ -3860,7 +3860,7 @@
    "abs_floor": 1e-09,
    "alpha": 0.001,
    "rel_floor": 0.1,
-   "z": 5
+   "z": 5.0
   },
   "history_weeks": 4,
   "interval": "5m",
@@ -4326,6 +4326,396 @@
    }
   ],
   "timezone": "Asia/Taipei"
+ },
+ "configs/mixed/series.yaml": {
+  "adaptive": {
+   "coverage": 0.3,
+   "min_events": {
+    "count": 10,
+    "gauge": 10,
+    "rate": 20
+   },
+   "resolutions": [
+    "1m",
+    "5m",
+    "15m",
+    "30m",
+    "1h"
+   ]
+  },
+  "adjustments_file": null,
+  "borrowing": {
+   "min_members": 3,
+   "resolution": null,
+   "z": 7.0
+  },
+  "calendar_file": null,
+  "detect": {
+   "abs_floor": 1e-09,
+   "alpha": 0.001,
+   "rel_floor": 0.05,
+   "z": 5.0
+  },
+  "fine_history": "14d",
+  "groups": [],
+  "history_weeks": 4,
+  "interval": "1m",
+  "lag": "90s",
+  "overrides": [],
+  "series": [
+   {
+    "borrow": null,
+    "buckets": null,
+    "by": [
+     "resource.attributes.service.name",
+     "attributes.http.request.method",
+     "attributes.http.route"
+    ],
+    "confirm_points": null,
+    "direction": "both",
+    "events": null,
+    "fill_zero": true,
+    "filter": {
+     "exists": {
+      "field": "metrics.http.server.request.duration"
+     }
+    },
+    "index": "metrics-*.otel-*",
+    "instant_z": null,
+    "keys": [
+     "service",
+     "method",
+     "route"
+    ],
+    "kind": null,
+    "min_abs": 5,
+    "min_count": null,
+    "min_resolution": "1m",
+    "name": "otel.http.requests",
+    "resolution": null,
+    "scale": null,
+    "time_field": null,
+    "value": {
+     "hist_count": "metrics.http.server.request.duration"
+    }
+   },
+   {
+    "borrow": true,
+    "buckets": null,
+    "by": [
+     "resource.attributes.service.name",
+     "attributes.http.request.method",
+     "attributes.http.route"
+    ],
+    "confirm_points": 1,
+    "direction": "up",
+    "events": null,
+    "fill_zero": null,
+    "filter": {
+     "exists": {
+      "field": "metrics.http.server.request.duration"
+     }
+    },
+    "index": "metrics-*.otel-*",
+    "instant_z": null,
+    "keys": [
+     "service",
+     "method",
+     "route"
+    ],
+    "kind": null,
+    "min_abs": 0.05,
+    "min_count": 3,
+    "min_resolution": null,
+    "name": "otel.http.error_rate",
+    "resolution": null,
+    "scale": null,
+    "time_field": null,
+    "value": {
+     "hist_ratio": {
+      "field": "metrics.http.server.request.duration",
+      "query": {
+       "range": {
+        "attributes.http.response.status_code": {
+         "gte": 500
+        }
+       }
+      }
+     }
+    }
+   },
+   {
+    "borrow": true,
+    "buckets": [
+     0.005,
+     0.01,
+     0.025,
+     0.05,
+     0.075,
+     0.1,
+     0.25,
+     0.5,
+     0.75,
+     1.0,
+     2.5,
+     5.0,
+     7.5,
+     10.0
+    ],
+    "by": [
+     "resource.attributes.service.name",
+     "attributes.http.request.method",
+     "attributes.http.route"
+    ],
+    "confirm_points": null,
+    "direction": "up",
+    "events": null,
+    "fill_zero": null,
+    "filter": {
+     "exists": {
+      "field": "metrics.http.server.request.duration"
+     }
+    },
+    "index": "metrics-*.otel-*",
+    "instant_z": null,
+    "keys": [
+     "service",
+     "method",
+     "route"
+    ],
+    "kind": null,
+    "min_abs": 0.05,
+    "min_count": null,
+    "min_resolution": null,
+    "name": "otel.http.latency_p95_s",
+    "resolution": null,
+    "scale": null,
+    "time_field": null,
+    "value": {
+     "percentile": {
+      "field": "metrics.http.server.request.duration",
+      "percent": 95
+     }
+    }
+   },
+   {
+    "borrow": null,
+    "buckets": null,
+    "by": [
+     "service.name",
+     "transaction.name"
+    ],
+    "confirm_points": null,
+    "direction": "both",
+    "events": null,
+    "fill_zero": true,
+    "filter": {
+     "bool": {
+      "filter": [
+       {
+        "term": {
+         "metricset.name": "transaction"
+        }
+       },
+       {
+        "term": {
+         "transaction.type": "request"
+        }
+       }
+      ]
+     }
+    },
+    "index": "metrics-apm.transaction.1m-*",
+    "instant_z": null,
+    "keys": [
+     "service",
+     "route"
+    ],
+    "kind": null,
+    "min_abs": 5,
+    "min_count": null,
+    "min_resolution": "1m",
+    "name": "apm.http.requests",
+    "resolution": null,
+    "scale": null,
+    "time_field": null,
+    "value": {
+     "hist_count": "transaction.duration.histogram"
+    }
+   },
+   {
+    "borrow": true,
+    "buckets": null,
+    "by": [
+     "service.name",
+     "transaction.name"
+    ],
+    "confirm_points": 1,
+    "direction": "up",
+    "events": null,
+    "fill_zero": null,
+    "filter": {
+     "bool": {
+      "filter": [
+       {
+        "term": {
+         "metricset.name": "transaction"
+        }
+       },
+       {
+        "term": {
+         "transaction.type": "request"
+        }
+       }
+      ]
+     }
+    },
+    "index": "metrics-apm.transaction.1m-*",
+    "instant_z": null,
+    "keys": [
+     "service",
+     "route"
+    ],
+    "kind": null,
+    "min_abs": 0.05,
+    "min_count": 3,
+    "min_resolution": null,
+    "name": "apm.http.error_rate",
+    "resolution": null,
+    "scale": null,
+    "time_field": null,
+    "value": {
+     "hist_ratio": {
+      "field": "transaction.duration.histogram",
+      "query": {
+       "term": {
+        "event.outcome": "failure"
+       }
+      }
+     }
+    }
+   },
+   {
+    "borrow": true,
+    "buckets": null,
+    "by": [
+     "service.name",
+     "transaction.name"
+    ],
+    "confirm_points": null,
+    "direction": "up",
+    "events": null,
+    "fill_zero": null,
+    "filter": {
+     "bool": {
+      "filter": [
+       {
+        "term": {
+         "metricset.name": "transaction"
+        }
+       },
+       {
+        "term": {
+         "transaction.type": "request"
+        }
+       }
+      ]
+     }
+    },
+    "index": "metrics-apm.transaction.1m-*",
+    "instant_z": null,
+    "keys": [
+     "service",
+     "route"
+    ],
+    "kind": null,
+    "min_abs": 0.05,
+    "min_count": null,
+    "min_resolution": null,
+    "name": "apm.http.latency_p95_s",
+    "resolution": null,
+    "scale": 1e-06,
+    "time_field": null,
+    "value": {
+     "percentile": {
+      "field": "transaction.duration.histogram",
+      "percent": 95
+     }
+    }
+   }
+  ],
+  "shift": null,
+  "status": {
+   "confirm_points": 2,
+   "confirm_span": "30m",
+   "instant_z": 15
+  },
+  "timezone": null,
+  "train": {
+   "min_days": 3,
+   "min_points": 50,
+   "min_slot_points": 6,
+   "min_weeks": 2,
+   "timezone": "Asia/Taipei"
+  }
+ },
+ "configs/mixed/trace.yaml": {
+  "clock_skew_ms": 500,
+  "detect": {
+   "abs_floor": 1e-09,
+   "alpha": 0.001,
+   "rel_floor": 0.1,
+   "z": 5.0
+  },
+  "history_weeks": 4,
+  "interval": "5m",
+  "merge": {
+   "settle_seconds": 30
+  },
+  "metrics": {
+   "calls": {
+    "direction": "both",
+    "min_abs": 0.5
+   },
+   "error_rate": {
+    "direction": "up",
+    "min_abs": 0.05
+   },
+   "swallowed_rate": {
+    "direction": "up",
+    "min_abs": 0.05
+   },
+   "time_ms": {
+    "direction": "up",
+    "min_abs": 20
+   }
+  },
+  "min_requests": 5,
+  "raw_index": [
+   {
+    "index": "traces-generic.otel-*",
+    "source": "otel"
+   },
+   {
+    "index": "traces-apm-*",
+    "source": "apm"
+   }
+  ],
+  "rules": {
+   "repeated_calls": 20,
+   "swallowed_rate": 0.05
+  },
+  "sample_per_bucket": 100,
+  "sample_policy": null,
+  "status": null,
+  "traces_index": "traces-merged-*",
+  "train": {
+   "min_days": 3,
+   "min_points": 50,
+   "min_slot_points": 6,
+   "min_weeks": 2,
+   "timezone": "Asia/Taipei"
+  }
  },
  "configs/rca/rca.yaml": {
   "alerts": {

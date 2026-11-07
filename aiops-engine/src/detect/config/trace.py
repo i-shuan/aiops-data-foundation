@@ -1,7 +1,10 @@
 """trace.yaml：trace 的合成、每一段的 baseline 與規則。"""
 from __future__ import annotations
 
+from pydantic import model_validator
+
 from common.config.common import Direction, Dur, NonNeg, PosInt, Ratio, Strict
+from data.source import ADAPTERS
 from detect.config.types import Detect, Status, Train
 
 
@@ -9,6 +12,18 @@ from detect.config.types import Detect, Status, Train
 
 class Merge(Strict):
     settle_seconds: NonNeg = 10   # 剛寫進 ES 的 span 等 refresh；合到「現在 − 這幾秒」（等這麼久才合（apm-server 批次送、ES refresh；APM 要比 Collector 久））
+
+
+class RawIndex(Strict):
+    """一個 raw trace 索引，加上它是哪種來源的（OTel 與 APM 並存時每個索引各一個；只有一種來源時直接寫索引名字串就好）。"""
+    index: str
+    source: str | None = None                # data/source 登記的名字（otel、apm）；沒寫由索引名與宣告的來源（AIOPS_SOURCE）決定
+
+    @model_validator(mode="after")
+    def _known(self):
+        if self.source is not None and self.source not in ADAPTERS:
+            raise ValueError(f"來源 {self.source!r} 不認得，只能是 {'、'.join(ADAPTERS)}")
+        return self
 
 
 class TraceRules(Strict):
@@ -37,10 +52,14 @@ class TraceConfig(Strict):
     min_requests: NonNeg = 5   # 這個時間窗抽到的請求少於這個數，不判斷（太少，平均不準）
     clock_skew_ms: NonNeg = 500   # 呼叫方與被呼叫方的時間差超過這個就算時鐘不同步（規則，不用學）
     sample_policy: str | None = None
-    raw_index: str = "traces-generic.otel-*"   # 合成前的原始 span（APM 是 traces-apm-*）
+    raw_index: str | list[RawIndex] = "traces-generic.otel-*"   # 合成前的原始 span（APM 是 traces-apm-*）；OTel 與 APM 並存就寫清單，每個索引帶自己的 source
     merge: Merge = Merge()
     rules: TraceRules = TraceRules()
     train: Train = Train()
     detect: Detect = Detect(rel_floor=0.1)    # 每個請求呼叫幾次這種數字很穩（MAD 常常是 0），波動至少當成平常值的 10%
     status: Status | None = None             # 沒寫的鍵不算有（with_status 用 .get）
     metrics: TraceMetrics = TraceMetrics()
+
+    def raw_indexes(self) -> list[tuple[str, str | None]]:
+        """[(索引, 明講的來源 或 None)]：不管 yaml 寫的是一個字串還是清單。"""
+        return [(self.raw_index, None)] if isinstance(self.raw_index, str) else [(r.index, r.source) for r in self.raw_index]
