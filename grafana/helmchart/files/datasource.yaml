@@ -1,4 +1,5 @@
-# Grafana 的 ES data source：只讀 aiops-alerts（AIOps 合併過的事件）、aiops-anomalies、aiops-tuning、aiops-feedback（儀表板用）
+# Grafana 的 ES data source：只讀 aiops-alerts（AIOps 合併過的事件）、aiops-anomalies、aiops-tuning、aiops-feedback（儀表板用），
+# 加公司 Elastic APM 的 metrics、trace、log 三個（整合儀表板 aiops-overview 用；欄位對照見 aiops-engine/configs/apm/README.md）
 apiVersion: 1
 datasources:
   - name: aiops-alerts
@@ -42,6 +43,42 @@ datasources:
     jsonData:
       index: aiops-feedback
       timeField: "@timestamp"
+      httpHeaderName1: Authorization
+    secureJsonData:
+      httpHeaderValue1: ApiKey ${GRAFANA_ES_API_KEY}
+  - name: apm-metrics
+    uid: apm-metrics
+    type: elasticsearch
+    access: proxy
+    url: ${ES_URL}
+    jsonData:
+      index: "metrics-apm.transaction.1m-*"
+      timeField: "@timestamp"
+      timeInterval: "1m"           # APM 的指標一分鐘一筆；auto 的間隔不要比它短，不然每隔一格是空的、線連不起來
+      httpHeaderName1: Authorization
+    secureJsonData:
+      httpHeaderValue1: ApiKey ${GRAFANA_ES_API_KEY}
+  - name: apm-traces
+    uid: apm-traces
+    type: elasticsearch
+    access: proxy
+    url: ${ES_URL}
+    jsonData:
+      index: "traces-apm-*"
+      timeField: "@timestamp"
+      timeInterval: "1m"
+      httpHeaderName1: Authorization
+    secureJsonData:
+      httpHeaderValue1: ApiKey ${GRAFANA_ES_API_KEY}
+  - name: apm-logs
+    uid: apm-logs
+    type: elasticsearch
+    access: proxy
+    url: ${ES_URL}
+    jsonData:
+      index: "logs-apm.*"
+      timeField: "@timestamp"
+      logMessageField: error.exception.message   # Log 面板每一行顯示的欄位（APM 例外的訊息）
       httpHeaderName1: Authorization
     secureJsonData:
       httpHeaderValue1: ApiKey ${GRAFANA_ES_API_KEY}
