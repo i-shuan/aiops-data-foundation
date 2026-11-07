@@ -1,8 +1,8 @@
-"""一種原始資料格式（OTel、Elastic APM…）要提供什麼：② 清資料的「來源」介面。
+"""來源適配器（SourceAdapter）：把一種原始資料的格式（OTel、Elastic APM…）翻成 engine 內部統一的格式。
 
-engine 後面的部分（合成、判斷、告警、根因）只認統一的 span（見 data/store/models.py 的 Trace）與統一的異常；
-一種來源怎麼把自己的 raw 文件轉成統一 span、查 raw trace 要撈哪些欄位、trace id 叫什麼，都在這一個類別裡。
-新增一種來源＝寫一個子類別、登記到 data/source/__init__.py 的 FORMATS，不用改別的地方。
+這是 Adapter 模式：外面的系統各寫各的欄位、單位、結構；後面的合成、判斷、告警、根因只認統一的 span
+（見 data/store/models.py 的 Trace）。一種來源一個適配器，要回答下面這些問題；新增一種來源＝寫一個子類別、登記到
+data/source/__init__.py 的 ADAPTERS，不用改別的地方（怎麼新增：docs/data-sources-how-to.md；對照表：docs/data-sources-reference.md）。
 """
 from __future__ import annotations
 
@@ -25,8 +25,8 @@ def start_ms(ts) -> float:
     return float(ts) if isinstance(ts, (int, float)) else datetime.fromisoformat(ts.replace("Z", "+00:00")).timestamp() * 1000
 
 
-class SourceFormat:
-    """子類別覆寫下面這些；沒有預設的「通用」實作，免得新來源漏填也能跑。"""
+class SourceAdapter:
+    """子類別覆寫下面這些；沒有預設的「通用」實作，免得新來源漏填也能跑（漏填會丟 NotImplementedError）。"""
     name: str = ""
     trace_fields: object = None          # 查 raw trace 的 `_source`（list 或 {includes, excludes}）
     trace_sort: list = []                # 同一個 trace 的 span 排序
@@ -38,8 +38,9 @@ class SourceFormat:
         """查回這些 span id 的 ES query（用 span id 讀 span，例如 link 指到的別的 trace 裡的生產者）。"""
         raise NotImplementedError
 
-    def is_doc(self, doc: dict) -> bool:
-        """這筆 raw 文件是不是這個來源的格式（看內容，不看索引名）。"""
+    def can_handle(self, doc: dict) -> bool:
+        """這筆 raw 文件是不是這個來源的格式：看內容裡有沒有這個來源**才有的**欄位（不看索引名）。
+        要積極地認：只在確定是自己的時候回 True，不要「不是別人的就是我的」——沒有任何適配器認得時，to_span 會丟 UnknownSourceError。"""
         raise NotImplementedError
 
     def owns_index(self, index: str) -> bool:

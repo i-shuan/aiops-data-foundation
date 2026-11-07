@@ -29,6 +29,8 @@
 | 文件 | 類型 | 內容 | 狀態 |
 |---|---|---|---|
 | [data-storage-reference.md](data-storage-reference.md) | 規格 | 資料存哪裡：Elastic APM 寫的原始資料（只讀）、ES 的 `aiops-*`（訓練、RCA 報告、回饋）誰寫、多久一次、會不會自己消失；Grafana 自己存什麼 | 🟢 |
+| [data-sources-reference.md](data-sources-reference.md) | 規格 | 原始資料來源 OTel 與 Elastic APM 怎麼對齊：統一的 span、兩種格式的欄位／單位／失敗／種類對照、來源適配器要回答什麼、怎麼選、限制 | 🟡（APM 只對合成資料驗過） |
+| [data-sources-how-to.md](data-sources-how-to.md) | 操作 | 新增一種原始資料來源：寫適配器、登記、補測試、對真實資料跑一次、常見的坑 | 🟢 |
 
 ### ④～⑦ 判斷、收斂、根因分析
 

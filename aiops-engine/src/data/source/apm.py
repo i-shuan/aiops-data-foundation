@@ -7,7 +7,7 @@ transaction、span 各一筆（processor.event 區分）；欄位是 ECS 的扁�
 from __future__ import annotations
 
 from common.infra.es import get_field
-from data.source.base import SourceFormat, duration_ms, start_ms
+from data.source.adapter import SourceAdapter, duration_ms, start_ms
 
 # APM 的文件：transaction、span 都是物件（span.stacktrace 很大、不要）；labels 是 agent 設的標籤（dept、group、業務 ID）
 _APM_FIELDS = {"includes": ["@timestamp", "timestamp.us", "processor.event", "trace.id", "parent.id", "transaction", "span",
@@ -60,7 +60,7 @@ def _apm_span(src: dict) -> dict:
             "attrs": attrs, "resource": resource}
 
 
-class ApmFormat(SourceFormat):
+class ApmAdapter(SourceAdapter):
     name = "apm"
     trace_fields = _APM_FIELDS
     trace_sort = [{"@timestamp": "asc"}, {"_doc": "asc"}]
@@ -72,7 +72,7 @@ class ApmFormat(SourceFormat):
         # transaction 的 id 在 transaction.id，span 的在 span.id
         return {"bool": {"should": [{"terms": {"span.id": span_ids}}, {"terms": {"transaction.id": span_ids}}], "minimum_should_match": 1}}
 
-    def is_doc(self, doc: dict) -> bool:
+    def can_handle(self, doc: dict) -> bool:
         return get_field(doc, "processor.event") in ("transaction", "span") or get_field(doc, "trace.id") is not None
 
     def owns_index(self, index: str) -> bool:

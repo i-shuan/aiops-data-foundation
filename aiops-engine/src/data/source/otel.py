@@ -5,13 +5,13 @@
 from __future__ import annotations
 
 from common.infra.es import get_field
-from data.source.base import SourceFormat, duration_ms, start_ms
+from data.source.adapter import SourceAdapter, duration_ms, start_ms
 
 _SPAN_FIELDS = ["@timestamp", "trace_id", "span_id", "parent_span_id", "name", "kind", "duration", "status.code", "links",
                 "resource.attributes", "attributes"]
 
 
-class OtelFormat(SourceFormat):
+class OtelAdapter(SourceAdapter):
     name = "otel"
     trace_fields = _SPAN_FIELDS
     trace_sort = [{"@timestamp": "asc"}, {"span_id": "asc"}]
@@ -30,8 +30,8 @@ class OtelFormat(SourceFormat):
     def span_ids_filter(self, span_ids: list[str]) -> dict:
         return {"terms": {"span_id": span_ids}}
 
-    def is_doc(self, doc: dict) -> bool:
-        return "trace_id" in doc or "resource" in doc
+    def can_handle(self, doc: dict) -> bool:
+        return "trace_id" in doc and "span_id" in doc          # OTel 的 span 一定有這兩個（to_span 直接取）；APM 的文件是 trace.id、span.id（巢狀）
 
     def owns_index(self, index: str) -> bool:
         return False        # Collector 的索引名由使用者設，沒有可靠的特徵；沒有別的來源認領時，用宣告的來源（見 for_index）

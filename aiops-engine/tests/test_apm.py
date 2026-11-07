@@ -116,7 +116,7 @@ class ApmQueryTest(unittest.TestCase):
         es = self.FakeES([TX, DB])
         got = Repos(es, load_scenario()).traces.spans_by_id("traces-apm-*", ["tx1"], datetime(2026, 11, 1, tzinfo=timezone.utc), datetime(2026, 11, 3, tzinfo=timezone.utc))
         self.assertEqual(list(got), ["tx1"])
-        inner = next(f for f in es.bodies[0][1]["query"]["bool"]["filter"] if "bool" in f)       # 來源模組給的條件（SourceFormat.span_ids_filter）
+        inner = next(f for f in es.bodies[0][1]["query"]["bool"]["filter"] if "bool" in f)       # 來源模組給的條件（SourceAdapter.span_ids_filter）
         should = inner["bool"]["should"]
         self.assertEqual(should, [{"terms": {"span.id": ["tx1"]}}, {"terms": {"transaction.id": ["tx1"]}}])
 

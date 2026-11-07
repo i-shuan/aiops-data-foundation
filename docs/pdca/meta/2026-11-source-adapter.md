@@ -30,7 +30,7 @@
 
 ```
 data/source/
-├─ base.py     SourceFormat 介面：一種來源要提供什麼
+├─ adapter.py  SourceAdapter 介面：一種來源要回答什麼（原計畫叫 base.py／SourceFormat）
 ├─ otel.py     OTel（Collector 寫的 k8s-*、metrics-*.otel-*、traces-generic.otel-*）
 ├─ apm.py      Elastic APM（metrics-apm.*、traces-apm-*、logs-apm.*）
 └─ __init__.py 登記表 REGISTRY：名字 → 模組；format_of(來源名) 取出
@@ -102,4 +102,11 @@ data/source/
 - **Check 抓到的一個錯**：第一版 `for_index` 對不在登記表的宣告來源丟例外，但工廠情境的 `source` 是 `"factory"`（MES 履歷，沒有 raw trace）。單元測試全過，`factory_e2e` 掉到 11/15——報告段落吞了例外。改成「沒有來源認領、宣告的來源也不在登記表就用預設（OTel）」，跟抽出來之前「非 apm 都當 otel」一樣，並加兩條單元測試（`for_index("lot-paths-…", "factory")`、`schema_of` 對四種索引的答案）。
 - **跟計畫不同的地方**：①計畫寫 `probe(es)`（啟動時自我檢查）是階段 2，沒做。②計畫寫的「`match_aliases`」落成 `aliases` 欄位；APM 目前是空表（行為不變），所以用 `match` 寫 `service=…` 時，APM 序列的 key 若是 `service.name` 仍找不到別名——這是**原本就有**的缺口，不是這次造成，要補只要加在 `apm.py`。③模組放在 `data/source/`，不是計畫原本寫的 `detect/source/`（階段 0 之後改名）。
 - **Act**：①階段 2（`probe`）、階段 3（依索引並存）還沒做，等你回答計畫裡的兩個問題。②`incident/store/log_repo.py`、`detect/store/owner_repo`（已搬 `data/store/`）仍靠 `Scenario` 的 yaml（`it_otel.yaml`／`it_apm.yaml`）給欄位對照；沒有搬進 `SourceFormat`，因為那是「每個情境一份資料」，不是程式；若要並存，這兩塊要改成「依索引選對照」。③這次只有 trace 側有程式差異可抽；metrics 側本來就只靠 `series.yaml` 的 `index`／`by`／`scale`。
+
+## 階段 1 之後的修正（使用者審稿的意見）
+
+- **命名**：`base.py` → `adapter.py`，`SourceFormat` → `SourceAdapter`，`OtelFormat`／`ApmFormat` → `OtelAdapter`／`ApmAdapter`，`FORMATS`／`format_of` → `ADAPTERS`／`adapter_of`，`is_doc` → `can_handle`。理由：原本的名字只說了實作手段（基底類別），沒說出它在業務上是什麼；這是 Adapter 模式，名字要讓人一眼看出。
+- **不再默默退回 OTel**：`to_span` 原本是「不是 APM 就當 OTel」。改成問每個適配器 `can_handle`（只在確定是自己的格式時才認），都不認得就丟 `UnknownSourceError`，訊息列出文件有的欄位。OTel 的 `can_handle` 從 `"trace_id" in doc or "resource" in doc` 收緊成 `"trace_id" in doc and "span_id" in doc`（`to_span` 本來就直接取這兩個）。**這是行為變動，但只影響「本來就會壞」的文件**：不認得的文件原本會在 OTel 的 `to_span` 丟 `KeyError: 'trace_id'`，看不出是格式問題；現在丟看得懂的錯。沒有放寬任何本來能處理的文件。
+- **文件**：新增 [data-sources-reference.md](../data-sources-reference.md)（規格：統一的 span、OTel 與 APM 逐項對照、適配器要回答什麼、怎麼選、限制）與 [data-sources-how-to.md](../data-sources-how-to.md)（操作：新增一種來源的步驟與常見的坑）。審稿意見建議合成一份；照專案的 Diátaxis 規則（一份文件只做一種事）拆成規格與操作兩份。
+- **Check**：①搬動前後 `to_span` 逐筆比對重跑（APM 3600、OTel 1200 筆）仍完全相同。②全測試 816 個過；新增兩條：不認得的文件丟 `UnknownSourceError` 並列出欄位、每個適配器只認領自己的樣本。③e2e `synth`、`chain`、`factory`（15/15）、`adaptive` 過。④`check-docs` 過。
 

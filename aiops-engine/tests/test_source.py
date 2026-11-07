@@ -8,9 +8,9 @@ import random
 import unittest
 from datetime import datetime, timezone
 
-from data.source import ALIASES, FORMATS, DEFAULT, for_index, format_of, to_span
-from data.source.apm import ApmFormat
-from data.source.otel import OtelFormat
+from data.source import ADAPTERS, ALIASES, DEFAULT, UnknownSourceError, adapter_of, for_index, to_span
+from data.source.apm import ApmAdapter
+from data.source.otel import OtelAdapter
 from data.store.models import schema_of, trace_id_field
 from tests import apm_synth
 
@@ -19,11 +19,11 @@ SRC = pathlib.Path(__file__).resolve().parents[1] / "src"
 
 class Registry(unittest.TestCase):
     def test_names(self):
-        self.assertEqual(sorted(FORMATS), ["apm", "otel"])
-        self.assertIsInstance(format_of("apm"), ApmFormat)
-        self.assertIsInstance(format_of("otel"), OtelFormat)
+        self.assertEqual(sorted(ADAPTERS), ["apm", "otel"])
+        self.assertIsInstance(adapter_of("apm"), ApmAdapter)
+        self.assertIsInstance(adapter_of("otel"), OtelAdapter)
         with self.assertRaises(ValueError) as cm:
-            format_of("jaeger")
+            adapter_of("jaeger")
         self.assertIn("jaeger", str(cm.exception))
 
     def test_for_index_apm_claims_its_own_indices(self):
@@ -44,7 +44,7 @@ class Registry(unittest.TestCase):
 
     def test_aliases_come_from_the_sources(self):
         self.assertIn(("service", "resource.attributes.service.name", "entry.service"), ALIASES)
-        self.assertEqual(sorted(a[0] for a in ApmFormat.aliases), [])             # APM 目前沒有；之後加在 apm.py
+        self.assertEqual(sorted(a[0] for a in ApmAdapter.aliases), [])             # APM 目前沒有；之後加在 apm.py
 
 
 def _otel_of(d: dict) -> dict:
@@ -56,6 +56,24 @@ def _otel_of(d: dict) -> dict:
             "parent_span_id": d.get("parent.id"), "name": d["transaction.name"] if is_tx else d["span.name"],
             "kind": "Server" if is_tx else "Client", "duration": ms * 1e6, "status.code": "Error" if d["event.outcome"] == "failure" else "Unset",
             "resource": {"attributes": {"service.name": d["service.name"]}}, "attributes": attrs}
+
+
+class Unrecognized(unittest.TestCase):
+    """不是 OTel 也不是 APM 的文件：丟看得懂的錯，不默默當 OTel（以前會是 KeyError: 'trace_id'，看不出是格式問題）。"""
+
+    def test_unknown_document_raises_a_clear_error(self):
+        with self.assertRaises(UnknownSourceError) as cm:
+            to_span({"@timestamp": "2026-11-07T03:00:00Z", "zipkin_id": "abc", "localEndpoint": {"serviceName": "x"}})
+        self.assertIn("認不得", str(cm.exception))
+        self.assertIn("zipkin_id", str(cm.exception))                           # 把文件有的欄位列出來，debug 才知道收到什麼
+        with self.assertRaises(UnknownSourceError):
+            to_span({})
+
+    def test_each_adapter_only_claims_its_own(self):
+        otel = {"trace_id": "t", "span_id": "s", "@timestamp": 1}
+        apm = {"processor": {"event": "span"}, "trace": {"id": "t"}}
+        self.assertEqual([a.name for a in ADAPTERS.values() if a.can_handle(otel)], ["otel"])
+        self.assertEqual([a.name for a in ADAPTERS.values() if a.can_handle(apm)], ["apm"])
 
 
 class SameUnifiedSpan(unittest.TestCase):
@@ -86,7 +104,7 @@ class OnlyTheSourceFolderKnowsTheSource(unittest.TestCase):
                     bad.append(f"{rel}:{n.lineno} 字串 {n.value!r}")
                 if isinstance(n, ast.Name) and n.id in ("_apm_span", "is_apm_doc", "_APM_FIELDS", "_SPAN_FIELDS"):
                     bad.append(f"{rel}:{n.lineno} {n.id}")
-        self.assertEqual(bad, [], "來源判斷只在 data/source：要新增或改欄位對照，改那裡的 SourceFormat")
+        self.assertEqual(bad, [], "來源判斷只在 data/source：要新增或改欄位對照，改那裡的 SourceAdapter")
 
 
 if __name__ == "__main__":
