@@ -21,10 +21,10 @@
 
 | 症狀 | 原因 | 做法 |
 |---|---|---|
-| 規則狀態 Error，ES 回 400 | Grafana 的 terms 預設用 `_term` 排序，ES 不認得（實測 9.5；8.19 也已不支援 `_term`） | 每個 terms 都寫 `orderBy: _count`（`grafana/code/alert-rules.yaml` 已寫） |
+| 規則狀態 Error，ES 回 400 | Grafana 的 terms 預設用 `_term` 排序，ES 不認得（實測 9.5；8.19 也已不支援 `_term`） | 每個 terms 都寫 `orderBy: _count`（`grafana/helmchart/files/alert-rules.yaml` 已寫） |
 | data source 測試回 403 | Grafana 會先打 `GET /` 看版本 | key 要有 cluster `monitor` 權限（`kibana-dev-tools.txt` 第 4 段的 Grafana 唯讀 key 已給） |
 | 同一件事每分鐘收到「舊的 resolved＋新的 firing」 | `summary` 是告警的 label，內容一變就是另一則 | engine 寫的 summary 不放「持續 N 分鐘」「等 N 項異常」這種每分鐘會變的字（`aiops-engine/src/incident/alert_grouper.py`） |
-| 件還開著，Grafana 卻發 resolved，之後又 firing | 一件只有一筆、每輪覆蓋；Grafana 的查詢範圍到「排定的評估時間」為止，查詢晚幾秒才送出。覆蓋剛好落在這幾秒之間時，`@timestamp` 晚於範圍結束點，查到 0 筆 | engine 寫開著的件和心跳時，`@timestamp` 往前 1 分鐘（`cmd_alert.STAMP_LAG`）。驗證：`e2e/pipeline/run-alert-flap.py` |
+| 件還開著，Grafana 卻發 resolved，之後又 firing | 一件只有一筆、每輪覆蓋；Grafana 的查詢範圍到「排定的評估時間」為止，查詢晚幾秒才送出。覆蓋剛好落在這幾秒之間時，`@timestamp` 晚於範圍結束點，查到 0 筆 | engine 寫開著的件和心跳時，`@timestamp` 往前 1 分鐘（`common/clock/stamp.py` 的 `STAMP_LAG`）。驗證：`tests/test_cmd_alert.py`（`@timestamp` 往前寫 1 分鐘）；對真的 Grafana 的實測（原本的 `e2e/pipeline/run-alert-flap.py`）已刪，在 git 歷史 |
 | ES 連不上時收到 `DatasourceError`，不是「AIOps 停了」，而且一次兩則 | 規則 `execErrState: Error` 時 Grafana 發自己的 DatasourceError；兩條規則各發一則 | 要它也叫「AIOps 停了」就把心跳規則改 `execErrState: Alerting`；事件規則的 DatasourceError 用 notification policy 靜音（還沒改，要跟管 Grafana 的人定） |
 | 儀表板查 `_exists_:report` 永遠沒資料 | `aiops-alerts` 的 `report` 是 `index: false` | 用 `category:service` 篩 |
 | `aiops-rca` 儀表板「這件事故的異常」No data（規則觸發的事故一定空） | 原本查 `status:(warning OR anomaly)` 又只依時間範圍篩：規則觸發的異常沒有 `status`，而且撈到的不一定是這件的 | 已改：`investigator alert` 併件時把 `alert_id` 寫回 `aiops-anomalies`（`cmd_alert.tag_anomalies`），面板查 `alert_id:"$alert"`；改版前已結束的件撈不到（當時沒寫回） |
@@ -38,7 +38,7 @@
 | 上游那件「恢復」、同時下游開了新的一件（連帶上游） | 上游先被偵測到、下游晚一輪：下游開件時把上游那件整件併進來（`merged_into`） | 正常；看下游那件就好。要避免就縮短偵測延遲（規則窗、排程間隔） |
 | A→B→C 三個一起出事，開成兩件 | 事件整合只併一層（直接呼叫者）：C 連帶 B，A 自己一件 | 已知限制（[cross-service-aggregation](pdca/phase3-locate/2026-10-cross-service-aggregation.md) Act） |
 | Kafka 落後在變少（消費者追上來），卻報「落後一直增加」 | `increase` 把數字變小當成計數器歸零重來，把新的值整個算成增加；落後是量測值不是計數器 | 會上下動的量測值用 `type: delta`（最後 − 最前）；`increase` 只用在計數器（`kafka.consumer_lag_growing` 已改） |
-| 新建的 Pod 一直 Pending 才 2 分半就報（`for: 5m`）；新 Deployment 1 分半就報副本不夠 | 舊的 `for` 只要求 for 裡最早的點離現在超過一半；新對象從第一筆就成立時，一半就報 | 已改：對象要在 for 開頭之前就有資料（`detector/rules.py`） |
+| 新建的 Pod 一直 Pending 才 2 分半就報（`for: 5m`）；新 Deployment 1 分半就報副本不夠 | 舊的 `for` 只要求 for 裡最早的點離現在超過一半；新對象從第一筆就成立時，一半就報 | 已改：對象要在 for 開頭之前就有資料（`detect/strategy/threshold_rule.py`） |
 | 核准的規則草稿有一條壞掉（缺欄位、查詢錯），`rules` 整輪都沒跑 | 一條規則丟例外就整個指令結束，其他規則也沒寫 | 已改：只跳過那一條、其他照跑照寫，最後 exit 1、印「N 條失敗」 |
 | 規則草稿設了 `expires_at`，過期後還在報 | `approved_rules` 只看 `status`，沒看 `expires_at` | 已改：跟 `--at` 的時間比，到期就不載入 |
 | Pod 同儕橫向比對報剛起來的新 Pod CPU 高 | 啟動時 JIT、載入類別，前幾分鐘 CPU 高 | `peer.yaml` 的 `warmup`（5m）：起來不到 5 分鐘的 Pod 不比 |

@@ -34,7 +34,7 @@
 | N+1（同上） | ✅ 不用學的規則 `repeated`：每個請求 100 次，門檻 20 | — |
 | 吞掉的例外：wip-worker 查 DB 逾時、catch 掉回 200 | ✅ 規則 `swallowed`：「100% 的請求丟了 System.TimeoutException，但沒標成錯誤」；baseline `swallowed_rate` 也報 | — |
 
-（2026-10-11 重跑：trace 已經經過兩層 Collector、尾端取樣，全部通過；trace 收集 `run-trace-e2e.sh`、根因分析 `run-rca-e2e.sh` 也全部通過。）
+（2026-10-11 重跑：trace 已經經過兩層 Collector、尾端取樣，全部通過；trace 收集 `run-trace-e2e.sh`、根因分析 `run-rca-e2e.sh` 也全部通過；這些腳本已隨自建收值刪除，在 git 歷史，現在的 e2e 是 `tests/*_e2e.py`。）
 
 單元測試（`tests/test_trace.py`）在記憶體裡模擬 4 週、每小時 20 個請求，同樣 4 個案例都抓到、正常 5 次 0 誤報。
 
@@ -124,7 +124,7 @@
 
 ### 門檻怎麼校、誰來調
 
-**實測**（2026-10-23，ES 9.5.5 跑過 `elasticsearch-setup.sh`；當時 metrics 走 ES 9 的 `/_otlp/v1/metrics`，log 直接寫 `k8s-*`；8.19 改成 Collector 的 `elasticsearch` 寫入元件，文件形狀一樣，沒重測）：
+**實測**（2026-10-23，ES 9.5.5 跑過 `elasticsearch-setup.sh`（已刪，在 git 歷史；現在是 `elasticsearch/kibana-dev-tools.txt`）；當時 metrics 走 ES 9 的 `/_otlp/v1/metrics`，log 直接寫 `k8s-*`；8.19 改成 Collector 的 `elasticsearch` 寫入元件，文件形狀一樣，沒重測）：
 
 | 放進去的壞資料 | 結果 |
 |---|---|

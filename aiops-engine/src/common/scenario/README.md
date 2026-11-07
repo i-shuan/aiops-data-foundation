@@ -20,17 +20,17 @@ engine 一份程式；「IT 可觀測性」「全套工廠」「只有指標」�
 
 | 欄位 | observability | factory | metrics_only（extends factory） | 誰用 |
 |---|---|---|---|---|
-| `source` 原始資料格式 | `otel`／`apm` | `factory` | 同 | trace 的 schema（`detect/store/trace.schema_of`） |
-| `owner`、`log` 索引與欄位對照 | 依 `AIOPS_SOURCE` | `eqp-master`（機台主檔）、`eqp-logs-*` | 同 | `detect/store/owner_repo.py`、`log.py` |
+| `source` 原始資料格式 | `otel`／`apm` | `factory` | 同 | trace 的 schema（`detect/store/models.py` 的 `schema_of`） |
+| `owner`、`log` 索引與欄位對照 | 依 `AIOPS_SOURCE` | `eqp-master`（機台主檔）、`eqp-logs-*` | 同 | `detect/store/owner_repo.py`、`incident/store/log_repo.py` |
 | `domain` 用語、分類表（entity、unit、trace、new_value_hint、categories、fp_reasons、checked） | 服務／請求／Trace；db、network、deploy… | 機台／lot／履歷；equipment、process_drift、recipe… | 同 | 報告、LLM 範本、回饋網頁 |
 | `entity_keys` 對象在 keys 的哪個欄位 | `service`、`entry.service`、`service.name`… | `equipment` | 同 | 事件整合、歸屬、根因分析 |
 | `route` 「哪支 API」怎麼算 | `http`（`entry.name`、method＋route、APM 的 `route`） | `recipe` | 同 | 事件整合、根因分析挑樣本 |
-| `chain` 跨對象併件的策略 | [incident/strategy/it_topology.py](../../incident/strategy/it_topology.py) `CallEdges`（trace 的呼叫關係） | [incident/strategy/fab_process_flow.py](../../incident/strategy/fab_process_flow.py) `LotLinks`（履歷的前後站） | `null`（不併） | `incident/alert_service` |
+| `chain` 跨對象併件的策略 | [incident/strategy/it_topology.py](../../incident/strategy/it_topology.py) `CallEdges`（trace 的呼叫關係） | [incident/strategy/fab_process_flow.py](../../incident/strategy/fab_process_flow.py) `LotLinks`（履歷的前後站） | `null`（不併） | `incident/alert_service.py` |
 | `change` 「換版」的策略 | [incident/strategy/it_deployment.py](../../incident/strategy/it_deployment.py) `VersionFirstSeen` | [incident/strategy/fab_recipe_change.py](../../incident/strategy/fab_recipe_change.py) `LatestChange`（recipe 變更紀錄） | 同 factory | 嚴重度的換版上限、誤報建議 |
-| `severity_classes` 嚴重度的訊號分類 | `null`＝內建黃金訊號（延遲、錯誤、往外呼叫、飽和） | 參數家族（pressure、temperature、flow、power、time、metrology、alarm） | 同 | `incident/alert_severity` |
+| `severity_classes` 嚴重度的訊號分類 | `null`＝內建黃金訊號（延遲、錯誤、往外呼叫、飽和） | 參數家族（pressure、temperature、flow、power、time、metrology、alarm） | 同 | `incident/alert_severity.py` |
 | `critical_levels` | rule、peer、quality | ＋fdc | 同 | 同上 |
-| `sections` 報告有哪幾段 | anomalies、entries、segments、slowest、logs、changes、topology、conclusion | 同 | anomalies、logs、changes、conclusion | `incident/rca_report` |
-| `commands` 多出來的 detector 子命令 | — | `paths-merge`（[interface/cli/fab.py](../../interface/cli/fab.py)） | — | `interface/cli/detect` |
+| `sections` 報告有哪幾段 | anomalies、entries、segments、slowest、logs、changes、topology、conclusion | 同 | anomalies、logs、changes、conclusion | `incident/rca_report.py` |
+| `commands` 多出來的 detector 子命令 | — | `paths-merge`（[interface/cli/fab.py](../../interface/cli/fab.py)） | — | `interface/cli/detect.py` |
 | `schedule` 預設排程表 | `configs/schedule/`（apm：`configs/apm/`） | `configs/factory/schedule.yaml` | `configs/metrics_only/schedule.yaml` | `interface/jobs`、api 的 ingest |
 
 cfg 可以覆蓋情境的預設：`alerts.critical_levels`、`alerts.severity.classes`、`alerts.chain: false`、換版的索引（`alerts.deploy_index` 等）。報告的 `changes` 段要 cfg 有 `changes.query` 才出。

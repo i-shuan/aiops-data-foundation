@@ -49,7 +49,7 @@
 | M1 動態基準線學習 | 一條序列（服務 × API）依「同星期幾 × 同小時」取中位數與 MAD，粒度 1 分鐘到 1 小時 | 一條序列是（機台、chamber、recipe、step、感測參數）；一個 run 一個值（均值、峰值、斜率）；時間週期不重要，**製程狀態才重要**（距上次 PM 的 run 數、前一個 lot 的 recipe） | 分組鍵從「時段」換成「製程條件」：`train` 的時段欄換成條件欄；`n` 是 run 數；PM 之後重置基準線（現有的 `reset_point`） |
 | M2 Pod 同儕橫向比對 | 同服務的 Pod 互比 | **chamber matching**：同型機台、同 recipe 的 chamber 互比 | `group` = 機型 + recipe，`member` = chamber；`min_peers` 要看廠裡同型機台有幾台 |
 | M3 靜態臨界值規則 | 錯誤率 5%、p95 2 秒 | SPC／管制界限：超出 spec、連續 N 點同側、趨勢（Western Electric、Nelson 規則）、alarm 次數 | `slope`、`total`、`window` 型已有；連續 N 點同側要新增 type |
-| M4 trace 分段 | 每個請求每一段自己花的時間，出事時跟平常比 | 每個 lot 每一步的加工時間／參數，壞 lot 跟好 lot 比 | `detect/store/models` 的 span 格式不變；寫路徑合成器產生 span |
+| M4 trace 分段 | 每個請求每一段自己花的時間，出事時跟平常比 | 每個 lot 每一步的加工時間／參數，壞 lot 跟好 lot 比 | `detect/store/models.py` 的 span 格式不變；寫路徑合成器產生 span |
 | M5 相似事故分類 | 指紋：服務、API、慢的段、錯的源頭、log 樣式、指標 | 指紋：機台、chamber、recipe、step、FDC 參數組合、alarm 代碼 | 指紋欄位對應換掉；投票邏輯不變 |
 
 ### 事件整合與 RCA graph

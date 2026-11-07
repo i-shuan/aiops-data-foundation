@@ -12,7 +12,7 @@
 | 出口 | ⑥ 同服務合成一件，Grafana 依部門分送 | `aiops-alerts` |
 | 紀錄 | 告警一開就建一筆 `auto`（帶指紋）；老師傅在回饋網頁確認後改 `confirmed`，存根因分類、處置、怎麼看出來的、查了哪裡 | `aiops-incidents` |
 | 回饋 | Grafana 的回饋表單（後端是 engine 的 `api`；通知裡有連結）或指令；記哪一筆、為什麼 | `aiops-feedback` |
-| 調整 | [`series.yaml`](../../aiops-engine/configs/baseline/series.yaml) 的 `overrides`，或 [`tune` 指令](../../aiops-engine/configs/baseline/README.md#使用者feedback-調整)（程式 [`cmd_baseline.py`](../../aiops-engine/src/detect/detect_service.py)、寫進哪個索引見 [`learn/store/models.py`](../../aiops-engine/src/learn/store/models.py)）；記原因、誰、何時 | `aiops-tuning`（欄位見 [`adjust.py`](../../aiops-engine/src/detect/series_ops/manual_adjust.py) 的 `TUNING_MAPPING`） |
+| 調整 | [`series.yaml`](../../aiops-engine/configs/baseline/series.yaml) 的 `overrides`，或 [`tune` 指令](../../aiops-engine/configs/baseline/README.md#使用者feedback-調整)（程式 [`detect_service.py`](../../aiops-engine/src/detect/detect_service.py)、[`tuning_service.py`](../../aiops-engine/src/learn/tuning_service.py)、寫進哪個索引見 [`learn/store/models.py`](../../aiops-engine/src/learn/store/models.py)）；記原因、誰、何時 | `aiops-tuning`（欄位見 [`manual_adjust.py`](../../aiops-engine/src/detect/series_ops/manual_adjust.py) 的 `TUNING_MAPPING`） |
 
 ### 回饋結果與用法
 
@@ -39,7 +39,7 @@
 
 ### 調整：調什麼、怎麼調、哪些能調
 
-調整不改統計公式（168 個時段的中位數與 MAD），只改輸入與參數。調整寫進 `aiops-tuning`（也能寫在設定檔），`train`、`detect` 下一輪讀到就生效。`kind` 與來源的定義在 [adjust.py](../../aiops-engine/src/detect/series_ops/manual_adjust.py)，指令選項在 [__main__.py](../../aiops-engine/src/interface/cli/detect.py)，範例在 [baseline README](../../aiops-engine/configs/baseline/README.md#調整哪些資料不學從哪裡重新學哪些時段放寬)。
+調整不改統計公式（168 個時段的中位數與 MAD），只改輸入與參數。調整寫進 `aiops-tuning`（也能寫在設定檔），`train`、`detect` 下一輪讀到就生效。`kind` 與來源的定義在 [manual_adjust.py](../../aiops-engine/src/detect/series_ops/manual_adjust.py)，指令選項在 [__main__.py](../../aiops-engine/src/interface/cli/detect.py)，範例在 [baseline README](../../aiops-engine/configs/baseline/README.md#調整哪些資料不學從哪裡重新學哪些時段放寬)。
 
 | 要調什麼 | 什麼情況 | 怎麼調 | `kind` |
 |---|---|---|---|

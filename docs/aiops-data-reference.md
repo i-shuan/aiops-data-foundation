@@ -13,7 +13,7 @@
 | `aiops-anomalies` | `aiops-engine/src/detect/store/models.py` 的 `ANOMALY_MAPPING`（欄位的唯一定義是同一檔的 `Anomaly`） |
 | `aiops-alerts` | `aiops-engine/src/incident/store/models.py` 的 `ALERT_MAPPING`（欄位的唯一定義是同一檔的 `Alert`；事件整合在手上的就是這個物件，`to_doc()` 寫、`from_doc()` 讀） |
 | `aiops-incidents` | `aiops-engine/src/common/types/incident.py` 的 `INCIDENT_MAPPING`（欄位的唯一定義是同一檔的 `Incident`、`Fingerprint` 模型，寫入一律 `to_doc()`） |
-| `aiops-feedback` | `aiops-engine/feedback/suggest.py` 的 `FEEDBACK_MAPPING` |
+| `aiops-feedback` | `aiops-engine/src/learn/store/models.py` 的 `FEEDBACK_MAPPING` |
 | `aiops-tuning` | `aiops-engine/src/learn/store/models.py` 的 `TUNING_MAPPING`（⑨ 寫、④ 讀，所以放 `core/`）；寫進去前過同一檔的 `Adjustment`（`validated`） |
 
 五個索引的 mapping 都是 `dynamic: false`：**沒列在 mapping 的欄位，會留在 `_source`（Grafana 面板讀得到、顯示得出來），但不能拿來篩選或聚合。**
@@ -45,7 +45,7 @@ Grafana（⑧）         讀 aiops-alerts 發通知；儀表板讀 alerts、anom
 
 ## aiops-anomalies：一筆異常
 
-寫入：`detect/detect_service.py`（動態基準線學習，每次 detect）、`rules.py`（靜態臨界值規則）、`peer.py`（Pod 同儕橫向比對）、`trace_stats.py`（trace 的基準線與規則）、`quality.py`（資料品質），都經 `detect/store/anomaly_repo.py` 的 `AnomalyRepository.write`。事件整合另外用部分更新補上 `alert_id`。
+寫入：`detect/detect_service.py`（動態基準線學習，每次 detect）、`detect/strategy/threshold_rule.py`（靜態臨界值規則）、`detect/strategy/peer_compare.py`（Pod 同儕橫向比對）、`detect/trace/latency_stats.py`（trace 的基準線與規則）、`detect/series_ops/quality_check.py`（資料品質），都經 `detect/store/anomaly_repo.py` 的 `AnomalyRepository.write`。事件整合另外用部分更新補上 `alert_id`。
 
 | 欄位 | 型別 | 說明 |
 |---|---|---|
@@ -238,7 +238,7 @@ Grafana（⑧）         讀 aiops-alerts 發通知；儀表板讀 alerts、anom
 
 ## aiops-feedback：回饋
 
-寫入：回饋網頁（`interface/web/routes.py` → `learn/feedback_service.submit`）；命令列 `python3 -m main detector feedback add` 也能寫（四種判定值都可以，漏報只能用命令列）。**一件事故的每筆異常各寫一筆**（現有的 `feedback summary`、`suggest` 是依「序列＋對象」算的，才對得起來）。
+寫入：回饋網頁（`interface/web/routes.py` → `learn/feedback_service.py`）；命令列 `python3 -m main detector feedback add` 也能寫（四種判定值都可以，漏報只能用命令列）。**一件事故的每筆異常各寫一筆**（現有的 `feedback summary`、`suggest` 是依「序列＋對象」算的，才對得起來）。
 
 | 欄位 | 型別 | 說明 |
 |---|---|---|

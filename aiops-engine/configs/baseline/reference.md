@@ -4,6 +4,8 @@
 
 要查「這個參數是什麼、這條規則看什麼、欄位長怎樣」看這份。為什麼這樣設計見 [rca/README.md](../../../docs/rca/README.md)，怎麼跑、怎麼調見 [README.md](README.md)，實測結果見 [verification.md](verification.md)。
 
+> **資料來源說明**：這份規格以 **OTel 來源**（`AIOPS_SOURCE=otel`）的欄位為準，文裡的「Collector」指寫入 OTel 格式資料的那一端——自建的 Collector 已不在這個 repo。公司現有的是 Elastic APM（`AIOPS_SOURCE=apm`），欄位對照與差異見 [../apm/README.md](../apm/README.md)；`quality.log_ingest_lag`、`quality.log_clock_skew`、`_otlp` 入口那幾段（「默默掉資料看不到」）只適用 OTel 來源。
+
 **目錄**
 
 <!-- toc -->
@@ -185,9 +187,9 @@ series:
 | `method` | `mad`（中位數＋MAD）／`poisson` |
 | `level` | dow_hour / hour / all / group |
 | `baseline_source` | `self` 或 `group:<組名>` |
-| `dept`、`group` | 這筆異常屬於哪個部門、哪個 group（告警依它分送、人只看自己部門的）。寫入時依 keys 裡的 namespace（優先）或服務，對回資料裡的 `resource.attributes.dept`、`.group`；對不到的 `dept` 空、`group` 是 `unassigned`（跟 Collector 對沒有 dept 的處理一樣）。程式 `core/owner.py`（查歸屬）、`sources/base.py` 的 `Backend.write_anomalies`（寫入時補） |
+| `dept`、`group` | 這筆異常屬於哪個部門、哪個 group（告警依它分送、人只看自己部門的）。寫入時依 keys 裡的 namespace（優先）或服務，對回資料裡的 `resource.attributes.dept`、`.group`；對不到的 `dept` 空、`group` 是 `unassigned`（跟 Collector 對沒有 dept 的處理一樣）。程式 `detect/store/owner_repo.py`（查歸屬）、`detect/store/anomaly_repo.py` 的 `AnomalyRepository.write`（寫入時補） |
 | `confidence` | dow_hour → high；hour → medium；all、借來的 → low |
-| `engine_version` | 哪一版 engine 寫的：chart 把 image tag 放進環境變數 `ENGINE_VERSION`（`core/version.py`），本機跑是 `dev`。規則、peer、quality、trace 的異常也有（都從 `detector/owner.py` 寫） |
+| `engine_version` | 哪一版 engine 寫的：chart 把 image tag 放進環境變數 `ENGINE_VERSION`（`common/infra/env.py`），本機跑是 `dev`。規則、peer、quality、trace 的異常也有（都經 `detect/store/anomaly_repo.py` 寫） |
 
 卜瓦松的異常另外記 `p`（機率）。根因報告的異常表多一欄「可信度」（例如 `low、1h、借 query-apis`），有 low 時加註「用的是不分時段、或借同類 API 的 baseline（不是自己的歷史），先確認是不是真的變了」。
 
@@ -282,7 +284,7 @@ series:
 
 | 層 | 擋什麼 | 在哪 |
 |---|---|---|
-| 統計本身 | 中位數＋MAD：少數幾次事故拉不歪平常 | `model.py` 的 `train`（「為什麼用中位數和 MAD」） |
+| 統計本身 | 中位數＋MAD：少數幾次事故拉不歪平常 | `detect/strategy/dynamic_baseline.py` 的 `train`（「為什麼用中位數和 MAD」） |
 | | 卜瓦松：稀少筆數裡的爆量先壓掉再平均 | 「自動調整」(2) |
 | | `mask_thin`：事件數不夠的時間窗（比例、百分位類）當「不知道」，不學也不判斷 | 「自動調整」(1) |
 | | 歷史不夠往下退層，再不夠就不給 baseline | 「怎麼判斷」 |

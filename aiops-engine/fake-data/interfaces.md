@@ -58,4 +58,4 @@
 
 1. 寫一個回傳上面格式的服務或檔案（例如從 CMDB 匯出負責人）。
 2. 改設定：`owners_source` 加 `{provider: http, url: …}`，或 `calendar.yaml` 的 `sources` 加一筆；把 `fake-data` 那筆刪掉。
-3. 程式不用改。要新的 provider（資料庫、其他 API）就在 `sources.py` 加一個分支。
+3. 程式不用改。要新的 provider（資料庫、其他 API）就在 `detect/reference_data.py` 加一個分支。

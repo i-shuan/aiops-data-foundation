@@ -1,6 +1,6 @@
 # 整理舊的 md：先盤點，再決定刪、改、併（2026-11）
 
-**狀態**：進行中（盤點完成；舊紀錄已封存；共用文件的改寫還沒做）　　**日期**：2026-11-07　　**相關**：分支 `claude/docs-cleanup`（從 master `27d58dd` 開）
+**狀態**：已完成（盤點、封存舊紀錄、共用文件的壞路徑修正）；剩下的取捨見最後一節　　**日期**：2026-11-07　　**相關**：分支 `claude/docs-cleanup`（從 master `27d58dd` 開）
 **模組**：—（文件）
 
 ## Plan：這一次要達到什麼
@@ -76,3 +76,9 @@
 - **挑的標準**：描述的程式或文件配置已經不在 repo，而且不是現在結構的依據。**沒搬**的：`feature-folders`（`tests/test_layers.py` 引用它）、`frameworks`、`clean-code`、`plugin-architecture`（`AIOPS_PLUGIN` 還在）、`remove-collector`（說明為什麼刪）、`diataxis`、`docs-governance`。
 - **Check**：`tools/check-docs.py` 連結、索引、舊說法、類型都過（搬完之前有 97 個壞連結）。
 - **Act**：「要問的事 2、3」（OTel 來源文件、`pdca/README.md` 的索引結構）與共用文件的改寫還沒做；搬動的範圍是我挑的，要增減就 `git mv` 一次。
+
+## 共用文件的修正（使用者說「要」）
+
+- **Do**：用腳本找「反引號裡長得像路徑、repo 裡找不到」的 61 處，逐處對照現在的程式後改：`CLAUDE.md`（`clock.py`→`clock/`）、`baseline/reference.md`（`core/owner.py`、`core/version.py`、`detector/owner.py`、`model.py`→現在的 `detect/store/owner_repo.py`、`common/infra/env.py`、`anomaly_repo.py`、`dynamic_baseline.py`）、`rca/README.md`（`investigator/`→`incident/`、`llm/`）、`fake-data/interfaces.md`、`scenario/README.md`（6 個缺副檔名或舊名）、`aiops-data-reference.md`（`feedback/suggest.py`→`learn/store/models.py`，四個偵測檔名）、`architecture.md`（`core/source.py`、`merge.py`、`report.py`、`llm.py`、`aiops-engine/scheduler`）、`feedback/README.md`、`semiconductor-design.md`、`troubleshooting.md`（`detector/rules.py`、`grafana/code/alert-rules.yaml`→`grafana/helmchart/files/`；告警閃爍的驗證指到 `tests/test_cmd_alert.py`）。講到已刪腳本（`e2e/k8s/run-*.sh`、`elasticsearch-setup.sh`、`run-alert-flap.py`）的實測紀錄**保留**，加上「已刪，在 git 歷史」與現在的對應（`tests/*_e2e.py`、`elasticsearch/kibana-dev-tools.txt`）。`baseline/reference.md` 開頭加一段說明：這份以 OTel 來源為準，Collector 指寫入端，APM 的差異看 `../apm/README.md`。
+- **Check**：`tools/check-docs.py` 過；同一支路徑檢查腳本重跑，剩下的都是使用者自己建的檔（`values-local.yaml`）、kubectl 語法（`deploy/aiops-beat`）、k8s annotation（`checksum/env`）、以及 `CLAUDE.md` 的檔名慣例（`how-to.md`…）。**沒驗證**：改的是路徑與名字，沒有逐句重讀全文確認敘述還符合現在的行為。
+- **Act**：①OTel 來源：先**保留並標明**（程式還支援），要不要刪還是使用者決定。②`docs/pdca/README.md` 的索引結構沒動。③這支「反引號路徑要存在」的檢查還只是一次性腳本，沒進 `tools/check-docs.py`——不進去，下次搬檔還是會留下壞路徑。
