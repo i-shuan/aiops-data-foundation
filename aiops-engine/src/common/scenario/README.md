@@ -47,6 +47,34 @@ cfg 可以覆蓋情境的預設：`alerts.critical_levels`、`alerts.severity.cl
 | ⑦ 相似事故分類（M5） | ✅ | ✅ | ✅ |
 | ⑧⑨ 通知、回饋、匯出 | ✅ | ✅ | ✅ |
 
+## 功能積木：選要哪幾塊
+
+④⑥⑦⑨ 每一段的功能是一塊一塊的，情境資料檔的 `blocks:` 選要哪幾塊；**沒寫的段就是預設**（多半是全部，跟沒有這個設定時一模一樣）。看全部有哪些、這個情境開了哪幾塊：
+
+```bash
+python3 -m main detector blocks
+```
+
+| 段（`blocks.` 底下的鍵） | 內建的積木 | 關掉或換掉時 |
+|---|---|---|
+| `detect`（④ 判斷） | `dynamic_baseline`、`peer_compare`、`threshold_rule`、`chronic_issue`、`quality_check`、`level_shift`、`trace_latency` | 關掉的那個指令跑了只印一行、回 0（排程照跑不會報錯）；手動調整（排除時段、重置點）是動態基準線的一部分 |
+| `grouping`（⑥ 併件，只能一塊） | `same_entity` | 換成自己寫的 `merge(…)` |
+| `severity`（⑥ 嚴重度，一串依序跑） | `golden_signals`、`p0` | 拿掉 `p0` 就不升級；可以接自己寫的在後面 |
+| `rca_sections`（⑦ 報告段落） | `anomalies`、`entries`、`segments`、`slowest`、`logs`、`changes`、`topology`、`conclusion` | 沒寫 `blocks.rca_sections` 時照情境的 `sections` |
+| `similar`（⑦ 相似事故） | `fields`、`vector` | 只開 `fields` 就不算向量 |
+| `summary`（⑦ 摘要） | `llm` | 寫空清單 `[]` 就不叫 LLM |
+| `hints`（⑦ 歷史 case） | `segment_hints`、`checklist` | 順序就是報告裡出現的順序 |
+| `suggest`（⑨ 調整建議） | `false_positive`、`missed`、`precision`、`rule_upgrade`、`from_text` | `feedback suggest` 只跑開著的；`from_text` 關掉時一句話只存原文、不提調整 |
+
+```yaml
+blocks:
+  detect: [dynamic_baseline, threshold_rule, my_pkg.checks:register]   # 只開這兩種，加一個自己寫的判斷
+  severity: [golden_signals]                                           # 不要 P0 升級
+  similar: [fields]                                                    # 不算向量
+```
+
+**自己寫的積木**填「套件.模組:名字」，每一段要長什麼樣印在 `detector blocks` 的「自己寫的積木」那一行（定義在 [common/blocks.py](../blocks.py) 的 `STAGES`）。寫錯名字，第一次用到那一段時會講清楚有哪些可以填。
+
 ## 自己寫一份
 
 最省事：一份 yaml，`extends` 一個內建的、只寫要改的欄位，`AIOPS_PLUGIN=/path/network.yaml`：

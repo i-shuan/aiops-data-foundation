@@ -134,3 +134,32 @@ def grade(series: list[str], timestamps: list[datetime], *, members: int = 1, ru
         sev = "warning"
     return {"severity": sev, "why": why, "classes": sorted(classes), "breadth": breadth, "span": span, "coverage": round(cov, 2),
             "sustained": sustained, "capped": capped}
+
+
+# ── 積木（common/blocks.py 的 severity）：一串依序跑，前一塊的結果是下一塊的 g ──
+
+@dataclass
+class SeverityContext:
+    """一件要評嚴重度時手上的東西（incident/alert_service.grade_alert 準備）。自己寫的嚴重度積木從這裡拿。"""
+    alert: object                       # Alert
+    series: list[str]                   # 這件自己服務的異常序列名
+    timestamps: list[datetime]          # 每筆異常的時間
+    members: int                        # 不同的（序列, 對象）數（只算黃金訊號）
+    rule_critical: bool                 # 有靜態規則 critical 的異常
+    now: datetime
+    deploy_at: datetime | None
+    opts: GradeOptions
+    classes: tuple | None
+    alerts_config: object               # rca.yaml 的 alerts（p0_services 等）
+
+
+def golden_signals(ctx: SeverityContext, g: dict | None) -> dict:
+    """內建的第一塊：幾類黃金訊號、持續多久、換版後上限 warning（grade）。"""
+    return grade(ctx.series, ctx.timestamps, members=ctx.members, rule_critical=ctx.rule_critical, now=ctx.now,
+                 deploy_at=ctx.deploy_at, opts=ctx.opts, classes=ctx.classes)
+
+
+def p0(ctx: SeverityContext, g: dict | None) -> dict:
+    """P0 服務（alerts.p0_services）：前一塊的結果升一級。前面沒有評過（g 是 None）就當 warning 再升。"""
+    base = g or {"severity": "warning", "why": "沒有前一塊的評分"}
+    return escalate(base, is_p0(getattr(ctx.alert, "service", None), getattr(ctx.alerts_config, "p0_services", None) or []))

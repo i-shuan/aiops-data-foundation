@@ -110,7 +110,8 @@ class Scenario:
     extra_owners: tuple[dict, ...] = ()
     extra_logs: tuple[dict, ...] = ()
     trace_raw: tuple[tuple[str, str], ...] = ()
-    checklists: dict = field(default_factory=dict)   # 每一類根因先查什麼（domain.checklists；llm/similar.checklist 用，過去勾過的排前面）   # 欄位對照覆寫的 raw trace 索引 ((來源, 索引)…)；只有 aiops-mapping 核准過的才有（trace.yaml 的值不在這）
+    checklists: dict = field(default_factory=dict)
+    blocks: dict = field(default_factory=dict)       # 功能積木：{段: [積木名或 套件.模組:名字]}（common/blocks.py）；沒寫的段用預設   # 每一類根因先查什麼（domain.checklists；llm/similar.checklist 用，過去勾過的排前面）   # 欄位對照覆寫的 raw trace 索引 ((來源, 索引)…)；只有 aiops-mapping 核准過的才有（trace.yaml 的值不在這）
 
     @property
     def owners(self) -> tuple[dict, ...]:
@@ -163,7 +164,8 @@ def from_dict(d: dict) -> Scenario:
         chain=strategy("chain", NoChain), change=strategy("change", NoChange),
         critical_levels=tuple(d.get("critical_levels") or ("rule", "peer", "quality")), severity_classes=d.get("severity_classes"),
         sections=tuple(d.get("sections") or Scenario.sections), schedule=d.get("schedule", Scenario.schedule),
-        commands={k: _import(v) for k, v in (d.get("commands") or {}).items()})
+        commands={k: _import(v) for k, v in (d.get("commands") or {}).items()},
+        blocks={str(k): [str(x) for x in (v or [])] for k, v in (d.get("blocks") or {}).items()})
 
 
 def load_scenario(spec: str | None = None) -> Scenario:

@@ -13,6 +13,8 @@
 """
 from __future__ import annotations
 
+import common.blocks as BLOCKS
+
 import pandas as pd
 
 from common.clock import TimeWindow, now_of, parse_duration
@@ -361,8 +363,8 @@ def investigate_full(rca_config: RcaConfig, args, sections: tuple[str, ...] | No
     給事件整合存進 aiops-alerts、相似事故檢索（investigator/similar.py）和 LLM 摘要（llm/summary.py）用。
     sections 不給就用情境的（Scenario.sections）。"""
     repo = Repos(ES(), load_scenario())
-    names = tuple(sections or repo.scenario.sections)
-    unknown = [s for s in names if s not in SECTIONS]
+    names = tuple(sections or BLOCKS.enabled("rca_sections", repo.scenario))      # ⑦ 報告段落的積木（沒寫 blocks 用情境的 sections）
+    unknown = [s for s in names if s not in SECTIONS and ":" not in s]
     if unknown:
         raise ValueError(f"不認得的報告段：{unknown}；有 {list(SECTIONS)}")
     ix, tz = rca_config.indices, rca_config.timezone
@@ -385,5 +387,5 @@ def investigate_full(rca_config: RcaConfig, args, sections: tuple[str, ...] | No
     pick_reference(c, need_traces=any(s in names for s in TRACE_SECTIONS))
     c.out = [f"# 根因分析：{c.what}，{_local(start, tz)}～{_local(end, tz)}（{tz}）", ""]
     for s in names:
-        SECTIONS[s](c)
+        (SECTIONS[s] if s in SECTIONS else BLOCKS.stage("rca_sections").load(s))(c)     # 自己寫的段落：套件.模組:名字
     return "\n".join(c.out), c.findings

@@ -20,6 +20,7 @@ from common.infra.repos import Repos
 from common.scenario import Chain, load_scenario
 from common.scenario import load_scenario
 
+import common.blocks as BLOCKS
 import incident.alert_grouper as AL
 import incident.alert_severity as SEV
 import llm.embedding as EMB
@@ -54,11 +55,14 @@ def grade_alert(repo: Repos, rca_config: RcaConfig, al: Alert, now: datetime) ->
         except Exception as e:  # noqa: BLE001
             print(f"  查不到 {al.service} 的換版時間（{type(e).__name__}）")
     golden = [a for a in own if SEV.signal_class(a.get("series"), classes) not in ("traffic", "other")]
-    g = SEV.grade([a.get("series") for a in own], [AL._ts(a["@timestamp"]) for a in own],
-                  members=len({(a.get("series"), sc.route_of(a.get("keys") or {})) for a in golden}),
-                  rule_critical=any(a.get("severity") == "critical" and a.get("level") in critical_levels for a in own),
-                  now=now, deploy_at=dep, opts=opts, classes=classes)
-    g = SEV.escalate(g, SEV.is_p0(al.service, alerts_config.p0_services))
+    ctx = SEV.SeverityContext(alert=al, series=[a.get("series") for a in own], timestamps=[AL._ts(a["@timestamp"]) for a in own],
+                              members=len({(a.get("series"), sc.route_of(a.get("keys") or {})) for a in golden}),
+                              rule_critical=any(a.get("severity") == "critical" and a.get("level") in critical_levels for a in own),
+                              now=now, deploy_at=dep, opts=opts, classes=classes, alerts_config=alerts_config)
+    g = None
+    for _, block in BLOCKS.stage("severity").loaded(sc):          # ⑥ 嚴重度的積木一串依序跑（common/blocks.py）
+        g = block(ctx, g)
+    g = g or {"severity": al.severity or "warning", "why": "沒有開嚴重度的積木（blocks.severity）"}
     if g["severity"] != al.severity:
         al.upgraded = AL.SEVERITY.get(g["severity"], 1) > AL.SEVERITY.get(al.severity or "warning", 1) and not al.new
     al.severity, al.severity_why = g["severity"], g["why"]
@@ -183,19 +187,18 @@ def _similar(repo: Repos, alerts_config: Alerts, al: Alert, findings: dict | Non
 
 def _case_hints(repo: Repos, alerts_config: Alerts, findings: dict | None, cls: dict | None) -> list[str]:
     """歷史 case 的線索（這次已證實有變化、過去也出事過的段）與這一類的先查清單；查失敗當沒有。"""
-    if not alerts_config.similar:
+    blocks = BLOCKS.stage("hints").loaded(repo.scenario)
+    if not alerts_config.similar or not blocks:
         return []
     try:
         cases = SIM.confirmed_cases(repo)
     except Exception as e:  # noqa: BLE001
         print(f"  讀不到已確認的事故（{type(e).__name__}），不列歷史線索")
         return []
-    hints = SIM.segment_hints(findings, cases)
-    if findings is not None:       # 跟著 findings 存進 aiops-alerts（只留 id，不重複存整件）
-        findings["case_hints"] = [{"segment": h["segment"], "kind": h["kind"], "evidence": h["evidence"], "cases": [c["id"] for c in h["cases"]]}
-                                  for h in hints]
-    todo = SIM.checklist(cls["category"] if cls else None, cases, repo.scenario.checklists)
-    return SIM.format_hints(hints, todo, cls)
+    lines = []
+    for _, block in blocks:                    # ⑦ 歷史 case 的積木：線索、先查清單（common/blocks.py）
+        lines += block(findings, cases, cls, repo.scenario)
+    return lines
 
 
 def _with_head(report: str | None, llm: dict | None, similar: list[dict], cls: dict | None, hints: list[str] | None = None) -> str | None:
@@ -230,7 +233,11 @@ def investigate_alert(repo: Repos, rca_config: RcaConfig, alerts_config: Alerts,
     cls = SIM.classify(similar)
     al.suggested_category = cls["category"] if cls else None
     al.category_confidence = cls["confidence"] if cls else None
-    llm = llm_summary(al, findings, similar, alerts_config, repo.scenario.unit_text())
+    llm = None
+    for _, block in BLOCKS.stage("summary").loaded(repo.scenario):    # ⑦ 摘要的積木：第一塊有回東西的就用它
+        llm = block(al, findings, similar, alerts_config, repo.scenario.unit_text())
+        if llm:
+            break
     hints = _case_hints(repo, alerts_config, findings, cls)
     al.findings, al.similar = findings, similar
     al.report_text, al.llm = _with_head(report, llm, similar, cls, hints), llm
@@ -291,8 +298,9 @@ def run(rca_config: RcaConfig, args, investigate) -> int:
     start = min(now - lookback, oldest - close_after)
     anoms = repo.anomalies.between(start, now)
     chain = _chain(repo, rca_config, alerts_config, anoms, open_alerts, start, now)
-    alerts = AL.merge(open_alerts, anoms, now, close_after, repo.alerts.resolved_anomaly_ids(start - close_after), chain.calls, chain.links,
-                      scenario=repo.scenario)
+    (_, merge), = BLOCKS.stage("grouping").loaded(repo.scenario)     # ⑥ 併件的積木（只能一塊；common/blocks.py）
+    alerts = merge(open_alerts, anoms, now, close_after, repo.alerts.resolved_anomaly_ids(start - close_after), chain.calls, chain.links,
+                   scenario=repo.scenario)
     for al in alerts:
         enrich(repo, rca_config, al, now)
         investigate_alert(repo, rca_config, alerts_config, al, now, interval, investigate)

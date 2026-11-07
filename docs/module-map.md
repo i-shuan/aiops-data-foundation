@@ -199,7 +199,11 @@ LLM 摘要（`aiops-engine/src/llm/summary.py`）只加註、每句附依據，�
 
 學權重：`similar-eval --learn-weights` 在已確認的事故 ≥ 50 件時才學，只印不寫入。
 
-## 4. 橫向支撐（不屬於哪一階段）
+## 4. 功能積木
+
+④⑥⑦⑨ 每一段的功能都登記在 `aiops-engine/src/common/blocks.py` 的一張表裡（判斷方法、併件、嚴重度、報告段落、相似事故、摘要、歷史線索、調整建議），情境資料檔的 `blocks:` 選要哪幾塊、關掉哪幾塊，也可以填自己寫的實作；沒寫就是全部開，跟以前一樣。`python3 -m main detector blocks` 列出全部。怎麼選見 [情境的 README](../aiops-engine/src/common/scenario/README.md#功能積木選要哪幾塊)。① 收值、② 的來源適配器本來就是積木（`data/source/`）。
+
+## 5. 橫向支撐（不屬於哪一階段）
 
 | 項目 | 內容 | 程式 |
 |---|---|---|
@@ -210,7 +214,7 @@ LLM 摘要（`aiops-engine/src/llm/summary.py`）只加註、每句附依據，�
 
 依賴方向只能往下走：`interface → learn → incident → llm → detect → data → common`（`aiops-engine/tests/test_layers.py` 鎖著）。
 
-## 5. 現在最弱的地方
+## 6. 現在最弱的地方
 
 | # | 模組 | 弱點 | 說明 |
 |---|---|---|---|
@@ -222,7 +226,7 @@ LLM 摘要（`aiops-engine/src/llm/summary.py`）只加註、每句附依據，�
 | 6 | ④ | 季節性只有一週 | 月底批次用 `recurring_override` 手動放寬；其他月週期、年週期（年底、季末）、長期趨勢沒有 |
 | 7 | ④ | 往下掉的檢查每天一次 | `shift` 每天 04:00 跑，往下掉後最多一天才提；核准前要人確認是真的變好，不是量變少或收資料出問題 |
 
-## 6. 一次事故的走法
+## 7. 一次事故的走法
 
 1. wip-worker 的 DB 查詢變慢 → ④ 動態基準線學習判出延遲異常（warning，下一個時間窗還超標變 anomaly），⑤ 寫進 `aiops_anomalies`，帶部門、群組。
 2. ⑥ 同服務的異常併成一件；上游 mes-api 連帶異常，併進下游這件；算嚴重度（單一類 → warning；若 wip-worker 在 P0 清單就升成 high）。
