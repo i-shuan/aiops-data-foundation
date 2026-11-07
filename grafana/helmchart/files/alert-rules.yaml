@@ -104,3 +104,34 @@ groups:
         labels: {source: aiops, severity: critical}
         annotations:
           summary: "AIOps 的 detect 讀到空的基準線（aiops-baseline 掉了、或還沒 train）：這些序列的動態基準線學習靜默停了，不會報異常；靜態規則、Pod 同儕橫向比對不受影響。手動跑一次 train：kubectl -n aiops exec deploy/aiops-engine -c scheduler -- python3 -m main scheduler --config configs/schedule/schedule.yaml --run train"
+
+      # 基準線不見了：detector detect 每輪寫一筆 detect-status（_id detect-status，status ok，detector/cmd_baseline.py），
+      # missing_baseline 是這輪沒有 baseline 的序列數。aiops-baseline 掉了（ES 重建、index 被刪）detect 只印一行就跳過，
+      # 動態基準線這一路靜默停擺；上面兩條都不會響（docs/pdca/meta/2026-10-open-issues.md 第 7 節）。送平台（labels 沒有 dept）。
+      - uid: aiops-source-mismatch
+        title: AIOps 來源對不上（宣告的資料來源跟 ES 裡的資料不一樣）
+        condition: C
+        data:
+          - refId: A
+            datasourceUid: aiops-alerts
+            relativeTimeRange: {from: 600, to: 0}
+            model:
+              refId: A
+              query: "alert_id:source-check* AND source_mismatch:>0"
+              timeField: "@timestamp"
+              metrics: [{id: "1", type: count}]
+              bucketAggs:
+                - {id: "2", type: date_histogram, field: "@timestamp", settings: {interval: 10m, min_doc_count: "0"}}
+          - refId: B
+            datasourceUid: __expr__
+            model: {refId: B, type: reduce, expression: A, reducer: sum, settings: {mode: replaceNN, replaceWithValue: 0}}
+          - refId: C
+            datasourceUid: __expr__
+            model: {refId: C, type: threshold, expression: B, conditions: [{evaluator: {type: gt, params: [0]}}]}   # 有一筆就算
+        noDataState: OK           # 沒有 source-check-* = detect／trace-merge 沒在跑，那是 aiops-heartbeat 的事
+        execErrState: Error
+        # 剛部署、ES 剛重建時，前幾輪可能暫時查不到資料：等 10 分鐘；宣告錯了不會自己好，10 分鐘後一定響
+        for: 10m
+        labels: {source: aiops, severity: critical}
+        annotations:
+          summary: "AIOps 宣告的資料來源（AIOPS_SOURCE：otel／apm）跟 ES 裡的資料對不上：序列的索引或欄位找不到、或 raw trace 的格式不是宣告的那種。這種錯不會報錯，只是查不到資料、沒有異常。看哪裡對不上：kubectl -n aiops exec deploy/aiops-engine -c scheduler -- python3 -m main detector source-check --config configs/baseline/series.yaml --trace-config configs/baseline/trace.yaml；或讀 aiops-alerts 裡 alert_id:source-check* 的 summary"

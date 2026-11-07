@@ -54,6 +54,8 @@ ALERT_MAPPING = {"mappings": {"dynamic": False, "properties": {
     "severity_why": {"type": "text", "index": False}, "deploy_at": {"type": "date"},
     # detector detect 每輪寫的 detect-status（detector/cmd_baseline.py）：這輪沒有 baseline 的序列數；Grafana 的 aiops-baseline-missing 查它
     "missing_baseline": {"type": "integer"},
+    # source-check-series／source-check-trace（data/source/check.py）：宣告的來源跟資料對不上的個數；Grafana 的 aiops-source-mismatch 查它
+    "source_mismatch": {"type": "integer"},
 }}}
 # 有寫進 _source、但沒進 mapping 的欄位（dynamic false：存得下、查不到）：api POST /api/rca 標的，下一輪 alert 看過就拿掉
 UNMAPPED_FIELDS = ("rca_requested", "rca_requested_at")
@@ -108,6 +110,7 @@ class Alert(Doc):
     shared_dependency: list[str] = []
     anomaly_count: int | None = None
     missing_baseline: int | None = None          # 只有 detect-status 那筆有；列在這裡是為了跟 mapping 對得上
+    source_mismatch: int | None = None           # 只有 source-check-* 那兩筆有
     # 這一輪算的，不寫 ES（exclude）
     anoms: list[dict] = Field(default_factory=list, exclude=True)      # 這一輪併進來的異常（含 _id）
     new: bool = Field(default=False, exclude=True)                      # 這一輪新開的

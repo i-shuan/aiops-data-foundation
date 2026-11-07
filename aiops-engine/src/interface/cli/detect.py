@@ -48,7 +48,11 @@ from common.clock import now_of
 from common.infra.es import ES
 from common.infra.repos import Repos
 from common.scenario import load_scenario
+from common.config import load_config
+from data.source import ADAPTERS, for_index
+from data.source.check import check_trace_index
 from data.trace import span_merge
+from detect.detect_service import run_source_check, source_findings
 from interface.cli.common import SERIES, Opt, at_opt, registry, run, window_opt
 import interface.cli.feedback as feedback_cli
 
@@ -114,9 +118,28 @@ def cmd_trace_merge(trace_config, args) -> int:
     合成本身在 data/trace/span_merge（② 清資料，不認得 trace.yaml 的設定檔）；這裡只把設定裡的 raw_index、settle_seconds 交給它。"""
     repo = Repos(ES(), load_scenario())
     at = now_of(args.at).to_pydatetime()
+    run_source_check(repo, "trace", now_of(args.at),         # 宣告的來源跟 raw trace 對得上嗎：只回報，不擋合成
+                     lambda: check_trace_index(repo.es, trace_config.raw_index, for_index(trace_config.raw_index, repo.scenario.source), ADAPTERS))
     since, until, n = span_merge.run(repo, trace_config.raw_index, trace_config.merge.settle_seconds, at, args.window.to_pytimedelta())
     print(f"trace-merge {since:%H:%M:%S}～{until:%H:%M:%S}：合了 {n} 個 trace")
     return 0
+
+
+def cmd_source_check(series_config, args) -> int:
+    """宣告的來源（AIOPS_SOURCE）跟 ES 裡真的資料對得上嗎：每個序列的索引與欄位、（有給 --trace-config 時）raw trace 的格式。
+    只回報、永遠回 0（要看有沒有問題看輸出；排程裡每輪也會自動檢查並寫狀態文件，Grafana 叫人）。"""
+    repo = Repos(ES(), load_scenario())
+    found = run_source_check(repo, "series", now_of(None), lambda: source_findings(repo.es, series_config, repo.scenario.owner))
+    if args.trace_config:
+        tc = load_config(args.trace_config, "trace")
+        found += run_source_check(repo, "trace", now_of(None), lambda: check_trace_index(repo.es, tc.raw_index, for_index(tc.raw_index, repo.scenario.source), ADAPTERS))
+    print(f"來源自我檢查：宣告 {repo.scenario.source}，{'全部對得上' if not any(f.counts for f in found) else str(sum(f.counts for f in found)) + ' 個地方對不上（上面 ⚠ 的）'}；{sum(not f.counts for f in found)} 個只是抽不到資料（ℹ）")
+    return 0
+
+
+@command("source-check", help="宣告的來源（AIOPS_SOURCE）跟 ES 裡的資料對得上嗎（只回報，不擋）")
+def source_check(config: str = Opt(..., help="series.yaml"), trace_config: str | None = Opt(None, help="trace.yaml：一併檢查 raw trace 的格式")) -> int:
+    return run(cmd_source_check, "series", config=config, trace_config=trace_config)
 
 
 @command("trace-merge")

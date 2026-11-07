@@ -4,11 +4,14 @@ from __future__ import annotations
 import dataclasses
 
 import numpy as np
+import json
+
 import pandas as pd
 
 from common.clock import now_of, pandas_freq
 from common.infra.es import ES, doc_id
 from common.clock import stamp_of
+from data.source.check import Finding, check_fields
 from detect.config.types import Status
 from detect.config.series import Series, SeriesConfig
 from detect.config.trace import TraceConfig
@@ -440,9 +443,58 @@ def write_detect_status(repo: Repos, now: pd.Timestamp, missing: list[str]) -> N
         "anomaly_ids": [], "series": list(missing), "routes": [], "anomaly_count": 0, "missing_baseline": len(missing)})])
 
 
+def source_findings(es, series_config: SeriesConfig, owner: dict | None = None) -> list[Finding]:
+    """序列的索引、欄位跟 ES 裡的資料對得上嗎；有給 owner（Scenario.owner：歸屬查哪個索引哪幾個欄位）也一併查
+    （這是「宣告的來源」真正影響 detect 的地方：序列的索引與欄位是 series.yaml 自己寫的，歸屬的欄位名依宣告的來源）。
+    只回報，不擋。同一個索引、filter、欄位的序列只查一次。"""
+    groups: dict[tuple, list] = {}
+    for spec in series_config.series:
+        groups.setdefault((spec.index, json.dumps(spec.filter, sort_keys=True), tuple(spec.by)), []).append(spec)
+    out: list[Finding] = []
+    with_data = 0                              # 有抽到資料、欄位也對的序列群組數
+    for (index, _, by), specs in groups.items():
+        flt = specs[0].filter
+        query = {"bool": {"filter": flt if isinstance(flt, list) else [flt]}} if flt else None
+        names = "、".join(s.name for s in specs[:3]) + (f" 等 {len(specs)} 條" if len(specs) > 3 else "")
+        got = check_fields(es, names, index, query, list(by))
+        with_data += not got
+        out += got
+    if owner and owner.get("index"):
+        got = check_fields(es, "歸屬（Scenario.owner）", owner["index"], None, [f for f in (owner.get("namespace"), owner.get("service")) if f])
+        # 序列查得到資料、歸屬的索引卻一筆都沒有：不是「這個索引本來就沒資料」，是宣告的來源跟資料不一樣（宣告錯來源最常見的樣子）
+        out += [Finding(f.where, f.problem + "；序列的索引有資料、這裡卻沒有：宣告的來源（AIOPS_SOURCE）跟資料不一樣？", "mismatch") if f.kind == "nodata" and with_data else f for f in got]
+    return out
+
+
+def write_source_check(repo: Repos, kind: str, now, findings: list[Finding]) -> None:
+    """寫一筆 _id source-check-<series|trace> 進 aiops-alerts（跟 detect-status 同一個形狀：status ok、不是一件事）。
+    source_mismatch 是這輪對不上的個數；Grafana 的 aiops-source-mismatch 規則查 > 0。沒對上也不擋 detect：只是叫人看。"""
+    repo.alerts.ensure()
+    repo.alerts.bulk([(f"source-check-{kind}", {
+        "@timestamp": stamp_of(now).isoformat(), "alert_id": f"source-check-{kind}", "category": "status", "status": "ok",
+        "service": "aiops", "group": "unassigned", "title": f"來源自我檢查（{kind}）", "summary": "\n".join(str(f) for f in findings)[:2000],
+        "started_at": now.isoformat(), "updated_at": now.isoformat(),
+        "anomaly_ids": [], "series": [], "routes": [], "anomaly_count": 0, "source_mismatch": sum(f.counts for f in findings)})])
+
+
+def run_source_check(repo: Repos, kind: str, now, findings_fn) -> list[Finding]:
+    """自我檢查的共同流程：算、印、寫狀態文件。任何一步出錯都只印一行，不影響呼叫它的指令（自我檢查不能變成故障）。"""
+    try:
+        findings = findings_fn()
+        for f in findings:
+            print(f"  {'⚠' if f.counts else 'ℹ'} 來源檢查：{f}")
+        write_source_check(repo, kind, now, findings)
+        return findings
+    except Exception as e:  # noqa: BLE001
+        print(f"  （來源自我檢查略過：{type(e).__name__}: {str(e)[:100]}）")
+        return []
+
+
 def cmd_detect(series_config: SeriesConfig, args, repo: Repos | None = None) -> int:
     repo = repo or Repos(ES(), load_scenario())
     repo.anomalies.ensure()
+    if getattr(repo, "es", None) is not None and hasattr(repo.es, "req"):      # 記憶體版（測試）沒有 ES 可抽樣
+        run_source_check(repo, "series", now_of(args.at), lambda: source_findings(repo.es, series_config, repo.scenario.owner))
     interval = series_config.interval
     now = now_of(args.at)
     # 最後一段可能還沒收齊（筆數會偏低，看起來像「驟降」），所以只看已經結束的時段
