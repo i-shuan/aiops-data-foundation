@@ -38,6 +38,7 @@ import numpy as np
 import pandas as pd
 
 from shared.infra.es import get_field
+from shared.config.rules import Rule, RulesConfig
 from detect.store.models import Anomaly
 from detect.base import Detector
 from detect.utils import _freq
@@ -215,11 +216,11 @@ def describe(rule: dict, hit: dict) -> str:
     return f"{rule['title']}：{who}（{fmt(hit['value'])}，門檻 {rule.get('op', '>=')} {fmt(rule['threshold'])}）"
 
 
-def approved_rules(repo, cfg: dict, now: pd.Timestamp | None = None) -> list[dict]:
+def approved_rules(repo, rules_config: RulesConfig, now: pd.Timestamp | None = None) -> list[dict]:
     """老師傅核准的「升級成規則」（aiops-tuning 的 rule_suggestion，status active、expires_at 還沒到、門檻是數字）：
     跟 rules.yaml 的一起跑。now 是這一輪的時間（--at），過期用它比。"""
     try:
-        adjs = A.load_adjustments(repo, cfg)   # 經模組取，測試才 mock 得到
+        adjs = A.load_adjustments(repo, rules_config)   # 經模組取，測試才 mock 得到
     except Exception as e:
         print(f"  讀 aiops-tuning 的規則失敗（{e}），只跑 rules.yaml 的")
         return []
@@ -240,16 +241,16 @@ def approved_rules(repo, cfg: dict, now: pd.Timestamp | None = None) -> list[dic
 class RulesDetector(Detector):
     level = "rule"
 
-    def checks(self) -> list[dict]:
-        extra = approved_rules(self.repo, self.cfg, self.now)
+    def checks(self) -> list[Rule | dict]:
+        extra = approved_rules(self.repo, self.config, self.now)
         if extra:
             print(f"  從 aiops-tuning 載入 {len(extra)} 條核准的規則：{'、'.join(r['name'] for r in extra)}")
-        self.rules = list(self.cfg["rules"]) + extra
+        self.rules = list(self.config.rules) + extra     # rules.yaml 的是 Rule，aiops-tuning 核准的是 dict；下面的函式兩種都吃（rule.get／rule[…]）
         return self.rules
 
     def evaluate(self, rule: dict) -> list[Anomaly]:
         now = self.now
-        start = now - pd.Timedelta(_freq(rule.get("lookback") or self.cfg.get("lookback", "10m")))
+        start = now - pd.Timedelta(_freq(rule.get("lookback") or self.config.lookback))
         if rule["type"] == "window":   # 整段算一個值（錯誤率、p95）：跟 series.yaml 同一套查法
             hits = evaluate_window(rule, self.repo.series.fetch(rule, start, now, None), start)
         else:
@@ -274,5 +275,5 @@ class RulesDetector(Detector):
                 + (f"，{len(self.failed)} 條失敗：{'、'.join(self.failed)}" if self.failed else ""))
 
 
-def cmd_rules(cfg: dict, args, repo=None) -> int:
-    return RulesDetector(cfg, args, repo).run()
+def cmd_rules(rules_config: RulesConfig, args, repo=None) -> int:
+    return RulesDetector(rules_config, args, repo).run()

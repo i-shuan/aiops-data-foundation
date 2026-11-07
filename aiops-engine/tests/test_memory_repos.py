@@ -71,8 +71,8 @@ class RulesPeerSimilarOnMemory(unittest.TestCase):
         r = pd.DataFrame([{"@timestamp": (T0 + pd.Timedelta(minutes=m)).isoformat(), "pod": p, "metrics.restarts": v}
                           for m, v in ((0, 1), (3, 1), (6, 3)) for p in ("p1",)] +
                          [{"@timestamp": (T0 + pd.Timedelta(minutes=m)).isoformat(), "pod": "p2", "metrics.restarts": 0} for m in (0, 3, 6)])
-        cfg = {"interval": "1m", "lookback": "10m", "rules": [{"name": "restart", "title": "容器重啟", "type": "increase", "index": "k8s-pods-*", "field": "metrics.restarts",
-                                                              "by": ["pod"], "op": ">=", "threshold": 1, "severity": "warning"}]}
+        cfg = validate({"interval": "1m", "lookback": "10m", "rules": [{"name": "restart", "title": "容器重啟", "type": "increase", "index": "k8s-pods-*", "field": "metrics.restarts",
+                                                              "by": ["pod"], "op": ">=", "threshold": 1, "severity": "warning"}]}, "rules")
         be = MemoryRepos({"k8s-pods-*": r})
         rc, text = quiet(cmd_rules.cmd_rules, cfg, Namespace(at=(T0 + pd.Timedelta(minutes=7)).isoformat(), only=None), be)
         self.assertEqual(rc, 0)

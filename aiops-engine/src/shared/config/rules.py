@@ -61,6 +61,6 @@ class Rule(Strict):
 
 
 class RulesConfig(Strict):
-    interval: Dur | None = None
-    lookback: Dur | None = None
-    rules: list[Rule] | None = None
+    interval: Dur | None = None              # 沒寫用 1 分鐘（Detector.interval_default）
+    lookback: Dur = "10m"                    # 每條規則看最近多久（規則自己可以寫）
+    rules: list[Rule] = []
