@@ -14,6 +14,8 @@ from shared.infra.es import ES
 from shared.infra.repos import Repos
 from shared.scenario import load_scenario
 from shared.config import load_config
+from shared.config.ingest import IngestConfig
+from shared.config.paths import PathsConfig
 
 
 def register(app: typer.Typer) -> None:
@@ -27,18 +29,18 @@ def paths_merge(config: str = typer.Option(..., help="configs/factory/paths.yaml
     return cmd_paths_merge(load_config(config, "paths"), Namespace(config=config, window=window, at=at))
 
 
-def cmd_paths_merge(cfg: dict, args) -> int:
+def cmd_paths_merge(paths_config: PathsConfig, args) -> int:
     now = _now(args.at)
-    n = PS.run(Repos(ES(), load_scenario()), cfg, now, pd.Timedelta(args.window))
-    tz = cfg.get("timezone", "Asia/Taipei")
+    n = PS.run(Repos(ES(), load_scenario()), paths_config, now, pd.Timedelta(args.window))
+    tz = paths_config.timezone
     print(f"{now.tz_convert(tz):%m-%d %H:%M}：paths-merge 最近 {args.window} 有動的 lot，合了 {n} 個")
     return 0
 
 
-def cmd_ingest(cfg: dict, args) -> int:
+def cmd_ingest(ingest_config: IngestConfig, args) -> int:
     now = _now(args.at)
-    tz = cfg.get("timezone", "Asia/Taipei")
-    got = ING.run(Repos(ES(), load_scenario()), cfg, now, pd.Timedelta(args.window))
+    tz = ingest_config.timezone
+    got = ING.run(Repos(ES(), load_scenario()), ingest_config, now, pd.Timedelta(args.window))
     for name, (n, skipped) in got.items():
         print(f"  {name}：{n} 筆異常" + (f"（略過 {skipped} 筆：沒有時間、對象或值）" if skipped else ""))
     print(f"{now.tz_convert(tz):%m-%d %H:%M}：接收 {sum(n for n, _ in got.values())} 筆（最近 {args.window}）")

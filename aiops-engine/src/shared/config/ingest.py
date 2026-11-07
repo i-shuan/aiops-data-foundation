@@ -23,20 +23,20 @@ class Input(Strict):
     index: str
     series: str
     key_names: dict[str, str] = Field(alias="keys")      # yaml 的鍵叫 keys（見 series.py 的說明）
-    time_field: str | None = None
+    time_field: str = "@timestamp"
     filter: Query | None = None
     id_field: str | None = None
     value: str | None = None
     expected: str | None = None
     score: str | None = None
-    level: Literal["ml", "fdc", "external"] | None = None
+    level: Literal["ml", "fdc", "external"] = "external"
     status: str | Pick | None = None
     severity: str | Pick | None = None
     direction: str | Pick | None = None
     message: str | None = None
-    extra: list[str] | None = None
+    extra: list[str] = []
 
 
 class IngestConfig(Strict):
-    timezone: str | None = None
-    inputs: list[Input] | None = None
+    timezone: str = "Asia/Taipei"
+    inputs: list[Input] = []

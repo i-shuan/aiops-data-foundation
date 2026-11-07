@@ -48,9 +48,9 @@ class Events(Strict):
 
 
 class PathsConfig(Strict):
-    timezone: str | None = None
-    group: str | None = None
+    timezone: str = "Asia/Taipei"
+    group: str | None = None                 # 履歷索引依這個分（沒寫是 unassigned）
     group_field: str | None = None
     dept_field: str | None = None
-    mes: Mes | None = None
-    events: Events | None = None
+    mes: Mes                                 # MES 進出站（一定要有）
+    events: Events | None = None             # 機台事件（S6F11），沒有就只有站

@@ -6,6 +6,7 @@ from __future__ import annotations
 import pandas as pd
 
 import detect.trace.path_builder as P
+from shared.config.paths import PathsConfig
 from shared.infra.es import get_field
 
 
@@ -18,22 +19,22 @@ def _rows_of_lots(repo, inp: dict, lot_field: str, lots: set[str]) -> list[dict]
     return repo.series.rows_where(inp, lot_field, sorted(lots)) if lots else []
 
 
-def run(repo, cfg: dict, now: pd.Timestamp, window: pd.Timedelta) -> int:
+def run(repo, paths_config: PathsConfig, now: pd.Timestamp, window: pd.Timedelta) -> int:
     """[now − window, now) 有動的 lot 全部重合成。回傳合了幾個 lot。"""
     read_rows = repo.series.rows
-    mes, ev = cfg["mes"], cfg.get("events") or {}
-    mf = mes["fields"]
+    mes, ev = paths_config.mes, paths_config.events
+    mf = mes.fields
     start = now - window
     # MES 列的時間欄位：進站時間（出站晚到的用 end 欄位也查一次）
-    recent = read_rows({**mes, "time_field": mf["start"]}, start, now)
-    if mf.get("end"):
-        recent += read_rows({**mes, "time_field": mf["end"]}, start, now)
-    lots = _lot_ids(recent, mf["lot"])
+    recent = read_rows({**mes, "time_field": mf.start}, start, now)
+    if mf.end:
+        recent += read_rows({**mes, "time_field": mf.end}, start, now)
+    lots = _lot_ids(recent, mf.lot)
     if not lots:
         return 0
-    steps = _rows_of_lots(repo, {**mes, "time_field": mf["start"]}, mf["lot"], lots)
-    events = _rows_of_lots(repo, {**ev, "time_field": ev["fields"]["start"]}, ev["fields"]["lot"], lots) if ev else []
-    docs = P.build_docs(steps, events, cfg, now.to_pydatetime())
+    steps = _rows_of_lots(repo, {**mes, "time_field": mf.start}, mf.lot, lots)
+    events = _rows_of_lots(repo, {**ev, "time_field": ev.fields.start}, ev.fields.lot, lots) if ev else []
+    docs = P.build_docs(steps, events, paths_config, now.to_pydatetime())
     try:
         repo.housekeeping.put_index_template(P.PATHS_PREFIX, P.PATHS_TEMPLATE)
     except Exception as e:  # noqa: BLE001  沒有 manage_index_templates 權限：template 要請 ES 管理員放（configs/factory/README.md）

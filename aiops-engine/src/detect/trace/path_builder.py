@@ -29,6 +29,7 @@ from datetime import datetime, timezone
 
 import pandas as pd
 
+from shared.config.paths import EventFields, PathsConfig
 from shared.infra.es import get_field
 from detect.store.models import Trace
 
@@ -73,27 +74,31 @@ def _attrs(row: dict, names) -> dict:
     return {n: v for n in (names or []) if (v := get_field(row, n)) is not None and not (isinstance(v, float) and pd.isna(v))}
 
 
-def build_lot(lot: str, steps: list[dict], events: list[dict], cfg: dict, now: datetime | None = None) -> list[dict]:
+_NO_EVENT_FIELDS = EventFields(lot="", start="")
+
+
+def build_lot(lot: str, steps: list[dict], events: list[dict], paths_config: PathsConfig, now: datetime | None = None) -> list[dict]:
     """一個 lot 的 MES 站（steps）與機台事件（events）→ span 清單（detect/store/models 的格式）。
     站依進站時間排；還沒出站的站用 now 當結束。機台事件掛到同機台、時間落在那一站裡的站底下；對不到站的事件丟掉。"""
     now = now or datetime.now(timezone.utc)
-    mf, ef = cfg["mes"]["fields"], (cfg.get("events") or {}).get("fields") or {}
-    bad = {str(b).lower() for b in (cfg["mes"].get("bad_results") or DEFAULT_BAD)}
-    group = cfg.get("group") or "unassigned"
+    mf = paths_config.mes.fields
+    ef = paths_config.events.fields if paths_config.events else _NO_EVENT_FIELDS     # 沒有機台事件：每個欄位都是「沒寫」
+    bad = {str(b).lower() for b in (paths_config.mes.bad_results or DEFAULT_BAD)}
+    group = paths_config.group or "unassigned"
     rows = []
     for r in steps:
-        start = _ms(get_field(r, mf["start"]))
+        start = _ms(get_field(r, mf.start))
         if start is None:
             continue
-        end = _ms(get_field(r, mf["end"])) if mf.get("end") else None
+        end = _ms(get_field(r, mf.end)) if mf.end else None
         rows.append((start, end if end is not None else now.timestamp() * 1000.0, end is None, r))
     if not rows:
         return []
     rows.sort(key=lambda x: x[0])
     first = rows[0][3]
-    g = _s(get_field(first, cfg["group_field"])) if cfg.get("group_field") else None
-    dept = _s(get_field(first, cfg["dept_field"])) if cfg.get("dept_field") else None
-    product = _s(get_field(first, mf["product"])) if mf.get("product") else None
+    g = _s(get_field(first, paths_config.group_field)) if paths_config.group_field else None
+    dept = _s(get_field(first, paths_config.dept_field)) if paths_config.dept_field else None
+    product = _s(get_field(first, mf.product)) if mf.product else None
     t0, t1 = rows[0][0], max(e for _, e, _, _ in rows)
     root_res = {"service.name": ROOT_SERVICE, "group": g or group}
     if dept:
@@ -103,16 +108,16 @@ def build_lot(lot: str, steps: list[dict], events: list[dict], cfg: dict, now: d
               "attrs": {"lot.id": lot, **({"product": product} if product else {})}, "resource": root_res}]
     step_spans = []
     for i, (start, end, open_, r) in enumerate(rows):
-        eq = _s(get_field(r, mf["equipment"])) or "?"
-        recipe = _s(get_field(r, mf["recipe"])) if mf.get("recipe") else None
-        station = _s(get_field(r, mf["station"])) if mf.get("station") else None
-        step_no = _s(get_field(r, mf["step"])) if mf.get("step") else None
-        result = _s(get_field(r, mf["result"])) if mf.get("result") else None
-        chamber = _s(get_field(r, mf["chamber"])) if mf.get("chamber") else None
-        rv = _s(get_field(r, mf["recipe_version"])) if mf.get("recipe_version") else None
+        eq = _s(get_field(r, mf.equipment)) or "?"
+        recipe = _s(get_field(r, mf.recipe)) if mf.recipe else None
+        station = _s(get_field(r, mf.station)) if mf.station else None
+        step_no = _s(get_field(r, mf.step)) if mf.step else None
+        result = _s(get_field(r, mf.result)) if mf.result else None
+        chamber = _s(get_field(r, mf.chamber)) if mf.chamber else None
+        rv = _s(get_field(r, mf.recipe_version)) if mf.recipe_version else None
         attrs = {"lot.id": lot, **{k: v for k, v in (("recipe.id", recipe), ("recipe.version", rv), ("step", step_no), ("station", station),
                                                      ("chamber", chamber), ("result", result), ("product", product)) if v is not None},
-                 **_attrs(r, cfg["mes"].get("attrs"))}
+                 **_attrs(r, paths_config.mes.attrs)}
         if open_:
             attrs["in_progress"] = True
         res = {"service.name": eq, "group": g or group, **({"dept": dept} if dept else {}), **({"chamber": chamber} if chamber else {}),
@@ -124,11 +129,11 @@ def build_lot(lot: str, steps: list[dict], events: list[dict], cfg: dict, now: d
     spans += step_spans
     # 機台事件（S6F11）掛到同機台、時間落在那一站裡的站
     for k, e in enumerate(events or []):
-        es_ = _ms(get_field(e, ef["start"])) if ef.get("start") else None
+        es_ = _ms(get_field(e, ef.start)) if ef.start else None
         if es_ is None:
             continue
-        ee = _ms(get_field(e, ef["end"])) if ef.get("end") else None
-        eq = _s(get_field(e, ef["equipment"])) if ef.get("equipment") else None
+        ee = _ms(get_field(e, ef.end)) if ef.end else None
+        eq = _s(get_field(e, ef.equipment)) if ef.equipment else None
         host = None
         for s in step_spans:
             if (eq is None or s["service"] == eq) and s["start_ms"] - 60_000 <= es_ <= s["start_ms"] + s["dur_ms"] + 60_000:
@@ -136,11 +141,11 @@ def build_lot(lot: str, steps: list[dict], events: list[dict], cfg: dict, now: d
                 break
         if host is None:
             continue
-        chamber = _s(get_field(e, ef["chamber"])) if ef.get("chamber") else None
-        rstep = _s(get_field(e, ef["step"])) if ef.get("step") else None
-        name = " ".join(x for x in (chamber, rstep) if x) or (_s(get_field(e, ef["event"])) if ef.get("event") else None) or "event"
-        attrs = {"lot.id": lot, **{k2: v for k2, v in (("chamber", chamber), ("recipe.step", rstep)) if v is not None}, **_attrs(e, (cfg.get("events") or {}).get("attrs"))}
-        if ef.get("event") and (ev := _s(get_field(e, ef["event"]))):
+        chamber = _s(get_field(e, ef.chamber)) if ef.chamber else None
+        rstep = _s(get_field(e, ef.step)) if ef.step else None
+        name = " ".join(x for x in (chamber, rstep) if x) or (_s(get_field(e, ef.event)) if ef.event else None) or "event"
+        attrs = {"lot.id": lot, **{k2: v for k2, v in (("chamber", chamber), ("recipe.step", rstep)) if v is not None}, **_attrs(e, paths_config.events.attrs if paths_config.events else None)}
+        if ef.event and (ev := _s(get_field(e, ef.event))):
             attrs["event"] = ev
         spans.append({"trace_id": lot, "span_id": f"{host['span_id']}/e{k + 1}", "parent": host["span_id"], "service": host["service"],
                       "name": name, "kind": "Internal", "target": None, "start_ms": es_,
@@ -158,15 +163,15 @@ def group_rows(rows: list[dict], lot_field: str) -> dict[str, list[dict]]:
     return out
 
 
-def build_docs(mes_rows: list[dict], event_rows: list[dict], cfg: dict, now: datetime | None = None) -> dict[str, list[tuple[str, dict]]]:
+def build_docs(mes_rows: list[dict], event_rows: list[dict], paths_config: PathsConfig, now: datetime | None = None) -> dict[str, list[tuple[str, dict]]]:
     """MES 列、機台事件列 → {index: [(lot id, 文件), …]}。"""
     now = now or datetime.now(timezone.utc)
-    lots = group_rows(mes_rows, cfg["mes"]["fields"]["lot"])
-    ev_lot = (cfg.get("events") or {}).get("fields", {}).get("lot")
+    lots = group_rows(mes_rows, paths_config.mes.fields.lot)
+    ev_lot = paths_config.events.fields.lot if paths_config.events else None
     evs = group_rows(event_rows, ev_lot) if ev_lot and event_rows else {}
     docs: dict[str, list[tuple[str, dict]]] = {}
     for lot, steps in lots.items():
-        spans = build_lot(lot, steps, evs.get(lot, []), cfg, now)
+        spans = build_lot(lot, steps, evs.get(lot, []), paths_config, now)
         if not spans:
             continue
         index, doc = Trace(spans).to_merged_doc(now, prefix=PATHS_PREFIX)

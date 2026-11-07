@@ -1,4 +1,5 @@
 """工廠 plugin 的履歷合成器（plugins/factory/paths.py）：MES 進出站＋S6F11 → 跟 traces-merged 同格式的一筆。不連 ES。"""
+from shared.config import validate
 import unittest
 from datetime import datetime, timezone
 
@@ -7,13 +8,14 @@ import incident.rca_analyzer as A
 import detect.trace.path_builder as P
 
 NOW = datetime(2026, 11, 4, 6, 0, tzinfo=timezone.utc)
-CFG = {"group": "fab1", "dept_field": "dept",
+CFG_RAW = {"group": "fab1", "dept_field": "dept",
        "mes": {"index": "mes-*", "fields": {"lot": "lot_id", "step": "step_no", "station": "station", "equipment": "equipment_id", "chamber": "chamber_id",
                                              "recipe": "recipe_id", "recipe_version": "recipe_version", "product": "product_id",
                                              "start": "track_in", "end": "track_out", "result": "result"},
                "bad_results": ["hold", "scrap"], "attrs": ["material_lot"]},
        "events": {"index": "ev-*", "fields": {"lot": "lot_id", "equipment": "equipment_id", "chamber": "chamber_id", "step": "recipe_step",
                                                "start": "start_time", "end": "end_time", "event": "ceid"}, "attrs": ["wafer_count"]}}
+CFG = validate(CFG_RAW, "paths")
 
 
 def step(lot, no, eq, t_in, t_out, result="ok", chamber="CH-A", recipe="REC-1", rv="v1"):
@@ -65,7 +67,7 @@ class BuildLot(unittest.TestCase):
         self.assertTrue(s["attrs"]["in_progress"])
 
     def test_no_events_config(self):
-        cfg = {k: v for k, v in CFG.items() if k != "events"}
+        cfg = validate({k: v for k, v in CFG_RAW.items() if k != "events"}, "paths")
         spans = P.build_lot("LOT-1", STEPS, EVENTS, cfg, NOW)
         self.assertEqual(len(spans), 4)                                     # root + 3 站，事件不掛
 
