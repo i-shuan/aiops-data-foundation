@@ -1,4 +1,5 @@
 """調整（detector.adjust）：排除時段、重置點、週期放寬、別名、生效條件。不需要 ES。"""
+from shared.config import validate
 import unittest
 
 import numpy as np
@@ -76,7 +77,7 @@ class Robust(unittest.TestCase):
                 return {"hits": {"hits": self.hits}}
         good = {"_id": "g", "_source": {"kind": "override", "series": "x", "z": 7}}
         bad = {"_id": "b", "_source": {"kind": "exclude_window", "start": "2026-10-01"}}
-        cfg = {"adjustments_file": "", "calendar_file": "", "overrides": [{"series": "y", "z": 9}]}
+        cfg = validate({"adjustments_file": "", "calendar_file": "", "overrides": [{"series": "y", "z": 9}], "series": []}, "series")
         self.assertEqual([a.get("id") for a in A.load(Repos(FakeES([good, bad])), cfg)], [None, "g"])
         got = A.load(Repos(FakeES(err=RuntimeError("400 index_closed_exception"))), cfg)
         self.assertEqual(got, cfg["overrides"])          # 只剩設定檔的
@@ -110,7 +111,7 @@ class LocalTime(unittest.TestCase):
             class NoES:
                 def req(self, *a, **k):
                     raise RuntimeError("no es")
-            got = A.load(Repos(NoES(), SC), {"adjustments_file": p, "calendar_file": None})
+            got = A.load(Repos(NoES(), SC), validate({"adjustments_file": p, "calendar_file": None, "series": []}, "series"))
         self.assertEqual(pd.Timestamp(got[0]["reset_at"]), pd.Timestamp("2026-09-25T02:00:00Z"))
 
 

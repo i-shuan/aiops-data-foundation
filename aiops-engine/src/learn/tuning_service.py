@@ -10,6 +10,7 @@ from shared.infra.repos import Repos
 from shared.scenario import load_scenario
 import detect.series_ops.manual_adjust as A
 from detect.series_ops.manual_adjust import load_adjustments
+from shared.config.series import SeriesConfig
 
 # add 每種 kind 必填的參數
 REQUIRED = {"exclude_window": ("start", "end"), "reset_point": ("at",), "recurring_override": ("cron", "duration")}
@@ -21,15 +22,15 @@ def _connect() -> Repos:
     return repo
 
 
-def adjust_list(cfg: dict, args) -> int:
-    for a in load_adjustments(_connect(), cfg):
+def adjust_list(series_config: SeriesConfig, args) -> int:
+    for a in load_adjustments(_connect(), series_config):
         bt = a.get("backtest")
         tail = f"  ｜回測：{'建議核准' if bt.get('recommended') else '不建議'}，{bt.get('reason')}" if bt else ("  ｜還沒回測" if a.get("status") == "proposed" else "")
         print(f"{a.get('id') or '（設定檔）'}  {A.describe(a)}{tail}")
     return 0
 
 
-def adjust_remove(cfg: dict, args) -> int:
+def adjust_remove(series_config: SeriesConfig, args) -> int:
     if not args.id:
         print("要給 --id（adjust list 看得到）")
         return 2
@@ -55,7 +56,7 @@ def _approve_blocked(src: dict, _id: str, force: bool) -> str | None:
     return None
 
 
-def adjust_approve(cfg: dict, args) -> int:
+def adjust_approve(series_config: SeriesConfig, args) -> int:
     if not args.id:
         print("要給 --id（adjust list 看得到）")
         return 2
@@ -89,14 +90,14 @@ def _kind_fields(args, tz: str) -> dict | str:
     return {"schedule": sched, "effect": effect}
 
 
-def adjust_add(cfg: dict, args) -> int:
+def adjust_add(series_config: SeriesConfig, args) -> int:
     missing = [f"--{f.replace('_', '-')}" for f in REQUIRED[args.kind] if not getattr(args, f)]
     if missing:
         print(f"{args.kind} 要給 {'、'.join(missing)}")
         return 2
     match = dict(m.split("=", 1) for m in (args.match or []))
     # 沒寫時區的時間當成當地時間（A.local_iso）：值班寫「凌晨 2 點」不會變成 UTC 的 2 點
-    tz = cfg.get("train", {}).get("timezone", "Asia/Taipei")
+    tz = series_config.train.timezone if series_config.train and series_config.train.timezone else "Asia/Taipei"
     doc = {"kind": args.kind, "series": args.series, "match": match, "status": args.status, "source": args.source,
            "reason": args.reason, "by": args.by, "expires_at": A.local_iso(args.expires, tz),
            "at": pd.Timestamp.now(tz="UTC").isoformat()}

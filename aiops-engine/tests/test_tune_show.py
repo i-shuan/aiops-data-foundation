@@ -1,5 +1,6 @@
 """tune --show：印出某條序列、某個對象現在生效的值與來源（detector.cmd_baseline.cmd_tune、effective_lines）。
 用假的 ES（aiops-tuning 裡放兩筆都符合的 override），不連 ES；設定檔的 adjustments、calendar 關掉，只看這裡給的。"""
+from shared.config import validate
 import contextlib
 import io
 import unittest
@@ -13,11 +14,11 @@ from unittest import mock
 
 import detect.detect_service as C
 
-CFG = {"interval": "5m", "adjustments_file": None, "calendar_file": None,
+CFG = validate({"interval": "5m", "adjustments_file": None, "calendar_file": None,
        "status": {"confirm_points": 2, "confirm_span": "30m", "instant_z": 15}, "detect": {"z": 5},
        "overrides": [{"series": "http.latency_p95_s", "match": {"service": "^mes-"}, "z": 6}],
        "series": [{"name": "http.latency_p95_s", "index": "m", "by": ["service"], "value": {"avg": "v"}, "min_abs": 0.2},
-                  {"name": "http.error_rate", "index": "m", "by": ["service"], "value": {"avg": "v"}, "confirm_points": 1}]}
+                  {"name": "http.error_rate", "index": "m", "by": ["service"], "value": {"avg": "v"}, "confirm_points": 1}]}, "series")
 
 TUNING = [{"_id": "t-report", "_source": {"kind": "override", "series": "http.latency_p95_s", "match": {"service": "^mes-report"}, "z": 7, "confirm_points": 3,
                                           "at": "2026-10-20T00:00:00Z"}}]

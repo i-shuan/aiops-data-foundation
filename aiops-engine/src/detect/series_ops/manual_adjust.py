@@ -32,6 +32,9 @@ import numpy as np
 import pandas as pd
 
 from shared.config import load_config
+from shared.config.rules import RulesConfig
+from shared.config.series import SeriesConfig
+from shared.config.trace import TraceConfig
 from detect.reference_data import load_calendar
 
 KINDS = ("override", "exclude_window", "reset_point", "recurring_override")
@@ -302,18 +305,26 @@ def calendar_adjustments(entries: list[dict], tz: str = "Asia/Taipei") -> list[d
 
 # ── 讀 ──
 
-def load(repo, cfg: dict) -> list[dict]:
-    """設定檔（adjustments_file、series.yaml 的 overrides）＋ aiops-tuning（repo.tuning），全部 kind。同 id 後面蓋前面。"""
+AdjustableConfig = SeriesConfig | TraceConfig | RulesConfig     # 這三種設定都會用到調整；只有 series 才有 overrides、兩個檔名
 
-    out = list(cfg.get("overrides") or [])
-    tz = cfg.get("train", {}).get("timezone", "Asia/Taipei")
-    path = cfg.get("adjustments_file", "configs/baseline/adjustments.yaml")
+
+def load(repo, config: AdjustableConfig) -> list[dict]:
+    """設定檔（adjustments_file、series.yaml 的 overrides）＋ aiops-tuning（repo.tuning），全部 kind。同 id 後面蓋前面。
+
+    config 是 series、trace、rules 其中一種：沒有 overrides、adjustments_file、calendar_file 的種類用預設的檔。
+    adjustments_file、calendar_file 寫了 null（或空字串）是「不載入」，所以用 `config.get(鍵, 預設)`（只有 yaml 有寫才算有），
+    不能用屬性（屬性沒寫也是 None，分不出來）。"""
+    out = [o.to_dict() for o in getattr(config, "overrides", None) or []]
+    train = getattr(config, "train", None)
+    default_tz = train.timezone if train is not None and train.timezone else "Asia/Taipei"
+    tz = default_tz
+    path = config.get("adjustments_file", "configs/baseline/adjustments.yaml")
     if path and os.path.exists(path):
-        out += [localize(a, tz) for a in load_config(path, "adjustments").get("adjustments") or []]
-    cal = cfg.get("calendar_file", "configs/baseline/calendar.yaml")
+        out += [localize(a.to_dict(), tz) for a in load_config(path, "adjustments").adjustments]
+    cal = config.get("calendar_file", "configs/baseline/calendar.yaml")
     if cal and os.path.exists(cal):
         entries, tz = load_calendar(load_config(cal, "calendar"))
-        out += calendar_adjustments(entries, tz or cfg.get("train", {}).get("timezone", "Asia/Taipei"))
+        out += calendar_adjustments(entries, tz or default_tz)
     out += repo.tuning.all()   # ES 讀不到時印一行、回 []：這一輪只用設定檔的
     by_id = {}
     for a in out:
@@ -380,16 +391,16 @@ def describe(a: dict) -> str:
 
 # ── 從 aiops-tuning 讀生效中的調整（以前在 detector/tuning.py；寫入在 feedback/）──
 
-def load_adjustments(repo, cfg: dict) -> list[dict]:
+def load_adjustments(repo, config: AdjustableConfig) -> list[dict]:
     """全部調整（四種 kind）：設定檔（overrides、adjustments_file）＋ aiops-tuning（tune、adjust 指令、learning loop 提的）。"""
-    return load(repo, cfg)
+    return load(repo, config)
 
 
-def load_overrides(repo, cfg: dict, now=None) -> list[dict]:
+def load_overrides(repo, config: AdjustableConfig, now=None) -> list[dict]:
     """粒度、z、min_abs、confirm_points、instant_z 的調整（kind: override；舊資料沒有 kind 也是），生效中的，後面蓋前面。"""
-    return active(load_adjustments(repo, cfg), now if now is not None else pd.Timestamp.now(tz="UTC"), kinds=("override",))
+    return active(load_adjustments(repo, config), now if now is not None else pd.Timestamp.now(tz="UTC"), kinds=("override",))
 
 
-def data_adjustments(repo, cfg: dict, now) -> list[dict]:
+def data_adjustments(repo, config: AdjustableConfig, now) -> list[dict]:
     """排除時段、重置點、週期放寬，生效中的。"""
-    return active(load_adjustments(repo, cfg), now, kinds=("exclude_window", "reset_point", "recurring_override"))
+    return active(load_adjustments(repo, config), now, kinds=("exclude_window", "reset_point", "recurring_override"))
