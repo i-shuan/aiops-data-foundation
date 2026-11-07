@@ -1,0 +1,80 @@
+# 收值模組化：OTel 與 APM 各一個來源模組，可選、之後可並存（2026-11）
+
+**狀態**：進行中（Plan，還沒動程式）　　**日期**：2026-11-07　　**相關**：分支 `claude/source-adapter`（從 master `bf8b5a9` 開）
+**模組**：①②（讀進來、清資料）、④⑦（判斷、根因分析讀 trace 與 log 的那一側）
+
+## Plan：這一次要達到什麼
+
+- **需求**：engine 現在靠環境變數 `AIOPS_SOURCE=otel|apm` 在**整個程序**選一種來源，來源相關的程式散在 7 個檔案（見下表），沒有一個地方說得出「一種來源要提供什麼」。要接第三種格式、或讓 OTel 與 APM 並存，都不知道從哪裡下手；宣告錯了（環境變數設 `otel`、資料其實是 APM）不會報錯，只是查不到資料。
+- **目的**：①「一種來源」是一個模組，介面寫明它要提供什麼；OTel、APM 各一個實作，後面的判斷、告警、根因不認得來源。②行為不變（現有測試、e2e、合成 APM 資料的結果跟現在一樣）。③宣告錯了要在啟動時就報出來。④做完後，來源並存只剩「依索引選模組」這一步（第二階段）。
+- **範圍**：做**讀的那一側**（「收值」＝engine 把公司 ES 的 metrics、trace、log 讀進來並轉成自己的格式）。不做：寫入端、採集端（Collector 已刪）、判斷邏輯、門檻校正、Pod 資源等 APM 沒有的能力（補不回來，見 `configs/apm/README.md`）。
+
+## 現況盤點：來源相關的程式在哪
+
+`grep` 認得 `apm`／`otel`／`resource.attributes`／`schema_of` 的檔案與次數（`aiops-engine/src/`）：
+
+| 檔案 | 次數 | 在做什麼 | 這次怎麼處理 |
+|---|---|---|---|
+| `detect/store/models.py` | 25 | `schema_of`（用索引名猜格式）、`_SPAN_FIELDS`／`_APM_FIELDS`（要撈哪些欄位）、`trace_id_field`、`to_span`／`_apm_span`／`_apm_kind`（raw 文件 → 統一的 span）、`NS_KEYS`／`NODE_KEYS` | **搬進來源模組**：這是現在「事實上的轉接器」，只是跟資料物件混在同一個檔 |
+| `detect/store/trace_repo.py` | 12 | 查 raw trace 時依 `schema_of` 選欄位、選 trace id 欄位 | 改成問來源模組，不自己判斷 |
+| `common/scenario/base.py` + `it_otel.yaml`／`it_apm.yaml` | 5 | `source`、`owner`、`log` 的欄位對照；`AIOPS_SOURCE` 選哪一份 | 欄位對照留在 yaml（資料），選擇改由來源模組宣告 |
+| `detect/series_ops/manual_adjust.py` | 6 | 調整的 `match` 用的欄位別名（`service` 對 `resource.attributes.service.name`／`entry.service`） | 別名表改由來源模組提供 |
+| `incident/store/log_repo.py`、`detect/store/owner_repo.py`、`detect/store/series_repo.py` | 3／2／3 | 讀 log、歸屬、序列時的欄位 | 欄位來自 scenario，確認只剩註解層級的提及 |
+| `detect/trace/span_merge.py`、`it_deployment.py`、`learn/*` | 各 1～2 | 多半是註解或字串 | 逐個確認，大部分不用動 |
+
+**metrics 那一側沒有程式差異**：兩種來源只差 `configs/baseline/series.yaml` 與 `configs/apm/series.yaml` 的索引、欄位、`scale`，已經是純資料。
+
+## 設計
+
+新資料夾 `detect/source/`（`detect/` 之下，因為「讀進來並清成統一格式」是 ②③ 的事；`common/` 不能依賴功能）：
+
+```
+detect/source/
+├─ base.py     SourceFormat 介面：一種來源要提供什麼
+├─ otel.py     OTel（Collector 寫的 k8s-*、metrics-*.otel-*、traces-generic.otel-*）
+├─ apm.py      Elastic APM（metrics-apm.*、traces-apm-*、logs-apm.*）
+└─ __init__.py 登記表 REGISTRY：名字 → 模組；format_of(來源名) 取出
+```
+
+**介面（草案，動手前要對一次實際呼叫端再定）**：
+
+| 提供什麼 | 現在在哪 | 說明 |
+|---|---|---|
+| `name` | 環境變數字串 | `"otel"`／`"apm"` |
+| `trace_fields` | `_SPAN_FIELDS`／`_APM_FIELDS` | 查 raw trace 要撈哪些欄位 |
+| `trace_id_field` | `trace_id_field()` | `trace_id` 或 `trace.id` |
+| `to_span(doc)` | `to_span`／`_apm_span` | raw 文件 → 統一的 span（現有的 dict 格式，不改） |
+| `owns(index)` | `schema_of` 的 `"apm" in index` | 這個索引是不是我的格式（取代索引名猜測） |
+| `match_aliases` | `manual_adjust` 的別名表 | 調整 `match` 的欄位別名 |
+| `probe(es)` | （沒有） | **新增**：抓一筆各索引的文件，檢查預期欄位在不在；不符就回錯誤訊息 |
+
+不變的：統一的 span 格式、`traces-merged-*`、`aiops-anomalies`，所以 `incident/`、`learn/`、`llm/`、Grafana 都不動。
+
+## Do（分階段，每階段測試要綠才進下一階段）
+
+1. **階段 1：抽出來源模組，行為不變。** 建 `detect/source/`，把 `models.py`、`trace_repo.py`、`manual_adjust.py` 的來源相關程式搬進去，原位置改成呼叫。`AIOPS_SOURCE` 仍是整個程序選一種。
+2. **階段 2：啟動時自我檢查。** `probe` 接到 `detect-status`：宣告 `apm` 但資料沒有 `processor.event`，就在狀態文件標失敗、印一行，Grafana 現有的「基準線不見」類規則看得到。
+3. **階段 3（要先問使用者，見下）：依索引選模組，並存。** `schema_of` 的「索引名猜格式」換成各來源模組的 `owns(index)`；序列、`raw_index` 可以混寫兩種來源。
+
+## Check（預定）
+
+| 為了確認什麼 | 怎麼測 |
+|---|---|
+| 搬動前後行為不變 | 搬之前先對 `tests/apm_synth.py` 合成資料與現有 OTel 測試資料跑一次 `trace-merge`、`rules`、`investigator alert`，存下輸出（異常、`traces-merged-*` 文件、告警摘要）；每階段後同一份資料再跑、逐筆比對 |
+| 兩種來源的 `to_span` 對同一個請求出一樣的統一 span | 用 `apm_synth` 與 OTel 版造同一條呼叫鏈（mes-api → wip-worker → Oracle），斷言兩邊轉出的 `service`、`name`、`kind`、`dur_ms`、`parent` 一致 |
+| 宣告錯了會報 | 單元測試：給 APM 形狀的文件但宣告 `otel`，`probe` 回錯誤；`detect-status` 標失敗 |
+| 層次沒被破壞 | `tests/test_layers.py`（`detect/source/` 不 import `incident`、`learn`、`llm`、`interface`） |
+| 沒有第二份來源判斷 | 加 AST 測試：`apm`／`otel` 字串判斷只允許出現在 `detect/source/` 與 `common/scenario/` 的 yaml |
+| 真實跑起來沒壞 | 現有 e2e（`adaptive`、`synth`、`chain`、`factory`、`fine`、`peer_edge`）加 Grafana 實測（上一輪的流程） |
+
+## 風險與要問使用者的事
+
+1. **要不要做階段 3（並存）？** 「來源跟著索引走」會碰到：同一個服務兩邊都有資料時，`service.name` 對不對得上、併件會不會變兩件（目前沒有對照規則）；兩邊粒度不同（30 秒對 1 分鐘）時借組基準線會不會混。如果只是「現在 OTel、之後換 APM」，做到階段 2 就夠。
+2. **`probe` 要不要擋住啟動？** 建議只標失敗不擋（讓 engine 照跑，但 Grafana 會叫），因為公司 ES 暫時連不上時不該讓 pod crash-loop；你若要擋也可以。
+3. **公司的 APM 資料是不是真的長我們假設的樣子**仍沒驗過；`probe` 做完後，第一次在公司 ES 上跑的輸出就是這個驗證。
+4. **OTel 還要不要留？** 根 `README.md`「還沒定案」第 5 點。這次不刪，做完模組化後要刪只是刪 `otel.py` 與對應設定。
+
+## Act
+
+- 動手前先回答上面第 1、2 點。
+- 這份計畫的行數與檔案清單是 `grep` 數出來的，**沒有逐個檔案讀完**；階段 1 開始時要先逐處確認，才知道哪些「一次」其實是註解、哪些是真的邏輯。
