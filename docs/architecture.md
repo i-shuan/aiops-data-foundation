@@ -220,10 +220,10 @@ engine 一份程式，情境各是一份資料檔加兩個策略（[common/scena
 | ④ | 五個模型的數學、`ingest`（別人判好的異常 → ⑤） | — |
 | ⑤ | `aiops-anomalies` 的格式：**這是主程式與情境之間的契約**——異常只要進得了 ⑤（有 `series`、`keys`、`level`、時間），後面全部接得上 | 異常的 `keys` 裡哪個欄位是「對象」（服務／機台）、哪個是「API」（method＋route／recipe） |
 | ⑥ | 同對象時間相連合一件、開件關件、嚴重度分級（廣度＋持續＋換版上限） | 跨對象併件的依據（呼叫關係／履歷前後站／不併）、「換版」是什麼（版號／recipe 變更）、訊號怎麼分類（黃金訊號／參數家族） |
-| ⑦ | 報告的每一段（[investigator/report.py](../aiops-engine/src/incident/rca_report.py)）、M4 分段、共同點、log 樣式、相似事故 | 報告有哪幾段、順序；索引與欄位的對照；用語（請求／lot、Trace／履歷） |
+| ⑦ | 報告的每一段（[incident/rca_report.py](../aiops-engine/src/incident/rca_report.py)）、M4 分段、共同點、log 樣式、相似事故 | 報告有哪幾段、順序；索引與欄位的對照；用語（請求／lot、Trace／履歷） |
 | ⑧⑨ | Grafana 通知、回饋、匯出 | 回饋表單的分類表、誤報原因 |
 
-程式是一個功能一個資料夾（[docs/pdca/meta/2026-11-feature-folders.md](pdca/meta/2026-11-feature-folders.md)）：`detect/`（②③④⑤ 異常分析）、`llm/`（LLM 摘要與過去相似事故）、`incident/`（⑥⑦⑧ 告警與根因）、`learn/`（⑨ 學習迴圈）、`interface/`（`cli/`、`web/`、`jobs/`），底下是 `common/`（`infra/` ES 連線、時間、`Repos`；`types/` 事故與指紋；`scenario/` 情境與設定檔欄位定義）；`detect/`、`incident/`、`learn/` 各有 `store/` 放自己的資料物件與 ES 讀寫（唯一懂 ES 的地方）。依賴只能往 `interface → learn → incident → llm → detect → common` 走，`tests/test_layers.py` 鎖著。命令列入口只有一個：`python3 -m main <detector|investigator|scheduler|tasks|api> …`（`main.py`）；⑨ 的子命令掛在 `main detector` 底下（`interface/cli/feedback.py`）。
+程式是一個功能一個資料夾（[docs/pdca/meta/2026-11-feature-folders.md](pdca/meta/2026-11-feature-folders.md)）：`detect/`（②③④⑤ 異常分析）、`llm/`（LLM 摘要與過去相似事故）、`incident/`（⑥⑦⑧ 告警與根因）、`learn/`（⑨ 學習迴圈）、`interface/`（`cli/`、`web/`、`jobs/`），底下是 `common/`（`config/` 環境變數與設定載入、`clock/` 時間解析、`infra/` ES 連線與 `Repos`、`types/` 事故與指紋、`scenario/` 情境）；設定欄位的定義在各功能自己的 `config/`；`detect/`、`incident/`、`learn/` 各有 `store/` 放自己的資料物件與 ES 讀寫（唯一懂 ES 的地方）。依賴只能往 `interface → learn → incident → llm → detect → common` 走，`tests/test_layers.py` 鎖著。命令列入口只有一個：`python3 -m main <detector|investigator|scheduler|tasks|api> …`（`main.py`）；⑨ 的子命令掛在 `main detector` 底下（`interface/cli/feedback.py`）。
 
 擴充點只開「現在真的有兩種以上做法」的地方，沒有的不預先抽；第四種情境（例如網路設備靠拓樸併件）出現時，寫一份 yaml `extends` 內建的、換掉策略就好。`configs/` 不隨情境搬：情境只決定預設排程表，設定檔仍在 `configs/<情境>/`。
 

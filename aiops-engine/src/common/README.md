@@ -2,7 +2,7 @@
 
 > **類型：規格 Reference**　為什麼這樣分層見 [docs/architecture.md](../../../docs/architecture.md)、計畫見 [docs/pdca/meta/2026-11-target-architecture.md](../../../docs/pdca/meta/2026-11-target-architecture.md)
 
-`common/` 是各功能共用的底層，分四個資料夾，它不依賴任何功能資料夾（`tests/test_layers.py` 鎖著）：
+`common/` 是各功能共用的底層，分五個資料夾，它不依賴任何功能資料夾（`tests/test_layers.py` 鎖著）：
 
 - `clock/`：時間只在這裡解析一份。`parse.py`（`parse_duration` 30m／1h／7d→timedelta、`parse_instant` ISO→帶時區的 Timestamp、`pandas_freq`、`check_zone`）、`window.py`（`now_of`、`TimeWindow`、`show_duration`）、`stamp.py`（`stamp_of`）。字串只在邊界解析：命令列在 `interface/cli/common.py` 的 `at_opt`／`window_opt`（typer 的 parser，看不懂印用法、不是 traceback），設定檔在載入時（`Dur`、`Tz`）；往下傳的是 `pandas.Timestamp`、`Timedelta`、`TimeWindow`。`tests/test_no_time_strings.py` 鎖著。
 - `infra/`：`env.py`（引擎版本、專案根目錄）、`es.py`（ES 連線、寫進 ES 的文件的基底 `Doc`、repository 基底 `Repository`）、`repos.py`（`Repos`）。

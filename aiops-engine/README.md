@@ -4,7 +4,7 @@
 
 | 資料夾 | 內容 |
 |---|---|
-| `src/` | Python 程式，一個功能一個資料夾，依賴只能往左：`interface/`（`cli/` 命令列、`web/` API 與回饋網頁、`jobs/` 排程器與佇列 worker）→ `learn/`（⑨ 學習迴圈：`feedback_service` 回饋、`tuning_service` 調整、`param_suggester` 建議、`rule_backtester` 回測、`evaluation_metrics` 指標、`history_importer` 事故單匯入）→ `incident/`（⑥⑦⑧ 告警與根因：`alert_service` 主流程、`alert_grouper` 併件、`alert_severity` 嚴重度、`rca_analyzer`／`rca_report` 根因分析與報告）→ `llm/`（LLM 摘要、過去相似事故的檢索）→ `detect/`（②③④⑤ 異常分析：`strategy/` 判斷方法、`series_ops/` 前處理與修正、`trace/`、`fab_ingest/` 工廠接 ML／FDC 的異常）→ `common/`（`infra/` ES 連線與 [`Repos`](src/common/README.md)、`types/` 事故與指紋、[`scenario/`](src/common/scenario/README.md) 情境、`config/` 設定檔欄位定義與環境變數）；`detect/`、`incident/`、`learn/` 各有 `store/`，放自己的資料物件和 ES 讀寫。設定檔欄位的定義（型別、預設值、檢查）：共用的在 `common/config/`（`settings.py` 是環境變數），各功能自己的放自己的 `config/`（`detect/config/`、`incident/config/`、`interface/config/`），值在 `configs/` |
+| `src/` | Python 程式，一個功能一個資料夾，依賴只能往下（結構見下面「程式結構」）；每個功能自己的資料物件與 ES 讀寫放 `store/`，自己的設定欄位定義放 `config/` |
 | `configs/` | 各情境的設定檔（[baseline](configs/baseline/README.md)、[rca](configs/rca/README.md)、[schedule](configs/schedule/schedule.yaml)、`apm/`、`factory/`、`metrics_only/`） |
 | `tests/` | 單元測試與 e2e（e2e 要測試用的 ES） |
 | `Dockerfile`、`requirements.txt` | 一個 image 裝全部，`ENTRYPOINT python3 -m`，`args` 給套件名和指令 |
@@ -27,7 +27,7 @@
 
 ## 程式結構（`src/`）
 
-依賴只能往下：`interface → learn → incident → llm → detect → common`（`tests/test_layers.py` 鎖著）。每個功能的資料物件與 ES 讀寫放自己的 `store/`。
+依賴只能往下：`interface → learn → incident → llm → detect → common`（`tests/test_layers.py` 鎖著）。每個功能的資料物件與 ES 讀寫放自己的 `store/`，設定欄位的定義（型別、預設值、檢查）放自己的 `config/`（`detect/config/`、`incident/config/`、`interface/config/`；共用的在 `common/config/`），值在 `configs/` 的 yaml，yaml 只寫跟預設值不同的鍵。時間只在邊界解析：命令列的字串在 `interface/cli` 變成 `Timestamp`／`Timedelta`，往下傳的不是字串。
 
 ```
 src/
@@ -57,10 +57,11 @@ src/
 │  └─ store/      models · anomaly／baseline／chronic／housekeeping／owner／
 │                 quality／segment／series／state／trace 的 *_repo
 └─ common/        共用底層
-   ├─ config/     common · loader · settings（各功能自己的設定模型在 detect／incident／interface 的 config/）
-   ├─ infra/      env · clock · es · repos
-   ├─ types/      incident
-   └─ scenario/   base · config · factory／it_apm／it_otel／metrics_only.yaml
+   ├─ config/     common（共用型別）· loader（讀檔驗證）· settings（環境變數）
+   ├─ clock/      parse（時間長度、時間點、時區）· window（TimeWindow、now_of）· stamp
+   ├─ infra/      env · es（連線、文件基底）· repos（Repos）
+   ├─ types/      incident（事故與指紋）
+   └─ scenario/   base · it_otel／it_apm／factory／metrics_only.yaml（情境資料檔）
 ```
 
 ## 怎麼上

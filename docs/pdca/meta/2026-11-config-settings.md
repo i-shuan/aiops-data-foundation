@@ -113,3 +113,6 @@
 - **Check**：`tests/test_config_snapshot.py`：23 份 yaml 載入後的完整內容（含預設值）跟瘦身前一樣——唯一的差是 `train.min_slot_points`、`detect.abs_floor`、`detect.alpha` 從 `None` 變成 dataclass 的預設（6、1e-9、0.001；程式原本就用這些值，先 diff 過、只有這 12 處才更新快照）。`tests/test_config_defaults.py`：`Train`／`Detect` 的預設 == `TrainOptions`／`DetectOptions` 的預設（兩邊不一樣瘦身後行為會悄悄變）。e2e `adaptive／synth／fine／chain／factory／peer_edge` 過；真的 CLI 跑了 detect／rules／peer／trace-detect／trace-train／chronic／prune／quality／alert。
 - **Act**：預設值改了會影響「沒寫那個鍵」的設定（tests 裡的 e2e 用自己的 yaml：`trace_edge.yaml` 的 `detect` 有寫所以不受影響，但沒寫 `detect` 的 trace 設定現在 `rel_floor` 是 0.1 不是 0.05）；之後新增一個情境，yaml 只寫跟預設不同的鍵。步驟 4（約 80 個寫死在程式裡的常數搬進模型）還沒做。
 
+### 收尾：README 只留現在的結構
+
+- **Do**：`aiops-engine/README.md` 的 `src/` 表格列刪掉跟「程式結構」重複的長句；結構樹的 `common/` 改成現在的（`config/`、`clock/` 套件、`infra/` 沒有 `clock.py`、`scenario/` 沒有 `config`）；補一句 `config/` 在各功能底下、yaml 只寫跟預設不同的鍵、時間只在邊界解析。根 `README.md`、`docs/architecture.md`、`common/README.md`（「四個」改「五個」資料夾）的對應句子同步。**Check**：`tools/check-docs.py` 過。**Act**：`docs/` 底下其他文件、PDCA 紀錄裡的舊結構是當時的措辭，不回頭改。
