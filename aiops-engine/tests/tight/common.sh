@@ -43,7 +43,7 @@ pgb_stop() { kill "$(cat "$W/pgb/pgb.pid" 2>/dev/null)" 2>/dev/null; true; }
 sched() {  # $1 名稱 $2 設定檔 $3 秒 $4 DSN $5 cpus $6 mem_mb(可空)
   local cmd=(timeout "$3" python3 -m main scheduler --config "$2" --stage 1)
   local run=(taskset -c "$5" runuser -u postgres -- $(engine_env "$4") "${cmd[@]}")
-  if [ -n "$6" ]; then
+  if [ -n "${6:-}" ]; then
     local C=/sys/fs/cgroup/memory/tight_$1; mkdir -p $C
     echo "${6}M" > $C/memory.limit_in_bytes; echo "${6}M" > $C/memory.memsw.limit_in_bytes
     ( cd "$ROOT" && bash -c "echo \$\$ > $C/cgroup.procs; exec \"\$@\"" _ "${run[@]}" ) > "$W/$1.log" 2>&1
