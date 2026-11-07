@@ -75,6 +75,7 @@ metrics、log 的對照（索引、欄位、單位 `scale`、直方圖桶、粒�
 |---|---|
 | `owner` | `index`、`namespace`、`service`、`dept`、`group` |
 | `log` | `index`、`service`、`level`、`trace_id`、`message`（清單）、`problem_levels`（清單） |
+| `trace` | `raw_index`：trace-merge 讀哪個原始索引（蓋過 `trace.yaml` 裡這個來源的；核准前要抽得到、而且是這個來源的格式） |
 
 | 狀態 | 意思 |
 |---|---|
@@ -82,6 +83,8 @@ metrics、log 的對照（索引、欄位、單位 `scale`、直方圖桶、粒�
 | `active` | 核准了，生效中；同一個欄位新的核准會把舊的改成 `disabled` |
 | `rejected` | 沒核准 |
 | `disabled` | 停用，回到 yaml 的值 |
+
+trace 合成時的部門、群組直接用 `owner` 的 `dept`、`group` 欄位名（假設同一個來源的 metrics 與 trace 用同一個 label 路徑），所以改歸屬的部門欄位，trace 也跟著。
 
 讀不到 ES 時照 yaml；一筆覆寫寫錯（欄位沒開放、來源沒在用）只略過那一筆。怎麼操作見 [data-sources-how-to.md](data-sources-how-to.md)。
 

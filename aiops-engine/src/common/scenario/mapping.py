@@ -1,5 +1,7 @@
 """欄位對照的覆寫（aiops-mapping）：人在網頁上提、核准後蓋在情境資料檔（it_otel.yaml、it_apm.yaml）的 owner、log 上。
 
+trace 的 raw 索引（trace.yaml 的 raw_index）也能覆寫：存在 Scenario.trace_raw，trace-merge 讀索引時蓋上去（data/mapping_service.raw_indexes）；
+trace 合成時的部門、群組直接用 owner 的 dept、group 欄位名（data/store/trace_repo.py），不另開欄位。
 yaml 是基準（在 git、image 裡）；ES 裡核准過（status active）的覆寫在**每次讀**時蓋上去，所以改了不用重新部署、下一輪工作就生效，
 engine 換 image 也不會洗掉（ES 是另一個服務）。只開放「設定寫得出來」的欄位（EDITABLE）；來源適配器裡用程式寫的轉換不在這裡改。
 讀不到 ES、覆寫寫錯：那一筆略過、印一行，照 yaml 的值跑——對照覆寫不能讓偵測停下來。
@@ -19,10 +21,11 @@ MAPPING_MAPPING = {"mappings": {"dynamic": False, "properties": {
     "by": {"type": "keyword"}, "reason": {"type": "text"}, "created_at": {"type": "date"},
     "approved_by": {"type": "keyword"}, "approved_at": {"type": "date"}, "check": {"type": "text", "index": False}}}}
 
-# 開放在網頁上改的欄位（第一版：歸屬與 log）。值是字串；LIST 的是字串清單
+# 開放在網頁上改的欄位：歸屬、log、trace 的 raw 索引。值是字串；LIST 的是字串清單
 EDITABLE: dict[str, tuple[str, ...]] = {
     "owner": ("index", "namespace", "service", "dept", "group"),
     "log": ("index", "service", "level", "trace_id", "message", "problem_levels"),
+    "trace": ("raw_index",),
 }
 LIST_FIELDS = {("log", "message"), ("log", "problem_levels")}
 STATUSES = ("proposed", "active", "rejected", "disabled")
@@ -47,10 +50,12 @@ def check_value(section: str, field: str, value) -> str | list[str]:
 
 
 def profiles(scenario) -> dict[str, dict[str, dict]]:
-    """{來源名: {"owner": …, "log": …}}：主要來源與並存時的其他來源各一份（照 Scenario.sources 的順序）。"""
+    """{來源名: {"owner": …, "log": …, "trace": …}}：主要來源與並存時的其他來源各一份（照 Scenario.sources 的順序）。
+    trace 只有覆寫過的 raw_index（yaml 的值在 trace.yaml，不在情境裡）。"""
     names = list(scenario.sources) or [scenario.source]
-    owners, logs = scenario.owners, scenario.logs
-    return {n: {"owner": owners[i] if i < len(owners) else {}, "log": logs[i] if i < len(logs) else {}} for i, n in enumerate(names)}
+    owners, logs, raw = scenario.owners, scenario.logs, dict(scenario.trace_raw)
+    return {n: {"owner": owners[i] if i < len(owners) else {}, "log": logs[i] if i < len(logs) else {},
+                "trace": {"raw_index": raw[n]} if n in raw else {}} for i, n in enumerate(names)}
 
 
 def apply(scenario, overrides: list[dict]):
@@ -67,7 +72,8 @@ def apply(scenario, overrides: list[dict]):
     names = list(prof)
     return dataclasses.replace(scenario, owner=prof[names[0]]["owner"], log=prof[names[0]]["log"],
                                extra_owners=tuple(prof[n]["owner"] for n in names[1:]) if scenario.sources else scenario.extra_owners,
-                               extra_logs=tuple(prof[n]["log"] for n in names[1:]) if scenario.sources else scenario.extra_logs)
+                               extra_logs=tuple(prof[n]["log"] for n in names[1:]) if scenario.sources else scenario.extra_logs,
+                               trace_raw=tuple((n, prof[n]["trace"]["raw_index"]) for n in names if prof[n]["trace"].get("raw_index")))
 
 
 class MappingRepository(Repository):

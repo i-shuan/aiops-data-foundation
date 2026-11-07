@@ -10,7 +10,9 @@ from datetime import datetime, timedelta
 import pandas as pd
 
 from common.infra.es import time_range
+from common.scenario.mapping import effective, profiles
 from data.source import adapter_of, for_index
+from data.source.adapter import apply_owner, with_paths
 from data.store.models import from_merged, is_merged
 from common.infra.es import Repository
 
@@ -54,11 +56,19 @@ class TraceRepository(Repository):
         """這個 raw 索引用哪個來源適配器：設定明講了（source）就用它；沒講由索引名與宣告的來源決定（for_index）。"""
         return adapter_of(source) if source else for_index(index, self.scenario.source)
 
+    def _owner(self, source: str) -> dict:
+        """這個來源的歸屬欄位（情境資料檔＋/mapping 核准過的覆寫）：合成 trace 時部門、群組跟 metrics、log 的異常讀同一個欄位。"""
+        if self.scenario is None:
+            return {}
+        return profiles(effective(self.scenario, self.es)).get(source, {}).get("owner") or {}
+
     def spans(self, index: str, trace_ids: list[str], start, end, source: str | None = None) -> list[dict]:
         """這些 trace 的所有 span（含其他服務的）。呼叫端把時間放寬，跨過邊界的請求也讀得完整。source：raw 索引明講的來源（OTel 與 APM 並存時，每個 raw 索引各一個）。"""
         out = []
         merged = is_merged(index)
         fmt = self._adapter(index, source)
+        owner = {} if merged else self._owner(fmt.name)
+        fields = with_paths(fmt.trace_fields, [owner[k] for k in ("dept", "group") if owner.get(k)])
         for i in range(0, len(trace_ids), 500):
             ids = trace_ids[i:i + 500]
             if merged:
@@ -68,9 +78,9 @@ class TraceRepository(Repository):
                 continue
             # APM 的 transaction 沒有 span.id，分頁的次要排序只能用 _doc；同一毫秒的文件跨頁可能重複，最後依 span_id 去重
             seen = set()
-            body = {"_source": fmt.trace_fields, "query": {"bool": {"filter": [time_range(start, end), {"terms": {fmt.trace_id_field: ids}}]}}}
+            body = {"_source": fields, "query": {"bool": {"filter": [time_range(start, end), {"terms": {fmt.trace_id_field: ids}}]}}}
             for h in self._scan(body, index, sort=fmt.trace_sort):
-                s = fmt.to_span(h["_source"])
+                s = apply_owner(fmt.to_span(h["_source"]), h["_source"], owner)
                 if s["span_id"] not in seen:
                     seen.add(s["span_id"])
                     out.append(s)

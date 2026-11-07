@@ -6,6 +6,8 @@ data/source/__init__.py 的 ADAPTERS，不用改別的地方（怎麼新增：do
 """
 from __future__ import annotations
 
+from common.infra.es import get_field
+
 from datetime import datetime
 
 
@@ -23,6 +25,34 @@ def start_ms(ts) -> float:
     if isinstance(ts, str) and ts.replace(".", "", 1).isdigit():
         ts = float(ts)
     return float(ts) if isinstance(ts, (int, float)) else datetime.fromisoformat(ts.replace("Z", "+00:00")).timestamp() * 1000
+
+
+def with_paths(fields, paths: list[str]):
+    """查 raw 的 `_source`（list 或 {includes, excludes}）多要幾個欄位（覆寫的部門、群組欄位不一定在預設的清單裡）。"""
+    if not paths or fields is None:
+        return fields
+    if isinstance(fields, dict):
+        inc = list(fields.get("includes") or [])
+        return {**fields, "includes": inc + [p for p in paths if p not in inc]}
+    return list(fields) + [p for p in paths if p not in fields]
+
+
+def apply_owner(span: dict, doc: dict, owner: dict) -> dict:
+    """span 的 resource.dept、resource.group 改用歸屬的欄位名從 raw 文件讀（含 /mapping 核准過的覆寫）。
+    假設同一個來源的 agent 在 metrics 與 trace 用同一個路徑（APM 都是 labels.dept；OTel 都是 resource.attributes.dept）。
+    歸屬沒寫那個欄位就不動；寫了但這筆文件沒有，就拿掉（跟沒設 label 一樣：group 退到 data_stream.namespace 或 unassigned）。"""
+    keys = [k for k in ("dept", "group") if owner.get(k)]
+    if not keys:
+        return span
+    res = dict(span.get("resource") or {})
+    for k in keys:
+        v = get_field(doc, owner[k])
+        if v is None:
+            res.pop(k, None)
+        else:
+            res[k] = v
+    span["resource"] = res
+    return span
 
 
 class SourceAdapter:

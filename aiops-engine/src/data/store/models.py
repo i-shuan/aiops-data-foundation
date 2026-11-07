@@ -184,7 +184,7 @@ def merged_doc(spans: list[dict], merged_at: datetime, prefix: str = MERGED_PREF
                    "exception": s.get("exception"), "links": s.get("links") or [], "attrs": s.get("attrs") or {},
                    "resource": s.get("resource") or {}} for s in sorted(spans, key=lambda x: (x["start_ms"], x["span_id"]))],
     }
-    return f"{prefix}-{group}-{start:%Y.%m.%d}", doc
+    return f"{prefix}-{str(group).lower()}-{start:%Y.%m.%d}", doc     # ES 的索引名不能有大寫（群組改讀別的欄位時可能是 D3120 這種）
 
 
 class Trace:

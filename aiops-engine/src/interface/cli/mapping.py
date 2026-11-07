@@ -1,7 +1,8 @@
-"""detector mapping：欄位對照的覆寫（歸屬、log 的欄位名）。提、試、核准、退回、停用（data/mapping_service.py）。
+"""detector mapping：欄位對照的覆寫（歸屬、log 的欄位名、trace 的 raw 索引）。提、試、核准、退回、停用（data/mapping_service.py）。
 
   python3 -m main detector mapping list
   python3 -m main detector mapping propose --source apm --section owner --field service --value labels.app --by 王小明 --reason 我們的服務名在 label
+  python3 -m main detector mapping propose --source apm --section trace --field raw_index --value 'traces-apm.*-*' --by 王小明
   python3 -m main detector mapping try --source apm --section owner --field service --value labels.app      （只試、不存）
   python3 -m main detector mapping approve --id <id> --by 李主管 [--force]
   python3 -m main detector mapping reject --id <id> --by 李主管
@@ -15,12 +16,13 @@ from typing import Callable
 import typer
 
 import data.mapping_service as M
+from interface.config.schedule import trace_raw_pairs
 from common.infra.es import ES
 from common.scenario import load_scenario
 from interface.cli.common import Opt, group
 
 COMMANDS: dict[str, Callable[[typer.Typer], None]] = {}
-mapping = group("mapping", help="欄位對照的覆寫（歸屬、log 的欄位名）：list、propose、try、approve、reject、disable；核准過的蓋在情境資料檔上，下一輪工作生效")
+mapping = group("mapping", help="欄位對照的覆寫（歸屬、log 的欄位名、trace 的 raw 索引）：list、propose、try、approve、reject、disable；核准過的蓋在情境資料檔上，下一輪工作生效")
 COMMANDS["mapping"] = lambda app: app.add_typer(mapping)
 
 
@@ -34,7 +36,7 @@ def _show(findings) -> None:
 @mapping.command("list", help="每個來源、每個開放的欄位：yaml 的值、現在生效的值；下面列出所有提過的覆寫")
 def list_cmd() -> int:
     es, sc = ES(), load_scenario()
-    for r in M.current(es, sc):
+    for r in M.current(es, sc, trace_raw_pairs(sc.schedule)):
         mark = f"  ← 覆寫 {r['override']}" if r["override"] else ""
         print(f"{r['source']:5} {r['section']:5} {r['field']:15} {r['value']!s:45}{'' if r['value'] == r['yaml'] else '（yaml：' + str(r['yaml']) + '）'}{mark}")
     print("\n提過的覆寫（新的在前）：")
@@ -58,7 +60,8 @@ def try_cmd(source: str = Opt(...), section: str = Opt(...), field: str = Opt(..
 def propose_cmd(source: str = Opt(...), section: str = Opt(...), field: str = Opt(...), value: str = Opt(..., help="清單欄位用逗號隔開"),
                 by: str = Opt(...), reason: str = Opt("")) -> int:
     try:
-        _id, findings = M.propose(ES(), load_scenario(), source, section, field, value, by, reason)
+        sc = load_scenario()
+        _id, findings = M.propose(ES(), sc, source, section, field, value, by, reason, trace_raw_pairs(sc.schedule))
     except ValueError as e:
         print(e)
         return 2

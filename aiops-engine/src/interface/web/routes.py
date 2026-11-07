@@ -21,6 +21,7 @@ import interface.web.views as V
 import detect.fab_ingest.ingest_service as ING
 import learn.feedback_service as F
 import data.mapping_service as MAP
+from interface.config.schedule import trace_raw_pairs
 from common.config.settings import settings
 from common.config import load_config
 from common.infra.repos import Repos
@@ -223,7 +224,8 @@ def _mapping_submit(raw: bytes) -> Response:
     try:
         if form.get("action") == "try":
             return _send(200, V.render_mapping(es, sc, form=form, tried=MAP.try_value(es, sc, form.get("source", ""), section, field, form.get("value"))).encode())
-        _id, findings = MAP.propose(es, sc, form.get("source", ""), section, field, form.get("value"), form.get("by", ""), form.get("reason", ""))
+        _id, findings = MAP.propose(es, sc, form.get("source", ""), section, field, form.get("value"), form.get("by", ""), form.get("reason", ""),
+                                    trace_raw_pairs(sc.schedule))
     except ValueError as e:
         return _send(400, V.render_mapping(es, sc, form=form, error=str(e)).encode())
     except Exception as e:    # ES 掛了：說清楚沒存成功

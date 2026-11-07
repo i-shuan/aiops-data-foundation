@@ -5,7 +5,7 @@ table{border-collapse:collapse;width:100%;font-size:14px;margin:8px 0 20px}td,th
 th{background:#f4f4f4}code{background:#f4f4f4;padding:0 3px}.ov{background:#fff7e0}.ok{background:#e6f7e6;padding:10px}.err{background:#fde8e8;padding:10px}
 .warn{background:#fff7e0;padding:10px}label{display:block;margin-top:10px;font-weight:600}input,select,textarea{width:100%;padding:6px;font-size:15px}
 button{margin-top:14px;padding:8px 18px;font-size:15px;margin-right:8px}.hint{font-weight:400;color:#666;font-size:13px}</style></head><body>
-<h2>欄位對照（歸屬、log 的欄位名）</h2>
+<h2>欄位對照（歸屬、log 的欄位名，trace 的 raw 索引）</h2>
 <p class="hint">設定檔（yaml）是基準；這裡可以<b>提</b>覆寫，<b>核准後</b>下一輪工作就用新的，不用重新部署、換版也不會洗掉（存在 ES 的 aiops-mapping）。
 核准只能用命令列：<code>python3 -m main detector mapping approve --id &lt;id&gt; --by &lt;你&gt;</code>（核准前會再對真的資料試一次，對不上不給）。</p>
 {% if error %}<p class="err">{{ error }}</p>{% endif %}
@@ -22,7 +22,7 @@ button{margin-top:14px;padding:8px 18px;font-size:15px;margin-right:8px}.hint{fo
 <h3>提一筆覆寫</h3>
 <form method="post" action="/mapping">
 <label>來源 <select name="source">{% for s in sources %}<option{% if f.get('source') == s %} selected{% endif %}>{{ s }}</option>{% endfor %}</select></label>
-<label>欄位 <span class="hint">（owner＝歸屬：去哪個索引查服務、namespace 屬於哪個部門；log＝根因分析讀 log 時的欄位名）</span>
+<label>欄位 <span class="hint">（owner＝歸屬：去哪個索引查服務、namespace 屬於哪個部門；log＝根因分析讀 log 時的欄位名；trace.raw_index＝trace 合成讀哪個原始索引，要是這個來源的格式。trace 的部門、群組跟著 owner 的 dept、group）</span>
 <select name="key">{% for section, fields in editable.items() %}{% for fld in fields %}<option value="{{ section }}.{{ fld }}"{% if f.get('key') == section ~ '.' ~ fld %} selected{% endif %}>{{ section }}.{{ fld }}</option>{% endfor %}{% endfor %}</select></label>
 <label>新的值 <span class="hint">（欄位名，例：labels.app；log.message、log.problem_levels 用逗號隔開多個）</span><input type="text" name="value" value="{{ f.get('value', '') }}" required></label>
 <label>你是 <input type="text" name="by" value="{{ f.get('by', '') }}" placeholder="名字或工號"></label>

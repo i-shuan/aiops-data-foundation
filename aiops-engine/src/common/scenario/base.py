@@ -109,6 +109,7 @@ class Scenario:
     sources: tuple[str, ...] = ()                 # 宣告的全部來源（沒並存時是空的）
     extra_owners: tuple[dict, ...] = ()
     extra_logs: tuple[dict, ...] = ()
+    trace_raw: tuple[tuple[str, str], ...] = ()   # 欄位對照覆寫的 raw trace 索引 ((來源, 索引)…)；只有 aiops-mapping 核准過的才有（trace.yaml 的值不在這）
 
     @property
     def owners(self) -> tuple[dict, ...]:
