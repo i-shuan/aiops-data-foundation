@@ -5,6 +5,7 @@ import pandas as pd
 import yaml
 
 import detect.strategy.threshold_rule as R
+from common.clock import parse_duration
 from tests.config_factory import rule_of
 
 NOW = pd.Timestamp("2026-10-10T10:00:00Z")
@@ -205,7 +206,7 @@ class ConfigTest(unittest.TestCase):
                 self.assertIn("other", r, r["name"])
             if r["type"] in ("ratio", "increase_ratio"):
                 self.assertIn("den", r, r["name"])
-            self.assertLess(R._dur(r.get("for", 0)), R._dur(r.get("lookback", cfg["lookback"])), r["name"])
+            self.assertLess(parse_duration(r.get("for", 0)), parse_duration(r.get("lookback", cfg["lookback"])), r["name"])
 
     def test_describe_number_ratio(self):
         rule = {"title": "執行緒暴增", "type": "ratio", "threshold": 16, "show": "number"}

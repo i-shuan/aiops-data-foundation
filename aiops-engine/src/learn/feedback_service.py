@@ -3,6 +3,7 @@
 HTTP 層（interface/web）只做收參數、挑回 HTML 還是 JSON。"""
 from __future__ import annotations
 
+from common.clock import now_of
 from detect.config.series import SeriesConfig
 import json
 import sys
@@ -21,7 +22,6 @@ from common.infra.repos import Repos
 from common.scenario import load_scenario
 import detect.series_ops.manual_adjust as A
 from detect.series_ops.manual_adjust import load_adjustments
-from detect.utils import _now
 from detect.strategy.dynamic_baseline import DetectOptions
 import learn.param_suggester as F
 from learn.param_suggester import propose_from_text
@@ -129,7 +129,7 @@ def _timezone(series_config: SeriesConfig) -> str:
 
 def feedback_export(series_config: SeriesConfig, args) -> int:
     """回饋＋異常合成一列匯出（NDJSON／CSV），給 ML 團隊重訓（工廠版）。"""
-    repo, now = _connect(), _now(None)
+    repo, now = _connect(), now_of(None)
     rows = export_rows(repo, args.days, now)
     where = write_export(rows, getattr(args, "out", None))
     if where != "stdout":
@@ -140,7 +140,7 @@ def feedback_export(series_config: SeriesConfig, args) -> int:
 
 def feedback_pending(series_config: SeriesConfig, args) -> int:
     """還沒人標記的異常（status anomaly、沒有回饋的）。"""
-    repo, now = _connect(), _now(None)
+    repo, now = _connect(), now_of(None)
     a, f = _anomaly_rows(repo, args.days, now), _feedback_rows(repo, args.days, now)
     done = set(f["anomaly_id"].dropna())
     a = a[(a["status"] == "anomaly") & ~a["id"].isin(done)]
@@ -153,7 +153,7 @@ def feedback_pending(series_config: SeriesConfig, args) -> int:
 
 
 def feedback_list(series_config: SeriesConfig, args) -> int:
-    repo, now = _connect(), _now(None)
+    repo, now = _connect(), now_of(None)
     f = _feedback_rows(repo, args.days, now)
     for r in f.sort_values("at", ascending=False).head(args.limit).to_dict("records"):
         print(f"  {r['at'][:16]}  {r['verdict']:<16}  {r['series']}  {r['target']}  ({r['by'] or '?'}) {r['note'] or ''}")
@@ -163,7 +163,7 @@ def feedback_list(series_config: SeriesConfig, args) -> int:
 
 def feedback_summary(series_config: SeriesConfig, args) -> int:
     """誤報統計（suggest.summarize）。"""
-    repo, now = _connect(), _now(None)
+    repo, now = _connect(), now_of(None)
     a, f = _anomaly_rows(repo, args.days, now), _feedback_rows(repo, args.days, now)
     print("\n".join(F.format_summary(F.summarize(a, f, min_false_positive=args.min_false_positive), args.days)))
     return 0
@@ -266,7 +266,7 @@ def _suggest_rules(repo, series_config: SeriesConfig, args, now) -> int:
 
 def feedback_suggest(series_config: SeriesConfig, args) -> int:
     """誤報多次→放寬、漏報→收緊、整條序列 precision、同根因 ≥ N 次→規則；全部 proposed，人核准（adjust approve）才生效。"""
-    repo, now = _connect(), _now(None)
+    repo, now = _connect(), now_of(None)
     s = F.summarize(_anomaly_rows(repo, args.days, now), _feedback_rows(repo, args.days, now), min_false_positive=args.min_false_positive)
     z0 = DetectOptions(**series_config.detect.model_dump(exclude_none=True)).z
     overrides = {_override_key(a.get("series"), a.get("match")): a for a in load_adjustments(repo, series_config)
@@ -313,7 +313,7 @@ def _extract(repo, series_config: SeriesConfig, args, doc: dict, alert: dict | N
 
 def feedback_add(series_config: SeriesConfig, args) -> int:
     """值班對一筆異常（或漏報）的判斷：真的／誤報／根因錯／漏報；--text 一句話讓系統抽。"""
-    repo, now = _connect(), _now(None)
+    repo, now = _connect(), now_of(None)
     if not args.verdict and not args.text:
         print(f"要給 --verdict（{'、'.join(VERDICTS)}），或 --text 一句話讓系統抽")
         return 2
@@ -365,7 +365,7 @@ def incident_list(series_config: SeriesConfig, args) -> int:
 
 
 def incident_resolve(series_config: SeriesConfig, args) -> int:
-    repo, now = _incidents(), _now(None)
+    repo, now = _incidents(), now_of(None)
     repo.incidents.patch(args.id, {"status": "resolved", "resolved_at": now.isoformat(), "action": args.action_taken, "root_cause": args.root_cause})
     print(f"已結案：{args.id}")
     return 0
@@ -373,7 +373,7 @@ def incident_resolve(series_config: SeriesConfig, args) -> int:
 
 def incident_add(series_config: SeriesConfig, args) -> int:
     """人工補登一件事故；--exclude-training 同時提一筆「這段不學」（proposed）。"""
-    repo, now = _incidents(), _now(None)
+    repo, now = _incidents(), now_of(None)
     if not (args.title and args.start and args.end):
         print("要給 --title、--start、--end")
         return 2

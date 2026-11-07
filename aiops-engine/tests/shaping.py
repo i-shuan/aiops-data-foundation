@@ -21,7 +21,8 @@ import re
 import numpy as np
 import pandas as pd
 
-from detect.store.series_repo import COLUMNS, fill_zero, to_freq
+from common.clock import pandas_freq
+from detect.store.series_repo import COLUMNS, fill_zero
 
 class ShapeError(ValueError):
     pass
@@ -245,7 +246,7 @@ def series_from_rows(rows: pd.DataFrame, spec: dict, start: pd.Timestamp, end: p
         if df.empty:
             df = pd.DataFrame(columns=keys + COLUMNS)
         else:
-            df = df.assign(ts=df["ts"].dt.floor(to_freq(interval)) if interval else end)
+            df = df.assign(ts=df["ts"].dt.floor(pandas_freq(interval)) if interval else end)
             out = []
             for key_vals, g in df.groupby(by + ["ts"], sort=False):
                 hist = lambda f, g=g: _hist(g, f)
@@ -276,7 +277,7 @@ def _series_format(rows, spec, start, end, interval, keys, by) -> pd.DataFrame:
         return pd.DataFrame(columns=keys + COLUMNS)
     df = df.assign(value=pd.to_numeric(df["value"], errors="coerce") * float(spec.get("scale") or 1.0),
                    n=pd.to_numeric(df["n"], errors="coerce") if "n" in df.columns else np.nan,
-                   ts=df["ts"].dt.floor(to_freq(interval)) if interval else end)
+                   ts=df["ts"].dt.floor(pandas_freq(interval)) if interval else end)
     count_like = spec.get("value") == "count" or spec.get("events") == "value"
     out = []
     for key_vals, g in df.groupby(keys + ["ts"], sort=False):
@@ -296,7 +297,7 @@ def alive_from_rows(rows: pd.DataFrame, time_field: str, start, end, interval: s
     df = in_window(rows, time_field, start, end)
     if df.empty:
         return pd.DatetimeIndex([], tz="UTC")
-    return pd.DatetimeIndex(df["ts"].dt.floor(to_freq(interval)).unique())
+    return pd.DatetimeIndex(df["ts"].dt.floor(pandas_freq(interval)).unique())
 
 
 # ── events → points（規則）──

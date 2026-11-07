@@ -11,6 +11,7 @@ from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 import llm.summary as LLM
+from common.clock import now_of, parse_duration
 from common.infra.es import ES
 from incident.config.rca import Alerts, RcaConfig
 from incident.store.models import Alert, stamp_of
@@ -22,12 +23,6 @@ from common.scenario import load_scenario
 import incident.alert_grouper as AL
 import incident.alert_severity as SEV
 import llm.similar as SIM
-
-
-def _dur(s: str) -> timedelta:
-    """30s、30m、2h、1d"""
-    s = str(s)
-    return timedelta(**{{"s": "seconds", "m": "minutes", "h": "hours", "d": "days"}[s[-1]]: int(s[:-1])})
 
 
 def grade_alert(repo: Repos, rca_config: RcaConfig, al: Alert, now: datetime) -> None:
@@ -127,7 +122,7 @@ def needs_rerun(al: Alert, now: datetime, alerts_config: Alerts) -> bool:
         return False
     if has_trace(al.findings) or attempts(al) >= alerts_config.rca_retry_max:
         return False
-    return al.report_at is None or now - al.report_at >= _dur(alerts_config.rca_retry_after)
+    return al.report_at is None or now - al.report_at >= parse_duration(alerts_config.rca_retry_after)
 
 
 def wants_rerun(al: Alert, now: datetime, alerts_config: Alerts) -> tuple[bool, bool]:
@@ -165,8 +160,8 @@ def _rca(repo: Repos, rca_config: RcaConfig, alerts_config: Alerts, al: Alert, i
     rca_lead：根因分析的窗往前多看（工廠：ML 在 run 結束才報，出事的 run 是 started_at 之前就開始的；IT 是 0）。失敗不擋這一件。"""
     try:
         return investigate(rca_config, Namespace(service=al.service, route=AL.rca_route(al, repo.scenario),
-                                          start=(al.started_at - _dur(alerts_config.rca_lead)).isoformat(),
-                                          end=(al.updated_at + interval).isoformat(), at=None, window=None))
+                                          start=al.started_at - parse_duration(alerts_config.rca_lead),
+                                          end=al.updated_at + interval, at=None, window=None))
     except Exception as e:   # noqa: BLE001
         return f"根因分析失敗：{e}", None
 
@@ -266,9 +261,9 @@ def run(rca_config: RcaConfig, args, investigate) -> int:
     repo.alerts.ensure()
     alerts_config = rca_config.alerts
     tz = ZoneInfo(rca_config.timezone)
-    now = datetime.fromisoformat(args.at.replace("Z", "+00:00")) if args.at else datetime.now(timezone.utc)
-    close_after, lookback = _dur(alerts_config.close_after), _dur(alerts_config.lookback)
-    interval = _dur(rca_config.interval)
+    now = now_of(args.at).to_pydatetime()
+    close_after, lookback = parse_duration(alerts_config.close_after), parse_duration(alerts_config.lookback)
+    interval = parse_duration(rca_config.interval)
     open_alerts = repo.alerts.open()
     oldest = min([a.updated_at for a in open_alerts], default=now)
     start = min(now - lookback, oldest - close_after)

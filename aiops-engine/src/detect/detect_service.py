@@ -6,8 +6,9 @@ import dataclasses
 import numpy as np
 import pandas as pd
 
+from common.clock import now_of, pandas_freq
 from common.infra.es import ES, doc_id
-from common.infra.clock import stamp_of
+from common.clock import stamp_of
 from detect.config.types import Status
 from detect.config.series import Series, SeriesConfig
 from detect.config.trace import TraceConfig
@@ -16,7 +17,7 @@ from common.infra.repos import Repos
 from common.scenario import load_scenario
 import detect.series_ops.manual_adjust as A
 from detect.strategy.dynamic_baseline import (CONFIDENCE, RESOLUTIONS, DetectOptions, TrainOptions, effective_for, mask_thin, pick_resolution, score, group_of, mark_status, override_for, resolutions_from, score_poisson, train, train_groups)
-from detect.utils import _freq, _now, _v, keys_of, value_kind
+from detect.utils import _v, keys_of, value_kind
 from detect.series_ops.manual_adjust import data_adjustments, load_overrides
 
 
@@ -132,12 +133,12 @@ def cmd_train(series_config: SeriesConfig, args, repo: Repos | None = None) -> i
     repo = repo or Repos(ES(), load_scenario())   # 測試給記憶體版的 repo（tests/fakes.py）
     repo.baseline.ensure()
     interval = series_config.interval
-    end = _now(args.end).floor(_freq(interval))
+    end = now_of(args.end).floor(pandas_freq(interval))
     start = end - pd.Timedelta(weeks=args.weeks or series_config.history_weeks)
     # 5 分鐘以下的細粒度只學最近 fine_history（30 秒一點 4 週是 8 萬點；14 天還夠「同星期幾 × 同小時」用）
     fh = series_config.fine_history
     fine_start = max(start, end - pd.Timedelta(fh[:-1] + "D" if fh.endswith("d") else fh))
-    fine = lambda r: pd.Timedelta(_freq(r)) < pd.Timedelta("5min")
+    fine = lambda r: pd.Timedelta(pandas_freq(r)) < pd.Timedelta("5min")
     topts = TrainOptions(**series_config.train.model_dump(exclude_none=True))
     overrides = load_overrides(repo, series_config, end)    # 有沒有過期以這次 train 的時間點判斷（跟排除時段、重置點一樣）
     adjs = data_adjustments(repo, series_config, end)
@@ -209,7 +210,7 @@ def _add_silent(cur: pd.DataFrame, base: pd.DataFrame, by: list[str], start, end
     silent = silent[silent["_merge"] == "left_only"][by]
     if silent.empty:
         return cur
-    grid = pd.date_range(start, end, freq=_freq(interval), inclusive="left")
+    grid = pd.date_range(start, end, freq=pandas_freq(interval), inclusive="left")
     if alive is not None:
         grid = grid[grid.isin(alive())]
     if grid.empty:
@@ -353,9 +354,9 @@ def detect_borrowed(repo: Repos, series_config: SeriesConfig, spec: Series, own:
     if gb.empty:
         return 0
     r = borrow_resolution(series_config)
-    end_r = now.floor(_freq(r))
-    start_r = end_r - max(window, pd.Timedelta(_freq(r)))
-    cur = repo.series.fetch(spec, start_r - pd.Timedelta(_freq(r)), end_r, r)
+    end_r = now.floor(pandas_freq(r))
+    start_r = end_r - max(window, pd.Timedelta(pandas_freq(r)))
+    cur = repo.series.fetch(spec, start_r - pd.Timedelta(pandas_freq(r)), end_r, r)
     if cur.empty:
         return 0
     if not own.empty:
@@ -389,16 +390,16 @@ def detect_series(repo: Repos, series_config: SeriesConfig, spec: Series, base: 
     cmd_detect 拿去存；backtest（cmd_backtest.py）拿去比「現行設定 vs 建議的設定」。"""
     keys, interval = keys_of(spec), series_config.interval
     # 剛結束的時間窗可能還沒收齊（Collector 批次送、ES refresh），往前退 lag 再看
-    lag = pd.Timedelta(_freq(series_config.lag))
+    lag = pd.Timedelta(pandas_freq(series_config.lag))
     base = base.copy()
     base["resolution"] = base["resolution"].fillna(interval)
     out = []
     # 每種粒度各查一次：1 小時一點的序列，看的是最近一個已經結束的整點（每 5 分鐘重跑會覆蓋同一筆，不會重複）
     for r, b in base.groupby("resolution"):
-        end_r = (now - lag).floor(_freq(r))
-        start_r = end_r - max(window, pd.Timedelta(_freq(r)))
+        end_r = (now - lag).floor(pandas_freq(r))
+        start_r = end_r - max(window, pd.Timedelta(pandas_freq(r)))
         # 多查前一個時間窗：判斷「連續」要知道前一個有沒有超標
-        prev_r = start_r - pd.Timedelta(_freq(r))
+        prev_r = start_r - pd.Timedelta(pandas_freq(r))
         cur = repo.series.fetch(spec, prev_r, end_r, r)
         ks = b[keys].drop_duplicates()
         cur = cur.merge(ks, on=keys) if not cur.empty else cur
@@ -443,10 +444,10 @@ def cmd_detect(series_config: SeriesConfig, args, repo: Repos | None = None) -> 
     repo = repo or Repos(ES(), load_scenario())
     repo.anomalies.ensure()
     interval = series_config.interval
-    now = _now(args.at)
+    now = now_of(args.at)
     # 最後一段可能還沒收齊（筆數會偏低，看起來像「驟降」），所以只看已經結束的時段
-    end = now.floor(_freq(interval))
-    start = end - pd.Timedelta(args.window)
+    end = now.floor(pandas_freq(interval))
+    start = end - args.window
     tz = series_config.train.timezone or "Asia/Taipei"
     dopts = DetectOptions(**series_config.detect.model_dump(exclude_none=True))
     overrides = load_overrides(repo, series_config, now)   # --at 回放時以 --at 判斷有沒有過期（跟排除時段、重置點、backtest 一樣）
@@ -457,12 +458,12 @@ def cmd_detect(series_config: SeriesConfig, args, repo: Repos | None = None) -> 
         keys = keys_of(spec)
         base = repo.baseline.load(spec.name, keys)
         if spec.borrow and series_config.groups:
-            total += detect_borrowed(repo, series_config, spec, base, now, pd.Timedelta(args.window), dopts, tz, adjs)
+            total += detect_borrowed(repo, series_config, spec, base, now, args.window, dopts, tz, adjs)
         if base.empty:
             print(f"  {spec.name}：沒有 baseline，先跑 train")
             missing.append(spec.name)
             continue
-        for r, s in detect_series(repo, series_config, spec, base, now, pd.Timedelta(args.window), dopts, tz, overrides, adjs):
+        for r, s in detect_series(repo, series_config, spec, base, now, args.window, dopts, tz, overrides, adjs):
             total += save_anomalies(repo, spec.name, keys, s, (spec.direction or "both"), tz, resolution=r)
     write_detect_status(repo, now, missing)
     print(f"共 {total} 個異常" + (f"；{len(missing)} 條序列沒有 baseline（已寫 detect-status）" if missing else ""))

@@ -5,12 +5,37 @@ from __future__ import annotations
 from argparse import Namespace
 from typing import Callable
 
+import pandas as pd
 import typer
 
+from common.clock import parse_duration, parse_instant
 from common.config import load_config
 
 SERIES = "configs/baseline/series.yaml"
 Opt = typer.Option
+
+
+def _bad(parse):
+    def parser(text: str):
+        try:
+            return parse(text)
+        except ValueError as e:
+            raise typer.BadParameter(str(e)) from None
+    return parser
+
+
+_instant = _bad(parse_instant)
+_duration = _bad(lambda s: pd.Timedelta(parse_duration(s)))
+
+
+def at_opt(help: str | None = None):
+    """時間點的選項（--at、--end…）：在這裡把字串解析成帶時區的 pandas.Timestamp，往下傳的不是字串。不給＝None（用現在）。"""
+    return Opt(None, parser=_instant, metavar="TIME", help=help)
+
+
+def window_opt(default: str, help: str | None = None):
+    """一段時間長度的選項（--window）：解析成 pandas.Timedelta。"""
+    return Opt(default, parser=_duration, metavar="DURATION", help=help)
 
 
 def registry(commands: dict[str, Callable[[typer.Typer], None]]):

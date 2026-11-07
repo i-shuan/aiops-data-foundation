@@ -55,9 +55,9 @@ class MemoryReposTrainDetect(unittest.TestCase):
         spike = T0 + pd.Timedelta(days=14, hours=10)
         be = MemoryRepos({"metrics-apm.transaction.1m-*": history(spike_at=spike)})
         with mock.patch.object(C, "ES", lambda: self.fail("不該連 ES")):
-            rc, text = quiet(C.cmd_train, CFG, Namespace(end=(T0 + pd.Timedelta(days=14)).isoformat(), weeks=None, at=None), be)
+            rc, text = quiet(C.cmd_train, CFG, Namespace(end=T0 + pd.Timedelta(days=14), weeks=None, at=None), be)
             self.assertEqual(rc, 0)
-            rc, text = quiet(C.cmd_detect, CFG, Namespace(at=(spike + pd.Timedelta(hours=1)).isoformat(), window="2h"), be)
+            rc, text = quiet(C.cmd_detect, CFG, Namespace(at=spike + pd.Timedelta(hours=1), window=pd.Timedelta("2h")), be)
         self.assertEqual(rc, 0)
         self.assertTrue(be.docs("aiops-baseline"))
         hits = [d for _, d in be.docs("aiops-anomalies") if d["series"] == "http.error_rate"]
@@ -75,7 +75,7 @@ class RulesPeerSimilarOnMemory(unittest.TestCase):
         cfg = validate({"interval": "1m", "lookback": "10m", "rules": [{"name": "restart", "title": "容器重啟", "type": "increase", "index": "k8s-pods-*", "field": "metrics.restarts",
                                                               "by": ["pod"], "op": ">=", "threshold": 1, "severity": "warning"}]}, "rules")
         be = MemoryRepos({"k8s-pods-*": r})
-        rc, text = quiet(cmd_rules.cmd_rules, cfg, Namespace(at=(T0 + pd.Timedelta(minutes=7)).isoformat(), only=None), be)
+        rc, text = quiet(cmd_rules.cmd_rules, cfg, Namespace(at=T0 + pd.Timedelta(minutes=7), only=None), be)
         self.assertEqual(rc, 0)
         hits = [d for _, d in be.docs("aiops-anomalies")]
         self.assertEqual([d["keys"]["pod"] for d in hits], ["p1"])
@@ -88,7 +88,7 @@ class RulesPeerSimilarOnMemory(unittest.TestCase):
             {"name": "peer.pod_cpu", "title": "CPU 高", "index": "k8s-*", "by": ["ns", "deploy", "pod"], "value": {"avg": "cpu"},
              "direction": "up", "min_abs": 0.2, "min_ratio": 3}]}, "peer")
         be = MemoryRepos({"k8s-*": r})
-        rc, _ = quiet(cmd_peer.cmd_peer, cfg, Namespace(at=(T0 + pd.Timedelta(minutes=10)).isoformat(), only=None), be)
+        rc, _ = quiet(cmd_peer.cmd_peer, cfg, Namespace(at=T0 + pd.Timedelta(minutes=10), only=None), be)
         self.assertEqual(rc, 0)
         self.assertEqual([d["keys"]["pod"] for _, d in be.docs("aiops-anomalies")], ["d"])
 

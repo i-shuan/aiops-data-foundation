@@ -8,12 +8,13 @@ import pandas as pd
 import typer
 
 import detect.trace.path_service as PS
+from common.clock import now_of, show_duration
 from detect.fab_ingest import ingest_service as ING
-from common.infra.clock import now_ts as _now
 from common.infra.es import ES
 from common.infra.repos import Repos
 from common.scenario import load_scenario
 from common.config import load_config
+from interface.cli.common import at_opt, window_opt
 from detect.config.ingest import IngestConfig
 from detect.config.paths import PathsConfig
 
@@ -24,24 +25,24 @@ def register(app: typer.Typer) -> None:
 
 
 def paths_merge(config: str = typer.Option(..., help="configs/factory/paths.yaml"),
-                window: str = typer.Option("1d", help="最近多久有進站／出站的 lot 重合成（預設 1d）"),
-                at: str | None = typer.Option(None, help="拿某個時間點當成現在")) -> int:
+                window: pd.Timedelta = window_opt("1d", "最近多久有進站／出站的 lot 重合成（預設 1d）"),
+                at: pd.Timestamp | None = at_opt("拿某個時間點當成現在")) -> int:
     return cmd_paths_merge(load_config(config, "paths"), Namespace(config=config, window=window, at=at))
 
 
 def cmd_paths_merge(paths_config: PathsConfig, args) -> int:
-    now = _now(args.at)
-    n = PS.run(Repos(ES(), load_scenario()), paths_config, now, pd.Timedelta(args.window))
+    now = now_of(args.at)
+    n = PS.run(Repos(ES(), load_scenario()), paths_config, now, args.window)
     tz = paths_config.timezone
-    print(f"{now.tz_convert(tz):%m-%d %H:%M}：paths-merge 最近 {args.window} 有動的 lot，合了 {n} 個")
+    print(f"{now.tz_convert(tz):%m-%d %H:%M}：paths-merge 最近 {show_duration(args.window)} 有動的 lot，合了 {n} 個")
     return 0
 
 
 def cmd_ingest(ingest_config: IngestConfig, args) -> int:
-    now = _now(args.at)
+    now = now_of(args.at)
     tz = ingest_config.timezone
-    got = ING.run(Repos(ES(), load_scenario()), ingest_config, now, pd.Timedelta(args.window))
+    got = ING.run(Repos(ES(), load_scenario()), ingest_config, now, args.window)
     for name, (n, skipped) in got.items():
         print(f"  {name}：{n} 筆異常" + (f"（略過 {skipped} 筆：沒有時間、對象或值）" if skipped else ""))
-    print(f"{now.tz_convert(tz):%m-%d %H:%M}：接收 {sum(n for n, _ in got.values())} 筆（最近 {args.window}）")
+    print(f"{now.tz_convert(tz):%m-%d %H:%M}：接收 {sum(n for n, _ in got.values())} 筆（最近 {show_duration(args.window)}）")
     return 0

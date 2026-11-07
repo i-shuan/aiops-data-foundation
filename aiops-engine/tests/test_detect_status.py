@@ -3,6 +3,8 @@
 import contextlib
 import io
 import unittest
+
+import pandas as pd
 from argparse import Namespace
 from unittest import mock
 
@@ -41,7 +43,7 @@ class FakeES:
 def detect(with_baseline):
     es = FakeES(with_baseline)
     with mock.patch.object(C, "ES", lambda: es), contextlib.redirect_stdout(io.StringIO()) as out:
-        C.cmd_detect(CFG, Namespace(at="2026-11-01T02:05:00Z", window="10min"))
+        C.cmd_detect(CFG, Namespace(at=pd.Timestamp("2026-11-01T02:05:00Z"), window=pd.Timedelta("10min")))
     status = [d for idx, docs in es.written if idx == ALERT_INDEX for d in docs]
     return es, status, out.getvalue()
 

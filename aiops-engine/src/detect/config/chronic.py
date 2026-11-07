@@ -5,7 +5,7 @@ from typing import Any, Literal
 
 from pydantic import Field, model_validator
 
-from common.config.common import _same_length, NonNeg, PosInt, Query, Strict
+from common.config.common import _same_length, NonNeg, PosInt, Query, Strict, Tz
 from detect.config.types import Provider
 
 
@@ -37,7 +37,7 @@ class ChronicConfig(Strict):
     days: PosInt = 7                         # 看最近幾個「完整的日子」
     min_days: PosInt = 6                     # 幾天裡至少幾天有才算慢性（來源可以自己寫）
     top: PosInt = 10
-    timezone: str = "Asia/Taipei"
+    timezone: Tz = "Asia/Taipei"
     sources: list[ChronicSource] = []
     owners: list[dict[str, Any]] = []
     owners_source: list[Provider] | Provider | None = None

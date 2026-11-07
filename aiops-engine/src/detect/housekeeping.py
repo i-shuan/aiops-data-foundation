@@ -8,11 +8,11 @@ from __future__ import annotations
 
 import pandas as pd
 
+from common.clock import now_of
 from detect.config.prune import PruneConfig
 from common.infra.es import ES
 from common.infra.repos import Repos
 from common.scenario import load_scenario
-from detect.utils import _now
 
 
 def plan(prune_config: PruneConfig, now: pd.Timestamp) -> list[dict]:
@@ -33,7 +33,7 @@ def plan(prune_config: PruneConfig, now: pd.Timestamp) -> list[dict]:
 
 def cmd_prune(prune_config: PruneConfig, args) -> int:
     hk = Repos(ES(), load_scenario()).housekeeping
-    now = _now(args.at)
+    now = now_of(args.at)
     dry = bool(getattr(args, "dry_run", False))
     total = 0
     for p in plan(prune_config, now):

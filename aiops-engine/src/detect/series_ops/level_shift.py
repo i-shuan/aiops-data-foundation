@@ -10,6 +10,7 @@ ES 的 change_point 聚合要付費授權，這裡只看 aiops-anomalies 裡已�
 """
 from __future__ import annotations
 
+from common.clock import now_of
 from detect.config.series import SeriesConfig
 import json
 import re
@@ -21,7 +22,6 @@ from common.infra.es import ES, doc_id
 from common.infra.repos import Repos
 from common.scenario import load_scenario
 import detect.series_ops.manual_adjust as A
-from detect.utils import _now
 from detect.series_ops.manual_adjust import load_adjustments
 
 DEFAULTS = {"window": "24h", "min_points": 20, "min_share": 0.9, "max_spread": 0.3}
@@ -78,7 +78,7 @@ def cmd_shift(series_config: SeriesConfig, args) -> int:
     repo.tuning.ensure()
     opts = {**DEFAULTS, **(series_config.shift.model_dump(exclude_none=True) if series_config.shift else {})}
     tz = series_config.train.timezone or series_config.timezone or "Asia/Taipei"
-    now = _now(args.at)
+    now = now_of(args.at)
     start = now - pd.Timedelta(opts["window"])
     found = find_shifts(_rows(repo, start, now), min_points=int(opts["min_points"]), min_share=float(opts["min_share"]),
                         max_spread=float(opts["max_spread"]))

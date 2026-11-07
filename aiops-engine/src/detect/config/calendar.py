@@ -6,7 +6,7 @@ from typing import Any
 
 from pydantic import model_validator
 
-from common.config.common import Strict, When
+from common.config.common import Strict, Tz, When
 from detect.config.types import Provider
 
 
@@ -31,6 +31,6 @@ class CalendarEntry(Strict):
 
 
 class CalendarConfig(Strict):
-    timezone: str | None = None
+    timezone: Tz | None = None
     sources: list[Provider] = []             # 外部來源（file／http／taiwan）；沒寫也行
     calendar: list[CalendarEntry] = []       # 直接寫的項目（人工補的維護日、活動）

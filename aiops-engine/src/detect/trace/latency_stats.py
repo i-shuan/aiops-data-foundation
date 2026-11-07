@@ -20,6 +20,7 @@ from dataclasses import dataclass
 
 import pandas as pd
 
+from common.clock import now_of, pandas_freq
 from common.infra.es import ES, doc_id
 from detect.config.trace import TraceConfig
 from detect.store.models import group_traces, segment, self_times
@@ -30,7 +31,6 @@ import detect.series_ops.manual_adjust as A
 from detect.series_ops.manual_adjust import data_adjustments
 from detect.detect_service import save_anomalies, save_baseline, train_summary, with_status
 from detect.strategy.dynamic_baseline import DetectOptions, TrainOptions, score, train
-from detect.utils import _freq, _now
 import detect.trace.span_merge as M
 
 KEYS = ["entry.service", "entry.name", "segment"]
@@ -250,8 +250,8 @@ def _metric_frame(df: pd.DataFrame, m: str) -> pd.DataFrame:
 def cmd_trace_merge(trace_config: TraceConfig, args) -> int:
     """raw（每一段一筆）→ 一個請求一筆（traces-merged-<group>-<日期>）。排程器每分鐘跑；從上次合到的時間接著合，中斷很久會分段補（最多 2 天）。"""
     repo = Repos(ES(), load_scenario())
-    at = _now(args.at).to_pydatetime()
-    since, until, n = M.run(repo, trace_config, at, pd.Timedelta(args.window).to_pytimedelta())
+    at = now_of(args.at).to_pydatetime()
+    since, until, n = M.run(repo, trace_config, at, args.window.to_pytimedelta())
     print(f"trace-merge {since:%H:%M:%S}～{until:%H:%M:%S}：合了 {n} 個 trace")
     return 0
 
@@ -259,9 +259,9 @@ def cmd_trace_merge(trace_config: TraceConfig, args) -> int:
 def cmd_trace_collect(trace_config: TraceConfig, args) -> int:
     """補過去的統計（trace 原文只留 7 天，最多補 7 天），或手動重算某一段。平常由 trace-detect 每 5 分鐘順便做。"""
     repo = Repos(ES(), load_scenario())
-    freq = _freq(trace_config.interval)
-    end = _now(args.end).floor(freq)
-    start = pd.Timestamp(args.start) if args.start else end - pd.Timedelta(days=7)
+    freq = pandas_freq(trace_config.interval)
+    end = now_of(args.end).floor(freq)
+    start = args.start if args.start else end - pd.Timedelta(days=7)
     step = pd.Timedelta(hours=1)
     n = 0
     t = start
@@ -275,8 +275,8 @@ def cmd_trace_collect(trace_config: TraceConfig, args) -> int:
 def cmd_trace_train(trace_config: TraceConfig, args) -> int:
     repo = Repos(ES(), load_scenario())
     repo.baseline.ensure()
-    freq = _freq(trace_config.interval)
-    end = _now(args.end).floor(freq)
+    freq = pandas_freq(trace_config.interval)
+    end = now_of(args.end).floor(freq)
     start = end - (pd.Timedelta(args.history) if args.history else pd.Timedelta(weeks=trace_config.history_weeks))
     topts = TrainOptions(**trace_config.train.model_dump(exclude_none=True))
     hist = load_segments(repo, start, end)
@@ -295,9 +295,9 @@ def cmd_trace_detect(trace_config: TraceConfig, args) -> int:
     """算最近一段時間每個 API 每一段的統計（同時寫進 aiops-trace-segments，之後 train 用），跟 baseline 比。"""
     repo = Repos(ES(), load_scenario())
     repo.anomalies.ensure()
-    freq = _freq(trace_config.interval)
-    end = _now(args.at).floor(freq)
-    start = end - pd.Timedelta(args.window)
+    freq = pandas_freq(trace_config.interval)
+    end = now_of(args.at).floor(freq)
+    start = end - args.window
     tz = trace_config.train.timezone or "Asia/Taipei"
     dopts = DetectOptions(**trace_config.detect.model_dump(exclude_none=True))
     print(f"偵測區間 {start.tz_convert(tz):%Y-%m-%d %H:%M} ～ {end.tz_convert(tz):%Y-%m-%d %H:%M}（{tz}）")

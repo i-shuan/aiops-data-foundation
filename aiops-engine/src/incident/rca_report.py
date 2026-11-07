@@ -13,6 +13,9 @@
 """
 from __future__ import annotations
 
+import pandas as pd
+
+from common.clock import TimeWindow, now_of, parse_duration
 from incident.config.rca import Commonality, RcaConfig
 import re
 from datetime import datetime, timedelta, timezone
@@ -31,14 +34,6 @@ PAD = timedelta(minutes=5)
 
 
 # ── 格式 ──
-
-def _dur(s: str) -> timedelta:
-    m = re.fullmatch(r"(\d+)([smhdw])", s)
-    if not m:
-        raise SystemExit(f"時間長度看不懂：{s}（例如 30m、1h、7d）")
-    n, u = int(m[1]), m[2]
-    return timedelta(**{{"s": "seconds", "m": "minutes", "h": "hours", "d": "days", "w": "weeks"}[u]: n})
-
 
 def _ts(s: str | None) -> datetime:
     return datetime.fromisoformat(s.replace("Z", "+00:00")) if s else datetime.now(timezone.utc)
@@ -88,7 +83,7 @@ def pick_from_anomalies(repo: Repos, rca_config: RcaConfig, start, end):
     mine = [r for r in rows if _svc_of(r["keys"], sc) == svc]
     t = sorted(_ts(r["@timestamp"]) for r in mine)
     # 異常的時間是那 5 分鐘的開始，所以查到最後一個異常再往後 5 分鐘
-    return svc, route, t[0], t[-1] + _dur(rca_config.interval), mine
+    return svc, route, t[0], t[-1] + parse_duration(rca_config.interval), mine
 
 
 # ── 一份報告的狀態 ──
@@ -99,7 +94,7 @@ class Ctx:
         self.service, self.route, self.start, self.end, self.found = service, route, start, end, found
         self.tz = rca_config.timezone
         self.n = rca_config.sample
-        self.lag = _dur(rca_config.entry_lag)     # 入口比文件時間晚最多多久（工廠的履歷：lot 開始到到這一站；IT 是 0）
+        self.lag = parse_duration(rca_config.entry_lag)     # 入口比文件時間晚最多多久（工廠的履歷：lot 開始到到這一站；IT 是 0）
         self.U, self.TRACE = self.sc.unit_text(), self.sc.trace  # 一個「請求」還是一個「 lot 」；trace 還是履歷
         self.what = f"{service}" + (f"（{route}）" if route else "")
         self.ref_start: datetime | None = None
@@ -145,7 +140,7 @@ def pick_reference(c: Ctx, need_traces: bool) -> None:
     """「平常」是哪一段：一週前同一段時間；那時候沒資料（例如服務剛上線）就用出事前那一段（同樣長，空 ref_gap 避開剛開始變壞的時候）。
     要 trace 的情境看那段有沒有請求來挑；只有指標的沒得挑，就用一週前。"""
     rca_config = c.rca_config
-    back, length, gap = _dur(rca_config.compare_with), c.end - c.start, _dur(rca_config.ref_gap)
+    back, length, gap = parse_duration(rca_config.compare_with), c.end - c.start, parse_duration(rca_config.ref_gap)
     cands = ((c.start - back, c.end - back, f"{rca_config.compare_with} 前同一段時間"),
              (c.start - gap - length, c.start - gap, "出事前一段時間"))
     for rs, re_, label in cands:
@@ -202,7 +197,7 @@ def sec_entries(c: Ctx) -> None:
     c.out.append("")
     # 出事前的趨勢：前面幾段（預設 6 段、每段 10 分鐘）的 p95，一路往上＝慢慢惡化、平的然後跳＝突然
     trend_config = c.rca_config.trend
-    tw, tn = _dur(trend_config.window), trend_config.windows
+    tw, tn = parse_duration(trend_config.window), trend_config.windows
     p95s = [tr.entry_stats(ix.traces, c.service, c.route, c.start - tw * (k + 1), c.start - tw * k, c.lag)["p95_ms"] for k in reversed(range(tn))]
     c.trend = A.classify_trend(p95s, now["p95_ms"])
     c.trend["window"], c.trend["windows"] = trend_config.window, tn
@@ -305,7 +300,7 @@ def sec_changes(c: Ctx) -> None:
     lookback = changes_config.lookback
     c.heading(f"事故前 {lookback} 內的變更")
     try:
-        c.changes = c.repo.logs.changes(c.ix.logs, c.suspects, c.start - _dur(lookback), c.end, changes_config.query)
+        c.changes = c.repo.logs.changes(c.ix.logs, c.suspects, c.start - parse_duration(lookback), c.end, changes_config.query)
     except Exception as ex:  # noqa: BLE001  變更紀錄查不到不擋報告
         c.out += [f"（事故前的變更查不到：{type(ex).__name__}）", ""]
         return
@@ -373,10 +368,10 @@ def investigate_full(rca_config: RcaConfig, args, sections: tuple[str, ...] | No
     ix, tz = rca_config.indices, rca_config.timezone
     service, route, found = args.service, args.route, []
     if args.start:
-        start, end = _ts(args.start), _ts(args.end)
+        window = TimeWindow(pd.Timestamp(args.start), pd.Timestamp(args.end) if args.end else now_of())
     else:
-        end = _ts(args.at)
-        start = end - _dur(args.window)
+        window = TimeWindow.ending(now_of(args.at), args.window)
+    start, end = window.py()
     if not service:
         picked = pick_from_anomalies(repo, rca_config, start, end)
         if not picked:

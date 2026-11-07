@@ -9,14 +9,11 @@ from collections import defaultdict
 
 import pandas as pd
 
+from common.clock import pandas_freq
 from common.infra.es import get_field, time_range
 from common.infra.es import Repository
 
 COLUMNS = ["ts", "value", "n"]
-
-
-def to_freq(interval: str) -> str:
-    return interval[:-1] + "min" if interval.endswith("m") else interval
 
 
 # ── 序列的 value 寫法 → ES aggregation；回來的 bucket → 值、事件數 ──
@@ -124,7 +121,7 @@ def fill_zero(df: pd.DataFrame, by: list[str], start, end, interval, alive=None)
     2. 收集系統本身停了的時段：alive 是有資料的時段（整個 index、不加 filter）；沒給就用這次查到的資料。"""
     if df.empty:
         return df
-    freq = to_freq(interval)
+    freq = pandas_freq(interval)
     grid = pd.date_range(start.floor(freq), end, freq=freq, inclusive="left")
     alive = pd.Index(df["ts"].unique()) if alive is None else pd.Index(alive).union(pd.Index(df["ts"].unique()))
     out = []

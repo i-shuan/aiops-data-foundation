@@ -10,6 +10,7 @@ from abc import ABC, abstractmethod
 
 import pandas as pd
 
+from common.clock import now_of, pandas_freq
 from detect.config.peer import PeerConfig
 from detect.config.quality import QualityConfig
 from detect.config.rules import RulesConfig
@@ -17,7 +18,6 @@ from common.infra.es import ES
 from detect.store.models import Anomaly
 from common.infra.repos import Repos
 from common.scenario import load_scenario
-from detect.utils import _freq, _now
 
 
 class Detector(ABC):
@@ -49,7 +49,7 @@ class Detector(ABC):
 
     def stamp(self) -> pd.Timestamp:
         """這一輪異常的 @timestamp：now 取整到 interval。"""
-        return self.now.floor(_freq(getattr(self.config, "interval", None) or self.interval_default))
+        return self.now.floor(pandas_freq(getattr(self.config, "interval", None) or self.interval_default))
 
     @abstractmethod
     def checks(self) -> list:
@@ -84,7 +84,7 @@ class Detector(ABC):
     def run(self) -> int:
         self.repo = self.connect()
         self.prepare()
-        self.now = _now(self.args.at)
+        self.now = now_of(self.args.at)
         self.slot = self.stamp()
         for check in self.checks():
             if not self.selected(check):

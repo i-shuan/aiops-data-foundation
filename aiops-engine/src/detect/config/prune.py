@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from common.config.common import NonNeg, Strict
+from common.config.common import NonNeg, Strict, Tz
 
 
 # ── prune.yaml ──
@@ -16,5 +16,5 @@ class PruneIndex(Strict):
 
 
 class PruneConfig(Strict):
-    timezone: str = "Asia/Taipei"            # 輸出的時間用這個時區
+    timezone: Tz = "Asia/Taipei"            # 輸出的時間用這個時區
     indices: list[PruneIndex] = []

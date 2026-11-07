@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from common.config.common import NonNeg, PosInt, Strict
+from common.config.common import NonNeg, PosInt, Strict, Tz
 
 
 # ── schedule.yaml ──
@@ -21,5 +21,5 @@ class Job(Strict):
 
 
 class ScheduleConfig(Strict):
-    timezone: str = "UTC"
+    timezone: Tz = "UTC"
     jobs: list[Job] = []

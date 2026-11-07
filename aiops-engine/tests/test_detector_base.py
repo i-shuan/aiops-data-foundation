@@ -165,7 +165,7 @@ class Tolerant(Toy):
 def run(cls, checks, only=None):
     be, log = FakeES(), []
     cfg = SimpleNamespace(interval="1m", checks=[SimpleNamespace(name=n) for n in checks])
-    args = Namespace(at="2026-11-05T10:03:20Z", only=only)
+    args = Namespace(at=pd.Timestamp("2026-11-05T10:03:20Z"), only=only)
     with contextlib.redirect_stdout(io.StringIO()) as out:
         rc = cls(cfg, args, Repos(be, SC), log).run()
     return rc, be, be.written, log, out.getvalue()

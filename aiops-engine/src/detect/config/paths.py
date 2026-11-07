@@ -1,7 +1,7 @@
 """paths.yaml：工廠履歷合成（MES 進出站＋機台事件）。"""
 from __future__ import annotations
 
-from common.config.common import Query, Strict
+from common.config.common import Query, Strict, Tz
 
 
 # ── paths.yaml（工廠 plugin）──
@@ -48,7 +48,7 @@ class Events(Strict):
 
 
 class PathsConfig(Strict):
-    timezone: str = "Asia/Taipei"
+    timezone: Tz = "Asia/Taipei"
     group: str | None = None                 # 履歷索引依這個分（沒寫是 unassigned）
     group_field: str | None = None
     dept_field: str | None = None

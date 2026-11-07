@@ -4,7 +4,9 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, StringConstraints
+
+from common.clock import check_zone
 
 
 # ── 共用型別 ──
@@ -25,6 +27,9 @@ Dur = Annotated[str, StringConstraints(pattern=r"^\d+(\.\d+)?(ms|s|m|h|d|w)$")]
 
 
 When = str | datetime | date                 # yaml 的 2026-10-10 解成 date、2026-10-10T02:00 解成 datetime、帶時區的是字串
+
+
+Tz = Annotated[str, AfterValidator(check_zone)]   # 時區名稱（Asia/Taipei、UTC）：載入時就驗成 ZoneInfo 認得的
 
 
 Query = dict[str, Any] | list[dict[str, Any]]  # ES 的 query 片段；規則的 filter 可以是清單

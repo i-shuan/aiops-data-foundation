@@ -6,7 +6,7 @@ from typing import Any, Literal
 from pydantic import Field, model_validator
 
 from detect.config.adjustments import Adjustment
-from common.config.common import _same_length, Direction, Dur, NonNeg, Num, PosInt, Query, Ratio, Strict
+from common.config.common import _same_length, Direction, Dur, NonNeg, Num, PosInt, Query, Ratio, Strict, Tz
 from detect.config.types import Detect, Status, Train, Value
 
 
@@ -77,7 +77,7 @@ class SeriesConfig(Strict):
     history_weeks: PosInt = 4
     fine_history: Dur = "14d"                # 5 分鐘以下的粒度只學最近這麼久
     lag: Dur = "0s"                          # 資料寫進來的延遲，最近這麼久的不判斷
-    timezone: str | None = None
+    timezone: Tz | None = None
     adaptive: Adaptive | None = None         # 沒寫＝全部用 interval 這一個粒度
     status: Status | None = None             # 沒寫的鍵不算有（status_params 用 .get）
     overrides: list[Adjustment] = []

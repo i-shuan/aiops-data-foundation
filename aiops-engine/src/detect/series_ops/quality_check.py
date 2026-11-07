@@ -25,10 +25,11 @@ import re
 
 import pandas as pd
 
+from common.clock import pandas_freq
 from detect.store.quality_repo import check_keys  # noqa: F401  讀統計在 repository；keys 的算法兩邊共用
 from detect.store.models import Anomaly
 from detect.base import Detector
-from detect.utils import _freq, _v
+from detect.utils import _v
 from detect.config.quality import QualityCheck, QualityConfig
 
 # 路徑裡「像是 ID」的一段：純數字、UUID、8 碼以上的 hex、混了數字的長字串（例如訂單號 A20261023001）
@@ -192,8 +193,8 @@ def quality_hits(q, c: QualityCheck, now, window, ref_offset) -> list[dict]:
                               min_docs=_or(c.min_docs, 100), max_missing=c.max_missing,
                               max_increase=c.max_increase)
     if t == "stopped":
-        silent = pd.Timedelta(_freq(_or(c.silent, "10m")))
-        lookback = pd.Timedelta(_freq(_or(c.lookback, "1h")))
+        silent = pd.Timedelta(pandas_freq(_or(c.silent, "10m")))
+        lookback = pd.Timedelta(pandas_freq(_or(c.lookback, "1h")))
         return eval_stopped(q.counts(c, now - lookback, now - silent), q.counts(c, now - silent, now),
                               keys, min_docs=_or(c.min_docs, 10))
     if t == "present":
@@ -215,11 +216,11 @@ class QualityDetector(Detector):
     interval_default = "10m"
 
     def checks(self) -> list[QualityCheck]:
-        self.ref_offset = pd.Timedelta(_freq(self.config.ref_offset))
+        self.ref_offset = pd.Timedelta(pandas_freq(self.config.ref_offset))
         return self.config.checks
 
     def evaluate(self, c: QualityCheck) -> list[Anomaly]:
-        window = pd.Timedelta(_freq(c.window or self.config.window))
+        window = pd.Timedelta(pandas_freq(c.window or self.config.window))
         out = []
         for h in quality_hits(self.repo.quality, c, self.now, window, self.ref_offset):
             keys = {**{k: v for k, v in h["key"].items() if _v(v) is not None},   # NaN 寫進 ES 會整批被拒

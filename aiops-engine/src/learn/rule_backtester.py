@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from pydantic import ValidationError
 
+from common.clock import parse_duration, now_of, pandas_freq
 from detect.config.rules import Rule
 from detect.config.series import Series, SeriesConfig
 import json
@@ -27,7 +28,7 @@ import detect.series_ops.manual_adjust as A
 import detect.strategy.threshold_rule as R
 from detect.series_ops.manual_adjust import load_adjustments
 from detect.detect_service import detect_series
-from detect.utils import _freq, _now, keys_of
+from detect.utils import keys_of
 from common.infra.es import ES
 from common.infra.repos import Repos
 from common.scenario import load_scenario
@@ -152,7 +153,7 @@ def _judge(repo, series_config: SeriesConfig, before: pd.DataFrame, after: pd.Da
         t = _ts(m["anomaly_at"], tz)
         svc = (m.get("keys") or {}).get("service") or (m.get("keys") or {}).get("resource.attributes.service.name")
         missed.append({"series": m.get("series"), "service": svc, "at": m["anomaly_at"],
-                       "after": caught(after, [svc] if svc else None, t - pd.Timedelta(_freq(series_config.interval)), t + pd.Timedelta("15min"), tz)})
+                       "after": caught(after, [svc] if svc else None, t - pd.Timedelta(pandas_freq(series_config.interval)), t + pd.Timedelta("15min"), tz)})
     lost = [i for i in incidents if i["before"] and not i["after"]]
     hits = _scope_hits(before, proposals, tz)
     res = {"anomalies_before": int(len(before)), "anomalies_after": int(len(after)), "scope_hits": hits,
@@ -200,7 +201,7 @@ def run_backtest(repo, series_config: SeriesConfig, proposal, weeks: int, now=No
     每天一段（window 1D）跑 detect_series（_detect_all），每套設定各一次；比較在 _judge。"""
     repo = Repos(_CachedES(repo.es))   # 幾套設定讀同一批資料，只查一次；呼叫端（cmd_backtest）寫回時用的還是真的連線
     proposals = list(proposal) if isinstance(proposal, list) else [proposal]
-    now = now or _now(None)
+    now = now or now_of(None)
     tz = series_config.train.timezone or "Asia/Taipei"
     dopts = DetectOptions(**series_config.detect.model_dump(exclude_none=True))
     cur_active = A.active(load_adjustments(repo, series_config), now)
@@ -231,7 +232,7 @@ def rule_backtest_result(df: pd.DataFrame, rule: dict, incidents: list[dict], we
     """df：fetch(規則, 過去 N 週, interval=lookback) 的結果（ts、value、n），每一點等於「那一輪 rules 看到的值」（只差在對齊）。
     incidents：提這條規則的事故 [{id, title, start, end}]。事故時間內（前後各放一個 lookback）有觸發就算抓到；
     其他時間的觸發算多報。全部抓到、多報平均每週不超過 max_extra_per_week 才建議核准。"""
-    lb = R._dur(rule.get("lookback", "5m"))
+    lb = parse_duration(rule.get("lookback", "5m"))
     op, th, need = R.OPS[rule.get("op", ">=")], rule["threshold"], rule.get("min_events", 0)
     if df.empty:
         hits = pd.Series([], dtype="datetime64[ns, UTC]")
@@ -266,7 +267,7 @@ def run_rule_backtest(repo, series_config: SeriesConfig, proposal: dict, weeks: 
     draft = {k: v for k, v in (proposal.get("rule_draft") or {}).items() if not k.startswith("_")}
     if not isinstance(draft.get("threshold"), (int, float)):
         return {"kind": "rule_suggestion", "recommended": False, "reason": "這條規則算不出門檻，不能回測（見 rule_draft._note）"}
-    now = now or _now(None)
+    now = now or now_of(None)
     tz = series_config.train.timezone or "Asia/Taipei"
     ids = list(proposal.get("incident_ids") or [])
     incidents = [i for i in repo.incidents.get_many(ids) if i.get("start")] if ids else []
@@ -310,7 +311,7 @@ def cmd_backtest(series_config: SeriesConfig, args) -> int:
             props += [s for s in siblings(repo, p) if s["id"] not in {q["id"] for q in props}]
     for p in props:
         print(f"建議：{A.describe(p)}")
-    now = _now(args.at)
+    now = now_of(args.at)
     if len(props) == 1 and props[0].get("kind") == "rule_suggestion":
         r = run_rule_backtest(repo, series_config, props[0], args.weeks, now)
     else:

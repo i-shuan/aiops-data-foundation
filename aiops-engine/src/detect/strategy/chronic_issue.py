@@ -19,11 +19,12 @@ import json
 import pandas as pd
 
 
+from common.clock import now_of
 from detect.series_ops.manual_adjust import match_keys
 from common.infra.es import ES, doc_id
 from common.infra.repos import Repos
 from common.scenario import load_scenario
-from detect.utils import _now, _v
+from detect.utils import _v
 from detect.reference_data import load_owners
 from detect.config.chronic import ChronicConfig, ChronicSource
 
@@ -75,7 +76,7 @@ def cmd_chronic(chronic_config: ChronicConfig, args) -> int:
     repo = Repos(ES(), load_scenario())
     repo.chronic.ensure()
     tz = chronic_config.timezone
-    now = _now(args.at)
+    now = now_of(args.at)
     days = chronic_config.days
     # 看最近 days 個「完整的日子」（當地時間）：今天還沒過完，不算
     end = now.tz_convert(tz).normalize().tz_convert("UTC")

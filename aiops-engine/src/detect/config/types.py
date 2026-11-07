@@ -3,14 +3,14 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from common.config.common import Dur, NonNeg, PosInt, Ratio, Strict
+from common.config.common import Dur, NonNeg, PosInt, Ratio, Strict, Tz
 
 Value = Literal["count"] | dict[str, Any]      # count 或 {sum|avg|max|min|percentile|ratio|hist_count|hist_ratio|hist_ratio_above|div: …}
 
 
 class Train(Strict):
     """dynamic_baseline.TrainOptions(**series_config.train.model_dump(exclude_none=True))：欄位要跟 dataclass 一樣。"""
-    timezone: str | None = None
+    timezone: Tz | None = None
     min_weeks: PosInt | None = None
     min_days: PosInt | None = None
     min_points: PosInt | None = None

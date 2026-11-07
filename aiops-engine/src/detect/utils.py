@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import pandas as pd
 
-from detect.strategy.dynamic_baseline import to_freq
 
 
 def dflt(value, default):
@@ -14,11 +13,6 @@ def dflt(value, default):
 def keys_of(spec) -> list[str]:
     """序列依什麼切：有 keys（統一的名字，例如 service、method、route）用 keys，否則就是 by 的欄位路徑。"""
     return spec.key_names or spec.by
-
-_freq = to_freq
-
-def _now(arg: str | None) -> pd.Timestamp:
-    return pd.Timestamp(arg) if arg else pd.Timestamp.now(tz="UTC")
 
 def _v(x):
     """DataFrame 合併後空的欄位是 NaN，ES 不收：轉成 None。"""

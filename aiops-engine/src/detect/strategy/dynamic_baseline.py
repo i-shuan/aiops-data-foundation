@@ -24,6 +24,7 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
+from common.clock import pandas_freq
 from detect.config.series import Group
 from detect.series_ops.manual_adjust import match_keys
 
@@ -33,11 +34,6 @@ LEVELS = ("dow_hour", "hour", "all")
 RESOLUTIONS = ("30s", "1m", "5m", "15m", "30m", "1h")   # 30 秒＝收值的頻率，最細就到這裡
 # 用哪一層當「平常」→ 可信度：自己同星期幾同小時最準；不分時段、借別人的最不準
 CONFIDENCE = {"dow_hour": "high", "hour": "medium", "all": "low", "group": "low"}
-
-
-def to_freq(interval: str) -> str:
-    """設定檔用 ES 的寫法（5m、1h），pandas 要寫成 5min、1h。"""
-    return interval[:-1] + "min" if interval.endswith("m") else interval
 
 
 @dataclass(frozen=True)
@@ -141,7 +137,7 @@ def pick_resolution(volume: pd.DataFrame, keys: list[str], min_events: float, ba
     """
     cols = keys + ["resolution", "events", "covered"]
     # 比原始資料細的粒度不能選（5 分鐘一筆的資料切成 30 秒，九成的窗是空的）
-    resolutions = [r for r in resolutions if pd.Timedelta(to_freq(r)) >= pd.Timedelta(to_freq(base))]
+    resolutions = [r for r in resolutions if pd.Timedelta(pandas_freq(r)) >= pd.Timedelta(pandas_freq(base))]
     v = volume.dropna(subset=["ts"])
     if v.empty:
         return pd.DataFrame(columns=cols)
@@ -150,10 +146,10 @@ def pick_resolution(volume: pd.DataFrame, keys: list[str], min_events: float, ba
     for key_vals, g in v.groupby(keys, sort=False, dropna=False):
         key_vals = key_vals if isinstance(key_vals, tuple) else (key_vals,)
         s = g.groupby("ts")["n"].sum(min_count=1)
-        s = s.reindex(pd.date_range(s.index.min(), last, freq=to_freq(base)), fill_value=0.0)
+        s = s.reindex(pd.date_range(s.index.min(), last, freq=pandas_freq(base)), fill_value=0.0)
         picked, events, covered = None, 0.0, 0.0
         for r in resolutions:
-            w = s.resample(to_freq(r)).sum(min_count=1).dropna()
+            w = s.resample(pandas_freq(r)).sum(min_count=1).dropna()
             events = float(w.median()) if not w.empty else 0.0
             covered = float((w >= min_events).mean()) if not w.empty else 0.0
             if covered >= coverage:
@@ -334,8 +330,8 @@ def mark_status(scored: pd.DataFrame, keys: list[str], step: str, confirm_points
     out["status"], out["streak"] = None, 0
     if out.empty:
         return out
-    dt = pd.Timedelta(to_freq(step))
-    need = min(confirm_points, max(1, int(np.ceil(pd.Timedelta(to_freq(confirm_span)) / dt))))
+    dt = pd.Timedelta(pandas_freq(step))
+    need = min(confirm_points, max(1, int(np.ceil(pd.Timedelta(pandas_freq(confirm_span)) / dt))))
     out = out.sort_values("ts").reset_index(drop=True)
     sign = np.sign(out["value"].astype(float) - out["median"].astype(float))
     for _, idx in out.groupby(keys, sort=False, dropna=False).groups.items():
@@ -360,8 +356,8 @@ def resolutions_from(resolutions, min_resolution: str | None) -> list[str]:
     """候選粒度，去掉比 min_resolution 細的（例如請求數：收值有抖動，30 秒窗會收到 0 或 2 筆，最細 1 分鐘）。"""
     if not min_resolution:
         return list(resolutions)
-    floor = pd.Timedelta(to_freq(min_resolution))
-    return [r for r in resolutions if pd.Timedelta(to_freq(r)) >= floor]
+    floor = pd.Timedelta(pandas_freq(min_resolution))
+    return [r for r in resolutions if pd.Timedelta(pandas_freq(r)) >= floor]
 
 
 OVERRIDE_FIELDS = ("resolution", "z", "min_abs", "confirm_points", "instant_z", "min_count")

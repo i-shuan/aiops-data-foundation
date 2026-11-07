@@ -8,7 +8,7 @@ from __future__ import annotations
 from incident.config.rca import RcaConfig
 from datetime import datetime, timedelta, timezone
 
-from common.infra.clock import duration
+from common.clock import parse_duration as duration
 from common.scenario.base import Chain
 
 

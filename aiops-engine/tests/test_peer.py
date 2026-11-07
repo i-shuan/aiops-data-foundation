@@ -119,7 +119,7 @@ class CmdPeerTest(unittest.TestCase):
         cfg = validate({"window": "10m", "fresh": "2m", "min_peers": 3, **(cfg_extra or {}), "checks": [
             {"name": "peer.pod_cpu", "title": "CPU 高", "index": "x", "by": ["ns", "deploy", "pod"],
              "value": {"avg": "cpu"}, "direction": "up", "min_abs": 0.2, "min_ratio": 3}]}, "peer")
-        args = type("A", (), {"at": self.END.isoformat(), "only": None})()
+        args = type("A", (), {"at": self.END, "only": None})()
         # 開連線、寫異常在 Detector 基底（detector/base.py）；查資料在 cmd_peer 自己
         with contextlib.redirect_stdout(io.StringIO()):
             C.cmd_peer(cfg, args, repo)

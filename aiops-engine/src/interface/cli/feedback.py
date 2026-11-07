@@ -9,9 +9,10 @@ from __future__ import annotations
 
 from typing import Callable, List, Literal
 
+import pandas as pd
 import typer
 
-from interface.cli.common import SERIES, Opt, group, registry, run
+from interface.cli.common import SERIES, Opt, at_opt, group, registry, run
 
 from learn.tuning_service import adjust_add, adjust_approve, adjust_list, adjust_remove
 from learn.rule_backtester import cmd_backtest
@@ -156,7 +157,7 @@ def adjust_add_cmd(config: str = Opt(SERIES),
 def backtest(config: str = Opt(SERIES),
              id_: List[str] = Opt(..., "--id", help="aiops-tuning 的建議 id（adjust list 看得到）；給好幾個（--id a --id b）就一組一起測"),
              group_: bool = Opt(False, "--group", help="把同一個對象（同序列、同 match）其他還是 proposed 的建議一起拉進來當一組"),
-             weeks: int = Opt(4), at: str | None = Opt(None), verbose: bool = Opt(False, "--verbose")) -> int:
+             weeks: int = Opt(4), at: pd.Timestamp | None = at_opt(), verbose: bool = Opt(False, "--verbose")) -> int:
     return run(cmd_backtest, "series", config=config, id_=id_, group_=group_, weeks=weeks, at=at, verbose=verbose)
 
 

@@ -5,6 +5,9 @@ import glob
 import io
 import os
 import unittest
+
+import pandas as pd
+from common.clock import parse_duration
 from unittest import mock
 
 import yaml
@@ -89,18 +92,18 @@ class ScheduleCommands(unittest.TestCase):
                 self.assertEqual(args.config, argv[argv.index("--config") + 1])
                 self.assertEqual(load[0], args.config)
                 if "--window" in argv:
-                    self.assertEqual(args.window, argv[argv.index("--window") + 1])
+                    self.assertEqual(args.window, pd.Timedelta(parse_duration(argv[argv.index("--window") + 1])))
                 if argv[0] in ("rules", "peer", "quality"):
                     self.assertIsNone(args.only)
                 self.assertIsNone(getattr(args, "at", None))
 
     def test_defaults_match_argparse(self):
-        self.assertEqual(run("detector", ["detect", "--config", "s.yaml"])[0].window, "30min")
-        self.assertEqual(run("detector", ["trace-detect", "--config", "t.yaml"])[0].window, "30min")
-        self.assertEqual(run("detector", ["trace-merge", "--config", "t.yaml"])[0].window, "3min")
-        self.assertEqual(run("detector", ["ingest", "--config", "i.yaml"])[0].window, "10m")
+        self.assertEqual(run("detector", ["detect", "--config", "s.yaml"])[0].window, pd.Timedelta("30min"))
+        self.assertEqual(run("detector", ["trace-detect", "--config", "t.yaml"])[0].window, pd.Timedelta("30min"))
+        self.assertEqual(run("detector", ["trace-merge", "--config", "t.yaml"])[0].window, pd.Timedelta("3min"))
+        self.assertEqual(run("detector", ["ingest", "--config", "i.yaml"])[0].window, pd.Timedelta("10m"))
         with env(AIOPS_PLUGIN="factory"):
-            self.assertEqual(run("detector", ["paths-merge", "--config", "p.yaml"])[0].window, "1d")
+            self.assertEqual(run("detector", ["paths-merge", "--config", "p.yaml"])[0].window, pd.Timedelta("1d"))
         a, _ = run("detector", ["train", "--config", "s.yaml"])
         self.assertEqual((a.weeks, a.end), (None, None))
         a, _ = run("detector", ["prune", "--config", "p.yaml"])
@@ -181,12 +184,12 @@ class Attributes(unittest.TestCase):
              mock.patch.object(I, "load_config", lambda p, k: {"kind": k}), contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(I.main(["investigate", "--config", "r.yaml", "--service", "mes-api", "--route", "GET /lots/{id}", "--window", "1h"]), 0)
         a = seen["args"]
-        self.assertEqual((a.service, a.route, a.window, a.start, a.end, a.at, a.out), ("mes-api", "GET /lots/{id}", "1h", None, None, None, None))
+        self.assertEqual((a.service, a.route, a.window, a.start, a.end, a.at, a.out), ("mes-api", "GET /lots/{id}", pd.Timedelta("1h"), None, None, None, None))
         with mock.patch.object(I, "topology", lambda cfg, args: seen.setdefault("topo", (cfg, args)) and "拓撲"), \
              mock.patch.object(I, "load_config", lambda p, k: {"kind": k}), contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(I.main(["topology", "--config", "r.yaml"]), 0)
         cfg, a = seen["topo"]
-        self.assertEqual((cfg, a.window, a.sample, a.at), ({"kind": "rca"}, "1h", 2000, None))
+        self.assertEqual((cfg, a.window, a.sample, a.at), ({"kind": "rca"}, pd.Timedelta("1h"), 2000, None))
 
 
 class Errors(unittest.TestCase):

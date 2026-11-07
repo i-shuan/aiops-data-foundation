@@ -34,7 +34,7 @@ class FakeES:
 
 def run(es, **kw):
     with mock.patch.object(P, "ES", lambda: es), contextlib.redirect_stdout(io.StringIO()) as out:
-        rc = P.cmd_prune(CFG, Namespace(at="2026-11-01T03:30:00Z", **{"dry_run": False, **kw}))
+        rc = P.cmd_prune(CFG, Namespace(at=pd.Timestamp("2026-11-01T03:30:00Z"), **{"dry_run": False, **kw}))
     return rc, out.getvalue()
 
 

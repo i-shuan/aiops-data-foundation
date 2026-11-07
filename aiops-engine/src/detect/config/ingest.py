@@ -5,7 +5,7 @@ from typing import Any, Literal
 
 from pydantic import Field
 
-from common.config.common import Query, Strict
+from common.config.common import Query, Strict, Tz
 
 
 # ── ingest.yaml ──
@@ -38,5 +38,5 @@ class Input(Strict):
 
 
 class IngestConfig(Strict):
-    timezone: str = "Asia/Taipei"
+    timezone: Tz = "Asia/Taipei"
     inputs: list[Input] = []

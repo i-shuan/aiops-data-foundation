@@ -24,10 +24,13 @@ import sys
 from argparse import Namespace
 from datetime import timedelta
 
+import pandas as pd
 import typer
 
 import detect.store.models as T
+from common.clock import TimeWindow, now_of
 from common.config import load_config
+from interface.cli.common import at_opt, window_opt
 from incident.config.rca import IncidentsDb, RcaConfig
 from common.infra.es import ES
 from common.infra.repos import Repos
@@ -37,7 +40,7 @@ import incident.rca_analyzer as A
 import incident.alert_service as cmd_alert
 import llm.similar as SIM
 import learn.history_importer as IMP
-from incident.rca_report import _dur, _local, _ms, _ts, investigate_full  # noqa: F401  舊的 import 路徑還有人用
+from incident.rca_report import _local, _ms, investigate_full  # noqa: F401  舊的 import 路徑還有人用
 
 app = typer.Typer(add_completion=False, rich_markup_mode=None, pretty_exceptions_enable=False)
 Opt = typer.Option
@@ -49,8 +52,7 @@ def investigate(rca_config: RcaConfig, args) -> str:
 
 def topology(rca_config: RcaConfig, args) -> str:
     traces, ix = Repos(ES(), load_scenario()).traces, rca_config.indices.traces
-    end = _ts(args.at)
-    start = end - _dur(args.window)
+    start, end = TimeWindow.ending(now_of(args.at), args.window).py()
     ids = traces.recent_trace_ids(ix, start, end, args.sample)
     tr = T.group_traces(traces.spans(ix, ids, start - timedelta(minutes=5), end + timedelta(minutes=5)))
     edges = T.topology(tr)
@@ -111,22 +113,22 @@ def _report(text: str, out: str | None) -> int:
 @app.command("investigate")
 def investigate_cmd(config: str = Opt(...), service: str | None = Opt(None),
                     route: str | None = Opt(None, help="API，trace 裡 Server span 的名稱，例如 \"GET /lots/{id}\""),
-                    start: str | None = Opt(None), end: str | None = Opt(None),
-                    at: str | None = Opt(None, help="不給 --start/--end 時：查到這個時間為止（預設現在）"),
-                    window: str = Opt("30m"), out: str | None = Opt(None)) -> int:
+                    start: pd.Timestamp | None = at_opt(), end: pd.Timestamp | None = at_opt(),
+                    at: pd.Timestamp | None = at_opt("不給 --start/--end 時：查到這個時間為止（預設現在）"),
+                    window: pd.Timedelta = window_opt("30m"), out: str | None = Opt(None)) -> int:
     args = Namespace(config=config, service=service, route=route, start=start, end=end, at=at, window=window, out=out)
     return _report(investigate(load_config(config, "rca"), args), out)
 
 
 @app.command("topology")
-def topology_cmd(config: str = Opt(...), at: str | None = Opt(None), window: str = Opt("1h"), sample: int = Opt(2000),
+def topology_cmd(config: str = Opt(...), at: pd.Timestamp | None = at_opt(), window: pd.Timedelta = window_opt("1h"), sample: int = Opt(2000),
                  out: str | None = Opt(None)) -> int:
     args = Namespace(config=config, at=at, window=window, sample=sample, out=out)
     return _report(topology(load_config(config, "rca"), args), out)
 
 
 @app.command("alert", help="異常合成一件、新的那件跑根因分析，寫 aiops-alerts（Grafana 讀它發通知）")
-def alert_cmd(config: str = Opt(...), at: str | None = Opt(None, help="回測：拿這個時間當成「現在」")) -> int:
+def alert_cmd(config: str = Opt(...), at: pd.Timestamp | None = at_opt("回測：拿這個時間當成「現在」")) -> int:
     return cmd_alert.run(load_config(config, "rca"), Namespace(config=config, at=at), investigate_full)
 
 

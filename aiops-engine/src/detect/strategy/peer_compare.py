@@ -19,11 +19,12 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from common.clock import pandas_freq
 from detect.strategy.dynamic_baseline import MAD_TO_SIGMA
 from detect.store.models import Anomaly
 from detect.config.peer import PeerCheck, PeerConfig
 from detect.base import Detector
-from detect.utils import _freq, keys_of
+from detect.utils import keys_of
 
 
 def compare(df: pd.DataFrame, group: list[str], member: str, *, direction: str = "up", z: float = 5.0,
@@ -97,8 +98,8 @@ class PeerDetector(Detector):
 
     def checks(self) -> list[PeerCheck]:
         peer_config, end = self.config, self.now
-        self.start = end - pd.Timedelta(_freq(peer_config.window))
-        self.warmup = pd.Timedelta(_freq(peer_config.warmup)) if peer_config.warmup else None
+        self.start = end - pd.Timedelta(pandas_freq(peer_config.window))
+        self.warmup = pd.Timedelta(pandas_freq(peer_config.warmup)) if peer_config.warmup else None
         if self.warmup is not None and self.warmup >= end - self.start:
             raise SystemExit(f"warmup（{peer_config.warmup}）要比 window 短")
         return peer_config.checks
@@ -109,7 +110,7 @@ class PeerDetector(Detector):
         group, member = keys[:-1], keys[-1]
         cur = fetch(c, start, end, None)
         # 只比現在還在的 Pod：最近 fresh（預設 2 分鐘）內還有資料的。換版、縮容刪掉的 Pod 不算同儕
-        alive = fetch(count_spec(c), end - pd.Timedelta(_freq(peer_config.fresh)), end, None)
+        alive = fetch(count_spec(c), end - pd.Timedelta(pandas_freq(peer_config.fresh)), end, None)
         cur = cur.merge(alive[keys], on=keys) if not cur.empty and not alive.empty else cur.iloc[0:0]
         # 剛起來的 Pod 不比（warmup）：起來前幾分鐘 JIT、載入、heap 還在長，CPU 偏高、記憶體偏低，會誤報自己或舊 Pod。
         # 在 window 開頭到 end - warmup 之間就有資料的，才算暖機完

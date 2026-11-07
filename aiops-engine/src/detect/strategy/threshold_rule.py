@@ -37,20 +37,18 @@ import operator
 import numpy as np
 import pandas as pd
 
+from common.clock import parse_duration
+from common.clock import pandas_freq
 from common.infra.es import get_field
 from pydantic import ValidationError
 
 from detect.config.rules import Rule, RulesConfig
 from detect.store.models import Anomaly
 from detect.base import Detector
-from detect.utils import _freq, dflt
+from detect.utils import dflt
 import detect.series_ops.manual_adjust as A
 
 OPS = {">=": operator.ge, ">": operator.gt, "<=": operator.le, "<": operator.lt, "==": operator.eq, "!=": operator.ne}
-
-
-def _dur(s) -> pd.Timedelta:
-    return pd.Timedelta(str(s).replace("m", "min") if str(s).endswith("m") else str(s)) if s else pd.Timedelta(0)
 
 
 def sample_value(rule: Rule, doc: dict):
@@ -112,11 +110,11 @@ def lows_rising(vals: list[float], parts: int = 3) -> bool:
 
 
 def _slope(rule: Rule, key, pts, now: pd.Timestamp, op, th) -> dict | None:
-    hold = _dur(dflt(rule.for_, "30m"))
+    hold = parse_duration(dflt(rule.for_, "30m"))
     step = pd.Timedelta(seconds=float(dflt(rule.step_s, 30)))
     w = [(t, d, float(v)) for t, d in _window(pts, now, hold) if (v := get_field(d, rule.field)) is not None]
     # 點不夠、最新的太舊（對象不在了）、for 開頭沒資料（新容器還在暖機）：不判斷
-    if len(w) < int(dflt(rule.min_points, 10)) or w[-1][0] < now - _dur(dflt(rule.fresh, "2m")) or w[0][0] > now - hold + 2 * step:
+    if len(w) < int(dflt(rule.min_points, 10)) or w[-1][0] < now - parse_duration(dflt(rule.fresh, "2m")) or w[0][0] > now - hold + 2 * step:
         return None
     vals = [v for _, _, v in w]
     per_h = slope_per_s([t for t, _, _ in w], vals) * 3600
@@ -141,7 +139,7 @@ def _slope(rule: Rule, key, pts, now: pd.Timestamp, op, th) -> dict | None:
 def evaluate(rule: Rule, series: dict[tuple, list[tuple[pd.Timestamp, dict]]], now: pd.Timestamp) -> list[dict]:
     """series：{序列的 key: [(時間, 文件), …]}（時間由舊到新）。回傳觸發的：{"key", "value", "since", "last"（最新的文件）}。"""
     op, th = OPS[dflt(rule.op, ">=")], rule.threshold
-    hold = _dur(dflt(rule.for_, 0))
+    hold = parse_duration(dflt(rule.for_, 0))
     out = []
     for key, pts in series.items():
         if rule.type == "slope":
@@ -150,7 +148,7 @@ def evaluate(rule: Rule, series: dict[tuple, list[tuple[pd.Timestamp, dict]]], n
             continue
         if rule.type in ("increase_ratio", "rate", "total"):
             w = _window(pts, now, hold)
-            if len(w) < 2 or w[-1][0] < now - _dur(dflt(rule.fresh, "2m")):
+            if len(w) < 2 or w[-1][0] < now - parse_duration(dflt(rule.fresh, "2m")):
                 continue
             if rule.type == "increase_ratio":
                 num = increase([float(v) for _, d in w if (v := get_field(d, rule.field)) is not None])
@@ -168,7 +166,7 @@ def evaluate(rule: Rule, series: dict[tuple, list[tuple[pd.Timestamp, dict]]], n
             continue
         if rule.type in ("increase", "delta"):
             # 對象已經不在了（Pod 刪掉）：最後幾分鐘的累計值還在回溯範圍裡，不算（除非 report_gone）
-            if not rule.report_gone and pts and pts[-1][0] < now - _dur(dflt(rule.fresh, "2m")):
+            if not rule.report_gone and pts and pts[-1][0] < now - parse_duration(dflt(rule.fresh, "2m")):
                 continue
             vals = [float(v) for _, d in _window(pts, now, hold) if (v := get_field(d, rule.field)) is not None]
             # delta：量測值（gauge）的淨變化，最後 − 最前；變小就是變小，不當成歸零重來
@@ -177,7 +175,7 @@ def evaluate(rule: Rule, series: dict[tuple, list[tuple[pd.Timestamp, dict]]], n
             continue
         vals = [(t, v) for t, d in pts if (v := sample_value(rule, d)) is not None]
         # 最新的點太舊（Pod 已經刪掉、節點拿掉了）：不是「現在」的狀態，不算
-        if not vals or vals[-1][0] < now - _dur(dflt(rule.fresh, "2m")):
+        if not vals or vals[-1][0] < now - parse_duration(dflt(rule.fresh, "2m")):
             continue
         if hold == pd.Timedelta(0):
             t, v = vals[-1]
@@ -255,7 +253,7 @@ class RulesDetector(Detector):
 
     def evaluate(self, rule: Rule) -> list[Anomaly]:
         now = self.now
-        start = now - pd.Timedelta(_freq(rule.lookback or self.config.lookback))
+        start = now - pd.Timedelta(pandas_freq(rule.lookback or self.config.lookback))
         if rule.type == "window":   # 整段算一個值（錯誤率、p95）：跟 series.yaml 同一套查法
             hits = evaluate_window(rule, self.repo.series.fetch(rule, start, now, None), start)
         else:

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from common.config.common import Dur, NonNeg, Num, PosInt, Ratio, Strict
+from common.config.common import Dur, NonNeg, Num, PosInt, Ratio, Strict, Tz
 
 
 # ── rca.yaml ──
@@ -83,7 +83,7 @@ class IncidentsDb(Strict):
 
 class RcaConfig(Strict):
     indices: Indices                         # 一定要有（anomalies；traces、logs 看情境）
-    timezone: str = "Asia/Taipei"
+    timezone: Tz = "Asia/Taipei"
     compare_with: Dur = "7d"                 # 跟多久以前的同一段比
     ref_gap: Dur = "10m"
     sample: PosInt = 200
