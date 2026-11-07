@@ -4,7 +4,7 @@ from __future__ import annotations
 from incident.config.rca import RcaConfig
 from datetime import datetime, timedelta
 
-import detect.store.models as T
+import clean.store.models as T
 from detect.store.models import entity_of
 from common.scenario.base import Chain
 

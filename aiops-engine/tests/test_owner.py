@@ -1,7 +1,7 @@
 """異常總表的歸屬（detect/store/owner_repo.py）與寫入（AnomalyRepository.write）：依 namespace、服務對回 dept、group。"""
 import unittest
 
-import detect.store.owner_repo as O
+import clean.store.owner_repo as O
 from common.infra.repos import Repos
 from common.scenario import load_scenario
 

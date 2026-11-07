@@ -136,7 +136,7 @@ flowchart TB
   - **歸屬讀 agent 的標籤**：engine 寫 `aiops-anomalies` 時，依異常的服務（或 namespace）去查 `metrics-apm.transaction.1m-*` 最近 2 天的 `labels.dept`、`labels.group` 補上；對不到歸 `unassigned`。
   - **權限**：engine 與 Grafana 各一把 API key（[kibana-dev-tools.txt](../elasticsearch/kibana-dev-tools.txt) 第 3、4 段）。engine 讀 APM 的三種資料、讀寫 `aiops-*`、`traces-merged-*`；Grafana 只讀 `aiops-alerts` 等四個索引。
 - **理由**：部門歸屬用現有的標籤機制，不另建對照表；讀寫分開，engine 出錯最多弄壞自己的索引，不會動到 APM 的資料。
-- **取捨**：標籤由 agent 自報，沒有邊緣驗證，填錯會送錯部門；沒設標籤的服務全進平台。要更準確時改成 engine 維護一張「服務 → 部門」的對照表（`detect/store/owner_repo.py` 已是單一入口）。
+- **取捨**：標籤由 agent 自報，沒有邊緣驗證，填錯會送錯部門；沒設標籤的服務全進平台。要更準確時改成 engine 維護一張「服務 → 部門」的對照表（`clean/store/owner_repo.py` 已是單一入口）。
 
 ### 3.4 其他已定案決策
 
@@ -207,7 +207,7 @@ flowchart TB
 
 | 項目 | 為什麼算灰色 |
 |---|---|
-| 讀進來時的格式轉換 | APM 與 OTel 的欄位名不同，轉換在 engine（`detect/store/models.py`、`configs/apm/`）；屬 ④ 的前處理，不是改資料 |
+| 讀進來時的格式轉換 | APM 與 OTel 的欄位名不同，轉換在 engine（`clean/store/models.py`、`configs/apm/`）；屬 ④ 的前處理，不是改資料 |
 | 靜態臨界值規則 | 固定門檻屬傳統監控；放 engine 是為了跟其他異常走同一套收斂與通知 |
 | 餵給基準線之前的清理（排除時段、行事曆、慢性病清單） | 決定基準線學哪些資料，屬 AIOps |
 
@@ -223,7 +223,7 @@ engine 一份程式，情境各是一份資料檔加兩個策略（[common/scena
 | ⑦ | 報告的每一段（[incident/rca_report.py](../aiops-engine/src/incident/rca_report.py)）、M4 分段、共同點、log 樣式、相似事故 | 報告有哪幾段、順序；索引與欄位的對照；用語（請求／lot、Trace／履歷） |
 | ⑧⑨ | Grafana 通知、回饋、匯出 | 回饋表單的分類表、誤報原因 |
 
-程式是一個功能一個資料夾（[docs/pdca/meta/2026-11-feature-folders.md](pdca/meta/2026-11-feature-folders.md)）：`detect/`（②③④⑤ 異常分析）、`llm/`（LLM 摘要與過去相似事故）、`incident/`（⑥⑦⑧ 告警與根因）、`learn/`（⑨ 學習迴圈）、`interface/`（`cli/`、`web/`、`jobs/`），底下是 `common/`（`config/` 環境變數與設定載入、`clock/` 時間解析、`infra/` ES 連線與 `Repos`、`types/` 事故與指紋、`scenario/` 情境）；設定欄位的定義在各功能自己的 `config/`；`detect/`、`incident/`、`learn/` 各有 `store/` 放自己的資料物件與 ES 讀寫（唯一懂 ES 的地方）。依賴只能往 `interface → learn → incident → llm → detect → common` 走，`tests/test_layers.py` 鎖著。命令列入口只有一個：`python3 -m main <detector|investigator|scheduler|tasks|api> …`（`main.py`）；⑨ 的子命令掛在 `main detector` 底下（`interface/cli/feedback.py`）。
+程式是一個功能一個資料夾（[docs/pdca/meta/2026-11-feature-folders.md](pdca/meta/2026-11-feature-folders.md)）：`clean/`（② 清資料：raw 的 trace 轉成統一格式、合成一個請求一筆）、`detect/`（③④⑤ 異常分析）、`llm/`（LLM 摘要與過去相似事故）、`incident/`（⑥⑦⑧ 告警與根因）、`learn/`（⑨ 學習迴圈）、`interface/`（`cli/`、`web/`、`jobs/`），底下是 `common/`（`config/` 環境變數與設定載入、`clock/` 時間解析、`infra/` ES 連線與 `Repos`、`types/` 事故與指紋、`scenario/` 情境）；設定欄位的定義在各功能自己的 `config/`；`detect/`、`incident/`、`learn/` 各有 `store/` 放自己的資料物件與 ES 讀寫（唯一懂 ES 的地方）。依賴只能往 `interface → learn → incident → llm → detect → common` 走，`tests/test_layers.py` 鎖著。命令列入口只有一個：`python3 -m main <detector|investigator|scheduler|tasks|api> …`（`main.py`）；⑨ 的子命令掛在 `main detector` 底下（`interface/cli/feedback.py`）。
 
 擴充點只開「現在真的有兩種以上做法」的地方，沒有的不預先抽；第四種情境（例如網路設備靠拓樸併件）出現時，寫一份 yaml `extends` 內建的、換掉策略就好。`configs/` 不隨情境搬：情境只決定預設排程表，設定檔仍在 `configs/<情境>/`。
 
@@ -272,7 +272,7 @@ K8s 排程頻率見 [aiops-engine/README.md](../aiops-engine/README.md)；Elasti
 | # | 層 | Phase | 程式／設定 | 多久跑一次 | 怎麼驗過 | 狀態 |
 |---|---|---|---|---|---|---|
 | ① 收值 | 公司現有 | 1 | Elastic APM（公司管） | 常駐；metrics 每分鐘 | — | 公司現有 |
-| ② 清資料 | 公司現有 | 1 | `aiops-engine/src/detect/store/models.py`（`_apm_span`）、`configs/apm/` | 讀進來時 | `tests/test_apm.py`（[apm-source](pdca/meta/2026-11-apm-source.md)） | 🟡 沒有真實 APM 資料 |
+| ② 清資料 | 公司現有 | 1 | `aiops-engine/src/clean/store/models.py`（`_apm_span`）、`configs/apm/` | 讀進來時 | `tests/test_apm.py`（[apm-source](pdca/meta/2026-11-apm-source.md)） | 🟡 沒有真實 APM 資料 |
 | ③ 存 | 公司現有 | 1 | `elasticsearch/kibana-dev-tools.txt`（只補 `traces-merged-*` 與 key） | — | — | 🟡 公司環境沒實跑 |
 | ④ 判斷 | AIOps | 2 | `aiops-engine/src/detect/`、`aiops-engine/configs/baseline/*.yaml` | 每 1 分鐘（train 每天） | 單元測試；`synth_e2e`、`adaptive_e2e`、`fine_e2e`（一個 ES） | ✅；K8s CronJob 沒跑過 |
 | ⑤ 異常總表 | AIOps | 2 | `aiops-anomalies` | — | — | ✅ |

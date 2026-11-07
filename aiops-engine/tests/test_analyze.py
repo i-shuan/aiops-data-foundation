@@ -2,7 +2,7 @@
 import unittest
 
 import incident.rca_analyzer as A
-import detect.store.models as T
+import clean.store.models as T
 
 
 def span(sid, parent, service, name, start, dur, kind="Server", target=None, error=False, trace="t1", resource=None, attrs=None):

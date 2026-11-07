@@ -23,7 +23,7 @@ import pandas as pd
 from common.clock import now_of, pandas_freq
 from common.infra.es import ES, doc_id
 from detect.config.trace import TraceConfig
-from detect.store.models import group_traces, segment, self_times
+from clean.store.models import group_traces, segment, self_times
 from detect.store.models import Anomaly
 from common.infra.repos import Repos
 from common.scenario import load_scenario
@@ -31,7 +31,7 @@ import detect.series_ops.manual_adjust as A
 from detect.series_ops.manual_adjust import data_adjustments
 from detect.detect_service import save_anomalies, save_baseline, train_summary, with_status
 from detect.strategy.dynamic_baseline import DetectOptions, TrainOptions, score, train
-import detect.trace.span_merge as M
+import clean.trace.span_merge as M
 
 KEYS = ["entry.service", "entry.name", "segment"]
 COLUMNS = ["ts", *KEYS, "requests", "calls", "time_ms", "error_rate", "swallowed_rate", "exception_type"]
@@ -251,7 +251,7 @@ def cmd_trace_merge(trace_config: TraceConfig, args) -> int:
     """raw（每一段一筆）→ 一個請求一筆（traces-merged-<group>-<日期>）。排程器每分鐘跑；從上次合到的時間接著合，中斷很久會分段補（最多 2 天）。"""
     repo = Repos(ES(), load_scenario())
     at = now_of(args.at).to_pydatetime()
-    since, until, n = M.run(repo, trace_config, at, args.window.to_pytimedelta())
+    since, until, n = M.run(repo, trace_config.raw_index, trace_config.merge.settle_seconds, at, args.window.to_pytimedelta())
     print(f"trace-merge {since:%H:%M:%S}～{until:%H:%M:%S}：合了 {n} 個 trace")
     return 0
 

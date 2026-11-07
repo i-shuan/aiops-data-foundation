@@ -25,9 +25,9 @@ REGISTRY = {
     "logs": "incident.store.log_repo:LogRepository",
     "quality": "detect.store.quality_repo:QualityRepository",
     "segments": "detect.store.segment_repo:SegmentRepository",
-    "series": "detect.store.series_repo:SeriesRepository",
+    "series": "clean.store.series_repo:SeriesRepository",
     "state": "detect.store.state_repo:StateRepository",
-    "traces": "detect.store.trace_repo:TraceRepository",
+    "traces": "clean.store.trace_repo:TraceRepository",
     "tuning": "learn.store.tuning_repo:TuningRepository",
 }
 

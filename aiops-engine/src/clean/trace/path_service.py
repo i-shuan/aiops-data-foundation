@@ -5,8 +5,8 @@ from __future__ import annotations
 
 import pandas as pd
 
-import detect.trace.path_builder as P
-from detect.config.paths import PathsConfig
+import clean.trace.path_builder as P
+from clean.config.paths import PathsConfig
 from common.infra.es import get_field
 
 

@@ -27,7 +27,7 @@ from datetime import timedelta
 import pandas as pd
 import typer
 
-import detect.store.models as T
+import clean.store.models as T
 from common.clock import TimeWindow, now_of
 from common.config import load_config
 from interface.cli.common import at_opt, window_opt

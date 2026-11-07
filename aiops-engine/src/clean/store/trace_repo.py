@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 import pandas as pd
 
 from common.infra.es import time_range
-from detect.store.models import _APM_FIELDS, _SPAN_FIELDS, from_merged, is_merged, schema_of, to_span, trace_id_field
+from clean.store.models import _APM_FIELDS, _SPAN_FIELDS, from_merged, is_merged, schema_of, to_span, trace_id_field
 from common.infra.es import Repository
 
 

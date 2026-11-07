@@ -27,7 +27,7 @@
 
 ## 程式結構（`src/`）
 
-依賴只能往下：`interface → learn → incident → llm → detect → common`（`tests/test_layers.py` 鎖著）。每個功能的資料物件與 ES 讀寫放自己的 `store/`，設定欄位的定義（型別、預設值、檢查）放自己的 `config/`（`detect/config/`、`incident/config/`、`interface/config/`；共用的在 `common/config/`），值在 `configs/` 的 yaml，yaml 只寫跟預設值不同的鍵。時間只在邊界解析：命令列的字串在 `interface/cli` 變成 `Timestamp`／`Timedelta`，往下傳的不是字串。
+依賴只能往下：`interface → learn → incident → llm → detect → clean → common`（`tests/test_layers.py` 鎖著）。每個功能的資料物件與 ES 讀寫放自己的 `store/`，設定欄位的定義（型別、預設值、檢查）放自己的 `config/`（`detect/config/`、`incident/config/`、`interface/config/`；共用的在 `common/config/`），值在 `configs/` 的 yaml，yaml 只寫跟預設值不同的鍵。時間只在邊界解析：命令列的字串在 `interface/cli` 變成 `Timestamp`／`Timedelta`，往下傳的不是字串。
 
 ```
 src/
@@ -47,15 +47,19 @@ src/
 │  ├─ strategy/   it_topology · it_deployment · fab_process_flow · fab_recipe_change
 │  └─ store/      models · alert_repo · incident_repo · change_repo · log_repo
 ├─ llm/           summary（LLM 摘要）· similar（過去相似事故）
-├─ detect/        ②③④⑤ 異常分析
+├─ detect/        ③④⑤ 異常分析
 │  ├─ base · detect_service · housekeeping · reference_data · utils
-│  ├─ config/     series · rules · peer · quality · trace · chronic · prune · adjustments · calendar · paths · ingest · types
+│  ├─ config/     series · rules · peer · quality · trace · chronic · prune · adjustments · calendar · ingest · types
 │  ├─ strategy/   threshold_rule · peer_compare · dynamic_baseline · chronic_issue
 │  ├─ series_ops/ quality_check · level_shift · manual_adjust
-│  ├─ trace/      span_merge · latency_stats · path_builder · path_service
+│  ├─ trace/      latency_stats（每段統計與偵測）
 │  ├─ fab_ingest/ ingest · ingest_service
-│  └─ store/      models · anomaly／baseline／chronic／housekeeping／owner／
-│                 quality／segment／series／state／trace 的 *_repo
+│  └─ store/      models（異常、基準線）· anomaly／baseline／chronic／housekeeping／
+│                 quality／segment／state 的 *_repo
+├─ clean/         ② 清資料：raw 的 trace（OTel 或 Elastic APM）→ 統一格式、一個請求一筆
+│  ├─ config/     paths
+│  ├─ trace/      span_merge（合成 traces-merged-*）· path_builder · path_service（工廠履歷）
+│  └─ store/      models（trace 資料物件、raw→統一 span）· trace_repo · series_repo · owner_repo
 └─ common/        共用底層
    ├─ config/     common（共用型別）· loader（讀檔驗證）· settings（環境變數）
    ├─ clock/      parse（時間長度、時間點、時區）· window（TimeWindow、now_of）· stamp

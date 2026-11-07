@@ -7,8 +7,8 @@ from common.infra.repos import Repos
 from common.scenario import load_scenario
 
 SC = load_scenario()
-import detect.store.models as T
-import detect.trace.span_merge as M
+import clean.store.models as T
+import clean.trace.span_merge as M
 
 T0 = 1_793_400_000_000.0   # 2026-10-31T00:00:00Z 附近（毫秒）
 

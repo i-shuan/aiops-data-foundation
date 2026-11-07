@@ -9,10 +9,12 @@ APM 是 agent 設的 labels.dept、labels.group）；異常算出來寫回 aiops
 """
 from __future__ import annotations
 
-from detect.store.models import NS_KEYS
 
 OWNER_DAYS = 2
 UNASSIGNED = "unassigned"
+
+NS_KEYS = ("resource.attributes.k8s.namespace.name", "k8s.namespace.name", "namespace", "kubernetes.namespace")
+NODE_KEYS = ("resource.attributes.k8s.node.name", "k8s.node.name", "node")   # 歸屬用的 namespace 欄位（OTel 與 APM 的寫法都列）
 
 
 def _agg(field: str, f: dict) -> dict:

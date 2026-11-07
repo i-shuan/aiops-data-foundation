@@ -3,9 +3,9 @@ from common.config import validate
 import unittest
 from datetime import datetime, timezone
 
-import detect.store.models as T
+import clean.store.models as T
 import incident.rca_analyzer as A
-import detect.trace.path_builder as P
+import clean.trace.path_builder as P
 
 NOW = datetime(2026, 11, 4, 6, 0, tzinfo=timezone.utc)
 CFG_RAW = {"group": "fab1", "dept_field": "dept",

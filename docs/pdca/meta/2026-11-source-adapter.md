@@ -1,6 +1,6 @@
 # 收值模組化：OTel 與 APM 各一個來源模組，可選、之後可並存（2026-11）
 
-**狀態**：進行中（Plan，還沒動程式）　　**日期**：2026-11-07　　**相關**：分支 `claude/source-adapter`（從 master `bf8b5a9` 開）
+**狀態**：進行中（階段 0 已完成：拆出 `clean/` 資料夾；階段 1～3 還沒做）　　**日期**：2026-11-07　　**相關**：分支 `claude/source-adapter`（從 master `bf8b5a9` 開）
 **模組**：①②（讀進來、清資料）、④⑦（判斷、根因分析讀 trace 與 log 的那一側）
 
 ## Plan：這一次要達到什麼
@@ -26,10 +26,10 @@
 
 ## 設計
 
-新資料夾 `detect/source/`（`detect/` 之下，因為「讀進來並清成統一格式」是 ②③ 的事；`common/` 不能依賴功能）：
+新資料夾 `clean/source/`（階段 0 拆出來的 `clean/`：「讀進來並清成統一格式」是 ② 清資料的事；`common/` 不能依賴功能）：
 
 ```
-detect/source/
+clean/source/
 ├─ base.py     SourceFormat 介面：一種來源要提供什麼
 ├─ otel.py     OTel（Collector 寫的 k8s-*、metrics-*.otel-*、traces-generic.otel-*）
 ├─ apm.py      Elastic APM（metrics-apm.*、traces-apm-*、logs-apm.*）
@@ -52,7 +52,8 @@ detect/source/
 
 ## Do（分階段，每階段測試要綠才進下一階段）
 
-1. **階段 1：抽出來源模組，行為不變。** 建 `detect/source/`，把 `models.py`、`trace_repo.py`、`manual_adjust.py` 的來源相關程式搬進去，原位置改成呼叫。`AIOPS_SOURCE` 仍是整個程序選一種。
+0. **階段 0：先把 ② 清資料從 `detect/` 拆成同層的 `clean/`（使用者要求，已完成，細節見下節「階段 0」）。**
+1. **階段 1：抽出來源模組，行為不變。** 建 `clean/source/`，把 `models.py`、`trace_repo.py`、`manual_adjust.py` 的來源相關程式搬進去，原位置改成呼叫。`AIOPS_SOURCE` 仍是整個程序選一種。
 2. **階段 2：啟動時自我檢查。** `probe` 接到 `detect-status`：宣告 `apm` 但資料沒有 `processor.event`，就在狀態文件標失敗、印一行，Grafana 現有的「基準線不見」類規則看得到。
 3. **階段 3（要先問使用者，見下）：依索引選模組，並存。** `schema_of` 的「索引名猜格式」換成各來源模組的 `owns(index)`；序列、`raw_index` 可以混寫兩種來源。
 
@@ -63,8 +64,8 @@ detect/source/
 | 搬動前後行為不變 | 搬之前先對 `tests/apm_synth.py` 合成資料與現有 OTel 測試資料跑一次 `trace-merge`、`rules`、`investigator alert`，存下輸出（異常、`traces-merged-*` 文件、告警摘要）；每階段後同一份資料再跑、逐筆比對 |
 | 兩種來源的 `to_span` 對同一個請求出一樣的統一 span | 用 `apm_synth` 與 OTel 版造同一條呼叫鏈（mes-api → wip-worker → Oracle），斷言兩邊轉出的 `service`、`name`、`kind`、`dur_ms`、`parent` 一致 |
 | 宣告錯了會報 | 單元測試：給 APM 形狀的文件但宣告 `otel`，`probe` 回錯誤；`detect-status` 標失敗 |
-| 層次沒被破壞 | `tests/test_layers.py`（`detect/source/` 不 import `incident`、`learn`、`llm`、`interface`） |
-| 沒有第二份來源判斷 | 加 AST 測試：`apm`／`otel` 字串判斷只允許出現在 `detect/source/` 與 `common/scenario/` 的 yaml |
+| 層次沒被破壞 | `tests/test_layers.py`（`clean/source/` 不 import `incident`、`learn`、`llm`、`interface`） |
+| 沒有第二份來源判斷 | 加 AST 測試：`apm`／`otel` 字串判斷只允許出現在 `clean/source/` 與 `common/scenario/` 的 yaml |
 | 真實跑起來沒壞 | 現有 e2e（`adaptive`、`synth`、`chain`、`factory`、`fine`、`peer_edge`）加 Grafana 實測（上一輪的流程） |
 
 ## 風險與要問使用者的事
@@ -78,3 +79,19 @@ detect/source/
 
 - 動手前先回答上面第 1、2 點。
 - 這份計畫的行數與檔案清單是 `grep` 數出來的，**沒有逐個檔案讀完**；階段 1 開始時要先逐處確認，才知道哪些「一次」其實是註解、哪些是真的邏輯。
+
+## 階段 0：拆出 `clean/`（② 清資料），做完了
+
+- **為什麼**：`detect/` 同時有「把 raw 資料清成統一格式」和「判斷異常」兩件事；來源模組（OTel／APM）要放前者，放在 `detect/` 裡等於讓判斷層擁有來源的細節。拆成同層、更下面的 `clean/`，依賴方向變成 `interface → learn → incident → llm → detect → clean → common`。
+- **Do**：`git mv` ——
+  - `detect/trace/{span_merge,path_builder,path_service}.py` → `clean/trace/`
+  - `detect/store/{trace_repo,series_repo,owner_repo}.py` → `clean/store/`
+  - `detect/config/paths.py` → `clean/config/`
+  - `detect/store/models.py` 從 `# ── trace ──` 那一行切開：後半（`Trace`、`to_span`／`_apm_span`、`schema_of`、`group_traces`、`topology`…，25 個名字）→ `clean/store/models.py`；前半（`Anomaly`、baseline 的 mapping、`entity_of`）留在 `detect/store/models.py`。兩段原本互相不用，所以是乾淨的切。
+  - `NS_KEYS`、`NODE_KEYS` 定義搬到 `clean/store/owner_repo.py`，`detect/store/models.py` 的 `entity_of` 從那裡 import（下層被上層用，方向對）。
+  - `clean/trace/span_merge.py` 原本吃整個 `TraceConfig`（在 detect 的設定），只用到 `raw_index` 與 `merge.settle_seconds`；改成直接收這兩個值（`merge(repo, raw_index, …)`、`run(repo, raw_index, settle_seconds, …)`），呼叫端 `detect/trace/latency_stats.py` 傳進去。這樣 `clean/` 不依賴 `detect/`。
+  - 20 個檔案的 import 用腳本依「名字屬於哪一半」重寫；`common/infra/repos.py` 與 `common/config/loader.py` 的名稱表（`"module:Class"`）改到新路徑；`tests/test_layers.py` 的層次加 `clean`。
+  - 文件：`CLAUDE.md`、根 `README.md`、`aiops-engine/README.md`（結構樹）、`docs/architecture.md`、`common/README.md` 等 6 份的路徑與結構描述。
+- **Check**：①`tests/test_layers.py`（掃 src 全部 import）過：`clean/` 沒有 import `detect`、`incident`、`learn`、`llm`、`interface`。②全測試（含 helm）823 個過。③e2e：`adaptive`、`synth`、`chain`、`factory`、`fine`、`peer_edge` 過；`trace-merge` 對重造的 APM 合成資料實跑（合了 360 個 trace）。④`tools/check-docs.py` 五項過（路徑檢查抓到 9 處舊路徑，全改了）。
+- **Act**：①`peer_edge_e2e` 第一次跑失敗是 ES 重啟後 time-series data stream 的可寫時間範圍過期（`document timestamp is outside of ranges of currently writable indices`），不是這次改動；刪掉 `metrics-*.otel-*` 的 data stream 後重跑通過。②`detect/trace/latency_stats.py` 的 `cmd_trace_merge` 仍在 `detect/`（它是 trace 統計與偵測的指令，順手呼叫合成）；要不要把「合成」的指令也搬到 `clean/` 是下一步的取捨。③`quality_check`、`fab_ingest`、`reference_data` 留在 `detect/`：它們產生 `Anomaly` 或是判斷用的參考資料，搬下去會讓 `clean/` 反過來依賴 `detect/`。④`detect/store/` 的 `models.py` 現在只剩異常與基準線，檔頭說明已更新。
+

@@ -8,15 +8,15 @@ from unittest import mock
 
 from common.scenario import load_scenario
 
-import detect.store.models as T
-import detect.store.owner_repo as O
+import clean.store.models as T
+import clean.store.owner_repo as O
 from common.infra.repos import Repos
 from common.scenario import load_scenario
 
 SC = load_scenario()
-import detect.trace.span_merge as M
+import clean.trace.span_merge as M
 from detect.utils import value_kind
-from detect.store.series_repo import _bucket_events, _bucket_value, _value_aggs
+from clean.store.series_repo import _bucket_events, _bucket_value, _value_aggs
 
 TX = {"@timestamp": "2026-11-02T01:00:00.000Z", "timestamp.us": 1793581200000000, "processor": {"event": "transaction"},
       "trace": {"id": "t1"}, "transaction": {"id": "tx1", "name": "GET /lots/{id}", "type": "request", "duration": {"us": 300000}, "result": "HTTP 2xx"},

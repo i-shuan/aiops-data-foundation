@@ -13,17 +13,16 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 from common.infra.es import time_range
-from detect.config.trace import TraceConfig
-from detect.store.models import Trace
+from clean.store.models import Trace
 
 STATE_ID = "trace-merge"
 
 
-def merge(repo, trace_config: TraceConfig, since: datetime, until: datetime, now: datetime | None = None) -> int:
+def merge(repo, raw_index: str, since: datetime, until: datetime, now: datetime | None = None) -> int:
     """[since, until) 有新 span 的 trace 全部重新合成、寫進 merged。回傳合了幾個 trace。
     span 的時間用 until 往前 2 天（raw 的保留天數）到 until 往後 5 分鐘（時鐘偏）來框。"""
     now = now or datetime.now(timezone.utc)
-    raw = trace_config.raw_index
+    raw = raw_index
     ids = repo.traces.updated_trace_ids(raw, since, until)
     if not ids:
         return 0
@@ -45,10 +44,10 @@ def save_state(repo, last: datetime, now: datetime) -> None:
     repo.state.set(STATE_ID, {"last": last.isoformat(), "updated_at": now.isoformat()})
 
 
-def run(repo, trace_config: TraceConfig, at: datetime, window: timedelta, chunk: timedelta = timedelta(minutes=10)) -> tuple[datetime, datetime, int]:
+def run(repo, raw_index: str, settle_seconds: float, at: datetime, window: timedelta, chunk: timedelta = timedelta(minutes=10)) -> tuple[datetime, datetime, int]:
     """從上次合到的時間（沒有就 at − window）合到 at − 10 秒（剛寫進 ES 的要等 refresh）；中斷很久的話分段補。
     回傳 (since, until, 合了幾個)。"""
-    until = at - timedelta(seconds=int(trace_config.merge.settle_seconds))
+    until = at - timedelta(seconds=int(settle_seconds))
     last = load_state(repo)
     floor = at - timedelta(days=2)                      # raw 只留 2 天，更早的補不到
     since = max(last or (at - window), floor)
@@ -57,7 +56,7 @@ def run(repo, trace_config: TraceConfig, at: datetime, window: timedelta, chunk:
     n, t = 0, since
     while t < until:
         t2 = min(t + chunk, until)
-        n += merge(repo, trace_config, t, t2, at)
+        n += merge(repo, raw_index, t, t2, at)
         t = t2
     save_state(repo, until, at)
     return since, until, n

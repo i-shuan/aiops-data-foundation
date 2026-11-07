@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from statistics import median
 
 from common.infra.es import get_field
-from detect.store.models import error_origins, root_of, segment, self_times
+from clean.store.models import error_origins, root_of, segment, self_times
 
 
 @dataclass

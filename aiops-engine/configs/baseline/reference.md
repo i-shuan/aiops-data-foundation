@@ -187,7 +187,7 @@ series:
 | `method` | `mad`（中位數＋MAD）／`poisson` |
 | `level` | dow_hour / hour / all / group |
 | `baseline_source` | `self` 或 `group:<組名>` |
-| `dept`、`group` | 這筆異常屬於哪個部門、哪個 group（告警依它分送、人只看自己部門的）。寫入時依 keys 裡的 namespace（優先）或服務，對回資料裡的 `resource.attributes.dept`、`.group`；對不到的 `dept` 空、`group` 是 `unassigned`（跟 Collector 對沒有 dept 的處理一樣）。程式 `detect/store/owner_repo.py`（查歸屬）、`detect/store/anomaly_repo.py` 的 `AnomalyRepository.write`（寫入時補） |
+| `dept`、`group` | 這筆異常屬於哪個部門、哪個 group（告警依它分送、人只看自己部門的）。寫入時依 keys 裡的 namespace（優先）或服務，對回資料裡的 `resource.attributes.dept`、`.group`；對不到的 `dept` 空、`group` 是 `unassigned`（跟 Collector 對沒有 dept 的處理一樣）。程式 `clean/store/owner_repo.py`（查歸屬）、`detect/store/anomaly_repo.py` 的 `AnomalyRepository.write`（寫入時補） |
 | `confidence` | dow_hour → high；hour → medium；all、借來的 → low |
 | `engine_version` | 哪一版 engine 寫的：chart 把 image tag 放進環境變數 `ENGINE_VERSION`（`common/infra/env.py`），本機跑是 `dev`。規則、peer、quality、trace 的異常也有（都經 `detect/store/anomaly_repo.py` 寫） |
 

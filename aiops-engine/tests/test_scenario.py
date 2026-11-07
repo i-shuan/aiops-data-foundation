@@ -8,7 +8,7 @@ from unittest import mock
 
 import common.scenario.base as SC
 from common.infra.repos import Repos
-from detect.store.owner_repo import owner_of
+from clean.store.owner_repo import owner_of
 from common.scenario import Chain, Scenario, load_scenario
 import incident.alert_grouper as AL
 import incident.rca_report as R
