@@ -57,6 +57,7 @@ src/
 │  └─ store/      models（異常、基準線）· anomaly／baseline／chronic／housekeeping／
 │                 quality／segment／state 的 *_repo
 ├─ data/          ② 清資料：raw 的 trace（OTel 或 Elastic APM）→ 統一格式、一個請求一筆
+│  ├─ source/     base（介面）· otel · apm · __init__（登記表、for_index、to_span）
 │  ├─ config/     paths
 │  ├─ trace/      span_merge（合成 traces-merged-*）· path_builder · path_service（工廠履歷）
 │  └─ store/      models（trace 資料物件、raw→統一 span）· trace_repo · series_repo · owner_repo

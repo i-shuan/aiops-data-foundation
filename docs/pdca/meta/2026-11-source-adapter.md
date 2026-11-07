@@ -1,6 +1,6 @@
 # 收值模組化：OTel 與 APM 各一個來源模組，可選、之後可並存（2026-11）
 
-**狀態**：進行中（階段 0 已完成：拆出 `data/` 資料夾；階段 1～3 還沒做）　　**日期**：2026-11-07　　**相關**：分支 `claude/source-adapter`（從 master `bf8b5a9` 開）
+**狀態**：進行中（階段 0、1 已完成；階段 2、3 還沒做）　　**日期**：2026-11-07　　**相關**：分支 `claude/source-adapter`（從 master `bf8b5a9` 開）
 **模組**：①②（讀進來、清資料）、④⑦（判斷、根因分析讀 trace 與 log 的那一側）
 
 ## Plan：這一次要達到什麼
@@ -94,4 +94,12 @@ data/source/
   - 文件：`CLAUDE.md`、根 `README.md`、`aiops-engine/README.md`（結構樹）、`docs/architecture.md`、`common/README.md` 等 6 份的路徑與結構描述。
 - **Check**：①`tests/test_layers.py`（掃 src 全部 import）過：`data/` 沒有 import `detect`、`incident`、`learn`、`llm`、`interface`。②全測試（含 helm）823 個過。③e2e：`adaptive`、`synth`、`chain`、`factory`、`fine`、`peer_edge` 過；`trace-merge` 對重造的 APM 合成資料實跑（合了 360 個 trace）。④`tools/check-docs.py` 五項過（路徑檢查抓到 9 處舊路徑，全改了）。
 - **Act**：①`peer_edge_e2e` 第一次跑失敗是 ES 重啟後 time-series data stream 的可寫時間範圍過期（`document timestamp is outside of ranges of currently writable indices`），不是這次改動；刪掉 `metrics-*.otel-*` 的 data stream 後重跑通過。②（已處理）`cmd_trace_merge` 原本在 `detect/trace/latency_stats.py`（順手呼叫合成）。使用者要求搬走：它收的是 `TraceConfig`（detect 的設定），搬進 `data/` 會讓 `data/` 依賴 `detect/`，所以拆成兩半——合成的邏輯（`run`、進度狀態）本來就在 `data/trace/span_merge.py`；指令的接線 `cmd_trace_merge(trace_config, args)` 搬到 `interface/cli/detect.py`，只把 `raw_index`、`settle_seconds` 傳進去。跟 `paths-merge` 同一個做法（接線在 `interface/cli/fab.py`，邏輯在 `data/trace/path_service.py`）。`latency_stats.py` 現在只剩 trace 的統計與偵測。③`quality_check`、`fab_ingest`、`reference_data` 留在 `detect/`：它們產生 `Anomaly` 或是判斷用的參考資料，搬下去會讓 `data/` 反過來依賴 `detect/`。④`detect/store/` 的 `models.py` 現在只剩異常與基準線，檔頭說明已更新。
+
+## 階段 1：抽出來源模組，行為不變，做完了
+
+- **Do**：新 `data/source/`：`base.py`（`SourceFormat`：`trace_fields`、`trace_sort`、`trace_id_field`、`span_id_field`、`aliases`、`span_ids_filter`、`is_doc`、`owns_index`、`to_span`；加 `duration_ms`、`start_ms` 兩個共用的轉換）、`otel.py`（`OtelFormat`）、`apm.py`（`ApmFormat`，含 `_apm_kind`、`_apm_span`）、`__init__.py`（登記表 `FORMATS`、`format_of`、`for_index`、`to_span`、`ALIASES`）。搬走的程式：`data/store/models.py` 的 `_SPAN_FIELDS`、`_APM_FIELDS`、`to_span`／`_apm_span`／`_apm_kind`／`is_apm_doc`、`_duration_ms`／`_start_ms`；`schema_of`、`trace_id_field` 留在 models 但改成委派給 `for_index`（`is_merged` 看索引名，不是來源）；`trace_repo.py` 的三處「依 schema 選欄位／排序／查詢」改問 `fmt = for_index(index, 宣告的來源)`（APM 查 span id 要同時比 `span.id` 與 `transaction.id`，這個差異變成 `span_ids_filter`）；`manual_adjust.py` 的 `ALIASES` 表改由 `data.source.ALIASES`（各來源的聯集）提供。
+- **Check（為了確認行為沒變）**：①**搬動前後逐筆比對**：用 `tests/apm_synth.py` 造 300 個請求（事故與正常各半）、共 3600 筆 APM 文件（nested 與 dotted 兩種寫法），OTel 也造 1200 筆（含壞耗時值 `"bad"`、link、`db.system.name`），分別用 master（`bf8b5a9`，搬動前）與這個分支的 `to_span` 轉，輸出 JSON `cmp` 完全相同。②全測試（含 helm）829 個過。③e2e：`adaptive`、`synth`、`chain`、`factory`（15/15、`metrics_only` 13/13）、`fine`、`peer_edge` 過；`loop_e2e` 只有 master 上就有的 2 個舊斷言失敗。④對 APM 合成資料跑 `investigator investigate`，報告仍找到 `SELECT LOT_HISTORY → oracle` 那一段。⑤`tests/test_source.py`：登記表與選法、「同一條呼叫鏈在兩種格式轉出同一種統一 span」（用 `apm_synth` 的 APM 文件，另造對應的 OTel 文件）、AST：`"apm"`／`"otel"` 字串與 `_apm_span` 等名字只允許在 `data/source/`、`common/config/settings.py`、`common/scenario/base.py`。
+- **Check 抓到的一個錯**：第一版 `for_index` 對不在登記表的宣告來源丟例外，但工廠情境的 `source` 是 `"factory"`（MES 履歷，沒有 raw trace）。單元測試全過，`factory_e2e` 掉到 11/15——報告段落吞了例外。改成「沒有來源認領、宣告的來源也不在登記表就用預設（OTel）」，跟抽出來之前「非 apm 都當 otel」一樣，並加兩條單元測試（`for_index("lot-paths-…", "factory")`、`schema_of` 對四種索引的答案）。
+- **跟計畫不同的地方**：①計畫寫 `probe(es)`（啟動時自我檢查）是階段 2，沒做。②計畫寫的「`match_aliases`」落成 `aliases` 欄位；APM 目前是空表（行為不變），所以用 `match` 寫 `service=…` 時，APM 序列的 key 若是 `service.name` 仍找不到別名——這是**原本就有**的缺口，不是這次造成，要補只要加在 `apm.py`。③模組放在 `data/source/`，不是計畫原本寫的 `detect/source/`（階段 0 之後改名）。
+- **Act**：①階段 2（`probe`）、階段 3（依索引並存）還沒做，等你回答計畫裡的兩個問題。②`incident/store/log_repo.py`、`detect/store/owner_repo`（已搬 `data/store/`）仍靠 `Scenario` 的 yaml（`it_otel.yaml`／`it_apm.yaml`）給欄位對照；沒有搬進 `SourceFormat`，因為那是「每個情境一份資料」，不是程式；若要並存，這兩塊要改成「依索引選對照」。③這次只有 trace 側有程式差異可抽；metrics 側本來就只靠 `series.yaml` 的 `index`／`by`／`scale`。
 

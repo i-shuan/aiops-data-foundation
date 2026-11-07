@@ -10,120 +10,27 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
-import pandas as pd
-
-from common.infra.es import doc_id, get_field
+from data.source import DEFAULT as DEFAULT_SOURCE, for_index
 
 
 # ── trace ──
-_SPAN_FIELDS = ["@timestamp", "trace_id", "span_id", "parent_span_id", "name", "kind", "duration", "status.code", "links",
-                "resource.attributes", "attributes"]
-# APM 的文件：transaction、span 都是物件（span.stacktrace 很大、不要）；labels 是 agent 設的標籤（dept、group、業務 ID）
-_APM_FIELDS = {"includes": ["@timestamp", "timestamp.us", "processor.event", "trace.id", "parent.id", "transaction", "span",
-                            "event.outcome", "service", "kubernetes", "host.name", "labels", "data_stream.namespace",
-                            "http.request.method", "http.response.status_code", "url.path"],
-               "excludes": ["span.stacktrace", "transaction.custom", "transaction.marks"]}
-
-
 MERGED_LIKE = ("traces-merged", "lot-paths")   # engine 合成、一個請求（一個 lot）一筆的索引；lot-paths 是工廠的履歷（plugins/factory/paths.py）
 
 
-def schema_of(index: str, source: str = "otel") -> str:
-    """merged（engine 合成的：traces-merged-*、lot-paths-*）、apm（Elastic APM 的 traces-apm-*；原始資料格式 source 是 apm 時其他 raw 索引也當 APM）、
-    otel（Collector 寫的 raw）。source 是場景的原始資料格式（Scenario.source）。"""
+def schema_of(index: str, source: str = DEFAULT_SOURCE) -> str:
+    """merged（engine 合成的：traces-merged-*、lot-paths-*），或 raw 的來源名（apm、otel；由 data/source 決定）。
+    source 是場景宣告的原始資料格式（Scenario.source）。"""
     if any(m in index for m in MERGED_LIKE):
         return "merged"
-    if "apm" in index or source == "apm":
-        return "apm"
-    return "otel"
+    return for_index(index, source).name
 
 
 def is_merged(index: str) -> bool:
-    return schema_of(index) == "merged"
+    return any(m in index for m in MERGED_LIKE)
 
 
-def trace_id_field(index: str, source: str = "otel") -> str:
-    return "trace.id" if schema_of(index, source) == "apm" else "trace_id"
-
-
-def _duration_ms(v) -> float:
-    """奈秒 → 毫秒。壞 SDK 送來的格式錯誤值（字串、負數）當 0，不能讓一筆壞 span 擋住整批合併或判斷。"""
-    try:
-        d = float(v or 0)
-    except (TypeError, ValueError):
-        return 0.0
-    return d / 1e6 if d > 0 else 0.0
-
-
-def _start_ms(ts) -> float:
-    # ES 回的 @timestamp 可能是數字、數字的字串（奈秒精度時，例如 "1791687912264.916000"），或 ISO 格式
-    if isinstance(ts, str) and ts.replace(".", "", 1).isdigit():
-        ts = float(ts)
-    return float(ts) if isinstance(ts, (int, float)) else datetime.fromisoformat(ts.replace("Z", "+00:00")).timestamp() * 1000
-
-
-def is_apm_doc(src: dict) -> bool:
-    return get_field(src, "processor.event") in ("transaction", "span") or get_field(src, "trace.id") is not None
-
-
-def _apm_kind(event: str, obj: dict) -> str:
-    """APM 沒有 OTel 的 kind，從文件種類推：transaction 是入口（HTTP 請求 Server、訊息處理 Consumer）；
-    span 有往外的對象（DB、下游、外部系統）是 Client，送訊息是 Producer，其餘是程式內部的段（Internal）。"""
-    typ = (get_field(obj, "type") or "").split(".")[0]
-    if event == "transaction":
-        return "Consumer" if typ == "messaging" else "Server"
-    if typ == "messaging" and (get_field(obj, "action") or "") in ("send", "publish", "produce"):
-        return "Producer"
-    if typ in ("db", "external", "storage", "messaging") or get_field(obj, "destination.service.resource"):
-        return "Client"
-    return "Internal"
-
-
-def _apm_span(src: dict) -> dict:
-    """Elastic APM 的 transaction／span 文件 → 跟 to_span 同一種格式。
-    耗時是微秒（*.duration.us）；錯誤看 event.outcome；對象是 span.destination.service.resource（"oracle"、"mes-api:8080"）；
-    span 本身沒有例外（例外是 logs-apm.error 的獨立文件，先不接）。attrs、resource 攤平成 OTel 的名字，根因分析的
-    commonality（k8s.pod.name、db.statement）兩種來源同一套設定。"""
-    event = get_field(src, "processor.event") or ("transaction" if get_field(src, "transaction.duration.us") is not None else "span")
-    obj = (src.get(event) if isinstance(src.get(event), dict) else {k[len(event) + 1:]: v for k, v in src.items() if k.startswith(event + ".")}) or {}
-    labels = src.get("labels") or {}
-    us = get_field(src, "timestamp.us")
-    attrs = {k: v for k, v in {
-        "db.statement": get_field(obj, "db.statement"), "db.system": get_field(obj, "subtype") if (get_field(obj, "type") or "").startswith("db") else None,
-        "http.request.method": get_field(src, "http.request.method"), "http.response.status_code": get_field(src, "http.response.status_code"),
-        "url.path": get_field(src, "url.path"), f"{event}.type": get_field(obj, "type"), "span.subtype": get_field(obj, "subtype"),
-        "transaction.result": get_field(obj, "result"),
-        **{f"labels.{k}": v for k, v in labels.items()}}.items() if v is not None}
-    resource = {k: v for k, v in {
-        "service.name": get_field(src, "service.name"), "service.version": get_field(src, "service.version"),
-        "service.environment": get_field(src, "service.environment"),
-        "k8s.pod.name": get_field(src, "kubernetes.pod.name"), "k8s.namespace.name": get_field(src, "kubernetes.namespace"),
-        "k8s.node.name": get_field(src, "kubernetes.node.name") or get_field(src, "host.name"), "host.name": get_field(src, "host.name"),
-        "dept": labels.get("dept"), "group": labels.get("group"), "data_stream.namespace": get_field(src, "data_stream.namespace")}.items() if v is not None}
-    return {"trace_id": get_field(src, "trace.id"), "span_id": get_field(obj, "id"), "parent": get_field(src, "parent.id") or None,
-            "service": get_field(src, "service.name") or "?", "name": get_field(obj, "name") or "?",
-            "kind": _apm_kind(event, obj), "target": get_field(obj, "destination.service.resource") or get_field(src, "service.target.name"),
-            "start_ms": us / 1000.0 if isinstance(us, (int, float)) else _start_ms(src["@timestamp"]),
-            "dur_ms": _duration_ms(get_field(obj, "duration.us")) * 1000.0,     # 微秒 → 毫秒（_duration_ms 是奈秒 → 毫秒）
-            "error": get_field(src, "event.outcome") == "failure", "exception": None,
-            "links": [sid for l in (get_field(obj, "links") or []) if (sid := get_field(l, "span.id"))],
-            "attrs": attrs, "resource": resource}
-
-
-def to_span(src: dict) -> dict:
-    if is_apm_doc(src):
-        return _apm_span(src)
-    attrs = src.get("attributes") or {}
-    # db.system.name：新版 DB 語意（舊的 db.system 改名）；沒有對象的 Client span 段名沒有「→」，N+1 規則看不到
-    target = (get_field(attrs, "peer.service") or get_field(attrs, "db.system") or get_field(attrs, "db.system.name")
-              or get_field(attrs, "server.address"))
-    return {"trace_id": src["trace_id"], "span_id": src["span_id"], "parent": src.get("parent_span_id") or None,
-            "service": get_field(src, "resource.attributes.service.name") or "?", "name": src.get("name", "?"),
-            "kind": src.get("kind", ""), "target": target, "start_ms": _start_ms(src["@timestamp"]),
-            "dur_ms": _duration_ms(src.get("duration")), "error": get_field(src, "status.code") == "Error",
-            "exception": get_field(attrs, "exception.type"),
-            "links": [l["span_id"] for l in src.get("links") or [] if l.get("span_id")],
-            "attrs": attrs, "resource": get_field(src, "resource.attributes") or {}}
+def trace_id_field(index: str, source: str = DEFAULT_SOURCE) -> str:
+    return for_index(index, source).trace_id_field
 
 
 def from_merged(doc: dict) -> list[dict]:

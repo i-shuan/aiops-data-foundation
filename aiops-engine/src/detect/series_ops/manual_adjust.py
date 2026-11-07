@@ -35,21 +35,15 @@ from common.config import load_config
 from detect.config.rules import RulesConfig
 from detect.config.series import SeriesConfig
 from detect.config.trace import TraceConfig
+from data.source import ALIASES as SOURCE_ALIASES
 from detect.reference_data import load_calendar
 
 KINDS = ("override", "exclude_window", "reset_point", "recurring_override")
 DEFAULT_WARMUP = "24h"   # reset_point 之後多久內不判斷
 
-# 同一個概念在不同序列的欄位名稱。match 寫其中任何一個，都會找序列裡有的那一個
-# log、metrics、trace 的鑰匙都是 OTel 路徑（log 的是 alias；Java 的 HTTP 指標由 Collector 改名），所以只剩「短名字 ↔ 路徑」
-ALIASES = [
-    ("service", "resource.attributes.service.name", "entry.service"),
-    ("namespace", "k8s.namespace.name", "resource.attributes.k8s.namespace.name"),
-    ("pod", "k8s.pod.name", "resource.attributes.k8s.pod.name"),
-    ("deployment", "k8s.deployment.name", "resource.attributes.k8s.deployment.name"),
-    ("route", "http.route", "attributes.http.route"),
-    ("method", "http.request.method", "attributes.http.request.method"),
-]
+# 同一個概念在不同序列的欄位名稱：match 寫其中任何一個，都會找序列裡有的那一個。
+# 表由各來源提供（data/source 的 ALIASES：OTel 的路徑 ↔ 短名字；APM 目前沒有），這裡只做查找
+ALIASES = SOURCE_ALIASES
 _ALIAS_OF = {name: group for group in ALIASES for name in group}
 
 

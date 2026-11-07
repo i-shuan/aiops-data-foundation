@@ -1,5 +1,5 @@
 """trace：raw（traces-*.otel-*、traces-apm-*，每一段一筆）與合成一個請求一筆的 traces-merged-*（trace-merge 寫；工廠的履歷 lot-paths-* 格式一樣）。
-索引名由設定給（rca_config.indices.traces、trace.yaml 的 traces_index），三種格式（detect/store/models.schema_of）回同一種 span。
+索引名由設定給（rca_config.indices.traces、trace.yaml 的 traces_index），三種格式（data/source 的 for_index 與 is_merged）回同一種 span。
 
 「某個服務收到的請求」用 merged 的 nested entries（入口 span：服務、API、耗時、有沒有錯）挑，不用展開 spans。
 """
@@ -10,7 +10,8 @@ from datetime import datetime, timedelta
 import pandas as pd
 
 from common.infra.es import time_range
-from data.store.models import _APM_FIELDS, _SPAN_FIELDS, from_merged, is_merged, schema_of, to_span, trace_id_field
+from data.source import for_index
+from data.store.models import from_merged, is_merged
 from common.infra.es import Repository
 
 
@@ -52,21 +53,20 @@ class TraceRepository(Repository):
     def spans(self, index: str, trace_ids: list[str], start, end) -> list[dict]:
         """這些 trace 的所有 span（含其他服務的）。呼叫端把時間放寬，跨過邊界的請求也讀得完整。"""
         out = []
-        schema = schema_of(index, self.scenario.source)
+        merged = is_merged(index)
+        fmt = for_index(index, self.scenario.source)
         for i in range(0, len(trace_ids), 500):
             ids = trace_ids[i:i + 500]
-            if schema == "merged":
+            if merged:
                 body = {"size": 500, "query": {"bool": {"filter": [time_range(start, end), {"terms": {"trace_id": ids}}]}}}
                 for h in self._hits(body, index):
                     out += from_merged(h["_source"])
                 continue
             # APM 的 transaction 沒有 span.id，分頁的次要排序只能用 _doc；同一毫秒的文件跨頁可能重複，最後依 span_id 去重
-            src, sort, tid = ((_APM_FIELDS, [{"@timestamp": "asc"}, {"_doc": "asc"}], "trace.id") if schema == "apm"
-                              else (_SPAN_FIELDS, [{"@timestamp": "asc"}, {"span_id": "asc"}], "trace_id"))
             seen = set()
-            body = {"_source": src, "query": {"bool": {"filter": [time_range(start, end), {"terms": {tid: ids}}]}}}
-            for h in self._scan(body, index, sort=sort):
-                s = to_span(h["_source"])
+            body = {"_source": fmt.trace_fields, "query": {"bool": {"filter": [time_range(start, end), {"terms": {fmt.trace_id_field: ids}}]}}}
+            for h in self._scan(body, index, sort=fmt.trace_sort):
+                s = fmt.to_span(h["_source"])
                 if s["span_id"] not in seen:
                     seen.add(s["span_id"])
                     out.append(s)
@@ -74,29 +74,24 @@ class TraceRepository(Repository):
 
     def spans_by_id(self, index: str, span_ids: list[str], start, end) -> dict[str, dict]:
         """用 span_id 讀回 span（例如 link 指到的、另一個 trace 裡的生產者）。"""
-        out, want, schema = {}, set(span_ids), schema_of(index, self.scenario.source)
+        out, want, merged, fmt = {}, set(span_ids), is_merged(index), for_index(index, self.scenario.source)
         for i in range(0, len(span_ids), 1000):
             chunk = span_ids[i:i + 1000]
-            if schema == "merged":
+            if merged:
                 body = {"size": 1000, "query": {"bool": {"filter": [time_range(start, end),
                                                                      {"nested": {"path": "spans", "query": {"terms": {"spans.span_id": chunk}}}}]}}}
                 for h in self._hits(body, index):
                     out.update({s["span_id"]: s for s in from_merged(h["_source"]) if s["span_id"] in want})
-            elif schema == "apm":   # transaction 的 id 在 transaction.id，span 的在 span.id
-                body = {"size": 1000, "_source": _APM_FIELDS,
-                        "query": {"bool": {"filter": [time_range(start, end)],
-                                           "should": [{"terms": {"span.id": chunk}}, {"terms": {"transaction.id": chunk}}], "minimum_should_match": 1}}}
-                out.update({s["span_id"]: s for s in (to_span(h["_source"]) for h in self._hits(body, index)) if s["span_id"] in want})
             else:
-                body = {"size": 1000, "_source": _SPAN_FIELDS, "query": {"bool": {"filter": [time_range(start, end), {"terms": {"span_id": chunk}}]}}}
-                out.update({h["_source"]["span_id"]: to_span(h["_source"]) for h in self._hits(body, index)})
+                body = {"size": 1000, "_source": fmt.trace_fields, "query": {"bool": {"filter": [time_range(start, end), fmt.span_ids_filter(chunk)]}}}
+                out.update({s["span_id"]: s for s in (fmt.to_span(h["_source"]) for h in self._hits(body, index)) if s["span_id"] in want})
         return out
 
     # ── 合成（trace-merge、工廠 paths-merge）──
     def updated_trace_ids(self, raw_index: str, since: datetime, until: datetime) -> list[str]:
         """這段時間（依 event.ingested）有 span 進來的 trace。event.ingested 我們的 pipeline traces-otel 蓋、APM 的 Fleet pipeline 也蓋。"""
         body = {"size": 0, "query": {"range": {"event.ingested": {"gte": since.isoformat(), "lt": until.isoformat()}}},
-                "aggs": {"t": {"composite": {"size": 2000, "sources": [{"id": {"terms": {"field": trace_id_field(raw_index, self.scenario.source)}}}]}}}}
+                "aggs": {"t": {"composite": {"size": 2000, "sources": [{"id": {"terms": {"field": for_index(raw_index, self.scenario.source).trace_id_field}}}]}}}}
         return [b["key"]["id"] for b in self._composite(body, ("t",), raw_index)]
 
     def write_merged(self, docs: dict[str, list[tuple[str, dict]]]) -> int:

@@ -9,6 +9,7 @@ from unittest import mock
 from common.scenario import load_scenario
 
 import data.store.models as T
+from data.source import to_span
 import data.store.owner_repo as O
 from common.infra.repos import Repos
 from common.scenario import load_scenario
@@ -41,7 +42,7 @@ class ApmSpanTest(unittest.TestCase):
     """APM 的 transaction／span 文件轉成 core.traces 的 span 格式。"""
 
     def test_transaction_is_server_entry(self):
-        s = T.to_span(TX)
+        s = to_span(TX)
         self.assertEqual((s["trace_id"], s["span_id"], s["parent"], s["service"], s["name"], s["kind"]),
                          ("t1", "tx1", None, "mes-api", "GET /lots/{id}", "Server"))
         self.assertEqual(s["dur_ms"], 300.0)                       # 微秒 → 毫秒
@@ -53,7 +54,7 @@ class ApmSpanTest(unittest.TestCase):
         self.assertEqual(s["attrs"]["http.response.status_code"], 200)
 
     def test_db_span_is_client_with_target_and_statement(self):
-        s = T.to_span(DB)
+        s = to_span(DB)
         self.assertEqual((s["kind"], s["target"], s["parent"], s["error"]), ("Client", "oracle", "tx1", True))
         self.assertEqual(s["attrs"]["db.statement"], "SELECT * FROM LOT_HISTORY WHERE id=?")
         self.assertEqual(s["attrs"]["db.system"], "oracle")
@@ -62,22 +63,22 @@ class ApmSpanTest(unittest.TestCase):
         self.assertIsNone(s["exception"])                          # 例外是 logs-apm.error 的獨立文件，沒接
 
     def test_external_http_is_client_and_internal_span_has_no_target(self):
-        self.assertEqual((T.to_span(HTTP)["kind"], T.to_span(HTTP)["target"]), ("Client", "wip-worker:8080"))
-        self.assertEqual((T.to_span(APP)["kind"], T.to_span(APP)["target"]), ("Internal", None))
+        self.assertEqual((to_span(HTTP)["kind"], to_span(HTTP)["target"]), ("Client", "wip-worker:8080"))
+        self.assertEqual((to_span(APP)["kind"], to_span(APP)["target"]), ("Internal", None))
 
     def test_messaging(self):
         tx = {**TX, "transaction": {**TX["transaction"], "type": "messaging", "name": "orders process"}}
-        self.assertEqual(T.to_span(tx)["kind"], "Consumer")
+        self.assertEqual(to_span(tx)["kind"], "Consumer")
         pub = {**APP, "span": {**APP["span"], "type": "messaging", "subtype": "kafka", "action": "send"}}
-        self.assertEqual(T.to_span(pub)["kind"], "Producer")
+        self.assertEqual(to_span(pub)["kind"], "Producer")
 
     def test_otel_doc_still_converts_the_old_way(self):
-        s = T.to_span({"@timestamp": "2026-10-10T10:00:00Z", "trace_id": "t", "span_id": "s", "name": "SELECT X", "kind": "Client",
+        s = to_span({"@timestamp": "2026-10-10T10:00:00Z", "trace_id": "t", "span_id": "s", "name": "SELECT X", "kind": "Client",
                        "duration": 2_000_000, "attributes": {"db.system.name": "oracle"}, "resource": {"attributes": {"service.name": "a"}}})
         self.assertEqual((s["target"], s["dur_ms"]), ("oracle", 2.0))
 
     def test_merge_builds_the_same_document_as_from_otel(self):
-        spans = [T.to_span(d) for d in (TX, HTTP, APP, DB)]
+        spans = [to_span(d) for d in (TX, HTTP, APP, DB)]
         index, doc = T.merged_doc(spans, datetime(2026, 11, 2, 1, 5, tzinfo=timezone.utc))
         self.assertEqual(index, "traces-merged-it-2026.11.02")     # group 用 labels.group
         self.assertEqual(doc["root"], {"service": "mes-api", "name": "GET /lots/{id}", "kind": "Server", "error": False})
@@ -115,7 +116,8 @@ class ApmQueryTest(unittest.TestCase):
         es = self.FakeES([TX, DB])
         got = Repos(es, load_scenario()).traces.spans_by_id("traces-apm-*", ["tx1"], datetime(2026, 11, 1, tzinfo=timezone.utc), datetime(2026, 11, 3, tzinfo=timezone.utc))
         self.assertEqual(list(got), ["tx1"])
-        should = es.bodies[0][1]["query"]["bool"]["should"]
+        inner = next(f for f in es.bodies[0][1]["query"]["bool"]["filter"] if "bool" in f)       # 來源模組給的條件（SourceFormat.span_ids_filter）
+        should = inner["bool"]["should"]
         self.assertEqual(should, [{"terms": {"span.id": ["tx1"]}}, {"terms": {"transaction.id": ["tx1"]}}])
 
     def test_updated_trace_ids_aggregates_on_trace_dot_id(self):
