@@ -38,7 +38,7 @@
 - 順手刪掉 `shared/infra/clock.py` 裡重複定義的 `stamp_of`（先前搬檔時重複貼的）。
 - **跟計畫不同的地方**：計畫寫「只在入口讀一次、往下傳」，實際是「每次用到就 `settings()` 重讀」。原因：`ES()` 在二十幾個函式裡直接建立、`load_scenario()` 在測試裡依環境變數重讀；真的往下傳要改所有簽名、測試要全改。每次重讀只是讀 21 個字串，成本可以忽略。步驟 1 設定回模型時簽名本來就要動，到時候再看哪些適合改成注入。
 
-### 步驟 1：設定檔回模型（進行中；①②做完，③做完 13 種裡的 10 種）
+### 步驟 1：設定檔回模型（①②③做完，13 種都已換成屬性存取；過渡層還在）
 
 - **①搬家與拆檔**：`shared/scenario/config.py`（790 行）拆成 `shared/config/` 套件：`common.py`（共用型別與小段）、一種設定一個檔（`series.py`、`rules.py`、`peer.py`、`quality.py`、`trace.py`、`rca.py`、`schedule.py`、`chronic.py`、`prune.py`、`calendar.py`、`adjustments.py`、`ingest.py`、`paths.py`）、`loader.py`（讀檔、驗證、錯誤訊息、`KINDS`、`MODELS`）；用腳本依 AST 切、補 import，只搬不改。
 - **②過渡層與回模型**：`Strict` 加 `get`／`[]`／`in`／`keys`／`items`／`values`／`len`／`to_dict`／`==`，語意跟原本的 dict 一樣（**只有 yaml 有寫的鍵才算有**）；`load_config`、`validate` 回那一種的模型（13 個 `@overload`，編輯器知道 `load_config(p, "series")` 是 `SeriesConfig`），不再 `model_dump` 倒回 dict。現有的程式與測試幾乎不用改。
@@ -50,7 +50,7 @@
 | prune、calendar、chronic、ingest、paths、peer、quality、schedule | ✅ 做完 | `calendar` 的來源（`Provider`）仍用 `src.get(…)`：`cache_dir` 寫 null 是「不快取」、沒寫是「用預設」，屬性分不出來；`quality` 每種 `type` 的 `min_docs` 等預設不同，預設留在程式（`_or(c.min_docs, 100)`），不進模型 |
 | adjustments | ✅ 載入端 | `manual_adjust.load` 吃 series／trace／rules 其中一種（型別 `AdjustableConfig`）；`adjustments_file`、`calendar_file` 寫 null 是「不載入」，保留 `config.get` |
 | rules | 🟡 設定層 | `RulesDetector`、`approved_rules`、`cmd_rules` 用屬性；單條規則的函式（`evaluate`、`describe`…）仍吃 dict 或 `Rule`——aiops-tuning 核准的規則是 dict，tests 有 59 處直接傳 dict |
-| trace、rca、series | ⬜ 還沒 | 最大的三種：`series` 55 處（`detect_service`）加 `feedback_service`、`rule_backtester`；`rca` 橫跨 `incident/`、`learn/`、`interface/cli/rca`；`trace` 在 `latency_stats`、`span_merge` |
+| trace、rca、series | ✅ 載入端與服務端 | 參數改叫 `trace_config`、`rca_config`、`series_config`（策略外掛的簽名也是 `rca_config`）；預設值進模型（`SeriesConfig` 的 interval 5m、history_weeks 4、borrowing…）；`status`、`shift`、`adaptive` 沒寫是 `None`，用 `config.status or Status()`。測試用 `validate({...}, "series")` 或 `tests/config_factory.py` 造 |
 
 - **過渡層留著的地方**：`repo.series.fetch／rows／points` 與 `keys_of` 吃「像 dict 的規格」（series 的一條、peer／quality 的一個檢查、ingest 的 input、paths 的 mes）。這些要等 `series` 做完一起處理。
 - **踩到的三個問題（過渡層的代價）**：
@@ -83,4 +83,4 @@
 | `Settings` 的欄位與 helm 的 `env.yaml` 沒有自動對照 | 盤點時 | 可以加測試：每個欄位在 chart 或文件有出現；之後 |
 | 過渡層讓「型別錯的設定值傳進來」要到用的那一刻才發現（例如單元測試傳 dict 給已經換成屬性存取的函式） | 轉換 `prune` 時 | 每一種換完就把那一種的測試改成 `validate({…}, kind)`；過渡層拆掉前不加新的 dict 用法 |
 | 6 個舊的 e2e 腳本在 master 上就壞（見 Check） | 驗證步驟 1 時 | 另開一件修；這份計畫不處理 |
-| 還剩 `trace`、`rca`、`series` 三種（加 `rules` 單條規則的函式、`series_repo` 的規格）要換成屬性存取 | — | 下一步：`trace` → `rca` → `series`；做完才拆過渡層（階段 3） |
+| 過渡層還在：單條 `Series`／規則／檢查的 `spec` 仍是「像 dict」（`spec.get`）、`repo.series.fetch／rows／points`、`keys_of` | — | 下一步：階段 3 拆過渡層，再加 AST 測試擋 `cfg` 參數名；之後進時間統一與 yaml 瘦身 |

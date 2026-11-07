@@ -10,6 +10,7 @@ ES 的 change_point 聚合要付費授權，這裡只看 aiops-anomalies 裡已�
 """
 from __future__ import annotations
 
+from shared.config.series import SeriesConfig
 import json
 import re
 
@@ -72,16 +73,16 @@ def _rows(repo: Repos, start: pd.Timestamp, end: pd.Timestamp) -> pd.DataFrame:
     return pd.DataFrame(rows, columns=["series", "target", "ts", "value", "median"])
 
 
-def cmd_shift(cfg: dict, args) -> int:
+def cmd_shift(series_config: SeriesConfig, args) -> int:
     repo = Repos(ES(), load_scenario())
     repo.tuning.ensure()
-    opts = {**DEFAULTS, **(cfg.get("shift") or {})}
-    tz = cfg.get("train", {}).get("timezone", cfg.get("timezone", "Asia/Taipei"))
+    opts = {**DEFAULTS, **(series_config.shift.to_dict() if series_config.shift else {})}
+    tz = series_config.train.timezone or series_config.timezone or "Asia/Taipei"
     now = _now(args.at)
     start = now - pd.Timedelta(opts["window"])
     found = find_shifts(_rows(repo, start, now), min_points=int(opts["min_points"]), min_share=float(opts["min_share"]),
                         max_spread=float(opts["max_spread"]))
-    existing = {(a.get("series"), json.dumps(a.get("match"), sort_keys=True)) for a in load_adjustments(repo, cfg)
+    existing = {(a.get("series"), json.dumps(a.get("match"), sort_keys=True)) for a in load_adjustments(repo, series_config)
                 if a.get("kind") == "reset_point"}
     n = 0
     for s in found:

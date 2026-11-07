@@ -2,6 +2,7 @@
 import unittest
 
 import learn.rule_backtester as B
+from shared.config import validate
 from shared.infra.repos import Repos
 from detect.store.baseline_repo import BaselineRepository
 
@@ -105,7 +106,7 @@ class CachedES(unittest.TestCase):
         def fake_detect(es, *a, **kw):
             seen.append(es)
             return []
-        cfg = {"series": [{"name": "x", "by": ["service"]}], "train": {"timezone": "Asia/Taipei"}}
+        cfg = validate({"series": [{"name": "x", "index": "m", "value": "count", "by": ["service"]}], "train": {"timezone": "Asia/Taipei"}}, "series")
         now = pd.Timestamp("2026-10-10T00:00:00Z")
         with mock.patch.object(B, "detect_series", fake_detect), \
              mock.patch.object(B, "load_adjustments", lambda es, cfg: []), \

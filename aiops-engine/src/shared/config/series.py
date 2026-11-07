@@ -12,15 +12,15 @@ from shared.config.common import _same_length, Detect, Direction, Dur, NonNeg, N
 # ── series.yaml ──
 
 class AdaptiveMinEvents(Strict):
-    rate: NonNeg | None = None
-    count: NonNeg | None = None
-    gauge: NonNeg | None = None
+    rate: NonNeg = 20                        # 比例、百分位：每個時間窗至少幾個事件才判斷
+    count: NonNeg = 10
+    gauge: NonNeg = 10
 
 
 class Adaptive(Strict):
-    resolutions: list[Dur] | None = None
-    min_events: AdaptiveMinEvents | None = None
-    coverage: Ratio | None = None
+    resolutions: list[Dur] | None = None     # 沒寫用 dynamic_baseline.RESOLUTIONS
+    min_events: AdaptiveMinEvents = AdaptiveMinEvents()
+    coverage: Ratio = 0.3
 
 
 class Group(Strict):
@@ -29,9 +29,9 @@ class Group(Strict):
 
 
 class Borrowing(Strict):
-    min_members: PosInt | None = None
-    z: NonNeg | None = None
-    resolution: Dur | None = None
+    min_members: PosInt = 3
+    z: NonNeg = 7.0
+    resolution: Dur | None = None            # 沒寫用 adaptive 最粗的那個
 
 
 class Shift(Strict):
@@ -72,19 +72,19 @@ class Series(Strict):
 
 
 class SeriesConfig(Strict):
-    interval: Dur | None = None
-    history_weeks: PosInt | None = None
-    fine_history: Dur | None = None
-    lag: Dur | None = None
+    interval: Dur = "5m"
+    history_weeks: PosInt = 4
+    fine_history: Dur = "14d"                # 5 分鐘以下的粒度只學最近這麼久
+    lag: Dur = "0s"                          # 資料寫進來的延遲，最近這麼久的不判斷
     timezone: str | None = None
-    adaptive: Adaptive | None = None
-    status: Status | None = None
-    overrides: list[Adjustment] | None = None
-    groups: list[Group] | None = None
-    borrowing: Borrowing | None = None
-    train: Train | None = None
-    detect: Detect | None = None
+    adaptive: Adaptive | None = None         # 沒寫＝全部用 interval 這一個粒度
+    status: Status | None = None             # 沒寫的鍵不算有（status_params 用 .get）
+    overrides: list[Adjustment] = []
+    groups: list[Group] = []
+    borrowing: Borrowing = Borrowing()
+    train: Train = Train()
+    detect: Detect = Detect()
     shift: Shift | None = None
-    adjustments_file: str | None = None
+    adjustments_file: str | None = None      # 寫 null 是「不載入」，所以載入端用 .get（manual_adjust.load）
     calendar_file: str | None = None
-    series: list[Series] | None = None
+    series: list[Series] = []

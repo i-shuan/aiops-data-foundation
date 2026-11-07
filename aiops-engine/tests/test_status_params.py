@@ -3,9 +3,10 @@ import unittest
 
 import pandas as pd
 
+from shared.config import validate
 from detect.detect_service import status_params, with_status
 
-CFG = {"status": {"confirm_points": 2, "confirm_span": "30m", "instant_z": 15}}
+CFG = validate({"status": {"confirm_points": 2, "confirm_span": "30m", "instant_z": 15}}, "series")
 
 
 def frame(rows):
@@ -24,7 +25,7 @@ class StatusParams(unittest.TestCase):
         self.assertEqual(status_params(CFG, {"name": "http.error_rate", "confirm_points": 1}, {"service": "b"}, ov), (1, 15.0))
 
     def test_no_instant_z(self):
-        self.assertEqual(status_params({"status": {}}, None, {}), (2, None))
+        self.assertEqual(status_params(validate({"status": {}}, "series"), None, {}), (2, None))
 
 
 class WithStatus(unittest.TestCase):

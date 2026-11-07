@@ -7,11 +7,12 @@ from argparse import Namespace
 from unittest import mock
 
 import detect.detect_service as C
+from shared.config import validate
 from incident.store.models import ALERT_INDEX, ALERT_MAPPING
 
-CFG = {"interval": "5m", "adjustments_file": None, "calendar_file": None, "detect": {"z": 5}, "status": {"confirm_points": 2},
+CFG = validate({"interval": "5m", "adjustments_file": None, "calendar_file": None, "detect": {"z": 5}, "status": {"confirm_points": 2},
        "series": [{"name": "a.cpu", "index": "m", "by": ["service"], "value": {"avg": "v"}},
-                  {"name": "b.mem", "index": "m", "by": ["service"], "value": {"avg": "v"}}]}
+                  {"name": "b.mem", "index": "m", "by": ["service"], "value": {"avg": "v"}}]}, "series")
 
 BASELINE = {"keys": {"service": "s1"}, "dow": 0, "hour": 0, "level": "all", "median": 1.0, "mad": 0.1, "resolution": "5m",
             "method": "mad", "baseline_source": "self", "trained_at": "2026-10-31T02:00:00Z"}

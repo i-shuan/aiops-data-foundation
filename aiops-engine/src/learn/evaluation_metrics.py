@@ -6,6 +6,7 @@
 """
 from __future__ import annotations
 
+from shared.config.series import SeriesConfig
 import pandas as pd
 
 from shared.infra.es import ES
@@ -99,9 +100,9 @@ def format_metrics(m: dict, label: str, m2: dict | None = None, label2: str = ""
     return out
 
 
-def cmd_metrics(cfg: dict, args) -> int:
+def cmd_metrics(series_config: SeriesConfig, args) -> int:
     repo = Repos(ES(), load_scenario())
-    tz = cfg.get("train", {}).get("timezone", "Asia/Taipei")
+    tz = series_config.train.timezone or "Asia/Taipei"
     start, end = pd.Timestamp(args.start, tz=tz), pd.Timestamp(args.end, tz=tz)
     m = compute(load_period(repo, start, end))
     m2 = compute(load_period(repo, pd.Timestamp(args.cstart, tz=tz), pd.Timestamp(args.cend, tz=tz))) if args.cstart and args.cend else None

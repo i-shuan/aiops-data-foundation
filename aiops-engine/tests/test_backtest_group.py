@@ -5,6 +5,7 @@ from unittest import mock
 import pandas as pd
 
 import learn.rule_backtester as B
+from shared.config import validate
 from shared.infra.repos import Repos
 from shared.scenario import load_scenario
 
@@ -12,7 +13,7 @@ SC = load_scenario()
 from detect.store.baseline_repo import BaselineRepository
 
 NOW = pd.Timestamp("2026-11-03T00:00:00Z")
-CFG = {"series": [{"name": "http.error_rate", "by": ["service", "route"], "min_count": 3}], "train": {"timezone": "Asia/Taipei"}, "interval": "1m"}
+CFG = validate({"series": [{"name": "http.error_rate", "index": "m", "value": "count", "by": ["service", "route"], "min_count": 3}], "train": {"timezone": "Asia/Taipei"}, "interval": "1m"}, "series")
 # 回測窗內「原始」的異常：wip-worker 週一 20 點（台北）3 筆、order-svc 平日 3 筆
 MON20 = pd.Timestamp("2026-11-02T12:00:00Z")
 RAW = pd.DataFrame({"ts": [MON20, MON20 + pd.Timedelta(minutes=1), MON20 + pd.Timedelta(minutes=2),

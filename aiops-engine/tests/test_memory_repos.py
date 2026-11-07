@@ -40,6 +40,7 @@ CFG = {"interval": "1h", "history_weeks": 2, "adjustments_file": None, "calendar
                   {"name": "http.requests", "index": "metrics-apm.transaction.1m-*", "by": BY, "keys": KEYS, "value": "count", "direction": "both"}]}
 # 錯誤率那條故意沒加 filter 到 value 之外（ratio 自己帶 query）；上面 filter 只是示範 filter 也走 shape
 CFG["series"][0].pop("filter")
+CFG = validate(CFG, "series")
 
 
 def quiet(fn, *a):
